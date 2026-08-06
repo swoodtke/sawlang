@@ -1,0 +1,66 @@
+// DF-151a: two arms of ONE suspending `match` binding the same name. The arm
+// binding types were resolved into a dict keyed by NAME, so the last arm's
+// payload type overwrote the first's and both arms shared a single field.
+//
+// When the payload types AGREE that collision is benign — one arm runs per
+// match, so the shared slot happens to carry the right value (`same_type`
+// below, the regression guard). When they DIFFER it was a bogus compile error
+// on a correct program, anchored at 0:0 with no line to look at:
+// `cannot assign Int to field of type Bool` (`mixed_type`).
+//
+// A suspending arm binding a REFCOUNTED payload (a `String`) is a separate,
+// pre-existing codegen defect — DF-151c — with nothing to do with binding
+// identity, so the payloads here are Int and Bool.
+// EXPECT: success
+// EXPECT-OUTPUT:
+// A: 42
+// B: 99
+// flag A: 42
+// flag B: true
+// sync A: 42
+// sync B: 99
+
+import std.task
+
+enum Pair { case A(n: Int), case B(m: Int) }
+enum Mixed { case A(n: Int), case B(b: Bool) }
+
+func pick(k: Int) -> Pair {
+    if k == 0 { return Pair.A(n: 42) }
+    return Pair.B(m: 99)
+}
+
+func pick_mixed(k: Int) -> Mixed {
+    if k == 0 { return Mixed.A(n: 42) }
+    return Mixed.B(b: true)
+}
+
+func same_type(k: Int) {
+    match pick(k) {
+        case A(v) -> { yield_now()  print("A: {v}") },
+        case B(v) -> { yield_now()  print("B: {v}") }
+    }
+}
+
+func mixed_type(k: Int) {
+    match pick_mixed(k) {
+        case A(v) -> { yield_now()  print("flag A: {v}") },
+        case B(v) -> { yield_now()  print("flag B: {v}") }
+    }
+}
+
+func control(k: Int) sync {
+    match pick(k) {
+        case A(v) -> print("sync A: {v}"),
+        case B(v) -> print("sync B: {v}")
+    }
+}
+
+func main() {
+    __saw_drive(same_type(0))
+    __saw_drive(same_type(1))
+    __saw_drive(mixed_type(0))
+    __saw_drive(mixed_type(1))
+    control(0)
+    control(1)
+}

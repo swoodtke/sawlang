@@ -1,0 +1,39 @@
+// DF-151a: a design-100 derived `for`-loop variable (`for n in n..n + 2` — the
+// header MENTIONS the outer `n`, so the shadow is legal) over a loop that does
+// not itself span a suspension. The loop variable is an ordinary local, but by
+// name it was the enclosing frame field: the loop wrote its counter straight
+// into the outer binding, so after the loop `n` was 5 instead of 3. The range
+// bounds still read the OUTER `n` — the rename takes effect only after the
+// loop variable enters scope.
+// EXPECT: success
+// EXPECT-OUTPUT:
+// elem: 3
+// elem: 4
+// after: 3
+// sync elem: 3
+// sync elem: 4
+// sync after: 3
+
+import std.task
+
+func slow(n: Int) -> Int { yield_now()  return n }
+func fast(n: Int) sync -> Int { return n }
+
+func suspending() {
+    let n = 3
+    for n in n..n + 2 { print("elem: {n}") }
+    let got = slow(n)
+    print("after: {got}")
+}
+
+func control() sync {
+    let n = 3
+    for n in n..n + 2 { print("sync elem: {n}") }
+    let got = fast(n)
+    print("sync after: {got}")
+}
+
+func main() {
+    __saw_drive(suspending())
+    control()
+}

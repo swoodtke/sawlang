@@ -37,7 +37,7 @@ from ast_nodes import (
     CastExpr, ReferenceExpr, RangeExpr, ForLoop, MoveExpr,
     BreakStatement, ContinueStatement,
     ExpressionStatement, LetStatement, AssignStatement, WhileExpr,
-    GuardLetStatement, TryExpr,
+    GuardLetStatement, TryExpr, TryCatchExpr,
     Function, Struct, StructField, Enum, EnumVariant, Extension, Method,
     Parameter, SawType, TypeKind, Visibility, ClosureExpr, CaptureSpec,
     DestructuringLet, TuplePattern, BindingPattern, WildcardPattern, TupleIndex,
@@ -145,6 +145,49 @@ LOOP_BUDGET_DEFAULT = 128
 # and it is an ordinary Int local, so the existing frame-local collection makes
 # it a frame field with no special-casing anywhere downstream.
 BUDGET_LOCAL = "__saw_loop_budget"
+
+# --------------------------------------------------------------------------- #
+# DF-151a — alpha-renaming support
+# --------------------------------------------------------------------------- #
+
+# Prefix for a binding `_uniquify_bindings` renamed. `__saw_`-prefixed names are
+# reserved for the compiler by the lexer, so a renamed binding can never collide
+# with a user one; the original name is kept as a suffix so the frame field, and
+# any diagnostic naming it, still reads recognizably.
+_UNIQ_PREFIX = "__saw_u"
+
+
+def _pattern_binding_nodes(pattern):
+    """Every `BindingPattern` LEAF of a pattern, in source order. Returns the
+    nodes (not the names) so a caller can rename them in place. Literal, range
+    and wildcard patterns bind nothing."""
+    out = []
+
+    def walk(pat):
+        if isinstance(pat, BindingPattern):
+            out.append(pat)
+        elif isinstance(pat, TuplePattern):
+            for sub in pat.elements:
+                walk(sub)
+        elif isinstance(pat, EnumPattern):
+            for sub in pat.subpatterns:
+                walk(sub)
+
+    walk(pattern)
+    return out
+
+
+def _is_function_valued(let_stmt):
+    """Does this `let` bind a callable? Only such a binding may appear as a
+    `FunctionCall.name` (design 77 item 4), so only such a binding's rename has
+    to reach call sites."""
+    if isinstance(let_stmt.value, ClosureExpr):
+        return True
+    for t in (let_stmt.type_annotation,
+              getattr(let_stmt.value, 'resolved_type', None)):
+        if t is not None and t.kind == TypeKind.FUNCTION:
+            return True
+    return False
 
 
 def _budget_check_stmts(budget, line, column):
@@ -1692,6 +1735,208 @@ class _FrameBuilder:
             source_file=self.src_file)
 
     # ------------------------------------------------------------------ #
+    # DF-151a: one frame field per BINDING, not per NAME
+    # ------------------------------------------------------------------ #
+    def _uniquify_bindings(self):
+        """Rename every binding whose source name is already taken by another
+        binding in this body, so that a name IS a binding identity.
+
+        Everything downstream keys on names: `_collect_frame_locals` dedups by
+        name, the frame struct gets one field per name, and `_rewrite_expr`
+        turns EVERY `Identifier` whose name is in `encmap` into a read of that
+        field — with no idea which binding the identifier meant. Two distinct
+        bindings sharing one name is therefore a miscompile in both directions
+        (a nested `match` arm read the LATER local's still-zero field — DF-151a's
+        `arm sees: 0`; an inner block's write leaked OUT into the outer field),
+        or, when the two have different types, a bogus `cannot assign X to field
+        of type Y` on a legal program.
+
+        Scope-correct alpha-renaming fixes the class at its root rather than
+        patching the shapes: an initializer is rewritten BEFORE its own binding
+        enters scope, so a design-100/107 DERIVED shadow (`let data =
+        parse(move data)`, `if let x = x`, `for n in n..n + 2`) still reads the
+        OLD binding, and the new one gets its own field. Only a colliding name
+        is renamed, so a body that reuses no name comes out byte-identical.
+
+        Runs FIRST in `prepare`, ahead of every hoist — so the `__anfN`/`__obN`/
+        `__matchN` temps those synthesize are unique by construction and need no
+        part in this."""
+        self._uniq_ctr = 0
+        self._uniq_taken = {p.name for p in self.func.parameters}
+        self._uniq_walk_block(self.func.body, [])
+
+    def _uniq_fresh(self, name):
+        while True:
+            new = f"{_UNIQ_PREFIX}{self._uniq_ctr}_{name}"
+            self._uniq_ctr += 1
+            if new not in self._uniq_taken:
+                return new
+
+    def _uniq_bind(self, name, scope, callable_=False):
+        """Introduce `name` into `scope`, renaming it when the name is already
+        bound somewhere else in this body. Returns the effective name."""
+        if name == "_" or name.startswith("__"):
+            # `_` binds nothing, and a `__`-prefixed name is a compiler temp
+            # (the lexer reserves the prefix) — unique already.
+            return name
+        if name in scope:
+            # The parser fills a plain enum arm's `bindings` AND its `pattern`
+            # with the same names; the second view reuses the first's mapping
+            # rather than minting a second field.
+            return scope[name][0]
+        new = self._uniq_fresh(name) if name in self._uniq_taken else name
+        self._uniq_taken.add(new)
+        scope[name] = (new, callable_)
+        return new
+
+    @staticmethod
+    def _uniq_lookup(scopes, name):
+        for sc in reversed(scopes):
+            if name in sc:
+                return sc[name]
+        return None
+
+    def _uniq_walk_block(self, block, scopes):
+        scope = {}
+        inner = scopes + [scope]
+        for s in block.statements:
+            self._uniq_walk_stmt(s, inner, scope)
+        if block.final_expr is not None:
+            self._uniq_walk(block.final_expr, inner)
+
+    def _uniq_walk_stmt(self, s, scopes, scope):
+        """A statement that BINDS into its enclosing block's scope (its binding
+        is visible to every later statement of that block) — everything else
+        goes through the general walk."""
+        if isinstance(s, LetStatement):
+            self._uniq_walk(s.value, scopes)
+            s.name = self._uniq_bind(s.name, scope,
+                                     callable_=_is_function_valued(s))
+            return
+        if isinstance(s, DestructuringLet):
+            self._uniq_walk(s.value, scopes)
+            for pat in _pattern_binding_nodes(s.pattern):
+                pat.name = self._uniq_bind(pat.name, scope)
+            return
+        if isinstance(s, GuardLetStatement):
+            self._uniq_walk(s.optional_expr, scopes)
+            # The else branch runs on the path where the binding does NOT
+            # exist, so it is walked before the bind.
+            self._uniq_walk_block(s.else_branch, scopes)
+            if s.pattern is not None:
+                for pat in _pattern_binding_nodes(s.pattern):
+                    pat.name = self._uniq_bind(pat.name, scope)
+            else:
+                s.name = self._uniq_bind(s.name, scope)
+            return
+        self._uniq_walk(s, scopes)
+
+    def _uniq_walk(self, node, scopes):
+        if node is None:
+            return
+        if isinstance(node, (list, tuple)):
+            for x in node:
+                self._uniq_walk(x, scopes)
+            return
+        if isinstance(node, Argument):
+            self._uniq_walk(node.value, scopes)
+            return
+        if not isinstance(node, ASTNode):
+            return
+        if isinstance(node, Identifier):
+            hit = self._uniq_lookup(scopes, node.name)
+            if hit is not None:
+                node.name = hit[0]
+            return
+        if isinstance(node, MoveExpr):
+            hit = self._uniq_lookup(scopes, node.variable)
+            if hit is not None:
+                node.variable = hit[0]
+            self._uniq_walk(node.path, scopes)
+            return
+        if isinstance(node, Block):
+            self._uniq_walk_block(node, scopes)
+            return
+        if isinstance(node, IfLetExpr):
+            self._uniq_walk(node.optional_expr, scopes)
+            bound = {}
+            if node.pattern is not None:
+                for pat in _pattern_binding_nodes(node.pattern):
+                    pat.name = self._uniq_bind(pat.name, bound)
+            else:
+                node.name = self._uniq_bind(node.name, bound)
+            self._uniq_walk_block(node.then_branch, scopes + [bound])
+            if node.else_branch is not None:
+                self._uniq_walk_block(node.else_branch, scopes)
+            return
+        if isinstance(node, MatchExpr):
+            self._uniq_walk(node.matched_expr, scopes)
+            for arm in node.arms:
+                bound = {}
+                arm.bindings = [self._uniq_bind(b, bound)
+                                for b in (arm.bindings or [])]
+                if arm.pattern is not None:
+                    for pat in _pattern_binding_nodes(arm.pattern):
+                        pat.name = self._uniq_bind(pat.name, bound)
+                if arm.lent_bindings:
+                    arm.lent_bindings = [
+                        (bound[b][0] if b in bound else b)
+                        for b in arm.lent_bindings]
+                armscopes = scopes + [bound]
+                self._uniq_walk(arm.guard, armscopes)
+                self._uniq_walk(arm.body, armscopes)
+            return
+        if isinstance(node, ForLoop):
+            self._uniq_walk(node.iterable, scopes)
+            bound = {}
+            node.variable = self._uniq_bind(node.variable, bound)
+            self._uniq_walk_block(node.body, scopes + [bound])
+            return
+        if isinstance(node, ClosureExpr):
+            # Capture specs and the typechecker's capture bookkeeping name
+            # ENCLOSING bindings, so they resolve in the outer scopes.
+            for spec in (node.capture_specs or []):
+                hit = self._uniq_lookup(scopes, spec.name)
+                if hit is not None:
+                    spec.name = hit[0]
+            if node.captures:
+                node.captures = [
+                    (self._uniq_lookup(scopes, c) or (c,))[0]
+                    for c in node.captures]
+            if node.capture_modes:
+                node.capture_modes = {
+                    (self._uniq_lookup(scopes, k) or (k,))[0]: v
+                    for k, v in node.capture_modes.items()}
+            bound = {}
+            for p in (node.parameters or []):
+                p.name = self._uniq_bind(p.name, bound)
+            self._uniq_walk_block(node.body, scopes + [bound])
+            return
+        if isinstance(node, TryCatchExpr):
+            self._uniq_walk_block(node.try_block, scopes)
+            # The catch block binds `error` (or its explicit name) implicitly.
+            # Shield it so an outer binding this pass renamed cannot capture it.
+            err = node.error_binding or "error"
+            self._uniq_walk_block(node.catch_block, scopes + [{err: (err, False)}])
+            return
+        if isinstance(node, TryExpr) and node.catch_block is not None:
+            self._uniq_walk(node.expr, scopes)
+            self._uniq_walk_block(node.catch_block,
+                                  scopes + [{"error": ("error", False)}])
+            return
+        if isinstance(node, FunctionCall):
+            # A call to a closure-typed LOCAL carries the binding's name in
+            # `FunctionCall.name` (design 77 item 4) — a plain string the
+            # Identifier case above never sees. Rename it too, but only for a
+            # binding that actually holds a function, so an ordinary local
+            # merely sharing a name with a top-level function is left alone.
+            hit = self._uniq_lookup(scopes, node.name)
+            if hit is not None and hit[1]:
+                node.name = hit[0]
+        for f in structural_fields(node):
+            self._uniq_walk(getattr(node, f.name), scopes)
+
+    # ------------------------------------------------------------------ #
     # design 104 item 1: CFG-split `if let`/`guard let` bodies that suspend
     # ------------------------------------------------------------------ #
     def _mark_optional_binding_splits(self):
@@ -2271,6 +2516,11 @@ class _FrameBuilder:
     def prepare(self, suspends):
         self._suspends = suspends
         func = self.func
+        # DF-151a: give every binding in the body a name unique WITHIN it, so
+        # each is its own frame field and each identifier read reaches the
+        # binding it was written against. MUST run first: everything below keys
+        # on names, and the temps the hoists synthesize are already unique.
+        self._uniquify_bindings()
         # design 83: lift a suspension-spanning TRAILING expression (a block's
         # `final_expr`, where the parser parks the last bare expression) into an
         # explicit statement, so the nested-call scan and CFG walk both see it. A

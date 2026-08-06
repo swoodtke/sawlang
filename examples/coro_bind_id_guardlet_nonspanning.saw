@@ -1,0 +1,41 @@
+// DF-151a: the `guard let` half of the same hole. A guard in a block that spans
+// a suspension is split (and renamed) by design 104 item 1; one in a nested
+// block that does NOT span was left on the by-name path, so the guarded binding
+// read the enclosing local's frame field — `inner` printed 3, not 30.
+// EXPECT: success
+// EXPECT-OUTPUT:
+// inner: 30
+// after: 3
+// sync inner: 30
+// sync after: 3
+
+import std.task
+
+func slow(n: Int) -> Int { yield_now()  return n }
+func fast(n: Int) sync -> Int { return n }
+func maybe(k: Int) -> Int? { return k * 10 }
+
+func suspending() {
+    let n = 3
+    if n > 0 {
+        guard let n = maybe(n) else { return }
+        print("inner: {n}")
+    }
+    let got = slow(n)
+    print("after: {got}")
+}
+
+func control() sync {
+    let n = 3
+    if n > 0 {
+        guard let n = maybe(n) else { return }
+        print("sync inner: {n}")
+    }
+    let got = fast(n)
+    print("sync after: {got}")
+}
+
+func main() {
+    __saw_drive(suspending())
+    control()
+}

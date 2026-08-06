@@ -1,0 +1,38 @@
+// DF-151a reaches PARAMETERS too: a param and a local derived from it (design
+// 100's `let n = n + 10`) are both frame-resident, and by-name keying gave them
+// one field. The local's write landed on the param's slot, so a later read of
+// either saw whichever ran last. Driven and spawned roots both go through the
+// same frame layout, so this covers both.
+// EXPECT: success
+// EXPECT-OUTPUT:
+// driven: 15
+// spawned: 15
+// sync: 15
+
+import std.task
+
+// One body per driver: a function may be `__saw_drive`n or spawned, not both.
+func driven(n: Int) -> Int {
+    let n = n + 10
+    yield_now()
+    return n
+}
+
+func spawned(n: Int) -> Int {
+    let n = n + 10
+    yield_now()
+    return n
+}
+
+func control(n: Int) sync -> Int {
+    let n = n + 10
+    return n
+}
+
+func main() {
+    print("driven: {__saw_drive(driven(5))}")
+    var group = TaskGroup()
+    let h = group.spawn(spawned(5))
+    print("spawned: {h.join()}")
+    print("sync: {control(5)}")
+}

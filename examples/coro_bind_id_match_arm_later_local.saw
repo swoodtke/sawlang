@@ -1,0 +1,48 @@
+// DF-151a, the filed repro. In a SUSPENDING body a `match` arm's payload
+// binding read 0 when a LATER local in the enclosing scope shared its name.
+// The coroutine transform keyed frame fields by NAME, so the arm binding and
+// the later local collided in ONE slot and the arm read that slot before
+// anything had written it. No diagnostic — just a wrong value.
+//
+// Bindings are alpha-renamed to body-unique names ahead of frame layout now, so
+// every binding is its own field and every identifier reaches the binding it
+// was written against. The sync control below is the same shape with nothing
+// suspending: no frame, so it always worked, and it still has to.
+// EXPECT: success
+// EXPECT-OUTPUT:
+// arm sees: 6
+// later: 8
+// sync arm sees: 6
+// sync later: 8
+
+import std.task
+
+enum Step { case Go(n: Int), case Stop }
+
+func pick() -> Step { return Step.Go(n: 6) }
+
+func slow(n: Int) -> Int { yield_now()  return n }
+func fast(n: Int) sync -> Int { return n }
+
+func suspending() {
+    match pick() {
+        case Go(v) -> print("arm sees: {v}"),
+        case Stop -> print("stop")
+    }
+    let v = slow(8)              // same name as the arm binding above
+    print("later: {v}")
+}
+
+func control() sync {
+    match pick() {
+        case Go(v) -> print("sync arm sees: {v}"),
+        case Stop -> print("stop")
+    }
+    let v = fast(8)
+    print("sync later: {v}")
+}
+
+func main() {
+    __saw_drive(suspending())
+    control()
+}

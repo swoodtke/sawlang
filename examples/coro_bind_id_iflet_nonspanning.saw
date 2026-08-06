@@ -1,0 +1,36 @@
+// DF-151a: an `if let` derived shadow whose BODY does not span a suspension.
+// Design 104 item 1 renames the binding of an if-let whose body DOES span, so
+// that path was already safe; a non-spanning body was left on the by-name path
+// and the inner binding's reads went to the outer local's frame field — `inner`
+// printed 3 (the outer value) instead of 30.
+// EXPECT: success
+// EXPECT-OUTPUT:
+// inner: 30
+// after: 3
+// sync inner: 30
+// sync after: 3
+
+import std.task
+
+func slow(n: Int) -> Int { yield_now()  return n }
+func fast(n: Int) sync -> Int { return n }
+func maybe(k: Int) -> Int? { return k * 10 }
+
+func suspending() {
+    let n = 3
+    if let n = maybe(n) { print("inner: {n}") }
+    let got = slow(n)
+    print("after: {got}")
+}
+
+func control() sync {
+    let n = 3
+    if let n = maybe(n) { print("sync inner: {n}") }
+    let got = fast(n)
+    print("sync after: {got}")
+}
+
+func main() {
+    __saw_drive(suspending())
+    control()
+}

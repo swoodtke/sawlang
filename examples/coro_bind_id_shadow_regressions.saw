@@ -1,0 +1,83 @@
+// The shapes that ALREADY worked before DF-151a and must keep working — the
+// alpha-rename that fixes the collision class subsumes the machinery they lean
+// on, so they are the regression floor for it.
+//
+//   r1  design 100 + design 104 item 1: `if let x = x` ACROSS a suspension —
+//       the inner `x: Int` and the outer `x: Int?` in DISTINCT fields.
+//   r2  design 107: same-scope redefinition (`var d = ...; let d = ...`) with
+//       the redefinition live across a suspension.
+//   r3  a `match` arm binding in a DRIVEN SUB-FRAME one level down, with the
+//       caller binding the result under a name the callee also uses.
+//   r4  design 100 again, on a spawned root rather than a driven one.
+//   r5  a body that RE-BINDS the bound name inside a suspension-spanning
+//       `if let`. This was a clean "not supported" rejection: the split renamed
+//       the binding by walking its scope for uses, which an inner binding of the
+//       same name would have made unsound. Renaming every binding up front
+//       removes that hazard, so the shape compiles and runs now.
+// EXPECT: success
+// EXPECT-OUTPUT:
+// r1: 8
+// r2: 10
+// r3: 112
+// r4: 8
+// r5: 9
+
+import std.task
+
+func r1(x: Int?) -> Int {
+    if let x = x {
+        yield_now()
+        return x + 1
+    }
+    return -1
+}
+
+func r2() -> Int {
+    var data = 5
+    let data = data * 2
+    yield_now()
+    return data
+}
+
+enum Step { case Go(n: Int), case Stop }
+
+func inner(s: Step) -> Int {
+    match s {
+        case Go(k) -> { yield_now()  return k * 3 },
+        case Stop -> { return 0 }
+    }
+}
+
+func outer(s: Step) -> Int {
+    let k = inner(s)             // same name the callee's arm binds
+    yield_now()
+    return k + 100
+}
+
+// A body belongs to ONE driver, so the spawned variant is its own function.
+func r4(x: Int?) -> Int {
+    if let x = x {
+        yield_now()
+        return x + 1
+    }
+    return -1
+}
+
+func r5(x: Int?) -> Int {
+    if let x = x {
+        let x = x + 1              // re-binds the bound name inside the body
+        yield_now()
+        return x + 1
+    }
+    return -1
+}
+
+func main() {
+    print("r1: {__saw_drive(r1(7))}")
+    print("r2: {__saw_drive(r2())}")
+    print("r3: {__saw_drive(outer(Step.Go(n: 4)))}")
+    var group = TaskGroup()
+    let h = group.spawn(r4(7))
+    print("r4: {h.join()}")
+    print("r5: {__saw_drive(r5(7))}")
+}

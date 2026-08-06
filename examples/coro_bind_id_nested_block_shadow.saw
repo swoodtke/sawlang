@@ -1,0 +1,42 @@
+// DF-151a, the other direction: a derived shadow (design 100) in a nested block
+// that does NOT itself span a suspension. The inner `n` is an ordinary local,
+// but by-name frame keying redirected its reads AND its write to the outer
+// binding's frame field — so the inner value leaked OUT and `after` printed 13
+// instead of 3. The initializer `n + 10` still has to read the OUTER binding,
+// which is what makes this a rename with scope rather than a blanket one.
+// EXPECT: success
+// EXPECT-OUTPUT:
+// inner: 13
+// after: 3
+// sync inner: 13
+// sync after: 3
+
+import std.task
+
+func slow(n: Int) -> Int { yield_now()  return n }
+func fast(n: Int) sync -> Int { return n }
+
+func suspending() {
+    let n = 3
+    if n > 0 {
+        let n = n + 10           // derives from the outer `n` — legal (design 100)
+        print("inner: {n}")
+    }
+    let got = slow(n)
+    print("after: {got}")
+}
+
+func control() sync {
+    let n = 3
+    if n > 0 {
+        let n = n + 10
+        print("sync inner: {n}")
+    }
+    let got = fast(n)
+    print("sync after: {got}")
+}
+
+func main() {
+    __saw_drive(suspending())
+    control()
+}

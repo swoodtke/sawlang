@@ -1,0 +1,52 @@
+// DF-151a, the closure corner. Two paths that a by-name rename has to reach and
+// that an identifier walk alone would miss:
+//
+//   calls_local       a CALL to a closure-typed local carries the binding's
+//                     name in `FunctionCall.name` (design 77 item 4), not in an
+//                     identifier — so renaming the binding has to rename the
+//                     call too, or it goes looking for a function that does not
+//                     exist. Here an earlier `f` in a scope of its own takes the
+//                     name, so the closure `f` is the one renamed.
+//   captures_renamed  a closure CAPTURING a renamed frame local has to capture
+//                     the renamed one; the capture list is bookkeeping held by
+//                     name beside the closure body.
+//
+// The rename is confined to bindings that actually collide, so an ordinary
+// local merely sharing a name with a top-level function is left alone.
+// EXPECT: success
+// EXPECT-OUTPUT:
+// 1000
+// call: 11
+// capture: 12
+// control: 11
+
+func calls_local(base: Int) -> Int {
+    if base > 0 {
+        let f = base * 100        // an Int named `f`, in a scope of its own
+        print(f)
+    }
+    let f: () -> Int = { base + 1 }   // name already taken -> renamed
+    __saw_suspend()
+    f()
+}
+
+func captures_renamed(n: Int) -> Int {
+    let n = n + 2                     // derived shadow of the param -> renamed
+    let g: () -> Int = { n * 2 }      // captures the RENAMED binding
+    __saw_suspend()
+    g()
+}
+
+// The control is not marked `sync`: a call through a function VALUE is never
+// provably suspension-free, so the marker is unavailable. Nothing here
+// suspends, which is what makes it the control.
+func control(base: Int) -> Int {
+    let f: () -> Int = { base + 1 }
+    return f()
+}
+
+func main() {
+    print("call: {__saw_drive(calls_local(10))}")
+    print("capture: {__saw_drive(captures_renamed(4))}")
+    print("control: {control(10)}")
+}

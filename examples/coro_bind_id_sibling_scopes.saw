@@ -1,0 +1,45 @@
+// DF-151a, the shape that failed LOUDLY rather than silently: two SIBLING
+// scopes each declaring `t`, both frame-resident, with different types. Neither
+// shadows the other (their scopes are disjoint, so this is plain legal Saw), but
+// one field named `t` was minted for both and the second `let` was rejected —
+// `cannot assign String to field of type Int` on a correct program. Each
+// binding gets its own field now, so both branches compile and run.
+// EXPECT: success
+// EXPECT-OUTPUT:
+// then: 11
+// else: other
+// sync then: 11
+// sync else: other
+
+import std.task
+
+func slow(n: Int) -> Int { yield_now()  return n }
+func fast(n: Int) sync -> Int { return n }
+
+func suspending(c: Bool) {
+    if c {
+        let t = slow(11)
+        print("then: {t}")
+    } else {
+        let t = "other"
+        yield_now()
+        print("else: {t}")
+    }
+}
+
+func control(c: Bool) sync {
+    if c {
+        let t = fast(11)
+        print("sync then: {t}")
+    } else {
+        let t = "other"
+        print("sync else: {t}")
+    }
+}
+
+func main() {
+    __saw_drive(suspending(true))
+    __saw_drive(suspending(false))
+    control(true)
+    control(false)
+}
