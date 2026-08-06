@@ -1467,6 +1467,88 @@ first try.
   in BOTH lexers (sawc's and the self-hosted one) with lexdiff parity — hence
   its own unit rather than a drive-by here.
 
+## Design 160 — remote test worker (LANDED, Aug 6)
+
+`designs/160-remote-test-worker.md` closed. A second machine can take a
+core-weighted share of the suite, of `irdet --all`, or run the whole battery,
+with NO SSH: the worker runs one fixed daemon under `sandbox-exec`, and only
+jobs cross the wire. Five commits: A the daemon + profile + wire vocabulary +
+client, B `test_runner --remote` + the two job-side flags, C `irdet --remote`
++ `tools/remote_battery.py`, D the self-test, E docs.
+
+**Deployment, for the user (the Studio).** Four steps, all on the worker
+machine, nothing inbound to enable:
+
+```bash
+git clone <repo> ~/saw-worker && cd ~/saw-worker
+python3 -m venv .venv && ./.venv/bin/pip install llvmlite
+./.venv/bin/python tools/test_worker.py --init-token   # prints the secret
+sandbox-exec -D WORKER_ROOT="$PWD" -f tools/test_worker.sb \
+    ./.venv/bin/python tools/test_worker.py --bind 0.0.0.0:8710
+```
+
+Copy the printed token to the laptop at `~/.config/saw-worker/token`. The
+daemon prints `sandbox: ACTIVE` when the wrapper took effect and the correct
+launch line when it did not. Then, from the laptop:
+`test_runner.py --remote studio.local:8710`,
+`tools/irdet.py --all --remote studio.local:8710`,
+`tools/remote_battery.py --remote studio.local:8710`. The worker's own
+checkout only supplies the daemon, the profile and the venv — every job runs
+the CLIENT's tree, which arrives with the job. Requirements on the worker:
+same OS/arch (arm64 macOS), Xcode command line tools, that venv.
+
+**Validation (localhost worker, Aug 6).** Full suite split 700 local / 614
+remote: 1314 verdict records, 1314 unique tests, every one `pass`, ZERO judged
+twice, matching the local-only baseline of 1314 green; job directory purged
+(only `rt-cache` left). Worker killed mid-shard: client returned notes plus
+the unanswered tests in under a second, no hang. Wrong token, dead port, busy
+worker: each a note and a local completion. `irdet -n 12 --remote` split 3/9,
+0 skipped; with the port closed, all 6 files of a second sample checked
+locally with an `unreachable` note. Battery round-tripped GREEN in 2002s —
+suite 547.7s, lexdiff 25.7s, astdiff 162.2s, `irdet --all` 1265.4s — job
+directory purged afterwards, only `rt-cache` left. (Those timings are against
+a load average of 50-83: the 159 agent was building on the same machine, and
+the "worker" was that machine too. They say nothing about a real Studio.)
+Self-test: `tools/remote_worker_selftest.py`, 8 checks, all green.
+
+- **DF-160a — the sandbox profile could not be APPLIED during development, only
+  compiled.** A process already inside a seatbelt sandbox cannot apply a second
+  one: `sandbox_apply` returns EPERM, so `sandbox-exec` fails outright from
+  inside a sandboxed agent (and `launchctl submit`, the obvious escape, is
+  unavailable). Everything else in the design was validated against a live
+  loopback worker; the profile was validated by COMPILING it through
+  libsandbox, which resolves every operation and filter name against the
+  running kernel and rejects a profile naming one that does not exist (proven
+  by a negative case in the self-test). What remains unproven until the user
+  runs it on the Studio is whether the allowances are SUFFICIENT — a denial
+  would show up as a job that fails where the same job passes locally. The
+  daemon's startup line reports `sandbox: ACTIVE`, and the first
+  `remote_battery.py` run against the real machine is the check. If a gate
+  fails there and not here, the profile is the first suspect: `log stream
+  --predicate 'sender == "Sandbox"'` names the denied operation.
+- **DF-160b — seatbelt takes exactly ONE `-D` parameter here.** A second
+  `sandbox_set_param` on the same params object corrupts the set: every
+  `(param ...)` reference then fails to resolve with "invalid data type of path
+  filter; expected pattern, got boolean", including the one that was set first.
+  Reproduced in both orders and with one-used/two-set. The profile therefore
+  spends its single parameter on `WORKER_ROOT` and derives the job root with
+  `(string-append (param "WORKER_ROOT") "/.worker-jobs")`, which does work.
+  Consequence for the user: `--job-root` elsewhere needs a profile edit, and
+  the daemon refuses to start rather than discovering it on the first job.
+- **DF-160c — `http.client` hands the socket to the response and clears
+  `conn.sock`.** With `Connection: close`, `getresponse()` calls
+  `self.close()`, so a timeout raised on `conn.sock` afterwards silently does
+  nothing and the CONNECT timeout stays armed on every read. A streaming
+  client whose whole point is to go quiet between verdicts then dies after
+  five seconds. Fixed by holding the socket before `getresponse()`. Worth
+  remembering for any other streaming client in this repo.
+- **Follow-ups, not blocking.** (a) SOS stays local — QEMU on the worker is
+  the opt-in the brief deferred. (b) One job at a time; a second client
+  degrades rather than queues, which is right for two machines and would want
+  revisiting for three. (c) The worker keeps `.build/rt` between jobs keyed by
+  a digest of `sawc/`; nothing else survives a job, so a compiler-touching
+  brief pays one runtime build per submission.
+
 ## Design 151 — discarding a `Result` is an error (LANDED, Aug 6)
 
 `designs/151-result-discard-error.md` closed. A `Result` no construct consumes

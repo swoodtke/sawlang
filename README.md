@@ -1096,6 +1096,41 @@ Run `make test` to see the current test count. See
 [TESTING.md](TESTING.md) for details, including application-level testing with
 `blade test`.
 
+### Splitting the suite across two machines
+
+A spare machine can take a share of the suite. There is no SSH in this: the
+machine runs one daemon under a sandbox profile, and the only thing that
+crosses the network is a job, meaning a snapshot of the tree plus a list of
+which tests to run. The daemon takes no command from the client and never
+executes the submitted tree in its own process.
+
+On the worker machine — a checkout, a virtualenv, a shared token, and the
+launch line:
+
+```bash
+./.venv/bin/python tools/test_worker.py --init-token
+sandbox-exec -D WORKER_ROOT="$PWD" -f tools/test_worker.sb \
+    ./.venv/bin/python tools/test_worker.py --bind 0.0.0.0:8710
+```
+
+On this machine:
+
+```bash
+./.venv/bin/python test_runner.py --remote studio.local:8710
+./.venv/bin/python tools/irdet.py --all --remote studio.local:8710
+```
+
+Tests are assigned by a hash of each test's path, weighted by the two machines'
+core counts, so a failing test lands on the same machine every run. The two
+shares run concurrently and produce one merged summary, with each failure
+marked by the machine that judged it.
+
+A worker that is unreachable, refuses the token, is busy, or dies mid-run costs
+a note, never a verdict: the tests it did not answer for run here, and the exit
+status stays a statement about the tree. `tools/remote_battery.py` runs the
+whole gate battery on the worker the same way. Deployment, the sandbox
+profile's allowances, and the self-test are in [TESTING.md](TESTING.md).
+
 ## Current Status
 
 Saw is in active development. Implemented so far: generics with trait bounds and

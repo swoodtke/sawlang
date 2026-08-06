@@ -503,3 +503,181 @@ they advance independently, since a binary's verdict lands a settle lag after
 its compile while later compiles are still running.
 
 See the `test_runner.py` source for the rest.
+
+## Running Tests on a Second Machine
+
+A spare machine can take a share of the suite. The share runs concurrently with
+the local one, and the run prints one merged summary.
+
+There is no SSH in this. The second machine runs one daemon, started by hand
+under a sandbox profile, and the only thing that crosses the network is a job:
+a snapshot of the tree plus a list of which tests to run. The daemon takes no
+command from the client, and never executes the submitted tree in its own
+process — each job runs in a child process tree, in a fresh directory that is
+deleted when the job ends.
+
+### Setting up the worker machine
+
+The worker needs the same OS and architecture as the client (both arm64 macOS),
+the Xcode command line tools, and a Python virtualenv with `llvmlite`. Its
+checkout supplies only the daemon, the sandbox profile and that virtualenv;
+every job runs the *client's* tree, which arrives with the job.
+
+```bash
+# 1. Get the repo onto the worker machine.
+git clone <this repo> ~/saw-worker
+cd ~/saw-worker
+
+# 2. Build its virtualenv (the same one the compiler needs).
+python3 -m venv .venv
+./.venv/bin/pip install llvmlite
+
+# 3. Create the shared secret. Copy the printed value to the CLIENT machine
+#    at the same path, or export it there as SAW_WORKER_TOKEN.
+./.venv/bin/python tools/test_worker.py --init-token
+
+# 4. Start the daemon under the sandbox profile. Use the LAN address you want
+#    it reachable on; 8710 is the default port.
+sandbox-exec -D WORKER_ROOT="$PWD" -f tools/test_worker.sb \
+    ./.venv/bin/python tools/test_worker.py --bind 0.0.0.0:8710
+```
+
+Step 4 prints what it bound and, on the next line, whether the sandbox took
+effect:
+
+```
+saw test worker on 0.0.0.0:8710 (24 cores, protocol 1)
+  jobs run under ./.venv/bin/python, in ./.worker-jobs (purged per job)
+  sandbox: ACTIVE — this process and its job children are confined
+```
+
+`sandbox: NOT ACTIVE` means the `sandbox-exec` wrapper was left off and jobs
+would run with the account's full privileges. The daemon prints the correct
+launch line and keeps running; stop it and start it again properly. A dedicated
+low-privilege account composes with the profile and is worth the ten minutes if
+the machine has anything else on it.
+
+The daemon runs in the foreground and logs to stdout. To keep a log file, write
+it into the job root, which is the one directory the profile allows writes to:
+`... --bind 0.0.0.0:8710 >> .worker-jobs/worker.log 2>&1`.
+
+### What the sandbox allows
+
+`tools/test_worker.sb` is short enough to read, and each allowance says which
+part of the suite needs it. The three limits that carry the weight:
+
+- **Writes** go to `<WORKER_ROOT>/.worker-jobs` and the per-user temporary
+  area, and nowhere else in the account. The checkout the daemon runs from is
+  read-only to the jobs it runs, so a job cannot modify the daemon, the profile
+  or the virtualenv that is about to run it.
+- **Outbound network** is pinned to this machine. The suite's `std.net` tests
+  connect to listeners they opened themselves a moment earlier, which is
+  loopback by construction; nothing else can reach the internet.
+- **Reads** cover the system prefixes a toolchain lives in, the worker's own
+  checkout, and `~/.config/saw-worker/` for the token the daemon reads at
+  startup. The rest of the account's home directory is not readable. (Step 3
+  above runs outside the sandbox, because creating the token means writing
+  there and only reading it is allowed from inside.)
+
+Subprocess execution is allowed, because that is how the suite works: the
+runner spawns a compiler process per core, each compile spawns `clang` to link,
+and every test is then executed as its own child.
+
+After any edit to the profile, check that the OS still accepts it. This
+resolves every operation and filter name against the running kernel:
+
+```bash
+./.venv/bin/python tools/test_worker.py --check-profile tools/test_worker.sb
+```
+
+### Using it from the client
+
+Put the token where the client can find it (`~/.config/saw-worker/token`, or
+`SAW_WORKER_TOKEN`), then:
+
+```bash
+# The suite, split between here and the worker
+./.venv/bin/python test_runner.py --remote studio.local:8710
+
+# IR determinism, the second-longest gate, split the same way
+./.venv/bin/python tools/irdet.py --all --remote studio.local:8710
+
+# The whole battery on the worker: suite, lexdiff, astdiff, irdet --all
+./.venv/bin/python tools/remote_battery.py --remote studio.local:8710
+```
+
+Which tests go where is decided by a hash of each test's path, weighted by the
+two machines' core counts: a 10-core laptop paired with a 24-core Studio sends
+the Studio about 70% of them. Assignment does not depend on discovery order or
+on how the run is filtered, so a failing test lands on the same machine every
+time and reproduces where it failed. Balance is what that trades away, and
+across a suite this size the split lands within a few percent of the weights
+anyway.
+
+Compilation and execution both stay on the worker. Binaries never cross the
+network in either direction.
+
+The summary marks each failure with the machine that judged it:
+
+```
+FAILED TESTS:
+
+  ✗ optional_chain_suspend [remote]
+    Output mismatch:
+    ...
+```
+
+### When the worker is not there
+
+A gate that goes red because a machine on the other side of the house was
+rebooting is worse than useless. So nothing about the worker can cost the run a
+verdict: an unreachable host, a refused token, a worker already busy with
+someone else's job, a connection that dies mid-shard, or a worker that stops
+answering are all the same outcome. The tests it did not answer for run here,
+and the summary says what happened:
+
+```
+REMOTE:
+  worker studio.local:8710 is unreachable ([Errno 61] Connection refused) — every test ran here
+```
+
+The run's exit status is a verdict about the tree and nothing else.
+`remote_battery.py` makes the same distinction in its exit status: `0` every
+gate passed, `1` a gate failed, `2` the battery did not run at all — the last
+of which is not a verdict about anything, and prints the local commands to run
+instead.
+
+Two waits bound a remote shard. The worker sends a heartbeat every 15 seconds
+while a job runs, so silence for four of them means the worker is gone rather
+than slow; and once the local share is finished, the worker gets a grace period
+of five minutes (or twice the local share's wall clock, whichever is longer)
+before this machine stops waiting and runs the rest itself.
+
+### Limits
+
+- One job at a time. A second client is refused rather than queued, and
+  degrades to running its own tests.
+- `tools/sos_runner.py` stays local: it boots a kernel under QEMU, which the
+  worker is not required to have. `tools/blade_bootstrap.py` stays local too.
+- The worker keeps the compiled Saw runtime (`.build/rt`) between jobs, keyed
+  by a digest of `sawc/`, so a job only rebuilds it when the compiler changed.
+  Nothing else survives a job.
+
+### Self-test
+
+```bash
+./.venv/bin/python tools/remote_worker_selftest.py
+```
+
+Starts a real worker on loopback and exercises the whole path: the shipped
+profile compiles against the running OS, sharding is deterministic and
+core-weighted, a snapshot carries sources but no build products and refuses a
+tar that tries to escape the job directory, `/health` accepts the right token
+and refuses a wrong one, a shard round-trips and matches a local run verdict for
+verdict, a worker killed mid-job leaves notes and a list of unanswered tests,
+a second job is refused, and a battery submission starts its first gate.
+
+One thing it cannot do is apply the sandbox profile: a process already inside a
+seatbelt sandbox cannot apply a second one, so a run from inside a sandboxed
+agent or CI job compiles the profile but does not run under it. On the worker
+machine, the `sandbox: ACTIVE` line at startup is that check.
