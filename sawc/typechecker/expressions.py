@@ -456,7 +456,8 @@ class ExpressionsMixin:
         var_info = self.current_scope.lookup(expr.name)
         if not var_info:
             # Module-level static (design 41): read like an immutable binding.
-            static_sym = self.namespace.get_static(expr.name)
+            static_sym = self.namespace.get_static(
+                expr.name, self._accessor_vis_module())
             if static_sym is not None and self.namespace.is_accessible(expr.name):
                 # DF-140f: resolution happens HERE, against this module's own
                 # namespace, so this is the only place that knows WHICH
@@ -629,7 +630,8 @@ class ExpressionsMixin:
                 # A static is immutable (design 41): `&var STATIC` is rejected
                 # (an `&STATIC` immutable lend is fine). Statics are not in scope,
                 # so a None var_info that names a static is the signal.
-                if var_info is None and self.namespace.get_static(expr.expr.name) is not None:
+                if var_info is None and self.namespace.get_static(
+                        expr.expr.name, self._accessor_vis_module()) is not None:
                     self._error(
                         ErrorKind.TYPE_MISMATCH,
                         f"cannot take mutable reference `&var` to static `{expr.expr.name}`: "
@@ -4924,7 +4926,8 @@ class ExpressionsMixin:
                 "variable or a `&var`-reachable path",
                 expr.line, expr.column)
             return
-        if self.namespace.get_static(root.name) is not None and \
+        if self.namespace.get_static(root.name,
+                                     self._accessor_vis_module()) is not None and \
                 self.current_scope.lookup(root.name) is None:
             self._error(
                 ErrorKind.IMMUTABLE_ASSIGNMENT,

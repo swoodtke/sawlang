@@ -894,6 +894,79 @@ noted live-range packing of locals; do both in one sizing brief.
   are inlined above). Worth a follow-up brief if the ANF hoist can be taught to
   lift a nested short-circuit.
 
+## Design 145 — DF-findings (enum methods; the std private-symbol reach)
+
+- **DF-140h — FIXED here (unit A). Originally filed on the parked SOS M1
+  branch's tracker during the round-3 module-system stress; refiled in main's
+  tracker as found-and-fixed, same as DF-140f before it.** A module-PRIVATE
+  `static` inside a std FILE reserved its simple name for every Saw program.
+  A five-line hello-world declaring `static ASCII_ZERO` was rejected with
+  "static `ASCII_ZERO` is defined multiple times" — against a private constant
+  in `sawc/std/stringbuilder.saw` the author cannot see, import, or find. No
+  dependency involved.
+
+  A sweep found the blast radius is the whole set, not one name: every private
+  std static tested was reserved — `ASCII_ZERO`, `MINUS_SIGN`, `MARKER_LEN`,
+  `MIN_FIXED_CAPACITY` (stringbuilder), `SEEK_SET`/`SEEK_CUR`/`SEEK_END`,
+  `O_RDONLY`, `MODE_RW_R_R` (file), `AF_UNIX`, `SOCK_STREAM`, `READ_CHUNK`,
+  `INVALID_FD`, `NET_ERROR` (net), `GETCWD_MAX_BYTES` (directory),
+  `EXEC_FAILED_CODE`, `PROC_READ_CHUNK` (process). Exactly the names a systems
+  program wants for its own constants.
+
+  Cause — and it is NOT the one the brief predicted. Private std statics already
+  carried DF-140f's module-qualified codegen symbol (`saw.static.ASCII_ZERO$m$
+  std_stringbuilder`), so the LLVM half was never broken. The break was the
+  NAMESPACE half: `Namespace.statics` is one flat dict keyed by simple name, and
+  std is merged wholesale into every module's namespace, so a private std static
+  occupied the shared slot and `_register_static`'s duplicate check hit it.
+  Design 82 gives each std file its own module identity; the namespace had not
+  been taught to use it.
+
+  Fix: private statics of a non-root module live in a per-module overlay
+  (`Namespace.module_statics`, keyed by defining module then name) instead of
+  the shared `statics` slot, and every lookup is asked FROM a module
+  (`get_static(name, module)` / `has_static(name, module)`, threaded through the
+  five typechecker call sites via `_accessor_vis_module()`). The accessor
+  module's own privates win, so std keeps reading its own constants — the
+  non-regression the tests pin. Public and root-module statics are untouched, so
+  a genuine cross-module public ambiguity is still reported. Regressions:
+  `examples/df140h_std_private_static.saw` (the repro, plus digit rendering
+  through std's own `ASCII_ZERO`),
+  `examples/df140h_std_private_static_two_files.saw` (three std files' privates
+  in one program, with `std.net` imported and exercised). The design-142
+  collision tests are unchanged.
+
+- **DF-140h-fn — OPEN, stopped deliberately (unit A, design 145). Wants its own
+  brief.** The same reservation exists for private std FREE FUNCTIONS, and the
+  fix is a materially bigger change than the statics half. Repro:
+
+  ```saw
+  func tcp_socketpair() -> Int { 77 }   // private in sawc/std/net.saw
+  func main() { print(tcp_socketpair()) }
+  // error: function `tcp_socketpair` is already defined with an
+  //        indistinguishable signature
+  ```
+
+  Also `unix_timestamp` (std/time.saw — which is separately worth a look: it is
+  a DOCUMENTED std.time API function declared without `public`). The
+  `__saw_exec_*` family in std/taskgroup.saw is worse than reserved: redefining
+  one reports `internal compiler error: Undefined function: __saw_exec_run`
+  rather than any diagnostic.
+
+  Why it did not land with the statics half: statics have one identity (a name),
+  so a per-module overlay is contained. Functions carry OVERLOAD SETS, and
+  design 55/66/105 built the `$OL$` symbol scheme assuming one flat set per
+  name. Filtering the set by accessor module was tried and gets the front end
+  right, but two same-named functions from mutually-invisible modules then reach
+  codegen as one overload set and ICE (`internal compiler error:
+  tcp_socketpair$OL$`). Doing it properly means making overload-set IDENTITY
+  module-scoped — a per-module overlay for private functions, a std-side
+  symbol-stamping pass (`_stamp_module_private_functions` runs only from
+  `check_module` and guards on `def_module == own_module`, so std never reaches
+  it), and a decision about whether a module's private function overloads with a
+  public one visible in that module. That is a design question design 145 does
+  not settle, so the front-end change was reverted rather than landed half-done.
+
 ## Design 142 — findings (import-scoped extensions; conformance coherence)
 
 - **DF-142-leak — FIXED by design 142 (the brief's own proving repro).** Any

@@ -954,7 +954,7 @@ class StatementsMixin:
             if vi is not None:
                 return (vi.line, vi.column)
             scope = scope.parent
-        static_sym = self.namespace.get_static(name)
+        static_sym = self.namespace.get_static(name, self._accessor_vis_module())
         if static_sym is not None and self.namespace.is_accessible(name):
             return (static_sym.line, static_sym.column)
         return None
@@ -1346,7 +1346,8 @@ class StatementsMixin:
         while True:
             if isinstance(node, Identifier):
                 if (self.current_scope.lookup(node.name) is None
-                        and self.namespace.get_static(node.name) is not None):
+                        and self.namespace.get_static(
+                            node.name, self._accessor_vis_module()) is not None):
                     return node.name
                 return None
             if isinstance(node, MemberAccess):

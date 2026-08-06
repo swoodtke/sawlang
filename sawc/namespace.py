@@ -187,6 +187,10 @@ class StaticSymbol:
     visibility: Visibility = Visibility.PRIVATE
     line: int = 0
     column: int = 0
+    # The module that declared this static (DF-140h). A PRIVATE static in a
+    # non-root module is nameable only from here, so it lives in the namespace's
+    # per-module overlay rather than the shared simple-name slot.
+    def_module: Tuple[str, ...] = ()
 
 
 @dataclass
@@ -231,7 +235,19 @@ class Namespace:
         self.type_aliases: Dict[str, TypeAliasSymbol] = {}
         self.modules: Dict[str, ModuleSymbol] = {}
         # Module-level `static` declarations (design 41), keyed by simple name.
+        # Holds only the statics a simple name may legitimately resolve to from
+        # ANY module: the public ones, plus the root module's own (which has no
+        # module to qualify against). See `module_statics` for the rest.
         self.statics: Dict[str, StaticSymbol] = {}
+        # DF-140h: module-PRIVATE statics of a non-root module, keyed by their
+        # defining module then simple name. A private static is unnameable from
+        # outside its module, so it must not occupy the shared `statics` slot —
+        # doing so made every private constant in std (`ASCII_ZERO`, `SEEK_SET`,
+        # `AF_UNIX`, ...) a reserved word for every program in the language.
+        # Design 82 already gives each std FILE its own module identity; this is
+        # the namespace half of that model, matching the codegen half DF-140f
+        # landed for symbols.
+        self.module_statics: Dict[Tuple[str, ...], Dict[str, StaticSymbol]] = {}
 
         # Type conformances: type_name -> {trait_name -> {assoc_type_name -> SawType}}
         self.conformances: Dict[str, Dict[str, Dict[str, SawType]]] = {}
@@ -364,9 +380,9 @@ class Namespace:
         if name in self.functions:
             sym = self.functions[name]
             return sym if is_visible(sym) else None
-        if name in self.statics:
-            sym = self.statics[name]
-            return sym if is_visible(sym) else None
+        static_sym = self.get_static(name, accessor_module)
+        if static_sym is not None:
+            return static_sym if is_visible(static_sym) else None
 
         return None
 
@@ -420,16 +436,41 @@ class Namespace:
         """All free-function overloads registered under `name` (design 55)."""
         return self.function_overloads.get(name, [])
 
+    @staticmethod
+    def _static_is_module_local(symbol: 'StaticSymbol') -> bool:
+        """Whether `symbol` belongs in the per-module overlay rather than the
+        shared simple-name slot (DF-140h): a PRIVATE static of a non-root
+        module, which no other module can name."""
+        return (symbol.visibility == Visibility.PRIVATE
+                and bool(getattr(symbol, 'def_module', ()) or ()))
+
     def register_static(self, name: str, symbol: 'StaticSymbol'):
-        """Register a module-level static symbol (design 41)."""
-        self.statics[name] = symbol
+        """Register a module-level static symbol (design 41).
 
-    def has_static(self, name: str) -> bool:
-        """Check if a static exists."""
-        return name in self.statics
+        A module-private static goes to its own module's overlay; everything
+        else takes the shared slot (DF-140h)."""
+        if self._static_is_module_local(symbol):
+            key = tuple(symbol.def_module)
+            self.module_statics.setdefault(key, {})[name] = symbol
+        else:
+            self.statics[name] = symbol
 
-    def get_static(self, name: str) -> Optional['StaticSymbol']:
-        """Look up a static symbol by simple name."""
+    def has_static(self, name: str,
+                   module: Optional[Tuple[str, ...]] = None) -> bool:
+        """Whether a static named `name` is visible to code in `module`."""
+        return self.get_static(name, module) is not None
+
+    def get_static(self, name: str,
+                   module: Optional[Tuple[str, ...]] = None
+                   ) -> Optional['StaticSymbol']:
+        """Look up a static by simple name, as seen from `module`.
+
+        The accessor module's OWN private statics win over the shared slot, so a
+        std file keeps reading its own `ASCII_ZERO` even when the program being
+        compiled declares one too (DF-140h)."""
+        own = self.module_statics.get(tuple(module or ()))
+        if own is not None and name in own:
+            return own[name]
         return self.statics.get(name)
 
     def register_struct(self, name: str, symbol: StructSymbol):
@@ -1715,6 +1756,14 @@ class Namespace:
         # A module-private one is not (DF-140f): it is unnameable from outside
         # and carries a module-local LLVM global, so the two never meet.
         _merge("static", self.statics, other.statics, private_is_local=True)
+        # DF-140h: the per-module overlays travel too, keyed by defining module,
+        # so a std file's private constants stay reachable from that file's own
+        # bodies after the merge and from nowhere else. Two modules' overlays can
+        # never collide — the module path is part of the key.
+        for _mod, _tbl in other.module_statics.items():
+            _dst = self.module_statics.setdefault(_mod, {})
+            for _n, _s in _tbl.items():
+                _dst.setdefault(_n, _s)
         for name, sym in other.modules.items():
             if name not in self.modules:
                 self.modules[name] = sym

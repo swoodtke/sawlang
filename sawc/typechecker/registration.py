@@ -850,7 +850,16 @@ class RegistrationMixin:
         deinit). There is no `static mut`; the no-mutation rule is enforced at
         assignment / `&var` lend sites, not here.
         """
-        if self.namespace.has_static(static.name):
+        # DF-140h: the duplicate check is asked from the DECLARING module, so it
+        # sees that module's own statics and the shared (public/root) ones —
+        # never another module's private constants. Before this, every private
+        # `static` in std reserved its simple name for every Saw program:
+        # declaring `ASCII_ZERO`, `SEEK_SET` or `AF_UNIX` in a hello-world was
+        # "defined multiple times" against a std internal the author cannot see,
+        # name, or even find.
+        def_module = self._vis_module_for_source(
+            getattr(static, 'source_file', None))
+        if self.namespace.has_static(static.name, def_module):
             self._error(
                 ErrorKind.DUPLICATE_FUNCTION,
                 f"static `{static.name}` is defined multiple times",
@@ -939,8 +948,7 @@ class RegistrationMixin:
         # the symbol the typechecker stamped on the identifier.
         visibility = getattr(static, 'visibility', Visibility.PRIVATE)
         mangled = self._module_private_symbol(
-            f"saw.static.{static.name}",
-            self._vis_module_for_source(getattr(static, 'source_file', None)),
+            f"saw.static.{static.name}", def_module,
             visibility) or f"saw.static.{static.name}"
         static.mangled_symbol = mangled
         self.namespace.register_static(static.name, StaticSymbol(
@@ -948,7 +956,8 @@ class RegistrationMixin:
             mangled_name=mangled,
             visibility=visibility,
             line=static.line,
-            column=static.column
+            column=static.column,
+            def_module=def_module
         ))
 
     def _is_zero_initable_type(self, t: SawType) -> bool:

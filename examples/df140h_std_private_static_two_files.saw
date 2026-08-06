@@ -1,0 +1,29 @@
+// DF-140h: one program naming private statics that belong to THREE different
+// std files — `ASCII_ZERO` (std/stringbuilder.saw), `AF_UNIX` and `READ_CHUNK`
+// (std/net.saw). Each std file is its own module (design 82), so none of their
+// internals constrain what a program may call its own constants.
+//
+// std.net is imported and exercised so the resolution is proved both ways: the
+// program reads its own constants, and `TcpStream.pair()` / `read()` still read
+// net's (they go through net's `AF_UNIX` and `READ_CHUNK`).
+// EXPECT: success
+// EXPECT-OUTPUT: 48
+// EXPECT-OUTPUT: 999
+// EXPECT-OUTPUT: 7
+// EXPECT-OUTPUT: 4
+import std.net
+
+static ASCII_ZERO: Int = 48
+static AF_UNIX: Int = 999
+static READ_CHUNK: Int = 7
+
+func main() {
+    print(ASCII_ZERO)
+    print(AF_UNIX)
+    print(READ_CHUNK)
+
+    let (a, b) = TcpStream.pair()
+    try! a.write("ping")
+    let got = try! b.read()
+    print(got.len())
+}

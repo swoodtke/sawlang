@@ -1,0 +1,27 @@
+// DF-140h: a PRIVATE `static` inside a std file used to reserve its simple name
+// for every Saw program. `static ASCII_ZERO` collided with the one in
+// std/stringbuilder.saw — "static `ASCII_ZERO` is defined multiple times" —
+// naming a symbol the author cannot see, import, or find. Design 82 already
+// makes each std FILE its own module; DF-140f gave module-private declarations a
+// module-local identity. This is that identity reaching std.
+//
+// The second half is the non-regression that matters: std must still read ITS
+// OWN `ASCII_ZERO` when rendering digits, not the one declared here. If the
+// user's static won inside std, both numbers below would print as garbage.
+// EXPECT: success
+// EXPECT-OUTPUT: 999
+// EXPECT-OUTPUT: 4207
+// EXPECT-OUTPUT: 90210
+
+static ASCII_ZERO: Int = 999
+
+func main() {
+    print(ASCII_ZERO)
+
+    let n = 4207
+    print("{n}")
+
+    var sb = StringBuilder()
+    sb.append(value: 90210)
+    print(sb.build())
+}
