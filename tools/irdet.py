@@ -24,6 +24,7 @@ import random
 import subprocess
 import sys
 import time
+from concurrent.futures import ThreadPoolExecutor
 
 REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 SAWC = os.path.join(REPO, "sawc", "sawc.py")
@@ -58,15 +59,22 @@ def is_negative_test(rel: str) -> bool:
     return "// EXPECT: error" in head or "// EXPECT: skip" in head
 
 
-def emit_ir(rel: str, seed: str):
+def emit_ir(rel: str, seed: str, task_id: int):
     """Compile `rel` to IR in a fresh process; return the bytes, or None if the
-    file does not build standalone (module-path deps, host-only, ...)."""
+    file does not build standalone (module-path deps, host-only, ...).
+
+    Checks run in parallel, so each compile gets its own `-o` base under
+    `.build/irdet/` — the default `.build/<stem>` would collide across
+    concurrent tasks (and across same-stem files in different subdirs).
+    """
     stem = os.path.splitext(os.path.basename(rel))[0]
-    out_ll = os.path.join(REPO, ".build", stem + ".ll")
+    out_base = os.path.join(REPO, ".build", "irdet",
+                            "%d_s%s_%s" % (task_id, seed, stem))
+    out_ll = out_base + ".ll"
     if os.path.exists(out_ll):
         os.remove(out_ll)
     env = dict(os.environ, PYTHONHASHSEED=seed)
-    p = subprocess.run([sys.executable, SAWC, rel, "--emit-ir"],
+    p = subprocess.run([sys.executable, SAWC, rel, "--emit-ir", "-o", out_base],
                        cwd=REPO, env=env, capture_output=True, text=True)
     if p.returncode != 0 or not os.path.exists(out_ll):
         return None
@@ -76,6 +84,21 @@ def emit_ir(rel: str, seed: str):
     return blob
 
 
+def check_one(task):
+    """(index, rel) -> (rel, 'ok'|'skip'|'mismatch', detail). The two seed
+    compiles of one file stay sequential inside the task; parallelism is
+    across files, which are independent."""
+    idx, rel = task
+    first = emit_ir(rel, SEEDS[0], idx)
+    second = emit_ir(rel, SEEDS[1], idx) if first is not None else None
+    if first is None or second is None:
+        return (rel, "skip", "")
+    if first != second:
+        return (rel, "mismatch",
+                "%d vs %d bytes" % (len(first), len(second)))
+    return (rel, "ok", "")
+
+
 def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("-n", "--count", type=int, default=40,
@@ -83,6 +106,9 @@ def main() -> int:
     ap.add_argument("--all", action="store_true",
                     help="sweep every compilable example instead of sampling")
     ap.add_argument("-v", "--verbose", action="store_true")
+    ap.add_argument("-j", "--jobs", type=int,
+                    default=max(1, min(10, (os.cpu_count() or 2) - 2)),
+                    help="concurrent checks (default: min(10, cores-2))")
     args = ap.parse_args()
 
     files = [f for f in tracked_examples() if not is_negative_test(f)]
@@ -92,20 +118,23 @@ def main() -> int:
         random.seed(20260804)          # fixed: a failure must reproduce
         sample = sorted(random.sample(files, min(args.count, len(files))))
 
+    os.makedirs(os.path.join(REPO, ".build", "irdet"), exist_ok=True)
     t0 = time.time()
     mismatches, skipped, checked = [], 0, 0
-    for rel in sample:
-        blobs = [emit_ir(rel, s) for s in SEEDS]
-        if any(b is None for b in blobs):
-            skipped += 1
-            if args.verbose:
-                print("  skip (does not build standalone): %s" % rel)
-            continue
-        checked += 1
-        if blobs[0] != blobs[1]:
-            mismatches.append(rel)
-            print("  MISMATCH: %s (%d vs %d bytes)"
-                  % (rel, len(blobs[0]), len(blobs[1])))
+    # Files are independent, so checks run in a thread pool (the work is
+    # subprocess-bound). executor.map preserves input order, so output and
+    # exit status stay deterministic regardless of completion order.
+    with ThreadPoolExecutor(max_workers=args.jobs) as pool:
+        for rel, status, detail in pool.map(check_one, enumerate(sample)):
+            if status == "skip":
+                skipped += 1
+                if args.verbose:
+                    print("  skip (does not build standalone): %s" % rel)
+                continue
+            checked += 1
+            if status == "mismatch":
+                mismatches.append(rel)
+                print("  MISMATCH: %s (%s)" % (rel, detail))
 
     dt = time.time() - t0
     print("irdet: compiled %d example(s) twice under differing PYTHONHASHSEED "
