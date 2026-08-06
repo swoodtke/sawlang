@@ -1149,8 +1149,13 @@ def _emit_object(codegen, source_path: str, output_path: str, verbose: bool,
             print("Error: clang not found. Please install LLVM/clang.", file=sys.stderr)
             sys.exit(1)
 
-        # Clean up object file
-        os.remove(obj_path)
+        # On macOS the executable does not CONTAIN the DWARF — it carries a
+        # debug map (N_OSO stabs) pointing back at this object file, so
+        # deleting it strips every Saw line table lldb can resolve (design 69
+        # emitted them for nothing). Keep the object beside the output there.
+        # ELF links the DWARF into the binary, so elsewhere it is scratch.
+        if sys.platform != "darwin":
+            os.remove(obj_path)
 
         if verbose:
             print(f"  Output: {output_path}")
