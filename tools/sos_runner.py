@@ -6,8 +6,14 @@ asserts its UART output and emulator exit status. This is the mechanical test
 loop the kernel briefs build on — `make sos-test` green means "sawc-built code
 boots, prints, and exits cleanly under QEMU".
 
+Every kernel source builds under `--no-hidden-alloc` (design 135): a kernel is
+the audience for that flag, so the gate carries it permanently and any
+compiler-inserted allocation the source does not name breaks the build here
+rather than shipping.
+
 Pipeline per test case:
-  1. sawc   : <src>.saw  -> <name>.o   (--freestanding --target riscv32-...)
+  1. sawc   : <src>.saw  -> <name>.o   (--freestanding --no-hidden-alloc
+              --target riscv32-...)
   2. clang  : boot.S     -> boot.o     (shared; assembled once)
   3. clang  : rt.c       -> rt.o       (shared; runtime seams, compiled once)
   4. ld.lld : link with sos/kernel/virt.ld --gc-sections -> <name>.elf
@@ -177,8 +183,13 @@ def _build_elf(case, boot_o, rt_o, lld):
     name = case["name"]
     obj = os.path.join(BUILD_DIR, f"{name}.o")
     elf = os.path.join(BUILD_DIR, f"{name}.elf")
+    # design 135: `--no-hidden-alloc` rides along on every kernel build. The
+    # kernel logs through the alloc-free formatting path already (design 137's
+    # dogfood), so this costs nothing today and is what keeps it that way — an
+    # interpolated log line or an escaping closure added later fails the gate
+    # instead of quietly reaching for an allocator the kernel may not have.
     _run([sys.executable, SAWC, case["src"], "-o", obj,
-          "--freestanding", "--target", TRIPLE,
+          "--freestanding", "--no-hidden-alloc", "--target", TRIPLE,
           "--target-features", MFEATURES])
     _run([lld, "-T", os.path.join(KERNEL_DIR, "virt.ld"), "--gc-sections",
           "-o", elf, boot_o, rt_o, obj])
