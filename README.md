@@ -717,6 +717,12 @@ Saw provides deterministic memory management without garbage collection:
   That is the one thing the compiler will not guess for you. An enum carrying
   such a payload picks a policy the same way, and its derived `copy()` is
   payload-deep over the active variant.
+- **A type whose owning members are all trivial or `ImplicitCopy` is
+  `ImplicitCopy` itself**, with no declaration written and none required. So
+  `struct Ticket { code: String }` compiles bare, and `let b = a` is a refcount
+  bump that leaves both bindings live. Declaring the stricter `NoCopy` on such a
+  type is legal, and is how you make something move-only that could have been
+  copied for free.
 - **Wrappers carry the tier of what they wrap.** Every type has exactly one
   transfer class, and a type built out of others is never weaker than its parts:
   an `Optional<T>`, a tuple, a fixed array, an enum payload and a `Result<T, E>`

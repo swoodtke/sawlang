@@ -113,8 +113,29 @@ extension Holder: NoCopy {}                     // move-only (usually what you w
 extension Holder: ExplicitCopy {}               // memberwise deep .copy()
 ```
 Both bodies are EMPTY — the `deinit` is synthesized either way. Only the copy
-policy is your call. (A `String`/closure field is compiler-handled and forces
-nothing, and so is an enum whose payloads are only trivial/ImplicitCopy.)
+policy is your call.
+**THE AUTOMATIC ImplicitCopy TIER (design 159) — the other half of that rule.**
+A struct or enum whose owning members are all trivial/ImplicitCopy IS
+ImplicitCopy, with no declaration written and none owed. Its copy RETAINS each
+refcounted member; the last owner's drop releases each exactly once. So
+`struct P { name: String }` compiles bare and `let b = a` is a free retain that
+leaves both live — this is deliberate and stays implicit.
+```saw
+struct Ticket { code: String }   // no policy declared, and none is owed
+let b = a                        // free retain; `a` and `b` are both live
+```
+What puts a type on this tier WITHOUT owing a declaration is the member set the
+compiler retains for you: a `String` field, an escaping-closure field, a `[T; N]`
+of either, and another struct/enum already on this tier. A field of a DECLARED
+ImplicitCopy type is NOT one of them — an `Arc<T>` field triggers the ordinary
+containment error (``contains ImplicitCopy field `tag` of type `Arc<Res>` but
+does not implement ImplicitCopy``), so `Arc` in the tier list above means Arc
+ITSELF, not a struct holding one.
+Declaring the STRICTER `NoCopy` on such a type is legal and is the
+API-discipline escape hatch — `extension Ticket: NoCopy {}` makes a type that
+could copy for free move-only instead. Ceremony stays where a real choice
+exists (ExplicitCopy vs NoCopy for a `Vector`/`File`/`Box` member); between
+"bump a refcount" and "don't copy at all" there is none, so you are not asked.
 **ENUMS PICK A POLICY TOO** (design 139) — an enum carrying an ExplicitCopy or
 NoCopy payload declares one exactly as a struct with such a field does; a bare
 one is the same error. Same two spellings, same empty bodies:

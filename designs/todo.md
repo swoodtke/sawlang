@@ -1359,6 +1359,98 @@ noted live-range packing of locals; do both in one sizing brief.
   the only difference is which of the two lowering paths the tier arrived by.
   That is the brief's "second, conformance-less path that nothing
   user-visible tested", isolated to a two-line diff.
+- **Unit 2 — ONE lowering path.** `copy_tier`'s STRUCT branch got the
+  structural join, the exact counterpart of `_enum_structural_copy_tier`
+  (cycle guard + type-argument substitution included), and
+  `_get_cleanup_behavior`'s enum-only `is_implicit_copy_enum` arm became
+  `is_structurally_implicit_copy`, which answers for both kinds. Codegen's
+  `_generate_copy` did NOT change: it always knew how to retain a
+  cleanup-owning aggregate recursively (`_deep_copy_value`); what was missing
+  was the predicate telling it to. One oracle, so both spellings are fixed by
+  one edit — which is why the split bisect answer pointed at the oracle rather
+  than at a revert.
+- **The transfer-site audit, against `Namespace.copy_tier`.** Eleven classes
+  probed under Guard Malloc for the undeclared tier
+  (`examples/df151b_implicit_tier_transfers.saw` is the probe, promoted):
+
+  | transfer class | before | after |
+  |---|---|---|
+  | local-to-local `let b = a` | CRASH (regression, ddafb59) | clean |
+  | by-value argument | CRASH (ancient) | clean |
+  | return (whole binding + field read) | clean | clean |
+  | field write `h.p = a` | clean | clean |
+  | enum payload (String) | clean | clean |
+  | `Optional<P>` wrapper | clean | clean |
+  | tuple wrapper | clean | clean |
+  | fixed-array repeat `[a; 3]` | REFUSED at compile time | clean |
+  | `Vector<P>` element read-out | clean | clean |
+  | nested struct (`Nest { p: P }`) | CRASH | clean |
+  | closure field | CRASH | clean |
+
+  Struct-literal CONSTRUCTION was clean throughout, as the investigation said.
+- **Two more sites found by the audit, both PRE-EXISTING** (verified against
+  baseline main `50831ff`, so neither was introduced by unit 2):
+  - The REPEAT LITERAL asked a conformance lookup (`_is_implicit_copy_type`)
+    instead of the tier oracle, so it could not see the undeclared tier and
+    refused `[p; 3]` on a `struct P { name: String }` — with a diagnostic
+    naming a policy the type does not have and cannot be given: "a repeat
+    literal needs a freely copyable element, and `P` is ExplicitCopy". Now asks
+    `copy_tier` and accepts what copies for free. NOTE the containment check
+    must keep using the conformance predicate: making
+    `_is_implicit_copy_type` structural would demand a policy from every struct
+    holding a String, which is precisely the rule the user ratified against.
+  - `_emit_copy_value` — the per-ELEMENT path behind array and optional deep
+    copies — lacked `_generate_copy`'s cleanup-owning fallthrough, so allowing
+    the repeat literal above would have splatted one String into three slots
+    with no retain and released it three times. Same recursive retain now.
+- **Unit 3 — oracle hardening.** (a) Every string in the new oracles is
+  INTERPOLATED; a literal is immortal (rc -1) and cannot fail. (b) The
+  refcount-balance oracle counts an `Arc` reached through an undeclared struct
+  wrapping an undeclared enum (`Wrap { h: Holder }`) — the only countable shape
+  for this tier, since `String` exposes no refcount and an `Arc` FIELD would
+  force a declaration. It has teeth: pre-fix it printed
+  `balance-struct 1 3 3 218691215664472001`, ran the payload's deinit before
+  its owner returned, and died of SIGTRAP. (c) `closure_copyable_struct_copied`
+  now carries, in the file, WHY it could not catch this itself —
+  `strong_count` reads the ARC, not the ENV, and a dtor fires on the 1 -> 0
+  edge and never again, so neither a count assertion nor a deinit-print oracle
+  can see a double release. Its real detector is the Guard Malloc lane, which
+  the comment now says outright. (d) The stricter NoCopy override is pinned
+  both ways (`nocopy_override_implicit_tier.saw` +
+  `errors/nocopy_override_implicit_tier_copy.saw`). It was untested: all 45
+  bare `NoCopy` declarations in the corpus sit on containment-FORCED structs,
+  and the closure-field variant had no coverage at all.
+- **Unit 4 — the Guard Malloc lane.** `tools/gmgate.py`, `make gmgate`,
+  documented in TESTING.md. Twelve ownership oracles x 10 runs under
+  `libgmalloc`. Small on purpose: a page per allocation is far too slow for the
+  whole suite, and what it must police is the tests that assert something about
+  copies, retains, drops or refcounts. macOS only; SKIPPED (exit 0) elsewhere.
+  TESTING.md tells the next author to add to `GATE` when writing such a test.
+- **Unit 5 — docs.** The automatic tier is now stated plainly in
+  LANGUAGE_SPEC ("The automatic `ImplicitCopy` tier"), the saw-lang skill's
+  ownership section, and README. All three say the same three things: such a
+  type IS ImplicitCopy with no declaration owed, its copy retains each
+  refcounted member, and the stricter `NoCopy` override is legal. The spec and
+  skill also correct a real trap the old wording left open — `Arc` is
+  ImplicitCopy, but an `Arc` FIELD still owes a declaration; only the members
+  the compiler retains for you (String, escaping closure, arrays of those,
+  another composite already on the tier) are exempt.
+
+- **DF-159a — FILED, NOT FIXED (out of scope; a lexer fix with two-lexer
+  parity work behind it).** A tuple index followed by a field is a LEX error:
+  ```saw
+  let t = (a, a)
+  let n = t.0.name    // Parse error: Expected field name or tuple index
+                      // after '.', got FLOAT
+  ```
+  The lexer reads `0.name`'s `0.` as the start of a float literal, so the chain
+  never reaches the parser. Not interpolation-specific — it fails identically
+  in plain expression position. `t.0` alone is fine, `(t.0).name` is fine (and
+  is the workaround `examples/df151b_implicit_tier_transfers.saw` uses), and
+  `"{pair.0}"` inside interpolation is fine. Fixing it means teaching the
+  number scanner not to consume `.` when the previous token is a `.`-projection,
+  in BOTH lexers (sawc's and the self-hosted one) with lexdiff parity — hence
+  its own unit rather than a drive-by here.
 
 ## Design 151 — discarding a `Result` is an error (LANDED, Aug 6)
 

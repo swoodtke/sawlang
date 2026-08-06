@@ -1916,6 +1916,54 @@ compiler errors with a hint otherwise. Containment looks *through* array- and
 optional-typed fields: a struct holding a `[NoCopy; N]` or a `File?` field is
 move-only and must declare `NoCopy`, exactly as for a scalar `NoCopy` field.
 
+**The automatic `ImplicitCopy` tier.** A struct or enum whose owning members are
+all trivial or `ImplicitCopy` *is* `ImplicitCopy`, with no declaration written
+and none required. Copying such a value retains each refcounted member, and the
+last owner's drop releases each one exactly once.
+
+```saw
+struct Ticket { code: String }     // no policy declared, and none is owed
+
+func main() {
+    let n = 3
+    let a = Ticket(code: "ticket-{n}")
+    let b = a                      // a free retain: `a` and `b` are both live
+    print("{a.code} {b.code}")     // prints: ticket-3 ticket-3
+}
+```
+
+The members that put a type on this tier without owing a declaration are the
+ones whose retain and release the compiler handles itself: a `String` field, an
+escaping closure field, a fixed array of either, and another struct or enum
+already on this tier. A field of a *declared* `ImplicitCopy` type is not one of
+them — an `Arc<T>` field makes the containment rule apply as usual:
+
+```
+struct `Carrier` contains ImplicitCopy field `tag` of type `Arc<Res>` but does
+not implement ImplicitCopy
+```
+
+Declaring the stricter `NoCopy` on a type that would be on this tier is legal,
+and is how a type that could be copied for free is made move-only anyway:
+
+```saw
+struct Ticket { code: String }
+extension Ticket: NoCopy {}        // stricter than the automatic tier
+
+func main() {
+    let n = 3
+    let a = Ticket(code: "ticket-{n}")
+    let b = a                      // error: cannot copy value of type `Ticket`
+                                   //        which implements NoCopy
+    print(b.code)                  // hint: use `move` to transfer ownership instead
+}
+```
+
+Declared-policy ceremony stays where a genuine choice exists: `ExplicitCopy`
+versus `NoCopy` for a type owning a `Vector`, a `File`, a `Box`. Between
+retaining a refcount and not copying at all there is no such choice to make, so
+the compiler does not ask for one.
+
 **Fixed arrays.** A fixed array `[T; N]` is treated as an anonymous struct with
 `N` uniform fields: it inherits T's copy class. `[trivial; N]` copies bitwise;
 `[ImplicitCopy; N]` copies implicitly per element (each element's `copy()`);
