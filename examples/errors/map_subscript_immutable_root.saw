@@ -1,0 +1,17 @@
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: cannot open an exclusive place window on immutable variable `m`
+//
+// The map's subscript is a place, so writing through it opens an EXCLUSIVE
+// window — and an exclusive window borrows its root mutably, which a `let`
+// binding cannot lend. The accessor is declared `&self`; the flavor comes from
+// this use site.
+
+struct Counter { n: Int }
+
+func main() {
+    var seed = Map<String, Counter>()
+    let _ = seed.insert("a", Counter(n: 1))
+    let m = move seed
+    m["a"]!.n += 1
+    print(m["a"]!.n)
+}

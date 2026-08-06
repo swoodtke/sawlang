@@ -1,0 +1,99 @@
+// `Map.[]` — the subscript design 141 listed as v1 scope and could not express.
+//
+// A map's value lives inside `MapSlot.Occupied(key:value:)`, and until DF-146d
+// there was no place projection into an enum payload — `Optional`'s `!` was the
+// only one the language had. Now the accessor matches the slot WHERE IT SITS and
+// lends the payload out of the arm, so `m["k"]` names the stored value rather
+// than a copy of it.
+//
+// The conditional lend does the rest: an occupied bucket lends, and an absent
+// key opens no window at all.
+// EXPECT: success
+// EXPECT-OUTPUT:
+// -- a move-only value, borrowed
+// 1
+// 1
+// 2
+// absent
+// -- a struct value, written in place
+// 15
+// -1
+// -- an ImplicitCopy value, read out as a value
+// hello
+// hello
+// hello
+// none
+// -- a Vector value, grown in place
+// 3
+// 6
+// -- teardown
+// deinit 2
+// -- done
+
+struct Res { id: Int }
+
+extension Res: NoCopy {
+    func deinit(&var self) { print("deinit {self.id}") }
+}
+
+extension Res {
+    func id_of(&self) -> Int { self.id }
+    func bump(&var self) { self.id = self.id + 1 }
+}
+
+struct Counter { n: Int }
+
+func main() {
+    // A move-only value is reachable at all only through the place: reading it
+    // out as a value would alias storage the map still owns, so the two borrows
+    // below copy nothing and the single `deinit` at teardown is the proof.
+    print("-- a move-only value, borrowed")
+    var m = Map<String, Res>()
+    let _ = m.insert("a", Res(id: 1))
+    print(m["a"]!.id_of())
+    print(m["a"]!.id_of())
+    m["a"]!.bump()
+    print(m["a"]!.id_of())
+    if let _ = m["zz"] {
+        print("unreachable")
+    } else {
+        print("absent")
+    }
+
+    // A `&var self` method or a compound assignment opens an EXCLUSIVE window
+    // out of the same `&self` declaration, and the write lands in the slot.
+    print("-- a struct value, written in place")
+    var c = Map<String, Counter>()
+    let _ = c.insert("k", Counter(n: 10))
+    c["k"]!.n += 5
+    print(c["k"]!.n)
+    print((c["nope"] ?? Counter(n: -1)).n)
+
+    print("-- an ImplicitCopy value, read out as a value")
+    var s = Map<String, String>()
+    let _ = s.insert("x", "hello")
+    let held = s["x"]!
+    print(held)
+    print(s["x"]!)
+    print(s["x"] ?? "none")
+    print(s["missing"] ?? "none")
+
+    // The window reaches through the payload into the value's own storage, so
+    // the vector grows where it sits — no read-modify-write of the whole entry.
+    print("-- a Vector value, grown in place")
+    var g = Map<String, Vector<Int>>()
+    var v = Vector<Int>()
+    v.push(1)
+    let _ = g.insert("v", move v)
+    g["v"]!.push(2)
+    g["v"]!.push(3)
+    print(g["v"]!.len())
+    print(g["v"]!.fold(0, { acc, n in acc + n }))
+
+    print("-- teardown")
+    let _ = move g
+    let _ = move s
+    let _ = move c
+    let _ = move m
+    print("-- done")
+}

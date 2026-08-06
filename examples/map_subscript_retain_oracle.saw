@@ -1,0 +1,77 @@
+// Every value read out of the map's subscript retains EXACTLY once.
+//
+// A place stops being storage at a value read, and an ImplicitCopy value is
+// retained there so the map keeps its own. The count is what matters: one
+// retain per read, none for a borrow, none for a presence test. `copy()` is
+// hand-written here purely so the retains print.
+//
+// The subscript is the first ArrayIndex-shaped CONDITIONAL place, which put it
+// in reach of design 131's optional-payload rule as well as the place rule.
+// Two rules judging one read is not a stricter check but a wrong one, so the
+// place rule owns it: `v.get(i)!` was never affected only because a method call
+// is not an aliasing lvalue.
+// The first line is `insert`'s own retain of the value it is storing, before
+// any of this starts — pre-existing, balanced against the temporary's release,
+// and printed here only because `copy()` talks.
+// EXPECT: success
+// EXPECT-OUTPUT:
+// copy 1
+// -- ready
+// -- force unwrap
+// copy 1
+// 1
+// -- nil coalesce, present
+// copy 1
+// 1
+// -- nil coalesce, absent
+// 9
+// -- if let
+// copy 1
+// 1
+// -- borrow, no retain
+// 1
+// -- presence test, no retain
+// present
+// -- done
+
+struct Tag { n: Int }
+
+extension Tag: ImplicitCopy {
+    func copy(&self) -> Tag {
+        print("copy {self.n}")
+        Tag(n: self.n)
+    }
+}
+
+func main() {
+    var m = Map<String, Tag>()
+    let _ = m.insert("a", Tag(n: 1))
+    print("-- ready")
+
+    print("-- force unwrap")
+    let a = m["a"]!
+    print(a.n)
+
+    print("-- nil coalesce, present")
+    let b = m["a"] ?? Tag(n: 9)
+    print(b.n)
+
+    // The absent path opens no window, so there is nothing to retain.
+    print("-- nil coalesce, absent")
+    let c = m["zz"] ?? Tag(n: 9)
+    print(c.n)
+
+    print("-- if let")
+    if let d = m["a"] {
+        print(d.n)
+    }
+
+    print("-- borrow, no retain")
+    print(m["a"]!.n)
+
+    print("-- presence test, no retain")
+    if let _ = m["a"] {
+        print("present")
+    }
+    print("-- done")
+}

@@ -119,6 +119,33 @@ extension Map<K: Hashable + Equatable, V, A: Allocator = GlobalAllocator> {
         }
     }
 
+    // The bucket holding `key`, or -1 if the key is absent.
+    //
+    // The search is a plain function because `lend` may not appear in a loop: a
+    // borrows body that has to SEARCH splits in two, with the finder here and
+    // the accessor lending the bucket it picked. `get`/`contains_key`/`remove`/
+    // `[]` are all this probe plus what they do with the answer.
+    func _find(&self, key: K) -> Int {
+        if self.cap == 0 {
+            return -1
+        }
+        let mask = self.cap - 1
+        var b = self._hash_code(key) & mask
+        var probes = 0
+        while probes < self.cap {
+            let st = self._slot_state(b)
+            if st == 0 {
+                return -1
+            }
+            if st == 1 && self._key_eq(b, key) {
+                return b
+            }
+            b = (b + 1) & mask
+            probes = probes + 1
+        }
+        -1
+    }
+
     // Extract the value out of a moved-in slot (Some for Occupied; the key is
     // dropped), else None.
     func _take_value(&self, slot: MapSlot<K, V>) -> V? {
@@ -271,73 +298,64 @@ extension Map<K: Hashable + Equatable, V, A: Allocator = GlobalAllocator> {
         return self.insert(move key, move value)
     }
 
-    // Look up a key. Returns the value (a copy) if present, else None.
-    public func get(&self, key: K) -> V? {
-        if self.cap == 0 {
+    /// The value stored under `key`, as a PLACE — the map's subscript.
+    ///
+    /// `m["k"]` names the value where it sits, so it is read or written inside
+    /// the map rather than copied out: `m["k"]!.count += 1` writes the stored
+    /// value, `m["k"]!.method()` borrows it, and `if let _ = m["k"]` asks only
+    /// whether the key is there. An absent key opens no window at all — the
+    /// conditional lend's absent path — so `if let v = m["k"]` sees `None` and
+    /// `m["k"]!` panics, which is what the `!` promised.
+    ///
+    /// Reading the place out as a VALUE follows the value's copy tier (design
+    /// 131): trivial copies bitwise, `ImplicitCopy` retains, and
+    /// `ExplicitCopy`/`NoCopy` is refused with the ways out named. That is the
+    /// difference from `get`, which hands back an owned `V?`.
+    ///
+    /// While the window is open the whole map is borrowed, so inserting or
+    /// removing inside one is a compile error rather than an invalidated
+    /// reference.
+    public func [](&self, key: K) borrows -> V? {
+        let bucket = self._find(key)
+        if bucket < 0 {
             return None
         }
-        let mask = self.cap - 1
-        var b = self._hash_code(key) & mask
-        var probes = 0
-        while probes < self.cap {
-            let st = self._slot_state(b)
-            if st == 0 {
-                return None
-            }
-            if st == 1 && self._key_eq(b, key) {
-                return self._get_value(b)
-            }
-            b = (b + 1) & mask
-            probes = probes + 1
+        // Through the place: the slot is matched WHERE IT SITS and the arm
+        // lends the payload out of it, so nothing is copied and the map keeps
+        // owning the value. The Empty/Tombstone arms cannot be reached — the
+        // bucket came back occupied — but a `match` is total, and the absent
+        // path is already the right answer for them.
+        match self.slots[bucket] {
+            case Occupied(_, v) -> { lend v },
+            case Empty -> { return None },
+            case Tombstone -> { return None }
         }
-        None
+    }
+
+    // Look up a key. Returns the value (a copy) if present, else None.
+    public func get(&self, key: K) -> V? {
+        let bucket = self._find(key)
+        if bucket < 0 {
+            return None
+        }
+        self._get_value(bucket)
     }
 
     // Whether the map contains `key`.
     public func contains_key(&self, key: K) -> Bool {
-        if self.cap == 0 {
-            return false
-        }
-        let mask = self.cap - 1
-        var b = self._hash_code(key) & mask
-        var probes = 0
-        while probes < self.cap {
-            let st = self._slot_state(b)
-            if st == 0 {
-                return false
-            }
-            if st == 1 && self._key_eq(b, key) {
-                return true
-            }
-            b = (b + 1) & mask
-            probes = probes + 1
-        }
-        false
+        self._find(key) >= 0
     }
 
     // Remove a key, returning its value if it was present. The slot becomes a
     // tombstone so probing past it still reaches later entries.
     public func remove(&var self, key: K) -> V? {
-        if self.cap == 0 {
+        let bucket = self._find(key)
+        if bucket < 0 {
             return None
         }
-        let mask = self.cap - 1
-        var b = self._hash_code(key) & mask
-        var probes = 0
-        while probes < self.cap {
-            let st = self._slot_state(b)
-            if st == 0 {
-                return None
-            }
-            if st == 1 && self._key_eq(b, key) {
-                let old = self.slots.swap_out(b, MapSlot<K, V>.Tombstone)
-                self.count = self.count - 1
-                return self._take_value(move old)
-            }
-            b = (b + 1) & mask
-            probes = probes + 1
-        }
-        None
+        let old = self.slots.swap_out(bucket, MapSlot<K, V>.Tombstone)
+        self.count = self.count - 1
+        self._take_value(move old)
     }
 }
 

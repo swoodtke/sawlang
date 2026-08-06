@@ -48,6 +48,22 @@ and no state machine. Duplicating the tail is sound precisely because of the
 coverage rule: a path that lends cannot reach another lend, so the tail belongs
 to that one window.
 
+**Tail position keeps the `return` off** (design 146, DF-146d). Where the block
+being rewritten IS the accessor's result — the body itself, or a match arm in a
+body-final match — the window call stays an EXPRESSION and the block yields it:
+
+    match self.slots[i] {                         match self.slots[i] {
+        case Filled(_, r) -> { lend r },   =>         case Filled(_, r) -> { __window(&var r) },
+        case Empty -> { return None }                 case Empty -> { __absent() }
+    }                                             }
+
+That is not cosmetic. A `return` inside a match arm makes the USE-SITE lowering
+refuse to move the match into a window (a window is a closure, so the `return`
+would leave the window rather than the accessor) — and without the window the
+scrutinee is read out as a VALUE, which is exactly what lending an enum payload
+exists to avoid. An epilogue keeps the tail form too: the sequence simply ends
+in `__wr` instead of returning it.
+
 The transform runs BEFORE type checking, inside `parse_source`, so everything
 downstream — registration, inference, monomorphization, codegen — sees an
 ordinary generic method and needs to know nothing about places. The
@@ -214,11 +230,18 @@ class _PlaceTransform:
             # rather than the accessor (design 146). A match whose arms are
             # expressions is matched WHERE IT SITS, which is the whole point of
             # lending an enum payload.
-            at_tail = tail and not rest and not cont
+            # An EPILOGUE does not cost the tail form: the statements after the
+            # `lend` run inside this block and the window's result is still the
+            # block's value, so the sequence ends in `__wr` instead of
+            # `return __wr`. Only a nested continuation (`cont`) forces the
+            # return form, because then the value belongs to an enclosing block.
+            at_tail = tail and not cont
 
             if isinstance(stmt, LendStatement):
                 if at_tail:
-                    return _block_like(block, out, self._window_expr(stmt))
+                    seq, value = self._lend_tail(stmt, rest, place_optional)
+                    out.extend(seq)
+                    return _block_like(block, out, value)
                 out.extend(self._lend_sequence(stmt, rest + cont, place_optional))
                 return _block_like(block, out)
 
@@ -233,7 +256,8 @@ class _PlaceTransform:
             if _contains(stmt, LendStatement):
                 # A branch below lends, so everything after this statement is
                 # the epilogue of those windows and moves into them.
-                as_expr = at_tail and isinstance(_ctrl(stmt), MatchExpr)
+                as_expr = (at_tail and not rest
+                           and isinstance(_ctrl(stmt), MatchExpr))
                 rewritten = self._rewrite_container(stmt, rest + cont,
                                                     place_optional, as_expr)
                 if as_expr:
@@ -301,6 +325,27 @@ class _PlaceTransform:
                            in_argument_position=True, from_lend=True,
                            line=stmt.place.line, column=stmt.place.column)],
             stmt)
+
+    def _lend_tail(self, stmt: LendStatement, epilogue: List,
+                   place_optional: bool):
+        """`lend X` in TAIL position: statements plus the block's value.
+
+        Same shape as `_lend_sequence`, minus the `return` — which is the whole
+        point, since a `return` in a match arm keeps the use-site lowering from
+        matching the scrutinee where it sits.
+        """
+        window_call = self._window_expr(stmt)
+        if not epilogue:
+            return [], window_call
+        name = f"{_EPILOGUE_LOCAL}{self._epilogue_counter}"
+        self._epilogue_counter += 1
+        seq = [LetStatement(name=name, type_annotation=None,
+                            value=window_call, mutable=False,
+                            line=stmt.line, column=stmt.column)]
+        for s in epilogue:
+            seq.append(self._rewrite_absent_only(copy.deepcopy(s),
+                                                 place_optional))
+        return seq, Identifier(name=name, line=stmt.line, column=stmt.column)
 
     def _lend_sequence(self, stmt: LendStatement, tail: List,
                        place_optional: bool) -> List:

@@ -26,7 +26,14 @@
 // hello
 // hello
 // none
+// -- a diverging arm beside a lending one
+// 7
+// -- an epilogue inside the lending arm
+// epilogue ran
+// 8
 // -- teardown
+// deinit 8
+// deinit 7
 // deinit b
 
 struct Res { name: String }
@@ -60,6 +67,45 @@ extension Table {
         }
         match self.slots[i] {
             case Filled(_, r) -> { lend r },
+            case Empty -> { return None }
+        }
+    }
+}
+
+// A non-optional place: the out-of-range and empty-slot paths diverge instead
+// of returning None, which covers a lending arm beside a panicking one.
+struct Dense { slots: Vector<Slot> }
+
+extension Dense: NoCopy {}
+
+extension Dense {
+    public func at(&self, i: Int) borrows -> Res {
+        if i < 0 || i >= self.slots.len() {
+            panic("Dense.at: index out of range")
+        }
+        match self.slots[i] {
+            case Filled(_, r) -> { lend r },
+            case Empty -> { panic("Dense.at: empty slot") }
+        }
+    }
+}
+
+// An EPILOGUE inside the lending arm: the statements after `lend` run when the
+// caller's window closes, so they need a `&var self` receiver like any other.
+struct Counted { slots: Vector<Slot>, reads: Int }
+
+extension Counted: NoCopy {}
+
+extension Counted {
+    public func at(&var self, i: Int) borrows -> Res? {
+        if i < 0 || i >= self.slots.len() {
+            return None
+        }
+        match self.slots[i] {
+            case Filled(_, r) -> {
+                lend r
+                print("epilogue ran")
+            },
             case Empty -> { return None }
         }
     }
@@ -121,7 +167,19 @@ func main() {
     print(l.at(0) ?? "none")
     print(l.at(5) ?? "none")
 
+    print("-- a diverging arm beside a lending one")
+    var d = Dense(slots: Vector<Slot>())
+    d.slots.push(Slot.Filled(key: 2, res: Res(name: "7")))
+    print(d.at(0).label())
+
+    print("-- an epilogue inside the lending arm")
+    var counted = Counted(slots: Vector<Slot>(), reads: 0)
+    counted.slots.push(Slot.Filled(key: 3, res: Res(name: "8")))
+    print(counted.at(0)!.label())
+
     print("-- teardown")
+    let _ = move counted
+    let _ = move d
     let _ = move l
     let _ = move t
 }

@@ -1626,6 +1626,17 @@ class TypeUtilsMixin:
         """
         if source is None or not self._is_aliasing_expr(source):
             return
+        # A `borrows` accessor's result is judged by the PLACE rule instead
+        # (`place_uses._value_read_ok`), which knows the element type, the
+        # receiver and which escape hatches that receiver actually publishes.
+        # Both rules firing on one read is not a stricter check but a WRONG one:
+        # `m["k"]` carries `place_struct` and is an `ArrayIndex`, so an
+        # ImplicitCopy value got `payload_needs_copy` here AND `place_value_read`
+        # there, and `let held = m["k"]!` retained twice against one release.
+        # `v.get(i)!` never had the problem only because a MethodCall is not in
+        # the aliasing set; the subscript spelling made the overlap reachable.
+        if self._reads_a_place(source):
+            return
         # A coroutine-frame field read carries the transform's own ownership
         # bookkeeping: a `move` read hands the frame's reference over through
         # `__saw_forget`, a non-`move` read is retained by codegen's frame-read
@@ -1652,6 +1663,16 @@ class TypeUtilsMixin:
                 line, column,
                 hint=self._payload_read_hint(source, policy)
             )
+
+    def _reads_a_place(self, expr: Expression) -> bool:
+        """Does this source name a `borrows` accessor's place?
+
+        Transparent through `!` for the same reason `_is_aliasing_expr` is:
+        `m["k"]!` is a projection of the place `m["k"]`.
+        """
+        if isinstance(expr, ForceUnwrap):
+            return self._reads_a_place(expr.expr)
+        return getattr(expr, 'place_struct', None) is not None
 
     def _render_place(self, expr: Expression) -> str:
         """A source-shaped rendering of a place expression, for diagnostics."""
