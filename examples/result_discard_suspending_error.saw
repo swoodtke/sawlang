@@ -1,0 +1,27 @@
+// design 151: the rule keys off the CHECKED TYPE, not the call form, so a
+// suspending call needs no special case — dropping a failure is dropping a
+// failure whether or not the frame parked on the way.
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: result of `fetch` is `Result<Int, ParseError>` and is silently discarded
+
+import std.task
+
+struct ParseError { at: Int }
+extension ParseError: Printable {
+    func format(&self, into: &var StringBuilder) {
+        into.append("bad input at ")
+        into.append(self.at)
+    }
+}
+extension ParseError: Error {}
+
+func fetch(n: Int) -> Result<Int, ParseError> {
+    yield_now()
+    if n < 0 { return ParseError(at: n) }
+    return n * 2
+}
+
+func main() {
+    fetch(3)
+    print("kept going")
+}

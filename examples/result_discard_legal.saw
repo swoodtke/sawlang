@@ -1,0 +1,85 @@
+// design 151, the other half: the rule is Result ONLY, and `let _ =` is the
+// way out. Everything here stays legal, and would be noise to flag.
+//
+// Optionals in particular stay freely discardable — dropping the old value a
+// map insert hands back is normal, and a `?.` chain typed `Void?` is a
+// statement by design 111. A Result you may always ignore should not have been
+// a Result in the first place, so there is no must-use ATTRIBUTE here; the
+// type carries the whole rule.
+// EXPECT: success
+// EXPECT-OUTPUT:
+// explicit discard is fine
+// handled: 6
+// consumed: 8
+// map had: 2
+// chain wrote: 5
+// done
+
+import std.task
+
+struct ParseError { at: Int }
+extension ParseError: Printable {
+    func format(&self, into: &var StringBuilder) {
+        into.append("bad input at ")
+        into.append(self.at)
+    }
+}
+extension ParseError: Error {}
+
+struct Point { x: Int }
+
+func might(n: Int) -> Result<Int, ParseError> {
+    if n < 0 { return ParseError(at: n) }
+    return n * 2
+}
+
+func maybe(n: Int) -> Int? {
+    if n < 0 { return None }
+    return n
+}
+
+func nothing(label: String) {
+    print(label)
+}
+
+// A suspending Result producer: the rule keys off the checked type, so the
+// suspension changes nothing either way.
+func slow(n: Int) -> Result<Int, ParseError> {
+    yield_now()
+    return n * 2
+}
+
+func main() {
+    // The blessed explicit discard.
+    let _ = might(1)
+    nothing("explicit discard is fine")
+
+    // Handling it is the other out.
+    match might(3) {
+        case Ok(v) -> print("handled: {v}"),
+        case Err(e) -> print("failed: {e}")
+    }
+
+    // `try!` consumes the Result; the `Int` it yields is freely discardable.
+    // (Named `got`, not `v`: a same-named later local collides with the match
+    // arm binding above in a suspending body — DF-151a.)
+    let got = try! slow(4)
+    print("consumed: {got}")
+
+    // An Optional is not a Result — discarding one is ordinary.
+    maybe(7)
+    var m: Map<String, Int> = {:}
+    m.insert("a", 1)
+    // `insert` hands back the old value as a `V?`; dropping it is the normal
+    // spelling, and design 151 leaves it alone.
+    m.insert("a", 2)
+    let had = m.get("a")!
+    print("map had: {had}")
+
+    // A `?.` chained assignment types `Void?` and stays a statement.
+    var p: Point? = Point(x: 0)
+    p?.x = 5
+    print("chain wrote: {p!.x}")
+
+    nothing("done")
+}

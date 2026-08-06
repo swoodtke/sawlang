@@ -1,0 +1,64 @@
+// design 151: an expression STATEMENT is not the only place a value is
+// implicitly dropped. Every position the checker permits today is covered by
+// one rule — a `Void` body's tail expression, a loop body's tail, a statement
+// inside a `guard let ... else` block, and a statement-position `if` that
+// merely forwards its branch's value.
+//
+// The parser turns a block's LAST expression statement into its tail
+// expression, so `func f() { g() }` is the tail case, not the statement case —
+// which is exactly the shape most real code has.
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: is silently discarded
+
+struct ParseError { at: Int }
+extension ParseError: Printable {
+    func format(&self, into: &var StringBuilder) {
+        into.append("bad input at ")
+        into.append(self.at)
+    }
+}
+extension ParseError: Error {}
+
+func might(n: Int) -> Result<Int, ParseError> {
+    if n < 0 { return ParseError(at: n) }
+    return n * 2
+}
+
+// The tail expression of a `Void` function.
+func tail_drop() {
+    might(1)
+}
+
+// The tail expression of a loop body — a loop yields only through `break v`.
+func loop_drop() {
+    var i = 0
+    while i < 3 {
+        i += 1
+        might(i)
+    }
+}
+
+// A statement-position `if` forwards its branch's value; the diagnostic points
+// at the call, not at the `if`.
+func branch_drop(go: Bool) {
+    if go {
+        might(2)
+    }
+    print("done")
+}
+
+// A discard buried in a `guard let ... else` block, ahead of its exit.
+func guard_drop(o: Int?) {
+    guard let n = o else {
+        might(9)
+        return
+    }
+    print("{n}")
+}
+
+func main() {
+    tail_drop()
+    loop_drop()
+    branch_drop(true)
+    guard_drop(None)
+}

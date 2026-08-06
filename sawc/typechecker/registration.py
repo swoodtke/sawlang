@@ -188,6 +188,9 @@ class RegistrationMixin:
             scope = scope.parent
 
         self._check_block(body)
+        # Design 151: a loop body yields a value only via `break v`, so its
+        # tail expression is discarded unconditionally.
+        self._check_result_discard(body.final_expr)
 
         for key, (var_info, name, move_line, move_col) in list(self.moved_bindings.items()):
             if key in entry_moves:

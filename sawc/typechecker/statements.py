@@ -17,6 +17,7 @@ from ast_nodes import (
     WhileExpr, ForLoop, RangeExpr,
     Identifier, MemberAccess, ArrayIndex, TupleIndex, MoveExpr, IntLiteral,
     FunctionCall, StructInit, SelfExpr, ClosureExpr,
+    IfExpr, IfLetExpr, MatchExpr, MethodCall,
     SawType, TypeKind,
     ResultOkWrap, ResultErrWrap, OptionalWrap,
     WildcardPattern, BindingPattern, TuplePattern,
@@ -272,6 +273,10 @@ class StatementsMixin:
         # the central `_apply_literal_expected_type` propagation before the block
         # check, above) — design 87 subsumes the old per-position range check.
 
+        if expected_return.kind == TypeKind.VOID:
+            # Design 151: a `Void` method's tail expression is discarded.
+            self._check_result_discard(getattr(method.body, 'final_expr', None))
+
         if expected_return.kind != TypeKind.VOID:
             if body_type is None and not self.found_return_with_value:
                 self._error(
@@ -410,6 +415,9 @@ class StatementsMixin:
         decidable path (design 24 item 2).
         """
         if resolved_return_type.kind == TypeKind.VOID:
+            # Design 151: a `Void` function's tail expression is discarded.
+            self._check_result_discard(
+                getattr(getattr(func, 'body', None), 'final_expr', None))
             return
         # A bare literal in tail-return position adopts + range-checks the
         # fixed-width return type through `_stamp_return_literal_types` (central
@@ -950,6 +958,111 @@ class StatementsMixin:
             )
             return
         self._check_expression(stmt.expression)
+        self._check_result_discard(stmt.expression)
+
+    # ------------------------------------------------------------------ #
+    # Design 151 — discarding a `Result` is a compile error.
+    #
+    # A `Result` nothing consumes was the last silent drop in the language:
+    # `stream.write(data)` as a bare statement threw the write's failure away
+    # with no diagnostic, against the standing never-hide-errors principle and
+    # design 131's rule that no status is ignorable. Every position where the
+    # checker computes a value and no construct reads it routes through
+    # `_check_result_discard`:
+    #
+    #   * an expression statement -- a bare call, and a statement-position
+    #     `if` / `if let` / `match` / `try` (the parser wraps all of those in
+    #     `ExpressionStatement`, so there is one site, not four);
+    #   * a `Void` function or method body's tail expression (the parser turns
+    #     a block's LAST expression statement into `final_expr`, so the common
+    #     `func f() { g() }` shape lands here, not above);
+    #   * a loop body's tail expression (`while`/`for` bodies yield only via
+    #     `break v`, so the tail is dropped unconditionally);
+    #   * a `guard let ... else { }` block's tail.
+    #
+    # Result ONLY: Optionals and everything else stay freely discardable. The
+    # explicit discard is `let _ = expr`, which is checked nowhere here -- it
+    # is the escape hatch the diagnostic names.
+    # ------------------------------------------------------------------ #
+    _RESULT_DISCARD_MAX_DEPTH = 32
+
+    def _is_result_typed(self, node) -> bool:
+        """Does this already-checked expression node carry a `Result` type?
+
+        Resolves through a `type R = Result<...>` alias, so a named result type
+        is a Result for this rule too.
+        """
+        t = getattr(node, 'resolved_type', None)
+        if t is None:
+            return False
+        t = self._resolve_type_alias(t)
+        return bool(t is not None and t.is_result())
+
+    def _result_discard_culprits(self, expr):
+        """The innermost expressions actually PRODUCING a discarded Result.
+
+        A statement-position `if`/`if let`/`match` only FORWARDS its branches'
+        values, so anchoring the diagnostic on the `if` would name a line that
+        has nothing wrong with it. Descend through those forwarding constructs
+        to the branch tails that produce the value; every other expression is
+        its own culprit. A branch that diverges (`panic(...)`, type `Never`)
+        contributes nothing, so it drops out naturally.
+
+        A compiler-inserted `ResultOkWrap`/`ResultErrWrap` is skipped: the
+        author wrote a non-Result there and the return-type auto-wrap made it
+        one, so "you discarded a Result" would describe code nobody wrote.
+        """
+        out = []
+        seen = set()
+
+        def visit(node, depth):
+            # Within-one-walk cycle guard over physical nodes (design 126 R2).
+            if node is None or id(node) in seen or depth > self._RESULT_DISCARD_MAX_DEPTH:
+                return
+            seen.add(id(node))
+            if isinstance(node, (ResultOkWrap, ResultErrWrap)):
+                return
+            if isinstance(node, (IfExpr, IfLetExpr)):
+                visit(getattr(node.then_branch, 'final_expr', None), depth + 1)
+                if node.else_branch is not None:
+                    visit(getattr(node.else_branch, 'final_expr', None), depth + 1)
+                return
+            if isinstance(node, MatchExpr):
+                for arm in node.arms:
+                    body = arm.body
+                    visit(body.final_expr if isinstance(body, Block) else body,
+                          depth + 1)
+                return
+            if self._is_result_typed(node):
+                out.append(node)
+
+        visit(expr, 0)
+        return out
+
+    def _result_producer_name(self, node) -> str:
+        """How the diagnostic refers to the expression that produced the
+        Result -- its call name where there is one, else a generic phrase."""
+        if isinstance(node, FunctionCall):
+            return f"result of `{node.name}`"
+        if isinstance(node, MethodCall):
+            return f"result of `{node.method_name}`"
+        return "this expression's result"
+
+    def _check_result_discard(self, expr):
+        """Design 151: report every `Result` this discarded expression drops."""
+        if expr is None:
+            return
+        for node in self._result_discard_culprits(expr):
+            t = self._resolve_type_alias(node.resolved_type)
+            self._error(
+                ErrorKind.TYPE_MISMATCH,
+                f"{self._result_producer_name(node)} is `{t}` and is silently "
+                f"discarded",
+                node.line, node.column,
+                hint="handle it — `match` it, `try`/`try!`/`try?` it, or "
+                     "return it — or write `let _ = ...` to discard it "
+                     "explicitly"
+            )
 
     def _stamp_return_literal_types(self, body, return_type):
         """Stamp `return_type` as the expected type on any collection/array
@@ -1294,6 +1407,8 @@ class StatementsMixin:
         # leave `v` usable on the guarded path.
         entry_moves = self._snapshot_moves()
         self._check_block(stmt.else_branch)
+        # Design 151: a `guard let ... else { }` block's tail is discarded.
+        self._check_result_discard(stmt.else_branch.final_expr)
         self.current_scope = old_scope
 
         # Verify else branch has early exit (return, break, continue)

@@ -1,0 +1,24 @@
+// design 151: the rule is on the CHECKED TYPE, so an erased
+// `Result<T, Box<any Error>>` is a Result like any other — the error being
+// boxed does not make dropping it any less of a drop.
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: is silently discarded
+
+struct ParseError { at: Int }
+extension ParseError: Printable {
+    func format(&self, into: &var StringBuilder) {
+        into.append("bad input at ")
+        into.append(self.at)
+    }
+}
+extension ParseError: Error {}
+
+func load(n: Int) -> Result<Int, Box<any Error>> {
+    if n < 0 { return ParseError(at: n) }
+    return n
+}
+
+func main() {
+    load(1)
+    print("kept going")
+}
