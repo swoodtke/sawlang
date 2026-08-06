@@ -1100,10 +1100,11 @@ construct in the owner and lend `&driver` down.
   `f(&var v[i])`. Taking it OUT as a value (`let e = v[i]`) follows the copy
   tier: bitwise for trivial, RETAIN for ImplicitCopy, clean ERROR for
   ExplicitCopy/NoCopy. Both `v[i]` and `d[i]` PANIC out of range.
-  **`Vector.get(i)` is still the OLD by-value accessor** and still has no
-  `Copy` bound, so it hands a NoCopy element out as a non-retained ALIAS and two
-  lookups double-free it (DF-132a, still open) — reach a move-only element
-  through `v[i]`, `with_ref` or `swap_out`, never `get`.
+  **`Vector.get(i)` is the `None`-returning twin** — a conditional lend, the
+  same lowering: `if let e = v.get(i)` is a value read (so the copy tier
+  applies), `v.get(i)!.count += 1` opens an exclusive window, and the absent
+  path opens no window at all. A move-only element is REFUSED at a value read
+  now; it used to come out as a non-retained alias two lookups double-freed.
   `swap_out(i, v)` moves a slot out; `with_ref`/`with_var_ref(i, body)` are
   still the multi-statement / long-window spellings (a place window is ONE
   expression) and the only way to hold a borrow across several statements.
@@ -1114,13 +1115,24 @@ construct in the owner and lend `&driver` down.
   `String.substring(s, e)` ALL PANIC out of range — no silent no-op
   (`set`/`swap` used to be) and no clamp (`substring` used to be). An empty
   `substring(i, i)` is still legal; a REVERSED range panics.
-- **A "does it exist?" test on a NoCopy place needs a Bool method, not
-  `if let _`.** `if let _ = doc.section(name)` is a VALUE read of the place, so
-  a NoCopy payload is refused; write `doc.has_section(name)` (libs/toml) or an
-  index-returning lookup (`doc.index_of(name)`) and read through the index.
+- **A pattern that BINDS NOTHING is a presence test, not a read** (design 146).
+  `if let _ = doc.section(name)`, `guard let _ = ...`, and a `match` arm like
+  `case Empty` or `case Occupied(_)` look at the discriminant through the
+  borrow — no copy, no drop — so they work on a move-only place, where a value
+  read is refused. A `match` on a place matches it WHERE IT SITS, and an arm
+  that does bind binds the payload in place, so the copy tier is consulted for
+  that one binding rather than the whole element. Two shapes stay on the
+  value-read path because a window is a closure: an arm that `return`s/`break`s
+  out of the function, and an arm that `move`s its own binding out.
   Holding one index and reading several values (`doc.section_at(i).get("a")`,
-  `...get("b")`) is the idiom that replaces binding the section — a place window
-  is one expression, so an INDEX is what survives across statements.
+  `...get("b")`) is still the idiom when reads must span STATEMENTS — a place
+  window is one expression, so an INDEX is what survives.
+- **A place value read inside a generic body needs a bound** (design 146). An
+  element type that mentions a type parameter (`Slot<K>`, or a bare `K`) has no
+  copy tier of its own — the instantiation decides — so the read is legal only
+  when the bounds prove every instantiation copies (`K: Copy`). The error names
+  the parameter and arrives in the generic body, never at one caller. Reach the
+  place through a borrow if you cannot bound it.
 - String `chars()` yields Int scalars (no Char type); the inverse is
   `StringBuilder.append_scalar(scalar: Int) -> Int?` (design 119) — UTF-8
   encodes + appends a scalar, returns the byte count (1..4), `None` (appends

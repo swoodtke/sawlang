@@ -19,10 +19,30 @@ DRAFTS** (Deinit/ExplicitCopy synthesis — LANDED, see below;
 newlines-in-brackets) awaiting user
 review — DO NOT DISPATCH. Original ranked findings follow for reference.
 
-**146 PARTIAL (Aug 5) — units A, B, D and MOST of C landed. The brief's P0 pair
-(DF-132a / DF-128c) is STILL OPEN, now blocked on ONE new finding: DF-146e.**
-Read this before the 141 entry below, which it supersedes on the use-site
+**146 LANDED (Aug 5-6) — units A-D complete, and the P0 pair with them.** The
+Aug-6 continuation closed DF-146e, DF-146f, DF-132a and DF-128c; suite 1275 ->
+1283. Read this before the 141 entry below, which it supersedes on the use-site
 question.
+
+- **DF-146e / DF-146f closed (commit c943680).** `copy_tier` gained a fifth
+  answer, `abstract` — the demands-a-bound tier for a type mentioning a type
+  parameter. It joins as the strongest (the unknown may be move-only) and every
+  pre-existing consumer treats it exactly as it treated `free`, so the only
+  behavior change is the one intended: a place value read asks the BOUNDS
+  instead of guessing, and the copy is emitted at the instantiation alongside
+  the drop. Two emission-side defects fell out of the same asymmetry:
+  `is_implicit_copy_enum` judged a generic enum's payloads UNSUBSTITUTED (so
+  every generic enum answered False), and `_get_cleanup_behavior` cached that
+  answer under the BASE name, so `Slot<K>` decided for `Slot<Res>`.
+- **The Map/Set migration + the front half's re-entry (commit b626a4b).** Map's
+  probes match through the slot; Set inherits all of it. That made the place
+  re-entry universal (std/map.saw is in every program), which surfaced NINE
+  pre-existing latent defects — a program using `v[i]` plus any of these
+  features did not compile on main either. All four roots are fixed and pinned
+  by `examples/place_reentry_idempotent.saw`. See DF-146g below.
+- **The P0 pair (commit f4222fd).** `Vector.get` is `borrows -> T?`;
+  `_type_method_base` fills default type arguments. Restoring the drop glue made
+  two more live double-frees real, both recorded as DF-146h and DF-146i below.
 
 - **Unit A DONE.** `_prepare_codegen` re-enters over the ASTs it already parsed
   (`parsed=`: module map, module sources, and the builtin+std AST from before
@@ -61,12 +81,9 @@ question.
   which returned a NoCopy section by value), `index_of` + `section_at(i)`,
   `has_section`, and `TomlSection.table(key)`; blade's call sites migrated.
   Docs landed: the unified spec Places section (with the DF-146b callout), the
-  skill, README. **What did NOT land: the DF-132a / DF-128c P0 pair.**
-  `Vector.get` as `borrows -> T?` is written and proven — it turns the
-  double-free into a clean error and the retain oracle shows zero change for
-  trivial/ImplicitCopy callers — but it is blocked on **DF-146e** below, which
-  it exposed. The `_type_method_base` drop-glue fix is held back with it,
-  unchanged, because the two cancel and neither is sound alone.
+  skill, README. **The DF-132a / DF-128c P0 pair landed Aug 6 (commit
+  f4222fd)**, after DF-146e and DF-146f cleared the way; the retain oracle is
+  unchanged, so trivial and ImplicitCopy callers behave exactly as before.
   Ceremony converted: 8 `if let x = v.get(i)` index-loop reads inside
   libs/toml became place borrows, plus 5 `get_section` call sites in blade and
   2 in examples. ZERO `with_ref`/`with_var_ref` CALL sites were converted: the
@@ -200,9 +217,25 @@ question.
   present path (`{ __p in __p }`, auto-wrapping into a pinned `__R = T?`) is
   believed right; the parameterless twin is where the type is lost.
 
-- **DF-146f — OPEN, small. `if let _ = <optional place>` is judged a VALUE READ,
-  so it cannot ask whether a move-only place is there** (found by design 146
-  unit C, Aug 5, while migrating libs/toml). `_` is blessed as an `if let` /
+- **DF-146f — CLOSED (user decision folded in, Aug 6, commit c943680).** Yes: a
+  pattern that BINDS NOTHING is a presence test, and a presence test is a
+  BORROW of the place — legal for every tier, emitting no copy and no drop. It
+  is implemented as the GENERAL rule rather than a carve-out, so Map/Set use it
+  rather than being special-cased: `if let _` / `guard let _` become the plain
+  conditional they meant (the window answers `true`, the absent path `false`),
+  and a `match` on a place moves INSIDE the window, where an arm that binds
+  binds the payload in place. Two shapes keep the value-read path, because a
+  window is a closure: an arm that jumps out of the enclosing function, and an
+  arm that `move`s one of its own bindings (destructuring, not reading).
+  A `_` on a real Optional still drops the payload — the divergence this entry
+  anticipated, and the right one: an Optional binding OWNS its payload, a place
+  never does. Test: `examples/place_presence_test_borrows.saw`.
+  Landing it required fixing a pre-existing over-release the rule would
+  otherwise have inherited: `match` through a `&T`/`&var T` binding took design
+  61's CONSUME path, so `case Occupied(_)` released a payload the container
+  still owned. That reached every `match` inside a `with_ref` body, and is why
+  consume mode now requires an OWNED binding. Original finding follows.
+  `_` is blessed as an `if let` /
   `guard let` pattern that binds nothing (design 111), so on a place it takes
   nothing out and the container keeps everything — but the copy-tier table is
   applied to the payload regardless, and a `NoCopy` one is refused:
@@ -222,6 +255,59 @@ question.
   `_value_read_ok` / `_check_payload_read` if the answer is yes, and it wants
   the answer before it is written — the same `_` on a real Optional DOES drop
   the payload today, so the two would diverge.
+
+- **DF-146g — FIXED (Aug 6, commit b626a4b). The front half runs TWICE over one
+  AST, and the checker's own rewrites were not idempotent** (PRE-EXISTING —
+  every one of these broke a program on main that used `v[i]` and the feature
+  together; the Map migration only made the re-entry universal and so made them
+  unmissable). Four roots, nine tests, one regression file
+  (`examples/place_reentry_idempotent.saw`):
+  - Driving or spawning a generic REPLACES the callee with its monomorphized
+    symbol and clears the type arguments, so a second pass looked up
+    `settle$1$Int` — the name the first pass wrote. The authored form is
+    recorded once and restored on every later pass, which re-derives the same
+    symbol. (`_restore_authored_callee`, 4 sites.)
+  - The checker INSERTS `OptionalWrap` / the three `Result` wraps to fit a value
+    into its home, and re-checking judged the wrapped form: `let y: OptInt =
+    100` became an `Int?` assigned to a distinct alias, which is not the
+    literal-into-distinct rule that admitted it. The place lowering now
+    UN-CHECKS the tree it hands on (strips those wraps and the first pass's
+    `resolved_type` conclusions), and the `let` binding peels its own wrap
+    before deciding again — which also fixes the CORO re-entry, where an
+    optional type alias plus any driving did not compile at all, places or no.
+  - A synthesized instantiation spliced in by the effect pass was re-checked as
+    if the author had written it. Every type in a clone arrived by
+    substitution, so design 132's "a Void you can SEE" rule read `let result =
+    body(n)` at `R = Void` as a binding of nothing. Its errors were suppressed
+    where it was built, for exactly this reason; they are suppressed here too.
+  A blanket "reset every annotation" walk was tried and rejected: the lowering's
+  own output is annotated the same way, so resetting it re-lowers forever. The
+  un-check is deliberately narrow — the checker's inserted wraps and its
+  resolved types, and nothing the transform produced.
+
+- **DF-146h — FIXED (Aug 6, commit f4222fd). Assigning to a MOVED-FROM `var`
+  dropped the value the move gave away, and never re-armed the binding**
+  (PRE-EXISTING, masked by DF-128c). `move x` clears the drop flag; the
+  assignment then dropped the old value without consulting it, freeing what the
+  receiver now owned, and stored the new value without setting the flag back, so
+  that one leaked. `var cur = ...; sink.push(move cur); cur = fresh` is the
+  language's own accumulate idiom and `TomlDoc.parse` is built on it — this is
+  what crashed Blade's manifest reader with zero output. The overwrite-drop is
+  now guarded exactly as scope exit guards its own (`_emit_scope_var_drop`), and
+  the assignment revives the binding. Test:
+  `examples/move_out_then_reassign.saw`.
+
+- **DF-146i — FIXED (Aug 6, commit f4222fd). A place VALUE READ did not retain
+  an owning element that declares no copy policy.** A struct whose only field is
+  a `String` needs no policy — the compiler handles the transfer — but it still
+  OWNS something, so reading one out of a container duplicates it. The old
+  by-value accessor retained it INSIDE its own body, where the read was an
+  ordinary indexed one; a place moves the read into the caller, where it arrives
+  as a window-closure parameter, and the container-slot rule did not follow.
+  `std.directory`'s `Path` is exactly this shape, so `Directory.list` +
+  `remove_tree` bus-errored. A place read is now marked and gets the container-
+  slot rule; `v.get(i)!` with nothing after it counts as one (and gets the tier
+  check it was also missing). Test: `examples/place_read_retains_owning.saw`.
 
 - **DF-146d — QUEUED (user, Aug 6): a focused follow-up dispatched AFTER the
   P0-pair continuation integrates** (deliberately not folded in — the pair is
@@ -262,17 +348,20 @@ question.
   `Empty`/`Tombstone` variants. Not a patch either way. Vector and Data have no
   such problem — their elements are storage already — and both landed.
 
-- **DF-146e — DECIDED (user, Aug 6): three-part fix, owned by the P0-pair
-  continuation.** (1) `copy_tier` over a composite with ABSTRACT arguments
-  returns demands-a-bound, never free — a value read of `Slot<K>` in a
-  generic body requires bounds making it provably copyable, exactly like
-  bare-`T` reads (eager, instantiation-uniform — the DF-123b principle; no
-  post-mono errors). (2) Copy EMISSION defers to the instantiation, the
-  same phase as the drop — symmetry restored (the 139 model: tiers are
-  properties of TYPES; an unsubstituted composite is a schema). (3) Map/Set
-  probe internals migrate from slot value reads to BORROW-BASED matching
-  (`match` through the place, no binding, no copy) — the sound spelling and
-  faster. Original finding follows: **A place VALUE READ whose element type is an
+- **DF-146e — CLOSED (Aug 6, commit c943680).** All three parts landed as
+  decided. Two notes for the record. (1) The claim that bare-`T` reads already
+  followed the rule did not hold: an unbounded `T` read was accepted and a
+  `T: Copy` one aliased at an ExplicitCopy instantiation. Both now go through
+  the same gate, so the rule is uniform rather than aspirational. (2) "Provably
+  copyable" resolves to a `Copy`-family bound (`Copy`, `ImplicitCopy`,
+  `ExplicitCopy`) — each gives every satisfying type a copy the compiler can
+  emit, and writing one is the author's consent to duplication, which is what a
+  concrete site spells `.copy()`. No bound says "copies for FREE" (design 148
+  hit the same wall), so requiring one would have made every abstract read an
+  error and left part (2) with nothing to emit.
+  Tests: `examples/place_abstract_value_read.saw`,
+  `examples/errors/place_abstract_value_read_unbounded.saw`.
+  Original finding follows: **A place VALUE READ whose element type is an
   ENUM WITH ABSTRACT TYPE ARGUMENTS does not retain, but its binding is still
   dropped — so every read over-releases** (found by design 146 unit C, Aug 5).
   This is the ONE thing standing between the tree and the DF-132a / DF-128c
@@ -393,13 +482,10 @@ to the most load-bearing function in the driver and was not something to start
 at the end of a session, which is why this stopped here rather than half-landing
 a second mechanism.
 
-NOT DONE, and still owned by this brief: use sites of every shape (value read,
-whole-element write, `v[i].n += 1`, `f(&v[i])`, chained windows), root
-attribution into `_build_access_path`, the exclusivity/LIFO-epilogue work, the
-std `[]` methods, **the DF-132a / DF-128c P0 pair and the toml/blade
-migration**, and the spec/skill/README docs. LANGUAGE_SPEC, the skill and README
-were deliberately NOT updated: a user can declare a borrows accessor but cannot
-yet call one, and documenting that as a language feature would be false.
+Everything this section listed as NOT DONE is done: use sites of every shape,
+root attribution, the exclusivity/LIFO-epilogue work, the std `[]` methods, the
+toml/blade migration (design 146 unit C), the DF-132a / DF-128c pair (Aug 6),
+and the spec/skill/README docs.
 Brief: designs/141-borrows-lend-places.md. [141]
 
 **143 LANDED (Aug 5)** — Blade build-output directories + lockfile policy.
@@ -730,20 +816,15 @@ it returned `None` before.
   proven deinit-twice). `set` also leaks the overwritten element;
   `String.byte_at` reads OOB heap from a safe signature; `Data.to_string`
   mints invalid UTF-8.
-- **DF-132a — OPEN, P0. STILL OPEN after design 146 unit C (Aug 5), and now
-  blocked on exactly ONE thing: DF-146e.** DF-146b and DF-146c are closed, so
-  the language side is ready — the `Vector.get` conversion to
-  `borrows -> T?` is WRITTEN AND PROVEN. It turns the double-free below into a
-  clean error naming `with_ref`/`swap_out`, and the retain oracle
-  (`examples/place_value_read_retain_oracle.saw`) shows trivial and
-  ImplicitCopy callers unchanged. It was reverted because converting `get`
-  routes Map's and Set's own probe paths through a place value read of
-  `MapSlot<K, V>`, which DF-146e over-releases. `_type_method_base`'s drop-glue
-  fix (DF-128c) is held back with it, unchanged and still correct, because the
-  two cancel and neither is sound alone. Land DF-146e, then this pair, in that
-  order. WORKAROUND FOR CALLERS meanwhile: reach a move-only element through
-  `v[i]` (landed) or `with_ref`/`swap_out`, never `get` — libs/toml and blade
-  now do. Original finding follows. `Vector.get` has NO `T: Copy` bound, so a
+- **DF-132a — CLOSED (Aug 6, commit f4222fd), with DF-128c, one commit.**
+  `Vector.get` is `func get(&self, index: Int) unsafe borrows -> T?` — the
+  `None`-returning twin of `[]`, the same lowering — so the read is judged by
+  the element's tier where it stops being storage, and a move-only element is
+  refused there. The retain oracle
+  (`examples/place_value_read_retain_oracle.saw`) is unchanged, and so are its
+  expected counts: trivial and ImplicitCopy callers behave exactly as before.
+  Regression: `examples/errors/vector_get_nocopy_alias.saw` (the repro below, as
+  a teaching error). Original finding follows. `Vector.get` has NO `T: Copy` bound, so a
   NoCopy element
   is handed out BY VALUE as a non-retained alias — proven double-deinit in safe
   code (found by design 132 unit H, Aug 5; PRE-EXISTING).** RS-2's unfinished
@@ -2151,8 +2232,16 @@ Three units as briefed. Notes worth keeping:
   so the hole is easier to fall into than it was. Repro:
   `.build/scratch/p5_deinit_alias.saw` (gitignored; inlined above).
 
-- **DF-128c — STOPPED, needs its own unit. `_type_method_base` does not fill
-  default type arguments, so a struct FIELD's generic type mangles to a symbol
+- **DF-128c — CLOSED (Aug 6, commit f4222fd), with DF-132a, one commit.**
+  `_type_method_base` fills default type arguments before mangling, through the
+  same `_fill_default_type_args` chokepoint every other mangling of a named type
+  uses. A `Vector`/`Map`/`Set`/`Box` FIELD runs its own deinit again.
+  Regression: `examples/vector_field_drop_glue.saw`.
+  Restoring the glue made two more live double-frees real — both had been
+  cancelled by it, both are fixed here, and both are recorded as DF-146h and
+  DF-146i below. Original finding follows.
+  **`_type_method_base` did not fill
+  default type arguments, so a struct FIELD's generic type mangled to a symbol
   that does not exist (found by design 128, Aug 5; PRE-EXISTING).** A field
   written `Vector<Int>` denotes `Vector<Int, GlobalAllocator>`, and the
   monomorphized methods are registered under the full form

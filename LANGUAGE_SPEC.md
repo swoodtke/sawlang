@@ -1882,6 +1882,17 @@ func dup<T: Copy>(x: T) -> T {
 }
 ```
 
+**A type that mentions a type parameter has no tier of its own — it demands a
+bound.** `Slot<K>`'s transfer class is whatever the instantiation's `K` turns
+out to be, so it cannot be read off the declaration, and a site that must decide
+before monomorphization asks the parameter's BOUNDS instead. A place value read
+is such a site ([Value reads](#value-reads)): it is legal exactly when every
+parameter the element type mentions carries a `Copy`-family bound, and the
+refusal is reported in the generic body rather than at one caller's
+instantiation. Where the read is legal, the copy is emitted at the
+instantiation, alongside the matching drop, so the concrete tier decides which
+copy it is.
+
 **Derivation & containment.** A struct declaring `ExplicitCopy`/`ImplicitCopy`
 can have its `copy()` derived memberwise (POD fields bitwise, copy-policy fields
 via their own `copy()`), but the derivation is opt-in: mark the extension
@@ -2324,10 +2335,6 @@ g.at(4)!.weight += 1                // exclusive window on the present path
 if let c = g.at(99) { ... } else { ... }   // absent: no window, no epilogue
 ```
 
-A value read binds the payload, so it follows the copy-tier table below — which
-means `if let _ = g.at(i)` is not a presence TEST when the element is move-only.
-Publish a `Bool` method for that (`has_section`, `contains`).
-
 #### Value reads
 
 A place stops being storage at a **value read** — binding it, passing it by
@@ -2344,6 +2351,52 @@ An `ImplicitCopy` element is retained at the read, so the container keeps its ow
 reference and both are destroyed once. An `ExplicitCopy` or `NoCopy` element is
 never duplicated implicitly, and the error names the ways out — `with_ref` to
 borrow it in place, `swap_out` to move it out.
+
+**A pattern that binds nothing is a presence test, not a read.** `if let _ =
+g.at(i)`, `guard let _ = g.at(i)`, and a `match` arm like `case Empty` or
+`case Occupied(_)` take no payload out: they look at the discriminant through
+the borrow. So they are legal for every tier, move-only elements included, and
+they emit no copy and no drop. A `match` on a place matches it where it sits,
+and an arm that DOES bind binds the payload in place, so the table above is
+consulted for that one binding rather than for the whole element.
+
+```saw
+if let _ = doc.section("package") { ... }     // presence: no read at all
+match slots[i] {                              // discriminant through the borrow
+    case Empty -> 0,
+    case Occupied(_, _) -> 1
+}
+```
+
+Two shapes keep the ordinary value-read path, because a window is a closure: an
+arm body that leaves the enclosing function (`return`, `break`, `continue`), and
+an arm that `move`s one of its own bindings out, which is destructuring rather
+than reading.
+
+**An element type that mentions a type parameter demands a bound.** `Slot<K>`
+has no copy tier of its own: whether it duplicates is a property of the
+instantiation, so a value read of one inside a generic body is legal exactly
+when the bounds prove every instantiation can be copied — a `Copy`-family bound
+on each parameter it mentions. The question is asked once, in the generic body,
+never at an instantiation, so a body that compiles compiles for every caller.
+The refusal names both ways forward:
+
+```saw
+struct Holder<K> { slots: Vector<Slot<K>> }
+
+extension Holder<K> {
+    func tag_at(&self, i: Int) -> Int {
+        let s = self.slots[i]      // error: `self.slots[…]` lends a place of
+        ...                        // type `Slot<K>`, whose copy policy depends
+    }                              // on the type parameter `K`
+}
+```
+
+Bound `K: Copy` and the read is legal; leave it unbounded and reach the place
+through a borrow instead. Where the read IS legal, the copy is emitted at the
+instantiation — the same phase that emits the matching drop — so the concrete
+tier decides whether it is a bitwise copy, a retain, or the type's own
+`copy()`.
 
 #### Exclusivity, invalidation, and the fences
 
@@ -2385,11 +2438,14 @@ var d = Data()
 d[0] = 0u8                       // panicking place, same rules
 ```
 
-Both panic out of range, on design 130's accessor-rule terms. `Vector.get`
-still returns the element BY VALUE and still carries no `Copy` bound, so it is
-unsound for a move-only element — two lookups hand out two non-retained aliases
-and destroy it twice. Reach a `NoCopy` element through `v[i]`, `with_ref` or
-`swap_out` until the conditional-lend conversion lands.
+Both panic out of range, on design 130's accessor-rule terms. `Vector.get(i)` is
+the `None`-returning twin of `v[i]` and the same lowering — a conditional lend:
+
+```saw
+if let e = v.get(i) { ... }      // value read, so the copy tier decides
+if let _ = v.get(i) { ... }      // presence test: legal for every tier
+v.get(i)!.count += 1             // exclusive window; the `!` panics if absent
+```
 
 `Map` has no subscript. Its values live inside an enum payload
 (`MapSlot.Occupied(key:value:)`) and Saw has no place projection into an enum
@@ -2399,9 +2455,13 @@ slot representation.
 A place is one expression, so a caller that reads several values out of one
 move-only element holds an INDEX rather than a binding. `libs/toml` is the
 worked example: `TomlDoc.section(name) borrows -> TomlSection?` is the named
-place, `index_of(name)` plus `section_at(i)` is the same borrow when several
-reads share one lookup, and `has_section(name)` answers presence — which
-`if let _ = doc.section(name)` cannot, because that is a value read.
+place, and `index_of(name)` plus `section_at(i)` is the same borrow when several
+reads share one lookup.
+
+`Map` and `Set` probe through their slots the same way. `K` is `Hashable +
+Equatable`, never `Copy`, so reading a whole slot out is not something the table
+is entitled to do; every probe matches the slot where it sits, which also means
+walking past a live entry touches no refcount.
 
 ### Shared Ownership
 
