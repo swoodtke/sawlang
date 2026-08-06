@@ -110,6 +110,26 @@ extension StringBuilder {
         return AllocError(size: n, align: 1)
     }
 
+    /// Points a FIXED builder at `bytes`, keeping its length and truncation.
+    ///
+    /// For storage that MOVED with the value holding it. A fixed builder stores
+    /// the address of its buffer, and a Saw move copies bytes, so a builder that
+    /// travels alongside its own storage — `FixedStringBuilder<N>`, whose buffer
+    /// is a field beside it — is left pointing at where the bytes used to be.
+    /// Re-aiming it before each use costs one store and makes the whole
+    /// arrangement move-safe.
+    ///
+    /// `bytes` must address the SAME content, at least `capacity` bytes of it.
+    /// This does not clear the buffer and does not re-check capacity; pointing a
+    /// builder at unrelated storage keeps a length that describes neither.
+    /// Growable builders own their buffer and have nothing to re-aim, so this
+    /// does nothing to one.
+    public func rebind(&var self, bytes: UnsafePointer<Int8>) unsafe {
+        if self.fixed {
+            self.buffer = bytes
+        }
+    }
+
     /// Whether content has been cut to fit this builder's fixed storage.
     ///
     /// Always `false` for a growable builder. Once true it stays true, and the

@@ -1,0 +1,15 @@
+// Design 148: `static_assert` over a const parameter is checked PER
+// INSTANTIATION, so a buffer too small to hold anything is rejected at the use
+// site that asked for it. `FixedStringBuilder<64>` compiles in the same program.
+//
+// This is the replacement for a runtime capacity panic: the size is in the type,
+// so the check happens where the size is written.
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: static assertion failed
+// EXPECT-ERROR-CONTAINS: FixedStringBuilder needs at least 5 bytes
+import std.fixedbuf
+
+func main() unsafe {
+    var out = FixedStringBuilder<4>()
+    print(out.capacity())
+}

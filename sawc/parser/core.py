@@ -405,9 +405,49 @@ class Parser(ExpressionsMixin, StatementsMixin, DeclarationsMixin, TypeParsingMi
         return Visibility.PUBLIC
 
     def _parse_single_type_param(self) -> TypeParameter:
-        """Parse a single type parameter: T or T: Bound + OtherBound"""
+        """Parse a single type parameter: T, T: Bound + OtherBound, or the const
+        VALUE parameter `const N: Int` (design 148).
+
+        `const` stays a contextual identifier rather than becoming a keyword:
+        two adjacent identifiers can begin nothing else here, so the reading is
+        unambiguous, and making it a keyword would break every program with a
+        variable named `const` — and would need matching work in the Saw lexer
+        port that `tools/lexdiff.py` holds to byte parity.
+
+        The keyword is what keeps a value parameter visually distinct from a
+        trait-bounded type parameter, which is the whole reason `<N: Int>` was
+        confusing enough to file as a bug.
+        """
         start = self.current()
+        is_const = False
+        if (self.match(TokenType.IDENT) and self.current().value == "const"
+                and self.peek(1).type == TokenType.IDENT):
+            self.advance()
+            is_const = True
+
         name_token = self.expect(TokenType.IDENT, "Expected type parameter name")
+
+        if is_const:
+            self.expect(TokenType.COLON,
+                        "Expected `:` and a value type after a const parameter "
+                        "name — write `const N: Int`")
+            const_type = self.parse_type()
+            # A default is a VALUE here (`const N: Int = 256`), so it goes
+            # through the constant grammar, not `parse_type`.
+            const_default = None
+            if self.match(TokenType.ASSIGN):
+                self.advance()
+                const_default = self.parse_const_expr("const parameter default")
+            return TypeParameter(
+                name=name_token.value,
+                bounds=[],
+                default=None,
+                is_const=True,
+                const_type=const_type,
+                const_default_expr=const_default,
+                line=start.line,
+                column=start.column
+            )
 
         # Parse optional bounds: T: Trait1 + Trait2
         bounds = []

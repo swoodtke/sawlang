@@ -374,6 +374,54 @@ to a field's own `format`; `into.append("{self.x}")` does.
 Compiling with `--no-hidden-alloc` turns the difference between the two
 spellings into a compile error rather than a habit to keep.
 
+For formatting you drive yourself, `std.fixedbuf` gives you a builder over
+inline storage, sized by the type:
+
+```saw
+import std.fixedbuf
+
+var out = FixedStringBuilder<64>()
+out.append("n = ")
+out.append(42)
+print(out.as_string())      // prints: n = 42
+```
+
+`FixedStringBuilder<64>` holds its 64 bytes inline — on the stack, in a field,
+wherever the value lives. Content that does not fit is cut on a UTF-8 boundary
+and marked with `…`, and `is_truncated()` says so; a shortened message never
+reads as a complete one.
+
+### Sizes in the Type
+
+A generic parameter can carry a value instead of a type:
+
+```saw
+struct FixedBuf<const N: Int> {
+    data: [UInt8; N]
+}
+
+extension FixedBuf<N> {
+    init() -> FixedBuf<N> { FixedBuf<N>(data: [0; N]) }
+    func capacity(&self) -> Int { N }
+}
+
+var small = FixedBuf<16>()
+var big   = FixedBuf<256>()
+```
+
+`FixedBuf<16>` and `FixedBuf<256>` are different types with different layouts,
+and neither is assignable to the other. `N` reads inside the body as an ordinary
+`Int` that costs nothing at runtime, and it can be an array length, a
+`static_assert` operand, or a repeat count.
+
+`[v; N]` is that repeat literal — `N` copies of one value, and the way to spell
+a zeroed buffer:
+
+```saw
+var scratch: [Int8; 256] = [0; 256]
+static POOL: [Int8; 4096] = [0; 4096]     // zeroinitializer, in .bss
+```
+
 ### Errors as Values
 
 Every `Error` is `Printable`. Returning `Result<T, Box<any Error>>` lets a
@@ -855,6 +903,11 @@ The standard library includes:
   never allocates: content that does not fit is cut on a UTF-8 boundary and
   marked with `…`, which `is_truncated()` reports. That is the builder
   `print`/`panic` hand to a `Printable` value's `format`.
+- **FixedBuf&lt;N&gt; / FixedStringBuilder&lt;N&gt;** (`import std.fixedbuf`) - `N`
+  bytes of storage held inline, sized by a const generic parameter, and a
+  `StringBuilder` over one. Same `append` surface and same cut-and-mark
+  truncation as the fixed-mode builder above, with the storage question
+  answered by the type. Allocates nothing, so it works in both profiles.
 - **Vector<T, A>** - Dynamic array: `push`, `pop`, `get`, `len`, `map`/`fold`,
   `sort`/`sort_by`, `swap`; context-driven `[...]` literals.
   `with_ref`/`with_var_ref` borrow one element in place for the duration of a

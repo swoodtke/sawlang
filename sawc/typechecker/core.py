@@ -715,6 +715,10 @@ class TypeChecker(ExpressionsMixin, StatementsMixin, RegistrationMixin, TypeUtil
         # Validate: exports are only allowed in init.saw files
         self._validate_exports(program)
 
+        # design 148: const VALUE parameters are checked and their defaults
+        # folded before anything reads a type-parameter list.
+        self._resolve_const_params_in_program(program)
+
         # First pass: register type definitions (aliases)
         for type_def in program.type_definitions:
             self._register_type_definition(type_def)
@@ -1263,6 +1267,9 @@ class TypeChecker(ExpressionsMixin, StatementsMixin, RegistrationMixin, TypeUtil
         # single-file path; enforced here so the unified pipeline still catches
         # a stray `export` in a regular entry/module file).
         self._validate_exports(module_ast)
+
+        # design 148: const VALUE parameters, before any type-param list is read.
+        self._resolve_const_params_in_program(module_ast)
 
         # Register type definitions
         for type_def in module_ast.type_definitions:

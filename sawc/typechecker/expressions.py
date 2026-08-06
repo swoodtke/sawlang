@@ -34,6 +34,11 @@ from errors import ErrorKind
 from const_eval import const_eval, ConstEvalError
 from namespace import Visibility, EnumSymbol
 
+# Sentinel: a length that IS a compile-time constant but whose value belongs to
+# an instantiation rather than to this (abstract) pass — `[v; N]` inside a
+# generic body (design 148). Distinct from None, which means "not constant".
+_ABSTRACT_COUNT = object()
+
 
 class ExpressionsMixin:
     """Mixin providing expression checking methods for TypeChecker."""
@@ -482,6 +487,15 @@ class ExpressionsMixin:
         """
         var_info = self.current_scope.lookup(expr.name)
         if not var_info:
+            # A const generic parameter reads as a plain value of its declared
+            # type (design 148) — `N` in a `FixedBuf<const N: Int>` body IS an
+            # Int, with a different one per instantiation. It shadows nothing
+            # and is never assignable, so it is resolved before the static
+            # lookup and never enters a scope.
+            const_type = self._const_param_types().get(expr.name)
+            if const_type is not None:
+                expr.const_param_name = expr.name
+                return const_type
             # Module-level static (design 41): read like an immutable binding.
             static_sym = self.namespace.get_static(
                 expr.name, self._accessor_vis_module())
@@ -1833,6 +1847,25 @@ class ExpressionsMixin:
             inner = (actual.array_element_type
                      if actual.kind == TypeKind.ARRAY else None)
             self._unify_infer(pattern.array_element_type, inner, names, out)
+            # design 148 — the one inference case for a const parameter: a
+            # `[T; N]` PARAMETER binds `N` from the argument's length, so
+            # `func sum(xs: [Int; N]) -> Int` is callable on a `[Int; 4]`
+            # without writing `<4>`. Only a length that is exactly the bare
+            # parameter name participates; arithmetic (`[T; N + 1]`) is not
+            # solved backwards, which would need a real constraint solver
+            # rather than the structural matcher this is.
+            if (actual.kind == TypeKind.ARRAY
+                    and actual.array_size is not None
+                    and pattern.array_size is None):
+                se = pattern.array_size_expr
+                if isinstance(se, Identifier) and se.name in names:
+                    bound = SawType(TypeKind.CONST_VALUE,
+                                    const_value=actual.array_size)
+                    prev = out.get(se.name)
+                    if prev is None:
+                        out[se.name] = bound
+                    elif not self._infer_types_equal(prev, bound):
+                        out.setdefault('__conflict__', {})[se.name] = (prev, bound)
             return
         if pk == TypeKind.TUPLE and actual.kind == TypeKind.TUPLE:
             for pe, ae in zip(pattern.element_types or [],
@@ -3567,6 +3600,19 @@ class ExpressionsMixin:
         count = self._const_count(expr.repeat_count, "repeat count")
         if count is None:
             return None
+        if count is _ABSTRACT_COUNT:
+            # A `[v; N]` inside a generic body: constant, but its value belongs
+            # to the instantiation. The length rides along as an expression and
+            # every instantiation folds its own. The copy-policy check below
+            # still applies — the body has to be correct for every N.
+            if not (self._is_trivially_copyable(elem_type)
+                    or self._is_implicit_copy_type(elem_type)):
+                count = 2       # force the refusal below to fire
+            else:
+                self._check_value_transfer(value, elem_type, "array element",
+                                           value.line, value.column)
+                return SawType(TypeKind.ARRAY, array_element_type=elem_type,
+                               array_size_expr=expr.repeat_count)
         if count < 0:
             self._error(
                 ErrorKind.TYPE_MISMATCH,
@@ -3583,6 +3629,23 @@ class ExpressionsMixin:
         # than quietly aliasing the same buffer N times.
         if count > 1 and not (self._is_trivially_copyable(elem_type)
                               or self._is_implicit_copy_type(elem_type)):
+            if self._is_abstract_type_param(elem_type):
+                # An opaque type parameter has no copy policy — it has whatever
+                # its instantiation brings, and no bound expresses "copies are
+                # free": `Copy` admits ExplicitCopy, and `ImplicitCopy` excludes
+                # the POD types that are freer still. So the element type is
+                # concrete in v1 (DF-148a), and the message says that rather
+                # than naming a policy the parameter does not have.
+                self._error(
+                    ErrorKind.CANNOT_COPY,
+                    f"a repeat literal needs an element type whose copies are "
+                    f"free, and the type parameter `{elem_type}` is not known "
+                    f"to be one",
+                    value.line, value.column,
+                    hint="v1 repeats a CONCRETE element (`[0; N]`, `[\"\"; N]`) "
+                         "— no bound yet says `T` copies for free, so a generic "
+                         "element cannot be repeated")
+                return None
             if self._is_no_copy_type(elem_type):
                 policy, hint = "NoCopy", (
                     "a NoCopy value has exactly one owner, so there is nothing "
@@ -3605,8 +3668,12 @@ class ExpressionsMixin:
         return SawType(TypeKind.ARRAY, array_element_type=elem_type,
                        array_size=count)
 
-    def _const_count(self, expr, what: str) -> Optional[int]:
-        """Evaluate a compile-time count/length, or report why it is not one.
+    def _const_count(self, expr, what: str):
+        """Evaluate a compile-time count/length.
+
+        Returns the integer, `_ABSTRACT_COUNT` for an expression that IS
+        constant but whose value belongs to an instantiation (`[v; N]` inside a
+        generic body), or None having reported why it is not constant at all.
 
         The one evaluator (`const_eval.py`) answers here, in `static_assert`,
         and in an array length, so the three can never disagree about what a
@@ -3619,9 +3686,14 @@ class ExpressionsMixin:
         # before the constant question is asked.
         if self._check_expression(expr) is None:
             return None
+        # Const parameters in scope are constants with no value here — a generic
+        # body is checked once, abstractly, and the values arrive per
+        # instantiation. Probing with a stand-in separates "not a constant" from
+        # "a constant this pass cannot see", which are different answers.
+        probe = dict.fromkeys(self._const_param_types().keys(), 1)
+        probe.update(self._const_param_env())
         try:
-            value = const_eval(expr, env=self._const_param_env(),
-                               width=self.platform_int_width)
+            value = const_eval(expr, env=probe, width=self.platform_int_width)
         except ConstEvalError as e:
             self._error(
                 ErrorKind.TYPE_MISMATCH,
@@ -3637,15 +3709,48 @@ class ExpressionsMixin:
                 f"{what} must be an integer",
                 expr.line, expr.column)
             return None
+        if self._mentions_const_param(expr):
+            return _ABSTRACT_COUNT
         return value
 
-    def _const_param_env(self):
-        """The const generic parameters in scope, as name -> value.
+    def _is_abstract_type_param(self, t) -> bool:
+        """Whether `t` is an in-scope generic type parameter rather than a
+        concrete type — a name the parser left as STRUCT, or a TYPE_PARAM."""
+        if t is None:
+            return False
+        if t.kind == TypeKind.TYPE_PARAM:
+            return True
+        params = getattr(self, 'current_type_params', None) or {}
+        return t.kind == TypeKind.STRUCT and t.struct_name in params
 
-        Empty until a declaration takes one (design 148 unit C); the plumbing
-        lives here so every constant position reads them the same way.
+    def _mentions_const_param(self, expr) -> bool:
+        """Whether a constant expression reads a const generic parameter."""
+        names = self._const_param_types()
+        if not names:
+            return False
+        from ast_nodes import Identifier as _Id, UnaryOp as _U, BinaryOp as _B
+        if isinstance(expr, _Id):
+            return expr.name in names
+        if isinstance(expr, _U):
+            return self._mentions_const_param(expr.operand)
+        if isinstance(expr, _B):
+            return (self._mentions_const_param(expr.left)
+                    or self._mentions_const_param(expr.right))
+        return False
+
+    def _const_param_env(self):
+        """The const generic parameters in scope, as name -> VALUE.
+
+        Always empty in the typechecker: a generic body is checked once,
+        abstractly, so no instantiation's values are in force. Codegen has the
+        twin that is populated (design 148). The method exists so every constant
+        position asks the same question in the same way.
         """
         return getattr(self, 'current_const_params', None) or {}
+
+    def _const_param_types(self):
+        """The const generic parameters in scope, as name -> declared type."""
+        return getattr(self, 'current_const_param_types', None) or {}
 
     def _check_map_literal(self, expr: MapLiteral) -> Optional[SawType]:
         """Check a map literal `{k: v, ...}` / `{:}` (design 54 Part 3).
@@ -4568,7 +4673,7 @@ class ExpressionsMixin:
         n = len(type_params)
         provided = list(provided or [])
         if len(provided) == n:
-            return provided
+            return self._finish_type_args(provided, type_params, what, line, column)
         if len(provided) > n:
             self._error(
                 ErrorKind.WRONG_ARGUMENT_COUNT,
@@ -4583,7 +4688,7 @@ class ExpressionsMixin:
             filled = list(provided)
             for tp in missing:
                 filled.append(self._resolve_type(tp.default))
-            return filled
+            return self._finish_type_args(filled, type_params, what, line, column)
         if not provided:
             self._error(
                 ErrorKind.TYPE_MISMATCH,
@@ -4600,6 +4705,66 @@ class ExpressionsMixin:
             line, column
         )
         return None
+
+    def _finish_type_args(self, args, type_params, what, line, column):
+        """Canonicalize a fully-applied argument list (design 148).
+
+        This is the chokepoint every reference site funnels through, so it is
+        where a const argument written as ARITHMETIC becomes a number:
+        `Ring<2 * 128>` and `Ring<256>` have to be the same instantiation, and
+        they are only if the value is folded before anything mangles or
+        monomorphizes it — the same rule design 37 applies to defaults.
+        """
+        folded = [self._fold_const_arg(a) for a in args]
+        self._check_const_arg_kinds(folded, type_params, what, line, column)
+        return folded
+
+    def _fold_const_arg(self, arg):
+        """Give a CONST_VALUE argument its integer, if it does not have one."""
+        if (arg is None or arg.kind != TypeKind.CONST_VALUE
+                or arg.const_value is not None):
+            return arg
+        value = self._try_const_value(arg.array_size_expr)
+        if value is None:
+            return arg
+        import dataclasses
+        return dataclasses.replace(arg, const_value=value)
+
+    def _check_const_arg_kinds(self, args, type_params, what, line, column):
+        """A const parameter takes a VALUE and a type parameter takes a TYPE.
+
+        Written as its own check (design 148) because the two mistakes read as
+        nothing else otherwise: `FixedBuf<Int>` would fail as an undefined
+        length somewhere inside the type, and `Vector<4>` as an undefined type
+        named `4`. Both are one confusion — the two parameter kinds look alike
+        at a use site — so both name the parameter and what it wants.
+        """
+        for tp, arg in zip(type_params, args):
+            if arg is None:
+                continue
+            is_const_param = getattr(tp, 'is_const', False)
+            is_value = arg.kind == TypeKind.CONST_VALUE
+            if is_const_param and not is_value:
+                # A bare name is how a const parameter is FORWARDED from an
+                # enclosing generic (`FixedBuf<N>` inside `extension
+                # FixedBuf<N>`), so a name that is one in scope is correct here.
+                if (arg.kind == TypeKind.STRUCT
+                        and arg.struct_name in self._const_param_types()):
+                    continue
+                self._error(
+                    ErrorKind.TYPE_MISMATCH,
+                    f"{what} takes a VALUE for the const parameter "
+                    f"`{tp.name}`, and `{arg}` is a type",
+                    line, column,
+                    hint=f"write a compile-time integer — `{tp.name}` is "
+                         f"declared `const {tp.name}: {tp.const_type}`")
+            elif is_value and not is_const_param:
+                self._error(
+                    ErrorKind.TYPE_MISMATCH,
+                    f"{what} takes a TYPE for the parameter `{tp.name}`, and "
+                    f"`{arg}` is a value",
+                    line, column,
+                    hint=f"declare it `const {tp.name}: Int` to take a value")
 
     _FIXED_INT_RANGES = {
         TypeKind.INT8: (-(1 << 7), (1 << 7) - 1),

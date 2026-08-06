@@ -1,0 +1,54 @@
+// Design 148 unit C: a const parameter takes a DEFAULT (composing with design
+// 37's default type arguments), and constant ARITHMETIC is legal wherever a
+// const argument or a length is — instantiation position, array lengths, repeat
+// counts, `static_assert` operands, and plain expression use in the body.
+// EXPECT: success
+// EXPECT-OUTPUT:
+// 4
+// 9
+// 8
+// 0
+// 256
+// 5
+// ok
+
+struct Ring<const N: Int = 4> {
+    slots: [Int; N]
+}
+
+extension Ring<N> {
+    init() -> Ring<N> {
+        // A const parameter is a constant, so it is a `static_assert` operand.
+        static_assert(N > 0, "a ring needs room")
+        Ring<N>(slots: [0; N])
+    }
+
+    func capacity(&self) -> Int {
+        N
+    }
+
+    func doubled(&self) -> Int {
+        N * 2 + 1
+    }
+}
+
+func main() {
+    // The default fills the omitted argument, exactly as a default TYPE does.
+    let r = Ring()
+    print(r.capacity())
+    print(r.doubled())
+
+    let big = Ring<8>()
+    print(big.capacity())
+    print(big.slots[7])
+
+    // Arithmetic in instantiation position folds at compile time.
+    let wide = Ring<2 * 128>()
+    print(wide.capacity())
+
+    let sized = Ring<10 / 2>()
+    print(sized.capacity())
+
+    static_assert(sizeof<Ring<8>>() == 64, "ring layout")
+    print("ok")
+}

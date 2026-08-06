@@ -278,11 +278,23 @@ class ASTDumper:
         tag = identity_tag(getattr(decl, 'type_identity', "") or "")
         return f" module={tag}" if tag else ""
 
+    @staticmethod
+    def _type_params_str(type_params) -> str:
+        """Render a generic parameter list. A const VALUE parameter shows its
+        `const N: Int` spelling (design 148) — the dump is an oracle, so two
+        parameters that mean different things must not print alike."""
+        if not type_params:
+            return ""
+        parts = []
+        for tp in type_params:
+            if getattr(tp, 'is_const', False):
+                parts.append(f"const {tp.name}: {tp.const_type}")
+            else:
+                parts.append(tp.name)
+        return "<" + ", ".join(parts) + ">"
+
     def _dump_struct(self, struct: Struct):
-        type_params = ""
-        if struct.type_params:
-            params = ", ".join(tp.name for tp in struct.type_params)
-            type_params = f"<{params}>"
+        type_params = self._type_params_str(struct.type_params)
         unsafe = "unsafe " if getattr(struct, 'is_unsafe', False) else ""
         self._emit(f"{unsafe}Struct {struct.name}{type_params}"
                    f"{self._module_suffix(struct)} {{")
@@ -293,10 +305,7 @@ class ASTDumper:
         self._emit("}")
 
     def _dump_enum(self, enum: Enum):
-        type_params = ""
-        if enum.type_params:
-            params = ", ".join(tp.name for tp in enum.type_params)
-            type_params = f"<{params}>"
+        type_params = self._type_params_str(enum.type_params)
         self._emit(f"Enum {enum.name}{type_params}"
                    f"{self._module_suffix(enum)} {{")
         self._indent()
@@ -328,10 +337,7 @@ class ASTDumper:
         self._emit("}")
 
     def _dump_extension(self, ext: Extension):
-        type_params = ""
-        if ext.type_params:
-            params = ", ".join(tp.name for tp in ext.type_params)
-            type_params = f"<{params}>"
+        type_params = self._type_params_str(ext.type_params)
         from type_identity import display_name
         conformances = ""
         if ext.conformances:
@@ -378,10 +384,7 @@ class ASTDumper:
         self._emit("}")
 
     def _dump_function(self, func: Function):
-        type_params = ""
-        if func.type_params:
-            params = ", ".join(tp.name for tp in func.type_params)
-            type_params = f"<{params}>"
+        type_params = self._type_params_str(func.type_params)
 
         params = []
         for p in func.parameters:

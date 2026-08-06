@@ -234,7 +234,18 @@ let m = {"a": 1, "b": 2}            // Map<String,Int> (hash; unordered)
 let s = {1, 2, 3}                   // Set<Int>
 let e: Map<String,Int> = {:}        // empty map needs annotation
 // {} and {expr} are ALWAYS closures — use Set<T>() / Set.of(x)
+var scratch: [Int8; 256] = [0; 256] // REPEAT literal: N copies of one value
 ```
+- **`[v; N]` is the repeat literal (design 148)** — the way to spell a zero
+  stack buffer. `N` is a compile-time constant (literal, const arithmetic, or a
+  const generic param); the value expression runs EXACTLY ONCE and is copied
+  into every slot. `[0; 4096]` lowers to one zeroinitializer store (a memset);
+  anything else splat-loops. Elements must copy for FREE — trivial or
+  ImplicitCopy — since there is nowhere to write the `.copy()` an ExplicitCopy
+  value needs (`[v; 3]` on a `Vector<Int>` is a clean error naming the policy),
+  and a generic `[t; N]` is refused for the same reason (no bound yet says
+  "copies for free"). Statics take one: `static BUF: [Int8; 4096] = [0; 4096]`
+  lands in .bss. LENGTH IS PART OF THE TYPE — `[Int; 3]` is not a `[Int; 5]`.
 - No bare block statement (design 122): a closure literal alone in statement
   position is a compile error ("never called") — call it `{ ... }()` or bind it.
   Narrow a lifetime by extracting a function.
@@ -504,6 +515,52 @@ v.map<String>({ $0.to_string() })   // the closure's return; explicit still wins
   writable — `StringBuilder.append` needs both. A bare literal's WIDTH stays
   flexible, so `h(Int)` vs `h(Int8)` called `h(5)` is still ambiguous (write
   `h(5i8)`).
+- **CONST GENERICS: a parameter that carries a VALUE (design 148).** `const` in
+  the parameter position is what keeps it visually distinct from a bounded type
+  param — and `<N: Int>`, the natural guess, is now a clean error pointing at
+  the real spelling:
+  ```saw
+  struct FixedBuf<const N: Int> { data: [UInt8; N] }
+  extension FixedBuf<N> {                    // constness comes from the
+      init() -> FixedBuf<N> {                // declaration; don't repeat it
+          FixedBuf<N>(data: [0; N])
+      }
+      func capacity(&self) -> Int { N }      // N is an Int here, free at runtime
+  }
+  var small = FixedBuf<16>()                 // different TYPE from FixedBuf<256>
+  ```
+  The value is part of the type identity and the monomorphization key, so
+  `FixedBuf<16>` and `FixedBuf<256>` are two types with two layouts and neither
+  flows into the other. v1 scope: `Int`/`UInt` values only; usable as a `[T; N]`
+  length, a `static_assert` operand, a `sizeof` operand, a repeat count, or a
+  plain Int; const ARITHMETIC in instantiation position (`FixedBuf<2 * 128>` IS
+  `FixedBuf<256>` — folded before mangling); defaults compose with design 37
+  (`<const N: Int = 4>`, so `Ring()` means `Ring<4>`); structs, enums and free
+  functions all take them. Explicit at the use site except for ONE inference
+  case — a `[T; N]` PARAMETER binds N from the argument's length:
+  ```saw
+  func width<const N: Int>(xs: [Int; N]) -> Int { N }
+  print(width([1, 2, 3, 4]))    // 4
+  ```
+  Wrong-kind arguments are clean errors naming the parameter (`FixedBuf<Int>` →
+  "takes a VALUE"; `Pair<4>` → "takes a TYPE"). NOT in v1: const params of user
+  types, `where N > 0` (use `static_assert(N > 0, ...)` in the body), variadics.
+- **The fixed-buffer idiom (std.fixedbuf).** For formatting or scratch bytes
+  with no allocator, reach for the std types rather than rolling a buffer:
+  ```saw
+  import std.fixedbuf
+  var out = FixedStringBuilder<64>()   // 64 bytes inline; holds 60 of text
+  out.append("n = ")
+  out.append(42)
+  print(out.as_string())               // prints: n = 42
+  ```
+  `FixedStringBuilder<N>` is `StringBuilder`'s fixed mode with the storage
+  question answered — same `append` surface, same cut-and-mark-with-`…`
+  truncation (`is_truncated()` reports it), nothing allocated. `FixedBuf<N>` is
+  the raw buffer under it (`capacity()`, bounds-checked `get`/`set`, and `ptr()`
+  for unsafe paths). Taking an address needs `&var self`: a `&self` receiver
+  arrives BY VALUE, so a pointer built inside such a method addresses the
+  callee's copy.
 
 ## Concurrency (colorless)
 ```saw
@@ -785,7 +842,8 @@ import mymodule as mm       // aliasing; `module`/`public`/`package`/`parent`
   `Channel` (std.channel), `Mutex` (std.mutex), `Duration`/`Instant` (std.time),
   `IoError`/`TcpListener`/`TcpStream` (std.net), `Utf8Error` (std.string),
   `yield_now` (std.task — design 114; the wrapper over the stdlib-internal
-  cooperative-yield intrinsic), `Command` (std.process), `Env` (std.env). A bare non-prelude name is a clean
+  cooperative-yield intrinsic), `Command` (std.process), `Env` (std.env),
+  `FixedBuf`/`FixedStringBuilder` (std.fixedbuf — design 148). A bare non-prelude name is a clean
   error ("`X` is not in the prelude and must be imported") — add the import.
   A std import exposes names BARE (no `mod.Name` qualifier). Because a
   non-imported std module isn't compiled in, you may define your OWN `IoError`/
@@ -1102,8 +1160,10 @@ construct in the owner and lend `&driver` down.
   syscall op id, a rights bit), reach for a raw-backed enum — `enum Op: UInt8 {
   case Read = 0, ... }` names the set AND pins the values, and `as` at the
   boundary beats a parallel `static` per case. Static inits accept only plain
-  literals (no casts/arithmetic); std-module statics are NOT visible
-  cross-module yet.
+  literals (no casts/arithmetic) plus array literals — including a REPEAT
+  literal, so `static BUF: [Int8; 4096] = [0; 4096]` is the spelling for a large
+  zeroed region (design 148); std-module statics are NOT visible cross-module
+  yet.
 - For a KNOWN C struct, declare a typed Saw struct (declaration-order natural ABI,
   design 58) as a stack local + `(&sa) as UnsafePointer<...>` for the syscall —
   never a raw byte blob; alignment comes free from the widest field. Only

@@ -592,6 +592,86 @@ class TypeUtilsMixin:
         "Send", "Sync",
     })
 
+    # Const VALUE parameters are Int or UInt in v1 (design 148). Fixed-width
+    # value parameters are a later question; nothing in the language needs one
+    # yet, and admitting them now would fix an encoding in the mangling before
+    # there is a use to judge it against.
+    _CONST_PARAM_KINDS = (TypeKind.INT, TypeKind.UINT)
+
+    def _resolve_const_params_in_program(self, program):
+        """Check const VALUE parameters and materialize their defaults.
+
+        Runs before anything reads a type parameter, because a default has to be
+        a value by the time the first reference site omits it. A const default is
+        a closed constant expression — it may not mention another parameter in
+        v1 — so it needs no namespace and can be folded this early.
+
+        The default becomes a `CONST_VALUE` `SawType` in the ordinary `default`
+        slot, which is what lets a value default ride design 37's
+        default-argument machinery with no changes: the fillers substitute
+        whatever type is there.
+        """
+        for decl in self._declarations_with_type_params(program):
+            for tp in (getattr(decl, 'type_params', None) or []):
+                if getattr(tp, 'is_const', False):
+                    self._resolve_const_param(tp, decl)
+
+    @staticmethod
+    def _declarations_with_type_params(program):
+        for struct in getattr(program, 'structs', []):
+            yield struct
+        for enum in getattr(program, 'enums', []):
+            yield enum
+        for trait in getattr(program, 'traits', []):
+            yield trait
+        for func in getattr(program, 'functions', []):
+            yield func
+        for ext in getattr(program, 'extensions', []):
+            yield ext
+            for method in ext.methods:
+                yield method
+
+    def _resolve_const_param(self, tp, decl):
+        line = getattr(tp, 'line', 0) or getattr(decl, 'line', 0)
+        column = getattr(tp, 'column', 0) or getattr(decl, 'column', 0)
+
+        vt = tp.const_type
+        if vt is None or vt.kind not in self._CONST_PARAM_KINDS:
+            self._error(
+                ErrorKind.TYPE_MISMATCH,
+                f"a const parameter is `Int` or `UInt`, and `{tp.name}` is "
+                f"declared `{vt}`",
+                line, column,
+                hint="const generics carry integer values in v1 — a parameter "
+                     "of a user type is not supported")
+            tp.const_type = SawType(TypeKind.INT)
+            return
+
+        if tp.const_default_expr is None or tp.default is not None:
+            return
+        from const_eval import const_eval, ConstEvalError
+        try:
+            value = const_eval(tp.const_default_expr,
+                               width=self.platform_int_width)
+        except ConstEvalError as e:
+            self._error(
+                ErrorKind.TYPE_MISMATCH,
+                f"the default for const parameter `{tp.name}` is not a "
+                f"compile-time constant: {e.what} is not allowed here",
+                e.line or line, e.column or column,
+                hint="a const parameter's default is a closed constant — it "
+                     "may not read another parameter")
+            return
+        if isinstance(value, bool) or not isinstance(value, int):
+            self._error(
+                ErrorKind.TYPE_MISMATCH,
+                f"the default for const parameter `{tp.name}` must be an "
+                f"integer",
+                line, column)
+            return
+        tp.default = SawType(TypeKind.CONST_VALUE, const_value=value,
+                             inner_type=vt)
+
     def _validate_type_param_bounds_in_program(self, program):
         """Declaration-level pass: every type-parameter bound names a TRAIT.
 
@@ -648,6 +728,20 @@ class TypeUtilsMixin:
         if self.get_trait_info(simple, qualified_path=bound) is not None:
             return
         if self.get_trait_info(simple) is not None:
+            return
+
+        # `<N: Int>` is not a mistaken bound so much as a guess at const
+        # generics, and it is the exact spelling DF-137a was filed over. Since
+        # design 148 there is a real one to point at, so the fixit names it.
+        if bound in ("Int", "UInt"):
+            self._error(
+                ErrorKind.TYPE_MISMATCH,
+                f"`{bound}` is a type, not a trait, so it cannot bound the "
+                f"type parameter `{tp.name}`",
+                line, column,
+                hint=f"to take a compile-time VALUE, write "
+                     f"`const {tp.name}: {bound}` — a bound names a trait the "
+                     f"argument must conform to, not the value's type")
             return
 
         # The name resolves to something — just not a trait. Say which, so the
@@ -923,6 +1017,27 @@ class TypeUtilsMixin:
             resolved_elements = [self._resolve_type(t) for t in saw_type.element_types]
             return SawType(TypeKind.TUPLE, element_types=resolved_elements,
                            tuple_field_names=saw_type.tuple_field_names)
+        elif saw_type.kind == TypeKind.ARRAY and saw_type.array_element_type:
+            # design 148: the element resolves like any type, and a length
+            # written as an expression is folded here — `[Int8; 2 * 128]`
+            # becomes `[Int8; 256]`. A length that mentions a const generic
+            # parameter cannot be folded in the abstract half of a generic body
+            # and keeps its expression until substitution supplies the value.
+            resolved_elem = self._resolve_type(saw_type.array_element_type)
+            size = saw_type.array_size
+            if size is None and saw_type.array_size_expr is not None:
+                size = self._try_const_value(saw_type.array_size_expr)
+            return SawType(TypeKind.ARRAY, array_element_type=resolved_elem,
+                           array_size=size,
+                           array_size_expr=saw_type.array_size_expr)
+        elif saw_type.kind == TypeKind.CONST_VALUE:
+            # A const generic ARGUMENT written as an expression (`FixedBuf<N * 2>`).
+            if saw_type.const_value is None and saw_type.array_size_expr is not None:
+                value = self._try_const_value(saw_type.array_size_expr)
+                if value is not None:
+                    import dataclasses
+                    return dataclasses.replace(saw_type, const_value=value)
+            return saw_type
         elif saw_type.kind == TypeKind.ENUM and saw_type.enum_name:
             enum_name = self._canonical_type_name(saw_type.enum_name)
             if saw_type.type_args:
@@ -942,6 +1057,24 @@ class TypeUtilsMixin:
             # read our own stamp as an author-written `escaping`.
             return SawType(TypeKind.FUNCTION, param_types=resolved_params, func_return_type=resolved_return, func_is_sync=saw_type.func_is_sync, func_is_escaping=saw_type.func_is_escaping, func_escaping_stamped=saw_type.func_escaping_stamped, func_is_unsafe=saw_type.func_is_unsafe)
         return saw_type
+
+    def _try_const_value(self, expr):
+        """Fold a constant expression, or return None if it cannot be folded yet.
+
+        Silent by design (design 148): the same length expression is resolved
+        many times over a compile, and in the abstract half of a generic body it
+        legitimately has no value. The position that OWNS the requirement — a
+        repeat count, a declared array length reaching codegen — reports it.
+        """
+        from const_eval import const_eval, ConstEvalError
+        try:
+            value = const_eval(expr, env=self._const_param_env(),
+                               width=self.platform_int_width)
+        except ConstEvalError:
+            return None
+        if isinstance(value, bool) or not isinstance(value, int):
+            return None
+        return value
 
     def _prepare_ok_payload(self, value_expr, value_type, ok_type):
         """Make `value_expr` a well-formed Ok PAYLOAD for `ok_type` (DF-140d).
@@ -1202,6 +1335,27 @@ class TypeUtilsMixin:
         if a.kind != b.kind:
             return False
 
+        # Fixed arrays compare by ELEMENT and LENGTH (design 148). This arm did
+        # not exist: array types fell through to the permissive tail below, so
+        # `[Int; 3]` and `[Int; 5]` — and `[Int; 3]` and `[String; 3]` — compared
+        # as compatible, and a wrong-length argument or field was accepted in
+        # silence. A length only one side knows (the abstract half of a generic
+        # body, where `[UInt8; N]` has no number yet) is not a mismatch; it is
+        # decided per instantiation, where both sides have one.
+        if a.kind == TypeKind.ARRAY:
+            if not self._types_compatible(a.array_element_type,
+                                          b.array_element_type):
+                return False
+            if a.array_size is None or b.array_size is None:
+                return True
+            return a.array_size == b.array_size
+
+        # A const generic VALUE argument matches by value.
+        if a.kind == TypeKind.CONST_VALUE:
+            if a.const_value is None or b.const_value is None:
+                return True
+            return a.const_value == b.const_value
+
         # For tuple types, check element types match
         if a.is_tuple():
             if a.element_types is None or b.element_types is None:
@@ -1236,6 +1390,17 @@ class TypeUtilsMixin:
                 # named type on either side (a trait's `Self` resolved to the
                 # plain struct name, or an abstract receiver with no applied
                 # args) matches any instantiation, preserving conformance/Self.
+                #
+                # That last rule has to be decided BEFORE the fill, or the fill
+                # defeats it: a struct with a defaulted parameter turns a
+                # genuinely bare `Box2` into `Box2<Int>`, which then fails
+                # against the abstract `Box2<T>` an extension body produces. The
+                # symptom was that an `init` in a generic extension could not
+                # name its own type — "method `init` should return `Box2` but
+                # returns `Box2<T>`" — for every generic with a default, const
+                # (design 148) or type (design 37).
+                if not a.type_args or not b.type_args:
+                    return True
                 a_args = self._append_default_type_args(a.struct_name, a.type_args or [])
                 b_args = self._append_default_type_args(b.struct_name, b.type_args or [])
                 if a_args and b_args:

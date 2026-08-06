@@ -109,11 +109,17 @@ def _expr_str(expr) -> str:
 def _generics(type_params) -> List[Dict[str, Any]]:
     out = []
     for tp in type_params or []:
-        out.append({
+        entry = {
             "name": tp.name,
             "bounds": list(tp.bounds or []),
             "default": _type_str(tp.default),
-        })
+        }
+        # A const VALUE parameter (design 148) carries a value type instead of
+        # bounds; readers key on `const` rather than on an empty bounds list.
+        if getattr(tp, 'is_const', False):
+            entry["const"] = True
+            entry["value_type"] = _type_str(tp.const_type)
+        out.append(entry)
     return out
 
 
@@ -122,9 +128,12 @@ def _generics_str(type_params) -> str:
         return ""
     parts = []
     for tp in type_params:
-        s = tp.name
-        if tp.bounds:
-            s += ": " + " + ".join(tp.bounds)
+        if getattr(tp, 'is_const', False):
+            s = "const %s: %s" % (tp.name, _type_str(tp.const_type))
+        else:
+            s = tp.name
+            if tp.bounds:
+                s += ": " + " + ".join(tp.bounds)
         if tp.default is not None:
             s += " = " + _type_str(tp.default)
         parts.append(s)

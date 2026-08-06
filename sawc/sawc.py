@@ -86,7 +86,7 @@ HOSTED_STD_MODULES = {"file", "process", "env", "directory", "time", "net"}
 # collides with the prelude.
 IMPORT_REQUIRED_STD_MODULES = {
     "file", "directory", "path", "data", "channel", "mutex", "time",
-    "net", "process", "env", "task",
+    "net", "process", "env", "task", "fixedbuf",
 }
 # Symbols carved out of an otherwise-prelude std file (the file stays prelude
 # for its other symbols; only these named ones require an import).

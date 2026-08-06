@@ -83,14 +83,17 @@ class TypeParsingMixin:
             return SawType(TypeKind.REFERENCE, inner_type=inner_type, reference_mutable=is_mutable)
 
         if token.type == TokenType.LBRACKET:
-            # Array type: [Type; Size]
+            # Array type: [Type; Size]. The size is a constant EXPRESSION since
+            # design 148 — a literal as before, but also a const generic
+            # parameter (`[UInt8; N]`) or arithmetic over them. A literal is
+            # resolved right here; anything else carries its expression until
+            # there is an environment to evaluate it in.
             self.advance()  # consume '['
             element_type = self.parse_type()
             self.expect(TokenType.SEMICOLON, "Expected ';' in array type")
-            size_token = self.expect(TokenType.INT, "Expected array size")
-            size = int(size_token.value)
+            size_expr = self.parse_const_expr("array size")
             self.expect(TokenType.RBRACKET, "Expected ']' after array type")
-            return SawType(TypeKind.ARRAY, array_element_type=element_type, array_size=size)
+            return self._array_type(element_type, size_expr)
         elif token.type == TokenType.LPAREN:
             # Could be tuple type: (Type, Type, ...) or function type: (Type, Type) -> ReturnType
             self.advance()
@@ -261,6 +264,98 @@ class TypeParsingMixin:
         else:
             self.error(f"Expected type, got {token.type.name}")
 
+    # ---------------------------------------------------------------- design 148
+    # Constant expressions in TYPE position: an array length and a const generic
+    # argument. Deliberately its own small grammar rather than `parse_expression`,
+    # for one reason that decides it: a generic argument list is closed by `>`,
+    # which is also a comparison operator, so a general expression parser would
+    # read `FixedBuf<N + 1>` as a comparison and eat the delimiter. Restricting
+    # the grammar to what a constant can actually be — literals, names, `+ - *
+    # / %`, parentheses, `sizeof`/`alignof` — makes `>` unambiguous by
+    # construction. It is also exactly the v1 scope the design fixed.
+
+    _CONST_ADD_OPS = None   # filled below (TokenType is imported at module load)
+    _CONST_MUL_OPS = None
+
+    def parse_const_expr(self, what: str = "constant"):
+        """Parse a constant expression (design 148). `what` names the position
+        for the error a malformed one raises."""
+        return self._const_additive(what)
+
+    def _const_additive(self, what: str):
+        from ast_nodes import BinaryOp
+        left = self._const_multiplicative(what)
+        while self.match(TokenType.PLUS, TokenType.MINUS):
+            op_tok = self.advance()
+            right = self._const_multiplicative(what)
+            left = BinaryOp(left=left, op=op_tok.value, right=right,
+                            line=op_tok.line, column=op_tok.column)
+        return left
+
+    def _const_multiplicative(self, what: str):
+        from ast_nodes import BinaryOp
+        left = self._const_unary(what)
+        while self.match(TokenType.STAR, TokenType.SLASH, TokenType.PERCENT):
+            op_tok = self.advance()
+            right = self._const_unary(what)
+            left = BinaryOp(left=left, op=op_tok.value, right=right,
+                            line=op_tok.line, column=op_tok.column)
+        return left
+
+    def _const_unary(self, what: str):
+        from ast_nodes import UnaryOp
+        if self.match(TokenType.MINUS):
+            op_tok = self.advance()
+            return UnaryOp(op='-', operand=self._const_unary(what),
+                           line=op_tok.line, column=op_tok.column)
+        return self._const_primary(what)
+
+    def _const_primary(self, what: str):
+        from ast_nodes import IntLiteral, Identifier, FunctionCall
+        token = self.current()
+        if token.type == TokenType.INT:
+            self.advance()
+            return IntLiteral(value=int(token.value), line=token.line,
+                              column=token.column)
+        if token.type == TokenType.LPAREN:
+            self.advance()
+            inner = self._const_additive(what)
+            self.expect(TokenType.RPAREN, f"Expected ')' in {what}")
+            return inner
+        if token.type == TokenType.IDENT:
+            self.advance()
+            if token.value in ("sizeof", "alignof") and self.match(TokenType.LT):
+                type_args = self._parse_type_args()
+                self.expect(TokenType.LPAREN, f"Expected '(' after `{token.value}<T>`")
+                self.expect(TokenType.RPAREN, f"Expected ')' after `{token.value}<T>(`")
+                return FunctionCall(name=token.value, arguments=[],
+                                    type_args=type_args, line=token.line,
+                                    column=token.column)
+            return Identifier(name=token.value, line=token.line,
+                              column=token.column)
+        self.error(f"Expected {what}, got {token.type.name}")
+
+    @staticmethod
+    def _is_const_expr_start(token) -> bool:
+        """Whether a generic ARGUMENT starting here is a value, not a type.
+
+        Only the shapes a type can never begin with commit on sight. A bare
+        identifier stays a type as far as the parser is concerned — `Foo<N>` is
+        ambiguous by design, and the typechecker decides it against the
+        parameter it lands on, which is the only place that knows.
+        """
+        return token.type in (TokenType.INT, TokenType.MINUS)
+
+    def _array_type(self, element_type: SawType, size_expr) -> SawType:
+        """Build an ARRAY type from a parsed length expression."""
+        from ast_nodes import IntLiteral
+        if isinstance(size_expr, IntLiteral):
+            return SawType(TypeKind.ARRAY, array_element_type=element_type,
+                           array_size=int(size_expr.value),
+                           array_size_expr=size_expr)
+        return SawType(TypeKind.ARRAY, array_element_type=element_type,
+                       array_size_expr=size_expr)
+
     def _parse_type_args(self) -> List[SawType]:
         """Parse type arguments: <Int, String, ...>
 
@@ -270,11 +365,14 @@ class TypeParsingMixin:
         lookahead in `parse_primary` has entered here. A `<` that turns out to be
         a comparison never gets this far with its list intact: the lookahead
         restores the position and the operator parses normally.
+
+        An argument may be a VALUE since design 148 (`FixedBuf<256>`), which is
+        what `_parse_one_type_arg` sorts out.
         """
         self.expect(TokenType.LT)
         self._generic_depth += 1
         try:
-            type_args = [self.parse_type()]
+            type_args = [self._parse_one_type_arg()]
 
             # Parse additional type arguments
             while self.match(TokenType.COMMA):
@@ -284,9 +382,53 @@ class TypeParsingMixin:
                         f"Parse error at {comma.line}:{comma.column}: a trailing "
                         f"comma is not allowed in a generic argument list "
                         f"(it is allowed in `(...)` and `[...]` lists)")
-                type_args.append(self.parse_type())
+                type_args.append(self._parse_one_type_arg())
 
             self.expect(TokenType.GT, "Expected '>' after type arguments")
         finally:
             self._generic_depth -= 1
         return type_args
+
+    def _parse_one_type_arg(self) -> SawType:
+        """Parse one generic argument, which may be a type or a VALUE (design 148).
+
+        Three cases, and the ordering is the whole trick:
+        - It starts with something no type can start with (`256`, `-1`): a
+          value, decided on sight.
+        - It parses as a type and is then followed by an arithmetic operator
+          (`N + 1`, `SIZE * 2`): the type reading was only a prefix of a
+          constant expression, so restore and re-read it as one.
+        - Otherwise it is a type — including a bare `N`, which is genuinely
+          ambiguous here and stays a type until the typechecker matches it
+          against the parameter it lands on. That is the only place with enough
+          information to tell a type parameter from a const one.
+        """
+        if self._is_const_expr_start(self.current()):
+            return self._const_value_type(
+                self.parse_const_expr("generic argument"))
+
+        saved = self.pos
+        try:
+            t = self.parse_type()
+        except GenericListTrailingComma:
+            raise
+        except SyntaxError:
+            self.pos = saved
+            return self._const_value_type(
+                self.parse_const_expr("generic argument"))
+
+        if self.match(TokenType.PLUS, TokenType.MINUS, TokenType.STAR,
+                      TokenType.SLASH, TokenType.PERCENT):
+            self.pos = saved
+            return self._const_value_type(
+                self.parse_const_expr("generic argument"))
+        return t
+
+    @staticmethod
+    def _const_value_type(expr) -> SawType:
+        """Wrap a parsed constant expression as a CONST_VALUE argument."""
+        from ast_nodes import IntLiteral
+        if isinstance(expr, IntLiteral):
+            return SawType(TypeKind.CONST_VALUE, const_value=int(expr.value),
+                           array_size_expr=expr)
+        return SawType(TypeKind.CONST_VALUE, array_size_expr=expr)

@@ -445,10 +445,16 @@ class SawType:
             return SawType(TypeKind.TUPLE, element_types=substituted_elements,
                            tuple_field_names=self.tuple_field_names)
 
-        # Handle array types
+        # Handle array types. The LENGTH substitutes too since design 148: a
+        # `[UInt8; N]` field of a const-generic struct becomes `[UInt8; 256]`
+        # here, which is what lets every reader downstream keep treating
+        # `array_size` as the plain int it always was.
         if self.kind == TypeKind.ARRAY and self.array_element_type:
             substituted_element = self.array_element_type.substitute(type_map)
-            return SawType(TypeKind.ARRAY, array_element_type=substituted_element, array_size=self.array_size)
+            size, size_expr = self._substituted_length(type_map)
+            return SawType(TypeKind.ARRAY,
+                           array_element_type=substituted_element,
+                           array_size=size, array_size_expr=size_expr)
 
         # Handle function types
         if self.kind == TypeKind.FUNCTION:
@@ -458,6 +464,54 @@ class SawType:
 
         # Primitives and other types don't need substitution
         return self
+
+    def const_int(self):
+        """The integer a CONST_VALUE denotes, folding its expression if needed.
+
+        A const argument written as arithmetic (`Ring<2 * 128>`) reaches some
+        paths before any pass has folded it. Folding on read makes every
+        consumer — mangling, substitution, the codegen environment — agree that
+        `Ring<2 * 128>` and `Ring<256>` are one instantiation, which is the
+        property the whole scheme rests on. Closed expressions only; one
+        mentioning a parameter has no value yet and answers None.
+        """
+        if self.const_value is not None:
+            return self.const_value
+        if self.array_size_expr is None:
+            return None
+        from const_eval import const_eval, ConstEvalError
+        try:
+            value = const_eval(self.array_size_expr)
+        except ConstEvalError:
+            return None
+        if isinstance(value, bool) or not isinstance(value, int):
+            return None
+        self.const_value = value
+        return value
+
+    def _substituted_length(self, type_map):
+        """Resolve an array length against a substitution (design 148).
+
+        Returns `(size, size_expr)`. A length that was already a number stays
+        one. A symbolic length whose parameters are all bound by `type_map`
+        evaluates through the one constant evaluator; one that is still
+        partially abstract — a nested generic being substituted a layer at a
+        time — keeps its expression and gets resolved on the next pass.
+        """
+        if self.array_size is not None or self.array_size_expr is None:
+            return self.array_size, self.array_size_expr
+        env = {}
+        for name, t in type_map.items():
+            if t is not None and t.kind == TypeKind.CONST_VALUE:
+                value = t.const_int()
+                if value is None:
+                    return None, self.array_size_expr
+                env[name] = value
+        from const_eval import const_eval, ConstEvalError
+        try:
+            return int(const_eval(self.array_size_expr, env=env)), self.array_size_expr
+        except ConstEvalError:
+            return None, self.array_size_expr
 
 
 @dataclass
@@ -473,6 +527,15 @@ class TypeParameter:
     default: Optional['SawType'] = None
     line: int = 0
     column: int = 0
+    # A const VALUE parameter — the `const N: Int` in `struct FixedBuf<const N:
+    # Int>` (design 148). `const_type` is its declared Int/UInt type;
+    # `const_default_expr` is the `= 256` as parsed. The typechecker evaluates
+    # that default into `default` as a CONST_VALUE `SawType`, which is what lets
+    # a value default ride design 37's default-argument machinery unchanged —
+    # the fillers substitute `tp.default` whatever kind it is.
+    is_const: bool = False
+    const_type: Optional['SawType'] = None
+    const_default_expr: Optional[Any] = None
 
 
 class Visibility(Enum):
@@ -710,6 +773,9 @@ class FormatPlaceholder(Expression):
 class Identifier(Expression):
     name: str
     type_args: Optional[List['SawType']] = None  # For generic type access: Option<Int>
+    # Set when this name resolved to a const generic PARAMETER (design 148), so
+    # codegen emits the instantiation's value instead of looking for storage.
+    const_param_name: Optional[str] = annotation(None)
 
 
 @dataclass

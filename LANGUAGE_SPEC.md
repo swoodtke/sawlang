@@ -833,6 +833,28 @@ let flowed: (Int, Int) = named      // named -> positional (compatible)
 // Arrays (fixed size, stack allocated)
 let fixed: [Int; 5] = [1, 2, 3, 4, 5]
 
+// The REPEAT literal `[v; N]` is N copies of one value. `N` is a compile-time
+// constant: a literal, constant arithmetic, or a const generic parameter (see
+// Generics). The value expression is evaluated exactly once.
+var scratch: [Int8; 256] = [0; 256]      // a zeroed stack buffer
+let flags = [true; 4]                    // type `[Bool; 4]`
+let sized = [0; 2 * 128]                 // type `[Int; 256]`
+
+// An all-zero repeat lowers to a single zeroinitializer store; other values
+// lower to a splat loop. Elements must copy for free — trivially copyable or
+// ImplicitCopy — because a repeat makes N copies and there is nowhere to write
+// the `.copy()` an ExplicitCopy value needs:
+//
+//   let rows = [v; 3]   // v: Vector<Int>
+//   // error: a repeat literal needs a freely copyable element, and
+//   //        `Vector<Int, GlobalAllocator>` is ExplicitCopy
+//
+// A repeat literal is a const initializer, so a static holds one:
+static SCRATCH: [Int8; 4096] = [0; 4096]     // zeroinitializer, in .bss
+
+// The length is part of the type. `[Int; 3]` is not a `[Int; 5]`, and passing
+// one where the other is expected is a compile error naming both.
+
 // A fixed array `[T; N]` inherits T's copy class (see The Copy Trait Family):
 // `[Int; 5]` is trivially copyable, so `let b = fixed` bitwise-copies it. An
 // array of `ExplicitCopy` elements is itself `ExplicitCopy` (move to transfer,
@@ -4118,15 +4140,72 @@ two that happen to coincide. Consequences:
   is rejected. Defaults referencing an earlier parameter are not supported (every
   stdlib default is a ground type such as `GlobalAllocator`).
 
-**Status: planned** — const generics (`struct Array<T, const N: Int>`) and
-`where` clauses are *illustrative* below and not yet implemented:
+**Const generics — implemented.** A type parameter may carry a VALUE instead of
+a type. The `const` keyword in the parameter position is what keeps the two
+kinds apart at a glance:
 
 ```saw
-// (illustrative — planned) Const generics
-struct Array<T, const N: Int> {
-    data: [T; N]
+struct FixedBuf<const N: Int> {
+    data: [UInt8; N]
 }
 
+extension FixedBuf<N> {
+    init() -> FixedBuf<N> {
+        FixedBuf<N>(data: [0; N])
+    }
+
+    // `N` reads as an ordinary Int here — one value per instantiation, folded
+    // to a constant at compile time.
+    func capacity(&self) -> Int { N }
+}
+
+var small = FixedBuf<16>()
+var big   = FixedBuf<256>()
+print(sizeof<FixedBuf<16>>())      // 16
+print(sizeof<FixedBuf<256>>())     // 256
+```
+
+`FixedBuf<16>` and `FixedBuf<256>` are different types with different layouts.
+The value is part of the type identity and part of the monomorphization key, so
+neither is assignable to the other and each gets its own specialized code.
+
+Scope, deliberately narrow in this version:
+
+- **Value type**: `Int` or `UInt`. A parameter of any other type is rejected at
+  the declaration (`a const parameter is `Int` or `UInt``).
+- **Where a parameter may be used**: an array length (`[T; N]`), a
+  `static_assert` operand, `sizeof` arithmetic, a repeat-literal count, and any
+  expression position wanting an `Int`.
+- **Const arithmetic** in instantiation position: literals, const parameters,
+  and `+ - * / %` over them. `FixedBuf<2 * 128>` and `FixedBuf<256>` are the
+  same instantiation — the value is folded before anything mangles it, the same
+  identity rule default type arguments follow.
+- **Declarations**: structs, enums, and free functions all take const
+  parameters, and an extension on a const-generic type is written like any
+  generic extension (`extension FixedBuf<N>` — the constness comes from the
+  declaration, so it is not repeated).
+- **Defaults** compose with default type arguments: `struct Ring<const N: Int =
+  4>` lets `Ring()` mean `Ring<4>`.
+- **Inference**: explicit in this version, with one exception. A `[T; N]`
+  parameter binds `N` from the argument's length:
+
+  ```saw
+  func width<const N: Int>(xs: [Int; N]) -> Int { N }
+  print(width([1, 2, 3, 4]))     // 4 — N solved from the argument
+  ```
+
+Passing the wrong kind of argument is a clean error naming the parameter:
+`FixedBuf<Int>` reports that `N` takes a value, and `Pair<4>` that `T` takes a
+type.
+
+Not supported: const parameters of user types, comparisons over a parameter in
+the declaration (`where N > 0` — write `static_assert(N > 0, ...)` in the body),
+and variadic shapes.
+
+**Status: planned** — `where` clauses are *illustrative* below and not yet
+implemented:
+
+```saw
 // (illustrative — planned) Where clauses for complex bounds
 func merge<T, U, V>(a: T, b: U) -> V
 where
@@ -4136,6 +4215,17 @@ where
 {
     V.merge(a.into(), b.into())
 }
+```
+
+**Type-parameter bounds name traits.** A bound is checked at the declaration, so
+a non-trait in that position is reported where it is written rather than at every
+use site. `<N: Int>` — the natural guess at a value parameter — says so and
+points at the const spelling:
+
+```saw
+struct FixedBuf<N: Int> { len: Int }
+// error: `Int` is a type, not a trait, so it cannot bound the type parameter `N`
+//   hint: to take a compile-time VALUE, write `const N: Int`
 ```
 
 ### Compile-Time Evaluation
@@ -4148,8 +4238,17 @@ position. The condition is evaluated at compile time (with authoritative target
 layout, so `sizeof`/`alignof` are exact): a false result is a **compile error
 carrying the message**, a true result emits **zero code**. The evaluator accepts
 integer/`Bool` literals, unary `-`/`not`, arithmetic/comparison/logical
-operators, `sizeof<T>()`/`alignof<T>()`, and the `Int.max`/`.min` limits;
-anything else (e.g. a runtime function call) is rejected as non-constant.
+operators, `sizeof<T>()`/`alignof<T>()`, the `Int.max`/`.min` limits, and a const
+generic parameter in scope; anything else (e.g. a runtime function call) is
+rejected as non-constant.
+
+One evaluator answers everywhere a constant is required — a `static_assert`
+condition, an array length, a repeat-literal count, a const generic argument —
+so the same expression cannot mean different things in two positions. Division
+and modulo truncate toward zero, matching the runtime semantics above. Array
+lengths and const arguments are resolved during type checking, which is earlier
+than struct layout is known, so `sizeof<T>()` is rejected in those positions
+while remaining available in a `static_assert`.
 
 ```saw
 // Kernel register-block drift check
@@ -4454,7 +4553,8 @@ Not all of std is auto-visible. The **prelude** — the names usable without an
 Everything else in std is **import-required**: `File`, `Directory`, `Path`,
 `Data`, `Channel`, `Mutex`, `Duration`, `Instant`, `IoError`, `Utf8Error`, the
 whole `net` surface (`TcpListener`/`TcpStream`), `yield_now` (std.task —
-design 114), and the `process`/`env`/`time` contents. These stay compiler-known for codegen but are not injected into a
+design 114), `FixedBuf`/`FixedStringBuilder` (std.fixedbuf), and the
+`process`/`env`/`time` contents. These stay compiler-known for codegen but are not injected into a
 user namespace without `import std.<module>`. A bare reference to one is a clean
 error ("`TcpStream` is not in the prelude and must be imported") naming the
 import that supplies it. Because a non-imported std module is not even compiled
@@ -4567,6 +4667,27 @@ std.iter.{Iterator, IntoIterator}
 std.cmp.{Ord, PartialOrd, Eq, PartialEq}
 std.hash.{Hash, Hasher}
 std.time.{Instant, Duration}
+```
+
+**`std.fixedbuf`** is **implemented** (`std/fixedbuf.saw`) and works in both
+profiles: it allocates nothing. `FixedBuf<N>` is `N` bytes of zeroed storage held
+inline, sized by a const generic parameter, with `capacity()`, `get`/`set`
+(bounds-checked, panicking out of range), and `ptr()` for the unsafe paths that
+need an address. `FixedStringBuilder<N>` is a `StringBuilder` over one of those
+buffers: the same `append` surface, the same truncation behaviour (content that
+does not fit is cut on a UTF-8 boundary and marked `…`, reported by
+`is_truncated()`), and no allocator anywhere. `N` counts the whole buffer, of
+which four bytes are held back for the marker and terminator, so
+`FixedStringBuilder<64>` holds 60 bytes of text; an `N` below 5 is a compile
+error.
+
+```saw
+import std.fixedbuf
+
+var out = FixedStringBuilder<64>()
+out.append("n = ")
+out.append(42)
+print(out.as_string())      // prints: n = 42
 ```
 
 **`std.time`** is **implemented** (`designs/57`, `std/time.saw`) and

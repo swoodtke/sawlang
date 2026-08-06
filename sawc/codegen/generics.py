@@ -199,6 +199,26 @@ class GenericsMixin:
                 new_type_args = [self._substitute_saw_type(t, type_mapping) for t in saw_type.type_args]
                 return SawType(TypeKind.ENUM, enum_name=saw_type.enum_name, type_args=new_type_args)
             return saw_type
+        elif saw_type.kind == TypeKind.ARRAY:
+            # design 148. This arm did not exist, so a `[T; N]` field of a
+            # generic struct reached `_get_llvm_type` with `T` unsubstituted —
+            # latent before const generics, since nothing in the tree had one,
+            # and immediately load-bearing now that `struct FixedBuf<const N:
+            # Int> { data: [UInt8; N] }` is writable. `SawType.substitute` does
+            # the length; only the element needs this walker's `type_mapping`.
+            if saw_type.array_element_type is None:
+                return saw_type
+            new_elem = self._substitute_saw_type(saw_type.array_element_type,
+                                                 type_mapping)
+            size, size_expr = saw_type._substituted_length(type_mapping)
+            return SawType(TypeKind.ARRAY, array_element_type=new_elem,
+                           array_size=size, array_size_expr=size_expr)
+        elif saw_type.kind == TypeKind.REFERENCE:
+            if saw_type.inner_type:
+                new_inner = self._substitute_saw_type(saw_type.inner_type, type_mapping)
+                return SawType(TypeKind.REFERENCE, inner_type=new_inner,
+                               reference_mutable=saw_type.reference_mutable)
+            return saw_type
         else:
             return saw_type
 
@@ -543,6 +563,12 @@ class GenericsMixin:
                 key_parts.append("UInt64")
             elif t.kind == TypeKind.STRUCT and t.struct_name:
                 key_parts.append(t.struct_name)
+            elif t.kind == TypeKind.CONST_VALUE and t.const_value is not None:
+                # A const generic VALUE argument (design 148). Tagged so a
+                # `FixedBuf<256>` specialization can never be confused with a
+                # type named `256`, which is unwritable but the tag costs
+                # nothing and keeps the key total.
+                key_parts.append(f"#{t.const_value}")
             else:
                 # Can't create key for this type
                 return ()
@@ -596,6 +622,32 @@ class GenericsMixin:
         monomorphized ENUM's is its tag/payload type (design 145)."""
         return self._ext_self_types(struct_name)[0]
 
+    # The overload tag `mangle_overload` appends. Split on it to move an overload
+    # signature from one base to another.
+    _OVERLOAD_TAG = "$OL$"
+
+    @staticmethod
+    def _compose_overload_suffix(mangled_name: str, method) -> str:
+        """Carry a method's OVERLOAD signature onto its monomorphized symbol.
+
+        The typechecker stamps an overload's codegen symbol against the GENERIC
+        type's name (`Holder_take$OL$String`), because that is the only name a
+        declaration has. Monomorphization then built `Holder$1$Int_take` from the
+        specialized name and dropped the signature — so two overloads in a
+        generic extension declared ONE symbol between them, and the call, which
+        looks up the stamped one, found nothing at all ("Undefined method:
+        Holder$1$Int.take"). Overloaded methods in a generic extension were
+        simply not callable.
+
+        Both sides now compose the same way: specialized base + the stamped
+        signature. A non-overloaded method has no tag and is untouched.
+        """
+        stamped = getattr(method, 'mangled_symbol', None)
+        if not stamped or GenericsMixin._OVERLOAD_TAG not in stamped:
+            return mangled_name
+        suffix = stamped[stamped.index(GenericsMixin._OVERLOAD_TAG):]
+        return mangled_name + suffix
+
     def _declare_monomorphized_method(self, mangled_struct_name: str, method: Method,
                                       type_mapping: dict[str, SawType]) -> str:
         """Declare the LLVM signature for one monomorphized method; return its
@@ -617,6 +669,7 @@ class GenericsMixin:
         else:
             mangled_name = self._mangle_method_name(mangled_struct_name, method.name,
                                                     method_type_args=method_type_args)
+            mangled_name = self._compose_overload_suffix(mangled_name, method)
         if mangled_name in self.functions:
             return mangled_name
 
@@ -765,6 +818,7 @@ class GenericsMixin:
                             if getattr(method, 'type_params', None) else None)
         mangled_name = self._mangle_method_name(struct_name, method.name,
                                                 method_type_args=method_type_args)
+        mangled_name = self._compose_overload_suffix(mangled_name, method)
         llvm_func = self.functions[mangled_name]
 
         # Create entry block

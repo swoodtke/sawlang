@@ -37,6 +37,18 @@ class PreparedValue:
         self.column = 0
 
 
+class _StampedSymbol:
+    """Carries a stamped overload symbol into `_compose_overload_suffix`.
+
+    That helper reads `mangled_symbol` off a declaration node; at a CALL site the
+    same string arrives on the expression as `resolved_symbol`. Wrapping it keeps
+    one implementation of the compose rule rather than two spellings of it.
+    """
+
+    def __init__(self, mangled_symbol):
+        self.mangled_symbol = mangled_symbol
+
+
 class CallsMixin:
     """Mixin providing function and method call generation methods for CodeGenerator.
 
@@ -1362,6 +1374,18 @@ class CallsMixin:
         else:
             mangled_name = self._mangle_method_name(struct_name, expr.method_name,
                                                     method_type_args=method_type_args)
+
+        if mangled_name not in self.functions and resolved_symbol is not None:
+            # The stamped symbol names the overload against the GENERIC type
+            # (`Holder_take$OL$String`); this receiver is a monomorphization, so
+            # the definition lives under the specialized base. Recompose it the
+            # same way `_declare_monomorphized_method` did.
+            specialized = self._compose_overload_suffix(
+                self._mangle_method_name(struct_name, expr.method_name,
+                                         method_type_args=method_type_args),
+                _StampedSymbol(resolved_symbol))
+            if specialized in self.functions:
+                mangled_name = specialized
 
         # Look up the method function
         if mangled_name not in self.functions:

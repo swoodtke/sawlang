@@ -1,0 +1,52 @@
+// Design 148: `FixedStringBuilder<N>` — the shape design 137 wanted and could
+// not write. Formatting into inline storage sized by a const generic parameter,
+// with no allocator anywhere: this is the acceptance test for const generics.
+//
+// Capacity 16 holds 12 bytes of text; the last four are the three marker bytes
+// and the terminator, so overrunning cuts on a UTF-8 boundary and stamps `…`.
+// EXPECT: success
+// EXPECT-OUTPUT:
+// 8
+// 65
+// 64
+// n = 42
+// 6
+// false
+// abcdefghijkl…
+// true
+// 0
+// true
+
+import std.fixedbuf
+
+func main() unsafe {
+    var buf = FixedBuf<8>()
+    print(buf.capacity())
+    buf.set(0, 65)
+    print(buf.get(0))
+
+    var out = FixedStringBuilder<64>()
+    print(out.capacity())
+    out.append("n = ")
+    out.append(42)
+    print(out.as_string())
+    print(out.len())
+    print(out.is_truncated())
+
+    // A smaller buffer is a DIFFERENT type, and its own capacity bounds it.
+    var tiny = FixedStringBuilder<16>()
+    tiny.append("abcdefghijklmnop")
+    print(tiny.as_string())
+    print(tiny.is_truncated())
+
+    // `clear` empties the storage and un-truncates it.
+    tiny.clear()
+    print(tiny.len())
+
+    // The builder survives being MOVED: it re-aims at its own storage before
+    // every use, so the buffer pointer is never read while stale.
+    var moved = move out
+    moved.clear()
+    moved.append("after the move")
+    print(moved.as_string() == "after the move")
+}

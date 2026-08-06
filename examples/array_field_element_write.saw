@@ -1,0 +1,52 @@
+// Design 148 (found building `FixedBuf<N>`): writing an ELEMENT of a fixed-array
+// FIELD used to be an internal compiler error — "Unsupported container
+// expression in assignment". The container was evaluated as a value, and an
+// array value is not a pointer to index through, so the write had nowhere to go.
+//
+// It addresses the real storage now, with the same bounds check and live-slot
+// release a write through a local array gets.
+// EXPECT: success
+// EXPECT-OUTPUT:
+// 7
+// 0
+// 9
+// 42
+// 3
+
+struct Grid {
+    cells: [Int; 4]
+}
+
+extension Grid {
+    func put(&var self, i: Int, v: Int) {
+        self.cells[i] = v
+    }
+}
+
+struct Outer {
+    inner: Grid
+    marks: [Int; 2]
+}
+
+func main() {
+    var g = Grid(cells: [0, 0, 0, 0])
+    g.put(1, 7)
+    print(g.cells[1])
+    print(g.cells[0])
+
+    // Through a nested field, and through an index expression.
+    var o = Outer(inner: Grid(cells: [0, 0, 0, 0]), marks: [0, 0])
+    o.inner.cells[2] = 9
+    print(o.inner.cells[2])
+    o.marks[1] = 42
+    print(o.marks[1])
+
+    // The write is a real store, so a later read sees it.
+    var i = 0
+    var total = 0
+    while i < 4 {
+        total = total + g.cells[i]
+        i = i + 1
+    }
+    print(total - 4)
+}

@@ -1,0 +1,173 @@
+//! Inline fixed-size buffers, sized by a const generic parameter.
+//!
+//! `FixedBuf<N>` is `N` bytes of storage held inline — in a local, a field, or a
+//! static — with no allocator anywhere in the story. `FixedStringBuilder<N>`
+//! formats into one, so a message can be assembled on a kernel stack or with the
+//! allocator refusing every request.
+
+/// `N` bytes of zeroed storage, held inline.
+///
+/// The size is part of the type, so a `FixedBuf<16>` and a `FixedBuf<256>` are
+/// different types and neither can be passed where the other is expected. The
+/// bytes live wherever the buffer does: a local puts them on the stack, a field
+/// puts them in the enclosing value, a `static` puts them in `.bss`.
+struct FixedBuf<const N: Int> {
+    data: [Int8; N]
+}
+
+extension FixedBuf<N> {
+    /// Creates a buffer of `N` zero bytes.
+    public init() -> FixedBuf<N> {
+        FixedBuf<N>(data: [0; N])
+    }
+
+    /// The number of bytes this buffer holds.
+    ///
+    /// A compile-time constant per instantiation — it reads the type's own
+    /// parameter, so nothing is stored and nothing is loaded.
+    public func capacity(&self) -> Int {
+        N
+    }
+
+    /// The address of the first byte.
+    ///
+    /// The receiver is `&var self` because a `&self` one arrives BY VALUE: the
+    /// address taken inside such a method belongs to the callee's copy, which
+    /// dies at the return, and every write through the returned pointer would
+    /// land somewhere already gone. Reading through a buffer still needs `var`
+    /// storage for that reason.
+    ///
+    /// The pointer is valid only while the buffer stays where it is. Storing one
+    /// across a move of the owner leaves it addressing the old bytes, so take it
+    /// where you use it rather than keeping it in a field.
+    public func ptr(&var self) unsafe -> UnsafePointer<Int8> {
+        (&self.data) as UnsafePointer<Int8>
+    }
+
+    /// Reads the byte at `i`. Panics if `i` is out of range.
+    public func get(&self, i: Int) -> Int8 {
+        if i < 0 || i >= N {
+            panic("FixedBuf.get: index out of range")
+        }
+        self.data[i]
+    }
+
+    /// Writes `b` at `i`. Panics if `i` is out of range.
+    public func set(&var self, i: Int, b: Int8) {
+        if i < 0 || i >= N {
+            panic("FixedBuf.set: index out of range")
+        }
+        self.data[i] = b
+    }
+}
+
+/// A `StringBuilder` over `N` bytes of inline storage.
+///
+/// Formatting that never allocates and never grows: content that does not fit
+/// is cut on a UTF-8 boundary and marked with `…`, exactly as
+/// `StringBuilder(bytes:capacity:)` does — this is that builder with the
+/// storage question answered. Reach for it where the allocator may be gone or
+/// absent: a panic path, a kernel, anything built under `--no-hidden-alloc`.
+///
+/// `N` counts the whole buffer, of which the last four bytes are held back for
+/// the truncation marker and the terminator. `FixedStringBuilder<64>` therefore
+/// holds 60 bytes of text. `N` below 5 leaves no room to say anything and is a
+/// compile-time error.
+///
+/// ```saw
+/// import std.fixedbuf
+///
+/// var out = FixedStringBuilder<64>()
+/// out.append("n = ")
+/// out.append(42)
+/// print(out.as_string())
+/// ```
+struct FixedStringBuilder<const N: Int> {
+    storage: FixedBuf<N>
+    builder: StringBuilder
+}
+
+extension FixedStringBuilder<N> {
+    /// Creates an empty builder over `N` bytes of inline storage.
+    public init() unsafe -> FixedStringBuilder<N> {
+        // The three marker bytes, the NUL terminator, and one byte of text.
+        // Spelled as a literal because a `static` is not readable from a
+        // `static_assert` condition (DF-148b); `MIN_FIXED_CAPACITY` in
+        // std.stringbuilder is the same number.
+        static_assert(N >= 5,
+                      "FixedStringBuilder needs at least 5 bytes: the truncation marker and terminator take four")
+        var buf = FixedBuf<N>()
+        let sb = StringBuilder(bytes: buf.ptr(), capacity: N)
+        FixedStringBuilder<N>(storage: move buf, builder: move sb)
+    }
+
+    /// The buffer size, `N`.
+    public func capacity(&self) -> Int {
+        N
+    }
+
+    /// Appends the bytes of `s`, cutting and marking if they do not fit.
+    public func append(&var self, s: String) unsafe {
+        self._aim()
+        self.builder.append(s)
+    }
+
+    /// Appends the decimal rendering of `value`.
+    public func append(&var self, value: Int) unsafe {
+        self._aim()
+        self.builder.append(value)
+    }
+
+    /// Appends the decimal rendering of `value`.
+    public func append(&var self, value: UInt) unsafe {
+        self._aim()
+        self.builder.append(value)
+    }
+
+    /// Appends one byte.
+    public func append_char(&var self, c: Int8) unsafe {
+        self._aim()
+        self.builder.append_char(c)
+    }
+
+    /// The number of bytes written so far.
+    public func len(&self) -> Int {
+        self.builder.len()
+    }
+
+    /// Whether content has been cut to fit. Once true it stays true until
+    /// `clear`, and the text ends in `…`.
+    public func is_truncated(&self) -> Bool {
+        self.builder.is_truncated()
+    }
+
+    /// Empties the buffer and clears any truncation.
+    public func clear(&var self) unsafe {
+        self._aim()
+        self.builder.clear()
+    }
+
+    /// Copies what has been built into an owned `String`.
+    ///
+    /// This is the one operation here that allocates — the builder itself never
+    /// does. On a path that must not allocate at all, write the bytes out
+    /// through the buffer instead of building a String from them.
+    public func as_string(&var self) unsafe -> String {
+        self._aim()
+        self.builder.build()
+    }
+
+    // Point the builder at THIS value's storage.
+    //
+    // The builder holds a pointer into `storage`, and a Saw move copies bytes:
+    // moving a `FixedStringBuilder` leaves that pointer addressing the bytes it
+    // came from rather than the ones it now sits beside. Rather than forbid
+    // moving — which would make the type unreturnable, so `init` could not hand
+    // one back — every operation re-aims first. The pointer is then never read
+    // while stale, and the type moves like any other value.
+    func _aim(&var self) unsafe {
+        self.builder.rebind(self.storage.ptr())
+    }
+}
+
+extension FixedStringBuilder<N>: NoCopy {}

@@ -1725,8 +1725,20 @@ class CodeGenerator(ResultsMixin, MatchMixin, StructsMixin, CollectionsMixin, Ca
         env = {}
         for name, t in (self.type_param_context or {}).items():
             if t is not None and t.kind == TypeKind.CONST_VALUE:
-                env[name] = t.const_value
+                value = t.const_int()
+                if value is not None:
+                    env[name] = value
         return env
+
+    def _const_param_constant(self, expr):
+        """Emit this instantiation's value for a const generic parameter."""
+        env = self._const_param_env()
+        if expr.name not in env:
+            raise ValueError(
+                f"const generic parameter `{expr.name}` has no value in this "
+                f"instantiation")
+        saw = getattr(expr, 'resolved_type', None) or SawType(TypeKind.INT)
+        return ir.Constant(self._get_llvm_type(saw), env[expr.name])
 
     # ---------------------------------------------------------------------
     # ABI layout queries (design 115 re-entrancy).
@@ -2561,6 +2573,11 @@ class CodeGenerator(ResultsMixin, MatchMixin, StructsMixin, CollectionsMixin, Ca
 
     def visit_Identifier(self, expr: Identifier):
         if expr.name not in self.variables:
+            # A const generic parameter (design 148) is a compile-time value
+            # with no storage: this instantiation's argument becomes a literal
+            # right here, which is what makes `N` free at runtime.
+            if getattr(expr, 'const_param_name', None) is not None:
+                return self._const_param_constant(expr)
             # A local whose type instantiated to `Void` has no storage to load
             # (design 132 unit C): it names no value, so reading it yields none.
             # The block-tail and return paths already treat a valueless result as

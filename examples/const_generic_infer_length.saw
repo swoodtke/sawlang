@@ -1,0 +1,41 @@
+// Design 148 unit C: the ONE inference case — a `[T; N]` parameter binds `N`
+// from the argument's length, so a function over "an array of any length" is
+// callable without writing the length out.
+//
+// Everything else stays explicit in v1: a const argument is inferred from an
+// array's shape or it is written.
+// EXPECT: success
+// EXPECT-OUTPUT:
+// 10
+// 4
+// 30
+// 2
+// 10
+
+func total<const N: Int>(xs: [Int; N]) -> Int {
+    var sum = 0
+    var i = 0
+    while i < N {
+        sum = sum + xs[i]
+        i = i + 1
+    }
+    sum
+}
+
+func width<const N: Int>(xs: [Int; N]) -> Int {
+    N
+}
+
+func main() {
+    let four = [1, 2, 3, 4]
+    print(total(four))
+    print(width(four))
+
+    // A different length is a different instantiation, solved from the argument.
+    let two = [10, 20]
+    print(total(two))
+    print(width(two))
+
+    // Explicit always works and always wins.
+    print(total<4>(four))
+}

@@ -1,0 +1,58 @@
+// Design 148 (found building `Ring<const N: Int = 4>`): a generic with a
+// DEFAULT parameter could not be constructed through its own extension's init.
+// Two separate faults, both fixed here and both older than const generics — a
+// defaulted TYPE parameter hits each one identically.
+//
+// (1) The type-compatibility chokepoint default-FILLED both sides before
+//     comparing, which turned a genuinely bare `Box2` into `Box2<Int>` and made
+//     it disagree with the abstract `Box2<T>` an extension body produces:
+//     "method `init` should return `Box2` but returns `Box2<T>`".
+// (2) A generic named with NO arguments reached codegen bare and raised
+//     "Undefined struct" — the defaults were never filled on that path.
+// EXPECT: success
+// EXPECT-OUTPUT:
+// 5
+// 1
+// 4
+// 9
+
+struct Box2<T = Int> {
+    v: T
+}
+
+extension Box2<T> {
+    init(x: T) -> Box2<T> {
+        Box2<T>(v: x)
+    }
+    func get(&self) -> T { self.v }
+}
+
+struct Tag<T = Int> {
+    n: Int
+}
+
+extension Tag<T> {
+    // A zero-argument init: nothing constrains `T`, so only the default can.
+    init() -> Tag<T> {
+        Tag<T>(n: 1)
+    }
+    func get(&self) -> Int { self.n }
+}
+
+struct Ring<const N: Int = 4> {
+    slots: [Int; N]
+}
+
+extension Ring<N> {
+    init() -> Ring<N> {
+        Ring<N>(slots: [0; N])
+    }
+    func capacity(&self) -> Int { N }
+}
+
+func main() {
+    print(Box2(x: 5).get())
+    print(Tag().get())
+    print(Ring().capacity())
+    print(Ring<9>().capacity())
+}

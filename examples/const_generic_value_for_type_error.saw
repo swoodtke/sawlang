@@ -1,0 +1,14 @@
+// Design 148 unit C: a plain type parameter takes a TYPE. Passing a value reads
+// as nothing else otherwise — it would fail as an undefined type named `4`.
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: takes a TYPE for the parameter
+// EXPECT-ERROR-CONTAINS: is a value
+struct Pair<T> {
+    a: T
+    b: T
+}
+
+func main() {
+    let p = Pair<4>(a: 1, b: 2)
+    print(p.a)
+}

@@ -72,6 +72,8 @@ class StatementsMixin:
         # `<T: Copy>` bound grants `.copy()` on a value of type T inside the body.
         prev_type_params = getattr(self, 'current_type_params', {})
         self.current_type_params = dict(prev_type_params)
+        prev_const_params = self._enter_const_params(
+            [] if specialization_key else extension.type_params)
         if not specialization_key:
             for tp in extension.type_params:
                 self.current_type_params[tp.name] = tp.bounds
@@ -81,6 +83,21 @@ class StatementsMixin:
                 self._check_method(extension.struct_name, method, type_subst)
         finally:
             self.current_type_params = prev_type_params
+            self.current_const_param_types = prev_const_params
+
+    def _enter_const_params(self, type_params):
+        """Bring a declaration's const VALUE parameters into scope (design 148).
+
+        Returns the previous mapping, for the caller to restore. Types only —
+        a generic body is checked once, abstractly, so `N` has a type here and
+        never a value; the values arrive per instantiation, in codegen.
+        """
+        prev = getattr(self, 'current_const_param_types', {})
+        self.current_const_param_types = dict(prev)
+        for tp in (type_params or []):
+            if getattr(tp, 'is_const', False):
+                self.current_const_param_types[tp.name] = tp.const_type
+        return prev
 
     def _annotation_has_module_qualifier(self, t: SawType) -> bool:
         """Whether `t` (recursively) names a module-qualified type — a STRUCT/
@@ -151,6 +168,7 @@ class StatementsMixin:
         # exactly like a struct/extension type param). Restored below.
         prev_method_type_params = getattr(self, 'current_type_params', {})
         self.current_type_params = dict(prev_method_type_params)
+        prev_method_const_params = self._enter_const_params(method.type_params)
         for tp in (method.type_params or []):
             self.current_type_params[tp.name] = tp.bounds
 
@@ -338,6 +356,7 @@ class StatementsMixin:
         self.current_method = None
         self.moved_bindings = saved_moves
         self.current_type_params = prev_method_type_params
+        self.current_const_param_types = prev_method_const_params
         self._exit_unsafe_scope(
             method, saved_unsafe_contact,
             "init" if method.is_init else "method",
@@ -661,6 +680,7 @@ class StatementsMixin:
         # them; today lookups on an opaque type parameter stay conservative.
         prev_type_params = getattr(self, 'current_type_params', {})
         self.current_type_params = dict(prev_type_params)
+        prev_const_params = self._enter_const_params(func.type_params)
         for tp in func.type_params:
             self.current_type_params[tp.name] = tp.bounds
 
@@ -721,6 +741,7 @@ class StatementsMixin:
                     self._propagate_optional_type(func.body.final_expr, resolved_return_type)
                 self._reconcile_return_type(func, resolved_return_type, body_type)
             self.current_type_params = prev_type_params
+            self.current_const_param_types = prev_const_params
             self._effect_exit()
             self.current_function = None
             self.moved_bindings = saved_moves
@@ -746,6 +767,7 @@ class StatementsMixin:
                                     f"function `{func.name}`", func.line, func.column)
 
         self.current_type_params = prev_type_params
+        self.current_const_param_types = prev_const_params
         self._effect_exit()
         self.current_function = None
         self.moved_bindings = saved_moves

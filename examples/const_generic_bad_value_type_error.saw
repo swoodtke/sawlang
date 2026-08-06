@@ -1,0 +1,13 @@
+// Design 148 unit C: a const parameter carries an integer in v1. A value
+// parameter of some other type is refused at the declaration, naming the fence
+// rather than failing somewhere inside the body.
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: a const parameter is `Int` or `UInt`
+// EXPECT-ERROR-CONTAINS: `Name`
+struct Labelled<const Name: String> {
+    n: Int
+}
+
+func main() {
+    print("unreachable")
+}

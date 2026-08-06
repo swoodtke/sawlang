@@ -1728,7 +1728,87 @@ the brief's nicer options are unwritable today — see DF-137a and DF-137b — a
 shared `static` scratch was excluded by the brief (MT groups exist; the panic
 path must be per-stack). The generics model was not touched.
 
-- **DF-137a — FILED, not fixed (found probing design 137's storage question,
+**148 LANDED (Aug 6) — const generics + repeat literals; DF-137a/b closed.**
+Three units as briefed. Notes worth keeping:
+
+- **The brief's inference claim was wrong, and the work was real.** It said "the
+  design-93 solver already unifies array lengths; verify" — it does not. The
+  ARRAY arm of `_unify_infer` matched the ELEMENT type only, and structurally it
+  could not have done more: `array_size` was a plain `int`, not a position a
+  pattern could name. The `[T; N]` case is net-new in three places (parser
+  accepts a length expression, `SawType` carries a symbolic one, the unifier
+  binds it).
+- **ONE constant evaluator, extracted rather than duplicated.** `_const_eval`
+  was a codegen method (it needs LLVM layout for `sizeof`), but array lengths
+  and repeat counts must be known during type checking. Its core moved to
+  `sawc/const_eval.py`, parameterized by a name->value env, an optional layout
+  oracle, and the platform int width. `static_assert`'s grammar and messages are
+  unchanged; the `Int.max` table is now shared with the runtime path too.
+- **THREE pre-existing bugs surfaced and were fixed** (none design-148's doing;
+  all three blocked the acceptance shape):
+  1. Writing an element of a fixed-array FIELD (`self.data[i] = b`) was an
+     internal compiler error — the container was evaluated as a VALUE and an
+     array value is not a pointer to index through. It addresses real storage
+     now, with the same bounds check and live-slot release a local array gets.
+     (`array_field_element_write.saw`)
+  2. Overloaded methods in a GENERIC extension were not callable, also an ICE.
+     The typechecker stamps an overload's symbol against the generic type's
+     name; monomorphization built its symbol from the specialized name and
+     dropped the signature, so two overloads declared ONE symbol between them.
+     Both sides compose the same way now. (`generic_extension_overload.saw`)
+  3. A generic with a DEFAULT parameter could not be constructed through its own
+     extension's init — two faults: the compatibility chokepoint default-FILLED
+     both sides before comparing, turning a genuinely bare `Box2` into
+     `Box2<Int>` so it disagreed with the abstract `Box2<T>`; and a generic
+     named with no arguments reached codegen bare ("Undefined struct"). A
+     defaulted TYPE parameter hit each identically. (`generic_default_init.saw`)
+- **`_types_compatible` had no ARRAY branch at all**, so `[Int; 3]` passed for
+  `[Int; 5]` (and `[Int; 3]` for `[String; 3]`) in silence. Added; a length only
+  one side knows stays compatible, since that is the abstract half of a generic
+  body.
+- `std.fixedbuf` is import-required (design 82), so a user `FixedBuf` still
+  compiles. `FixedStringBuilder<N>` re-aims its buffer pointer before every use,
+  which is what makes a struct holding a pointer into its own storage survive a
+  move; `StringBuilder.rebind` is the small public seam that allows it.
+
+- **DF-148b — FILED (design 148, found writing `std/fixedbuf.saw`). A `static`
+  is not readable from a `static_assert` condition**, so a threshold used in one
+  has to be a literal even where the codebase has a name for it
+  (`static_assert(N >= 5, ...)` in `FixedStringBuilder.init`, where
+  std.stringbuilder calls the same number `MIN_FIXED_CAPACITY`). This collides
+  with the no-magic-numbers style rule. The evaluator now HAS an identifier arm
+  (design 148 gave it one for const parameters), so the fix is small: admit a
+  `static` whose initializer is itself const. The comment at
+  `codegen/core.py:1562` already claims statics are emitted first "so
+  const-static references resolve" — it was aspirational.
+
+- **DF-137a — FIXED (design 148, units A + C).** Const generics exist:
+  `struct FixedBuf<const N: Int> { data: [UInt8; N] }`, `FixedBuf<256>`, `N`
+  readable as an Int in the body, the value part of the type identity and the
+  monomorphization key (`$C$` arm in `mangle.py`). Both halves closed — unit A
+  landed the declaration-time bound check first, so `<N: Int>` now says "`Int`
+  is a type, not a trait" and its fixit names `const N: Int`. Original report:
+
+- **DF-137b — FIXED (design 148 unit B).** `[0; 256]` is the repeat literal; an
+  all-zero one lowers to a single zeroinitializer store, and a static takes one
+  (`static SCRATCH: [Int8; 4096] = [0; 4096]`). Original report below. The
+  bare-local half of the finding (`var scratch: [Int8; 256]` with no
+  initializer) was NOT done — the repeat literal is the spelling.
+
+- **DF-148a — FILED (design 148 unit B). A repeat literal cannot repeat a
+  GENERIC element, because no bound expresses "copies are free".** `[t; N]`
+  where `t: T` is refused: `T: Copy` admits ExplicitCopy (which needs a
+  `.copy()` per slot, and a repeat has nowhere to write one), while
+  `T: ImplicitCopy` excludes the POD types that are freer still — so `Int` fails
+  an `ImplicitCopy` bound and the natural `Ring<T, const N: Int>` is unwritable.
+  The element type is concrete in v1 and the error says so. Two ways out worth
+  deciding between: a bound that means trivial-or-ImplicitCopy, or letting
+  `T: Copy` through and emitting a per-slot `copy()` in codegen (which is what
+  the splat loop already does for the retain case). Not urgent — the acceptance
+  shape `FixedBuf<const N: Int>` has a concrete `UInt8` element — but it is the
+  first thing anyone writing a generic container will hit.
+
+- **DF-137a original report (found probing design 137's storage question,
   Aug 5). There are no VALUE (const) generics, so a capacity-generic
   `FixedStringBuilder<N>` is unwritable — and the near-miss spelling is accepted
   in SILENCE.** `struct FixedBuf<N: Int> { len: Int }` compiles: the parser reads
@@ -1752,7 +1832,7 @@ path must be per-stack). The generics model was not touched.
   as "`Int` is not a trait". (2) is what makes (1) read as a compiler bug rather
   than a missing feature, and is worth fixing on its own.
 
-- **DF-137b — FILED, not fixed (same probe). A LOCAL fixed array cannot be
+- **DF-137b original report (same probe). A LOCAL fixed array cannot be
   zero-initialized, so caller-provided stack scratch is only writable at tiny
   sizes.** A `static` may be declared bare and lands zero-initialized in .bss
   (LANGUAGE_SPEC.md:3360), but a local may not, and there is no repeat literal:

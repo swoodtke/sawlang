@@ -172,6 +172,22 @@ class TypesMixin:
                 mangled_name = self._ensure_monomorphized_struct(saw_type.struct_name, concrete_args)
                 return self.struct_types[mangled_name][0]
             if saw_type.struct_name not in self.struct_types:
+                # A GENERIC named with no arguments at all. That is well-formed
+                # exactly when every parameter is defaulted (design 37, and
+                # design 148 for a const one): `Tag()` where `struct Tag<T =
+                # Int>`. Nothing had filled the defaults on this path, so a
+                # zero-argument init on such a type reached here as a bare name
+                # and raised an internal compiler error. Fill and monomorphize —
+                # the same identity rule as every other reference site.
+                filled = self._fill_default_type_args(saw_type.struct_name, [])
+                if filled:
+                    if saw_type.struct_name in self.generic_enums:
+                        mangled_name = self._ensure_monomorphized_enum(
+                            saw_type.struct_name, filled)
+                        return self.enum_types[mangled_name][0]
+                    mangled_name = self._ensure_monomorphized_struct(
+                        saw_type.struct_name, filled)
+                    return self.struct_types[mangled_name][0]
                 raise ValueError(f"Undefined struct: {saw_type.struct_name}")
             return self.struct_types[saw_type.struct_name][0]  # Return LLVM type
         elif saw_type.kind == TypeKind.OPTIONAL:
@@ -213,10 +229,21 @@ class TypesMixin:
             return self._get_llvm_type(self.type_param_context[saw_type.type_param_name])
         elif saw_type.kind == TypeKind.ARRAY:
             # Arrays are LLVM array types [N x T]
-            if saw_type.array_element_type is None or saw_type.array_size is None:
+            if saw_type.array_element_type is None:
+                raise ValueError("Array type missing element type or size")
+            size = saw_type.array_size
+            if size is None:
+                # A length that is still symbolic — `[Int; N]` on a const-generic
+                # parameter (design 148). This instantiation's bindings supply
+                # it, exactly as the TYPE_PARAM arm above resolves an element
+                # type. Resolving at this chokepoint means every path that
+                # reaches an LLVM type gets the length, not just the ones that
+                # happened to run substitution first.
+                size, _ = saw_type._substituted_length(self.type_param_context)
+            if size is None:
                 raise ValueError("Array type missing element type or size")
             elem_type = self._get_llvm_type(saw_type.array_element_type)
-            return ir.ArrayType(elem_type, saw_type.array_size)
+            return ir.ArrayType(elem_type, size)
         elif saw_type.kind == TypeKind.FUNCTION:
             # Closures are { fn_ptr, env_ptr, dtor_ptr } (design 71). fn_ptr takes
             # (env_ptr, params...) -> ret. dtor_ptr is `void (i8*)` — the env

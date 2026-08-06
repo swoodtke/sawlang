@@ -119,7 +119,8 @@ def mangle_type(t: SawType) -> str:
         # character; the tag keeps values in their own space, so a
         # `Buf<256>` can never collide with a type named `256` (unwritable) or
         # with any other argument form.
-        v = t.const_value if t.const_value is not None else 0
+        v = t.const_int()
+        v = v if v is not None else 0
         return f"$C${'n' if v < 0 else ''}{abs(v)}"
 
     if kind == TypeKind.POINTER:

@@ -547,16 +547,46 @@ class StatementsMixin:
                 else:
                     raise ValueError(f"Cannot index into type: {container_val.type}")
             else:
-                # A non-identifier container (e.g. `self.field_ptr[i] = v`, design
-                # 52b): evaluate it as a value; a pointer-typed one GEPs like the
-                # Identifier pointer branch (placement-move primitive, no release —
-                # the slot is caller-managed raw memory).
-                container_val = self._generate_expression(container_expr)
-                if isinstance(container_val.type, ir.PointerType):
+                container_saw = self._expr_type(container_expr)
+                if (container_saw is not None
+                        and container_saw.kind == TypeKind.ARRAY):
+                    # A fixed-array FIELD or nested element (`self.data[i] = b`,
+                    # `outer.rows[i] = v`). This used to fall through to the
+                    # pointer branch below and raise an internal compiler error:
+                    # the container was evaluated as a VALUE, and an array value
+                    # is not a pointer to GEP through. Address the real storage
+                    # instead, exactly as the Identifier branch does — the same
+                    # bounds check, the same live-slot release, the same
+                    # ImplicitCopy retain — so the write lands in the field
+                    # rather than in a copy of it.
+                    container_ptr = self._get_lvalue_pointer(container_expr)
+                    pointee = container_ptr.type.pointee
+                    if not isinstance(pointee, ir.ArrayType):
+                        raise ValueError(
+                            f"array assignment target is not array storage: "
+                            f"{pointee}")
+                    self._emit_array_bounds_check(
+                        index_val, pointee.count, stmt.target.index)
+                    zero = ir.Constant(ir.IntType(64), 0)
                     elem_ptr = self.builder.gep(
-                        container_val, [index_val], name="ptr_elem")
+                        container_ptr, [zero, index_val], name="elem_ptr")
+                    elem_saw = container_saw.array_element_type
+                    if elem_saw is not None and self._needs_cleanup(elem_saw):
+                        self._emit_drop_at(elem_ptr, elem_saw)
+                    if elem_saw is not None and isinstance(stmt.value, Identifier):
+                        value = self._generate_copy(value, elem_saw)
                 else:
-                    raise ValueError(f"Unsupported container expression in assignment: {type(container_expr)}")
+                    # A non-identifier container (e.g. `self.field_ptr[i] = v`,
+                    # design 52b): evaluate it as a value; a pointer-typed one
+                    # GEPs like the Identifier pointer branch (placement-move
+                    # primitive, no release — the slot is caller-managed raw
+                    # memory).
+                    container_val = self._generate_expression(container_expr)
+                    if isinstance(container_val.type, ir.PointerType):
+                        elem_ptr = self.builder.gep(
+                            container_val, [index_val], name="ptr_elem")
+                    else:
+                        raise ValueError(f"Unsupported container expression in assignment: {type(container_expr)}")
 
             # Coerce value type if needed (e.g., Int -> Int8)
             elem_type = elem_ptr.type.pointee

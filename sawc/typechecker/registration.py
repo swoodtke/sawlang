@@ -1641,6 +1641,29 @@ class RegistrationMixin:
             extension.conformances = [self._canonical_type_name(c)
                                       for c in extension.conformances]
 
+    def _adopt_const_params(self, extension: Extension, struct_info):
+        """Let `extension FixedBuf<N>` know that `N` is a const parameter.
+
+        An extension re-declares the type's parameters positionally and by name,
+        and the natural spelling repeats neither the bounds of a type parameter
+        nor the `const N: Int` of a value one. Rather than make const generics
+        the one case that must be spelled twice, the constness is adopted from
+        the declaration — the same way a bounded extension's `T` is understood
+        against the struct's `T` (design 148).
+
+        Writing it out (`extension FixedBuf<const N: Int>`) keeps working; a
+        parameter that already says `const` is left alone.
+        """
+        declared = getattr(struct_info, 'type_params', None) or []
+        for i, tp in enumerate(extension.type_params or []):
+            if getattr(tp, 'is_const', False) or i >= len(declared):
+                continue
+            src = declared[i]
+            if getattr(src, 'is_const', False):
+                tp.is_const = True
+                tp.const_type = src.const_type
+                tp.bounds = []
+
     def _register_extension(self, extension: Extension):
         """Register methods from an extension."""
         self._canonicalize_extension_target(extension)
@@ -1675,6 +1698,8 @@ class RegistrationMixin:
                     extension.line, extension.column
                 )
                 return
+
+        self._adopt_const_params(extension, struct_info)
 
         # Memberwise `copy()` derivation: a struct declaring ImplicitCopy or
         # ExplicitCopy without a hand-written `copy` gets a compiler-synthesized

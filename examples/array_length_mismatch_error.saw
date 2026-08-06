@@ -1,0 +1,17 @@
+// Design 148: fixed arrays compare by ELEMENT and LENGTH. Array types had no
+// branch in the compatibility check at all, so they fell through to the
+// permissive tail and `[Int; 3]` passed for `[Int; 5]` in silence — a
+// wrong-length argument reaching a body that indexes past its end.
+//
+// Const generics made the hole load-bearing: a `[UInt8; N]` field is only worth
+// having if its length is part of the type.
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: expects `[Int; 5]` but got `[Int; 3]`
+func take(xs: [Int; 5]) -> Int {
+    xs[4]
+}
+
+func main() {
+    let short = [1, 2, 3]
+    print(take(short))
+}

@@ -44,6 +44,15 @@ class StructsMixin:
                     resolved_type_args.append(type_arg)
             # This is a generic struct - ensure monomorphized version exists
             struct_name = self._ensure_monomorphized_struct(expr.struct_name, resolved_type_args)
+        elif struct_name in self.generic_structs:
+            # A generic named with NO arguments: well-formed exactly when every
+            # parameter is defaulted (design 37, and design 148 for a const
+            # one). `Tag()` on a `struct Tag<T = Int>` used to arrive here bare
+            # and raise an internal compiler error.
+            filled = self._fill_default_type_args(struct_name, [])
+            if filled:
+                struct_name = self._ensure_monomorphized_struct(
+                    expr.struct_name, filled)
 
         if struct_name not in self.struct_types:
             raise ValueError(f"Undefined struct: {struct_name}")
