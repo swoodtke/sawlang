@@ -297,6 +297,13 @@ class _PlaceUses:
             # is exactly the place's own — optional when the lend is.
             result_type = self._place_read_type(expr, place)
         name = self._fresh()
+        # Decide the FLAVOR first: `_replace_head` below rewrites the chain's
+        # head into the window's parameter in place, and a rewritten chain no
+        # longer reaches `place`, so a later reading of it would answer "shared"
+        # for every use site. That is what let `let v` plus `v[0].bump()` open an
+        # exclusive window with no error and join the access set as a shared
+        # borrow.
+        exclusive = self._chain_is_exclusive(expr, place)
         # `v.get(i)!` with NOTHING after it is a value read too — the `!` is how
         # the source promises the place is there, and what it hands back is the
         # element itself. A chain that continues PAST the `!` (`v.get(i)!.m()`)
@@ -338,7 +345,7 @@ class _PlaceUses:
         body = Block(statements=[], final_expr=body_expr,
                      line=expr.line, column=expr.column)
         return self._window_call(place, name, body, result_type,
-                                 exclusive=self._chain_is_exclusive(expr, place),
+                                 exclusive=exclusive,
                                  absent='none' if expr is place else 'panic')
 
     def _place_read_type(self, expr, place):

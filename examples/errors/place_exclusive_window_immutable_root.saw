@@ -1,0 +1,27 @@
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: cannot open an exclusive place window on immutable variable `v`
+//
+// Design 141 decision 3: the USE SITE picks the window's flavor. Calling a
+// `&var self` method through a place is a write, so it opens an EXCLUSIVE
+// window — and an exclusive window borrows its root mutably, which a `let`
+// binding cannot lend.
+//
+// The flavor used to be read off the chain AFTER the chain's head had been
+// rewritten into the window's parameter, so the walk never reached the place
+// and every use site answered "shared". A `let` root accepted the write, and
+// the exclusivity join recorded a shared borrow where an exclusive one had
+// happened.
+
+struct Cell { n: Int }
+
+extension Cell {
+    func bump(&var self) { self.n = self.n + 1 }
+}
+
+func main() {
+    var seed = Vector<Cell>()
+    seed.push(Cell(n: 1))
+    let v = move seed
+    v[0].bump()
+    print(v[0].n)
+}
