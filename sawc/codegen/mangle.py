@@ -43,6 +43,21 @@ tuple because the tuple tag carries the leading `$` a name cannot.
 Type aliases: `mangle_type` mangles the alias by whatever `SawType` it is handed.
 Callers that want alias transparency resolve aliases (`_resolve_type_alias`)
 before mangling; this module does not resolve them itself.
+
+Module-qualified identity (design 144): a named type's `struct_name` /
+`enum_name` already IS its identity — `Header$m$dep` for a type defined in a
+non-root, non-std module — so `mangle_named` receives it and nothing here needs
+to know about modules. `$m$` shares this module's one delimiter by design; the
+grammar above still decodes, since the qualifier is part of the `Name` and a
+name is terminated by the `$<arity>$` that follows it or by the end of the
+string.
+
+Seam for const generics (design 148): the monomorphization key is
+`mangle_named(base, type_args)` and the extension point is `type_args`. Design
+144 fused the defining module into `base`, which is the half that is fixed at
+DECLARATION; a value argument is a type-argument-list member and appends there,
+alongside the type arguments, with no change to this grammar beyond a new
+encoding arm in `mangle_type`'s dispatch.
 """
 
 from ast_nodes import SawType, TypeKind

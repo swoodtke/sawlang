@@ -1044,7 +1044,12 @@ def _prepare_codegen(source_path: str, entry_ast, entry_source: str, verbose: bo
                     e.column or 1, source_file=e.source_file)
                 reporter.print_all()
             else:
-                print(f"\033[1;31merror\033[0m: {e.message}", file=sys.stderr)
+                # No line to anchor to, so this bypasses the reporter — and
+                # with it the design-144 qualifier scrub every other diagnostic
+                # gets. Apply it here rather than let one message render
+                # `Header$m$dep` at the user.
+                print(f"\033[1;31merror\033[0m: "
+                      f"{ErrorReporter.humanize(e.message)}", file=sys.stderr)
             sys.exit(1)
         if changed:
             if verbose:
