@@ -279,12 +279,14 @@ class StatementsMixin:
                             method.line, method.column):
                         pass  # design 30: ambiguity reported; no wrap
                     elif self._types_compatible(body_type, ok_type):
-                        # Wrap in ResultOkWrap
+                        # DF-140d: see through the Ok-payload optional first.
+                        _payload = self._prepare_ok_payload(
+                            method.body.final_expr, body_type, ok_type)
                         method.body.final_expr = ResultOkWrap(
-                            value=method.body.final_expr,
+                            value=_payload,
                             result_type=expected_return,
-                            line=method.body.final_expr.line,
-                            column=method.body.final_expr.column
+                            line=_payload.line,
+                            column=_payload.column
                         )
                     elif self._types_compatible(body_type, err_type):
                         # Wrap in ResultErrWrap
@@ -421,12 +423,15 @@ class StatementsMixin:
                         func.line, func.column):
                     pass  # design 30: ambiguity reported; no wrap
                 elif self._types_compatible(body_type, ok_type):
-                    # Wrap in ResultOkWrap
+                    # DF-140d: see through the Ok-payload optional (bare `None`
+                    # stamped, bare `T` wrapped in `Some`) before the Result wrap.
+                    _payload = self._prepare_ok_payload(
+                        func.body.final_expr, body_type, ok_type)
                     func.body.final_expr = ResultOkWrap(
-                        value=func.body.final_expr,
+                        value=_payload,
                         result_type=resolved_return_type,
-                        line=func.body.final_expr.line,
-                        column=func.body.final_expr.column
+                        line=_payload.line,
+                        column=_payload.column
                     )
                 elif self._types_compatible(body_type, err_type):
                     # Wrap in ResultErrWrap
@@ -669,6 +674,13 @@ class StatementsMixin:
         # Add parameters to scope (resolve types first)
         for param in func.parameters:
             resolved_type = self._resolve_type(param.type)
+            # DF-140c: a module-qualified parameter type that did not resolve is
+            # reported HERE, at the signature, instead of surfacing as whatever
+            # the unusable parameter breaks further down.
+            self._check_qualified_type_resolves(
+                resolved_type, f"parameter `{param.name}`",
+                func.line, func.column,
+                source_file=getattr(func, 'source_file', None))
             # Design 100: a function parameter shadowing a module-level `static`
             # is a flat error (a bare use would otherwise resolve to the param).
             self._check_shadowing(param.name, None, func.line, func.column,
@@ -1977,6 +1989,30 @@ class StatementsMixin:
                     f"function returns void but return has a value of type `{value_type}`",
                     stmt.line, stmt.column
                 )
+            elif (value_type is not None and value_type.is_none_literal()
+                  and self._resolve_type(expected).is_result()):
+                # DF-140d: a bare `None` is compatible with EVERY type by the
+                # none-literal rule, so `not _types_compatible(...)` was False and
+                # the auto-wrap chain below never ran at all — codegen then met a
+                # raw None where a Result was expected ("None literal has no type
+                # information"). Route it explicitly.
+                _res = self._resolve_type(expected)
+                _ok = _res.unwrap_result_ok()
+                if _ok is not None and _ok.is_optional():
+                    _payload = self._prepare_ok_payload(stmt.value, value_type, _ok)
+                    stmt.value = ResultOkWrap(
+                        value=_payload, result_type=_res,
+                        line=_payload.line, column=_payload.column)
+                    self.found_return_with_value = True
+                else:
+                    self._error(
+                        ErrorKind.TYPE_MISMATCH,
+                        f"cannot return `None` from a function returning "
+                        f"`{expected}`: its Ok type `{_ok}` is not an optional",
+                        stmt.line, stmt.column,
+                        hint="return an `Err(...)` for the failure case, or "
+                             "declare the Ok type as an optional"
+                    )
             elif value_type and not self._types_compatible(value_type, expected):
                 # Check for Result auto-wrapping
                 if expected.is_result() and value_type:
@@ -1998,11 +2034,17 @@ class StatementsMixin:
                         self.found_return_with_value = True
                     # Value matches T - wrap in ResultOkWrap
                     elif self._types_compatible(value_type, ok_type):
+                        # DF-140d: `Result<T?, E>` needs the payload wrapped into
+                        # the Optional FIRST — a bare `None` stamped with the Ok
+                        # type, a bare `T` wrapped in `Some` — or the Result wrap
+                        # receives something the wrong shape and ICEs.
+                        _payload = self._prepare_ok_payload(
+                            stmt.value, value_type, ok_type)
                         stmt.value = ResultOkWrap(
-                            value=stmt.value,
+                            value=_payload,
                             result_type=expected,
-                            line=stmt.value.line,
-                            column=stmt.value.column
+                            line=_payload.line,
+                            column=_payload.column
                         )
                         self.found_return_with_value = True
                     # Value matches E - wrap in ResultErrWrap

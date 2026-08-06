@@ -105,6 +105,17 @@ let doubled = apply(
 )
 ```
 
+An import's symbol list is the one brace pair that does wrap. It is a delimited
+list rather than a statement container, so line breaks inside it are
+insignificant and a trailing comma is allowed, exactly as in `(...)`:
+
+```saw
+import kcore.{
+    console, pmp_reset,
+    pmp_region,
+}
+```
+
 The line break AFTER a closing bracket still ends the statement, so a wrapped
 call never runs on into the line below it. A bracket that is never closed is
 reported at the opener rather than wherever the parse finally gave up:

@@ -1,0 +1,43 @@
+// DF-140b: an import symbol list wraps across lines.
+//
+// Design 129 made newlines insignificant inside `(`/`[` and a committed generic
+// `<...>` but left `{}` newline-significant, on the grounds that a block or a
+// closure is a statement container. An import list is not one — it is a
+// delimited list exactly like an argument list, and a module exporting eleven
+// names should not force a 120-column line. The allowance is local to the
+// import braces; `{}` everywhere else keeps design 129's rule.
+// EXPECT: success
+// EXPECT-OUTPUT: data 0
+// EXPECT-OUTPUT: dur 5
+// EXPECT-OUTPUT: closure body still ends at end-of-line
+
+import std.data.{
+    Data,
+}
+import std.time.{
+    Duration,
+    Instant
+}
+import std.task.{ yield_now }
+import std.net.{
+    TcpListener
+    ,
+    TcpStream,
+}
+
+func main() {
+    let d = Data()
+    print("data {d.len()}")
+
+    let dur = Duration.from_millis(5)
+    print("dur {dur.millis()}")
+
+    // The `{}` rule is unchanged everywhere else: this closure body is a
+    // statement container, and its statements still end at end-of-line.
+    let show = {
+        let part = "closure body still ends"
+        let rest = "at end-of-line"
+        print("{part} {rest}")
+    }
+    show()
+}

@@ -552,7 +552,17 @@ let grid: Vector<Int> = [
 
 `{` and `}` are the exception: a block or closure is a statement container, so
 line breaks inside one still end statements, even when the braces sit inside a
-wrapped argument list. A bracket that is never closed is reported at the opener.
+wrapped argument list. An import's symbol list is the one brace pair that wraps,
+being a delimited list rather than a statement container:
+
+```saw
+import std.net.{
+    TcpListener,
+    TcpStream,
+}
+```
+
+A bracket that is never closed is reported at the opener.
 
 ### Type Extensions
 

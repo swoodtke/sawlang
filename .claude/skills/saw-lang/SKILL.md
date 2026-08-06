@@ -61,7 +61,10 @@ print("{#file}:{#line} - msg")  // #file/#line/#function: definition-site consts
   `<...>` ("a trailing comma is not allowed in a generic argument list"). `{}`
   stays newline-SIGNIFICANT (a block/closure is a statement container), which
   holds even for a closure argument inside a wrapped call — so a multi-statement
-  closure body still works there. A newline AFTER the closing bracket still ends
+  closure body still works there. The ONE brace pair that DOES wrap is an
+  import's symbol list (`import kcore.{\n  a, b,\n}` — design 147): it is a
+  delimited list, not a statement container, and takes a trailing comma too.
+  A newline AFTER the closing bracket still ends
   the statement. `a < b` stays a comparison whether or not it straddles lines;
   suppression needs the parser to have committed to the generic reading. An
   unclosed `(`/`[` is reported AT THE OPENER, not at EOF. Wrap a long signature

@@ -816,6 +816,15 @@ class Parser(ExpressionsMixin, StatementsMixin, DeclarationsMixin, TypeParsingMi
                 symbols = []
                 symbol_aliases = {}
                 local_names = set()
+                # DF-140b: an import symbol list WRAPS across lines. Design 129
+                # left `{}` newline-significant on the grounds that a block or a
+                # closure is a statement container — which an import list is not.
+                # It is a delimited list exactly like an argument list, and a
+                # module exporting eleven names should not force a 120-column
+                # line. The allowance is LOCAL to this construct: `{}` everywhere
+                # else keeps design 129's rule, so a block or closure body still
+                # ends its statements at end-of-line.
+                self.skip_newlines()
 
                 def parse_one_symbol():
                     sym = self.expect(TokenType.IDENT, "Expected symbol name in import")
@@ -834,11 +843,13 @@ class Parser(ExpressionsMixin, StatementsMixin, DeclarationsMixin, TypeParsingMi
                         self.error(f"imported name `{local}` is already bound by "
                                    f"this import")
                     local_names.add(local)
+                    self.skip_newlines()
 
                 if not self.match(TokenType.RBRACE):
                     parse_one_symbol()
                     while self.match(TokenType.COMMA):
                         self.advance()
+                        self.skip_newlines()
                         if self.match(TokenType.RBRACE):
                             break
                         parse_one_symbol()

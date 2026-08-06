@@ -642,6 +642,18 @@ class TypeUtilsMixin:
                 # identity is fixed at resolution time.
                 resolved_args = self._append_default_type_args(struct_name, resolved_args)
                 return SawType(TypeKind.STRUCT, struct_name=struct_name, type_args=resolved_args)
+        elif saw_type.kind == TypeKind.REFERENCE and saw_type.inner_type:
+            # DF-140c: resolve the REFERENT. Every other composite here recursed
+            # into its parts and a reference did not, so `&qual.Section` kept the
+            # module-qualified spelling as an unresolved nominal name while the
+            # by-value `qual.Section` resolved fine. The parameter type then
+            # matched nothing: the method lookup failed (reported as `undefined
+            # variable raw` at the `guard let` BINDING, three errors downstream of
+            # the real one), and a call site was told `&qual.Section` and
+            # `&Section` were different types.
+            resolved_inner = self._resolve_type(saw_type.inner_type)
+            return SawType(TypeKind.REFERENCE, inner_type=resolved_inner,
+                           reference_mutable=saw_type.reference_mutable)
         elif saw_type.kind == TypeKind.OPTIONAL and saw_type.inner_type:
             # Recursively resolve optional inner types
             resolved_inner = self._resolve_type(saw_type.inner_type)
@@ -665,6 +677,79 @@ class TypeUtilsMixin:
             # read our own stamp as an author-written `escaping`.
             return SawType(TypeKind.FUNCTION, param_types=resolved_params, func_return_type=resolved_return, func_is_sync=saw_type.func_is_sync, func_is_escaping=saw_type.func_is_escaping, func_escaping_stamped=saw_type.func_escaping_stamped, func_is_unsafe=saw_type.func_is_unsafe)
         return saw_type
+
+    def _prepare_ok_payload(self, value_expr, value_type, ok_type):
+        """Make `value_expr` a well-formed Ok PAYLOAD for `ok_type` (DF-140d).
+
+        `Result<T?, E>` needs a DOUBLE wrap — into the Optional, then into the
+        Result — and neither direction was performed, so both spellings were
+        internal compiler errors rather than working code or a clean message:
+
+            return None        -> "None literal has no type information"
+            return Cfg(v: 1)   -> "Can only insert {i1, %Cfg} at [0] in
+                                   {{i1, %Cfg}}: got %Cfg"
+
+        Two shapes to repair, both only when the Ok type is an Optional:
+
+        * a bare `None` carries no payload type of its own, so it is stamped with
+          the Ok type before it is wrapped (codegen reads that stamp to size the
+          `{i1, T}` it builds);
+        * a bare payload value is wrapped in `OptionalWrap` first, so the
+          ResultOkWrap around it receives the `T?` it is declared to hold.
+
+        Returns the expression to put inside the `ResultOkWrap`. Anything already
+        optional (an `Optional<T>`-typed expression) is handed back untouched —
+        matching a `Result<T?, E>` and binding through `if let` always worked, so
+        the shape was only ever broken at the auto-wrap boundary.
+        """
+        if value_expr is None or ok_type is None or not ok_type.is_optional():
+            return value_expr
+        if value_type is not None and value_type.is_none_literal():
+            self._annotate_none_in_expr(value_expr, ok_type)
+            return value_expr
+        if value_type is not None and not value_type.is_optional():
+            from ast_nodes import OptionalWrap as _OW
+            return _OW(value=value_expr, target_type=ok_type,
+                       line=getattr(value_expr, 'line', 0),
+                       column=getattr(value_expr, 'column', 0))
+        return value_expr
+
+    def _unresolved_qualified_name(self, t: Optional[SawType]):
+        """The module-qualified type name in `t` that did not resolve, or None.
+
+        DF-140c: a dotted spelling is unambiguous — the author wrote `mod.Type`,
+        so `mod` has to be a module and `Type` has to exist in it. There is no
+        generic parameter, `Self`, or forward reference that could legitimately
+        survive resolution still carrying a dot. So a STRUCT type whose name
+        still has one after `_resolve_type` ran is a genuine failure worth its own
+        diagnostic, rather than the three downstream errors it used to produce (a
+        `guard let` over an unresolvable method reported the BINDING as undefined,
+        which is the silent part and the worst of it).
+
+        Looks through the wrappers a signature puts around a nominal type.
+        """
+        if t is None:
+            return None
+        if t.kind in (TypeKind.REFERENCE, TypeKind.OPTIONAL) and t.inner_type:
+            return self._unresolved_qualified_name(t.inner_type)
+        if t.kind == TypeKind.STRUCT and t.struct_name and '.' in t.struct_name:
+            return t.struct_name
+        return None
+
+    def _check_qualified_type_resolves(self, t, context: str, line: int, column: int,
+                                       source_file=None):
+        """Report a module-qualified type that did not resolve (DF-140c)."""
+        name = self._unresolved_qualified_name(t)
+        if name is None:
+            return
+        module, _, simple = name.rpartition('.')
+        self._error(
+            ErrorKind.UNKNOWN_TYPE,
+            f"type `{name}` in {context} does not resolve",
+            line, column, source_file=source_file,
+            hint=f"`{module}` must be an imported module exporting a public "
+                 f"`{simple}` — check the import and that `{simple}` is `public`"
+        )
 
     def _stamp_escaping_roles(self, t: Optional[SawType], is_param: bool = False,
                               report_at=None):

@@ -1,0 +1,56 @@
+// DF-140c: a module-qualified type resolves in TYPE position, including behind
+// a reference.
+//
+// `_resolve_type` recursed into every composite it knew — optionals, tuples,
+// enum and function type args — but had no REFERENCE branch, so `&qual.Section`
+// kept the qualified spelling as an unresolved nominal name while the by-value
+// `qual.Section` resolved fine. The parameter then matched nothing: the method
+// lookup failed, and because a `guard let` over an unresolvable method reports
+// the BINDING as undefined, the first error the author saw was `undefined
+// variable raw` two lines below the real problem. A call site was separately
+// told `&qual.Section` and `&Section` were different types.
+// COMPILE-FLAGS: --module-path qual={TESTDIR}/modules/qualtype_dep
+// EXPECT: success
+// EXPECT-OUTPUT: ref 5
+// EXPECT-OUTPUT: varref hello
+// EXPECT-OUTPUT: value 3
+// EXPECT-OUTPUT: local 4
+// EXPECT-OUTPUT: opt 5
+import qual
+
+// The reported shape: a reference parameter written with the qualified name.
+func take(s: &qual.Section, key: String) -> Int {
+    guard let raw = s.value(key) else { return 0 }
+    raw.len()
+}
+
+// `&var` carries its mutability through the same branch.
+func rename(s: &var qual.Section) {
+    s.name = "hello"
+}
+
+// By value already worked; pinned so the reference fix stays symmetric.
+func by_value(s: qual.Section) -> Int {
+    s.name.len()
+}
+
+// An optional of a qualified type — the composite recursion reaches through.
+func first_len(s: qual.Section?) -> Int {
+    s?.name.len() ?? 0
+}
+
+func main() {
+    let sec = qual.Section(named: "hello")
+    print("ref {take(&sec, "n")}")
+
+    var m = qual.Section(named: "xx")
+    rename(&var m)
+    print("varref {m.name}")
+
+    print("value {by_value(qual.Section(named: "abc"))}")
+
+    let local: qual.Section = qual.Section(named: "abcd")
+    print("local {local.name.len()}")
+
+    print("opt {first_len(qual.Section(named: "world"))}")
+}

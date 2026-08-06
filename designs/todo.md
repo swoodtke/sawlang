@@ -1392,6 +1392,62 @@ tools/irdet.py --all`.
   type-checks to is target-dependent since this change. `make sos-test` passes,
   which is the real riscv32 build.
 
+- **DF-140b — FIXED here (unit F). An import symbol list wraps across lines.**
+  `import kcore.{\n console, pmp_reset,\n}` was `Parse error: Expected symbol
+  name in import`. Design 129 left `{}` newline-significant because a block or a
+  closure is a statement container; an import list is not one — it is a delimited
+  list exactly like an argument list. The allowance is LOCAL to the import braces
+  (three `skip_newlines()` calls in the one parse loop), so `{}` everywhere else
+  keeps design 129's rule; a trailing comma already worked and now has newlines
+  to go with it. Regression: `examples/df140b_import_wrap.saw` wraps four import
+  lists (including a leading-comma spelling) and pins in the same file that a
+  closure body's statements still end at end-of-line. Spec's line-break section
+  and the saw-lang skill both carry the exception.
+
+- **DF-140c — FIXED here (unit F). A module-qualified type resolves in TYPE
+  position.** Root cause is narrower than the finding could see: `_resolve_type`
+  recursed into every composite it knew — optionals, tuples, enum and function
+  type args — and had NO `REFERENCE` branch. So `qual.Section` by value and as a
+  local annotation always worked, and only `&qual.Section` / `&var qual.Section`
+  kept the qualified spelling as an unresolved nominal name. The parameter then
+  matched nothing, which is why the three reported errors were all downstream:
+  the method lookup failed, a `guard let` over an unresolvable method reports the
+  BINDING as undefined (`undefined variable raw`), and a call site was told
+  `&qual.Section` and `&Section` were different types. One branch fixes it.
+
+  The diagnostic half is fixed separately, since resolution succeeding does not
+  help the case where the name is genuinely wrong. A dotted spelling is
+  unambiguous — no generic parameter, `Self` or forward reference can survive
+  resolution still carrying a dot — so a parameter type that does is now reported
+  at the SIGNATURE naming the qualified name, ahead of whatever the unusable
+  parameter breaks below. Noted while doing it: an unknown SIMPLE type in
+  parameter position (`&Missing`) is equally undiagnosed, and that is a wider
+  pre-existing gap (parameter type names are never validated) left alone here.
+  Regression: `examples/df140c_qualified_type_position.saw` (+ the
+  `examples/modules/qualtype_dep` fixture) covers `&`, `&var`, by-value, a local
+  annotation and an optional of a qualified type.
+
+- **DF-140d — FIXED here (unit F). `Result<T?, E>` auto-wraps in both
+  directions.** The shape needs a DOUBLE wrap, into the Optional then into the
+  Result, and neither direction performed it. `return Cfg(v: 1)` reached the Ok
+  wrap with the bare payload (`Can only insert {i1, %Cfg} at [0] in {{i1, %Cfg}}:
+  got %Cfg`); `return None` never reached the auto-wrap chain AT ALL, because a
+  bare `None` is compatible with every type by the none-literal rule, so
+  `not _types_compatible(value_type, expected)` was False and codegen met a raw
+  None (`None literal has no type information`).
+
+  Fix: `_prepare_ok_payload` makes an expression a well-formed Ok payload when
+  the Ok type is an Optional — a bare `None` is stamped with the Ok type (codegen
+  reads that stamp to size the `{i1, T}`), a bare `T` is wrapped in
+  `OptionalWrap`, an already-optional expression is untouched — applied at all
+  three Ok-wrap sites (explicit `return`, the function tail, the method tail).
+  The none-literal case gets an explicit branch ahead of the compatibility test,
+  with a clean error when the Ok type is NOT an optional rather than a wrap that
+  could not work. Regression:
+  `examples/df140d_result_optional_autowrap.saw` — both directions plus the error
+  arm, in `return` and tail position, with a `Box<any Error>` erased error type
+  and through a method.
+
 ## Design 145 — DF-findings (enum methods; the std private-symbol reach)
 
 - **DF-140h — FIXED here (unit A). Originally filed on the parked SOS M1

@@ -1,0 +1,104 @@
+// DF-140d: `Result<T?, E>` auto-wraps in both directions.
+//
+// The shape needs a DOUBLE wrap — into the Optional, then into the Result — and
+// neither direction performed it, so both spellings were internal compiler
+// errors. `return None` gave "None literal has no type information" (a bare
+// `None` is compatible with EVERY type by the none-literal rule, so the
+// auto-wrap chain never ran at all), and `return Cfg(v: 1)` gave "Can only
+// insert {i1, %Cfg} at [0] in {{i1, %Cfg}}: got %Cfg" (the Ok wrap received the
+// bare payload instead of the optional it is declared to hold).
+//
+// Matching a `Result<T?, E>` and binding through `if let` always worked, so the
+// shape was only ever broken at the auto-wrap boundary. `Result<T?, E>` is the
+// right signature for "it failed, or there is / isn't one".
+// EXPECT: success
+// EXPECT-OUTPUT: load absent
+// EXPECT-OUTPUT: load found 1
+// EXPECT-OUTPUT: load failed nope
+// EXPECT-OUTPUT: tail absent
+// EXPECT-OUTPUT: tail found 7
+// EXPECT-OUTPUT: erased absent
+// EXPECT-OUTPUT: erased found 2
+// EXPECT-OUTPUT: method absent
+// EXPECT-OUTPUT: method found 3
+
+struct Cfg { v: Int }
+struct Oops { m: String }
+
+extension Oops: Error {
+    func format(&self, into: &var StringBuilder) { into.append(self.m) }
+}
+
+// Explicit returns, both directions plus the error arm.
+func load(mode: Int) -> Result<Cfg?, Oops> {
+    if mode == 0 {
+        return None
+    }
+    if mode == 1 {
+        return Cfg(v: 1)
+    }
+    return Oops(m: "nope")
+}
+
+// The same two wraps in TAIL position rather than a `return`.
+func tail(mode: Int) -> Result<Cfg?, Oops> {
+    if mode == 0 { None } else { Cfg(v: 7) }
+}
+
+// Error erasure composes with the double wrap.
+func erased(mode: Int) -> Result<Cfg?, Box<any Error>> {
+    if mode == 0 {
+        return None
+    }
+    return Cfg(v: 2)
+}
+
+// The method path carries its own copy of the return-type reconciliation.
+struct Loader { base: Int }
+
+extension Loader {
+    func get(&self, mode: Int) -> Result<Cfg?, Oops> {
+        if mode == 0 {
+            return None
+        }
+        return Cfg(v: self.base)
+    }
+}
+
+func show(prefix: String, r: Result<Cfg?, Oops>) {
+    match r {
+        case Ok(c) -> {
+            if let got = c { print("{prefix} found {got.v}") }
+            else { print("{prefix} absent") }
+        },
+        case Err(e) -> print("{prefix} failed {e}")
+    }
+}
+
+func main() {
+    show("load", load(0))
+    show("load", load(1))
+    show("load", load(2))
+
+    show("tail", tail(0))
+    show("tail", tail(1))
+
+    match erased(0) {
+        case Ok(c) -> {
+            if let got = c { print("erased found {got.v}") }
+            else { print("erased absent") }
+        },
+        case Err(e) -> print("erased failed {e}")
+    }
+    match erased(1) {
+        case Ok(c) -> {
+            if let got = c { print("erased found {got.v}") }
+            else { print("erased absent") }
+        },
+        case Err(e) -> print("erased failed {e}")
+    }
+
+    let l = Loader(base: 3)
+    show("method", l.get(0))
+    show("method", l.get(1))
+}
