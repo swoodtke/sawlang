@@ -431,32 +431,46 @@ Three of its stages are about where the output goes:
 ## Test Runner Implementation
 
 The test runner (`test_runner.py`) discovers every `.saw` file recursively,
-reads each file's directives, and then works in two stages.
+reads each file's directives, and then works in two stages that overlap.
 
-**Stage 1 compiles every test.** Build products land in `.build/`, named after
-the test's path relative to `examples/`, so `examples/ffi/int_types.saw`
-becomes `.build/ffi_int_types`. Each compile writes to a unique temporary name
-and renames its products into place. Every verdict that needs no running
-program settles here: `EXPECT: error`, `EXPECT: object`, `EXPECT: docs`, and
-any test that failed to compile when it should have succeeded.
+**The compile stage builds every test.** Build products land in `.build/`,
+named after the test's path relative to `examples/`, so
+`examples/ffi/int_types.saw` becomes `.build/ffi_int_types`. Each compile
+writes to a unique temporary name and renames its products into place. Every
+verdict that needs no running program settles here: `EXPECT: error`,
+`EXPECT: object`, `EXPECT: docs`, and any test that failed to compile when it
+should have succeeded.
 
-**Stage 2 runs the binaries stage 1 produced** and checks what they wrote,
-which covers `EXPECT: success` and `EXPECT: panic`. Each binary runs as its
-own subprocess in its own process group under a 30-second cap. On expiry the
-whole group is killed and the test is recorded as a failure, so a test that
-hangs at runtime cannot wedge the run.
+**The execution stage runs the binaries the compile stage produced** and checks
+what they wrote, which covers `EXPECT: success` and `EXPECT: panic`. Each
+binary runs as its own subprocess in its own process group under a 30-second
+cap. On expiry the whole group is killed and the test is recorded as a failure,
+so a test that hangs at runtime cannot wedge the run.
 
-The order is deliberate. On macOS/arm64 a binary exec'd microseconds after it
-was written can die of SIGTRAP before `main` runs, while the kernel is still
-assessing the new file. Compiling everything first puts the rest of the sweep
-between a write and its exec, and the rename means the exec'd path always
-holds a file the kernel has not judged before. A child that dies by signal
+A binary does not pass from one stage to the other immediately. It waits five
+seconds. On macOS/arm64 a binary exec'd microseconds after it was written can
+die of SIGTRAP before `main` runs, while the kernel is still assessing the new
+file, so the runner holds each binary back and lets the compiles that follow it
+fill the wait. `--settle-lag SECS` changes that wait and `--settle-lag 0`
+removes it.
+
+Two further guards sit under the wait. The rename means the exec'd path always
+holds a file the kernel has not judged before, and a child that dies by signal
 having written nothing on either stream is re-run once. That retry is always
 reported, both in the test's own line and in a `RE-RAN:` section of the
 summary, because a retry nobody sees is a retry that can hide a real crash.
 
-Stage 2 runs wider than stage 1. Its processes sit in the kernel rather than
-competing for cores: the first exec of a freshly written binary costs about
-0.4s of assessment, against 0.007s to run the same file again.
+The stages overlap rather than running one after the other. Compiling
+everything first and only then executing cost about a third of the suite's wall
+clock: the first exec of a freshly written binary costs about 0.4s of kernel
+assessment against 0.007s to run the same file again, and that assessment
+barely parallelises. Underneath a compile stream that cost is hidden, because a
+process parked in the kernel is not competing for a core. On its own it becomes
+a second serial stretch. The same measurement is why the execution side runs
+four times wider than the compile side.
+
+Progress is two counters. `(n/N)` counts compiles and `[n/N]` counts verdicts;
+they advance independently, since a binary's verdict lands a settle lag after
+its compile while later compiles are still running.
 
 See the `test_runner.py` source for the rest.

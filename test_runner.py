@@ -51,6 +51,7 @@ import itertools
 import time
 import io
 import copy
+import collections
 import contextlib
 import multiprocessing
 import multiprocessing.connection
@@ -133,8 +134,8 @@ STATUS_SYMBOLS = {
     TestStatus.XPASS: f"{Colors.RED}!{Colors.RESET}",
 }
 
-# Phase 1 marker for a test that compiled and is queued for phase 2. It is not
-# a verdict — that comes when the binary runs.
+# Marker for a test that compiled and is queued for execution. It is not a
+# verdict — that comes when the binary runs.
 COMPILED_SYMBOL = f"{Colors.DIM}·{Colors.RESET}"
 
 
@@ -635,21 +636,114 @@ def _kill_process_group(proc: subprocess.Popen) -> None:
 
 
 # ===========================================================================
-# The two phases (design 156).
+# Compile and execute, pipelined behind a settle lag (design 156, DF-156a).
 #
-# Every test is COMPILED in phase 1; only then is any binary EXECUTED, in
-# phase 2. That ordering is the structural fix for DF-149b: the in-process
-# compiler wrote a Mach-O and exec'd it microseconds later, and on macOS/arm64
-# the kernel had not always finished settling the fresh image's ad-hoc code
-# signature — the child died of SIGTRAP having written nothing, about one run
-# in twelve on a saturated machine. Two phases put the rest of the compile
-# sweep between any write and its exec.
+# Compilation and execution are separate stages: a test is COMPILED, and only
+# after its binary has had time to SETTLE is it executed. That ordering is the
+# fix for DF-149b — the in-process compiler wrote a Mach-O and exec'd it
+# microseconds later, and on macOS/arm64 the kernel had not always finished
+# assessing the fresh image; the child died of SIGTRAP having written nothing,
+# about one run in twelve on a saturated machine.
 #
-# The split also sorts the suite's verdicts by what they need: everything
+# The stages RUN CONCURRENTLY, which is the DF-156a correction. Strictly
+# separating them (compile every test, then execute every binary) cost +32%
+# wall clock, because the kernel's assessment of a never-run file — ~0.4s,
+# and it barely parallelises — was work the old interleaved runner had HIDDEN:
+# a process parked in that assessment burns no CPU, so the other workers'
+# compiles filled the cores. Serialising the stages exposed it as a second
+# serial stretch. Pipelining them puts it back under the compile stream while
+# `SETTLE_LAG_SECS` keeps the window DF-149b actually needs.
+#
+# The split still sorts the suite's verdicts by what they need: everything
 # decidable without running anything — an error test, an object test, a docs
-# test, a compile that failed when it should have succeeded — settles in
-# phase 1 and never reaches phase 2.
+# test, a compile that failed when it should have succeeded — settles at
+# compile time and never reaches the execution side.
 # ===========================================================================
+
+# How long a freshly renamed binary is held back before it may be executed.
+#
+# TIME is the mechanism, rather than "wait for N further compiles", for three
+# reasons the DF-156a measurements make plain:
+#
+#   * The hazard is a wall-clock one. What the kernel is doing is assessing a
+#     file it has never run (our binaries carry `com.apple.provenance`); that
+#     costs ~0.4s and barely parallelises. What a binary needs before its exec
+#     is elapsed time. A compile count is only a proxy for it, and one that
+#     drifts the wrong way under load: a loaded machine compiles slower AND
+#     settles slower, yet the count says "fewer seconds of waiting".
+#   * A count has no answer at the ends. The last few compiles have no
+#     successors to wait for, and a filtered `-f two_tests` run has no window
+#     at all. A deadline just works, and costs those runs the lag once.
+#   * The lag is nearly free. Compilation produces ~2 binaries/s (856 over
+#     ~420s) and the execution side drains ~3.9/s (856 in 219s at width 40),
+#     so the queue runs empty and each binary execs at almost exactly
+#     lag-after-rename, concurrently with the compiles that follow it. The
+#     only wall clock the lag costs the whole run is the tail — the LAST
+#     binary compiled still has to wait it out.
+#
+# 5s is therefore ~1% of a suite run, spent against a hazard whose observed
+# form was an exec microseconds after the write. Both DF-149b backstops stay
+# in place underneath it (unique-temp-write-then-rename, and the
+# retry-once-on-silent-signal-death that reports itself), so the lag is the
+# margin, not the guarantee.
+SETTLE_LAG_SECS = 5.0
+
+
+class SettleQueue:
+    """A FIFO of compiled binaries that hands each one out only once it has
+    settled — `lag` seconds after it was pushed (DF-156a).
+
+    Producers (the compile side) call `push`, then `close` when the last
+    compile is in. Consumers (the execution workers) call `pop`, which blocks
+    until an item is due and returns None once the queue is closed and drained.
+
+    `lag` is constant, so pushes arrive in deadline order and the deque head is
+    always the next item due — no heap, and a waiter only ever has one deadline
+    to sleep on.
+    """
+
+    def __init__(self, lag: float = SETTLE_LAG_SECS):
+        self.lag = lag
+        self._items = collections.deque()
+        self._cv = threading.Condition()
+        self._closed = False
+
+    def push(self, item) -> None:
+        with self._cv:
+            self._items.append((time.monotonic() + self.lag, item))
+            # notify_all, not notify. A single notify is enough only if the
+            # thread it picks is an IDLE worker rather than one already
+            # sleeping on the current head's deadline — which happens to hold
+            # in CPython, whose waiter queue is FIFO and whose re-waiters go to
+            # the back, but is nowhere in the documented contract of
+            # `Condition.notify`. Waking everyone costs a few wakeups a second
+            # (compilation pushes ~2 binaries/s) and rests on nothing.
+            self._cv.notify_all()
+
+    def close(self) -> None:
+        """No more items will be pushed; drained consumers may now exit."""
+        with self._cv:
+            self._closed = True
+            self._cv.notify_all()
+
+    def pop(self):
+        """Block until the oldest item has settled and return it, or return
+        None once the queue is both closed and empty."""
+        with self._cv:
+            while True:
+                if self._items:
+                    ready_at, item = self._items[0]
+                    delay = ready_at - time.monotonic()
+                    if delay <= 0:
+                        self._items.popleft()
+                        return item
+                    # Wake at the deadline; a push cannot beat it to the head,
+                    # and close() notifies, so this never oversleeps its work.
+                    self._cv.wait(delay)
+                elif self._closed:
+                    return None
+                else:
+                    self._cv.wait()
 
 
 @dataclass
@@ -658,7 +752,7 @@ class CompileOutcome:
 
     `settled` means the verdict is final and no binary will be run; `passed`
     and `msg` are then the test's result. Otherwise the test compiled and
-    `exe_path` names the binary phase 2 executes.
+    `exe_path` names the binary the execution stage runs once it has settled.
     """
     settled: bool
     passed: bool = False
@@ -692,7 +786,8 @@ def directive_shape_error(test: TestCase) -> Optional[str]:
 
 
 def compile_test(test: TestCase, compile_fn=None) -> CompileOutcome:
-    """PHASE 1: compile one test, and judge everything that needs no execution.
+    """COMPILE STAGE: compile one test, and judge everything that needs no
+    execution.
 
     `compile_fn(path, output_path, compile_flags) -> (success, stdout, stderr)`
     performs the compilation; it defaults to the spawn-a-subprocess compiler
@@ -748,7 +843,8 @@ def compile_test(test: TestCase, compile_fn=None) -> CompileOutcome:
         return CompileOutcome(True, True, "Failed as expected")
 
     elif test.expect_type == ExpectType.PANIC:
-        # Should compile successfully but panic at runtime: phase 2 judges it.
+        # Should compile successfully but panic at runtime: the execution
+        # stage judges it.
         if not compile_success:
             msg = f"Compilation failed (expected to compile):\n{compile_stderr[:500]}"
             return CompileOutcome(True, False, msg)
@@ -814,7 +910,7 @@ def compile_test(test: TestCase, compile_fn=None) -> CompileOutcome:
 
         return CompileOutcome(True, True, "Object symbols as expected")
 
-    else:  # ExpectType.SUCCESS — phase 2 runs it and judges the output.
+    else:  # ExpectType.SUCCESS — the execution stage runs it and judges output.
         if not compile_success:
             msg = f"Compilation failed:\n{compile_stderr[:500]}"
             return CompileOutcome(True, False, msg)
@@ -823,12 +919,13 @@ def compile_test(test: TestCase, compile_fn=None) -> CompileOutcome:
 
 
 def _to_run(exe_path: Path, placed: set) -> CompileOutcome:
-    """Hand a compiled test to phase 2, first proving there is something to run.
+    """Queue a compiled test for execution, first proving there is something
+    to run.
 
     A compile that reports success but writes no executable — a runnable test
-    carrying `-c`, say — would otherwise leave phase 2 running whatever stale
-    binary the LAST run left at that path, and quietly passing on it.
-    Separating the phases is what makes that reachable. The test is on what
+    carrying `-c`, say — would otherwise leave the execution stage running
+    whatever stale binary the LAST run left at that path, and quietly passing
+    on it. Separating the stages is what makes that reachable. The test is on what
     THIS compile placed, not on whether a file exists, because a stale binary
     satisfies `exists()` perfectly well.
     """
@@ -842,10 +939,10 @@ def _to_run(exe_path: Path, placed: set) -> CompileOutcome:
 
 
 def execute_test(test: TestCase, exe_path: str) -> tuple[bool, str, Optional[str]]:
-    """PHASE 2: run one compiled binary and judge how it behaved.
+    """EXECUTION STAGE: run one compiled binary and judge how it behaved.
 
-    Only SUCCESS and PANIC tests get here; every other verdict was settled in
-    phase 1. Returns `(passed, message, note)`, where `note` is anything the
+    Only SUCCESS and PANIC tests get here; every other verdict was settled at
+    compile time. Returns `(passed, message, note)`, where `note` is anything the
     runner did that the reader must be told about even when the test passed.
     """
     run_success, run_stdout, run_stderr, note = run_executable(Path(exe_path))
@@ -1015,7 +1112,8 @@ _WORKER_DONE = None  # sentinel: no more work, exit the loop
 def _worker_loop(conn, verbose: bool):
     """Persistent worker body: import sawc + build the builtin namespace once,
     then COMPILE tasks in-process until the sentinel arrives. A worker never
-    executes a test binary — that is phase 2's job, back in the main process.
+    executes a test binary — that happens back in the main process, on the
+    execution threads, once the binary has settled.
 
     Each task is `(index, TestCase)`; each reply is `(index, CompileOutcome)`.
     The index lets the main process match a reply to its test without shipping
@@ -1035,7 +1133,8 @@ def _worker_loop(conn, verbose: bool):
 
 
 def _compile_parallel_in_process(tests, num_workers, verbose, on_result):
-    """PHASE 1 driver: compile `tests` across `num_workers` persistent workers.
+    """COMPILE-STAGE driver: compile `tests` across `num_workers` persistent
+    workers.
 
     Returns a `CompileOutcome` list aligned with `tests`. `on_result(index,
     outcome)` is called on the main process as each compile finishes, for live
@@ -1120,6 +1219,12 @@ def main():
                              'subprocess (the pre-design-115 path). The default '
                              'compiles in-process in persistent worker processes; '
                              'use this to debug any runner-vs-compiler discrepancy.')
+    parser.add_argument('--settle-lag', type=float, default=SETTLE_LAG_SECS,
+                        metavar='SECS',
+                        help=f'Seconds a freshly compiled binary is held back '
+                             f'before it may be executed (default '
+                             f'{SETTLE_LAG_SECS:g}; DF-149b/DF-156a). 0 executes '
+                             f'each binary the moment it lands.')
     args = parser.parse_args()
 
     # Default: compile in-process in persistent worker processes (design 115).
@@ -1152,19 +1257,21 @@ def main():
     if args.sequential:
         num_workers = 1
 
-    # Phase 2 runs WIDER than phase 2's core count, because it is not CPU work.
-    # The FIRST exec of a freshly written binary costs macOS ~0.4s of kernel
-    # code-signature/provenance assessment (a re-exec of the same file costs
-    # ~0.007s — 90x less), and that assessment barely parallelises. Measured
-    # over the suite's 856 binaries: width 10 -> 375s, width 20 -> 272s,
-    # width 40 -> 219s. The old interleaved runner hid all of that behind the
-    # compile stream; separating the phases exposes it, so phase 2 buys back
-    # what it can with concurrency it can afford — these processes are asleep
-    # in the kernel, not competing for cores.
-    run_workers = 1 if args.sequential else num_workers * 4
+    # The execution side runs WIDER than the core count, because it is not CPU
+    # work. The FIRST exec of a freshly written binary costs macOS ~0.4s of
+    # kernel code-signature/provenance assessment (a re-exec of the same file
+    # costs ~0.007s — 90x less), and that assessment barely parallelises.
+    # Measured over the suite's 856 binaries: width 10 -> 375s, width 20 ->
+    # 272s, width 40 -> 219s. The extra width is what keeps the DRAIN RATE
+    # (~3.9 binaries/s at 40) comfortably above the rate compilation produces
+    # binaries (~2/s), which is what lets the queue run empty and the settle
+    # lag stay the only wait. These processes are asleep in the kernel, not
+    # competing for cores, so the width costs the compile stream nothing.
+    run_workers = 1 if args.sequential else min(num_workers * 4, len(tests))
 
     results = [None] * len(tests)          # (test, status, msg, note), by index
-    pending = []                           # (index, exe_path) -> phase 2
+    settle_queue = SettleQueue(max(0.0, args.settle_lag))
+    queued = [0]                           # binaries handed to the execution side
     print_lock = threading.Lock()
 
     def _settle(index, passed, msg, prefix, note=None):
@@ -1181,85 +1288,127 @@ def main():
             for line in msg.split('\n'):
                 print(f"      {line}")
 
-    # ---- PHASE 1: compile every test ------------------------------------
+    # Two counters, both out of the same total: `(n/N)` counts compiles, and
+    # `[n/N]` counts verdicts. They advance independently because the stages
+    # overlap — a binary's verdict lands a settle lag after its compile, while
+    # later compiles are still going.
     compiled = [0]
+    verdicts = [0]
+
+    def _verdict(index, passed, msg, note=None):
+        with print_lock:
+            verdicts[0] += 1
+            _settle(index, passed, msg, f"[{verdicts[0]}/{len(tests)}] ", note)
 
     def _on_compiled(index, outcome):
+        """Called on the main thread as each compile finishes."""
         with print_lock:
             compiled[0] += 1
-            prefix = f"[{compiled[0]}/{len(tests)}] "
             if outcome.settled:
-                _settle(index, outcome.passed, outcome.msg, prefix)
-            else:
-                pending.append((index, outcome.exe_path))
-                print(f"{prefix}{COMPILED_SYMBOL} {tests[index].name}")
+                verdicts[0] += 1
+                _settle(index, outcome.passed, outcome.msg,
+                        f"[{verdicts[0]}/{len(tests)}] ")
+                return
+            queued[0] += 1
+            print(f"{Colors.DIM}({compiled[0]}/{len(tests)}){Colors.RESET} "
+                  f"{COMPILED_SYMBOL} {tests[index].name}")
+        # Pushed OUTSIDE the print lock: the settle deadline starts here, and
+        # an execution worker taking the lock to report a verdict must never
+        # be able to delay it.
+        settle_queue.push((index, outcome.exe_path))
 
-    # How the work is spread, named once for both phase banners. Phase 1's
-    # "persistent workers" are compiler processes (design 115); phase 2 reuses
-    # the same width with plain threads, since running a binary is a subprocess
-    # wait and needs no compiler in the loop.
+    def _execution_worker():
+        """Take settled binaries off the queue, run them, record the verdict.
+
+        Exits when the queue is closed and drained. A crash in here would
+        otherwise cost a test its verdict silently, so it is reported as that
+        test's failure."""
+        while True:
+            item = settle_queue.pop()
+            if item is None:
+                return
+            index, exe_path = item
+            try:
+                passed, msg, note = execute_test(tests[index], exe_path)
+            except Exception as e:  # pragma: no cover - runner bug guard
+                passed, msg, note = False, f"the runner failed to execute this test: {e}", None
+            _verdict(index, passed, msg, note)
+
+    # How the work is spread. The compile side's "persistent workers" are
+    # compiler processes (design 115); the execution side is plain threads,
+    # since running a binary is a subprocess wait and needs no compiler in the
+    # loop.
     if args.sequential:
         how = "sequential"
     elif in_process:
         how = f"{num_workers} persistent workers"
     else:
         how = f"{num_workers} workers, subprocess compile"
+    lag = settle_queue.lag
 
     t0 = time.monotonic()
-    print(f"{Colors.BOLD}Phase 1/2{Colors.RESET}: compiling {len(tests)} test(s) ({how})...\n")
+    print(f"{Colors.BOLD}Compiling{Colors.RESET} {len(tests)} test(s) ({how}); "
+          f"each binary runs {lag:g}s after it lands "
+          f"({'sequentially' if args.sequential else f'{run_workers} execution workers'}).")
+    print(f"{Colors.DIM}(n/N) compiled   [n/N] verdict{Colors.RESET}\n")
 
-    if args.sequential:
-        # Sequential. In-process still amortizes bootstrap: sawc is imported
-        # and the builtin namespace built once in THIS process.
-        if in_process:
-            _init_in_process(args.verbose)
-        for index, test in enumerate(tests):
-            _on_compiled(index, compile_test(test, compile_fn))
-    elif in_process:
-        # PERSISTENT worker processes, each importing sawc + building the
-        # builtin namespace once and then compiling many tests in-process.
-        _compile_parallel_in_process(tests, num_workers, args.verbose,
-                                     _on_compiled)
-    else:
-        # --subprocess: the pre-design-115 path. Each compile spawns a sawc.py
-        # subprocess, so threads (not processes) suffice to overlap them.
-        with ThreadPoolExecutor(max_workers=num_workers) as executor:
-            futures = {executor.submit(compile_test, test, compile_fn): i
-                       for i, test in enumerate(tests)}
-            for future in as_completed(futures):
-                _on_compiled(futures[future], future.result())
+    # Execution threads run CONCURRENTLY with the compiles (DF-156a); they park
+    # on the queue until a binary has settled. In --sequential there is one
+    # thread of control by definition, so the queue is drained after the
+    # compiles instead — which still honours the lag, and for the full suite
+    # every binary is long past its deadline by then.
+    exec_threads = []
+    if not args.sequential:
+        exec_threads = [threading.Thread(target=_execution_worker, daemon=True)
+                        for _ in range(run_workers)]
+        for t in exec_threads:
+            t.start()
+
+    try:
+        if args.sequential:
+            # Sequential. In-process still amortizes bootstrap: sawc is imported
+            # and the builtin namespace built once in THIS process.
+            if in_process:
+                _init_in_process(args.verbose)
+            for index, test in enumerate(tests):
+                _on_compiled(index, compile_test(test, compile_fn))
+        elif in_process:
+            # PERSISTENT worker processes, each importing sawc + building the
+            # builtin namespace once and then compiling many tests in-process.
+            _compile_parallel_in_process(tests, num_workers, args.verbose,
+                                         _on_compiled)
+        else:
+            # --subprocess: the pre-design-115 path. Each compile spawns a sawc.py
+            # subprocess, so threads (not processes) suffice to overlap them.
+            with ThreadPoolExecutor(max_workers=num_workers) as executor:
+                futures = {executor.submit(compile_test, test, compile_fn): i
+                           for i, test in enumerate(tests)}
+                for future in as_completed(futures):
+                    _on_compiled(futures[future], future.result())
+    finally:
+        # However the compile side ended, the execution side must be told, or
+        # its workers park on an empty queue forever.
+        settle_queue.close()
 
     t1 = time.monotonic()
-    settled = len(tests) - len(pending)
-    print(f"\n{Colors.BOLD}Phase 1 complete{Colors.RESET} in {t1 - t0:.1f}s — "
-          f"{settled} settled without running, {len(pending)} binaries to execute.\n")
+    with print_lock:
+        run_done = verdicts[0] - (len(tests) - queued[0])
+    print(f"\n{Colors.BOLD}Compiles complete{Colors.RESET} in {t1 - t0:.1f}s — "
+          f"{len(tests) - queued[0]} settled without running, "
+          f"{queued[0]} binaries queued for execution "
+          f"({run_done} of them already run).\n")
 
-    # ---- PHASE 2: execute every binary that phase 1 produced -------------
-    if pending:
-        print(f"{Colors.BOLD}Phase 2/2{Colors.RESET}: executing {len(pending)} "
-              f"binar{'y' if len(pending) == 1 else 'ies'} "
-              f"({'sequential' if args.sequential else str(run_workers) + ' workers'})...\n")
-        executed = [0]
-
-        def _on_executed(index, passed, msg, note):
-            with print_lock:
-                executed[0] += 1
-                _settle(index, passed, msg, f"[{executed[0]}/{len(pending)}] ", note)
-
-        if args.sequential:
-            for index, exe_path in pending:
-                _on_executed(index, *execute_test(tests[index], exe_path))
-        else:
-            with ThreadPoolExecutor(max_workers=run_workers) as executor:
-                futures = {executor.submit(execute_test, tests[i], exe): i
-                           for i, exe in pending}
-                for future in as_completed(futures):
-                    _on_executed(futures[future], *future.result())
+    if args.sequential:
+        _execution_worker()
+    else:
+        for t in exec_threads:
+            t.join()
 
     t2 = time.monotonic()
-    print(f"\ncompile {t1 - t0:.1f}s + execute {t2 - t1:.1f}s = {t2 - t0:.1f}s total")
+    print(f"\ncompile {t1 - t0:.1f}s + {t2 - t1:.1f}s draining "
+          f"= {t2 - t0:.1f}s total")
 
-    # Nothing may fall between the phases: a test that reached neither verdict
+    # Nothing may fall between the stages: a test that reached neither verdict
     # is a runner bug, and must break the build rather than vanish from it.
     for i, slot in enumerate(results):
         if slot is None:
