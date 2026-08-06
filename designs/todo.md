@@ -223,7 +223,15 @@ question.
   the answer before it is written — the same `_` on a real Optional DOES drop
   the payload today, so the two would diverge.
 
-- **DF-146d — OPEN. `Map` gets no subscript: a place cannot project into an
+- **DF-146d — QUEUED (user, Aug 6): a focused follow-up dispatched AFTER the
+  P0-pair continuation integrates** (deliberately not folded in — the pair is
+  on its third attempt and stays minimal; the continuation's borrow-based
+  matching is the foundation that makes this cheap). Scope: `lend` from
+  inside a borrowing match arm (`case Occupied(v) -> lend v` — tag stability
+  is free, the window borrows the root), then `Map.[](key) borrows -> V?` +
+  the Set equivalent + tests. Concurrent-eligible with the 138/M1-adoption
+  finale (places/std-collections only). Original finding follows:
+  **`Map` gets no subscript: a place cannot project into an
   ENUM PAYLOAD** (found by design 146 unit C, Aug 5). Design 141 lists
   `func [](key: K) borrows -> V?` on Map as v1 scope, and it is not expressible
   over the current slot representation. A map's value lives inside
