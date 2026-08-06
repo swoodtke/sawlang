@@ -38,13 +38,28 @@ makes std go through the same three forms as everyone else.
    user modules, the selective form ALSO binds the `X` qualifier for
    reaching non-imported names (core.py ~1218 already does this for
    user modules).
-4. **Qualifier bindings are weak** [pin, veto-able]: a local, param,
-   or field named `data`/`net`/`path`/`time` may shadow a module
-   qualifier without tripping the shadowing-error rule; value bindings
-   win at resolution. Rationale: std leaves are extremely common
-   locals — this was design 82's original reason for not creating the
-   alias. Applies uniformly to user-module qualifiers (verify current
-   behavior; normalize if it differs).
+4. **Qualifier bindings are weak** [pin, ratified in discussion]: a
+   local, param, or field named `data`/`net`/`path`/`time` may shadow
+   a module qualifier without tripping the shadowing-error rule; value
+   bindings win at resolution (order: local scopes → module-level
+   declarations → imported bare names → qualifiers last). The shadow
+   is lexical: outside the declaring scope, `task.` reaches the module
+   again. Rationale: std leaves are extremely common locals — this was
+   design 82's original reason for not creating the alias. Applies
+   uniformly to user-module qualifiers (verify current behavior;
+   normalize if it differs). Diagnostic contract: when member lookup
+   fails on a value that shadows a qualifier, the error names the
+   shadowing declaration and offers the three outs (rename,
+   `import ... as`, selective import).
+4b. **First compiler warning + the `-W` surface [user, Aug 6]**: sawc
+   gains `-W <name>` (repeatable) and `-W all`; warnings are OFF by
+   default, never affect the exit code (no `-Werror` yet). The
+   reporter's warning path exists (`errors.py`) but has zero call
+   sites — this brief adds the first category, `shadowed-qualifier`:
+   emitted at the DECLARATION of a name that shadows a visible module
+   qualifier, noting qualified access is unavailable in that scope.
+   The use-site error above is unconditional; the warning is the
+   opt-in early flag.
 5. **Qualifier collisions**: two imports binding the same qualifier is
    an import-site error naming both paths; fixed with `as`.
 6. **Extension/conformance visibility (142) unchanged**: ANY import
@@ -74,7 +89,10 @@ Design 138 (all-sources sweep, queued after) verifies consistency.
 
 Qualified access in every syntactic position; std glob; selective +
 qualifier combo; `as` on whole-module std; qualifier-collision error;
-weak-shadowing probe (local named `data` beside `import std.data`);
-negative: bare use under qualified-only import errors with a
-did-you-mean naming the three forms. Full battery: suite (zero
-xfails), lexdiff, astdiff, irdet --all (venv), bootstrap, sos_runner.
+weak-shadowing probe (local named `data` beside `import std.data`) —
+both the failing-member-lookup diagnostic (names the shadowing decl +
+three outs) and the `-W shadowed-qualifier` emission (and its silence
+without the flag); negative: bare use under qualified-only import
+errors with a did-you-mean naming the three forms. Full battery: suite
+(zero xfails), lexdiff, astdiff, irdet --all (venv), bootstrap,
+sos_runner.
