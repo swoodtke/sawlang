@@ -1273,8 +1273,28 @@ static. It was already retired — design 118 stage 3 moved it into Saw as
 which is precisely the case this design's own settled rule keeps on `Atomic`.
 Converting it would delete the atomicity that makes the singleton race-safe.
 
-- **DF-149b — FILED (found running design 149's gate battery; diagnosed, NOT
-  fixed).** A test fails intermittently — roughly 1 run in 12 — under the
+- **DF-149b — CLOSED (design 156, Aug 6).** Three things landed, in the order
+  the brief pinned them. (1) **Two stages.** `test_runner.py` compiles every
+  test before it executes any binary, so the rest of the compile sweep now sits
+  between a write and its exec instead of microseconds. (2) **Write elsewhere,
+  rename in.** A compile writes to a unique `.tmp-<pid>-<n>-<name>` path and
+  renames its products into place, so the path a test execs is always a vnode
+  the kernel has never judged — this is what kills the stale-signature-cache
+  case, and it is what protects a filtered `-f one_test` run, which has no
+  settle window to speak of. (3) **Retry once on a SILENT signal death.**
+  `run_executable` re-runs a child that was killed by a signal having written
+  nothing on either stream, and REPORTS the retry in the test's output line
+  and in a `RE-RAN:` summary section — on a pass as well as a failure, because
+  a silent retry is exactly how a real crash would hide. The window is narrow
+  by construction: every failure the suite asserts on speaks before it dies (a
+  Saw panic prints `panic at FILE:LINE:` first), so a panic test is never
+  retried. `tools/test_runner_selftest.py` covers all three halves of the rule
+  — a retry that recovers, a retry that fails again, and a talkative failure
+  that must not be retried. Validated by running the full suite beside
+  `irdet --all`, the saturation that reproduced the crash ~1 in 12, with no
+  spurious signal death.
+  The original report follows.
+  A test fails intermittently — roughly 1 run in 12 — under the
   IN-PROCESS path when the machine is saturated (it surfaced while
   `irdet --all` ran beside the suite; `closure_copyable_struct_copied` is
   where it landed, but nothing about it is specific to that test).
@@ -1298,6 +1318,31 @@ Converting it would delete the atomicity that makes the singleton race-safe.
   stderr and a signal death writes none — the runner now reports the exit
   status and names the signal, which is how the cause above was identified at
   all.
+
+- **DF-156a — FILED (measured landing design 156; needs a user call).** The
+  two-stage runner costs wall clock, and the reason is worth writing down
+  because it is a property of the machine, not of the runner. **The first exec
+  of a freshly written binary costs macOS ~0.4s**; a re-exec of the same file
+  costs ~0.007s. That is the kernel assessing a file it has never run —
+  our binaries carry `com.apple.provenance` — and it is the same mechanism
+  DF-149b's SIGTRAP came out of. It barely parallelises. Measured over the
+  suite's 856 executed binaries: width 10 -> 375s, width 20 -> 272s, width
+  40 -> 219s. Nothing pays it early: reading the whole file, `xattr -c` and
+  `codesign -v` before the exec all leave it exactly where it was.
+  The old interleaved runner **hid all of it** — a worker blocked in kernel
+  assessment burns no CPU, so the other nine workers' compiles filled the
+  cores. Splitting the phases exposes it as a second serial stretch:
+  compile ~420s THEN execute, where before the whole run was compile-bound at
+  ~400s. Phase 2 therefore runs at 4x the worker count (~219s here), which
+  recovers about 40% of the loss; the rest is structural.
+  **Options, for the user:** (a) keep strict two stages and accept it;
+  (b) pipeline them — start executing while phase 1 still runs, but hold each
+  binary until N further compiles have completed, which keeps the settle
+  window that DF-149b actually needs while restoring the overlap; (c) drop
+  back to one stage and rest on the rename + retry backstops alone, which are
+  independently sufficient for a filtered run and may be sufficient outright.
+  Recorded rather than decided: (b) changes the structure the brief's decision
+  names in so many words.
 
 **Not in v1:** a non-trivially-destructible static (statics stay deinit-free);
 relaxed/acquire-release orderings on `Atomic` or `SpinLock` (everything is
