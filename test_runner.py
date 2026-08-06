@@ -47,7 +47,7 @@ import os
 import sys
 import signal
 import subprocess
-import tempfile
+import itertools
 import io
 import copy
 import contextlib
@@ -95,6 +95,23 @@ class TestCase:
     compile_flags: List[str] = None  # Extra sawc flags from '// COMPILE-FLAGS:'
     expected_undefined_symbols: List[str] = None  # '// EXPECT-SYMBOL-UNDEFINED:'
     object_max_bytes: Optional[int] = None  # '// EXPECT-OBJECT-MAX-BYTES:'
+    out_name: Optional[str] = None  # unique build-output stem; see `binary_stem`
+
+    @property
+    def binary_stem(self) -> str:
+        """The name this test's build products get under `.build/`.
+
+        `name` (the file stem) is NOT unique: `examples/int_types.saw` and
+        `examples/ffi/int_types.saw` share one. Two tests writing `.build/foo`,
+        `.build/foo.o` and `.build/foo.ll` concurrently race over all three —
+        and once compilation is a separate PHASE from execution, the second
+        compile simply overwrites the first and both tests execute the same
+        binary. `discover_tests` therefore hands every test a stem derived from
+        its path relative to `examples/` (`ffi/int_types` -> `ffi_int_types`),
+        which leaves the common case — a test directly in `examples/` — spelled
+        exactly as before.
+        """
+        return self.out_name or self.name
 
 
 class Colors:
@@ -421,6 +438,64 @@ def compile_saw_in_process(file_path: Path, output_path: Path,
     return ok, "", buf.getvalue()
 
 
+# ---------------------------------------------------------------------------
+# Writing build products (DF-149b backstop (a): write elsewhere, rename in).
+# ---------------------------------------------------------------------------
+
+# Everything a compile can leave beside its output path: the `.ll` IR sidecar
+# (at `<out>.ll` in-process, at `<out>.o.ll` when the CLI appended `.o` to the
+# output path first), the object file, and the linked executable (no suffix).
+_PRODUCT_SUFFIXES = ('.ll', '.o.ll', '.o', '')
+
+_TMP_PREFIX = '.tmp-'
+_tmp_counter = itertools.count()
+
+
+def compile_into_place(compile_fn, test: TestCase, exe_path: Path) -> tuple[bool, str, str]:
+    """Compile `test` to a UNIQUE temporary path, then rename its products onto
+    `exe_path`. Returns the compiler's `(success, stdout, stderr)` unchanged.
+
+    DF-149b backstop (a). A binary written under the very path it is then
+    exec'd from can be exec'd while the kernel still holds an unsettled
+    code-signature judgement for that path's vnode; on macOS/arm64 that
+    surfaces as an immediate SIGTRAP with no output at all. Writing to a fresh
+    name and renaming means the path a test execs is always a vnode the kernel
+    has never judged before. `os.replace` is atomic within a directory, so the
+    final path holds either the previous binary or the whole new one — never a
+    partially written image.
+    """
+    tmp = exe_path.with_name(
+        f"{_TMP_PREFIX}{os.getpid()}-{next(_tmp_counter)}-{exe_path.name}")
+    ok, out, err = compile_fn(test.path, tmp, test.compile_flags)
+
+    for suffix in _PRODUCT_SUFFIXES:
+        src = Path(str(tmp) + suffix)
+        if not src.exists():
+            continue
+        if ok:
+            os.replace(src, str(exe_path) + suffix)
+        else:
+            # A failed compile's leftovers are noise, and a half-built binary
+            # must never be left where a later phase would try to execute it.
+            try:
+                src.unlink()
+            except OSError:
+                pass
+    return ok, out, err
+
+
+def sweep_stale_temp_products(build_dir: Path) -> None:
+    """Delete compile products stranded under `.tmp-…` by an interrupted run."""
+    if not build_dir.is_dir():
+        return
+    for entry in build_dir.iterdir():
+        if entry.name.startswith(_TMP_PREFIX) and entry.is_file():
+            try:
+                entry.unlink()
+            except OSError:
+                pass
+
+
 # Hard wall-clock cap on a single test's RUN phase. Generous vs. the
 # ~seconds a real test takes; its whole job is to stop a test that HANGS
 # AT RUNTIME (a live hazard for every concurrency brief) from wedging the
@@ -545,126 +620,126 @@ def run_test(test: TestCase, verbose: bool = False, compile_fn=None) -> tuple[bo
             return False, msg
         return True, "Docs as expected"
 
-    with tempfile.TemporaryDirectory() as tmpdir:
-        exe_path = Path('.build') / test.name
-        exe_path.parent.mkdir(exist_ok=True)
+    exe_path = Path('.build') / test.binary_stem
+    exe_path.parent.mkdir(exist_ok=True)
 
-        # Compile
-        compile_success, compile_stdout, compile_stderr = compile_fn(test.path, exe_path, test.compile_flags)
+    # Compile
+    compile_success, compile_stdout, compile_stderr = compile_into_place(
+        compile_fn, test, exe_path)
 
-        if test.expect_type == ExpectType.ERROR:
-            # Should fail to compile
-            if compile_success:
-                return False, "Expected compilation to fail, but it succeeded"
+    if test.expect_type == ExpectType.ERROR:
+        # Should fail to compile
+        if compile_success:
+            return False, "Expected compilation to fail, but it succeeded"
 
-            # Check error message contains expected text
-            combined_output = compile_stdout + compile_stderr
-            for expected_text in test.expected_error_contains:
-                if expected_text not in combined_output:
-                    return False, f"Error message should contain '{expected_text}'\nGot: {combined_output[:300]}"
+        # Check error message contains expected text
+        combined_output = compile_stdout + compile_stderr
+        for expected_text in test.expected_error_contains:
+            if expected_text not in combined_output:
+                return False, f"Error message should contain '{expected_text}'\nGot: {combined_output[:300]}"
 
-            return True, "Failed as expected"
+        return True, "Failed as expected"
 
-        elif test.expect_type == ExpectType.PANIC:
-            # Should compile successfully but panic at runtime
-            if not compile_success:
-                msg = f"Compilation failed (expected to compile):\n{compile_stderr[:500]}"
+    elif test.expect_type == ExpectType.PANIC:
+        # Should compile successfully but panic at runtime
+        if not compile_success:
+            msg = f"Compilation failed (expected to compile):\n{compile_stderr[:500]}"
+            return False, msg
+
+        # Run the executable - expect it to fail (panic)
+        run_success, run_stdout, run_stderr = run_executable(exe_path)
+
+        if run_success:
+            return False, f"Expected runtime panic, but execution succeeded with output:\n{run_stdout[:300]}"
+
+        # Check panic message contains expected text
+        combined_output = run_stdout + run_stderr
+        for expected_text in test.expected_panic_contains:
+            if expected_text not in combined_output:
+                return False, f"Panic message should contain '{expected_text}'\nGot: {combined_output[:300]}"
+
+        return True, "Panicked as expected"
+
+    elif test.expect_type == ExpectType.OBJECT:
+        # Compile to an object file (e.g. --freestanding / -c) and inspect its
+        # symbol table with `nm`; never run it. Proves the compiled object
+        # EXTERNS the given symbols (undefined references) rather than defining
+        # them — the design-113/113b freestanding-still-externs negative test.
+        if not compile_success:
+            return False, f"Compilation failed (expected to compile):\n{compile_stderr[:500]}"
+
+        # sawc appends `.o` for -c / --freestanding output paths.
+        obj = exe_path if exe_path.suffix == '.o' else Path(str(exe_path) + '.o')
+        if not obj.exists():
+            return False, f"Expected object file not found: {obj}"
+
+        if test.object_max_bytes is not None:
+            actual = obj.stat().st_size
+            if actual > test.object_max_bytes:
+                return False, (
+                    f"{obj.name} is {actual} bytes, over the "
+                    f"{test.object_max_bytes}-byte bound — a static that "
+                    f"should cost no image bytes is carrying them.")
+
+        if not test.expected_undefined_symbols:
+            return True, "Object size as expected"
+
+        nm = subprocess.run(["nm", str(obj)], capture_output=True, text=True)
+        if nm.returncode != 0:
+            return False, f"`nm` failed on {obj}:\n{nm.stderr[:300]}"
+
+        # Parse `nm` lines: "<addr?> <type> <name>". A `U` type is undefined
+        # (an external reference); any other type is a local definition.
+        undefined = set()
+        defined = set()
+        for ln in nm.stdout.splitlines():
+            parts = ln.split()
+            if len(parts) < 2:
+                continue
+            sym_type, name = parts[-2], parts[-1]
+            (undefined if sym_type in ('U', 'u') else defined).add(name)
+
+        def _present(sym, names):
+            # macOS nm prefixes C symbols with `_`; match either spelling.
+            return sym in names or ('_' + sym) in names or ('__' + sym) in names
+
+        for sym in test.expected_undefined_symbols:
+            if _present(sym, defined):
+                return False, (f"Symbol `{sym}` is DEFINED in {obj.name} but was "
+                               f"expected to be an undefined external reference "
+                               f"(the freestanding profile must not bake in a "
+                               f"runtime body).")
+            if not _present(sym, undefined):
+                return False, (f"Symbol `{sym}` is neither undefined nor defined "
+                               f"in {obj.name} — expected an undefined external "
+                               f"reference. `nm` output:\n{nm.stdout[:400]}")
+
+        return True, "Object symbols as expected"
+
+    else:  # ExpectType.SUCCESS
+        # Should compile successfully
+        if not compile_success:
+            msg = f"Compilation failed:\n{compile_stderr[:500]}"
+            return False, msg
+
+        # Run the executable
+        run_success, run_stdout, run_stderr = run_executable(exe_path)
+
+        if not run_success:
+            return False, f"Execution failed:\n{run_stderr[:500]}"
+
+        # Check expected output if specified
+        if test.expected_output:
+            actual_lines = run_stdout.strip().split('\n')
+            expected_lines = test.expected_output
+
+            if actual_lines != expected_lines:
+                msg = "Output mismatch:\n"
+                msg += f"Expected:\n  " + "\n  ".join(expected_lines) + "\n"
+                msg += f"Got:\n  " + "\n  ".join(actual_lines)
                 return False, msg
 
-            # Run the executable - expect it to fail (panic)
-            run_success, run_stdout, run_stderr = run_executable(exe_path)
-
-            if run_success:
-                return False, f"Expected runtime panic, but execution succeeded with output:\n{run_stdout[:300]}"
-
-            # Check panic message contains expected text
-            combined_output = run_stdout + run_stderr
-            for expected_text in test.expected_panic_contains:
-                if expected_text not in combined_output:
-                    return False, f"Panic message should contain '{expected_text}'\nGot: {combined_output[:300]}"
-
-            return True, "Panicked as expected"
-
-        elif test.expect_type == ExpectType.OBJECT:
-            # Compile to an object file (e.g. --freestanding / -c) and inspect its
-            # symbol table with `nm`; never run it. Proves the compiled object
-            # EXTERNS the given symbols (undefined references) rather than defining
-            # them — the design-113/113b freestanding-still-externs negative test.
-            if not compile_success:
-                return False, f"Compilation failed (expected to compile):\n{compile_stderr[:500]}"
-
-            # sawc appends `.o` for -c / --freestanding output paths.
-            obj = exe_path if exe_path.suffix == '.o' else Path(str(exe_path) + '.o')
-            if not obj.exists():
-                return False, f"Expected object file not found: {obj}"
-
-            if test.object_max_bytes is not None:
-                actual = obj.stat().st_size
-                if actual > test.object_max_bytes:
-                    return False, (
-                        f"{obj.name} is {actual} bytes, over the "
-                        f"{test.object_max_bytes}-byte bound — a static that "
-                        f"should cost no image bytes is carrying them.")
-
-            if not test.expected_undefined_symbols:
-                return True, "Object size as expected"
-
-            nm = subprocess.run(["nm", str(obj)], capture_output=True, text=True)
-            if nm.returncode != 0:
-                return False, f"`nm` failed on {obj}:\n{nm.stderr[:300]}"
-
-            # Parse `nm` lines: "<addr?> <type> <name>". A `U` type is undefined
-            # (an external reference); any other type is a local definition.
-            undefined = set()
-            defined = set()
-            for ln in nm.stdout.splitlines():
-                parts = ln.split()
-                if len(parts) < 2:
-                    continue
-                sym_type, name = parts[-2], parts[-1]
-                (undefined if sym_type in ('U', 'u') else defined).add(name)
-
-            def _present(sym, names):
-                # macOS nm prefixes C symbols with `_`; match either spelling.
-                return sym in names or ('_' + sym) in names or ('__' + sym) in names
-
-            for sym in test.expected_undefined_symbols:
-                if _present(sym, defined):
-                    return False, (f"Symbol `{sym}` is DEFINED in {obj.name} but was "
-                                   f"expected to be an undefined external reference "
-                                   f"(the freestanding profile must not bake in a "
-                                   f"runtime body).")
-                if not _present(sym, undefined):
-                    return False, (f"Symbol `{sym}` is neither undefined nor defined "
-                                   f"in {obj.name} — expected an undefined external "
-                                   f"reference. `nm` output:\n{nm.stdout[:400]}")
-
-            return True, "Object symbols as expected"
-
-        else:  # ExpectType.SUCCESS
-            # Should compile successfully
-            if not compile_success:
-                msg = f"Compilation failed:\n{compile_stderr[:500]}"
-                return False, msg
-
-            # Run the executable
-            run_success, run_stdout, run_stderr = run_executable(exe_path)
-
-            if not run_success:
-                return False, f"Execution failed:\n{run_stderr[:500]}"
-
-            # Check expected output if specified
-            if test.expected_output:
-                actual_lines = run_stdout.strip().split('\n')
-                expected_lines = test.expected_output
-
-                if actual_lines != expected_lines:
-                    msg = "Output mismatch:\n"
-                    msg += f"Expected:\n  " + "\n  ".join(expected_lines) + "\n"
-                    msg += f"Got:\n  " + "\n  ".join(actual_lines)
-                    return False, msg
-
-            return True, "Passed"
+        return True, "Passed"
 
 
 def discover_tests(examples_dir: Path) -> List[TestCase]:
@@ -680,6 +755,11 @@ def discover_tests(examples_dir: Path) -> List[TestCase]:
             continue
         test = parse_test_metadata(saw_file)
         if test is not None:  # Skip files marked with '// EXPECT: skip'
+            # Build products are named after the test's path relative to
+            # examples/, which — unlike the file stem — is unique. See
+            # TestCase.binary_stem.
+            test.out_name = '_'.join(saw_file.relative_to(examples_dir)
+                                     .with_suffix('').parts)
             tests.append(test)
     return tests
 
@@ -904,6 +984,7 @@ def main():
     compile_fn = compile_saw_in_process if in_process else compile_saw_file
 
     examples_dir = Path(__file__).parent / 'examples'
+    sweep_stale_temp_products(Path('.build'))
 
     print(f"{Colors.BLUE}{Colors.BOLD}Discovering tests...{Colors.RESET}")
     tests = discover_tests(examples_dir)
