@@ -1625,7 +1625,8 @@ Converting it would delete the atomicity that makes the singleton race-safe.
   all.
 
 - **DF-156a — LANDED (option (b), pipelined settle lag); wall-clock verdict
-  PROVISIONAL.** The stages now OVERLAP. A compiled binary goes into a
+  FINAL Aug 6: PASS. Pipelining stays; the reversion was NOT exercised.**
+  The stages now OVERLAP. A compiled binary goes into a
   `SettleQueue` in `test_runner.py` and becomes eligible for execution
   `SETTLE_LAG_SECS` (5.0s) after it is renamed into place; the execution
   workers start BEFORE the compile sweep and park on that queue, so the
@@ -1651,16 +1652,48 @@ Converting it would delete the atomicity that makes the singleton race-safe.
   executed before compilation finished. When the machine is busy the compile
   stage is the bottleneck and execution hides completely underneath it, leaving
   a drain tail that is just the settle lag on the last few binaries.
-  **The wall-clock comparison is NOT yet decided.** Drift-cancelled A/B/B/A
-  against the pre-156 interleaved runner, on a machine carrying two other
-  agents (loadavg 18-90+): pipelined 531.5s and 766.8s, interleaved 549.4s and
-  537.4s, all four runs 1298 green. A1/B1/B2 sit within 3% of each other with
-  the PIPELINED run fastest, which is the shape the design predicts; the 766.8s
-  outlier landed as load stepped to 90+, and ABBA cancels slow shared drift but
-  not a step change inside a pair. The deciding pair belongs on a quiet
-  machine. **The pre-authorized single-stage reversion (option (c)) is
-  therefore UNEXERCISED**, pending that measurement — nothing observed suggests
-  pipelining is broken.
+  **The wall-clock comparison is now DECIDED, on the quiet machine it was
+  deferred to.** Eight full-suite runs, strictly sequential, nothing else on
+  the box (`.build/scratch/abba.sh` + `baab.sh`, logs in
+  `.build/scratch/logs/`). Two drift-cancelled blocks in complementary orders,
+  so each balances both runners at mean sequence position 2.5 and linear drift
+  cancels within the block:
+
+  | block | run | runner | loadavg before | wall | result |
+  |-------|-----|--------|---------------|------|--------|
+  | ABBA | A1 | interleaved | 1.80 | 212.6s | 1314 green |
+  | ABBA | B1 | pipelined | 13.27 | 272.1s | 1314 green |
+  | ABBA | B2 | pipelined | 17.10 | 281.2s | 1314 green |
+  | ABBA | A2 | interleaved | 17.89 | 291.6s | 1314 green |
+  | BAAB | B3 | pipelined | 6.18 | 274.9s | 1314 green |
+  | BAAB | A3 | interleaved | 23.40 | 298.8s | **1313 + 1 RED** (see below) |
+  | BAAB | A4 | interleaved | 12.79 | 301.0s | 1314 green |
+  | BAAB | B4 | pipelined | 14.28 | 301.3s | 1314 green |
+
+  Block 1 alone: interleaved 252.1s, pipelined 276.7s — pipelined **+9.7%**.
+  Block 2 alone: interleaved 299.9s, pipelined 288.1s — pipelined **-3.9%**.
+  All eight: interleaved 276.0s, pipelined 282.4s — pipelined **+2.3%**.
+  **Comfortably inside the user's ~15% bar on every reading**, so option (b)
+  stands and the pre-authorized single-stage reversion (option (c)) is
+  **UNEXERCISED**.
+  The two blocks disagree in sign, and the reason is A1: it is the only run
+  that started on a genuinely cold machine (loadavg 1.80) and it is 60-90s
+  faster than everything after it. Once the box reaches steady state — runs
+  2-8, all 272-301s — the runners are indistinguishable, with the pipelined
+  mean 282.4s against interleaved 297.1s, i.e. pipelined slightly AHEAD. Note
+  the loadavg column is residue from the preceding run, not competing work;
+  nothing else ran. Running one block only, in the ABBA order, would have
+  handed the cold-start bonus to the interleaved runner and reported a 9.7%
+  loss that is mostly an artifact of going first.
+  **The interleaved runner went RED during its own defence**, which is the
+  other half of the answer. A3 lost `closure_copyable_struct_copied` to
+  `killed by signal 5` **having written nothing** — the DF-149b exec-time
+  signature, distinct from DF-151b's mid-run crash (which always prints its
+  first five lines before dying; see DF-151b for how the two are told apart).
+  That is the pre-149b runner reproducing the exact bug the settle machinery
+  was built to kill, once in four runs, while the pipelined runner did not do
+  it once in four. So the choice is not "equal speed, pick either": the
+  interleaved runner is both no faster and measurably less safe.
   **Original finding:** The
   two-stage runner costs wall clock, and the reason is worth writing down
   because it is a property of the machine, not of the runner. **The first exec
