@@ -1154,12 +1154,17 @@ construct in the owner and lend `&driver` down.
   provenance (blocks alias analysis) — reserve it for genuine address-as-number
   cases (slab free-list). For byte-granular offsets, cast to `UnsafePointer<Int8>`
   FIRST, then add.
-- STYLE: no commented magic numbers — name them. Use a module-level `static`
-  (`static AF_INET: Int32 = 2`, then `socket(AF_INET, ...)`) or a payload-free
-  enum for a closed set. When the NUMBERS themselves matter (a wire tag, a
-  syscall op id, a rights bit), reach for a raw-backed enum — `enum Op: UInt8 {
-  case Read = 0, ... }` names the set AND pins the values, and `as` at the
-  boundary beats a parallel `static` per case. Static inits accept only plain
+- STYLE (user idiom ruling, Aug 6): no magic numbers — name them — and a
+  CLOSED NAMED SET of values (states, tags, modes, op ids, rights bits) is an
+  **Int-inheriting backed enum**, not a family of statics: `enum LockState:
+  UInt8 { case Unlocked = 0, case Held = 1 }` names the set, PINS the values,
+  gives exhaustive `match` over the states, `E.from(raw:) -> E?` at the read
+  boundary, and `as` where the raw number is needed (fixed-width backing when
+  the values cross a wire/ABI, design 47). A module-level `static` is for a
+  genuine standalone QUANTITY — a size, an alignment, a budget, a lone
+  constant like `static AF_INET: Int32 = 2`. A parallel family of Int statics
+  (`UNLOCKED`/`HELD`, `TAG_A`/`TAG_B`) is the smell this ruling exists to
+  catch (design 153 sweeps the existing ones). Static inits accept only plain
   literals (no casts/arithmetic) plus array literals — including a REPEAT
   literal, so `static BUF: [Int8; 4096] = [0; 4096]` is the spelling for a large
   zeroed region (design 148); std-module statics are NOT visible cross-module
