@@ -1202,6 +1202,54 @@ tools/irdet.py --all`.
   arms all yield Void in a value-returning function still reports "body has no
   value" rather than silently returning undef.
 
+- **DF-139a — FIXED here (unit B).** Overwriting a binding released a value a
+  live copy still owned, leaving the copy dangling (`let c = h.s` then
+  `h.s = build(2)` printed `c=c= h=val-`). Filed as affecting "both the
+  field-assignment path and the whole-binding path"; re-probing on current main
+  narrowed it — the whole-binding shapes (`var s = build(1); let c = s;
+  s = build(2)` and the owning-enum `var d = Dep.Path(...); let e = d;
+  d = Dep.Ver(n: 3)`) both behave correctly now. What remained broken was every
+  PROJECTION.
+
+  Root cause, and it is neither half the tracker suspected: the marked retain
+  reaches codegen fine, and the assignment's release is correct. The `let`
+  initializer simply never consults either. `_generate_let_statement` bypasses
+  `_gen_transfer_value` — the shared transfer path every OTHER site uses (call
+  argument, return, aggregate element) — and hand-rolls its own copy decision:
+
+  ```python
+  if var_type and isinstance(stmt.value, Identifier) and not isinstance(stmt.value, MoveExpr):
+      value = self._generate_copy(value, var_type)
+  ```
+
+  A bare `Identifier` initializer retained; a `MemberAccess`, `TupleIndex` or
+  `ArrayIndex` initializer fell straight through to a bitwise alias, even though
+  the typechecker had stamped `needs_copy = True` on it at the transfer
+  checkpoint (`statements.py:1173`) and `_transfer_needs_copy` would have
+  answered True for all three. The IR shows it exactly: `let c = s` emits
+  `call i8* @"String_copy"`, `let c = h.s` emits an `extractvalue` and nothing
+  else. The source then still owned the storage, so `h.s = build(2)`'s
+  `String_deinit` freed the buffer under the live copy — and the copy's own
+  scope-exit drop freed it a second time.
+
+  Fix: the initializer asks the shared oracle. ONE carve-out, found by the
+  Map/Set refcount-balance oracles going unbalanced: indexing a RAW POINTER
+  (`self.buffer[i]` in Vector/Map) is the unsafe domain's manual bookkeeping,
+  not a read out of compiler-tracked storage. std takes a bare alias there on
+  purpose and decides the retain at the subsequent use — `Vector.get` retains
+  when it RETURNS the element, `Vector.swap_out` overwrites the slot and `move`s
+  the alias out at exactly one reference. Retaining the read itself left every
+  `swap_out` result over-retained. A fixed-array (`[T; N]`) index is not that
+  case and retains like a field.
+
+  Regression: `examples/df139a_copy_then_overwrite.saw` — String field, String?
+  field, owning enum, whole-binding local, tuple element, fixed-array element
+  and a two-hop nested field all print both values correctly, plus a drop-count
+  ORACLE (a hand-written ImplicitCopy `copy`/`deinit` pair that prints every
+  retain and release: one `copy 1`, two balanced `drop 1`s — before the fix the
+  copy line was absent and tag 1 was dropped twice), plus a 500-iteration churn
+  loop so a double free meets a reused block.
+
 ## Design 145 — DF-findings (enum methods; the std private-symbol reach)
 
 - **DF-140h — FIXED here (unit A). Originally filed on the parked SOS M1

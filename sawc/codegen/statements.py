@@ -198,10 +198,23 @@ class StatementsMixin:
         else:
             var_type = self._expr_type(stmt.value)
 
-        # Apply copy behavior for ImplicitCopy types when initializing from an existing value
-        # (not for fresh struct/enum construction which doesn't need copying)
-        # Skip copy for move expressions - ownership is transferred, not copied
-        if var_type and isinstance(stmt.value, Identifier) and not isinstance(stmt.value, MoveExpr):
+        # A `let` initializer is a TRANSFER into a new home, so it takes the same
+        # copy decision as every other transfer site — `_transfer_needs_copy`, the
+        # oracle that reads the typechecker's `needs_copy` mark and re-derives the
+        # projection rules codegen owns.
+        #
+        # DF-139a: this used to ask only "is the initializer a bare Identifier?".
+        # That retained a whole-binding read (`let c = s`) but bitwise-aliased
+        # every PROJECTION — `let c = h.s`, `let c = t.0`, `let c = arr[i]` — even
+        # though the typechecker had marked the retain and every OTHER transfer
+        # site (call argument, return, aggregate element) honored it. The source
+        # still owned that storage, so overwriting it (`h.s = build(2)`) released
+        # the value out from under the live copy, and the copy's own scope-exit
+        # drop then freed it a second time.
+        #
+        # A `move` initializer transfers ownership and is not in the oracle's
+        # aliasing set, so it still copies nothing.
+        if var_type and self._let_init_needs_copy(stmt.value):
             value = self._generate_copy(value, var_type)
 
         # Handle None literal type conversion if assigning to optional with different inner type
@@ -296,6 +309,29 @@ class StatementsMixin:
             # (design 42) for conditional-move correctness.
             if self.cleanup_stack and self._needs_cleanup(var_type):
                 self._register_cleanup(stmt.name, var_type)
+
+    def _let_init_needs_copy(self, value_expr) -> bool:
+        """Whether a `let` initializer must retain the value it reads (DF-139a).
+
+        The answer is the shared transfer oracle's, with ONE carve-out: indexing
+        a RAW POINTER. `self.buffer[i]` inside `Vector`/`Map` is the unsafe
+        domain's manual bookkeeping, not a read out of storage the compiler
+        tracks ownership of, and std deliberately takes a bare alias there and
+        decides the retain at the SUBSEQUENT use — `Vector.get` retains when it
+        returns the element, while `Vector.swap_out` overwrites the slot and
+        `move`s the alias out, which must stay at exactly one reference. Making
+        the read itself retain left every `swap_out` result over-retained (a leak
+        the Map/Set refcount-balance oracles catch).
+
+        A fixed array (`[T; N]`) index is NOT this case: it is ordinary safe
+        storage the source keeps owning, so it retains like a field.
+        """
+        if isinstance(value_expr, ArrayIndex):
+            base = getattr(value_expr, 'array_expr', None)
+            base_type = getattr(base, 'resolved_type', None) if base is not None else None
+            if base_type is not None and base_type.kind == TypeKind.POINTER:
+                return False
+        return self._transfer_needs_copy(value_expr)
 
     def _expr_type(self, expr) -> SawType:
         """Return the SawType of an expression from its typechecker annotation.

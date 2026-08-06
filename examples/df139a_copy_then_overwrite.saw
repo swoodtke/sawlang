@@ -1,0 +1,161 @@
+// DF-139a: a `let` initializer that READS OUT OF STORAGE the source still owns
+// must retain, so overwriting the source afterwards cannot free the copy.
+//
+// `_generate_let_statement` hand-rolled its copy decision and asked only "is the
+// initializer a bare Identifier?". A whole-binding read (`let c = s`) retained;
+// every PROJECTION — `let c = h.s`, `let c = t.0`, `let c = arr[i]` — bitwise
+// aliased, even though the typechecker had marked the retain and every other
+// transfer site honored it. Assigning over the source (`h.s = build(2)`) then
+// released the value out from under the live copy, and the copy's own scope-exit
+// drop freed it a second time.
+//
+// The `Res` block is the drop-count oracle: a hand-written ImplicitCopy
+// `copy`/`deinit` pair prints every retain and every release, so the counts are
+// checked rather than inferred. Before the fix the `copy 1` line was absent and
+// tag 1 was dropped twice.
+// EXPECT: success
+// EXPECT-OUTPUT: A c=val-1 h=val-2
+// EXPECT-OUTPUT: B c=val-1 s=val-2
+// EXPECT-OUTPUT: C c=val-1 h=val-2
+// EXPECT-OUTPUT: D e=val-1 d=ver3
+// EXPECT-OUTPUT: E c=val-1 t=val-2
+// EXPECT-OUTPUT: F c=val-1 arr=val-2
+// EXPECT-OUTPUT: G c=val-1 h=val-2
+// EXPECT-OUTPUT: oracle start
+// EXPECT-OUTPUT: oracle copy 1
+// EXPECT-OUTPUT: oracle drop 1
+// EXPECT-OUTPUT: oracle c=1 h=2
+// EXPECT-OUTPUT: oracle drop 1
+// EXPECT-OUTPUT: oracle drop 2
+// EXPECT-OUTPUT: churn ok
+
+func build(n: Int) -> String {
+    var b = StringBuilder()
+    b.append("val-")
+    b.append(n)
+    b.build()
+}
+
+struct Plain { s: String }
+struct OptHold { s: String? }
+struct Inner { s: String }
+struct Outer { inner: Inner }
+
+enum Dep { case Path(name: String), case Ver(n: Int) }
+
+// A. A plain String FIELD — the reported repro.
+func field_shape() {
+    var h = Plain(s: build(1))
+    let c = h.s
+    h.s = build(2)
+    print("A c={c} h={h.s}")
+}
+
+// B. The whole-binding local, which already worked — pinned so it stays working.
+func whole_binding_shape() {
+    var s = build(1)
+    let c = s
+    s = build(2)
+    print("B c={c} s={s}")
+}
+
+// C. An OPTIONAL field: the owning-aggregate read, not the leaf String.
+func optional_field_shape() {
+    var h = OptHold(s: build(1))
+    let c = h.s
+    h.s = build(2)
+    print("C c={c!} h={h.s!}")
+}
+
+// D. An owning enum replaced wholesale while a copy is live.
+func enum_shape() {
+    var d = Dep.Path(name: build(1))
+    let e = d
+    d = Dep.Ver(n: 3)
+    let left = match e {
+        case Path(name) -> name,
+        case Ver(n) -> "ver{n}"
+    }
+    let right = match d {
+        case Path(name) -> name,
+        case Ver(n) -> "ver{n}"
+    }
+    print("D e={left} d={right}")
+}
+
+// E. A TUPLE element — the same projection class as a field.
+func tuple_shape() {
+    var t = (build(1), 7)
+    let c = t.0
+    t = (build(2), 8)
+    print("E c={c} t={t.0}")
+}
+
+// F. A fixed-array element.
+func array_shape() {
+    var arr: [String; 2] = [build(1), build(9)]
+    let c = arr[0]
+    arr[0] = build(2)
+    print("F c={c} arr={arr[0]}")
+}
+
+// G. A nested projection — the read is two hops from the binding.
+func nested_field_shape() {
+    var o = Outer(inner: Inner(s: build(1)))
+    let c = o.inner.s
+    o.inner.s = build(2)
+    print("G c={c} h={o.inner.s}")
+}
+
+// The drop-count oracle: every retain and every release is printed.
+struct Res { tag: Int }
+
+extension Res: ImplicitCopy {
+    func copy(&self) -> Res {
+        print("oracle copy {self.tag}")
+        Res(tag: self.tag)
+    }
+    func deinit(&var self) {
+        print("oracle drop {self.tag}")
+    }
+}
+
+struct Holder { r: Res }
+
+@synthesize
+extension Holder: ImplicitCopy {}
+
+func oracle() {
+    print("oracle start")
+    var h = Holder(r: Res(tag: 1))
+    let c = h.r
+    h.r = Res(tag: 2)
+    print("oracle c={c.tag} h={h.r.tag}")
+}
+
+// A double free shows up as a crash once the allocator reuses the block, so
+// repeat the copy-then-overwrite enough times to churn the heap.
+func churn() {
+    var total = 0
+    var i = 0
+    while i < 500 {
+        var h = Plain(s: build(i))
+        let c = h.s
+        h.s = build(i + 1)
+        total = total + c.len() + h.s.len()
+        i = i + 1
+    }
+    if total > 0 { print("churn ok") } else { print("churn BAD") }
+}
+
+func main() {
+    field_shape()
+    whole_binding_shape()
+    optional_field_shape()
+    enum_shape()
+    tuple_shape()
+    array_shape()
+    nested_field_shape()
+    oracle()
+    churn()
+}
