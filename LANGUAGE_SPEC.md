@@ -3709,8 +3709,7 @@ Observable rules:
   same rewrite, including when it is buried in a larger expression.
 - **Not yet supported** (rejected with a diagnostic anchored at the user's source
   line, not miscompiled): a
-  suspension-spanning `if let`/`guard let` with a *tuple pattern*, or one whose body
-  *re-binds* the bound name (rename the inner binding); a **nested** generic call
+  suspension-spanning `if let`/`guard let` with a *tuple pattern*; a **nested** generic call
   whose template suspends *unconditionally* without calling a type-param method
   (`func g<T>(x: T) -> T { yield_now(); x }` called nested — its instantiation's
   effect node is not built; drive it directly with `__saw_drive`/`spawn` instead — a
@@ -3925,13 +3924,20 @@ Now-closed gaps (design 62), each landed with tests:
 
 Remaining limits (rejected cleanly / documented, not miscompiled): the
 design-104-era list in the Suspension section above — a suspension-spanning
-`if let`/`guard let` with a tuple pattern or a body that re-binds the bound name,
-and a nested generic call whose template suspends unconditionally without calling
-a type-param method. Earlier restrictions — a spawned function had to be
-non-`Void`, a nested suspending *method* was not embeddable, an `if let`/`guard
-let` body could not span a suspension, a suspending call could not sit in a
-larger expression — were lifted (designs 102 item 1, 84/101, 104 item 1, and
-120).
+`if let`/`guard let` with a tuple pattern, and a nested generic call whose template
+suspends unconditionally without calling a type-param method. Earlier restrictions
+— a spawned function had to be non-`Void`, a nested suspending *method* was not
+embeddable, an `if let`/`guard let` body could not span a suspension, a suspending
+call could not sit in a larger expression, and such a body could not re-bind the
+bound name — were lifted (designs 102 item 1, 84/101, 104 item 1, 120, and the
+per-binding frame fields described below).
+
+Two bindings in one suspending body may share a name. Each keeps its own storage
+across a suspension, whether they nest (a design-100 derived shadow such as
+`if let x = x`), sit in disjoint scopes (a `match` arm binding and a later local),
+or belong to different arms of one `match`. The frame carries one field per
+binding, not per name; the compiler renames the colliding ones internally, so
+nothing about this is visible except that the values are right.
 
 The transform is also still exercisable through a test-only entry: `__saw_suspend()`
 marks a synthetic suspension point and `__saw_drive(f(args))` / `__saw_drive_steps(f(args))`

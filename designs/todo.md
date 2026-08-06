@@ -1515,32 +1515,66 @@ statement dropped its `Result` with no diagnostic.
     passed where `(T) -> Void` is expected, was already a clean type error
     (``argument `body` expects `(Int) -> Void` but got
     `(Int) -> Result<Int, IoError>` ``), not a silent drop.
-- **DF-151a — FILED, NOT FIXED (out of scope; needs a coro_transform owner).**
-  A silent MISCOMPILATION, found writing this brief's positive test, unrelated
-  to `Result`. In a SUSPENDING body, a `match` arm's payload binding reads 0
-  when a LATER local in the enclosing scope has the SAME NAME — the coroutine
-  transform keys frame fields by name and the two bindings collide, so the arm
-  reads the outer slot before it is written. No diagnostic; just a wrong value.
-  Design 104 item 1 built name-distinguishing machinery for the `if let x = x`
-  case; `match` arms vs later locals were not covered. Repro (prints
-  `arm sees: 0`, should be `arm sees: 6`):
-  ```saw
-  import std.task
-  enum Step { case Go(n: Int), case Stop }
-  func pick() -> Step { return Step.Go(n: 6) }
-  func slow(n: Int) -> Int { yield_now()  return n }
-  func main() {
-      match pick() {
-          case Go(v) -> print("arm sees: {v}"),
-          case Stop -> print("stop")
-      }
-      let v = slow(8)          // same name as the arm binding above
-      print("later: {v}")
-  }
-  ```
-  Renaming either binding fixes it. Nothing in the tree hits this today (the
-  suite is green); `examples/result_discard_legal.saw` names its later local
-  `got` with a comment pointing here.
+- **DF-151a — FIXED Aug 6.** Filed as "a `match` arm's payload binding reads 0
+  when a LATER local shares its name". The audit found that shape was one of
+  EIGHT, and the root cause one layer deeper than filed.
+  **ROOT CAUSE — the REWRITE is name-keyed, not just the layout.** The filed
+  diagnosis (`_collect_frame_locals` dedups frame fields by bare name) is real
+  but secondary: `_rewrite_expr` turns EVERY `Identifier` whose name is in
+  `encmap` into a read of that frame field, with no idea which BINDING the
+  identifier meant. So any two distinct bindings sharing a name in a driven body
+  interfere, in BOTH directions — an inner binding's reads are redirected OUT to
+  the outer field (the filed `arm sees: 0`), and an inner binding's WRITES leak
+  out into it (a nested `let n = n + 10` left the outer `n` reading 13 after the
+  block). Where the two bindings have different types the frame gets one field of
+  the wrong type and a LEGAL program is rejected, sometimes at 0:0.
+  **FIX — `CoroFrameBuilder._uniquify_bindings`** (`sawc/coro_transform.py`), a
+  scope-correct alpha-rename that runs FIRST in `prepare`: every binding in the
+  body gets a body-unique name, so a name IS a binding identity for every
+  downstream by-name keying and no other pass had to change. An initializer is
+  walked BEFORE its own binding enters scope, which is what keeps a design-100/107
+  DERIVED shadow (`let data = parse(move data)`, `if let x = x`,
+  `for n in n..n + 2`) reading the OLD binding. Only a COLLIDING name is renamed
+  (to `__saw_u<N>_<name>` — the lexer-reserved compiler prefix, so it can never
+  hit a user name), so a body that reuses no name comes out byte-identical and
+  the IR-determinism corpus is undisturbed. Binding kinds covered: `let`/`var`,
+  tuple-destructuring leaves, `if let`/`guard let` (name and pattern forms),
+  `match` arm bindings (both the classic `bindings` list and design-63
+  `pattern` leaves, kept in sync), `for` variables, closure parameters, and
+  closure capture lists. Two name channels that an identifier walk alone would
+  miss are handled explicitly: a CALL to a closure-typed local carries the name
+  in `FunctionCall.name` (design 77 item 4), and a catch block's implicit
+  `error` binding is shielded from an outer rename.
+  **AUDIT — every shape, measured before and after.** Five silent miscompiles,
+  three bogus rejections of correct code:
+  | shape (suspending body) | before | after |
+  |---|---|---|
+  | `match` arm binding + later local, same name (AS FILED) | `arm sees: 0` | `6` |
+  | nested non-spanning block, `let n = n + 10` | outer `n` became `13` | `3` |
+  | non-spanning `if let n = maybe(n)` | inner read `3` | `30` |
+  | non-spanning `guard let n = maybe(n)` | inner read `3` | `30` |
+  | derived `for n in n..n + 2` | outer `n` became `5` | `3` |
+  | local derived from a PARAM (`let n = n + 10`) | `field \`n\` is defined multiple times in struct \`__Frame_driven\`` | `15` |
+  | sibling scopes, same name, different types | `cannot assign \`String\` to field of type \`Int\`` | both branches run |
+  | two arms of one `match`, same name, different payload types | `cannot assign \`Int\` to field of type \`Bool\`` at 0:0 | both arms run |
+  Same-name arms with the SAME payload type worked by luck before (one arm runs
+  per match, so the shared slot happened to hold the right value) and still work.
+  NOT affected, and not by accident: a closure param or a `for` var shadowing an
+  ENCLOSING local is already a design-100 error, so those never reached a frame.
+  **RESTRICTION LIFTED.** Design 104's "a suspension-spanning `if let`/`guard
+  let` whose body RE-BINDS the bound name is not supported" existed only because
+  the split renamed its binding by walking the scope blindly, which an inner
+  binding of the same name would have made unsound. With every binding already
+  unique that error cannot fire, and the shape compiles and runs (r5 in
+  `examples/coro_bind_id_shadow_regressions.saw`). The TUPLE-pattern rejection is
+  untouched and still fires cleanly. LANGUAGE_SPEC.md and the saw-lang skill
+  updated on both counts.
+  **TESTS — `examples/coro_bind_id_*.saw`, 10 of them**, one per shape, each
+  asserting VALUES with the same shape in sync code beside it as a control.
+  Nine of the ten FAIL on the pre-fix compiler; the tenth
+  (`coro_bind_id_shadow_regressions`) is the regression floor and passes on both.
+  `examples/result_discard_legal.saw`'s `got` local (named to dodge this bug) can
+  go back to `v` whenever someone touches that file.
 - **DF-151b — FIXED Aug 6 by design 159** (see that section above for the
   bisect, the audit table and the gate results; the root cause was
   `Namespace.copy_tier`'s missing STRUCT structural join, which left an
@@ -1651,6 +1685,43 @@ statement dropped its `Result` with no diagnostic.
   refcount, and the brief's gate should run the affected examples under
   `libgmalloc`, because that is the only configuration in which a latent
   double-release is visible at all.
+- **DF-151c — FILED, NOT FIXED (codegen; found by the DF-151a audit, Aug 6).**
+  A suspending `match` arm that binds a REFCOUNTED payload is an ICE. Loud, not
+  silent, and it PREDATES the DF-151a fix (it reproduces unchanged on
+  `7331823`) — it surfaced only because fixing the name collision let the shape
+  reach codegen at all. ONE payload-carrying arm is enough, and it has nothing
+  to do with binding names: it reproduces with every arm binding a distinct name.
+  ```saw
+  import std.task
+  enum E { case A(s: String), case B }
+  func pick() -> E { return E.A(s: "one") }
+  func main() {
+      match pick() {
+          case A(v) -> { yield_now()  print("A: {v}") },
+          case B -> print("b")
+      }
+  }
+  // error: internal compiler error: Type of #1 arg mismatch: i8* != i8
+  ```
+  **Diagnosed, so it should be cheap.** The frame field for the binding is
+  opt-encoded (`String?`) while the dispatch assigns the bare payload
+  (`self.v = v`, `_split_match` in `coro_transform.py`). In
+  `_generate_assign_statement` (`sawc/codegen/statements.py:481`) the RHS is an
+  `Identifier`, so it takes the branch that copies against the FIELD's type —
+  `_generate_copy(value, field_saw)` — and `_emit_optional_retain_at` then reads
+  a payload pointer out of a value that is not an optional (i8 where i8* was
+  wanted). The very next branch, `_frame_owning_read_copy` at line 483, exists
+  for this exact hazard and its comment states the rule: "Copy against the
+  VALUE's type, not the field's: an opt-encoded destination is `T?` while the
+  value is the bare payload (the optional wrap happens further down)." The
+  Identifier branch needs the same treatment when the field is OPTIONAL and the
+  value is not. An Int payload needs no retain, which is why only refcounted
+  payloads trip it — an `Arc`/`Vector`/closure payload is worth re-probing with
+  the fix. Left alone here because it is a separate defect on a hot shared
+  codegen path, and the DF-151a brief is scoped to `coro_transform.py`.
+  Nothing in the tree hits it (the suite is green);
+  `examples/coro_bind_id_match_arms_same_name.saw` uses `Int` and `Bool`
+  payloads and says why in a comment.
 
 ## Design 149 — runtime authoring in Saw (LANDED, Aug 6)
 

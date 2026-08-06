@@ -808,15 +808,20 @@ handle.cancel(); if cancelled() { ... }   // cooperative cancellation
   each all transform now (the whole short-circuit is lifted to its own statement
   first), and the RHS still runs only when the LHS does not decide. Still a clean,
   user-anchored compile error (NOT a silent block): a suspension-spanning `if let`/
-  `guard let` with a TUPLE pattern, or one whose body RE-BINDS the bound name
-  (rename the inner binding); and a NESTED generic call whose template suspends
+  `guard let` with a TUPLE pattern; and a NESTED generic call whose template suspends
   UNCONDITIONALLY without calling a type-param method (`func g<T>(x: T) -> T {
   yield_now(); x }` called nested) — its instantiation's effect node is not built,
   so drive it directly with `__saw_drive`/`spawn` instead (this is a same-module limit,
   not a cross-module one). A method that is BOTH struct-generic AND method-generic
   (`Dual<T>.mix<U>`) now drives (design 104 item 3): the frame is keyed by both
   instantiations (`Dual_mix$2$T$U`), so 2 struct × 2 method insts are 4 distinct
-  frames.
+  frames. TWO BINDINGS IN ONE SUSPENDING BODY MAY SHARE A NAME and each keeps its
+  own value across a suspension — a derived shadow (`if let x = x`,
+  `let n = n + 10`, `for n in n..n + 2`), disjoint scopes (a `match` arm binding
+  and a later local of the same name), two arms of one `match`, or a local derived
+  from a param. The frame carries one field per BINDING, not per name. This was
+  keyed by name until Aug 6 and read the wrong slot silently, so treat a
+  same-named pair across a suspension as fine now but suspect in older builds.
 - A CLOSURE created in a driven body works (design 77 DF-C1): call it after a
   suspend, hold it across one (its env deinits exactly once at frame death), or
   own it in a spawned TaskGroup frame — captured frame locals are moved into the
