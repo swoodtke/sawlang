@@ -430,12 +430,33 @@ Three of its stages are about where the output goes:
 
 ## Test Runner Implementation
 
-The test runner (`test_runner.py`):
-- Discovers all `.saw` files recursively
-- Parses test metadata from comments
-- Compiles in isolated temporary directories
-- Captures stdout/stderr
-- Validates output or error messages
-- Reports results with color formatting
+The test runner (`test_runner.py`) discovers every `.saw` file recursively,
+reads each file's directives, and then works in two stages.
 
-See `test_runner.py` source code for implementation details.
+**Stage 1 compiles every test.** Build products land in `.build/`, named after
+the test's path relative to `examples/`, so `examples/ffi/int_types.saw`
+becomes `.build/ffi_int_types`. Each compile writes to a unique temporary name
+and renames its products into place. Every verdict that needs no running
+program settles here: `EXPECT: error`, `EXPECT: object`, `EXPECT: docs`, and
+any test that failed to compile when it should have succeeded.
+
+**Stage 2 runs the binaries stage 1 produced** and checks what they wrote,
+which covers `EXPECT: success` and `EXPECT: panic`. Each binary runs as its
+own subprocess in its own process group under a 30-second cap. On expiry the
+whole group is killed and the test is recorded as a failure, so a test that
+hangs at runtime cannot wedge the run.
+
+The order is deliberate. On macOS/arm64 a binary exec'd microseconds after it
+was written can die of SIGTRAP before `main` runs, while the kernel is still
+assessing the new file. Compiling everything first puts the rest of the sweep
+between a write and its exec, and the rename means the exec'd path always
+holds a file the kernel has not judged before. A child that dies by signal
+having written nothing on either stream is re-run once. That retry is always
+reported, both in the test's own line and in a `RE-RAN:` section of the
+summary, because a retry nobody sees is a retry that can hide a real crash.
+
+Stage 2 runs wider than stage 1. Its processes sit in the kernel rather than
+competing for cores: the first exec of a freshly written binary costs about
+0.4s of assessment, against 0.007s to run the same file again.
+
+See the `test_runner.py` source for the rest.

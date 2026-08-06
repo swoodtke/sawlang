@@ -48,6 +48,7 @@ import sys
 import signal
 import subprocess
 import itertools
+import time
 import io
 import copy
 import contextlib
@@ -121,6 +122,7 @@ class Colors:
     YELLOW = '\033[93m'
     BLUE = '\033[94m'
     BOLD = '\033[1m'
+    DIM = '\033[2m'
     RESET = '\033[0m'
 
 
@@ -130,6 +132,10 @@ STATUS_SYMBOLS = {
     TestStatus.XFAIL: f"{Colors.YELLOW}x{Colors.RESET}",
     TestStatus.XPASS: f"{Colors.RED}!{Colors.RESET}",
 }
+
+# Phase 1 marker for a test that compiled and is queued for phase 2. It is not
+# a verdict — that comes when the binary runs.
+COMPILED_SYMBOL = f"{Colors.DIM}·{Colors.RESET}"
 
 
 def parse_test_metadata(file_path: Path) -> Optional[TestCase]:
@@ -504,9 +510,8 @@ def sweep_stale_temp_products(build_dir: Path) -> None:
 RUN_TIMEOUT_SECS = 30
 
 
-def run_executable(exe_path: Path, timeout: float = RUN_TIMEOUT_SECS) -> tuple[bool, str, str]:
-    """
-    Run a compiled executable under a hard, process-group-aware timeout.
+def _run_once(exe_path: Path, timeout: float) -> tuple[Optional[int], str, str]:
+    """One execution attempt under a hard, process-group-aware timeout.
 
     The child is launched in its OWN process group (start_new_session=True) so
     that on timeout we can SIGKILL the entire group — not just the direct
@@ -516,7 +521,11 @@ def run_executable(exe_path: Path, timeout: float = RUN_TIMEOUT_SECS) -> tuple[b
     block forever, wedging the runner. Killing the group guarantees the pipes
     close and the runner moves on.
 
-    Returns: (success, stdout, stderr)
+    Returns `(returncode, stdout, stderr)` exactly as the child left them, with
+    nothing synthesized — the caller needs to tell a child that died silently
+    from one that reported its own failure. `returncode` is None when the child
+    never ran to completion (launch failure, or a timeout kill); `stderr` then
+    carries the reason.
     """
     try:
         proc = subprocess.Popen(
@@ -527,21 +536,11 @@ def run_executable(exe_path: Path, timeout: float = RUN_TIMEOUT_SECS) -> tuple[b
             start_new_session=True,  # new process group; enables group kill
         )
     except Exception as e:
-        return False, "", f"Failed to run executable: {e}"
+        return None, "", f"Failed to run executable: {e}"
 
     try:
         stdout, stderr = proc.communicate(timeout=timeout)
-        rc = proc.returncode
-        if rc != 0 and not stderr:
-            # A child that exits non-zero having written NOTHING leaves the
-            # report with no evidence in it at all (DF-149b: an intermittent
-            # `Execution failed:` followed by a blank line). A negative code is
-            # a signal death, which is a different story from a Saw panic or a
-            # nonzero `main`, so say which one happened.
-            stderr = (f"exited with status {rc}"
-                      + (f" (killed by signal {-rc})" if rc < 0 else "")
-                      + " and wrote nothing")
-        return rc == 0, stdout, stderr
+        return proc.returncode, stdout, stderr
     except subprocess.TimeoutExpired:
         # Hard-kill the whole process group, then reap so no zombie/pipe leaks.
         _kill_process_group(proc)
@@ -549,12 +548,61 @@ def run_executable(exe_path: Path, timeout: float = RUN_TIMEOUT_SECS) -> tuple[b
             stdout, stderr = proc.communicate(timeout=5)
         except subprocess.TimeoutExpired:
             stdout, stderr = "", ""
-        return False, stdout, (
+        return None, stdout, (
             f"Execution timed out after {timeout:.0f}s (killed) — the test HANGS at runtime"
         )
     except Exception as e:
         _kill_process_group(proc)
-        return False, "", f"Failed to run executable: {e}"
+        return None, "", f"Failed to run executable: {e}"
+
+
+def _died_silently_by_signal(rc: Optional[int], stdout: str, stderr: str) -> bool:
+    """Whether a run looks like DF-149b's exec-settling death rather than a
+    real failure: killed by a signal, having written NOTHING on either stream.
+
+    Every failure the suite actually asserts on speaks before it dies — a Saw
+    panic prints `panic at FILE:LINE:` first, and a success test that exits
+    nonzero has printed its output — so this window is narrow. Anything that
+    does fall in it is retried at most once and the retry is REPORTED either
+    way, so a genuine crash is never papered over: it costs one extra run and
+    says so in the test's line.
+    """
+    return rc is not None and rc < 0 and not stdout and not stderr
+
+
+def run_executable(exe_path: Path, timeout: float = RUN_TIMEOUT_SECS
+                   ) -> tuple[bool, str, str, Optional[str]]:
+    """Run a compiled executable, retrying once if it dies silently by signal.
+
+    Returns `(success, stdout, stderr, note)`. `note` is None unless the run
+    was retried — DF-149b backstop (b). A silent retry could hide a real crash
+    behind a lucky second run, so the note is not optional decoration: callers
+    must print it, on a pass as well as a failure.
+    """
+    rc, stdout, stderr = _run_once(exe_path, timeout)
+    note = None
+
+    if _died_silently_by_signal(rc, stdout, stderr):
+        first = rc
+        rc, stdout, stderr = _run_once(exe_path, timeout)
+        outcome = ("the re-run succeeded" if rc == 0
+                   else f"the re-run failed too (status {rc})")
+        note = (f"{Colors.YELLOW}RE-RAN{Colors.RESET} {Path(exe_path).name}: "
+                f"the first exec died of signal {-first} having written "
+                f"nothing, which is what a binary the kernel has not finished "
+                f"validating looks like (DF-149b); {outcome}.")
+
+    if rc is not None and rc != 0 and not stderr:
+        # A child that exits non-zero having written NOTHING leaves the report
+        # with no evidence in it at all (DF-149b: an intermittent
+        # `Execution failed:` followed by a blank line). A negative code is a
+        # signal death, which is a different story from a Saw panic or a
+        # nonzero `main`, so say which one happened.
+        stderr = (f"exited with status {rc}"
+                  + (f" (killed by signal {-rc})" if rc < 0 else "")
+                  + " and wrote nothing")
+
+    return rc == 0, stdout, stderr, note
 
 
 def _kill_process_group(proc: subprocess.Popen) -> None:
@@ -569,39 +617,78 @@ def _kill_process_group(proc: subprocess.Popen) -> None:
             pass
 
 
-def run_test(test: TestCase, verbose: bool = False, compile_fn=None) -> tuple[bool, str]:
+# ===========================================================================
+# The two phases (design 156).
+#
+# Every test is COMPILED in phase 1; only then is any binary EXECUTED, in
+# phase 2. That ordering is the structural fix for DF-149b: the in-process
+# compiler wrote a Mach-O and exec'd it microseconds later, and on macOS/arm64
+# the kernel had not always finished settling the fresh image's ad-hoc code
+# signature — the child died of SIGTRAP having written nothing, about one run
+# in twelve on a saturated machine. Two phases put the rest of the compile
+# sweep between any write and its exec.
+#
+# The split also sorts the suite's verdicts by what they need: everything
+# decidable without running anything — an error test, an object test, a docs
+# test, a compile that failed when it should have succeeded — settles in
+# phase 1 and never reaches phase 2.
+# ===========================================================================
+
+
+@dataclass
+class CompileOutcome:
+    """What phase 1 concluded about one test.
+
+    `settled` means the verdict is final and no binary will be run; `passed`
+    and `msg` are then the test's result. Otherwise the test compiled and
+    `exe_path` names the binary phase 2 executes.
     """
-    Run a single test case
+    settled: bool
+    passed: bool = False
+    msg: str = ""
+    exe_path: Optional[str] = None
+
+
+def directive_shape_error(test: TestCase) -> Optional[str]:
+    """Why this test's EXPECT directives cannot be judged, or None if they can.
+
+    A test with nothing to assert is a test that passes forever without
+    checking anything, so a missing directive is a failure and not a skip.
+    """
+    if test.expect_type is None:
+        return "Missing '// EXPECT: success', '// EXPECT: error', or '// EXPECT: panic' directive"
+    if test.expect_type == ExpectType.SUCCESS and not test.expected_output:
+        return "Success test must have '// EXPECT-OUTPUT:' with expected output"
+    if test.expect_type == ExpectType.ERROR and not test.expected_error_contains:
+        return "Error test must have at least one '// EXPECT-ERROR-CONTAINS:' directive"
+    if test.expect_type == ExpectType.PANIC and not test.expected_panic_contains:
+        return "Panic test must have at least one '// EXPECT-PANIC-CONTAINS:' directive"
+    if (test.expect_type == ExpectType.OBJECT
+            and not test.expected_undefined_symbols
+            and test.object_max_bytes is None):
+        return ("Object test must have at least one "
+                "'// EXPECT-SYMBOL-UNDEFINED:' or "
+                "'// EXPECT-OBJECT-MAX-BYTES:' directive")
+    if test.expect_type == ExpectType.DOCS and not test.expected_output:
+        return "Docs test must have '// EXPECT-OUTPUT:' with the expected JSON"
+    return None
+
+
+def compile_test(test: TestCase, compile_fn=None) -> CompileOutcome:
+    """PHASE 1: compile one test, and judge everything that needs no execution.
 
     `compile_fn(path, output_path, compile_flags) -> (success, stdout, stderr)`
     performs the compilation; it defaults to the spawn-a-subprocess compiler
     (`compile_saw_file`). The persistent-worker path passes the in-process
-    compiler (`compile_saw_in_process`) instead. Everything else — running the
-    produced binary, `nm` inspection, output matching — is identical either way.
-
-    Returns: (passed, message)
+    compiler (`compile_saw_in_process`) instead. Everything else — `nm`
+    inspection, docs comparison — is identical either way.
     """
     if compile_fn is None:
         compile_fn = compile_saw_file
-    # Require explicit EXPECT: directive
-    if test.expect_type is None:
-        return False, "Missing '// EXPECT: success', '// EXPECT: error', or '// EXPECT: panic' directive"
 
-    # Require at least one output expectation
-    if test.expect_type == ExpectType.SUCCESS and not test.expected_output:
-        return False, "Success test must have '// EXPECT-OUTPUT:' with expected output"
-    if test.expect_type == ExpectType.ERROR and not test.expected_error_contains:
-        return False, "Error test must have at least one '// EXPECT-ERROR-CONTAINS:' directive"
-    if test.expect_type == ExpectType.PANIC and not test.expected_panic_contains:
-        return False, "Panic test must have at least one '// EXPECT-PANIC-CONTAINS:' directive"
-    if (test.expect_type == ExpectType.OBJECT
-            and not test.expected_undefined_symbols
-            and test.object_max_bytes is None):
-        return False, ("Object test must have at least one "
-                       "'// EXPECT-SYMBOL-UNDEFINED:' or "
-                       "'// EXPECT-OBJECT-MAX-BYTES:' directive")
-    if test.expect_type == ExpectType.DOCS and not test.expected_output:
-        return False, "Docs test must have '// EXPECT-OUTPUT:' with the expected JSON"
+    shape_error = directive_shape_error(test)
+    if shape_error is not None:
+        return CompileOutcome(settled=True, passed=False, msg=shape_error)
 
     if test.expect_type == ExpectType.DOCS:
         # design 121: the compiler emits documentation JSON on stdout instead of
@@ -610,15 +697,16 @@ def run_test(test: TestCase, verbose: bool = False, compile_fn=None) -> tuple[bo
         # `//` directive line cannot preserve the JSON's indentation.
         ok, out, err = emit_docs_file(test.path, test.compile_flags)
         if not ok:
-            return False, f"Documentation extraction failed:\n{err[:500]}"
+            return CompileOutcome(True, False,
+                                  f"Documentation extraction failed:\n{err[:500]}")
         actual = [ln.strip() for ln in out.splitlines() if ln.strip()]
         expected = [ln.strip() for ln in test.expected_output if ln.strip()]
         if actual != expected:
             msg = "Docs JSON mismatch:\n"
             msg += "Expected:\n  " + "\n  ".join(expected) + "\n"
             msg += "Got:\n  " + "\n  ".join(actual)
-            return False, msg
-        return True, "Docs as expected"
+            return CompileOutcome(True, False, msg)
+        return CompileOutcome(True, True, "Docs as expected")
 
     exe_path = Path('.build') / test.binary_stem
     exe_path.parent.mkdir(exist_ok=True)
@@ -628,37 +716,27 @@ def run_test(test: TestCase, verbose: bool = False, compile_fn=None) -> tuple[bo
         compile_fn, test, exe_path)
 
     if test.expect_type == ExpectType.ERROR:
-        # Should fail to compile
+        # Should fail to compile — decided entirely here.
         if compile_success:
-            return False, "Expected compilation to fail, but it succeeded"
+            return CompileOutcome(True, False,
+                                  "Expected compilation to fail, but it succeeded")
 
         # Check error message contains expected text
         combined_output = compile_stdout + compile_stderr
         for expected_text in test.expected_error_contains:
             if expected_text not in combined_output:
-                return False, f"Error message should contain '{expected_text}'\nGot: {combined_output[:300]}"
+                return CompileOutcome(True, False,
+                                      f"Error message should contain '{expected_text}'\nGot: {combined_output[:300]}")
 
-        return True, "Failed as expected"
+        return CompileOutcome(True, True, "Failed as expected")
 
     elif test.expect_type == ExpectType.PANIC:
-        # Should compile successfully but panic at runtime
+        # Should compile successfully but panic at runtime: phase 2 judges it.
         if not compile_success:
             msg = f"Compilation failed (expected to compile):\n{compile_stderr[:500]}"
-            return False, msg
+            return CompileOutcome(True, False, msg)
 
-        # Run the executable - expect it to fail (panic)
-        run_success, run_stdout, run_stderr = run_executable(exe_path)
-
-        if run_success:
-            return False, f"Expected runtime panic, but execution succeeded with output:\n{run_stdout[:300]}"
-
-        # Check panic message contains expected text
-        combined_output = run_stdout + run_stderr
-        for expected_text in test.expected_panic_contains:
-            if expected_text not in combined_output:
-                return False, f"Panic message should contain '{expected_text}'\nGot: {combined_output[:300]}"
-
-        return True, "Panicked as expected"
+        return CompileOutcome(settled=False, exe_path=str(exe_path))
 
     elif test.expect_type == ExpectType.OBJECT:
         # Compile to an object file (e.g. --freestanding / -c) and inspect its
@@ -666,27 +744,28 @@ def run_test(test: TestCase, verbose: bool = False, compile_fn=None) -> tuple[bo
         # EXTERNS the given symbols (undefined references) rather than defining
         # them — the design-113/113b freestanding-still-externs negative test.
         if not compile_success:
-            return False, f"Compilation failed (expected to compile):\n{compile_stderr[:500]}"
+            return CompileOutcome(True, False,
+                                  f"Compilation failed (expected to compile):\n{compile_stderr[:500]}")
 
         # sawc appends `.o` for -c / --freestanding output paths.
         obj = exe_path if exe_path.suffix == '.o' else Path(str(exe_path) + '.o')
         if not obj.exists():
-            return False, f"Expected object file not found: {obj}"
+            return CompileOutcome(True, False, f"Expected object file not found: {obj}")
 
         if test.object_max_bytes is not None:
             actual = obj.stat().st_size
             if actual > test.object_max_bytes:
-                return False, (
+                return CompileOutcome(True, False, (
                     f"{obj.name} is {actual} bytes, over the "
                     f"{test.object_max_bytes}-byte bound — a static that "
-                    f"should cost no image bytes is carrying them.")
+                    f"should cost no image bytes is carrying them."))
 
         if not test.expected_undefined_symbols:
-            return True, "Object size as expected"
+            return CompileOutcome(True, True, "Object size as expected")
 
         nm = subprocess.run(["nm", str(obj)], capture_output=True, text=True)
         if nm.returncode != 0:
-            return False, f"`nm` failed on {obj}:\n{nm.stderr[:300]}"
+            return CompileOutcome(True, False, f"`nm` failed on {obj}:\n{nm.stderr[:300]}")
 
         # Parse `nm` lines: "<addr?> <type> <name>". A `U` type is undefined
         # (an external reference); any other type is a local definition.
@@ -705,41 +784,65 @@ def run_test(test: TestCase, verbose: bool = False, compile_fn=None) -> tuple[bo
 
         for sym in test.expected_undefined_symbols:
             if _present(sym, defined):
-                return False, (f"Symbol `{sym}` is DEFINED in {obj.name} but was "
-                               f"expected to be an undefined external reference "
-                               f"(the freestanding profile must not bake in a "
-                               f"runtime body).")
+                return CompileOutcome(True, False,
+                                      (f"Symbol `{sym}` is DEFINED in {obj.name} but was "
+                                       f"expected to be an undefined external reference "
+                                       f"(the freestanding profile must not bake in a "
+                                       f"runtime body)."))
             if not _present(sym, undefined):
-                return False, (f"Symbol `{sym}` is neither undefined nor defined "
-                               f"in {obj.name} — expected an undefined external "
-                               f"reference. `nm` output:\n{nm.stdout[:400]}")
+                return CompileOutcome(True, False,
+                                      (f"Symbol `{sym}` is neither undefined nor defined "
+                                       f"in {obj.name} — expected an undefined external "
+                                       f"reference. `nm` output:\n{nm.stdout[:400]}"))
 
-        return True, "Object symbols as expected"
+        return CompileOutcome(True, True, "Object symbols as expected")
 
-    else:  # ExpectType.SUCCESS
-        # Should compile successfully
+    else:  # ExpectType.SUCCESS — phase 2 runs it and judges the output.
         if not compile_success:
             msg = f"Compilation failed:\n{compile_stderr[:500]}"
-            return False, msg
+            return CompileOutcome(True, False, msg)
 
-        # Run the executable
-        run_success, run_stdout, run_stderr = run_executable(exe_path)
+        return CompileOutcome(settled=False, exe_path=str(exe_path))
 
-        if not run_success:
-            return False, f"Execution failed:\n{run_stderr[:500]}"
 
-        # Check expected output if specified
-        if test.expected_output:
-            actual_lines = run_stdout.strip().split('\n')
-            expected_lines = test.expected_output
+def execute_test(test: TestCase, exe_path: str) -> tuple[bool, str, Optional[str]]:
+    """PHASE 2: run one compiled binary and judge how it behaved.
 
-            if actual_lines != expected_lines:
-                msg = "Output mismatch:\n"
-                msg += f"Expected:\n  " + "\n  ".join(expected_lines) + "\n"
-                msg += f"Got:\n  " + "\n  ".join(actual_lines)
-                return False, msg
+    Only SUCCESS and PANIC tests get here; every other verdict was settled in
+    phase 1. Returns `(passed, message, note)`, where `note` is anything the
+    runner did that the reader must be told about even when the test passed.
+    """
+    run_success, run_stdout, run_stderr, note = run_executable(Path(exe_path))
 
-        return True, "Passed"
+    if test.expect_type == ExpectType.PANIC:
+        if run_success:
+            return False, (f"Expected runtime panic, but execution succeeded "
+                           f"with output:\n{run_stdout[:300]}"), note
+
+        # Check panic message contains expected text
+        combined_output = run_stdout + run_stderr
+        for expected_text in test.expected_panic_contains:
+            if expected_text not in combined_output:
+                return False, f"Panic message should contain '{expected_text}'\nGot: {combined_output[:300]}", note
+
+        return True, "Panicked as expected", note
+
+    # ExpectType.SUCCESS
+    if not run_success:
+        return False, f"Execution failed:\n{run_stderr[:500]}", note
+
+    # Check expected output if specified
+    if test.expected_output:
+        actual_lines = run_stdout.strip().split('\n')
+        expected_lines = test.expected_output
+
+        if actual_lines != expected_lines:
+            msg = "Output mismatch:\n"
+            msg += f"Expected:\n  " + "\n  ".join(expected_lines) + "\n"
+            msg += f"Got:\n  " + "\n  ".join(actual_lines)
+            return False, msg, note
+
+    return True, "Passed", note
 
 
 def discover_tests(examples_dir: Path) -> List[TestCase]:
@@ -764,10 +867,11 @@ def discover_tests(examples_dir: Path) -> List[TestCase]:
     return tests
 
 
-def print_summary(results: List[tuple[TestCase, TestStatus, str]], verbose: bool):
+def print_summary(results: List[tuple[TestCase, TestStatus, str, Optional[str]]],
+                  verbose: bool):
     """Print test results summary"""
     counts = {status: 0 for status in TestStatus}
-    for _, status, _ in results:
+    for _, status, _, _ in results:
         counts[status] += 1
 
     broken = counts[TestStatus.FAIL] + counts[TestStatus.XPASS]
@@ -779,7 +883,7 @@ def print_summary(results: List[tuple[TestCase, TestStatus, str]], verbose: bool
     # Show real failures first
     if counts[TestStatus.FAIL]:
         print(f"\n{Colors.RED}{Colors.BOLD}FAILED TESTS:{Colors.RESET}")
-        for test, status, msg in results:
+        for test, status, msg, _ in results:
             if status is TestStatus.FAIL:
                 print(f"\n  {Colors.RED}✗{Colors.RESET} {test.name}")
                 # Indent the message
@@ -789,7 +893,7 @@ def print_summary(results: List[tuple[TestCase, TestStatus, str]], verbose: bool
     # Stale XFAIL markers also break the build - they mean a bug got fixed
     if counts[TestStatus.XPASS]:
         print(f"\n{Colors.RED}{Colors.BOLD}UNEXPECTEDLY PASSING (stale XFAIL):{Colors.RESET}")
-        for test, status, msg in results:
+        for test, status, msg, _ in results:
             if status is TestStatus.XPASS:
                 print(f"\n  {Colors.RED}!{Colors.RESET} {test.name}")
                 for line in msg.split('\n'):
@@ -798,7 +902,7 @@ def print_summary(results: List[tuple[TestCase, TestStatus, str]], verbose: bool
     # Known-broken tests are informational
     if counts[TestStatus.XFAIL]:
         print(f"\n{Colors.YELLOW}{Colors.BOLD}KNOWN FAILURES (xfail):{Colors.RESET}")
-        for test, status, msg in results:
+        for test, status, msg, _ in results:
             if status is TestStatus.XFAIL:
                 reason = test.xfail_reason or ""
                 print(f"  {Colors.YELLOW}x{Colors.RESET} {test.name}: {reason}")
@@ -810,9 +914,18 @@ def print_summary(results: List[tuple[TestCase, TestStatus, str]], verbose: bool
     # Show successes if verbose
     if verbose and counts[TestStatus.PASS]:
         print(f"\n{Colors.GREEN}{Colors.BOLD}PASSED TESTS:{Colors.RESET}")
-        for test, status, msg in results:
+        for test, status, msg, _ in results:
             if status is TestStatus.PASS:
                 print(f"  {Colors.GREEN}✓{Colors.RESET} {test.name}")
+
+    # Retries are collected here as well as printed live: a green run that
+    # quietly re-ran forty binaries is telling you something about the machine,
+    # and scrolled-past progress lines are easy to miss.
+    retried = [(test, note) for test, _, _, note in results if note]
+    if retried:
+        print(f"\n{Colors.YELLOW}{Colors.BOLD}RE-RAN:{Colors.RESET}")
+        for test, note in retried:
+            print(f"  {test.name}: {note}")
 
     # Summary line
     print("\n" + "=" * 70)
@@ -846,13 +959,6 @@ def resolve_status(test: TestCase, raw_passed: bool, msg: str) -> tuple[TestStat
     return TestStatus.XFAIL, f"{test.xfail_reason}\n{msg}"
 
 
-def run_test_wrapper(test: TestCase, verbose: bool, compile_fn=None) -> tuple[TestCase, TestStatus, str]:
-    """Wrapper to run a test and return all needed info for results"""
-    raw_passed, msg = run_test(test, verbose, compile_fn)
-    status, msg = resolve_status(test, raw_passed, msg)
-    return (test, status, msg)
-
-
 # ---------------------------------------------------------------------------
 # Persistent-worker pool (design 115), built on Process + Pipe.
 #
@@ -872,9 +978,10 @@ _WORKER_DONE = None  # sentinel: no more work, exit the loop
 
 def _worker_loop(conn, verbose: bool):
     """Persistent worker body: import sawc + build the builtin namespace once,
-    then compile-and-run tasks in-process until the sentinel arrives.
+    then COMPILE tasks in-process until the sentinel arrives. A worker never
+    executes a test binary — that is phase 2's job, back in the main process.
 
-    Each task is `(index, TestCase)`; each reply is `(index, TestStatus, msg)`.
+    Each task is `(index, TestCase)`; each reply is `(index, CompileOutcome)`.
     The index lets the main process match a reply to its test without shipping
     the (already-known) TestCase back."""
     _init_in_process(verbose)
@@ -884,22 +991,21 @@ def _worker_loop(conn, verbose: bool):
             if task is _WORKER_DONE:
                 break
             index, test = task
-            _, status, msg = run_test_wrapper(test, verbose, compile_saw_in_process)
-            conn.send((index, status, msg))
+            conn.send((index, compile_test(test, compile_saw_in_process)))
     except (EOFError, KeyboardInterrupt):
         pass
     finally:
         conn.close()
 
 
-def _run_parallel_in_process(tests, num_workers, verbose, on_result):
-    """Drive `tests` across `num_workers` persistent worker processes.
+def _compile_parallel_in_process(tests, num_workers, verbose, on_result):
+    """PHASE 1 driver: compile `tests` across `num_workers` persistent workers.
 
-    Returns a results list aligned with `tests`. `on_result(index, status, msg)`
-    is called on the main process as each test finishes, for live progress. A
-    worker that dies mid-task (e.g. an LLVM-level abort on a compiler bug) leaves
-    its task's slot filled with a synthesized FAIL, so the run never hangs and
-    never silently drops a test."""
+    Returns a `CompileOutcome` list aligned with `tests`. `on_result(index,
+    outcome)` is called on the main process as each compile finishes, for live
+    progress. A worker that dies mid-task (e.g. an LLVM-level abort on a
+    compiler bug) leaves its task's slot filled with a synthesized settled
+    failure, so the run never hangs and never silently drops a test."""
     ctx = multiprocessing.get_context('spawn')
     results = [None] * len(tests)
     tasks = iter(enumerate(tests))
@@ -934,14 +1040,14 @@ def _run_parallel_in_process(tests, num_workers, verbose, on_result):
     while active:
         for conn in multiprocessing.connection.wait(list(active)):
             try:
-                index, status, msg = conn.recv()
+                index, outcome = conn.recv()
             except EOFError:
                 # Worker exited unexpectedly with a task outstanding.
                 active.discard(conn)
                 continue
-            results[index] = (tests[index], status, msg)
+            results[index] = outcome
             received += 1
-            on_result(index, status, msg)
+            on_result(index, outcome)
             if not feed(conn):
                 active.discard(conn)
                 conn.close()
@@ -954,9 +1060,11 @@ def _run_parallel_in_process(tests, num_workers, verbose, on_result):
     if received != len(tests):
         for i, slot in enumerate(results):
             if slot is None:
-                results[i] = (tests[i], TestStatus.FAIL,
-                              "worker process died during compilation "
-                              "(no result returned)")
+                results[i] = CompileOutcome(
+                    settled=True, passed=False,
+                    msg="worker process died during compilation "
+                        "(no result returned)")
+                on_result(i, results[i])
     return results
 
 
@@ -1004,63 +1112,125 @@ def main():
         print("No tests found!")
         return 1
 
-    def _report(completed, total, test, status, msg):
-        """Emit the one-line progress record for a finished test."""
-        print(f"[{completed}/{total}] {STATUS_SYMBOLS[status]} {test.name}")
+    num_workers = args.jobs if args.jobs else os.cpu_count()
+    if args.sequential:
+        num_workers = 1
+
+    # Phase 2 runs WIDER than phase 2's core count, because it is not CPU work.
+    # The FIRST exec of a freshly written binary costs macOS ~0.4s of kernel
+    # code-signature/provenance assessment (a re-exec of the same file costs
+    # ~0.007s — 90x less), and that assessment barely parallelises. Measured
+    # over the suite's 856 binaries: width 10 -> 375s, width 20 -> 272s,
+    # width 40 -> 219s. The old interleaved runner hid all of that behind the
+    # compile stream; separating the phases exposes it, so phase 2 buys back
+    # what it can with concurrency it can afford — these processes are asleep
+    # in the kernel, not competing for cores.
+    run_workers = 1 if args.sequential else num_workers * 4
+
+    results = [None] * len(tests)          # (test, status, msg, note), by index
+    pending = []                           # (index, exe_path) -> phase 2
+    print_lock = threading.Lock()
+
+    def _settle(index, passed, msg, prefix, note=None):
+        """Record a test's final verdict and print its progress line."""
+        test = tests[index]
+        status, msg = resolve_status(test, passed, msg)
+        results[index] = (test, status, msg, note)
+        print(f"{prefix}{STATUS_SYMBOLS[status]} {test.name}")
+        if note:
+            # Printed on a PASS too: a retry the reader never sees is a retry
+            # that can hide a real crash.
+            print(f"      {note}")
         if not status.is_ok and not args.verbose:
             for line in msg.split('\n'):
                 print(f"      {line}")
 
+    # ---- PHASE 1: compile every test ------------------------------------
+    compiled = [0]
+
+    def _on_compiled(index, outcome):
+        with print_lock:
+            compiled[0] += 1
+            prefix = f"[{compiled[0]}/{len(tests)}] "
+            if outcome.settled:
+                _settle(index, outcome.passed, outcome.msg, prefix)
+            else:
+                pending.append((index, outcome.exe_path))
+                print(f"{prefix}{COMPILED_SYMBOL} {tests[index].name}")
+
+    # How the work is spread, named once for both phase banners. Phase 1's
+    # "persistent workers" are compiler processes (design 115); phase 2 reuses
+    # the same width with plain threads, since running a binary is a subprocess
+    # wait and needs no compiler in the loop.
     if args.sequential:
-        # Sequential execution. In-process still amortizes bootstrap: sawc is
-        # imported and the builtin namespace built once in THIS process.
+        how = "sequential"
+    elif in_process:
+        how = f"{num_workers} persistent workers"
+    else:
+        how = f"{num_workers} workers, subprocess compile"
+
+    t0 = time.monotonic()
+    print(f"{Colors.BOLD}Phase 1/2{Colors.RESET}: compiling {len(tests)} test(s) ({how})...\n")
+
+    if args.sequential:
+        # Sequential. In-process still amortizes bootstrap: sawc is imported
+        # and the builtin namespace built once in THIS process.
         if in_process:
             _init_in_process(args.verbose)
-        results = []
-        for i, test in enumerate(tests, 1):
-            print(f"[{i}/{len(tests)}] Running {test.name}...", end=' ', flush=True)
-            raw_passed, msg = run_test(test, args.verbose, compile_fn)
-            status, msg = resolve_status(test, raw_passed, msg)
-            results.append((test, status, msg))
-            print(STATUS_SYMBOLS[status])
-            if not status.is_ok and not args.verbose:
-                print(f"  {msg}")
+        for index, test in enumerate(tests):
+            _on_compiled(index, compile_test(test, compile_fn))
     elif in_process:
-        # Parallel, in-process: PERSISTENT worker processes, each importing sawc
-        # + building the builtin namespace once and then compiling many tests
-        # in-process. Test binaries are still RUN as separate subprocesses inside
-        # run_test.
-        num_workers = args.jobs if args.jobs else os.cpu_count()
-        print(f"Running tests in parallel ({num_workers} persistent workers)...\n")
-        completed = [0]
-
-        def _on_result(index, status, msg):
-            completed[0] += 1
-            _report(completed[0], len(tests), tests[index], status, msg)
-
-        results = _run_parallel_in_process(tests, num_workers, args.verbose,
-                                           _on_result)
-        results.sort(key=lambda r: r[0].name)
+        # PERSISTENT worker processes, each importing sawc + building the
+        # builtin namespace once and then compiling many tests in-process.
+        _compile_parallel_in_process(tests, num_workers, args.verbose,
+                                     _on_compiled)
     else:
-        # Parallel, --subprocess: the pre-design-115 path. Each compile spawns a
-        # sawc.py subprocess, so threads (not processes) suffice to overlap them.
-        num_workers = args.jobs if args.jobs else os.cpu_count()
-        print(f"Running tests in parallel ({num_workers} workers, subprocess compile)...\n")
-        results = []
-        completed = 0
-        print_lock = threading.Lock()
+        # --subprocess: the pre-design-115 path. Each compile spawns a sawc.py
+        # subprocess, so threads (not processes) suffice to overlap them.
         with ThreadPoolExecutor(max_workers=num_workers) as executor:
-            future_to_test = {
-                executor.submit(run_test_wrapper, test, args.verbose, compile_fn): test
-                for test in tests
-            }
-            for future in as_completed(future_to_test):
-                test, status, msg = future.result()
-                results.append((test, status, msg))
-                with print_lock:
-                    completed += 1
-                    _report(completed, len(tests), test, status, msg)
-        results.sort(key=lambda r: r[0].name)
+            futures = {executor.submit(compile_test, test, compile_fn): i
+                       for i, test in enumerate(tests)}
+            for future in as_completed(futures):
+                _on_compiled(futures[future], future.result())
+
+    t1 = time.monotonic()
+    settled = len(tests) - len(pending)
+    print(f"\n{Colors.BOLD}Phase 1 complete{Colors.RESET} in {t1 - t0:.1f}s — "
+          f"{settled} settled without running, {len(pending)} binaries to execute.\n")
+
+    # ---- PHASE 2: execute every binary that phase 1 produced -------------
+    if pending:
+        print(f"{Colors.BOLD}Phase 2/2{Colors.RESET}: executing {len(pending)} "
+              f"binar{'y' if len(pending) == 1 else 'ies'} "
+              f"({'sequential' if args.sequential else str(run_workers) + ' workers'})...\n")
+        executed = [0]
+
+        def _on_executed(index, passed, msg, note):
+            with print_lock:
+                executed[0] += 1
+                _settle(index, passed, msg, f"[{executed[0]}/{len(pending)}] ", note)
+
+        if args.sequential:
+            for index, exe_path in pending:
+                _on_executed(index, *execute_test(tests[index], exe_path))
+        else:
+            with ThreadPoolExecutor(max_workers=run_workers) as executor:
+                futures = {executor.submit(execute_test, tests[i], exe): i
+                           for i, exe in pending}
+                for future in as_completed(futures):
+                    _on_executed(futures[future], *future.result())
+
+    t2 = time.monotonic()
+    print(f"\ncompile {t1 - t0:.1f}s + execute {t2 - t1:.1f}s = {t2 - t0:.1f}s total")
+
+    # Nothing may fall between the phases: a test that reached neither verdict
+    # is a runner bug, and must break the build rather than vanish from it.
+    for i, slot in enumerate(results):
+        if slot is None:
+            results[i] = (tests[i], TestStatus.FAIL,
+                          "the runner produced no verdict for this test", None)
+
+    results.sort(key=lambda r: r[0].name)
 
     # Print summary
     all_passed = print_summary(results, args.verbose)
