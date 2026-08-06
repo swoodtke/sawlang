@@ -1,0 +1,29 @@
+// Design 135 unit B: single-argument `print` of a user `Printable` is rejected
+// under `--no-hidden-alloc`.
+//
+// `print(p)` cannot reach a user type's bytes without rendering it, and the
+// only rendering a one-argument `print` has is the `to_string()` the compiler
+// synthesizes here — an owned String the program never asked for. A builtin
+// argument formats into stack scratch and stays legal; `print("{}", p)` gets
+// the same bytes out of a user type for free.
+// COMPILE-FLAGS: --no-hidden-alloc
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: renders `Point` through `to_string()`
+// EXPECT-ERROR-CONTAINS: print("{}", value)
+
+struct Point { x: Int, y: Int }
+
+extension Point: Printable {
+    func format(&self, into: &var StringBuilder) {
+        into.append("(")
+        into.append(self.x)
+        into.append(", ")
+        into.append(self.y)
+        into.append(")")
+    }
+}
+
+func main() {
+    let p = Point(x: 1, y: 2)
+    print(p)
+}

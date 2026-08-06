@@ -221,6 +221,19 @@ class ExpressionsMixin:
             if not self._check_renderable_operand(
                     expr_type, sub_expr, "cannot interpolate", " in a string"):
                 return None
+        # design 135: interpolation builds a fresh heap String out of pieces the
+        # source never asked to store. The ban is uniform — a `panic`/`assert`
+        # message is no exception, because the allocator being out is exactly
+        # when a panic has to work.
+        if expr.expressions and self._hidden_alloc_gate():
+            self._hidden_alloc_error(
+                "string interpolation allocates a String",
+                expr.line, expr.column,
+                hint="pass the values as format arguments instead — "
+                     "`print(\"x = {}\", x)`, `panic(\"out of {}\", what)` — or "
+                     "assemble the text in a fixed-capacity `StringBuilder`; a "
+                     "message with nothing interpolated into it is an interned "
+                     "literal and costs nothing")
         return SawType(TypeKind.STRING)
 
     def _format_placeholder_count(self, fmt_expr):
@@ -2319,6 +2332,21 @@ class ExpressionsMixin:
                 elif arg_type is not None:
                     self._check_renderable_operand(arg_type, arg.value,
                                                    "cannot print")
+                    # design 135: a builtin argument formats into stack scratch,
+                    # but a user `Printable` is rendered through the `to_string()`
+                    # the compiler synthesizes here — an owned String the program
+                    # never asked for. `print("{}", v)` streams the same bytes
+                    # through the value's own `format` and allocates nothing.
+                    if (self._hidden_alloc_gate()
+                            and self._get_underlying_type(arg_type).kind
+                            not in self._RENDERABLE_BUILTIN_KINDS):
+                        self._hidden_alloc_error(
+                            f"`print` renders `{arg_type}` through `to_string()`, "
+                            f"which allocates a String",
+                            arg.value.line, arg.value.column,
+                            hint="write `print(\"{}\", value)` — the "
+                                 "format-argument spelling streams the value "
+                                 "through its own `format` into stack scratch")
             return SawType(TypeKind.VOID)
         if expr.name == "panic":
             # design 49 item 1: panic(message: String) -> Never. Emits `message`
@@ -7865,6 +7893,22 @@ class ExpressionsMixin:
         # so the spawn handler passes force_escape=True.
         expr.escapes = force_escape or (
             (not as_call_argument) and (not has_reference_params))
+        # design 135: an escaping closure with captures heap-allocates its
+        # refcounted environment (design 73), and the literal says nothing about
+        # it. A capture-LESS escaping closure is just a code pointer, so it stays
+        # legal — the check follows codegen's own condition exactly. `spawn`'s
+        # closure is excluded: it escapes only because `spawn` was written, and
+        # a call that starts a task is an allocation the source named.
+        if (expr.escapes and captures and not force_escape
+                and self._hidden_alloc_gate()):
+            self._hidden_alloc_error(
+                "an escaping closure heap-allocates its captured environment",
+                expr.line, expr.column,
+                hint="pass the closure straight to the call that runs it (a "
+                     "non-escaping closure keeps its environment on the stack), "
+                     "drop the captures and take the values as parameters, or "
+                     "hold the shared state in an explicit `Box`/`Arc` so the "
+                     "allocation is written down")
         self.current_scope = outer_scope
         self._closure_scopes.pop()
         self.moved_bindings = saved_moves

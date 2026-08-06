@@ -1,0 +1,42 @@
+// Design 135 unit B: without the flag, every one of those constructs compiles
+// and runs exactly as it always did.
+//
+// `--no-hidden-alloc` is a per-invocation promise a program opts into, not a
+// language change. This is the same source as the four rejection tests, put
+// back together and built with the flag off — an interpolated binding, an
+// escaping closure over a capture, `print` of a user `Printable`, and an
+// interpolated `panic` message, which is the one the process exits on.
+// EXPECT: panic
+// EXPECT-PANIC-CONTAINS: out of frames: 0 left
+
+struct Point { x: Int, y: Int }
+
+extension Point: Printable {
+    func format(&self, into: &var StringBuilder) {
+        into.append("(")
+        into.append(self.x)
+        into.append(", ")
+        into.append(self.y)
+        into.append(")")
+    }
+}
+
+func drain(remaining: Int) {
+    if remaining <= 0 {
+        panic("out of frames: {remaining} left")
+    }
+}
+
+func main() {
+    let n = 3
+    let label = "count: {n}"
+    print(label)
+
+    let base = 10
+    let shift = { v: Int in v + base }
+    print("shifted {}", shift(5))
+
+    print(Point(x: 1, y: 2))
+
+    drain(0)
+}

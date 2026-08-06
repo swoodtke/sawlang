@@ -1,0 +1,15 @@
+// Design 135 unit B: string interpolation is rejected under `--no-hidden-alloc`.
+//
+// `"count: {n}"` builds a fresh heap String out of pieces the program never
+// asked to store — the compiler allocating on its own authority, which is
+// exactly what the flag forbids.
+// COMPILE-FLAGS: --no-hidden-alloc
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: string interpolation allocates a String
+// EXPECT-ERROR-CONTAINS: --no-hidden-alloc
+
+func main() {
+    let n = 3
+    let label = "count: {n}"
+    print(label)
+}

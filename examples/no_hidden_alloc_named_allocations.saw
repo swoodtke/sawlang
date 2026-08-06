@@ -1,0 +1,97 @@
+// Design 135 unit B: `--no-hidden-alloc` forbids the allocations the compiler
+// inserts on its own authority, and nothing else.
+//
+// Every allocation below is named in source — by the expression (`Vector.push`,
+// a collection literal, `Box.make`, `spawn`) or by a type the author wrote (the
+// `Box<any Error>` in `load`'s signature, which is where the erased-error
+// auto-wrap boxes). The flag is not an allocation ban; it is a ban on
+// allocations you cannot see.
+//
+// The alloc-free formatting spellings (design 137) carry the output, and both
+// shapes of legal closure appear: one passed straight to the call that runs it
+// (stack environment) and one that escapes with nothing captured (a bare code
+// pointer).
+// COMPILE-FLAGS: --no-hidden-alloc
+// EXPECT: success
+// EXPECT-OUTPUT:
+// point = (3, 4)
+// pushed 4, literal 3, map 2
+// boxed area 25
+// shifted 31, doubled 42
+// task said 9
+// load failed: file not found
+// n = 7 flag = true text = hi
+
+import std.task
+
+struct Point { x: Int, y: Int }
+
+extension Point: Printable {
+    func format(&self, into: &var StringBuilder) {
+        into.append("(")
+        into.append(self.x)
+        into.append(", ")
+        into.append(self.y)
+        into.append(")")
+    }
+}
+
+struct Square { side: Int }
+trait Shape { func area(&self) -> Int }
+extension Square: Shape { func area(&self) -> Int { self.side * self.side } }
+
+struct NotFound { path: String }
+extension NotFound: Printable {
+    func format(&self, into: &var StringBuilder) {
+        into.append("file not found")
+    }
+}
+extension NotFound: Error {}
+
+// The erased-error signature: a concrete `NotFound` auto-boxes on the way out,
+// and the `Box` doing it is written right here.
+func load(ok: Bool) -> Result<Int, Box<any Error>> {
+    if not ok { return NotFound(path: "cfg.toml") }
+    return 1
+}
+
+func apply(f: (Int) sync -> Int, v: Int) sync -> Int { f(v) }
+
+func work(n: Int) -> Int {
+    yield_now()
+    n * n
+}
+
+func main() {
+    let p = Point(x: 3, y: 4)
+    print("point = {}", p)
+
+    var v: Vector<Int> = [1, 2, 3]
+    v.push(4)
+    let m = {"a": 1, "b": 2}
+    print("pushed {}, literal {}, map {}", v.len(), 3, m.len())
+
+    let shape: Box<any Shape> = Box<any Shape>.make(Square(side: 5))
+    print("boxed area {}", shape.area())
+
+    // Non-escaping: the callee runs it before returning, so its captured `base`
+    // stays on the stack.
+    let base = 10
+    let shifted = apply({ n in n + base }, 21)
+    // Escaping but capture-less: nothing to put in an environment.
+    let double = { n: Int in n * 2 }
+    print("shifted {}, doubled {}", shifted, double(21))
+
+    var group = TaskGroup()
+    let h = group.spawn(work(3))
+    print("task said {}", h.join())
+
+    match load(false) {
+        case Ok(n) -> print("loaded {}", n),
+        case Err(e) -> print("load failed: {}", e),
+    }
+
+    var b = StringBuilder()
+    b.append("hi")
+    print("n = {} flag = {} text = {}", 7, true, b.build())
+}

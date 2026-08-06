@@ -1,0 +1,21 @@
+// Design 135 unit B: the ban is UNIFORM — a `panic` message argument is no
+// exception.
+//
+// There is no carve-out for diagnostics, and the reason is the diagnostics
+// themselves: the moment you most need a panic to work is when the allocator
+// has nothing left to give. The format-argument spelling `panic("out of {}",
+// what)` assembles its message in stack scratch and says the same thing.
+// COMPILE-FLAGS: --no-hidden-alloc
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: string interpolation allocates a String
+// EXPECT-ERROR-CONTAINS: panic("out of {}", what)
+
+func drain(remaining: Int) {
+    if remaining <= 0 {
+        panic("out of frames: {remaining} left")
+    }
+}
+
+func main() {
+    drain(0)
+}

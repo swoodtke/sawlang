@@ -88,8 +88,17 @@ class TypeChecker(ExpressionsMixin, StatementsMixin, RegistrationMixin, TypeUtil
     """Type checks a Saw program."""
 
     def __init__(self, reporter: ErrorReporter, freestanding: bool = False,
-                 runtime_build: bool = False, post_transform: bool = False):
+                 runtime_build: bool = False, post_transform: bool = False,
+                 no_hidden_alloc: bool = False):
         self.reporter = reporter
+        # design 135: `--no-hidden-alloc`. Forbids the allocations the COMPILER
+        # inserts that no source construct names — the escaping-closure
+        # environment, the String a `"{x}"` interpolation builds, the `to_string()`
+        # a single-argument `print` of a user `Printable` synthesizes. Every
+        # allocation the SOURCE names (a `Vector.push`, a collection literal, a
+        # `Box<any Error>` in a written signature, `spawn`) is untouched. The
+        # audit table in LANGUAGE_SPEC.md is the full classification.
+        self.no_hidden_alloc = no_hidden_alloc
         # design 130: True on the RE-CHECK that follows the coroutine transform.
         # The transform rewrites user bodies in place — a held `&var` param
         # becomes a frame-resident `UnsafePointer<T>`, a spawned task reaches its
@@ -247,6 +256,39 @@ class TypeChecker(ExpressionsMixin, StatementsMixin, RegistrationMixin, TypeUtil
                 self.current_function, 'is_synthesized', False):
             return True
         return False
+
+    # ===== No hidden allocations (design 135) =====
+
+    def _hidden_alloc_gate(self) -> bool:
+        """Whether `--no-hidden-alloc` applies to the code being checked here.
+
+        The gate judges USER SOURCE, on the first pass only. std's own bodies are
+        already written on the alloc-free path (the design-135 audit found no
+        interpolation anywhere in `sawc/std/` or `builtin.saw`), and the
+        coroutine transform's output is compiler-authored by construction — a
+        spawned task's frame box is the `spawn` the user did write, counted once
+        at its call site rather than again at every rewritten hop."""
+        if not self.no_hidden_alloc:
+            return False
+        if getattr(self, '_checking_builtins', False):
+            return False
+        if self.post_transform or self._in_synthesized_context():
+            return False
+        if self._accessor_vis_module()[:1] == ("<std>",):
+            return False
+        return True
+
+    def _hidden_alloc_error(self, what: str, line: int, column: int,
+                            hint: str) -> None:
+        """Report one design-135 hidden-allocation site.
+
+        `what` names the construct and what it allocates; `hint` names the
+        spelling that does not."""
+        self._error(
+            ErrorKind.TYPE_MISMATCH,
+            f"{what} — `--no-hidden-alloc` forbids allocations the source "
+            f"does not name",
+            line, column, hint=hint)
 
     # ===== Unsafe surface (design 130) =====
     #

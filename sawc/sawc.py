@@ -560,7 +560,7 @@ def _reject_freestanding_macho(target_triple: str = None):
     sys.exit(1)
 
 
-def _prepare_codegen(source_path: str, entry_ast, entry_source: str, verbose: bool = False, object_only: bool = False, target_triple: str = None, freestanding: bool = False, module_paths: dict = None, runtime_build: bool = False, docs_out: dict = None, post_transform: bool = False, target_features: str = None, parsed=None, places_lowered: bool = False):
+def _prepare_codegen(source_path: str, entry_ast, entry_source: str, verbose: bool = False, object_only: bool = False, target_triple: str = None, freestanding: bool = False, module_paths: dict = None, runtime_build: bool = False, docs_out: dict = None, post_transform: bool = False, target_features: str = None, parsed=None, places_lowered: bool = False, no_hidden_alloc: bool = False):
     """Resolve modules, load builtins, and type-check the whole program.
 
     This is the single front half of the compile pipeline: a plain single file
@@ -832,7 +832,8 @@ def _prepare_codegen(source_path: str, entry_ast, entry_source: str, verbose: bo
         reporter.add_source(mod_path, mod_source)
     typechecker = TypeChecker(reporter, freestanding=freestanding,
                               runtime_build=runtime_build,
-                              post_transform=post_transform)
+                              post_transform=post_transform,
+                              no_hidden_alloc=no_hidden_alloc)
     # design 84: carry the pre-computed suspending std (struct, method) set (std is
     # checked under a separate builtin typechecker, so the main one cannot infer it)
     # so the coroutine transform can embed nested suspending std methods.
@@ -1007,7 +1008,8 @@ def _prepare_codegen(source_path: str, entry_ast, entry_source: str, verbose: bo
                                     parsed={'module_map': module_map,
                                             'module_sources': module_sources,
                                             'builtin_ast': reentry_builtin_ast},
-                                    places_lowered=True)
+                                    places_lowered=True,
+                                    no_hidden_alloc=no_hidden_alloc)
         if reporter.has_errors():
             reporter.print_all()
             sys.exit(1)
@@ -1051,7 +1053,8 @@ def _prepare_codegen(source_path: str, entry_ast, entry_source: str, verbose: bo
                                     parsed={'module_map': module_map,
                                             'module_sources': module_sources,
                                             'builtin_ast': reentry_builtin_ast},
-                                    places_lowered=True)
+                                    places_lowered=True,
+                                    no_hidden_alloc=no_hidden_alloc)
 
     # Set this as the typechecker's namespace for compatibility
     typechecker.namespace = merged_ns
@@ -1134,7 +1137,7 @@ def _emit_object(codegen, source_path: str, output_path: str, verbose: bool,
         print(f"Compiled {source_path} -> {output_path}")
 
 
-def compile_saw(source_path: str, output_path: str, verbose: bool = False, object_only: bool = False, optimize: bool = True, target_triple: str = None, freestanding: bool = False, module_paths: dict = None, runtime_build: bool = False, target_features: str = None):
+def compile_saw(source_path: str, output_path: str, verbose: bool = False, object_only: bool = False, optimize: bool = True, target_triple: str = None, freestanding: bool = False, module_paths: dict = None, runtime_build: bool = False, target_features: str = None, no_hidden_alloc: bool = False):
     """Compile a Saw source file to an executable or object file.
 
     A single file is just a module graph of size one, so there is one pipeline:
@@ -1151,6 +1154,8 @@ def compile_saw(source_path: str, output_path: str, verbose: bool = False, objec
         target_triple: Optional LLVM target triple for cross-compilation (default host)
         freestanding: If True, emit for the freestanding profile (seams as
             declarations only, hosted std modules excluded, unlinked object output)
+        no_hidden_alloc: If True, reject the allocations the compiler inserts
+            that no source construct names (design 135)
     """
     # Freestanding and runtime-build both emit an unlinked object file; the
     # user (or the runtime-build cache machinery) owns linking.
@@ -1177,7 +1182,7 @@ def compile_saw(source_path: str, output_path: str, verbose: bool = False, objec
     codegen, merged_ast = _prepare_codegen(
         source_path, entry_ast, source, verbose, object_only, target_triple,
         freestanding, module_paths, runtime_build,
-        target_features=target_features)
+        target_features=target_features, no_hidden_alloc=no_hidden_alloc)
 
     if verbose:
         print("  Generating LLVM IR...")
@@ -1268,6 +1273,16 @@ Examples:
                         help="Freestanding profile: runtime seams as declarations only, "
                              "no hosted std modules (file/process/env/directory), "
                              "no Float printing, unlinked object output")
+    parser.add_argument("--no-hidden-alloc", action="store_true",
+                        dest="no_hidden_alloc",
+                        help="Reject allocations the compiler inserts that no "
+                             "source construct names (design 135): string "
+                             "interpolation, an escaping closure's captured "
+                             "environment, and `print` of a user Printable. "
+                             "Allocations the source names — a `Vector.push`, a "
+                             "collection literal, `spawn`, a written "
+                             "`Box<any Error>` — are unaffected. Orthogonal to "
+                             "--freestanding, and recommended alongside it.")
     parser.add_argument("--runtime-build", action="store_true", dest="runtime_build",
                         help="Runtime-build mode (design 113b): compile a Saw runtime "
                              "that `@export`s the frozen `__saw_rt_*` ABI. Sync-only, "
@@ -1369,7 +1384,8 @@ Examples:
             object_only=args.c, target_triple=args.target,
             freestanding=args.freestanding, module_paths=module_paths,
             runtime_build=args.runtime_build,
-            target_features=args.target_features)
+            target_features=args.target_features,
+            no_hidden_alloc=args.no_hidden_alloc)
         run_codegen(codegen, merged_ast)
         llvm_ir = codegen.emit_ir(optimize=not args.no_optimize)
 
@@ -1387,7 +1403,8 @@ Examples:
                     object_only=args.c, optimize=not args.no_optimize,
                     target_triple=args.target, freestanding=args.freestanding,
                     module_paths=module_paths, runtime_build=args.runtime_build,
-                    target_features=args.target_features)
+                    target_features=args.target_features,
+                    no_hidden_alloc=args.no_hidden_alloc)
 
 
 if __name__ == "__main__":
