@@ -7261,18 +7261,41 @@ class ExpressionsMixin:
                 )
         return self._reconcile_match_arm_types(expr, arm_types)
 
+    @staticmethod
+    def _arm_yields_no_value(arm_type: Optional[SawType]) -> bool:
+        """True when a match arm contributes NO value to the match's result.
+
+        Divergence reaches this function under TWO spellings, and DF-140e was
+        conflating them:
+
+        * an arm typed NEVER — a `panic(...)` expression arm (design 49);
+        * an arm whose BLOCK has no final expression because every path already
+          left the function (`case Ok(v) -> { ...; return }`), which
+          `_check_block` reports as a plain `None`.
+
+        Both terminate their basic block, so neither reaches the phi at the
+        match's merge. Treating the second as "the arm's type", rather than as
+        "no value", made the whole match type NEVER whenever such an arm came
+        first — and a NEVER body is compatible with every return type, so the
+        Result/Err (or Optional) auto-wrap was skipped and the surviving arm's
+        value was returned RAW. `_reconcile_optional_arms` already used this
+        convention; the loops below now agree with it.
+        """
+        return arm_type is None or arm_type.kind == TypeKind.NEVER
+
     def _reconcile_match_arm_types(self, expr: MatchExpr, arm_types) -> Optional[SawType]:
         """Compute a match expression's result type from its arm types, honoring
         NEVER arms (design 49) and Result auto-wrap. Shared by the enum-switch
         path and the general pattern path (design 63)."""
         if not arm_types:
             return None
-        # design 49: a NEVER arm (a diverging `panic(...)`) contributes no value
-        # to the match's type — skip such arms when computing the common arm
-        # type. If every arm diverges, the whole match is NEVER.
+        # design 49 + DF-140e: an arm that yields no value (a diverging
+        # `panic(...)`, or a block whose every path returned) contributes
+        # nothing to the match's type — skip such arms when computing the common
+        # arm type. If NO arm yields a value, the whole match is NEVER.
         result_type = None
         for at in arm_types:
-            if at is not None and at.kind == TypeKind.NEVER:
+            if self._arm_yields_no_value(at):
                 continue
             result_type = at
             break
@@ -7291,7 +7314,7 @@ class ExpressionsMixin:
             return opt_reconciled
 
         for arm_type in arm_types:
-            if arm_type is not None and arm_type.kind == TypeKind.NEVER:
+            if self._arm_yields_no_value(arm_type):
                 continue
             if not self._types_compatible(result_type, arm_type):
                 # Check if arms could be Result auto-wrapped
@@ -7308,6 +7331,7 @@ class ExpressionsMixin:
                     err_type = expected_return.type_args[1] if expected_return.type_args and len(expected_return.type_args) > 1 else None
                     # Check if one arm is Ok type and the other is Err type
                     types_for_result = all(
+                        self._arm_yields_no_value(at) or
                         (ok_type and self._types_compatible(at, ok_type)) or
                         (err_type and self._types_compatible(at, err_type))
                         for at in arm_types
@@ -7315,9 +7339,10 @@ class ExpressionsMixin:
                     if types_for_result:
                         # Wrap arm bodies in ResultOkWrap/ResultErrWrap
                         for i, (arm, arm_type) in enumerate(zip(expr.arms, arm_types)):
-                            # A NEVER arm (`panic(...)`) produces no value — leave
-                            # it unwrapped (design 49).
-                            if arm_type is not None and arm_type.kind == TypeKind.NEVER:
+                            # An arm that yields no value — a `panic(...)`
+                            # (design 49) or a block that already returned
+                            # (DF-140e) — has nothing to wrap.
+                            if self._arm_yields_no_value(arm_type):
                                 continue
                             if ok_type and self._types_compatible(arm_type, ok_type):
                                 # Wrap the arm body in ResultOkWrap

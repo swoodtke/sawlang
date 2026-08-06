@@ -1144,6 +1144,64 @@ tools/irdet.py --all`.
 **Explicitly NOT this brief:** a per-function `@no_hidden_alloc` attribute
 (named in the brief as a possible later one).
 
+## Design 147 — DF-findings (the soundness batch)
+
+- **DF-140e — FIXED here (unit A). Originally filed on the parked SOS M1
+  branch's tracker; refiled in main's tracker as found-and-fixed, same as
+  DF-140f/DF-140h/DF-140i before it.** A tail `match` in a Result-returning
+  function, with one arm that diverged and one that yielded a bare error value,
+  dropped the auto-wrap into `Err` and returned the RAW error:
+  `ret %"Oops" %"match_result"` from a function whose result type is
+  `{ i32, [8 x i8] }`. Caught only because the LLVM IR verifier rejected the
+  size mismatch — a pairing whose sizes happened to agree would have
+  miscompiled silently.
+
+  ```saw
+  func tail_match(flag: Bool) -> Result<Void, Oops> {
+      match source(flag) {
+          case Ok(v) -> {
+              if v < 0 { return Oops(m: "negative") }
+              return
+          },
+          case Err(e) -> e
+      }
+  }
+  ```
+
+  Cause — and it is NOT the wrap PLACEMENT the brief predicted. Divergence
+  reaches `_reconcile_match_arm_types` under two spellings: a `panic(...)` arm,
+  which types NEVER (design 49), and an arm whose block has no final expression
+  because every path already returned, which `_check_block` reports as a plain
+  `None`. The result-type selection loop skipped NEVER but BROKE on `None`,
+  adopting it as the match's own type — so the match typed NEVER, NEVER is
+  compatible with every return type (`_types_compatible`, the bottom rule), and
+  `_reconcile_return_type` therefore saw a compatible body and wrapped nothing.
+  The per-arm wrap machinery the brief asked for already existed (it is what
+  handles a mixed Ok/Err match); it was never reached because the arm types
+  were wrong before it ran. `_reconcile_optional_arms` already used the
+  "`None` means no value" convention — the sibling loops simply disagreed
+  with it.
+
+  Fix: one predicate, `_arm_yields_no_value(arm_type)` (`None` or NEVER —
+  neither reaches the phi at the merge), applied at all three sites that
+  previously tested NEVER alone: result-type selection, the compatibility
+  loop, and the per-arm Result-wrap loop. Fixing the arm TYPES rather than the
+  wrap placement also repairs a shape tail-only wrapping could not have
+  reached: a `let`-bound match (`let e = match … { case Ok(v) -> { return },
+  case Err(er) -> er }` then `return e`) miscompiled identically, since the
+  binding inherited the bogus NEVER.
+
+  Swept siblings, all now correct and all pinned by
+  `examples/autowrap_diverging_arm.saw` (22 assertions): the `Result<Void, E>`
+  repro, the `Result<Int, E>` variant, an erased `Box<any Error>` return, the
+  Optional auto-wrap (`-> Int?` with a `{ return None }` arm), the non-tail
+  `let`-bound match, the diverging arm placed SECOND, a `panic(...)` arm
+  (design 49, unchanged), a Void arm beside an Err arm (per-arm `Ok(())`/`Err`
+  wrap, unchanged), a tail `if` diverging on either side, and the method path
+  (which carries its own copy of the return-type reconciliation). A match whose
+  arms all yield Void in a value-returning function still reports "body has no
+  value" rather than silently returning undef.
+
 ## Design 145 — DF-findings (enum methods; the std private-symbol reach)
 
 - **DF-140h — FIXED here (unit A). Originally filed on the parked SOS M1

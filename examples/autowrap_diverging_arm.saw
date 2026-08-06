@@ -1,0 +1,183 @@
+// DF-140e: an arm that yields NO value must not swallow the auto-wrap.
+//
+// Divergence reaches the typechecker two ways: a `panic(...)` arm, which types
+// as NEVER (design 49), and an arm whose BLOCK has no final expression because
+// every path already left the function (`case Ok(v) -> { ...; return }`), which
+// `_check_block` reports as a plain `None`. The second was being adopted as the
+// match's OWN type, so the whole match typed NEVER — and NEVER is compatible
+// with every return type, so the Result/Optional auto-wrap was skipped and the
+// surviving arm's value was returned RAW. The LLVM verifier caught the size
+// mismatch here; a pairing whose sizes happened to agree would have miscompiled
+// silently.
+//
+// The wrap is applied wherever the match's value lands, so this covers the
+// non-tail `let`-bound shape too, plus the sibling shapes: Optional auto-wrap,
+// error erasure, a Void arm beside an Err arm, and a tail `if` with a diverging
+// branch.
+// EXPECT: success
+// EXPECT-OUTPUT: 1 ok
+// EXPECT-OUTPUT: 1 err bad
+// EXPECT-OUTPUT: 2 ok 14
+// EXPECT-OUTPUT: 2 err bad
+// EXPECT-OUTPUT: 3 ok
+// EXPECT-OUTPUT: 3 err bad
+// EXPECT-OUTPUT: 4 none
+// EXPECT-OUTPUT: 4 some 5
+// EXPECT-OUTPUT: 5 ok
+// EXPECT-OUTPUT: 5 err bad
+// EXPECT-OUTPUT: 6 ok
+// EXPECT-OUTPUT: 6 err bad
+// EXPECT-OUTPUT: 7 err bad
+// EXPECT-OUTPUT: 8 ok-7
+// EXPECT-OUTPUT: 8 ok
+// EXPECT-OUTPUT: 8 err bad
+// EXPECT-OUTPUT: 9 ok 1
+// EXPECT-OUTPUT: 9 err x
+// EXPECT-OUTPUT: 10 err x
+// EXPECT-OUTPUT: 10 ok 2
+// EXPECT-OUTPUT: 11 ok 17
+// EXPECT-OUTPUT: 11 err bad
+
+struct Oops { m: String }
+
+extension Oops: Error {
+    func format(&self, into: &var StringBuilder) { into.append(self.m) }
+}
+
+func source(flag: Bool) -> Result<Int, Oops> {
+    if flag { return Oops(m: "bad") }
+    return 7
+}
+
+// 1. The reported repro: a tail match whose Ok arm returns from every path and
+//    whose Err arm yields a bare error value.
+func tail_void(flag: Bool) -> Result<Void, Oops> {
+    match source(flag) {
+        case Ok(v) -> {
+            if v < 0 { return Oops(m: "negative") }
+            return
+        },
+        case Err(e) -> e
+    }
+}
+
+// 2. The same shape with a non-Void Ok type.
+func tail_int(flag: Bool) -> Result<Int, Oops> {
+    match source(flag) {
+        case Ok(v) -> { return v * 2 },
+        case Err(e) -> e
+    }
+}
+
+// 3. Erased error: the surviving arm's value must still box at the boundary.
+func tail_erased(flag: Bool) -> Result<Void, Box<any Error>> {
+    match source(flag) {
+        case Ok(v) -> { return },
+        case Err(e) -> e
+    }
+}
+
+// 4. Optional auto-wrap over the same diverging-arm shape.
+func tail_opt(flag: Bool) -> Int? {
+    match source(flag) {
+        case Ok(v) -> { return None },
+        case Err(e) -> 5
+    }
+}
+
+// 5. NOT tail position: the match's value is bound first, so the wrap happens at
+//    the `return`. Mistyping the match as NEVER broke this one too.
+func bound_match(flag: Bool) -> Result<Void, Oops> {
+    let e = match source(flag) {
+        case Ok(v) -> { return },
+        case Err(er) -> er
+    }
+    return e
+}
+
+// 6. The diverging arm second — the value-yielding arm no longer has to come
+//    first for the match to find its type.
+func arm_second(flag: Bool) -> Result<Void, Oops> {
+    match source(flag) {
+        case Err(e) -> e,
+        case Ok(v) -> { return }
+    }
+}
+
+// 7. design 49 unchanged: a `panic(...)` arm types NEVER and is skipped.
+func panic_arm(flag: Bool) -> Result<Void, Oops> {
+    match source(flag) {
+        case Ok(v) -> { panic("unreachable in this test") },
+        case Err(e) -> e
+    }
+}
+
+// 8. A Void arm beside an Err arm still takes the per-arm wrap (Ok(()) / Err).
+func void_arm(flag: Bool) -> Result<Void, Oops> {
+    match source(flag) {
+        case Ok(v) -> print("8 ok-{v}"),
+        case Err(e) -> e
+    }
+}
+
+// 9/10. The tail `if` siblings, diverging on either side.
+func tail_if_then(flag: Bool) -> Result<Int, Oops> {
+    if flag { return 1 } else { Oops(m: "x") }
+}
+
+func tail_if_else(flag: Bool) -> Result<Int, Oops> {
+    if flag { Oops(m: "x") } else { return 2 }
+}
+
+// 11. The method path carries its own copy of the return-type reconciliation.
+struct Runner { limit: Int }
+
+extension Runner {
+    func run(&self, flag: Bool) -> Result<Int, Oops> {
+        match source(flag) {
+            case Ok(v) -> { return v + self.limit },
+            case Err(e) -> e
+        }
+    }
+}
+
+func main() {
+    match tail_void(false) { case Ok(_) -> print("1 ok"), case Err(e) -> print("1 err {e}") }
+    match tail_void(true) { case Ok(_) -> print("1 ok"), case Err(e) -> print("1 err {e}") }
+
+    match tail_int(false) { case Ok(n) -> print("2 ok {n}"), case Err(e) -> print("2 err {e}") }
+    match tail_int(true) { case Ok(n) -> print("2 ok {n}"), case Err(e) -> print("2 err {e}") }
+
+    match tail_erased(false) { case Ok(_) -> print("3 ok"), case Err(e) -> print("3 err {e}") }
+    match tail_erased(true) { case Ok(_) -> print("3 ok"), case Err(e) -> print("3 err {e}") }
+
+    match tail_opt(false) {
+        case Some(n) -> print("4 some {n}"),
+        case _ -> print("4 none")
+    }
+    match tail_opt(true) {
+        case Some(n) -> print("4 some {n}"),
+        case _ -> print("4 none")
+    }
+
+    match bound_match(false) { case Ok(_) -> print("5 ok"), case Err(e) -> print("5 err {e}") }
+    match bound_match(true) { case Ok(_) -> print("5 ok"), case Err(e) -> print("5 err {e}") }
+
+    match arm_second(false) { case Ok(_) -> print("6 ok"), case Err(e) -> print("6 err {e}") }
+    match arm_second(true) { case Ok(_) -> print("6 ok"), case Err(e) -> print("6 err {e}") }
+
+    match panic_arm(true) { case Ok(_) -> print("7 ok"), case Err(e) -> print("7 err {e}") }
+
+    match void_arm(false) { case Ok(_) -> print("8 ok"), case Err(e) -> print("8 err {e}") }
+    match void_arm(true) { case Ok(_) -> print("8 ok"), case Err(e) -> print("8 err {e}") }
+
+    match tail_if_then(true) { case Ok(n) -> print("9 ok {n}"), case Err(e) -> print("9 err {e}") }
+    match tail_if_then(false) { case Ok(n) -> print("9 ok {n}"), case Err(e) -> print("9 err {e}") }
+
+    match tail_if_else(true) { case Ok(n) -> print("10 ok {n}"), case Err(e) -> print("10 err {e}") }
+    match tail_if_else(false) { case Ok(n) -> print("10 ok {n}"), case Err(e) -> print("10 err {e}") }
+
+    let r = Runner(limit: 10)
+    match r.run(false) { case Ok(n) -> print("11 ok {n}"), case Err(e) -> print("11 err {e}") }
+    match r.run(true) { case Ok(n) -> print("11 ok {n}"), case Err(e) -> print("11 err {e}") }
+}
