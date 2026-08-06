@@ -579,6 +579,96 @@ class TypeUtilsMixin:
         self._validate_existential_type(
             getattr(fn, 'return_type', None), line, column)
 
+    # ------------------------------------------------------- design 148 (unit A)
+
+    # Bounds the compiler knows structurally. Every one of these is also declared
+    # in `builtin.saw`, so `get_trait_info` normally finds it — but the structural
+    # checkers (`namespace.type_satisfies_bound`) answer for them without a
+    # `TraitSymbol`, and a profile that does not link `builtin.saw` still writes
+    # them. Naming them here keeps the validator from rejecting a bound the rest
+    # of the compiler happily enforces.
+    _STRUCTURAL_BOUNDS = frozenset({
+        "Copy", "Equatable", "Comparable", "Hashable", "Printable",
+        "Send", "Sync",
+    })
+
+    def _validate_type_param_bounds_in_program(self, program):
+        """Declaration-level pass: every type-parameter bound names a TRAIT.
+
+        A bound is the one place in a generic declaration where an arbitrary
+        identifier is accepted, and until design 148 nothing ever checked it. So
+        `struct FixedBuf<N: Int>` compiled clean and then failed at every USE
+        with "undefined variable `N`" / "undefined variable `FixedBuf`" — the
+        diagnosis surfacing at the use site, in terms that name neither the
+        declaration nor the real mistake (DF-137a). Checking it here turns a
+        silent-wrong-answer into an error that points at the bound itself.
+
+        Runs after trait registration for the same reason the existential pass
+        does: structs and enums register BEFORE traits, so `_register_struct`
+        cannot yet resolve a user trait, and a check inside it would reject
+        every forward reference.
+        """
+        for struct in getattr(program, 'structs', []):
+            self._validate_type_param_bounds(
+                struct.type_params, struct.line, struct.column)
+        for enum in getattr(program, 'enums', []):
+            self._validate_type_param_bounds(
+                enum.type_params, enum.line, enum.column)
+        for trait in getattr(program, 'traits', []):
+            self._validate_type_param_bounds(
+                trait.type_params, trait.line, trait.column)
+        for func in getattr(program, 'functions', []):
+            self._validate_type_param_bounds(
+                func.type_params, func.line, func.column)
+        for ext in getattr(program, 'extensions', []):
+            # An extension's `<...>` list doubles as a SPECIALIZATION
+            # (`extension Vector<String>`), where the "parameter" is a concrete
+            # type name carrying no bounds. Only a bounded entry is a real
+            # parameter, and only those are checked.
+            self._validate_type_param_bounds(
+                ext.type_params, ext.line, ext.column)
+            for method in ext.methods:
+                self._validate_type_param_bounds(
+                    getattr(method, 'type_params', None),
+                    getattr(method, 'line', ext.line),
+                    getattr(method, 'column', ext.column))
+
+    def _validate_type_param_bounds(self, type_params, line, column):
+        """Check one declaration's type-parameter list."""
+        for tp in (type_params or []):
+            tp_line = getattr(tp, 'line', 0) or line
+            tp_column = getattr(tp, 'column', 0) or column
+            for bound in (getattr(tp, 'bounds', None) or []):
+                self._validate_one_bound(tp, bound, tp_line, tp_column)
+
+    def _validate_one_bound(self, tp, bound, line, column):
+        if bound in self._STRUCTURAL_BOUNDS:
+            return
+        simple = bound.split('.')[-1]
+        if self.get_trait_info(simple, qualified_path=bound) is not None:
+            return
+        if self.get_trait_info(simple) is not None:
+            return
+
+        # The name resolves to something — just not a trait. Say which, so the
+        # author is not left hunting for a missing `trait` declaration that was
+        # never the problem.
+        if self._is_known_type(simple):
+            self._error(
+                ErrorKind.TYPE_MISMATCH,
+                f"`{bound}` is a type, not a trait, so it cannot bound the "
+                f"type parameter `{tp.name}`",
+                line, column,
+                hint="a type parameter's bound names a trait the argument must "
+                     "conform to (`T: Printable`, `T: Copy + Equatable`)")
+            return
+        self._error(
+            ErrorKind.UNDEFINED_VARIABLE,
+            f"unknown trait `{bound}` in the bound on type parameter "
+            f"`{tp.name}`",
+            line, column,
+            hint="a type parameter's bound must name a trait that is in scope")
+
     # ------------------------------------------------------- design 136 (unit B)
 
     def _validate_fn_effects_in_program(self, program):

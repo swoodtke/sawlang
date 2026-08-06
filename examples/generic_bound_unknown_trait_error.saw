@@ -1,0 +1,12 @@
+// Design 148 unit A: a bound that names nothing at all reads as a missing trait,
+// not as a type used in the wrong position.
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: unknown trait `Fooable`
+// EXPECT-ERROR-CONTAINS: type parameter `T`
+func widest<T: Fooable>(a: T) -> T {
+    a
+}
+
+func main() {
+    print(widest(1))
+}

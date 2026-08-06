@@ -1,0 +1,17 @@
+// Design 148 unit A: a type-parameter bound names a TRAIT. `Int` is a type, so
+// this bound is rejected at the declaration.
+//
+// Before 148 the declaration compiled in silence and every USE failed instead —
+// `FixedBuf<16>(...)` as "undefined variable `FixedBuf`", `N` in the body as
+// "undefined variable `N`". Neither named the bound, which was the mistake
+// (DF-137a).
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: `Int` is a type, not a trait
+// EXPECT-ERROR-CONTAINS: type parameter `N`
+struct FixedBuf<N: Int> {
+    len: Int
+}
+
+func main() {
+    print("unreachable")
+}

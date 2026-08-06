@@ -743,6 +743,11 @@ class TypeChecker(ExpressionsMixin, StatementsMixin, RegistrationMixin, TypeUtil
         # after traits are registered so object safety is decidable.
         self._validate_existentials_in_program(program)
 
+        # Same position, same reason (design 148): every type-parameter BOUND
+        # names a trait. Traits are registered by now, so a forward reference
+        # resolves and a non-trait is diagnosable at the declaration.
+        self._validate_type_param_bounds_in_program(program)
+
         # Same pass over the same positions for the `unsafe` effect on written
         # function TYPES (design 136): present exactly when the signature names
         # an unsafe type. Runs after struct registration, which is what makes an
@@ -1291,8 +1296,10 @@ class TypeChecker(ExpressionsMixin, StatementsMixin, RegistrationMixin, TypeUtil
             self._register_extension(extension)
 
         # Validate `any Trait` existentials in declared signatures (design 51),
-        # and the `unsafe` effect on written function types (design 136).
+        # type-parameter bounds (design 148), and the `unsafe` effect on written
+        # function types (design 136).
         self._validate_existentials_in_program(module_ast)
+        self._validate_type_param_bounds_in_program(module_ast)
         self._validate_fn_effects_in_program(module_ast)
 
         # Check resource containment rules
