@@ -254,7 +254,17 @@ question.
   `Empty`/`Tombstone` variants. Not a patch either way. Vector and Data have no
   such problem — their elements are storage already — and both landed.
 
-- **DF-146e — OPEN, P0-BLOCKING. A place VALUE READ whose element type is an
+- **DF-146e — DECIDED (user, Aug 6): three-part fix, owned by the P0-pair
+  continuation.** (1) `copy_tier` over a composite with ABSTRACT arguments
+  returns demands-a-bound, never free — a value read of `Slot<K>` in a
+  generic body requires bounds making it provably copyable, exactly like
+  bare-`T` reads (eager, instantiation-uniform — the DF-123b principle; no
+  post-mono errors). (2) Copy EMISSION defers to the instantiation, the
+  same phase as the drop — symmetry restored (the 139 model: tiers are
+  properties of TYPES; an unsubstituted composite is a schema). (3) Map/Set
+  probe internals migrate from slot value reads to BORROW-BASED matching
+  (`match` through the place, no binding, no copy) — the sound spelling and
+  faster. Original finding follows: **A place VALUE READ whose element type is an
   ENUM WITH ABSTRACT TYPE ARGUMENTS does not retain, but its binding is still
   dropped — so every read over-releases** (found by design 146 unit C, Aug 5).
   This is the ONE thing standing between the tree and the DF-132a / DF-128c
