@@ -24,6 +24,7 @@ from ast_nodes import (
     ClosureExpr, self_by_pointer
 )
 from namespace import Namespace
+from type_identity import decl_identity
 
 
 class StaticAssertError(Exception):
@@ -1493,7 +1494,8 @@ class CodeGenerator(ResultsMixin, MatchMixin, StructsMixin, CollectionsMixin, Ca
         # `Vector<String, Global>`. Pad the concrete spec key with the struct's
         # declared trailing defaults. The struct ASTs carry the defaults; build a
         # lookup now (generic_structs is populated later, after this loop).
-        struct_type_params_by_name = {s.name: s.type_params for s in program.structs}
+        struct_type_params_by_name = {decl_identity(s): s.type_params
+                                      for s in program.structs}
         for extension in program.extensions:
             if extension.type_params:
                 spec_key = self._get_extension_specialization(extension)
@@ -1784,9 +1786,11 @@ class CodeGenerator(ResultsMixin, MatchMixin, StructsMixin, CollectionsMixin, Ca
         """Register structs and enums in dependency order using topological sort."""
         from ast_nodes import TypeKind
 
-        # Build maps for quick lookup
-        struct_map = {s.name: s for s in structs}
-        enum_map = {e.name: e for e in enums}
+        # Build maps for quick lookup. Keyed by design-144 IDENTITY, which is
+        # what the field/variant SawTypes below name and what the layout
+        # registry is keyed by — two modules' `Header`s are two entries here.
+        struct_map = {decl_identity(s): s for s in structs}
+        enum_map = {decl_identity(e): e for e in enums}
         # DECLARATION order, not set order. Every structure below (the dependency
         # map, the in-degree map, Kahn's initial queue, the cycle-breaking tail)
         # is seeded by iterating this, so seeding it from a `set` of names made
@@ -1833,14 +1837,14 @@ class CodeGenerator(ResultsMixin, MatchMixin, StructsMixin, CollectionsMixin, Ca
             if struct.type_params:
                 continue  # Skip generic structs
             for field in struct.fields:
-                deps[struct.name].update(get_deps(field.type))
+                deps[decl_identity(struct)].update(get_deps(field.type))
 
         for enum in enums:
             if enum.type_params:
                 continue  # Skip generic enums
             for variant in enum.variants:
                 for _, param_type in variant.associated_types:
-                    deps[enum.name].update(get_deps(param_type))
+                    deps[decl_identity(enum)].update(get_deps(param_type))
 
         # Topological sort using Kahn's algorithm
         in_degree = {name: 0 for name in type_order}
@@ -1878,21 +1882,24 @@ class CodeGenerator(ResultsMixin, MatchMixin, StructsMixin, CollectionsMixin, Ca
 
     def _register_struct(self, struct: Struct):
         """Register a struct type with LLVM."""
+        # Design 144: the layout registry, the LLVM identified type and the
+        # generic-template store are all keyed by the struct's IDENTITY.
+        identity = decl_identity(struct)
         # Skip generic structs - they'll be monomorphized when used
         if struct.type_params:
-            self.generic_structs[struct.name] = struct
+            self.generic_structs[identity] = struct
             return
 
         # Get LLVM types for each field
         field_types = [self._get_llvm_type(field.type) for field in struct.fields]
 
         # Create identified struct type (unique identity even if same field types)
-        llvm_struct_type = self.module.context.get_identified_type(struct.name)
+        llvm_struct_type = self.module.context.get_identified_type(identity)
         llvm_struct_type.set_body(*field_types)
 
         # Store the type and field order for later use
         field_order = [field.name for field in struct.fields]
-        self.struct_types[struct.name] = (llvm_struct_type, field_order)
+        self.struct_types[identity] = (llvm_struct_type, field_order)
         # Struct field types are in namespace
 
     def _register_builtin_enums(self):
@@ -1927,11 +1934,12 @@ class CodeGenerator(ResultsMixin, MatchMixin, StructsMixin, CollectionsMixin, Ca
         Enums are represented as tagged unions: { i32 tag, [N x i8] payload }
         or just i32 if all variants have no associated values."""
         # Skip generic enums - they'll be monomorphized when used
+        identity = decl_identity(enum)
         if enum.type_params:
-            self.generic_enums[enum.name] = enum
+            self.generic_enums[identity] = enum
             return
 
-        self._register_concrete_enum(enum.name, enum.variants,
+        self._register_concrete_enum(identity, enum.variants,
                                      raw_type=getattr(enum, 'raw_type', None))
 
     def _register_concrete_enum(self, name: str, variants: List[EnumVariant],

@@ -573,6 +573,14 @@ class Expression(ASTNode):
     payload_needs_copy: bool = annotation(False)
     frame_place_read: bool = annotation(False)
     enum_variant_literal: bool = annotation(False)
+    #   resolved_type_identity -- design 144: the module-qualified IDENTITY of
+    #                           the type this node's WRITTEN name resolved to
+    #                           (an enum-variant literal's enum, a
+    #                           `mod.Point(...)` construction's struct). Codegen
+    #                           reads it instead of matching the spelling
+    #                           against its tables, where two modules' `Color`s
+    #                           both live.
+    resolved_type_identity: Optional[str] = annotation(None)
 
 
 @dataclass
@@ -1463,6 +1471,12 @@ class Struct(ASTNode):
     is_unsafe: bool = False
     source_file: str = ""
     doc: Optional[str] = None
+    # Design 144: the module-qualified IDENTITY the typechecker stamps here at
+    # registration (`Header$m$dep`), empty when the declaring module does not
+    # qualify. `name` stays the name the author wrote — diagnostics, docs and
+    # the AST dump render that — while codegen keys its layout, its
+    # monomorphizations and its method symbols off the identity.
+    type_identity: str = ""
 
 
 @dataclass
@@ -1495,6 +1509,8 @@ class Enum(ASTNode):
     # to the backing with `as` and legal as a field of an `UnsafeMemory`-viewed
     # struct. Payload-free enums only.
     raw_type: Optional[SawType] = None
+    # Design 144: see Struct.type_identity.
+    type_identity: str = ""
 
 
 @dataclass
@@ -1532,6 +1548,8 @@ class Trait(ASTNode):
     visibility: 'Visibility' = Visibility.PRIVATE
     source_file: str = ""
     doc: Optional[str] = None
+    # Design 144: see Struct.type_identity.
+    type_identity: str = ""
 
 
 @dataclass
@@ -1559,6 +1577,10 @@ class Extension(ASTNode):
     doc: Optional[str] = None
     # Declaration attributes (design 58 machinery, design 128): `@synthesize`.
     attributes: List['Attribute'] = field(default_factory=list)
+    # Design 144: the IDENTITY of the type this extension extends — the
+    # receiver every method here mangles against. `struct_name` stays the name
+    # the author wrote.
+    type_identity: str = ""
 
 
 @dataclass
@@ -1716,6 +1738,8 @@ class TypeDefinition(ASTNode):
     visibility: 'Visibility' = Visibility.PRIVATE
     source_file: str = ""
     doc: Optional[str] = None
+    # Design 144: see Struct.type_identity.
+    type_identity: str = ""
 
 
 @dataclass

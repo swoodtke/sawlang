@@ -2900,6 +2900,10 @@ class ExpressionsMixin:
                 # arguments; carry the augmented field-init list to codegen, which
                 # otherwise rebuilds it from the (possibly empty) argument list.
                 expr.resolved_field_inits = struct_init.field_inits
+                # Design 144: `_check_struct_init` canonicalized the name it was
+                # handed; carry that identity to codegen, which otherwise routes
+                # `Bag()` by the written name and finds no layout under it.
+                expr.resolved_type_identity = struct_init.struct_name
                 return result
             # `A()` — constructing a value of an in-scope type parameter (design
             # 37). The allocator model relies on this: inside `Vector<T, A>`, the
@@ -4190,12 +4194,15 @@ class ExpressionsMixin:
                         )
                         return None
                     if symbol.kind == SymbolKind.STRUCT:
-                        expr.resolved_struct_name = expr.member
+                        # Design 144: carry the identity, not the spelling.
+                        _id = getattr(symbol, 'type_identity', "") or expr.member
+                        expr.resolved_struct_name = _id
                         expr.resolved_module = obj_type.module_name
-                        return SawType(TypeKind.STRUCT, struct_name=expr.member, symbol=symbol)
+                        return SawType(TypeKind.STRUCT, struct_name=_id, symbol=symbol)
                     elif symbol.kind == SymbolKind.ENUM:
+                        _id = getattr(symbol, 'type_identity', "") or expr.member
                         expr.resolved_module = obj_type.module_name
-                        return SawType(TypeKind.ENUM, enum_name=expr.member, symbol=symbol)
+                        return SawType(TypeKind.ENUM, enum_name=_id, symbol=symbol)
                     elif symbol.kind == SymbolKind.FUNCTION:
                         expr.resolved_module = obj_type.module_name
                         return SawType(TypeKind.FUNCTION,
@@ -4222,7 +4229,10 @@ class ExpressionsMixin:
                             # Constructs a value rather than reading one out of
                             # storage — see the unqualified path (design 139).
                             expr.enum_variant_literal = True
-                            result = SawType(TypeKind.ENUM, enum_name=obj_type.enum_name, type_args=type_args, symbol=enum_info)
+                            _eid = self._sym_identity(enum_info,
+                                                      obj_type.enum_name)
+                            expr.resolved_type_identity = _eid
+                            result = SawType(TypeKind.ENUM, enum_name=_eid, type_args=type_args, symbol=enum_info)
                             # Preserve module resolution info for codegen
                             if getattr(expr.object, 'resolved_module', None) is not None:
                                 expr.resolved_module = expr.object.resolved_module
@@ -4271,12 +4281,15 @@ class ExpressionsMixin:
                     expr.resolved_module = expr.object.name
                     return symbol.type
                 if symbol.kind == SymbolKind.STRUCT:
-                    expr.resolved_struct_name = expr.member
+                    # Design 144: carry the identity, not the spelling.
+                    _id = getattr(symbol, 'type_identity', "") or expr.member
+                    expr.resolved_struct_name = _id
                     expr.resolved_module = expr.object.name
-                    return SawType(TypeKind.STRUCT, struct_name=expr.member, symbol=symbol)
+                    return SawType(TypeKind.STRUCT, struct_name=_id, symbol=symbol)
                 elif symbol.kind == SymbolKind.ENUM:
+                    _id = getattr(symbol, 'type_identity', "") or expr.member
                     expr.resolved_module = expr.object.name
-                    return SawType(TypeKind.ENUM, enum_name=expr.member, symbol=symbol)
+                    return SawType(TypeKind.ENUM, enum_name=_id, symbol=symbol)
                 elif symbol.kind == SymbolKind.FUNCTION:
                     expr.resolved_module = expr.object.name
                     return SawType(TypeKind.FUNCTION,
@@ -4315,7 +4328,11 @@ class ExpressionsMixin:
                         # A payload-free variant CONSTRUCTS a value; it does not
                         # read one out of storage (design 139).
                         expr.enum_variant_literal = True
-                        return SawType(TypeKind.ENUM, enum_name=expr.object.name, type_args=type_args, symbol=enum_info)
+                        expr.resolved_type_identity = self._sym_identity(
+                            enum_info, expr.object.name)
+                        return SawType(TypeKind.ENUM,
+                                       enum_name=expr.resolved_type_identity,
+                                       type_args=type_args, symbol=enum_info)
                     else:
                         self._error(
                             ErrorKind.TYPE_MISMATCH,
@@ -4612,6 +4629,12 @@ class ExpressionsMixin:
                 expr.line, expr.column
             )
             return None
+        # Design 144: `StructInit.struct_name` is a type REFERENCE, so from here
+        # on it names the resolved type's identity — codegen builds the layout
+        # it was handed rather than re-resolving `Header` against a merged
+        # namespace where two of them live.
+        expr.struct_name = (getattr(struct_info, 'type_identity', "")
+                            or expr.struct_name)
         type_mapping: Dict[str, SawType] = {}
         if struct_info.type_params:
             filled_args = self._fill_or_report_type_args(
@@ -5234,11 +5257,15 @@ class ExpressionsMixin:
         # Check if it's a user-defined struct
         struct_info = self.namespace.lookup_struct(name)
         if struct_info:
-            return SawType(TypeKind.STRUCT, struct_name=name, symbol=struct_info)
+            return SawType(TypeKind.STRUCT,
+                           struct_name=self._sym_identity(struct_info, name),
+                           symbol=struct_info)
         # Check if it's an enum
         enum_info = self.namespace.lookup_enum(name)
         if enum_info:
-            return SawType(TypeKind.ENUM, enum_name=name, symbol=enum_info)
+            return SawType(TypeKind.ENUM,
+                           enum_name=self._sym_identity(enum_info, name),
+                           symbol=enum_info)
         # Fallback to STRUCT type
         return SawType(TypeKind.STRUCT, struct_name=name)
 
@@ -6084,7 +6111,9 @@ class ExpressionsMixin:
         unrecognized tag is a fact about the input, not a bug in the program.
         It is a LOOKUP, not a constructor — unit B's no-inits-on-enums rule
         stands."""
-        enum_name = expr.object.name
+        # Design 144: the identity, so a backed enum's `from(raw:)` reaches its
+        # OWN tag table when two modules each declare one.
+        enum_name = self._sym_identity(enum_info, expr.object.name)
         raw_type = enum_info.raw_type
         if len(expr.arguments) != 1:
             self._error(
@@ -6312,8 +6341,10 @@ class ExpressionsMixin:
                     and expr.method_name not in enum_info.methods
                     and getattr(enum_info, 'raw_type', None) is not None):
                 return self._check_enum_from_raw(expr, enum_info)
+            expr.resolved_type_identity = self._sym_identity(
+                enum_info, expr.object.name)
             enum_init = EnumInit(
-                enum_name=expr.object.name,
+                enum_name=expr.resolved_type_identity,
                 variant_name=expr.method_name,
                 arguments=expr.arguments,
                 type_args=expr.object.type_args,
@@ -6882,6 +6913,12 @@ class ExpressionsMixin:
         Uses the struct symbol directly instead of looking up by name.
         """
         struct_name = expr.method_name
+        # Design 144: `mod.Point(...)` resolved through the module's namespace,
+        # so the identity is known HERE. Stamp it for codegen and build every
+        # returned type from it — the bare `Point` would be re-resolved against
+        # the merged namespace, which is exactly what this design removes.
+        identity = getattr(struct_sym, 'type_identity', "") or struct_name
+        expr.resolved_type_identity = identity
         # Build field inits from arguments
         field_inits = [(arg.name, arg.value) for arg in expr.arguments if arg.name]
         if all(arg.name is None for arg in expr.arguments):
@@ -6918,7 +6955,7 @@ class ExpressionsMixin:
                 hint=f"field init expects: {', '.join(sorted(field_names))}" +
                      (f"; available init methods: {available_inits}" if available_inits else "")
             )
-            return SawType(TypeKind.STRUCT, struct_name=struct_name, symbol=struct_sym)
+            return SawType(TypeKind.STRUCT, struct_name=identity, symbol=struct_sym)
         elif total_matches > 1:
             self._error(
                 ErrorKind.TYPE_MISMATCH,
@@ -6926,7 +6963,7 @@ class ExpressionsMixin:
                 expr.line, expr.column,
                 hint="use different parameter names in init method to disambiguate"
             )
-            return SawType(TypeKind.STRUCT, struct_name=struct_name, symbol=struct_sym)
+            return SawType(TypeKind.STRUCT, struct_name=identity, symbol=struct_sym)
 
         if matches_fields:
             # Member visibility (design 80): cross-module memberwise construction
@@ -6979,11 +7016,15 @@ class ExpressionsMixin:
                 init_param_types.append(expected_type)
             self._check_call_exclusivity(init_values, init_param_types)
 
-        return SawType(TypeKind.STRUCT, struct_name=struct_name, symbol=struct_sym)
+        return SawType(TypeKind.STRUCT, struct_name=identity, symbol=struct_sym)
 
     def _check_static_method_call(self, expr: MethodCall, struct_name: str,
                                    struct_info, method_info) -> Optional[SawType]:
         """Check a static method call: StructName.method(args)"""
+        # Design 144: the receiver type's identity is what its method symbols
+        # are mangled against, so codegen must dispatch on it rather than on
+        # the name written at the call site.
+        expr.resolved_type_identity = self._sym_identity(struct_info, struct_name)
         # Member visibility (design 80): gate the static method cross-module.
         self._check_method_visible(struct_name, expr.method_name, method_info, expr)
         # design 24 item 3: record the suspend-graph edge to the static method.
@@ -7102,6 +7143,12 @@ class ExpressionsMixin:
                 expr.line, expr.column
             )
             return None
+        # Design 144: an enum reference carries its identity onward, exactly
+        # like a struct one — a backed enum's `as` and `from(raw:)` both key on
+        # it, so a private `enum Header` in two modules stays two enums with
+        # two tag tables.
+        expr.enum_name = (getattr(enum_info, 'type_identity', "")
+                          or expr.enum_name)
         type_mapping: Dict[str, SawType] = {}
         if enum_info.type_params:
             if not expr.type_args:

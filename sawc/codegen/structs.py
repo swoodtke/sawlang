@@ -212,6 +212,21 @@ class StructsMixin:
             gv = self.static_globals[static_name]
             return self.builder.load(gv, name=static_name)
 
+        # Design 144: the typechecker resolved this variant literal's enum and
+        # stamped its identity. Take that over any name matching below — the
+        # written `Color` may denote a different enum in a different module.
+        _eid = getattr(expr, 'resolved_type_identity', None)
+        if _eid is not None and (_eid in self.enum_types
+                                 or _eid in self.generic_enums):
+            return self._generate_enum_init(EnumInit(
+                enum_name=_eid,
+                variant_name=expr.member,
+                arguments=[],
+                type_args=getattr(expr.object, 'type_args', None),
+                line=expr.line,
+                column=expr.column,
+            ))
+
         # Special case: EnumName.VariantName (simple variant with no associated values)
         # Check both concrete enums and generic enums
         if isinstance(expr.object, Identifier):

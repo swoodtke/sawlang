@@ -1051,25 +1051,25 @@ class TypeChecker(ExpressionsMixin, StatementsMixin, RegistrationMixin, TypeUtil
 
         # Inherit from parent if this is a nested module
         if parent_namespace:
-            for name, sym in parent_namespace.structs.items():
+            # Design 144: bind the parent's types under the names they are
+            # written as, mapping to their identities — never under the
+            # identity itself, which is not a spelling any source can use.
+            for name, _ident, sym in parent_namespace.iter_structs():
                 if sym.visibility == Visibility.PUBLIC:
-                    if name not in ns.structs:
-                        ns.register_struct(name, sym)
+                    ns.register_struct(name, sym)
                     ns.make_accessible(name)
-            for name, sym in parent_namespace.enums.items():
+            for name, _ident, sym in parent_namespace.iter_enums():
                 if sym.visibility == Visibility.PUBLIC:
-                    if name not in ns.enums:
-                        ns.register_enum(name, sym)
+                    ns.register_enum(name, sym)
                     ns.make_accessible(name)
             for name, sym in parent_namespace.functions.items():
                 if sym.visibility == Visibility.PUBLIC:
                     if name not in ns.functions:
                         ns.register_function(name, sym)
                     ns.make_accessible(name)
-            for name, sym in parent_namespace.traits.items():
+            for name, _ident, sym in parent_namespace.iter_traits():
                 if sym.visibility == Visibility.PUBLIC:
-                    if name not in ns.traits:
-                        ns.register_trait(name, sym)
+                    ns.register_trait(name, sym)
                     ns.make_accessible(name)
 
         # When an import copies a public struct/enum symbol into THIS namespace
@@ -1122,27 +1122,25 @@ class TypeChecker(ExpressionsMixin, StatementsMixin, RegistrationMixin, TypeUtil
                 direct_imports.add(base_path)
                 if base_path in checked_modules:
                     source_ast, source_ns = checked_modules[base_path]
-                    for name, sym in source_ns.structs.items():
+                    glob_label = '.'.join(base_path) if base_path else "<entry>"
+                    for name, ident, sym in source_ns.iter_structs():
                         if sym.visibility == Visibility.PUBLIC:
-                            if name not in ns.structs:
-                                ns.register_struct(name, sym)
+                            ns.register_struct(name, sym, source_label=glob_label)
                             ns.make_accessible(name)
-                            _import_conformances(name, name, source_ns)
-                    for name, sym in source_ns.enums.items():
+                            _import_conformances(ident, ident, source_ns)
+                    for name, ident, sym in source_ns.iter_enums():
                         if sym.visibility == Visibility.PUBLIC:
-                            if name not in ns.enums:
-                                ns.register_enum(name, sym)
+                            ns.register_enum(name, sym, source_label=glob_label)
                             ns.make_accessible(name)
-                            _import_conformances(name, name, source_ns)
+                            _import_conformances(ident, ident, source_ns)
                     for name, sym in source_ns.functions.items():
                         if sym.visibility == Visibility.PUBLIC:
                             if name not in ns.functions:
                                 ns.register_function(name, sym)
                             ns.make_accessible(name)
-                    for name, sym in source_ns.traits.items():
+                    for name, _ident, sym in source_ns.iter_traits():
                         if sym.visibility == Visibility.PUBLIC:
-                            if name not in ns.traits:
-                                ns.register_trait(name, sym)
+                            ns.register_trait(name, sym, source_label=glob_label)
                             ns.make_accessible(name)
                     for name, sym in source_ns.statics.items():
                         if sym.visibility == Visibility.PUBLIC:
@@ -1161,20 +1159,27 @@ class TypeChecker(ExpressionsMixin, StatementsMixin, RegistrationMixin, TypeUtil
                         # (the symbol object, and thus its mangling, is unchanged).
                         local = aliases.get(sym_name, sym_name)
                         # Copy the symbol from source to local namespace
-                        if sym_name in source_ns.structs:
-                            sym = source_ns.structs[sym_name]
+                        sel_label = ('.'.join(imp_path) if imp_path
+                                     else "<entry>")
+                        sel_struct = source_ns.lookup_struct(sym_name)
+                        sel_enum = (None if sel_struct is not None
+                                    else source_ns.lookup_enum(sym_name))
+                        if sel_struct is not None:
+                            sym = sel_struct
                             if sym.visibility == Visibility.PUBLIC:
-                                if local not in ns.structs:
-                                    ns.register_struct(local, sym)
+                                ns.register_struct(local, sym,
+                                                   source_label=sel_label)
                                 ns.make_accessible(local)
-                                _import_conformances(local, sym_name, source_ns)
-                        elif sym_name in source_ns.enums:
-                            sym = source_ns.enums[sym_name]
+                                _ident = source_ns.resolve_type_identity(sym_name)
+                                _import_conformances(_ident, _ident, source_ns)
+                        elif sel_enum is not None:
+                            sym = sel_enum
                             if sym.visibility == Visibility.PUBLIC:
-                                if local not in ns.enums:
-                                    ns.register_enum(local, sym)
+                                ns.register_enum(local, sym,
+                                                 source_label=sel_label)
                                 ns.make_accessible(local)
-                                _import_conformances(local, sym_name, source_ns)
+                                _ident = source_ns.resolve_type_identity(sym_name)
+                                _import_conformances(_ident, _ident, source_ns)
                         elif sym_name in source_ns.functions:
                             sym = source_ns.functions[sym_name]
                             if sym.visibility == Visibility.PUBLIC:
@@ -1195,11 +1200,11 @@ class TypeChecker(ExpressionsMixin, StatementsMixin, RegistrationMixin, TypeUtil
                                 if local not in ns.statics:
                                     ns.register_static(local, sym)
                                 ns.make_accessible(local)
-                        elif sym_name in source_ns.traits:
-                            sym = source_ns.traits[sym_name]
+                        elif source_ns.lookup_trait(sym_name) is not None:
+                            sym = source_ns.lookup_trait(sym_name)
                             if sym.visibility == Visibility.PUBLIC:
-                                if local not in ns.traits:
-                                    ns.register_trait(local, sym)
+                                ns.register_trait(local, sym,
+                                                  source_label=sel_label)
                                 ns.make_accessible(local)
                     # Also register module for qualified access to non-imported symbols
                     alias = imp.path[-1] if imp.path else ""
@@ -1273,6 +1278,12 @@ class TypeChecker(ExpressionsMixin, StatementsMixin, RegistrationMixin, TypeUtil
         for trait in module_ast.traits:
             self._register_trait(trait)
             ns.make_accessible(trait.name)
+
+        # Design 144: this module's types are all registered now, so its
+        # name -> identity view is complete. Rewrite every type REFERENCE in the
+        # module — field types, signatures, annotations — to the identity it
+        # denotes, before extension registration or any body check reads one.
+        self._canonicalize_module_types(module_ast)
 
         # Register extensions (structural `deinit` synthesized first, design 128)
         self._synthesize_implicit_deinits(module_ast)

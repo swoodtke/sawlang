@@ -48,6 +48,148 @@ class TypeUtilsMixin:
     # Namespace Lookup Helpers
     # =========================================================================
 
+    def _canonical_type_name(self, name: str) -> str:
+        """`name` as the module-qualified type IDENTITY it denotes here.
+
+        Total (design 144): a name that denotes no type — a type parameter, a
+        forward reference, an already-canonical identity — comes back
+        unchanged, so callers canonicalize unconditionally."""
+        ns = getattr(self, 'namespace', None)
+        if ns is None or not name or '.' in name:
+            return name
+        return ns.resolve_type_identity(name)
+
+    # Fields that hold a BACK-REFERENCE out of the tree being walked (a resolved
+    # symbol, a declaring node). Following one would carry the walk below into
+    # another module's declarations and rewrite them against THIS module's
+    # name bindings — the one way a canonicalization pass can corrupt identity.
+    _CANON_SKIP_FIELDS = frozenset((
+        "symbol", "ast_node", "decl_node", "enum_symbol", "struct_symbol",
+        "resolved_symbol", "target_symbol",
+    ))
+
+    def _canonicalize_module_types(self, module_ast) -> None:
+        """Rewrite every type REFERENCE in `module_ast` to its identity, in place.
+
+        Design 144's central invariant is that a resolved type reference carries
+        its identity, so codegen never re-resolves a name against a merged
+        namespace where two `Header`s live. Annotations are the half that
+        `_resolve_type` cannot reach on its own: a struct FIELD type, a method
+        signature and a `let x: T` are read straight off the AST by the checks
+        and by codegen, many without ever passing through resolution.
+
+        In place, and by identity of the `SawType` OBJECT, because the symbol
+        tables share those objects with the AST — `StructSymbol.fields` holds
+        the very `SawType`s `struct.fields[i].type` does. Rewriting the object
+        updates every holder at once, which is what makes the invariant hold
+        without enumerating the holders.
+
+        Runs per module, after that module's own types are registered (so its
+        `type_names` view is complete) and before anything reads a signature.
+        Idempotent: `resolve_type_identity` maps an identity to itself.
+        """
+        import dataclasses
+        from ast_nodes import SawType as _SawType
+
+        seen = set()
+
+        def visit(obj):
+            if obj is None or isinstance(obj, (str, int, float, bool)):
+                return
+            key = id(obj)
+            if key in seen:
+                return
+            if isinstance(obj, _SawType):
+                seen.add(key)
+                if obj.struct_name:
+                    obj.struct_name = self._canonical_type_name(obj.struct_name)
+                if obj.enum_name:
+                    obj.enum_name = self._canonical_type_name(obj.enum_name)
+                if obj.existential_trait:
+                    obj.existential_trait = self._canonical_type_name(
+                        obj.existential_trait)
+                for child in (obj.element_types, obj.inner_type, obj.type_args,
+                              obj.array_element_type, obj.param_types,
+                              obj.func_return_type):
+                    visit(child)
+                return
+            if isinstance(obj, (list, tuple, set)):
+                for item in obj:
+                    visit(item)
+                return
+            if isinstance(obj, dict):
+                for item in obj.values():
+                    visit(item)
+                return
+            if dataclasses.is_dataclass(obj):
+                seen.add(key)
+                # A TRAIT reference spelled as a bare string, not a `SawType`:
+                # a type-parameter bound (`<T: Seed>`), a trait's parents, a
+                # declared conformance list. A trait carries an identity like
+                # any other type, and a bound that kept the spelling would stop
+                # matching the conformance the extension registered under the
+                # identity.
+                for _slot in ("bounds", "parent_traits", "conformances"):
+                    names = getattr(obj, _slot, None)
+                    if isinstance(names, list) and all(
+                            isinstance(n, str) for n in names):
+                        setattr(obj, _slot,
+                                [self._canonical_type_name(n) for n in names])
+                for f in dataclasses.fields(obj):
+                    if f.name in self._CANON_SKIP_FIELDS:
+                        continue
+                    visit(getattr(obj, f.name, None))
+                return
+
+        visit(module_ast)
+        # A type alias resolved BEFORE this module's structs were registered
+        # (aliases are registered first) can hold a rebuilt `SawType` that is
+        # not in the AST, so it needs the walk explicitly.
+        for type_def in getattr(module_ast, 'type_definitions', []):
+            alias = self.namespace.lookup_type_alias(type_def.name)
+            if alias is not None:
+                visit(alias.aliased_type)
+                visit(alias.immediate_type)
+
+    @staticmethod
+    def _sym_identity(symbol, fallback: str) -> str:
+        """The design-144 identity carried by a resolved type symbol.
+
+        Every `SawType` built from a symbol goes through here: the symbol IS
+        the resolution, so taking the name off the source spelling instead
+        would throw that resolution away and make codegen guess."""
+        return getattr(symbol, 'type_identity', "") or fallback
+
+    def _report_type_ambiguity(self, category: str, name: str) -> bool:
+        """Report a bare reference to a name two modules bind (design 144).
+
+        With real identities two same-named public types coexist, so the merge
+        no longer refuses the program — but a BARE use still cannot pick one.
+        That is the design-142 use-site error, raised here once per name, with
+        the wording and hint the merge-time diagnostic used."""
+        ns = getattr(self, 'namespace', None)
+        entry = ns.ambiguous_types.get(name) if ns is not None else None
+        if entry is None:
+            return False
+        reported = getattr(self, '_reported_xmod_ambiguities', None)
+        if reported is None:
+            reported = set()
+            self._reported_xmod_ambiguities = reported
+        key = (category, name)
+        if key in reported:
+            return True
+        reported.add(key)
+        _cat, src1, src2 = entry
+        self.reporter.error(
+            ErrorKind.UNKNOWN_TYPE,
+            f"ambiguous {_cat or category} `{name}`: defined in both "
+            f"`{src1}` and `{src2}`",
+            1, 1,
+            hint=f"qualify the use (e.g. `{src1}.{name}`), or import "
+                 f"`{name}` from a single module",
+        )
+        return True
+
     def get_struct_info(self, name: str, qualified_path: str = None, from_type: 'SawType' = None) -> Optional[StructSymbol]:
         """Lookup struct info via namespace, supporting qualified names.
 
@@ -72,6 +214,7 @@ class TypeUtilsMixin:
         # Local lookup
         result = self.namespace.lookup_struct(name)
         if result:
+            self._report_type_ambiguity('struct', name)
             return result
         # Search imported modules (for types that lost symbol during
         # substitution). Design 40 item 1 (L3): honor visibility — a private
@@ -104,6 +247,7 @@ class TypeUtilsMixin:
         # Local lookup
         result = self.namespace.lookup_enum(name)
         if result:
+            self._report_type_ambiguity('enum', name)
             return result
         # Search imported modules (for types that lost symbol during
         # substitution). Design 40 item 1 (L3): visibility-honoring,
@@ -593,7 +737,7 @@ class TypeUtilsMixin:
         check the underlying type structure (e.g., to check if something is Optional).
         """
         if saw_type.kind == TypeKind.STRUCT and saw_type.struct_name:
-            struct_name = saw_type.struct_name
+            struct_name = self._canonical_type_name(saw_type.struct_name)
 
             # Handle module-qualified types (e.g., lib.Point, mod.lib.Color)
             if '.' in struct_name:
@@ -616,15 +760,20 @@ class TypeUtilsMixin:
                         simple_name, check_visibility=True, accessor_module=self.namespace.module_path
                     )
                     if symbol:
+                        # Design 144: the resolved reference carries the target's
+                        # IDENTITY, not the spelling `mod.Type` was written with,
+                        # so codegen never re-resolves a name it was handed.
+                        identity = (getattr(symbol, 'type_identity', "")
+                                    or simple_name)
                         resolved_args = [self._resolve_type(t) for t in saw_type.type_args] if saw_type.type_args else None
                         if symbol.kind == SymbolKind.STRUCT:
                             if resolved_args:
-                                resolved_args = self._append_default_type_args(simple_name, resolved_args)
-                            return SawType(TypeKind.STRUCT, struct_name=simple_name, type_args=resolved_args, symbol=symbol)
+                                resolved_args = self._append_default_type_args(identity, resolved_args)
+                            return SawType(TypeKind.STRUCT, struct_name=identity, type_args=resolved_args, symbol=symbol)
                         elif symbol.kind == SymbolKind.ENUM:
                             if resolved_args:
-                                resolved_args = self._append_default_type_args(simple_name, resolved_args, is_enum=True)
-                            return SawType(TypeKind.ENUM, enum_name=simple_name, type_args=resolved_args, symbol=symbol)
+                                resolved_args = self._append_default_type_args(identity, resolved_args, is_enum=True)
+                            return SawType(TypeKind.ENUM, enum_name=identity, type_args=resolved_args, symbol=symbol)
 
             # Check if this is actually an enum (NOT a type alias - those stay as STRUCT)
             # Use get_enum_info which searches imported modules
@@ -642,6 +791,13 @@ class TypeUtilsMixin:
                 # identity is fixed at resolution time.
                 resolved_args = self._append_default_type_args(struct_name, resolved_args)
                 return SawType(TypeKind.STRUCT, struct_name=struct_name, type_args=resolved_args)
+            # Design 144: a bare named type still has to come out of resolution
+            # carrying its identity. This arm used to hand `saw_type` straight
+            # back, which is exactly the case (a non-generic struct reference)
+            # the DF-142a repro is made of.
+            if struct_name != saw_type.struct_name:
+                import dataclasses
+                return dataclasses.replace(saw_type, struct_name=struct_name)
         elif saw_type.kind == TypeKind.REFERENCE and saw_type.inner_type:
             # DF-140c: resolve the REFERENT. Every other composite here recursed
             # into its parts and a reference did not, so `&qual.Section` kept the
@@ -663,11 +819,16 @@ class TypeUtilsMixin:
             resolved_elements = [self._resolve_type(t) for t in saw_type.element_types]
             return SawType(TypeKind.TUPLE, element_types=resolved_elements,
                            tuple_field_names=saw_type.tuple_field_names)
-        elif saw_type.kind == TypeKind.ENUM and saw_type.type_args:
-            # Recursively resolve enum type args
-            resolved_args = [self._resolve_type(t) for t in saw_type.type_args]
-            resolved_args = self._append_default_type_args(saw_type.enum_name, resolved_args, is_enum=True)
-            return SawType(TypeKind.ENUM, enum_name=saw_type.enum_name, type_args=resolved_args, symbol=saw_type.symbol)
+        elif saw_type.kind == TypeKind.ENUM and saw_type.enum_name:
+            enum_name = self._canonical_type_name(saw_type.enum_name)
+            if saw_type.type_args:
+                # Recursively resolve enum type args
+                resolved_args = [self._resolve_type(t) for t in saw_type.type_args]
+                resolved_args = self._append_default_type_args(enum_name, resolved_args, is_enum=True)
+                return SawType(TypeKind.ENUM, enum_name=enum_name, type_args=resolved_args, symbol=saw_type.symbol)
+            if enum_name != saw_type.enum_name:
+                import dataclasses
+                return dataclasses.replace(saw_type, enum_name=enum_name)
         elif saw_type.kind == TypeKind.FUNCTION:
             # Recursively resolve function param and return types
             resolved_params = [self._resolve_type(t) for t in (saw_type.param_types or [])]

@@ -232,7 +232,10 @@ class RegistrationMixin:
         self.namespace.register_type_alias(type_def.name, TypeAliasSymbol(
             aliased_type=resolved_type,
             immediate_type=type_def.defined_type,
-            visibility=getattr(type_def, 'visibility', Visibility.PRIVATE)
+            visibility=getattr(type_def, 'visibility', Visibility.PRIVATE),
+            type_identity=self._stamp_type_identity(type_def),
+            def_module=self._vis_module_for_source(
+                getattr(type_def, 'source_file', None))
         ))
 
     def _register_struct(self, struct: Struct):
@@ -297,6 +300,7 @@ class RegistrationMixin:
             visibility=getattr(struct, 'visibility', Visibility.PRIVATE),
             field_visibility=field_visibility,
             def_module=def_module,
+            type_identity=self._stamp_type_identity(struct),
             is_unsafe=getattr(struct, 'is_unsafe', False),
             line=struct.line,
             column=struct.column,
@@ -354,6 +358,7 @@ class RegistrationMixin:
             visibility=getattr(enum, 'visibility', Visibility.PRIVATE),
             def_module=self._vis_module_for_source(
                 getattr(enum, 'source_file', None)),
+            type_identity=self._stamp_type_identity(enum),
             ast_node=enum if enum.type_params else None,
             raw_type=raw_type,
             raw_values=raw_values
@@ -557,7 +562,8 @@ class RegistrationMixin:
             parent_traits=trait.parent_traits,
             visibility=getattr(trait, 'visibility', Visibility.PRIVATE),
             def_module=self._vis_module_for_source(
-                getattr(trait, 'source_file', None))
+                getattr(trait, 'source_file', None)),
+            type_identity=self._stamp_type_identity(trait)
         ))
 
     def _register_function(self, func: Function):
@@ -733,12 +739,28 @@ class RegistrationMixin:
     @staticmethod
     def _module_symbol_tag(module: Tuple[str, ...]) -> str:
         """A defining module rendered for an LLVM symbol name: identifier-safe,
-        stable, and distinct per module (`("<std>", "data")` -> `std_data`)."""
-        parts = [p for p in module if p != "<std>"]
-        if module[:1] == ("<std>",):
-            parts = ["std"] + parts
-        raw = "_".join(parts) if parts else "root"
-        return "".join(c if (c.isalnum() or c == "_") else "_" for c in raw)
+        stable, and distinct per module (`("<std>", "data")` -> `std_data`).
+
+        Design 144 shares this rendering for type identities, so the two
+        module-qualification schemes agree on how a module is spelled in a
+        symbol; it lives in `type_identity` and is re-exported here."""
+        from type_identity import module_tag
+        return module_tag(module)
+
+    def _stamp_type_identity(self, decl) -> str:
+        """The design-144 identity of type declaration `decl`, stamped on it.
+
+        Idempotent: the front half re-enters on the same AST (place lowering,
+        the coroutine transform), and re-qualifying an identity would produce
+        `Header$m$dep$m$dep`. Same shape as DF-146a's `_derivation_slot`."""
+        from type_identity import type_identity
+        existing = getattr(decl, 'type_identity', "")
+        if existing:
+            return existing
+        module = self._vis_module_for_source(getattr(decl, 'source_file', None))
+        identity = type_identity(decl.name, module)
+        decl.type_identity = identity
+        return identity
 
     # ------------------------------------------------------------------ #
     # Module-local codegen identity for PRIVATE top-level declarations
@@ -1598,8 +1620,26 @@ class RegistrationMixin:
                 author = m
         return author is not None, derived
 
+    def _canonicalize_extension_target(self, extension: Extension):
+        """Point `extension` at its target type's IDENTITY (design 144).
+
+        `Extension.struct_name` is a type REFERENCE, not a declaration name, so
+        it carries the identity on exactly the terms a `SawType` does. That is
+        what gives two modules' `Header` extensions two method families rather
+        than one, and it makes every `extension.struct_name`-keyed table below
+        — the derivation sets, the method registry, `generic_extensions`,
+        `mangle_method`'s receiver — inherit the identity without its own edit.
+        Trait names in `conformances` are references too. Idempotent, since the
+        front half re-enters on the same AST."""
+        extension.struct_name = self._canonical_type_name(extension.struct_name)
+        extension.type_identity = extension.struct_name
+        if extension.conformances:
+            extension.conformances = [self._canonical_type_name(c)
+                                      for c in extension.conformances]
+
     def _register_extension(self, extension: Extension):
         """Register methods from an extension."""
+        self._canonicalize_extension_target(extension)
         if self._reject_deinit_conformance(extension):
             return
         if self._check_conformance_coherence(extension):

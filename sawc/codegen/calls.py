@@ -359,7 +359,9 @@ class CallsMixin:
                 return self._generate_struct_init(struct_init)
 
         # Check if this is actually a struct init (parser treats empty parens as function call)
-        if expr.name in self.generic_structs or expr.name in self.struct_types:
+        # Design 144: prefer the identity the typechecker resolved this name to.
+        _sid = getattr(expr, 'resolved_type_identity', None) or expr.name
+        if _sid in self.generic_structs or _sid in self.struct_types:
             # Convert to struct init and generate that instead. Prefer the
             # typechecker's augmented field-init list (design 53: it includes any
             # init parameters filled from their defaults), falling back to the
@@ -368,7 +370,7 @@ class CallsMixin:
             if field_inits is None:
                 field_inits = [(arg.name, arg.value) for arg in expr.arguments if arg.name]
             struct_init = StructInit(
-                struct_name=expr.name,
+                struct_name=_sid,
                 field_inits=field_inits,
                 type_args=expr.type_args,
                 line=expr.line,
@@ -1098,9 +1100,13 @@ class CallsMixin:
         if from_raw_enum is not None:
             return self._generate_enum_from_raw(expr, from_raw_enum)
 
-        # Check if this is a static method call: StructName.method(args) (use namespace)
+        # Check if this is a static method call: StructName.method(args) (use
+        # namespace). Design 144: dispatch on the identity the typechecker
+        # resolved the receiver name to — the method symbols are mangled
+        # against it, and two modules may each declare a `Manifest`.
         if isinstance(expr.object, Identifier):
-            struct_name = expr.object.name
+            struct_name = (getattr(expr, 'resolved_type_identity', None)
+                           or expr.object.name)
             if self.namespace.is_static_method(struct_name, expr.method_name):
                 return self._generate_static_method_call(expr, struct_name)
 
@@ -1111,12 +1117,15 @@ class CallsMixin:
         # Check if this is actually an enum initialization
         # Check both concrete enums and generic enums
         if isinstance(expr.object, Identifier):
-            is_enum = expr.object.name in self.enum_types
-            is_generic_enum = expr.object.name in self.generic_enums
+            # Design 144: the identity the typechecker resolved, not the spelling.
+            _eid = (getattr(expr, 'resolved_type_identity', None)
+                    or expr.object.name)
+            is_enum = _eid in self.enum_types
+            is_generic_enum = _eid in self.generic_enums
             if is_enum or is_generic_enum:
                 # Convert to EnumInit and generate it
                 enum_init = EnumInit(
-                    enum_name=expr.object.name,
+                    enum_name=_eid,
                     variant_name=expr.method_name,
                     arguments=expr.arguments,
                     type_args=expr.object.type_args,  # Pass type_args for generic enums
@@ -1981,7 +1990,10 @@ class CallsMixin:
 
         Since all modules are merged, the struct exists in the global namespace.
         """
-        struct_name = expr.method_name
+        # Design 144: the typechecker resolved this name through the module's
+        # namespace and stamped the identity; codegen never re-resolves it.
+        struct_name = (getattr(expr, 'resolved_type_identity', None)
+                       or expr.method_name)
 
         # Convert MethodCall to StructInit
         struct_init = StructInit(

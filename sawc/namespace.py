@@ -97,6 +97,12 @@ class StructSymbol:
     # See FunctionSymbol.def_module for the std-synthetic-id rationale.
     field_visibility: Dict[str, Visibility] = field(default_factory=dict)
     def_module: Tuple[str, ...] = ()
+    # Design 144: this type's IDENTITY — `(def_module, name)` fused into one
+    # string (`Header$m$dep`), or the plain name for a root-module or std type.
+    # It is the namespace key, the codegen layout key, the monomorphization
+    # base and the method-mangling receiver; `type_identity.display_name`
+    # recovers the short name for diagnostics and docs.
+    type_identity: str = ""
     # `unsafe struct` (design 130): this type is unsafe, so naming/binding/
     # receiving/returning one of its values makes a function unsafe. Held here
     # rather than read off `ast_node`, which is None for a non-generic struct.
@@ -129,6 +135,8 @@ class EnumSymbol:
     # conformance is declarable only where the type or the trait is defined);
     # see FunctionSymbol.def_module for the std-synthetic-id rationale.
     def_module: Tuple[str, ...] = ()
+    # Design 144: see StructSymbol.type_identity.
+    type_identity: str = ""
     ast_node: Optional[SawEnum] = None
     # --- method surface, mirroring StructSymbol (design 145) ---
     methods: Dict[str, FunctionSymbol] = field(default_factory=dict)
@@ -181,6 +189,10 @@ class TraitSymbol:
     # The module that DEFINES this trait — the other place design 142's orphan
     # rule permits a conformance to be declared.
     def_module: Tuple[str, ...] = ()
+    # Design 144: see StructSymbol.type_identity. A trait names a type in every
+    # way that matters downstream — `any Trait` erasure, conformance tables and
+    # vtable symbols are all keyed by it — so it qualifies on the same terms.
+    type_identity: str = ""
 
 
 @dataclass
@@ -189,6 +201,9 @@ class TypeAliasSymbol:
     kind: SymbolKind = SymbolKind.TYPE_ALIAS
     aliased_type: Optional[SawType] = None
     visibility: Visibility = Visibility.PRIVATE
+    # Design 144: see StructSymbol.type_identity.
+    type_identity: str = ""
+    def_module: Tuple[str, ...] = ()
     # The UNRESOLVED immediate alias target (`type A = B` stores `B` verbatim,
     # possibly itself an alias). `aliased_type` collapses the whole chain to the
     # final underlying; `immediate_type` preserves one hop so the distinct-type
@@ -254,11 +269,29 @@ class Namespace:
         # `functions` map above keeps the first-registered overload as the
         # representative; overloaded call sites resolve against this list.
         self.function_overloads: Dict[str, List[FunctionSymbol]] = {}
+        # Design 144: the four TYPE tables are keyed by module-qualified type
+        # IDENTITY (`Header$m$dep`), not by the bare source name. Two modules'
+        # private `Header`s are two entries, hence two layouts, two
+        # monomorphizations and two method families. `type_names` below is the
+        # name -> identity view a SOURCE reference resolves through.
         self.structs: Dict[str, StructSymbol] = {}
         self.enums: Dict[str, EnumSymbol] = {}
         self.traits: Dict[str, TraitSymbol] = {}
         self.type_aliases: Dict[str, TypeAliasSymbol] = {}
         self.modules: Dict[str, ModuleSymbol] = {}
+        # Design 144: how a bare name spelled in THIS namespace's source
+        # resolves. Keyed by the name as written — which is the declaration's
+        # own name, or the local name an `import a.{Header as Hdr}` bound
+        # (design 53 aliasing is a pure local rename, so the identity it maps
+        # to is unchanged). Root-module and std types map a name to itself.
+        self.type_names: Dict[str, str] = {}
+        # Source label (module path string) each type name was first bound
+        # from, and the names bound to two DIFFERENT identities. A bare
+        # reference to an ambiguous name is the design-142 use-site error; the
+        # binding stays first-wins so everything else behaves as before and the
+        # diagnostic is raised once, where the author wrote the name.
+        self.type_provenance: Dict[str, str] = {}
+        self.ambiguous_types: Dict[str, Tuple[str, str, str]] = {}
         # Module-level `static` declarations (design 41), keyed by simple name.
         # Holds only the statics a simple name may legitimately resolve to from
         # ANY module: the public ones, plus the root module's own (which has no
@@ -390,18 +423,11 @@ class Namespace:
                 return None  # Module not visible from accessor
             return module
 
-        if name in self.structs:
-            sym = self.structs[name]
-            return sym if is_visible(sym) else None
-        if name in self.enums:
-            sym = self.enums[name]
-            return sym if is_visible(sym) else None
-        if name in self.traits:
-            sym = self.traits[name]
-            return sym if is_visible(sym) else None
-        if name in self.type_aliases:
-            sym = self.type_aliases[name]
-            return sym if is_visible(sym) else None
+        for _table_lookup in (self.lookup_struct, self.lookup_enum,
+                              self.lookup_trait, self.lookup_type_alias):
+            sym = _table_lookup(name)
+            if sym is not None:
+                return sym if is_visible(sym) else None
         if name in self.functions:
             sym = self.functions[name]
             return sym if is_visible(sym) else None
@@ -498,21 +524,106 @@ class Namespace:
             return own[name]
         return self.statics.get(name)
 
-    def register_struct(self, name: str, symbol: StructSymbol):
-        """Register a struct symbol."""
-        self.structs[name] = symbol
+    # =========================================================================
+    # Type registration and name binding (design 144)
+    #
+    # Two separate acts, and keeping them separate is the whole point:
+    #   1. The symbol is stored under its IDENTITY. Two modules' `Header`s are
+    #      two entries that can never overwrite each other.
+    #   2. The name as WRITTEN is bound to that identity in this namespace's
+    #      `type_names` view. That binding is per-namespace, so `Header` means
+    #      dep's Header inside dep and the entry's Header inside the entry.
+    # =========================================================================
 
-    def register_enum(self, name: str, symbol: EnumSymbol):
-        """Register an enum symbol."""
-        self.enums[name] = symbol
+    @staticmethod
+    def _identity_of(name: str, symbol) -> str:
+        """`symbol`'s identity, defaulting to the name it is registered under.
 
-    def register_trait(self, name: str, symbol: TraitSymbol):
-        """Register a trait symbol."""
-        self.traits[name] = symbol
+        The default covers every symbol built outside the typechecker's
+        registration pass — builtins, the module-AST shim below — none of which
+        belongs to a qualifying module."""
+        return getattr(symbol, 'type_identity', "") or name
 
-    def register_type_alias(self, name: str, symbol: TypeAliasSymbol):
-        """Register a type alias symbol."""
-        self.type_aliases[name] = symbol
+    def bind_type_name(self, local: str, identity: str, category: str = "type",
+                       source_label: Optional[str] = None):
+        """Bind the source-visible name `local` to `identity` here.
+
+        First-wins, matching every other binding in this namespace. A second
+        binding to a DIFFERENT identity is recorded in `ambiguous_types` rather
+        than dropped silently: the name is genuinely ambiguous at any bare use,
+        which is the design-142 use-site error, raised once where it is written.
+        """
+        prev = self.type_names.get(local)
+        if prev is None:
+            self.type_names[local] = identity
+            if source_label is not None:
+                self.type_provenance[local] = source_label
+            return
+        if prev == identity or local in self.ambiguous_types:
+            return
+        self.ambiguous_types[local] = (
+            category,
+            self.type_provenance.get(local, "<unknown>"),
+            source_label if source_label is not None else "<unknown>",
+        )
+
+    def register_struct(self, name: str, symbol: StructSymbol,
+                        source_label: Optional[str] = None):
+        """Register a struct symbol under its identity, bound to `name`."""
+        identity = self._identity_of(name, symbol)
+        self.structs[identity] = symbol
+        self.bind_type_name(name, identity, "struct", source_label)
+
+    def register_enum(self, name: str, symbol: EnumSymbol,
+                      source_label: Optional[str] = None):
+        """Register an enum symbol under its identity, bound to `name`."""
+        identity = self._identity_of(name, symbol)
+        self.enums[identity] = symbol
+        self.bind_type_name(name, identity, "enum", source_label)
+
+    def register_trait(self, name: str, symbol: TraitSymbol,
+                       source_label: Optional[str] = None):
+        """Register a trait symbol under its identity, bound to `name`."""
+        identity = self._identity_of(name, symbol)
+        self.traits[identity] = symbol
+        self.bind_type_name(name, identity, "trait", source_label)
+
+    def register_type_alias(self, name: str, symbol: TypeAliasSymbol,
+                            source_label: Optional[str] = None):
+        """Register a type alias symbol under its identity, bound to `name`."""
+        identity = self._identity_of(name, symbol)
+        self.type_aliases[identity] = symbol
+        self.bind_type_name(name, identity, "type alias", source_label)
+
+    def _iter_types(self, table: Dict[str, Any]):
+        """`(source name, identity, symbol)` for every type nameable here.
+
+        Iterating the table directly would yield IDENTITIES, which is the wrong
+        key for anything that re-binds a name in another namespace (an import
+        binds `Header`, never `Header$m$dep`). Iterating `type_names` gives the
+        spellings, one entry per way the type can be written here."""
+        for name, identity in list(self.type_names.items()):
+            sym = table.get(identity)
+            if sym is not None:
+                yield name, identity, sym
+
+    def iter_structs(self):
+        return self._iter_types(self.structs)
+
+    def iter_enums(self):
+        return self._iter_types(self.enums)
+
+    def iter_traits(self):
+        return self._iter_types(self.traits)
+
+    def resolve_type_identity(self, name: str) -> str:
+        """The identity a bare `name` refers to here, or `name` itself.
+
+        Total by design: an unknown name resolves to itself, so every caller
+        that only wants to canonicalize can call this unconditionally."""
+        if not name:
+            return name
+        return self.type_names.get(name, name)
 
     def register_module(self, alias: str, symbol: ModuleSymbol):
         """Register a module symbol (for imports)."""
@@ -644,10 +755,10 @@ class Namespace:
         """The symbol that carries methods for `type_name` — a struct or, since
         design 145, an enum. Enums grew the same method tables, so every caller
         below is written once against whichever owns the name."""
-        owner = self.structs.get(type_name)
+        owner = self.lookup_struct(type_name)
         if owner is not None:
             return owner
-        return self.enums.get(type_name)
+        return self.lookup_enum(type_name)
 
     def register_method(self, struct_name: str, method_name: str, symbol: FunctionSymbol):
         """Register a method on a struct or enum (design 55: appends to the
@@ -671,8 +782,9 @@ class Namespace:
 
     def register_init_method(self, struct_name: str, symbol: FunctionSymbol):
         """Register an init method on a struct."""
-        if struct_name in self.structs:
-            self.structs[struct_name].init_methods.append(symbol)
+        owner = self.lookup_struct(struct_name)
+        if owner is not None:
+            owner.init_methods.append(symbol)
 
     def register_specialized_method(self, struct_name: str, spec_key: Tuple[str, ...],
                                      method_name: str, method: FunctionSymbol):
@@ -713,21 +825,35 @@ class Namespace:
         """Look up a function by name."""
         return self.functions.get(name)
 
+    def _lookup_type(self, table: Dict[str, Any], name: str):
+        """Look a type up in `table` by IDENTITY or by source name (design 144).
+
+        The identity hit comes first: everything downstream of type checking
+        (codegen keys, monomorphization, mangling) holds identities, and for an
+        unqualified type the two spellings coincide anyway."""
+        sym = table.get(name)
+        if sym is not None:
+            return sym
+        identity = self.type_names.get(name)
+        if identity is not None and identity != name:
+            return table.get(identity)
+        return None
+
     def lookup_struct(self, name: str) -> Optional[StructSymbol]:
-        """Look up a struct by name."""
-        return self.structs.get(name)
+        """Look up a struct by identity or source name."""
+        return self._lookup_type(self.structs, name)
 
     def lookup_enum(self, name: str) -> Optional[EnumSymbol]:
-        """Look up an enum by name."""
-        return self.enums.get(name)
+        """Look up an enum by identity or source name."""
+        return self._lookup_type(self.enums, name)
 
     def lookup_trait(self, name: str) -> Optional[TraitSymbol]:
-        """Look up a trait by name."""
-        return self.traits.get(name)
+        """Look up a trait by identity or source name."""
+        return self._lookup_type(self.traits, name)
 
     def lookup_type_alias(self, name: str) -> Optional[TypeAliasSymbol]:
-        """Look up a type alias by name."""
-        return self.type_aliases.get(name)
+        """Look up a type alias by identity or source name."""
+        return self._lookup_type(self.type_aliases, name)
 
     def lookup_method(self, struct_name: str, method_name: str) -> Optional[FunctionSymbol]:
         """Look up a method on a struct or enum (design 145)."""
@@ -756,14 +882,19 @@ class Namespace:
     def lookup_type(self, name: str) -> Optional[SawType]:
         """Resolve a type name to its SawType."""
         # Check type aliases first
-        if name in self.type_aliases and self.type_aliases[name].aliased_type:
-            return self.type_aliases[name].aliased_type
-        # Check structs
-        if name in self.structs:
-            return SawType(kind=TypeKind.STRUCT, struct_name=name)
-        # Check enums
-        if name in self.enums:
-            return SawType(kind=TypeKind.ENUM, enum_name=name)
+        alias = self.lookup_type_alias(name)
+        if alias is not None and alias.aliased_type:
+            return alias.aliased_type
+        # Check structs / enums. The built type carries the IDENTITY, not the
+        # spelling (design 144) — everything downstream keys on it.
+        struct = self.lookup_struct(name)
+        if struct is not None:
+            return SawType(kind=TypeKind.STRUCT,
+                           struct_name=self._identity_of(name, struct))
+        enum = self.lookup_enum(name)
+        if enum is not None:
+            return SawType(kind=TypeKind.ENUM,
+                           enum_name=self._identity_of(name, enum))
         return None
 
     # =========================================================================
@@ -846,7 +977,7 @@ class Namespace:
 
     def _lookup_struct_deep(self, name: str) -> Optional[StructSymbol]:
         """Look up a struct in this namespace or any imported module namespace."""
-        result = self.structs.get(name)
+        result = self.lookup_struct(name)
         if result:
             return result
         for module_sym in self.modules.values():
@@ -858,7 +989,7 @@ class Namespace:
 
     def _lookup_type_alias_deep(self, name: str) -> Optional[TypeAliasSymbol]:
         """Look up a type alias in this namespace or any imported module namespace."""
-        result = self.type_aliases.get(name)
+        result = self.lookup_type_alias(name)
         if result:
             return result
         for module_sym in self.modules.values():
@@ -1359,12 +1490,14 @@ class Namespace:
             if name in seen:
                 continue
             seen.add(name)
-            info = self.traits.get(name)
+            info = self.lookup_trait(name)
             if info is None:
                 for module_sym in self.modules.values():
-                    if module_sym.namespace and name in module_sym.namespace.traits:
-                        info = module_sym.namespace.traits[name]
-                        break
+                    if module_sym.namespace:
+                        found = module_sym.namespace.lookup_trait(name)
+                        if found is not None:
+                            info = found
+                            break
             if info is not None:
                 stack.extend(getattr(info, 'parent_traits', []) or [])
         return False
@@ -1490,7 +1623,7 @@ class Namespace:
         return self._send_sync(saw_type, want_sync=True, visiting=set())
 
     def _lookup_enum_deep(self, name: str) -> Optional[EnumSymbol]:
-        result = self.enums.get(name)
+        result = self.lookup_enum(name)
         if result:
             return result
         for module_sym in self.modules.values():
@@ -1616,21 +1749,21 @@ class Namespace:
 
     def get_struct_fields(self, struct_name: str) -> Optional[Dict[str, SawType]]:
         """Get the fields of a struct."""
-        struct = self.structs.get(struct_name)
+        struct = self.lookup_struct(struct_name)
         return struct.fields if struct else None
 
     def get_struct_field_order(self, struct_name: str) -> Optional[List[str]]:
         """Get the field order of a struct."""
-        struct = self.structs.get(struct_name)
+        struct = self.lookup_struct(struct_name)
         return struct.field_order if struct else None
 
     def has_struct(self, name: str) -> bool:
         """Check if a struct exists."""
-        return name in self.structs
+        return self.lookup_struct(name) is not None
 
     def has_enum(self, name: str) -> bool:
         """Check if an enum exists."""
-        return name in self.enums
+        return self.lookup_enum(name) is not None
 
     def has_function(self, name: str) -> bool:
         """Check if a function exists."""
@@ -1638,7 +1771,7 @@ class Namespace:
 
     def has_trait(self, name: str) -> bool:
         """Check if a trait exists."""
-        return name in self.traits
+        return self.lookup_trait(name) is not None
 
     # =========================================================================
     # Visibility Checking
@@ -1690,16 +1823,16 @@ class Namespace:
 
     def get_symbol_visibility(self, name: str) -> Optional[Visibility]:
         """Get the visibility of a symbol by name."""
-        if name in self.structs:
-            return self.structs[name].visibility
-        if name in self.enums:
-            return self.enums[name].visibility
+        for _lookup in (self.lookup_struct, self.lookup_enum):
+            sym = _lookup(name)
+            if sym is not None:
+                return sym.visibility
         if name in self.functions:
             return self.functions[name].visibility
-        if name in self.traits:
-            return self.traits[name].visibility
-        if name in self.type_aliases:
-            return self.type_aliases[name].visibility
+        for _lookup in (self.lookup_trait, self.lookup_type_alias):
+            sym = _lookup(name)
+            if sym is not None:
+                return sym.visibility
         return None
 
     # =========================================================================
@@ -1777,6 +1910,13 @@ class Namespace:
                                        source_label if source_label is not None
                                        else "<unknown>"))
 
+        # Design 144: these four tables are keyed by module-qualified type
+        # IDENTITY, so two modules' `Header`s land on two keys and never meet
+        # here. What remains a genuine collision is one identity bound to two
+        # distinct symbols — the same module declaring a name twice — which is
+        # still worth reporting. The AMBIGUITY a bare `Header` faces when two
+        # modules export one is not a merge event at all; it is the use-site
+        # error, carried by `type_names`/`ambiguous_types` below.
         _merge("struct", self.structs, other.structs)
         _merge("enum", self.enums, other.enums)
         _merge("function", self.functions, other.functions,
@@ -1802,6 +1942,15 @@ class Namespace:
             _dst = self.module_statics.setdefault(_mod, {})
             for _n, _s in _tbl.items():
                 _dst.setdefault(_n, _s)
+        # Design 144: the source-name -> identity view travels too, so the
+        # merged namespace can still answer a bare-name query (codegen asks by
+        # identity, but the place lowering and the re-entered front half ask by
+        # name). Two modules binding one name to two identities marks the name
+        # ambiguous rather than silently picking the first.
+        for _n, _ident in other.type_names.items():
+            self.bind_type_name(_n, _ident, "type", source_label)
+        for _n, _amb in other.ambiguous_types.items():
+            self.ambiguous_types.setdefault(_n, _amb)
         for name, sym in other.modules.items():
             if name not in self.modules:
                 self.modules[name] = sym

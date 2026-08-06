@@ -3,6 +3,7 @@ Saw Language Error Reporting
 Provides nice error messages with source locations and context.
 """
 
+import re
 from dataclasses import dataclass
 from enum import Enum, auto
 from typing import List, Optional, Dict
@@ -65,12 +66,28 @@ class ErrorReporter:
         """Add source from an imported module for error context."""
         self.sources[filename] = source.split('\n')
 
+    # Design 144: a module-qualified type identity (`Header$m$dep`) and a
+    # design-142 module-private symbol (`helper$m$dep`) are INTERNAL spellings.
+    # `$` cannot occur in a Saw identifier, so nothing an author wrote can match
+    # this, and rendering it for a human is always the short name. Scrubbing
+    # here rather than at each message site makes the rule total: it holds for
+    # every diagnostic in the compiler, including ones not yet written.
+    _QUALIFIER_RE = re.compile(r"\$m\$[A-Za-z0-9_]+")
+
+    @classmethod
+    def humanize(cls, text: Optional[str]) -> Optional[str]:
+        """Render internal module qualifiers out of a diagnostic string."""
+        if not text:
+            return text
+        return cls._QUALIFIER_RE.sub("", text)
+
     def error(self, kind: ErrorKind, message: str, line: int, column: int,
               hint: Optional[str] = None, source_file: Optional[str] = None):
         """Report an error."""
         filename = source_file if source_file else self.filename
         loc = SourceLocation(line, column, filename)
-        err = CompilerError(kind, message, loc, hint, is_warning=False)
+        err = CompilerError(kind, self.humanize(message), loc,
+                            self.humanize(hint), is_warning=False)
         self.errors.append(err)
 
     def warning(self, kind: ErrorKind, message: str, line: int, column: int,
@@ -78,7 +95,8 @@ class ErrorReporter:
         """Report a warning."""
         filename = source_file if source_file else self.filename
         loc = SourceLocation(line, column, filename)
-        warn = CompilerError(kind, message, loc, hint, is_warning=True)
+        warn = CompilerError(kind, self.humanize(message), loc,
+                             self.humanize(hint), is_warning=True)
         self.warnings.append(warn)
 
     def has_errors(self) -> bool:
