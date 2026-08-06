@@ -2512,6 +2512,28 @@ class ExpressionsMixin:
                             expr.line, expr.column)
             self._effect_direct_source("io_wait", expr.line)
             return SawType(TypeKind.VOID)
+        if expr.name == "io_unwait":
+            # DF-134a: the inverse of `io_wait` — drop the readiness interest
+            # `io_wait(fd, write)` armed. NOT a suspension source: it neither
+            # parks nor yields, so a `sync` caller may use it and a park loop can
+            # call it on the way out of its cancellation exit. Two Int args,
+            # returns Void. Idempotent at the seam, so calling it when nothing is
+            # armed is well defined.
+            if len(expr.arguments) != 2:
+                self._error(
+                    ErrorKind.WRONG_ARGUMENT_COUNT,
+                    f"`io_unwait` takes exactly two positional Int arguments "
+                    f"(fd, write), but {len(expr.arguments)} were given",
+                    expr.line, expr.column)
+            else:
+                for a in expr.arguments:
+                    at = self._check_expression(a.value)
+                    if at is not None and self._get_underlying_type(at).kind != TypeKind.INT:
+                        self._error(
+                            ErrorKind.TYPE_MISMATCH,
+                            f"`io_unwait` expects Int arguments, got `{at}`",
+                            expr.line, expr.column)
+            return SawType(TypeKind.VOID)
         if expr.name == "__saw_blk_start":
             # design 103 (A6): the blocking-extern offload START intrinsic, emitted
             # by the coro transform. Its argument is syntactically a call to the

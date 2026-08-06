@@ -240,6 +240,17 @@ class CallsMixin:
             self.builder.call(self.functions["__saw_exec_park"],
                               [ir.Constant(self.int_type, -1)])
             return None
+        # DF-134a: `io_unwait(fd, dir)` drops the readiness interest `io_wait`
+        # armed. It never parks, so unlike `io_wait` there is no in-frame vs
+        # outside-frame split — the same call is correct in both, and the coro
+        # transform leaves it alone as ordinary body code (rewriting its argument
+        # identifiers to frame fields like any other call).
+        if expr.name == "io_unwait":
+            fd = self._generate_expression(expr.arguments[0].value)
+            direction = self._generate_expression(expr.arguments[1].value)
+            self.builder.call(self.functions["__saw_exec_io_unregister"],
+                              [fd, direction])
+            return None
         # design 103 (A6): the blocking-extern offload intrinsics, emitted by the
         # coro transform when it lowers a `let x = slow(arg)` blocking-extern call.
         # `__saw_blk_start(slow(arg))` resolves the extern's ir.Function (a function

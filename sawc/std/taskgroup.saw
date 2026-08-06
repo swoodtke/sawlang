@@ -65,6 +65,10 @@ extern "C" {
     // Arm one-shot readiness on `fd` in `r` (write==0 => read). `token` is the
     // parked frame's `__wake`-word address (design 91 precise routing).
     func __saw_rt_reactor_register(r: Int, fd: Int, write: Int, token: Int)
+    // DF-134a: drop an armed registration that never fired, so a token pointing
+    // into a frame cannot outlive the frame. Idempotent — unregistering an
+    // already-fired one-shot or an unarmed fd is a no-op.
+    func __saw_rt_reactor_unregister(r: Int, fd: Int, write: Int)
     // Block up to `timeout_ms` (< 0 = forever); latch each ready token; return the
     // ready-event count.
     func __saw_rt_reactor_poll(r: Int, timeout_ms: Int) -> Int
@@ -92,6 +96,10 @@ extern "C" {
 // collision (design 82).
 trait Reactor {
     func register(&self, fd: Int, dir: Int, token: Int)
+    // DF-134a: the inverse of `register`. A park that ends WITHOUT its event
+    // firing must drop the registration, or the token — an address inside the
+    // frame — outlives the frame that owns it.
+    func unregister(&self, fd: Int, dir: Int)
     func poll(&self, timeout_ms: Int) -> Int
     func wake(&self)
 }
@@ -112,6 +120,9 @@ struct SystemReactor {
 extension SystemReactor: Reactor {
     func register(&self, fd: Int, dir: Int, token: Int) {
         __saw_rt_reactor_register(self.instance, fd, dir, token)
+    }
+    func unregister(&self, fd: Int, dir: Int) {
+        __saw_rt_reactor_unregister(self.instance, fd, dir)
     }
     func poll(&self, timeout_ms: Int) -> Int {
         __saw_rt_reactor_poll(self.instance, timeout_ms)
@@ -176,6 +187,16 @@ func __saw_exec_park(wake: Int) {
 // parked frame's `__wake`-word address (design 91 precise routing).
 func __saw_exec_io_register(fd: Int, dir: Int, token: Int) {
     __saw_host_reactor().register(fd, dir, token)
+}
+
+// DF-134a: the disarm entry point, called from the two places a registration can
+// be left behind. std.net's park loops call it on their cancellation exit (the
+// one path that leaves a loop with an event still armed), and a coroutine
+// frame's synthesized `__release` calls it for the last fd the frame armed, as
+// belt and braces for any exit the library did not cover. Both are safe to call
+// when nothing is armed: the seam is idempotent.
+func __saw_exec_io_unregister(fd: Int, dir: Int) {
+    __saw_host_reactor().unregister(fd, dir)
 }
 
 // design 118 stage 2: the reactor self-wake entry point `cancel()` calls to rouse a

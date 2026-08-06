@@ -58,6 +58,8 @@ struct TimeSpec {
 
 // EV_ADD (0x0001) | EV_ONESHOT (0x0010). EVFILT_READ = -1, EVFILT_WRITE = -2.
 static EV_ADD_ONESHOT: UInt16 = 0x0011
+// EV_DELETE (0x0002) — drop an armed registration that never fired (DF-134a).
+static EV_DELETE: UInt16 = 0x0002
 static POLL_EVENTS: Int = 64
 
 @export("__saw_rt_reactor_create")
@@ -83,6 +85,30 @@ func rt_reactor_register(r: Int, fd: Int, w: Int, token: Int) unsafe {
     let kfd = rp[0].fd
     let filt: Int16 = if w != 0 { -2 } else { -1 }
     var kev = KEvent(ident: fd, filter: filt, flags: EV_ADD_ONESHOT, fflags: 0 as UInt32, data: 0, udata: token)
+    let nullp = 0 as UnsafePointer<Int8>
+    kevent(kfd as Int32, (&kev) as UnsafePointer<Int8>, 1, nullp, 0, nullp)
+}
+
+// DF-134a: drop readiness interest on `fd` for read (w==0) or write (w!=0).
+//
+// A park loop that exits WITHOUT its event firing — the cancellation path — used
+// to leave the kevent armed with `udata` still pointing at the frame's `__wake`
+// word. That is harmless only while the task owns the fd, because closing it
+// drops the kevent too. When the fd OUTLIVES the frame (the task returns its
+// stream as its RESULT) the registration outlives the frame as well, and since
+// design 134 the frame box is FREED at task completion — so the next readiness
+// event writes a word into freed memory.
+//
+// Idempotent by construction: EV_DELETE against an already-fired one-shot, a
+// closed fd, or an fd that was never armed all return ENOENT/EBADF, which is the
+// same "nothing is armed" state the caller asked for. The return is ignored for
+// that reason, exactly as the register path ignores its own.
+@export("__saw_rt_reactor_unregister")
+func rt_reactor_unregister(r: Int, fd: Int, w: Int) unsafe {
+    let rp = r as UnsafePointer<Reactor>
+    let kfd = rp[0].fd
+    let filt: Int16 = if w != 0 { -2 } else { -1 }
+    var kev = KEvent(ident: fd, filter: filt, flags: EV_DELETE, fflags: 0 as UInt32, data: 0, udata: 0)
     let nullp = 0 as UnsafePointer<Int8>
     kevent(kfd as Int32, (&kev) as UnsafePointer<Int8>, 1, nullp, 0, nullp)
 }

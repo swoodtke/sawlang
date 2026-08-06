@@ -327,6 +327,25 @@ frame's `__wake`-word ADDRESS** (design 91) — the precise-routing contract. On
 (`EV_ONESHOT`/`EPOLLONESHOT`) plus fd close drop the registration; epoll re-arms a
 known fd with `EPOLL_CTL_MOD` on `EEXIST`.
 
+### `__saw_rt_reactor_unregister(r: ptr, fd: word, write: word) -> void`
+Drop readiness interest on `fd` in `r` for read (`write==0`) or write
+(`write!=0`) — `EV_DELETE` on kqueue, `EPOLL_CTL_DEL` on epoll. **Idempotent:**
+an already-fired one-shot, a closed fd, and an fd that was never armed all
+return `ENOENT`/`EBADF`, which is the state the caller asked for, so the result
+is ignored. (Linux keeps ONE interest per `(epfd, fd)` covering both directions,
+so `write` is accepted for uniformity and unused there.)
+
+Added by design 147 (DF-134a), the first widening of the frozen set since v2.
+The token a registration carries is the parked frame's `__wake`-word ADDRESS, so
+a registration that outlives its frame is a dangling write, not a leak — and
+since design 134 the frame box is released at task completion, which makes the
+window real. Two callers: std.net's park loops call it on their cancellation
+exit (the one path that leaves a loop with an event still armed), and a
+coroutine frame's synthesized `__release` calls it for the last `(fd, dir)` the
+frame armed, ahead of its own field drops so the fd is still open and still the
+frame's. A frame whose body contains no `io_wait` arms nothing and gets neither
+the bookkeeping fields nor the call.
+
 ### `__saw_rt_reactor_poll(r: ptr, timeout_ms: word) -> word  (ready count)`
 Block in `kevent`/`epoll_wait` on `r` up to `timeout_ms` (`< 0` = forever). For
 EACH ready event, **LATCH its token word to 0 (ready)** — waking exactly the
@@ -424,6 +443,7 @@ The `argv` main received.
 | `__saw_rt_reactor_poll(timeout)` | signature +instance: `(r,timeout)`                        |
 | `__saw_rt_reactor_wake()`        | signature +instance: `(r)`                                |
 | —                                | **new** `__saw_rt_reactor_create`, `__saw_rt_reactor_destroy` |
+| —                                | **new (design 147)** `__saw_rt_reactor_unregister` — DF-134a |
 | `__saw_rt_pthread_create(tid,start,arg)` | **renamed** `__saw_rt_thread_spawn(entry,env) -> handle` |
 | `__saw_rt_pthread_join(tid)`     | **renamed** `__saw_rt_thread_join(handle)` (value handle) |
 

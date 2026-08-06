@@ -341,6 +341,10 @@ extension TcpListener {
     public func accept(&self) -> Result<TcpStream, IoError> {
         while {
             if cancelled() {
+                // DF-134a: leaving the loop without our event firing would strand
+                // the armed registration, whose token is an address inside this
+                // frame. Disarm before returning.
+                io_unwait(self.fd, 0)
                 return io_error("accept", SYS_INTERRUPTED)   // cancelled before a connection
             }
             let c = __saw_rt_tcp_accept(self.fd)
@@ -394,6 +398,7 @@ extension TcpStream {
         // on a spurious rouse in a multi-connection workload).
         while {
             if cancelled() {
+                io_unwait(fd, 1)           // DF-134a: disarm before the fd goes
                 tcp_close(fd)              // design 102: cancelled while connecting
                 return io_error("connect", SYS_INTERRUPTED)
             }
@@ -436,6 +441,7 @@ extension TcpStream {
         var out = Data()
         while {
             if cancelled() {
+                io_unwait(self.fd, 0)                      // DF-134a: disarm the park
                 return io_error("read", SYS_INTERRUPTED)   // design 102: peer-cancelled at the park
             }
             let r = net_read_once(self.fd, &var out)
@@ -469,6 +475,7 @@ extension TcpStream {
         var count = 0
         while {
             if cancelled() {
+                io_unwait(self.fd, 0)                      // DF-134a: disarm the park
                 return io_error("read", SYS_INTERRUPTED)   // design 102: cancelled at park
             }
             // Design 106: FORWARD the held `&var into` straight to the raw-layer
@@ -504,6 +511,7 @@ extension TcpStream {
         let total = bytes.len()
         while off < total {
             if cancelled() {
+                io_unwait(self.fd, 1)                       // DF-134a: disarm the park
                 return io_error("write", SYS_INTERRUPTED)   // design 102: cancelled at the park
             }
             let w = net_write_data_once(self.fd, &bytes, off)
@@ -532,6 +540,7 @@ extension TcpStream {
         let total = bytes.len()
         while off < total {
             if cancelled() {
+                io_unwait(self.fd, 1)                       // DF-134a: disarm the park
                 return io_error("write", SYS_INTERRUPTED)   // design 102: cancelled at the park
             }
             let w = net_write_data_once(self.fd, &bytes, off)

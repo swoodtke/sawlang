@@ -1295,6 +1295,58 @@ tools/irdet.py --all`.
   argument and a use-after-move beside a suspending sibling both report at the
   line AND column the author wrote, not at a synthesized temp.
 
+- **DF-134a — FIXED here (unit D). `__saw_rt_reactor_unregister` joins the
+  frozen ABI**, as approved. The design-91 token is the ADDRESS of the root
+  frame's `__wake` word, and nothing ever de-registered: a park loop that exited
+  WITHOUT its event firing (the cancellation path) left the kevent/epoll interest
+  armed with that address attached. Harmless while the task owns the fd, because
+  closing it drops the registration; a use-after-free vector when the fd OUTLIVES
+  the frame (the task returns its stream as its RESULT), since design 134 frees
+  the frame box at task completion.
+
+  The seam: `__saw_rt_reactor_unregister(r, fd, write)` — `EV_DELETE` in
+  `rt/host_macos/reactor.saw`, `EPOLL_CTL_DEL` in `rt/host_linux/reactor.saw`,
+  both authored in Saw with no C shim, both idempotent (an already-fired
+  one-shot, a closed fd, and an unarmed fd all give ENOENT/EBADF, which is the
+  state the caller wanted, so the result is ignored exactly as the register path
+  ignores its own). Added to `runtime_abi.py`'s frozen name set — the compiler
+  enforces that list, so an unapproved export is refused; this is the first
+  widening since v2. rt/ABI.md carries the section and the v1→v2 table row.
+
+  Reaching it from Saw: the `Reactor` trait gains `unregister`, `SystemReactor`
+  implements it over the seam, and `__saw_exec_io_unregister` is the executor
+  entry point. Because std.net is its own module (design 82) it cannot call that
+  wrapper directly, so the disarm gets the same treatment `io_wait` already has —
+  a builtin intrinsic, `io_unwait(fd, dir)`. It is NOT a suspension source (it
+  neither parks nor yields, so a `sync` caller may use it), and unlike `io_wait`
+  it needs no in-frame/outside-frame split: one lowering to
+  `__saw_exec_io_unregister` is correct in both, and the coro transform treats it
+  as ordinary body code.
+
+  Two callers, as specified. (1) All six of std.net's park-loop cancellation
+  exits — accept, connect, read, read_into, and both write overloads — disarm
+  before returning; connect disarms before `tcp_close`, so the fd is still valid.
+  (2) A coroutine frame's synthesized `__release` disarms the last `(fd, dir)` the
+  frame armed. The frame records the pair in new `__io_fd`/`__io_dir` fields at
+  the `io_wait` lowering (and registers FROM those fields, so the arm and the
+  later disarm cannot describe different things), and `__release` runs the disarm
+  FIRST, ahead of its own field drops — the fd is then still open and still the
+  frame's, where disarming after an owning `TcpStream` field closed it could drop
+  whatever reused the number. Both fields and the release call are gated on
+  `_body_arms_io`, a scan of the untouched body for a literal `io_wait`: a frame
+  that merely embeds a suspending callee arms nothing (the callee's own frame
+  carries its registration), so every non-IO frame — the whole freestanding
+  profile included — is byte-identical and takes on no dependency on the
+  executor wrapper.
+
+  Regression: `examples/net_cancel_unregisters_token.saw` runs the reported
+  shape — park on an fd, cancel while parked, escape the fd through `join()`,
+  then churn the group so fresh frames reuse the released box's memory, and only
+  then poke the escaped fd. The churned tasks' results are the assertion (a
+  latched wake word shows up as a task resuming with the wrong value), and a
+  final round trip on the recovered stream proves the disarm dropped the
+  registration and not the fd.
+
 ## Design 145 — DF-findings (enum methods; the std private-symbol reach)
 
 - **DF-140h — FIXED here (unit A). Originally filed on the parked SOS M1

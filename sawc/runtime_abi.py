@@ -72,6 +72,9 @@ RUNTIME_ABI_SYMBOLS = frozenset({
     # The IO reactor (designs 76 / 91 / 102; instance-based by design 117)
     "__saw_rt_reactor_create",
     "__saw_rt_reactor_register",
+    # DF-134a (design 147, user-approved into the frozen set): drop an armed
+    # registration that never fired, so its token cannot outlive the frame.
+    "__saw_rt_reactor_unregister",
     "__saw_rt_reactor_poll",
     "__saw_rt_reactor_wake",
     "__saw_rt_reactor_destroy",

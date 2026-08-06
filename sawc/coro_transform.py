@@ -605,6 +605,41 @@ def _cell_ptr_type(fb):
     return SawType(TypeKind.POINTER, inner_type=_cell_type(fb))
 
 
+def _body_arms_io(body):
+    """True if `body` contains a literal `io_wait(fd, dir)` call (DF-134a).
+
+    That call is the only thing that ARMS a reactor registration, and the
+    registration carries a token pointing into the frame — so the frame that
+    made it is the frame that must be able to drop it. A frame that only embeds
+    a suspending callee arms nothing itself; the callee's frame owns its own.
+    """
+    found = [False]
+
+    def scan(n):
+        if found[0]:
+            return
+        if isinstance(n, FunctionCall) and n.name == "io_wait":
+            found[0] = True
+            return
+        if isinstance(n, ASTNode):
+            for f in structural_fields(n):
+                scan_val(getattr(n, f.name))
+
+    def scan_val(v):
+        if found[0]:
+            return
+        if isinstance(v, (list, tuple)):
+            for x in v:
+                scan_val(x)
+        elif isinstance(v, Argument):
+            scan_val(v.value)
+        elif isinstance(v, ASTNode):
+            scan(v)
+
+    scan(body)
+    return found[0]
+
+
 class _FrameBuilder:
     def __init__(self, func, struct_name=None, tc=None, is_spawn_root=False,
                  recv_saw_type=None):
@@ -652,6 +687,14 @@ class _FrameBuilder:
         self.frame_name = f"__Frame_{self.name}"
         self.ret = func.return_type or SawType(TypeKind.VOID)
         self.is_void = (self.ret.kind == TypeKind.VOID)
+        # DF-134a: does this frame ARM a reactor registration itself? Only a body
+        # containing a literal `io_wait` does — a frame that merely embeds a
+        # suspending callee never registers anything, and the callee's own frame
+        # carries (and releases) its registration. Computed from the untouched
+        # body, before any lowering rewrites the call away. Frames that answer
+        # False get no `__io_fd`/`__io_dir` fields and no disarm in `__release`,
+        # so non-IO code (every freestanding frame included) is byte-identical.
+        self.arms_io = _body_arms_io(func.body)
 
     # ------------------------------------------------------------------ #
     # design 62 G2: if-let / guard-let condition hoisting
@@ -2355,6 +2398,11 @@ class _FrameBuilder:
         # so an `io_wait` buried in a sub-frame routes the wakeup to the TOP-LEVEL
         # frame's `__wake` word — the one the scheduler reads. 0 = not yet set.
         fields.append(StructField(name="__io_tok", type=SawType(TypeKind.INT)))
+        if self.arms_io:
+            # DF-134a: the LAST (fd, direction) this frame armed, so `__release`
+            # can drop a registration the body left behind. -1 = nothing armed.
+            fields.append(StructField(name="__io_fd", type=SawType(TypeKind.INT)))
+            fields.append(StructField(name="__io_dir", type=SawType(TypeKind.INT)))
         if self.is_spawn_root:
             # design 134: a spawned frame carries a POINTER to its group-owned
             # cell instead of a cancel word and a result slot of its own. The
@@ -2933,10 +2981,20 @@ class _FrameBuilder:
                 # `&self.__wake` on first resume; a nested sub-frame inherits it from
                 # its parent at each drive, so an `io_wait` buried in a sub-frame still
                 # routes the wake to the root frame the scheduler schedules.
+                # DF-134a: remember WHAT we armed, so `__release` can drop a
+                # registration this body leaves behind (the cancellation exit that
+                # forgets to disarm, with the fd escaping through the result — the
+                # token would then point into a freed frame box). Recording the
+                # pair in fields first, and registering FROM those fields, keeps
+                # the arm and the later disarm describing the same thing.
+                self._emit([
+                    AssignStatement(target=_self_field("__io_fd"), value=fd_a),
+                    AssignStatement(target=_self_field("__io_dir"), value=dir_a),
+                ])
                 self._emit([ExpressionStatement(expression=FunctionCall(
                     name="__saw_exec_io_register",
-                    arguments=[Argument(name=None, value=fd_a),
-                               Argument(name=None, value=dir_a),
+                    arguments=[Argument(name=None, value=_self_field("__io_fd")),
+                               Argument(name=None, value=_self_field("__io_dir")),
                                Argument(name=None, value=_self_field("__io_tok"))]))])
                 nxt = self._new_block()
                 self._suspend_to(_int(IO_PARK_WAKE), nxt)
@@ -3883,6 +3941,23 @@ class _FrameBuilder:
         order (LIFO, matching both ordinary scope exit and the struct teardown in
         codegen/resources.py)."""
         seq = []
+        # DF-134a: drop a reactor registration this frame armed and never had
+        # dropped. It runs FIRST, ahead of the field drops, so the fd is still
+        # open and still ours: unregistering after the owning `TcpStream` field
+        # closed it could disarm whatever reused the number. Idempotent at the
+        # seam, so an already-fired one-shot costs one ENOENT.
+        if self.arms_io:
+            seq.append(ExpressionStatement(expression=IfExpr(
+                condition=BinaryOp(op=">=", left=_self_field("__io_fd"),
+                                   right=_int(0)),
+                then_branch=Block(statements=[ExpressionStatement(
+                    expression=FunctionCall(
+                        name="io_unwait",
+                        arguments=[
+                            Argument(name=None, value=_self_field("__io_fd")),
+                            Argument(name=None, value=_self_field("__io_dir")),
+                        ]))], final_expr=None),
+                else_branch=None)))
         for name, enc, t in reversed(self._owned_frame_fields()):
             if _enc_cleanup(enc):
                 seq.append(AssignStatement(target=_self_field(name),
@@ -3978,6 +4053,10 @@ def _build_frame_init(fb: _FrameBuilder, param_values, fbs, recv_value=None,
     field_inits.append(("__state", _int(0)))
     field_inits.append(("__wake", _int(0)))
     field_inits.append(("__io_tok", _int(0)))   # design 91: reactor wake-word address
+    if fb.arms_io:
+        # DF-134a: nothing armed yet.
+        field_inits.append(("__io_fd", _int(-1)))
+        field_inits.append(("__io_dir", _int(0)))
     if fb.is_spawn_root:
         field_inits.append(("__cellp", cellp_value))
     else:

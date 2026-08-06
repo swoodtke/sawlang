@@ -1,0 +1,97 @@
+// DF-134a: a park that ends WITHOUT its event firing must DROP its reactor
+// registration.
+//
+// The design-91 token is the ADDRESS of the root frame's `__wake` word. A park
+// loop that exits on the cancellation path left the kevent/epoll interest armed
+// with that address still attached. Normally harmless — the task's own
+// TcpStream deinits and closing the fd drops the registration with it. It is
+// NOT harmless when the fd OUTLIVES the frame, which is what happens when the
+// task returns its stream as its RESULT: the fd stays open, the registration
+// stays armed, and since design 134 the frame box is FREED at task completion,
+// so the next readiness event latches a word into freed memory.
+//
+// The reader below is cancelled while parked and hands its stream back through
+// `join()`. The group then churns — fresh tasks whose frame boxes reuse the
+// dead reader's memory — and only then is the escaped fd made readable. A
+// surviving registration would latch a zero into one of those live frames. The
+// task results are the assertion: a spuriously cleared wake word shows up as a
+// task resuming early with the wrong value.
+// EXPECT: success
+// EXPECT-OUTPUT: reader-cancelled
+// EXPECT-OUTPUT: churn 55 210 465
+// EXPECT-OUTPUT: poked 5
+// EXPECT-OUTPUT: after 55 210 465
+// EXPECT-OUTPUT: echo 4
+// EXPECT-OUTPUT: done
+
+import std.net
+import std.task
+
+// Parks on its stream, is cancelled there, and hands the STREAM back — so the
+// fd outlives this frame while the registration it armed would not.
+func reader(s: TcpStream) -> TcpStream {
+    match s.read() {
+        case Ok(_) -> print("reader-read"),
+        case Err(_) -> print("reader-cancelled")
+    }
+    return move s
+}
+
+// A peer task that sets the reader's cancel word while it is parked.
+func canceller(addr: Int) unsafe {
+    let p = addr as UnsafePointer<Bool>
+    p[0] = true
+}
+
+// A task that parks (so it has a live wake word) and then finishes a sum. If a
+// stale token latched its wake word it would resume before `yield_now` handed
+// control back, but the sum it returns is what a corrupted frame would spoil.
+func compute(n: Int) -> Int {
+    var total = 0
+    var i = 1
+    while i <= n {
+        total = total + i
+        i = i + 1
+    }
+    yield_now()
+    total
+}
+
+func main() {
+    let (a, b) = TcpStream.pair()
+    var group = TaskGroup()
+
+    let hr = group.spawn(reader(move a))
+    let addr = hr.cancel_addr()
+    let hc = group.spawn(canceller(addr))
+    hc.join()
+    var back = hr.join()          // the reader's frame box is released here
+
+    // Churn: fresh frames reuse the released box's memory.
+    let c1 = group.spawn(compute(10))
+    let c2 = group.spawn(compute(20))
+    let c3 = group.spawn(compute(30))
+    print("churn {c1.join()} {c2.join()} {c3.join()}")
+
+    // Now make the ESCAPED fd readable. A surviving registration fires here,
+    // writing through a token that points into memory those frames just used.
+    try! b.write("poke!")
+    let seen = try! back.read()
+    print("poked {seen.len()}")
+
+    // Park again after the poke: these wake words must still be their own.
+    let d1 = group.spawn(compute(10))
+    let d2 = group.spawn(compute(20))
+    let d3 = group.spawn(compute(30))
+    print("after {d1.join()} {d2.join()} {d3.join()}")
+
+    // The recovered stream is still a working socket, which is what proves the
+    // disarm dropped only the registration and not the fd.
+    try! b.write("ping")
+    let again = try! back.read()
+    print("echo {again.len()}")
+
+    let _ = move back
+    let _ = move b
+    print("done")
+}

@@ -47,6 +47,7 @@ struct EpollEv {
 static EV_IN_ONESHOT: UInt32 = 0x40000001
 static EV_OUT_ONESHOT: UInt32 = 0x40000004
 static EPOLL_CTL_ADD: Int32 = 1
+static EPOLL_CTL_DEL: Int32 = 2
 static EPOLL_CTL_MOD: Int32 = 3
 static EPOLL_EVENT_SIZE: Int = 12
 static POLL_EVENTS: Int = 64
@@ -83,6 +84,24 @@ func rt_reactor_register(r: Int, fd: Int, w: Int, token: Int) unsafe {
     if r0 != (0 as Int32) {
         epoll_ctl(epfd as Int32, EPOLL_CTL_MOD, fd as Int32, evp)
     }
+}
+
+// DF-134a: drop readiness interest on `fd`. The epoll mirror of the kqueue
+// EV_DELETE — see host_macos/reactor.saw for why an unfired registration that
+// outlives its frame is a use-after-free vector rather than a leak.
+//
+// `w` is accepted for ABI uniformity and unused: epoll keeps ONE interest per
+// (epfd, fd) pair covering both directions, so EPOLL_CTL_DEL drops whichever was
+// armed. The event pointer must be non-NULL for kernels before 2.6.9, which is
+// why a zeroed vehicle is passed rather than null. Idempotent: DEL on an unknown
+// or closed fd returns ENOENT/EBADF, the state the caller wanted.
+@export("__saw_rt_reactor_unregister")
+func rt_reactor_unregister(r: Int, fd: Int, w: Int) unsafe {
+    let rp = r as UnsafePointer<Reactor>
+    let epfd = rp[0].fd
+    var ev = EpollEv(lo: 0, hi: 0)
+    let evp = (&ev) as UnsafePointer<Int8>
+    epoll_ctl(epfd as Int32, EPOLL_CTL_DEL, fd as Int32, evp)
 }
 
 // Block in epoll_wait up to `timeout_ms` (< 0 = forever); latch each ready
