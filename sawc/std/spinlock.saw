@@ -27,8 +27,9 @@
 //! critical section that runs long wastes exactly as much time as it takes.
 
 // The two states of the word. Named rather than spelled `0`/`1` at each use
-// site: which one means "held" is the whole invariant, and zero meaning
-// UNLOCKED is what makes an all-zero static an unlocked lock.
+// site: which one means "held" is the whole invariant. UNLOCKED being ZERO is
+// what lets a `static SpinLock<T>` be declared with no initializer at all —
+// the whole value is zerofill storage, so an idle lock costs no image bytes.
 static UNLOCKED: Int = 0
 static HELD: Int = 1
 
@@ -56,9 +57,6 @@ static HELD: Int = 1
 /// whose atomics are real instructions. On one whose base ISA omits them — rv32i
 /// — naming a `SpinLock` is a compile error naming `--target-features +a`.
 public struct SpinLock<T> {
-    // 0 is unlocked, 1 is held. Zero being the unlocked state is what lets a
-    // `static SpinLock<T>` be declared with no initializer at all: the whole
-    // value is zerofill storage, so an idle lock costs no image bytes either.
     state: Atomic<Int>,
     value: T
 }
