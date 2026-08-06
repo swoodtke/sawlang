@@ -1780,7 +1780,9 @@ path must be per-stack). The generics model was not touched.
   `h(5)` remains the design-55 ambiguity (`overload_call_ambiguous_error` still
   passes — 5 really could be either). Test: `overload_int_uint_exact`.
 
-- **DF-137d — FILED, not fixed (found dogfooding the SOS kernel, Aug 5). An
+- **DF-137d — FIXED by design 147 unit E** (with DF-140a, its parked-branch
+  twin; see the design 147 section for the fix). Original finding follows:
+  **FILED, not fixed (found dogfooding the SOS kernel, Aug 5). An
   integer literal is NOT range-checked against a 32-bit platform `Int`.**
   LANGUAGE_SPEC promises a bare literal is range-checked at the literal against
   its expected fixed-width type, and design 47 makes platform `Int` 32-bit on
@@ -1830,8 +1832,9 @@ path must be per-stack). The generics model was not touched.
 
 ## Design 133 — DF-findings (capability completions)
 
-- **DF-133a — DECIDED (user, Aug 5): FIX THE TRANSFORM (fork i) — design 147
-  owns it.** The hoist preserves source evaluation order by lifting
+- **DF-133a — FIXED by design 147 unit C** (fork (i) as decided; see the design
+  147 section). Decision and original finding follow: **DECIDED (user, Aug 5):
+  FIX THE TRANSFORM (fork i) — design 147 owns it.** The hoist preserves source evaluation order by lifting
   side-effecting left siblings into temps, bounded by a conservative purity
   filter (literals/plain reads exempt; anything containing a call or `&var`
   use hoists); transfer checkpoints and diagnostics KEEP source positions
@@ -1874,7 +1877,10 @@ path must be per-stack). The generics model was not touched.
 
 ## Design 139 — DF-findings (the enum policy tier)
 
-- **DF-139a — FILED, not fixed (found while implementing design 139, Aug 5;
+- **DF-139a — FIXED by design 147 unit B** (the `let` initializer bypassed the
+  shared transfer path; see the design 147 section — the whole-binding shapes
+  below had stopped reproducing by then, the projections had not). Original
+  finding follows: **FILED, not fixed (found while implementing design 139, Aug 5;
   PRE-EXISTING and INDEPENDENT of the copy tier). Overwriting a binding
   RELEASES its old value even when a live copy of it exists**, so the copy is
   left dangling. The copy tier is not involved: it reproduces on a plain
@@ -2275,8 +2281,10 @@ path must be per-stack). The generics model was not touched.
 
 ## Design 134 — DF-findings
 
-- **DF-134a — APPROVED (user, Aug 5): the `__saw_rt_reactor_unregister` seam
-  joins the frozen ABI — design 147 owns it** (kqueue EV_DELETE / epoll
+- **DF-134a — FIXED by design 147 unit D** (the seam is in the frozen ABI; see
+  the design 147 section). Decision and original finding follow: **APPROVED
+  (user, Aug 5): the `__saw_rt_reactor_unregister` seam joins the frozen ABI —
+  design 147 owns it** (kqueue EV_DELETE / epoll
   EPOLL_CTL_DEL in the Saw reactors; called on the park loop's cancellation
   exit + belt-and-braces at frame `__release` for registered-unfired tokens;
   regression: park, cancel, escape the fd via the result, poke it. Post-134
