@@ -1442,6 +1442,14 @@ class CallsMixin:
                 vtype = self.variable_types.get(expr.object.name)
                 if vtype is not None and vtype.kind == TypeKind.REFERENCE:
                     self_arg = self.builder.load(self_arg, name="ref_self_deref")
+            elif (isinstance(expr.object, Identifier)
+                    and self._static_global(expr.object) is not None):
+                # A module static as the receiver of a by-pointer method: the
+                # global IS the storage (design 149). Falling through to the
+                # spill-a-temporary branch below would lock, CAS or mutate a copy
+                # of the static and throw the result away — which is what a
+                # `static LOCK: SpinLock<T>` would have done.
+                self_arg = self._static_global(expr.object)
             elif isinstance(expr.object, SelfExpr) and "self" in self.variables:
                 # For 'self.method()' in a var self method, pass self's pointer directly
                 self_ptr = self.variables["self"]

@@ -215,8 +215,13 @@ class ExistentialsMixin:
         try:
             concrete_llvm = self._get_llvm_type(concrete_saw)
             data_ptr = self.builder.bitcast(thunk.args[0], concrete_llvm.as_pointer())
-            if tmethod.self_mutable:
-                self_arg = data_ptr                       # &var self: by pointer
+            # Read the convention off the IMPL's own signature rather than the
+            # trait requirement's spelling: `&var self` and a `borrows` accessor
+            # take a pointer, and so does a plain `&self` on a receiver carrying
+            # an `Atomic` cell (design 149). The emitted parameter type is the one
+            # answer all three agree on.
+            if isinstance(impl.args[0].type, ir.PointerType):
+                self_arg = data_ptr                       # by pointer
             else:
                 self_arg = self.builder.load(data_ptr)    # &self: by value
             call_args = [self_arg] + list(thunk.args[1:])

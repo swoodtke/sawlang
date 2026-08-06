@@ -214,6 +214,10 @@ class CodeGenerator(ResultsMixin, MatchMixin, StructsMixin, CollectionsMixin, Ca
         # GlobalVariable. Reads of a static load through the matching global.
         self.static_globals: dict = {}
 
+        # design 149 (DF-149a): struct name -> "carries an Atomic cell", the
+        # receiver-ABI question `_self_by_pointer_for` asks once per method.
+        self._interior_mut_by_name: dict = {}
+
         # Struct types (name -> (LLVM type, field_order))
         self.struct_types: dict = {}
         # Reverse map for monomorphized generic structs: mangled name ->
@@ -1069,6 +1073,53 @@ class CodeGenerator(ResultsMixin, MatchMixin, StructsMixin, CollectionsMixin, Ca
         if saw_type.kind == TypeKind.ARRAY:
             return self._type_has_interior_mutability(saw_type.array_element_type)
         return False
+
+    def _struct_has_interior_mutability(self, struct_name) -> bool:
+        """Whether the struct named `struct_name` carries an `Atomic` cell.
+
+        Takes a NAME rather than a type because the receiver-ABI decision below
+        is made at method declaration time, where the name (possibly a
+        monomorphized `SpinLock$1$Int`) is what is in hand. A monomorphized name
+        whose fields are not registered falls back to its template, which is the
+        right answer whenever the cell is declared in the template itself —
+        every `SpinLock<T>` has one wherever `SpinLock` does.
+        """
+        if not struct_name:
+            return False
+        cached = self._interior_mut_by_name.get(struct_name)
+        if cached is not None:
+            return cached
+        result = self._type_has_interior_mutability(
+            SawType(TypeKind.STRUCT, struct_name=struct_name))
+        if not result and '$' in struct_name:
+            result = self._type_has_interior_mutability(
+                SawType(TypeKind.STRUCT, struct_name=struct_name.split('$')[0]))
+        self._interior_mut_by_name[struct_name] = result
+        return result
+
+    def _self_by_pointer_for(self, struct_name, method) -> bool:
+        """Does this method receive `self` as a POINTER? (design 149, DF-149a.)
+
+        `ast_nodes.self_by_pointer` answers the two spellings that say so on the
+        declaration — `&var self` and a `borrows` accessor. This adds the one the
+        TYPE says: a receiver carrying an `Atomic` cell arrives as storage even
+        for a plain `&self`, because interior mutability is mutation THROUGH a
+        shared borrow and the atomic has to reach the caller's cell.
+
+        Passed by value it did not. `struct Counter { n: Atomic<Int> }` with a
+        `func bump(&self) { self.n.fetch_add(1) }` incremented the callee's copy
+        and dropped it at the return — silently, no error anywhere, the count
+        just stayed 0. std worked around it by writing slab's bookkeeping as free
+        functions over a `&SlabHead` parameter (a reference param IS a pointer)
+        rather than as methods on the type. Methods work now, which is what lets
+        `SpinLock` put its word and its payload inline and still be locked
+        through a shared borrow — the whole point of a lock.
+
+        Decided per (struct name, method) and read at BOTH the declaration and
+        the body, so the two always agree; call sites read the convention off the
+        emitted signature, so they follow automatically.
+        """
+        return self_by_pointer(method) or self._struct_has_interior_mutability(struct_name)
 
     def _const_from_expr(self, expr, saw_type):
         """Build an LLVM constant for a static initializer (design 41 item 2).
@@ -2187,7 +2238,8 @@ class CodeGenerator(ResultsMixin, MatchMixin, StructsMixin, CollectionsMixin, Ca
                     # If first param is self and it's mutable, make it a pointer
                     # (design 146: a `borrows` accessor's receiver too — its
                     # window writes through it).
-                    if i == 0 and p.name == "self" and self_by_pointer(method):
+                    if (i == 0 and p.name == "self"
+                            and self._self_by_pointer_for(extension.struct_name, method)):
                         llvm_type = llvm_type.as_pointer()
                     param_types.append(llvm_type)
                 return_type = self._get_llvm_type(method.return_type)

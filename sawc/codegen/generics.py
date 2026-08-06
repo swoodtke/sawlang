@@ -693,7 +693,8 @@ class GenericsMixin:
                     else:
                         substituted = self._substitute_saw_type(p.type, type_mapping)
                         llvm_type = self._get_llvm_type(substituted)
-                    if i == 0 and p.name == "self" and self_by_pointer(method):
+                    if (i == 0 and p.name == "self"
+                            and self._self_by_pointer_for(mangled_struct_name, method)):
                         llvm_type = llvm_type.as_pointer()
                     param_types.append(llvm_type)
                 substituted_return = self._substitute_saw_type(method.return_type, type_mapping)
@@ -883,7 +884,7 @@ class GenericsMixin:
         for i, param in enumerate(method.parameters):
             llvm_func.args[i].name = param.name
             is_self = (i == 0 and param.name == "self")
-            if is_self and self_by_pointer(method):
+            if is_self and self._self_by_pointer_for(struct_name, method):
                 self.variables[param.name] = llvm_func.args[i]
                 continue
             if is_self:

@@ -88,7 +88,8 @@ class MethodsMixin:
         for i, param in enumerate(method.parameters):
             llvm_func.args[i].name = param.name
             # For mutable self, it's already a pointer - just store it directly
-            if i == 0 and param.name == "self" and self_by_pointer(method):
+            if (i == 0 and param.name == "self"
+                    and self._self_by_pointer_for(struct_name, method)):
                 self.variables[param.name] = llvm_func.args[i]
                 self.variable_types[param.name] = self_saw_type
             elif param.name == "self":

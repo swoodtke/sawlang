@@ -1,0 +1,91 @@
+// design 149 (DF-149a): an `Atomic` field mutates through a plain `&self`
+// method. A receiver carrying an atomic cell arrives as STORAGE, not as a copy
+// — interior mutability is mutation through a shared borrow, so the atomic has
+// to reach the caller's cell. Passed by value it did not, and every count was
+// silently dropped at the return.
+//
+// EXPECT: success
+// EXPECT-OUTPUT:
+// local: 2
+// static: 3
+// nested: 4
+// generic: 5
+// dynamic: 6
+
+struct Counter {
+    n: Atomic<Int>
+}
+
+extension Counter {
+    func bump(&self) { self.n.fetch_add(1) }
+    func get(&self) -> Int { self.n.load() }
+}
+
+// A cell one level down: the receiver is addressed, then the field within it.
+struct Pair {
+    left: Counter,
+    right: Counter
+}
+
+extension Pair {
+    func bump_left(&self) { self.left.n.fetch_add(1) }
+    func left_count(&self) -> Int { self.left.n.load() }
+}
+
+// The monomorphized declaration and body have to agree about the convention.
+struct Tagged<T> {
+    tag: T,
+    hits: Atomic<Int>
+}
+
+extension Tagged<T> {
+    func hit(&self) { self.hits.fetch_add(1) }
+    func hits_seen(&self) -> Int { self.hits.load() }
+}
+
+// And so does a vtable thunk, which adapts the erased receiver to the impl.
+trait Tallies {
+    func tally(&self)
+    func total(&self) -> Int
+}
+
+extension Counter: Tallies {
+    func tally(&self) { self.n.fetch_add(1) }
+    func total(&self) -> Int { self.n.load() }
+}
+
+func tally_n(t: &any Tallies, times: Int) {
+    for _i in 0..times {
+        t.tally()
+    }
+}
+
+static SHARED: Counter = Counter(n: Atomic(0))
+
+func main() {
+    var local = Counter(n: Atomic(0))
+    local.bump()
+    local.bump()
+    print("local: {local.get()}")
+
+    SHARED.bump()
+    SHARED.bump()
+    SHARED.bump()
+    print("static: {SHARED.get()}")
+
+    var pair = Pair(left: Counter(n: Atomic(0)), right: Counter(n: Atomic(0)))
+    for _i in 0..4 {
+        pair.bump_left()
+    }
+    print("nested: {pair.left_count()}")
+
+    var tagged = Tagged<Int>(tag: 7, hits: Atomic(0))
+    for _i in 0..5 {
+        tagged.hit()
+    }
+    print("generic: {tagged.hits_seen()}")
+
+    var dyn = Counter(n: Atomic(0))
+    tally_n(&dyn, 6)
+    print("dynamic: {dyn.total()}")
+}
