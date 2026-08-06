@@ -1,0 +1,50 @@
+// Sibling fixture to d144_alpha.saw: the SAME private type names, one field
+// instead of two and a different field TYPE, so a shared layout would corrupt
+// rather than merely mis-add. Not a standalone test.
+
+struct Header {
+    label: String
+}
+
+extension Header {
+    func score(&self) -> Int { self.label.len() * 100 }
+}
+
+enum Code: UInt8 {
+    case One = 71,
+    case Two = 72
+}
+
+public func beta_header_size() -> Int {
+    sizeof<Header>()
+}
+
+public func beta_score() -> Int {
+    let h = Header(label: "abc")
+    h.score()
+}
+
+public func beta_vector_sum() -> Int {
+    var v: Vector<Header> = []
+    v.push(Header(label: "ab"))
+    v.push(Header(label: "cdef"))
+    var total = 0
+    var i = 0
+    while i < v.len() {
+        total = total + v[i].score()
+        i = i + 1
+    }
+    total
+}
+
+public func beta_code_raw() -> UInt8 {
+    Code.Two as UInt8
+}
+
+public func beta_code_from(raw: UInt8) -> Int {
+    if let c = Code.from(raw: raw) {
+        if c == Code.One { 1 } else { 2 }
+    } else {
+        -1
+    }
+}

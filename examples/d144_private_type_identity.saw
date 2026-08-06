@@ -1,0 +1,90 @@
+// Design 144 (closes DF-142a): three modules each declare a module-PRIVATE
+// `struct Header` and a module-private raw-backed `enum Code`. Before type
+// identity became (defining module, name) this was "ambiguous struct `Header`:
+// defined in both `modules.d144_alpha` and `<entry>`" — every private type in a
+// dependency was a reserved word for its consumers.
+//
+// The three Headers have three field lists, so a single shared layout could not
+// produce these three answers; each `score()` is its own type's method; each
+// `Vector<Header>` is its own instantiation; and each backed `Code` keeps its
+// own tag table on both the `as` and the `from(raw:)` direction.
+// EXPECT: success
+// EXPECT-OUTPUT: 1006
+// EXPECT-OUTPUT: 34
+// EXPECT-OUTPUT: 300
+// EXPECT-OUTPUT: 2018
+// EXPECT-OUTPUT: 68
+// EXPECT-OUTPUT: 600
+// EXPECT-OUTPUT: 6
+// EXPECT-OUTPUT: 22
+// EXPECT-OUTPUT: 72
+// EXPECT-OUTPUT: 1
+// EXPECT-OUTPUT: -1
+// EXPECT-OUTPUT: -1
+// EXPECT-OUTPUT: 1
+import modules.d144_alpha.{
+    alpha_header_size, alpha_score, alpha_vector_sum,
+    alpha_code_raw, alpha_code_from,
+}
+import modules.d144_beta.{
+    beta_header_size, beta_score, beta_vector_sum,
+    beta_code_raw, beta_code_from,
+}
+
+struct Header {
+    n: Int
+    m: Int
+    o: Int
+}
+
+extension Header {
+    func score(&self) -> Int { self.n + self.m + self.o + 1000 }
+}
+
+enum Code: UInt8 {
+    case One = 5,
+    case Two = 6
+}
+
+func main() {
+    // Three layouts, asserted directly: a single registered layout under the
+    // shared name — the miscompile design 144 exists to prevent — would make
+    // these three agree.
+    let mine_size = sizeof<Header>()
+    assert(mine_size != alpha_header_size(), "entry and alpha share a layout")
+    assert(mine_size != beta_header_size(), "entry and beta share a layout")
+    assert(alpha_header_size() != beta_header_size(),
+           "alpha and beta share a layout")
+
+    // Layout + method dispatch: three Headers, three answers.
+    let mine = Header(n: 1, m: 2, o: 3)
+    print(mine.score())        // 1000 + 6
+    print(alpha_score())       // 3 * 10 + 4
+    print(beta_score())        // len("abc") * 100
+
+    // Vector<Header> instantiates once per element type.
+    var v: Vector<Header> = []
+    v.push(Header(n: 1, m: 2, o: 3))
+    v.push(Header(n: 4, m: 5, o: 3))
+    var total = 0
+    var i = 0
+    while i < v.len() {
+        total = total + v[i].score()
+        i = i + 1
+    }
+    print(total)               // 1006 + 1012
+    print(alpha_vector_sum())  // 12 + 56
+    print(beta_vector_sum())   // 200 + 400
+
+    // Raw-backed enums keep their own tag tables through qualification.
+    print(Code.Two as UInt8)
+    print(alpha_code_raw())
+    print(beta_code_raw())
+
+    // `from(raw:)` reaches its own module's cases and no one else's: 5 is a
+    // case here only, 11 in alpha only, 71 in beta only.
+    print(alpha_code_from(raw: 11))
+    print(alpha_code_from(raw: 71))
+    print(beta_code_from(raw: 11))
+    print(beta_code_from(raw: 71))
+}

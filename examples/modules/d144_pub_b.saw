@@ -1,0 +1,12 @@
+// Sibling fixture to d144_pub_a.saw: a second PUBLIC `Widget` with a different
+// field list and a `describe` of the same name that answers differently.
+// Not a standalone test.
+
+public struct Widget {
+    public name: String
+    public count: Int
+}
+
+public extension Widget {
+    public func describe(&self) -> Int { self.name.len() + self.count }
+}

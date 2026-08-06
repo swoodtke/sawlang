@@ -1,0 +1,11 @@
+// Fixture for the design-144 public same-name coexistence test: a PUBLIC
+// `Widget`, deliberately sharing its name with the one in d144_pub_b.saw and
+// sharing nothing else. Not a standalone test.
+
+public struct Widget {
+    public size: Int
+}
+
+public extension Widget {
+    public func describe(&self) -> Int { self.size * 2 }
+}

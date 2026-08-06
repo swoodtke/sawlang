@@ -1,0 +1,23 @@
+// Design 144: two packages' PUBLIC `Widget`s coexist in one program. Before
+// type identity became (defining module, name) the merge refused this outright
+// — the two definitions landed on one key — so no amount of aliasing helped.
+// With real identities the aliases are all it takes, in both spellings: a
+// symbol alias (`Widget as WidgetA`) and a module alias (`pb.Widget`).
+// EXPECT: success
+// EXPECT-OUTPUT: 14
+// EXPECT-OUTPUT: 9
+// EXPECT-OUTPUT: 6
+import modules.d144_pub_a.{Widget as WidgetA}
+import modules.d144_pub_b as pb
+
+func main() {
+    let a = WidgetA(size: 7)
+    print(a.describe())            // 7 * 2
+
+    let b = pb.Widget(name: "abcd", count: 5)
+    print(b.describe())            // 4 + 5
+
+    // Distinct types, so each `describe` reaches its own module's method even
+    // when the two values meet in one expression.
+    print(WidgetA(size: 3).describe())
+}

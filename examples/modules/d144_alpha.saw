@@ -1,0 +1,57 @@
+// Fixture for the design-144 type-identity tests (closes DF-142a). Declares a
+// module-PRIVATE `Header` and a module-PRIVATE raw-backed `Code` — names the
+// sibling fixture and the entry file also declare, with different layouts,
+// different methods and different tag values. Not a standalone test (files
+// under examples/modules/ are skipped by the runner).
+
+struct Header {
+    kind: Int
+    extra: Int
+}
+
+extension Header {
+    func score(&self) -> Int { self.kind * 10 + self.extra }
+}
+
+enum Code: UInt8 {
+    case One = 11,
+    case Two = 22
+}
+
+// The direct layout oracle: the entry file cannot name this `Header`, so each
+// module reports its own size and the three must differ.
+public func alpha_header_size() -> Int {
+    sizeof<Header>()
+}
+
+public func alpha_score() -> Int {
+    let h = Header(kind: 3, extra: 4)
+    h.score()
+}
+
+// `Vector<Header>` here and in the sibling must be two instantiations over two
+// element types, so the per-element `score()` is this module's.
+public func alpha_vector_sum() -> Int {
+    var v: Vector<Header> = []
+    v.push(Header(kind: 1, extra: 2))
+    v.push(Header(kind: 5, extra: 6))
+    var total = 0
+    var i = 0
+    while i < v.len() {
+        total = total + v[i].score()
+        i = i + 1
+    }
+    total
+}
+
+public func alpha_code_raw() -> UInt8 {
+    Code.Two as UInt8
+}
+
+public func alpha_code_from(raw: UInt8) -> Int {
+    if let c = Code.from(raw: raw) {
+        if c == Code.One { 1 } else { 2 }
+    } else {
+        -1
+    }
+}
