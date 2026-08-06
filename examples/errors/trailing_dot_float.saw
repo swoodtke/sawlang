@@ -1,0 +1,10 @@
+// Design 161: a `.` that no digit follows never continues a number, so the
+// trailing-dot float `7.` lexes as INT + DOT. The parser reports it against the
+// dot and names the spelling that works.
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: a float literal needs a digit after the point (write `7.0`)
+
+func main() {
+    let x = 7.
+    print("{x}")
+}

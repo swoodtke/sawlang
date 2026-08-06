@@ -507,6 +507,15 @@ class ExpressionsMixin:
                     self.advance()
                     expr = self._parse_dot_access(expr, dot_token, member_name)
                 else:
+                    # Design 161: the number scanner no longer swallows a dot that
+                    # no digit follows (which is what broke `7.to_string()`), so a
+                    # trailing-dot float now arrives here as INT + DOT. Teach the
+                    # spelling instead of reporting a bare "got NEWLINE".
+                    if isinstance(expr, IntLiteral):
+                        self.error(
+                            f"Expected field name or tuple index after '.', got "
+                            f"{member_token.type.name} — a float literal needs a "
+                            f"digit after the point (write `{expr.value}.0`)")
                     self.error(f"Expected field name or tuple index after '.', got {member_token.type.name}")
 
             elif self.match(TokenType.EXCLAIM):

@@ -469,8 +469,21 @@ class Lexer:
                 f"(max {(1 << width) - 1})"
             )
 
-    def read_number(self) -> Token:
+    def read_number(self, tuple_index: bool = False) -> Token:
         start_col = self.column
+
+        # Design 161, the LOOKBACK rule: a numeric literal whose immediately
+        # preceding emitted token is a member-access `.` is a TUPLE INDEX — a
+        # bare decimal integer. It never takes a second `.`, a base prefix or a
+        # width suffix, so `t.0.name` is a projection off element 0 and `t.0.1`
+        # is two index hops rather than the float `0.1`.
+        if tuple_index:
+            digits = []
+            while self.peek() is not None and self.peek().isdigit():
+                digits.append(self.advance())
+            value = ''.join(digits)
+            self._check_int_range(int(value), start_col)
+            return Token(TokenType.INT, value, self.line, start_col)
 
         # Based integer literals: 0x.. (hex), 0b.. (binary), 0o.. (octal).
         # Underscores may separate digits (`0xDEAD_BEEF`). The canonical token
@@ -504,10 +517,13 @@ class Lexer:
         is_float = False
         while self.peek() and (self.peek().isdigit() or self.peek() == '.' or self.peek() == '_'):
             if self.peek() == '.':
-                # Check if this is a range operator (..) - don't consume the dot
-                if self.peek(1) == '.':
-                    break
-                if is_float:
+                # Design 161, the LOOKAHEAD rule: a `.` continues the float only
+                # when a DIGIT follows it. Anything else ends the number and
+                # leaves the dot to be lexed on its own — a member access
+                # (`7.to_string()`), a range operator (`1..=9`), or a trailing
+                # dot (`7.`, which the parser then reports as a missing field
+                # name). A second dot ends it too: `1.5.to_string()`.
+                if is_float or not (self.peek(1) or '').isdigit():
                     break
                 is_float = True
             result.append(self.advance())
@@ -588,7 +604,11 @@ class Lexer:
                 token_type = TokenType.INTERP_STRING if has_interpolation else TokenType.STRING
                 self.tokens.append(Token(token_type, value, start_line, start_col))
             elif ch.isdigit():
-                self.tokens.append(self.read_number())
+                # Design 161: one-token lookback. Digits right after a
+                # member-access `.` are a tuple index, not the start of a float.
+                after_dot = (bool(self.tokens)
+                             and self.tokens[-1].type == TokenType.DOT)
+                self.tokens.append(self.read_number(tuple_index=after_dot))
             elif ch.isalpha() or ch == '_':
                 self.tokens.append(self.read_identifier())
             elif ch == '+':

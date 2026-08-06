@@ -813,9 +813,27 @@ extension Lexer {
         cand_str
     }
 
-    func read_number(&var self) -> Result<Token, LexError> {
+    // `tuple_index` is design 161's one-token LOOKBACK: the caller passes true when
+    // the previously emitted token is a member-access `.`, which makes this literal
+    // a TUPLE INDEX — a bare decimal integer that takes no second `.`, no base
+    // prefix and no width suffix. So `t.0.name` projects off element 0 and `t.0.1`
+    // is two index hops rather than the float `0.1`.
+    func read_number(&var self, tuple_index: Bool) -> Result<Token, LexError> {
         let start_line = self.line
         let start_col = self.col
+
+        if tuple_index {
+            var digits = StringBuilder()
+            while is_digit(self.peek()) {
+                digits.append_char(to_i8(self.advance()))
+            }
+            let index_str = digits.build()
+            if not literal_fits(index_str, 10, 64) {
+                return self.err_at("integer literal out of range for a 64-bit integer", start_line, start_col)
+            }
+            return Token(kind: TokenKind.IntLit, value: index_str, line: start_line, col: start_col, suffix: None)
+        }
+
         let n = self.peek1()
 
         // Based integer literals: 0x / 0b / 0o (prefix char case-insensitive).
@@ -859,9 +877,12 @@ extension Lexer {
             if is_digit(c) {
                 val.append_char(to_i8(self.advance()))
             } else if c == B_DOT {
-                if self.peek1() == B_DOT {
-                    going = false           // range operator `..` — leave the dot
-                } else if is_float {
+                // Design 161, the LOOKAHEAD rule: a `.` continues the float only when
+                // a DIGIT follows it. Anything else ends the number and leaves the dot
+                // to be lexed on its own — a member access (`7.to_string()`), a range
+                // operator (`1..=9`), or a trailing dot (`7.`, which the parser then
+                // reports as a missing field name). A second dot ends it too.
+                if is_float || not is_digit(self.peek1()) {
                     going = false
                 } else {
                     is_float = true
@@ -953,7 +974,10 @@ extension Lexer {
             } else if ch == B_QUOTE {
                 tokens.push(try self.read_string())
             } else if is_digit(ch) {
-                tokens.push(try self.read_number())
+                // Design 161: one-token lookback. Digits right after a member-access
+                // `.` are a tuple index, not the start of a float.
+                let after_dot = tokens.len() > 0 && tokens[tokens.len() - 1].kind == TokenKind.Dot
+                tokens.push(try self.read_number(after_dot))
             } else if is_alpha(ch) || ch == B_UNDERSCORE {
                 tokens.push(self.read_identifier())
             } else if ch == B_PLUS {

@@ -138,8 +138,8 @@ func site_tuple(n: Int) {
     let a = P(name: "tup-{n}")
     let t = (a, a)
     let u = t
-    let first = (t.0).name
-    let second = (u.1).name
+    let first = t.0.name
+    let second = u.1.name
     print("tuple {first} {second} {a.name}")
 }
 

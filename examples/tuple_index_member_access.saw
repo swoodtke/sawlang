@@ -1,0 +1,49 @@
+// Design 161: a numeric literal whose immediately-preceding token is a
+// member-access `.` is a TUPLE INDEX — a bare integer, never a float and never
+// suffixed. The scanner stops at any second `.`, so a field projection off a
+// tuple element (`t.0.name`) lexes at last, and a nested index (`t.0.1`) is two
+// index hops rather than the float `0.1`. Everything else about number scanning
+// is untouched, which the controls at the bottom pin down.
+// EXPECT: success
+// EXPECT-OUTPUT:
+// ada
+// ada
+// 3
+// 2
+// 10
+// 20
+// ada is 3 bytes
+// 1.5
+// 6
+// 255
+
+struct Person {
+    name: String
+}
+
+func main() {
+    let t = (Person(name: "ada"), 7)
+    print(t.0.name)               // the projection that used to be a lex error
+    print((t.0).name)             // the pre-161 workaround, still fine
+    print(t.0.name.len())         // a method call after the projection
+
+    let nested = ((1, 2), 3)
+    print(nested.0.1)             // two index hops, NOT the float 0.1
+
+    let pair = ((x: 10, y: 20), 30)
+    print(pair.0.x)               // a named-tuple field after an index
+    print(pair.0.y)
+
+    print("{t.0.name} is {t.0.name.len()} bytes")   // and inside interpolation
+
+    // Controls: an ordinary float, a range pattern and a suffixed literal all
+    // lex exactly as they did before.
+    print("{1.5}")
+    var total = 0
+    for i in 1..=3 {
+        total = total + i
+    }
+    print(total)
+    let byte: UInt8 = 255u8
+    print(byte)
+}

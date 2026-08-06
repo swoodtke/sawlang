@@ -1,0 +1,36 @@
+// Design 161, the companion rule: a `.` continues a number only when a DIGIT
+// follows it. The scanner used to accept a trailing-dot float, so `7.` ate the
+// member-access dot and `7.to_string()` failed with "undefined function
+// to_string". Dot-then-identifier now ends the number and the dot is a member
+// access; digit-dot-digit still takes the float path.
+// EXPECT: success
+// EXPECT-OUTPUT:
+// 7
+// 7.5
+// 1
+// 255
+// 3.5
+// 12
+// 0
+
+func main() {
+    print(7.to_string())            // a method on an integer literal
+    print(7.5.to_string())          // digit-dot-digit is still a float...
+    print(7.to_string().len())      // ...and a chained call off the literal works
+    print(255u8.to_string())        // a suffixed literal keeps its suffix
+
+    // A float literal is still a float everywhere it was one.
+    let sum = 1.5 + 2.0
+    print(sum.to_string())
+
+    // `1..=9` and `0..5` are ranges, not a number with a trailing dot.
+    var count = 0
+    for i in 1..=9 { count = count + 1 }
+    for i in 0..3 { count = count + 1 }
+    print(count)
+
+    // The grammar has no exponent form, so `7e5` is an integer followed by an
+    // identifier — unchanged by design 161. Naming it here keeps that pinned.
+    let e5 = 0
+    print(7 - 7 + e5)
+}

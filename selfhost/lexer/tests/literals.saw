@@ -42,6 +42,43 @@ func main() {
     assert(at(&c, 1).equals("IDENT\t1:2\tabc"), "5abc: IDENT")
     assert(at(&c, 2).equals("INT\t1:6\t0xFace"), "0xFace hex")
 
+    // Design 161 LOOKBACK: digits right after a member-access `.` are a TUPLE
+    // INDEX — a bare integer that stops at a second `.` and takes no suffix.
+    let e = toks("t.0.name")
+    assert(at(&e, 0).equals("IDENT\t1:1\tt"), "t.0.name: receiver")
+    assert(at(&e, 1).equals("DOT\t1:2\t."), "t.0.name: index dot")
+    assert(at(&e, 2).equals("INT\t1:3\t0"), "t.0.name: an index, not a float")
+    assert(at(&e, 3).equals("DOT\t1:4\t."), "t.0.name: the member dot survives")
+    assert(at(&e, 4).equals("IDENT\t1:5\tname"), "t.0.name: field")
+
+    let f = toks("t.0.1")
+    assert(at(&f, 2).equals("INT\t1:3\t0"), "t.0.1: first hop")
+    assert(at(&f, 3).equals("DOT\t1:4\t."), "t.0.1: two hops, not the float 0.1")
+    assert(at(&f, 4).equals("INT\t1:5\t1"), "t.0.1: second hop")
+
+    let g = toks("t.0u8")
+    assert(at(&g, 2).equals("INT\t1:3\t0"), "a tuple index takes no width suffix")
+    assert(at(&g, 3).equals("IDENT\t1:4\tu8"), "the suffix bytes stay an identifier")
+
+    // Design 161 LOOKAHEAD: a `.` continues a number only when a DIGIT follows
+    // it, so a method call on a literal lexes and `7.` is INT + DOT.
+    let h = toks("7.to_string()")
+    assert(at(&h, 0).equals("INT\t1:1\t7"), "7.to_string(): the literal")
+    assert(at(&h, 1).equals("DOT\t1:2\t."), "7.to_string(): member dot")
+    assert(at(&h, 2).equals("IDENT\t1:3\tto_string"), "7.to_string(): method name")
+
+    let i = toks("7.")
+    assert(at(&i, 0).equals("INT\t1:1\t7"), "trailing dot: INT")
+    assert(at(&i, 1).equals("DOT\t1:2\t."), "trailing dot: DOT, never a float")
+
+    // A separate lex: the lookback rule reads the PREVIOUS token, so a float has
+    // to start a stream of its own to be judged as one (`7. 7.5` in one line
+    // would make that second number an index off the first dot).
+    let j = toks("7.5.len")
+    assert(at(&j, 0).equals("FLOAT\t1:1\t7.5"), "digit-dot-digit is still a float")
+    assert(at(&j, 1).equals("DOT\t1:4\t."), "and the float's own member dot")
+    assert(at(&j, 2).equals("IDENT\t1:5\tlen"), "method name after a float")
+
     // Keywords vs identifiers; true/false map to their own kinds.
     let d = toks("func x let true false module")
     assert(at(&d, 0).equals("FUNC\t1:1\tfunc"), "func keyword")
