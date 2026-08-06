@@ -1,0 +1,56 @@
+// A moved `var` REVIVES on reassignment — and the reassignment must not drop
+// what the move gave away.
+//
+// `var cur = ...; sink.push(move cur); cur = fresh` is the language's own
+// accumulate idiom, and `TomlDoc.parse` is built on it (a `[header]` line files
+// the section it just finished and starts the next one). The `move` transfers
+// ownership to the vector and clears the binding's drop flag; the assignment
+// then dropped the old value anyway, freeing what the vector now held, and
+// never re-armed the flag, so the value it installed leaked instead.
+//
+// Both halves were invisible while a `Vector` FIELD had no drop glue (DF-128c):
+// the spurious drop reached a struct whose fields were never released, and the
+// leak was the same fields never being released. Restoring the glue made the
+// double free real — it is what crashed Blade's manifest reader.
+// EXPECT: success
+// EXPECT-OUTPUT:
+// pushed 2
+// deinit a
+// deinit b0
+// sink gone
+// done
+// deinit b1
+
+struct Item { name: String, payload: Vector<Int> }
+
+extension Item: NoCopy {
+    func deinit(&var self) { print("deinit {self.name}") }
+}
+
+extension Item {
+    init(n: String) -> Item {
+        var v = Vector<Int>()
+        v.push(1)
+        Item(name: n, payload: move v)
+    }
+}
+
+func main() {
+    var sink = Vector<Item>()
+    var cur = Item(n: "a")
+    var i = 0
+    while i < 2 {
+        sink.push(move cur)
+        cur = Item(n: "b{i}")
+        i = i + 1
+    }
+    print("pushed {sink.len()}")
+
+    // The two the vector took, released once each, by the vector.
+    let _ = move sink
+    print("sink gone")
+
+    // The revived binding still owns the value the last assignment installed,
+    // so it drops exactly once at scope exit.
+    print("done")
+}

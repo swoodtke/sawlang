@@ -133,7 +133,8 @@ def uncheck(node) -> None:
 
 def _unchecked(node):
     """`uncheck`, plus the unwrapping only an expression slot can do."""
-    while isinstance(node, _CHECKER_WRAPS):
+    while (isinstance(node, _CHECKER_WRAPS)
+           and not getattr(node, 'place_lowered', False)):
         node = node.value
     uncheck(node)
     return node
@@ -290,27 +291,48 @@ class _PlaceUses:
     def _chain_window(self, expr, place):
         """`expr` is a postfix chain rooted at `place`."""
         result_type = getattr(expr, 'resolved_type', None)
-        if result_type is None and expr is place:
+        if result_type is None:
             # Not every checking path runs through the annotation chokepoint
             # (an `if let` subject is one), and a bare place read's result type
             # is exactly the place's own — optional when the lend is.
-            elem = getattr(place, 'place_elem_type', None)
-            result_type = (SawType(TypeKind.OPTIONAL, inner_type=elem)
-                           if getattr(place, 'place_optional', False) else elem)
+            result_type = self._place_read_type(expr, place)
         name = self._fresh()
-        if expr is place:
-            # A bare value read: the place stops being storage right here, so
-            # design 131's table decides whether it may be read at all.
+        # `v.get(i)!` with NOTHING after it is a value read too — the `!` is how
+        # the source promises the place is there, and what it hands back is the
+        # element itself. A chain that continues PAST the `!` (`v.get(i)!.m()`)
+        # is a borrow and stays one.
+        unwrap_read = (isinstance(expr, ForceUnwrap) and expr.expr is place
+                       and getattr(place, 'place_optional', False))
+        if expr is place or unwrap_read:
+            # The place stops being storage right here, so design 131's table
+            # decides whether it may be read at all.
             if not self._value_read_ok(place):
                 return expr
             body_expr = Identifier(name=name, line=place.line,
                                    column=place.column)
+            # The read that turns the place back into a value. Codegen owes it
+            # the container-slot duplication rule: the element stays in the
+            # container, so an owning one must be retained here or the binding's
+            # own drop releases storage the container still holds.
+            body_expr.place_value_read = True
             if getattr(place, 'place_abstract_read', False):
                 # Rule 2 (DF-146e): the tier is a property of the
                 # INSTANTIATION, so the copy is emitted there — the same phase
                 # that emits the drop. Deciding it here, on the written type,
                 # is what left the two out of step.
                 body_expr.place_abstract_read = True
+            elem = getattr(place, 'place_elem_type', None)
+            if (not unwrap_read and getattr(place, 'place_optional', False)
+                    and elem is not None and elem.kind == TypeKind.OPTIONAL):
+                # A conditional lend of an ALREADY-OPTIONAL element, e.g.
+                # `Vector<String?>.get(i)`. The present path must yield
+                # `Some(element)` — a real `U??` — but the auto-wrap will not
+                # build one: flattening (design 111) exists precisely so a `U?`
+                # never wraps into a `U??`. So say it outright; the absent path
+                # is `None` at the same type and the two agree.
+                body_expr = OptionalWrap(value=body_expr, target_type=result_type,
+                                         line=place.line, column=place.column)
+                body_expr.place_lowered = True
         else:
             body_expr = self._value(self._replace_head(expr, place, name))
         body = Block(statements=[], final_expr=body_expr,
@@ -318,6 +340,14 @@ class _PlaceUses:
         return self._window_call(place, name, body, result_type,
                                  exclusive=self._chain_is_exclusive(expr, place),
                                  absent='none' if expr is place else 'panic')
+
+    def _place_read_type(self, expr, place):
+        """The type a bare read of this place yields."""
+        elem = getattr(place, 'place_elem_type', None)
+        if expr is not place:
+            return elem      # the `!` already took the optional off
+        return (SawType(TypeKind.OPTIONAL, inner_type=elem)
+                if getattr(place, 'place_optional', False) else elem)
 
     # -- borrow-classified reads (DF-146f) ---------------------------------
     #

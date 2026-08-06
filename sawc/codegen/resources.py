@@ -112,6 +112,23 @@ class ResourcesMixin:
         canonical `mangle_type` of the (struct/enum) type. String's compiler-
         provided methods use the base 'String'. Non-generic types mangle to
         their plain name, so their symbols are unchanged.
+
+        DEFAULT TYPE ARGUMENTS ARE FILLED FIRST (design 37, DF-128c). A field
+        written `Vector<Int>` DENOTES `Vector<Int, GlobalAllocator>`, and that
+        full form is what the monomorphized methods are registered under —
+        `Vector$2$Int$GlobalAllocator_deinit`. Mangling the written form gave
+        `Vector$1$Int`, and every consumer reads the resulting miss as "this
+        type has no deinit of its own" and falls back to structural glue. So a
+        struct holding a `Vector` field never ran the vector's own deinit: its
+        elements leaked and its buffer was never freed. generics.py documents
+        this chokepoint — every mangling of a named type funnels through
+        `_fill_default_type_args` — and this caller was the one that skipped it.
+
+        It could not be fixed alone. The missing drop CANCELLED `Vector.get`
+        handing out a non-retained alias of a move-only element (DF-132a): the
+        alias ran the element's deinit, the container's field glue did not, and
+        each element was freed exactly once by accident. Fixing either half by
+        itself frees twice. `get` is a place now, so this lands with it.
         """
         if saw_type.kind == TypeKind.STRING:
             return "String"
@@ -121,6 +138,14 @@ class ResourcesMixin:
         if saw_type.kind == TypeKind.FLOAT:
             return "Float"
         if saw_type.kind in (TypeKind.STRUCT, TypeKind.ENUM):
+            name = (saw_type.struct_name if saw_type.kind == TypeKind.STRUCT
+                    else saw_type.enum_name)
+            args = list(saw_type.type_args or [])
+            if name is not None:
+                filled = self._fill_default_type_args(name, args)
+                if len(filled) != len(args):
+                    from codegen.mangle import mangle_named
+                    return mangle_named(name, filled)
             return mangle_type(saw_type)
         return None
 
@@ -367,17 +392,45 @@ class ResourcesMixin:
         return slot
 
     def _generate_deinit_call(self, var_name: str, saw_type: SawType):
-        """Generate cleanup (drop glue) for a variable at scope exit.
+        """Generate cleanup (drop glue) for a variable being OVERWRITTEN.
 
         The variable's storage is a pointer (alloca); dispatch to the recursive
         drop routine, which either calls a declared/compiler-known `deinit`
         method or, for a struct with no declared deinit, releases its
         cleanup-needing fields directly.
+
+        The drop is guarded exactly as scope exit guards its own (design 42): a
+        binding that was MOVED OUT no longer owns anything, and `var x = ...;
+        sink.push(move x); x = fresh` is the language's own revival idiom — the
+        `move` transferred the value to the vector, so dropping it again at the
+        reassignment frees what the vector holds. That double free was invisible
+        while a `Vector` FIELD had no drop glue (DF-128c): the spurious drop
+        reached a struct whose fields were never released, so it did nothing.
+        Restoring the glue made it real, and it is what crashed blade's manifest
+        reader — `TomlDoc.parse` moves its `current_section` into the document
+        and starts a fresh one on every `[header]` line.
         """
         var_ptr = self.variables.get(var_name)
         if var_ptr is None:
             return
-        self._emit_drop_at(var_ptr, saw_type)
+        self._emit_scope_var_drop(var_name, saw_type, var_ptr,
+                                  self.drop_flags.get(var_name))
+
+    def _revive_assigned_binding(self, var_name: str, saw_type: SawType):
+        """A moved `var` REVIVES on reassignment — so it owns again.
+
+        `move x` clears the binding's drop flag and marks it moved, which is
+        what stops the scope from dropping a value it handed away. Assigning a
+        fresh value makes it an owner once more, so the flag has to come back on
+        or the new value leaks: nothing would ever release `x = fresh` after a
+        `sink.push(move x)`. The static mark is cleared for the same reason.
+        """
+        if saw_type is None or not self._needs_cleanup(saw_type):
+            return
+        flag = self.drop_flags.get(var_name)
+        if flag is not None:
+            self.builder.store(ir.Constant(ir.IntType(1), 1), flag)
+        self.moved_variables.discard(var_name)
 
     def _emit_drop_at(self, ptr, saw_type: SawType):
         """Emit cleanup for the value stored at `ptr` (a pointer to it).
@@ -1217,17 +1270,27 @@ class ResourcesMixin:
         """Whether transferring `value_expr` into a new owner must copy/retain."""
         if getattr(value_expr, 'needs_copy', False):
             return True
-        # design 146 (DF-146e) rule 2: a place VALUE READ whose element type
-        # mentions a type PARAMETER. Its tier is not knowable from the written
-        # type — only the bounds are, and the use site already proved from them
-        # that every instantiation can be copied. WHICH copy is a question for
-        # the instantiation, which is where the matching DROP is emitted, so it
-        # is answered here: `_generate_copy` substitutes the monomorphization
-        # context and emits the concrete type's own copy (bitwise, a retain, or
-        # its `copy()`). Deciding it before monomorphization emitted nothing at
-        # all while the drop stayed real — one release per read.
-        if getattr(value_expr, 'place_abstract_read', False):
-            return True
+        # design 146: a place VALUE READ. Reading a place out as a value is
+        # reading a CONTAINER SLOT the container still owns — the same
+        # duplication `v[i]` and `obj.field` are, and it gets the same rule.
+        # The lowering turns the read into a window closure returning its
+        # parameter, so the read arrives here as a bare Identifier and the
+        # container-slot arm below would never fire for it: an owning-but-
+        # undeclared element (a `Path`, whose only field is a String) came out
+        # as a bitwise alias, and the binding's drop freed the string the vector
+        # still held.
+        #
+        # It also answers DF-146e rule 2. When the element type mentions a type
+        # PARAMETER its tier is not knowable from the written type — only the
+        # bounds are, and the use site already proved from them that every
+        # instantiation can be copied. WHICH copy is a question for the
+        # instantiation, which is where the matching DROP is emitted, so it is
+        # answered here: `_generate_copy` substitutes the monomorphization
+        # context and emits the concrete type's own copy.
+        if getattr(value_expr, 'place_value_read', False):
+            if getattr(value_expr, 'place_abstract_read', False):
+                return True
+            return self._slot_read_needs_copy(self._expr_type(value_expr))
         # design 124: a coroutine frame holds an across-suspend local in a
         # `T?`-encoded field and reads it as `self.name!`. The ForceUnwrap hides
         # the underlying field access from every check below (and from the
@@ -1284,6 +1347,27 @@ class ResourcesMixin:
                 return True
             return False
         return False
+
+    def _slot_read_needs_copy(self, t: SawType) -> bool:
+        """The container-slot rule, as a question about a TYPE.
+
+        Reading a value out of storage its container keeps is a DUPLICATION —
+        the two rules below are the `v[i]` / `obj.field` arms above, lifted so a
+        place value read can ask them without being spelled as one of those
+        nodes.
+        """
+        if t is None:
+            return False
+        if self.type_param_context:
+            t = t.substitute(self.type_param_context)
+        if self._get_cleanup_behavior(t) == "implicit_copy":
+            return True
+        if (self._needs_cleanup(t)
+                and t.kind in (TypeKind.STRUCT, TypeKind.ENUM,
+                               TypeKind.OPTIONAL)):
+            return True
+        return (t.kind == TypeKind.FUNCTION
+                and bool(getattr(t, 'func_is_escaping', False)))
 
     def _frame_owning_read_copy(self, value_expr) -> bool:
         """True when `value_expr` is a design-124-marked frame-field read whose

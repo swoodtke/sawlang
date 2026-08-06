@@ -407,6 +407,7 @@ class StatementsMixin:
                     value = self._wrap_in_optional(value)
 
             self.builder.store(value, self.variables[stmt.target.name])
+            self._revive_assigned_binding(stmt.target.name, var_type)
 
         elif isinstance(stmt.target, MemberAccess):
             # Field assignment: obj.field = value

@@ -9,6 +9,8 @@
 //
 // A match that BINDS NOTHING is not a read at all (DF-146f): it looks at the
 // discriminant through the borrow, so it needs no bound and costs nothing.
+// The last `deinit` is the holder's: its `Vector<Slot<K>>` field runs the
+// vector's own deinit, which releases the element exactly once (DF-128c).
 // EXPECT: success
 // EXPECT-OUTPUT:
 // -- value read: one copy, one drop
@@ -19,6 +21,7 @@
 // 1
 // 1
 // -- done
+// deinit a
 
 struct Res { name: String }
 

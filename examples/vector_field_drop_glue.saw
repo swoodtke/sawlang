@@ -1,0 +1,79 @@
+// DF-128c: a struct field whose type has a DEFAULTED type parameter never ran
+// that type's own deinit.
+//
+// A field written `Vector<Item>` denotes `Vector<Item, GlobalAllocator>`, and
+// the monomorphized methods are registered under the full form. The symbol
+// lookup mangled the form as WRITTEN, missed, and every consumer read the miss
+// as "this type has no deinit of its own" — so the vector's elements were
+// never released and its buffer was never freed. It bit exactly the types with
+// a defaulted parameter: Vector, Map, Set, Box.
+//
+// The bug was invisible because it CANCELLED a second one: `Vector.get` handed
+// out a non-retained alias of a move-only element (DF-132a), that alias ran the
+// element's deinit, and the container's missing glue meant each element was
+// freed exactly once by accident. Fixing either half alone frees twice, which
+// is why the two land together.
+// EXPECT: success
+// EXPECT-OUTPUT:
+// -- built
+// 2
+// -- reading in place
+// one
+// 41
+// -- holder goes
+// Item.deinit one
+// Item.deinit two
+// -- box field goes
+// Item.deinit boxed
+// -- done
+
+struct Item { name: String, payload: Vector<Int> }
+
+extension Item: NoCopy {
+    func deinit(&var self) { print("Item.deinit {self.name}") }
+}
+
+extension Item {
+    init(n: String) -> Item {
+        var v = Vector<Int>()
+        v.push(41)
+        Item(name: n, payload: move v)
+    }
+}
+
+// A Vector field.
+struct Holder { items: Vector<Item> }
+
+extension Holder: NoCopy {}
+
+// A `Box` field, which carries the same defaulted allocator parameter.
+struct Crate { held: Box<Item> }
+
+extension Crate: NoCopy {}
+
+func build() -> Holder {
+    var v = Vector<Item>()
+    v.push(Item(n: "one"))
+    v.push(Item(n: "two"))
+    Holder(items: move v)
+}
+
+func main() {
+    var h = build()
+    print("-- built")
+    print(h.items.len())
+
+    // Reaching a move-only element THROUGH the place: no copy, no alias.
+    print("-- reading in place")
+    print(h.items[0].name)
+    print(h.items[0].payload[0])
+
+    print("-- holder goes")
+    let _ = move h
+
+    let crate = Crate(held: Box<Item>.make(Item(n: "boxed")))
+    print("-- box field goes")
+    let _ = move crate
+
+    print("-- done")
+}

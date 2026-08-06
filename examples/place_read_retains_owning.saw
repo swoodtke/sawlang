@@ -1,0 +1,67 @@
+// A place VALUE READ is a container-slot read, and an owning element must be
+// RETAINED at one — including the elements nothing declares a policy for.
+//
+// A struct whose only field is a `String` needs no copy policy: the compiler
+// handles the transfer. But it still OWNS something, so reading one out of a
+// vector duplicates it while the vector keeps its own — the retain is what
+// makes the binding's later drop balance. `std.directory`'s `Path` is exactly
+// this shape, and `Directory.list` hands back a `Vector<Path>`, so the read
+// below is the one Blade's `remove_tree` makes on every entry.
+//
+// The old by-value `Vector.get` retained it inside the accessor, where the read
+// was an ordinary indexed one. A place moves the read into the CALLER, where it
+// arrives as a window-closure parameter, and the rule had to move with it.
+// EXPECT: success
+// EXPECT-OUTPUT:
+// -- read out, vector still owns
+// alpha
+// beta
+// -- copies dropped
+// -- vector dropped
+// bye alpha
+// bye beta
+// -- done
+
+struct Named { name: String }
+
+extension Named {
+    func farewell(&self) { print("bye {self.name}") }
+}
+
+// The vector is what owns the elements; the reads below duplicate them.
+struct Registry { entries: Vector<Named> }
+
+extension Registry: NoCopy {}
+
+// Each read binds a copy that dies at the end of an iteration. The vector's own
+// elements have to survive every one of them.
+func read_each(reg: &Registry) {
+    var i = 0
+    while i < reg.entries.len() {
+        if let e = reg.entries.get(i) {
+            print(e.name)
+        }
+        i = i + 1
+    }
+}
+
+func main() {
+    var v = Vector<Named>()
+    v.push(Named(name: "alpha"))
+    v.push(Named(name: "beta"))
+    let reg = Registry(entries: move v)
+
+    print("-- read out, vector still owns")
+    read_each(reg: &reg)
+    print("-- copies dropped")
+
+    // Every element is still intact, which it would not be if the reads had
+    // aliased: each copy's drop would have released the string the vector holds.
+    print("-- vector dropped")
+    var j = 0
+    while j < reg.entries.len() {
+        reg.entries[j].farewell()
+        j = j + 1
+    }
+    print("-- done")
+}

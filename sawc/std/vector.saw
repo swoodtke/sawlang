@@ -113,24 +113,28 @@ extension Vector<T, A: Allocator = GlobalAllocator> {
         }
     }
 
-    // Get element at index (returns None if out of bounds).
-    //
-    // STILL BY VALUE, and still unsound for a NoCopy element (DF-132a): the
-    // conversion to `borrows -> T?` is written and proven, but it cannot land
-    // until DF-146e is settled — a place VALUE READ whose element type is an
-    // enum with abstract type arguments (`MapSlot<K, V>`, the shape Map and Set
-    // probe through) does not retain, while its binding is still dropped, so
-    // each probe over-releases. `[]` above is the same lowering without that
-    // exposure. See the tracker.
-    public func get(&self, index: Int) unsafe -> T? {
+    /// The element at `index` if it is in range, as an optional PLACE.
+    ///
+    /// The `None`-returning twin of `[]`, and the same lowering: the element is
+    /// reached where it sits, so `v.get(i)!.count += 1` writes it in the vector
+    /// and `if let _ = v.get(i)` asks only whether it is there. The absent path
+    /// opens no window at all.
+    ///
+    /// Reading the place out as a VALUE follows the element's copy tier:
+    /// trivial copies bitwise, `ImplicitCopy` retains, and `ExplicitCopy`/
+    /// `NoCopy` is refused with the ways out named. That refusal is the point.
+    /// `get` used to return `T?` BY VALUE with no bound at all, so a move-only
+    /// element came out as a bitwise alias the caller then owned and dropped
+    /// while the vector still held it — two lookups, two frees, no `unsafe`
+    /// anywhere (DF-132a).
+    public func get(&self, index: Int) unsafe borrows -> T? {
         if index < 0 || index >= self.length {
-            None
+            return None
+        }
+        if let buf = self.buffer {
+            lend buf[index]
         } else {
-            if let buf = self.buffer {
-                buf[index]
-            } else {
-                None
-            }
+            return None
         }
     }
 
