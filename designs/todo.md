@@ -1550,12 +1550,44 @@ Converting it would delete the atomicity that makes the singleton race-safe.
   status and names the signal, which is how the cause above was identified at
   all.
 
-- **DF-156a — DECIDED (user, Aug 6): option (b) — pipeline the stages with a
-  held-back settle lag ("re-adds the parallelism while still allowing the
-  binaries to settle"). FALLBACK pre-authorized: if (b) is still too slow
-  (not within ~15% of the interleaved baseline, back-to-back comparable
-  load), REVERT to one stage (option c) and rest on the rename + reported
-  retry alone. Dispatched as a follow-up. Original finding:** The
+- **DF-156a — LANDED (option (b), pipelined settle lag); wall-clock verdict
+  PROVISIONAL.** The stages now OVERLAP. A compiled binary goes into a
+  `SettleQueue` in `test_runner.py` and becomes eligible for execution
+  `SETTLE_LAG_SECS` (5.0s) after it is renamed into place; the execution
+  workers start BEFORE the compile sweep and park on that queue, so the
+  kernel-assessment stall runs underneath the compile stream again, which is
+  what the strict split had given up. Both DF-149b backstops are unchanged
+  underneath it (unique-temp-write-then-rename; the
+  retry-once-on-silent-signal-death that REPORTS itself), so the lag is
+  margin, not the guarantee. `--settle-lag SECS` tunes it and `0` disables it.
+  `--sequential` drains after the compiles but still honours the deadline,
+  which is how a filtered `-f two_tests` run gets a settle window it never had
+  before.
+  **The mechanism is elapsed TIME, not "N further compiles".** The hazard is a
+  wall-clock one: the kernel assessing a file it has never run. A compile count
+  is only a proxy for that, and one that drifts the wrong way under load — a
+  loaded machine compiles slower AND settles slower, yet the count asks for
+  less waiting — and it has no answer at either end of a run, since the last
+  compiles have no successors and a two-test filtered run has no window at all.
+  A deadline works everywhere and costs a short run the lag exactly once.
+  **DF-149b holds under its reproduction condition.** Full suite beside a
+  running `irdet --all`, loadavg ~50-60: 1298 green with ZERO retries reported
+  across the 856 executed binaries. That run also shows the pipeline doing its
+  job — compile 779.4s + 4.3s draining, 852 of the 856 binaries already
+  executed before compilation finished. When the machine is busy the compile
+  stage is the bottleneck and execution hides completely underneath it, leaving
+  a drain tail that is just the settle lag on the last few binaries.
+  **The wall-clock comparison is NOT yet decided.** Drift-cancelled A/B/B/A
+  against the pre-156 interleaved runner, on a machine carrying two other
+  agents (loadavg 18-90+): pipelined 531.5s and 766.8s, interleaved 549.4s and
+  537.4s, all four runs 1298 green. A1/B1/B2 sit within 3% of each other with
+  the PIPELINED run fastest, which is the shape the design predicts; the 766.8s
+  outlier landed as load stepped to 90+, and ABBA cancels slow shared drift but
+  not a step change inside a pair. The deciding pair belongs on a quiet
+  machine. **The pre-authorized single-stage reversion (option (c)) is
+  therefore UNEXERCISED**, pending that measurement — nothing observed suggests
+  pipelining is broken.
+  **Original finding:** The
   two-stage runner costs wall clock, and the reason is worth writing down
   because it is a property of the machine, not of the runner. **The first exec
   of a freshly written binary costs macOS ~0.4s**; a re-exec of the same file
@@ -1571,14 +1603,29 @@ Converting it would delete the atomicity that makes the singleton race-safe.
   compile ~420s THEN execute, where before the whole run was compile-bound at
   ~400s. Phase 2 therefore runs at 4x the worker count (~219s here), which
   recovers about 40% of the loss; the rest is structural.
-  **Options, for the user:** (a) keep strict two stages and accept it;
-  (b) pipeline them — start executing while phase 1 still runs, but hold each
-  binary until N further compiles have completed, which keeps the settle
-  window that DF-149b actually needs while restoring the overlap; (c) drop
-  back to one stage and rest on the rename + retry backstops alone, which are
-  independently sufficient for a filtered run and may be sufficient outright.
-  Recorded rather than decided: (b) changes the structure the brief's decision
-  names in so many words.
+  **The options as put to the user were:** (a) keep strict two stages and
+  accept it; (b) pipeline them, holding each binary back so the settle window
+  DF-149b needs survives the restored overlap; (c) drop back to one stage and
+  rest on the rename + retry backstops alone. The user chose (b) on Aug 6
+  ("re-adds the parallelism while still allowing the binaries to settle"),
+  pre-authorizing (c) as a fallback if (b) could not come within ~15% of the
+  interleaved baseline back-to-back under comparable load.
+
+- **DF-156b — `blade test` lost a binary to SIGBUS under saturation, once.**
+  During the DF-156a gate battery (loadavg ~50-60, the compiler suite and
+  `irdet --all` both running), `blade_bootstrap` failed its stage1 sweep:
+  `.build/host/tests/lock_drift` died of `Bus error: 10` roughly 9s in, with
+  the other 18 of 19 tests passing around it. It did NOT reproduce — the same
+  bootstrap on the same tree at loadavg ~3 passed 19/19, and the design-156
+  agent's own run earlier the same day was green. Filed rather than chased
+  because the surface is BLADE's test runner, not `test_runner.py`: `blade
+  test` builds a binary and runs it directly, carrying neither DF-149b backstop
+  the Python runner now has (no write-then-rename, no reported retry on a
+  silent signal death). Whether this is that same family or a genuine fault is
+  undetermined, and the evidence points away from the easy answer: SIGBUS NINE
+  SECONDS into a test that does real git work is not DF-149b's exec-time
+  signature, which is what a fresh-image assessment failure looks like. Worth
+  one deliberate reproduction attempt under load before deciding which it is.
 
 **Not in v1:** a non-trivially-destructible static (statics stay deinit-free);
 relaxed/acquire-release orderings on `Atomic` or `SpinLock` (everything is
