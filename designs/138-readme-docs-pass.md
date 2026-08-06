@@ -1,16 +1,27 @@
-# Design 138 — README cleanup pass (saw-docs voice)
+# Design 138 — the ALL-SOURCES docs consistency sweep
 
-STATUS: APPROVED (user, Aug 5). Sequenced LAST (after 135): every brief in
-the current queue appends README content (133 mutex examples, 137 kernel
-logging, 135 the flag); this pass sweeps once over the settled text.
-Docs-only.
+STATUS: APPROVED (user, Aug 5; SCOPE EXPANDED Aug 5 to every doc source).
+Sequenced after 149 lands (user: docs sweep last, over the settled tree);
+may run CONCURRENT with the parked-branch M1 adoption pass (disjoint
+trees). Docs-only on main.
 
 ## Problem
-README.md has accumulated feature updates from seven different agents in
-~24 hours (125's catch-up, then 123/124/127/128/129/130 + the queue's
-additions). Each edit is locally fine; the document as a whole has drifted
-in voice, density, and structure — and it is the single most
-audience-facing file in the repo.
+Four documentation sources — LANGUAGE_SPEC.md, the saw-lang skill,
+CLAUDE.md's orientation digest, and README.md — have each been edited by
+a dozen-plus agents in ~48 hours. Each edit is locally fine; the likeliest
+doc bug is now DRIFT BETWEEN SOURCES: a claim stated three ways, stale
+sentences a later design falsified, terminology that diverged mid-week.
+
+## Scope rule [user]
+ALL FOUR sources are swept for CONSISTENCY and ACCURACY — every claim
+true against current main, every feature described compatibly wherever it
+appears, one terminology throughout (the Copy tiers, places/lend/window,
+the unsafe model's terms, @synthesize, backed enums, the effect-slot
+order). Each source KEEPS ITS OWN REGISTER: the spec stays authoritative
+reference prose; the skill stays dense working-digest; CLAUDE.md stays a
+lead-facing orientation digest (accuracy pass only — it is NOT a feature
+list per the docs convention); **only README.md gets the saw-docs VOICE
+pass** (de-LLM'd prose, audience structure, compiling examples).
 
 ## The work
 LOAD THE saw-docs SKILL FIRST — it is the style contract for this brief;
@@ -42,10 +53,17 @@ throughout. Then one structural+line pass over README.md:
 - Length discipline: the pass should SHRINK the file or hold it flat —
   additions need a removal elsewhere.
 
-## Explicitly out of scope
-LANGUAGE_SPEC.md prose (its own sweep, another day); the saw-lang skill;
-doc comments in std. If the pass finds a WRONG claim rooted in spec or
-code, fix the README to the truth and file a tracker line for the source.
+## The cross-source method (added with the scope expansion)
+Work claim-by-claim, not file-by-file: for each feature landed since 121,
+find its statement in all four sources, verify against code/tests, and
+reconcile — the spec's formulation is authoritative when sources disagree
+and the code confirms it. Kill stale sentences (e.g. claims 133/146/147
+have since made true or false), duplicated explanations that can point at
+the spec instead, and README claims 125's lesson applies to (every kept
+claim verifiable). Doc comments in std stay out of scope. If a claim is
+wrong because the CODE is wrong, do not "fix" the doc to match the bug —
+file a tracker line and keep the doc stating the intended truth with a
+reference.
 
 ## Exit criteria
 README reads in one voice end to end per saw-docs; all examples verified

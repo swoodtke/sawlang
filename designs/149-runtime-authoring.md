@@ -1,10 +1,13 @@
-# Design 149 — DRAFT: runtime authoring in Saw (DF-140g)
+# Design 149 — runtime authoring in Saw (DF-140g)
 
-STATUS: DRAFT — deliberately scheduled for the FIRST post-M1b design
-conversation (user: the arm64 HAL evidence shapes this). Two of the
-three capabilities carry decisions already made in the Aug-5 review;
-the brief finalizes after M1b. Closes DF-140g (filed on the parked SOS
-M1 branch; refile on main at landing).
+STATUS: APPROVED (user, Aug 5 — pulled FORWARD from post-M1b so the M1
+adoption pass happens ONCE, over the kernel's true final shape). Queue:
+after 148, BEFORE the M1 adoption pass and before 138's docs sweep.
+Decisions: (a) unsafe static var [shape settled with user], (b) .bss
+zero statics [user], (d) SpinLock [user]; (c) runtime-provider manifest
+is an ORCHESTRATOR PIN taken as sketched below, veto-able at the user's
+landing review. Closes DF-140g (filed on the parked SOS M1 branch;
+refile on main at landing).
 
 ## The gap
 A freestanding package cannot BE its own runtime: no mutable module
