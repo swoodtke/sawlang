@@ -2471,17 +2471,108 @@ class CodeGenerator(ResultsMixin, MatchMixin, StructsMixin, CollectionsMixin, Ca
         return self.builder.call(self.functions["__saw_string_from_bytes"],
                                  [c_ptr, length], name="ts_str")
 
+    def _stack_string(self, byte_capacity: int, name: str = "stack_str"):
+        """An IMMORTAL String living in this frame: `(bytes_ptr, len_slot)`.
+
+        Lays out the `{ word refcount, word len, [N+1 x i8] bytes }` block in an
+        entry alloca and seeds `refcount = -1`, so retain/release are the no-ops
+        a literal gets and nothing ever tries to free it. The caller writes at
+        most `byte_capacity` bytes at `bytes_ptr` and stores the count into
+        `len_slot`; the result is then a perfectly ordinary `String` value to
+        everything downstream — but it never touched the allocator."""
+        word = self.int_type
+        i8 = ir.IntType(8)
+        i32 = ir.IntType(32)
+        block_ty = ir.LiteralStructType(
+            [word, word, ir.ArrayType(i8, byte_capacity + 1)])
+        block = self._entry_alloca(block_ty, name=name)
+
+        def field(idx):
+            return self.builder.gep(block, [ir.Constant(i32, 0),
+                                            ir.Constant(i32, idx)], inbounds=True)
+
+        self.builder.store(ir.Constant(word, -1), field(0))
+        len_slot = field(1)
+        self.builder.store(ir.Constant(word, 0), len_slot)
+        bytes_ptr = self.builder.gep(
+            block, [ir.Constant(i32, 0), ir.Constant(i32, 2), ir.Constant(i32, 0)],
+            inbounds=True, name=f"{name}_bytes")
+        return bytes_ptr, len_slot
+
+    # Widest rendering `_value_to_string` can produce for a Float (`%g`), plus
+    # room for a NUL. Integers never reach that path here — they append directly.
+    FLOAT_FMT_MAX = 64
+
     def _emit_format(self, value, saw_type: SawType, sb_ptr):
         """Stream a builtin value's rendering into a StringBuilder (design 56
-        `format`). Renders to an owned String, then appends it through
-        `StringBuilder.append(String)` (always emitted — StringBuilder is a
-        non-generic std extension). `sb_ptr` is the `&var StringBuilder`
-        receiver pointer that `append`'s `&var self` expects."""
+        `format`). `sb_ptr` is the `&var StringBuilder` receiver pointer that
+        `append`'s `&var self` expects.
+
+        Design 135 unit A: this ALLOCATES NOTHING. It used to render through
+        `_emit_to_string` — a fresh heap String per call, never released — which
+        put an allocation and a leak in the middle of design 137's alloc-free
+        path: `print("{}", tag)` hands `Tag.format` a fixed stack builder, and a
+        body written `self.n.format(into: &var into)` allocated four times on the
+        way. Every case now reaches an existing `StringBuilder.append` overload
+        instead, and Float renders into a frame-resident immortal String."""
         from codegen.mangle import mangle_overload
-        s = self._emit_to_string(value, saw_type)
-        append_sym = mangle_overload("StringBuilder_append",
-                                     [SawType(TypeKind.STRING)])
-        self.builder.call(self.functions[append_sym], [sb_ptr, s])
+        word = self.int_type
+        i8ptr = ir.IntType(8).as_pointer()
+        kind = saw_type.kind if saw_type is not None else None
+
+        def append(arg_type, arg):
+            sym = mangle_overload("StringBuilder_append", [SawType(arg_type)])
+            self.builder.call(self.functions[sym], [sb_ptr, arg])
+
+        unsigned = {TypeKind.UINT, TypeKind.UINT8, TypeKind.UINT16,
+                    TypeKind.UINT32, TypeKind.UINT64}
+        signed = {TypeKind.INT, TypeKind.INT8, TypeKind.INT16,
+                  TypeKind.INT32, TypeKind.INT64}
+
+        if kind == TypeKind.STRING:
+            # The receiver's own bytes — `append` copies them out, so there is
+            # nothing to duplicate first.
+            append(TypeKind.STRING, value)
+            return
+
+        if kind == TypeKind.BOOL:
+            true_g = self._create_string_literal_global("true")
+            false_g = self._create_string_literal_global("false")
+            zero32 = ir.Constant(ir.IntType(32), 0)
+            two32 = ir.Constant(ir.IntType(32), 2)
+            true_p = self.builder.gep(true_g, [zero32, two32, zero32], inbounds=True)
+            false_p = self.builder.gep(false_g, [zero32, two32, zero32], inbounds=True)
+            append(TypeKind.STRING, self.builder.select(value, true_p, false_p))
+            return
+
+        if kind in signed or kind in unsigned:
+            # `StringBuilder.append(Int)` / `append(UInt)` render digits straight
+            # into the builder (design 137), so the platform-width value is all
+            # they need — same extension `print` uses, so the bytes agree.
+            is_unsigned = kind in unsigned
+            if value.type.width < self.int_width:
+                value = (self.builder.zext(value, word, name="fmt_ext")
+                         if is_unsigned
+                         else self.builder.sext(value, word, name="fmt_ext"))
+            elif value.type.width > self.int_width:
+                value = self.builder.trunc(value, word, name="fmt_trunc")
+            append(TypeKind.UINT if is_unsigned else TypeKind.INT, value)
+            return
+
+        # Float (hosted only — freestanding rejects it at typecheck) and the
+        # unknown-type `<?>` fallback: render to C bytes in stack scratch, then
+        # wrap those bytes in a frame-resident immortal String to append.
+        c_ptr = self._value_to_string(value, saw_type)
+        strlen_fn = self._libc_func("strlen", word, [i8ptr])
+        length = self.builder.call(strlen_fn, [c_ptr], name="fmt_len")
+        bytes_ptr, len_slot = self._stack_string(self.FLOAT_FMT_MAX, name="fmt_str")
+        memcpy_fn = self._libc_func("memcpy", i8ptr, [i8ptr, i8ptr, word])
+        self.builder.call(memcpy_fn, [bytes_ptr, c_ptr, length])
+        self.builder.store(
+            ir.Constant(ir.IntType(8), 0),
+            self.builder.gep(bytes_ptr, [length], inbounds=True))
+        self.builder.store(length, len_slot)
+        append(TypeKind.STRING, bytes_ptr)
 
     def visit_Identifier(self, expr: Identifier):
         if expr.name not in self.variables:

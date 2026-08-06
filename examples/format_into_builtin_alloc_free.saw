@@ -1,0 +1,69 @@
+// Design 135 unit A: a builtin's `format(into:)` allocates nothing.
+//
+// The audit found this one hiding inside design 137's alloc-free path. A user
+// `Printable` body written out of `into.append(...)` was already clean, but the
+// equally natural `self.n.format(into: &var into)` rendered through an owned
+// String — one heap block per field, none of them ever released — so the fixed
+// stack builder `print("{}", tag)` hands the body was being fed from the heap.
+//
+// Every case now reaches an existing `StringBuilder.append` overload, and Float
+// renders into a frame-resident immortal String. The proof is the allocator
+// refusing everything: `__saw_rt_alloc_deny_after(0)` turns any allocation into
+// a panic, and the output below is whole.
+// EXPECT: success
+// EXPECT-OUTPUT:
+// armed
+// -42|text|true|18446744073709551615|1.5
+// nested: -42|text|true|18446744073709551615|1.5
+// disarmed, heap works again
+
+struct Tag {
+    n: Int,
+    s: String,
+    b: Bool,
+    u: UInt,
+    f: Float,
+}
+
+extension Tag: Printable {
+    func format(&self, into: &var StringBuilder) {
+        self.n.format(into: &var into)
+        into.append("|")
+        self.s.format(into: &var into)
+        into.append("|")
+        self.b.format(into: &var into)
+        into.append("|")
+        self.u.format(into: &var into)
+        into.append("|")
+        self.f.format(into: &var into)
+    }
+}
+
+struct Wrap { tag: Tag }
+
+extension Wrap: Printable {
+    func format(&self, into: &var StringBuilder) {
+        into.append("nested: ")
+        self.tag.format(into: &var into)
+    }
+}
+
+extern "C" {
+    func __saw_rt_alloc_deny_after(allow: Int)
+}
+
+func main() {
+    let t = Tag(n: -42, s: "text", b: true, u: 18446744073709551615, f: 1.5)
+    let w = Wrap(tag: Tag(n: -42, s: "text", b: true,
+                          u: 18446744073709551615, f: 1.5))
+    print("armed")
+
+    __saw_rt_alloc_deny_after(0)
+    print("{}", t)
+    print("{}", w)
+    __saw_rt_alloc_deny_after(-1)
+
+    var v = Vector<Int>()
+    v.push(1)
+    print("disarmed, heap works again")
+}
