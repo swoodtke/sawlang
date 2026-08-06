@@ -1272,6 +1272,32 @@ static. It was already retired — design 118 stage 3 moved it into Saw as
 which is precisely the case this design's own settled rule keeps on `Atomic`.
 Converting it would delete the atomicity that makes the singleton race-safe.
 
+- **DF-149b — FILED (found running design 149's gate battery; diagnosed, NOT
+  fixed).** A test fails intermittently — roughly 1 run in 12 — under the
+  IN-PROCESS path when the machine is saturated (it surfaced while
+  `irdet --all` ran beside the suite; `closure_copyable_struct_copied` is
+  where it landed, but nothing about it is specific to that test).
+  **The child dies of SIGTRAP on exec, having written nothing.** That is the
+  macOS/arm64 signature of executing a Mach-O whose pages or ad-hoc signature
+  the kernel has not finished settling — the in-process path writes the binary
+  and execs it almost immediately, while `--subprocess` spends a second
+  spawning a fresh `sawc.py` first and never trips it.
+  Ruled out: the compiler and the program. The binary is stable over 300 runs
+  compiled by the CLI and over another 300 compiled through
+  `compile_saw_in_process` itself, same test and same tree; only the
+  write-then-immediately-exec sequence fails.
+  Worth fixing because an intermittent red on a refcount test is
+  indistinguishable at a glance from a real double-free, which is the bug that
+  test exists to catch (design 73) — a false alarm there costs somebody an
+  afternoon. A retry-once-on-signal-death in `run_executable` would do it, but
+  it must report the retry rather than paper over a genuine crash, which is
+  why this is filed rather than patched in passing.
+  **Fixed here in passing:** the report itself. `Execution failed:` was
+  followed by a blank line, because the failure branch prints only the child's
+  stderr and a signal death writes none — the runner now reports the exit
+  status and names the signal, which is how the cause above was identified at
+  all.
+
 **Not in v1:** a non-trivially-destructible static (statics stay deinit-free);
 relaxed/acquire-release orderings on `Atomic` or `SpinLock` (everything is
 seq_cst); a `SpinLockIrq` for the same-core ISR case, which the brief assigns to

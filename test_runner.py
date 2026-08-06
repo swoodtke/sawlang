@@ -456,7 +456,17 @@ def run_executable(exe_path: Path, timeout: float = RUN_TIMEOUT_SECS) -> tuple[b
 
     try:
         stdout, stderr = proc.communicate(timeout=timeout)
-        return proc.returncode == 0, stdout, stderr
+        rc = proc.returncode
+        if rc != 0 and not stderr:
+            # A child that exits non-zero having written NOTHING leaves the
+            # report with no evidence in it at all (DF-149b: an intermittent
+            # `Execution failed:` followed by a blank line). A negative code is
+            # a signal death, which is a different story from a Saw panic or a
+            # nonzero `main`, so say which one happened.
+            stderr = (f"exited with status {rc}"
+                      + (f" (killed by signal {-rc})" if rc < 0 else "")
+                      + " and wrote nothing")
+        return rc == 0, stdout, stderr
     except subprocess.TimeoutExpired:
         # Hard-kill the whole process group, then reap so no zombie/pipe leaks.
         _kill_process_group(proc)
