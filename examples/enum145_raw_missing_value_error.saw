@@ -1,0 +1,15 @@
+// Design 145 unit B2: under a declared backing every case states its own value.
+// Nothing auto-increments — declaring a backing says the numbers are ABI, so
+// reordering the cases must never silently renumber them.
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: case `B` of enum `Missing` needs an explicit value
+// EXPECT-ERROR-CONTAINS: the numbers are ABI
+
+enum Missing: UInt8 {
+    case A = 0,
+    case B
+}
+
+func main() {
+    print(Missing.A as UInt8)
+}

@@ -1,0 +1,49 @@
+// Design 145 unit B2: because a declared backing PINS the representation, a
+// backed enum is legal as a field of a wire struct read through UnsafeMemory —
+// the typed-view idiom (design 112) can name a flags byte by its type instead
+// of carrying a bare `UInt8` and a comment.
+//
+// `static_assert` pins the layout, and reading BUF[4] directly proves the flags
+// byte really is one byte at offset 4.
+// EXPECT: success
+// EXPECT-OUTPUT: 7
+// EXPECT-OUTPUT: 2
+// EXPECT-OUTPUT: 4096
+// EXPECT-OUTPUT: 2
+// EXPECT-OUTPUT: flags round trip
+
+enum SegFlags: UInt8 {
+    case Empty = 0,
+    case Exec = 1,
+    case Write = 2
+}
+
+struct SegHeader {
+    kind: UInt32,
+    flags: SegFlags,
+    pad0: UInt8,
+    pad1: UInt16,
+    mem_len: UInt32
+}
+
+static_assert(sizeof<SegHeader>() == 12, "SegHeader must stay 12 bytes")
+
+static BUF: [UInt8; 32]
+
+func main() unsafe {
+    let base = ((&BUF) as UnsafePointer<Int8>) as Int
+    let view = UnsafeMemory<SegHeader, Normal>(base)
+
+    view.kind.write(7)
+    view.flags.write(SegFlags.Write)
+    view.mem_len.write(4096)
+
+    print(view.kind.read())
+    print(view.flags.read() as UInt8)
+    print(view.mem_len.read())
+    print(BUF[4] as Int)        // the flags byte, read as a raw byte
+
+    if let f = SegFlags.from(raw: view.flags.read() as UInt8) {
+        print("flags round trip")
+    }
+}

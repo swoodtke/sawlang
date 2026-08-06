@@ -146,7 +146,9 @@ class MatchMixin:
                 if arm.variant_name == "_":
                     continue
                 tag_value = variant_tags[arm.variant_name]
-                tag_const = ir.Constant(ir.IntType(32), tag_value)
+                # The case constant must be the SCRUTINEE's width: a raw-backed
+                # enum's tag is its declared backing, not i32 (design 145 B2).
+                tag_const = ir.Constant(tag.type, tag_value)
                 switch.add_case(tag_const, arm_block)
 
         # Generate code for each arm
@@ -494,7 +496,7 @@ class MatchMixin:
             return ir.Constant(ir.IntType(1), 0), []
         llvm_enum_type, variant_tags, variant_info = self.enum_types[enum_name]
         tag = self.builder.extract_value(value, 0, name="match_tag")
-        want = ir.Constant(ir.IntType(32), variant_tags[pattern.variant_name])
+        want = ir.Constant(tag.type, variant_tags[pattern.variant_name])
         cond = self.builder.icmp_signed('==', tag, want, name="tageq")
         bindings = []
         if pattern.subpatterns:

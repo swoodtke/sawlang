@@ -197,6 +197,13 @@ class DeclarationsMixin:
         # Parse optional type parameters: <T, U>
         type_params = self.parse_type_params()
 
+        # Raw integer backing (design 145 unit B2): `enum SysError: UInt8`.
+        # Reuses the existing COLON token, so both lexers are untouched.
+        raw_type = None
+        if self.match(TokenType.COLON):
+            self.advance()
+            raw_type = self.parse_type()
+
         self.skip_newlines()
         self.expect(TokenType.LBRACE)
         self.skip_newlines()
@@ -233,9 +240,33 @@ class DeclarationsMixin:
 
                 self.expect(TokenType.RPAREN)
 
+            # Explicit raw value (design 145 unit B2): `case Ok = 0`. Parsed
+            # wherever it is written; whether it is REQUIRED (a backing is
+            # declared) or forbidden (none is) is the typechecker's call, so the
+            # diagnostic can name the enum and the rule together.
+            raw_value = None
+            raw_line = 0
+            raw_column = 0
+            if self.match(TokenType.ASSIGN):
+                assign_tok = self.current()
+                self.advance()
+                raw_line = assign_tok.line
+                raw_column = assign_tok.column
+                negative = False
+                if self.match(TokenType.MINUS):
+                    negative = True
+                    self.advance()
+                value_tok = self.expect(
+                    TokenType.INT,
+                    "Expected an integer literal for the enum case's raw value")
+                raw_value = -int(value_tok.value) if negative else int(value_tok.value)
+
             variants.append(EnumVariant(name=variant_name,
                                         associated_types=associated_types,
-                                        doc=variant_doc))
+                                        doc=variant_doc,
+                                        raw_value=raw_value,
+                                        raw_line=raw_line,
+                                        raw_column=raw_column))
 
             self.skip_newlines()
             # Allow optional comma
@@ -252,7 +283,8 @@ class DeclarationsMixin:
             visibility=visibility,
             line=start.line,
             column=start.column,
-            source_file=self.source_file
+            source_file=self.source_file,
+            raw_type=raw_type
         )
 
     def parse_trait(self, visibility: Visibility = Visibility.PRIVATE) -> Trait:

@@ -1042,6 +1042,75 @@ extension Color {
 
 Compute which case to build in a static method returning the enum.
 
+#### Raw-backed enums
+
+A payload-free enum may declare an integer backing type in the declaration's
+colon position. The backing pins the representation — width and tag values — so
+the enum can cross an ABI boundary.
+
+```saw
+enum SysError: UInt8 {
+    case Ok = 0,
+    case BadHandle = 3,
+    case NoMemory = 12
+}
+
+let e = SysError.NoMemory
+print(e as UInt8)             // prints: 12
+print(sizeof<SysError>())     // prints: 1
+```
+
+Any fixed-width integer (`Int8`..`UInt64`) or platform `Int`/`UInt` works.
+Fixed-width is the wire-safe choice.
+
+Three rules:
+
+1. **Payload-free only.** A case carrying a payload has no integer identity, and
+   declaring a backing on such an enum is an error.
+2. **Every case states its value, and no two share one.** Nothing
+   auto-increments. Declaring a backing says the numbers are ABI, so reordering
+   the cases cannot silently renumber them. An enum without a backing keeps
+   compiler-assigned ordinals and is not castable.
+3. **`as` goes one way.** The enum is its tag, so `e as UInt8` is total. The
+   inverse is partial and is spelled `from(raw:)`:
+
+```saw
+if let e = SysError.from(raw: byte) {
+    print("decoded {e}")
+} else {
+    print("unrecognized status byte")
+}
+```
+
+`from(raw:)` is synthesized, returns `E?`, and yields `None` for a value no case
+declares. It is a lookup, not an `init` — an unrecognized byte off a wire is
+data the caller decides about, not a trap.
+
+Because the representation is pinned, a backed enum is a legal field type in a
+struct read through `UnsafeMemory`, so a typed wire view can name a flags byte
+by its type:
+
+```saw
+enum SegFlags: UInt8 {
+    case Empty = 0,
+    case Exec = 1,
+    case Write = 2
+}
+
+struct SegHeader {
+    kind: UInt32,
+    flags: SegFlags,
+    pad0: UInt8,
+    pad1: UInt16,
+    mem_len: UInt32
+}
+
+static_assert(sizeof<SegHeader>() == 12, "SegHeader must stay 12 bytes")
+```
+
+`Equatable`/`Hashable` auto-conformance is unchanged, and so is match
+exhaustiveness. A raw-ordered `Comparable` derivation is not available.
+
 ### Optionals
 
 ```saw

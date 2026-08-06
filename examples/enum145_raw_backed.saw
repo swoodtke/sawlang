@@ -1,0 +1,67 @@
+// Design 145 unit B2: a payload-free enum may declare an integer BACKING type.
+// The backing pins the representation — width and tag values — so the enum is
+// one byte here, castable to that byte with `as`, and recoverable from one with
+// the synthesized `from(raw:)`.
+//
+// `as` is TOTAL (the enum IS its tag). The inverse is PARTIAL, so it returns an
+// optional: an unrecognized wire byte is data, never a trap. It is a lookup,
+// not an init — an enum's cases stay its only constructors.
+// EXPECT: success
+// EXPECT-OUTPUT: 12
+// EXPECT-OUTPUT: 1
+// EXPECT-OUTPUT: round trip: out of memory
+// EXPECT-OUTPUT: unknown byte -> None
+// EXPECT-OUTPUT: zero is ok
+// EXPECT-OUTPUT: bad handle
+
+enum SysError: UInt8 {
+    case Ok = 0,
+    case BadHandle = 3,
+    case NoMemory = 12
+}
+
+extension SysError {
+    func describe(&self) -> String {
+        match self {
+            case Ok -> "ok",
+            case BadHandle -> "bad handle",
+            case NoMemory -> "out of memory"
+        }
+    }
+}
+
+extension SysError: Printable {
+    func format(&self, into: &var StringBuilder) {
+        into.append(self.describe())
+    }
+}
+
+func main() {
+    let e = SysError.NoMemory
+    print(e as UInt8)
+    print(sizeof<SysError>())
+
+    let raw = e as UInt8
+    if let back = SysError.from(raw: raw) {
+        print("round trip: {back}")
+    }
+
+    // The None path: nothing declares 200.
+    if let bad = SysError.from(raw: 200u8) {
+        print("unexpected {bad}")
+    } else {
+        print("unknown byte -> None")
+    }
+
+    if let ok = SysError.from(raw: 0u8) {
+        print("zero is {ok}")
+    }
+
+    // Match exhaustiveness is unchanged by the backing.
+    let f = SysError.BadHandle
+    print(match f {
+        case Ok -> "ok",
+        case BadHandle -> "bad handle",
+        case NoMemory -> "out of memory"
+    })
+}

@@ -1438,6 +1438,14 @@ class EnumVariant:
     name: str
     associated_types: List[tuple[str, SawType]]  # [(param_name, type), ...]
     doc: Optional[str] = None
+    # Raw backing value (design 145 unit B2): the explicit `= <int>` a case
+    # carries under a declared backing type. Required for every case when the
+    # enum declares one, and absent otherwise — declaring a backing claims the
+    # numbers are ABI, so nothing is auto-assigned.
+    raw_value: Optional[int] = None
+    # Source position of the `= <int>`, for the duplicate-value diagnostic.
+    raw_line: int = 0
+    raw_column: int = 0
 
 
 @dataclass
@@ -1449,6 +1457,11 @@ class Enum(ASTNode):
     visibility: 'Visibility' = Visibility.PRIVATE
     source_file: str = ""
     doc: Optional[str] = None
+    # Declared integer backing (design 145 unit B2): `enum SysError: UInt8`.
+    # Pins the representation — width and tag values — so the enum is castable
+    # to the backing with `as` and legal as a field of an `UnsafeMemory`-viewed
+    # struct. Payload-free enums only.
+    raw_type: Optional[SawType] = None
 
 
 @dataclass

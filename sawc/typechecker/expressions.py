@@ -757,6 +757,36 @@ class ExpressionsMixin:
                 return to_type
             # Full projection: continue the kind-match against the underlying.
             from_type = self._get_underlying_type(from_type)
+        # Raw-backed enum -> its backing integer (design 145 unit B2). TOTAL in
+        # this direction: the enum IS its tag, so every value has an answer.
+        # Only a DECLARED backing makes an enum castable — an ordinary enum's
+        # ordinals are the compiler's business and reordering its cases must
+        # stay a free edit. The inverse is partial and spelled `E.from(raw:)`.
+        if from_type.kind == TypeKind.ENUM and to_type.kind in int_kinds:
+            enum_info = self.get_enum_info(from_type.enum_name)
+            raw_type = getattr(enum_info, 'raw_type', None) if enum_info else None
+            if raw_type is None:
+                self._error(
+                    ErrorKind.TYPE_MISMATCH,
+                    f"enum `{from_type.enum_name}` has no backing type, so it "
+                    f"cannot be cast to `{to_type}`",
+                    expr.line, expr.column,
+                    hint=f"declare one (`enum {from_type.enum_name}: {to_type} "
+                         f"{{ case A = 0, ... }}`) to pin the case values; "
+                         f"without it the tag values are not part of the type"
+                )
+                return None
+            return to_type
+        if from_type.kind in int_kinds and to_type.kind == TypeKind.ENUM:
+            self._error(
+                ErrorKind.TYPE_MISMATCH,
+                f"cannot cast `{from_type}` to enum `{to_type.enum_name}`: not "
+                f"every value names a case",
+                expr.line, expr.column,
+                hint=f"use `{to_type.enum_name}.from(raw: ...)`, which returns "
+                     f"an optional — an unrecognized value is data, not a trap"
+            )
+            return None
         if from_type.kind in int_kinds and to_type.kind in int_kinds:
             return to_type
         if from_type.kind == TypeKind.POINTER and to_type.kind == TypeKind.POINTER:
@@ -5897,6 +5927,52 @@ class ExpressionsMixin:
                  "user extensions on array types are not supported")
         return None
 
+    def _check_enum_from_raw(self, expr, enum_info) -> Optional[SawType]:
+        """Check `E.from(raw: <int>)` on a raw-backed enum (design 145 unit B2).
+
+        The total direction is the `as` cast; this is the partial inverse, so it
+        yields `E?`. Returning an optional rather than trapping is the point:
+        the caller is usually decoding bytes it did not write, and an
+        unrecognized tag is a fact about the input, not a bug in the program.
+        It is a LOOKUP, not a constructor — unit B's no-inits-on-enums rule
+        stands."""
+        enum_name = expr.object.name
+        raw_type = enum_info.raw_type
+        if len(expr.arguments) != 1:
+            self._error(
+                ErrorKind.WRONG_ARGUMENT_COUNT,
+                f"`{enum_name}.from` takes exactly one argument, "
+                f"got {len(expr.arguments)}",
+                expr.line, expr.column,
+                hint=f"call it as `{enum_name}.from(raw: <{raw_type}>)`"
+            )
+            return None
+        arg = expr.arguments[0]
+        label = getattr(arg, 'name', None)
+        if label is not None and label != "raw":
+            self._error(
+                ErrorKind.TYPE_MISMATCH,
+                f"`{enum_name}.from` takes its argument labeled `raw`, "
+                f"got `{label}`",
+                expr.line, expr.column
+            )
+            return None
+        arg_type = self._check_expression(arg.value)
+        if arg_type is None:
+            return None
+        if not self._types_compatible(raw_type, arg_type):
+            self._error(
+                ErrorKind.TYPE_MISMATCH,
+                f"`{enum_name}.from` expects `{raw_type}` (the enum's backing "
+                f"type), got `{arg_type}`",
+                expr.line, expr.column
+            )
+            return None
+        # Stamp for codegen: this lowers to a tag lookup, not a call.
+        expr.enum_from_raw = enum_name
+        return SawType(TypeKind.OPTIONAL,
+                       inner_type=SawType(TypeKind.ENUM, enum_name=enum_name))
+
     def _check_method_call(self, expr: MethodCall) -> Optional[SawType]:
         """Check a method call, static method call, enum initialization, or module function call."""
         # design 51: erased-direct `Box<any Trait>.make(v)` — intercept before the
@@ -6078,6 +6154,16 @@ class ExpressionsMixin:
                             expr, enum_name, enum_info, so)
                     return self._check_static_method_call(
                         expr, enum_name, enum_info, static_info)
+            # Design 145 unit B2: the synthesized inverse of the `as` cast.
+            # `E.from(raw: u)` is a LOOKUP, not a constructor — an unrecognized
+            # value is DATA (a bad wire byte), never a trap, so it returns `E?`
+            # and `None` means "no case has that value". Ranks below a case name
+            # and below a user-written static of the same name.
+            if (expr.method_name == "from"
+                    and expr.method_name not in enum_info.variants
+                    and expr.method_name not in enum_info.methods
+                    and getattr(enum_info, 'raw_type', None) is not None):
+                return self._check_enum_from_raw(expr, enum_info)
             enum_init = EnumInit(
                 enum_name=expr.object.name,
                 variant_name=expr.method_name,

@@ -991,6 +991,38 @@ noted live-range packing of locals; do both in one sizing brief.
   `enum145_init_rejected.saw`, `enum145_import_scope.saw`,
   `enum145_import_scope_error.saw` (+ three module fixtures).
 
+- **Unit B2 (raw-backed enums) — LANDED.** Not a DF-finding; the brief's third
+  unit, recorded here for the trail. `enum SysError: UInt8 { case Ok = 0, ... }`
+  parses off the existing COLON token, so BOTH lexers are untouched and lexdiff
+  stays at zero mismatches over the corpus — the colon-backing syntax needed
+  only the parser, as the brief predicted.
+
+  The three pins landed as confirmed: payload-free only; explicit values
+  REQUIRED under a declared backing (duplicates, omissions and out-of-range
+  values are each their own clean error); total `as` plus the synthesized
+  `E.from(raw: U) -> E?` returning `None` on an unknown value — a lookup, not an
+  init, so unit B's no-inits-on-enums rule stands. An enum WITHOUT a backing is
+  not castable at all, and the diagnostic says why (its ordinals are not part of
+  the type, so reordering its cases must stay a free edit).
+
+  Representation: a backed enum IS its tag at the declared width, so
+  `sizeof<SysError>() == 1` for a `UInt8` backing and the tag values are the
+  ones written in source rather than declaration ordinals. Three enum sites
+  assumed an i32 tag (`_generate_enum_init`, the match switch, the general
+  match's tag compare) and now take the enum's own width; ordinary enums keep
+  i32, so existing IR is byte-identical and `make irdet-all` is unaffected.
+  That is what makes a backed enum legal as a field of a `static_assert`-pinned
+  struct read through `UnsafeMemory` — the imgformat `flags` byte can be a typed
+  enum (`examples/enum145_raw_wire_struct.saw` pins `SegHeader` at 12 bytes and
+  reads the flags byte back raw at offset 4 to prove it).
+
+  Equatable/Hashable auto-conformance and match exhaustiveness are unchanged; a
+  raw-ordered Comparable `@synthesize` stays deferred. Tests:
+  `examples/enum145_raw_backed.saw` (round trip incl. the None path),
+  `enum145_raw_wire_struct.saw`, `enum145_raw_missing_value_error.saw`,
+  `enum145_raw_duplicate_value_error.saw`, `enum145_raw_payload_error.saw`,
+  `enum145_raw_unbacked_cast_error.saw`.
+
 - **DF-140h-fn — OPEN, stopped deliberately (unit A, design 145). Wants its own
   brief.** The same reservation exists for private std FREE FUNCTIONS, and the
   fix is a materially bigger change than the statics half. Repro:

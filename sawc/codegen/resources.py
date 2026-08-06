@@ -66,6 +66,23 @@ class ResourcesMixin:
             return ir.DoubleType()
         return None
 
+    def _enum_tag_llvm_type(self, enum_name: str):
+        """The LLVM integer type of an enum's TAG.
+
+        `i32` for every ordinary enum, so existing IR is byte-identical. A
+        RAW-BACKED enum (design 145 unit B2) is exactly its declared backing
+        width, because the backing pins the representation: `enum E: UInt8` is
+        one byte, which is what makes it legal as a field of an
+        `UnsafeMemory`-viewed wire struct."""
+        entry = self.enum_types.get(enum_name)
+        if entry is None:
+            return ir.IntType(32)
+        llvm_type = entry[0]
+        if isinstance(llvm_type, ir.IntType):
+            return llvm_type
+        # Payload shape `{ tag, [N x i8] }`.
+        return llvm_type.elements[0]
+
     def _ext_self_types(self, type_name: str):
         """The `(llvm_type, saw_type)` pair for `self` in `extension <type_name>`.
 

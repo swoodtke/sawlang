@@ -1353,6 +1353,13 @@ class OperatorsMixin:
 
             # Determine signedness from Saw type
             signed_kinds = {TypeKind.INT, TypeKind.INT8, TypeKind.INT16, TypeKind.INT32, TypeKind.INT64}
+            # A raw-backed enum casts as its BACKING (design 145 unit B2), so
+            # widening `enum E: Int8` sign-extends while `enum E: UInt8` zeroes.
+            if from_saw_type is not None and from_saw_type.kind == TypeKind.ENUM:
+                _sym = self.namespace.lookup_enum(from_saw_type.enum_name)
+                _raw = getattr(_sym, 'raw_type', None) if _sym else None
+                if _raw is not None:
+                    from_saw_type = _raw
             from_signed = from_saw_type and from_saw_type.kind in signed_kinds
 
             if to_bits > from_bits:

@@ -1931,17 +1931,27 @@ class CodeGenerator(ResultsMixin, MatchMixin, StructsMixin, CollectionsMixin, Ca
             self.generic_enums[enum.name] = enum
             return
 
-        self._register_concrete_enum(enum.name, enum.variants)
+        self._register_concrete_enum(enum.name, enum.variants,
+                                     raw_type=getattr(enum, 'raw_type', None))
 
-    def _register_concrete_enum(self, name: str, variants: List[EnumVariant]):
-        """Register a concrete (non-generic or monomorphized) enum type with LLVM."""
+    def _register_concrete_enum(self, name: str, variants: List[EnumVariant],
+                                raw_type=None):
+        """Register a concrete (non-generic or monomorphized) enum type with LLVM.
+
+        Design 145 unit B2: when `raw_type` is set the enum IS its tag at the
+        declared width, and the tag values are the ones written in source rather
+        than declaration ordinals — the point of declaring a backing is that
+        reordering the cases cannot renumber them.
+        """
         # Assign tag values to variants (0, 1, 2, ...)
         variant_tags = {}
         variant_info = {}
         max_payload_size = 0
 
         for i, variant in enumerate(variants):
-            variant_tags[variant.name] = i
+            declared = getattr(variant, 'raw_value', None)
+            variant_tags[variant.name] = (
+                declared if raw_type is not None and declared is not None else i)
             variant_info[variant.name] = variant.associated_types
 
             # Calculate payload size for this variant
@@ -1973,6 +1983,11 @@ class CodeGenerator(ResultsMixin, MatchMixin, StructsMixin, CollectionsMixin, Ca
                 ir.IntType(32),  # tag
                 ir.ArrayType(ir.IntType(8), max_payload_size)  # payload
             ])
+        elif raw_type is not None:
+            # Raw-backed (design 145 unit B2): the enum IS its tag, at the
+            # declared width. Payload-free by construction — the typechecker
+            # rejects a backing on an enum with payloads.
+            llvm_enum_type = self._get_llvm_type(raw_type)
         else:
             # Simple enum (no associated values): just i32 tag
             llvm_enum_type = ir.IntType(32)

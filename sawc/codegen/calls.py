@@ -935,6 +935,39 @@ class CallsMixin:
         align = self._abi_align(llvm_type)
         return ir.Constant(self.int_type, align)  # alignof<T>() -> platform Int
 
+    def _generate_enum_from_raw(self, expr, enum_name: str):
+        """Lower `E.from(raw: u)` for a raw-backed enum (design 145 unit B2).
+
+        A chain of selects over the declared values: the result is `Some(case)`
+        for a value that names one and `None` otherwise. No branching and no
+        trap — an unrecognized wire byte is data the caller decides about.
+        """
+        llvm_enum_type, variant_tags, _ = self.enum_types[enum_name]
+        raw = self._generate_expression(expr.arguments[0].value)
+
+        optional_type = ir.LiteralStructType([ir.IntType(1), llvm_enum_type])
+        result = ir.Constant(optional_type, ir.Undefined)
+        result = self.builder.insert_value(
+            result, ir.Constant(ir.IntType(1), 0), 0, name="from_raw_none")
+        # Give the None path a defined payload too: reading it is already gated
+        # by the flag, and leaving `undef` there is a needless poison source.
+        result = self.builder.insert_value(
+            result, ir.Constant(llvm_enum_type, 0), 1)
+
+        # Sorted so the emitted IR is deterministic regardless of dict order.
+        for variant_name in sorted(variant_tags):
+            tag = variant_tags[variant_name]
+            hit = self.builder.icmp_signed(
+                '==', raw, ir.Constant(llvm_enum_type, tag),
+                name=f"from_raw_is_{variant_name}")
+            some = self.builder.insert_value(
+                result, ir.Constant(ir.IntType(1), 1), 0)
+            some = self.builder.insert_value(
+                some, ir.Constant(llvm_enum_type, tag), 1)
+            result = self.builder.select(hit, some, result,
+                                         name=f"from_raw_sel_{variant_name}")
+        return result
+
     def _generate_method_call(self, expr: MethodCall, receiver_ptr=None):
         """Generate code for method call, static method call, enum initialization, or module function call.
 
@@ -1046,6 +1079,13 @@ class CallsMixin:
                     elif symbol and symbol.kind == SymbolKind.STRUCT:
                         # Generate struct initialization
                         return self._generate_module_struct_init(expr)
+
+        # Design 145 unit B2: `E.from(raw: u)` on a raw-backed enum. The
+        # typechecker stamped the enum when it resolved this as the synthesized
+        # lookup, so there is no symbol to call — it lowers inline.
+        from_raw_enum = getattr(expr, 'enum_from_raw', None)
+        if from_raw_enum is not None:
+            return self._generate_enum_from_raw(expr, from_raw_enum)
 
         # Check if this is a static method call: StructName.method(args) (use namespace)
         if isinstance(expr.object, Identifier):
@@ -2142,8 +2182,10 @@ class CallsMixin:
 
         # Check if this is a simple enum (just i32) or enum with payload
         if isinstance(llvm_enum_type, ir.IntType):
-            # Simple enum: just return the tag value
-            return ir.Constant(ir.IntType(32), tag_value)
+            # Simple enum: just return the tag value. The width is the enum's
+            # own — i32 normally, the declared backing for a raw-backed enum
+            # (design 145 unit B2).
+            return ir.Constant(llvm_enum_type, tag_value)
         else:
             # Enum with payload: { i32 tag, [N x i8] payload }
             # Create undefined struct value

@@ -884,6 +884,22 @@ construct in the owner and lend `&driver` down.
 - Receivers are `&self` and `&var self`, always with the sigil. A bare
   `var self` (an old spelling some code still shows) is a compile error
   pointing at `&var self`; a bare `self` is likewise rejected.
+- **RAW-BACKED ENUMS are the wire idiom** (design 145 B2). A payload-free enum
+  may declare an integer backing in the colon position; that PINS the width and
+  the tag values, so it may be a field of an `UnsafeMemory`-viewed wire struct
+  (`flags: SegFlags` instead of a bare `UInt8` and a comment):
+  ```saw
+  enum SysError: UInt8 { case Ok = 0, case BadHandle = 3, case NoMemory = 12 }
+  let raw = err as UInt8                       // TOTAL — the enum IS its tag
+  if let e = SysError.from(raw: b) { ... }     // PARTIAL — None on unknown
+  ```
+  Every case states its own value (no auto-increment: declaring a backing says
+  the numbers are ABI, so a reorder must never renumber them), duplicates and
+  omissions are clean errors, and payload cases are rejected. An enum WITHOUT a
+  backing keeps compiler-assigned ordinals and is not castable at all. The
+  inverse is `from(raw:)` — a synthesized static returning `E?`, NOT an init: an
+  unrecognized wire byte is data, never a trap. Fixed-width backings are the
+  wire-safe choice; a raw-ordered Comparable derivation does not exist.
 - **ENUMS TAKE EXTENSIONS, same as structs** (design 145): instance methods with
   `&self`/`&var self` (`match self` is the idiomatic body, `self = Other` the
   whole-value replacement), static methods (no `self` param), hand-written trait
@@ -972,8 +988,12 @@ construct in the owner and lend `&driver` down.
   FIRST, then add.
 - STYLE: no commented magic numbers — name them. Use a module-level `static`
   (`static AF_INET: Int32 = 2`, then `socket(AF_INET, ...)`) or a payload-free
-  enum for a closed set. Static inits accept only plain literals (no casts/
-  arithmetic); std-module statics are NOT visible cross-module yet.
+  enum for a closed set. When the NUMBERS themselves matter (a wire tag, a
+  syscall op id, a rights bit), reach for a raw-backed enum — `enum Op: UInt8 {
+  case Read = 0, ... }` names the set AND pins the values, and `as` at the
+  boundary beats a parallel `static` per case. Static inits accept only plain
+  literals (no casts/arithmetic); std-module statics are NOT visible
+  cross-module yet.
 - For a KNOWN C struct, declare a typed Saw struct (declaration-order natural ABI,
   design 58) as a stack local + `(&sa) as UnsafePointer<...>` for the syscall —
   never a raw byte blob; alignment comes free from the widest field. Only

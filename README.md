@@ -137,6 +137,49 @@ func handle(msg: Message) {
 }
 ```
 
+### Enums Carry Methods and Wire Values
+
+An enum takes extensions on the same terms as a struct: methods, static methods,
+and hand-written trait conformances. An error type is normally an enum.
+
+```saw
+enum SysError: UInt8 {
+    case Ok = 0,
+    case BadHandle = 3,
+    case NoMemory = 12
+}
+
+extension SysError {
+    func describe(&self) -> String {
+        match self {
+            case Ok -> "ok",
+            case BadHandle -> "bad handle",
+            case NoMemory -> "out of memory"
+        }
+    }
+}
+
+extension SysError: Printable {
+    func format(&self, into: &var StringBuilder) { into.append(self.describe()) }
+}
+extension SysError: Error {}
+```
+
+The `: UInt8` is a raw backing. It pins the representation, so the enum is one
+byte with exactly the values written above, and it can cross an ABI boundary:
+
+```saw
+let raw = SysError.NoMemory as UInt8      // 12; total, the enum is its tag
+if let e = SysError.from(raw: byte) {     // partial; None on an unknown value
+    print("decoded {e}")
+}
+```
+
+Every case states its own value — nothing auto-increments, so reordering the
+cases cannot renumber them. A backed enum is a legal field type in a struct read
+through `UnsafeMemory`, which lets a wire-format view name a flags byte by its
+type instead of carrying a bare integer and a comment.
+
 ### Traits, Default Methods, and Dynamic Dispatch
 
 Conform via `extension Type: Trait`. Trait methods may carry a **default body**.

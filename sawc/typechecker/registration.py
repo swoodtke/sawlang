@@ -343,6 +343,9 @@ class RegistrationMixin:
                 variants[variant.name] = variant.associated_types
                 variant_order.append(variant.name)
 
+        # Raw integer backing (design 145 unit B2).
+        raw_type, raw_values = self._check_enum_raw_backing(enum)
+
         # Register in namespace only
         self.namespace.register_enum(enum.name, EnumSymbol(
             variants=variants,
@@ -351,8 +354,138 @@ class RegistrationMixin:
             visibility=getattr(enum, 'visibility', Visibility.PRIVATE),
             def_module=self._vis_module_for_source(
                 getattr(enum, 'source_file', None)),
-            ast_node=enum if enum.type_params else None
+            ast_node=enum if enum.type_params else None,
+            raw_type=raw_type,
+            raw_values=raw_values
         ))
+
+    # Integer kinds a raw backing may name (design 145 unit B2). Any
+    # fixed-width int plus platform `Int`/`UInt`; the design-47 wire discipline
+    # favours the fixed-width ones and the docs say so.
+    _RAW_BACKING_KINDS = (
+        TypeKind.INT, TypeKind.UINT,
+        TypeKind.INT8, TypeKind.INT16, TypeKind.INT32, TypeKind.INT64,
+        TypeKind.UINT8, TypeKind.UINT16, TypeKind.UINT32, TypeKind.UINT64,
+    )
+
+    def _int_fits_kind(self, value: int, kind) -> bool:
+        """Whether `value` is representable in integer type `kind`. Platform
+        `Int`/`UInt` are judged at 64 bits, matching `Int.max`/`UInt.max`."""
+        rng = self._FIXED_INT_RANGES.get(kind)
+        if rng is None:
+            if kind == TypeKind.INT:
+                rng = (-(1 << 63), (1 << 63) - 1)
+            elif kind == TypeKind.UINT:
+                rng = (0, (1 << 64) - 1)
+            else:
+                return False
+        return rng[0] <= value <= rng[1]
+
+    def _check_enum_raw_backing(self, enum: SawEnum):
+        """Validate `enum E: <Int> { case A = 0, ... }` and return
+        `(raw_type, {case: value})`, or `(None, {})` when no backing is
+        declared (design 145 unit B2).
+
+        Three rules, each with its own diagnostic:
+          1. PAYLOAD-FREE ONLY. An enum with payloads has no integer identity.
+          2. EXPLICIT VALUES REQUIRED, and distinct. Declaring a backing claims
+             the numbers are ABI, so nothing is auto-assigned and reordering the
+             cases can never silently renumber them.
+          3. Every value must fit the backing's range.
+        An enum WITHOUT a backing keeps compiler-assigned ordinals and rejects a
+        stray `= <int>` — that number would be a promise the language is not
+        making.
+        """
+        raw_type = getattr(enum, 'raw_type', None)
+        if raw_type is None:
+            for variant in enum.variants:
+                if variant.raw_value is None:
+                    continue
+                self._error(
+                    ErrorKind.TYPE_MISMATCH,
+                    f"case `{variant.name}` of enum `{enum.name}` gives a raw "
+                    f"value, but the enum declares no backing type",
+                    variant.raw_line or enum.line,
+                    variant.raw_column or enum.column,
+                    hint=f"declare one (`enum {enum.name}: UInt8 {{ ... }}`) to "
+                         f"pin the case values, or drop the `= ...`",
+                    source_file=getattr(enum, 'source_file', None)
+                )
+            return None, {}
+
+        raw_type = self._resolve_type(raw_type)
+        if raw_type is None or raw_type.kind not in self._RAW_BACKING_KINDS:
+            self._error(
+                ErrorKind.TYPE_MISMATCH,
+                f"enum `{enum.name}` has backing type `{raw_type}`, which is "
+                f"not an integer type",
+                enum.line, enum.column,
+                hint="a raw backing must be a fixed-width integer (`Int8`.."
+                     "`UInt64`) or platform `Int`/`UInt`; fixed-width is the "
+                     "wire-safe choice",
+                source_file=getattr(enum, 'source_file', None)
+            )
+            return None, {}
+
+        # Rule 1: payload-free only.
+        for variant in enum.variants:
+            if variant.associated_types:
+                self._error(
+                    ErrorKind.TYPE_MISMATCH,
+                    f"case `{variant.name}` of enum `{enum.name}` carries a "
+                    f"payload, so the enum cannot declare a backing type: an "
+                    f"enum with payloads has no integer identity",
+                    enum.line, enum.column,
+                    hint=f"drop the `: {raw_type}` backing, or move the payload "
+                         f"case to a separate type",
+                    source_file=getattr(enum, 'source_file', None)
+                )
+                return None, {}
+
+        # Rules 2 and 3: explicit, distinct, in range.
+        raw_values = {}
+        by_value = {}
+        for variant in enum.variants:
+            if variant.raw_value is None:
+                self._error(
+                    ErrorKind.TYPE_MISMATCH,
+                    f"case `{variant.name}` of enum `{enum.name}` needs an "
+                    f"explicit value: every case of an enum with a backing type "
+                    f"declares its own",
+                    enum.line, enum.column,
+                    hint=f"write `case {variant.name} = <int>`; declaring a "
+                         f"backing type says the numbers are ABI, so none is "
+                         f"assigned for you",
+                    source_file=getattr(enum, 'source_file', None)
+                )
+                continue
+            if not self._int_fits_kind(variant.raw_value, raw_type.kind):
+                self._error(
+                    ErrorKind.TYPE_MISMATCH,
+                    f"raw value {variant.raw_value} for case `{variant.name}` "
+                    f"is out of range for backing type `{raw_type}`",
+                    variant.raw_line or enum.line,
+                    variant.raw_column or enum.column,
+                    source_file=getattr(enum, 'source_file', None)
+                )
+                continue
+            prior = by_value.get(variant.raw_value)
+            if prior is not None:
+                self._error(
+                    ErrorKind.TYPE_MISMATCH,
+                    f"cases `{prior}` and `{variant.name}` of enum "
+                    f"`{enum.name}` both have raw value {variant.raw_value}",
+                    variant.raw_line or enum.line,
+                    variant.raw_column or enum.column,
+                    hint="raw values identify the cases on the wire, so they "
+                         "must be distinct",
+                    source_file=getattr(enum, 'source_file', None)
+                )
+                continue
+            by_value[variant.raw_value] = variant.name
+            raw_values[variant.name] = variant.raw_value
+
+        return raw_type, raw_values
 
     def _register_trait(self, trait: Trait):
         """Register a trait definition with inheritance support."""
