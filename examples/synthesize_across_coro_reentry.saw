@@ -1,0 +1,45 @@
+// A `@synthesize` derivation and concurrency in one program.
+//
+// The coroutine transform rewrites the entry AST and re-runs the whole front
+// half over it, so every declaration is REGISTERED TWICE. Registration writes
+// each derived body back into its extension, and the second pass used to read
+// its own `equals`/`compare`/`hash`/`copy` as a hand-written one and report
+// "`@synthesize` ... derives nothing" at a program that had nothing wrong with
+// it. Registration is idempotent now: it re-derives in place and appends
+// nothing (design 146).
+// EXPECT: success
+// EXPECT-OUTPUT:
+// true
+// false
+// true
+// 6
+import std.task
+
+struct Tag {
+    name: String
+    rank: Int
+}
+
+@synthesize
+extension Tag: Equatable {}
+
+@synthesize
+extension Tag: Comparable {}
+
+func doubled(n: Int) -> Int {
+    yield_now()
+    n * 2
+}
+
+func main() {
+    let a = Tag(name: "x", rank: 1)
+    let b = Tag(name: "x", rank: 1)
+    let c = Tag(name: "x", rank: 2)
+    print("{a.equals(b)}")
+    print("{a.equals(c)}")
+    print("{a < c}")
+
+    var group = TaskGroup()
+    let handle = group.spawn(doubled(3))
+    print("{handle.join()}")
+}

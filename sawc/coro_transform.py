@@ -4884,6 +4884,19 @@ def transform_program(program, typechecker, imported_ast=None):
             sname, mast.name, getattr(mast, 'mangled_symbol', None))
         if fbkey in fbs:
             continue
+        if ext.node_id not in _entry_ext_ids:
+            # design 146: a frame builder REWRITES the body it is handed — it
+            # hoists, ANF-normalizes and finally splits it into resume states —
+            # and an imported method's body is std's own AST. That AST is now
+            # reused across the front half's re-entry instead of being re-read
+            # from disk, so the destruction no longer undoes itself: std would
+            # go into the second pass carrying half a state machine (`self.off`
+            # against a `TcpStream`, which has no such field). Build from a copy.
+            # Nothing reads the original — the resume is spliced into the entry
+            # AST and the call sites were rewritten to drive it — so the module
+            # keeps the method the author wrote, as the note below intends.
+            import copy as _copy
+            mast = _copy.deepcopy(mast)
         fbs[fbkey] = _FrameBuilder(mast, struct_name=sname, tc=typechecker)
         nested_method_fbs.append((fbkey, ext, mast))
     # Prepare ALL layouts (fn + method) before generating any resume, so a caller
@@ -4940,9 +4953,8 @@ def transform_program(program, typechecker, imported_ast=None):
     removed_methods = []  # (extension, method) to strip after generation
     # design 84: an ENTRY-MODULE nested-embedded suspending method's original body
     # is replaced by its frame + resume — strip it. An IMPORTED (std) method stays
-    # in its module as dead code (its call sites were rewritten to the embedded
-    # drive; it re-parses fresh on the recursive pass anyway, so stripping the shared
-    # object would not persist).
+    # in its module, unmodified (design 146 builds its frame from a copy), as dead
+    # code: its call sites were rewritten to the embedded drive.
     for _fbkey, ext, mast in nested_method_fbs:
         if ext.node_id in _entry_ext_ids:
             removed_methods.append((ext, mast))

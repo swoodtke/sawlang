@@ -269,7 +269,7 @@ def topological_sort_modules(module_map):
 
 
 def build_builtin_namespace(verbose: bool = False, freestanding: bool = False,
-                            runtime_build: bool = False):
+                            runtime_build: bool = False, builtin_ast=None):
     """Load, parse, and type-check the builtins once, returning
     ``(builtin_ast, builtin_ns)``.
 
@@ -279,8 +279,16 @@ def build_builtin_namespace(verbose: bool = False, freestanding: bool = False,
     registration path, and populates a namespace in which every builtin symbol
     is marked directly accessible so modules can use ``String``/``Vector``/
     ``Result`` etc. without an explicit import.
+
+    ``builtin_ast`` hands back an ALREADY-PARSED builtin+std AST (design 146):
+    the front half re-enters after a source-level transform, and re-reading
+    every std file off disk to parse it a second time is both pure cost and a
+    correctness hole — a transform that rewrote something in std would have its
+    work thrown away. Registration is idempotent, so the reused AST is simply
+    re-checked.
     """
-    builtin_ast = load_builtins(verbose, freestanding, runtime_build)
+    if builtin_ast is None:
+        builtin_ast = load_builtins(verbose, freestanding, runtime_build)
 
     # Check the builtins with a throwaway reporter so their (absent) errors
     # never pollute user diagnostics. require_main=False: builtins are a library.
@@ -552,7 +560,7 @@ def _reject_freestanding_macho(target_triple: str = None):
     sys.exit(1)
 
 
-def _prepare_codegen(source_path: str, entry_ast, entry_source: str, verbose: bool = False, object_only: bool = False, target_triple: str = None, freestanding: bool = False, module_paths: dict = None, runtime_build: bool = False, docs_out: dict = None, post_transform: bool = False, target_features: str = None):
+def _prepare_codegen(source_path: str, entry_ast, entry_source: str, verbose: bool = False, object_only: bool = False, target_triple: str = None, freestanding: bool = False, module_paths: dict = None, runtime_build: bool = False, docs_out: dict = None, post_transform: bool = False, target_features: str = None, parsed=None):
     """Resolve modules, load builtins, and type-check the whole program.
 
     This is the single front half of the compile pipeline: a plain single file
@@ -567,6 +575,15 @@ def _prepare_codegen(source_path: str, entry_ast, entry_source: str, verbose: bo
     3. Merge all modules with builtins for code generation
     4. Type check per-module with module-aware symbol resolution
     5. Merge namespaces and construct the code generator
+
+    ``parsed`` is the design-146 re-entry hand-off: every AST this function
+    parsed on the previous pass, so the second pass re-checks those objects
+    instead of reading the same files off disk and parsing them again. A
+    source-level transform runs BETWEEN the two passes (the coroutine
+    transform, the place transform) and writes into these ASTs, so re-parsing
+    is not merely wasted work — it silently discards the rewrite for every
+    module and for std. Only ``entry_ast`` used to survive, which is why the
+    coroutine transform could only ever rewrite the entry module.
     """
     from module_resolver import ModuleInfo
     from ast_nodes import Program
@@ -596,10 +613,14 @@ def _prepare_codegen(source_path: str, entry_ast, entry_source: str, verbose: bo
 
     # Resolve all imports and collect module ASTs
     # module_map: module_path_tuple -> AST (for qualified access)
-    module_map = {}
-    module_sources = {}  # source_path -> source (for error reporting)
-    resolved_modules = set()
-    pending_imports = list(getattr(entry_ast, 'imports', []))
+    # design 146: on a re-entry the graph is already resolved and parsed, and
+    # those ASTs are the ones the transform just rewrote — take them as they
+    # stand. `resolved_modules` seeded from the map also makes the external
+    # `module X` loads below no-ops, since they key off exactly that set.
+    module_map = dict(parsed['module_map']) if parsed else {}
+    module_sources = dict(parsed['module_sources']) if parsed else {}
+    resolved_modules = set(module_map)
+    pending_imports = [] if parsed else list(getattr(entry_ast, 'imports', []))
 
     while pending_imports:
         imp = pending_imports.pop(0)
@@ -742,8 +763,13 @@ def _prepare_codegen(source_path: str, entry_ast, entry_source: str, verbose: bo
                     sys.exit(1)
 
     # Load builtins and build the (type-checked) builtin namespace once.
-    builtin_ast, builtin_ns = build_builtin_namespace(verbose, freestanding,
-                                                      runtime_build)
+    builtin_ast, builtin_ns = build_builtin_namespace(
+        verbose, freestanding, runtime_build,
+        builtin_ast=parsed['builtin_ast'] if parsed else None)
+    # The AST to hand a re-entry is this one, BEFORE `_filter_std_ast` narrows
+    # it for codegen: the filter drops the std files this program does not
+    # compile in, and a re-entry has to start from the whole stdlib again.
+    reentry_builtin_ast = builtin_ast
 
     # Helper to recursively collect all inline module bodies from an AST
     def collect_inline_module_bodies(ast):
@@ -993,7 +1019,10 @@ def _prepare_codegen(source_path: str, entry_ast, entry_source: str, verbose: bo
                                     object_only, target_triple, freestanding,
                                     module_paths, runtime_build,
                                     post_transform=True,
-                                    target_features=target_features)
+                                    target_features=target_features,
+                                    parsed={'module_map': module_map,
+                                            'module_sources': module_sources,
+                                            'builtin_ast': reentry_builtin_ast})
 
     # Set this as the typechecker's namespace for compatibility
     typechecker.namespace = merged_ns

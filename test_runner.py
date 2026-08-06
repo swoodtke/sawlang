@@ -293,7 +293,14 @@ def _install_builtin_cache(sawc_mod):
     orig = sawc_mod.build_builtin_namespace
     cache = {}
 
-    def cached(verbose=False, freestanding=False, runtime_build=False):
+    def cached(verbose=False, freestanding=False, runtime_build=False,
+               builtin_ast=None):
+        # design 146: a re-entry hands its own already-parsed builtin AST back —
+        # the one a source-level transform just rewrote. That AST is the program's
+        # std, so check it rather than serving a pristine copy from the cache.
+        if builtin_ast is not None:
+            return orig(verbose, freestanding, runtime_build,
+                        builtin_ast=builtin_ast)
         key = (freestanding, runtime_build)
         if key not in cache:
             cache[key] = orig(verbose, freestanding, runtime_build)

@@ -1387,6 +1387,30 @@ class RegistrationMixin:
             reported = True
         return reported
 
+    @staticmethod
+    def _derivation_slot(extension: Extension, name: str, marker: str):
+        """`(an author wrote this method, the derivation we already made)`.
+
+        Registration must be IDEMPOTENT (design 146): the front end re-enters
+        over an AST it has already registered — the coroutine transform does it
+        today and the place transform does it now — and the derivations below
+        WRITE their synthesized method back into the extension. A second pass
+        that counted its own `copy`/`equals`/`compare`/`hash` as a hand-written
+        body would conclude the `@synthesize` marker derives nothing and report
+        that at the user, which is what a `@synthesize` type in a program using
+        concurrency used to hit. Separating the two answers lets the second pass
+        re-derive exactly what the first did, in place, appending nothing.
+        """
+        author = derived = None
+        for m in extension.methods:
+            if m.is_init or m.name != name:
+                continue
+            if getattr(m, marker, False):
+                derived = m
+            else:
+                author = m
+        return author is not None, derived
+
     def _register_extension(self, extension: Extension):
         """Register methods from an extension."""
         if self._reject_deinit_conformance(extension):
@@ -1425,25 +1449,26 @@ class RegistrationMixin:
             (t for t in ("ImplicitCopy", "ExplicitCopy")
              if t in extension.conformances), None)
         declares_copy_policy = declared_copy_policy is not None
-        has_copy_method = any(not m.is_init and m.name == "copy"
-                              for m in extension.methods)
+        has_copy_method, already_derived = self._derivation_slot(
+            extension, "copy", "is_derived_copy")
         if declares_copy_policy and not has_copy_method:
             self._demand_synthesize_marker(extension, declared_copy_policy, "copy")
             derived_any = True
-            synthesized = Method(
-                name="copy",
-                parameters=[Parameter(name="self", type=SawType(TypeKind.VOID),
-                                      is_reference=True)],
-                return_type=SawType(TypeKind.SELF),
-                body=Block(statements=[], final_expr=None,
-                           line=extension.line, column=extension.column),
-                self_mutable=False,
-                self_is_reference=True,
-                is_derived_copy=True,
-                line=extension.line,
-                column=extension.column,
-            )
-            extension.methods.append(synthesized)
+            if already_derived is None:
+                extension.methods.append(Method(
+                    name="copy",
+                    parameters=[Parameter(name="self",
+                                          type=SawType(TypeKind.VOID),
+                                          is_reference=True)],
+                    return_type=SawType(TypeKind.SELF),
+                    body=Block(statements=[], final_expr=None,
+                               line=extension.line, column=extension.column),
+                    self_mutable=False,
+                    self_is_reference=True,
+                    is_derived_copy=True,
+                    line=extension.line,
+                    column=extension.column,
+                ))
             self._derived_copy_structs.add(extension.struct_name)
 
         # Memberwise `equals()` synthesis (design 32): a struct declaring
@@ -1453,29 +1478,29 @@ class RegistrationMixin:
         # emitted memberwise by codegen. Runs BEFORE the conformance
         # "missing methods" check below, so an empty body does not error.
         declares_equatable = "Equatable" in extension.conformances
-        has_equals_method = any(not m.is_init and m.name == "equals"
-                                for m in extension.methods)
+        has_equals_method, already_derived = self._derivation_slot(
+            extension, "equals", "is_derived_equals")
         if declares_equatable and not has_equals_method:
             self._demand_synthesize_marker(extension, "Equatable", "equals")
             derived_any = True
-            synth_eq = Method(
-                name="equals",
-                parameters=[
-                    Parameter(name="self", type=SawType(TypeKind.VOID),
-                              is_reference=True),
-                    Parameter(name="other", type=SawType(TypeKind.SELF),
-                              is_reference=False),
-                ],
-                return_type=SawType(TypeKind.BOOL),
-                body=Block(statements=[], final_expr=None,
-                           line=extension.line, column=extension.column),
-                self_mutable=False,
-                self_is_reference=True,
-                is_derived_equals=True,
-                line=extension.line,
-                column=extension.column,
-            )
-            extension.methods.append(synth_eq)
+            if already_derived is None:
+                extension.methods.append(Method(
+                    name="equals",
+                    parameters=[
+                        Parameter(name="self", type=SawType(TypeKind.VOID),
+                                  is_reference=True),
+                        Parameter(name="other", type=SawType(TypeKind.SELF),
+                                  is_reference=False),
+                    ],
+                    return_type=SawType(TypeKind.BOOL),
+                    body=Block(statements=[], final_expr=None,
+                               line=extension.line, column=extension.column),
+                    self_mutable=False,
+                    self_is_reference=True,
+                    is_derived_equals=True,
+                    line=extension.line,
+                    column=extension.column,
+                ))
             self._derived_equals_types.add(extension.struct_name)
 
         # Lexicographic `compare()` synthesis (design 48): a struct declaring
@@ -1486,31 +1511,31 @@ class RegistrationMixin:
         # (field order is a semantic choice) — this fires only on an explicit
         # `extension T: Comparable`.
         declares_comparable = "Comparable" in extension.conformances
-        has_compare_method = any(not m.is_init and m.name == "compare"
-                                 for m in extension.methods)
+        has_compare_method, already_derived = self._derivation_slot(
+            extension, "compare", "is_derived_compare")
         if declares_comparable:
             self._comparable_types.add(extension.struct_name)
         if declares_comparable and not has_compare_method:
             self._demand_synthesize_marker(extension, "Comparable", "compare")
             derived_any = True
-            synth_cmp = Method(
-                name="compare",
-                parameters=[
-                    Parameter(name="self", type=SawType(TypeKind.VOID),
-                              is_reference=True),
-                    Parameter(name="other", type=SawType(TypeKind.SELF),
-                              is_reference=False),
-                ],
-                return_type=SawType(TypeKind.ENUM, enum_name="Ordering"),
-                body=Block(statements=[], final_expr=None,
-                           line=extension.line, column=extension.column),
-                self_mutable=False,
-                self_is_reference=True,
-                is_derived_compare=True,
-                line=extension.line,
-                column=extension.column,
-            )
-            extension.methods.append(synth_cmp)
+            if already_derived is None:
+                extension.methods.append(Method(
+                    name="compare",
+                    parameters=[
+                        Parameter(name="self", type=SawType(TypeKind.VOID),
+                                  is_reference=True),
+                        Parameter(name="other", type=SawType(TypeKind.SELF),
+                                  is_reference=False),
+                    ],
+                    return_type=SawType(TypeKind.ENUM, enum_name="Ordering"),
+                    body=Block(statements=[], final_expr=None,
+                               line=extension.line, column=extension.column),
+                    self_mutable=False,
+                    self_is_reference=True,
+                    is_derived_compare=True,
+                    line=extension.line,
+                    column=extension.column,
+                ))
             self._derived_compare_types.add(extension.struct_name)
 
         # Field-streaming `hash()` synthesis (design 48): a struct declaring
@@ -1519,34 +1544,35 @@ class RegistrationMixin:
         # contract). Trivial (POD) structs auto-conform via is_hashable and need
         # no extension; this handles the opt-in (e.g. a String-bearing struct).
         declares_hashable = "Hashable" in extension.conformances
-        has_hash_method = any(not m.is_init and m.name == "hash"
-                              for m in extension.methods)
+        has_hash_method, already_derived = self._derivation_slot(
+            extension, "hash", "is_derived_hash")
         if declares_hashable:
             self._hashable_types.add(extension.struct_name)
         if declares_hashable and not has_hash_method:
             self._demand_synthesize_marker(extension, "Hashable", "hash")
             derived_any = True
-            synth_hash = Method(
-                name="hash",
-                parameters=[
-                    Parameter(name="self", type=SawType(TypeKind.VOID),
-                              is_reference=True),
-                    Parameter(name="h", type=SawType(
-                        TypeKind.REFERENCE,
-                        inner_type=SawType(TypeKind.STRUCT, struct_name="Hasher"),
-                        reference_mutable=True),
-                        is_reference=True, reference_mutable=True),
-                ],
-                return_type=SawType(TypeKind.VOID),
-                body=Block(statements=[], final_expr=None,
-                           line=extension.line, column=extension.column),
-                self_mutable=False,
-                self_is_reference=True,
-                is_derived_hash=True,
-                line=extension.line,
-                column=extension.column,
-            )
-            extension.methods.append(synth_hash)
+            if already_derived is None:
+                extension.methods.append(Method(
+                    name="hash",
+                    parameters=[
+                        Parameter(name="self", type=SawType(TypeKind.VOID),
+                                  is_reference=True),
+                        Parameter(name="h", type=SawType(
+                            TypeKind.REFERENCE,
+                            inner_type=SawType(TypeKind.STRUCT,
+                                               struct_name="Hasher"),
+                            reference_mutable=True),
+                            is_reference=True, reference_mutable=True),
+                    ],
+                    return_type=SawType(TypeKind.VOID),
+                    body=Block(statements=[], final_expr=None,
+                               line=extension.line, column=extension.column),
+                    self_mutable=False,
+                    self_is_reference=True,
+                    is_derived_hash=True,
+                    line=extension.line,
+                    column=extension.column,
+                ))
             self._derived_hash_types.add(extension.struct_name)
 
         # A marker that derived nothing is a mistake worth naming: either the
