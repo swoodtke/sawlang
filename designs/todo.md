@@ -1382,13 +1382,58 @@ statement dropped its `Result` with no diagnostic.
   Renaming either binding fixes it. Nothing in the tree hits this today (the
   suite is green); `examples/result_discard_legal.saw` names its later local
   `got` with a comment pointing here.
-- **DF-151b — FILED, PRE-EXISTING at af5ad18, NOT caused by this brief. Two
-  gates are intermittently RED and nobody had noticed.** Compiled Saw programs
-  crash NONDETERMINISTICALLY with `Bus error: 10`, `Segmentation fault: 11` or
-  `Trace/BPT trap: 5` — three faces of one memory corruption. Two confirmed
-  victims, measured by running a FIXED, already-built binary in a loop, which
-  is what rules out every compiler pass: the same bytes succeed and crash
-  across runs, so the fault is in what the program DOES.
+- **DF-151b — ROOT-CAUSED Aug 6 (investigation only; the fix gets its own
+  brief). It is ONE compiler bug, it has nothing to do with machine load, and
+  it is far broader than the two victims: A STRUCT COPY DOES NOT RETAIN ITS
+  REFCOUNTED FIELDS, BUT EVERY BINDING'S SCOPE-EXIT DROP RELEASES THEM.** One
+  allocation, N releases. The surplus releases write into an already-freed
+  malloc block; libmalloc trips over the damage at whatever unrelated
+  allocation comes next, which is why the signal and the crash site look
+  random. See the evidence, the rates and the reproduction below.
+  - **The IR, from a 10-line repro** (`.build/scratch/probe_structcopy.saw`:
+    `struct P { name: String }`, a heap `name` from interpolation, `let b = a`,
+    `let c = b`, three uses). `let b = a` compiles to a bare
+    `load %P` / `store %P` — **no `String_copy` anywhere** — and then `drop.c`,
+    `drop.b`, `drop.a` each call `String_deinit` on the same `interp_buf`
+    pointer. `examples/closure_copyable_struct_copied` is the same defect on a
+    closure field: the env is allocated with `store i64 1, i64* %env_refcount`,
+    `let h2 = h` and `let h3 = h2` copy the `{fn, env, dtor}` triple without
+    touching the count, and the epilogue runs three `atomicrmw sub` on it —
+    the first frees the env, the other two decrement freed memory to -1 and -2.
+  - **A literal-valued field hides it.** String literals are immortal (rc -1),
+    so `String_deinit` on them is a no-op and the same probe is clean. Every
+    string in a repro must come from interpolation or the test is vacuous —
+    this cost the investigation two false negatives.
+  - **Both spellings of "copy" are affected**: local-to-local (`let b = a`) and
+    a BY-VALUE ARGUMENT (`consume(a)` twice, where the callee's epilogue drops
+    the parameter's fields — `blade/src/lock.saw`'s
+    `manifest_deps_hash(m: Manifest)` is exactly this, called twice on the same
+    `m`). Field-wise construction is NOT affected — a struct LITERAL does emit
+    the per-field copy (`Arc$1$Res_copy` in the closure env). Also clean, and
+    therefore not the surface: `StringBuilder.build`, `Vector<String>` +
+    `sort`, `for e in v.iter()`, and enum String-payload binding out of a
+    `match`.
+  - **What the crash actually is.** macOS crash reports (readable at
+    `~/Library/Logs/DiagnosticReports/*.ips`, and far more useful than a core —
+    lldb cannot attach from the agent sandbox, `attach failed ((os/kern)
+    invalid address)`) name it outright:
+    `libsystem_malloc.dylib: "BUG IN CLIENT OF LIBMALLOC: memory corruption of
+    free block"`, `EXC_BREAKPOINT/SIGTRAP` in
+    `_xzm_xzone_malloc_freelist_outlined`. The SIGBUS face is the same damage
+    read a moment later: `EXC_BAD_ACCESS`/`KERN_PROTECTION_FAILURE` inside
+    `mfm_alloc`, reached from `String_split` / `Vector.reserve`. malloc is
+    always the VICTIM, never the culprit; the Saw frame under it is just
+    whoever allocated next.
+  - **Guard Malloc turns it deterministic** — `DYLD_INSERT_LIBRARIES=
+    /usr/lib/libgmalloc.dylib` unmaps a block on free, so the surplus release
+    faults AT the offending instruction. 100% reproduction on every affected
+    program, with the fault landing in the function epilogue (attributed to the
+    last source line at a large symbol offset). This is the tool the fix brief
+    should gate on; a native run cannot see a latent double-release at all
+    (`probe_structcopy` is 0/100 native and 10/10 under gmalloc).
+  Historical note: the entry below was filed believing this was environmental.
+  It is not. Two confirmed victims, measured by running a FIXED, already-built
+  binary in a loop, which is what ruled out every compiler pass at the time:
   - `blade/tests/lock_drift` — **11 crashes / 30 runs** built with this
     brief's compiler, **6 / 30** built from the stashed baseline. The
     bootstrap gate failed on the baseline compiler too
@@ -1407,12 +1452,41 @@ statement dropped its `Result` with no diagnostic.
   #   blade/.build/host/tests/lock_drift               # ~1 crash in 3
   #   .build/closure_copyable_struct_copied            # ~1 crash in 7
   ```
-  Suspect surface: both programs lean on REFCOUNTED ImplicitCopy values —
-  `lock_drift` hashes Manifest deps through Map iteration and String hashing,
-  `closure_copyable_struct_copied` copies a struct holding a closure env. A
-  refcount that can be corrupted or double-released would produce exactly this
-  spread of signals. Worth checking against the concurrent map/set places
-  rewrite before anyone bisects further.
+  **Measured Aug 6 on a deliberately quiet machine, one thing at a time**
+  (`.build/scratch/run_batch.sh`, fixed pre-built binaries, `ulimit -c
+  unlimited`; per-run PID/signal/seconds/loadavg in
+  `.build/scratch/logs/*.tsv`, crashed runs listed in `*.crashes.txt`):
+
+  | phase | loadavg | binary | crashes/100 | signal | secs in |
+  |-------|---------|--------|-------------|--------|---------|
+  | quiet | 0.91 | `closure_copyable_struct_copied` | **21** | SIGTRAP ×21 | 0.001-0.002 |
+  | quiet | 0.83 | `blade lock_drift` | **14** | SIGTRAP ×14 | 0.001-0.002 |
+  | saturated (`irdet --all` beside it) | 8.28 | `closure_copyable_struct_copied` | **15** | SIGTRAP ×15 | 0.003-0.007 |
+  | saturated (`irdet --all` beside it) | 8.28 | `blade lock_drift` | **11** | SIGTRAP ×11 | 0.003-0.007 |
+
+  **Load is not a factor.** 21% and 14% at loadavg <1 against 15% and 11% at
+  loadavg 8+ — if anything slightly lower under load, which is noise. The
+  saturation theory that DF-151b and DF-156b were both filed under is DEAD:
+  these crash on an idle machine at the same rate. Earlier smaller batches the
+  same afternoon also produced the SIGBUS face on `lock_drift`, so the signal
+  spread is not phase-of-the-moon either — it is which allocation trips over
+  the damage first.
+
+  Under Guard Malloc, every one of these is 100%: `closure_copyable_struct_
+  copied` 30/30, `lock_drift` 10/10, and the minimal probes
+  `probe_closurecopy` (struct with a closure field, copied) 10/10,
+  `probe_structcopy` (struct with a heap String field, copied) 10/10,
+  `probe_argpass` (same struct passed by value twice) 10/10.
+
+  **Design 73's residual gap is NOT closed.** `examples/closure_copyable_
+  struct_copied` exists to prove that copying a struct holding a closure
+  retains the env exactly once, and it passes ~79% of the time — but it checks
+  `Arc.strong_count()`, which reads correctly while the env is merely
+  double-released rather than wrong. The test has been passing for the wrong
+  reason since design 73. Whatever fixes this should assert on the ENV
+  refcount, and the brief's gate should run the affected examples under
+  `libgmalloc`, because that is the only configuration in which a latent
+  double-release is visible at all.
 
 ## Design 149 — runtime authoring in Saw (LANDED, Aug 6)
 
@@ -1611,7 +1685,21 @@ Converting it would delete the atomicity that makes the singleton race-safe.
   pre-authorizing (c) as a fallback if (b) could not come within ~15% of the
   interleaved baseline back-to-back under comparable load.
 
-- **DF-156b — `blade test` lost a binary to SIGBUS under saturation, once.**
+- **DF-156b — ANSWERED Aug 6: it is DF-151b, and it was never about
+  saturation.** The deliberate reproduction this entry asked for was run.
+  `lock_drift` crashes **14 times per 100** on an IDLE machine (loadavg 0.83)
+  and **11 per 100** under `irdet --all` (loadavg 8.28) — the same rate, so
+  `blade test` needs no backstop and BLADE's runner is not the surface. The
+  cause is the missing struct-copy retain in DF-151b above, reached here
+  through `manifest_deps_hash(m: Manifest)`, which is called twice on the same
+  by-value `m` while its own epilogue `String_deinit`s that `m`'s three String
+  fields. Under `libgmalloc` it is 10/10.
+  **The "nine seconds in" reading was wrong, and the arithmetic is worth
+  keeping**: `blade test` reports COMPILE + RUN as one duration
+  (`tester.saw run_one`), and the compile is nearly all of it. The binary
+  itself runs in about 2 ms and dies in about 2 ms. So the SIGBUS was never
+  nine seconds into execution, and nothing about it argued against an
+  exec-adjacent cause the way this entry claimed. The original report follows.
   During the DF-156a gate battery (loadavg ~50-60, the compiler suite and
   `irdet --all` both running), `blade_bootstrap` failed its stage1 sweep:
   `.build/host/tests/lock_drift` died of `Bus error: 10` roughly 9s in, with
