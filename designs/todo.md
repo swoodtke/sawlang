@@ -72,7 +72,17 @@ supersedes on the use-site question.
   one already". Regression test:
   `examples/synthesize_across_coro_reentry.saw` (fails before the fix).
 
-- **DF-146b — OPEN, P1, and a DESIGN QUESTION for the lead. `&var self.<field>`
+- **DF-146b — DECIDED (user, Aug 5): OPTION (a), use-site-derived window
+  mutability, confined to the lend expression.** The rule: a borrows body is
+  a `&self` body whose LEND inherits the window's flavor; the general
+  `&var self.<field>`-under-`&self` fence stays a hard error everywhere else.
+  **DOCS MANDATE [user]: call the inconsistency out VERY clearly** — spec
+  Places section gets a prominent callout + the skill a gotcha entry:
+  "`borrows` changes what `&self` means: the receiver is borrowed with the
+  window's flavor, decided at each use site — the one place a `&self`
+  spelling does not mean shared-only" — and `--emit-docs` renders a borrows
+  receiver honestly (window-flavored, not `borrows`=shared). Owned by the
+  146-C continuation. Original finding follows: `&var self.<field>`
   inside a `&self` method compiles and silently writes to a COPY** (found by
   design 146 unit B, Aug 5; PRE-EXISTING, nothing to do with places). A `&self`
   receiver is passed by value, so every `&var` projection out of it addresses
