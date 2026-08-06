@@ -1664,9 +1664,25 @@ tools/irdet.py --all`.
   `examples/df140f_private_static_collision.saw`; the public-collision tests
   (`test_static_collision`, `module_import_collision`) still pass.
 
-- **DF-142a — APPROVED (user, Aug 5): design 144 owns the fix**
-  (module-qualified type identity end to end; queued after 138). Original
-  finding follows: **Private TYPES still collide across modules.**
+- **DF-142a — CLOSED by design 144 (Aug 6).** Type identity is
+  `(defining module, name)` end to end, carried as one fused string in the
+  existing name slots (`Header$m$dep`, reusing design 142's `$m$` delimiter and
+  module tag). Declaration name slots keep what the author wrote and carry the
+  identity alongside; type REFERENCE slots hold the identity, so the layout
+  registry, monomorphization keys, method mangling, the `@synthesize`
+  derivation sets and the conformance table all inherit it. Root (the entry
+  file and the whole single-file path) and std do not qualify, so single-file
+  IR is untouched. Private enums, traits and type aliases are covered along
+  with structs. The merge no longer refuses two modules' PUBLIC same-name
+  types either — they coexist under `import x as` aliasing, and a bare
+  reference is the design-142 use-site ambiguity error naming both modules.
+  Diagnostics and docs render short names (the reporter scrubs the qualifier;
+  `--emit-docs` went to schema_version 2 with a `module` field). Regressions:
+  `examples/d144_private_type_identity.saw` (three `Header`s, `sizeof`
+  asserted pairwise distinct, three `Vector<Header>` sums, three backed-enum
+  tag tables), `d144_public_same_name_alias.saw`, `d144_bare_ambiguity_error.saw`,
+  `d144_docs_module_field.saw`. Original finding follows:
+  **Private TYPES still collide across modules.**
   Two modules each declaring a private `struct Header` is still
   "ambiguous struct `Header`: defined in both `dep` and `<entry>`", the same
   shape as DF-140f. It was left out of that fix deliberately: a static's or

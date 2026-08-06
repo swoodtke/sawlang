@@ -623,6 +623,14 @@ are private by default outside their defining module, and `public` marks the API
 surface. The standard library lives under the same gate: you reach its public
 API, never its internals.
 
+**Type identity** is the defining module plus the name, so a dependency's
+private `struct Header` reserves nothing in your program — you get your own
+`Header`, with its own layout and its own methods. Two packages' *public*
+`Header`s coexist as well; import at least one under an alias
+(`import wire.{Header as WireHeader}`), since one file cannot refer to both by
+the bare name. Using the bare name when two are in scope is a compile error
+naming both modules.
+
 **Prelude discipline**: a curated core is available bare (primitives,
 `Vector`/`Map`/`Set`, `Optional`/`Result`/`Box`/`Arc`, the trait vocabulary,
 `print`/`panic`/`assert`, the concurrency primitives, `StringBuilder`).

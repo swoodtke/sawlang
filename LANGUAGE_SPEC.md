@@ -4383,6 +4383,60 @@ public extension Reading: Describable {
 
 To conform a foreign type to a foreign trait, wrap it in a type you own.
 
+#### Type identity (design 144)
+
+A type is identified by the module that defines it together with its name. Two
+modules that each declare a private `struct Header` declare two different
+types, with two layouts, two `Vector<Header>` instantiations and two sets of
+methods. The same holds for enums, traits and type aliases.
+
+```saw
+// wire.saw
+struct Header {
+    kind: Int
+    length: Int
+}
+
+// main.saw — a different `Header`, and not a conflict.
+struct Header {
+    kind: Int
+}
+```
+
+A private type therefore reserves nothing outside its own module. Before this,
+a dependency's private `Header` made `Header` unusable in every program that
+imported the dependency, for a type the program could not name, construct or
+see.
+
+Public types of the same name coexist too, since they are also two types. What
+one file cannot do is refer to both by the bare name, so import at least one
+under an alias:
+
+```saw
+import parser.{Header as ParserHeader}
+import wire.{Header as WireHeader}
+
+let request = ParserHeader(kind: 1)
+let frame = WireHeader(kind: 2, length: 8)
+```
+
+Importing both under the bare name is legal; using it is not. The error names
+both modules at the use site:
+
+```saw
+import parser.{Header}
+import wire.{Header}
+
+let h = Header(kind: 1)
+// error: ambiguous struct `Header`: defined in both `parser` and `wire`
+// hint: qualify the use (e.g. `parser.Header`), or import `Header` from a
+//       single module
+```
+
+Names are unchanged by any of this. A diagnostic, a `--emit-docs` page and an
+AST dump all show the name as written; where two types would print alike,
+`--emit-docs` carries the defining module in a `module` field beside the name.
+
 ### The prelude (design 82)
 
 Not all of std is auto-visible. The **prelude** — the names usable without an

@@ -765,6 +765,16 @@ import mymodule as mm       // aliasing; `module`/`public`/`package`/`parent`
   needs no import: it is visible wherever the type and the trait both are.
   In practice you almost never notice this rule — you conform your own
   types, and the in-tree migration when it landed was zero.
+- **TYPE IDENTITY is (defining module, name) — design 144.** A dependency's
+  PRIVATE `struct Header` reserves nothing in your program: you declare your
+  own `Header`, with its own layout, methods and `Vector<Header>`. Same for
+  private enums, traits and type aliases. Two packages' PUBLIC same-name types
+  coexist too, but one file cannot spell both bare — import at least one under
+  an alias (`import wire.{Header as WireHeader}`, or `import wire` and write
+  `wire.Header`). A bare use with two in scope is an ambiguity error naming
+  both modules, at the USE site. Nothing about how you WRITE a type changed;
+  names print short everywhere (`--emit-docs` adds a `module` field where two
+  would read alike).
 - **Prelude (design 82) — what's bare vs what needs `import std.X`.** Bare
   (prelude): primitives, `Vector`/`Map`/`Set`, `Optional`/`Result`/`Box`/`Arc`/
   `Allocator`/`GlobalAllocator`, the Copy family + `Deinit`/`Iterator`/
