@@ -25,6 +25,7 @@ from ast_nodes import (
 )
 from namespace import Namespace
 from type_identity import decl_identity
+from const_eval import const_eval, ConstEvalError
 
 
 class StaticAssertError(Exception):
@@ -1088,6 +1089,21 @@ class CodeGenerator(ResultsMixin, MatchMixin, StructsMixin, CollectionsMixin, Ca
             return ir.Constant(llvm_type, -expr.operand.value)
         if isinstance(expr, ArrayLiteral):
             elem_saw = saw_type.array_element_type
+            if expr.repeat_count is not None:
+                # `static BUF: [Int8; 4096] = [0; 4096]` (design 148). An
+                # all-zero repeat is `zeroinitializer` and lands in .bss, which
+                # is what makes a large zeroed static free; a non-zero one is
+                # spelled out, since .data has to carry the bytes regardless.
+                count = saw_type.array_size
+                if count is None:
+                    count = const_eval(expr.repeat_count,
+                                       env=self._const_param_env(),
+                                       metric=self._const_type_metric,
+                                       width=self.int_width)
+                val = self._const_from_expr(expr.elements[0], elem_saw)
+                if self._is_zero_constant(val):
+                    return ir.Constant(llvm_type, None)
+                return ir.Constant(llvm_type, [val] * count)
             elems = [self._const_from_expr(e, elem_saw) for e in expr.elements]
             return ir.Constant(llvm_type, elems)
         if isinstance(expr, FunctionCall) and getattr(expr, 'is_atomic_construct', False):
@@ -1681,59 +1697,36 @@ class CodeGenerator(ResultsMixin, MatchMixin, StructsMixin, CollectionsMixin, Ca
                 f"static assertion failed: {sa.message}", sa.line, sa.column)
 
     def _const_eval(self, expr, sa):
-        """Compile-time-evaluate a constant expression to a Python int/bool for
-        static_assert (design 53). Supports integer/bool literals, unary `-`/
-        `not`, arithmetic/comparison/logical operators, `sizeof<T>()`/
-        `alignof<T>()`, and the `Int.max`/`.min` integer limits. Anything else is
-        rejected as non-constant with a clean error."""
-        if isinstance(expr, BoolLiteral):
-            return bool(expr.value)
-        if isinstance(expr, IntLiteral):
-            return int(expr.value)
-        if isinstance(expr, UnaryOp):
-            if expr.op == '-':
-                return -self._const_eval(expr.operand, sa)
-            if expr.op == 'not':
-                return not self._const_eval(expr.operand, sa)
-            self._reject_const(expr, sa, f"unary operator `{expr.op}`")
-        if isinstance(expr, BinaryOp):
-            left = self._const_eval(expr.left, sa)
-            right = self._const_eval(expr.right, sa)
-            op = expr.op
-            if op == '+': return left + right
-            if op == '-': return left - right
-            if op == '*': return left * right
-            if op == '/':
-                if right == 0:
-                    self._reject_const(expr, sa, "division by zero")
-                q = abs(left) // abs(right)
-                return -q if (left < 0) ^ (right < 0) else q
-            if op == '%':
-                if right == 0:
-                    self._reject_const(expr, sa, "modulo by zero")
-                r = abs(left) % abs(right)
-                return -r if left < 0 else r
-            if op == '==': return left == right
-            if op == '!=': return left != right
-            if op == '<': return left < right
-            if op == '>': return left > right
-            if op == '<=': return left <= right
-            if op == '>=': return left >= right
-            if op == '&&': return bool(left) and bool(right)
-            if op == '||': return bool(left) or bool(right)
-            self._reject_const(expr, sa, f"operator `{op}`")
-        if isinstance(expr, FunctionCall):
-            if expr.name == 'sizeof':
-                return self._const_type_metric(expr, sa, 'size')
-            if expr.name == 'alignof':
-                return self._const_type_metric(expr, sa, 'align')
-            self._reject_const(expr, sa, f"call to `{expr.name}`")
-        if isinstance(expr, MemberAccess):
-            limit = getattr(expr, 'int_limit', None)
-            if limit is not None:
-                return self._const_int_limit(limit)
-            self._reject_const(expr, sa, "this member access")
-        self._reject_const(expr, sa, type(expr).__name__)
+        """Compile-time-evaluate a `static_assert` condition (design 53).
+
+        The evaluation itself lives in `const_eval.py` (design 148), which is
+        also what an array length and a repeat count go through — one grammar,
+        one set of arithmetic semantics, no drift. Codegen supplies the two
+        things only it has: the ABI layout oracle behind `sizeof`/`alignof`, and
+        the const generic bindings currently in scope, so
+        `static_assert(N >= 8, ...)` inside a generic body reads its own `N`.
+        """
+        try:
+            return const_eval(expr, env=self._const_param_env(),
+                              metric=self._const_type_metric,
+                              width=self.int_width)
+        except ConstEvalError as e:
+            raise StaticAssertError(
+                f"static_assert condition is not a compile-time constant: "
+                f"{e.what} is not allowed here", sa.line, sa.column) from None
+
+    def _const_param_env(self):
+        """The const generic parameters bound in the frame being generated.
+
+        `type_param_context` maps every parameter of the current instantiation
+        to its argument; the const ones carry a value rather than a type, and
+        only those become names an expression may read (design 148).
+        """
+        env = {}
+        for name, t in (self.type_param_context or {}).items():
+            if t is not None and t.kind == TypeKind.CONST_VALUE:
+                env[name] = t.const_value
+        return env
 
     # ---------------------------------------------------------------------
     # ABI layout queries (design 115 re-entrancy).
@@ -1754,10 +1747,8 @@ class CodeGenerator(ResultsMixin, MatchMixin, StructsMixin, CollectionsMixin, Ca
         return llvm_type.get_abi_alignment(self.target_data,
                                            context=self.module.context)
 
-    def _const_type_metric(self, expr, sa, which):
-        if not expr.type_args or len(expr.type_args) != 1:
-            self._reject_const(expr, sa, f"`{expr.name}` needs one type argument")
-        saw_type = expr.type_args[0]
+    def _const_type_metric(self, saw_type, which):
+        """The layout oracle `const_eval` calls for `sizeof`/`alignof`."""
         if (saw_type.kind == TypeKind.STRUCT
                 and saw_type.struct_name in self.type_param_context):
             saw_type = self.type_param_context[saw_type.struct_name]
@@ -1765,20 +1756,6 @@ class CodeGenerator(ResultsMixin, MatchMixin, StructsMixin, CollectionsMixin, Ca
         if which == 'size':
             return self._abi_size(llvm_type)
         return self._abi_align(llvm_type)
-
-    def _const_int_limit(self, limit):
-        type_name, which = limit
-        width, signed = self._INT_LIMIT_SPECS[type_name]
-        if width is None:
-            width = self.int_width
-        if which == "max":
-            return (1 << (width - 1)) - 1 if signed else (1 << width) - 1
-        return -(1 << (width - 1)) if signed else 0
-
-    def _reject_const(self, expr, sa, what):
-        raise StaticAssertError(
-            f"static_assert condition is not a compile-time constant: "
-            f"{what} is not allowed here", sa.line, sa.column)
 
     # _resolve_type_alias is now in codegen_types.py (TypesMixin)
 

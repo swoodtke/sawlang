@@ -1,0 +1,11 @@
+// Design 148 unit B: the count is a LENGTH, and a length is fixed at compile
+// time. A runtime binding in that position is refused by name — a fixed array
+// whose size depended on a local would have no type to speak of.
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: repeat count is not a compile-time constant
+// EXPECT-ERROR-CONTAINS: `n`
+func main() {
+    var n = 4
+    let xs = [0; n]
+    print(xs[0])
+}

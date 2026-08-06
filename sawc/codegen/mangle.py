@@ -27,6 +27,7 @@ identifier, so it can never appear inside a user type name):
     tuple          := '$Tup$' <arity> ('$' type)*
     optional       := '$Opt$' type
     array          := '$Arr$' <size> '$' type
+    const_value    := '$C$' [ 'n' ] <digits>      # const generic value (design 148)
     pointer        := ('$PtrM$' | '$PtrC$') type
     reference      := ('$RefM$' | '$RefC$') type
     existential    := '$Any$' TraitName                       # `any Trait` (design 51)
@@ -52,12 +53,14 @@ grammar above still decodes, since the qualifier is part of the `Name` and a
 name is terminated by the `$<arity>$` that follows it or by the end of the
 string.
 
-Seam for const generics (design 148): the monomorphization key is
+Const generics (design 148): the monomorphization key is
 `mangle_named(base, type_args)` and the extension point is `type_args`. Design
 144 fused the defining module into `base`, which is the half that is fixed at
 DECLARATION; a value argument is a type-argument-list member and appends there,
-alongside the type arguments, with no change to this grammar beyond a new
-encoding arm in `mangle_type`'s dispatch.
+alongside the type arguments. That is exactly what landed — `TypeKind.CONST_VALUE`
+with the `$C$` arm below — so `FixedBuf<256>` mangles as `FixedBuf$1$$C$256` and
+`FixedBuf<256>` vs `FixedBuf<512>` are two monomorphizations by construction,
+through the same code path that already separated `Box<Int>` from `Box<String>`.
 """
 
 from ast_nodes import SawType, TypeKind
@@ -109,6 +112,15 @@ def mangle_type(t: SawType) -> str:
     if kind == TypeKind.ARRAY:
         size = t.array_size if t.array_size is not None else 0
         return f"$Arr${size}$" + mangle_type(t.array_element_type)
+
+    if kind == TypeKind.CONST_VALUE:
+        # A const generic VALUE argument (design 148). `N` in the encoding is
+        # `neg` for a negative value, since `-` is not an LLVM identifier
+        # character; the tag keeps values in their own space, so a
+        # `Buf<256>` can never collide with a type named `256` (unwritable) or
+        # with any other argument form.
+        v = t.const_value if t.const_value is not None else 0
+        return f"$C${'n' if v < 0 else ''}{abs(v)}"
 
     if kind == TypeKind.POINTER:
         tag = "$PtrM$" if t.pointer_mutable else "$PtrC$"

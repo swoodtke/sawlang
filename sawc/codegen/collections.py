@@ -13,6 +13,7 @@ from llvmlite import ir
 from ast_nodes import (TupleLiteral, TupleIndex, ArrayLiteral, ArrayIndex, IntLiteral,
                        MapLiteral, SetLiteral, FunctionCall, MethodCall, Identifier,
                        Argument, SawType, TypeKind)
+from const_eval import const_eval
 
 
 class CollectionsMixin:
@@ -139,6 +140,9 @@ class CollectionsMixin:
             return self._build_collection_literal(
                 vec_ct, expr, "push", [[e] for e in expr.elements])
 
+        if expr.repeat_count is not None:
+            return self._generate_repeat_literal(expr)
+
         if len(expr.elements) == 0:
             raise ValueError("Empty array literals not supported")
 
@@ -155,6 +159,103 @@ class CollectionsMixin:
             array_val = self.builder.insert_value(array_val, val, i, name=f"arr_{i}")
 
         return array_val
+
+    # A constant repeat wider than this emits a splat loop rather than an
+    # N-entry constant array: the constant is correct at any width, but it is
+    # spelled out element by element in the IR, and `[4096 x i8]` written long
+    # hand is worse for compile time than a four-instruction loop. An all-zero
+    # constant is exempt — it spells `zeroinitializer` at any width, which is
+    # the memset the repeat literal exists to give you.
+    _REPEAT_CONST_LIMIT = 32
+
+    def _generate_repeat_literal(self, expr: ArrayLiteral):
+        """Lower `[v; N]` — N copies of one value (design 148).
+
+        Three shapes, cheapest first: an all-zero constant becomes
+        `zeroinitializer` (which is the memset — `[0; 4096]` is one store); a
+        small non-zero constant becomes a constant array; anything else stores
+        the value into an alloca through a counted loop. The value expression is
+        evaluated EXACTLY ONCE either way, which is what makes the element's
+        copy policy the typechecker's business rather than a surprise here.
+        """
+        arr_saw = getattr(expr, 'resolved_type', None)
+        count = arr_saw.array_size if arr_saw is not None else None
+        if count is None:
+            # An abstract generic body stamped a length it could not evaluate;
+            # this instantiation can (design 148 unit C).
+            count = const_eval(expr.repeat_count, env=self._const_param_env(),
+                               metric=self._const_type_metric,
+                               width=self.int_width)
+        elem_saw = arr_saw.array_element_type if arr_saw is not None else None
+        needs_cleanup = elem_saw is not None and self._needs_cleanup(elem_saw)
+
+        value = self._gen_transfer_value(expr.elements[0])
+        array_type = ir.ArrayType(value.type, count)
+
+        if count == 0:
+            # No slot takes the value, so the one reference it owns has to go
+            # somewhere — dropping it on the floor would leak.
+            if needs_cleanup:
+                tmp = self._entry_alloca(value.type, name="repeat_unused")
+                self.builder.store(value, tmp)
+                self._emit_release_at(tmp, elem_saw)
+            return ir.Constant(array_type, None)
+
+        if isinstance(value, ir.Constant) and not needs_cleanup:
+            if self._is_zero_constant(value):
+                return ir.Constant(array_type, None)      # zeroinitializer
+            if count <= self._REPEAT_CONST_LIMIT:
+                return ir.Constant(array_type, [value] * count)
+
+        # Splat loop. Slot 0 takes the value's own reference; every later slot
+        # takes a fresh one, which is why the retain is inside the loop and the
+        # loop starts at 1.
+        i32 = ir.IntType(32)
+        zero32 = ir.Constant(i32, 0)
+        arr_ptr = self._entry_alloca(array_type, name="repeat")
+        first = self.builder.gep(arr_ptr, [zero32, zero32], name="repeat_0")
+        self.builder.store(value, first)
+
+        if count > 1:
+            idx_ptr = self._entry_alloca(self.int_type, name="repeat_i")
+            self.builder.store(ir.Constant(self.int_type, 1), idx_ptr)
+            cond_bb = self.builder.append_basic_block("repeat_cond")
+            body_bb = self.builder.append_basic_block("repeat_body")
+            done_bb = self.builder.append_basic_block("repeat_done")
+
+            self.builder.branch(cond_bb)
+            self.builder.position_at_end(cond_bb)
+            i = self.builder.load(idx_ptr, name="repeat_idx")
+            self.builder.cbranch(
+                self.builder.icmp_signed(
+                    '<', i, ir.Constant(self.int_type, count), name="repeat_more"),
+                body_bb, done_bb)
+
+            self.builder.position_at_end(body_bb)
+            elem_ptr = self.builder.gep(arr_ptr, [zero32, i], name="repeat_slot")
+            self.builder.store(value, elem_ptr)
+            if needs_cleanup:
+                self._emit_retain_at(elem_ptr, elem_saw)
+            self.builder.store(
+                self.builder.add(i, ir.Constant(self.int_type, 1), name="repeat_next"),
+                idx_ptr)
+            self.builder.branch(cond_bb)
+
+            self.builder.position_at_end(done_bb)
+
+        return self.builder.load(arr_ptr, name="repeat_val")
+
+    @staticmethod
+    def _is_zero_constant(value) -> bool:
+        """Whether an LLVM constant is the all-zero bit pattern."""
+        c = getattr(value, 'constant', None)
+        if c is None:
+            return False
+        if isinstance(c, bool):
+            return c is False
+        if isinstance(c, (int, float)):
+            return c == 0
+        return False
 
     def _generate_array_index(self, expr: ArrayIndex):
         """Generate code for array or tuple indexing with [index] syntax."""

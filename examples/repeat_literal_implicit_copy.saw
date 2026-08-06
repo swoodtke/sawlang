@@ -1,0 +1,31 @@
+// Design 148 unit B: an ImplicitCopy element repeats by retaining, once per
+// slot. The value is evaluated ONCE; slot 0 takes its reference and every later
+// slot takes a fresh one, so the array's teardown releases exactly as many as
+// were taken — no double free, no leak.
+// EXPECT: success
+// EXPECT-OUTPUT:
+// hi
+// hi
+// hi
+// 3
+// built
+// built
+
+func label() -> String {
+    "hi"
+}
+
+func main() {
+    let greetings = [label(); 3]
+    print(greetings[0])
+    print(greetings[1])
+    print(greetings[2])
+    print(greetings.len())
+
+    // A repeat of a binding rather than a call result: the binding stays valid,
+    // since ImplicitCopy transfers by retain.
+    let word = "built"
+    let words = [word; 2]
+    print(words[0])
+    print(word)
+}

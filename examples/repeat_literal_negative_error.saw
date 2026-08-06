@@ -1,0 +1,8 @@
+// Design 148 unit B: a repeat count counts elements, so it starts at 0. A
+// negative one is a clean error rather than a nonsense array type.
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: repeat count is negative
+func main() {
+    let xs = [0; 3 - 5]
+    print(xs.len())
+}

@@ -824,6 +824,20 @@ class ASTDumper:
             self._dedent()
 
         elif isinstance(expr, ArrayLiteral):
+            if expr.repeat_count is not None:
+                # Repeat literal `[v; N]` (design 148): one value, a count.
+                self._emit("ArrayLiteral [repeat]")
+                self._indent()
+                self._emit("value:")
+                self._indent()
+                self._dump_expression(expr.elements[0])
+                self._dedent()
+                self._emit("count:")
+                self._indent()
+                self._dump_expression(expr.repeat_count)
+                self._dedent()
+                self._dedent()
+                return
             self._emit(f"ArrayLiteral [{len(expr.elements)} elements]")
             self._indent()
             for i, elem in enumerate(expr.elements):
@@ -1087,6 +1101,9 @@ class ASTDumper:
         elif isinstance(expr, StructInit):
             return f"{_short(expr.struct_name)}(...)"
         elif isinstance(expr, ArrayLiteral):
+            if expr.repeat_count is not None:
+                return (f"[{self._expr_summary(expr.elements[0])}; "
+                        f"{self._expr_summary(expr.repeat_count)}]")
             return f"[{len(expr.elements)} elements]"
         elif isinstance(expr, UnaryOp):
             return f"{expr.op}{self._expr_summary(expr.operand)}"

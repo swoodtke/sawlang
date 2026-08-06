@@ -1,0 +1,10 @@
+// Design 148 unit B: a repeat literal builds a FIXED array. A `[..]` literal
+// becomes a Vector when the expected type says so (design 54), but "a Vector of
+// N zeros" is construction, not a literal — so the annotation is refused by name
+// instead of silently producing a fixed array where a Vector was written.
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: repeat literal `[v; N]` builds a fixed array
+func main() {
+    let v: Vector<Int> = [0; 8]
+    print(v.len())
+}

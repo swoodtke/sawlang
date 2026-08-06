@@ -1145,6 +1145,10 @@ class RegistrationMixin:
         if isinstance(expr, UnaryOp) and expr.op == '-':
             return isinstance(expr.operand, (IntLiteral, FloatLiteral))
         if isinstance(expr, ArrayLiteral):
+            # A repeat literal `[v; N]` holds its single value in `elements`, and
+            # its count is a compile-time constant by construction (design 148),
+            # so the same test decides both forms: constant elements, constant
+            # array. `static BUF: [Int8; 4096] = [0; 4096]` is the point.
             return all(self._is_const_init(e) for e in expr.elements)
         if isinstance(expr, StructInit):
             return all(self._is_const_init(v) for _n, v in expr.field_inits)

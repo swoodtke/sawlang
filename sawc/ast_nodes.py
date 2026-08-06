@@ -77,6 +77,13 @@ class TypeKind(Enum):
     MODULE = auto()      # For module references during qualified access
     REFERENCE = auto()   # For reference types: &T (immutable), &var T (mutable)
     EXISTENTIAL = auto() # For `any Trait` type-erased existentials (design 51)
+    CONST_VALUE = auto() # A const generic ARGUMENT: the `256` in `FixedBuf<256>`
+                         # (design 148). It rides the type-argument list because
+                         # that is what it is — a member of the tuple that
+                         # identifies an instantiation — so substitution,
+                         # mangling and type equality all reach it through
+                         # machinery that already existed. `const_value` holds
+                         # the integer; `inner_type` its declared Int/UInt type.
     NEVER = auto()       # Bottom type: the result of a diverging expression
                          # (`panic(...)`). Assignable to any expected type; a
                          # function body ending in one needs no return value
@@ -91,6 +98,36 @@ class TypeKind(Enum):
     UINT16 = auto()
     UINT32 = auto()
     UINT64 = auto()
+
+
+def const_expr_str(expr) -> str:
+    """Render a constant expression the way its author wrote it (design 148).
+
+    Used where a length or a const argument has not been evaluated yet — inside
+    the abstract half of a generic body, `[UInt8; N]` has no number, and a
+    diagnostic there has to name `N`. Covers exactly the const grammar; anything
+    else falls back to a placeholder rather than raising, since this only ever
+    feeds a message.
+    """
+    if expr is None:
+        return "?"
+    name = type(expr).__name__
+    if name in ("IntLiteral", "BoolLiteral"):
+        return str(expr.value)
+    if name == "Identifier":
+        return expr.name
+    if name == "UnaryOp":
+        sep = " " if expr.op == "not" else ""
+        return f"{expr.op}{sep}{const_expr_str(expr.operand)}"
+    if name == "BinaryOp":
+        return (f"{const_expr_str(expr.left)} {expr.op} "
+                f"{const_expr_str(expr.right)}")
+    if name == "FunctionCall":
+        args = ", ".join(str(t) for t in (expr.type_args or []))
+        return f"{expr.name}<{args}>()" if args else f"{expr.name}()"
+    if name == "MemberAccess":
+        return f"{const_expr_str(expr.object)}.{expr.member}"
+    return "?"
 
 
 @dataclass
@@ -116,6 +153,16 @@ class SawType:
     # For array types, this holds the element type and size
     array_element_type: Optional['SawType'] = None
     array_size: Optional[int] = None
+    # For an array whose length is written as something other than a literal
+    # (design 148): the const expression as parsed. `array_size` is filled in
+    # the moment the expression can be evaluated — at type resolution for a
+    # ground length like `[Int8; 2 * 128]`, at substitution for a symbolic one
+    # like `[UInt8; N]`. Everything downstream reads `array_size`, so an array
+    # that has reached codegen always has a number; this field is what carries
+    # the length through the abstract half of a generic body, where it does not.
+    array_size_expr: Optional[Any] = None
+    # For CONST_VALUE: the integer this argument denotes.
+    const_value: Optional[int] = None
     # For function types, this holds the parameter types and return type
     param_types: Optional[List['SawType']] = None
     func_return_type: Optional['SawType'] = None
@@ -206,8 +253,15 @@ class SawType:
             return _short(self.enum_name)
         if self.kind == TypeKind.TYPE_PARAM and self.type_param_name:
             return self.type_param_name
+        if self.kind == TypeKind.CONST_VALUE:
+            return str(self.const_value)
         if self.kind == TypeKind.ARRAY and self.array_element_type is not None:
-            return f"[{self.array_element_type}; {self.array_size}]"
+            # A length that has not been evaluated yet renders as what the
+            # author wrote (`[UInt8; N]`), which is what a diagnostic inside an
+            # abstract generic body has to say — `None` would name nothing.
+            size = (self.array_size if self.array_size is not None
+                    else const_expr_str(self.array_size_expr))
+            return f"[{self.array_element_type}; {size}]"
         if self.kind == TypeKind.FUNCTION:
             params = ", ".join(str(t) for t in (self.param_types or []))
             # Canonical post-parameter effect-slot order (designs 136, 141):
@@ -777,17 +831,35 @@ class TupleIndex(Expression):
 
 @dataclass
 class ArrayLiteral(Expression):
-    """Array literal: [1, 2, 3].
+    """Array literal: [1, 2, 3], or the repeat literal [v; N] (design 148).
 
     By default lowers to a fixed-size array. When the EXPECTED type (from a
     binding annotation, parameter, return, or struct field) is `Vector<T, A>`,
     the typechecker stamps `vector_container_type` and it builds a Vector
-    instead (design 54 Part 4)."""
+    instead (design 54 Part 4).
+
+    A REPEAT literal sets `repeat_count` and holds its single value in
+    `elements[0]`. Keeping it on this node rather than minting a second one is
+    what it is — an array literal whose elements are all the same — and it means
+    every walker that already visits `elements` keeps visiting the value with no
+    change. The count is a compile-time constant, so it contains no call and no
+    suspension and needs no walker of its own."""
     elements: List[Expression]
 
     # Set when the expected type made this literal build a Vector rather than a
     # fixed array (design 54 Part 4 / design 126 R1).
     vector_container_type: Optional['SawType'] = annotation(None)
+
+    # `N` in `[v; N]` (design 148): the count expression as written.
+    #
+    # Declared as an ANNOTATION even though the author wrote it, because the
+    # classification is about what WALKERS should do with a field, and this one
+    # is compile-time-only: it never lowers to an instruction, so the coroutine
+    # transform's hoist must not lift it into a `let` (that would turn a
+    # constant into a runtime binding and the count would stop being constant on
+    # the post-transform re-check). `substitute_ast_types` still visits it,
+    # which is what a `[v; N]` inside a generic body needs.
+    repeat_count: Optional[Expression] = annotation(None)
 
 
 @dataclass

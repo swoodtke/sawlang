@@ -719,22 +719,32 @@ class ExpressionsMixin:
             return self.parse_for_statement()
 
         elif self.match(TokenType.LBRACKET):
-            # Array literal: [1, 2, 3]
+            # Array literal: [1, 2, 3] — or the REPEAT literal [v; N] (design
+            # 148), N copies of one value. The `;` after the first element is
+            # what tells them apart, and it can mean nothing else inside `[ ]`,
+            # so no lookahead or backtracking is needed. It reads like the array
+            # TYPE it produces: `[0; 256]` has type `[Int; 256]`.
             start = self.current()
             self.advance()  # consume '['
 
             elements = []
+            repeat_count = None
             if not self.match(TokenType.RBRACKET):
                 elements.append(self.parse_expression())
-                while self.match(TokenType.COMMA):
+                if self.match(TokenType.SEMICOLON):
                     self.advance()
-                    # Allow trailing comma
-                    if self.match(TokenType.RBRACKET):
-                        break
-                    elements.append(self.parse_expression())
+                    repeat_count = self.parse_expression()
+                else:
+                    while self.match(TokenType.COMMA):
+                        self.advance()
+                        # Allow trailing comma
+                        if self.match(TokenType.RBRACKET):
+                            break
+                        elements.append(self.parse_expression())
 
             self.expect(TokenType.RBRACKET, "Expected ']' after array elements")
-            return ArrayLiteral(elements=elements, line=start.line, column=start.column)
+            return ArrayLiteral(elements=elements, repeat_count=repeat_count,
+                                line=start.line, column=start.column)
 
         elif self.match(TokenType.LBRACE):
             # A `{` opens a closure/block, a map literal `{k: v}` / `{:}`, or a

@@ -11,6 +11,7 @@ Usage:
 
 from llvmlite import ir
 from ast_nodes import StructInit, MemberAccess, Identifier, EnumInit, TypeKind
+from const_eval import INT_LIMIT_SPECS
 
 
 class StructsMixin:
@@ -165,12 +166,10 @@ class StructsMixin:
             return self.builder.sext(value, field_llvm, name="field_sext")
         return self.builder.zext(value, field_llvm, name="field_zext")
 
-    # Design 53 integer limits: (type name) -> (bit width or None for platform, is_signed).
-    _INT_LIMIT_SPECS = {
-        'Int': (None, True), 'UInt': (None, False),
-        'Int8': (8, True), 'Int16': (16, True), 'Int32': (32, True), 'Int64': (64, True),
-        'UInt8': (8, False), 'UInt16': (16, False), 'UInt32': (32, False), 'UInt64': (64, False),
-    }
+    # Design 53 integer limits: (type name) -> (bit width or None for platform,
+    # is_signed). Shared with the constant evaluator (design 148), so the value
+    # a `static_assert` folds and the value this emits can never disagree.
+    _INT_LIMIT_SPECS = INT_LIMIT_SPECS
 
     def _generate_member_access(self, expr: MemberAccess):
         """Generate code for member access on structs or enum variant access."""

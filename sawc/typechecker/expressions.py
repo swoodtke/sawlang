@@ -31,6 +31,7 @@ from ast_nodes import (
     Argument,
 )
 from errors import ErrorKind
+from const_eval import const_eval, ConstEvalError
 from namespace import Visibility, EnumSymbol
 
 
@@ -3489,6 +3490,9 @@ class ExpressionsMixin:
                 and expected.struct_name == "Vector" and expected.type_args):
             vec_elem = expected.type_args[0]
 
+        if expr.repeat_count is not None:
+            return self._check_repeat_literal(expr, vec_elem, expected)
+
         if len(expr.elements) == 0:
             if vec_elem is not None:
                 # Empty Vector via context: `let v: Vector<Int> = []`.
@@ -3532,6 +3536,116 @@ class ExpressionsMixin:
             expr.vector_container_type = expected
             return expected
         return SawType(TypeKind.ARRAY, array_element_type=first_type, array_size=len(expr.elements))
+
+    def _check_repeat_literal(self, expr: ArrayLiteral, vec_elem, expected):
+        """Check a repeat literal `[v; N]` — N copies of one value (design 148).
+
+        `[0; 256]` is what finally spells a zero stack buffer; before it, the
+        only way to write one was 256 literal zeros, which is why the panic
+        scratch buffer had to be allocated by the compiler rather than in Saw
+        (DF-137b).
+        """
+        # A repeat literal is a FIXED array. `let v: Vector<Int> = [0; 8]` would
+        # have to mean "a Vector of 8 zeros", which is `Vector` construction and
+        # not a literal at all — refusing it by name beats silently building an
+        # 8-element fixed array where a Vector was annotated.
+        if vec_elem is not None:
+            self._error(
+                ErrorKind.TYPE_MISMATCH,
+                f"a repeat literal `[v; N]` builds a fixed array, not a "
+                f"`{expected}`",
+                expr.line, expr.column,
+                hint="drop the annotation to get `[T; N]`, or build the vector "
+                     "with a loop of `push`")
+            return None
+
+        value = expr.elements[0]
+        elem_type = self._check_expression(value)
+        if elem_type is None:
+            return None
+
+        count = self._const_count(expr.repeat_count, "repeat count")
+        if count is None:
+            return None
+        if count < 0:
+            self._error(
+                ErrorKind.TYPE_MISMATCH,
+                f"repeat count is negative (`{count}`)",
+                expr.repeat_count.line, expr.repeat_count.column,
+                hint="an array length counts elements, so it starts at 0")
+            return None
+
+        # Every copy is a copy. A trivially-copyable element is duplicated
+        # bitwise and an ImplicitCopy one retains N times, both of which the
+        # value's own transfer checkpoint below accounts for. An ExplicitCopy or
+        # NoCopy element cannot be: `move v` transfers ONE value and there is no
+        # spelling for "and N-1 more", so the literal is refused by name rather
+        # than quietly aliasing the same buffer N times.
+        if count > 1 and not (self._is_trivially_copyable(elem_type)
+                              or self._is_implicit_copy_type(elem_type)):
+            if self._is_no_copy_type(elem_type):
+                policy, hint = "NoCopy", (
+                    "a NoCopy value has exactly one owner, so there is nothing "
+                    "to repeat — build the array element by element, moving a "
+                    "separate value into each slot")
+            else:
+                policy, hint = "ExplicitCopy", (
+                    "an ExplicitCopy value duplicates only where you write "
+                    "`.copy()` — build the array element by element so each "
+                    "copy is spelled out")
+            self._error(
+                ErrorKind.CANNOT_COPY,
+                f"a repeat literal needs a freely copyable element, and "
+                f"`{elem_type}` is {policy}",
+                value.line, value.column, hint=hint)
+            return None
+
+        self._check_value_transfer(value, elem_type, "array element",
+                                   value.line, value.column)
+        return SawType(TypeKind.ARRAY, array_element_type=elem_type,
+                       array_size=count)
+
+    def _const_count(self, expr, what: str) -> Optional[int]:
+        """Evaluate a compile-time count/length, or report why it is not one.
+
+        The one evaluator (`const_eval.py`) answers here, in `static_assert`,
+        and in an array length, so the three can never disagree about what a
+        constant is. The typechecker passes no layout oracle — it knows the word
+        width but not struct layout — so `sizeof<T>()` in a length is rejected
+        by name here and folded later, in codegen, where the layout exists.
+        """
+        # Type-check it first: that surfaces an ordinary type error in the
+        # count (and stamps the `Int.max` annotation the evaluator reads)
+        # before the constant question is asked.
+        if self._check_expression(expr) is None:
+            return None
+        try:
+            value = const_eval(expr, env=self._const_param_env(),
+                               width=self.platform_int_width)
+        except ConstEvalError as e:
+            self._error(
+                ErrorKind.TYPE_MISMATCH,
+                f"{what} is not a compile-time constant: {e.what} is not "
+                f"allowed here",
+                e.line or expr.line, e.column or expr.column,
+                hint="a length is fixed at compile time — use a literal, a "
+                     "const generic parameter, or arithmetic over them")
+            return None
+        if isinstance(value, bool) or not isinstance(value, int):
+            self._error(
+                ErrorKind.TYPE_MISMATCH,
+                f"{what} must be an integer",
+                expr.line, expr.column)
+            return None
+        return value
+
+    def _const_param_env(self):
+        """The const generic parameters in scope, as name -> value.
+
+        Empty until a declaration takes one (design 148 unit C); the plumbing
+        lives here so every constant position reads them the same way.
+        """
+        return getattr(self, 'current_const_params', None) or {}
 
     def _check_map_literal(self, expr: MapLiteral) -> Optional[SawType]:
         """Check a map literal `{k: v, ...}` / `{:}` (design 54 Part 3).
