@@ -1,0 +1,71 @@
+//! `--emit-docs` renders a static's full declaration (design 149).
+//
+// An `unsafe static var` is a different declaration from an immutable static:
+// it is writable, and naming it makes the reader's own function `unsafe`. A
+// documented signature that said only `static LIVE: Int` would hide both, so
+// the signature spells the declaration and two explicit flags carry it to a
+// generator that does not parse signatures.
+
+// EXPECT: docs
+// COMPILE-FLAGS: --emit-docs
+// EXPECT-OUTPUT:
+// {
+//   "schema_version": 2,
+//   "modules": [
+//     {
+//       "name": "doc_emit_static_var",
+//       "source": "doc_emit_static_var.saw",
+//       "doc": "`--emit-docs` renders a static's full declaration (design 149).",
+//       "items": [
+//         {
+//           "kind": "func",
+//           "name": "free_slots",
+//           "signature": "public func free_slots() unsafe -> Int",
+//           "visibility": "public",
+//           "generics": [],
+//           "params": [],
+//           "returns": "Int",
+//           "effect": "unsafe sync",
+//           "self": null,
+//           "doc": "Returns the number of free slots.",
+//           "line": 69
+//         },
+//         {
+//           "kind": "static",
+//           "name": "CAPACITY",
+//           "signature": "public static CAPACITY: Int",
+//           "visibility": "public",
+//           "unsafe": false,
+//           "mutable": false,
+//           "type": "Int",
+//           "doc": "The number of handle slots the table holds.",
+//           "line": 61
+//         },
+//         {
+//           "kind": "static",
+//           "name": "LIVE",
+//           "signature": "public unsafe static var LIVE: Int",
+//           "visibility": "public",
+//           "unsafe": true,
+//           "mutable": true,
+//           "type": "Int",
+//           "doc": "Live handle count.\n\nSerialized by the caller holding interrupts off for the whole update.",
+//           "line": 66
+//         }
+//       ]
+//     }
+//   ]
+// }
+
+/// The number of handle slots the table holds.
+public static CAPACITY: Int = 64
+
+/// Live handle count.
+///
+/// Serialized by the caller holding interrupts off for the whole update.
+public unsafe static var LIVE: Int = 0
+
+/// Returns the number of free slots.
+public func free_slots() unsafe -> Int {
+    CAPACITY - LIVE
+}

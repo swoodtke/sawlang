@@ -1,0 +1,15 @@
+// A runtime provider: it implements a `__saw_rt_*` seam itself. Exporting one
+// of those names is refused outright unless the compiler was told this package
+// has the runtime role, which is what `[package] runtime = true` in Saw.toml
+// says and what Blade turns into `--runtime-provider`.
+@export("__saw_rt_sleep_ms")
+func k_sleep(ms: Int) {
+    var spun = 0
+    while spun < ms {
+        spun = spun + 1
+    }
+}
+
+func main() {
+    print("kernelrt")
+}

@@ -379,10 +379,18 @@ class DocsBuilder:
 
     def _static_item(self, s) -> Dict[str, Any]:
         ty = _type_str(s.type)
+        # design 149: an `unsafe static var` is a different declaration from an
+        # immutable static — it is writable, and naming it makes the reader's
+        # own function `unsafe`. Both facts belong in the documented signature.
+        # The two halves are set together, so one flag renders both words.
+        head = "unsafe static var" if getattr(s, 'is_var', False) else "static"
         return {
             "kind": "static", "name": s.name,
-            "signature": "%sstatic %s: %s" % (_vis_prefix(s.visibility), s.name, ty),
+            "signature": "%s%s %s: %s" % (_vis_prefix(s.visibility), head,
+                                          s.name, ty),
             "visibility": _visibility_str(s.visibility),
+            "unsafe": bool(getattr(s, 'is_var', False)),
+            "mutable": bool(getattr(s, 'is_var', False)),
             "type": ty, "doc": s.doc, "line": s.line,
         }
 

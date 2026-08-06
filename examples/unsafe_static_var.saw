@@ -10,10 +10,11 @@
 // EXPECT-OUTPUT:
 // claimed 0 and 1
 // owners 11 22, live 2
-// released 0, live 1
+// table full, no slot handed out
+// released 0, live 3
 // arena 200 at the top, 0 at the bottom
 // counted to 4
-// table generation 2
+// table generation 4
 
 struct Slot {
     owner: Int,
@@ -36,7 +37,9 @@ struct Header {
 
 unsafe static var HEADER: Header = Header(magic: 0, entries: 0)
 
-func claim(owner: Int) unsafe -> Int {
+// A full table is an expected absence, not a failure with a cause — so `Int?`,
+// and never a `-1` a caller can mistake for a slot index.
+func claim(owner: Int) unsafe -> Int? {
     var i = 0
     while i < 4 {
         if not TABLE[i].used {
@@ -47,7 +50,7 @@ func claim(owner: Int) unsafe -> Int {
         }
         i = i + 1
     }
-    -1
+    None
 }
 
 func release(i: Int) unsafe {
@@ -83,10 +86,20 @@ func count_to_four() unsafe -> Int {
 }
 
 func main() {
-    let a = claim(11)
-    let b = claim(22)
+    guard let a = claim(11) else { return }
+    guard let b = claim(22) else { return }
     print("claimed {a} and {b}")
     print("owners {owner_of(0)} {owner_of(1)}, live {live_count()}")
+
+    // Fill the table, then watch the fifth claim come back empty rather than
+    // handing out a slot index that does not exist.
+    let _c = claim(33)
+    let _d = claim(44)
+    if let extra = claim(55) {
+        print("overfilled at {extra}")
+    } else {
+        print("table full, no slot handed out")
+    }
 
     release(0)
     print("released 0, live {live_count()}")

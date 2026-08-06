@@ -1,0 +1,93 @@
+// design 149 unit (c): `[package] runtime = true` declares a package a runtime
+// PROVIDER — it implements the `__saw_rt_*` seams itself, so Blade passes
+// `--runtime-provider` and sawc links no runtime of its own beside it.
+//
+// Both directions are checked. A package that says nothing is not a runtime:
+// declaring one by accident would suppress the runtime link and leave every
+// seam undefined at the link step, with nothing in the manifest to explain why.
+
+import src.manifest.*
+import src.layout.*
+import std.file.{File}
+import std.path.{Path}
+
+extern "C" {
+    func system(command: UnsafePointer<Int8>) -> Int32
+}
+
+func sh(cmd: String) unsafe -> Bool {
+    let full = "( {cmd} ) > /dev/null 2>&1"
+    system(full as UnsafePointer<Int8>) == (0 as Int32)
+}
+
+// Build the fixture with the real blade binary and hand back what it printed.
+// `None` when no binary has been built yet — the bootstrap builds one, but a
+// bare `blade test` run against a fresh checkout may not have.
+func build_runtime_fixture() unsafe -> String? {
+    let blade = Path(s: ".build/host/blade")
+    if not File.exists(blade) {
+        return None
+    }
+    let log = ".build/scratch/runtime_key_build.log"
+    assert(Path(s: ".build/scratch").ensure_dir(), "scratch directory available")
+    let _ran = sh("cd tests/fixtures/runtime_pkg && ../../../.build/host/blade build > ../../../{log} 2>&1")
+    var f = match File.open(Path(s: log)) {
+        case Ok(handle) -> move handle,
+        case Err(e) -> { panic("build log should be readable: {e}") }
+    }
+    match f.read() {
+        case Ok(bytes) -> match bytes.to_string() {
+            case Ok(text) -> text,
+            case Err(_) -> None
+        },
+        case Err(e) -> { panic("build log should read: {e}") }
+    }
+}
+
+func main() {
+    // The true path: the key is read, and its value reaches `is_runtime()`.
+    match Manifest.load_from(Path(s: "tests/fixtures/runtime_pkg")) {
+        case Ok(m) -> {
+            assert(m.name().equals("kernelrt"), "package name should be kernelrt")
+            assert(m.version().equals("0.2.0"), "package version should be 0.2.0")
+            assert(m.is_runtime(), "runtime = true should read as a runtime provider")
+        },
+        case Err(e) -> {
+            panic("runtime_pkg/Saw.toml should load: {e}")
+        }
+    }
+
+    // The default: a manifest with no `runtime` key is an ordinary package.
+    match Manifest.load_from(Path(s: "tests/fixtures/deps_ok")) {
+        case Ok(m) -> {
+            assert(not m.is_runtime(),
+                   "a manifest with no runtime key is not a runtime provider")
+        },
+        case Err(e) -> {
+            panic("deps_ok/Saw.toml should load: {e}")
+        }
+    }
+
+    // Blade's own manifest, loaded the way `blade build` loads it.
+    match Manifest.load() {
+        case Ok(m) -> {
+            assert(not m.is_runtime(), "blade itself is not a runtime provider")
+        },
+        case Err(e) -> {
+            panic("Saw.toml should load: {e}")
+        }
+    }
+
+    // And the flag actually reaches the compiler. The fixture exports a
+    // `__saw_rt_*` seam, which sawc refuses outright as a reserved symbol unless
+    // it was told the package has the runtime role. The build fails either way
+    // (the fixture implements one seam, not all of them), so WHICH failure it is
+    // is the observable difference: the reserved-symbol rejection means Blade
+    // dropped the flag.
+    if let output = build_runtime_fixture() {
+        assert(not output.contains("collides with a reserved runtime symbol"),
+               "blade should pass --runtime-provider for `runtime = true`")
+    }
+
+    print("manifest_runtime_key: ok")
+}

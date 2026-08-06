@@ -26,6 +26,12 @@
 //! Hold it briefly. A waiter burns its core until the lock is free, so a
 //! critical section that runs long wastes exactly as much time as it takes.
 
+// The two states of the word. Named rather than spelled `0`/`1` at each use
+// site: which one means "held" is the whole invariant, and zero meaning
+// UNLOCKED is what makes an all-zero static an unlocked lock.
+static UNLOCKED: Int = 0
+static HELD: Int = 1
+
 /// A value guarded by an atomic word.
 ///
 /// `lock` hands the payload to a closure under mutual exclusion and gives back
@@ -34,10 +40,9 @@
 /// livelock: a suspended task keeps the lock while the executor runs somebody
 /// else, and that somebody may be the task waiting for it.
 ///
-/// One consequence worth knowing: because `lock` is `sync` and its body is
-/// `sync`, a task cannot be interrupted while holding the lock. Two tasks on one
-/// thread therefore never contend, and contention means another THREAD or
-/// another core.
+/// Because `lock` is `sync` and its body is `sync`, a task cannot be
+/// interrupted while holding the lock. Two tasks on one thread therefore never
+/// contend, and contention means another THREAD or another core.
 ///
 /// `SpinLock` is `NoCopy` — a copied lock is two locks guarding two payloads,
 /// which is not a thing anyone wants. It is `Sync` when `T` is `Send`, on the
@@ -64,7 +69,7 @@ extension SpinLock<T> {
     /// A `static` does not need this: declare it without an initializer and the
     /// zero pattern is already an unlocked lock over a zeroed payload.
     public init(value: T) -> SpinLock<T> {
-        SpinLock<T>(state: Atomic(0), value: value)
+        SpinLock<T>(state: Atomic(UNLOCKED), value: value)
     }
 
     /// Acquires the lock, runs `body` on the payload, releases, and returns what
@@ -123,6 +128,3 @@ extension SpinLock<T> {
 }
 
 extension SpinLock<T>: NoCopy {}
-
-static UNLOCKED: Int = 0
-static HELD: Int = 1
