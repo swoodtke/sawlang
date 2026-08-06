@@ -19,7 +19,7 @@
 // boxed area 25
 // shifted 31, doubled 42
 // task said 9
-// load failed: file not found
+// load failed: file not found: cfg.toml
 // n = 7 flag = true text = hi
 
 import std.task
@@ -43,7 +43,8 @@ extension Square: Shape { func area(&self) -> Int { self.side * self.side } }
 struct NotFound { path: String }
 extension NotFound: Printable {
     func format(&self, into: &var StringBuilder) {
-        into.append("file not found")
+        into.append("file not found: ")
+        into.append(self.path)
     }
 }
 extension NotFound: Error {}
