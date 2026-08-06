@@ -1308,9 +1308,24 @@ noted live-range packing of locals; do both in one sizing brief.
   are inlined above). Worth a follow-up brief if the ANF hoist can be taught to
   lift a nested short-circuit.
 
-## Design 159 — the implicit-tier copy miscompile (IN PROGRESS, Aug 6)
+## Design 159 — the implicit-tier copy miscompile (LANDED, Aug 6)
 
-`designs/159-implicit-tier-copy-fix.md`. The P0 fix for DF-151b/DF-156b.
+`designs/159-implicit-tier-copy-fix.md` closed. The P0 fix for DF-151b and
+DF-156b: an undeclared ImplicitCopy composite now copies through the same
+machinery a declared one does. Five commits, full suite green each.
+
+**Gate battery, all green.** Suite 1317 (zero xfails, +3 new examples);
+lexdiff 0 mismatches over 1460 files (tokens + docs); astdiff stable over
+1460; `irdet --all` 863 examples byte-identical; blade_bootstrap ok
+(stage0->stage2, 19/19, both libs); sos_runner 3/3; gmgate 12 programs x 20
+runs clean.
+
+**The headline validation — the two DF-151b victims, 100 runs each, both
+ways.** `blade lock_drift` 0/100 under Guard Malloc and 0/100 native;
+`closure_copyable_struct_copied` 0/100 and 0/100. Pre-fix these were 10/10
+and 30/30 crashes under Guard Malloc, and 14 and 21 per 100 native. The
+bootstrap, which the tracker measured failing about five runs in six, passed
+first try.
 
 - **Unit 1 — THE BISECT ANSWER IS SPLIT, and that decides the shape of the
   fix: it is a FROM-SCRATCH repair, not a revert.** The brief asked whether
@@ -1526,8 +1541,13 @@ statement dropped its `Result` with no diagnostic.
   Renaming either binding fixes it. Nothing in the tree hits this today (the
   suite is green); `examples/result_discard_legal.saw` names its later local
   `got` with a comment pointing here.
-- **DF-151b — ROOT-CAUSED Aug 6 (investigation only; the fix gets its own
-  brief). It is ONE compiler bug, it has nothing to do with machine load, and
+- **DF-151b — FIXED Aug 6 by design 159** (see that section above for the
+  bisect, the audit table and the gate results; the root cause was
+  `Namespace.copy_tier`'s missing STRUCT structural join, which left an
+  undeclared all-trivial/ImplicitCopy struct reporting tier 'free' while its
+  per-binding drop was still registered). Both victims are now 100/100 clean
+  under Guard Malloc and native. The investigation record follows as filed.
+  **It is ONE compiler bug, it has nothing to do with machine load, and
   it is far broader than the two victims: A STRUCT COPY DOES NOT RETAIN ITS
   REFCOUNTED FIELDS, BUT EVERY BINDING'S SCOPE-EXIT DROP RELEASES THEM.** One
   allocation, N releases. The surplus releases write into an already-freed
@@ -1862,7 +1882,11 @@ Converting it would delete the atomicity that makes the singleton race-safe.
   pre-authorizing (c) as a fallback if (b) could not come within ~15% of the
   interleaved baseline back-to-back under comparable load.
 
-- **DF-156b — ANSWERED Aug 6: it is DF-151b, and it was never about
+- **DF-156b — FIXED Aug 6 by design 159, as DF-151b.** `lock_drift` is
+  0/100 under Guard Malloc and 0/100 native on the fixed compiler, and the
+  bootstrap that failed about five runs in six passes. The original answer,
+  which located the cause, follows.
+  **ANSWERED Aug 6: it is DF-151b, and it was never about
   saturation.** The deliberate reproduction this entry asked for was run.
   `lock_drift` crashes **14 times per 100** on an IDLE machine (loadavg 0.83)
   and **11 per 100** under `irdet --all` (loadavg 8.28) — the same rate, so
