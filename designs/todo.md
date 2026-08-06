@@ -1116,7 +1116,14 @@ path must be per-stack). The generics model was not touched.
 
 ## Design 133 — DF-findings (capability completions)
 
-- **DF-133a — FILED, not fixed (found while implementing design 133 unit B, Aug
+- **DF-133a — DECIDED (user, Aug 5): FIX THE TRANSFORM (fork i) — design 147
+  owns it.** The hoist preserves source evaluation order by lifting
+  side-effecting left siblings into temps, bounded by a conservative purity
+  filter (literals/plain reads exempt; anything containing a call or `&var`
+  use hoists); transfer checkpoints and diagnostics KEEP source positions
+  (the 120 temp machinery's discipline). Fork (ii) — documenting the reorder
+  — rejected: it poisons the `v.pop()!`/`v.len()` class forever. Original
+  finding follows: **(found while implementing design 133 unit B, Aug
   5; PRE-EXISTING, design 120). The stage-1 ANF hoist reorders a suspending child
   ahead of a side-effecting SYNC sibling to its left.** `_anf_children` walks
   child positions left to right and lifts only the children that span a
