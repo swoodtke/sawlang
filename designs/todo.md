@@ -1569,12 +1569,23 @@ statement dropped its `Result` with no diagnostic.
   `examples/coro_bind_id_shadow_regressions.saw`). The TUPLE-pattern rejection is
   untouched and still fires cleanly. LANGUAGE_SPEC.md and the saw-lang skill
   updated on both counts.
-  **TESTS — `examples/coro_bind_id_*.saw`, 10 of them**, one per shape, each
+  **TESTS — `examples/coro_bind_id_*.saw`, 11 of them**, one per shape, each
   asserting VALUES with the same shape in sync code beside it as a control.
-  Nine of the ten FAIL on the pre-fix compiler; the tenth
+  Ten of the eleven FAIL on the pre-fix compiler; the eleventh
   (`coro_bind_id_shadow_regressions`) is the regression floor and passes on both.
+  `coro_bind_id_scopes_stress` is the interaction test — a `while` body's `v`
+  against a frame-resident `v` after the loop with a `match` arm in between, plus
+  a catch block's implicit `error` still resolving to the CAUGHT error while an
+  outer local of that name is renamed (the walk shields the catch boundary).
   `examples/result_discard_legal.saw`'s `got` local (named to dodge this bug) can
   go back to `v` whenever someone touches that file.
+  **GATES** (all via the venv interpreter, on `d6b8ae1`): suite 1328 green, zero
+  xfails; `lexdiff` 0 mismatches over 1470 files (tokens + docs); `astdiff` OK;
+  `irdet --all` OK — 873 examples compiled twice under differing
+  `PYTHONHASHSEED`, byte-identical (the rename is confined to colliding names, so
+  the corpus's IR is untouched); `blade_bootstrap` ok through stage2 (19 tests,
+  libs/toml 4, libs/semver 4); `sos_runner` 3/3; `gmgate` 12 programs x 10 runs,
+  0 failing.
 - **DF-151b — FIXED Aug 6 by design 159** (see that section above for the
   bisect, the audit table and the gate results; the root cause was
   `Namespace.copy_tier`'s missing STRUCT structural join, which left an
