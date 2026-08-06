@@ -1176,12 +1176,41 @@ class ExpressionsMixin:
                 return None
         return None
 
+    def _restore_authored_callee(self, node, attr: str) -> None:
+        """Put the AUTHORED callee name and type arguments back on `node`.
+
+        Driving and spawning a generic REWRITE the call in place: the callee
+        becomes the monomorphized symbol and the type arguments are cleared, so
+        the coroutine transform sees an ordinary non-generic call. That rewrite
+        is not idempotent, and the front half runs more than once over the same
+        AST — the place lowering re-enters over the tree it just checked
+        (design 146). A second pass would look up `settle$1$Int`, the name the
+        FIRST pass wrote, and find no such method.
+
+        So the authored form is recorded the first time and restored on every
+        later pass, which then re-derives exactly the same symbol.
+        """
+        saved = getattr(node, '_authored_callee', None)
+        if saved is None:
+            node._authored_callee = (getattr(node, attr),
+                                     getattr(node, 'type_args', None))
+        else:
+            setattr(node, attr, saved[0])
+            node.type_args = saved[1]
+
+    def _restore_authored_call(self, node) -> None:
+        """`_restore_authored_callee` for a call of either shape."""
+        from ast_nodes import MethodCall as _MC
+        self._restore_authored_callee(
+            node, 'method_name' if isinstance(node, _MC) else 'name')
+
     def _drive_generic_method(self, inner, struct_name, mode, expr):
         """design 70 (A5): drive a generic (method-level type params) suspending
         method. Monomorphize the method to a concrete method keyed by the mangled
         symbol, register + splice it onto the receiver's extension, record it a
         driven-method root, and rewrite the call so the coroutine transform's
         Part-0c method driving sees an ordinary non-generic method."""
+        self._restore_authored_callee(inner, 'method_name')
         resolved_args = [self._resolve_type(a) for a in inner.type_args]
         if not all(self._is_concrete_type(a) for a in resolved_args):
             self._error(
@@ -1210,6 +1239,7 @@ class ExpressionsMixin:
         clone+re-check for effect harvest, record the concrete driven-method root,
         and rewrite the call so the coroutine transform's Part-0c method driving
         sees an ordinary non-generic method (keyed by a per-instantiation name)."""
+        self._restore_authored_callee(inner, 'method_name')
         struct_sym = self.namespace.lookup_struct(struct_name)
         tps = struct_sym.type_params or []
         resolved_args = [self._resolve_type(a) for a in (recv_type.type_args or [])]
@@ -2660,6 +2690,9 @@ class ExpressionsMixin:
                 )
                 return None
             mode = "value" if expr.name == "__saw_drive" else "steps"
+            # Before anything reads the callee: put the AUTHORED name back if an
+            # earlier pass over this same AST already monomorphized it.
+            self._restore_authored_call(inner)
             # Type-check the inner call inside an absorbing scope so its suspend
             # edge does not taint the caller. This also stamps inner.resolved_type
             # and validates the argument types.
@@ -6222,6 +6255,9 @@ class ExpressionsMixin:
                 "e.g. `group.spawn(worker(n))`",
                 expr.line, expr.column)
             return None
+        # Before anything reads the callee: put the AUTHORED name back if an
+        # earlier pass over this same AST already monomorphized it.
+        self._restore_authored_call(inner)
         # Check the inner call inside an absorbing scope so its suspension does not
         # taint the spawning function; this also validates the argument types and
         # stamps `inner.resolved_type`.

@@ -68,56 +68,55 @@ extension Map<K: Hashable + Equatable, V, A: Allocator = GlobalAllocator> {
         h.finish()
     }
 
-    // Slot state at `idx`: 0 = empty, 1 = occupied, 2 = tombstone. Reads a
-    // (retained) copy of the slot and drops it — never consumes the table slot.
+    // ---- probing through the slot, never out of it -------------------------
+    //
+    // Every helper below matches THROUGH the place (design 146): `self.slots[i]`
+    // is storage, so the match reads the tag — and, where it needs one, a
+    // payload — exactly where it sits. Nothing is copied out and nothing is
+    // dropped, which is what makes these correct for a key or value of ANY copy
+    // tier. `K` is `Hashable + Equatable`, NOT `Copy`, so reading a whole slot
+    // out as a value is not something the map is entitled to do (DF-146e rule
+    // 1); it also happens to be the faster spelling, since a probe that walks
+    // several buckets now retains nothing on the way past.
+
+    // Slot state at `idx`: 0 = empty, 1 = occupied, 2 = tombstone.
     func _slot_state(&self, idx: Int) -> Int {
-        if let s = self.slots.get(idx) {
-            // A pure inspection: `s` is a by-value (non-retained) copy of the
-            // slot, so binding the owning payload here would drop that unowned
-            // copy and either double-free (an occupied slot stays live in the
-            // table) or miscount. Bind nothing — read only the tag.
-            match s {
-                case Empty -> 0,
-                case Occupied(_, _) -> 1,
-                case Tombstone -> 2
-            }
-        } else {
-            0
+        if idx < 0 || idx >= self.slots.len() {
+            return 0
+        }
+        match self.slots[idx] {
+            case Empty -> 0,
+            case Occupied(_, _) -> 1,
+            case Tombstone -> 2
         }
     }
 
     // Does the occupied slot at `idx` hold a key equal to `key`? (Key by value,
-    // like `_hash_code`.)
+    // like `_hash_code`.) `k` binds the stored key IN PLACE and only compares
+    // it, so a probe past a live entry touches no refcount.
     func _key_eq(&self, idx: Int, key: K) -> Bool {
-        if let s = self.slots.get(idx) {
-            // Inspection only (see `_slot_state`): bind the key to compare it,
-            // but never the owning value — `s` is a non-retained slot copy.
-            match s {
-                case Occupied(k, _) -> k == key,
-                case Empty -> false,
-                case Tombstone -> false
-            }
-        } else {
-            false
+        if idx < 0 || idx >= self.slots.len() {
+            return false
+        }
+        match self.slots[idx] {
+            case Occupied(k, _) -> k == key,
+            case Empty -> false,
+            case Tombstone -> false
         }
     }
 
-    // The value in the occupied slot at `idx`, as a copy (Some), else None.
-    // (`return v` in a V?-returning function auto-wraps to Some(v).)
+    // The value in the occupied slot at `idx` (Some), else None. The arms are
+    // EXPRESSIONS, not `return` statements: a window is a closure, so a `return`
+    // inside one would leave the window rather than this function.
     func _get_value(&self, idx: Int) -> V? {
-        if let s = self.slots.get(idx) {
-            // `s` is a copy-with-retain of the slot (design 65): its owning key
-            // and value each carry a bumped refcount. We MOVE the value out (its
-            // retain travels to the caller) and discard the key with `_`, which
-            // releases the key's retain symmetrically — never firing the deinit of
-            // a non-refcounted key the map still owns.
-            match s {
-                case Occupied(_, v) -> { return v },
-                case Empty -> { return None },
-                case Tombstone -> { return None }
-            }
+        if idx < 0 || idx >= self.slots.len() {
+            return None
         }
-        None
+        match self.slots[idx] {
+            case Occupied(_, v) -> v,
+            case Empty -> None,
+            case Tombstone -> None
+        }
     }
 
     // Extract the value out of a moved-in slot (Some for Occupied; the key is
@@ -185,16 +184,13 @@ extension Map<K: Hashable + Equatable, V, A: Allocator = GlobalAllocator> {
                     var b = self._hash_code(k) & mask
                     var found = false
                     while not found {
-                        var is_empty = false
-                        if let s = new_slots.get(b) {
-                            // Inspection only: `s` is a non-retained slot copy,
-                            // so never bind (and thus drop) the owning payload of
-                            // an already-placed entry — read the tag alone.
-                            is_empty = match s {
-                                case Empty -> true,
-                                case Occupied(_, _) -> false,
-                                case Tombstone -> false
-                            }
+                        // Through the place: the tag of an already-placed entry
+                        // is read where it sits, so probing past one costs
+                        // nothing and touches no payload.
+                        let is_empty = match new_slots[b] {
+                            case Empty -> true,
+                            case Occupied(_, _) -> false,
+                            case Tombstone -> false
                         }
                         if is_empty {
                             found = true
@@ -355,14 +351,15 @@ extension Map<K: Hashable + Equatable, V, A: Allocator = GlobalAllocator> {
 // convenience, built on the visitors).
 //
 // ELEMENT PASSING: keys and values are handed to the visitor BY VALUE, through
-// exactly the same whole-slot copy path the map's own `get`/`_get_value` use
-// (a slot read retains an ImplicitCopy key/value, or bitwise-copies a trivial
-// one, then the copy is `move`d into the closure). This is the "by value"
-// fallback the brief anticipated: per-category by-reference passing (`&K`/`&V`
-// for ExplicitCopy/NoCopy elements) is not cleanly expressible yet — there is
-// no by-reference projection into an enum payload inside a vector slot — so the
-// visitor is usable for every K/V that the map's `get` already supports (the
-// trivial and ImplicitCopy element types, i.e. Int/String keys and values).
+// the same payload read `get`/`_get_value` make — the payload is read out of
+// the slot THROUGH the place (design 146), so an ImplicitCopy key/value is
+// retained and a trivial one copied bitwise, and the copy is `move`d into the
+// closure. This is the "by value" fallback the brief anticipated: per-category
+// by-reference passing (`&K`/`&V` for ExplicitCopy/NoCopy elements) is not
+// cleanly expressible yet — there is no by-reference projection into an enum
+// payload — so the visitor is usable for every K/V that the map's `get` already
+// supports (the trivial and ImplicitCopy element types, i.e. Int/String keys
+// and values).
 //
 // ORDER IS UNSPECIFIED: visitors walk the backing slot array, skipping Empty
 // and Tombstone slots, so entries surface in table (bucket) order, NOT
@@ -374,19 +371,17 @@ extension Map<K: Hashable + Equatable, V, A: Allocator = GlobalAllocator> {
 // visit) is a static Law-of-Exclusivity error — see
 // examples/map_each_mutate_error.saw.
 extension Map<K: Hashable + Equatable, V, A: Allocator = GlobalAllocator> {
-    // Read a copy of the key in the occupied slot at `idx` (None otherwise).
+    // The key in the occupied slot at `idx` (None otherwise). Symmetric to
+    // `_get_value`: the key is read through the place, the value untouched.
     func _key_at(&self, idx: Int) -> K? {
-        if let s = self.slots.get(idx) {
-            // Symmetric to `_get_value`: MOVE the retained key out to the caller,
-            // discard the value with `_` (releasing its retain without deinit'ing a
-            // non-refcounted value the map still owns).
-            match s {
-                case Occupied(k, _) -> { return k },
-                case Empty -> { return None },
-                case Tombstone -> { return None }
-            }
+        if idx < 0 || idx >= self.slots.len() {
+            return None
         }
-        None
+        match self.slots[idx] {
+            case Occupied(k, _) -> k,
+            case Empty -> None,
+            case Tombstone -> None
+        }
     }
 
     // Visit each live entry, passing (key, value) copies to `body`. Order is

@@ -1430,6 +1430,26 @@ class TypeChecker(ExpressionsMixin, StatementsMixin, RegistrationMixin, TypeUtil
 
         # Type check function bodies
         for func in module_ast.functions:
+            if getattr(func, 'is_mono_instance', False):
+                # A synthesized instantiation spliced in by the effect pass
+                # (design 70). It was already checked where it was built, with
+                # errors suppressed on purpose: this clone exists to harvest
+                # effect edges, and a genuine instantiation error surfaces
+                # through codegen's own monomorphization.
+                #
+                # Re-checking it HERE would report those suppressed errors as
+                # the author's, and they are not the author's — every type in a
+                # clone arrived by substitution, so design 132's "a Void you can
+                # SEE" rule reads `let result = body(n)` at `R = Void` as a
+                # binding of nothing. Only the place lowering's re-entry gets
+                # this far (a first pass builds the clone after this loop), and
+                # it must reach the same verdict the first pass did.
+                kept_errors = len(self.reporter.errors)
+                kept_warnings = len(self.reporter.warnings)
+                self._check_function(func)
+                del self.reporter.errors[kept_errors:]
+                del self.reporter.warnings[kept_warnings:]
+                continue
             self._check_function(func)
 
         # Type check method bodies

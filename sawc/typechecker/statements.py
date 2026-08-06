@@ -1083,6 +1083,15 @@ class StatementsMixin:
     def _check_let_statement(self, stmt: LetStatement):
         """Check a let/var statement."""
         from .core import VariableInfo
+        # A `T -> T?` wrap this check INSERTED on an earlier pass over the same
+        # AST (the place lowering and the coroutine transform both re-enter the
+        # front half). It is not idempotent as a premise: the wrap is decided
+        # below by comparing the initializer's type to the annotation, and on a
+        # second pass the initializer is already optional — so `let y: OptInt =
+        # 100` stopped being a literal flowing into a distinct alias and became
+        # an `Int?` that does not flow there at all. Peel it and decide again.
+        while isinstance(stmt.value, OptionalWrap):
+            stmt.value = stmt.value.value
         # `let _ = expr` is a true discard (design 53 / DF1): it evaluates the
         # RHS, consumes it (the value-transfer checkpoint treats the discard as
         # the final consumer, so a NoCopy source needs `move`), and binds NOTHING

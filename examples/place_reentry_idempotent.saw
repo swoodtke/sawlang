@@ -1,0 +1,80 @@
+// Lowering a place use runs the front half TWICE over one AST, so the second
+// pass must see the program the AUTHOR wrote (design 146).
+//
+// The checker rewrites as it goes — it wraps a bare `T` bound to a `T?`, it
+// replaces a driven generic's callee with the monomorphized symbol, it splices
+// synthesized instantiations into the module — and none of those rewrites is
+// idempotent. Each one below broke a real program the moment a place appeared
+// anywhere in it, which since the Map migration is every program that probes a
+// map. They are gathered here because they share one cause and one guard: the
+// second pass must reach the same verdicts as the first.
+// EXPECT: success
+// EXPECT-OUTPUT:
+// 10
+// 21
+// 100
+// 7
+// ok
+// 4
+
+import std.task
+
+type MyInt = Int
+type OptInt = Int?
+
+struct Cell { n: Int }
+
+struct Oops { why: String }
+
+extension Oops: Error {
+    func format(&self, into: &var StringBuilder) { into.append(self.why) }
+}
+
+// A driven generic FUNCTION: its call site is rewritten to the monomorphized
+// symbol, and the authored name has to come back before the second pass.
+func doubled<T>(c: T, n: Int) -> Int {
+    yield_now()
+    n * 2
+}
+
+// A generic whose instantiation at `Void` binds a value that is not there. The
+// synthesized clone is spliced into the module; re-checking it as if the author
+// had written it reports the design-132 "binds nothing" error against code
+// nobody wrote.
+func around<R>(n: Int, body: (Int) sync -> R) -> R {
+    let result = body(n)
+    result
+}
+
+// An erased Result tail: the auto-wrap is a node the checker INSERTS.
+func checked(flag: Bool) -> Result<Int, Box<any Error>> {
+    if flag {
+        return Oops(why: "no")
+    }
+    7
+}
+
+func main() {
+    // The place use that turns the re-entry on.
+    var cells: Vector<Cell> = [Cell(n: 1), Cell(n: 2)]
+    cells[0].n += 9
+    print(cells[0].n)
+
+    // A distinct alias initialized from a bare literal, and one to an optional.
+    let x: MyInt = 21
+    print(x)
+    let y: OptInt = 100
+    print(y!)
+
+    // The driven generic.
+    print(__saw_drive(doubled<Cell>(Cell(n: 0), 3)) + 1)
+
+    // The generic at Void, which computes nothing and binds it anyway.
+    around<Void>(1, { n in print("ok") })
+
+    // The erased-Result tail.
+    match checked(false) {
+        case Ok(v) -> print(v - 3),
+        case Err(e) -> print("{e}")
+    }
+}

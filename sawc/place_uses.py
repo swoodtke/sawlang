@@ -53,11 +53,12 @@ code.
 from ast_nodes import (
     Argument, ArrayIndex, ASTNode, AssignStatement, Block, BoolLiteral,
     BreakStatement, BindingPattern, ClosureExpr, ClosureParam,
-    CompoundAssignStatement, ContinueStatement, Expression, ExpressionStatement,
-    ForceUnwrap, ForLoop, FunctionCall, GuardLetStatement, Identifier, IfExpr,
-    IfLetExpr, LetStatement, MatchArm, MatchExpr, MemberAccess, MethodCall,
-    MoveExpr, NoneLiteral, ReferenceExpr, ReturnStatement, SawType, SelfExpr,
-    StringLiteral, TupleIndex, TypeKind, UnaryOp, structural_fields,
+    CompoundAssignStatement, ContinueStatement, ErasedErrWrap, Expression,
+    ExpressionStatement, ForceUnwrap, ForLoop, FunctionCall, GuardLetStatement,
+    Identifier, IfExpr, IfLetExpr, LetStatement, MatchArm, MatchExpr,
+    MemberAccess, MethodCall, MoveExpr, NoneLiteral, OptionalWrap,
+    ReferenceExpr, ResultErrWrap, ResultOkWrap, ReturnStatement, SawType,
+    SelfExpr, StringLiteral, TupleIndex, TypeKind, UnaryOp, structural_fields,
 )
 from errors import ErrorKind
 
@@ -75,7 +76,74 @@ def transform_place_uses(programs, namespace, reporter) -> bool:
     tx = _PlaceUses(namespace, reporter)
     for program in programs:
         tx.run(program)
+    if tx.changed:
+        for program in programs:
+            uncheck(program)
     return tx.changed
+
+
+# =============================================================================
+# Undoing the first check (design 146)
+#
+# Lowering a place use means the front half runs TWICE over one AST: the
+# transform needs the checker's types to synthesize a window call, and the
+# window call then needs checking. The second pass must see the program the
+# AUTHOR wrote, not the one the first pass left behind — the checker rewrites
+# as it goes, and its rewrites are not idempotent.
+#
+# Two kinds have to be undone. `OptionalWrap` is a node the checker INSERTS
+# around a bare `T` bound to a `T?`; a second pass sees an already-optional
+# initializer and judges it by different rules (`let y: OptInt = 100` stopped
+# compiling, because `Int` flows into the distinct alias and `Int?` does not).
+# And `resolved_type` is a per-pass conclusion: the first pass may stamp one
+# under a monomorphization the second pass is not inside, which is how a
+# generic body's `let result = body(n)` came back as the design-132 "binds
+# nothing" error at an instantiation where `R` was Void.
+#
+# Everything the LOWERING itself stamped is left alone — those nodes are the
+# transform's output, not the checker's leftovers.
+# =============================================================================
+
+
+def uncheck(node) -> None:
+    """Strip the first check's own rewrites from `node`, in place."""
+    if node is None or isinstance(node, SawType):
+        return
+    if isinstance(node, Block):
+        node.statements = [_unchecked(s) for s in node.statements]
+        node.final_expr = _unchecked(node.final_expr)
+        return
+    if not isinstance(node, (ASTNode, Argument, MatchArm)):
+        return
+    if isinstance(node, Expression) and not getattr(node, 'place_lowered', False):
+        node.resolved_type = None
+    for f in structural_fields(node):
+        value = getattr(node, f.name, None)
+        if isinstance(value, list):
+            for i, item in enumerate(value):
+                if _is_expr(item):
+                    value[i] = _unchecked(item)
+                else:
+                    uncheck(item)
+        elif _is_expr(value):
+            setattr(node, f.name, _unchecked(value))
+        else:
+            uncheck(value)
+
+
+def _unchecked(node):
+    """`uncheck`, plus the unwrapping only an expression slot can do."""
+    while isinstance(node, _CHECKER_WRAPS):
+        node = node.value
+    uncheck(node)
+    return node
+
+
+# The nodes the checker INSERTS around a value to fit it into its home: the
+# `T -> T?` wrap and the three `Result` wraps (plain Ok/Err and the erasing
+# Err). Every one is synthesized — no source spells them — so removing them
+# restores exactly what the author wrote, and the next pass re-derives them.
+_CHECKER_WRAPS = (OptionalWrap, ResultOkWrap, ResultErrWrap, ErasedErrWrap)
 
 
 class _PlaceUses:
