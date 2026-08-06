@@ -566,18 +566,43 @@ class DeclarationsMixin:
             source_file=self.source_file
         )
 
-    def parse_static(self, visibility: Visibility = Visibility.PRIVATE) -> 'StaticDecl':
-        """Parse a module-level static declaration (design 41):
+    def parse_static(self, visibility: Visibility = Visibility.PRIVATE,
+                     is_unsafe: bool = False) -> 'StaticDecl':
+        """Parse a module-level static declaration (design 41 + 149):
 
             static NAME: Type = initializer
-            static NAME: Type            (bare zero-init, POD/array only)
+            static NAME: Type                   (bare zero-init)
+            unsafe static var NAME: Type = init (mutable — design 149 unit a)
 
         The initializer is optional to support bare zero-init for POD and
         fixed-array statics (slab regions need large zero arrays); the
-        typechecker enforces the const-init and Sync-only constraints.
+        typechecker enforces the const-init, Sync-only and destructibility
+        constraints.
+
+        `var` and `unsafe` come as a pair. A mutable static is only ever
+        `unsafe static var`: the consistency of compound global state comes from
+        a serialization argument the compiler cannot see, and the `unsafe`
+        declaration is what forces every touching function to state that it owns
+        one. So each half without the other is a clean error naming the
+        spelling, rather than a second, quieter way to declare global mutable
+        state.
         """
         start = self.current()
         self.expect(TokenType.STATIC)
+
+        is_var = False
+        if self.match(TokenType.VAR):
+            self.advance()
+            is_var = True
+            if not is_unsafe:
+                self.error("a mutable static is declared `unsafe static var` — "
+                           "write `unsafe static var` here, or drop `var` for an "
+                           "immutable static (single-word state that several "
+                           "tasks update independently wants `Atomic`, not this)")
+        elif is_unsafe:
+            self.error("`unsafe` on a static marks a MUTABLE one — write "
+                       "`unsafe static var NAME: T = ...`, or drop `unsafe` "
+                       "for an immutable static, which needs no claim from you")
 
         name_token = self.expect(TokenType.IDENT, "Expected static name")
         self.expect(TokenType.COLON, "Expected ':' after static name")
@@ -593,6 +618,8 @@ class DeclarationsMixin:
             type=static_type,
             initializer=initializer,
             visibility=visibility,
+            is_var=is_var,
+            is_unsafe=is_unsafe,
             line=start.line,
             column=start.column,
             source_file=self.source_file

@@ -214,17 +214,23 @@ class TypeAliasSymbol:
 
 @dataclass
 class StaticSymbol:
-    """Symbol for a module-level `static` declaration (design 41).
+    """Symbol for a module-level `static` declaration (design 41 + 149).
 
-    Statics are Sync-only, const-initialized, immortal, and immutable (no
-    `static mut`). `mangled_name` is the codegen identity — the LLVM global's
-    name, prefixed so it never clashes with a function of the same name in the
-    (shared) LLVM value symbol table.
+    Statics are const-initialized and immortal. An immutable one is Sync-only;
+    an `unsafe static var` (design 149) is mutable, exempt from Sync, and makes
+    every function that names it `unsafe` through the trigger rule.
+    `mangled_name` is the codegen identity — the LLVM global's name, prefixed so
+    it never clashes with a function of the same name in the (shared) LLVM value
+    symbol table.
     """
     kind: SymbolKind = SymbolKind.STATIC
     type: Optional[SawType] = None
     mangled_name: str = ""
     visibility: Visibility = Visibility.PRIVATE
+    # design 149: declared `unsafe static var`. Assignment, `&var` lends and
+    # by-pointer receivers are permitted on one and refused on every other
+    # static; naming one is unsafe contact.
+    is_var: bool = False
     line: int = 0
     column: int = 0
     # The module that declared this static (DF-140h). A PRIVATE static in a

@@ -245,16 +245,27 @@ class CollectionsMixin:
 
         return self.builder.load(arr_ptr, name="repeat_val")
 
-    @staticmethod
-    def _is_zero_constant(value) -> bool:
-        """Whether an LLVM constant is the all-zero bit pattern."""
-        c = getattr(value, 'constant', None)
-        if c is None:
+    @classmethod
+    def _is_zero_constant(cls, value) -> bool:
+        """Whether an LLVM constant is the all-zero bit pattern.
+
+        Aggregates count (design 149 unit b): a static's initializer decides
+        whether the global can be zerofill, and the zero cases that matter there
+        are `zeroinitializer` — which llvmlite spells as a Constant carrying no
+        payload — and an element list that is zeros all the way down, which is
+        what a spelled-out struct or array of zeros arrives as.
+        """
+        if not isinstance(value, ir.Constant):
             return False
+        c = value.constant
+        if c is None:
+            return True                      # zeroinitializer
         if isinstance(c, bool):
             return c is False
         if isinstance(c, (int, float)):
             return c == 0
+        if isinstance(c, (list, tuple)):
+            return all(cls._is_zero_constant(e) for e in c)
         return False
 
     def _generate_array_index(self, expr: ArrayIndex):

@@ -368,12 +368,17 @@ class StatementsMixin:
         value = self._generate_expression(stmt.value)
 
         if isinstance(stmt.target, Identifier):
-            # Simple variable assignment
-            if stmt.target.name not in self.variables:
-                raise ValueError(f"Undefined variable: {stmt.target.name}")
+            # Simple variable assignment — or a whole-value write to an
+            # `unsafe static var`, whose storage is a global (design 149).
+            target_ptr = self._identifier_storage(stmt.target)
 
-            # Get the variable's type for resource management
+            # Get the variable's type for resource management. A static has no
+            # entry in `variable_types`; the typechecker stamps its type on the
+            # target node instead.
+            is_static_target = stmt.target.name not in self.variables
             var_type = self.variable_types.get(stmt.target.name)
+            if var_type is None:
+                var_type = getattr(stmt.target, 'resolved_type', None)
 
             # Design 110: whole-referent replacement through a `&var` reference
             # parameter. The variable holds a POINTER to the caller's value; load
@@ -388,8 +393,11 @@ class StatementsMixin:
                 return
 
             if var_type:
-                # Call deinit on the old value before overwriting
-                if self._needs_cleanup(var_type):
+                # Call deinit on the old value before overwriting. Never for a
+                # static: statics are immortal, and design 149 keeps that honest
+                # by admitting only trivially-destructible types, so there is no
+                # destructor here that should have run.
+                if self._needs_cleanup(var_type) and not is_static_target:
                     self._generate_deinit_call(stmt.target.name, var_type)
 
                 # Apply copy behavior for ImplicitCopy types
@@ -406,8 +414,11 @@ class StatementsMixin:
                     not self._is_optional_type(value.type)):
                     value = self._wrap_in_optional(value)
 
-            self.builder.store(value, self.variables[stmt.target.name])
-            self._revive_assigned_binding(stmt.target.name, var_type)
+            self.builder.store(value, target_ptr)
+            # DF-146h: re-arm the drop flag of a moved-from local. A static
+            # target has no drop flag (statics are immortal).
+            if not is_static_target:
+                self._revive_assigned_binding(stmt.target.name, var_type)
 
         elif isinstance(stmt.target, MemberAccess):
             # Field assignment: obj.field = value
@@ -499,9 +510,7 @@ class StatementsMixin:
 
             # Get pointer to the container
             if isinstance(container_expr, Identifier):
-                if container_expr.name not in self.variables:
-                    raise ValueError(f"Undefined variable: {container_expr.name}")
-                container_ptr = self.variables[container_expr.name]
+                container_ptr = self._identifier_storage(container_expr)
 
                 # Load the container value to check its type
                 container_val = self.builder.load(container_ptr, name="container")
@@ -676,9 +685,7 @@ class StatementsMixin:
         # Get pointer to target
         if isinstance(stmt.target, Identifier):
             var_name = stmt.target.name
-            if var_name not in self.variables:
-                raise ValueError(f"Undefined variable: {var_name}")
-            target_ptr = self.variables[var_name]
+            target_ptr = self._identifier_storage(stmt.target)
 
             # Check if this is a reference type - if so, it's already a pointer to the data
             var_type = self.variable_types.get(var_name)
@@ -714,9 +721,7 @@ class StatementsMixin:
             index_val = self._generate_expression(stmt.target.index)
 
             if isinstance(container_expr, Identifier):
-                if container_expr.name not in self.variables:
-                    raise ValueError(f"Undefined variable: {container_expr.name}")
-                container_ptr = self.variables[container_expr.name]
+                container_ptr = self._identifier_storage(container_expr)
 
                 # Load the container value to check its type
                 container_val = self.builder.load(container_ptr, name="container")

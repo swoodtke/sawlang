@@ -507,6 +507,11 @@ class ExpressionsMixin:
                 # two module-private `PT_LOAD`s apart on its own.
                 if static_sym.mangled_name:
                     expr.resolved_static_symbol = static_sym.mangled_name
+                # design 149: naming an `unsafe static var` is unsafe contact,
+                # whatever its type. Recorded here rather than from the type,
+                # because the unsafety is the declaration's, not the type's.
+                if getattr(static_sym, 'is_var', False):
+                    self._note_unsafe_static_contact(expr.name, expr)
                 return static_sym.type
             self._error(
                 ErrorKind.UNDEFINED_VARIABLE,
@@ -668,18 +673,23 @@ class ExpressionsMixin:
         if expr.mutable:
             if isinstance(expr.expr, Identifier):
                 var_info = self.current_scope.lookup(expr.expr.name)
-                # A static is immutable (design 41): `&var STATIC` is rejected
-                # (an `&STATIC` immutable lend is fine). Statics are not in scope,
-                # so a None var_info that names a static is the signal.
-                if var_info is None and self.namespace.get_static(
-                        expr.expr.name, self._accessor_vis_module()) is not None:
+                # An immutable static rejects `&var STATIC` (design 41; an
+                # `&STATIC` shared lend is fine). Statics are not in scope, so a
+                # None var_info that names a static is the signal. An
+                # `unsafe static var` (design 149) lends `&var` like any mutable
+                # binding — naming it already made this function `unsafe`.
+                static_sym = (self.namespace.get_static(
+                    expr.expr.name, self._accessor_vis_module())
+                    if var_info is None else None)
+                if static_sym is not None and not getattr(static_sym, 'is_var', False):
                     self._error(
                         ErrorKind.TYPE_MISMATCH,
                         f"cannot take mutable reference `&var` to static `{expr.expr.name}`: "
                         f"statics are immutable",
                         expr.line, expr.column,
-                        hint="pass `&{0}` for a shared read, or use an interior-"
-                             "synchronized type for mutation".format(expr.expr.name)
+                        hint="pass `&{0}` for a shared read, use an interior-"
+                             "synchronized type (`Atomic<Int>`, `SpinLock<T>`), or "
+                             "declare it `unsafe static var`".format(expr.expr.name)
                     )
                     return None
                 # A `&var T` reference parameter is already a mutable borrow, so
@@ -4532,6 +4542,11 @@ class ExpressionsMixin:
                     # name, so tag the member for it and read like a binding.
                     expr.resolved_static_name = expr.member
                     expr.resolved_module = expr.object.name
+                    # design 149: naming an `unsafe static var` is unsafe
+                    # contact through the qualified spelling too.
+                    if getattr(symbol, 'is_var', False):
+                        self._note_unsafe_static_contact(
+                            f"{expr.object.name}.{expr.member}", expr)
                     return symbol.type
                 if symbol.kind == SymbolKind.STRUCT:
                     # Design 144: carry the identity, not the spelling.
@@ -5440,9 +5455,10 @@ class ExpressionsMixin:
                 "variable or a `&var`-reachable path",
                 expr.line, expr.column)
             return
-        if self.namespace.get_static(root.name,
-                                     self._accessor_vis_module()) is not None and \
-                self.current_scope.lookup(root.name) is None:
+        root_static = (self.namespace.get_static(root.name,
+                                                 self._accessor_vis_module())
+                       if self.current_scope.lookup(root.name) is None else None)
+        if root_static is not None and not getattr(root_static, 'is_var', False):
             self._error(
                 ErrorKind.IMMUTABLE_ASSIGNMENT,
                 f"cannot assign through optional chain rooted at the immutable "

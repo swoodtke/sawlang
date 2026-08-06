@@ -1055,6 +1055,23 @@ class CodeGenerator(ResultsMixin, MatchMixin, StructsMixin, CollectionsMixin, Ca
             return self.static_globals[name]
         return None
 
+    def _identifier_storage(self, expr):
+        """Storage for an identifier used as a PLACE: a local's alloca, or the
+        LLVM global behind a module static (design 149 unit a).
+
+        A static is not a scope binding, so every write path keyed on
+        `self.variables` raised "Undefined variable" for one. Reads already had
+        their own lookup and `&STATIC` already had its own; this is the same
+        answer for the places an `unsafe static var` is written.
+        """
+        name = getattr(expr, 'name', None)
+        if name is not None and name in self.variables:
+            return self.variables[name]
+        gv = self._static_global(expr)
+        if gv is not None:
+            return gv
+        raise ValueError(f"Undefined variable: {name}")
+
     def _type_has_interior_mutability(self, saw_type) -> bool:
         """Whether a static of `saw_type` must be a NON-constant global — i.e. it
         contains an `Atomic` cell somewhere. Immutable POD statics are emitted as
@@ -1231,16 +1248,28 @@ class CodeGenerator(ResultsMixin, MatchMixin, StructsMixin, CollectionsMixin, Ca
             gv.initializer = self._const_from_expr(static.initializer, static.type)
 
         # Constant (rodata-eligible) ONLY when the storage is genuinely never
-        # written: an interior-mutable static (Atomic cell) is written in place;
-        # and a BARE-DECLARED zero-init static is scratch storage a slab (or other
-        # raw-pointer-mediated region — design 42) writes through `&STATIC as
-        # UnsafePointer<...>`, so it must be a writable `.bss` global, not rodata.
-        # Source-level immutability still holds either way — the typechecker
-        # rejects `STATIC = ...` / `&var STATIC` regardless of this flag. An
-        # INITIALIZED POD static is a true immutable constant (rodata).
+        # written AND carries bytes worth sharing. Four things say otherwise:
+        #
+        #  - an interior-mutable static (an `Atomic` cell) is written in place;
+        #  - a BARE-DECLARED zero-init static is scratch storage a slab (or other
+        #    raw-pointer-mediated region — design 42) writes through
+        #    `&STATIC as UnsafePointer<...>`;
+        #  - an `unsafe static var` (design 149 unit a) is written by name;
+        #  - an ALL-ZERO initializer (design 149 unit b). LLVM leaves a constant
+        #    zero global in a readonly section so it can be shared, which means
+        #    the image carries every one of those bytes: the canonical
+        #    `[0; 65536]` arena cost 64 KiB of file. Zeros are the one initializer
+        #    an image never has to store, so this drops the flag and lets the
+        #    global classify as .bss — same value, no bytes.
+        #
+        # Source-level immutability still holds either way: the typechecker
+        # rejects `STATIC = ...` / `&var STATIC` on everything but an
+        # `unsafe static var`, regardless of this flag.
         gv.global_constant = (
             static.initializer is not None
-            and not self._type_has_interior_mutability(static.type))
+            and not getattr(static, 'is_var', False)
+            and not self._type_has_interior_mutability(static.type)
+            and not self._is_zero_constant(gv.initializer))
 
         # design 58: an @export static gets a named object-file section (if any)
         # and is anchored against DCE via @llvm.used.

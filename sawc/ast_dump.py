@@ -240,7 +240,11 @@ class ASTDumper:
                     st.visibility.name == "PUBLIC" else ""
                 init = f" = {self._expr_summary(st.initializer)}" \
                     if st.initializer is not None else " (zero-init)"
-                self._emit(f"{vis}static {st.name}: {self._type_str(st.type)}{init}")
+                # design 149: `unsafe static var` — the two halves are set
+                # together, so one prefix names both.
+                head = "unsafe static var " if getattr(st, 'is_var', False) \
+                    else "static "
+                self._emit(f"{vis}{head}{st.name}: {self._type_str(st.type)}{init}")
             self._dedent()
             self._emit("]")
 

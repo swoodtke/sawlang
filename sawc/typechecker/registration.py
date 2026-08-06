@@ -1034,11 +1034,13 @@ class RegistrationMixin:
             if not self._is_zero_initable_type(resolved_type):
                 self._error(
                     ErrorKind.TYPE_MISMATCH,
-                    f"static `{static.name}` needs an initializer: only POD and "
-                    f"fixed-array statics may be declared without one (zero-init)",
+                    f"static `{static.name}` needs an initializer: a static may "
+                    f"be declared without one only when all-zero is a valid "
+                    f"value of its type",
                     static.line, static.column, source_file=static.source_file,
-                    hint="add `= <constant>`, or use a POD / `[T; N]` type for a "
-                         "bare zero-initialized static"
+                    hint="add `= <constant>`, or use a type whose storage is "
+                         "scalar throughout (a POD struct, `[T; N]`, "
+                         "`Atomic<Int>`, `SpinLock<T>` over one)"
                 )
         else:
             # Type-check the initializer in a fresh empty scope (a static's
@@ -1075,22 +1077,33 @@ class RegistrationMixin:
                          "are not const-initializable"
                 )
 
-        # Sync-only: a static is reachable from every task, so its type must be
-        # Sync (design 21 structural derivation).
-        if not self.namespace.is_sync(resolved_type):
+        # Sync-only: an immutable static is reachable from every task, so its
+        # type must be Sync (design 21 structural derivation).
+        #
+        # design 149: an `unsafe static var` is EXEMPT, because Sync is the claim
+        # it is already making by hand. The compound state this exists for —
+        # a handle table of slots holding raw pointers, PMP shadow state — is
+        # structurally non-Sync exactly where it is most wanted, and the
+        # serialization argument that makes it safe (interrupts off, single
+        # core, boot only) is the thing `unsafe` names. Requiring a derivation
+        # the author has already overridden would only push them back to
+        # hand-rolled C.
+        if not static.is_var and not self.namespace.is_sync(resolved_type):
             self._error(
                 ErrorKind.TYPE_MISMATCH,
                 f"static `{static.name}` has non-Sync type `{resolved_type}`; "
                 f"statics must be Sync (shared across all tasks)",
                 static.line, static.column, source_file=static.source_file,
                 hint="use a Sync type — mutation of global state flows only "
-                     "through interior-synchronized types like `Atomic<Int>`"
+                     "through interior-synchronized types like `Atomic<Int>` "
+                     "and `SpinLock<T>`, or declare an `unsafe static var` and "
+                     "own the serialization argument"
             )
 
-        # Immortal: statics never run deinit. Const-init already excludes Deinit
-        # types in practice (String/heap types are not const-initializable); this
-        # asserts it rather than building deinit glue for globals.
-        if self._is_deinit_type(resolved_type):
+        # Immortal: statics never run deinit. v1 of design 149 keeps that true by
+        # restricting mutable statics to TRIVIALLY-DESTRUCTIBLE types, so there
+        # is never a destructor that should have run and did not.
+        if self._static_needs_destruction(resolved_type):
             self._error(
                 ErrorKind.TYPE_MISMATCH,
                 f"static `{static.name}` has type `{resolved_type}`, which owns a "
@@ -1114,20 +1127,123 @@ class RegistrationMixin:
             type=resolved_type,
             mangled_name=mangled,
             visibility=visibility,
+            is_var=static.is_var,
             line=static.line,
             column=static.column,
             def_module=def_module
         ))
 
-    def _is_zero_initable_type(self, t: SawType) -> bool:
-        """Whether a bare (initializer-less) static of type `t` is allowed —
-        i.e. `t` is POD (trivially copyable) or a fixed array of a POD element."""
+    def _is_zero_initable_type(self, t: SawType, seen=None) -> bool:
+        """Whether a bare (initializer-less) static of type `t` is allowed.
+
+        The question is whether all-zero is a VALID value of `t` — which is what
+        lets the global be emitted as zerofill and cost no image bytes. POD
+        (trivially copyable) says yes, and so does a fixed array of one.
+
+        design 149 adds the case a declared copy POLICY was hiding: a struct
+        whose storage is entirely zero-initable but which declares `NoCopy`
+        (because copying it would be a bug) is not trivially copyable and was
+        therefore refused. That is exactly `SpinLock<T>` over a POD payload,
+        where all-zero means "unlocked, payload zeroed" — the one spelling that
+        makes a lockable static both const-initializable and free. Copyability
+        is irrelevant to a static, which is never copied and never moves.
+        """
         if t is None:
             return False
         if t.kind == TypeKind.ARRAY:
             return t.array_element_type is not None and \
-                self._is_zero_initable_type(t.array_element_type)
-        return self.namespace.is_trivially_copyable(t)
+                self._is_zero_initable_type(t.array_element_type, seen)
+        if self.namespace.is_trivially_copyable(t):
+            return True
+        if t.kind != TypeKind.STRUCT or not t.struct_name:
+            return False
+        # A struct that would need destruction has state beyond its bytes; zeros
+        # are not a valid value of it (a zeroed `String` is a null buffer).
+        if self._static_needs_destruction(t):
+            return False
+        seen = seen or set()
+        if t.struct_name in seen:
+            return False
+        fields = self._static_field_types(t)
+        if fields is None:
+            return False
+        return all(self._is_zero_initable_type(ft, seen | {t.struct_name})
+                   for ft in fields.values())
+
+    def _static_field_types(self, t: SawType):
+        """Field types of struct `t` with its type arguments substituted, or None
+        when the struct's fields are not known.
+
+        `SpinLock<HandleTable>` has to report a `value: HandleTable`, not the
+        template's `value: T`, or every question asked about a generic static's
+        storage answers about a type parameter instead.
+        """
+        fields = self.namespace.get_struct_fields(t.struct_name)
+        if not fields:
+            return None
+        sym = self.namespace.lookup_struct(t.struct_name)
+        node = getattr(sym, 'ast_node', None) if sym else None
+        params = getattr(node, 'type_params', None) or []
+        if not (params and t.type_args):
+            return dict(fields)
+        mapping = {tp.name: ta for tp, ta in zip(params, t.type_args)}
+        return {fn: (ft.substitute(mapping) if ft is not None else ft)
+                for fn, ft in fields.items()}
+
+    def _static_needs_destruction(self, t: SawType, seen=None) -> bool:
+        """Whether never destroying a static of type `t` would drop something real.
+
+        Statics are immortal, so this is the honest form of the immortality rule
+        (design 149 replaces the conformance test that stood here). What matters
+        is not whether the type DECLARES a copy policy — `NoCopy` says "do not
+        duplicate me", which has nothing to say about a value that is never
+        duplicated — but whether a destructor exists that would have done work: a
+        hand-written `deinit`, or a field that owns a resource. A struct of
+        integers declaring `NoCopy` needs no destruction; a `String` field does,
+        whoever declares what.
+
+        This is also design 149's v1 restriction on `unsafe static var` —
+        trivially-destructible types only — stated once, for every static.
+        """
+        if t is None:
+            return False
+        kind = t.kind
+        if kind == TypeKind.STRING:
+            return True
+        if kind == TypeKind.FUNCTION:
+            return bool(getattr(t, 'func_is_escaping', False))
+        if kind == TypeKind.ARRAY:
+            return self._static_needs_destruction(t.array_element_type, seen)
+        if kind == TypeKind.OPTIONAL:
+            return self._static_needs_destruction(t.inner_type, seen)
+        if kind == TypeKind.TUPLE:
+            return any(self._static_needs_destruction(e, seen)
+                       for e in (t.element_types or []))
+        name = (t.struct_name if kind == TypeKind.STRUCT
+                else t.enum_name if kind == TypeKind.ENUM else None)
+        if name is None:
+            return False
+        seen = seen or set()
+        if name in seen:
+            return False
+        seen = seen | {name}
+        # A hand-written destructor is the thing skipping destruction would drop.
+        # The empty `deinit` synthesized for a declared copy policy (design 131)
+        # lowers to the structural field drops and nothing else, so it is not one.
+        deinit = self.namespace.lookup_method(name, "deinit")
+        if deinit is not None and not getattr(
+                getattr(deinit, 'ast_node', None), 'is_synthesized', False):
+            return True
+        enum_info = self.get_enum_info(name)
+        if enum_info is not None:
+            return any(self._static_needs_destruction(ft, seen)
+                       for payload in (enum_info.variants or {}).values()
+                       for _fn, ft in payload)
+        fields = self._static_field_types(t)
+        if not fields:
+            return False
+        return any(self._static_needs_destruction(ft, seen)
+                   for ft in fields.values())
 
     def _is_const_init(self, expr) -> bool:
         """Whether `expr` is a compile-time constant static initializer

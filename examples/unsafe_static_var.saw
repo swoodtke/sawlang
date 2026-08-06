@@ -1,0 +1,99 @@
+// design 149 unit (a): `unsafe static var` — mutable statics for COMPOUND
+// state. Not an Atomic replacement: single-word state that several tasks update
+// independently still wants `Atomic`. This is for state whose consistency spans
+// words — a handle table of multi-word slots, a bitmap paired with the queues it
+// indexes, an arena's backing storage — where the serialization argument
+// (interrupts off, single core, boot only) is the author's, and `unsafe` is what
+// puts it in front of a reviewer.
+//
+// EXPECT: success
+// EXPECT-OUTPUT:
+// claimed 0 and 1
+// owners 11 22, live 2
+// released 0, live 1
+// arena 200 at the top, 0 at the bottom
+// counted to 4
+// table generation 2
+
+struct Slot {
+    owner: Int,
+    used: Bool
+}
+
+// The motivating shape: multi-word slots with an invariant across them (a slot
+// is used iff its owner is meaningful), plus a count that must agree with them.
+unsafe static var TABLE: [Slot; 4] = [Slot(owner: 0, used: false); 4]
+unsafe static var LIVE: Int = 0
+unsafe static var GENERATION: Int = 0
+
+// The arena: a region rather than a value. All-zero, so it costs no image bytes.
+unsafe static var ARENA: [UInt8; 4096] = [0; 4096]
+
+struct Header {
+    magic: Int,
+    entries: Int
+}
+
+unsafe static var HEADER: Header = Header(magic: 0, entries: 0)
+
+func claim(owner: Int) unsafe -> Int {
+    var i = 0
+    while i < 4 {
+        if not TABLE[i].used {
+            TABLE[i] = Slot(owner: owner, used: true)
+            LIVE = LIVE + 1
+            GENERATION += 1
+            return i
+        }
+        i = i + 1
+    }
+    -1
+}
+
+func release(i: Int) unsafe {
+    if TABLE[i].used {
+        TABLE[i].used = false
+        TABLE[i].owner = 0
+        LIVE = LIVE - 1
+    }
+}
+
+func owner_of(i: Int) unsafe -> Int { TABLE[i].owner }
+
+func live_count() unsafe -> Int { LIVE }
+
+func generation() unsafe -> Int { GENERATION }
+
+func arena_write(at: Int, b: UInt8) unsafe { ARENA[at] = b }
+
+func arena_read(at: Int) unsafe -> UInt8 { ARENA[at] }
+
+// A `&var` lend of a mutable static reaches an ordinary helper.
+func bump(n: &var Int) { n += 1 }
+
+func count_to_four() unsafe -> Int {
+    HEADER.magic = 0
+    HEADER.entries = 0
+    var i = 0
+    while i < 4 {
+        bump(&var HEADER.entries)
+        i = i + 1
+    }
+    HEADER.entries
+}
+
+func main() {
+    let a = claim(11)
+    let b = claim(22)
+    print("claimed {a} and {b}")
+    print("owners {owner_of(0)} {owner_of(1)}, live {live_count()}")
+
+    release(0)
+    print("released 0, live {live_count()}")
+
+    arena_write(4095, 200u8)
+    print("arena {arena_read(4095)} at the top, {arena_read(0)} at the bottom")
+
+    print("counted to {count_to_four()}")
+    print("table generation {generation()}")
+}

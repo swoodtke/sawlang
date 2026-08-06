@@ -383,6 +383,24 @@ class TypeChecker(ExpressionsMixin, StatementsMixin, RegistrationMixin, TypeUtil
         self._unsafe_contact = (getattr(node, 'line', 0),
                                 getattr(node, 'column', 0), what, str(found))
 
+    def _note_unsafe_static_contact(self, name: str, node) -> None:
+        """Record that the function being checked NAMED an `unsafe static var`
+        (design 149 unit a).
+
+        The trigger rule is otherwise about types, and the type of a mutable
+        static is usually an ordinary safe one — `[HandleSlot; 64]` says nothing
+        about who may write it. What is unsafe is the DECLARATION: its
+        consistency rests on a serialization argument no signature carries. So
+        naming one is contact, and every function that touches it is declared
+        `unsafe` and reviewed, which is the whole enforcement story for compound
+        global state.
+        """
+        if self._unsafe_contact is not None:
+            return
+        self._unsafe_contact = (getattr(node, 'line', 0),
+                                getattr(node, 'column', 0),
+                                "its body names an unsafe static", name)
+
     def _unsafe_check_exempt(self, node) -> bool:
         """Compiler-synthesized bodies are exempt from the trigger rule: the
         coroutine transform's frames and the derived copy/equals/compare/hash

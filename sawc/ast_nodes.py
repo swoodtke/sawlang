@@ -1890,16 +1890,31 @@ class TypeDefinition(ASTNode):
 class StaticDecl(ASTNode):
     """Module-level static declaration: static NAME: Type = initializer (design 41).
 
-    Statics are Sync-only, const-initialized, immortal (never deinit), and there
-    is NO `static mut` — global mutation flows only through interior-synchronized
-    types (e.g. Atomic<Int>). `initializer` is None for a bare zero-init
-    declaration (`static BUF: [Int8; 4096]`), which is only permitted for POD /
-    fixed-array statics.
+    Statics are const-initialized and immortal (never deinit). An immutable one
+    is Sync-only — global mutation flows through interior-synchronized types
+    (`Atomic<Int>`, and since design 149 `SpinLock<T>`), which is still the
+    recommendation for single-word state several tasks update independently.
+
+    `unsafe static var` (design 149 unit a) is the compound case Atomics cannot
+    express: a handle table of multi-word slots, a bitmap paired with the queues
+    it indexes, an arena's backing storage. Its consistency comes from a
+    serialization argument the compiler cannot see (interrupts off, single core,
+    boot only), so the declaration is `unsafe` and the trigger rule makes every
+    function that NAMES it say `unsafe` too — which is what puts the argument in
+    front of a reviewer. `is_var` and `is_unsafe` are set together; the parser
+    rejects either half alone.
+
+    `initializer` is None for a bare zero-init declaration
+    (`static BUF: [Int8; 4096]`), which is only permitted for zero-initable
+    types.
     """
     name: str
     type: 'SawType'
     initializer: Optional['Expression'] = None
     visibility: 'Visibility' = Visibility.PRIVATE
+    # design 149: `unsafe static var` — a MUTABLE static. Always set together.
+    is_var: bool = False
+    is_unsafe: bool = False
     # Declaration attributes (design 58): `@export` / `@section(...)` lines.
     attributes: List['Attribute'] = field(default_factory=list)
     source_file: str = ""

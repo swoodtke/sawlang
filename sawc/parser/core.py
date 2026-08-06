@@ -485,11 +485,13 @@ class Parser(ExpressionsMixin, StatementsMixin, DeclarationsMixin, TypeParsingMi
     def _parse_unsafe_modifier(self) -> bool:
         """Consume a prefix `unsafe` declaration modifier, if present.
 
-        Since design 136 the only declaration that carries one is
-        `unsafe struct`: a struct has no signature, so the effect slot every
-        other declaration uses does not exist for it, and the enforced `Unsafe*`
-        name carries the visibility instead. A prefix in front of anything else
-        is reported by `_error_unsafe_prefix`.
+        Two declarations carry one, and for the same reason: neither has a
+        signature, so the effect slot every other declaration uses does not
+        exist for them. `unsafe struct` (design 136) is carried by its enforced
+        `Unsafe*` name; `unsafe static var` (design 149) is carried by the
+        trigger rule, which makes every function that names it say `unsafe` too.
+        A prefix in front of anything else is reported by
+        `_error_unsafe_prefix`.
         """
         if self.match(TokenType.UNSAFE):
             self.advance()
@@ -507,9 +509,9 @@ class Parser(ExpressionsMixin, StatementsMixin, DeclarationsMixin, TypeParsingMi
             self.error(f"`unsafe` goes after the parameter list, not before "
                        f"`{keyword}` — write `{head} unsafe -> T` (the effect "
                        f"slot, before `sync`)")
-        self.error("`unsafe` may only precede `struct` — every other "
-                   "declaration carries it in the post-parameter effect slot "
-                   "(`func f(...) unsafe -> T`), got "
+        self.error("`unsafe` may only precede `struct` or `static var` — every "
+                   "other declaration carries it in the post-parameter effect "
+                   "slot (`func f(...) unsafe -> T`), got "
                    f"{self.current().type.name}")
 
     # The declaration effect slot in canonical order (design 136 + 141). The
@@ -671,7 +673,7 @@ class Parser(ExpressionsMixin, StatementsMixin, DeclarationsMixin, TypeParsingMi
                 # Parse visibility and then the declaration
                 visibility = self._parse_visibility()
                 unsafe = self._parse_unsafe_modifier()
-                if unsafe and not self.match(TokenType.STRUCT):
+                if unsafe and not self.match(TokenType.STRUCT, TokenType.STATIC):
                     self._error_unsafe_prefix()
                 if self.match(TokenType.STRUCT):
                     p.structs.append(self.parse_struct(visibility, unsafe))
@@ -686,7 +688,7 @@ class Parser(ExpressionsMixin, StatementsMixin, DeclarationsMixin, TypeParsingMi
                 elif self.match(TokenType.TYPE):
                     p.type_definitions.append(self.parse_type_definition(visibility))
                 elif self.match(TokenType.STATIC):
-                    p.statics.append(self.parse_static(visibility))
+                    p.statics.append(self.parse_static(visibility, unsafe))
                 else:
                     self.error(f"Expected struct, enum, trait, extension, func, type, or static after visibility modifier")
         elif self.match_ident("module"):
@@ -695,6 +697,8 @@ class Parser(ExpressionsMixin, StatementsMixin, DeclarationsMixin, TypeParsingMi
             self.advance()
             if self.match(TokenType.STRUCT):
                 p.structs.append(self.parse_struct(Visibility.PRIVATE, True))
+            elif self.match(TokenType.STATIC):
+                p.statics.append(self.parse_static(Visibility.PRIVATE, True))
             else:
                 self._error_unsafe_prefix()
         elif self.match(TokenType.STRUCT):
@@ -731,7 +735,8 @@ class Parser(ExpressionsMixin, StatementsMixin, DeclarationsMixin, TypeParsingMi
             if self.peek(1).type == TokenType.IDENT and self.peek(1).value == "module":
                 self.error("attributes are not supported on module declarations")
             visibility = self._parse_visibility()
-        if self._parse_unsafe_modifier():
+        unsafe = self._parse_unsafe_modifier()
+        if unsafe and not self.match(TokenType.STATIC):
             self._error_unsafe_prefix()
 
         if self.match(TokenType.FUNC):
@@ -743,7 +748,7 @@ class Parser(ExpressionsMixin, StatementsMixin, DeclarationsMixin, TypeParsingMi
         elif self.match(TokenType.STATIC):
             self._reject_misplaced_attributes(attrs, FUNC_STATIC_ATTRIBUTES,
                                               "static declarations")
-            st = self.parse_static(visibility)
+            st = self.parse_static(visibility, unsafe)
             st.attributes = attrs
             p.statics.append(st)
         elif self.match(TokenType.EXTENSION):

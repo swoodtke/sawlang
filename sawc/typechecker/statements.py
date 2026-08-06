@@ -1388,15 +1388,22 @@ class StatementsMixin:
         return None
 
     def _assign_target_static_root(self, target) -> Optional[str]:
-        """If an assignment target's root is a module-level static, return its
-        name; else None. Statics are immutable (design 41): a whole/field/element
-        write to one is rejected."""
+        """If an assignment target's root is an IMMUTABLE module-level static,
+        return its name; else None.
+
+        An immutable static rejects a whole/field/element write (design 41). An
+        `unsafe static var` (design 149) is what a write is FOR, so it is not
+        reported here — naming it already made the writing function `unsafe`
+        through the trigger rule, which is where the review happens.
+        """
         node = target
         while True:
             if isinstance(node, Identifier):
-                if (self.current_scope.lookup(node.name) is None
-                        and self.namespace.get_static(
-                            node.name, self._accessor_vis_module()) is not None):
+                if self.current_scope.lookup(node.name) is not None:
+                    return None
+                sym = self.namespace.get_static(
+                    node.name, self._accessor_vis_module())
+                if sym is not None and not getattr(sym, 'is_var', False):
                     return node.name
                 return None
             if isinstance(node, MemberAccess):
@@ -1407,6 +1414,49 @@ class StatementsMixin:
                 node = node.tuple_expr
             else:
                 return None
+
+    def _mutable_static_symbol(self, name: str):
+        """The StaticSymbol for `name` if it is an `unsafe static var` visible
+        here and not shadowed by a local binding; else None (design 149)."""
+        if self.current_scope.lookup(name) is not None:
+            return None
+        sym = self.namespace.get_static(name, self._accessor_vis_module())
+        if sym is None or not getattr(sym, 'is_var', False):
+            return None
+        return sym
+
+    def _check_static_var_assign(self, stmt, static_sym) -> None:
+        """Check `MUTABLE_STATIC = value` (design 149 unit a).
+
+        Naming the static is what makes the writing function `unsafe`, so the
+        contact is recorded here — the target of an assignment does not go
+        through the identifier read path that records it everywhere else.
+        """
+        target_type = static_sym.type
+        # Codegen reads the place's type off the node (a static has no entry in
+        # its variable tables) and its symbol off the same stamp every read site
+        # writes.
+        stmt.target.resolved_type = target_type
+        if static_sym.mangled_name:
+            stmt.target.resolved_static_symbol = static_sym.mangled_name
+        self._note_unsafe_static_contact(stmt.target.name, stmt.target)
+        self._apply_literal_expected_type(stmt.value, target_type)
+        value_type = self._check_expression(stmt.value)
+        resolved = self._resolve_type_alias(target_type) if target_type else None
+        if (value_type is not None and resolved is not None
+                and value_type.is_none_literal() and resolved.is_optional()):
+            self._propagate_optional_type(stmt.value, resolved)
+            value_type = resolved
+        if (value_type is not None and target_type is not None
+                and not self._types_compatible(value_type, target_type)):
+            self._error(
+                ErrorKind.TYPE_MISMATCH,
+                f"cannot assign `{value_type}` to static "
+                f"`{stmt.target.name}` of type `{target_type}`",
+                stmt.line, stmt.column
+            )
+        self._check_value_transfer(stmt.value, target_type, "assignment",
+                                   stmt.line, stmt.column)
 
     def _capture_write_root(self, target) -> Optional[str]:
         """If an assignment target writes into a closure's BY-VALUE capture,
@@ -1507,9 +1557,9 @@ class StatementsMixin:
 
     def _check_assign_statement(self, stmt: AssignStatement):
         """Check an assignment statement."""
-        # Statics are immutable (design 41): reject any write whose root is a
-        # static — whole (`S = x`), field (`S.f = x`), or element (`S[i] = x`).
-        # The rule keys on assignment; interior-mutable METHOD calls
+        # An immutable static rejects any write whose root is it — whole
+        # (`S = x`), field (`S.f = x`), or element (`S[i] = x`) (design 41). The
+        # rule keys on assignment; interior-mutable METHOD calls
         # (`S.fetch_add(1)`) are the sanctioned mutation path and are untouched.
         static_root = self._assign_target_static_root(stmt.target)
         if static_root is not None:
@@ -1517,10 +1567,21 @@ class StatementsMixin:
                 ErrorKind.IMMUTABLE_ASSIGNMENT,
                 f"cannot assign to static `{static_root}`: statics are immutable",
                 stmt.line, stmt.column,
-                hint="use an interior-synchronized type (e.g. `Atomic<Int>`) and "
-                     "mutate through its methods"
+                hint="use an interior-synchronized type (`Atomic<Int>`, "
+                     "`SpinLock<T>`) and mutate through its methods, or declare "
+                     "it `unsafe static var` and own the serialization argument"
             )
             return
+
+        # design 149: a whole-value write to an `unsafe static var`. A static is
+        # not a scope binding, so the Identifier path below would call it
+        # undefined; and the write needs no destruction of the old value, which
+        # is what v1's trivially-destructible restriction buys.
+        if isinstance(stmt.target, Identifier):
+            mutable_static = self._mutable_static_symbol(stmt.target.name)
+            if mutable_static is not None:
+                self._check_static_var_assign(stmt, mutable_static)
+                return
 
         # A write to a by-value closure capture is discarded (design 132 unit A).
         if self._reject_capture_write(stmt.target, stmt.line, stmt.column):
@@ -1846,16 +1907,17 @@ class StatementsMixin:
         - Mutable struct fields (if the struct binding is mutable)
         - Mutable array elements (if the array binding is mutable)
         """
-        # Statics are immutable (design 41): `S += 1` and friends are rejected
-        # for the same reason as a plain assignment.
+        # An immutable static rejects `S += 1` and friends for the same reason as
+        # a plain assignment (design 41). An `unsafe static var` takes one.
         static_root = self._assign_target_static_root(stmt.target)
         if static_root is not None:
             self._error(
                 ErrorKind.IMMUTABLE_ASSIGNMENT,
                 f"cannot assign to static `{static_root}`: statics are immutable",
                 stmt.line, stmt.column,
-                hint="use an interior-synchronized type (e.g. `Atomic<Int>`) and "
-                     "mutate through its methods"
+                hint="use an interior-synchronized type (`Atomic<Int>`, "
+                     "`SpinLock<T>`) and mutate through its methods, or declare "
+                     "it `unsafe static var` and own the serialization argument"
             )
             return
 
