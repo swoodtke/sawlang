@@ -295,13 +295,19 @@ class CodeGenerator(ResultsMixin, MatchMixin, StructsMixin, CollectionsMixin, Ca
         # design 51: `any Trait` existential state (vtables, thunks, destructors).
         self._existential_init()
         # Cache: type_name -> cleanup behavior ('none', 'deinit', 'implicit_copy', 'no_copy')
-        self.type_cleanup_behavior: dict[str, str] = {}
+        self.type_cleanup_behavior: dict[tuple, str] = {}
         # Cache: canonical type symbol -> whether the aggregate has any field/
         # payload that itself needs cleanup (drop glue for structs that hold
         # cleanup-needing fields but declare no deinit -- e.g. only String fields).
         self.type_field_cleanup: dict[str, bool] = {}
         # Track moved variables - these should not be cleaned up or accessed
         self.moved_variables: set[str] = set()
+        # Names bound to storage this frame BORROWS rather than owns. A
+        # reference closure parameter is the case `variable_types` cannot
+        # describe (it holds the referent's type, because the name IS the
+        # pointer), and consuming one would release a value the caller still
+        # owns — which is what a `match` through a `with_ref` borrow did.
+        self.borrowed_variables: set[str] = set()
         # Runtime drop flags (design 42): name -> i1 alloca (1 = still needs drop).
         # A binding that MIGHT be `move`d on some control-flow paths but not others
         # (a conditional move) cannot have its cleanup decided statically — the

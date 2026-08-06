@@ -124,6 +124,19 @@ class ResourcesMixin:
             return mangle_type(saw_type)
         return None
 
+    def _is_borrowed_name(self, name: str) -> bool:
+        """Is `name` bound to storage this frame BORROWS rather than owns?
+
+        Two spellings answer differently and both must be caught: an ordinary
+        reference parameter keeps its `&T` in `variable_types`, while a
+        reference CLOSURE parameter stores the referent's type there (the name
+        is the pointer itself) and is recorded in `borrowed_variables` instead.
+        """
+        if name in self.borrowed_variables:
+            return True
+        t = self.variable_types.get(name)
+        return t is not None and t.kind == TypeKind.REFERENCE
+
     def _get_cleanup_behavior(self, saw_type: SawType) -> str:
         """Determine cleanup behavior for a type.
 
@@ -134,15 +147,23 @@ class ResourcesMixin:
         - 'implicit_copy': Type implements ImplicitCopy, call copy() on copy
         - 'no_copy': Type implements NoCopy, cannot be copied
 
-        Results are cached in self.type_cleanup_behavior.
+        Results are cached in self.type_cleanup_behavior. The cache key carries
+        the TYPE ARGUMENTS, because one of the answers below is structural: a
+        generic enum's tier comes from its instantiated payloads, so `Slot<K>`
+        and `Slot<Res>` are two different answers under one base name. Keying on
+        the base name alone let whichever was seen first decide for both — the
+        abstract form always answers "none", so a concrete `Slot<Res>` read
+        emitted no copy and DF-146e's over-release followed.
         """
         type_name = self._get_type_name_for_conformance(saw_type)
         if type_name is None:
             return "none"
+        cache_key = (type_name,
+                     tuple(str(a) for a in (saw_type.type_args or [])))
 
         # Check cache
-        if type_name in self.type_cleanup_behavior:
-            return self.type_cleanup_behavior[type_name]
+        if cache_key in self.type_cleanup_behavior:
+            return self.type_cleanup_behavior[cache_key]
 
         # Check conformances (use namespace)
         conformances = self.namespace.get_conformances(type_name)
@@ -168,7 +189,7 @@ class ResourcesMixin:
         else:
             behavior = "none"
 
-        self.type_cleanup_behavior[type_name] = behavior
+        self.type_cleanup_behavior[cache_key] = behavior
         return behavior
 
     def _needs_cleanup(self, saw_type: SawType) -> bool:
@@ -1195,6 +1216,17 @@ class ResourcesMixin:
     def _transfer_needs_copy(self, value_expr) -> bool:
         """Whether transferring `value_expr` into a new owner must copy/retain."""
         if getattr(value_expr, 'needs_copy', False):
+            return True
+        # design 146 (DF-146e) rule 2: a place VALUE READ whose element type
+        # mentions a type PARAMETER. Its tier is not knowable from the written
+        # type — only the bounds are, and the use site already proved from them
+        # that every instantiation can be copied. WHICH copy is a question for
+        # the instantiation, which is where the matching DROP is emitted, so it
+        # is answered here: `_generate_copy` substitutes the monomorphization
+        # context and emits the concrete type's own copy (bitwise, a retain, or
+        # its `copy()`). Deciding it before monomorphization emitted nothing at
+        # all while the drop stayed real — one release per read.
+        if getattr(value_expr, 'place_abstract_read', False):
             return True
         # design 124: a coroutine frame holds an across-suspend local in a
         # `T?`-encoded field and reads it as `self.name!`. The ForceUnwrap hides

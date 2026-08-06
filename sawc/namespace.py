@@ -1111,6 +1111,15 @@ class Namespace:
     #   'implicit'  duplicated by a refcount retain at every transfer.
     #   'explicit'  never duplicated implicitly: `move`, or a visible `.copy()`.
     #   'nocopy'    move-only.
+    #   'abstract'  DEMANDS A BOUND — the written type mentions an opaque type
+    #               PARAMETER, so its transfer class is a property of the
+    #               INSTANTIATION and cannot be read off the declaration. It
+    #               joins as the strongest tier because the unknown may be
+    #               move-only. Sites that must decide before monomorphization
+    #               (a place value read) answer it from the parameter's BOUNDS
+    #               and error eagerly when the bounds do not prove a copy;
+    #               sites that emit at the instantiation substitute first and
+    #               never see this answer (design 146, DF-146e).
     #
     # A WRAPPER is never weaker than what it wraps: an `Optional<T>`, a tuple, a
     # fixed array, and an enum's payloads all JOIN their parts' tiers. That join
@@ -1126,12 +1135,40 @@ class Namespace:
     # one is owed.
     # =========================================================================
 
-    _COPY_TIER_ORDER = ('free', 'implicit', 'explicit', 'nocopy')
+    _COPY_TIER_ORDER = ('free', 'implicit', 'explicit', 'nocopy', 'abstract')
+
+    # Names that reach the type predicates as a STRUCT-kinded SawType even
+    # though they are compiler-known types, not type parameters. The parser
+    # defaults an unknown capitalized name to STRUCT, so the "resolves to no
+    # declaration" test that identifies a type parameter needs them excluded.
+    _BUILTIN_TYPE_NAMES = frozenset({
+        "String", "Int", "UInt", "Float", "Bool", "Void", "Never", "Self",
+        "Int8", "Int16", "Int32", "Int64",
+        "UInt8", "UInt16", "UInt32", "UInt64",
+    })
 
     def _tier_join(self, a: str, b: str) -> str:
         """The stronger of two tiers — a composite is never weaker than a part."""
         order = self._COPY_TIER_ORDER
         return a if order.index(a) >= order.index(b) else b
+
+    def is_abstract_type_name(self, name: str) -> bool:
+        """True when `name` is an opaque type PARAMETER rather than a declared
+        type. A type parameter reaches here as a STRUCT-kinded SawType carrying
+        its own name (`SawType.substitute` keys off exactly that), so the test
+        is whether the name resolves to any declaration at all — the same
+        "opaque / unresolved type parameter" reading `_send_sync` uses."""
+        if name is None or name in self._BUILTIN_TYPE_NAMES:
+            return False
+        return (self._lookup_struct_deep(name) is None
+                and self._lookup_enum_deep(name) is None
+                and self._lookup_type_alias_deep(name) is None)
+
+    def _has_abstract_type_arg(self, saw_type: SawType) -> bool:
+        """Does any type ARGUMENT of this instantiation mention a parameter?"""
+        return any(self.copy_tier(arg) == 'abstract'
+                   for arg in (saw_type.type_args or [])
+                   if arg is not None)
 
     def declared_copy_tier(self, type_name: str) -> str:
         """The tier a type NAME declares, or 'free' when it declares none."""
@@ -1173,7 +1210,20 @@ class Namespace:
             alias_sym = self._lookup_type_alias_deep(name)
             if alias_sym and alias_sym.aliased_type:
                 return self.copy_tier(alias_sym.aliased_type, _visiting)
-            return self.declared_copy_tier(name)
+            declared = self.declared_copy_tier(name)
+            if declared != 'free':
+                # A DECLARED policy is instantiation-uniform by construction:
+                # `Vector<T>` is ExplicitCopy for every `T`. Nothing abstract
+                # about the arguments can weaken or strengthen it.
+                return declared
+            if self.is_abstract_type_name(name):
+                return 'abstract'
+            if self._has_abstract_type_arg(saw_type):
+                # An undeclared struct's 'free' is a STRUCTURAL answer, and a
+                # structural answer over abstract arguments is not knowable from
+                # the written type.
+                return 'abstract'
+            return 'free'
         if kind == TypeKind.ENUM:
             name = saw_type.enum_name
             if name is None:
@@ -1242,6 +1292,13 @@ class Namespace:
         this, a `DepSource { PathDep(String) }`-style enum was silently BITWISE
         copied at every transfer while still releasing its payload at drop, so the
         shared `String` was released once per copy -> double free (DF12).
+
+        The payload types are the enum's AS DECLARED, so a GENERIC enum must have
+        its type arguments substituted in before they can be classified at all —
+        `Slot<K>`'s payload is the opaque `K`, `Slot<Res>`'s is a real type with a
+        real tier. Judging the unsubstituted form answered False for every generic
+        enum, so a `Slot<Res>` value read emitted no copy while its binding was
+        still dropped: one release per read, which is DF-146e.
         """
         saw_type = self._normalize_struct_enum(saw_type)
         if saw_type is None or saw_type.kind != TypeKind.ENUM:
@@ -1265,9 +1322,12 @@ class Namespace:
         sym = self._lookup_enum_deep(name)
         if sym is None:
             return False
+        type_map = self._enum_type_arg_map(sym, saw_type)
         has_owning = False
         for variant_fields in sym.variants.values():
             for _fname, ftype in variant_fields:
+                if type_map and ftype is not None:
+                    ftype = ftype.substitute(type_map)
                 ok, owning = self._payload_retainable(ftype, _visiting)
                 if not ok:
                     return False
@@ -1306,10 +1366,13 @@ class Namespace:
             # A payload-free / all-POD nested enum is bitwise-retainable (non-owning);
             # anything else (owning ExplicitCopy/NoCopy payload) is not.
             sym = self._lookup_enum_deep(t.enum_name) if t.enum_name else None
-            if sym is not None and all(
-                    self.is_trivially_copyable(ft)
-                    for vf in sym.variants.values() for _n, ft in vf):
-                return (True, False)
+            if sym is not None:
+                nested_map = self._enum_type_arg_map(sym, t)
+                if all(self.is_trivially_copyable(
+                            ft.substitute(nested_map) if nested_map and ft is not None
+                            else ft)
+                        for vf in sym.variants.values() for _n, ft in vf):
+                    return (True, False)
             return (False, False)
         return (False, False)
 

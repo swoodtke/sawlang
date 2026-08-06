@@ -1,0 +1,111 @@
+// DF-146f: a pattern that BINDS NOTHING is a presence test, and a presence
+// test is a BORROW of the place.
+//
+// `if let _ = p` takes no payload out and `case Empty` looks only at the
+// discriminant, so neither turns the place back into a value. Judging them as
+// value reads made a move-only place un-askable — you could not find out
+// whether a `File` was there without a `Bool` method beside the accessor. As a
+// borrow the same spellings emit no copy and no drop, so they are legal for
+// EVERY tier, NoCopy included.
+//
+// A match on a place goes through the borrow whether or not an arm binds: an
+// arm that binds binds the PAYLOAD in place, so the copy question is asked of
+// that one binding rather than of the whole element. The counts are the proof
+// — `deinit` prints, and it prints once, when the vector goes.
+// EXPECT: success
+// EXPECT-OUTPUT:
+// -- match, no arm binds
+// 1
+// 1
+// -- one arm binds, one does not
+// a
+// a
+// -- if let _ presence
+// present
+// absent
+// -- guard let _ presence
+// guarded
+// -- teardown
+// deinit a
+
+struct Res { name: String }
+
+extension Res: NoCopy {
+    func deinit(&var self) { print("deinit {self.name}") }
+}
+
+enum Slot { case Empty, case Occupied(key: Res) }
+
+extension Slot: NoCopy {}
+
+struct Probe { slots: Vector<Slot> }
+
+extension Probe: NoCopy {}
+
+extension Probe {
+    /// A conditional lend over a move-only element.
+    public func at(&self, i: Int) borrows -> Slot? {
+        if i < 0 || i >= self.slots.len() {
+            return None
+        }
+        lend self.slots[i]
+    }
+}
+
+/// No arm binds: only the discriminant is read.
+func tag_at(slots: &Vector<Slot>, i: Int) -> Int {
+    match slots[i] {
+        case Empty -> 0,
+        case Occupied(_) -> 1
+    }
+}
+
+/// One arm binds and one does not.
+func name_at(slots: &Vector<Slot>, i: Int) -> String {
+    match slots[i] {
+        case Empty -> "",
+        case Occupied(k) -> k.name
+    }
+}
+
+func main() {
+    var slots = Vector<Slot>()
+    slots.push(Slot.Occupied(key: Res(name: "a")))
+
+    print("-- match, no arm binds")
+    print("{tag_at(&slots, 0)}")
+    print("{tag_at(&slots, 0)}")
+
+    print("-- one arm binds, one does not")
+    print("{name_at(&slots, 0)}")
+    print("{name_at(&slots, 0)}")
+
+    // The conditional lend asks whether the INDEX is there, so its slots carry
+    // no payload — the release below is the vector above, one element, once.
+    print("-- if let _ presence")
+    var empties = Vector<Slot>()
+    empties.push(Slot.Empty)
+    let probe = Probe(slots: move empties)
+    if let _ = probe.at(0) {
+        print("present")
+    }
+    if let _ = probe.at(9) {
+        print("unreachable")
+    } else {
+        print("absent")
+    }
+
+    print("-- guard let _ presence")
+    guarded(p: &probe)
+
+    print("-- teardown")
+    let _ = move slots
+}
+
+func guarded(p: &Probe) {
+    guard let _ = p.at(0) else {
+        print("unreachable")
+        return
+    }
+    print("guarded")
+}

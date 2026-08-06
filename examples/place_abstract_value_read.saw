@@ -1,0 +1,75 @@
+// A place VALUE READ whose element type mentions a type PARAMETER (DF-146e).
+//
+// `Slot<K>` has no tier of its own: whether it copies is a property of the
+// INSTANTIATION. The bound `K: Copy` is what proves every instantiation can be
+// copied, and the copy is emitted AT the instantiation — the same phase that
+// emits the drop. Before that symmetry, the check said "free" and emitted no
+// copy while the drop was emitted per instantiation and was real, so every
+// read released one reference too many.
+//
+// A match that BINDS NOTHING is not a read at all (DF-146f): it looks at the
+// discriminant through the borrow, so it needs no bound and costs nothing.
+// EXPECT: success
+// EXPECT-OUTPUT:
+// -- value read: one copy, one drop
+// copy a
+// deinit a
+// 1
+// -- borrow: neither
+// 1
+// 1
+// -- done
+
+struct Res { name: String }
+
+extension Res: ImplicitCopy {
+    func copy(&self) -> Res {
+        print("copy {self.name}")
+        Res(name: self.name)
+    }
+    func deinit(&var self) { print("deinit {self.name}") }
+}
+
+enum Slot<K> { case Empty, case Occupied(key: K) }
+
+struct Holder<K: Copy> { slots: Vector<Slot<K>> }
+
+extension Holder<K: Copy>: NoCopy {}
+
+extension Holder<K: Copy> {
+    init() -> Holder<K> {
+        let v = Vector<Slot<K>>()
+        Holder<K>(slots: move v)
+    }
+
+    // A VALUE read of `Slot<K>`: legal because `K: Copy` proves the copy.
+    func tag_at(&self, i: Int) -> Int {
+        let s = self.slots[i]
+        match s {
+            case Empty -> 0,
+            case Occupied(_) -> 1
+        }
+    }
+
+    // The same question through the place: no arm binds, so nothing is read.
+    func borrowed_tag_at(&self, i: Int) -> Int {
+        match self.slots[i] {
+            case Empty -> 0,
+            case Occupied(_) -> 1
+        }
+    }
+}
+
+func main() {
+    var h = Holder<Res>()
+    h.slots.push(Slot<Res>.Occupied(key: Res(name: "a")))
+
+    print("-- value read: one copy, one drop")
+    print("{h.tag_at(0)}")
+
+    print("-- borrow: neither")
+    print("{h.borrowed_tag_at(0)}")
+    print("{h.borrowed_tag_at(0)}")
+
+    print("-- done")
+}

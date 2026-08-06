@@ -143,6 +143,7 @@ class ClosuresMixin:
         saved_cleanup_stack = self.cleanup_stack[:]
         saved_drop_flags = self.drop_flags
         saved_moved_variables = self.moved_variables
+        saved_borrowed_variables = self.borrowed_variables
 
         # Generate closure body
         entry = closure_fn.append_basic_block(name="entry")
@@ -158,6 +159,7 @@ class ClosuresMixin:
         self.cleanup_stack = []
         self.drop_flags = {}
         self.moved_variables = set()
+        self.borrowed_variables = set()
 
         # Set up environment access if there are captures
         if captures and env_struct_type:
@@ -204,6 +206,13 @@ class ClosuresMixin:
                 # and writes store through it — no local copy.
                 self.variables[param_name] = llvm_param
                 self.variable_types[param_name] = saw_t.inner_type
+                # The name is bound to storage the CALLER owns. Recording that
+                # is what stops a `match` on it from consuming a value this
+                # frame never owned (design 146 / DF-146f): `variable_types`
+                # cannot say so here, because a reference closure parameter
+                # deliberately stores its INNER type (the name is the pointer
+                # itself, not an alloca holding one).
+                self.borrowed_variables.add(param_name)
             else:
                 alloca = self._entry_alloca(param_types[i], name=param_name)
                 self.builder.store(llvm_param, alloca)
@@ -232,6 +241,7 @@ class ClosuresMixin:
         # Restore context
         self.builder = saved_builder
         self.variables = saved_variables
+        self.borrowed_variables = saved_borrowed_variables
         self.variable_types = saved_variable_types
         self.cleanup_stack = saved_cleanup_stack
         self.drop_flags = saved_drop_flags

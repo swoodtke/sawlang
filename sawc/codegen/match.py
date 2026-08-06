@@ -107,11 +107,16 @@ class MatchMixin:
             any(self._needs_cleanup(ft) for _, ft in flds)
             for flds in variant_cleanup_info.values()
         )
-        # The scrutinee is consumable only when it is an owned binding in scope
-        # (a `let`/param/if-let local). A field/temporary/borrow is left alone.
+        # The scrutinee is consumable only when it is an OWNED binding in scope
+        # (a `let`/param/if-let local). A field/temporary/borrow is left alone —
+        # and a borrow is the case that hid: matching through a `&T`/`&var T`
+        # binding took the consume path, so `case Occupied(_)` released a
+        # payload the container still owned. That reached every `match` inside
+        # a `with_ref` body and, since design 146, every match through a place.
         consume_name = None
         if (enum_has_owning and isinstance(expr.matched_expr, Identifier)
-                and expr.matched_expr.name in self.variables):
+                and expr.matched_expr.name in self.variables
+                and not self._is_borrowed_name(expr.matched_expr.name)):
             consume_name = expr.matched_expr.name
         if consume_name is not None:
             # Suppress the scrutinee's own drop on every path: its payload is

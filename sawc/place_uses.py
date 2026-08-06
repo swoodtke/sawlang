@@ -51,12 +51,13 @@ code.
 """
 
 from ast_nodes import (
-    Argument, ArrayIndex, ASTNode, AssignStatement, Block, ClosureExpr,
-    ClosureParam, CompoundAssignStatement, Expression, ExpressionStatement,
-    ForceUnwrap, ForLoop, FunctionCall, GuardLetStatement, Identifier,
-    LetStatement, MatchArm, MemberAccess, MethodCall, NoneLiteral,
-    ReferenceExpr, ReturnStatement, SawType, SelfExpr, StringLiteral,
-    TupleIndex, TypeKind, structural_fields,
+    Argument, ArrayIndex, ASTNode, AssignStatement, Block, BoolLiteral,
+    BreakStatement, BindingPattern, ClosureExpr, ClosureParam,
+    CompoundAssignStatement, ContinueStatement, Expression, ExpressionStatement,
+    ForceUnwrap, ForLoop, FunctionCall, GuardLetStatement, Identifier, IfExpr,
+    IfLetExpr, LetStatement, MatchArm, MatchExpr, MemberAccess, MethodCall,
+    MoveExpr, NoneLiteral, ReferenceExpr, ReturnStatement, SawType, SelfExpr,
+    StringLiteral, TupleIndex, TypeKind, UnaryOp, structural_fields,
 )
 from errors import ErrorKind
 
@@ -84,6 +85,7 @@ class _PlaceUses:
         self.changed = False
         self._counter = 0
         self._file = ""
+        self._bounds = {}
 
     # -- traversal ---------------------------------------------------------
 
@@ -92,13 +94,13 @@ class _PlaceUses:
             self._decl(func)
         for ext in getattr(program, 'extensions', []) or []:
             for method in getattr(ext, 'methods', []) or []:
-                self._decl(method)
+                self._decl(method, ext)
         for decl in getattr(program, 'module_decls', []) or []:
             body = getattr(decl, 'body', None)
             if body is not None:
                 self.run(body)
 
-    def _decl(self, decl) -> None:
+    def _decl(self, decl, ext=None) -> None:
         body = getattr(decl, 'body', None)
         if body is None:
             return
@@ -106,7 +108,22 @@ class _PlaceUses:
         # `__window(&var X)` by the declaration lowering; its place USES (an
         # accessor implemented over another accessor) are ordinary uses.
         self._file = getattr(decl, 'source_file', None) or ""
+        self._bounds = self._collect_bounds(decl, ext)
         self._block(body)
+
+    def _collect_bounds(self, decl, ext):
+        """`{type parameter -> its declared trait bounds}` in scope for `decl`.
+
+        A method's own parameters and its extension's are both in scope, and the
+        method's win on a name collision — the same nesting the checker uses.
+        This is what answers "does a bound prove this read may copy" without
+        waiting for the instantiation (design 146, DF-146e rule 1).
+        """
+        bounds = {}
+        for owner in (ext, decl):
+            for tp in (getattr(owner, 'type_params', None) or []):
+                bounds[tp.name] = set(getattr(tp, 'bounds', None) or [])
+        return bounds
 
     def _block(self, block) -> None:
         block.statements = [self._stmt(s) for s in block.statements]
@@ -125,6 +142,19 @@ class _PlaceUses:
             stmt.value = self._value(stmt.value)
             return stmt
         if isinstance(stmt, GuardLetStatement):
+            presence = self._presence_condition(stmt.name, stmt.pattern,
+                                                stmt.optional_expr)
+            if presence is not None:
+                # `guard let _ = p else { … }` asks only whether the place is
+                # there, so it becomes the plain conditional it always meant.
+                self._block(stmt.else_branch)
+                return ExpressionStatement(
+                    expression=IfExpr(
+                        condition=UnaryOp(op="not", operand=presence,
+                                          line=stmt.line, column=stmt.column),
+                        then_branch=stmt.else_branch, else_branch=None,
+                        line=stmt.line, column=stmt.column),
+                    line=stmt.line, column=stmt.column)
             stmt.optional_expr = self._value(stmt.optional_expr)
             self._block(stmt.else_branch)
             return stmt
@@ -169,6 +199,12 @@ class _PlaceUses:
         if expr is None:
             return None
 
+        # A pattern that BINDS NOTHING never turns the place into a value
+        # (DF-146f), so it is classified as a borrow before anything else.
+        borrowed = self._borrow_read(expr)
+        if borrowed is not None:
+            return borrowed
+
         # A place handed over as a reference argument: the window spans the
         # whole call (design 141 — a Saw reference is call-scoped), and two of
         # them nest, which is what orders their epilogues LIFO.
@@ -201,6 +237,12 @@ class _PlaceUses:
                 return expr
             body_expr = Identifier(name=name, line=place.line,
                                    column=place.column)
+            if getattr(place, 'place_abstract_read', False):
+                # Rule 2 (DF-146e): the tier is a property of the
+                # INSTANTIATION, so the copy is emitted there — the same phase
+                # that emits the drop. Deciding it here, on the written type,
+                # is what left the two out of step.
+                body_expr.place_abstract_read = True
         else:
             body_expr = self._value(self._replace_head(expr, place, name))
         body = Block(statements=[], final_expr=body_expr,
@@ -208,6 +250,94 @@ class _PlaceUses:
         return self._window_call(place, name, body, result_type,
                                  exclusive=self._chain_is_exclusive(expr, place),
                                  absent='none' if expr is place else 'panic')
+
+    # -- borrow-classified reads (DF-146f) ---------------------------------
+    #
+    # Design 131 made a payload read a PLACE and gave it the copy-tier table.
+    # It classified every read the same way, so `if let _ = p` — a pattern that
+    # binds nothing — was judged a VALUE read and a move-only place could not
+    # even be asked whether it was there. Nothing is read: `_` takes no payload
+    # out and a `case Empty` arm looks only at the discriminant. So a pattern
+    # that binds nothing is a PRESENCE TEST, and a presence test is a BORROW —
+    # legal for every tier, including a NoCopy element and an abstract
+    # composite that demands a bound, because it emits no copy and no drop.
+    #
+    # Map's and Set's probe paths are exactly this shape (`_slot_state`,
+    # `_key_eq`, `_key_at`), which is why the rule is written here in general
+    # rather than special-cased in their files.
+
+    def _borrow_read(self, expr):
+        """`expr` re-lowered as a BORROW of its place, or None if it is not
+        one of the binds-nothing shapes."""
+        if isinstance(expr, IfLetExpr):
+            presence = self._presence_condition(expr.name, expr.pattern,
+                                                expr.optional_expr)
+            if presence is None:
+                return None
+            self._block(expr.then_branch)
+            if expr.else_branch is not None:
+                self._block(expr.else_branch)
+            return IfExpr(condition=presence, then_branch=expr.then_branch,
+                          else_branch=expr.else_branch,
+                          line=expr.line, column=expr.column)
+        if isinstance(expr, MatchExpr):
+            return self._borrow_match(expr)
+        return None
+
+    def _presence_condition(self, name, pattern, subject):
+        """`if let _ = <place>` / `guard let _ = <place>` as a `Bool` question.
+
+        The window's body is `true` and its absent path is `false`, so the place
+        is never read out — and the then/else blocks stay exactly where the
+        author wrote them, which a lowering that moved them INTO the window
+        could not promise (a `return` inside one would return from the window).
+        """
+        if name != "_" or pattern is not None:
+            return None
+        place = subject if is_place(subject) else None
+        if place is None or not getattr(place, 'place_optional', False):
+            return None
+        body = Block(statements=[],
+                     final_expr=BoolLiteral(value=True, line=place.line,
+                                            column=place.column),
+                     line=place.line, column=place.column)
+        return self._window_call(place, self._fresh(), body,
+                                 SawType(TypeKind.BOOL),
+                                 exclusive=False, absent='false')
+
+    def _borrow_match(self, expr):
+        """`match <place> { … }`: the match moves INSIDE the window and reads
+        the place where it sits.
+
+        The discriminant is read through the borrow and an arm that binds binds
+        THE PAYLOAD IN PLACE, so the copy-policy question is asked of that one
+        binding rather than of the whole element — which is what lets a
+        move-only element be matched at all, and what makes Map's and Set's
+        probe paths cost nothing.
+
+        Two shapes keep the ordinary value-read path. An arm body that leaves
+        the enclosing function (`return`, `break`, `continue`) cannot move into
+        a closure — it would leave the WINDOW instead. And an arm that MOVES
+        one of its own bindings is destructuring the element rather than
+        reading it, which a borrow cannot serve. Neither silently changes
+        meaning: both keep the rules they had.
+        """
+        place = self._chain_head(expr.matched_expr)
+        if place is None or expr.matched_expr is not place:
+            return None
+        if any(_escapes_control_flow(arm.body) or _arm_moves_binding(arm)
+               for arm in expr.arms):
+            return None
+        result_type = getattr(expr, 'resolved_type', None)
+        name = self._fresh()
+        expr.matched_expr = Identifier(name=name, line=place.line,
+                                       column=place.column)
+        for arm in expr.arms:
+            self._recurse(arm)
+        body = Block(statements=[], final_expr=expr,
+                     line=expr.line, column=expr.column)
+        return self._window_call(place, name, body, result_type,
+                                 exclusive=False, absent='panic')
 
     def _span_call(self, expr):
         """A call with `&place` / `&var place` arguments -> nested windows."""
@@ -287,6 +417,10 @@ class _PlaceUses:
         """
         if kind == 'none':
             body_expr = NoneLiteral(line=place.line, column=place.column)
+        elif kind == 'false':
+            # A presence test (DF-146f): absence IS the answer, not a failure.
+            body_expr = BoolLiteral(value=False, line=place.line,
+                                    column=place.column)
         else:
             body_expr = FunctionCall(
                 name="panic",
@@ -310,10 +444,23 @@ class _PlaceUses:
 
     # -- policy ------------------------------------------------------------
 
+    # The bounds that PROVE an abstract type may be duplicated. Each one gives
+    # every satisfying type a copy the compiler can emit — bitwise for a trivial
+    # one, a retain for ImplicitCopy, the type's own `copy()` for ExplicitCopy —
+    # so the read is legal for EVERY instantiation and the emission can wait for
+    # the instantiation to say which. Writing one of these is the author's
+    # consent to duplication, which is what a concrete site spells `.copy()`.
+    # An unbounded or `NoCopy`-bounded parameter proves nothing and is refused
+    # in the generic body, before any instantiation exists (DF-123b: no
+    # post-monomorphization errors).
+    _COPY_PROVING_BOUNDS = frozenset({"Copy", "ImplicitCopy", "ExplicitCopy"})
+
     def _value_read_ok(self, place) -> bool:
         """design 131's table at the one point a place becomes a value."""
         elem = getattr(place, 'place_elem_type', None)
         tier = self.ns.copy_tier(elem) if elem is not None else 'free'
+        if tier == 'abstract':
+            return self._abstract_read_ok(place, elem)
         if tier in ('free', 'implicit'):
             return True
         rendered = f"{self._render(self._place_receiver(place))}"
@@ -342,6 +489,61 @@ class _PlaceUses:
             f"it out as a value would alias storage the container still owns",
             place.line, place.column or 1, hint, self._file)
         return False
+
+    def _abstract_read_ok(self, place, elem) -> bool:
+        """Rule 1 (DF-146e): a value read whose type mentions a type PARAMETER.
+
+        `Slot<K>` has no tier of its own — its transfer class is whatever the
+        instantiation's `K` turns out to be. Deciding that here, on the written
+        type, is what broke: the structural join answered 'free' and emitted no
+        copy, while the DROP was emitted per instantiation and was real, so
+        every read over-released. The answer is not to guess but to ASK THE
+        BOUNDS, in the generic body, once — legal for every instantiation or
+        legal for none.
+        """
+        unproven = sorted(self._unproven_params(elem))
+        if not unproven:
+            place.place_abstract_read = True
+            return True
+        rendered = self._render(self._place_receiver(place))
+        if isinstance(place, ArrayIndex):
+            spelling = f"{rendered}[…]"
+        else:
+            spelling = f"{rendered}.{place.place_method}(…)"
+        names = ", ".join(f"`{n}`" for n in unproven)
+        one = unproven[0]
+        self.reporter.error(
+            ErrorKind.TYPE_MISMATCH,
+            f"`{spelling}` lends a place of type `{elem}`, whose copy policy "
+            f"depends on the type parameter{'s' if len(unproven) > 1 else ''} "
+            f"{names} — reading it out as a value would be a copy for some "
+            f"instantiations and an alias for others",
+            place.line, place.column or 1,
+            f"bound the parameter so every instantiation can be copied "
+            f"(`{one}: Copy`), or reach the place through a borrow — "
+            f"`{spelling}.method()` reads it in place, and a pattern that binds "
+            f"nothing (`case Empty`, `if let _ = …`) tests it without reading "
+            f"it at all",
+            self._file)
+        return False
+
+    def _unproven_params(self, saw_type, seen=None):
+        """The type parameters in `saw_type` whose bounds do not prove a copy."""
+        if saw_type is None:
+            return set()
+        if seen is None:
+            seen = set()
+        out = set()
+        kind = saw_type.kind
+        if kind == TypeKind.STRUCT and saw_type.struct_name is not None:
+            name = saw_type.struct_name
+            if self.ns.is_abstract_type_name(name):
+                if not (self._bounds.get(name) or set()) & self._COPY_PROVING_BOUNDS:
+                    out.add(name)
+                return out
+        for child in _type_children(saw_type):
+            out |= self._unproven_params(child, seen)
+        return out
 
     def _chain_is_exclusive(self, expr, place) -> bool:
         """Does this chain need an exclusive window? (Design 141 decision 3:
@@ -476,3 +678,100 @@ class _PlaceUses:
 
 def _is_expr(node) -> bool:
     return isinstance(node, Expression)
+
+
+def _arm_bindings(arm):
+    """Every name this arm binds. A wildcard binds nothing from its position."""
+    names = {b for b in (getattr(arm, 'bindings', None) or []) if b != "_"}
+    _pattern_bindings(getattr(arm, 'pattern', None), names)
+    return names
+
+
+def _pattern_bindings(pattern, out) -> None:
+    if pattern is None:
+        return
+    if isinstance(pattern, BindingPattern):
+        if pattern.name != "_":
+            out.add(pattern.name)
+        return
+    for attr in ('subpatterns', 'elements'):
+        for sub in (getattr(pattern, attr, None) or []):
+            _pattern_bindings(sub, out)
+
+
+def _arm_moves_binding(arm) -> bool:
+    """Does the arm `move` one of its own bindings out?
+
+    That is destructuring, not reading: the payload leaves the element, which a
+    window over storage the container still owns cannot serve.
+    """
+    names = _arm_bindings(arm)
+    if not names:
+        return False
+    return _mentions_move(arm.body, names)
+
+
+def _mentions_move(node, names) -> bool:
+    if node is None or isinstance(node, SawType):
+        return False
+    if isinstance(node, MoveExpr) and getattr(node, 'variable', None) in names:
+        return True
+    if isinstance(node, Block):
+        return (any(_mentions_move(s, names) for s in node.statements)
+                or _mentions_move(node.final_expr, names))
+    if not isinstance(node, (ASTNode, Argument, MatchArm)):
+        return False
+    for f in structural_fields(node):
+        value = getattr(node, f.name, None)
+        if isinstance(value, list):
+            if any(_mentions_move(item, names) for item in value):
+                return True
+        elif _mentions_move(value, names):
+            return True
+    return False
+
+
+def _escapes_control_flow(node) -> bool:
+    """Does `node` contain a jump OUT of the expression it sits in?
+
+    A window body is a closure, so a `return`/`break`/`continue` inside one
+    would leave the WINDOW rather than the function that wrote it. Such a body
+    stays on the ordinary path.
+    """
+    if node is None or isinstance(node, SawType):
+        return False
+    if isinstance(node, (ReturnStatement, BreakStatement, ContinueStatement,
+                         GuardLetStatement)):
+        return True
+    if isinstance(node, Block):
+        return (any(_escapes_control_flow(s) for s in node.statements)
+                or _escapes_control_flow(node.final_expr))
+    if isinstance(node, ClosureExpr):
+        # A nested closure's own jumps belong to it, not to us.
+        return False
+    if not isinstance(node, (ASTNode, Argument, MatchArm)):
+        return False
+    for f in structural_fields(node):
+        value = getattr(node, f.name, None)
+        if isinstance(value, list):
+            if any(_escapes_control_flow(item) for item in value):
+                return True
+        elif _escapes_control_flow(value):
+            return True
+    return False
+
+
+def _type_children(saw_type):
+    """Every type a `SawType` is built out of — arguments, payloads, elements.
+
+    A type parameter can hide at any depth (`Vector<Slot<K>>`), and the search
+    for one has no reason to know which shapes nest which.
+    """
+    for attr in ('inner_type', 'array_element_type', 'func_return_type'):
+        child = getattr(saw_type, attr, None)
+        if child is not None:
+            yield child
+    for attr in ('type_args', 'element_types', 'param_types'):
+        for child in (getattr(saw_type, attr, None) or []):
+            if child is not None:
+                yield child
