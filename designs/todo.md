@@ -1308,6 +1308,112 @@ noted live-range packing of locals; do both in one sizing brief.
   are inlined above). Worth a follow-up brief if the ANF hoist can be taught to
   lift a nested short-circuit.
 
+## Design 151 — discarding a `Result` is an error (LANDED, Aug 6)
+
+`designs/151-result-discard-error.md` closed. A `Result` no construct consumes
+is now a compile error; `let _ = expr` is the explicit discard. This was the
+last silent drop in the language: `visit_ExpressionStatement` checked a
+statement expression and threw the type away, so `stream.write(data)` as a bare
+statement dropped its `Result` with no diagnostic.
+
+- **The five discard sites, one rule.** Saw has no `IfStatement`/
+  `MatchStatement` node — the parser wraps a statement-position `if`/`if let`/
+  `match`/`try` in an `ExpressionStatement`, so those are ONE site, not four.
+  The remaining implicit discards are block tails whose caller drops the type:
+  a `Void` function body (`_reconcile_return_type`), a `Void` method body
+  (`_check_method`), a loop body (`_check_loop_body` — a loop yields only via
+  `break v`), and a `guard let ... else` block. All five call
+  `_check_result_discard`. The `Void`-body tail is the one that matters most in
+  practice: the parser turns a block's LAST expression statement into its
+  `final_expr`, so the common `func f() { g() }` shape lands there, not in
+  `visit_ExpressionStatement`.
+- **The diagnostic anchors on the producer, not the forwarder.**
+  `_result_discard_culprits` descends through `if`/`if let`/`match` to the
+  branch tails that actually produce the value, so a statement-position `match`
+  reports each arm at its own line instead of pointing at a `match` line with
+  nothing wrong on it. A diverging branch (`panic(...)`, type `Never`) drops out
+  on its own. A compiler-inserted `ResultOkWrap`/`ResultErrWrap` is skipped —
+  the author wrote a non-Result there and the return-type auto-wrap made it one,
+  so naming it would describe code nobody wrote.
+- **Keyed on the checked type**, resolved through a `type R = Result<...>`
+  alias. An erased `Result<T, Box<any Error>>` and a suspending call therefore
+  need no special case, and `try!`/`try` need no exemption: they consume, and
+  the `T` they yield is ordinary unless it is itself a `Result`.
+- **AUDIT: zero genuine bugs, zero deliberate discards, zero deferred sites.**
+  Every tree site was checked and the new error fires on NONE of them: the full
+  1298-example suite, every std module (a probe importing all 23 importable
+  ones, `map.saw`/`set.saw` included — so nothing was deferred for the
+  concurrent places agent), `sawc/rt/` (the cached runtime rebuilt clean),
+  blade and libs (every one of blade's 19 tests still COMPILES; the one that
+  fails does so at run time, and predates this work — DF-151b), and the SOS
+  kernel. This is a real result rather than a
+  gap in the check: probes confirm it fires on the brief's canonical
+  `stream.write(data)`, on a mid-block `File.write`, and on a discard inside a
+  closure body. The tree was already clean because designs 92, 123 and 132 swept
+  std to return `Result` AND to handle it, and the examples `try!` what they
+  call. The rule is now what keeps it that way.
+  - One shape needed no new site: a closure whose BODY TAIL is a `Result`,
+    passed where `(T) -> Void` is expected, was already a clean type error
+    (``argument `body` expects `(Int) -> Void` but got
+    `(Int) -> Result<Int, IoError>` ``), not a silent drop.
+- **DF-151a — FILED, NOT FIXED (out of scope; needs a coro_transform owner).**
+  A silent MISCOMPILATION, found writing this brief's positive test, unrelated
+  to `Result`. In a SUSPENDING body, a `match` arm's payload binding reads 0
+  when a LATER local in the enclosing scope has the SAME NAME — the coroutine
+  transform keys frame fields by name and the two bindings collide, so the arm
+  reads the outer slot before it is written. No diagnostic; just a wrong value.
+  Design 104 item 1 built name-distinguishing machinery for the `if let x = x`
+  case; `match` arms vs later locals were not covered. Repro (prints
+  `arm sees: 0`, should be `arm sees: 6`):
+  ```saw
+  import std.task
+  enum Step { case Go(n: Int), case Stop }
+  func pick() -> Step { return Step.Go(n: 6) }
+  func slow(n: Int) -> Int { yield_now()  return n }
+  func main() {
+      match pick() {
+          case Go(v) -> print("arm sees: {v}"),
+          case Stop -> print("stop")
+      }
+      let v = slow(8)          // same name as the arm binding above
+      print("later: {v}")
+  }
+  ```
+  Renaming either binding fixes it. Nothing in the tree hits this today (the
+  suite is green); `examples/result_discard_legal.saw` names its later local
+  `got` with a comment pointing here.
+- **DF-151b — FILED, PRE-EXISTING at af5ad18, NOT caused by this brief. Two
+  gates are intermittently RED and nobody had noticed.** Compiled Saw programs
+  crash NONDETERMINISTICALLY with `Bus error: 10`, `Segmentation fault: 11` or
+  `Trace/BPT trap: 5` — three faces of one memory corruption. Two confirmed
+  victims, measured by running a FIXED, already-built binary in a loop, which
+  is what rules out every compiler pass: the same bytes succeed and crash
+  across runs, so the fault is in what the program DOES.
+  - `blade/tests/lock_drift` — **11 crashes / 30 runs** built with this
+    brief's compiler, **6 / 30** built from the stashed baseline. The
+    bootstrap gate failed on the baseline compiler too
+    (`BOOTSTRAP FAILED: stage1 test`), and the failing stage MOVES between
+    runs (stage1 one run, stage2 the next), which is the flake signature.
+  - `examples/closure_copyable_struct_copied` — **6 crashes / 40 runs**,
+    SIGTRAP, no output at all. It passed in one full-suite run and failed in
+    the next against the same compiler and the same source.
+  - Why it stayed hidden: at a ~15-35% per-run crash rate, a single suite run
+    clears easily and a 4-stage bootstrap clears about a sixth of the time.
+    The suite has been reported green on runs that were simply lucky. **Do
+    not bisect the compiler first** — reproduce on a built artifact.
+  ```
+  ./.venv/bin/python tools/blade_bootstrap.py          # fails ~5 runs in 6
+  # or, on built artifacts:
+  #   blade/.build/host/tests/lock_drift               # ~1 crash in 3
+  #   .build/closure_copyable_struct_copied            # ~1 crash in 7
+  ```
+  Suspect surface: both programs lean on REFCOUNTED ImplicitCopy values —
+  `lock_drift` hashes Manifest deps through Map iteration and String hashing,
+  `closure_copyable_struct_copied` copies a struct holding a closure env. A
+  refcount that can be corrupted or double-released would produce exactly this
+  spread of signals. Worth checking against the concurrent map/set places
+  rewrite before anyone bisects further.
+
 ## Design 149 — runtime authoring in Saw (LANDED, Aug 6)
 
 Closes **DF-140g** (originally filed on the parked SOS M1 branch; refiled here

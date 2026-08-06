@@ -119,6 +119,22 @@ func main() {
 }
 ```
 
+A `Result` cannot be dropped by accident. Writing a failable call as a bare
+statement is a compile error, because the failure it reports would go nowhere:
+
+```saw
+stream.write(body)
+// error: result of `write` is `Result<Void, IoError>` and is silently
+//        discarded
+// hint: handle it — `match` it, `try`/`try!`/`try?` it, or return it — or
+//       write `let _ = ...` to discard it explicitly
+```
+
+Consume it, or say you meant to drop it with `let _ = stream.write(body)`.
+Optionals and every other type stay freely discardable; the rule is about
+failures, and a `Result` a caller may always ignore should not have been a
+`Result`.
+
 ### Pattern Matching
 
 ```saw

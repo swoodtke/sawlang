@@ -2993,6 +2993,60 @@ match read_file("data.txt") {
 }
 ```
 
+### Discarding a Result
+
+A `Result` whose value no construct consumes is a compile error. A failable
+call written as a bare statement throws away the failure it reports, so the
+compiler rejects it:
+
+```saw
+import std.net
+
+func send(stream: &var TcpStream, body: String) {
+    stream.write(body)
+    // error: result of `write` is `Result<Void, IoError>` and is silently
+    //        discarded
+    // hint: handle it — `match` it, `try`/`try!`/`try?` it, or return it — or
+    //       write `let _ = ...` to discard it explicitly
+}
+```
+
+Handling it means consuming the `Result`: `match` on it, apply `try`, `try!`
+or `try?`, or return it to the caller.
+
+```saw
+func send(stream: &var TcpStream, body: String) -> Result<Void, IoError> {
+    return stream.write(body)
+}
+```
+
+When the failure genuinely does not matter, `let _ =` says so in the source and
+the reader can see that the author decided:
+
+```saw
+func send(stream: &var TcpStream, body: String) {
+    let _ = stream.write(body)   // best effort: the peer is already closing
+}
+```
+
+The rule covers every position where a value is computed and nothing reads it,
+not only bare statements. A `Void` function or method body's tail expression
+counts, so does a loop body's tail, and so does a statement-position `if` or
+`match` that forwards its branch's value. The diagnostic anchors on the call
+that produced the `Result` rather than on the construct that forwarded it, so a
+statement-position `match` reports each arm at its own line.
+
+The check reads the type in hand, never the syntax that produced it. An erased
+`Result<T, Box<any Error>>` is a `Result`, and a suspending call needs no
+special case. `try!` and `try` consume the `Result` they apply to, so the `T`
+they yield is an ordinary value; the one exception is a `T` that is itself a
+`Result`, which the rule then covers on its own terms.
+
+**`Result` only.** Optionals and every other type stay freely discardable.
+Dropping the old value a map insert hands back is normal, and a `?.` chain
+typed `Void?` is a statement by design. There is no must-use attribute in Saw:
+a `Result` a caller may always ignore should not have been a `Result`.
+
 ### Panic for Unrecoverable Errors
 
 Panics halt execution (unrecoverable). The compiler emits them for `try!`/

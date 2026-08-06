@@ -240,7 +240,8 @@ var u = w.copy()       // explicit duplicate
   a raw resource (an fd, a mapping); your body runs FIRST and the field drops
   are appended, and there is only ever one deinit per type. Corollary: an empty
   `func deinit(&var self) {}` is dead code — delete it.
-- `let _ = expr` = true discard (consumes + drops immediately).
+- `let _ = expr` = true discard (consumes + drops immediately). It is also the
+  REQUIRED spelling for dropping a `Result` (design 151, Errors below).
 
 ## Collections & literals
 ```saw
@@ -320,6 +321,27 @@ func load() -> Result<Cfg, Box<any Error>> {   // erased: any error type
 }   // catch binds the box; "{error}" prints via vtable
 if err.is<IoErr>() { if let io = err.take<IoErr>() { retry(io) } }  // downcast
 ```
+- **DISCARDING A `Result` IS A COMPILE ERROR** (design 151) — the last silent
+  drop in the language is closed. A failable call written as a bare statement
+  throws away the failure it reports, so `stream.write(body)` alone is now
+  ``result of `write` is `Result<Void, IoError>` and is silently discarded``.
+  Consume it (`match`, `try`/`try!`/`try?`, or return it), or write the
+  explicit discard:
+  ```saw
+  let _ = stream.write(body)   // best effort: the peer is already closing
+  ```
+  Covers EVERY implicit-discard position, not just bare statements: a `Void`
+  body's TAIL expression (the parser makes a block's last expression statement
+  the tail, so `func f() { g() }` is this case, not the statement case), a loop
+  body's tail, and a statement-position `if`/`match` forwarding a branch value.
+  The diagnostic anchors on the CALL, not the forwarding construct, so a
+  statement-position `match` reports each arm at its own line. Keyed on the
+  CHECKED TYPE, so an erased `Result<T, Box<any Error>>` and a suspending call
+  need no special case; `try!`/`try` CONSUME, so the `T` they yield is free to
+  drop unless `T` is itself a Result. **Result ONLY** — Optionals and
+  everything else stay freely discardable (`m.insert(k, v)`'s old-value `V?`,
+  a `Void?` `?.` chain statement). There is no must-use attribute: a Result you
+  may always ignore should not have been a Result.
 - `trait Error: Printable {}` — conform via `extension E: Error {
   func format(&self, into: &var StringBuilder) {...} }`.
 - **An error type may be an ENUM, and usually should be** (design 145). A closed
