@@ -1234,7 +1234,8 @@ under a checked contract. Five commits, full suite green each.
   before, 2804 after**, on a test declaring 320 KiB of zero regions. New
   `EXPECT-OBJECT-MAX-BYTES` test directive — proven by SIZE, so a regression
   fails by the width of the region rather than by a rounding error.
-- **Unit (c) — runtime-provider packages. THE ORCHESTRATOR PIN; veto-able.**
+- **Unit (c) — runtime-provider packages. RATIFIED (user, Aug 6: "149c seems
+  fine to me") — `runtime = true` is now public Blade manifest contract.**
   `[package] runtime = true` (blade passes `--runtime-provider`) permits the seam
   exports on `--runtime-build`'s terms, links no runtime of ours beside the
   package, and otherwise builds an ordinary package (std available, output
