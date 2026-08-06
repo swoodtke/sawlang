@@ -457,9 +457,14 @@ _TMP_PREFIX = '.tmp-'
 _tmp_counter = itertools.count()
 
 
-def compile_into_place(compile_fn, test: TestCase, exe_path: Path) -> tuple[bool, str, str]:
+def compile_into_place(compile_fn, test: TestCase, exe_path: Path
+                       ) -> tuple[bool, str, str, set]:
     """Compile `test` to a UNIQUE temporary path, then rename its products onto
-    `exe_path`. Returns the compiler's `(success, stdout, stderr)` unchanged.
+    `exe_path`. Returns the compiler's `(success, stdout, stderr)` unchanged,
+    plus the set of product suffixes THIS compile placed (`''` is the
+    executable, `'.o'` the object). The caller needs that set rather than a
+    `Path.exists()` check, which a leftover binary from an earlier run would
+    satisfy just as well.
 
     DF-149b backstop (a). A binary written under the very path it is then
     exec'd from can be exec'd while the kernel still holds an unsettled
@@ -474,12 +479,14 @@ def compile_into_place(compile_fn, test: TestCase, exe_path: Path) -> tuple[bool
         f"{_TMP_PREFIX}{os.getpid()}-{next(_tmp_counter)}-{exe_path.name}")
     ok, out, err = compile_fn(test.path, tmp, test.compile_flags)
 
+    placed = set()
     for suffix in _PRODUCT_SUFFIXES:
         src = Path(str(tmp) + suffix)
         if not src.exists():
             continue
         if ok:
             os.replace(src, str(exe_path) + suffix)
+            placed.add(suffix)
         else:
             # A failed compile's leftovers are noise, and a half-built binary
             # must never be left where a later phase would try to execute it.
@@ -487,7 +494,17 @@ def compile_into_place(compile_fn, test: TestCase, exe_path: Path) -> tuple[bool
                 src.unlink()
             except OSError:
                 pass
-    return ok, out, err
+
+    if '' not in placed:
+        # This compile produced no executable. Anything already sitting at that
+        # path is a stranded binary from an earlier run, and phase 2 executing
+        # it would report a verdict about code nobody just compiled.
+        try:
+            exe_path.unlink()
+        except OSError:
+            pass
+
+    return ok, out, err, placed
 
 
 def sweep_stale_temp_products(build_dir: Path) -> None:
@@ -712,7 +729,7 @@ def compile_test(test: TestCase, compile_fn=None) -> CompileOutcome:
     exe_path.parent.mkdir(exist_ok=True)
 
     # Compile
-    compile_success, compile_stdout, compile_stderr = compile_into_place(
+    compile_success, compile_stdout, compile_stderr, placed = compile_into_place(
         compile_fn, test, exe_path)
 
     if test.expect_type == ExpectType.ERROR:
@@ -736,7 +753,7 @@ def compile_test(test: TestCase, compile_fn=None) -> CompileOutcome:
             msg = f"Compilation failed (expected to compile):\n{compile_stderr[:500]}"
             return CompileOutcome(True, False, msg)
 
-        return CompileOutcome(settled=False, exe_path=str(exe_path))
+        return _to_run(exe_path, placed)
 
     elif test.expect_type == ExpectType.OBJECT:
         # Compile to an object file (e.g. --freestanding / -c) and inspect its
@@ -802,7 +819,26 @@ def compile_test(test: TestCase, compile_fn=None) -> CompileOutcome:
             msg = f"Compilation failed:\n{compile_stderr[:500]}"
             return CompileOutcome(True, False, msg)
 
-        return CompileOutcome(settled=False, exe_path=str(exe_path))
+        return _to_run(exe_path, placed)
+
+
+def _to_run(exe_path: Path, placed: set) -> CompileOutcome:
+    """Hand a compiled test to phase 2, first proving there is something to run.
+
+    A compile that reports success but writes no executable — a runnable test
+    carrying `-c`, say — would otherwise leave phase 2 running whatever stale
+    binary the LAST run left at that path, and quietly passing on it.
+    Separating the phases is what makes that reachable. The test is on what
+    THIS compile placed, not on whether a file exists, because a stale binary
+    satisfies `exists()` perfectly well.
+    """
+    if '' not in placed:
+        return CompileOutcome(True, False, (
+            f"The compiler reported success but wrote no executable to "
+            f"{exe_path}. A test that runs must produce a binary; check its "
+            f"'// COMPILE-FLAGS:' for a flag (-c, --freestanding) that emits "
+            f"an object instead, and mark it '// EXPECT: object' if so."))
+    return CompileOutcome(settled=False, exe_path=str(exe_path))
 
 
 def execute_test(test: TestCase, exe_path: str) -> tuple[bool, str, Optional[str]]:
