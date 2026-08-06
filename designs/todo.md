@@ -1308,6 +1308,58 @@ noted live-range packing of locals; do both in one sizing brief.
   are inlined above). Worth a follow-up brief if the ANF hoist can be taught to
   lift a nested short-circuit.
 
+## Design 159 — the implicit-tier copy miscompile (IN PROGRESS, Aug 6)
+
+`designs/159-implicit-tier-copy-fix.md`. The P0 fix for DF-151b/DF-156b.
+
+- **Unit 1 — THE BISECT ANSWER IS SPLIT, and that decides the shape of the
+  fix: it is a FROM-SCRATCH repair, not a revert.** The brief asked whether
+  this is a regression or ancient. It is BOTH — two transfer sites, two
+  different histories, one shared root cause.
+  - **Local-to-local (`let b = a`) — a REGRESSION, first bad commit
+    `ddafb59`** ("design 147 unit B: a `let` initializer retains what it
+    reads (DF-139a)", Aug 5). Bisected over `a5efd7a..7e11853` (440 commits,
+    Guard Malloc on `.build/scratch/probe_structcopy.saw` — a `struct P {
+    name: String }` with an INTERPOLATED name, `let b = a`, `let c = b`):
+    clean 0/10 at design 73 (`a5efd7a`), 120 (`ddb698a`), 141 (`cd02bd5`),
+    147-unit-A (`6081181`); 10/10 from `ddafb59` onward. Verified at design
+    73 that the clean answer is a real RETAIN and not a leak: `main`'s IR
+    carries two inlined `String_copy` (`atomicrmw add` x2) against three
+    `String_deinit` (`atomicrmw sub` x3) — rc 1 +2 -3 = 0, balanced.
+  - **The irony is exact.** `ddafb59` REPLACED an unconditional
+    `isinstance(stmt.value, Identifier)` -> `_generate_copy` in
+    `_generate_let_statement` with the shared oracle
+    `_transfer_needs_copy`. The old hand-rolled test was WRONG for
+    projections (that was DF-139a, correctly fixed) but ACCIDENTALLY RIGHT
+    for the whole-binding read, because `_generate_copy` falls through to
+    `_deep_copy_value` for any cleanup-owning struct. Routing through the
+    shared oracle was the right move; the oracle just could not answer this
+    question. So reverting would re-break DF-139a and fix only half of this.
+  - **By-value argument (`consume(a)` twice) — ANCIENT, never worked.**
+    10/10 under Guard Malloc at `3716961` (design 135) AND at `a5efd7a`
+    (design 73), the oldest point tested. `_gen_transfer_value` has always
+    used `_transfer_needs_copy`, so this spelling never had the accidental
+    retain the `let` path had. This is why the fix must be in the ORACLE:
+    it is the one place both spellings meet.
+- **The root cause, one line of it.** `Namespace.copy_tier`'s STRUCT branch
+  (design 139's oracle) has NO structural join. An ENUM gets one —
+  `_enum_structural_copy_tier` joins its payload tiers — but a struct with
+  no DECLARED policy falls straight through to `return 'free'` regardless of
+  what it owns. `_get_cleanup_behavior` mirrors the same asymmetry: it has an
+  `is_implicit_copy_enum` arm and no struct equivalent. So for
+  `struct P { name: String }`: `_needs_cleanup` says True (a drop IS
+  registered per binding) while `_get_cleanup_behavior` says `"none"` and
+  `_transfer_needs_copy` says False (no retain). One allocation, N releases.
+  The container-slot arm of `_transfer_needs_copy` explicitly excludes a bare
+  `Identifier`, which is why field/element reads were correct throughout and
+  only the WHOLE-BINDING read was wrong.
+- **The two-path proof.** `struct P { name: String }` copied twice is 10/10
+  under Guard Malloc; the byte-identical program with `@synthesize extension
+  P: ImplicitCopy {}` added is 0/10. Same shape, same fields, same copies —
+  the only difference is which of the two lowering paths the tier arrived by.
+  That is the brief's "second, conformance-less path that nothing
+  user-visible tested", isolated to a two-line diff.
+
 ## Design 151 — discarding a `Result` is an error (LANDED, Aug 6)
 
 `designs/151-result-discard-error.md` closed. A `Result` no construct consumes
