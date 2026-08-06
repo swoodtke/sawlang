@@ -1,0 +1,88 @@
+// DF-151a: several scopes competing for one name in a single driven body, and
+// the one implicit binding the rename must NOT touch.
+//
+//   stress   a `while` body's `v`, and a `v` after the loop that IS
+//            frame-resident. Disjoint scopes, so no shadow rule applies and
+//            both are legal — they just have to stay separate. The arm binds
+//            `w` because a pattern binding under an enclosing `v` is a design
+//            100 error (patterns bind, they do not compare).
+//   catches  a catch block's implicit `error`. An outer local also called
+//            `error` is renamed here (an earlier block took the name), and the
+//            catch must still see the CAUGHT error rather than that local —
+//            so the rename is shielded at the catch boundary.
+// EXPECT: success
+// EXPECT-OUTPUT:
+// stress: 109
+// pre: 1
+// caught: boom
+// catches: 1005
+// sync stress: 109
+
+import std.task
+
+enum Step { case Go(n: Int), case Stop }
+
+func pick(k: Int) -> Step {
+    if k > 0 { return Step.Go(n: k) }
+    return Step.Stop
+}
+
+func slow(n: Int) -> Int { yield_now()  return n }
+func fast(n: Int) sync -> Int { return n }
+
+struct Boom { code: Int }
+extension Boom: Printable {
+    func format(&self, into: &var StringBuilder) { into.append("boom") }
+}
+extension Boom: Error {}
+
+func fails() -> Result<Int, Boom> { return Boom(code: 7) }
+
+func stress() -> Int {
+    var total = 0
+    var i = 0
+    while i < 3 {
+        let v = i * 2
+        total = total + v
+        match pick(i) {
+            case Go(w) -> { total = total + w },
+            case Stop -> { total = total + 0 }
+        }
+        i = i + 1
+    }
+    let v = slow(100)
+    return total + v
+}
+
+func catches() -> Int {
+    if true {
+        let error = 1                 // takes the name first
+        print("pre: {error}")
+    }
+    let error = 1000                  // collides with it, so this one is renamed
+    let got = try fails() catch { print("caught: {error}")  5 }
+    yield_now()
+    return error + got
+}
+
+func control() sync -> Int {
+    var total = 0
+    var i = 0
+    while i < 3 {
+        let v = i * 2
+        total = total + v
+        match pick(i) {
+            case Go(w) -> { total = total + w },
+            case Stop -> { total = total + 0 }
+        }
+        i = i + 1
+    }
+    let v = fast(100)
+    return total + v
+}
+
+func main() {
+    print("stress: {__saw_drive(stress())}")
+    print("catches: {__saw_drive(catches())}")
+    print("sync stress: {control()}")
+}
