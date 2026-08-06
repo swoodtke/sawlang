@@ -1,0 +1,106 @@
+// DF-133a: the ANF hoist preserves SOURCE evaluation order.
+//
+// Design 120 lifts a suspending child of an expression into a preceding
+// `let __anfN = ...` temp. A sync sibling stayed where it was written, so it
+// was evaluated AFTER the suspension the source puts second:
+// `add(noisy(1), slow(3))` printed "slow" then "noisy". That contradicted the
+// promise LANGUAGE_SPEC makes for design 120 — that a hoisted statement gets
+// the evaluation order, intermediate deinit timing and ownership rules of the
+// hand-unchained spelling.
+//
+// Every side-effecting child to the LEFT of the last lifted one is now lifted
+// too, in source order. The filter is conservative: literals and plain reads of
+// a name/field/element are exempt, anything containing a call or a `&var`
+// borrow is not.
+// EXPECT: success
+// EXPECT-OUTPUT: noisy-1
+// EXPECT-OUTPUT: slow-3
+// EXPECT-OUTPUT: r1=7
+// EXPECT-OUTPUT: slow-4
+// EXPECT-OUTPUT: noisy-2
+// EXPECT-OUTPUT: r2=10
+// EXPECT-OUTPUT: noisy-1
+// EXPECT-OUTPUT: slow-2
+// EXPECT-OUTPUT: noisy-3
+// EXPECT-OUTPUT: r3=8
+// EXPECT-OUTPUT: slow-2
+// EXPECT-OUTPUT: state=7
+// EXPECT-OUTPUT: noisy-5
+// EXPECT-OUTPUT: slow-1
+// EXPECT-OUTPUT: r5=7
+// EXPECT-OUTPUT: noisy-6
+// EXPECT-OUTPUT: slow-1
+// EXPECT-OUTPUT: r6=6-2
+
+import std.task
+
+func slow(tag: Int) -> Int {
+    yield_now()
+    print("slow-{tag}")
+    tag * 2
+}
+
+func noisy(tag: Int) sync -> Int {
+    print("noisy-{tag}")
+    tag
+}
+
+func add(a: Int, b: Int) sync -> Int { a + b }
+func add3(a: Int, b: Int, c: Int) sync -> Int { a + b + c }
+
+// The reported repro: a side-effecting sibling written BEFORE the suspension.
+func left_sibling() -> Int {
+    add(noisy(1), slow(3))
+}
+
+// The mirror: a sibling written AFTER the suspension already ran second, and
+// still does — nothing is lifted out of the residual expression.
+func right_sibling() -> Int {
+    add(slow(4), noisy(2))
+}
+
+// Both sides of a lifted child at once.
+func three_args() -> Int {
+    add3(noisy(1), slow(2), noisy(3))
+}
+
+// The STATE shape: `v.pop()` must run before `v.len()` is read, so the
+// suspending call sees the post-pop length. pop yields 3 and leaves len 2, so
+// slow(2) is 4 and the sum is 7. Evaluating the suspension first gave slow(3)
+// = 6 and a sum of 9.
+func state_shape() -> Int {
+    var v: Vector<Int> = [1, 2, 3]
+    add(v.pop()!, slow(v.len()))
+}
+
+// An operand position, not an argument.
+func operand() -> Int {
+    noisy(5) + slow(1)
+}
+
+// A string interpolation's segments.
+func interpolated() -> String {
+    "{noisy(6)}-{slow(1)}"
+}
+
+func main() {
+    var group = TaskGroup()
+
+    let a = group.spawn(left_sibling())
+    print("r1={a.join()}")
+
+    let b = group.spawn(right_sibling())
+    print("r2={b.join()}")
+
+    let c = group.spawn(three_args())
+    print("r3={c.join()}")
+
+    let d = group.spawn(state_shape())
+    print("state={d.join()}")
+
+    let e = group.spawn(operand())
+    print("r5={e.join()}")
+
+    let f = group.spawn(interpolated())
+    print("r6={f.join()}")
+}

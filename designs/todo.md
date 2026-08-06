@@ -1250,6 +1250,51 @@ tools/irdet.py --all`.
   copy line was absent and tag 1 was dropped twice), plus a 500-iteration churn
   loop so a double free meets a reused block.
 
+- **DF-133a — FIXED here (unit C), fork (i) as decided.** The stage-1 ANF hoist
+  reordered a suspending child ahead of a side-effecting SYNC sibling to its
+  left: `add(noisy(1), slow(3))` printed "slow" then "noisy", contradicting the
+  design-120 promise in LANGUAGE_SPEC that a hoisted statement gets the
+  evaluation order, intermediate deinit timing and ownership rules of the
+  hand-unchained spelling.
+
+  Fix: `_anf_children` now makes two passes. `_uncond_children` collects the
+  unconditional child positions in evaluation order (by running
+  `_map_uncond_children` with an identity mapper, so the position set can never
+  drift from the rewriting walk), the index of the LAST child that will be
+  lifted is computed, and every impure child to its left is lifted into its own
+  temp ahead of it. Children to the RIGHT need nothing — the residual expression
+  still evaluates after every hoist, which is why `add(slow(4), noisy(2))` was
+  already correct.
+
+  The purity filter is `_anf_is_pure`, conservative as decided: a literal and a
+  plain read of a name / field / tuple element / index are exempt, and anything
+  containing a call or a `&var` borrow is lifted. Two deliberate exemptions
+  beyond the decided line, both because lifting would CHANGE meaning rather than
+  preserve it: a `move v` operand (retiring a binding is compile-time
+  bookkeeping with nothing to observe, and lifting would relocate the transfer
+  checkpoint it carries) and a closure LITERAL (creating one runs none of its
+  body, and binding it to a temp would flip its escaping classification under
+  design 16/29 — a closure passed directly to a non-escaping parameter is
+  non-escaping, one bound to a `let` is not). `_anf_lift` already stamped each
+  temp with its subexpression's own line/column, so transfer checkpoints and
+  diagnostics keep source positions with no further work.
+
+  CHURN SCOPE — far narrower than the finding predicted ("changes emitted IR for
+  a large slice of the suite"). All 156 coroutine-bearing examples were compiled
+  to IR before and after: **byte-identical, zero files changed.** No example in
+  the corpus had a side-effecting left sibling of a hoisted suspending child, so
+  the fix is a pure no-op on existing code and only the new tests exercise it.
+  `make irdet-all` confirms determinism corpus-wide.
+
+  Regressions: `examples/coro_hoist_evaluation_order.saw` — the print-order
+  repro, the mirror shape (suspension first, which must stay put), a three-arg
+  call with siblings on both sides, the STATE shape (`add(v.pop()!,
+  slow(v.len()))` yields 7, where evaluating the suspension first gave 9), an
+  operand position and a string interpolation.
+  `examples/coro_hoist_move_diagnostic.saw` pins the positions: an ExplicitCopy
+  argument and a use-after-move beside a suspending sibling both report at the
+  line AND column the author wrote, not at a synthesized temp.
+
 ## Design 145 — DF-findings (enum methods; the std private-symbol reach)
 
 - **DF-140h — FIXED here (unit A). Originally filed on the parked SOS M1

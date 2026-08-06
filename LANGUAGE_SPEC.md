@@ -3433,6 +3433,17 @@ Observable rules:
   `let __t2 = __t1.b()`, …) and embeds each step with the statement-level
   machinery above, so evaluation order, the deinit timing of the intermediates,
   and the ownership rules are the ones the hand-unchained spelling gets. A
+  side-effecting sibling written BEFORE the suspension is lifted along with it,
+  in source order, so it still runs first: `add(noisy(1), slow(3))` prints
+  `noisy` then `slow`, and `add(v.pop()!, slow(v.len()))` reads the length the
+  pop left behind. The filter is conservative. A literal, and a plain read of a
+  name, field, tuple element or index, stay where they are written; anything
+  containing a call or a `&var` borrow is lifted. A `move` operand and a closure
+  literal stay put as well, the first because retiring a binding has nothing to
+  order and the second because binding a closure to a temp would make it
+  escaping. Each temp keeps its subexpression's own line and column, so a
+  transfer checkpoint or diagnostic still reports where the argument was
+  written. A
   position that is evaluated CONDITIONALLY keeps its guard: a value-position
   `if`/`match` arm, a `??` RHS, an `&&`/`||` RHS, a `?.` hop, and a
   chained-assignment RHS lower to the branch shape first, so an arm that is not

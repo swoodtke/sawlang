@@ -1014,11 +1014,109 @@ class _FrameBuilder:
         ident.resolved_type = getattr(expr, 'resolved_type', None)
         return ident
 
+    def _anf_is_pure(self, expr):
+        """Conservative purity for the evaluation-order hoist (DF-133a).
+
+        A LEFT sibling of a hoisted suspending child only has to be lifted when
+        its evaluation can be OBSERVED relative to the suspension that would
+        otherwise run before it. The filter is deliberately coarse and errs
+        toward hoisting: a literal, and a plain read of a name / field / tuple
+        element / index, are exempt; anything containing a CALL or a `&var`
+        borrow is not (design 147 unit C, user fork (i)).
+
+        A `move v` operand stays exempt — retiring a binding is compile-time
+        bookkeeping with nothing to observe, and lifting it would relocate the
+        transfer checkpoint it carries.
+
+        A closure LITERAL is exempt and is not descended into. Creating one runs
+        none of its body, and binding it to a temp would change its escaping
+        classification (design 16/29): a closure passed directly to a
+        non-escaping parameter is non-escaping, while one bound to a `let` is
+        not.
+        """
+        impure = [False]
+
+        def scan(n):
+            if impure[0]:
+                return
+            if isinstance(n, (FunctionCall, MethodCall, TryExpr)):
+                impure[0] = True
+                return
+            if isinstance(n, ReferenceExpr) and n.mutable:
+                impure[0] = True
+                return
+            if isinstance(n, ClosureExpr):
+                return
+            if isinstance(n, ASTNode):
+                for f in structural_fields(n):
+                    scan_val(getattr(n, f.name))
+
+        def scan_val(v):
+            if impure[0]:
+                return
+            if isinstance(v, (list, tuple)):
+                for x in v:
+                    scan_val(x)
+            elif isinstance(v, Argument):
+                scan_val(v.value)
+            elif isinstance(v, ASTNode):
+                scan(v)
+
+        scan(expr)
+        return not impure[0]
+
+    def _uncond_children(self, expr):
+        """The UNCONDITIONAL child expressions of `expr`, in evaluation order.
+
+        Built by running `_map_uncond_children` with an identity mapper, so the
+        set of positions and their order can never drift from the rewriting
+        walk that follows it.
+        """
+        seen = []
+
+        def collect(child):
+            seen.append(child)
+            return child
+
+        self._map_uncond_children(expr, collect)
+        return seen
+
     def _anf_children(self, expr, out):
         """Linearize `expr`'s UNCONDITIONAL child positions in evaluation order,
         replacing each with its hoisted form (a suspending-call child becomes a
-        temp reference; a sync child is returned unchanged)."""
+        temp reference; a sync child is returned unchanged).
+
+        DF-133a: lifting only the suspending children would REORDER the
+        statement. A lifted child is evaluated in a `let __anfN = ...` ahead of
+        the statement, while a sync sibling stays where it was written and is
+        therefore evaluated after it — so `add(noisy(1), slow(3))` printed
+        "slow" before "noisy", contradicting design 120's promise that a hoisted
+        statement behaves like its hand-unchained spelling. Every side-effecting
+        child to the LEFT of the last lifted one is therefore lifted as well, in
+        source order, ahead of it. Children to the RIGHT need nothing: the
+        residual expression still evaluates after every hoist.
+        """
+        children = self._uncond_children(expr)
+        last_lift = -1
+        for i, child in enumerate(children):
+            if (isinstance(child, ASTNode)
+                    and not isinstance(child, self._ANF_CONDITIONAL)
+                    and self._spans_suspension(child)):
+                last_lift = i
+
+        pos = [0]
+
         def do(child):
+            i = pos[0]
+            pos[0] += 1
+            if (i < last_lift and isinstance(child, ASTNode)
+                    and not self._spans_suspension(child)
+                    and not self._anf_is_pure(child)):
+                # A side-effecting sibling written BEFORE the suspension: give it
+                # its own temp so it runs first. `_anf_lift` stamps the temp with
+                # this subexpression's own line/column, so a transfer checkpoint
+                # or diagnostic on it is still reported where the author wrote it.
+                return self._anf_lift(child, out)
             return self._anf(child, out, lift_self=True)
 
         def receiver_hook(obj):

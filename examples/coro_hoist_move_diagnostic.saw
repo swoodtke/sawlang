@@ -1,0 +1,37 @@
+// DF-133a: hoisting for evaluation order must not RELOCATE a transfer
+// checkpoint. Lifting a side-effecting sibling into a temp moves where the
+// value is transferred, so a `move`/ExplicitCopy diagnostic could be reported
+// at the synthesized `let __anfN = ...` instead of where the author wrote the
+// argument. `_anf_lift` stamps each temp with its subexpression's own
+// line/column, and a `move v` operand is exempt from lifting outright — it has
+// nothing observable to order and carries a checkpoint of its own.
+//
+// Both errors below must land on line 30, at the columns the arguments occupy:
+// `taken` at column 13 and `v` at column 25.
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: cannot copy value of type `Vector<Int, GlobalAllocator>` which implements ExplicitCopy
+// EXPECT-ERROR-CONTAINS: coro_hoist_move_diagnostic.saw:30:13
+// EXPECT-ERROR-CONTAINS: use of moved variable `v`
+// EXPECT-ERROR-CONTAINS: coro_hoist_move_diagnostic.saw:30:25
+// EXPECT-ERROR-CONTAINS: value was moved at line 29
+
+import std.task
+
+func slow(n: Int) -> Int {
+    yield_now()
+    n * 2
+}
+
+func consume(a: Vector<Int>, b: Int) sync -> Int { a.len() + b }
+
+func work() -> Int {
+    var v: Vector<Int> = [1, 2, 3]
+    let taken = move v
+    consume(taken, slow(v.len()))
+}
+
+func main() {
+    var group = TaskGroup()
+    let h = group.spawn(work())
+    print("{h.join()}")
+}

@@ -675,7 +675,12 @@ handle.cancel(); if cancelled() { ... }   // cooperative cancellation
   interpolation, a `return` value, a `try!` subject, a `?.` hop, a
   `Channel.receive()`. The compiler unchains the statement into evaluation-ordered
   temporaries for you, so left-to-right order and intermediate deinit timing match
-  the hand-written `let`-per-step spelling; a CONDITIONAL position (a value
+  the hand-written `let`-per-step spelling — a side-effecting sibling written
+  BEFORE the suspension is lifted with it, so `add(noisy(1), slow(3))` prints
+  `noisy` first and `add(v.pop()!, slow(v.len()))` reads the post-pop length
+  (design 147; literals, plain name/field/element reads, a `move` operand and a
+  closure literal are left in place, anything with a call or `&var` in it is
+  lifted); a CONDITIONAL position (a value
   `if`/`match` arm, a `??` / `&&` / `||` RHS, a `?.` hop) keeps its short-circuit,
   so a skipped suspension and its side effects never run — at ANY nesting depth
   since design 133. The operator no longer has to be the outermost expression of
