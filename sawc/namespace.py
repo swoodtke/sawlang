@@ -1225,11 +1225,11 @@ class Namespace:
             if self.is_abstract_type_name(name):
                 return 'abstract'
             if self._has_abstract_type_arg(saw_type):
-                # An undeclared struct's 'free' is a STRUCTURAL answer, and a
+                # An undeclared struct's tier is a STRUCTURAL answer, and a
                 # structural answer over abstract arguments is not knowable from
                 # the written type.
                 return 'abstract'
-            return 'free'
+            return self._struct_structural_copy_tier(saw_type, _visiting)
         if kind == TypeKind.ENUM:
             name = saw_type.enum_name
             if name is None:
@@ -1239,6 +1239,68 @@ class Namespace:
                 return declared
             return self._enum_structural_copy_tier(saw_type, _visiting)
         return 'free'
+
+    def _struct_structural_copy_tier(self, saw_type: SawType, _visiting=None) -> str:
+        """The join of an undeclared struct's FIELD tiers (design 159).
+
+        The exact counterpart of `_enum_structural_copy_tier`, and the arm that
+        was missing. A struct whose owning members are all trivial or
+        ImplicitCopy needs no declared policy — the containment checks exempt a
+        String field, a closure field and a fixed array of either, because the
+        compiler handles those retains itself. That exemption is the whole
+        point of the rule, but it left the TIER unanswered: this branch returned
+        a flat 'free', so `copy_tier` reported an undeclared `struct P { name:
+        String }` as trivially copyable while `_needs_cleanup` still registered
+        a per-binding drop for it. One allocation, N releases (DF-151b).
+
+        Joining the fields is what makes the two agree, and it says the same
+        thing the design-139 header above already claims for every other
+        composite: a wrapper is never weaker than what it wraps. A declared
+        policy still WINS (checked before this runs), so nothing about an
+        author's own choice is inferred out from under them.
+        """
+        name = saw_type.struct_name
+        if _visiting is None:
+            _visiting = frozenset()
+        if name in _visiting:
+            # A struct reaching itself through a field. The back-edge adds no
+            # tier of its own: whatever closes the cycle is behind a Box or an
+            # Optional, each of which contributes its own tier at that field.
+            return 'free'
+        _visiting = _visiting | {name}
+        sym = self._lookup_struct_deep(name)
+        if sym is None:
+            return 'free'
+        type_map = self._struct_type_arg_map(sym, saw_type)
+        tier = 'free'
+        for field_type in (sym.fields or {}).values():
+            if field_type is None:
+                continue
+            if type_map:
+                field_type = field_type.substitute(type_map)
+            tier = self._tier_join(tier, self.copy_tier(field_type, _visiting))
+        return tier
+
+    def _struct_type_arg_map(self, sym, saw_type: SawType):
+        """Map a struct's type-parameter names to an instantiation's arguments."""
+        params = getattr(sym, 'type_params', None) or []
+        args = saw_type.type_args or []
+        if not params or not args:
+            return {}
+        return {p.name: a for p, a in zip(params, args) if a is not None}
+
+    def is_structurally_implicit_copy(self, saw_type: SawType, _visiting=None) -> bool:
+        """Is this composite ImplicitCopy WITHOUT declaring it (design 159)?
+
+        True for an undeclared struct or enum whose owning members are all
+        trivial or ImplicitCopy — the automatic tier, which is by design and
+        user-ratified: no declaration is needed and none should be demanded.
+        Copying such a value RETAINS each refcounted member, and codegen has
+        always known how (`_generate_copy` falls through to the recursive
+        retain for any cleanup-owning aggregate). What was missing is the
+        predicate that tells it to.
+        """
+        return self.copy_tier(saw_type, _visiting) == 'implicit'
 
     def _enum_structural_copy_tier(self, saw_type: SawType, _visiting=None) -> str:
         """The join of an enum's payload tiers, type arguments substituted in.

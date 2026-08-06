@@ -197,12 +197,22 @@ class ResourcesMixin:
             behavior = "no_copy"
         elif "ImplicitCopy" in conformances:
             behavior = "implicit_copy"
-        elif self.namespace.is_implicit_copy_enum(saw_type):
-            # An enum can't declare ImplicitCopy; an owning-payload enum
-            # (e.g. `DepSource { PathDep(String) }`) is structurally ImplicitCopy
-            # and must copy-with-retain (DF12) — mirrors the typechecker. The
-            # helper normalizes a STRUCT-kinded-but-actually-enum SawType and
-            # returns False for genuine structs, so no `kind` guard is needed.
+        elif self.namespace.is_structurally_implicit_copy(saw_type):
+            # The UNDECLARED ImplicitCopy tier, structs and enums alike
+            # (design 159). An enum cannot declare ImplicitCopy at all, so an
+            # owning-payload enum (`DepSource { PathDep(String) }`) has always
+            # been classified here (DF12). A STRUCT whose owning members are
+            # all trivial/ImplicitCopy — `struct P { name: String }`, a struct
+            # holding a closure — is on exactly the same footing: the
+            # containment checks deliberately exempt it from declaring a
+            # policy, so the tier is automatic and this is the only place that
+            # can report it.
+            #
+            # Answering "none" for that struct (DF-151b) is what made a copy
+            # emit no retain while its per-binding drop still released every
+            # field. `copy_tier` is the one oracle both kinds now ask, so
+            # there is a single answer to "copy this composite" regardless of
+            # how the tier arose.
             behavior = "implicit_copy"
         elif "ExplicitCopy" in conformances:
             # ExplicitCopy has a deinit and is never implicitly copied (the
