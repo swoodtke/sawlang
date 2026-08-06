@@ -751,6 +751,24 @@ Saw provides deterministic memory management without garbage collection:
   consequence to know: on a `borrows` method the receiver is borrowed with the
   window's flavor, so `&self` there does not mean shared-only (see
   [Places](LANGUAGE_SPEC.md#places-borrows-and-lend)).
+
+  `Map` publishes one too. Its values sit inside a slot enum's payload, and an
+  arm of a borrowing `match` can lend that payload, so the subscript reaches the
+  value in the table:
+
+  ```saw
+  var counts = Map<String, Vector<Int>>()
+  var first: Vector<Int> = [1]
+  let _ = counts.insert("a", move first)
+
+  counts["a"]!.push(2)              // grows the stored vector where it sits
+  print(counts["a"]!.len())         // prints: 2
+  if let _ = counts["b"] {
+      print("present")
+  } else {
+      print("absent")               // an absent key opens no window at all
+  }
+  ```
 - **A closure's captured environment is immutable**, which is what makes copying
   a closure a plain refcount bump. Captures are read-only from inside the body:
   writing to one is a compile error, because the write would land on a per-call

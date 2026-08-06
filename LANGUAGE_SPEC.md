@@ -2398,6 +2398,46 @@ instantiation — the same phase that emits the matching drop — so the concret
 tier decides whether it is a bitwise copy, a retain, or the type's own
 `copy()`.
 
+#### Lending an enum payload
+
+A `match` on a place matches it where it sits, so an arm that binds binds the
+payload in place (above). That binding can also be **lent**, which is how a
+container whose storage is a slot enum publishes an accessor at all:
+
+```saw
+enum Slot { case Empty, case Filled(key: Int, res: Res) }
+
+extension Table {
+    public func at(&self, i: Int) borrows -> Res? {
+        if i < 0 || i >= self.slots.len() {
+            return None
+        }
+        match self.slots[i] {
+            case Filled(_, r) -> { lend r },
+            case Empty -> { return None }
+        }
+    }
+}
+```
+
+Tag stability comes free. The window borrows the scrutinee's root for its whole
+extent, so the Law of Exclusivity freezes the enum, discriminant included: no
+code inside the window can overwrite the slot with a different variant while the
+payload is out.
+
+The scrutinee must be storage reached through the receiver — a field, an
+element, or another place hanging off `self`. Matching a value the body just
+built would lend a temporary that dies with the accessor, so it is a clean error
+rather than a write that goes nowhere:
+
+```saw
+let built = self.fresh()
+match built {
+    case Filled(_, r) -> { lend r },  // error: `lend r` names the payload of a
+    case Empty -> { return None }     // `match` on something other than the
+}                                     // receiver's own storage
+```
+
 #### Exclusivity, invalidation, and the fences
 
 A place borrow charges its **root**: `&v[i]` borrows all of `v`, shared for `&`
@@ -2447,10 +2487,29 @@ if let _ = v.get(i) { ... }      // presence test: legal for every tier
 v.get(i)!.count += 1             // exclusive window; the `!` panics if absent
 ```
 
-`Map` has no subscript. Its values live inside an enum payload
-(`MapSlot.Occupied(key:value:)`) and Saw has no place projection into an enum
-payload, so `func [](key: K) borrows -> V?` is not expressible over the current
-slot representation.
+`Map` publishes its values as a subscript, `func [](key: K) borrows -> V?` — a
+conditional lend, since a key may not be there:
+
+```saw
+var counts = Map<String, Entry>()
+let _ = counts.insert("a", Entry(n: 0))
+
+counts["a"]!.n += 1                       // exclusive window; writes the stored value
+print(counts["a"]!.n)                     // shared window
+print((counts["b"] ?? Entry(n: 0)).n)     // absent: no window opens
+if let _ = counts["b"] { ... }            // presence test: no copy, any tier
+```
+
+A map's value lives inside an enum payload (`MapSlot.Occupied(key:value:)`), and
+the accessor reaches it by matching the slot where it sits and lending the arm's
+binding. So the window addresses the value in the table: a `Vector` value grows
+through `m["k"]!.push(x)` rather than being read out, appended to, and written
+back.
+
+`Set` has no equivalent. A set's elements are the underlying map's keys, and the
+table's own correctness depends on them — a window's flavor comes from the use
+site, so any element accessor would also permit a write that changes an
+element's hash and loses it in its own table.
 
 A place is one expression, so a caller that reads several values out of one
 move-only element holds an INDEX rather than a binding. `libs/toml` is the

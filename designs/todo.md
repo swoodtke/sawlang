@@ -44,6 +44,14 @@ question.
   `_type_method_base` fills default type arguments. Restoring the drop glue made
   two more live double-frees real, both recorded as DF-146h and DF-146i below.
 
+**DF-146d LANDED (Aug 6), half of it.** The enum-payload place and `Map.[]` are
+in; the Set half is blocked on a language gap (DF-146k). Three PRE-EXISTING bugs
+came out of the work and are fixed as their own commits — a closure that never
+captured a name used in a string interpolation (DF-146m), a place window whose
+flavor was always read as shared (DF-146n), and a struct field of enum type that
+never dropped its payload (DF-146o). One new P0 is OPEN and needs a decision:
+`Map.get` over-releases a move-only value (DF-146j).
+
 - **Unit A DONE.** `_prepare_codegen` re-enters over the ASTs it already parsed
   (`parsed=`: module map, module sources, and the builtin+std AST from before
   `_filter_std_ast` narrows it). Front half on a re-entering program: 451 -> 310
@@ -309,14 +317,38 @@ question.
   slot rule; `v.get(i)!` with nothing after it counts as one (and gets the tier
   check it was also missing). Test: `examples/place_read_retains_owning.saw`.
 
-- **DF-146d — QUEUED (user, Aug 6): a focused follow-up dispatched AFTER the
-  P0-pair continuation integrates** (deliberately not folded in — the pair is
-  on its third attempt and stays minimal; the continuation's borrow-based
-  matching is the foundation that makes this cheap). Scope: `lend` from
-  inside a borrowing match arm (`case Occupied(v) -> lend v` — tag stability
-  is free, the window borrows the root), then `Map.[](key) borrows -> V?` +
-  the Set equivalent + tests. Concurrent-eligible with the 138/M1-adoption
-  finale (places/std-collections only). Original finding follows:
+- **DF-146d — CLOSED for the Map half, BLOCKED for the Set half (Aug 6).** The
+  enum-payload place landed as specified and `Map.[](key) borrows -> V?` with
+  it. The Set equivalent did NOT land, and the reason is a language gap rather
+  than an implementation one — see DF-146k below, which needs a user decision.
+  What the compiler does now: an arm of a BORROWING match may `lend` one of its
+  payload bindings. The place transform gained a TAIL mode (in a block whose
+  value is the accessor's result, the window call stays an expression instead of
+  becoming a `return`, which is what lets `_borrow_match` move the whole match
+  into the window — an escaping arm cannot); it CLAIMS the lend on the arm and
+  requires the scrutinee to be storage reached through `self`; the checker
+  exempts a `from_lend` `&var` from the immutable-binding rule as it already
+  does from the `&var`-out-of-`&self` rule; and codegen writes the lent binding
+  back into the scrutinee when the window closes.
+  The write-back is deliberate, not a shortcut. An enum is
+  `{ i32 tag, [N x i8] payload }`, so a pointer INTO the payload carries only the
+  tag's alignment and would be under-aligned for whatever the payload holds —
+  aliasing it would hand a mis-aligned `&var T` to the window and to everything
+  the window calls. Copy-in/copy-out is indistinguishable from aliasing here
+  because the window borrows the scrutinee's ROOT for its whole extent, so
+  nothing else can read the slot while the payload is out; that is also where
+  tag stability comes from, free.
+  Tests: `examples/place_enum_payload_lend.saw` (borrow twice with no copy, a
+  write that lands in the slot, an epilogue inside the lending arm, a diverging
+  arm beside it), `examples/map_subscript_place.saw`,
+  `examples/map_subscript_retain_oracle.saw`,
+  `examples/errors/lend_payload_not_receiver_storage.saw`,
+  `examples/errors/map_subscript_immutable_root.saw`,
+  `examples/errors/map_subscript_nocopy_value_read.saw`. Docs: the spec's
+  Places chapter gains "Lending an enum payload" and its std-accessor section
+  now documents the Map subscript (and why Set has none); skill + README updated.
+  Three PRE-EXISTING bugs were found on the way and fixed as their own commits —
+  see DF-146m/n/o. Original finding follows:
   **`Map` gets no subscript: a place cannot project into an
   ENUM PAYLOAD** (found by design 146 unit C, Aug 5). Design 141 lists
   `func [](key: K) borrows -> V?` on Map as v1 scope, and it is not expressible
@@ -347,6 +379,99 @@ question.
   deinit-safety property design 48 deliberately bought with payload-free
   `Empty`/`Tombstone` variants. Not a patch either way. Vector and Data have no
   such problem — their elements are storage already — and both landed.
+  (Resolution: the first way out, and it did not need the slot representation to
+  change.)
+
+- **DF-146j — OPEN, P0 (found Aug 6 while building DF-146d). `Map.get` hands a
+  move-only VALUE back as a NON-RETAINED ALIAS, so every lookup over-releases.**
+  DF-132a's shape, for Map. Repro — one `Res`, three deinits:
+  ```saw
+  struct Res { id: Int }
+  extension Res: NoCopy { func deinit(&var self) { print("deinit {self.id}") } }
+
+  var m = Map<String, Res>()
+  let _ = m.insert("a", Res(id: 1))
+  if let r = m.get("a") { print("got {r.id}") }    // deinit 1
+  if let r2 = m.get("a") { print("got {r2.id}") }  // deinit 1
+  let _ = move m                                   // deinit 1
+  ```
+  The read is `_get_value`'s `case Occupied(_, v) -> v`: a match-arm binding read
+  out of a generic body where `V` has no Copy bound. DF-146e's rule 1 gates a
+  place VALUE READ on the bounds; it does not reach an arm binding, so this one
+  emits no copy while the caller's binding drops for real. `each` / `each_value`
+  / `Map.keys` / `Set.to_vector` all read through the same helper and have the
+  same hole (`keys`/`to_vector` are bounded `T: Copy`, so those are safe).
+  Design 141 decision 6 already approved the remedy for the accessor —
+  "same conversion for Map's optional accessors" — but it is a DESIGN call now
+  that `[]` exists, because the two would be the same function: does `get` become
+  a place, or go away in favour of `m["k"]`? And the VISITORS are a separate
+  question: bounding `each`/`each_value` on `V: Copy` would make
+  `Map<String, Vector<Int>>.each` stop compiling. Not decided unilaterally.
+  The sound path exists today: `m["k"]` reaches a move-only value with no copy.
+
+- **DF-146k — OPEN, needs a user decision (Aug 6). A `borrows` accessor cannot
+  be declared SHARED-ONLY, so a container whose own invariants depend on an
+  element cannot publish one at all.** This is why DF-146d's Set half did not
+  land. Design 141 decision 3 puts the window's flavor at the USE SITE, out of
+  one declaration — which is right for a Vector element and for a Map VALUE, and
+  wrong for a Map KEY or a Set element: `s.get(x)!.mutate()` would change an
+  element's hash and lose it in its own table, with no diagnostic anywhere.
+  Rust draws the same line by having `HashSet::get` and no `get_mut`; Saw has no
+  spelling for it. Options: a `shared borrows` (or `borrows -> &T`) declaration
+  that pins the flavor; or accept that slot-keyed containers publish only
+  by-value reads. Until then `Set` has no element accessor, and the spec says so.
+  Adjacent, same brief: a borrows body cannot FORWARD another conditional place
+  (`lend self.map.get_key(k)!` — `lend` takes an
+  Identifier/MemberAccess/ArrayIndex/TupleIndex/deref, and even if it took a
+  place call, `_span_call` would lower the absent path to a PANIC rather than to
+  the caller's `__absent()`). That is what a Set accessor would have needed to
+  delegate to Map, and it is the reason a wrapper type cannot re-export a
+  conditional place today.
+
+- **DF-146l — OPEN, diagnostic quality (Aug 6). An exclusivity violation INSIDE
+  a place window is reported as a copy error against the container.** Writing
+  `m["a"]!.n += grow(&var m)` (or the Vector form `v[0].n += grow(&var v)`) is
+  correctly REJECTED — the window body captures the root the window is holding —
+  but the message is `cannot copy value of type Map<...> which implements NoCopy`
+  with the hint `use `move` to transfer ownership instead`, which is advice that
+  cannot help. The window-closure lowering should attribute a capture of the
+  window's own root to the open window instead. Pre-existing (the Vector shape
+  behaves identically on main), low severity, wrong-signpost rather than
+  unsound.
+
+- **DF-146m — FIXED (Aug 6, commit dbf4ab9). A closure did not capture a name
+  used only inside a string interpolation, a BLOCK match arm, or an arm guard.**
+  `{ x in "n={n}" }` has never compiled — `internal compiler error: Undefined
+  variable: n`. The capture scan was a hand-written walk over an open set of node
+  kinds, and an unlisted kind was skipped in silence; a miss there is a codegen
+  failure, not a wrong answer. The chain now ends in a STRUCTURAL walk, which
+  cannot be incomplete. Test:
+  `examples/closure_captures_block_match_arm.saw`.
+
+- **DF-146n — FIXED (Aug 6, commit 125446f). A place window's FLAVOR was read
+  after the chain had been rewritten, so a `&var self` method through a place
+  opened a SHARED window.** `_chain_is_exclusive` was evaluated as an argument to
+  `_window_call`, i.e. after `_replace_head` had swapped the chain's head for the
+  window parameter; a rewritten chain never reaches the place, so the walk fell
+  off its own tail and answered "shared" everywhere. Only an assignment came out
+  exclusive (that path sets the flag directly). Consequence: `let v` plus
+  `v[0].bump()` compiled with no error, and the exclusivity join recorded a
+  shared borrow where an exclusive one happened. Test:
+  `examples/errors/place_exclusive_window_immutable_root.saw`.
+
+- **DF-146o — FIXED (Aug 6, commit d3bc5ed). A struct FIELD of enum type never
+  dropped its payload — a leak in every shape.** Every value-lifecycle dispatch
+  in codegen keys on `kind`, and a struct field carries the raw parsed
+  annotation, so an enum field arrives tagged STRUCT. `_needs_cleanup` re-tagged
+  it for its own answer and then handed the still-mistagged type to
+  `_emit_drop_at`, which missed every branch and returned in silence:
+  `Holder_deinit` came out empty. Plain field, optional field, two structs deep,
+  generic enum, struct-with-enum in a Vector, fully structural chain, fixed-array
+  field — all leaked; a bare enum local and an enum as a Vector element are the
+  controls that worked (those arrive genuinely ENUM-tagged). `_emit_retain_at`
+  and `_emit_release_at` had the same gap and cancelled out, which is why this
+  presented as a leak rather than a double free — and why all three had to move
+  together. Test: `examples/enum_field_drop_glue.saw`.
 
 - **DF-146e — CLOSED (Aug 6, commit c943680).** All three parts landed as
   decided. Two notes for the record. (1) The claim that bare-`T` reads already

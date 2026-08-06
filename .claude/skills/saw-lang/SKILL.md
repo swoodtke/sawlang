@@ -211,11 +211,27 @@ var u = w.copy()       // explicit duplicate
   SEARCH splits in two: a plain function finds the index, the accessor lends it
   (`libs/toml`'s `_section_index` beside `section`). VALUE READS out of a place
   follow design 131's table: retain for ImplicitCopy, clean error for
-  ExplicitCopy/NoCopy naming `with_ref` / `swap_out`. v1 fences: a borrows body
-  is `sync` (a window never spans a suspend — `with_ref`/`with_var_ref` stay the
-  long-window spelling), no borrows function VALUES or existentials, no trait
-  requirements, and no place projection into an ENUM PAYLOAD (which is why `Map`
-  has no subscript).
+  ExplicitCopy/NoCopy naming `with_ref` / `swap_out`.
+  **An arm of a borrowing `match` may LEND ITS PAYLOAD BINDING** (design 146,
+  DF-146d) — how a slot-enum container gets an accessor at all:
+  ```saw
+  match self.slots[i] {
+      case Filled(_, r) -> { lend r },      // the payload, where it sits
+      case Empty -> { return None }         // the conditional lend's absent path
+  }
+  ```
+  Tag stability is free: the window borrows the scrutinee's ROOT, so the Law of
+  Exclusivity freezes the enum (discriminant included) for the window's whole
+  extent. The scrutinee must be storage reached through the receiver
+  (`self.slot`, `self.slots[i]`, another place off `self`); matching a value the
+  body just BUILT is a clean error, since that payload dies with the accessor.
+  v1 fences: a borrows body is `sync` (a window never spans a suspend —
+  `with_ref`/`with_var_ref` stay the long-window spelling), no borrows function
+  VALUES or existentials, no trait requirements, no way to declare an accessor
+  SHARED-ONLY (the flavor is always the use site's — which is why `Set` gets no
+  element accessor: a write would change an element's hash), and a borrows body
+  cannot FORWARD another conditional place (`lend other.get(k)!` is not
+  expressible — split the search out and lend your own storage instead).
 - Deterministic LIFO destruction (`Deinit` trait); never call
   `deinit()` manually. You almost never WRITE one either (design 128): any
   struct/enum owning something gets a memberwise `deinit` synthesized — fields
@@ -1145,6 +1161,15 @@ construct in the owner and lend `&driver` down.
   `swap_out(i, v)` moves a slot out; `with_ref`/`with_var_ref(i, body)` are
   still the multi-statement / long-window spellings (a place window is ONE
   expression) and the only way to hold a borrow across several statements.
+  **`Map` has the subscript too** (DF-146d): `m["k"] borrows -> V?`, a
+  conditional lend over the slot's enum payload. `m["k"]!.n += 1` writes the
+  stored value, `m["k"]!.push(x)` grows a `Vector` value where it sits (no
+  read-modify-write of the whole entry), `m["k"] ?? d` and `if let _ = m["k"]`
+  take the absent path with no window at all. It is the ONLY sound way to reach
+  a move-only value: `m.get(k)` hands back an owned `V?` and a NoCopy one comes
+  out as a non-retained alias (a live over-release — see DF-146j). `Set` has no
+  element accessor on purpose: its elements are the table's keys, and a write
+  through one would change an element's hash.
   `iter()`/`enumerated()` carry a `T: Copy` bound (design 122): `next()` yields
   an element the consumer OWNS, so a NoCopy element is reached through a place
   or `with_ref`, never a `for` loop. Since design 130's accessor rule,
