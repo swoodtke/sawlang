@@ -18,9 +18,10 @@ DRAFTS** (Deinit/ExplicitCopy synthesis — LANDED, see below;
 newlines-in-brackets) awaiting user
 review — DO NOT DISPATCH. Original ranked findings follow for reference.
 
-**146 PARTIAL (Aug 5) — units A, B and D landed; unit C is NOT started and the
-brief's P0 pair is STILL OPEN.** Read this before the 141 entry below, which it
-supersedes on the use-site question.
+**146 PARTIAL (Aug 5) — units A, B, D and MOST of C landed. The brief's P0 pair
+(DF-132a / DF-128c) is STILL OPEN, now blocked on ONE new finding: DF-146e.**
+Read this before the 141 entry below, which it supersedes on the use-site
+question.
 
 - **Unit A DONE.** `_prepare_codegen` re-enters over the ASTs it already parsed
   (`parsed=`: module map, module sources, and the builtin+std AST from before
@@ -52,12 +53,26 @@ supersedes on the use-site question.
   probe are already the existing Law-of-Exclusivity shapes. TWO FENCES, each a
   clean teaching error, each a design question below: DF-146b (exclusive window
   through a `&self` accessor) and DF-146c (calling a conditional lend).
-- **Unit C NOT STARTED.** No std conversion, no `Vector.[]`/`Vector.get`, no
-  Map/Data, no `_type_method_base` drop-glue fix, no toml/blade migration, no
-  docs. **DF-132a and DF-128c remain OPEN and unpaired** — and note that unit
-  C now depends on DF-146b/DF-146c being decided first: `Vector.get` is a
-  CONDITIONAL lend (DF-146c blocks it outright) and `Vector.[]` as 141 spells
-  it takes `&self` (DF-146b blocks writing through it).
+- **Unit C MOSTLY LANDED (commits f068004, 3c2c8d4, plus the docs commit).**
+  DF-146b and DF-146c are CLOSED, so every use-site shape design 141 specified
+  now works. `Vector.[]` and `Data.[]` are places; libs/toml publishes
+  `TomlDoc.section(name) borrows -> TomlSection?` (replacing `get_section`,
+  which returned a NoCopy section by value), `index_of` + `section_at(i)`,
+  `has_section`, and `TomlSection.table(key)`; blade's call sites migrated.
+  Docs landed: the unified spec Places section (with the DF-146b callout), the
+  skill, README. **What did NOT land: the DF-132a / DF-128c P0 pair.**
+  `Vector.get` as `borrows -> T?` is written and proven — it turns the
+  double-free into a clean error and the retain oracle shows zero change for
+  trivial/ImplicitCopy callers — but it is blocked on **DF-146e** below, which
+  it exposed. The `_type_method_base` drop-glue fix is held back with it,
+  unchanged, because the two cancel and neither is sound alone.
+  Ceremony converted: 8 `if let x = v.get(i)` index-loop reads inside
+  libs/toml became place borrows, plus 5 `get_section` call sites in blade and
+  2 in examples. ZERO `with_ref`/`with_var_ref` CALL sites were converted: the
+  only ones in the tree are taskgroup's 7, and design 141 keeps with_ref as the
+  multi-statement/long-window spelling rather than deprecating it — converting
+  the most fence-laden file in std for a cosmetic win was not worth the risk to
+  the 124/134 fences.
 - **Unit D DONE.** See the DF-126b entry below for the strengthened gate and
   its measured cost.
 
@@ -72,8 +87,29 @@ supersedes on the use-site question.
   one already". Regression test:
   `examples/synthesize_across_coro_reentry.saw` (fails before the fix).
 
-- **DF-146b — DECIDED (user, Aug 5): OPTION (a), use-site-derived window
-  mutability, confined to the lend expression.** The rule: a borrows body is
+- **DF-146b — CLOSED (design 146 unit C, commit f068004).** Option (a) is
+  implemented in full. The checker half already existed; the missing half was
+  the ABI. A lowered borrows accessor is marked `place_self_by_pointer`, and
+  codegen reads it through the new `ast_nodes.self_by_pointer` alongside
+  `self_mutable` at the five sites that decide how a receiver travels — so a
+  `&self` accessor's receiver arrives as storage and an exclusive window writes
+  through it. `noalias` stays keyed on `self_mutable` alone, because two shared
+  windows on one root may coexist. The polymorphism is confined to the `lend`:
+  its `&var` is marked `from_lend` and is the single exception to a NEW hard
+  error, `&var self.<field>` inside a plain `&self` method — which is the
+  original finding below, live in the tree since the first `&self` method and
+  fixed here. A borrows accessor must also take its receiver BY REFERENCE.
+  Oracles: `examples/place_shared_accessor_flavors.saw` (both flavors from one
+  `&self` declaration, chained windows, an epilogue, a `let` root for a shared
+  window) and `examples/errors/var_ref_into_shared_self.saw` (the general
+  fence), which replaced `examples/errors/place_exclusive_shared_accessor.saw`.
+  DOCS MANDATE DISCHARGED: the spec's Places section carries the callout as a
+  block quote, the saw-lang skill has it as the first Gotcha, and `--emit-docs`
+  reports such a receiver as `"self": "window"` rather than `"borrows"`
+  (`examples/doc_emit_borrows.saw`). Original decision and finding follow.
+
+  DECIDED (user, Aug 5): OPTION (a), use-site-derived window
+  mutability, confined to the lend expression. The rule: a borrows body is
   a `&self` body whose LEND inherits the window's flavor; the general
   `&var self.<field>`-under-`&self` fence stays a hard error everywhere else.
   **DOCS MANDATE [user]: call the inconsistency out VERY clearly** — spec
@@ -135,16 +171,151 @@ supersedes on the use-site question.
   exclusive window on a `&self` accessor is a clean error naming the `&var
   self` spelling (`examples/errors/place_exclusive_shared_accessor.saw`).
 
-- **DF-146c — OPEN. Calling a CONDITIONAL lend (`borrows -> T?`) is not
-  implemented** (design 146 unit B). Declaring one works (design 141); using
-  one is a clean "not implemented yet" error naming `with_ref`/`with_var_ref`
-  as the interim. What blocks it: the absent path's closure takes no parameters
+- **DF-146c — CLOSED (design 146 unit C, commit f068004).** Calling a
+  conditional lend works, in every shape: the present path through `!` (shared
+  and exclusive windows), a value read binding the payload, `&var v.at(i)!` as a
+  call-spanning argument, the absent path opening no window, and an epilogue
+  that runs only on the lending path. Oracle:
+  `examples/place_conditional_lend_uses.saw`. Three type-threading fixes, not
+  the one the original diagnosis predicted:
+  (1) a `!` applied DIRECTLY to an optional place is CONSUMED by the lowering —
+  the window parameter is already the payload, so leaving the `!` on
+  force-unwrapped a non-optional;
+  (2) a closure body checked against a known function type now takes its RETURN
+  CONTEXT from that type, so a bare `None` in tail position learns what it is a
+  `None` of AND a tail value auto-wraps into an expected optional, exactly as a
+  function body's does — the absent path `{ None }` and the present path
+  `{ __p in __p }` both needed it;
+  (3) a closure whose body DIVERGES satisfies any expected result type, so the
+  `{ panic(...) }` absent closure of a force-unwrapped place is an `-> __R`
+  function that never returns rather than an `-> Never` one.
+  Fix (2) inserts an `OptionalWrap`, which had no typechecker visitor — see the
+  fixes listed under unit C; that gap cost 177 suite failures until found.
+  Original finding follows. What blocked it: the absent path's closure takes no
+  parameters
   and its `__R` does not survive to codegen — the synthesized `{ None }` body
   reaches the backend with `current_return_type=Void`, so the `None` has
   nothing to be a `None` OF (internal error rather than a wrong answer). The
   present path (`{ __p in __p }`, auto-wrapping into a pinned `__R = T?`) is
-  believed right; the parameterless twin is where the type is lost. Blocks
-  `Vector.get`, hence blocks the DF-132a/DF-128c pair.
+  believed right; the parameterless twin is where the type is lost.
+
+- **DF-146f — OPEN, small. `if let _ = <optional place>` is judged a VALUE READ,
+  so it cannot ask whether a move-only place is there** (found by design 146
+  unit C, Aug 5, while migrating libs/toml). `_` is blessed as an `if let` /
+  `guard let` pattern that binds nothing (design 111), so on a place it takes
+  nothing out and the container keeps everything — but the copy-tier table is
+  applied to the payload regardless, and a `NoCopy` one is refused:
+
+  ```saw
+  if let _ = doc.section("package") { ... }
+  // error: `doc.section(…)` lends a place of type `TomlSection`, which is
+  //        move-only — reading it out as a value would alias storage the
+  //        container still owns
+  ```
+
+  The workaround is a `Bool` method, which is the better API anyway (design 92
+  blesses a genuine boolean question), and libs/toml now publishes
+  `has_section`. But the error is arguably wrong: nothing is read. THE
+  QUESTION: should a `_` binding on a place (and on an optional generally) be a
+  presence test rather than a value read? It is a one-line carve-out in
+  `_value_read_ok` / `_check_payload_read` if the answer is yes, and it wants
+  the answer before it is written — the same `_` on a real Optional DOES drop
+  the payload today, so the two would diverge.
+
+- **DF-146d — OPEN. `Map` gets no subscript: a place cannot project into an
+  ENUM PAYLOAD** (found by design 146 unit C, Aug 5). Design 141 lists
+  `func [](key: K) borrows -> V?` on Map as v1 scope, and it is not expressible
+  over the current slot representation. A map's value lives inside
+  `MapSlot.Occupied(key: K, value: V)`, and `lend` accepts an
+  Identifier/MemberAccess/ArrayIndex/TupleIndex/deref — `Optional`'s `!` is the
+  only enum-payload place the language has. Reaching the payload through a
+  `match` binds a LOCAL, which is both a copy and immutable:
+
+  ```saw
+  enum Slot { case Empty, case Occupied(key: Int, value: Int) }
+  struct Table { slots: [Slot; 2] }
+  extension Table {
+      public func [](&self, i: Int) borrows -> Int? {
+          if i < 0 || i >= 2 { return None }
+          match self.slots[i] {
+              case Occupied(k, v) -> { lend v },   // error: cannot take mutable
+              case Empty -> { return None }        // reference to immutable `v`
+          }
+      }
+  }
+  ```
+
+  Two ways out, both real work: a general enum-payload place projection (a
+  language feature — it would also give `if let` a borrow form), or a Map slot
+  representation whose value is nameable storage (parallel state + `Optional<
+  (K, V)>` entry vectors, so `slots[b]!.1` is a place). The second re-opens the
+  deinit-safety property design 48 deliberately bought with payload-free
+  `Empty`/`Tombstone` variants. Not a patch either way. Vector and Data have no
+  such problem — their elements are storage already — and both landed.
+
+- **DF-146e — OPEN, P0-BLOCKING. A place VALUE READ whose element type is an
+  ENUM WITH ABSTRACT TYPE ARGUMENTS does not retain, but its binding is still
+  dropped — so every read over-releases** (found by design 146 unit C, Aug 5).
+  This is the ONE thing standing between the tree and the DF-132a / DF-128c
+  pair. `Namespace.copy_tier` is computed on the type AS WRITTEN in the generic
+  body: `Slot<K>` with an abstract `K` joins its payload tiers, gets `free`, and
+  no copy is emitted. The DROP is emitted per INSTANTIATION and is real. The two
+  disagree, and the difference is one release per read.
+
+  The old by-value `Vector.get` never hit this, which is why it is only visible
+  now: its copy was emitted INSIDE the monomorphized accessor, where the element
+  type is concrete. A place moves that read into the CALLER's generic body.
+  `MapSlot<K, V>` is exactly this shape, and `Map._slot_state` / `_key_eq` /
+  `_get_value` / `_key_at` are the probe paths Set and Map are built on — so
+  converting `Vector.get` to a conditional lend triple-freed one element across
+  two `contains` calls (`examples/set_owning_key_refcount.saw` printed
+  `3, 0` instead of `3, 3, 3, 2, 1, 1`, then aborted).
+
+  A bare type PARAMETER is fine (`first_of<T: Copy>(v) { v.get(0) }` retains at
+  the instantiation), so the gap is specifically the structurally-derived tier
+  of a composite over abstract arguments. Repro, 45 lines, `deinit a` prints
+  THREE times for one element:
+
+  ```saw
+  struct Res { name: String }
+  extension Res: ImplicitCopy {
+      func copy(&self) -> Res { print("copy {self.name}")  Res(name: self.name) }
+      func deinit(&var self) { print("deinit {self.name}") }
+  }
+
+  enum Slot<K> { case Empty, case Occupied(key: K) }
+
+  struct Holder<K> { slots: Vector<Slot<K>> }
+  extension Holder<K>: NoCopy {}
+
+  extension Holder<K> {
+      init() -> Holder<K> { let v = Vector<Slot<K>>()  Holder<K>(slots: move v) }
+      func tag_at(&self, i: Int) -> Int {
+          if let s = self.slots[i] {          // a place VALUE read
+              match s { case Empty -> 0, case Occupied(_) -> 1 }
+          } else { -1 }
+      }
+  }
+
+  func main() {
+      var h = Holder<Res>()
+      h.slots.push(Slot<Res>.Occupied(key: Res(name: "a")))
+      print("{h.tag_at(0)}")   // deinit a   <- over-release
+      print("{h.tag_at(0)}")   // deinit a   <- again
+  }                            // deinit a   <- and the real one
+  ```
+
+  THE DESIGN QUESTION, and why this stopped rather than being patched: where is
+  a value read's copy emitted, and is the decision made BEFORE or AFTER
+  monomorphization? Today it is made before (the checker consults `copy_tier` on
+  the written type) and the drop is emitted after. Design 131 already has the
+  machinery for the other answer — `payload_needs_copy` is a MARK that codegen
+  discharges with `_generate_copy(payload, inner.substitute(type_param_context))`,
+  i.e. per instantiation — so the likely fix is to make a place value read use
+  that path and to have exactly ONE emitter. That is a change to the
+  value-transfer / monomorphization seam, it changes behavior for every
+  construct that reads a composite-over-abstract-args value, and it wants a
+  decision rather than a patch. Wanted as its own unit, ahead of the P0 pair.
  Units A and B are in: `lend` and
 `borrows` are reserved in BOTH lexers (selfhost mirrored, lexdiff clean over
 1326 files); `borrows` joins the declaration effect slot in canonical order
@@ -540,12 +711,20 @@ it returned `None` before.
   proven deinit-twice). `set` also leaks the overwritten element;
   `String.byte_at` reads OOB heap from a safe signature; `Data.to_string`
   mints invalid UTF-8.
-- **DF-132a — OPEN, P0. STILL OPEN after design 146 (Aug 5): use sites now work
-  for UNCONDITIONAL accessors, but `Vector.get` is a CONDITIONAL lend and
-  calling one is not implemented (DF-146c); `Vector.[]` as design 141 spells it
-  takes `&self`, which cannot lend writable storage (DF-146b). Both are named
-  in the 146 PARTIAL entry at the top, and both want a decision before unit C
-  is dispatched. This pair remains the first thing the follow-up must land. `Vector.get` has NO `T: Copy` bound, so a
+- **DF-132a — OPEN, P0. STILL OPEN after design 146 unit C (Aug 5), and now
+  blocked on exactly ONE thing: DF-146e.** DF-146b and DF-146c are closed, so
+  the language side is ready — the `Vector.get` conversion to
+  `borrows -> T?` is WRITTEN AND PROVEN. It turns the double-free below into a
+  clean error naming `with_ref`/`swap_out`, and the retain oracle
+  (`examples/place_value_read_retain_oracle.saw`) shows trivial and
+  ImplicitCopy callers unchanged. It was reverted because converting `get`
+  routes Map's and Set's own probe paths through a place value read of
+  `MapSlot<K, V>`, which DF-146e over-releases. `_type_method_base`'s drop-glue
+  fix (DF-128c) is held back with it, unchanged and still correct, because the
+  two cancel and neither is sound alone. Land DF-146e, then this pair, in that
+  order. WORKAROUND FOR CALLERS meanwhile: reach a move-only element through
+  `v[i]` (landed) or `with_ref`/`swap_out`, never `get` — libs/toml and blade
+  now do. Original finding follows. `Vector.get` has NO `T: Copy` bound, so a
   NoCopy element
   is handed out BY VALUE as a non-retained alias — proven double-deinit in safe
   code (found by design 132 unit H, Aug 5; PRE-EXISTING).** RS-2's unfinished
@@ -1499,11 +1678,14 @@ path must be per-stack). The generics model was not touched.
   aliasing if the symbol is still missing. Test:
   `examples/synthesize_explicit_copy_holder.saw` (fails before, passes after).
 
-  The DROP half is **STOPPED — design 132 unit H diagnosed it and did NOT land
-  it** (Aug 5), per the brief's stop-if-it-fights rule. The fix itself is
-  confirmed correct and is a two-line change (fill the defaults in
-  `_type_method_base`, exactly as `_field_copy_fn` already does). What blocks it
-  is the OTHER path, now identified: **DF-132a below — `Vector.get` has no
+  The DROP half is **STILL STOPPED after design 146 unit C (Aug 5)**, for the
+  same reason it always was: it must land with the `Vector.get` conversion, and
+  that is blocked on DF-146e. The fix was written and exercised during unit C
+  (fill the defaults in `_type_method_base`, exactly as `_field_copy_fn` does)
+  and reverted with its partner — it is confirmed correct and confirmed a live
+  double-free without the partner. Originally diagnosed by design 132 unit H per
+  the brief's stop-if-it-fights rule. What blocks it
+  is the OTHER path: **DF-132a below — `Vector.get` has no
   `T: Copy` bound, so it hands out a non-retained bitwise ALIAS of a NoCopy
   element.** libs/toml's `TomlDoc.get_section` / `TomlSection.get_table` and
   blade's manifest reader are built on that alias. The two bugs currently
@@ -1533,6 +1715,16 @@ path must be per-stack). The generics model was not touched.
   change plus two package migrations — RS-2's unfinished half (design 122 gave
   the bound to `iter`/`enumerated`/`each`/`map` and to `set`, but never to
   `get`). Wants its own brief with the API shape decided up front.
+
+  THE MIGRATION HALF IS DONE (design 146 unit C, Aug 5): libs/toml and blade no
+  longer hand a NoCopy `TomlSection`/`TomlTable` out by value at all.
+  `TomlDoc.get_section` is GONE, replaced by
+  `section(name) borrows -> TomlSection?` plus the index-returning
+  `index_of`/`section_at` pair and a `has_section` presence question;
+  `TomlSection.table(key)` is the inline-table place. So when DF-146e clears,
+  the remaining work is the two-line `_type_method_base` fix and the `get`
+  conversion itself — the source-level breakage this entry warned about has
+  already been absorbed.
 
 - **DF-141a — FIXED in place (design 141 unit B, Aug 5). `move x` on a local
   whose type INSTANTIATED to `Void` raised `internal compiler error: Undefined

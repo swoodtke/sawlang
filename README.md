@@ -653,6 +653,33 @@ Saw provides deterministic memory management without garbage collection:
   refused for `ExplicitCopy`/`NoCopy`. The consuming reads are `move o!`, which
   retires the whole binding, and `o.take()`, which writes `None` back into the
   place and hands you the payload — including out of a struct field.
+- **A method can hand out storage, not just a value.** A `borrows` method lends a
+  **place** — an element or field that stays where it is — for the duration of
+  one expression. `lend` is where the accessor pauses: it stops with its frame
+  alive, the caller's code runs on the place, and anything after the `lend` runs
+  when that window closes. The use site picks the flavor, so one declaration
+  serves both a read and a write:
+
+  ```saw
+  extension Grid {
+      public func [](&self, i: Int) borrows -> Cell {
+          if i < 0 || i >= 9 { panic("Grid.[]: index out of range") }
+          lend self.cells[i]
+      }
+  }
+
+  print(g[4].weight)     // shared window: reads the element in place
+  g[4].weight += 1       // exclusive window: writes it in place
+  ```
+
+  While a window is open its root is borrowed, so `v.push(x)` inside one is a
+  compile error — iterator invalidation is caught by the Law of Exclusivity
+  rather than by a callback's scope. `Vector` and `Data` publish `v[i]` this
+  way, which is what lets a move-only element be reached without copying it out.
+  Reading a place *out* as a value follows the copy-tier table above. One
+  consequence to know: on a `borrows` method the receiver is borrowed with the
+  window's flavor, so `&self` there does not mean shared-only (see
+  [Places](LANGUAGE_SPEC.md#places-borrows-and-lend)).
 - **A closure's captured environment is immutable**, which is what makes copying
   a closure a plain refcount bump. Captures are read-only from inside the body:
   writing to one is a compile error, because the write would land on a per-call

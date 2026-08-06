@@ -1191,9 +1191,11 @@ RHS runs only on the written path. `?.` indexing (`a?[i]`) is still out of scope
 
 Every payload-extraction form — `o!`, the left operand of `??`, and an
 `if let` / `guard let` / match payload binding — denotes a **place**, the same
-way `s.field` does. It names storage the optional still owns, so the read is
-governed by the payload's entry in [the Copy trait family](#the-copy-trait-family)
-table, with no exemption for any extraction form:
+way `s.field` does (see [Places](#places-borrows-and-lend) for the general rule
+and for the `borrows` methods that hand one out). It names storage the optional
+still owns, so the read is governed by the payload's entry in
+[the Copy trait family](#the-copy-trait-family) table, with no exemption for any
+extraction form:
 
 | Use of the place | trivial | ImplicitCopy | ExplicitCopy | NoCopy |
 |---|---|---|---|---|
@@ -2146,6 +2148,221 @@ is the intended escape hatch; landed in design 40).
 > references, or globally-reachable mutable variables are ever added, they must
 > either preserve no-escape or be folded into the call-site disjointness check;
 > otherwise this law weakens from *sound* to *advisory*.
+
+### Places (`borrows` and `lend`)
+
+**Status: implemented.** A **place** is storage that already exists: a local, a
+field, a tuple component, an array element, an optional's payload. Places are
+not new — `v.x`, `t.0` and `o!` have always been places. What is new is that a
+*method* can hand one out.
+
+A `borrows` method yields a place of `T` rather than a value of `T`:
+
+```saw
+struct Grid { cells: [Cell; 9] }
+
+extension Grid {
+    public func [](&self, i: Int) borrows -> Cell {
+        if i < 0 || i >= 9 {
+            panic("Grid.[]: index out of range")
+        }
+        lend self.cells[i]
+    }
+}
+
+var g = Grid(cells: [...])
+print(g[4].weight)     // reads the element where it sits
+g[4].weight += 1       // writes it where it sits
+```
+
+`borrows` rides the post-parameter effect slot beside `unsafe` and `sync`, in
+the order `unsafe sync borrows`, and the same slot exists on function types
+(`(Int) borrows -> Cell`). `[]` is a declarable method name, so a `borrows`
+method named `[]` is the subscript. Any named method may be `borrows` too
+(`func first() borrows -> T`).
+
+#### `lend` suspends the accessor; it does not return
+
+`lend <place>` marks the borrow window. It is the one construct in Saw whose
+control flow is easiest to read as a pause rather than a return. The accessor
+runs to its `lend` and **stops there with its frame alive**. The caller's window
+code — whatever the use site does with the place — runs *inside* that pause. When
+the window closes the accessor **resumes** and runs whatever follows the `lend`,
+then finishes.
+
+So a `borrows` body has three parts and no `return` of a value anywhere:
+
+```saw
+extension Ledger {
+    public func entry(&var self, i: Int) borrows -> Entry {
+        if i < 0 || i >= self.entries.len() {     // prologue: runs at entry
+            panic("Ledger.entry: index out of range")
+        }
+        lend self.entries[i]                      // the window opens here
+        self.touched = self.touched + 1           // epilogue: runs at window close
+    }
+}
+```
+
+`-> T` names the type of the **place** the method lends, never the type of a
+returned value. Writing `return <value>` in a `borrows` body is a compile error
+saying so. Every path must `lend` exactly once, or diverge (a `panic` before the
+`lend` is the bounds-check shape) — the coverage rule, checked the way return
+coverage is. A `lend` inside a loop is rejected: two windows would need their
+prologues and epilogues interleaved. Lend once, after the loop has chosen the
+place.
+
+The lowering is a scoped-borrow callback, which is what a place window already
+was before it had syntax: the accessor becomes an ordinary method taking a
+window closure, the use site becomes a call passing one. No coroutine machinery,
+no allocation, one direct call for the common case.
+
+#### The window's flavor comes from the use site
+
+One `borrows` declaration serves reads and writes. The **use site** decides:
+reading through the place opens a shared window, writing through it (or handing
+it over as `&var`) opens an exclusive one. The declaration never says which.
+
+```saw
+print(g[4].weight)      // shared window on `g`
+g[4].weight += 1        // exclusive window on `g`
+bump(&var g[4])         // exclusive window, spanning the call
+```
+
+> **`borrows` changes what `&self` means.** A `borrows` accessor's receiver is
+> borrowed with the **window's** flavor, decided at each use site — this is the
+> one place in Saw where a `&self` spelling does not mean shared-only. A read
+> through `g[4]` borrows `g` shared; a write through `g[4]` borrows `g`
+> exclusively, out of that same `&self` declaration. The polymorphism reaches
+> the `lend` and nothing else: the rest of the body is ordinary `&self` code, so
+> a field write or a `&var self.<field>` written in the prologue or epilogue is
+> the same error it is in any other `&self` method. Declaring the accessor
+> `&var self` instead is legal and *more* restrictive: every use site then
+> borrows the receiver exclusively, including a read.
+>
+> `--emit-docs` reports such a receiver as `"self": "window"` rather than
+> `"borrows"`, for the same reason.
+
+The **window's extent** is the smallest expression that turns the place back
+into a value: the chain suffix that follows it, the whole call when the place is
+a reference argument, the whole statement when it is being written to. Nothing
+outside that extent runs with the window open.
+
+Windows **nest**, which is what orders them. `b[0][1].count += 1` is two
+windows, the outer opening first and closing last. Two place arguments in one
+call run their prologues in argument order and their epilogues LIFO, because
+that is what nesting means.
+
+#### Conditional lends (`borrows -> T?`)
+
+`borrows -> T?` is the optional place. Each path through the body either `lend`s
+real storage (the present path) or plainly returns `None` (the absent path — no
+storage, an immediate value) or diverges:
+
+```saw
+extension Grid {
+    public func at(&self, i: Int) borrows -> Cell? {
+        if i < 0 || i >= 9 {
+            return None
+        }
+        lend self.cells[i]
+    }
+}
+```
+
+`lend` may not appear in a loop, so a body that has to *search* for the place
+splits in two: an ordinary function finds the index, and the accessor lends it.
+`libs/toml` is the worked example (`_section_index` beside `section`).
+
+**The absent path opens no window and runs no epilogue.** There is nothing to
+lend, so there is nothing to close; the caller decides what absence means. A
+value read means `None`; a chain that reached *through* the place with `!` has
+already promised the place is there, so absence is that force-unwrap's panic.
+
+```saw
+print(g.at(4)!.weight)              // panics if absent
+g.at(4)!.weight += 1                // exclusive window on the present path
+if let c = g.at(99) { ... } else { ... }   // absent: no window, no epilogue
+```
+
+A value read binds the payload, so it follows the copy-tier table below — which
+means `if let _ = g.at(i)` is not a presence TEST when the element is move-only.
+Publish a `Bool` method for that (`has_section`, `contains`).
+
+#### Value reads
+
+A place stops being storage at a **value read** — binding it, passing it by
+value, returning it, using it as an operand. That is governed by the element's
+entry in [the Copy trait family](#the-copy-trait-family) table, exactly as an
+optional payload is ([Payload reads](#payload-reads-the-place-rule)):
+
+| Use of the place | trivial | ImplicitCopy | ExplicitCopy | NoCopy |
+|---|---|---|---|---|
+| Borrow (`v[i].m()`, `&v[i]`, `v[i].field`) | ok | ok | ok | ok |
+| Value read (`let e = v[i]`, by-value argument, return) | bitwise | retain | error | error |
+
+An `ImplicitCopy` element is retained at the read, so the container keeps its own
+reference and both are destroyed once. An `ExplicitCopy` or `NoCopy` element is
+never duplicated implicitly, and the error names the ways out — `with_ref` to
+borrow it in place, `swap_out` to move it out.
+
+#### Exclusivity, invalidation, and the fences
+
+A place borrow charges its **root**: `&v[i]` borrows all of `v`, shared for `&`
+and exclusive for `&var`. Index values are ignored, so any `v[i]` borrows the
+whole of `v` — swapping two elements through two windows is an exclusivity
+error, and `Vector.swap(i, j)` stays the method for that. No new rules are
+involved: a place use is an access path like any other, so passing `&var v`
+beside `&v[i]` in one call, or capturing `[&var v]` alongside, are the existing
+Law of Exclusivity shapes.
+
+That is also what makes a window invalidation-proof. While a window is open its
+root is borrowed, so `v.push(x)` inside the window is a compile error — the same
+guarantee `with_ref` gets from its closure scope, obtained here from the law.
+
+Three fences hold in this version:
+
+- A `borrows` body is `sync`. A place window may not span a suspension: the root
+  stays borrowed for the whole window, so yielding with one open would let
+  another task invalidate it. `with_ref` / `with_var_ref` remain the explicit
+  long-window and multi-statement spellings.
+- There are no `borrows` function *values* or existentials. A `borrows` method
+  cannot be bound to a name or erased behind `any Trait`.
+- Traits cannot require a `borrows` method. A generic `T: IndexPlace` bound is
+  not part of this version.
+
+#### Standard library accessors
+
+`Vector` and `Data` publish their element access as places:
+
+```saw
+var v: Vector<Entry> = [...]
+print(v[0].count)                // shared window
+v[0].count += 1                  // exclusive window
+v[0] = Entry(count: 0)           // whole-element write; the old one deinits once
+f(&var v[0])                     // the window spans the call
+
+var d = Data()
+d[0] = 0u8                       // panicking place, same rules
+```
+
+Both panic out of range, on design 130's accessor-rule terms. `Vector.get`
+still returns the element BY VALUE and still carries no `Copy` bound, so it is
+unsound for a move-only element — two lookups hand out two non-retained aliases
+and destroy it twice. Reach a `NoCopy` element through `v[i]`, `with_ref` or
+`swap_out` until the conditional-lend conversion lands.
+
+`Map` has no subscript. Its values live inside an enum payload
+(`MapSlot.Occupied(key:value:)`) and Saw has no place projection into an enum
+payload, so `func [](key: K) borrows -> V?` is not expressible over the current
+slot representation.
+
+A place is one expression, so a caller that reads several values out of one
+move-only element holds an INDEX rather than a binding. `libs/toml` is the
+worked example: `TomlDoc.section(name) borrows -> TomlSection?` is the named
+place, `index_of(name)` plus `section_at(i)` is the same borrow when several
+reads share one lookup, and `has_section(name)` answers presence — which
+`if let _ = doc.section(name)` cannot, because that is a value read.
 
 ### Shared Ownership
 
@@ -5083,11 +5300,11 @@ insurance for plausible futures).
 
 ```
 Reserved (lexer keywords — never usable as identifiers):
-as       break    case     catch    continue else     enum     extension
-extern   false    for      func     guard    if       in       init
-let      match    move     None     not      public   return   self
-static   struct   trait    true     try      type     unsafe   var
-while
+as       borrows  break    case     catch    continue else     enum
+extension         extern   false    for      func     guard    if
+in       init     lend     let      match    move     None     not
+public   return   self     static   struct   trait    true     try
+type     unsafe   var      while
 
 Contextual (parser- or typechecker-recognized in one position; still valid
 identifiers):

@@ -173,6 +173,46 @@ var u = w.copy()       // explicit duplicate
   forwarded — a twice-forwarded `&var` mutation is visible at the root);
   exclusivity is by root path (`g(&var r, &r)` in one call is rejected). This
   is what lets `net.read_into` forward its `&var Data` to a helper.
+- **PLACES: `borrows` / `lend` (design 141/146).** A `borrows` method hands out
+  STORAGE instead of a value — the element/field stays where it is and the
+  caller reads or writes it there. `borrows` rides the effect slot
+  (`unsafe sync borrows`); `[]` is a declarable method name, so a `borrows []`
+  is the subscript; any named method may be `borrows` too.
+  ```saw
+  extension Grid {
+      public func [](&self, i: Int) borrows -> Cell {
+          if i < 0 || i >= 9 { panic("Grid.[]: index out of range") }
+          lend self.cells[i]              // window opens here
+          self.reads = self.reads + 1     // EPILOGUE (needs `&var self`)
+      }
+  }
+  g[4].weight += 1                        // writes the element in place
+  ```
+  **`lend` is a SUSPENSION, not a return.** The accessor runs to its `lend`,
+  PAUSES with its frame alive, the caller's window code runs inside that pause,
+  and the epilogue runs on resume. `-> T` names the type of the PLACE, so
+  `return <value>` in a borrows body is a clean error. Every path lends EXACTLY
+  once or diverges first (`panic` before the lend is the bounds-check shape);
+  `lend` inside a loop is rejected (lend once, after the loop picks the place).
+  **The USE SITE picks the flavor**: a read opens a shared window, a write or a
+  `&var` argument opens an exclusive one, out of ONE declaration. Window extent
+  = the smallest expression that turns the place back into a value; windows
+  NEST (`b[0][1].n += 1` is two, epilogues LIFO). A place borrow charges its
+  ROOT, so `v.push(x)` inside a window is a compile error (invalidation-proof
+  by the Law of Exclusivity, not by a closure scope) and so is swapping two
+  elements through two windows (`v.swap(i, j)` is the method for that).
+  **`borrows -> T?` is the CONDITIONAL lend**: each path either `lend`s or
+  plainly `return None`. The absent path opens NO window and runs NO epilogue —
+  `if let x = d.at(i)` sees `None`, and `d.at(i)!.m()` panics (the `!` is the
+  promise the window keeps). `lend` may not be in a LOOP, so a body that has to
+  SEARCH splits in two: a plain function finds the index, the accessor lends it
+  (`libs/toml`'s `_section_index` beside `section`). VALUE READS out of a place
+  follow design 131's table: retain for ImplicitCopy, clean error for
+  ExplicitCopy/NoCopy naming `with_ref` / `swap_out`. v1 fences: a borrows body
+  is `sync` (a window never spans a suspend — `with_ref`/`with_var_ref` stay the
+  long-window spelling), no borrows function VALUES or existentials, no trait
+  requirements, and no place projection into an ENUM PAYLOAD (which is why `Map`
+  has no subscript).
 - Deterministic LIFO destruction (`Deinit` trait); never call
   `deinit()` manually. You almost never WRITE one either (design 128): any
   struct/enum owning something gets a memberwise `deinit` synthesized — fields
@@ -884,6 +924,25 @@ construct in the owner and lend `&driver` down.
 - Receivers are `&self` and `&var self`, always with the sigil. A bare
   `var self` (an old spelling some code still shows) is a compile error
   pointing at `&var self`; a bare `self` is likewise rejected.
+- **`borrows` CHANGES WHAT `&self` MEANS** (design 146) — read this before
+  writing an accessor. On a `borrows` method the receiver is borrowed with the
+  WINDOW's flavor, decided at each USE SITE: `print(g[4].n)` borrows `g` shared,
+  `g[4].n += 1` borrows it exclusively, out of the same `&self` declaration.
+  This is the ONE place in Saw where a `&self` spelling does not mean
+  shared-only, and it is deliberate (design 141 decision 3: one body serves both
+  flavors). The polymorphism reaches the `lend` and NOTHING else — the rest of
+  the body is ordinary `&self` code, so a field write or a `&var self.<field>`
+  in the prologue/epilogue is the same hard error it is in any other `&self`
+  method. Write the accessor `&var self` when the body genuinely mutates the
+  receiver (an epilogue that bumps a counter); that is legal and STRICTER —
+  every use site then borrows the receiver exclusively, reads included, so a
+  `let` root stops working. `--emit-docs` reports a `&self` borrows receiver as
+  `"self": "window"`, not `"borrows"`.
+- **`&var self.<field>` inside a plain `&self` method is a compile error**
+  (design 146). A `&self` receiver arrives by VALUE, so that projection used to
+  hand out a mutable reference into the callee's copy and the write vanished —
+  silently, for years. Same rule design 106 already applied to a `&` parameter.
+  Fix: declare `&var self`, or `borrows -> T` if you meant to lend the place.
 - **RAW-BACKED ENUMS are the wire idiom** (design 145 B2). A payload-free enum
   may declare an integer backing in the colon position; that PINS the width and
   the tag values, so it may be a field of an `UnsafeMemory`-viewed wire struct
@@ -941,18 +1000,33 @@ construct in the owner and lend `&driver` down.
   inner loop var vs an enclosing loop var).
 - A dependency name mapped via `--module-path` shadowing a local
   module file is an error.
-- `Vector.get(i)` returns a COPY (needs copyable element); use
-  `swap_out(i, v)` to move a slot out; `with_ref`/`with_var_ref(i, body)`
-  for scoped in-place (NoCopy) access (design 81; `ref_at` was removed).
-  `iter()`/`enumerated()` carry the same `T: Copy` bound as `each`/`map`
-  (design 122): `next()` yields an element the consumer OWNS, so a NoCopy
-  element is reached through `with_ref`/`with_var_ref`, never a `for` loop.
-  `set(i, v)` RELEASES the element it overwrites. Since design 130's accessor
-  rule, `set`/`swap`/`swap_out`/`with_ref`/`with_var_ref`, `String.byte_at(i)`
-  and `String.substring(s, e)` ALL PANIC out of range — no silent no-op
-  (`set`/`swap` used to be) and no clamp (`substring` used to be). `get` stays
-  the `None`-returning shape. An empty `substring(i, i)` is still legal; a
-  REVERSED range panics.
+- **`v[i]` is a PLACE, not a copy** (design 146) — `Data` has the same `d[i]`.
+  Reach the element THROUGH it: `v[i].count += 1`, `v[i] = fresh`
+  (whole-element write, old element deinits once), `v[i].method()`,
+  `f(&var v[i])`. Taking it OUT as a value (`let e = v[i]`) follows the copy
+  tier: bitwise for trivial, RETAIN for ImplicitCopy, clean ERROR for
+  ExplicitCopy/NoCopy. Both `v[i]` and `d[i]` PANIC out of range.
+  **`Vector.get(i)` is still the OLD by-value accessor** and still has no
+  `Copy` bound, so it hands a NoCopy element out as a non-retained ALIAS and two
+  lookups double-free it (DF-132a, still open) — reach a move-only element
+  through `v[i]`, `with_ref` or `swap_out`, never `get`.
+  `swap_out(i, v)` moves a slot out; `with_ref`/`with_var_ref(i, body)` are
+  still the multi-statement / long-window spellings (a place window is ONE
+  expression) and the only way to hold a borrow across several statements.
+  `iter()`/`enumerated()` carry a `T: Copy` bound (design 122): `next()` yields
+  an element the consumer OWNS, so a NoCopy element is reached through a place
+  or `with_ref`, never a `for` loop. Since design 130's accessor rule,
+  `set`/`swap`/`swap_out`/`with_ref`/`with_var_ref`, `String.byte_at(i)` and
+  `String.substring(s, e)` ALL PANIC out of range — no silent no-op
+  (`set`/`swap` used to be) and no clamp (`substring` used to be). An empty
+  `substring(i, i)` is still legal; a REVERSED range panics.
+- **A "does it exist?" test on a NoCopy place needs a Bool method, not
+  `if let _`.** `if let _ = doc.section(name)` is a VALUE read of the place, so
+  a NoCopy payload is refused; write `doc.has_section(name)` (libs/toml) or an
+  index-returning lookup (`doc.index_of(name)`) and read through the index.
+  Holding one index and reading several values (`doc.section_at(i).get("a")`,
+  `...get("b")`) is the idiom that replaces binding the section — a place window
+  is one expression, so an INDEX is what survives across statements.
 - String `chars()` yields Int scalars (no Char type); the inverse is
   `StringBuilder.append_scalar(scalar: Int) -> Int?` (design 119) — UTF-8
   encodes + appends a scalar, returns the byte count (1..4), `None` (appends
