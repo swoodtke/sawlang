@@ -1548,7 +1548,14 @@ path must be per-stack). The generics model was not touched.
 
 ## Design 134 — DF-findings
 
-- **DF-134a — OPEN, needs a user decision (reactor-token lifetime vs fd
+- **DF-134a — APPROVED (user, Aug 5): the `__saw_rt_reactor_unregister` seam
+  joins the frozen ABI — design 147 owns it** (kqueue EV_DELETE / epoll
+  EPOLL_CTL_DEL in the Saw reactors; called on the park loop's cancellation
+  exit + belt-and-braces at frame `__release` for registered-unfired tokens;
+  regression: park, cancel, escape the fd via the result, poke it. Post-134
+  severity note: the frame box frees at Done, so a stale one-shot's token is
+  a POINTER INTO FREED MEMORY — this is a use-after-free vector, not a
+  leak). Original finding follows: **(reactor-token lifetime vs fd
   lifetime; found landing design 134, Aug 5).** The design-91 reactor token is
   the ADDRESS of the root frame's `__wake` word: `io_wait` arms
   `EV_ADD|EV_ONESHOT` with `udata = &frame.__wake`
