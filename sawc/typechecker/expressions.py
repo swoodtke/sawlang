@@ -3684,8 +3684,15 @@ class ExpressionsMixin:
         # NoCopy element cannot be: `move v` transfers ONE value and there is no
         # spelling for "and N-1 more", so the literal is refused by name rather
         # than quietly aliasing the same buffer N times.
-        if count > 1 and not (self._is_trivially_copyable(elem_type)
-                              or self._is_implicit_copy_type(elem_type)):
+        # "Copies are free" is a question about the TIER, so it goes to design
+        # 139's oracle rather than to a conformance lookup (design 159). The
+        # conformance-based predicate could not see the UNDECLARED ImplicitCopy
+        # tier, so `[p; 3]` on a `struct P { name: String }` was refused with a
+        # diagnostic that called `P` ExplicitCopy — a policy it does not have
+        # and could not be given, since such a struct is exempt from declaring
+        # one at all.
+        if count > 1 and self.namespace.copy_tier(elem_type) not in ('free',
+                                                                    'implicit'):
             if self._is_abstract_type_param(elem_type):
                 # An opaque type parameter has no copy policy — it has whatever
                 # its instantiation brings, and no bound expresses "copies are

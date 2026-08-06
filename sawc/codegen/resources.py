@@ -1158,6 +1158,15 @@ class ResourcesMixin:
             fn = self.functions.get(copy_name)
             if fn is not None:
                 return self.builder.call(fn, [value], name="elem_copy")
+        # An aggregate with no copy() of its own but with OWNING fields — the
+        # undeclared ImplicitCopy tier (design 159). `_generate_copy` has always
+        # had this fallthrough; the per-ELEMENT path did not, so `[p; 3]` on a
+        # `struct P { name: String }` would have splatted one String into three
+        # slots with no retain and released it three times. Same recursive
+        # retain, so an element's later drop is balanced.
+        if (self._needs_cleanup(saw_type)
+                and saw_type.kind in (TypeKind.STRUCT, TypeKind.ENUM)):
+            return self._deep_copy_value(value, saw_type)
         # No copy path found: bitwise fallback (typechecker should have rejected).
         return value
 

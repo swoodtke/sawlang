@@ -1,0 +1,18 @@
+// Design 159: the stricter NoCopy override actually takes effect. `Ticket`
+// owns nothing but a String, so it would be AUTOMATICALLY ImplicitCopy and
+// `let b = a` would be a free retain — the declaration is what makes that a
+// compile error instead. The success half is
+// `nocopy_override_implicit_tier.saw`.
+//
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: cannot copy value of type `Ticket` which implements NoCopy
+
+struct Ticket { code: String }
+extension Ticket: NoCopy {}
+
+func main() {
+    let n = 3
+    let a = Ticket(code: "ticket-{n}")
+    let b = a
+    print(b.code)
+}

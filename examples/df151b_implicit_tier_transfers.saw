@@ -1,0 +1,241 @@
+// Design 159: a struct whose owning members are all trivial/ImplicitCopy is
+// AUTOMATICALLY ImplicitCopy — no declared policy, by design. Copying one
+// RETAINS each refcounted member, so every transfer class below must balance.
+//
+// DF-151b: the tier was correct and the LOWERING was not. `copy_tier` had no
+// structural join for structs, so an undeclared `struct P { name: String }`
+// reported tier 'free' while `_needs_cleanup` still registered a per-binding
+// drop — one allocation, N releases, freed-block corruption at whatever
+// allocated next.
+//
+// EVERY STRING HERE IS INTERPOLATED ON PURPOSE. A string LITERAL is immortal
+// (refcount -1), so `String_deinit` on one is a no-op and a literal-valued
+// probe cannot fail no matter how broken the copy is. That is exactly how this
+// bug stayed hidden. Same for the Arc counts below: they measure real retains.
+//
+// The refcount-balance oracle is the `Arc.strong_count()` triple in
+// `balance_*`: a count BEFORE a transfer, DURING it, and AFTER it. Retains
+// taken on the way in must equal releases taken on the way out, so the third
+// number must equal the first.
+//
+// This example is also in the Guard Malloc gate lane (tools/gmgate.py). The
+// counts below prove the retains happen; only Guard Malloc proves no SURPLUS
+// release happens, because an over-release still reads correct until the freed
+// block is reused.
+//
+// Reading the two balance lines below: `alone held during after`. The Arc
+// starts at 1; building the enum and then the struct around it takes one
+// retain each (3); the by-value argument and the two copies inside take three
+// more (6); and when that frame dies every one of them comes back (3 again).
+// The enum line is the same story one composite shallower. `held == after` is
+// the balance. On the pre-fix compiler this same code printed
+//   deinit 1
+//   balance-struct 1 3 3 218691215664472001
+// and then died of SIGTRAP: `during` never rose (the copies took no retain
+// while their drops still ran), the Arc's payload was destroyed BEFORE the
+// function that owned it finished, and `after` is a read of freed memory.
+//
+// EXPECT: success
+// EXPECT-OUTPUT:
+// local local-7 local-7 local-7
+// argument 5 5 arg-7
+// return ret-7 ret-7 ret-7
+// field-write fw-7 fw-7
+// enum enum-7 enum-7
+// optional opt-7 opt-7
+// tuple tup-7 tup-7 tup-7
+// array arr-7 arr-7 arr-7
+// vector vec-7 vec-7 2
+// nested nest-7 nest-7 nest-7
+// closure 5 5 5
+// balance-struct 1 3 6 3
+// deinit 1
+// balance-enum 1 2 4 2
+// deinit 2
+
+struct P { name: String }
+struct Nest { p: P }
+struct WithClosure { fn: () -> Int }
+
+enum Tag {
+    case Named(s: String),
+    case Empty
+}
+
+struct Res { id: Int }
+extension Res: NoCopy {
+    func deinit(&var self) { print("deinit {self.id}") }
+}
+
+// An enum carrying an Arc. An enum cannot DECLARE ImplicitCopy at all, so its
+// tier is structural by necessity — and an Arc makes every retain countable,
+// which a String field does not (no refcount is exposed on String).
+enum Holder {
+    case Full(tag: Arc<Res>),
+    case Nothing
+}
+
+// An UNDECLARED struct owning that enum. This is the shape that makes the
+// balance oracle bite: it needs no policy of its own (its owning member is
+// itself automatically ImplicitCopy), so both composites on the path carry the
+// undeclared tier, and the Arc underneath counts every retain along it.
+struct Wrap { h: Holder }
+
+func consume(p: P) -> Int { p.name.len() }
+
+func site_local(n: Int) {
+    let a = P(name: "local-{n}")
+    let b = a
+    let c = b
+    print("local {a.name} {b.name} {c.name}")
+}
+
+func site_argument(n: Int) {
+    let a = P(name: "arg-{n}")
+    print("argument {consume(a)} {consume(a)} {a.name}")
+}
+
+func make_p(n: Int) -> P {
+    let a = P(name: "ret-{n}")
+    return a
+}
+
+func take_field(h: Nest) -> P { h.p }
+
+func site_return(n: Int) {
+    let a = make_p(n)
+    let h = Nest(p: a)
+    let b = take_field(h)
+    print("return {a.name} {b.name} {h.p.name}")
+}
+
+func site_field_write(n: Int) {
+    let a = P(name: "fw-{n}")
+    var h = Nest(p: P(name: "old-{n}"))
+    h.p = a
+    print("field-write {a.name} {h.p.name}")
+}
+
+func site_enum(n: Int) {
+    let s = "enum-{n}"
+    let t = Tag.Named(s: s)
+    let u = t
+    let shown = match u {
+        case Named(v) -> v,
+        case Empty -> "empty"
+    }
+    print("enum {s} {shown}")
+}
+
+func site_optional(n: Int) {
+    let a = P(name: "opt-{n}")
+    let o: P? = a
+    let b = o!
+    print("optional {a.name} {b.name}")
+}
+
+func site_tuple(n: Int) {
+    let a = P(name: "tup-{n}")
+    let t = (a, a)
+    let u = t
+    let first = (t.0).name
+    let second = (u.1).name
+    print("tuple {first} {second} {a.name}")
+}
+
+func site_array(n: Int) {
+    let a = P(name: "arr-{n}")
+    // A repeat literal duplicates into every slot: legal exactly because the
+    // element copies for free, which the undeclared ImplicitCopy tier does.
+    let xs: [P; 3] = [a; 3]
+    print("array {xs[0].name} {xs[2].name} {a.name}")
+}
+
+func site_vector(n: Int) {
+    var v: Vector<P> = []
+    let a = P(name: "vec-{n}")
+    v.push(a)
+    v.push(a)
+    let got = v[0].name
+    print("vector {got} {a.name} {v.len()}")
+}
+
+func site_nested(n: Int) {
+    let a = P(name: "nest-{n}")
+    let h = Nest(p: a)
+    let h2 = h
+    print("nested {h.p.name} {h2.p.name} {a.name}")
+}
+
+func site_closure(n: Int) {
+    let s = "clo-{n}"
+    let w = WithClosure(fn: { s.len() })
+    let w2 = w
+    let w3 = w2
+    print("closure {w.fn()} {w2.fn()} {w3.fn()}")
+}
+
+// THE BALANCE ORACLE. `w` arrives BY VALUE (one retain) and is copied twice
+// inside (two more), so the count during the call is the caller's plus three.
+// Every one of those must be released when this frame dies — which is what
+// makes the third printed number equal the second.
+//
+// This is the oracle with teeth. On the pre-fix compiler the same program
+// printed one LOWER at each transfer, because the copies took no retain at
+// all: the counts are a direct reading of the missing retain, not a proxy for
+// it. (Contrast `strong_count` on a CLOSURE env, which reads correctly while
+// the env is double-released — see closure_copyable_struct_copied.)
+func balance_inner(w: Wrap) -> Int {
+    let w2 = w
+    let w3 = w2
+    match w3.h {
+        case Full(t) -> t.strong_count(),
+        case Nothing -> 0
+    }
+}
+
+func balance_struct() {
+    let arc = Arc<Res>(value: Res(id: 1))
+    let alone = arc.strong_count()
+    let h = Holder.Full(tag: arc)
+    let w = Wrap(h: h)
+    let held = arc.strong_count()
+    let during = balance_inner(w)
+    let after = arc.strong_count()
+    print("balance-struct {alone} {held} {during} {after}")
+}
+
+func holder_inner(h: Holder) -> Int {
+    let h2 = h
+    match h2 {
+        case Full(t) -> t.strong_count(),
+        case Nothing -> 0
+    }
+}
+
+func balance_enum() {
+    let arc = Arc<Res>(value: Res(id: 2))
+    let alone = arc.strong_count()
+    let h = Holder.Full(tag: arc)
+    let held = arc.strong_count()
+    let during = holder_inner(h)
+    let after = arc.strong_count()
+    print("balance-enum {alone} {held} {during} {after}")
+}
+
+func main() {
+    let n = 7
+    site_local(n)
+    site_argument(n)
+    site_return(n)
+    site_field_write(n)
+    site_enum(n)
+    site_optional(n)
+    site_tuple(n)
+    site_array(n)
+    site_vector(n)
+    site_nested(n)
+    site_closure(n)
+    balance_struct()
+    balance_enum()
+}

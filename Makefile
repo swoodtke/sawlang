@@ -1,6 +1,6 @@
 # Saw Language Makefile
 
-.PHONY: test test-verbose test-sequential clean help blade-bootstrap sos-test lexdiff astdiff irdet irdet-all abidoc
+.PHONY: test test-verbose test-sequential clean help blade-bootstrap sos-test lexdiff astdiff irdet irdet-all gmgate abidoc
 
 # Default target
 all: test
@@ -57,6 +57,15 @@ irdet:
 irdet-all:
 	@python3 tools/irdet.py --all
 
+# Ownership gate under Guard Malloc (design 159 unit 4). A missing retain does
+# not fail an ordinary run: the surplus release lands in a freed-but-mapped
+# block and the program exits 0, which is how DF-151b sat in a green tree from
+# design 73 onward. Guard Malloc unmaps freed blocks, so an over-release faults
+# at the instruction that made it. Small curated lane — the ownership oracles
+# only, since a page per allocation is far too slow for the whole suite.
+gmgate:
+	@python3 tools/gmgate.py
+
 # Runtime-ABI document check (design 149 unit c): the compiler checks exported
 # seams against the signatures in rt/ABI.md, so the document has to describe
 # exactly the frozen symbol set. Neither kind of drift shows up in a build.
@@ -91,6 +100,7 @@ help:
 	@echo "  make astdiff         - Dump every tracked .saw file and require stability"
 	@echo "  make irdet           - IR determinism over a 40-example sample (per commit)"
 	@echo "  make irdet-all       - IR determinism over the WHOLE corpus (final gate)"
+	@echo "  make gmgate          - Ownership oracles under Guard Malloc (macOS)"
 	@echo "  make abidoc          - rt/ABI.md describes exactly the frozen seam set"
 	@echo "  make clean           - Remove build artifacts"
 	@echo "  make help            - Show this help message"

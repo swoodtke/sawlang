@@ -3,6 +3,23 @@
 // ImplicitCopy (refcounted env), each struct copy retains the closure's env; the
 // destructor runs exactly once when the LAST struct owner drops. Under design 71
 // (closure = NoCopy, field excluded from containment) this double-freed.
+//
+// WHAT THIS FILE CANNOT PROVE ON ITS OWN (design 159, DF-151b). From design 73
+// until Aug 6 this test PASSED while the env was being released three times.
+// `Arc.strong_count()` below counts the ARC, not the closure ENV, and those are
+// different refcounts: with no retain on the struct copies, the env's count went
+// 1 -> 0 on the first release (running the dtor once, which released the Arc
+// once — so every number here stayed correct) and the remaining two releases
+// decremented already-freed memory to -1 and -2. A dtor fires on the 1 -> 0 edge
+// and never again, so a print-count oracle cannot see it either, and neither can
+// this one.
+//
+// The over-release is only observable when the freed block is unmapped or
+// reused, so this example is in the Guard Malloc gate lane (`tools/gmgate.py`,
+// `make gmgate`) and that lane is where it is actually policed. For a copy
+// oracle that DOES fail natively on a missing retain, see
+// `df151b_implicit_tier_transfers.saw`: it counts an Arc reached THROUGH the
+// copied composite, so each copy's retain is directly visible.
 // EXPECT: success
 // EXPECT-OUTPUT:
 // 1

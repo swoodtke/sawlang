@@ -207,6 +207,35 @@ examples/
     └── ...
 ```
 
+## Ownership Gate Under Guard Malloc
+
+```bash
+make gmgate                          # or: ./.venv/bin/python tools/gmgate.py
+./.venv/bin/python tools/gmgate.py -n 30 -v   # more runs, per-program detail
+```
+
+A missing retain does not fail an ordinary test run. The surplus release lands
+in a block libmalloc has freed but not unmapped, so the program prints the right
+answers and exits 0; the damage surfaces later, at whatever unrelated allocation
+trips over it. That is how DF-151b stayed in a green tree from design 73
+onward — and two of the tests that should have caught it were passing for the
+wrong reason, because a destructor fires on the 1 -> 0 refcount edge and never
+again, so neither a `strong_count` assertion nor a deinit-print count can see a
+double release.
+
+Guard Malloc (`/usr/lib/libgmalloc.dylib`) puts every allocation on its own page
+and unmaps it on free, which turns a latent over-release into a fault at the
+instruction that made it — 100% reproducible instead of 15-35% per run.
+
+`tools/gmgate.py` runs a small curated set of ownership oracles under it. The
+lane is deliberately short: Guard Malloc costs a page per allocation and is far
+too slow for the whole suite, and what it needs to cover is the tests that
+assert something about copies, retains, drops or refcounts. **Add a program to
+`GATE` in `tools/gmgate.py` whenever you write such a test.**
+
+macOS only — Guard Malloc is a macOS facility, so on other platforms the tool
+reports `SKIPPED` and exits 0 rather than failing.
+
 ## Best Practices
 
 ### 1. Always Add Expected Output

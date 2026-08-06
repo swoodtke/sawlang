@@ -1,0 +1,48 @@
+// Design 159: the STRICTER override. A struct whose owning members are all
+// compiler-handled ImplicitCopy — a String field, a closure field — is
+// AUTOMATICALLY ImplicitCopy and needs no declared policy. Declaring the
+// stricter `NoCopy` on one anyway is legal, and is the API-discipline escape
+// hatch: it makes the type move-only even though nothing about its fields
+// requires that.
+//
+// Note there is no `deinit` here. A hand-written deinit would make the policy
+// MANDATORY (design 131), which is a different thing entirely — every existing
+// String-field NoCopy struct in the corpus is that case. These two are the
+// gratuitous override, where the automatic tier was perfectly usable and the
+// author chose to give it up.
+//
+// The refusal half is `errors/nocopy_override_implicit_tier_copy.saw`.
+//
+// EXPECT: success
+// EXPECT-OUTPUT:
+// ticket-3
+// ticket-3
+// 8
+// moved once
+
+struct Ticket { code: String }
+extension Ticket: NoCopy {}
+
+struct Sealed { render: () -> Int }
+extension Sealed: NoCopy {}
+
+// A move-only value passed by value: the caller must spell `move`.
+func redeem(t: Ticket) -> String { t.code }
+
+func main() {
+    let n = 3
+    var a = Ticket(code: "ticket-{n}")
+    // Borrowing is free — NoCopy restricts DUPLICATION, not reading.
+    print(a.code)
+    let b = move a
+    print(redeem(move b))
+
+    let label = "sealed-{n}"
+    let s = Sealed(render: { label.len() })
+    print((move s).render())
+
+    // A moved-from `var` revives on reassignment.
+    a = Ticket(code: "again-{n}")
+    let _ = move a
+    print("moved once")
+}
