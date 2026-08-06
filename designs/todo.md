@@ -1319,7 +1319,12 @@ Converting it would delete the atomicity that makes the singleton race-safe.
   status and names the signal, which is how the cause above was identified at
   all.
 
-- **DF-156a — FILED (measured landing design 156; needs a user call).** The
+- **DF-156a — DECIDED (user, Aug 6): option (b) — pipeline the stages with a
+  held-back settle lag ("re-adds the parallelism while still allowing the
+  binaries to settle"). FALLBACK pre-authorized: if (b) is still too slow
+  (not within ~15% of the interleaved baseline, back-to-back comparable
+  load), REVERT to one stage (option c) and rest on the rename + reported
+  retry alone. Dispatched as a follow-up. Original finding:** The
   two-stage runner costs wall clock, and the reason is worth writing down
   because it is a property of the machine, not of the runner. **The first exec
   of a freshly written binary costs macOS ~0.4s**; a re-exec of the same file
