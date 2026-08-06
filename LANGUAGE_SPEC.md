@@ -29,7 +29,7 @@ implementation wins and this document is the bug.
 1. **Safety without sacrifice** - Memory safety and thread safety by default, with explicit opt-out for low-level control
 2. **Zero-cost abstractions** - High-level constructs compile to efficient machine code
 3. **Expressiveness** - Clean, readable syntax that reduces boilerplate
-4. **Predictability** - Allocation is visible in the type, no garbage collection pauses, deterministic destruction. Two constructs allocate without a signature saying so, and they are the only two: an escaping closure heap-allocates its captured environment, and string interpolation allocates its result buffer (interpolating an integer also routes through libc `snprintf`, which matters for the freestanding profile).
+4. **Predictability** - Allocation is visible in the type, no garbage collection pauses, deterministic destruction. **No hidden allocations**, enforced by `sawc --no-hidden-alloc`: every allocation is named by the expression or by a type the author wrote, and the compiler allocating on its own authority is a compile error. Without the flag, three constructs allocate without saying so — an escaping closure's captured environment, a string interpolation's result buffer, and single-argument `print` of a user `Printable`. See [No hidden allocations](#no-hidden-allocations---no-hidden-alloc) for the site-by-site classification.
 5. **Progressive disclosure** - Simple things are simple, complex things are possible
 
 ### Non-Goals
@@ -1542,7 +1542,9 @@ print("x = {}", x)   // writes the pieces; no allocation anywhere
 ```
 
 Both produce the same bytes. The second works in the freestanding profile with
-no allocator at all, and with a hosted allocator refusing every request.
+no allocator at all, and with a hosted allocator refusing every request. It is
+also the only one of the two that compiles under
+[`--no-hidden-alloc`](#no-hidden-allocations---no-hidden-alloc).
 
 A `print` line has no length limit — each piece goes to the output seam at its
 own length, so a long `String` argument is written whole. The one bounded piece
@@ -1593,7 +1595,10 @@ extension Other: Printable {
 ```
 
 `append(value: Int)` and `append(value: UInt)` render digits directly, with no
-intermediate `String`. In fixed mode `try_append` and `try_append_char` never
+intermediate `String`. Forwarding to a builtin's own `format` —
+`self.n.format(into: &var into)` — is allocation-free too, so either spelling of
+a field is safe inside a `format` body. In fixed mode `try_append` and
+`try_append_char` never
 report `Err`: there is no allocator to refuse them, and truncation is reported
 by the marker and `is_truncated()` rather than by an `AllocError` naming a
 failure that did not happen.
@@ -1641,9 +1646,10 @@ func parse(ok: Bool) -> Result<Int, Box<any Error>> {
 ```
 
 > **Freestanding note.** Erasing an error boxes it through `GlobalAllocator`, so
-> `Result<T, Box<any Error>>` is a *hosted convenience*. Kernel / freestanding
-> code that must avoid hidden allocation keeps concrete or closed-union error
-> types (`Result<T, ConcreteE>`), which allocate nothing.
+> `Result<T, Box<any Error>>` is a *hosted convenience*. That box is named — it
+> is written in the signature — so `--no-hidden-alloc` allows it. What a kernel
+> wants is a concrete or closed-union error type (`Result<T, ConcreteE>`), which
+> allocates nothing at all.
 
 ### Type Definitions
 
@@ -1936,8 +1942,8 @@ governed by the payload's own policy — see
 
 The only implicit copies are cheap by contract, which is the part of design
 principle #4 this section carries: an innocent `=` is never secretly O(n). The
-two allocations no signature announces (a closure environment, an interpolation
-buffer) are named with the principle in §1.
+allocations no signature announces are listed, and rejected under a flag, in
+[No hidden allocations](#no-hidden-allocations---no-hidden-alloc).
 
 ### Move-Only Types
 
@@ -5153,6 +5159,85 @@ no message dropped by `send`, and no object that constructs "successfully" and
 then does nothing — `Arc`, `Mutex` and `Channel` used to have exactly that inert
 state, and it no longer exists.
 
+### No hidden allocations (`--no-hidden-alloc`)
+
+**Status: implemented (design 135).** `Vector.push` allocates, and it says so:
+a method with a contract, an allocator in the type. The guarantee is about the
+other case — the compiler allocating on its own authority, where nothing in the
+source says a heap block is involved. `sawc --no-hidden-alloc` rejects every
+such site at compile time.
+
+"Named" means named by the **expression** or by a **type the author wrote**.
+The classification below covers every allocation `sawc` emits.
+
+| Site | What triggers it | Named | Under the flag |
+|---|---|---|---|
+| Escaping closure environment | a closure that outlives its frame and captures something | no | rejected |
+| String interpolation buffer | `"...{x}..."`, anywhere, including a `panic`/`assert` message | no | rejected |
+| `to_string()` for an interpolated `Printable` piece | `"{point}"` | no | rejected, as part of the interpolation |
+| `to_string()` for one-argument `print` of a `Printable` | `print(point)` | no | rejected |
+| Task control block and coroutine frame | `spawn`, `TaskGroup.spawn` | yes: the call starts a task | allowed |
+| A spawned closure's environment | `spawn { ... }` | yes: part of starting the task | allowed |
+| Erased-error box | returning a concrete error from `-> Result<T, Box<any Error>>`, and each `try` that propagates one | yes: the `Box` is in the written signature | allowed |
+| Existential box | `Box<any Shape>.make(v)` | yes | allowed |
+| Collection literal | `[a, b]`, `{k: v}`, `{a, b}` | yes: the literal names the collection | allowed |
+| `TaskGroup(threads: N)` control block | the call | yes | allowed |
+| Implicit `copy()` at a transfer | passing an `ImplicitCopy` value | yes: the type declares that policy (a refcount bump for `String`, `Arc`, a closure environment) | allowed |
+| `x.to_string()` | the call | yes: it returns a `String` | allowed |
+| `&concrete` to `&any Trait` | passing to an existential reference | — | never allocates: a static vtable is attached |
+| Optional and `Result` auto-wrap | `return 42` from a `Result`-returning function | — | never allocates: an inline tagged value |
+| Place windows | `v[i]`, a `borrows` accessor's lend | — | never allocates |
+| Loop desugaring | `for i in 0..n`, `v.iter()` | — | never allocates |
+| String literals, statics, `#file`/`#line` | — | — | never allocates: immortal blocks with refcount `-1` |
+| Format arguments | `print("{}", x)`, `panic`, `assert` | — | never allocates |
+| Runtime-check panic messages | a bounds, overflow, shift or divide trap | — | never allocates: interned constants |
+| A builtin's `format(into:)` | `self.n.format(into: &var b)` | — | never allocates |
+
+The three rejected sites each name the spelling that works:
+
+```saw
+let label = "count: {n}"
+// error: string interpolation allocates a String — `--no-hidden-alloc`
+//        forbids allocations the source does not name
+//   hint: pass the values as format arguments instead — `print("x = {}", x)`,
+//         `panic("out of {}", what)` — or assemble the text in a
+//         fixed-capacity `StringBuilder`; a message with nothing interpolated
+//         into it is an interned literal and costs nothing
+```
+
+Interpolation is rejected **everywhere**, with no exception for `panic` and
+`assert` message arguments. The moment a panic matters most is when the
+allocator has nothing left to give, so a message routed through the allocator is
+a message that does not arrive. `panic("out of {}: wanted {}", "frames", 64)`
+says the same thing out of stack scratch. Runtime-check panics were never
+affected: they lower to interned constants.
+
+An escaping closure is one bound to a `let`/`var`, returned, or stored in a
+field; its captures move to a refcounted heap block. A closure passed straight
+to the call that runs it keeps its environment on the stack and stays legal, and
+so does an escaping closure with nothing captured — that one is a bare code
+pointer.
+
+`print(point)` has no rendering to reach for except the `to_string()` the
+compiler synthesizes at the call site. `print("{}", point)` streams the same
+bytes through the value's own `format` into stack scratch; see [Format arguments
+and the allocation-free path](#format-arguments-and-the-allocation-free-path).
+Inside a generic, `print(v)` on a `T: Printable` is judged at the template,
+where `T` could be anything, so it is rejected there too. The
+format-argument spelling covers every instantiation, which is why the check does
+not wait for one.
+
+The flag is **orthogonal to `--freestanding`**. A kernel with a slab allocator
+may want allocator-backed `String`s, so the freestanding profile does not imply
+the flag. The two combine, and pairing them is the recommendation; the SOS
+kernel builds under both.
+
+The flag judges the program's own source. The standard library is written on the
+allocation-free path already — no interpolation appears anywhere in it — and the
+coroutine transform's output is compiler-authored, so a spawned frame's box is
+counted once at the `spawn` that asked for it rather than again at every
+rewritten hop.
+
 ### `Box<T, A>` — a single owned heap allocation
 
 **Status: implemented (design 42).** `Box<T, A: Allocator = GlobalAllocator>` owns one
@@ -5257,6 +5342,12 @@ sawc <source.saw> [options]
   --freestanding
                Freestanding profile: runtime seams as declarations only, no
                hosted std modules, no Float printing, unlinked object output
+  --no-hidden-alloc
+               Reject allocations the compiler inserts that no source construct
+               names: string interpolation, an escaping closure's captured
+               environment, and `print` of a user Printable. Allocations the
+               source names are unaffected. Orthogonal to --freestanding; see
+               No hidden allocations.
   --runtime-build
                Compile a Saw runtime that `@export`s the frozen `__saw_rt_*`
                ABI. Sync-only, unlinked object output; builds `sawc/rt/`.

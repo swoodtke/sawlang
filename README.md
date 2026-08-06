@@ -17,11 +17,11 @@ syntax. It has no garbage collector and no lifetimes.
   machine code, with no runtime overhead for the abstraction.
 - **Predictable performance** - Allocation is visible in the type: the
   allocating containers carry their allocator as a type parameter, and no
-  assignment is secretly O(n). Two constructs allocate without a signature
-  saying so, and they are the only two — an escaping closure heap-allocates its
-  captured environment, and string interpolation allocates its result buffer.
-  The only implicit copies are cheap ones, and values are destroyed in a defined
-  order (last in, first out) as they go out of scope.
+  assignment is secretly O(n). No hidden allocations, enforced by
+  `sawc --no-hidden-alloc` — every allocation is named by the expression or by a
+  type you wrote, and the compiler allocating on its own authority is a compile
+  error. The only implicit copies are cheap ones, and values are destroyed in a
+  defined order (last in, first out) as they go out of scope.
 - **Runs on bare metal** - Saw is freestanding. Pluggable allocators,
   memory-mapped registers, compile-time layout checks, and C-ABI exports let it
   target kernels and embedded systems.
@@ -368,16 +368,21 @@ panic("out of {}: wanted {}, had {}", "frames", 64, 3)
 ```
 
 Whether your own type formats without allocating depends on how you write
-`format`: `into.append(...)` calls do not allocate, `into.append("{self.x}")`
-does.
+`format`: `into.append(...)` calls do not allocate, and neither does forwarding
+to a field's own `format`; `into.append("{self.x}")` does.
+
+Compiling with `--no-hidden-alloc` turns the difference between the two
+spellings into a compile error rather than a habit to keep.
 
 ### Errors as Values
 
 Every `Error` is `Printable`. Returning `Result<T, Box<any Error>>` lets a
 function return any error type without writing a union by hand: the concrete
 error is boxed and its exact type hidden behind `any Error` at the return
-boundary. That is a convenience for hosted code. Kernel code sticks to concrete
-or closed-union error types to avoid the hidden allocation.
+boundary. That is a convenience for hosted code: the box is named in the
+signature, so `--no-hidden-alloc` allows it, but a kernel wants a concrete or
+closed-union error type (`Result<T, ConcreteE>`), which allocates nothing at
+all.
 
 ```saw
 func parse(ok: Bool) -> Result<Int, Box<any Error>> {
@@ -765,6 +770,15 @@ Saw is freestanding: the same language targets bare metal.
   for the same reason — the failure you most need reported is the one where
   memory ran out. The SOS kernel in this repo logs this way; `make sos-test`
   boots it under QEMU and checks the lines on the UART.
+- **No hidden allocations, enforced**: `--no-hidden-alloc` rejects the allocations the
+  compiler would insert on its own authority — a string interpolation's buffer,
+  an escaping closure's captured environment, `print` of one of your own
+  `Printable` types — and names the spelling that does not allocate. Everything
+  your source names still works: `Vector.push`, a collection literal, `spawn`, a
+  `Box<any Error>` you wrote into a signature. The flag is orthogonal to
+  `--freestanding` (a kernel with a slab allocator may want real `String`s) and
+  the two combine; the SOS kernel builds under both, which is what keeps its log
+  lines off the heap.
 - **Compile-time layout checks**: `static_assert(sizeof<UartRegs>() == 0x1C,
   "...")` fails the build when a register block's layout drifts, at no runtime
   cost.
@@ -796,7 +810,7 @@ Cross-compiling to a bare-metal target takes a triple and, where the part has
 optional extensions, a feature list:
 
 ```bash
-sawc kernel.saw -o kernel.o --freestanding \
+sawc kernel.saw -o kernel.o --freestanding --no-hidden-alloc \
     --target riscv32-unknown-none-elf --target-features +m,+a,+c
 ```
 
@@ -897,6 +911,8 @@ Options:
   --target-features <list>
                      LLVM subtarget features for --target (e.g. +m,+a,+c)
   --freestanding     Freestanding profile: no hosted std, unlinked object output
+  --no-hidden-alloc  Reject allocations the compiler inserts that your source
+                     does not name (see Kernels and Embedded)
   --runtime-build    Build a Saw runtime exporting the __saw_rt_* ABI
   --module-path NAME=DIR
                      Map a package name to a source directory (repeatable)

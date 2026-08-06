@@ -11,7 +11,8 @@ there. Triage outcome: **122** fix batch (RS-2/4/5, RC-1/4/5, P2, DF-119b —
 wave 1); **123** allocator-failure policy pass, design-19 tiers (RS-1 — wave
 2); **124** TaskGroup EAGER teardown (RS-3, user chose scope-not-extender —
 wave 2); **125** docs sweep + README catch-up + README joins the docs
-convention + soften no-hidden-allocations (P3 — wave 1); **126** pre-port trio
+convention + soften no-hidden-allocations (P3 — wave 1; the SOFTENING is now
+REVERSED, see design 135 below); **126** pre-port trio
 R1/R2/R11 incl. the RC-2 substitution bug (wave 1); **127** op-budget loop-
 backedge preemption (RC-3, user chose fix-not-soften — wave 2); **128/129
 DRAFTS** (Deinit/ExplicitCopy synthesis — LANDED, see below;
@@ -977,7 +978,17 @@ were doc fixes and all landed; findings 3 (`--emit-docs` effect field) and 5
 (`print(UInt)` renders signed) are compiler bugs the docs describe correctly,
 owned by design 122 units E and G. README is current through 121 and now joins
 the docs-update convention (CLAUDE.md workflow section); "no hidden
-allocations" names its two exceptions. Appendix A picked up two names the
+allocations" names its two exceptions. **That softening is CLOSED by design
+135 (Aug 6):** the claim is back in guarantee form in both the spec and the
+README, enforced by `sawc --no-hidden-alloc`, with the site-by-site audit table
+in LANGUAGE_SPEC "No hidden allocations". The audit found a THIRD hidden site
+the 125 wording did not know about — single-argument `print` of a user
+`Printable`, which renders through a synthesized `to_string()` — and a FOURTH
+that was a defect rather than a design choice: a builtin's `format(into:)`
+allocated a String per call and never released it, putting an allocation and a
+leak inside design 137's alloc-free path (fixed; every case now reaches a
+`StringBuilder.append` overload, Float through a frame-resident immortal
+String). The sos gate compiles the kernel under the flag permanently. Appendix A picked up two names the
 review missed (`deinit`, `Self` were listed reserved and are not). Left
 untouched on purpose: the op-budget claim (127) and the `panic at FILE:LINE:`
 claim (122 unit I), both being made true rather than softened. Both are now
@@ -1072,6 +1083,66 @@ noted live-range packing of locals; do both in one sizing brief.
   `d125_120_shortcircuit.saw`, `d125_blocking_sc.saw` (gitignored; the shapes
   are inlined above). Worth a follow-up brief if the ANF hoist can be taught to
   lift a nested short-circuit.
+
+## Design 135 — `--no-hidden-alloc` (LANDED, Aug 6)
+
+Restores the no-hidden-allocations claim to guarantee form; closes the design
+125 softening (P3, above). Four units, full suite green each.
+
+- **Unit A — the audit.** Every allocation `sawc` emits, classified against the
+  named-in-source line; the table is in LANGUAGE_SPEC "No hidden allocations".
+  Hidden: escaping-closure environment, string-interpolation buffer, the
+  `to_string()` a one-argument `print` of a user `Printable` synthesizes. Named:
+  spawn/TaskGroup machinery (including a spawned closure's env — starting a task
+  is the named allocation), the erased-error box (the `Box` is in the WRITTEN
+  signature), `Box.make`, collection literals, an ImplicitCopy transfer, an
+  explicit `to_string()`. Verified non-allocating: `&any Trait` erasure (static
+  vtable), Optional/Result auto-wrap, place windows, loop desugaring, literals
+  and statics (immortal, rc `-1`), the design-137 format-argument path, and
+  runtime-check panic messages.
+  - **One defect found and fixed.** `_emit_format` — a builtin's
+    `format(into:)` — rendered through `_emit_to_string`: a heap String per call,
+    appended and never released. An allocation AND a leak inside design 137's
+    alloc-free path, reached by the natural `self.n.format(into: &var into)`
+    spelling in a user `format` body, which fed the fixed STACK builder
+    `print("{}", tag)` hands it from the heap. Every case now reaches a
+    `StringBuilder.append` overload; Float renders into a frame-resident
+    IMMORTAL String (`_stack_string`, rc `-1`). Test
+    `format_into_builtin_alloc_free` proves it under
+    `__saw_rt_alloc_deny_after(0)` and fails on the old lowering.
+- **Unit B — the flag.** `--no-hidden-alloc`, per invocation, diagnostics only
+  (no codegen path changes). The three hidden sites become compile errors naming
+  the alloc-free spelling. Interpolation is banned UNIFORMLY — no carve-out for
+  `panic`/`assert` message arguments (user decision; the allocator being out is
+  when a panic matters most). The escaping-closure check follows codegen's own
+  condition, so a capture-less escaping closure and any non-escaping one stay
+  legal. Gate judges user source on the first pass: std's bodies are already
+  alloc-free (the audit found no interpolation anywhere under `sawc/std/` or in
+  `builtin.saw`) and coroutine-transform output is compiler-authored.
+- **Unit C — SOS dogfood.** The sos gate compiles every kernel source with the
+  flag, permanently. The kernel was already CLEAN (137's dogfood); non-vacuity
+  checked by confirming the exact gate flag set rejects `print("ram {r}")` and
+  `print(r)` in a riscv32 freestanding build.
+- **Unit D — docs.** Spec principle #4 and the README bullet are back in
+  guarantee form; the audit table, the error text and the orthogonality note
+  (`--freestanding` does NOT imply the flag) live in LANGUAGE_SPEC "No hidden
+  allocations". Skill + README + Appendix 0 flag list updated.
+
+**Deliberate conservatism worth knowing:** `print(v)` on a `T: Printable` inside
+a generic is rejected at the TEMPLATE, where `T` is unknown — an `Int`
+instantiation would not have allocated. The format-argument spelling covers
+every instantiation, so the check does not wait for one; spec says so.
+
+**Found while running the gate battery, fixed here:** `tools/irdet.py` counted a
+compile FAILURE as a skip, so an interpreter without llvmlite skipped the whole
+corpus and printed `irdet: OK`. `make irdet-all` calls bare `python3`, which is
+exactly that interpreter — the brief's named final gate was reporting success
+having verified nothing. It now fails when `checked == 0` and names the venv
+invocation; CLAUDE.md's testing note says to run `./.venv/bin/python
+tools/irdet.py --all`.
+
+**Explicitly NOT this brief:** a per-function `@no_hidden_alloc` attribute
+(named in the brief as a possible later one).
 
 ## Design 145 — DF-findings (enum methods; the std private-symbol reach)
 

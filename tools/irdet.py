@@ -113,6 +113,16 @@ def main() -> int:
     if mismatches:
         print("irdet: %d file(s) produced NON-REPRODUCIBLE IR" % len(mismatches))
         return 1
+    if checked == 0:
+        # A compile failure counts as a skip, so an interpreter without llvmlite
+        # skips the entire corpus and this used to print OK — a final gate
+        # reporting success having verified nothing. `make irdet` runs bare
+        # `python3`; run `.venv/bin/python tools/irdet.py` instead.
+        print("irdet: NOTHING WAS CHECKED -- every candidate failed to compile.")
+        print("irdet: run it under the virtualenv interpreter "
+              "(.venv/bin/python tools/irdet.py%s)"
+              % (" --all" if args.all else ""))
+        return 1
     print("irdet: OK -- every sampled example compiled to byte-identical IR")
     return 0
 

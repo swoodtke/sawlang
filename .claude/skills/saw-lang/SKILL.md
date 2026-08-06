@@ -376,10 +376,26 @@ if err.is<IoErr>() { if let io = err.take<IoErr>() { retry(io) } }  // downcast
   print("x = {}", x)   // writes the pieces; allocates NOTHING
   ```
   Same bytes; the second works freestanding and under total allocator denial.
-  Reach for it in a kernel, a panic path, or anywhere design 135's
-  `--no-hidden-alloc` is in force (which bans the interpolation form). `print`
+  Reach for it in a kernel, a panic path, or anywhere `--no-hidden-alloc` is in
+  force (below). `print`
   has no line-length limit (each piece goes to the seam at its own length); only
   a single user-`Printable` rendering is bounded (512 bytes, marked).
+- **`--no-hidden-alloc` (design 135) — the guarantee, as a flag.** Per
+  invocation; rejects allocations the COMPILER inserts that no source construct
+  names. THREE sites error: (1) string interpolation `"{x}"` ANYWHERE, with NO
+  carve-out for a `panic`/`assert` message argument (the allocator being out is
+  exactly when a panic has to work — write `panic("out of {}", what)`);
+  (2) an ESCAPING closure that CAPTURES something (bound to a `let`/`var`,
+  returned, stored — its env is a refcounted heap block; a closure passed
+  straight to the call that runs it keeps a STACK env and is fine, and so is an
+  escaping closure with no captures); (3) single-argument `print(user_printable)`,
+  which renders through a synthesized `to_string()` — `print("{}", p)` streams
+  the same bytes into stack scratch. Everything the SOURCE names is untouched:
+  `Vector.push`, a collection literal, `Box.make`, `spawn` (env included), a
+  written `Box<any Error>` and its erased-error auto-wrap, an ImplicitCopy
+  transfer. Orthogonal to `--freestanding` (a slab-backed kernel may want real
+  `String`s) and combines with it — the SOS kernel gate builds under both. Full
+  site-by-site table: LANGUAGE_SPEC "No hidden allocations".
 - **`StringBuilder` FIXED mode (design 137)** — `StringBuilder(bytes:capacity:)`
   over caller storage. Never grows, never frees; overflow cuts on a UTF-8
   boundary and stamps `…`, and `is_truncated()` reports it (until `clear()`).
@@ -387,7 +403,9 @@ if err.is<IoErr>() { if let io = err.take<IoErr>() { retry(io) } }  // downcast
   what `print`/`panic` hand to your `format`, so **write `format` out of `append`
   calls, not `"{...}"` interpolation** — the latter builds a heap String and is
   what makes a type un-printable on the alloc-free path. `append(value: Int)` and
-  `append(value: UInt)` render digits directly (no intermediate String). In fixed
+  `append(value: UInt)` render digits directly (no intermediate String), and
+  forwarding to a field's own `format` (`self.n.format(into: &var into)`) is
+  alloc-free too since design 135 — either spelling is safe in a body. In fixed
   mode `try_append`/`try_append_char` never return `Err`: nothing refused them,
   and truncation is reported by the marker, not by a fake `AllocError`.
 - FAILABLE-RETURNS-RESULT (design 92, non-negotiable): a fallible op SURFACES

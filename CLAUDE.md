@@ -49,10 +49,11 @@ activated first.
 ./.venv/bin/python sawc/sawc.py <src.saw> [-o out] [-v] [-c]
     [--emit-ir] [--emit-ast] [--emit-docs] [--emit-docs-all] [-O0]
     [--target TRIPLE] [--module-path NAME=DIR]
-    [--freestanding] [--runtime-build]
+    [--freestanding] [--runtime-build] [--no-hidden-alloc]
 ```
 That is the complete flag set (`sawc.py:1125-1156`); `-o` defaults to
-`.build/<source>`.
+`.build/<source>`. `--no-hidden-alloc` (design 135) rejects the
+allocations the compiler inserts that no source construct names.
 Default pipeline is O1-style. `--module-path` maps a package name to a
 module dir (Blade uses this per dependency). `--runtime-build` (design
 113b) compiles a Saw runtime that `@export`s the frozen `__saw_rt_*` ABI
@@ -72,8 +73,11 @@ objects are built + cached under `.build/rt/` and auto-linked (delete
   `./.venv/bin/python tools/blade_bootstrap.py` or
   `make blade-bootstrap` runs the self-hosting loop (stage0→stage2).
 - IR determinism: `make irdet` samples 40 examples — cheap enough per
-  commit. **A brief's FINAL gate battery runs `make irdet-all`** (the
-  whole corpus; design 146 unit D). A random sample cannot police a
+  commit. **A brief's FINAL gate battery runs `irdet --all`** (the
+  whole corpus; design 146 unit D) — via the VENV interpreter
+  (`./.venv/bin/python tools/irdet.py --all`), since the Makefile's bare
+  `python3` cannot compile anything and every file counts as skipped.
+  A random sample cannot police a
   whole-corpus property: design 141 found two nondeterministic emission
   orders that had sat in the tree unnoticed until two unrelated new
   examples reshuffled the sample onto one of them.
