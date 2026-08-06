@@ -49,6 +49,11 @@ print("{#file}:{#line} - msg")  // #file/#line/#function: definition-site consts
   is range-checked at the literal (`let b: UInt8 = 256` is a clean
   error). With no fixed-width expectation it stays platform `Int`
   (`let x = 5`); in a mixed binop it takes the other operand's width.
+- A FLOAT literal needs a digit on each side of the point (design 161):
+  `1.5` yes, `7.` no (a parse error naming `7.0`). A `.` that no digit
+  follows ends the number, so `7.to_string()` is a method call on the
+  literal `7` and `1..=9` is a range. No exponent form exists — `7e5` is
+  `7` followed by the identifier `e5`.
 - Escapes: exactly `\\ \" \n \t \r \0 \u{1F600}` + `\{ \}` (brace forms);
   `\0` is an interior NUL that `len()` counts. Any other escape is a lex
   error (no silent drop). Strings are immutable UTF-8, refcounted.
@@ -306,6 +311,11 @@ var scratch: [Int8; 256] = [0; 256] // REPEAT literal: N copies of one value
   snapshots (Copy elements); `v.iter()`, `v.enumerated()` (for-in),
   `each`/`map<U>`/`fold<A>` closures; Set algebra:
   union/intersection/difference/is_subset (elements `T: Copy`).
+- A tuple index is a bare integer that never eats a following `.`, so a
+  projection continues past it (design 161): `t.0.name`, `t.0.name.len()`,
+  `pair.0.x`, and `t.0.1` as two index hops (not the float `0.1`). Works
+  inside interpolation too (`"{t.0.name}"`). The old `(t.0).name`
+  workaround is unnecessary now.
 - Duplicate literal keys: last wins. Tuples: `(1, "a")`, `.0`/`[0]`;
   named tuples `(x: 3, y: 4)` with `.x`; destructuring
   `let (a, _) = pair` (irrefutable only in let).

@@ -1451,21 +1451,35 @@ first try.
   the compiler retains for you (String, escaping closure, arrays of those,
   another composite already on the tier) are exempt.
 
-- **DF-159a — FILED, NOT FIXED (out of scope; a lexer fix with two-lexer
-  parity work behind it).** A tuple index followed by a field is a LEX error:
-  ```saw
-  let t = (a, a)
-  let n = t.0.name    // Parse error: Expected field name or tuple index
-                      // after '.', got FLOAT
-  ```
-  The lexer reads `0.name`'s `0.` as the start of a float literal, so the chain
-  never reaches the parser. Not interpolation-specific — it fails identically
-  in plain expression position. `t.0` alone is fine, `(t.0).name` is fine (and
-  is the workaround `examples/df151b_implicit_tier_transfers.saw` uses), and
-  `"{pair.0}"` inside interpolation is fine. Fixing it means teaching the
-  number scanner not to consume `.` when the previous token is a `.`-projection,
-  in BOTH lexers (sawc's and the self-hosted one) with lexdiff parity — hence
-  its own unit rather than a drive-by here.
+- **DF-159a — CLOSED by design 161 (Aug 6).** `t.0.name` was a lex error: the
+  number scanner, started on a tuple index after a member-access dot, ate the
+  second `.` as a float. Fixed in both lexers; the `(t.0).name` workaround this
+  file used is gone. See the design 161 entry below.
+
+## Design 161 — the tuple-index and number-scanner lex rules (LANDED, Aug 6)
+
+`designs/161-tuple-index-member-lex.md` closed, including its user-approved
+addendum. Two rules on one scanner, in `sawc/lexer.py` and the Saw port
+`selfhost/lexer/src/lib.saw` in the same commit:
+
+- **LOOKBACK.** A numeric literal whose immediately-preceding emitted token is
+  a member-access `.` is a TUPLE INDEX — a bare decimal integer, no second `.`,
+  no base prefix, no width suffix. `t.0.name` lexes, and `t.0.1` is two index
+  hops rather than the float `0.1`. One-token lookback is the whole mechanism:
+  the Python lexer reads `self.tokens[-1]`, the Saw one reads the last element
+  of its token vector, and both pass a `tuple_index` flag into `read_number`.
+- **LOOKAHEAD** (the addendum). A `.` continues a float only when a DIGIT
+  follows it, so the trailing-dot float is gone and `7.to_string()` works. It
+  had failed with "undefined function to_string" because `7.` swallowed the
+  member dot.
+
+Nothing in the corpus moved: a probe over all 1460 tracked `.saw` files found
+zero trailing-dot floats and zero FLOATs after a DOT, so both sweeps of lexdiff
+stayed byte-identical apart from the new tests. The one parser change is a
+diagnostic — a trailing-dot `7.` now says ``a float literal needs a digit after
+the point (write `7.0`)`` instead of "got NEWLINE". Design 116's
+`selfhost/lexer/tests/ranges.saw` asserted the old `7.` float-prefix behavior
+and was updated; that part of the 116 brief is superseded.
 
 ## Design 160 — remote test worker (LANDED, Aug 6)
 

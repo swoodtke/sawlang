@@ -38,6 +38,53 @@ literals inside interpolation all lex exactly as before.
    unaffected (control examples), and — per DF-159a's origin — a
    named-tuple field after an index (`pair.0.x`).
 
+## Addendum — the trailing-dot float (scope addition, user-approved Aug 6)
+
+Probed and confirmed broken alongside DF-159a: `7.to_string()` fails with
+"undefined function to_string", because the scanner accepted a
+TRAILING-DOT float. `7.` lexed as a float with no digits after the point
+and swallowed the member-access dot.
+
+**The companion rule — LOOKAHEAD, the mirror of the lookback above.** A
+`.` encountered while scanning a number continues the float only if the
+next character is a DIGIT. Dot-then-anything-else ends the number and
+the dot is lexed on its own: a member access (`7.to_string()`), a range
+(`1..=9`), or a trailing dot. Same scanner, both lexers, same commit.
+
+Decisions and findings from the implementation:
+
+- **The corpus is clean, so the trailing-dot error is pinned.** A probe
+  over all 1460 tracked `.saw` files found ZERO trailing-dot floats,
+  zero FLOATs after a DOT, and zero suffixed integers after a DOT —
+  nothing in the tree relied on either old behavior.
+- **`7.` is now a parse error that names the spelling.** It arrives at
+  the parser as INT + DOT, where the postfix `.` branch reported a bare
+  "got NEWLINE". With an `IntLiteral` receiver it now reads
+  ``Expected field name or tuple index after '.', got NEWLINE — a float
+  literal needs a digit after the point (write `7.0`)``. That is the
+  only parser change in the brief; `examples/errors/trailing_dot_float.saw`
+  pins it.
+- **No exponent grammar exists**, so there is no interaction to decide:
+  `e` was never scanned as part of a number, and `7e5` is the integer
+  `7` followed by the identifier `e5` before and after. `7.e5` follows
+  the identifier rule (member access on `7`).
+- **The parser already accepted postfix calls on literal primaries** —
+  `7.to_string()`, `7.to_string().len()` and `7.5.to_string()` all work
+  with the tokens fixed. No parser unit was needed.
+- **Design 116's parity test asserted the old behavior** and was
+  updated: `selfhost/lexer/tests/ranges.saw` pinned `7.foo` as
+  FLOAT `7.` + IDENT, and now pins INT + DOT + IDENT. The "`7.`
+  float-prefix behavior" named in the 116 brief is superseded here.
+- **The lookback rule reads the previous EMITTED token**, so whitespace
+  between the dot and the digits does not matter (`t. 0` is still an
+  index). One consequence worth knowing when writing lexer tests: in a
+  spliced stream like `"7. 7.5"`, the second number follows a DOT token
+  and is therefore an index, not a float.
+
+Tests added for the addendum: `7.to_string()`, `7.5.to_string()`, the
+chained `7.to_string().len()`, a suffixed `255u8.to_string()`, the
+trailing-dot error case, and the `7e5` control.
+
 ## Gates
 
 Full battery via ./.venv/bin/python: test_runner.py (zero xfails),

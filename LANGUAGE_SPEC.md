@@ -598,6 +598,14 @@ division libcalls (`__divdi3`) on a 32-bit chip. Consequently:
   different fixed-width type (`let x: Int8 = 5u16` is an error); a plain
   (unsuffixed) literal still coerces to any integer type. Float literals take no
   suffix.
+- **A float literal needs a digit on each side of the point** (design 161).
+  `1.5` and `0.5` are floats; `7.` is not one. A `.` that no digit follows ends
+  the number, which is what makes `7.to_string()` a method call on `7` and
+  `1..=9` a range. A trailing-dot `7.` is a parse error naming the spelling
+  `7.0`. The grammar has no exponent form, so `7e5` is the integer `7` followed
+  by the identifier `e5`. Digits immediately after a member-access `.` are a
+  tuple index rather than the start of a number, so they take neither a decimal
+  point nor a suffix (see Composite Types).
 - **A bare (unsuffixed) integer literal adopts a fixed-width EXPECTED type
   wherever one is in force, and is range-checked *at the literal*** (design 87).
   This is uniform across every position a value flows into — `let`/`var` with a
@@ -808,6 +816,13 @@ fixed, so the output is diffable.
 // Tuples (positional — implemented). Access fields by index with `.N`.
 let point: (Int, Int) = (10, 20)
 let x = point.0
+
+// A tuple index is a bare integer and never consumes a following `.` (design
+// 161), so a projection continues past one.
+let pairs: ((x: Int, y: Int), Int) = ((x: 1, y: 2), 3)
+let px = pairs.0.x                  // 1 — a named field of element 0
+let nested = ((1, 2), 3)
+let second = nested.0.1             // 2 — two index hops, not the float 0.1
 
 // Tuple destructuring (design 63 — implemented). Irrefutable only: bindings,
 // per-position `_` discard, and nested tuples. The whole source is consumed
