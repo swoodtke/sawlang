@@ -6060,6 +6060,24 @@ class ExpressionsMixin:
                                 expr, struct_name, struct_info, so)
                         return self._check_static_method_call(expr, struct_name, struct_info, method_info)
         if isinstance(expr.object, Identifier) and self.get_enum_info(expr.object.name):
+            # Design 145: a STATIC method on the enum gets first refusal —
+            # otherwise `SysError.from(raw: b)` is read as a variant named
+            # `from` and reported as "enum has no variant". A case always wins a
+            # name clash: cases are the enum's own vocabulary, and a static
+            # method is the newcomer.
+            enum_info = self.get_enum_info(expr.object.name)
+            if (expr.method_name not in enum_info.variants
+                    and expr.method_name in enum_info.methods):
+                static_info = enum_info.methods[expr.method_name]
+                if static_info.is_static:
+                    enum_name = expr.object.name
+                    so = self.namespace.lookup_method_overloads(
+                        enum_name, expr.method_name)
+                    if len(so) > 1:
+                        return self._check_overloaded_static_method_call(
+                            expr, enum_name, enum_info, so)
+                    return self._check_static_method_call(
+                        expr, enum_name, enum_info, static_info)
             enum_init = EnumInit(
                 enum_name=expr.object.name,
                 variant_name=expr.method_name,
@@ -6153,6 +6171,20 @@ class ExpressionsMixin:
         elif obj_type.kind == TypeKind.STRUCT:
             struct_name = obj_type.struct_name
             struct_info = self.get_struct_info(struct_name, from_type=obj_type)
+            if struct_info is None and self.get_enum_info(struct_name) is not None:
+                # A bare type name parses STRUCT-kinded; a reference parameter
+                # (`l: &Level`) can reach here still carrying that kind for what
+                # is really an enum. Codegen re-tags the same way (design 61).
+                # Without this the receiver resolves to nothing and the call
+                # types as None with no diagnostic at all.
+                struct_info = self.get_enum_info(struct_name)
+        elif obj_type.kind == TypeKind.ENUM:
+            # Design 145: enums carry methods on the same terms as structs, and
+            # `EnumSymbol` carries the same method tables, so everything below
+            # (lookup, the design-80 gate, the design-55 overload resolver, the
+            # design-142 ambiguity check) works against it unchanged.
+            struct_name = obj_type.enum_name
+            struct_info = self.get_enum_info(struct_name)
         else:
             self._error(
                 ErrorKind.TYPE_MISMATCH,

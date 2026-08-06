@@ -1,0 +1,23 @@
+//! Design 145 fixture: the module the entry imports DIRECTLY. It imports
+//! `enum145_far`, which is therefore only a transitive dependency of the entry.
+// EXPECT: skip
+
+import modules.enum145_base.{Level}
+import modules.enum145_far
+
+public extension Level {
+    public func label(&self) -> String {
+        match self {
+            case Low -> "low water",
+            case High -> "high water"
+        }
+    }
+}
+
+public func top() -> Level {
+    Level.High
+}
+
+public func shout_here(l: &Level) -> String {
+    l.shout()
+}

@@ -1,0 +1,26 @@
+//! Design 145 fixture: the module that OWNS the enum `Level`. Its own extension
+//! is the type's inherent API — in scope for anyone holding a `Level`, imported
+//! or not — and the orphan rule's first permitted home for a conformance.
+// EXPECT: skip
+
+public enum Level {
+    case Low,
+    case High
+}
+
+public extension Level {
+    public func rank(&self) -> Int {
+        match self {
+            case Low -> 1,
+            case High -> 9
+        }
+    }
+}
+
+public extension Level: Printable {
+    public func format(&self, into: &var StringBuilder) {
+        into.append("Level(")
+        into.append(self.rank())
+        into.append(")")
+    }
+}

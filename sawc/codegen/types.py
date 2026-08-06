@@ -243,11 +243,14 @@ class TypesMixin:
             if self.self_type_context is None:
                 raise ValueError("Self type used outside of extension context")
             # Special handling for primitive type extensions
-            if self.self_type_context == "String":
-                return ir.IntType(8).as_pointer()  # String is i8*
-            if self.self_type_context not in self.struct_types:
+            if (self.self_type_context not in self.struct_types
+                    and self.self_type_context not in self.enum_types
+                    and self._primitive_self_llvm_type(
+                        self.self_type_context) is None):
                 raise ValueError(f"Self type refers to undefined struct: {self.self_type_context}")
-            return self.struct_types[self.self_type_context][0]
+            # Design 145: `-> Self` in an ENUM extension resolves to the enum's
+            # own LLVM type, alongside the primitive and struct receivers.
+            return self._ext_self_types(self.self_type_context)[0]
         else:
             raise ValueError(f"Unknown type: {saw_type}")
 

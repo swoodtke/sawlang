@@ -11,7 +11,7 @@ Usage:
 
 from llvmlite import ir
 from ast_nodes import (
-    MatchExpr, Block, Identifier, TypeKind,
+    MatchExpr, Block, Identifier, TypeKind, SelfExpr,
     IntLiteral, BoolLiteral, StringLiteral, UnaryOp,
     WildcardPattern, BindingPattern, LiteralPattern,
     RangePattern, TuplePattern, EnumPattern,
@@ -66,6 +66,16 @@ class MatchMixin:
             enum_name = mangle_named(matched_enum_type.enum_name, matched_enum_type.type_args)
         else:
             enum_name = None
+        # Design 145: `match self` inside a monomorphized method of a GENERIC
+        # enum. The typechecker stamps the argument-free base (`Maybe`), which
+        # is not a registered name — but the enclosing extension context already
+        # names the concrete instantiation (`Maybe$1$Int`). Consult it before
+        # the LLVM-type scan below, which would otherwise match any same-shaped
+        # enum (every payload-free enum is a bare `i32`) and pick a wrong one.
+        if ((enum_name is None or enum_name not in self.enum_types)
+                and isinstance(expr.matched_expr, SelfExpr)
+                and self.self_type_context in self.enum_types):
+            enum_name = self.self_type_context
         # Fallback: find the enum name by matching LLVM types (also covers a
         # substitution that did not land on a registered name).
         if enum_name is None or enum_name not in self.enum_types:

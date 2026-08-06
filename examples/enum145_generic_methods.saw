@@ -1,0 +1,51 @@
+// Design 145 unit B: methods on a GENERIC enum monomorphize per instantiation,
+// exactly as a generic struct's do (design 74 shapes). Two instantiations of
+// one method, each reading its own payload type.
+//
+// `match self` inside such a method is the shape that needs the concrete
+// receiver: the typechecker stamps the argument-free base `Maybe`, so codegen
+// names the monomorphization (`Maybe$1$Int`) from the extension context. The
+// String instantiation proves the two do not share variant tables.
+// EXPECT: success
+// EXPECT-OUTPUT: 7
+// EXPECT-OUTPUT: 42
+// EXPECT-OUTPUT: hi
+// EXPECT-OUTPUT: none
+// EXPECT-OUTPUT: true
+// EXPECT-OUTPUT: false
+
+enum Maybe<T> {
+    case Nothing,
+    case Just(v: T)
+}
+
+extension Maybe<T> {
+    func or_else(&self, fallback: T) -> T {
+        match self {
+            case Just(v) -> v,
+            case Nothing -> fallback
+        }
+    }
+
+    func has_value(&self) -> Bool {
+        match self {
+            case Just(_) -> true,
+            case Nothing -> false
+        }
+    }
+}
+
+func main() {
+    let a: Maybe<Int> = Maybe<Int>.Just(v: 7)
+    let b: Maybe<Int> = Maybe<Int>.Nothing
+    print(a.or_else(0))
+    print(b.or_else(42))
+
+    let s: Maybe<String> = Maybe<String>.Just(v: "hi")
+    let t: Maybe<String> = Maybe<String>.Nothing
+    print(s.or_else("none"))
+    print(t.or_else("none"))
+
+    print(a.has_value())
+    print(t.has_value())
+}

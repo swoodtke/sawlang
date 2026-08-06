@@ -1,0 +1,45 @@
+// Design 145 unit B: design 131's rule holds on enums. A hand-written `deinit`
+// lives INSIDE the copy-policy conformance (`Deinit` is not declarable), its
+// body runs first, and the synthesized payload drop is appended. The brief
+// asked for this to be verified or recorded as a gap — it works, and it only
+// works because a policy conformance on an enum may now carry methods.
+// EXPECT: success
+// EXPECT-OUTPUT: loaded
+// EXPECT-OUTPUT: empty
+// EXPECT-OUTPUT: end of main
+// EXPECT-OUTPUT: reel dropped
+// EXPECT-OUTPUT: reel dropped
+
+struct Tape {
+    id: Int
+}
+
+extension Tape: NoCopy {}
+
+enum Reel {
+    case Loaded(t: Tape),
+    case Empty
+}
+
+extension Reel: NoCopy {
+    func deinit(&var self) {
+        print("reel dropped")
+    }
+}
+
+extension Reel {
+    func label(&self) -> String {
+        match self {
+            case Loaded(t) -> "loaded",
+            case Empty -> "empty"
+        }
+    }
+}
+
+func main() {
+    let r = Reel.Loaded(t: Tape(id: 1))
+    print(r.label())
+    let e = Reel.Empty
+    print(e.label())
+    print("end of main")
+}

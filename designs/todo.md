@@ -936,6 +936,61 @@ noted live-range packing of locals; do both in one sizing brief.
   in one program, with `std.net` imported and exercised). The design-142
   collision tests are unchanged.
 
+- **DF-140i — FIXED here (unit B). Originally filed on the parked SOS M1
+  branch's tracker; refiled in main's tracker as found-and-fixed, same as
+  DF-140f/DF-140h.** USER enums could not carry methods. `extension SysError {
+  func describe(&self) -> String }` was rejected with "cannot extend enum
+  `SysError`: only an empty `extension SysError:
+  Equatable|Comparable|Hashable|NoCopy|ImplicitCopy|ExplicitCopy {}` is
+  supported", so an enum could not conform to `Error`/`Printable` with a
+  hand-written body. Every error type in the tree became a struct to compensate
+  — the language steering authors off the better-fitting type.
+
+  Fix: an extension on an enum IS an extension on a struct. `EnumSymbol` grew
+  the same method tables as `StructSymbol` (`methods`, `method_overloads`,
+  `conformances`, `specialized_methods`), so every lookup, overload resolver and
+  visibility gate written against a struct symbol works against an enum symbol
+  unchanged; `_register_extension` routes an enum through the ordinary
+  registration path, keeping the EMPTY derivable/copy-policy opt-ins on their
+  own inline-synthesis path (designs 32/48/139, which mint no method symbol).
+  Codegen names an enum receiver from the typechecker-stamped SawType, exactly
+  as design 57 does for `Int` — a payload-free enum's LLVM type is a bare `i32`,
+  indistinguishable from `Int32`, so the struct_types scan could never do it.
+
+  Landed: instance methods (`&self`/`&var self`, `match self`, `self = Case`
+  whole replacement per design 110), static methods, hand-written trait bodies
+  (Printable + Error + `@synthesize`d Equatable coexisting on one type), generic
+  enum methods monomorphized per instantiation, and design 142's import scoping
+  + orphan rule applying unchanged. `init` in an enum extension is a teaching
+  error ("an enum's cases are its constructors") naming a static method as the
+  way to compute which case to build.
+
+  The brief's verify-or-record item is CLOSED, not recorded: a hand-written
+  `deinit` inside an enum's copy-policy conformance (design 131's rule) works,
+  and works only because a policy conformance on an enum may now carry methods
+  (`examples/enum145_policy_deinit.saw`).
+
+  Two second-order bugs found and fixed on the way, both pre-existing shapes
+  that only an enum receiver could reach:
+  - A method call on a `&Enum` REFERENCE parameter typed as `None` with NO
+    diagnostic at all. A bare type name parses STRUCT-kinded, and a reference
+    parameter can reach method resolution still carrying that tag for what is
+    really an enum; `get_struct_info` missed, and the call silently produced no
+    type ("function `shout_here` should return `String` but body has no value").
+    Both the typechecker and codegen now re-tag, matching design 61's
+    `_canonicalize_type_kind`.
+  - `match` on a generic enum inside a monomorphized method fell through to a
+    fallback that scans for an enum with a MATCHING LLVM TYPE. Every payload-free
+    enum is a bare `i32`, so that scan can silently pick a wrong enum and read
+    its variant tags. The extension context now names the concrete
+    instantiation first (`self_type_context`, which the monomorphized-body path
+    was never setting).
+
+  Tests: `examples/enum145_methods.saw`, `enum145_traits.saw`,
+  `enum145_generic_methods.saw`, `enum145_policy_deinit.saw`,
+  `enum145_init_rejected.saw`, `enum145_import_scope.saw`,
+  `enum145_import_scope_error.saw` (+ three module fixtures).
+
 - **DF-140h-fn — OPEN, stopped deliberately (unit A, design 145). Wants its own
   brief.** The same reservation exists for private std FREE FUNCTIONS, and the
   fix is a materially bigger change than the statics half. Repro:

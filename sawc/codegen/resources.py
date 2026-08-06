@@ -66,6 +66,26 @@ class ResourcesMixin:
             return ir.DoubleType()
         return None
 
+    def _ext_self_types(self, type_name: str):
+        """The `(llvm_type, saw_type)` pair for `self` in `extension <type_name>`.
+
+        One place that knows all three receiver shapes: a primitive
+        pseudo-struct (design 57), an ENUM (design 145 — its LLVM type is a bare
+        `i32` tag when payload-free, or `{i32, [N x i8]}` with payloads), and an
+        ordinary struct. Getting the SawType KIND right matters as much as the
+        LLVM type: a STRUCT-kinded `self` on an enum has no variants, so every
+        `match self` in the body would fail to resolve its cases."""
+        prim = self._primitive_self_llvm_type(type_name)
+        if prim is not None:
+            kind = {"String": TypeKind.STRING, "Int": TypeKind.INT,
+                    "Float": TypeKind.FLOAT}[type_name]
+            return prim, SawType(kind)
+        if type_name in self.enum_types:
+            return (self.enum_types[type_name][0],
+                    SawType(TypeKind.ENUM, enum_name=type_name))
+        return (self.struct_types[type_name][0],
+                SawType(TypeKind.STRUCT, struct_name=type_name))
+
     def _type_method_base(self, saw_type: SawType) -> Optional[str]:
         """Base symbol for a type's compiler-invoked methods (deinit / copy).
 

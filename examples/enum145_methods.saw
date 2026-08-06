@@ -1,0 +1,67 @@
+// Design 145 unit B: an extension on an enum is an extension on a struct.
+// Instance methods with `&self` and `&var self`, `match self` as the natural
+// idiom, static methods, and whole-`self` replacement (design 110).
+//
+// Before this, `extension SysError { func describe(&self) -> String }` was
+// rejected outright, so an enum could not carry behaviour and every error type
+// in the tree became a struct to compensate.
+// EXPECT: success
+// EXPECT-OUTPUT: bad handle
+// EXPECT-OUTPUT: true
+// EXPECT-OUTPUT: ok
+// EXPECT-OUTPUT: false
+// EXPECT-OUTPUT: other
+// EXPECT-OUTPUT: ok
+// EXPECT-OUTPUT: 3
+
+enum SysError {
+    case Ok,
+    case BadHandle,
+    case Other
+}
+
+extension SysError {
+    func describe(&self) -> String {
+        match self {
+            case Ok -> "ok",
+            case BadHandle -> "bad handle",
+            case Other -> "other"
+        }
+    }
+
+    func is_failure(&self) -> Bool {
+        match self {
+            case Ok -> false,
+            case _ -> true
+        }
+    }
+
+    // `&var self` whole-referent replacement (design 110)
+    func degrade(&var self) {
+        self = SysError.Other
+    }
+
+    // A static method: no `self` parameter.
+    func best() -> SysError {
+        SysError.Ok
+    }
+
+    func count() -> Int {
+        3
+    }
+}
+
+func main() {
+    var e = SysError.BadHandle
+    print(e.describe())
+    print(e.is_failure())
+
+    print(SysError.Ok.describe())
+    print(SysError.Ok.is_failure())
+
+    e.degrade()
+    print(e.describe())
+
+    print(SysError.best().describe())
+    print(SysError.count())
+}

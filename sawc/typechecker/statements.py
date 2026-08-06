@@ -165,17 +165,23 @@ class StatementsMixin:
         # Create new scope for method
         self.current_scope = Scope()
 
-        # Determine the Self type for this extension
+        # Determine the Self type for this extension. Design 145: an enum
+        # receiver must be ENUM-kinded here or `match self` inside the body sees
+        # a struct with no variants.
         _prim_self = self._primitive_ext_self_type(struct_name)
         if _prim_self is not None:
             self_type = _prim_self
         else:
             # For specialized extensions, include the type args in self_type
-            if type_subst:
-                type_args = list(type_subst.values())
-                self_type = SawType(TypeKind.STRUCT, struct_name=struct_name, type_args=type_args)
+            type_args = list(type_subst.values()) if type_subst else None
+            if (self.namespace.has_enum(struct_name)
+                    and not self.namespace.has_struct(struct_name)):
+                # `_ext_self_type` fills a generic enum's own type params when
+                # the extension is not specialized (design 145).
+                self_type = self._ext_self_type(struct_name, type_args)
             else:
-                self_type = SawType(TypeKind.STRUCT, struct_name=struct_name)
+                self_type = SawType(TypeKind.STRUCT, struct_name=struct_name,
+                                    type_args=type_args)
 
         # Add parameters to scope
         for param in method.parameters:

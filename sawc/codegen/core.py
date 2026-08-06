@@ -2157,9 +2157,7 @@ class CodeGenerator(ResultsMixin, MatchMixin, StructsMixin, CollectionsMixin, Ca
             else:
                 # Regular instance methods include self as first parameter
                 # Determine the Self type for this extension
-                self_llvm_type = self._primitive_self_llvm_type(extension.struct_name)
-                if self_llvm_type is None:
-                    self_llvm_type = self.struct_types[extension.struct_name][0]
+                self_llvm_type, _ = self._ext_self_types(extension.struct_name)
 
                 param_types = []
                 for i, p in enumerate(method.parameters):

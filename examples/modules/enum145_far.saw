@@ -1,0 +1,14 @@
+//! Design 145 fixture: extends the foreign enum `Level` with `shout`. Reached
+//! only TRANSITIVELY by the entry, so its extension must stay out of scope there.
+// EXPECT: skip
+
+import modules.enum145_base.{Level}
+
+public extension Level {
+    public func shout(&self) -> String {
+        match self {
+            case Low -> "low",
+            case High -> "HIGH"
+        }
+    }
+}

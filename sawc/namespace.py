@@ -111,7 +111,15 @@ class StructSymbol:
 
 @dataclass
 class EnumSymbol:
-    """Symbol for an enum type."""
+    """Symbol for an enum type.
+
+    Design 145: an enum carries METHODS on exactly the same terms as a struct —
+    the method tables below mirror `StructSymbol`'s field for field, so every
+    lookup, overload resolver and visibility gate written against a struct
+    symbol works unchanged with an enum symbol. Enums had none of this, which is
+    why `extension SysError { func describe(&self) ... }` was rejected and every
+    error type in the tree became a struct to compensate.
+    """
     kind: SymbolKind = SymbolKind.ENUM
     variants: Dict[str, List[Tuple[str, SawType]]] = field(default_factory=dict)
     variant_order: List[str] = field(default_factory=list)
@@ -122,6 +130,23 @@ class EnumSymbol:
     # see FunctionSymbol.def_module for the std-synthetic-id rationale.
     def_module: Tuple[str, ...] = ()
     ast_node: Optional[SawEnum] = None
+    # --- method surface, mirroring StructSymbol (design 145) ---
+    methods: Dict[str, FunctionSymbol] = field(default_factory=dict)
+    method_overloads: Dict[str, List[FunctionSymbol]] = field(default_factory=dict)
+    # Enums have no `init` — the cases ARE the constructors (design 145 unit B),
+    # so this stays empty and exists only to keep the struct-shaped code paths
+    # uniform. `_register_extension` rejects an `init` with a teaching error.
+    init_methods: List[FunctionSymbol] = field(default_factory=list)
+    conformances: List[str] = field(default_factory=list)
+    specialized_methods: Dict[Tuple[str, ...], Dict[str, FunctionSymbol]] = field(default_factory=dict)
+    line: int = 0
+    column: int = 0
+    # Raw integer backing (design 145 unit B2): the declared backing type of a
+    # payload-free enum (`enum E: UInt8 { ... }`), or None. When set, every case
+    # carries an explicit value in `raw_values` and the enum is `as`-castable to
+    # the backing with a synthesized `E.from(raw:)` inverse.
+    raw_type: Optional[SawType] = None
+    raw_values: Dict[str, int] = field(default_factory=dict)
 
 
 @dataclass
@@ -615,23 +640,33 @@ class Namespace:
             visibility=visibility
         )
 
+    def method_owner(self, type_name: str):
+        """The symbol that carries methods for `type_name` — a struct or, since
+        design 145, an enum. Enums grew the same method tables, so every caller
+        below is written once against whichever owns the name."""
+        owner = self.structs.get(type_name)
+        if owner is not None:
+            return owner
+        return self.enums.get(type_name)
+
     def register_method(self, struct_name: str, method_name: str, symbol: FunctionSymbol):
-        """Register a method on a struct (design 55: appends to the overload set).
+        """Register a method on a struct or enum (design 55: appends to the
+        overload set).
 
         The first registration under a name is the representative in `methods`;
         later overloads only extend `method_overloads`.
         """
-        if struct_name in self.structs:
-            s = self.structs[struct_name]
+        s = self.method_owner(struct_name)
+        if s is not None:
             s.method_overloads.setdefault(method_name, []).append(symbol)
             if method_name not in s.methods:
                 s.methods[method_name] = symbol
 
     def lookup_method_overloads(self, struct_name: str, method_name: str) -> List[FunctionSymbol]:
         """All overloads of `method_name` on `struct_name` (design 55)."""
-        struct = self.structs.get(struct_name)
-        if struct:
-            return struct.method_overloads.get(method_name, [])
+        owner = self.method_owner(struct_name)
+        if owner:
+            return owner.method_overloads.get(method_name, [])
         return []
 
     def register_init_method(self, struct_name: str, symbol: FunctionSymbol):
@@ -641,19 +676,20 @@ class Namespace:
 
     def register_specialized_method(self, struct_name: str, spec_key: Tuple[str, ...],
                                      method_name: str, method: FunctionSymbol):
-        """Register a specialized method for a generic struct instantiation.
+        """Register a specialized method for a generic struct or enum
+        instantiation.
 
         Args:
-            struct_name: The base struct name (e.g., "Vector")
+            struct_name: The base type name (e.g., "Vector")
             spec_key: Tuple of type argument strings (e.g., ("String",))
             method_name: The method name
             method: The FunctionSymbol for the method
         """
-        struct_sym = self.structs.get(struct_name)
-        if struct_sym:
-            if spec_key not in struct_sym.specialized_methods:
-                struct_sym.specialized_methods[spec_key] = {}
-            struct_sym.specialized_methods[spec_key][method_name] = method
+        owner = self.method_owner(struct_name)
+        if owner:
+            if spec_key not in owner.specialized_methods:
+                owner.specialized_methods[spec_key] = {}
+            owner.specialized_methods[spec_key][method_name] = method
 
     def register_conformance(self, type_name: str, trait_name: str,
                             type_assignments: Optional[Dict[str, SawType]] = None):
@@ -662,10 +698,12 @@ class Namespace:
             self.conformances[type_name] = {}
         self.conformances[type_name][trait_name] = type_assignments or {}
 
-        # Also add to struct's conformance list
-        if type_name in self.structs:
-            if trait_name not in self.structs[type_name].conformances:
-                self.structs[type_name].conformances.append(trait_name)
+        # Also add to the type's own conformance list (struct or, since design
+        # 145, enum — both carry one).
+        owner = self.method_owner(type_name)
+        if owner is not None:
+            if trait_name not in owner.conformances:
+                owner.conformances.append(trait_name)
 
     # =========================================================================
     # Lookup Methods
@@ -692,10 +730,10 @@ class Namespace:
         return self.type_aliases.get(name)
 
     def lookup_method(self, struct_name: str, method_name: str) -> Optional[FunctionSymbol]:
-        """Look up a method on a struct."""
-        struct = self.structs.get(struct_name)
-        if struct:
-            return struct.methods.get(method_name)
+        """Look up a method on a struct or enum (design 145)."""
+        owner = self.method_owner(struct_name)
+        if owner:
+            return owner.methods.get(method_name)
         return None
 
     def lookup_specialized_method(self, struct_name: str, spec_key: Tuple[str, ...],
@@ -710,9 +748,9 @@ class Namespace:
         Returns:
             The FunctionSymbol if found, None otherwise
         """
-        struct = self.structs.get(struct_name)
-        if struct and spec_key in struct.specialized_methods:
-            return struct.specialized_methods[spec_key].get(method_name)
+        owner = self.method_owner(struct_name)
+        if owner and spec_key in owner.specialized_methods:
+            return owner.specialized_methods[spec_key].get(method_name)
         return None
 
     def lookup_type(self, name: str) -> Optional[SawType]:

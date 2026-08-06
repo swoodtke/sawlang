@@ -1,0 +1,69 @@
+// Design 145 unit B: hand-written trait bodies on an enum. `Printable` (printed
+// and interpolated), `Error` through a `Result` and `try!`, and a `@synthesize`d
+// `Equatable` coexisting with hand-written methods on the same type.
+//
+// This is what "errors are structs because enums can't hold methods" cost: an
+// enum is the better-fitting type for a closed set of failures, and until now
+// the language steered authors away from it.
+// EXPECT: success
+// EXPECT-OUTPUT: SysError(bad handle)
+// EXPECT-OUTPUT: as text: SysError(ok)
+// EXPECT-OUTPUT: 5
+// EXPECT-OUTPUT: failed: SysError(bad handle)
+// EXPECT-OUTPUT: true
+// EXPECT-OUTPUT: false
+// EXPECT-OUTPUT: recovered 0
+
+enum SysError {
+    case Ok,
+    case BadHandle,
+    case Other
+}
+
+extension SysError {
+    func describe(&self) -> String {
+        match self {
+            case Ok -> "ok",
+            case BadHandle -> "bad handle",
+            case Other -> "other"
+        }
+    }
+}
+
+extension SysError: Printable {
+    func format(&self, into: &var StringBuilder) {
+        into.append("SysError(")
+        into.append(self.describe())
+        into.append(")")
+    }
+}
+
+extension SysError: Error {}
+
+@synthesize
+extension SysError: Equatable {}
+
+func might_fail(bad: Bool) -> Result<Int, SysError> {
+    if bad {
+        return SysError.BadHandle
+    }
+    return 5
+}
+
+func main() {
+    print(SysError.BadHandle)
+    print("as text: {SysError.Ok}")
+
+    print(try! might_fail(bad: false))
+    match might_fail(bad: true) {
+        case Ok(v) -> print(v),
+        case Err(err) -> print("failed: {err}")
+    }
+
+    // The derived `equals` and the hand-written methods live on one type.
+    print(SysError.Ok == SysError.Ok)
+    print(SysError.Ok == SysError.Other)
+
+    let recovered = try might_fail(bad: true) catch { 0 }
+    print("recovered {recovered}")
+}

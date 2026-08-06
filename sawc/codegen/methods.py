@@ -82,14 +82,7 @@ class MethodsMixin:
         self.moved_variables = set()
 
         # Determine the Self type for this extension
-        self_llvm_type = self._primitive_self_llvm_type(struct_name)
-        if self_llvm_type is not None:
-            _prim_saw_kind = {"String": TypeKind.STRING, "Int": TypeKind.INT,
-                              "Float": TypeKind.FLOAT}[struct_name]
-            self_saw_type = SawType(_prim_saw_kind)
-        else:
-            self_llvm_type = self.struct_types[struct_name][0]
-            self_saw_type = SawType(TypeKind.STRUCT, struct_name=struct_name)
+        self_llvm_type, self_saw_type = self._ext_self_types(struct_name)
 
         # Create allocas for parameters (including self)
         for i, param in enumerate(method.parameters):

@@ -971,6 +971,77 @@ match msg1 {
 }
 ```
 
+#### Methods on enums
+
+An enum carries methods on the same terms as a struct: write an `extension`.
+`match self` is the idiomatic body, and `&var self` replaces the whole value.
+
+```saw
+enum SysError {
+    case Ok,
+    case BadHandle,
+    case Other
+}
+
+extension SysError {
+    func describe(&self) -> String {
+        match self {
+            case Ok -> "ok",
+            case BadHandle -> "bad handle",
+            case Other -> "other"
+        }
+    }
+
+    func degrade(&var self) {
+        self = SysError.Other      // whole-value replacement
+    }
+
+    func best() -> SysError {      // static: no `self` parameter
+        SysError.Ok
+    }
+}
+```
+
+Trait conformances take hand-written bodies, so an enum is a normal choice for
+an error type:
+
+```saw
+extension SysError: Printable {
+    func format(&self, into: &var StringBuilder) {
+        into.append("SysError(")
+        into.append(self.describe())
+        into.append(")")
+    }
+}
+
+extension SysError: Error {}
+
+func might_fail(bad: Bool) -> Result<Int, SysError> {
+    if bad {
+        return SysError.BadHandle
+    }
+    return 5
+}
+```
+
+The rules that govern struct extensions govern these unchanged: import-scoped
+method lookup, the orphan rule for conformances, `@synthesize` for a derived
+`equals`/`compare`/`hash`/`copy`, and a hand-written `deinit` inside the copy
+policy. Methods on a generic enum monomorphize per instantiation.
+
+One difference: an enum extension may not declare an `init`. The cases are the
+constructors.
+
+```saw
+extension Color {
+    init(bright: Bool) -> Color { Color.Red }
+}
+// error: enum `Color` cannot declare an `init`: an enum's cases are its
+//        constructors
+```
+
+Compute which case to build in a static method returning the enum.
+
 ### Optionals
 
 ```saw
@@ -1540,9 +1611,12 @@ type Handler<T> = (T) -> Result<(), Error>
 
 ### Type Extensions
 
-**Status: implemented** for user-defined structs (methods — including
+**Status: implemented** for user-defined structs and enums (methods — including
 overloaded methods and static methods, see [Functions](#functions) — overloaded
 custom `init`, and — see Traits — conformance via `extension Type: Trait`).
+An extension on an enum is an extension on a struct, with one exception: no
+`init`, because the cases are the constructors. See
+[Methods on enums](#methods-on-enums).
 Extending built-in primitive types (`extension Int`, `extension Float`) is also
 implemented (design 57 registers them as extendable — the stdlib numeric methods
 are built this way). Computed properties and generic specialized extensions

@@ -1017,6 +1017,25 @@ class RegistrationMixin:
         kind = self.PRIMITIVE_EXT_SELF_KINDS.get(name)
         return SawType(kind) if kind is not None else None
 
+    def _ext_self_type(self, name: str, type_args=None) -> SawType:
+        """The `self` SawType for a method in `extension <name>` — a primitive
+        pseudo-struct, an ENUM (design 145), or an ordinary struct.
+
+        Getting the KIND right here is what makes `match self` work inside an
+        enum method: a STRUCT-kinded `self` would carry no variants.
+
+        A generic enum's self stays ARGUMENT-FREE here, matching the struct
+        path: naming the enum's own type params as arguments makes the payload
+        binding in `case Just(v)` and a `T` parameter resolve through different
+        routes to two `T`s that do not unify. Codegen names the concrete
+        monomorphization from `self_type_context` instead."""
+        prim = self._primitive_ext_self_type(name)
+        if prim is not None:
+            return prim
+        if self.namespace.has_enum(name) and not self.namespace.has_struct(name):
+            return SawType(TypeKind.ENUM, enum_name=name, type_args=type_args)
+        return SawType(TypeKind.STRUCT, struct_name=name)
+
     def _is_known_type(self, name: str) -> bool:
         """Check if a name refers to a known type (built-in or user-defined)."""
         return (name in self.BUILTIN_TYPE_NAMES or
@@ -1070,33 +1089,55 @@ class RegistrationMixin:
     # struct path gates its memberwise one.
     _ENUM_POLICY_TRAITS = ("NoCopy", "ImplicitCopy", "ExplicitCopy")
 
+    def _is_enum_derivable_optin(self, extension: Extension) -> bool:
+        """Whether this enum extension is one of the EMPTY opt-in conformances
+        the compiler synthesizes inline (designs 32/48/139) rather than an
+        ordinary method-carrying extension (design 145).
+
+        The shape is exact: one conformance, from the derivable/policy set, no
+        methods and no type assignments. Anything else — a hand-written body for
+        the same trait included — is an ordinary extension now."""
+        confs = extension.conformances
+        supported = self._ENUM_DERIVABLE_TRAITS + self._ENUM_POLICY_TRAITS
+        return (len(confs) == 1 and confs[0] in supported
+                and not extension.methods and not extension.type_assignments)
+
+    def _reject_enum_inits(self, extension: Extension) -> bool:
+        """Reject an `init` in an enum extension (design 145 unit B).
+
+        An enum's CASES are its constructors, so there is nothing an `init`
+        could construct that a case does not already name. Returns True when it
+        reported (and registration should stop)."""
+        reported = False
+        for method in extension.methods:
+            if not method.is_init:
+                continue
+            self._error(
+                ErrorKind.TYPE_MISMATCH,
+                f"enum `{extension.struct_name}` cannot declare an `init`: an "
+                f"enum's cases are its constructors",
+                method.line, method.column,
+                hint=f"construct it by naming a case "
+                     f"(`{extension.struct_name}.SomeCase`), or add a static "
+                     f"method returning `{extension.struct_name}` if it needs "
+                     f"to compute which case to build",
+                source_file=getattr(extension, 'source_file', None)
+            )
+            reported = True
+        return reported
+
     def _register_enum_derivable_extension(self, extension: Extension):
         """Register an empty opt-in extension on an enum: a derivable trait
         (designs 32 / 48) or a copy policy (design 139).
 
-        Enums don't carry methods, so the only extension supported on one is an
-        empty conformance: it registers the conformance and records the enum for
-        whatever operation the compiler then synthesizes inline. A custom method,
-        an unsupported conformance, or type assignments are rejected here.
+        This is the path for a conformance whose body the compiler synthesizes
+        INLINE over the active variant — it registers the conformance and
+        records the enum in the matching `_derived_*` set, minting no method
+        symbol. Method-carrying extensions on enums (design 145) go through the
+        ordinary struct-shaped registration instead.
         """
+        trait = extension.conformances[0]
         enum_name = extension.struct_name
-        confs = extension.conformances
-        supported = self._ENUM_DERIVABLE_TRAITS + self._ENUM_POLICY_TRAITS
-        if (len(confs) != 1 or confs[0] not in supported
-                or extension.methods or extension.type_assignments):
-            self._error(
-                ErrorKind.TYPE_MISMATCH,
-                f"cannot extend enum `{enum_name}`: only an empty "
-                f"`extension {enum_name}: "
-                f"Equatable|Comparable|Hashable|NoCopy|ImplicitCopy|ExplicitCopy "
-                f"{{}}` is supported",
-                extension.line, extension.column,
-                hint="enums support the derivable traits and a copy policy as "
-                     "empty opt-ins (synthesized); other methods and "
-                     "conformances on enums are not available"
-            )
-            return
-        trait = confs[0]
         if trait in self._ENUM_POLICY_TRAITS:
             self._register_enum_copy_policy(extension, trait)
             return
@@ -1426,21 +1467,33 @@ class RegistrationMixin:
             return
         if self._check_conformance_coherence(extension):
             return
-        # Enum derivable opt-in (designs 32/48): intercept before the struct
-        # lookup so `extension Color: Equatable {}` doesn't hit "undefined struct".
-        if self.get_enum_info(extension.struct_name) is not None:
-            self._register_enum_derivable_extension(extension)
-            return
-
-        # Verify the struct exists (check namespace)
-        struct_info = self.get_struct_info(extension.struct_name)
-        if struct_info is None:
-            self._error(
-                ErrorKind.UNDEFINED_VARIABLE,
-                f"cannot extend undefined struct `{extension.struct_name}`",
-                extension.line, extension.column
-            )
-            return
+        # Design 145: an extension on an ENUM is an extension on a struct. Only
+        # the EMPTY derivable / copy-policy opt-ins (designs 32/48/139) keep
+        # their own path — those register no method symbol at all, because the
+        # compiler synthesizes the operation inline over the active variant.
+        # Everything else — instance methods, static methods, hand-written trait
+        # bodies — goes through the shared registration below, with the enum
+        # symbol standing in for the struct symbol (it carries the same method
+        # tables since design 145).
+        enum_info = self.get_enum_info(extension.struct_name)
+        is_enum = enum_info is not None
+        if is_enum:
+            if self._is_enum_derivable_optin(extension):
+                self._register_enum_derivable_extension(extension)
+                return
+            if self._reject_enum_inits(extension):
+                return
+            struct_info = enum_info
+        else:
+            # Verify the struct exists (check namespace)
+            struct_info = self.get_struct_info(extension.struct_name)
+            if struct_info is None:
+                self._error(
+                    ErrorKind.UNDEFINED_VARIABLE,
+                    f"cannot extend undefined struct `{extension.struct_name}`",
+                    extension.line, extension.column
+                )
+                return
 
         # Memberwise `copy()` derivation: a struct declaring ImplicitCopy or
         # ExplicitCopy without a hand-written `copy` gets a compiler-synthesized
@@ -1463,22 +1516,31 @@ class RegistrationMixin:
         if declares_copy_policy and not has_copy_method:
             self._demand_synthesize_marker(extension, declared_copy_policy, "copy")
             derived_any = True
-            if already_derived is None:
-                extension.methods.append(Method(
-                    name="copy",
-                    parameters=[Parameter(name="self",
-                                          type=SawType(TypeKind.VOID),
-                                          is_reference=True)],
-                    return_type=SawType(TypeKind.SELF),
-                    body=Block(statements=[], final_expr=None,
-                               line=extension.line, column=extension.column),
-                    self_mutable=False,
-                    self_is_reference=True,
-                    is_derived_copy=True,
-                    line=extension.line,
-                    column=extension.column,
-                ))
-            self._derived_copy_structs.add(extension.struct_name)
+            # Design 145: an ENUM's derivations are synthesized INLINE over the
+            # active variant (design 139), not as a memberwise method body, so
+            # it records the type and mints no method. A method-carrying enum
+            # extension can therefore still ask for a derived `copy` — this is
+            # what lets `extension R: NoCopy { func deinit(&var self) {...} }`
+            # and a `@synthesize`d policy coexist with hand-written methods.
+            if is_enum:
+                self._derived_copy_enums.add(extension.struct_name)
+            else:
+                if already_derived is None:
+                    extension.methods.append(Method(
+                        name="copy",
+                        parameters=[Parameter(name="self",
+                                              type=SawType(TypeKind.VOID),
+                                              is_reference=True)],
+                        return_type=SawType(TypeKind.SELF),
+                        body=Block(statements=[], final_expr=None,
+                                   line=extension.line, column=extension.column),
+                        self_mutable=False,
+                        self_is_reference=True,
+                        is_derived_copy=True,
+                        line=extension.line,
+                        column=extension.column,
+                    ))
+                self._derived_copy_structs.add(extension.struct_name)
 
         # Memberwise `equals()` synthesis (design 32): a struct declaring
         # Equatable without a hand-written `equals` gets a compiler-synthesized
@@ -1492,7 +1554,7 @@ class RegistrationMixin:
         if declares_equatable and not has_equals_method:
             self._demand_synthesize_marker(extension, "Equatable", "equals")
             derived_any = True
-            if already_derived is None:
+            if already_derived is None and not is_enum:
                 extension.methods.append(Method(
                     name="equals",
                     parameters=[
@@ -1527,7 +1589,7 @@ class RegistrationMixin:
         if declares_comparable and not has_compare_method:
             self._demand_synthesize_marker(extension, "Comparable", "compare")
             derived_any = True
-            if already_derived is None:
+            if already_derived is None and not is_enum:
                 extension.methods.append(Method(
                     name="compare",
                     parameters=[
@@ -1560,7 +1622,7 @@ class RegistrationMixin:
         if declares_hashable and not has_hash_method:
             self._demand_synthesize_marker(extension, "Hashable", "hash")
             derived_any = True
-            if already_derived is None:
+            if already_derived is None and not is_enum:
                 extension.methods.append(Method(
                     name="hash",
                     parameters=[
@@ -1705,7 +1767,7 @@ class RegistrationMixin:
                 self_mutable = method.self_mutable
 
                 # Fill in the self parameter type (if it's the placeholder VOID from parser)
-                expected_self_type = SawType(TypeKind.STRUCT, struct_name=extension.struct_name)
+                expected_self_type = self._ext_self_type(extension.struct_name)
                 if first_param.type.kind == TypeKind.VOID:
                     # Replace placeholder with actual type
                     first_param.type = expected_self_type
@@ -1730,9 +1792,7 @@ class RegistrationMixin:
 
             # Register method
             # Determine the Self type for this extension
-            self_type = self._primitive_ext_self_type(extension.struct_name)
-            if self_type is None:
-                self_type = SawType(TypeKind.STRUCT, struct_name=extension.struct_name)
+            self_type = self._ext_self_type(extension.struct_name)
 
             # Resolve Self types in parameter types
             # Note: 'self' parameter has VOID as placeholder from parser
@@ -1971,11 +2031,9 @@ class RegistrationMixin:
         # Handle Self type (TypeKind.SELF)
         if trait_type.kind == TypeKind.SELF:
             # Primitive pseudo-structs (String/Int/Float) map Self to the
-            # primitive type, not a struct (design 57).
-            prim = self._primitive_ext_self_type(self_type_name)
-            if prim is not None:
-                return prim
-            return SawType(TypeKind.STRUCT, struct_name=self_type_name)
+            # primitive type, not a struct (design 57); an enum maps to its own
+            # kind (design 145).
+            return self._ext_self_type(self_type_name)
         if trait_type.kind == TypeKind.STRUCT and trait_type.struct_name:
             # Handle associated types
             if trait_name:

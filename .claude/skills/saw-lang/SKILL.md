@@ -20,6 +20,8 @@ struct Point { x: Int, y: Int }
 extension Point { func mag(&self) -> Int { self.x * self.x } }
 extension Point { init(m: Int) -> Point { Point(x: m, y: m) } }
 enum Msg { case Quit, case Move(x: Int, y: Int) }
+extension Msg { func is_quit(&self) -> Bool { match self { case Quit -> true,
+                                                           case _ -> false } } }
 type UserId = Int          // DISTINCT type; flows TO Int; back via UserId(i)
 let raw = id as Int        // explicit projection toward underlying
 print("hi {name}: {p}")    // interpolation; user types need Printable
@@ -250,6 +252,25 @@ if err.is<IoErr>() { if let io = err.take<IoErr>() { retry(io) } }  // downcast
 ```
 - `trait Error: Printable {}` — conform via `extension E: Error {
   func format(&self, into: &var StringBuilder) {...} }`.
+- **An error type may be an ENUM, and usually should be** (design 145). A closed
+  set of failures is what an enum is for, and enums carry methods and
+  hand-written trait bodies now — so the old workaround of making every error a
+  struct is retired:
+  ```saw
+  enum SysError { case Ok, case BadHandle, case Other }
+  extension SysError {
+      func describe(&self) -> String {
+          match self { case Ok -> "ok", case BadHandle -> "bad handle",
+                       case Other -> "other" }
+      }
+  }
+  extension SysError: Printable {
+      func format(&self, into: &var StringBuilder) { into.append(self.describe()) }
+  }
+  extension SysError: Error {}
+  ```
+  Reach for a struct when a failure carries per-case DATA that does not fit a
+  payload, or when you want field-by-field construction.
 - Downcast an owned `Box<any Trait>` with `b.is<T>() -> Bool` (borrow) and
   `b.take<T>() -> T?` (CONSUMES the box — moves the payload out on a hit, drops
   it on a miss; use `is<T>()` first to branch). Explicit `T`, must conform.
@@ -863,6 +884,14 @@ construct in the owner and lend `&driver` down.
 - Receivers are `&self` and `&var self`, always with the sigil. A bare
   `var self` (an old spelling some code still shows) is a compile error
   pointing at `&var self`; a bare `self` is likewise rejected.
+- **ENUMS TAKE EXTENSIONS, same as structs** (design 145): instance methods with
+  `&self`/`&var self` (`match self` is the idiomatic body, `self = Other` the
+  whole-value replacement), static methods (no `self` param), hand-written trait
+  bodies (Printable/Error/your own), `@synthesize` derivations, a hand-written
+  `deinit` inside the copy policy, and per-instantiation methods on a generic
+  enum. Import-scoped lookup and the orphan rule apply unchanged. The ONE
+  difference: no `init` — the cases are the constructors, and writing one is a
+  clean error naming a static method as the way to compute which case to build.
 - An escaping closure (bound/returned/stored/`spawn`) is **ImplicitCopy**
   over a refcounted heap env (like String/Arc): `let g = f` is a free
   refcount bump (both valid), and the captures are torn down exactly once

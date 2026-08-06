@@ -444,6 +444,15 @@ class GenericsMixin:
         # Register the monomorphized enum
         self._register_concrete_enum(mangled_name, substituted_variants)
 
+        # Design 145: a generic enum's extension methods monomorphize with it,
+        # exactly as `_ensure_monomorphized_struct` does for a generic struct.
+        # `generic_extensions` / `specialized_extensions` are already keyed by
+        # `extension.struct_name` regardless of kind, so an enum extension has
+        # been landing in them all along — it was simply never pulled back out.
+        if enum_name in self.generic_extensions:
+            self._monomorphize_extension(enum_name, type_args, mangled_name,
+                                         type_mapping)
+
         return mangled_name
 
     def _monomorphize_extension(self, struct_name: str, type_args: List[SawType],
@@ -583,11 +592,9 @@ class GenericsMixin:
 
         A plain/generic struct's self is its (possibly monomorphized) struct
         type; `String`'s self is `i8*` (design 40 item 9 — String has no entry
-        in struct_types, matching the eager `_generate_method` path)."""
-        prim = self._primitive_self_llvm_type(struct_name)
-        if prim is not None:
-            return prim
-        return self.struct_types[struct_name][0]
+        in struct_types, matching the eager `_generate_method` path); a
+        monomorphized ENUM's is its tag/payload type (design 145)."""
+        return self._ext_self_types(struct_name)[0]
 
     def _declare_monomorphized_method(self, mangled_struct_name: str, method: Method,
                                       type_mapping: dict[str, SawType]) -> str:
@@ -775,6 +782,13 @@ class GenericsMixin:
         old_context = self.type_param_context
         self.type_param_context = type_mapping
 
+        # Design 145: name the concrete receiver for the body, matching what the
+        # non-generic `_generate_extension_methods` path sets. `match self` in a
+        # generic ENUM's method needs it to find the monomorphized variant tags,
+        # and `-> Self` resolves through it.
+        old_self_context = self.self_type_context
+        self.self_type_context = struct_name
+
         # Set the (substituted) return type so return-position wrapping works
         # inside the monomorphized body: `None` literals learn their optional
         # inner type, and Result auto-wrap (`return T`/`return E` in a
@@ -857,6 +871,7 @@ class GenericsMixin:
         # Restore context
         self.current_return_type = old_return_type
         self.type_param_context = old_context
+        self.self_type_context = old_self_context
         self.cleanup_stack = saved_cleanup_stack
         self.drop_flags = saved_drop_flags
         self.moved_variables = saved_moved_variables

@@ -17,6 +17,7 @@ from ast_nodes import (
     MethodCall, MemberAccess, Identifier, SelfExpr, EnumInit, ArrayIndex,
     ForceUnwrap, ReferenceExpr, StringLiteral, StringInterpolation
 )
+from .mangle import mangle_type
 
 
 class PreparedValue:
@@ -1114,6 +1115,17 @@ class CallsMixin:
                 struct_name = "Int"
             elif recv_saw_conc is not None and recv_saw_conc.kind == TypeKind.FLOAT:
                 struct_name = "Float"
+            elif recv_saw_conc is not None and self._canonicalize_type_kind(
+                    recv_saw_conc).kind == TypeKind.ENUM:
+                # Design 145: an enum receiver must be named from the stamped
+                # SawType for the same reason Int is — a payload-free enum's
+                # LLVM type is a bare i32, indistinguishable from Int32. Use the
+                # mangled name so a generic enum's instantiation
+                # (`Maybe$1$Int`) matches the symbol its methods were declared
+                # under. Canonicalize first: a bare type name parses
+                # STRUCT-kinded, and a reference parameter (`l: &Level`) can
+                # still carry that tag for what is really an enum (design 61).
+                struct_name = mangle_type(self._canonicalize_type_kind(recv_saw_conc))
             elif isinstance(obj_type, ir.PointerType):
                 pointee = obj_type.pointee
                 if isinstance(pointee, ir.IntType) and pointee.width == 8:
