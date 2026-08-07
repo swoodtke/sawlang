@@ -1291,6 +1291,15 @@ Examples:
     parser.add_argument("--emit-docs-all", action="store_true", dest="emit_docs_all",
                         help="Like --emit-docs, but keep private fields, methods "
                              "and inits (internal tooling).")
+    parser.add_argument("--emit-frame-layout", action="store_true",
+                        dest="emit_frame_layout",
+                        help="Emit the coroutine FRAME LAYOUT report as JSON "
+                             "instead of code (design 163): per monomorphized "
+                             "`__Frame_*`, its total size and alignment, every "
+                             "field's offset and size, and for each embedded "
+                             "callee sub-frame the callee it holds and the "
+                             "resume state in which it is live. Writes to -o, "
+                             "else stdout. Analysis only.")
     parser.add_argument("-O0", dest="no_optimize", action="store_true",
                         help="Disable optimization passes (emit raw codegen output for debugging)")
     parser.add_argument("--target", metavar="TRIPLE",
@@ -1430,6 +1439,36 @@ Examples:
         # Dump AST
         ast_output = dump_ast(ast, ids=args.ids)
         print(ast_output)
+
+    elif args.emit_frame_layout:
+        # design 163: the frame-layout report needs the SAME front half plus
+        # codegen (LLVM is the layout authority), but nothing after it — no
+        # object, no link. Same shape as --emit-ir below.
+        from frame_layout import build_report, render_report
+
+        with open(args.input, 'r') as f:
+            source = f.read()
+
+        entry_ast = parse_source(source, args.input, args.verbose)
+        entry_ast.source_path = os.path.abspath(args.input)
+
+        codegen, merged_ast = _prepare_codegen(
+            args.input, entry_ast, source, verbose=args.verbose,
+            object_only=True, target_triple=args.target,
+            freestanding=args.freestanding, module_paths=module_paths,
+            runtime_build=args.runtime_build,
+            target_features=args.target_features,
+            no_hidden_alloc=args.no_hidden_alloc,
+            runtime_provider=args.runtime_provider)
+        run_codegen(codegen, merged_ast)
+        text = render_report(build_report(codegen, merged_ast, args.input))
+        if args.output:
+            with open(args.output, 'w') as f:
+                f.write(text)
+            if args.verbose:
+                print(f"  Wrote {args.output}")
+        else:
+            sys.stdout.write(text)
 
     elif args.emit_ir:
         # Emit IR only, through the same front half as a real compile so that

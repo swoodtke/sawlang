@@ -3044,6 +3044,18 @@ class _FrameBuilder:
         done_state = len(self._blocks)
         for lit in self._done_lits:
             lit.value = done_state
+        # design 163 (measurement): hang the state-machine facts the frame-layout
+        # report needs on the frame struct — the state count and, per embedded
+        # sub-frame field, the single state in which it is live. Read-only; no
+        # code generation consults it.
+        self.frame_struct.coro_frame_info = {
+            'states': done_state,
+            'sub_states': {c['sub']: c.get('drive_state')
+                           for c in self.calls},
+            'is_spawn_root': self.is_spawn_root,
+            'is_method': self.is_method,
+            'source_file': getattr(func, 'source_file', "") or "",
+        }
 
         if_chain = [self._state_if(k, self._blocks[k])
                     for k in range(len(self._blocks))]
@@ -3664,6 +3676,14 @@ class _FrameBuilder:
         is_ret = info.get('ret', False)
         self._emit(self._build_sub_frame(info, fbs))
         drive = self._new_block()
+        # design 163 (measurement): the ONE state in which this sub-frame is
+        # live. Construction and the goto below happen in the same resume tick
+        # (`_goto` is a state assignment + `continue`, never a suspension), and
+        # the Done arm moves the result out and leaves for `after` — so the
+        # child's storage is live exactly while `__state == drive`. Recorded so
+        # `--emit-frame-layout` can report (and CHECK) the per-state live set
+        # rather than assert it.
+        info['drive_state'] = drive
         self._goto(drive)
         # A `return g(...)` tail (design 83) threads the callee's result into THIS
         # frame's `__result` and ends the coroutine; a `let x`/bare/discard call
