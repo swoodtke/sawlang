@@ -190,6 +190,80 @@ verdict table: `designs/174-optional-generic-sweep.md`. 19 tests landed as
   Clean error rather than an ICE, but a wrong rejection. Test:
   `examples/optional_generic_infer_later_arg_xfail.saw`.
 
+## Design 175 findings (`#lend_var` investigation, Aug 7 — PROBE-ONLY, no compiler changes)
+
+Full report in `designs/175-lend-var-investigation.md`. Verdict: GO, but
+ordered behind two soundness fixes. Probes in `.build/scratch/p175_*.saw`
+(driver `probe_run175.py`). Headline correction to the brief's premise: the
+const-generic "branch statically pruned before the check" precedent does NOT
+exist — the typechecker checks a generic body once, abstractly, with an empty
+const-param environment, and `static_assert(N > 4)` inside an `if N > 4`
+branch FIRES for the `N = 2` instantiation (`p175_constgen_assert_prune`).
+`#lend_var` does not need it: its specialization set is fixed at
+{shared, exclusive} with no caller information, so the fold is a source-level
+duplication in `place_transform.py` (which already runs pre-typecheck) and
+each copy is then checked as an ordinary method. Mangling needs ZERO work —
+accessors are already emitted per window result type
+(`Grid_[]$1$Int` / `Grid_[]$1$Void`) and the flavor is not in that key.
+
+- **DF-175a — OPEN, P0-class (COMPILER). A `&self` method may mutate its
+  receiver; only the `&var self.<field>` PROJECTION form is checked.**
+  Design 146, the skill, and `examples/errors/var_ref_into_shared_self.saw`
+  all state that a field write in a `&self` method is a hard error "including
+  the prologue and epilogue of a borrows body". It is not. The check lives at
+  `typechecker/expressions.py:863-889` and covers the `&var self.<field>`
+  projection only; DIRECT field assignment (`self.hits = self.hits + 1`) and
+  calling a `&var self` method on `self` are both unchecked
+  (`_assign_target_immutable_struct_root`, `statements.py:1500-1533`,
+  deliberately stops at `SelfExpr`). Two live consequences:
+  (1) in a PLAIN `&self` method the write is a **silent no-op** — it lands in
+  the by-value receiver copy and is discarded (`p175_plain_self_write_lands`
+  prints `hits = 0` after two calls; same on a NoCopy receiver). This is the
+  DF-146b bug class through the door that fix does not cover.
+  (2) in a `&self` BORROWS body the receiver is by POINTER, so the same write
+  **lands** — a pure read through a shared window on an IMMUTABLE root
+  mutates it (`p175_shared_window_mutates_let`: two reads of a `let frozen`
+  yield `hits = 2`, visible through a `&Grid` parameter too). `let`
+  immutability is not holding. Independent of design 175 and worth fixing on
+  its own; it is also a PREREQUISITE for `#lend_var`, whose shared copy is
+  only as trustworthy as this rule.
+
+- **DF-175b — OPEN (LANGUAGE/SOUNDNESS). A SHARED place window is enforced by
+  use-site classification, not by the window's type.** The declaration
+  lowering gives every accessor ONE window closure shape,
+  `__window: (&var T) sync -> __R` (`place_transform._lower`), so a window
+  classified shared still receives a MUTABLE reference to the element;
+  soundness rests entirely on `place_uses._chain_is_exclusive` (:653-672).
+  Harmless today (`Data.[]` gates unconditionally), but under `#lend_var` it
+  becomes the whole safety property of the shared copy: one misclassified use
+  site writes through storage a sibling `Data` shares and value semantics
+  break silently. Fix is small — give the shared specialization a genuinely
+  immutable window `(&T) sync -> __R` — and retroactively hardens every
+  existing accessor. THE risk item for design 175; DF-175a is a live instance.
+
+- **DF-175c — OPEN (minor, docs). `--emit-docs` cannot distinguish a
+  `&var self` borrows accessor from a plain `&var self` method** — the former
+  reports `"self": "borrows-var"`, same as the latter, so window-ness is only
+  recoverable from the signature string (`docs_emit.py:425-442`). A `&self`
+  borrows receiver correctly reports `"self": "window"`. Cheap fix
+  (`"window-var"`); matters more once accessors are flavored.
+
+- **DF-175d — OPEN (minor, ergonomics). A NAMED borrows accessor is not an
+  assignment target.** `c.slot(1) = 99` is a parse error ("Invalid assignment
+  target") while `v[i] = fresh` works, so whole-element replacement is
+  available through the subscript spelling only; the workaround is a `&var`
+  argument (`set_to(&var c.slot(1), 99)`). Same family as DF-146n
+  (`m[k]! = v`) — assignment-target grammar has not caught up with places.
+  Fold into the places/optional plumbing batch.
+
+- **Composition pessimization (noted, not filed as a bug): an accessor that
+  FORWARDS another accessor's place** (`lend self.inner[i]`, which works —
+  `p175_nested_forward`) lowers to `__window(&var X)`, so the inner accessor
+  would always select the EXCLUSIVE specialization under `#lend_var`, even
+  from the outer accessor's shared copy. Sound but pessimizing (a shared read
+  of a nested CoW would separate). Fixable by propagating the enclosing
+  copy's flavor into the lend's inner place; state as a v1 limit if deferred.
+
 ## std.Data findings (Aug 7, user-prompted archaeology) — CLOSED by design 165
 
 **DATA-1 and DATA-2 are both closed BY CONSTRUCTION** (design 165, Aug 7).
