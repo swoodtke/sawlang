@@ -1,13 +1,17 @@
-# Design 175 — investigation: `#lend_for_write`, flavor-aware borrows bodies
+# Design 175 — investigation: `#lend_var`, flavor-aware borrows bodies
 
 **Status: INVESTIGATION APPROVED (user, Aug 7: "an investigation in the
 #exclusive pattern would be useful"). Probe-only — the product is a
 feasibility report + effort estimate; implementation is a follow-up decision.
-NAMING (user direction): the spelling must carry the borrow/lend story a
-casual reader can follow — `#exclusive` is REJECTED as too abstract.
-Recommended: `#lend_for_write` (the body is the LENDER; the constant answers
-"is this lend for a write?"); alternative `#borrow_for_write` (the caller's
-side of the same event). Final spelling = user ratifies with the report.
+NAMING (user, Aug 7): **`#lend_var`** — the spelling ties to the
+nomenclature the language already uses for this exact pair: `&` vs `&var`
+at every borrow site, and std's `with_ref`/`with_var_ref` long-window
+twins. It is also MORE precise than intent-flavored names: the model is
+permission-based (a `&var` argument opens an exclusive window whether or
+not a write lands), and "this is a var-lend" states what is true.
+Rejected: `#exclusive` (too abstract), `#lend_for_write`/`#borrow_for_write`
+(intent-flavored — overpromise a write). Final confirmation rides the
+report, but `#lend_var` is the working spelling throughout.
 Queue: probe-only and concurrent-eligible; dispatch when a slot frees;
 findings compose with 171's probe round (shared places surface).**
 
@@ -29,7 +33,7 @@ A compile-time constant, legal ONLY inside a `borrows` body, in the
 
 ```saw
 public func [](&self, i: Int) borrows -> UInt8 {
-    if #lend_for_write {              // per-specialization constant
+    if #lend_var {                    // per-specialization constant
         self.separate_if_shared()     // the CoW gate — write copy only
     }
     if i >= self.length { panic("Data.[]: index out of range") }
@@ -65,7 +69,7 @@ ceremony — the use site already carries the information.
    and does `get(i)` remain the explicit shared read (yes — the synonym
    ruling DF-146j is unaffected; `[]`-shared and `get` converge, which is
    the point).
-5. **Scope fences:** `#lend_for_write` outside a borrows body = clean error;
+5. **Scope fences:** `#lend_var` outside a borrows body = clean error;
    an accessor that never mentions it compiles ONCE exactly as today (no
    code-size tax on the unflavored majority); interaction with `&var self`-
    DECLARED accessors (always-true constant, or an error for redundancy?).
