@@ -15,7 +15,7 @@
 // safe. Two modules can each have their own without colliding.)
 
 import src.sosimg.{elf_to_sosimg}
-import imgformat.{SosimgHeader, SosimgSeg, SOSIMG_MAGIC, SOSIMG_VERSION, SEG_FLAG_R, SEG_FLAG_W, SEG_FLAG_X}
+import imgformat.{SosimgHeader, SosimgSeg, SegFlag, SOSIMG_MAGIC, SOSIMG_VERSION}
 import std.data.{Data}
 
 // The test's own little-endian view. Reads panic past the end: this test builds
@@ -144,7 +144,8 @@ func check_conversion() {
     assert(img.le32(24) == 4, "file_len at record offset 8, from p_filesz")
     assert(img.le32(28) == 8, "mem_len at record offset 12, from p_memsz")
     // ELF says X=1,W=2,R=4; sosimg says R=1,W=2,X=4 — so PF_R|PF_X becomes R|X.
-    assert(img.at(32) == ((SEG_FLAG_R | SEG_FLAG_X) as UInt), "flags translated out of ELF order")
+    assert(img.at(32) == (((SegFlag.Read as UInt8) | (SegFlag.Execute as UInt8)) as UInt),
+           "flags translated out of ELF order")
     assert(img.at(33) == 0, "segment reserved bytes are zero")
     assert(img.at(34) == 0, "segment reserved bytes are zero")
     assert(img.at(35) == 0, "segment reserved bytes are zero")
@@ -186,20 +187,21 @@ func check_shared_predicates() {
     // mem_len < file_len cannot be loaded: the loader zero-fills the difference.
     let shrunk = SosimgSeg(
         file_off: 0u32, load_addr: 0x80200000u32, file_len: 16u32, mem_len: 8u32,
-        flags: SEG_FLAG_R, reserved0: 0u8, reserved1: 0u8, reserved2: 0u8,
+        flags: SegFlag.Read as UInt8, reserved0: 0u8, reserved1: 0u8, reserved2: 0u8,
     )
     assert(not shrunk.mem_covers_file(), "mem_len below file_len is rejected")
 
     // Write-without-read is a PMP encoding RISC-V reserves.
     let write_only = SosimgSeg(
         file_off: 0u32, load_addr: 0x80200000u32, file_len: 8u32, mem_len: 8u32,
-        flags: SEG_FLAG_W, reserved0: 0u8, reserved1: 0u8, reserved2: 0u8,
+        flags: SegFlag.Write as UInt8, reserved0: 0u8, reserved1: 0u8, reserved2: 0u8,
     )
     assert(not write_only.has_sane_perms(), "write-without-read is not a valid grant")
 
     let text = SosimgSeg(
         file_off: 0u32, load_addr: 0x80200000u32, file_len: 8u32, mem_len: 8u32,
-        flags: SEG_FLAG_R | SEG_FLAG_X, reserved0: 0u8, reserved1: 0u8, reserved2: 0u8,
+        flags: (SegFlag.Read as UInt8) | (SegFlag.Execute as UInt8),
+        reserved0: 0u8, reserved1: 0u8, reserved2: 0u8,
     )
     assert(text.is_wellformed(), "R+X is a valid text segment")
     assert(text.is_executable() && not text.is_writable(), "W^X holds for text")
