@@ -6010,6 +6010,23 @@ inlined (the `.build/scratch` probes are gitignored).
   blade/libs sources join the documented set. [website]
 
 ## Queued briefs (Aug 4) — awaiting dispatch
+- **PARSER-PORT INTEGRATION STRATEGY (user, Aug 7 — fold into the parser-port
+  brief when the rewrite track resumes): a LANGUAGE-NEUTRAL BINARY AST FORMAT
+  as the frontend/backend seam.** The Saw-written lexer+parser emits the
+  binary AST per module; the Python typechecker+codegen+LLVM backend consumes
+  it — the Saw frontend drives real builds EARLY while the Python parser stays
+  the oracle. Cut point is PARSE (the only clean seam: the 164 audit proved the
+  parsed AST interchange-safe — 44k objects, ast_dump round-trip byte-identical;
+  everything post-typecheck has SawType-aliasing hazards). Staging: (1) format
+  spec + Python writer/reader, whole-corpus ast_dump round-trip gate; (2) Saw
+  parser emits it, astdiff Saw-parse-vs-Python-parse gate; (3) the flip, Python
+  parser kept behind a flag as the permanent battery oracle. Pins: single-source
+  the serde on both sides from one schema (design-126 AST contract); the header
+  CARRIES the node-id high-water mark and the consumer seeds its counter past it
+  (the 164 gate's miscompile lesson); this format is the SEAM, not the Python-
+  side perf cache — 168's tier-B pickle stays the Python speed answer; the
+  format later doubles as the self-hosted compiler's own AST cache (no pickle
+  in Saw).
 - **Design 116 — self-hosting pilot: the lexer in Saw (dispatched Aug 4).**
   First permanent stage1 module + rewrite-decision instrument: `selfhost/lexer`
   Blade package mirroring sawc/lexer.py's token model, canonical token-dump
