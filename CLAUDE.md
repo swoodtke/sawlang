@@ -41,7 +41,9 @@ sos/               # SOS microkernel (design 140). spec.md is authoritative.
                    #   @export'd C surface; a process depends on this only
   hal/riscv32/     #   the ONLY arch-aware code: kernel/ (boot.S trap entry,
                    #   board sinks, PMP) + user/ (ecall stub, syscall sinks),
-                   #   each with an ABI.md. M1b ADDS hal/arm64/, moves nothing
+                   #   each with an ABI.md. M1b (PARKED branch, user review
+                   #   pending) adds hal/arm64/ and MOVES virt.ld + root.ld
+                   #   into the per-arch HALs
   rt/common/       #   arch-free role-free Saw helpers (hex, ascii) — kernel
   rt/common_c/     #   + every process; support.c is the C that must stay C
                    #   (mem*, atomics, arena, seams) — ONE copy, see DF-140g
@@ -69,9 +71,10 @@ activated first.
 ./.venv/bin/python sawc/sawc.py <src.saw> [-o out] [-v] [-c]
     [--emit-ir] [--emit-ast] [--emit-docs] [--emit-docs-all] [-O0]
     [--emit-frame-layout]
-    [--target TRIPLE] [--module-path NAME=DIR]
-    [--freestanding] [--runtime-build] [--no-hidden-alloc]
-    [-W NAME | -W all]
+    [--target TRIPLE] [--target-features FEATURES]
+    [--module-path NAME=DIR]
+    [--freestanding] [--runtime-build] [--runtime-provider]
+    [--no-hidden-alloc] [-W NAME | -W all]
 ```
 That is the complete flag set (`sawc.py:1274-1345`); `-o` defaults to
 `.build/<source>`. `--no-hidden-alloc` (design 135) rejects the
