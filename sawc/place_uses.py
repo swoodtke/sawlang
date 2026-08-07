@@ -737,6 +737,15 @@ class _PlaceUses:
         that hold expressions (`Argument`, `MatchArm`). A `SawType` is never
         entered: types reach back into namespace symbols, so following one walks
         out of the program and into the symbol graph.
+
+        A list item may be a plain TUPLE rather than a node (DF-140g): two
+        expression carriers pair their children with a name instead of holding
+        them directly — `StructInit.field_inits` is `(field_name, value)` and
+        `MapLiteral.entries` is `(key, value)`. A tuple is neither an
+        `Expression` nor an `ASTNode`, so a walk that tests only those two steps
+        straight over the expressions inside it, and a place in a struct-literal
+        field or a map-literal entry reached codegen unlowered — an ICE
+        ("Undefined method: `T.at`"), not a diagnostic.
         """
         if node is None or isinstance(node, SawType):
             return
@@ -751,12 +760,30 @@ class _PlaceUses:
                 for i, item in enumerate(value):
                     if _is_expr(item):
                         value[i] = self._value(item)
+                    elif isinstance(item, tuple):
+                        value[i] = self._paired(item)
                     else:
                         self._recurse(item)
             elif _is_expr(value):
                 setattr(node, f.name, self._value(value))
             else:
                 self._recurse(value)
+
+    def _paired(self, item: tuple) -> tuple:
+        """Lower the expressions inside a `(name, expr)` / `(key, value)` pair.
+
+        Rebuilt rather than mutated: a tuple is immutable, and the caller writes
+        the replacement back into the list slot.
+        """
+        lowered = []
+        for element in item:
+            if _is_expr(element):
+                lowered.append(self._value(element))
+            else:
+                # A name string, or a `SawType` — `_recurse` declines both.
+                self._recurse(element)
+                lowered.append(element)
+        return tuple(lowered)
 
     # -- misc --------------------------------------------------------------
 

@@ -1,0 +1,101 @@
+// Design 146 (DF-140g): a place USE inside a literal that pairs its children
+// with a name. Two AST carriers hold their expressions as plain `(name, expr)`
+// tuples rather than as direct children — a struct literal's field inits and a
+// map literal's entries — so the place-use walk stepped straight over them and
+// the unlowered accessor call reached codegen as `Undefined method: Holder.at`.
+//
+// An ICE, not a diagnostic, and it needed no exotic spelling: reading an element
+// through an accessor while building a config struct is the ordinary shape.
+// EXPECT: success
+// EXPECT-OUTPUT:
+// 7
+// pos
+// dflt
+// 7
+// 14
+// 7
+// 21
+
+struct Cell {
+    n: Int
+    tag: String
+}
+
+struct Holder {
+    cells: Vector<Cell>
+}
+
+extension Holder: NoCopy {}
+
+extension Holder {
+    init() -> Holder {
+        var v: Vector<Cell> = []
+        v.push(Cell(n: 7, tag: "pos"))
+        Holder(cells: move v)
+    }
+
+    func at(&self, i: Int) borrows -> Cell {
+        if i < 0 || i >= self.cells.len() {
+            panic("Holder.at: index out of range")
+        }
+        lend self.cells[i]
+    }
+
+    // A conditional lend, for the absent path through a struct field.
+    func find(&self, i: Int) borrows -> Cell? {
+        if i < 0 || i >= self.cells.len() {
+            return None
+        }
+        lend self.cells[i]
+    }
+
+    func label(&self, i: Int) -> String? {
+        if i < 0 || i >= self.cells.len() {
+            return None
+        }
+        "pos"
+    }
+}
+
+struct Cfg {
+    count: Int
+    name: String
+    fallback: String
+}
+
+struct Outer {
+    inner: Cfg
+    doubled: Int
+}
+
+func main() {
+    let h = Holder()
+
+    // 1. Struct-literal FIELDS: a bare place read, a place read through `??`,
+    //    and an absent conditional lend that must take the default.
+    let cfg = Cfg(
+        count: h.at(0).n,
+        name: h.label(0) ?? "none",
+        fallback: h.find(9)?.tag ?? "dflt",
+    )
+    print("{}", cfg.count)
+    print("{}", cfg.name)
+    print("{}", cfg.fallback)
+
+    // 2. NESTED struct literals — the outer walk must reach the inner pairs.
+    let outer = Outer(
+        inner: Cfg(count: h.at(0).n, name: "x", fallback: "y"),
+        doubled: h.at(0).n * 2,
+    )
+    print("{}", outer.inner.count)
+    print("{}", outer.doubled)
+
+    // 3. MAP-LITERAL entries, the other paired carrier — place in the VALUE
+    //    position, and an entry whose value is computed through a window.
+    let m: Map<String, Int> = {
+        "a": h.at(0).n,
+        "b": h.at(0).n * 3,
+    }
+    print("{}", m["a"] ?? -1)
+    print("{}", m["b"] ?? -1)
+}
