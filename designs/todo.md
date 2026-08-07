@@ -4617,6 +4617,25 @@ at all. Filed as DF-163a/b/c below.
    kind means copying the block. Worth revisiting if kinds multiply faster than
    expected.
 
+**One interpretation made, worth confirming.** Spec §3 illustrates the typed
+handle as `sos_system_shutdown(h: SystemHandle, ...)`, but `sos_system_shutdown`
+IS the `@export`ed symbol, and the same paragraph requires exported symbols and
+the stubs to keep raw `UInt` words (a C caller sees words; the export whitelist
+is primitives). Both cannot hold for one function. The exported C surface was
+kept raw and the typed handle put on the `System` METHODS — the Saw-facing
+wrapper a Saw process actually calls. The alternative reading, a typed Saw
+`sos_system_*` layer beneath the export, would add a fourth altitude to the
+three the module documents and explicitly disclaims ("no altitude reimplements
+the one below it").
+
+**Gate battery** (each gate's real exit code captured, per the adoption pass's
+harness note). Full compiler suite **1373** green (1366 at the branch point plus
+7 regression tests for the three gaps); lexdiff zero mismatches over 1530 files
+(tokens and docs); astdiff clean over 1530 files; `irdet --all` byte-identical
+over 903 examples (38 skipped); blade bootstrap `BOOTSTRAP: ok` (stage0->stage2
+plus the lib suites); `make sos-test` 11/11 under QEMU; gmgate 20 programs x 10
+runs, 0 failing.
+
 ## Design 140 — DF-findings (SOS M1)
 
 - **DF-163a — FIXED here (the M1 review round, Aug 7). A raw-backed enum's case
