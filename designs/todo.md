@@ -5,6 +5,42 @@ Open items ONLY. Landed work lives in `designs/NN-*.md` + git history
 landed recaps). Conventions: cite source designs in [brackets]; VERIFY
 items need a probe before being treated as real work.
 
+## DECIDED — Aug 7 afternoon round (user, one-by-one review)
+
+- **DF-162a DECIDED: compiler default.** Freestanding aarch64 implies
+  `-neon,-fp-armv8` unless `--target-features` overrides — freestanding
+  output must not trap before main. Lands as a compiler-side unit in design
+  172 (cherry-picks to main immediately per SOS flow); M1b's HAL drops its
+  explicit flags when it rides.
+- **sosimg v3 DECIDED: widen addresses to 64-bit NOW** (header 16→24,
+  records 20→24, fixtures both arches, both producers/consumers). Unit added
+  to design 172.
+- **DF-168b DECIDED: defer with trigger** — revisit when compile speed next
+  hurts, or before the self-hosted compiler port freezes the pipeline shape.
+- **164 tier C CLOSED: declined by arithmetic; the design-144 std
+  type-identity exemption STANDS.** 168's reachability strip ate the prize.
+  If numbers ever reopen it, the per-exclusion-set object cache is the path
+  that never touches 144.
+- **171 Arc arm CONFIRMED**: shared-only paren-less place on Arc, NO
+  exclusive place in any spelling, `with_unique` stays the ceremonial
+  closure primitive for CoW-container authors (docs reposition: app code
+  wants Mutex or a CoW value type).
+- **DF-151m DECIDED: fix + migrate.** A `let` root's immutability is real;
+  in-tree reliance migrates to `var` roots. Soundness-batch unit.
+- **Float64 DECIDED: implement the Float32/Float64 family** (design 173,
+  brief authored; queued after 170/171 integrate — typechecker/codegen
+  contention). Spec stays wrong only until 173 lands.
+- **DF-155a DECIDED: non-breaking knob.** `output()` keeps its meaning;
+  explicit stderr capture/discard control + accessor added beside it.
+  Small std.process unit, joins the soundness/semantics batch.
+- **Rewrite-track backend DECIDED: IR-text + clang via std.process** (over
+  LLVM-C FFI). The parser-port brief inherits this; the seam stays swappable.
+- **Rights-table single-source: BACKLOG** on the tracker's own trigger
+  (revisit if kinds multiply).
+- **DF-146j Map.get: STILL OPEN by choice** (user: discuss later) — the
+  borrows-get recommendation stands; the soundness batch dispatches without
+  this unit.
+
 ## std.Data findings (Aug 7, user-prompted archaeology) — CLOSED by design 165
 
 **DATA-1 and DATA-2 are both closed BY CONSTRUCTION** (design 165, Aug 7).

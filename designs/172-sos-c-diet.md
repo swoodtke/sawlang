@@ -63,6 +63,17 @@ is C** — an auditable unsafe floor before the OS work gets hairy (M2).
    its bucket-1 reason stated at the top; `sos/rt/common_c/support.c`'s
    header comment and the two HAL ABI.md files updated; sos/spec.md notes
    the C floor; tracker records the before/after line counts.
+7. **[ADDED, user Aug 7] DF-162a: freestanding aarch64 defaults to
+   `-neon,-fp-armv8`** unless `--target-features` overrides — COMPILER-side
+   unit, its commits isolated for immediate cherry-pick to main per SOS
+   flow. The arm64 HAL build then drops its explicit flags; the
+   panic-in-panic test (unit 4) exercises the default on real kernel code.
+   Spec/skill note the default and the override.
+8. **[ADDED, user Aug 7] sosimg v3: 64-bit addresses.** Header 16→24,
+   record 20→24, fixtures regenerated on both arches, Blade emitter +
+   kernel loader + imgformat typed views all move together; the v2 refusal
+   path becomes the v3 wrong-version refusal (a v2 image is a clean load
+   error, not a guess). Wire fields stay explicit fixed-width little-endian.
 
 ## Gates
 
