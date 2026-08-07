@@ -48,6 +48,7 @@ activated first.
 ```bash
 ./.venv/bin/python sawc/sawc.py <src.saw> [-o out] [-v] [-c]
     [--emit-ir] [--emit-ast] [--emit-docs] [--emit-docs-all] [-O0]
+    [--emit-frame-layout]
     [--target TRIPLE] [--module-path NAME=DIR]
     [--freestanding] [--runtime-build] [--no-hidden-alloc]
     [-W NAME | -W all]
