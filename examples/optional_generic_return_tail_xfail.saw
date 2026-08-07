@@ -7,11 +7,19 @@
 //
 // Found by the T = U? sweep but NOT Optional-specific: it reproduces at
 // `T = Int` just as it does at `T = Int?`. Both instantiations are below.
+//
+// FIXED by design 176 unit 7. Design 24's decidability rule governs whether a
+// return-type MISMATCH can be judged in an abstract generic body, and rightly
+// defers that to monomorphization — but the OPTIONAL wrap is a different
+// question and IS decidable abstractly: `-> T?` is an optional at every
+// instantiation and a non-optional tail is its payload at every instantiation,
+// so exactly one wrap is right for all of them. The tail path was the only one
+// consulting decidability for it; `return x` and the non-generic tail both
+// always wrapped.
 // EXPECT: success
 // EXPECT-OUTPUT:
 // plain 7
 // nested 5
-// XFAIL: DF-174a generic `-> T?` tail expression skips the return auto-wrap and emits malformed LLVM IR
 
 func wrap<T>(x: T) -> T? { x }
 

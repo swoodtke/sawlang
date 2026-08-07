@@ -164,6 +164,21 @@ to be a clean refusal — it is instead correct, which is better. Full report +
 verdict table: `designs/174-optional-generic-sweep.md`. 19 tests landed as
 `examples/optional_generic_*.saw` (7 pins, 12 xfails).
 
+- **DF-174a — FIXED (design 176 unit 7).** Design 24's decidability rule decides
+  whether a return-type MISMATCH can be judged in an abstract generic body, and
+  rightly defers that to monomorphization; the OPTIONAL wrap was riding the same
+  gate and should not have been. It is decidable abstractly: `-> T?` is an
+  optional at every instantiation and a non-optional tail is its payload at
+  every instantiation, so exactly one wrap is correct for all of them — `T =
+  Int?` included, where `Int?` wraps once into `Int??`. The non-decidable branch
+  now performs the wrap (and stamps a bare `None` tail) and nothing else, so
+  mismatches stay deferred. The `return x` spelling and the generic METHOD path
+  never consulted decidability and were always right; the free-function tail was
+  the one path that did. Tests: `examples/optional_generic_return_tail_xfail.saw`
+  (the pin, flipped) and `examples/generic_optional_tail_return.saw` (the shapes
+  that share the path — already-optional tail, `None` tail, diverging tail, value
+  `if` arms, generic method, and the `T = Int?` instantiation).
+  Original finding follows.
 - **DF-174a (COMPILER, P0-severity, filed Aug 7 by the 174 sweep): a generic
   function returning `T?` skips the return auto-wrap for a TAIL EXPRESSION and
   emits MALFORMED LLVM IR.** `func wrap<T>(x: T) -> T? { x }` compiles to

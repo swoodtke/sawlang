@@ -549,6 +549,28 @@ class StatementsMixin:
         )
         return True
 
+    def _wrap_optional_tail(self, func, resolved_return_type, body_type):
+        """The `-> T?` tail auto-wrap, for a generic body whose return type the
+        decidability rule defers (DF-174a).
+
+        Only the wrap: a mismatch stays deferred to monomorphization, which is
+        what decidability is for. A bare `None` tail is stamped instead, exactly
+        as the concrete path stamps it.
+        """
+        tail = getattr(func.body, 'final_expr', None)
+        if tail is None or body_type is None:
+            return
+        if not resolved_return_type.is_optional():
+            return
+        if body_type.is_none_literal():
+            self._propagate_optional_type(tail, resolved_return_type)
+            return
+        if body_type.is_optional() or body_type.kind == TypeKind.NEVER:
+            return
+        func.body.final_expr = OptionalWrap(
+            value=tail, target_type=resolved_return_type,
+            line=tail.line, column=tail.column)
+
     def _return_type_is_decidable(self, resolved_return_type, body_type) -> bool:
         """Design 24 item 2 decidability rule.
 
@@ -762,6 +784,22 @@ class StatementsMixin:
                 if resolved_return_type.is_optional() and func.body.final_expr:
                     self._propagate_optional_type(func.body.final_expr, resolved_return_type)
                 self._reconcile_return_type(func, resolved_return_type, body_type)
+            else:
+                # DF-174a. Decidability governs whether a MISMATCH can be judged
+                # abstractly, and rightly defers that to monomorphization. The
+                # OPTIONAL auto-wrap is a different question and is decidable
+                # here: a declared `-> T?` is an optional at every instantiation
+                # and a tail expression that is not itself optional is its
+                # payload at every instantiation, so exactly one wrap is correct
+                # for all of them — including `T = Int?`, where `Int?` wraps once
+                # into `Int??`. Skipping it emitted `ret i64` against a
+                # `{ i1, i64 }` result and only the LLVM verifier objected; what
+                # it was catching was a missing wrap that would otherwise be a
+                # type-confused read. The `return x` spelling of the same
+                # function always wrapped (it never consulted decidability), and
+                # so did the non-generic tail — this is the one path that did
+                # not.
+                self._wrap_optional_tail(func, resolved_return_type, body_type)
             self.current_type_params = prev_type_params
             self.current_const_param_types = prev_const_params
             self._effect_exit()
