@@ -63,6 +63,17 @@ items need a probe before being treated as real work.
   design-55 auto-wrap works for a written `Int?` parameter but not for `V`
   instantiated to `Int?` (a bare `None` DOES type there, so the paths
   diverge). Workaround: an annotated binding. Same batch.
+- **DF-146o (DESIGN QUESTION, filed Aug 7, user's spelling): optional-chain
+  ASSIGNMENT rejects a place-expression head.** `m["x"]?.value = 42` and
+  `v.get(0)?.value = 42` both error ("the head of an optional-chain
+  assignment must be a mutable variable or a `&var`-reachable path") — design
+  111's chained assignment predates 146's conditional lends and never learned
+  place heads. The natural write-if-present idiom therefore doesn't exist;
+  today's spelling is the double-lookup `if let _ = m[k] { m[k]!.f = v }`.
+  Composing them (head lends, absent path skips the write like any `?.`
+  short-circuit, types `Void?`) is the obvious completion — one cluster with
+  DF-146n (assignment-target grammar vs places). Add to 171's probe round
+  (conditional lend + `?.` composition: READS compose, WRITES don't).
 - **DF-146n (DESIGN QUESTION, filed Aug 7): `m[k]! = v` is a parse error
   ("invalid assignment target")** — a `!` head is not an assignment target,
   so a Map value cannot be whole-value REPLACED through the place
