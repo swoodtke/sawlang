@@ -868,6 +868,10 @@ class FunctionCall(Expression):
     # Builtin construction forms the typechecker recognizes by name.
     is_atomic_construct: bool = annotation(False)
     is_unsafe_mem_construct: bool = annotation(False)
+    # `UserId(42)`: the distinct `type` alias this call constructs (design 63).
+    # An alias IS its underlying representationally, so codegen compiles the one
+    # operand and emits no conversion.
+    alias_construction: Optional[str] = annotation(None)
     # `spawn(f(...))`: f's return type, needed to build the task handle.
     spawn_result_type: Optional['SawType'] = annotation(None)
     # True once generic type arguments were INFERRED rather than written.

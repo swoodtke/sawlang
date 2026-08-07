@@ -1752,27 +1752,51 @@ aliases. Generic type aliases (`type Handler<T> = ...`) are *planned*.
 
 ```saw
 // Type definitions create distinct types (not interchangeable aliases)
-type UserId = Int64
-type OrderId = Int64
+type UserId = Int
+type OrderId = Int
 
-// Even with same underlying type, they are distinct
-let user: UserId = UserId(42)
+// Even with the same underlying type, they are distinct
+let user = UserId(42)
 let order: OrderId = user  // Error! Types are not compatible
 
 // Useful for units and domain types
-type Miles = Float64
-type Kilometers = Float64
+type Miles = Float
+type Kilometers = Float
 
-let m: Miles = Miles(100.0)
+let m = Miles(100.0)
 let k: Kilometers = m  // Error! Can't mix miles and kilometers
+```
 
-// Project a distinct type TO its underlying with an explicit cast (design 63).
-// This is the sanctioned form — there is no `.value` accessor. The cast is
-// ONE-DIRECTIONAL (toward the underlying): `raw as Miles` stays an error, and a
+`Alias(value)` is the way INTO a distinct type. It takes exactly one unlabeled
+argument, which is checked against the underlying type — so a bare literal
+adopts that type and is range-checked there, and a value of an unrelated type is
+a clean error. The construction is representationally free: an alias is its
+underlying at runtime, and the distinction is the typechecker's alone.
+
+An alias over an unsigned or fixed-width underlying has no other spelling. An
+annotated `let` accepts an underlying-typed initializer only for the four
+primitive kinds (`Int`, `Float`, `Bool`, `String`), so `type Handle = UInt` is
+constructible through `Handle(...)` and nothing else.
+
+```saw
+type Handle = UInt
+type Small = Int64
+
+let h = Handle(7)        // the only spelling for an unsigned underlying
+let s = Small(99)        // the literal adopts Int64 and is checked there
+```
+
+Going the other way needs no ceremony. A distinct type flows to its underlying
+implicitly at a call site or an annotation, and `as` projects it explicitly:
+
+```saw
+// Project a distinct type TO its underlying with an explicit cast. There is no
+// `.value` accessor. The cast is ONE-DIRECTIONAL (toward the underlying):
+// `42 as UserId` stays an error — that is what `UserId(42)` is for — and a
 // sibling-alias cast (`user as OrderId`) is rejected too. A partial projection
 // to an intermediate alias on the chain is allowed.
-let raw: Float64 = m as Float64
-let uid: Int64 = user as Int64
+let raw: Float = m as Float
+let uid: Int = user as Int
 
 // Type definitions for function signatures
 type Callback = (Int) -> Bool

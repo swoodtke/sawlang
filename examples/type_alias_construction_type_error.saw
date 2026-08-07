@@ -1,0 +1,13 @@
+// Design 63: the constructor is not a cast. It accepts what the UNDERLYING
+// type accepts, so a String cannot become an Int alias by being passed
+// through it — the alias would otherwise be a hole in the type system rather
+// than a distinction added on top of it.
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: cannot be built from
+
+type UserId = Int
+
+func main() {
+    let bad = UserId("nope")
+    print(bad as Int)
+}

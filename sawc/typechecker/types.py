@@ -1273,6 +1273,33 @@ class TypeUtilsMixin:
             return SawType(TypeKind.OPTIONAL, inner_type=resolved_inner)
         return saw_type
 
+    def _alias_ancestor_names(self, saw_type: SawType) -> set:
+        """The distinct aliases strictly BELOW `saw_type` on its own chain.
+
+        `type Super = Mid`, `type Mid = Base`, `type Base = Int` gives `Super`
+        the set {Mid, Base}. Walks the UNRESOLVED immediate targets, because
+        `aliased_type` collapses the chain straight to the underlying and the
+        intermediate aliases are exactly what has to stay visible.
+
+        This is what separates an ancestor from a SIBLING (design 63): `Mid` is
+        a type `Super` is defined in terms of, so a `Super` is already one;
+        `OrderId` merely happens to have the same underlying as `UserId`, and
+        being distinct from it is the whole reason both were declared.
+        """
+        names = set()
+        cur = saw_type
+        seen = set()
+        while (cur is not None and cur.is_struct() and cur.struct_name
+               and self.get_type_alias_info(cur.struct_name)
+               and cur.struct_name not in seen):
+            seen.add(cur.struct_name)
+            sym = self.get_type_alias_info(cur.struct_name)
+            cur = getattr(sym, 'immediate_type', None)
+            if (cur is not None and cur.is_struct()
+                    and self.get_type_alias_info(cur.struct_name)):
+                names.add(cur.struct_name)
+        return names
+
     def _types_compatible(self, a: Optional[SawType], b: Optional[SawType],
                           allow_literal_to_distinct: bool = False) -> bool:
         """Check if two types are compatible.
@@ -1324,11 +1351,17 @@ class TypeUtilsMixin:
         # Also handles chained aliases: SuperInt -> MyInt -> BaseInt -> Int
         if a.is_struct() and self.get_type_alias_info(a.struct_name):
             underlying_a = self._resolve_type_alias(a)
-            # If b is also a type alias, check if they resolve to the same underlying type
+            # When the TARGET is itself a distinct alias, sharing an underlying
+            # type is not enough (design 63). An alias satisfies another alias
+            # only by being it, or by having it on its own definition chain —
+            # `type Super = Mid` makes a `Super` a `Mid`, while `UserId` and
+            # `OrderId` over one `Int` are two types that must not mix. This
+            # RETURNS rather than falling through: the alias-to-underlying rule
+            # below would otherwise re-admit the sibling by way of its
+            # underlying, which is the hole this closes.
             if b.is_struct() and self.get_type_alias_info(b.struct_name):
-                underlying_b = self._resolve_type_alias(b)
-                if self._types_compatible(underlying_a, underlying_b, allow_literal_to_distinct):
-                    return True
+                return (a.struct_name == b.struct_name
+                        or b.struct_name in self._alias_ancestor_names(a))
             # Otherwise check if a's underlying type is compatible with b
             if self._types_compatible(underlying_a, b, allow_literal_to_distinct):
                 return True

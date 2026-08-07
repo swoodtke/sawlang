@@ -1,0 +1,12 @@
+// Design 63: a type alias is constructed from exactly one value. It has no
+// fields, so two arguments is a clean error rather than a confusing
+// undefined-function or wrong-overload report.
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: constructed from exactly one value
+
+type UserId = Int
+
+func main() {
+    let bad = UserId(1, 2)
+    print(bad as Int)
+}

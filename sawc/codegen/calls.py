@@ -178,6 +178,22 @@ class CallsMixin:
         if getattr(expr, 'is_unsafe_mem_construct', False):
             return self._generate_expression(expr.arguments[0].value)
 
+        # Distinct alias construction (design 63): `UserId(42)`. An alias IS its
+        # underlying — the distinction is the typechecker's alone — so there is
+        # no conversion to emit, only the operand. The width coercion is the
+        # same one a call argument gets: a bare literal arrives as the platform
+        # word and an alias over a fixed-width underlying needs it narrowed.
+        alias_name = getattr(expr, 'alias_construction', None)
+        if alias_name is not None:
+            value = self._generate_expression(expr.arguments[0].value)
+            target = self._get_llvm_type(
+                SawType(TypeKind.STRUCT, struct_name=alias_name))
+            if (isinstance(target, ir.IntType)
+                    and isinstance(getattr(value, 'type', None), ir.IntType)
+                    and value.type.width != target.width):
+                return self._coerce_int_llvm(value, target)
+            return value
+
         # Handle built-in print function
         if expr.name == "print":
             return self._generate_print(expr.arguments)

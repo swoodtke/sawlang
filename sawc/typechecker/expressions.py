@@ -100,6 +100,66 @@ class ExpressionsMixin:
         'UInt32': TypeKind.UINT32, 'UInt64': TypeKind.UINT64,
     }
 
+    def _check_alias_construction(self, expr, alias_info) -> Optional[SawType]:
+        """`UserId(42)` — build a value of a distinct `type` alias (design 63).
+
+        The flow rule is deliberately one-way: an alias value projects toward
+        its underlying freely (implicitly, or with `as`), and nothing flows
+        back on its own. This is the sanctioned way back, and that it is a
+        CONSTRUCTION rather than a cast is the whole point — `42 as UserId` is
+        an error precisely because widening authority over a value should read
+        as making one, at the site that makes it.
+
+        The argument is checked against the underlying type with that type
+        pushed down as the expectation, so a bare literal adopts it and is
+        range-checked there (design 87). That is what makes an alias over a
+        FIXED-WIDTH underlying constructible at all: `type Handle = UInt` had
+        no spelling before this, since an annotated `let` only accepts an
+        underlying that is one of the four primitive kinds.
+
+        Representationally this is a no-op — an alias IS its underlying — so
+        codegen compiles the operand and nothing else.
+        """
+        if len(expr.arguments) != 1:
+            self._error(
+                ErrorKind.WRONG_ARGUMENT_COUNT,
+                f"`{expr.name}` is a type alias and is constructed from "
+                f"exactly one value, but {len(expr.arguments)} were given",
+                expr.line, expr.column,
+                hint=f"write `{expr.name}(<{self._resolve_type_alias(SawType(TypeKind.STRUCT, struct_name=expr.name))}>)`"
+            )
+            return None
+        arg = expr.arguments[0]
+        if arg.name:
+            self._error(
+                ErrorKind.TYPE_MISMATCH,
+                f"`{expr.name}` is a type alias and takes one unlabeled value, "
+                f"but the argument is labeled `{arg.name}`",
+                arg.value.line, arg.value.column,
+                hint="a type alias has no fields to name — drop the label"
+            )
+            return None
+
+        alias_type = SawType(TypeKind.STRUCT, struct_name=expr.name)
+        underlying = self._resolve_type_alias(alias_type)
+        self._apply_literal_expected_type(arg.value, underlying)
+        arg_type = self._check_expression(arg.value)
+        if arg_type is None:
+            return None
+        # The value must be one the underlying accepts. `allow_literal_to_distinct`
+        # is NOT passed: the operand is being converted to the underlying here,
+        # not to another alias, so the ordinary rule is the right one.
+        if not self._types_compatible(arg_type, underlying):
+            self._error(
+                ErrorKind.TYPE_MISMATCH,
+                f"`{expr.name}` is a type alias for `{underlying}` and cannot "
+                f"be built from `{arg_type}`",
+                arg.value.line, arg.value.column
+            )
+            return None
+        expr.alias_construction = expr.name
+        return alias_type
+
     def _stamp_enum_raw_value(self, expr, enum_info) -> None:
         """Record a raw-backed enum case's tag value on the access node.
 
@@ -889,17 +949,7 @@ class ExpressionsMixin:
             # on its definition chain — a target in that set is a legal partial
             # projection; a sibling alias (same underlying, not on the chain) is
             # not, and reverse casts never reach here.
-            ancestor_alias_names = set()
-            cur = from_type
-            seen = set()
-            while (cur is not None and cur.is_struct() and cur.struct_name
-                   and self.get_type_alias_info(cur.struct_name)
-                   and cur.struct_name not in seen):
-                seen.add(cur.struct_name)
-                sym = self.get_type_alias_info(cur.struct_name)
-                cur = getattr(sym, 'immediate_type', None)
-                if cur is not None and cur.is_struct() and self.get_type_alias_info(cur.struct_name):
-                    ancestor_alias_names.add(cur.struct_name)
+            ancestor_alias_names = self._alias_ancestor_names(from_type)
             # Partial projection: target is a distinct alias on the chain.
             if (to_type.is_struct() and to_type.struct_name in ancestor_alias_names):
                 return to_type
@@ -2990,6 +3040,12 @@ class ExpressionsMixin:
                             hint=f"use qualified access (e.g., `{module_name}.{expr.name}`) or import it directly"
                         )
                         return None
+            # `UserId(42)` — the explicit crossing INTO a distinct alias
+            # (design 63). Checked before the struct branch below because an
+            # alias name is resolved by its own lookup, not by struct info.
+            alias_info = self.get_type_alias_info(expr.name)
+            if alias_info is not None:
+                return self._check_alias_construction(expr, alias_info)
             if self.get_struct_info(expr.name) and self.namespace.is_accessible(expr.name):
                 from ast_nodes import StructInit, Argument
                 field_inits = []

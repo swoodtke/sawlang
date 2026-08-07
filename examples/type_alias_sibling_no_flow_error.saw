@@ -1,0 +1,19 @@
+// Design 63: two distinct aliases over ONE underlying type do not flow into
+// each other. Sharing an underlying is not a relationship — being distinct is
+// the entire reason both were declared, and a rule that let them mix would make
+// `type` a comment.
+//
+// The sibling CAST was already rejected; assignment and argument position went
+// through until this test, which is the hole that mattered: a typed handle is
+// only a safety property if another kind's handle cannot land in it.
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: cannot assign `UserId` to variable of type `OrderId`
+
+type UserId = Int
+type OrderId = Int
+
+func main() {
+    let user = UserId(42)
+    let order: OrderId = user
+    print(order as Int)
+}
