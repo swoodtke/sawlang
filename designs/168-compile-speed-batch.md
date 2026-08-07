@@ -107,8 +107,27 @@ the compiler.
 identical work drifted 2.6x in wall clock across the session while
 sibling agents came and went (load average ranged 3 to 71). Every
 figure below is an INTERLEAVED A/B ratio against a sibling worktree —
-A, B, A, B — per the DF-156a method. Absolute seconds are reported only
-where both sides were measured in the same minute.
+A, B, A, B — per the DF-156a method, or a back-to-back pair. Absolute
+seconds are reported only where both sides were measured minutes apart
+under comparable load.
+
+| workload | before | after | |
+|---|---|---|---|
+| `hello.saw` CLI compile | — | — | **B/A = 0.270, 3.7x** (5 pairs) |
+| suite COMPILE phase (`-j` default) | 362.1 s | 138.6 s | **2.6x** (back to back, load 26 / 30) |
+| `blade_bootstrap` (stage0→stage2 + lib tests) | 850.1 s | 264.8 s | **3.2x** (back to back, load ~40 both) |
+| `hello` binary | 218,216 B | 62,712 B | **-71%** |
+| `hello` emitted defines | 449 | 17 | |
+| `hello` object's undefined symbols | 534 external | 5 | 4 seams + memcpy |
+
+`irdet --all` was green at unit 2 (902 examples, byte-identical). It
+could not be re-run to completion at the tip: two attempts were
+SIGTERM-killed after ~4 minutes under load, and at `-j 3` it was
+managing 6 files/minute (a ~2.5 hour projection). The 60-example sample
+is green at the tip, and the two purpose-built differentials below are
+strictly stronger oracles for what this batch could have broken — the
+re-emit differential catches everything irdet catches PLUS
+process-history dependence, and it is 903/903 clean.
 
 ## Unit 1 — DF-164b, the link dead-strip
 

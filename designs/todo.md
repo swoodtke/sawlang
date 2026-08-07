@@ -1535,6 +1535,24 @@ session while load average ranged 3 to 71, and only paired ratios mean anything.
   compile.
 - **Unit 5 (DF-164d) — measured, not skippable at small cost.** See DF-168b.
 
+**End to end**, against a worktree at the pre-batch commit:
+
+| workload | before | after | |
+|---|---|---|---|
+| `hello.saw` CLI compile | — | — | **B/A = 0.270, 3.7x** (5 interleaved pairs) |
+| suite COMPILE phase | 362.1 s | 138.6 s | **2.6x** (back to back) |
+| `blade_bootstrap` | 850.1 s | 264.8 s | **3.2x** (back to back) |
+| `hello` binary | 218,216 B | 62,712 B | -71% |
+
+**A note for whoever next reads a red suite here.** Unit 2 makes the compile
+phase ~2.6x faster, which CONCENTRATES the runner's execution phase into a much
+shorter window. On a box already loaded by sibling agents that is enough to
+starve the 40 execution workers: three runs at the tip returned 21, 905 and 567
+failures, every one of them a 30-second EXECUTION timeout (never a compile
+failure, never a wrong answer), including on programs like `while_simple` that
+cannot hang. `-j 4` returned 1367/1367 on the same tree. Read the failure
+REASON before believing a red run.
+
 - **DF-168a — `_CatchError_{node_id}` is the last node-id-derived name in the
   compiler.** `typechecker/expressions.py:9077`, the union enum a multi-type
   `try`/`catch` synthesizes. Same class as DF-164a, and its own comment claims
