@@ -230,6 +230,23 @@ TEST_CASES = [
         "expect_out": "SOS M0: deliberate panic",
         "expect_clean_exit": False,     # __saw_rt_panic → console + abort
     },
+    {
+        # Design 172 unit 4: the panic-recursion pin. The message comes from
+        # the COMPILER's bounds check, so the reporter is entered from the trap
+        # path — the one that would recurse if the writer under it could panic.
+        # Asserting the prefix AND the reason is what catches a garbled report;
+        # asserting a non-zero exit is what catches a hung one.
+        # The location is the TRAPPING expression's own (design 122), which for
+        # an indexed accessor is inside std — so this asserts `vector.saw`, not
+        # the test's file. That is the point: three independent pieces (prefix,
+        # location, reason) all arriving means nothing re-entered the writer
+        # mid-report.
+        "name": "panic_from_check",
+        "src": os.path.join(TESTS_DIR, "panic_from_check.saw"),
+        "expect_out": ["panic at ", "vector.saw:",
+                       "Vector.[]: index out of range"],
+        "expect_clean_exit": False,
+    },
     # --- design 140 unit A: the privilege split, without any image format ----
     {
         "name": "umode_syscall",
