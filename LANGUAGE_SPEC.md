@@ -3617,6 +3617,31 @@ trait Deserialize {
   exactly that many items; `begin_bytes(count:)` opens a byte string filled by
   that many `write_byte` calls. Miscounting is `CountMismatch`, not a silently
   short item.
+- **Every serde signature is `sync`.** Serialization writes into a buffer, so it
+  is suspension-free by contract, and the effect is what lets a value serialize
+  inside a place window, under a `SpinLock`, or in a kernel. A conformer that
+  wants to do I/O writes into a buffer first and sends the buffer afterwards.
+- **`@synthesize` derives both directions structurally.** The walk emits every
+  stored field in declaration order as one array; it covers the integer types,
+  `Bool`, `String`, `Optional` (absent becomes null), `Vector`, raw-backed enums,
+  and any member that itself conforms. A member outside that set is a clean
+  error naming the field and its type, with the hand-written body as the way
+  out — never a silently skipped field.
+  ```
+  @synthesize
+  extension Endpoint: Serialize {}
+  @synthesize
+  extension Endpoint: Deserialize {}
+  ```
+  A **raw-backed enum** derives from the design-145 idiom: out through the
+  case's raw value, back through the partial `E.from(raw:)`. A raw value no case
+  carries is data, not a trap — it becomes `UnknownCase` at the byte it was read
+  at. An enum with **no** raw backing is refused, naming the backing to declare:
+  its cases have no on-the-wire values.
+  Unlike the Equatable/Comparable/Hashable derivations, which codegen emits from
+  the field layout, these two synthesize a real source body and hand it to the
+  ordinary front end — a derived body is made of `try`, method calls and a `for`
+  loop, and `Result` propagation is not worth re-implementing in IR.
 - `Decoder` carries three requirements with **default bodies**:
   `expect_array(count:)` (open an array and check its length),
   `read_int_range(min:max:)` and `read_uint_max(max:)`. The last two are how a

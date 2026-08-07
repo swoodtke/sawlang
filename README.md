@@ -1090,9 +1090,13 @@ The standard library includes:
 - **Serialization** - `Serialize`/`Deserialize` over an `Encoder`/`Decoder`
   seam, prelude-visible and present in both profiles. A value writes itself into
   an `any Encoder` and reads itself back with a static
-  `Type.deserialize(from:)`. Failures are `Result`: `DecodeError` carries the
-  byte offset it stopped at, so malformed input is reported rather than
-  panicked on.
+  `Type.deserialize(from:)`. `@synthesize` derives both directions structurally
+  — every stored field in declaration order, covering the integer types, `Bool`,
+  `String`, `Optional`, `Vector`, raw-backed enums and nested conforming types;
+  anything else is a clean error naming the field. Every signature is `sync`, so
+  a value serializes inside a lock or a kernel. Failures are `Result`:
+  `DecodeError` carries the byte offset it stopped at, so malformed input is
+  reported rather than panicked on.
 - **Traits** - `Equatable`, `Comparable`, `Hashable`, `Printable`, `Error`,
   `Serialize`, `Deserialize`.
 

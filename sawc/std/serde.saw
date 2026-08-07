@@ -122,31 +122,31 @@ extension DecodeError: Error {}
 /// Miscounting is `CountMismatch`, never a silently short item.
 trait Encoder {
     /// Writes an unsigned integer.
-    func write_uint(&var self, v: UInt) -> Result<Void, EncodeError>
+    func write_uint(&var self, v: UInt) sync -> Result<Void, EncodeError>
 
     /// Writes a signed integer.
-    func write_int(&var self, v: Int) -> Result<Void, EncodeError>
+    func write_int(&var self, v: Int) sync -> Result<Void, EncodeError>
 
     /// Writes a boolean.
-    func write_bool(&var self, v: Bool) -> Result<Void, EncodeError>
+    func write_bool(&var self, v: Bool) sync -> Result<Void, EncodeError>
 
     /// Writes the null item, which is what an absent Optional becomes.
-    func write_null(&var self) -> Result<Void, EncodeError>
+    func write_null(&var self) sync -> Result<Void, EncodeError>
 
     /// Writes a UTF-8 text string.
-    func write_text(&var self, v: String) -> Result<Void, EncodeError>
+    func write_text(&var self, v: String) sync -> Result<Void, EncodeError>
 
     /// Opens a byte string of exactly `count` bytes.
-    func begin_bytes(&var self, count: Int) -> Result<Void, EncodeError>
+    func begin_bytes(&var self, count: Int) sync -> Result<Void, EncodeError>
 
     /// Writes one byte of an open byte string.
-    func write_byte(&var self, b: UInt8) -> Result<Void, EncodeError>
+    func write_byte(&var self, b: UInt8) sync -> Result<Void, EncodeError>
 
     /// Opens an array of exactly `count` items.
-    func begin_array(&var self, count: Int) -> Result<Void, EncodeError>
+    func begin_array(&var self, count: Int) sync -> Result<Void, EncodeError>
 
     /// Opens a map of exactly `count` key/value pairs.
-    func begin_map(&var self, count: Int) -> Result<Void, EncodeError>
+    func begin_map(&var self, count: Int) sync -> Result<Void, EncodeError>
 }
 
 /// The source a `Deserialize` value reads itself out of.
@@ -155,46 +155,46 @@ trait Encoder {
 /// offset it stopped at, so a decoder may be pointed at bytes from anywhere.
 trait Decoder {
     /// Reads an unsigned integer.
-    func read_uint(&var self) -> Result<UInt, DecodeError>
+    func read_uint(&var self) sync -> Result<UInt, DecodeError>
 
     /// Reads a signed integer.
-    func read_int(&var self) -> Result<Int, DecodeError>
+    func read_int(&var self) sync -> Result<Int, DecodeError>
 
     /// Reads a boolean.
-    func read_bool(&var self) -> Result<Bool, DecodeError>
+    func read_bool(&var self) sync -> Result<Bool, DecodeError>
 
     /// Reads the null item.
-    func read_null(&var self) -> Result<Void, DecodeError>
+    func read_null(&var self) sync -> Result<Void, DecodeError>
 
     /// Reads a UTF-8 text string.
-    func read_text(&var self) -> Result<String, DecodeError>
+    func read_text(&var self) sync -> Result<String, DecodeError>
 
     /// Opens a byte string, returning how many bytes follow.
-    func begin_bytes(&var self) -> Result<Int, DecodeError>
+    func begin_bytes(&var self) sync -> Result<Int, DecodeError>
 
     /// Reads one byte of an open byte string.
-    func read_byte(&var self) -> Result<UInt8, DecodeError>
+    func read_byte(&var self) sync -> Result<UInt8, DecodeError>
 
     /// Opens an array, returning how many items follow.
-    func begin_array(&var self) -> Result<Int, DecodeError>
+    func begin_array(&var self) sync -> Result<Int, DecodeError>
 
     /// Opens a map, returning how many key/value pairs follow.
-    func begin_map(&var self) -> Result<Int, DecodeError>
+    func begin_map(&var self) sync -> Result<Int, DecodeError>
 
     /// Whether the next item is null, consuming nothing.
-    func at_null(&var self) -> Result<Bool, DecodeError>
+    func at_null(&var self) sync -> Result<Bool, DecodeError>
 
     /// The byte offset reached so far.
-    func offset(&self) -> Int
+    func offset(&self) sync -> Int
 
     /// Consumes the next item whatever it is, including its contents.
-    func skip(&var self) -> Result<Void, DecodeError>
+    func skip(&var self) sync -> Result<Void, DecodeError>
 
     /// Opens an array and checks it holds exactly `count` items.
     ///
     /// What a derived conformance reads: a struct is written as an array of
     /// known length, so a different length fails before any field is read.
-    func expect_array(&var self, count: Int) -> Result<Void, DecodeError> {
+    func expect_array(&var self, count: Int) sync -> Result<Void, DecodeError> {
         let n = try self.begin_array()
         if n != count {
             return DecodeError(offset: self.offset(), fault: DecodeFault.CountMismatch)
@@ -207,7 +207,7 @@ trait Decoder {
     /// How a value narrower than `Int` is read back. A narrowing cast would
     /// panic on an out-of-range value and malformed input must never panic, so
     /// the range is checked here and the cast that follows cannot trap.
-    func read_int_range(&var self, min: Int, max: Int) -> Result<Int, DecodeError> {
+    func read_int_range(&var self, min: Int, max: Int) sync -> Result<Int, DecodeError> {
         let v = try self.read_int()
         if v < min || v > max {
             return DecodeError(offset: self.offset(), fault: DecodeFault.OutOfRange)
@@ -219,7 +219,7 @@ trait Decoder {
     ///
     /// The unsigned twin of `read_int_range`, and what a raw-backed enum's tag
     /// is read through.
-    func read_uint_max(&var self, max: UInt) -> Result<UInt, DecodeError> {
+    func read_uint_max(&var self, max: UInt) sync -> Result<UInt, DecodeError> {
         let v = try self.read_uint()
         if v > max {
             return DecodeError(offset: self.offset(), fault: DecodeFault.OutOfRange)
@@ -244,7 +244,7 @@ trait Decoder {
 /// ```
 trait Serialize {
     /// Writes `self` into `to`.
-    func serialize(&self, to: &var any Encoder) -> Result<Void, EncodeError>
+    func serialize(&self, to: &var any Encoder) sync -> Result<Void, EncodeError>
 }
 
 /// A value that can read itself back out of any `Decoder`.
@@ -260,5 +260,5 @@ trait Serialize {
 /// bound, never an existential, the same rule the Copy family lives under.
 trait Deserialize {
     /// Reads a value of this type out of `from`.
-    func deserialize(from: &var any Decoder) -> Result<Self, DecodeError>
+    func deserialize(from: &var any Decoder) sync -> Result<Self, DecodeError>
 }

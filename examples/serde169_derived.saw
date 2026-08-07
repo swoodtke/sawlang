@@ -1,70 +1,91 @@
-// design 169 unit 1: the prelude Serialize/Deserialize pair over the
-// Encoder/Decoder seam. Both conformances are HAND-WRITTEN here — the point is
-// that the vocabulary works on its own, before any derivation exists. The
-// encoder writes into a sink it owns, and `deserialize` is a static method
-// returning `Self`, so it is called on the type.
+// design 169 unit 2: `@synthesize` derives `serialize`/`deserialize` structurally
+// — every stored field, in declaration order, as one array. The walk covers the
+// integer types, Bool, String, Optional, Vector, raw-backed enums, and any
+// nested type that conforms. Both directions are derived here; the tiny codec
+// below is just a sink to prove the round-trip.
 // EXPECT: success
 // EXPECT-OUTPUT:
-// encoded 11 bytes
-// port=443 secure=true name=api
+// kind=Release port=443 name=api tag=none
+// deps=2 first=toml/0.1.0
+// narrow=-7/200
+// unknown enum case rejected: 3
 
 import std.data.{Data}
 
-struct Endpoint {
-    port: Int
-    secure: Bool
+enum Track: UInt8 {
+    case Debug = 0,
+    case Release = 7
+}
+
+@synthesize
+extension Track: Serialize {}
+
+@synthesize
+extension Track: Deserialize {}
+
+struct Dep {
     name: String
+    version: String
 }
 
-extension Endpoint: Serialize {
-    func serialize(&self, to: &var any Encoder) sync -> Result<Void, EncodeError> {
-        try to.begin_array(3)
-        try to.write_int(self.port)
-        try to.write_bool(self.secure)
-        try to.write_text(self.name)
-        return
-    }
+@synthesize
+extension Dep: Serialize {}
+
+@synthesize
+extension Dep: Deserialize {}
+
+extension Dep: NoCopy {}
+
+struct Manifest {
+    kind: Track
+    port: Int
+    name: String
+    tag: String?
+    deps: Vector<Dep>
+    lo: Int8
+    hi: UInt8
 }
 
-extension Endpoint: Deserialize {
-    func deserialize(from: &var any Decoder) sync -> Result<Endpoint, DecodeError> {
-        try from.expect_array(3)
-        let port = try from.read_int()
-        let secure = try from.read_bool()
-        let name = try from.read_text()
-        return Endpoint(port: port, secure: secure, name: name)
-    }
-}
+@synthesize
+extension Manifest: Serialize {}
 
-// A deliberately tiny format: one tag byte per item, ints as one byte.
+@synthesize
+extension Manifest: Deserialize {}
+
+extension Manifest: NoCopy {}
+
+// ---------------------------------------------------------------- the sink
+
 static TAG_ARRAY: UInt8 = 1u8
 static TAG_INT: UInt8 = 2u8
 static TAG_TRUE: UInt8 = 3u8
 static TAG_FALSE: UInt8 = 4u8
 static TAG_TEXT: UInt8 = 5u8
+static TAG_NULL: UInt8 = 6u8
+static INT_BIAS: Int = 128
 
-struct ByteEncoder {
+struct MiniEncoder {
     out: Data
 }
 
-extension ByteEncoder {
-    public init() -> ByteEncoder { ByteEncoder(out: Data()) }
-    public func len(&self) -> Int { self.out.len() }
+extension MiniEncoder {
+    public init() -> MiniEncoder { MiniEncoder(out: Data()) }
     public func bytes(&self) -> Data { self.out.copy() }
 }
 
-extension ByteEncoder: Encoder {
+extension MiniEncoder: Encoder {
     func write_uint(&var self, v: UInt) sync -> Result<Void, EncodeError> {
         self.write_int(v as Int)
     }
 
     func write_int(&var self, v: Int) sync -> Result<Void, EncodeError> {
-        if v < 0 || v > 65535 {
+        if v < -INT_BIAS || v > 65535 {
             return EncodeError(fault: EncodeFault.Unsupported)
         }
+        let biased = v + INT_BIAS
         self.out.push(TAG_INT)
-        self.out.push(((v >> 8) & 255) as UInt8)
-        self.out.push((v & 255) as UInt8)
+        self.out.push(((biased >> 8) & 255) as UInt8)
+        self.out.push((biased & 255) as UInt8)
         return
     }
 
@@ -74,15 +95,16 @@ extension ByteEncoder: Encoder {
     }
 
     func write_null(&var self) sync -> Result<Void, EncodeError> {
-        return EncodeError(fault: EncodeFault.Unsupported)
+        self.out.push(TAG_NULL)
+        return
     }
 
     func write_text(&var self, v: String) sync -> Result<Void, EncodeError> {
-        self.out.push(TAG_TEXT)
         let bytes = v.to_data()
         if bytes.len() > 255 {
             return EncodeError(fault: EncodeFault.BufferFull)
         }
+        self.out.push(TAG_TEXT)
         self.out.push(bytes.len() as UInt8)
         var i = 0
         while i < bytes.len() {
@@ -101,6 +123,9 @@ extension ByteEncoder: Encoder {
     }
 
     func begin_array(&var self, count: Int) sync -> Result<Void, EncodeError> {
+        if count > 255 {
+            return EncodeError(fault: EncodeFault.BufferFull)
+        }
         self.out.push(TAG_ARRAY)
         self.out.push(count as UInt8)
         return
@@ -111,17 +136,15 @@ extension ByteEncoder: Encoder {
     }
 }
 
-extension ByteEncoder: NoCopy {}
+extension MiniEncoder: NoCopy {}
 
-struct ByteDecoder {
+struct MiniDecoder {
     input: Data
     pos: Int
 }
 
-extension ByteDecoder {
-    public init(input: Data) -> ByteDecoder {
-        ByteDecoder(input: move input, pos: 0)
-    }
+extension MiniDecoder {
+    public init(input: Data) -> MiniDecoder { MiniDecoder(input: move input, pos: 0) }
 
     func fault(&self, f: DecodeFault) sync -> DecodeError {
         DecodeError(offset: self.pos, fault: f)
@@ -136,6 +159,13 @@ extension ByteDecoder {
         return b
     }
 
+    func peek(&self) sync -> Result<UInt8, DecodeError> {
+        if self.pos >= self.input.len() {
+            return self.fault(DecodeFault.Truncated)
+        }
+        return self.input[self.pos]
+    }
+
     func expect_tag(&var self, tag: UInt8) sync -> Result<Void, DecodeError> {
         let b = try self.next()
         if b != tag {
@@ -145,9 +175,12 @@ extension ByteDecoder {
     }
 }
 
-extension ByteDecoder: Decoder {
+extension MiniDecoder: Decoder {
     func read_uint(&var self) sync -> Result<UInt, DecodeError> {
         let v = try self.read_int()
+        if v < 0 {
+            return self.fault(DecodeFault.OutOfRange)
+        }
         return v as UInt
     }
 
@@ -155,7 +188,7 @@ extension ByteDecoder: Decoder {
         try self.expect_tag(TAG_INT)
         let hi = try self.next()
         let lo = try self.next()
-        return ((hi as Int) << 8) | (lo as Int)
+        return (((hi as Int) << 8) | (lo as Int)) - INT_BIAS
     }
 
     func read_bool(&var self) sync -> Result<Bool, DecodeError> {
@@ -170,7 +203,8 @@ extension ByteDecoder: Decoder {
     }
 
     func read_null(&var self) sync -> Result<Void, DecodeError> {
-        return self.fault(DecodeFault.Unsupported)
+        try self.expect_tag(TAG_NULL)
+        return
     }
 
     func read_text(&var self) sync -> Result<String, DecodeError> {
@@ -205,7 +239,8 @@ extension ByteDecoder: Decoder {
     }
 
     func at_null(&var self) sync -> Result<Bool, DecodeError> {
-        return false
+        let b = try self.peek()
+        return b == TAG_NULL
     }
 
     func offset(&self) sync -> Int {
@@ -217,20 +252,51 @@ extension ByteDecoder: Decoder {
     }
 }
 
-extension ByteDecoder: NoCopy {}
+extension MiniDecoder: NoCopy {}
+
+func describe(c: Track) -> String {
+    match c {
+        case Debug -> "Debug",
+        case Release -> "Release"
+    }
+}
 
 func main() {
-    var enc = ByteEncoder()
-    let ep = Endpoint(port: 443, secure: true, name: "api")
+    var deps = Vector<Dep>()
+    deps.push(Dep(name: "toml", version: "0.1.0"))
+    deps.push(Dep(name: "semver", version: "2.0.0"))
 
-    match ep.serialize(to: &var enc) {
-        case Ok(_) -> print("encoded {} bytes", enc.len()),
+    let m = Manifest(kind: Track.Release, port: 443, name: "api", tag: None,
+                     deps: move deps, lo: -7i8, hi: 200u8)
+
+    var enc = MiniEncoder()
+    match m.serialize(to: &var enc) {
+        case Ok(_) -> {},
         case Err(e) -> print("encode failed: {}", e)
     }
 
-    var dec = ByteDecoder(input: enc.bytes())
-    match Endpoint.deserialize(from: &var dec) {
-        case Ok(back) -> print("port={} secure={} name={}", back.port, back.secure, back.name),
+    var dec = MiniDecoder(input: enc.bytes())
+    match Manifest.deserialize(from: &var dec) {
+        case Ok(back) -> {
+            let tag = back.tag ?? "none"
+            print("kind={} port={} name={} tag={}",
+                  describe(back.kind), back.port, back.name, tag)
+            // `Dep` is NoCopy, so the element is reached as a PLACE — the field
+            // read off it copies a String, which is free.
+            print("deps={} first={}/{}", back.deps.len(),
+                  back.deps[0].name, back.deps[0].version)
+            print("narrow={}/{}", back.lo, back.hi)
+        },
         case Err(e) -> print("decode failed: {}", e)
+    }
+
+    // A raw value no case carries is DATA, not a trap: it becomes a DecodeError
+    // naming the byte it was read at (design 145's `from(raw:)` is partial).
+    var bad = MiniEncoder()
+    let _ = bad.write_int(11)
+    var baddec = MiniDecoder(input: bad.bytes())
+    match Track.deserialize(from: &var baddec) {
+        case Ok(c) -> print("unexpectedly accepted {}", describe(c)),
+        case Err(e) -> print("unknown enum case rejected: {}", e.offset)
     }
 }

@@ -1488,6 +1488,66 @@ class RegistrationMixin:
                     stack.append(parent)
         return seen
 
+    @staticmethod
+    def _replace_self_type(t, concrete):
+        """Substitute `Self` for `concrete` throughout `t` (design 169).
+
+        `Deserialize` declares `-> Result<Self, DecodeError>`, so the derived
+        method's return type is the trait's own with one node swapped. Taking the
+        signature FROM THE TRAIT rather than rebuilding it by hand is what keeps
+        the derived method's type identical to the requirement it satisfies —
+        a hand-built `Result` would be a STRUCT-kinded parse shape that had never
+        been through type resolution.
+        """
+        if t is None:
+            return None
+        if t.kind == TypeKind.SELF:
+            return copy.deepcopy(concrete)
+        t.inner_type = RegistrationMixin._replace_self_type(t.inner_type, concrete)
+        if t.type_args:
+            t.type_args = [RegistrationMixin._replace_self_type(a, concrete)
+                           for a in t.type_args]
+        return t
+
+    def _serde_derived_signature(self, extension: Extension, trait_name: str,
+                                 method_name: str, is_enum: bool):
+        """A derived serde method with the trait's signature and an EMPTY body.
+
+        The body is filled by `_synthesize_serde_bodies` after every type is
+        registered; only the signature is needed now, so callers type-check and
+        the conformance check passes.
+        """
+        trait_info = self.get_trait_info(trait_name)
+        if trait_info is None:
+            return None
+        tmsym = trait_info.methods.get(method_name)
+        tm_ast = getattr(tmsym, 'ast_node', None) if tmsym else None
+        if tm_ast is None:
+            return None
+        concrete = SawType(TypeKind.ENUM, enum_name=extension.struct_name) \
+            if is_enum else SawType(TypeKind.STRUCT,
+                                    struct_name=extension.struct_name)
+        params = copy.deepcopy(tm_ast.parameters)
+        for p in params:
+            p.type = self._replace_self_type(p.type, concrete)
+        return Method(
+            name=method_name,
+            parameters=params,
+            return_type=self._replace_self_type(
+                copy.deepcopy(tm_ast.return_type), concrete),
+            body=Block(statements=[], final_expr=None,
+                       line=extension.line, column=extension.column),
+            is_init=False,
+            self_mutable=getattr(tm_ast, 'self_mutable', False),
+            self_is_reference=getattr(tm_ast, 'self_is_reference', True),
+            is_static=not any(p.name == "self" for p in params),
+            is_sync=getattr(tm_ast, 'is_sync', False),
+            type_params=[],
+            line=extension.line,
+            column=extension.column,
+            source_file=getattr(extension, 'source_file', None),
+        )
+
     def _synthesize_trait_defaults(self, extension: Extension, struct_info):
         """Synthesize per-conformer Methods for trait default bodies (design 56).
 
@@ -1982,6 +2042,36 @@ class RegistrationMixin:
                 ))
             self._derived_hash_types.add(extension.struct_name)
 
+        # Structural serialization (design 169). Only the SIGNATURE is minted
+        # here; the body is built by `_synthesize_serde_bodies` once every type
+        # is registered, because the field walk reads a nested type's
+        # conformance and an enum's raw backing. Enums come through this path
+        # too — Serialize/Deserialize are deliberately NOT in
+        # `_ENUM_DERIVABLE_TRAITS`, since unlike equals/compare/hash they mint a
+        # real method rather than being inlined at the call site.
+        for trait_name, method_name, flag in (
+                ("Serialize", "serialize", "is_derived_serialize"),
+                ("Deserialize", "deserialize", "is_derived_deserialize")):
+            if trait_name not in extension.conformances:
+                continue
+            has_method, already = self._derivation_slot(
+                extension, method_name, flag)
+            if has_method:
+                continue
+            self._demand_synthesize_marker(extension, trait_name, method_name)
+            derived_any = True
+            if already is None:
+                synth = self._serde_derived_signature(
+                    extension, trait_name, method_name, is_enum)
+                if synth is None:
+                    continue
+                setattr(synth, flag, True)
+                extension.methods.append(synth)
+            if trait_name == "Serialize":
+                self._derived_serialize_types.add(extension.struct_name)
+            else:
+                self._derived_deserialize_types.add(extension.struct_name)
+
         # A marker that derived nothing is a mistake worth naming: either the
         # conformance already has a hand-written body (so nothing is derived) or
         # the trait has no derivation at all (Printable, a user trait).
@@ -1992,8 +2082,9 @@ class RegistrationMixin:
                 f"nothing",
                 extension.line, extension.column,
                 hint="the derivable conformances are ImplicitCopy/ExplicitCopy "
-                     "(`copy`), Equatable (`equals`), Comparable (`compare`) and "
-                     "Hashable (`hash`), each with no hand-written body",
+                     "(`copy`), Equatable (`equals`), Comparable (`compare`), "
+                     "Hashable (`hash`), Serialize (`serialize`) and "
+                     "Deserialize (`deserialize`), each with no hand-written body",
                 source_file=getattr(extension, 'source_file', None)
             )
 
@@ -2224,7 +2315,9 @@ class RegistrationMixin:
                                  or getattr(method, 'is_derived_copy', False)
                                  or getattr(method, 'is_derived_equals', False)
                                  or getattr(method, 'is_derived_compare', False)
-                                 or getattr(method, 'is_derived_hash', False)),
+                                 or getattr(method, 'is_derived_hash', False)
+                                 or getattr(method, 'is_derived_serialize', False)
+                                 or getattr(method, 'is_derived_deserialize', False)),
                 ast_node=method,
                 decl_node=method
             )

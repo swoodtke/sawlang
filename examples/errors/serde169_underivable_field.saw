@@ -1,0 +1,23 @@
+// design 169 unit 2: the derived field walk covers the integer types, Bool,
+// String, Optional, Vector, raw-backed enums and any member that conforms. A
+// member outside that set is a clean error naming the FIELD and its type, with
+// the hand-written body as the way out — never a silently skipped field.
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: cannot derive `serialize` for `Config`: field `limits` of type `Map<String, Int>`
+
+struct Config {
+    name: String
+    limits: Map<String, Int>
+}
+
+@synthesize
+extension Config: Serialize {}
+
+extension Config: NoCopy {}
+
+func main() {
+    var m = Map<String, Int>()
+    m.insert("depth", 8)
+    let c = Config(name: "app", limits: move m)
+    print(c.name)
+}

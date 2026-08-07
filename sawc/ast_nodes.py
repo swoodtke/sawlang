@@ -1794,6 +1794,12 @@ class Method(ASTNode):
     is_derived_equals: bool = False  # True for a compiler-synthesized memberwise equals()
     is_derived_compare: bool = False  # True for a compiler-synthesized lexicographic compare() (design 48)
     is_derived_hash: bool = False  # True for a compiler-synthesized field-streaming hash() (design 48)
+    # Compiler-derived serialization (design 169). Unlike the four above, these
+    # two carry a real synthesized BODY (built in typechecker/serde.py once every
+    # type is registered) rather than an empty block codegen fills from the
+    # layout, so they are typechecked and lowered like any hand-written method.
+    is_derived_serialize: bool = False
+    is_derived_deserialize: bool = False
     is_sync: bool = False  # True for a `sync func` method (checked suspension-free)
     # `unsafe func` / `unsafe init` (design 130): this method touches an unsafe
     # type. Declared, never inferred — the trigger rule checks the declaration

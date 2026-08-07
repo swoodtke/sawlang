@@ -38,6 +38,7 @@ from .statements import StatementsMixin
 from .expressions import ExpressionsMixin
 from .effects import EffectsMixin
 from .places import PlacesMixin
+from .serde import SerdeMixin
 
 
 _BINDING_ID_COUNTER = itertools.count(1)
@@ -85,7 +86,7 @@ class Scope:
         return self.variables.get(name)
 
 
-class TypeChecker(ExpressionsMixin, StatementsMixin, RegistrationMixin, TypeUtilsMixin, EffectsMixin, PlacesMixin):
+class TypeChecker(ExpressionsMixin, StatementsMixin, RegistrationMixin, TypeUtilsMixin, EffectsMixin, PlacesMixin, SerdeMixin):
     """Type checks a Saw program."""
 
     def __init__(self, reporter: ErrorReporter, freestanding: bool = False,
@@ -190,6 +191,16 @@ class TypeChecker(ExpressionsMixin, StatementsMixin, RegistrationMixin, TypeUtil
         # rule), verified after all conformances are registered.
         self._comparable_types: set[str] = set()
         self._hashable_types: set[str] = set()
+        # Structs/enums whose serialize()/deserialize() are compiler-derived
+        # (design 169). Unlike the sets above these carry a real synthesized
+        # BODY, filled by `_synthesize_serde_bodies` once every type is
+        # registered — the field walk needs a nested type's conformance and an
+        # enum's raw backing, neither of which is known while the extension that
+        # triggers the derivation is being registered.
+        self._derived_serialize_types: set[str] = set()
+        self._derived_deserialize_types: set[str] = set()
+        # Body-unique counter for the names a synthesized serde body binds.
+        self._serde_tmp: int = 0
         # Track if we're inside a try-catch block (errors go to catch, not caller)
         self.in_try_catch_block: bool = False
 
@@ -1030,6 +1041,12 @@ class TypeChecker(ExpressionsMixin, StatementsMixin, RegistrationMixin, TypeUtil
         self._check_derivable_hash()
         self._check_ord_hash_require_equatable()
 
+        # design 169: fill in the bodies of derived serialize/deserialize. Here
+        # rather than at registration because the field walk reads a nested
+        # type's conformance and an enum's raw backing, and before body checking
+        # because what it builds is ordinary source the checker then sees.
+        self._synthesize_serde_bodies(program)
+
         # Register extern functions (FFI)
         for extern_block in program.extern_blocks:
             for extern_func in extern_block.functions:
@@ -1658,6 +1675,12 @@ class TypeChecker(ExpressionsMixin, StatementsMixin, RegistrationMixin, TypeUtil
         self._check_derivable_compare()
         self._check_derivable_hash()
         self._check_ord_hash_require_equatable()
+
+        # design 169: fill in the bodies of derived serialize/deserialize. Here
+        # rather than at registration because the field walk reads a nested
+        # type's conformance and an enum's raw backing, and before body checking
+        # because what it builds is ordinary source the checker then sees.
+        self._synthesize_serde_bodies(module_ast)
 
         # Register extern functions
         for extern_block in module_ast.extern_blocks:

@@ -656,18 +656,27 @@ v.map<String>({ $0.to_string() })   // the closure's return; explicit still wins
   Printable: hand-written `format` (no synthesis).
 - **SERIALIZATION (design 169): `Serialize` / `Deserialize` over `Encoder` /
   `Decoder`.** Prelude-visible, both profiles. A value writes itself into a
-  format-agnostic sink and reads itself back out of one:
+  format-agnostic sink and reads itself back out of one. `@synthesize` DERIVES
+  both directions — every stored field, declaration order, as one array:
   ```saw
-  extension Endpoint: Serialize {
-      func serialize(&self, to: &var any Encoder) -> Result<Void, EncodeError> {
-          try to.begin_array(2)
-          try to.write_int(self.port)
-          try to.write_text(self.name)
-          return
-      }
-  }
+  @synthesize
+  extension Endpoint: Serialize {}
+  @synthesize
+  extension Endpoint: Deserialize {}
+
+  try ep.serialize(to: &var enc)
   let back = try Endpoint.deserialize(from: &var dec)   // STATIC — on the TYPE
   ```
+  The walk covers the integer types, Bool, String, Optional (absent -> null),
+  Vector, RAW-BACKED enums (out via the raw value, back via the partial
+  `from(raw:)`; an unknown value is `UnknownCase`, never a trap) and any member
+  that itself conforms. Anything else is a clean error NAMING THE FIELD — write
+  the body by hand. An enum with no raw backing is refused (its cases have no
+  wire values). Hand-written bodies are the escape hatch for invariant-carrying
+  types, exactly as with the rest of the family.
+  EVERY serde signature is `sync` — serialization writes into a buffer, so it
+  works inside a place window, under a SpinLock, and in a kernel. Do I/O on the
+  buffer afterwards, not inside `serialize`.
   `deserialize` is a STATIC requirement returning `Self`, so `Deserialize` is a
   generic BOUND and never an `any Deserialize` (a static requirement has no
   receiver to dispatch on — clean error where you write the existential).
