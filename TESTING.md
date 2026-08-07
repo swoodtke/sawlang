@@ -8,26 +8,30 @@ The Saw language compiler includes an automated test runner that validates both 
 
 ### Quick Start
 
+The compiler needs `llvmlite`, which lives in the project virtualenv. The
+Makefile calls bare `python3`, so `make test` needs that venv activated first;
+invoking the runner through `./.venv/bin/python` never does.
+
 ```bash
-# Run all tests
+# Run all tests (venv activated)
 make test
 
-# Or directly:
-python3 test_runner.py
+# Or directly, with no activation needed:
+./.venv/bin/python test_runner.py
 
 # Verbose output (shows all passed tests)
 make test-verbose
-python3 test_runner.py -v
+./.venv/bin/python test_runner.py -v
 
 # Run only tests matching a pattern
 make test-filter FILTER=enum
-python3 test_runner.py -f enum
+./.venv/bin/python test_runner.py -f enum
 
 # Multiple patterns: repeat -f or comma-separate (a test runs if ANY matches)
-python3 test_runner.py -f enum,arrays -f closures
+./.venv/bin/python test_runner.py -f enum,arrays -f closures
 
 # -v also shows the underlying failure detail for xfail tests
-python3 test_runner.py -v -f some_xfail_test
+./.venv/bin/python test_runner.py -v -f some_xfail_test
 ```
 
 ### Test Results
@@ -36,7 +40,7 @@ python3 test_runner.py -v -f some_xfail_test
 - ✗ **Red X**: Test failed
 - x **Yellow x**: Known failure, marked `// XFAIL:` (does not break the build)
 - ! **Red bang**: Marked `// XFAIL:` but passed — stale marker, breaks the build
-- Summary shows the tally, e.g. `196 passed, 1 xfailed`
+- Summary shows the tally, e.g. `1341 passed`
 
 ## Writing Tests
 
@@ -75,15 +79,29 @@ func main() {
 
 ### Directive Reference
 
+One `EXPECT:` mode picks what a verdict means:
+
 | Directive | Description |
 |-----------|-------------|
 | `// EXPECT: success` | Test should compile and run successfully |
 | `// EXPECT: error` | Test should fail during compilation |
 | `// EXPECT: panic` | Test should compile but panic at runtime |
+| `// EXPECT: object` | Compile to an object file; no run (freestanding, `-c`) |
+| `// EXPECT: docs` | Compile with `--emit-docs`; the JSON is the output checked |
 | `// EXPECT: skip` | Skip the file entirely (library modules, not tests) |
+
+The rest constrain what the run must show:
+
+| Directive | Description |
+|-----------|-------------|
 | `// EXPECT-OUTPUT:` | Lines following are expected stdout (one line per `//`) |
 | `// EXPECT-ERROR-CONTAINS: text` | Error message must contain "text" |
 | `// EXPECT-PANIC-CONTAINS: text` | Panic message must contain "text" |
+| `// EXPECT-WARNING-CONTAINS: text` | A warning must contain "text" (warnings ride the SUCCESS path and never change the exit code, so they need their own directive) |
+| `// EXPECT-NO-WARNINGS` | The compile must emit no warning at all |
+| `// EXPECT-SYMBOL-UNDEFINED: sym` | `nm` must report `sym` as undefined in the object |
+| `// EXPECT-OBJECT-MAX-BYTES: n` | The emitted object must be at most `n` bytes |
+| `// COMPILE-FLAGS: ...` | Extra `sawc` flags for this test; `{TESTDIR}` expands to the file's directory |
 | `// XFAIL: reason` | Known-broken test: failure is expected, does not break the build |
 
 ### Known Failures (XFAIL)
@@ -140,7 +158,7 @@ struct Point {
 }
 
 extension Point {
-    func distance(self) -> Int {
+    func distance(&self) -> Int {
         self.x + self.y
     }
 }
@@ -307,7 +325,8 @@ When a test fails, the runner shows:
 
 To debug:
 
-1. Compile manually: `./sawc/sawc.py examples/extension_simple.saw -o test_binary`
+1. Compile manually:
+   `./.venv/bin/python sawc/sawc.py examples/extension_simple.saw -o test_binary`
 2. Run: `./test_binary`
 3. Compare output with expected
 4. Fix code or update test expectations
@@ -321,20 +340,23 @@ To debug:
 
 ## Current Test Coverage
 
-Run `python3 test_runner.py` to see the current test count (it grows as
-features land). The suite mixes:
+Run `./.venv/bin/python test_runner.py` to see the current test count (it grows
+as features land). The suite mixes:
 
 - **Success tests**: Examples that compile and run
 - **Error tests**: Examples that should fail compilation
 - **Panic tests**: Examples that compile but abort at runtime
 - All tests validate output or error messages
 
-The suite is expected to run fully green (zero red failures, zero XPASS) on
-every commit. Yellow `xfail` tests are expected and deliberate: they are the
-project's **tech-debt ledger** (see `designs/12-tech-debt-xfail-suite.md`) —
-each one encodes a known, reproducible correctness gap. Fixing one flips it
-to XPASS and breaks the build until its marker is removed, so the ledger
-can't silently rot.
+**Zero xfails is the bar**, and `examples/` currently holds none: the suite runs
+fully green on every commit, with no red failures, no XPASS, and nothing yellow.
+
+The `XFAIL:` mechanism stays for the case it was built for (see
+`designs/12-tech-debt-xfail-suite.md`): a brief that parks a known, reproducible
+correctness gap marks it rather than deleting the test, and the ledger is
+expected to be emptied again before the brief closes. Fixing one flips it to
+XPASS and breaks the build until its marker is removed, so a marker cannot
+silently outlive the bug.
 
 ## Application-Level Testing with `blade test`
 
@@ -356,22 +378,32 @@ process. `blade test`:
    test failed (so CI fails the build).
 
 ```saw
-// tests/toml_parsing.saw
-import src.toml
+// libs/toml/tests/toml_parsing.saw (abridged)
+import src.lib.*
 
 func main() {
-    match toml.TomlDoc.parse("[package]\nname = \"demo\"\n") {
+    match TomlDoc.parse("[package]\nname = \"demo\"\n") {
         case Ok(doc) -> {
-            guard let pkg = doc.get_section("package") else {
+            guard let pkg = doc.index_of("package") else {
                 panic("expected a [package] section")
             }
-            assert((pkg.get("name") ?? "").equals("demo"), "name should be demo")
+            assert((doc.section_at(pkg).get("name") ?? "").equals("demo"),
+                   "name should be demo")
+
+            // The named place reads the same section without the index.
+            assert((doc.section("package")!.get("name") ?? "").equals("demo"),
+                   "named place should read the same value")
             print("toml_parsing: ok")
         },
         case Err(e) -> panic("parse failed: {e.message}")
     }
 }
 ```
+
+`TomlSection` is `NoCopy`, so `section`/`section_at` are `borrows` accessors
+that lend the section where it sits rather than handing one back. An index plus
+`section_at` is what survives when several reads share one lookup, since a place
+window is a single expression.
 
 ```bash
 blade test
