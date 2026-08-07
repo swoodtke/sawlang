@@ -468,6 +468,11 @@ def _build_shared(arch, clang):
     """
     dirs = arch_dirs(arch)
     build = dirs["build"]
+    # Ensure our own output directory rather than relying on the tool probe
+    # having made it: a cold tree with `SOS_CLANG` set skips that probe path
+    # entirely, and a build step should not depend on a search for its side
+    # effects.
+    os.makedirs(build, exist_ok=True)
     boot_o = os.path.join(build, "boot.o")
     sink_o = os.path.join(build, "sink.o")
     support_o = os.path.join(build, "support.o")
@@ -548,6 +553,7 @@ def _stitch_root_image(image, arch, clang):
     root image the case asked for.
     """
     dirs = arch_dirs(arch)
+    os.makedirs(dirs["build"], exist_ok=True)
     staged = os.path.join(dirs["build"], "root.sosimg")
     shutil.copyfile(image, staged)
     stub_o = os.path.join(dirs["build"], "rootimg.o")
@@ -566,6 +572,7 @@ def _build_elf(case, arch, shared_objs, lld, clang):
     that carries the root sosimg.
     """
     dirs = arch_dirs(arch)
+    os.makedirs(dirs["build"], exist_ok=True)
     name = case["name"]
     obj = os.path.join(dirs["build"], f"{name}.o")
     elf = os.path.join(dirs["build"], f"{name}.elf")
