@@ -1,0 +1,10 @@
+{
+  "diagnostic": "[1, 2, 3]",
+  "hex": "83010203",
+  "name": "array_ints",
+  "value": [
+    1,
+    2,
+    3
+  ]
+}

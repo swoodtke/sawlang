@@ -1,0 +1,11 @@
+{
+  "diagnostic": "[1, \"two\", true, null]",
+  "hex": "84016374776ff5f6",
+  "name": "array_mixed",
+  "value": [
+    1,
+    "two",
+    true,
+    null
+  ]
+}

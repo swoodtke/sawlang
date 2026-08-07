@@ -1,0 +1,10 @@
+{
+  "diagnostic": "[443, true, \"api\"]",
+  "hex": "831901bbf563617069",
+  "name": "struct_endpoint",
+  "value": [
+    443,
+    true,
+    "api"
+  ]
+}

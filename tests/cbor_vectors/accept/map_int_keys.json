@@ -1,0 +1,17 @@
+{
+  "diagnostic": "{1: \"one\", 2: \"two\"}",
+  "hex": "a201636f6e65026374776f",
+  "name": "map_int_keys",
+  "value": {
+    "__map__": [
+      [
+        1,
+        "one"
+      ],
+      [
+        2,
+        "two"
+      ]
+    ]
+  }
+}

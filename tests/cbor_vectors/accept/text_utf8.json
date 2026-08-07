@@ -1,0 +1,6 @@
+{
+  "diagnostic": "\"caf\\u00e9 \\u2014 \\ud83d\\ude00\"",
+  "hex": "6e636166c3a920e2809420f09f9880",
+  "name": "text_utf8",
+  "value": "caf\u00e9 \u2014 \ud83d\ude00"
+}

@@ -1,0 +1,12 @@
+{
+  "diagnostic": "[\"toml\", \"0.1.0\", \"path\", \"libs/toml\", \"\"]",
+  "hex": "8564746f6d6c65302e312e306470617468696c6962732f746f6d6c60",
+  "name": "lock_entry",
+  "value": [
+    "toml",
+    "0.1.0",
+    "path",
+    "libs/toml",
+    ""
+  ]
+}

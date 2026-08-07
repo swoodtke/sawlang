@@ -1,0 +1,5 @@
+{
+  "fault": "TrailingBytes",
+  "hex": "0102",
+  "name": "trailing_bytes"
+}

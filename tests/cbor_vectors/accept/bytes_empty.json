@@ -1,0 +1,8 @@
+{
+  "diagnostic": "h''",
+  "hex": "40",
+  "name": "bytes_empty",
+  "value": {
+    "__bytes__": ""
+  }
+}

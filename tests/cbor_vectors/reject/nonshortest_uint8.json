@@ -1,0 +1,5 @@
+{
+  "fault": "NotCanonical",
+  "hex": "1817",
+  "name": "nonshortest_uint8"
+}

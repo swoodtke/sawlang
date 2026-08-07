@@ -1,0 +1,14 @@
+{
+  "diagnostic": "[\"saw\", [1, 2, 3], null]",
+  "hex": "836373617783010203f6",
+  "name": "struct_nested",
+  "value": [
+    "saw",
+    [
+      1,
+      2,
+      3
+    ],
+    null
+  ]
+}

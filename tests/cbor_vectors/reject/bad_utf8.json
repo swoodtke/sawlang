@@ -1,0 +1,5 @@
+{
+  "fault": "Malformed",
+  "hex": "62fffe",
+  "name": "bad_utf8"
+}
