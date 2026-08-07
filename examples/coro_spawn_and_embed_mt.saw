@@ -1,0 +1,34 @@
+// DF-138a in a MULTI-THREADED group. The Send gate (design 75) is asked about
+// the ROOT FUNCTION's own frame — its params, its across-suspend locals, its
+// result type — whichever frame the spawn helper ends up boxing, so a dual-role
+// root is gated exactly as a single-role one is and the trampoline (which
+// mirrors those params) hides nothing.
+//
+// Asserted on a SUM, never on interleaving.
+// EXPECT: success
+// EXPECT-OUTPUT:
+// 120
+
+import std.task.*
+
+func leaf(n: Int) -> Int {
+    yield_now()
+    n * 10
+}
+
+func caller(n: Int) -> Int {
+    return leaf(n)
+}
+
+func main() {
+    var group = TaskGroup(threads: 2)
+    var sum = 0
+    var i = 0
+    while i < 4 {
+        let d = group.spawn(leaf(i))
+        let c = group.spawn(caller(i))
+        sum = sum + d.join() + c.join()
+        i = i + 1
+    }
+    print(sum)    // 2 * 10 * (0 + 1 + 2 + 3)
+}

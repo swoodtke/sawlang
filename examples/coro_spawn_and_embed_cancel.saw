@@ -1,0 +1,41 @@
+// DF-138a and cooperative cancellation. A spawn root reads its cancel word out
+// of the group-owned cell; an embedded sub-frame reads its own `__cancel`, which
+// its parent copies down at every drive (design 102). A dual-role function is on
+// both paths at once, so the trampoline frame has to be a faithful link in that
+// chain: it reads the cell and copies down to `leaf`, exactly as any other
+// parent would.
+//
+// Both tasks are cancelled before either runs, so both observe it at their first
+// check and return through their own control flow.
+// EXPECT: success
+// EXPECT-OUTPUT:
+// 101
+// 107
+
+import std.task.*
+
+func leaf(base: Int) -> Int {
+    var i = 0
+    while i < 1000000 {
+        if cancelled() {
+            return base + 100
+        }
+        yield_now()
+        i = i + 1
+    }
+    return base
+}
+
+func caller() -> Int {
+    return leaf(7)
+}
+
+func main() {
+    var group = TaskGroup()
+    let a = group.spawn(leaf(1))     // cancel reaches leaf through the cell
+    let b = group.spawn(caller())    // and here through caller's copy-down
+    a.cancel()
+    b.cancel()
+    print(a.join())
+    print(b.join())
+}

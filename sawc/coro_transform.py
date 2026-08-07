@@ -4588,7 +4588,7 @@ def _check_spawn_frame_send(fb: _FrameBuilder, fbs, typechecker):
             fb.func.line, fb.func.column, source_file=fb.src_file)
 
 
-def _make_spawn_helper(fb: _FrameBuilder, fbs):
+def _make_spawn_helper(fb: _FrameBuilder, fbs, helper_name=None):
     """Synthesize `__spawn_<f>(__group, <params>) -> TaskHandle<T>`.
 
     Allocate the task's CELL first (design 134), take the raw pointers to its
@@ -4615,10 +4615,15 @@ def _make_spawn_helper(fb: _FrameBuilder, fbs):
     inside its box in the group's queue (the fat pointer's data word never moves).
     The frame is a spawn root, so its result is opt-encoded — `result_ptr` is
     `UnsafePointer<T?>` uniformly, and `join` takes it with `Optional.take`.
+
+    `helper_name` overrides the emitted name. It is set when `fb` is a
+    DF-138a spawn-root trampoline (`f$spawnroot`), whose frame the helper boxes
+    while the call sites still say `__spawn_f` — see `_make_spawn_trampoline`.
     """
     from ast_nodes import StructInit
     T = fb.ret
     params = fb.params
+    helper_name = helper_name or f"__spawn_{fb.name}"
 
     cell_ptr = _cell_ptr_type(fb)
     # design 102 item 1: a `Void` task has no result slot, so its cell is the
@@ -4704,7 +4709,7 @@ def _make_spawn_helper(fb: _FrameBuilder, fbs):
         ret_type = SawType(TypeKind.STRUCT, struct_name="VoidTaskHandle")
         helper_params = [Parameter(name="__group", type=tg_ptr)] + \
                         [Parameter(name=p.name, type=p.type) for p in params]
-        return Function(name=f"__spawn_{fb.name}", parameters=helper_params,
+        return Function(name=helper_name, parameters=helper_params,
                         return_type=ret_type,
                         body=Block(statements=stmts, final_expr=handle),
                         is_synthesized=True,
@@ -4719,11 +4724,68 @@ def _make_spawn_helper(fb: _FrameBuilder, fbs):
     ret_type = SawType(TypeKind.STRUCT, struct_name="TaskHandle", type_args=[T])
     helper_params = [Parameter(name="__group", type=tg_ptr)] + \
                     [Parameter(name=p.name, type=p.type) for p in params]
-    return Function(name=f"__spawn_{fb.name}", parameters=helper_params,
+    return Function(name=helper_name, parameters=helper_params,
                     return_type=ret_type,
                     body=Block(statements=stmts, final_expr=handle),
                     is_synthesized=True,
                     source_file=getattr(fb.func, 'source_file', ""))
+
+
+def _make_spawn_trampoline(func, root_name):
+    """DF-138a: the frame that lets ONE function serve BOTH task roles.
+
+    A spawn root and a driven-or-embedded frame are two different protocols. A
+    spawn root keeps its result and its cancel word in the group-owned CELL it
+    reaches through `__cellp` (design 134), so the frame box can be released the
+    instant the task completes; a driven root and an embedded sub-frame keep
+    both IN the frame (`__result`/`__cancel`), because a sub-frame is copied its
+    root's cancel word at every drive and hands its result up to its parent.
+    One function means one `__Frame_<f>`, so a function that is spawned AND
+    either driven in place or embedded as another frame's sub-frame cannot have
+    a single layout serve both roles: the embedded instance would have no
+    `__cancel` field to receive the copy and would write its result through a
+    `__cellp` that points at nothing.
+
+    Design 134 dodged this by rejecting the `__saw_drive`+spawn overlap, and the
+    spawn+embed overlap was simply never considered — it crashed the second
+    typecheck with a `None` field value (DF-138a). Rather than carry two layouts
+    for one body, give the SPAWN role a frame of its very own:
+
+        func f$spawnroot(<params of f>) -> T { return f(<params>) }
+
+    `f$spawnroot` is the spawn root, so ITS frame carries `__cellp`; its single
+    statement is the ordinary `return g(args)` tail the transform already lowers,
+    which embeds `f`'s own `__Frame_f` as a sub-frame in the driven flavour —
+    the same shape every other embedded callee has. The cancel word propagates
+    down the chain and the result threads back up through the existing
+    machinery, so neither protocol grows a special case and `f` keeps exactly
+    one frame no matter how many other roles it plays.
+
+    Built ONLY for a function that really has both roles. A spawn-only root is
+    its own spawn frame as before and pays nothing — not a field, not a hop."""
+    # Fresh `Parameter`s, not the originals: a frame builder renames what it owns,
+    # and `f`'s own builder is looking at the same list. The spawn gates anchor at
+    # `f`'s builder, so these carry no source position and owe none.
+    params = [Parameter(name=p.name, type=p.type, is_reference=p.is_reference,
+                        reference_mutable=p.reference_mutable)
+              for p in func.parameters]
+    call = FunctionCall(
+        name=root_name,
+        arguments=[Argument(name=None, value=_frame_param_arg(p)) for p in params],
+        line=func.line, column=func.column)
+    ret = func.return_type or SawType(TypeKind.VOID)
+    # A `Void` body has no result to thread, so the bare-call form is the tail
+    # (`return <void call>` is not a shape the classifier owes support for).
+    if ret.kind == TypeKind.VOID:
+        tail = ExpressionStatement(expression=call, line=func.line, column=func.column)
+    else:
+        tail = ReturnStatement(value=call, line=func.line, column=func.column)
+    return Function(name=f"{root_name}$spawnroot", parameters=params,
+                    return_type=func.return_type,
+                    body=Block(statements=[tail], final_expr=None),
+                    is_synthesized=True,
+                    line=func.line, column=func.column,
+                    source_file=getattr(func, 'source_file', ""))
 
 
 def _rewrite_spawn_sites(node):
@@ -4862,6 +4924,30 @@ def _iter_method_calls(node):
                 yield from _iter_method_calls(v.value)
             elif isinstance(v, ASTNode):
                 yield from _iter_method_calls(v)
+
+
+def _iter_function_calls(node):
+    """Yield every FunctionCall node in an AST subtree. Used to find which spawn
+    roots a body could also EMBED as a sub-frame (DF-138a): a suspending callee
+    reaches `_collect_calls` only from a call written somewhere in the body, so
+    this is a safe over-approximation of the embedded set — and an exact one in
+    practice, since a suspending call the classifier cannot place is rejected
+    rather than dropped."""
+    if isinstance(node, FunctionCall):
+        yield node
+    if isinstance(node, ASTNode):
+        for f in structural_fields(node):
+            v = getattr(node, f.name)
+            if isinstance(v, (list, tuple)):
+                for x in v:
+                    if isinstance(x, Argument):
+                        yield from _iter_function_calls(x.value)
+                    elif isinstance(x, ASTNode):
+                        yield from _iter_function_calls(x)
+            elif isinstance(v, Argument):
+                yield from _iter_function_calls(v.value)
+            elif isinstance(v, ASTNode):
+                yield from _iter_function_calls(v)
 
 
 def _inline_static_refs(val, const_statics):
@@ -5287,19 +5373,31 @@ def transform_program(program, typechecker, imported_ast=None):
     # Phase 1: build every frame's layout (so a caller can embed a callee frame
     # by value). Phase 2: generate every resume state machine.
     suspends_set = set(closure)
-    # design 134: a function that is BOTH `__saw_drive`n and spawned would need one
-    # frame layout to serve two protocols (a frame-resident result for the driver,
-    # a group-owned cell for the spawn). `__saw_drive` is a compiler-internal test
-    # intrinsic, so reject the overlap rather than carry two layouts.
-    for n in spawn_roots:
-        if n in roots:
-            f = funcs_by_name[n]
-            raise CoroTransformError(
-                f"`{n}` is both `__saw_drive`n and spawned into a `TaskGroup`; a "
-                f"task body belongs to one driver or the other", f.line, f.column,
-                source_file=getattr(f, 'source_file', None))
+    # DF-138a: which spawn roots ALSO play a non-spawn role — driven in place by
+    # `__saw_drive`, or embedded as some other frame's sub-frame? Those two roles
+    # want the frame-resident `__result`/`__cancel` layout; a spawn root wants the
+    # group-owned cell it reaches through `__cellp`. One `__Frame_<f>` cannot be
+    # both, so a dual-role function keeps the DRIVEN layout here and its spawn
+    # role gets a trampoline frame of its own (`_make_spawn_trampoline`). Design
+    # 134 rejected the `__saw_drive` half of this and never saw the embed half,
+    # which crashed the transform's output on the second typecheck.
+    #
+    # The embedded set is read off the bodies the transform is about to lower.
+    # `_rewrite_spawn_sites` already turned every `group.spawn(f(...))` into a
+    # `__spawn_f(...)` call, so a spawn SITE never counts as an embedding.
+    dual_role_spawn_roots = set()
+    if spawn_roots:
+        _role_bodies = [funcs_by_name[n].body for n in closure]
+        _role_bodies += [m.body for (_s, m, _e) in method_closure.values()
+                         if getattr(m, 'body', None) is not None]
+        for _b in _role_bodies:
+            for _fc in _iter_function_calls(_b):
+                if _fc.name in spawn_roots:
+                    dual_role_spawn_roots.add(_fc.name)
+        dual_role_spawn_roots.update(n for n in spawn_roots if n in roots)
     fbs = {n: _FrameBuilder(funcs_by_name[n], tc=typechecker,
-                            is_spawn_root=(n in spawn_roots))
+                            is_spawn_root=(n in spawn_roots
+                                           and n not in dual_role_spawn_roots))
            for n in closure}
     # design 84: frame builders for nested suspending method callees, keyed by
     # the resolved-signature frame key (design 95, matching `_FrameBuilder.name`)
@@ -5332,12 +5430,29 @@ def transform_program(program, typechecker, imported_ast=None):
         new_structs.append(fbs[n].prepare(suspends_set))
     for fbkey, _ext, _mast in nested_method_fbs:
         new_structs.append(fbs[fbkey].prepare(suspends_set))
+    # DF-138a: the spawn-side frame for each root. A single-role root IS its own
+    # spawn frame; a dual-role one gets the `f$spawnroot` trampoline whose sole
+    # statement embeds `__Frame_f` as a sub-frame. `spawn_roots` is a dict in
+    # registration (source) order, so the emission order is deterministic.
+    spawn_fbs = {}
+    for n in spawn_roots:
+        if n not in dual_role_spawn_roots:
+            spawn_fbs[n] = fbs[n]
+            continue
+        tfb = _FrameBuilder(_make_spawn_trampoline(funcs_by_name[n], n),
+                            tc=typechecker, is_spawn_root=True)
+        spawn_fbs[n] = tfb
+        new_structs.append(tfb.prepare(suspends_set))
     for n in closure:
         _, resume_ext = fbs[n].build_resume(fbs)
         new_extensions.append(resume_ext)
     for fbkey, _ext, _mast in nested_method_fbs:
         _, resume_ext = fbs[fbkey].build_resume(fbs)
         new_extensions.append(resume_ext)
+    for n in spawn_roots:
+        if n in dual_role_spawn_roots:
+            _, resume_ext = spawn_fbs[n].build_resume(fbs)
+            new_extensions.append(resume_ext)
     for root_name, modes in roots.items():
         # `modes` is a SET (`_effect_record_driven`), so iterating it directly
         # puts per-process string-hash order into the order the `__saw_drive_*`
@@ -5359,7 +5474,12 @@ def transform_program(program, typechecker, imported_ast=None):
         # threads between suspensions — gate every across-suspend live value on Send.
         if root_name in mt_spawn_roots:
             _check_spawn_frame_send(fbs[root_name], fbs, typechecker)
-        new_functions.append(_make_spawn_helper(fbs[root_name], fbs))
+        # DF-138a: both gates above run against the ROOT FUNCTION's own builder —
+        # its params, its across-suspend locals, its result type, anchored at its
+        # source — whichever frame the helper ends up boxing. The trampoline
+        # mirrors those params exactly, so nothing escapes the check.
+        new_functions.append(_make_spawn_helper(
+            spawn_fbs[root_name], fbs, helper_name=f"__spawn_{root_name}"))
         removed.add(root_name)
     removed.update(closure)
     if main_suspends:

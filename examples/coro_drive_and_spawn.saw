@@ -1,0 +1,40 @@
+// DF-138a: one function in ALL THREE task roles at once — driven in place by
+// `__saw_drive`, spawned as a task root, and embedded as another task's
+// sub-frame. Each role works alone; carrying all three at once is what design
+// 134 declared impossible, because a spawn root reaches its result and cancel
+// word through the group-owned cell (`__cellp`) while a driven root and an
+// embedded sub-frame keep both in the frame.
+//
+// The spawn role now gets a frame of its own (`work$spawnroot`, whose one
+// statement embeds `__Frame_work` as a sub-frame), so `work` keeps a single
+// driven-flavour frame that both of its other roles share. This file replaced
+// `coro_drive_and_spawn_rejected.saw`: the overlap was a compiler limitation,
+// never a language rule, and a helper spawned directly in one place and called
+// from a task body in another is ordinary code.
+// EXPECT: success
+// EXPECT-OUTPUT:
+// 6
+// 8
+// 20
+
+import std.task.*
+
+func work(n: Int) -> Int {
+    yield_now()
+    n * 2
+}
+
+func relay() -> Int {
+    let inner = work(4)      // work embedded as relay's sub-frame
+    return inner + 12
+}
+
+func main() {
+    let a = __saw_drive(work(3))     // driven in place
+    var group = TaskGroup()
+    let h = group.spawn(work(4))     // spawned as a task root
+    let r = group.spawn(relay())     // and embedded below another root
+    print(a)              // 6
+    print(h.join())       // 8
+    print(r.join())       // 8 + 12
+}
