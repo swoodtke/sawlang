@@ -2381,35 +2381,121 @@ statement dropped its `Result` with no diagnostic.
   contradiction.
   Two findings came OUT of this unit — DF-151j (tuple-element mutation is a
   silent no-op) and DF-151k (`type_satisfies_copy_bound` has no wrapper arms).
-- **DF-151j — FILED, NOT FIXED (codegen; found while fixing DF-151i, Aug 7).**
-  **A `&var self` method called on a TUPLE ELEMENT mutates a copy — the write is
-  a silent no-op.** The same call on a struct FIELD works, which is what makes
-  this a bug rather than a rule:
+- **DF-151j — FIXED (Aug 7, three units).** **A tuple index is now a PLACE on
+  the write side, uniform with a struct field.** Filed as "a `&var self` method
+  on a tuple element mutates a copy"; the audit the finding asked for confirmed
+  the hole was the whole write side, not one receiver path.
+  Three spellings of one write gave three different answers, and the one that
+  compiled was the one that lied: `t.0 = fresh` and `t.0 += 1` were refused by
+  the PARSER (a tuple index was not in the assignable-target list), `pair.x = v`
+  died in the typechecker on "cannot access field on non-struct type", and
+  `t.0.push(99)` / `t.0.n = 42` compiled to a write into a temporary that died
+  at the end of the statement. Design 161 had made the projection READ
+  correctly, which is what left the asymmetry visible.
+  - **Unit A (540c815) — the address arm.** `_get_lvalue_pointer` and the
+    `is_mutable_self` receiver chain in `_generate_method_call` both dispatched
+    on node shape with a `MemberAccess` arm and no `TupleIndex` one, so a tuple
+    receiver fell to the materialize-a-temporary fallback. A tuple lowers to an
+    LLVM literal struct, so an element slot is the same two-index GEP a field
+    takes; `_tuple_slot_pointer` composes it through `_get_lvalue_pointer`, so
+    `t.0`, `h.pair.0`, `a[i].0` and a coroutine frame's `self.t!.0` all address
+    real storage. Named-tuple `pair.x` needed its own arm in
+    `_get_member_pointer`: it is a MemberAccess carrying `tuple_field_index`,
+    and the `struct_types` lookup there has no entry for an anonymous literal
+    struct — worse, its string-comparison fallback could match a user struct of
+    identical layout and GEP by ITS field order. Also `_atomic_cell_pointer`
+    and `_is_chain_lvalue`.
+  - **Unit B (5e54df2) — assignment.** Parser admits the target; the
+    typechecker grew a `TupleIndex` arm plus a tuple-base branch on the
+    MemberAccess arm for the named spelling, both routed through one
+    `_check_tuple_element_assign` (transfer checkpoint against the ELEMENT's
+    type, so an ExplicitCopy/NoCopy RHS must `move`/`.copy()`); codegen's
+    `_store_into_tuple_slot` mirrors the field path step for step, so the
+    overwritten element's drop glue runs BEFORE the store and it deinits
+    exactly once.
+  - **Unit C (c597d80) — `&var t.0`.** `_is_lvalue` gained the node and
+    `_generate_reference_expr` lends the element GEP instead of spilling a copy.
+  **Mutability and exclusivity both landed on the STRUCT-FIELD answer, which was
+  the decision this brief actually had to make.** Mutability is the root's: the
+  immutable-root walk now hops a tuple index, so `let t = (v, 7)` rejects every
+  shape above with the message `let h` then `h.v.push(x)` already gave. That
+  walk also replaced the compound-assign path's ad-hoc "is the base an
+  Identifier" test, which any hop at all had defeated — so `p.inner.x += 1` on a
+  `let` root is checked now too, and agrees with `p.inner.x = v`.
+  Exclusivity is PATH-precise, charged at the ELEMENT and not the tuple root:
+  `f(&var t.0, &t.1)` compiles, `f(&var t.0, &t.0)` is the violation naming
+  `t.0`. No code implements that — `_build_access_path` already recorded a
+  `('tuple', i)` projection and `_paths_overlap` already told two indices apart;
+  nothing could reach it because the operand was rejected as a non-lvalue first.
+  Root-charging is the PLACE rule (design 141 charges `&v[i]` to `v` wholesale
+  because a dynamic index cannot be told apart); a tuple index is a static
+  projection like a field name, so it takes the field rule. The two shapes ARE
+  the same shape, and consistency decided it.
+  Five examples. `df151j_tuple_element_mutate.saw` (the filed repro verbatim,
+  the named spelling, nesting, a user `&var self` method, a tuple in a struct
+  field, one rooted at `self`, one in a fixed array, one across a suspend, and
+  destructuring unchanged); `df151j_tuple_element_write.saw` (whole-element
+  replacement with the live count at 1 while the tuple is in scope, a heap
+  buffer replaced, field and compound writes through an element, the named and
+  nested spellings, an optional element, an ImplicitCopy RHS retained, across a
+  suspend — in the gmgate lane, since the element drop is new code on a live
+  slot and running it twice reads correct until the freed block is reused);
+  `df151j_tuple_element_ref.saw` (both disjoint pairs, an owning element, a
+  forwarded re-borrow, a reference held across a suspend); and the three error
+  tests `errors/df151j_tuple_let_root.saw`,
+  `errors/df151j_tuple_let_root_assign.saw` and
+  `errors/df151j_tuple_element_exclusivity.saw`.
+  The `df151i_tuple_copy.saw` comment that pointed here is updated.
+  Two findings came out of the unit: DF-151l (fixed here) and DF-151m (filed).
+- **DF-151l — FIXED (Aug 7, 03d33fb; found while testing DF-151j).** **A tuple
+  LITERAL ignored its expected type, so an annotated optional element ICEd both
+  ways.**
   ```saw
-  var v: Vector<Int> = Vector<Int>()
-  v.push(1)
-  var t = (move v, 7)
-  t.0.push(99)
-  print("{t.0.len()}")     // prints 1 — the push went nowhere
-  //                          `h.v.push(99)` on a struct field prints 2
+  var t: (Int?, Int) = (None, 0)   // ICE: None literal has no type information
+  var t: (Int?, Int) = (1, 0)      // ICE: Can't index at [0] in i64 — stored
+                                   // UNWRAPPED, laid out {i64,i64} while the
+                                   // storage and every read believed
+                                   // {{i1,i64}, i64}
   ```
-  No error, no crash, no diagnostic: the element is read out as a VALUE, the
-  method mutates that temporary, and the temporary dies. Verified PRE-EXISTING
-  (reproduces on the DF-151i parent commit), so it is not fallout from the
-  `.copy()` arm.
-  Design 146 makes `v[i]` and `m[k]` places you reach a `&var self` method
-  through; a tuple index is the projection that did not get the treatment, even
-  though design 161 already made `t.0.name` read correctly. So the READ side of
-  the projection is a place and the WRITE side is not. Expected location is the
-  method-call receiver lowering for a `TupleAccess` object — the receiver needs
-  to be an ADDRESS into the tuple's storage, the way a field projection already
-  produces one.
-  Worth pairing with an audit of whole-element assignment (`t.0 = fresh`) and
-  `f(&var t.0)`, which were not probed and may share the hole. This is a SILENT
-  WRONG ANSWER, so it ranks above the cosmetic findings: it is the failure mode
-  the accessor rule (design 130) exists to forbid — "no silent no-ops".
-  Worked around in `df151i_tuple_copy.saw` by destructuring the copy instead of
-  mutating `u.0` in place; the comment there points here.
+  Independent of DF-151j and older: the read-only shape reproduces on its parent
+  commit. `_check_tuple_literal` took each element's OWN type and never consulted
+  `expected_type`, which is DF-151e's array-literal bug one container over, and
+  it took the same fix — check each element against the DECLARED element type
+  through `_element_fits`, the helper that records the one-level `T -> T?` wrap
+  for codegen to build `Some(x)` from. The expectation reaches the literal
+  because `_apply_literal_expected_type` now stamps the tuple type on it, the
+  same stamp the array/Vector branch already made, which is also what makes a
+  nested `((Int?, Int), Int)` annotation work.
+  Two things fall out of checking against the declaration: design 87's
+  fixed-width adoption at a tuple element position now lands
+  (`let t: (Int8, Int) = (5, 1)`), and a declared NAMED tuple keeps its labels
+  when the literal is written positionally. Unannotated literals are untouched.
+  `df151l_tuple_literal_expected_type.saw`.
+- **DF-151m — FILED, NOT FIXED (typechecker; found while fixing DF-151j,
+  Aug 7).** **`&var` into a projection rooted at a `let` binding compiles and
+  mutates — the `let` promise is broken for fields, tuple elements AND fixed
+  array elements alike.**
+  ```saw
+  func bump(x: &var Int) { x = x + 1 }
+  let p = Pair(a: 1, b: 2)
+  bump(&var p.a)
+  print("{p.a}")            // 2 — no error, and the `let` was written through
+  //                           `p.a = 2` on the same binding IS rejected
+  ```
+  PRE-EXISTING and not tuple-specific; tuples inherit it because DF-151j made
+  them consistent with fields, which is the correct outcome for that unit and
+  the reason this is filed rather than fixed there. `_check_reference_expr`
+  checks `&var` mutability for an Identifier operand, for `self`, and for a
+  projection out of a `&self` receiver (`_projects_from_self`, DF-146b) — but
+  there is no arm for a projection rooted at a LOCAL, so the walk
+  `_assign_target_immutable_struct_root` already performs for every assignment
+  target is simply never run on a reference operand.
+  Expected shape: run that same walk in `_check_reference_expr` when
+  `expr.mutable` and the operand is a projection, with the message the
+  assignment path gives. Blast radius is why it is its own unit — the rule
+  reaches every `&var` into a field or element in std, blade and the libs, and
+  any legitimate one written through a `let` root today becomes a compile error
+  that has to be re-spelled `var`.
 - **DF-151k — FILED, NOT FIXED (typechecker; found while fixing DF-151i,
   Aug 7).** **`type_satisfies_copy_bound` has no OPTIONAL and no TUPLE arm, so a
   fixed array of either is refused `.copy()` even when the element tier provides

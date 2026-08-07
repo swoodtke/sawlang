@@ -167,8 +167,8 @@ where `move` would be the no-partial-moves error.
 A TUPLE has `.copy()` on the same terms: it exists unless some element is
 move-only, and each element copies at ITS OWN tier (`String`/`Arc` retains,
 `Vector<Int>` gets its own buffer, trivial is bitwise, a nested tuple recurses).
-`var (a, n) = t.copy()` is the idiom — destructure the copy, since a `&var self`
-method on a tuple ELEMENT (`t.0.push(x)`) is currently a silent no-op (DF-151j).
+`var (a, n) = t.copy()` destructures the copy; `u.0.push(x)` on the copy works
+too (a tuple element is a place — see Collections).
 A `(File, Int)` is refused naming the element: ``element 0 of type `File` is
 NoCopy``.
 **`Deinit` is NOT declarable** (design 131): `extension T: Deinit {...}` is a
@@ -326,6 +326,22 @@ var scratch: [Int8; 256] = [0; 256] // REPEAT literal: N copies of one value
   `pair.0.x`, and `t.0.1` as two index hops (not the float `0.1`). Works
   inside interpolation too (`"{t.0.name}"`). The old `(t.0).name`
   workaround is unnecessary now.
+- **A tuple index is a PLACE, not a copy** (DF-151j) — the same storage a
+  struct field names, and the write side works like one: `t.0.push(x)`,
+  `t.1 += 1`, `t.0 = fresh` (whole-element write, old element deinits once),
+  `t.0.field = v`, `f(&var t.0)`, nested `t.0.1.push(x)`, and the named
+  spelling `pair.x.push(v)`. Mutability is the ROOT's, so `let t = (v, 7)`
+  rejects all of them exactly as `let h` rejects `h.v.push(x)`. Exclusivity
+  is by PATH like a field's: `f(&var t.0, &t.1)` is two disjoint elements and
+  compiles, `f(&var t.0, &t.0)` is the violation. A value READ follows the
+  copy tier (`let e = t.0` retains an ImplicitCopy element, errors on an
+  ExplicitCopy/NoCopy one). Until this landed every write through a tuple
+  element was a SILENT NO-OP, so treat one as fine now and suspect in older
+  builds.
+- An ANNOTATED tuple literal is checked against its declared element types
+  (DF-151l), so `let t: (Int?, Int) = (1, 0)` wraps element 0, `(None, 0)`
+  types the `None`, and `let n: (Int8, Int) = (5, 1)` adopts `Int8` at the
+  literal. Unannotated literals still infer element-wise.
 - Duplicate literal keys: last wins. Tuples: `(1, "a")`, `.0`/`[0]`;
   named tuples `(x: 3, y: 4)` with `.x`; destructuring
   `let (a, _) = pair` (irrefutable only in let).

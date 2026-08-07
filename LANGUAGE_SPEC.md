@@ -832,6 +832,43 @@ let px = pairs.0.x                  // 1 — a named field of element 0
 let nested = ((1, 2), 3)
 let second = nested.0.1             // 2 — two index hops, not the float 0.1
 
+// A tuple index is a PLACE, not a copy — the same storage a struct field names
+// (DF-151j). Reach the element through it:
+func grow(v: &var Vector<Int>) { v.push(7) }
+
+var t = (Vector<Int>(), 0)
+t.0.push(1)                         // grows the tuple's own vector
+t.1 += 1                            // compound assignment on the element
+t.0 = Vector<Int>()                 // whole-element write; the old element
+                                    // deinits exactly once
+grow(&var t.0)                      // lends the element slot
+var pair = (x: Vector<Int>(), y: 0)
+pair.x.push(2)                      // the named spelling reaches the same slot
+
+// Mutability is the root's: `let t = (v, 7)` rejects every line above, the way
+// `let h` rejects `h.v.push(x)`.
+//
+//   error: cannot call `&var self` method `push` on immutable variable `t`
+//   error: cannot assign to element of immutable variable `t`
+//
+// The Law of Exclusivity judges elements by PATH, as it judges struct fields:
+// `f(&var t.0, &t.1)` names two disjoint elements and compiles, while
+// `f(&var t.0, &t.0)` is an exclusive access violation. (Root-charging applies
+// to accessor-mediated places like `v[i]`, where a dynamic index cannot be told
+// apart; a tuple index is static.)
+//
+// A value READ out of an element follows the copy tier, like any other place:
+// `let e = t.0` is bitwise for a trivial element, a retain for ImplicitCopy, and
+// a clean error for ExplicitCopy/NoCopy naming `move`/`.copy()`.
+
+// An ANNOTATED tuple literal is checked against the declared element types, so
+// an optional element takes the ordinary one-level auto-wrap and a fixed-width
+// element adopts its width (DF-151l):
+let opt: (Int?, Int) = (1, 0)       // element 0 wraps to `Some(1)`
+let cleared: (Int?, Int) = (None, 0)
+let narrow: (Int8, Int) = (5, 1)    // `5` adopts Int8, range-checked here
+// With no annotation each element still contributes its own type.
+
 // Tuple destructuring (design 63 — implemented). Irrefutable only: bindings,
 // per-position `_` discard, and nested tuples. The whole source is consumed
 // (owning components move out; a bare ImplicitCopy/POD source is copied).

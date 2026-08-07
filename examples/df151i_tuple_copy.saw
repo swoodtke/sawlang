@@ -79,10 +79,9 @@ func res(tag: Int) -> Arc<Res> {
 // duplicate is INDEPENDENT storage. Growing the copy must leave the original
 // alone — an aliasing "copy" would show both at 3.
 //
-// The copy is reached by DESTRUCTURING rather than by mutating `u.0` in place,
-// because `t.0.push(x)` on a tuple element is a silent no-op today (DF-151j,
-// filed from this unit — it predates this change and is not what this program
-// is about).
+// The copy is reached by DESTRUCTURING, which is what this program is about;
+// mutating the copy's element in place (`u.0.push(99)`) reads the same, since
+// DF-151j made the tuple index a place on the write side too.
 // Reads `orig * 10 + copy`: 23 is an original still at 2 beside a copy grown to
 // 3. An aliasing "copy" would read 33.
 func deep_copy_is_independent() -> Int {
