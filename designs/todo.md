@@ -190,6 +190,18 @@ verdict table: `designs/174-optional-generic-sweep.md`. 19 tests landed as
   Clean error rather than an ICE, but a wrong rejection. Test:
   `examples/optional_generic_infer_later_arg_xfail.saw`.
 
+## Design 172 note (branch PARKED for user review; full findings ride the branch)
+
+- **DF-172e IS the already-decided while{}-Never item** (decision 9, tracker
+  commit 3134cf7: an infinite `while {}` types `Never`, true-literal
+  excluded). 172's unit 2 (arena → Saw, completing the seam family) stopped
+  solely because `__saw_rt_panic`'s frozen `noreturn` signature needs a Saw
+  body ending in a diverging loop. When the decided item lands (small
+  typechecker unit, AFTER 176 — shared surface), unit 2 unblocks as "172
+  part 2". The compiler half of 172 (unit 7, NEON-off default for
+  freestanding aarch64) is cherry-picked to main (e6b5cbe); DF-162a CLOSED
+  measured (arm64 kernel object: 5 NEON block-moves → 0).
+
 ## Design 175 findings (`#lend_var` investigation, Aug 7 — PROBE-ONLY, no compiler changes)
 
 Full report in `designs/175-lend-var-investigation.md`. Verdict: GO, but
