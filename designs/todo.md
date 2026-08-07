@@ -1308,6 +1308,137 @@ noted live-range packing of locals; do both in one sizing brief.
   are inlined above). Worth a follow-up brief if the ANF hoist can be taught to
   lift a nested short-circuit.
 
+## Design 138 — the all-sources docs consistency sweep (LANDED, Aug 6)
+
+`designs/138-readme-docs-pass.md` closed, at the user's expanded scope: a
+claim-by-claim pass across LANGUAGE_SPEC.md, the saw-lang skill, README.md and
+CLAUDE.md's orientation digest, plus TESTING.md for accuracy. Docs-only; the
+compiler was the oracle wherever two sources disagreed, and every README example
+was extracted to `.build/scratch` and built. **The discrepancy list IS the
+review artifact** — 23 items, grouped by source.
+
+**LANGUAGE_SPEC.md** (commits d9cb1d2, 0a05ac6)
+1. Seven sites named the runtime seams `saw_panic` / `saw_alloc` /
+   `saw_dealloc`. The frozen ABI has been `__saw_rt_*` since design 113/117 and
+   no symbol spelled the old way exists in `sawc/`; the spec used the right
+   names in its Profiles and Allocation-failure sections, so it disagreed with
+   itself.
+2. `Mutex.lock` was documented as returning `Bool` ("the `false` from `lock` is
+   the one the closure computed"). It is `lock<R>(body: (&var T) sync -> R) -> R`
+   (`std/mutex.saw:84`) — the same shape `SpinLock.lock` had documented
+   correctly two sections away.
+3. Built-in Functions predated design 137: `print` took "Int family, `Bool`,
+   `String`, `Float`", and `panic`/`assert` took a `String`. All three take any
+   `Printable` and a `{}` format string.
+4. §9 listed invented module paths — `std.option`, `std.vec`, `std.collections`,
+   `std.io`, `std.fs`, `std.fmt`, `std.iter`, `std.cmp`, `std.hash` — and called
+   the Optional type `Option`. Harmless as sketch in Jul; since design 82 made
+   each std FILE a module and design 150 made the leaf name the thing an import
+   binds, they read as instructions. Replaced with the 23 real modules.
+5. Appendix 0 omitted `--target-features`, `--runtime-provider`, `-W NAME` and
+   `--ids`.
+6. Appendix A listed `const` as planned though const generics landed in design
+   148. It is contextual, not reserved — `let const = 3` compiles (probed).
+
+**saw-lang skill** (commit 056d925)
+7. "Still open: `Mutex.lock`'s result is `Bool` rather than the closure's own
+   type (M1, blocked on DF-123c — Arc payload forwarding cannot reach a
+   method-generic method)." Both halves are stale: M1 landed, and
+   `Arc<Mutex<Int>>.lock({ c in c = c + 5  c })` returns 5. **DF-123c is
+   CLOSED.**
+8. The copy-tier line listed NoCopy as "File, Mutex, Box, Map/Set". `Data`,
+   `StringBuilder`, `TcpListener`/`TcpStream`, `Command`, `TaskGroup` and
+   `SpinLock` are NoCopy too, and `Vector` is the ONLY ExplicitCopy type in std.
+   `Data`'s inherent `copy()` is a plain method, not a policy — the thing that
+   misleads.
+
+**README.md** (commits fe3c595, 38129c9). Four examples did not compile:
+9. Error Handling with Result: `case Ok(n)` under the `let n = try! …` three
+   lines above is design 100's pattern-binding shadow error.
+10. Generic Type Inference: `func first<T>(v: &Vector<T>) -> T? { v.get(0) }` is
+    design 146's place-read-in-a-generic-body error — needs `T: Copy`.
+11. Kernels and Embedded: `UART_BASE` was never declared and the closing
+    `print(...)` sat at top level.
+12. Cooperative Networking: the accept loop ran at top level and spawned into a
+    `group` that did not exist.
+13. Current Status had not moved since design 134 — no places, const generics,
+    backed enums, import forms, Result-discard, alloc-free formatting,
+    `--no-hidden-alloc`, `SpinLock`/`unsafe static var`, or warnings.
+14. `--runtime-provider` missing from the options block.
+15. Copy tiers stated twice (Key Features + Memory Management) and allocation
+    failure stated twice (Memory Management + Kernels), each pair near-verbatim.
+16. A heading carried "(design 64)"; saw-docs keeps design numbers out of
+    user-facing pages. None remain in README.
+17. Audience order put bare metal last; "comprehensive test runner" and an
+    exclamation-mark Contributing line were the remaining voice defects.
+
+**CLAUDE.md orientation digest** (commit 8d661be)
+18. Claimed "landed through design 136 (Aug 5)" while 137, 139, 141-151, 159 and
+    161 had landed. Added the Aug-6 paragraph; also noted which of 152-158 are
+    still briefs, since the numbering alone no longer says.
+19. Accessor rule said `get`-shaped accessors return `None`; the spec says
+    `None`/`Err` and names `Data.slice`. Import-required list omitted `SpinLock`
+    and `std.fixedbuf`.
+
+**TESTING.md** (commit ed5bb03)
+20. Every invocation was bare `python3 test_runner.py`, which compiles nothing —
+    llvmlite is in `.venv`. Same for the "compile manually" debugging step.
+21. The Directive Reference listed 8 of 15 directives, missing `EXPECT: object`,
+    `EXPECT: docs`, `EXPECT-WARNING-CONTAINS:`, `EXPECT-NO-WARNINGS`,
+    `EXPECT-SYMBOL-UNDEFINED:`, `EXPECT-OBJECT-MAX-BYTES:` and
+    `COMPILE-FLAGS:`.
+22. Example 1 declared `func distance(self)` — a bare `self` receiver, a compile
+    error since design 128. The guide's first worked example did not compile.
+23. The xfail section framed yellow tests as "expected and deliberate" with a
+    `196 passed, 1 xfailed` tally, against a standing zero-xfail bar and an
+    `examples/` tree that holds none. The `blade test` example imported
+    `src.toml` (really `src.lib`) and called `doc.get_section(...)`, removed by
+    DF-132a.
+
+### DF-138a — ICE: a suspending function that is both a task ROOT and a SUB-FRAME
+
+**OPEN, P1 (a crash, not a clean error).** Found while compiling the README's
+concurrency examples. Each README block compiles alone and `report()` prints
+exactly the documented `squared: 25` / `74`; the crash needs both shapes in one
+program. Minimal repro (14 lines, `.build/scratch/ice_min5.saw`):
+
+```saw
+import std.task.*
+
+func leaf(n: Int) -> Int { yield_now()  n }
+func caller() -> Int { return leaf(3) }
+
+func main() {
+    var group = TaskGroup()
+    let a = group.spawn(leaf(1))     // leaf spawned as a ROOT
+    let b = group.spawn(caller())    // and embedded as a SUB-FRAME of caller
+    print(a.join() + b.join())
+}
+```
+
+```
+AttributeError: 'NoneType' object has no attribute 'line'
+  sawc/typechecker/expressions.py:5115, in _check_struct_init
+  <- _check_init_field_value <- _check_erased_box_make (expressions.py:6259)
+  <- _check_method_call (expressions.py:6531)
+```
+
+Spawning `leaf` alone, `caller` alone, two roots of differing arity, or two
+groups all compile — it is specifically one function serving as both a spawnable
+root and an embedded callee. `_check_struct_init` reaches a field value with no
+`line`, which reads like a synthesized frame-init node built twice under two
+different lowerings. No doc claim is wrong because of it (the spec's
+sub-frame-embedding claim holds), so nothing was written to match the bug, per
+the brief's rule.
+
+### DF-138b — CLAUDE.md's "complete flag set" line is not complete
+
+**OPEN, trivial.** `CLAUDE.md`'s Compiler-usage block says "That is the complete
+flag set (`sawc.py:1274-1345`)" but omits `--target-features`,
+`--runtime-provider` and `--ids`. Left unfixed deliberately: this brief's scope
+on CLAUDE.md was the orientation digest only. One-line fix for whoever is next
+in that file.
+
 ## Design 159 — the implicit-tier copy miscompile (LANDED, Aug 6)
 
 `designs/159-implicit-tier-copy-fix.md` closed. The P0 fix for DF-151b and
