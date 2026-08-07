@@ -939,6 +939,79 @@ class ExpressionsMixin:
         return isinstance(
             expr, (Identifier, MemberAccess, ArrayIndex, SelfExpr, TupleIndex))
 
+    def _check_int_from(self, expr) -> Optional[SawType]:
+        """`T.from(x) -> T?` and `T.from(truncating: x) -> T` (design 170).
+
+        The two siblings of the checked cast, completing the accessor triple the
+        rest of the language already follows: `as` traps, `from` returns the
+        `None`, `from(truncating:)` does the thing you asked for on purpose.
+
+        `from(_)` is defined UNIFORMLY across every integer source, total pairs
+        included — `Int.from(x: Int8)` is always `Some`. Uniformity beats
+        cleverness here: a generic body may rely on the shape existing for
+        whatever `T` it is instantiated at, and the always-true check folds to
+        nothing, so the uniformity is free.
+
+        `from(truncating:)` keeps the low bits — the value mod 2^n. The LABEL is
+        the operation (design 55/93 make labels overload identity), which is why
+        there is no boolean parameter and therefore no nonsense
+        `truncate: false` corner to define. It is the cast-shaped sibling of the
+        `&+`/`&-`/`&*` wrapping operators.
+
+        Neither one const-errors on an out-of-range constant the way `as` does:
+        answering out-of-range IS what these are for.
+        """
+        target_kind = self._INT_LIMIT_TYPE_KINDS[expr.object.name]
+        to_type = SawType(target_kind)
+        if len(expr.arguments) != 1:
+            self._error(
+                ErrorKind.WRONG_ARGUMENT_COUNT,
+                f"`{to_type}.from` takes exactly one argument, "
+                f"got {len(expr.arguments)}",
+                expr.line, expr.column,
+                hint=f"`{to_type}.from(x)` yields `{to_type}?`; "
+                     f"`{to_type}.from(truncating: x)` keeps the low bits"
+            )
+            return None
+        arg = expr.arguments[0]
+        label = getattr(arg, 'name', None)
+        if label is not None and label != "truncating":
+            self._error(
+                ErrorKind.TYPE_MISMATCH,
+                f"`{to_type}.from` has no argument labeled `{label}`",
+                expr.line, expr.column,
+                hint=f"write `{to_type}.from(x)` for the checked conversion "
+                     f"(`{to_type}?`), or `{to_type}.from(truncating: x)` to "
+                     f"keep the low bits"
+            )
+            return None
+        # No expectation is pushed onto the argument: `UInt8.from(300)` must be
+        # the `None` this exists to produce, not a range error at the literal.
+        from_type = self._check_expression(arg.value)
+        if from_type is None:
+            return None
+        # Design 63: an alias projects toward its underlying first, then the
+        # integer rules apply — the same order `as` uses.
+        if from_type.is_struct() and self.get_type_alias_info(from_type.struct_name):
+            from_type = self._get_underlying_type(from_type)
+        from const_eval import CAST_INT_KINDS
+        src = CAST_INT_KINDS.get(from_type.kind)
+        if src is None:
+            self._error(
+                ErrorKind.TYPE_MISMATCH,
+                f"`{to_type}.from` expects an integer, got `{from_type}`",
+                expr.line, expr.column,
+                hint="a raw-backed enum converts with `e as Backing` and back "
+                     "with `E.from(raw:)`" if from_type.kind == TypeKind.ENUM
+                     else None
+            )
+            return None
+        truncating = label == "truncating"
+        expr.int_from = (target_kind, truncating, src[1])
+        if truncating:
+            return to_type
+        return SawType(TypeKind.OPTIONAL, inner_type=to_type)
+
     def _check_cast_expr(self, expr: CastExpr) -> Optional[SawType]:
         """Check a type cast expression: expr as Type"""
         # DF-163f: `(&x) as UnsafePointer<T>` is the sanctioned crossing into the
@@ -7021,6 +7094,14 @@ class ExpressionsMixin:
                 column=expr.column
             )
             return self._check_enum_init(enum_init)
+        # Design 170: `UInt8.from(x)` / `UInt8.from(truncating: x)`. An integer
+        # type name is not a value, so this must be answered before the receiver
+        # is checked as an expression — otherwise it reports `undefined variable
+        # UInt8` and the real call never resolves.
+        if (isinstance(expr.object, Identifier)
+                and expr.method_name == "from"
+                and expr.object.name in self._INT_LIMIT_TYPE_KINDS):
+            return self._check_int_from(expr)
         obj_type = self._check_expression(expr.object)
         if obj_type is None:
             return None

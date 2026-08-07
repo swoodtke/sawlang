@@ -1,0 +1,68 @@
+// Design 170: the `from` family — the two siblings of the checked cast.
+// `T.from(x) -> T?` answers "does this value fit"; `T.from(truncating: x) -> T`
+// keeps the low bits on purpose. The LABEL is the operation, so there is no
+// boolean parameter and no `truncate: false` corner.
+//
+// Built under `--no-hidden-alloc`: neither form allocates on any path, which is
+// what makes them usable in a kernel and on a panic path.
+// COMPILE-FLAGS: --no-hidden-alloc
+// EXPECT: success
+// EXPECT-OUTPUT:
+// 232
+// 255
+// 44
+// -1
+// -1
+// 65535
+// 200
+// 300
+// none
+// none
+// 7
+// 127
+// -128
+// 0
+// 4294967295
+
+func main() {
+    // --- from(truncating:) — known answers, including the wrap ------------
+    print("{}", UInt8.from(truncating: 1000))     // 1000 mod 256
+    print("{}", UInt8.from(truncating: -1))       // two's complement, all ones
+    var n = 300
+    print("{}", UInt8.from(truncating: n))        // a runtime operand wraps too
+
+    // Same width is a bit reinterpret, in both directions.
+    let u: UInt8 = 255
+    print("{}", Int8.from(truncating: u))
+    let big: UInt = 18446744073709551615
+    print("{}", Int.from(truncating: big))
+
+    // Widening under `truncating` keeps the VALUE mod 2^n, so a negative
+    // source sign-extends rather than zero-extending its byte.
+    let s: Int8 = -1
+    print("{}", UInt16.from(truncating: s))
+
+    // --- from(_) — both arms ----------------------------------------------
+    n = 200
+    if let b = UInt8.from(n) { print("{}", b) } else { print("none") }
+    var m: Int = 300
+    if let b = UInt8.from(m) { print("{}", b) } else { print("{}", m) }
+    if let b = Int8.from(u) { print("{}", b) } else { print("none") }
+    let neg = 0 - 5
+    if let b = UInt.from(neg) { print("{}", b) } else { print("none") }
+
+    // A TOTAL pair is still spelled the same way and is always `Some` — the
+    // uniformity generics can rely on. The check folds to nothing.
+    let t: Int8 = 7
+    print("{}", Int.from(t)!)
+
+    // --- boundaries --------------------------------------------------------
+    var edge = 127
+    print("{}", Int8.from(edge)!)
+    edge = -128
+    print("{}", Int8.from(edge)!)
+    edge = 0
+    print("{}", UInt8.from(edge)!)
+    var wide: Int = 4294967295
+    print("{}", UInt32.from(wide)!)
+}

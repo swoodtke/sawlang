@@ -1275,6 +1275,13 @@ class MethodCall(Expression):
     # design 131: `o.take()` — `Optional.take(&var self) -> T?`. Swaps `None`
     # into the receiver place and returns the payload owned.
     optional_take: bool = annotation(False)
+    # design 170: `UInt8.from(x)` / `UInt8.from(truncating: x)` — the conversion
+    # family beside the checked cast. `(target TypeKind, is_truncating,
+    # source_is_signed)`; there is no symbol to call, so codegen lowers it
+    # inline from this plan. The source signedness rides along because the
+    # ARGUMENT decides how the value extends, and the typechecker is the pass
+    # that knows it.
+    int_from: Optional[tuple] = annotation(None)
     # Auto-forwarding through a smart pointer: the payload type reached through
     # Arc<T> / Box<T> when the method lives on T rather than on the wrapper.
     arc_forward_payload_type: Optional['SawType'] = annotation(None)

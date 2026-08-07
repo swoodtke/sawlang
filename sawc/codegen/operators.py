@@ -1332,6 +1332,90 @@ class OperatorsMixin:
             raise ValueError(
                 f"Cannot take reference to element of non-array type: {pointee}")
 
+    def _int_cast_fits(self, value, to_llvm, to_signed: bool, from_signed: bool):
+        """The `i1` "this value has a representation in `to_llvm`", or None when
+        it always does (design 170).
+
+        ONE predicate behind both spellings — the checked `as` panics on its
+        false edge, `T.from(x)` returns that same edge as `None` — so the two
+        can never come to different conclusions about the same value.
+
+        Two shapes, picked by what can actually go wrong:
+
+        * NARROWING (`to_bits < from_bits`) — the ROUND TRIP. Truncate to the
+          target, extend back by the TARGET's signedness, and demand the
+          original. That single equality is the exact representability test for
+          every sign combination at once: `-1 as UInt8` fails (0xFF zero-extends
+          to 255, not -1), `200 as UInt8` passes, `200u as Int8` fails (0xC8
+          sign-extends to -56). Four range comparisons would be four chances to
+          get a boundary wrong.
+        * SIGN CHANGE at or above the source width — the HIGH BIT. Both
+          directions reduce to the same test: a signed source must not be
+          negative, and an unsigned source must not have reached the target's
+          sign bit, which is `icmp sge value, 0` either way.
+
+        Everything else is total and answers None: same-sign widening, the
+        identity, and unsigned -> strictly-wider signed.
+        """
+        from_bits = value.type.width
+        to_bits = to_llvm.width
+        if to_bits < from_bits:
+            narrowed = self.builder.trunc(value, to_llvm, name="cast_narrow")
+            back = (self.builder.sext(narrowed, value.type, name="cast_back")
+                    if to_signed
+                    else self.builder.zext(narrowed, value.type, name="cast_back"))
+            return self.builder.icmp_signed('==', back, value, name="cast_fits")
+        if to_signed != from_signed and not (to_bits > from_bits and to_signed):
+            return self.builder.icmp_signed(
+                '>=', value, ir.Constant(value.type, 0), name="cast_fits")
+        return None
+
+    def _convert_int_width(self, value, to_llvm, from_signed: bool):
+        """Bring an integer value to `to_llvm`'s width.
+
+        Truncating keeps the low bits; extending goes by the SOURCE's
+        signedness, which is what preserves the two's-complement VALUE — so
+        `UInt16.from(truncating: -1i8)` is 65535, the representative of -1 mod
+        2^16, rather than 255.
+        """
+        if to_llvm.width < value.type.width:
+            return self.builder.trunc(value, to_llvm, name="cast_trunc")
+        if to_llvm.width > value.type.width:
+            return (self.builder.sext(value, to_llvm, name="cast_sext")
+                    if from_signed
+                    else self.builder.zext(value, to_llvm, name="cast_zext"))
+        return value
+
+    def _generate_int_from(self, expr, plan):
+        """Lower `T.from(x)` / `T.from(truncating: x)` (design 170).
+
+        Both are straight-line SSA — no call, no branch, and nothing allocated
+        on any path, which is what keeps them usable under `--no-hidden-alloc`
+        and in a kernel. The partial form assembles the `{i1, T}` optional
+        directly: the payload is the converted value either way, because the
+        flag gates every read of it, and building it unconditionally keeps the
+        whole thing branch-free. When the pair is TOTAL the flag is the constant
+        `true`, so the optional folds away and `Int.from(x: Int8)` costs a sign
+        extension — the uniformity the design asks for, at no price.
+        """
+        target_kind, truncating, from_signed = plan
+        to_llvm = self._get_llvm_type(SawType(target_kind))
+        value = self._generate_expression(expr.arguments[0].value)
+        converted = self._convert_int_width(value, to_llvm, from_signed)
+        if truncating:
+            return converted
+        signed_kinds = {TypeKind.INT, TypeKind.INT8, TypeKind.INT16,
+                        TypeKind.INT32, TypeKind.INT64}
+        fits = self._int_cast_fits(value, to_llvm,
+                                   to_signed=target_kind in signed_kinds,
+                                   from_signed=from_signed)
+        if fits is None:
+            fits = ir.Constant(ir.IntType(1), 1)
+        opt = ir.Constant(ir.LiteralStructType([ir.IntType(1), to_llvm]),
+                          ir.Undefined)
+        opt = self.builder.insert_value(opt, fits, 0, name="from_flag")
+        return self.builder.insert_value(opt, converted, 1, name="from_opt")
+
     def _generate_cast_expr(self, expr: CastExpr):
         """Generate code for type cast: expr as Type"""
         value = self._generate_expression(expr.expr)
@@ -1365,7 +1449,8 @@ class OperatorsMixin:
                 _raw = getattr(_sym, 'raw_type', None) if _sym else None
                 if _raw is not None:
                     from_saw_type = _raw
-            from_signed = from_saw_type and from_saw_type.kind in signed_kinds
+            from_signed = bool(from_saw_type
+                               and from_saw_type.kind in signed_kinds)
 
             if to_bits > from_bits:
                 # Widening - use sign extension or zero extension based on source signedness

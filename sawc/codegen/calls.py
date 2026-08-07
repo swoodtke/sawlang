@@ -555,7 +555,6 @@ class CallsMixin:
         """Render one format argument to a `(i8* ptr, word len)` byte range."""
         word = self.int_type
         i8 = ir.IntType(8)
-        i32 = ir.IntType(32)
 
         saw_type = getattr(arg_expr, 'resolved_type', None)
         if saw_type is not None and self.type_param_context:
@@ -587,28 +586,11 @@ class CallsMixin:
                 false_ptr, false_len = self._raw_bytes_ptr("false")
                 return (self.builder.select(value, true_ptr, false_ptr),
                         self.builder.select(value, true_len, false_len))
-            # Integer family: bring the value to the platform width with the
-            # same extension `print` uses, then render with the same itoa, so
-            # `print(n)` and `print("{}", n)` agree byte for byte.
             unsigned_kinds = {TypeKind.UINT, TypeKind.UINT8, TypeKind.UINT16,
                               TypeKind.UINT32, TypeKind.UINT64}
             is_unsigned = bool(saw_type is not None
                                and saw_type.kind in unsigned_kinds)
-            if value.type.width < self.int_width:
-                if is_unsigned:
-                    value = self.builder.zext(value, word, name="fmt_ext")
-                else:
-                    value = self.builder.sext(value, word, name="fmt_ext")
-            elif value.type.width > self.int_width:
-                value = self.builder.trunc(value, word, name="fmt_trunc")
-            buf = self._entry_alloca(ir.ArrayType(i8, self.INT_FMT_MAX),
-                                     name="fmt_int_buf")
-            bufp = self.builder.gep(buf, [ir.Constant(i32, 0), ir.Constant(i32, 0)],
-                                    inbounds=True)
-            fmt_fn = "__saw_fmt_uint" if is_unsigned else "__saw_fmt_int"
-            length = self.builder.call(self.functions[fmt_fn], [value, bufp],
-                                       name="fmt_int_len")
-            return (bufp, length)
+            return self._render_int_value(value, is_unsigned)
 
         if isinstance(value.type, ir.DoubleType):
             # Float stays snprintf-based, into stack scratch (hosted only —
@@ -618,6 +600,41 @@ class CallsMixin:
             return (c_ptr, self.builder.call(strlen_fn, [c_ptr], name="fmt_f_len"))
 
         raise ValueError(f"Cannot format type: {value.type}")
+
+    def _render_int_value(self, value, is_unsigned: bool, in_entry: bool = True):
+        """Render an integer LLVM value to a `(i8* ptr, word len)` byte range.
+
+        Brings the value to the platform width with the same extension `print`
+        uses and renders it with the same itoa, so `print(n)`, `print("{}", n)`
+        and a checked cast's panic message all agree byte for byte — including
+        across the whole unsigned range, which is what `__saw_fmt_uint` is for.
+
+        `in_entry` places the digit scratch in the entry block, which is right
+        for a format argument on the normal path (the buffer is live while the
+        segments are consumed). A panic block passes False: that block ends in
+        `unreachable`, so its scratch cannot be re-entered, and a function that
+        merely CONTAINS a checked cast should not pay frame bytes for it —
+        the same reasoning `_emit_runtime_panic` applies to its own buffer.
+        """
+        word = self.int_type
+        i8 = ir.IntType(8)
+        i32 = ir.IntType(32)
+        if value.type.width < self.int_width:
+            if is_unsigned:
+                value = self.builder.zext(value, word, name="fmt_ext")
+            else:
+                value = self.builder.sext(value, word, name="fmt_ext")
+        elif value.type.width > self.int_width:
+            value = self.builder.trunc(value, word, name="fmt_trunc")
+        buf_type = ir.ArrayType(i8, self.INT_FMT_MAX)
+        buf = (self._entry_alloca(buf_type, name="fmt_int_buf") if in_entry
+               else self.builder.alloca(buf_type, name="fmt_int_buf"))
+        bufp = self.builder.gep(buf, [ir.Constant(i32, 0), ir.Constant(i32, 0)],
+                                inbounds=True)
+        fmt_fn = "__saw_fmt_uint" if is_unsigned else "__saw_fmt_int"
+        length = self.builder.call(self.functions[fmt_fn], [value, bufp],
+                                   name="fmt_int_len")
+        return (bufp, length)
 
     def _render_via_format(self, arg_expr, saw_type):
         """Stream a `Printable` value through `format` into stack scratch.
@@ -1133,6 +1150,13 @@ class CallsMixin:
         from_raw_enum = getattr(expr, 'enum_from_raw', None)
         if from_raw_enum is not None:
             return self._generate_enum_from_raw(expr, from_raw_enum)
+
+        # Design 170: `UInt8.from(x)` / `UInt8.from(truncating: x)`. An integer
+        # type name is not a struct, so there is no symbol to call — the
+        # typechecker's plan is the whole lowering.
+        int_from = getattr(expr, 'int_from', None)
+        if int_from is not None:
+            return self._generate_int_from(expr, int_from)
 
         # Check if this is a static method call: StructName.method(args) (use
         # namespace). Design 144: dispatch on the identity the typechecker
