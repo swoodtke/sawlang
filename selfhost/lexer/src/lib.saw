@@ -90,8 +90,10 @@ func ubyte(s: &String, i: Int) -> Int {
 
 // Turn an unsigned byte value (0..255) into the Int8 with the same bit pattern,
 // so it can be appended to a StringBuilder without an out-of-range cast panic.
+// Design 170 named the operation; the old hand-fold through `(u - 256) as Int8`
+// computed the same thing.
 func to_i8(u: Int) -> Int8 {
-    if u >= 128 { (u - 256) as Int8 } else { u as Int8 }
+    Int8.from(truncating: u)
 }
 
 func is_digit(b: Int) -> Bool { b >= B_D0 && b <= B_D9 }

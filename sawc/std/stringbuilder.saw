@@ -400,11 +400,13 @@ extension StringBuilder {
         return 4
     }
 
-    // A byte value 0..255 as the Int8 with the same bit pattern. A direct
-    // `u as Int8` for `u >= 128` is out of Int8's signed range and would panic,
-    // so the high half folds through the two's-complement wrap first.
+    // A byte value 0..255 as the Int8 with the same bit pattern. `u >= 128` is
+    // outside Int8's signed range, so a checked `as` would panic on every
+    // continuation byte; keeping the low 8 bits is the operation, and design
+    // 170 gave it a name. This used to hand-fold the high half through
+    // `(u - 256) as Int8`, which computed the same thing less legibly.
     func _scalar_byte(&self, u: Int) -> Int8 {
-        if u >= 128 { (u - 256) as Int8 } else { u as Int8 }
+        Int8.from(truncating: u)
     }
 
     // Clear the buffer (keep capacity). A fixed builder is un-truncated by

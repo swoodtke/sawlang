@@ -1,0 +1,18 @@
+// Design 170: the SIGN half of the rule, which is the check shape the
+// round-trip does not cover. `-1 as UInt` is a same-width reinterpret that used
+// to yield 18446744073709551615 — no bits were lost, so a width-based rule
+// would have waved it through, and the value it produced was still wrong.
+//
+// A negative has no unsigned image at ANY width, so this traps whether the
+// target is narrower, the same width, or wider.
+// EXPECT: panic
+// EXPECT-PANIC-CONTAINS: cast170_sign_change_panics.saw:17: cast to UInt out of range: -1
+
+func main() {
+    // Non-negative: representable, no trap.
+    var n = 42
+    print(n as UInt)
+
+    n = 0 - 1
+    print(n as UInt)
+}

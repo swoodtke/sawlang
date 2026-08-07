@@ -141,11 +141,14 @@ extension File {
             return IoError.of("read", 0 - bytes_read)
         }
 
-        // Create Data and copy bytes
+        // Create Data and copy bytes. The read buffer is `Int8` (C `char`) and
+        // `Data` holds `UInt8`, so each byte is REINTERPRETED, not converted:
+        // a file byte >= 0x80 arrives negative and a checked `as` would panic
+        // on it (design 170). Same width, so this is a pure bit reinterpret.
         var data = Data(capacity: bytes_read)
         var i = 0
         while i < bytes_read {
-            data.push(buf[i] as UInt8)
+            data.push(UInt8.from(truncating: buf[i]))
             i = i + 1
         }
         free(buf)
@@ -168,11 +171,12 @@ extension File {
         guard let buf = malloc(data.len()) else {
             panic("File.write: allocation failed")
         }
-        // Copy data bytes to buffer
+        // Copy data bytes to buffer — the `UInt8` -> `Int8` reinterpret that
+        // mirrors `read` above, byte values >= 128 included (design 170).
         var i = 0
         while i < data.len() {
             if let b = data.get(i) {
-                buf[i] = b as Int8
+                buf[i] = Int8.from(truncating: b)
             }
             i = i + 1
         }

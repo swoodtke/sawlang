@@ -3,8 +3,11 @@
 // `__saw_rt_sleep_ms(ms)` parks the current OS thread for `ms` milliseconds
 // (behind `sleep(ms)` and the executor's timed waits). A non-positive request
 // returns at once. Hosted default: usleep(ms * 1000). `usleep` takes
-// microseconds as a 32-bit unsigned; the multiply + narrowing truncate exactly
-// as the pre-113 synthesized seam did (wrapping `&*`, truncating `as Int32`).
+// microseconds as a 32-bit unsigned; the multiply and the narrowing both
+// truncate exactly as the pre-113 synthesized seam did — `&*` and, since design
+// 170 made a bare `as` checked, `Int32.from(truncating:)` for the narrowing.
+// Both wraps are stated rather than implied now. A request past ~35 minutes
+// therefore still wraps to a short sleep, as it always has (DF-170a).
 
 extern "C" {
     func usleep(us: Int32) -> Int32
@@ -14,6 +17,6 @@ extern "C" {
 func rt_sleep_ms(ms: Int) {
     if ms > 0 {
         let us = ms &* 1000
-        usleep(us as Int32)
+        usleep(Int32.from(truncating: us))
     }
 }

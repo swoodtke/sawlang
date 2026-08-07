@@ -123,10 +123,13 @@ extension Hasher {
 
     // The finished 64-bit digest, with a final xor-shift avalanche so the low
     // bits (used by a power-of-two bucket mask) depend on the whole state, then
-    // narrowed to the platform `Int` the map indexes with.
+    // narrowed to the platform `Int` the map indexes with. The narrowing is a
+    // deliberate wrap (design 170): a digest is a BIT PATTERN, so on a 32-bit
+    // target keeping the low half is the operation, not an error — a checked
+    // `as` there would panic on almost every key.
     public func finish(&self) -> Int {
         let h = self.state
-        (h ^ (h >> 32i64)) as Int
+        Int.from(truncating: h ^ (h >> 32i64))
     }
 }
 

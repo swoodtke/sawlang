@@ -1386,6 +1386,37 @@ class OperatorsMixin:
                     else self.builder.zext(value, to_llvm, name="cast_zext"))
         return value
 
+    def _emit_cast_range_check(self, value, to_llvm, to_signed: bool,
+                               from_signed: bool, to_name: str, line: int = 0):
+        """Panic if `value` has no representation in the cast's target (design 170).
+
+        Leaves the builder in the representable continuation block, exactly as
+        the overflow / shift / bounds checks do. The message renders the
+        offending VALUE through the design-137 alloc-free path — an out-of-range
+        cast that will not say which value was out of range makes the reader
+        re-derive the arithmetic, and the panic path may not allocate.
+        """
+        fits = self._int_cast_fits(value, to_llvm, to_signed, from_signed)
+        if fits is None:
+            # Total after all — the typechecker and the LLVM widths disagreed
+            # (a bare literal is i64 whatever its Saw type says). Emitting a
+            # check we cannot state correctly would be worse than emitting none.
+            return
+
+        func = self.builder.function
+        panic_bb = func.append_basic_block(name="cast_panic")
+        cont_bb = func.append_basic_block(name="cast_cont")
+        self.builder.cbranch(fits, cont_bb, panic_bb)
+
+        self.builder.position_at_end(panic_bb)
+        prefix = self._panic_location_prefix(line or self._di_current_line())
+        self._emit_runtime_panic([
+            self._raw_bytes_ptr(f"{prefix}cast to {to_name} out of range: "),
+            self._render_int_value(value, not from_signed, in_entry=False),
+        ])
+
+        self.builder.position_at_end(cont_bb)
+
     def _generate_int_from(self, expr, plan):
         """Lower `T.from(x)` / `T.from(truncating: x)` (design 170).
 
@@ -1451,6 +1482,19 @@ class OperatorsMixin:
                     from_saw_type = _raw
             from_signed = bool(from_saw_type
                                and from_saw_type.kind in signed_kinds)
+
+            # Design 170: the checked edge. The typechecker stamped this only
+            # where a source value can fail to have a target representation and
+            # the operand did not fold, so a widening cast and a provably
+            # in-range one reach the conversion below untouched.
+            if getattr(expr, 'cast_check', False):
+                to_resolved = self._resolve_type_alias(to_type)
+                self._emit_cast_range_check(
+                    value, to_llvm,
+                    to_signed=to_resolved.kind in signed_kinds,
+                    from_signed=from_signed,
+                    to_name=str(to_type),
+                    line=getattr(expr, 'line', 0))
 
             if to_bits > from_bits:
                 # Widening - use sign extension or zero extension based on source signedness

@@ -472,12 +472,17 @@ extension String {
         }
     }
 
-    // Convert String bytes to Data
+    // Convert String bytes to Data.
+    //
+    // `byte_at` yields `Int8`, so every byte of a non-ASCII scalar arrives
+    // negative; the `UInt8` these become is the SAME BIT PATTERN, not a
+    // converted value, which is why the reinterpret is spelled out (design
+    // 170 — a checked `as` would panic on the first byte >= 0x80).
     public func to_data(&self) -> Data {
         var data = Data()
         var i = 0
         while i < self.len() {
-            data.push(self.byte_at(i) as UInt8)
+            data.push(UInt8.from(truncating: self.byte_at(i)))
             i = i + 1
         }
         move data
@@ -861,7 +866,11 @@ extension String {
         var i = 0
         while i < n {
             if let b = data.get(i) {
-                ptr[i] = b as Int8
+                // A REINTERPRET, not a conversion: this function exists to
+                // accept arbitrary bytes and validate them afterwards, so a
+                // lead or continuation byte >= 0x80 must reach the validator
+                // rather than trapping on the way in (design 170).
+                ptr[i] = Int8.from(truncating: b)
             }
             i = i + 1
         }

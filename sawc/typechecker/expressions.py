@@ -939,6 +939,81 @@ class ExpressionsMixin:
         return isinstance(
             expr, (Identifier, MemberAccess, ArrayIndex, SelfExpr, TupleIndex))
 
+    def _stamp_int_cast(self, expr: CastExpr, src_type: SawType,
+                        to_type: SawType) -> bool:
+        """Decide an integer cast's runtime check, or reject a constant operand
+        that could not survive it (design 170).
+
+        `x as UInt8` is CHECKED: a value the target cannot represent — by range
+        or by sign — panics rather than silently becoming a different number.
+        Narrowing `as` was the last silent value-corrupting operation in a
+        language where arithmetic overflow, bounds, shifts and allocation
+        failure all trap, so it joins them.
+
+        Three outcomes, and the cost is the point of separating them:
+
+        * TOTAL pair -> nothing stamped. Widening emits exactly what it emitted
+          before: every source value has a target representation, so a check
+          could only ever be true.
+        * FOLDABLE operand -> the answer is known now. In range, nothing is
+          stamped and the cast is free; out of range, this is a COMPILE ERROR
+          rather than a program that builds and then aborts on its first run.
+          `const_eval` is the same evaluator `static_assert` and `[T; N]` use
+          (its own out-of-range rule at `const_eval.py:167` set this policy),
+          so a folded cast and its runtime twin can never disagree.
+        * anything else -> `cast_check`, one compare-and-branch on the
+          narrowing/sign-change edge. That is the overflow-check cost class,
+          and the optimizer still deletes it wherever it can prove the range
+          itself.
+
+        `src_type` is the operand type AFTER design-63 alias resolution and
+        after a raw-backed enum has been reduced to its backing, so this reads
+        real numeric kinds. Returns True when an error was reported.
+        """
+        from const_eval import CAST_INT_KINDS, const_eval, ConstEvalError
+        src = CAST_INT_KINDS.get(src_type.kind)
+        dst = CAST_INT_KINDS.get(to_type.kind)
+        if src is None or dst is None:
+            return False
+        width = self.platform_int_width
+        src_bits = src[0] or width
+        dst_bits = dst[0] or width
+        src_signed, dst_signed = src[1], dst[1]
+
+        # Total: strictly wider and no sign the target cannot express, or the
+        # identity. Signed -> unsigned is never total (a negative has no
+        # unsigned image at any width), and same-width sign changes are not
+        # either (`-1 as UInt8`, `UInt64.max as Int64`).
+        if dst_bits > src_bits and (dst_signed or not src_signed):
+            return False
+        if dst_bits == src_bits and dst_signed == src_signed:
+            return False
+
+        lo = -(1 << (dst_bits - 1)) if dst_signed else 0
+        hi = ((1 << (dst_bits - 1)) - 1) if dst_signed else (1 << dst_bits) - 1
+        try:
+            value = const_eval(expr.expr, env=self._const_param_env(),
+                               width=width)
+        except ConstEvalError:
+            value = None
+        if isinstance(value, bool):
+            value = None
+        if isinstance(value, int):
+            if lo <= value <= hi:
+                return False
+            self._error(
+                ErrorKind.TYPE_MISMATCH,
+                f"`{value}` is not representable as `{to_type}`, so this cast "
+                f"would always panic",
+                expr.line, expr.column,
+                hint=f"`{to_type}` holds {lo} through {hi}; write "
+                     f"`{to_type}.from(truncating: ...)` to keep the low bits, "
+                     f"or `{to_type}.from(...)` to get `None` instead"
+            )
+            return True
+        expr.cast_check = True
+        return False
+
     def _check_int_from(self, expr) -> Optional[SawType]:
         """`T.from(x) -> T?` and `T.from(truncating: x) -> T` (design 170).
 
@@ -1081,6 +1156,12 @@ class ExpressionsMixin:
                          f"without it the tag values are not part of the type"
                 )
                 return None
+            # Design 170: the enum IS its tag, so the cast is total AT THE
+            # BACKING WIDTH and stays exactly as free as it was. Narrowing
+            # BELOW the backing (`enum E: UInt16` value `as UInt8`) is an
+            # ordinary integer narrowing and takes the ordinary check.
+            if self._stamp_int_cast(expr, raw_type, to_type):
+                return None
             return to_type
         if from_type.kind in int_kinds and to_type.kind == TypeKind.ENUM:
             self._error(
@@ -1093,6 +1174,11 @@ class ExpressionsMixin:
             )
             return None
         if from_type.kind in int_kinds and to_type.kind in int_kinds:
+            # Design 170. `from_type` is already past the design-63 alias walk
+            # above, so an alias projection resolves FIRST and then takes the
+            # integer rules — composition unchanged.
+            if self._stamp_int_cast(expr, from_type, to_type):
+                return None
             return to_type
         if from_type.kind == TypeKind.POINTER and to_type.kind == TypeKind.POINTER:
             return to_type

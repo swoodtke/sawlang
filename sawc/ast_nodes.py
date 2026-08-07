@@ -877,6 +877,17 @@ class CastExpr(Expression):
     expr: Expression
     target_type: 'SawType'
 
+    # Design 170: does this integer cast need the runtime representability
+    # check? Stamped by the typechecker, which is the pass that knows the Saw
+    # types on both sides; codegen emits the compare-and-panic when it is set.
+    # False means one of three things, all costing nothing: the pair is TOTAL
+    # (widening, or an identity), the operand folded to a value that provably
+    # fits, or the node was SYNTHESIZED after type checking (the coroutine
+    # transform's pointer and frame casts). That last case is why the default is
+    # False rather than True -- an unstamped node keeps the pre-170 lowering
+    # instead of acquiring a check nobody reasoned about.
+    cast_check: bool = annotation(False)
+
 
 @dataclass
 class FunctionCall(Expression):
