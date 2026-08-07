@@ -15,14 +15,37 @@ from lexer import TokenType
 from ast_nodes import SawType, TypeKind
 
 
-class GenericListTrailingComma(SyntaxError):
+class CommittedGenericError(SyntaxError):
+    """A generic-list error the parser must REPORT rather than backtrack from.
+
+    The speculative "is this `<` a generic argument list or a comparison?"
+    lookahead in `parser/expressions.py` restores its position on any
+    `SyntaxError` and re-reads the `<` as an operator. That is right for a `<`
+    that was never a generic, and wrong for a list that IS one and is merely
+    ill-formed — backtracking there swallows the real diagnostic and reports
+    something unrecognizable from the comparison reading instead. Errors under
+    this base are let through by every speculative site.
+    """
+
+
+class GenericListTrailingComma(CommittedGenericError):
     """A `,` sitting directly before `>` in a generic list (design 129).
 
     Trailing commas are allowed in the `()`/`[]` lists that the wrapping rule
     exists to serve, and rejected in `<...>`, which has no wrapping idiom to
-    serve. It is its own exception type so the speculative "is this `<` a generic
-    or a comparison?" backtracking in `parser/expressions.py` can let it through
-    instead of swallowing it and reporting something unrecognizable later.
+    serve.
+    """
+
+
+class ReferenceTypeArgument(CommittedGenericError):
+    """A generic argument that NAMES a reference — `Vector<&Int>`, `f<&Int>(x)`
+    (DF-163d).
+
+    References are parameters only, and a type argument is the one position that
+    smuggles one past every declaration-side rule: `Vector<&Int>` never writes a
+    `&` in a field or a return type, yet `v.push(&x)` is a genuine call argument
+    and the container outlives the call. So the refusal is at the ARGUMENT, not
+    at the call.
     """
 
 
@@ -88,6 +111,82 @@ class TypeParsingMixin:
             f"receiver already owns — declare a `borrows` accessor ({lends} "
             f"with `lend`, design 141), which lends the place for a window "
             f"rather than letting a pointer out")
+
+    # The rule every parameters-only refusal states, in one place (DF-163a/d).
+    PARAMETERS_ONLY = (
+        "references in Saw are PARAMETERS ONLY — a reference borrows storage "
+        "for the duration of one call and may not escape it (designs 88/106; "
+        "the Law of Exclusivity is statically sound only because every live "
+        "reference belongs to a call still on the stack)")
+
+    @staticmethod
+    def _lend_out(value) -> str:
+        """The second way out: lend the storage instead of naming a pointer."""
+        return (f"declare a `borrows` accessor (`... borrows -> {value}` with "
+                f"`lend`, design 141), which lends the place for a window "
+                f"rather than letting a pointer out")
+
+    def reject_reference_field(self, field_name: str, struct_name: str,
+                               field_type: SawType, anchor) -> None:
+        """A struct FIELD may not name a reference (DF-163d).
+
+        A field is storage that outlives every call, so a reference in one is
+        the no-escape invariant broken by construction — and it is reachable
+        without ever writing a `&` in a signature, since a struct literal
+        (`Holder(r: &x)`) is not a call argument. Refusing the DECLARATION
+        closes the construction with it: no field has a reference type, so no
+        initializer can supply one.
+        """
+        found = self._first_reference_in(field_type)
+        if found is None:
+            return
+        value = found.inner_type if found.inner_type is not None else "T"
+        if found is field_type:
+            names_it = "is a reference"
+            fix = f"Store the value instead (`{field_name}: {value}`)"
+        else:
+            names_it = f"names a reference (`{found}`)"
+            fix = (f"Store the value instead (drop the `&`: `{found}` becomes "
+                   f"`{value}`)")
+        self.error_at(
+            anchor,
+            f"field `{field_name}` of `{struct_name}` may not be a reference: "
+            f"its type `{field_type}` {names_it}, and {self.PARAMETERS_ONLY}. "
+            f"A field outlives every call that could have created the "
+            f"reference, so the pointer it holds outlives the storage it "
+            f"names. {fix}, or — to hand out storage this type already owns — "
+            f"{self._lend_out(value)}")
+
+    def reject_reference_type_arg(self, arg: SawType, anchor) -> None:
+        """A generic ARGUMENT may not name a reference (DF-163d).
+
+        `Vector<&Int>` writes no `&` in any field or return type, yet
+        `v.push(&x)` fills it through a genuine call argument and the container
+        outlives that call — so the refusal belongs at the type argument, not at
+        the call. Covers both spellings a type argument has: a type position
+        (`let v: Vector<&Int>`) and an instantiation (`idn<&Int>(&x)`).
+
+        Raised rather than reported so the speculative generic-vs-comparison
+        lookahead reports it instead of backtracking (see
+        `CommittedGenericError`).
+        """
+        found = self._first_reference_in(arg)
+        if found is None:
+            return
+        value = found.inner_type if found.inner_type is not None else "T"
+        if found is arg:
+            names_it = "is a reference"
+        else:
+            names_it = f"names a reference (`{found}`)"
+        raise ReferenceTypeArgument(
+            f"Parse error at {anchor.line}:{anchor.column}: a generic argument "
+            f"may not be a reference: `{arg}` {names_it}, and "
+            f"{self.PARAMETERS_ONLY}. A generic holds its argument as STORAGE "
+            f"— `Vector<&Int>` fills through an ordinary call argument "
+            f"(`v.push(&x)`) and then outlives that call — so the reference is "
+            f"refused here rather than at the call. Use the value type instead "
+            f"(`{value}`), or — to reach an element the container already owns "
+            f"— {self._lend_out(value)}")
 
     def _first_reference_in(self, t: SawType):
         """The first reference type reachable from `t` without entering a
@@ -495,7 +594,10 @@ class TypeParsingMixin:
         saved = self.pos
         try:
             t = self.parse_type()
-        except GenericListTrailingComma:
+        except CommittedGenericError:
+            # A NESTED generic list already committed and failed (`Vector<Box<
+            # &Int>>`) — its diagnostic is the real one, so it must not be
+            # swallowed by the const-expression retry below.
             raise
         except SyntaxError:
             self.pos = saved
@@ -507,6 +609,7 @@ class TypeParsingMixin:
             self.pos = saved
             return self._const_value_type(
                 self.parse_const_expr("generic argument"))
+        self.reject_reference_type_arg(t, self.tokens[saved])
         return t
 
     @staticmethod

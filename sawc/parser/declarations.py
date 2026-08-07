@@ -157,7 +157,13 @@ class DeclarationsMixin:
             field_visibility = self._parse_visibility()
             field_name_token = self.expect(TokenType.IDENT, "Expected field name")
             self.expect(TokenType.COLON, "Expected ':' after field name")
+            type_anchor = self.current()
             field_type = self.parse_type()
+            # A field is storage that outlives every call, so it may not name a
+            # reference (DF-163d) — and refusing the declaration is what closes
+            # the struct-literal construction `Holder(r: &x)` with it.
+            self.reject_reference_field(field_name_token.value, name,
+                                        field_type, type_anchor)
             fields.append(StructField(name=field_name_token.value, type=field_type,
                                       visibility=field_visibility,
                                       line=field_name_token.line,

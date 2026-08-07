@@ -1,0 +1,19 @@
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: Parse error at 17:17: a generic argument may not be a reference
+// EXPECT-ERROR-CONTAINS: `&Int` is a reference
+// EXPECT-ERROR-CONTAINS: declare a `borrows` accessor
+//
+// The other spelling a type argument has: an explicit instantiation at a call
+// site. `idn<&Int>(&x)` compiled and printed 7 before the fix. The refusal is
+// raised where the argument is parsed, and the speculative "is this `<` a
+// generic list or a comparison?" lookahead lets it through rather than
+// backtracking into a nonsense comparison -- so the message names the real
+// mistake.
+
+func idn<T>(v: T) -> T { v }
+
+func main() {
+    var x = 7
+    let n = idn<&Int>(&x)
+    print("{n}")
+}

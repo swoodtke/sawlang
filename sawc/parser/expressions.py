@@ -35,7 +35,7 @@ from ast_nodes import (
     Pattern, WildcardPattern, BindingPattern, LiteralPattern,
     RangePattern, TuplePattern, EnumPattern,
 )
-from .types import GenericListTrailingComma
+from .types import CommittedGenericError
 
 
 class ExpressionsMixin:
@@ -415,9 +415,10 @@ class ExpressionsMixin:
                 if not followed_by_call:
                     self.pos = saved_pos
                     method_type_args = None
-            except GenericListTrailingComma:
-                # A committed generic list with a trailing comma (design 129) —
-                # report it rather than backtracking into a nonsense comparison.
+            except CommittedGenericError:
+                # A committed generic list that is ill-formed — a trailing comma
+                # (design 129) or a reference argument (DF-163d). Report it
+                # rather than backtracking into a nonsense comparison.
                 raise
             except SyntaxError:
                 self.pos = saved_pos
@@ -627,9 +628,10 @@ class ExpressionsMixin:
                         # Not a function call or member access, restore position
                         self.pos = saved_pos
                         type_args = None
-                except GenericListTrailingComma:
-                    # A committed generic list with a trailing comma (design 129)
-                    # — report it rather than backtracking into a comparison.
+                except CommittedGenericError:
+                    # A committed generic list that is ill-formed — a trailing
+                    # comma (design 129) or a reference argument (DF-163d).
+                    # Report it rather than backtracking into a comparison.
                     raise
                 except SyntaxError:
                     # Failed to parse type args, restore position

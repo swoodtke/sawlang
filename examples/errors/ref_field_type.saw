@@ -1,0 +1,18 @@
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: Parse error at 12:20: field `r` of `Holder` may not be a reference
+// EXPECT-ERROR-CONTAINS: its type `&Int` is a reference
+// EXPECT-ERROR-CONTAINS: references in Saw are PARAMETERS ONLY
+// EXPECT-ERROR-CONTAINS: Store the value instead (`r: Int`)
+// EXPECT-ERROR-CONTAINS: declare a `borrows` accessor
+//
+// DF-163d: a field is storage that outlives every call, so a reference in one
+// breaks the no-escape invariant by construction. This compiled and ran before
+// the fix -- the struct was built and the field read back.
+
+struct Holder { r: &Int }
+
+func main() {
+    let x = 7
+    let h = Holder(r: &x)
+    print("{h.r}")
+}

@@ -1,0 +1,17 @@
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: Parse error at 13:19: a generic argument may not be a reference
+// EXPECT-ERROR-CONTAINS: `&Int` is a reference
+// EXPECT-ERROR-CONTAINS: references in Saw are PARAMETERS ONLY
+// EXPECT-ERROR-CONTAINS: Use the value type instead (`Int`)
+//
+// DF-163d: a type ARGUMENT is the position that smuggles a reference past every
+// declaration-side rule -- `Vector<&Int>` writes no `&` in a field or a return
+// type, and `v.push(&x)` is a genuine call argument, so the refusal has to be at
+// the argument rather than at the call. This compiled and ran before the fix.
+
+func main() {
+    var v: Vector<&Int> = Vector<&Int>()
+    let x = 7
+    v.push(&x)
+    print("{v.len()}")
+}
