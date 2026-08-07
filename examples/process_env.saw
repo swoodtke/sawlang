@@ -1,0 +1,74 @@
+// Design 155 unit 1: `Command.env` sets ONE environment variable for the child
+// per call, with the same discipline `arg` has — the name and the value are
+// bytes the child receives verbatim, and nothing is parsed, split or expanded
+// because no shell ever sees them.
+//
+// The child INHERITS this process's environment and the overrides win, so a
+// variable the parent has and the Command never names still arrives.
+// EXPECT: success
+// EXPECT-OUTPUT:
+// [first]
+// [last]
+// count 1
+// [inherited]
+// [from the child]
+// [a  b; $HOME *]
+
+import std.process.{Command}
+import std.env.{Env}
+
+// Print what a child sees in `read_name`, given a Command that sets
+// `set_name=set_value`. Bracketed so an empty value — or one the shell
+// re-split — is visible in the output.
+//
+// The child is an explicit `/bin/sh`, which is how you ask for a shell in Saw
+// (design 122): `Command` itself never involves one. `"$NAME"` is quoted, so
+// the shell prints the value whole and expands nothing inside it.
+func child_prints(read_name: String, set_name: String, set_value: String) -> String {
+    var script = StringBuilder()
+    script.append("printf %s \"$")
+    script.append(read_name)
+    script.append("\"")
+
+    var c = Command(program: "/bin/sh")
+    c.arg("-c")
+    c.arg(script.build())
+    c.env(set_name, set_value)
+
+    if let r = c.output() {
+        "[{r.stdout}]"
+    } else {
+        "<spawn failed>"
+    }
+}
+
+func main() {
+    // The plain case: a variable the parent does not have at all.
+    print(child_prints("SAW_ENV_A", "SAW_ENV_A", "first"))
+
+    // Two calls for one name REPLACE, so the last one wins and the child never
+    // sees the variable twice.
+    var twice = Command(program: "/bin/sh")
+    twice.arg("-c")
+    twice.arg("printf %s \"$SAW_ENV_B\"")
+    twice.env("SAW_ENV_B", "first")
+    twice.env("SAW_ENV_B", "last")
+    if let r = twice.output() {
+        print("[{r.stdout}]")
+    } else {
+        print("<spawn failed>")
+    }
+    print("count {twice.env_count()}")
+
+    // INHERITANCE: the child gets this process's environment plus the
+    // overrides, so a variable the Command never names still arrives.
+    let _ = Env.set("SAW_ENV_INHERITED", "inherited")
+    print(child_prints("SAW_ENV_INHERITED", "SAW_ENV_A", "unrelated"))
+
+    // And an override BEATS the inherited value of the same name.
+    let _ = Env.set("SAW_ENV_C", "from the parent")
+    print(child_prints("SAW_ENV_C", "SAW_ENV_C", "from the child"))
+
+    // Verbatim bytes: spaces, a `;` and a `$VAR` all arrive as themselves.
+    print(child_prints("SAW_ENV_D", "SAW_ENV_D", "a  b; $HOME *"))
+}

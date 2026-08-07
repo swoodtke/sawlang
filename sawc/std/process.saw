@@ -15,7 +15,12 @@ extern "C" {
     // it is ever interpreted. `spawn` hands back an opaque job handle (or a
     // negated SysError tag); `wait` reaps it and returns the RAW POSIX wait
     // status, which `decode_wait_status` below turns into an exit code.
-    func __saw_rt_proc_spawn(path: UnsafePointer<Int8>, argv: UnsafePointer<Int8>, capture: Int) -> Int
+    func __saw_rt_proc_spawn(path: UnsafePointer<Int8>, argv: UnsafePointer<Int8>, flags: Int) -> Int
+    // The same spawn carrying environment OVERRIDES (design 155): `envp` is a
+    // NULL-terminated `NAME=VALUE` array and the child gets this process's
+    // environment with those names set. Only the runtime can reach the process
+    // environment, which is why the merge is behind a seam and not done here.
+    func __saw_rt_proc_spawn_env(path: UnsafePointer<Int8>, argv: UnsafePointer<Int8>, envp: UnsafePointer<Int8>, flags: Int) -> Int
     func __saw_rt_proc_read_stdout(job: Int, buf: UnsafePointer<Int8>, len: Int) -> Int
     func __saw_rt_proc_wait(job: Int) -> Int
 
@@ -33,6 +38,14 @@ extern "C" {
 static EXEC_FAILED_CODE: Int32 = 127
 // stdout drain granularity for `output()`.
 static PROC_READ_CHUNK: Int = 1024
+// `=`, the byte POSIX reserves to separate an environment variable's NAME from
+// its VALUE — so a name may not contain one.
+static EQUALS_BYTE: Int8 = 61
+
+// The spawn seam's redirection bit set (rt/ABI.md). `output()` asks for the
+// stdout pipe; `merge_stderr()` adds the second bit.
+static FLAG_CAPTURE_STDOUT: Int = 1
+static FLAG_MERGE_STDERR: Int = 2
 
 // =============================================================================
 // Wait-status decode (design 59 A, DF2)
@@ -119,12 +132,42 @@ struct Command {
     // which meant the shell re-split it: `arg("one two")` became two arguments
     // and `arg("; echo hi")` ran a second command (design 122 unit C).
     args: Vector<String>
+    // True once `merge_stderr` has been called: the child's standard error then
+    // goes wherever its standard output goes.
+    merged_stderr: Bool
+    // Environment OVERRIDES, one `NAME=VALUE` element per variable, in the order
+    // `env` first named them. Overrides, not a replacement environment: the
+    // child inherits everything this process has and these names win. Empty for
+    // a Command nobody called `env` on, which then spawns through the seam that
+    // knows nothing about environments at all.
+    envs: Vector<String>
+}
+
+// Does the `NAME=VALUE` entry name exactly the variable `name`? Compares the
+// name only, so `PATH=/bin` does not answer for `PATHOLOGY`.
+func names_variable(entry: String, name: String) -> Bool {
+    let n = name.len()
+    if entry.len() <= n {
+        return false
+    }
+    if entry.byte_at(n) != EQUALS_BYTE {
+        return false
+    }
+    var i = 0
+    while i < n {
+        if entry.byte_at(i) != name.byte_at(i) {
+            return false
+        }
+        i = i + 1
+    }
+    true
 }
 
 extension Command {
     // Create a new Command for the given program
     public init(program: String) -> Command {
-        Command(program: program, args: Vector<String>())
+        Command(program: program, args: Vector<String>(),
+                merged_stderr: false, envs: Vector<String>())
     }
 
     // Add a single argument. Whatever bytes it holds, it arrives at the child
@@ -137,6 +180,65 @@ extension Command {
     // The number of arguments added so far.
     public func arg_count(&self) -> Int {
         self.args.len()
+    }
+
+    // Set one environment variable for the child. Same discipline as `arg`:
+    // one call is exactly one variable, and both the name and the value are
+    // bytes the child receives verbatim — nothing is parsed, split, expanded or
+    // interpreted, because no shell is ever involved.
+    //
+    // The child inherits this process's environment and these names override
+    // it; a name this process does not have is added. Calling `env` twice for
+    // one name REPLACES the value, so the last call wins and the child never
+    // sees the same variable twice.
+    //
+    // Panics on a name that could not be an environment variable at all — empty,
+    // or containing the `=` POSIX reserves as the separator. That is a
+    // programming error in the same class as an out-of-range index, not a
+    // condition the child could report.
+    public func env(&var self, name: String, value: String) {
+        if name.is_empty() {
+            panic("Command.env: an environment variable name must not be empty")
+        }
+        if name.contains("=") {
+            panic("Command.env: an environment variable name must not contain '='")
+        }
+
+        var spec = StringBuilder()
+        spec.append(name)
+        spec.append("=")
+        spec.append(value)
+        let entry = spec.build()
+
+        var i = 0
+        while i < self.envs.len() {
+            if let existing = self.envs.get(i) {
+                if names_variable(existing, name) {
+                    self.envs.set(i, entry)
+                    return
+                }
+            }
+            i = i + 1
+        }
+        self.envs.push(entry)
+    }
+
+    // The number of environment variables `env` has set so far.
+    public func env_count(&self) -> Int {
+        self.envs.len()
+    }
+
+    // Send the child's standard error wherever its standard output goes — into
+    // the captured pipe under `output()`, and to this process's own stdout
+    // under `run()` (exactly what `2>&1` means in a shell).
+    //
+    // Reach for it when you are running children you EXPECT some of to fail and
+    // their diagnostics are not yours to print: without it `output()` captures
+    // stdout while stderr keeps going to the terminal, so a tool that runs a
+    // hundred compiles cannot keep its own report readable. What you capture is
+    // then both streams interleaved, in the order the child wrote them.
+    public func merge_stderr(&var self) {
+        self.merged_stderr = true
     }
 
     // Build the NULL-terminated `char**` that `execvp` wants:
@@ -178,6 +280,66 @@ extension Command {
         raw
     }
 
+    // Build the NULL-terminated `char**` of `NAME=VALUE` overrides the
+    // env-carrying spawn seam wants. Same discipline as `build_argv`: the slots
+    // BORROW the Strings this Command owns, so the array is valid only while
+    // `self` is alive and must be freed by the caller.
+    //
+    // Panics if the array cannot be allocated (design 123, infallible tier).
+    func build_envp(&self) unsafe -> UnsafePointer<Int8> {
+        let n = self.envs.len()
+        let slot = sizeof<UnsafePointer<Int8>>()
+        let slots = n + 1                      // entries + NULL
+        guard let raw = malloc(slots * slot) else {
+            panic("Command: allocation failed")
+        }
+        let arr = raw as UnsafePointer<UnsafePointer<Int8>>
+        var i = 0
+        while i < n {
+            if let e = self.envs.get(i) {
+                arr[i] = e as UnsafePointer<Int8>
+            }
+            i = i + 1
+        }
+        // Terminate with a NULL pointer, written as a slot of zero bytes (see
+        // build_argv — there is no null-pointer literal).
+        let bytes = raw as UnsafePointer<Int8>
+        let end = (slots - 1) * slot
+        var k = 0
+        while k < slot {
+            bytes[end + k] = 0 as Int8
+            k = k + 1
+        }
+        raw
+    }
+
+    // Spawn the child and hand back the opaque job word (or the negated
+    // SysError tag the seam reported). `capture` asks for the child's stdout in
+    // a pipe the job owns; `merge_stderr()` adds the second redirection bit.
+    //
+    // A Command with no `env` call goes through the environment-free seam, so
+    // the overwhelmingly common spawn costs exactly what it always did — no
+    // envp array, no merge.
+    func spawn_job(&self, capture: Bool) unsafe -> Int {
+        var flags = if capture { FLAG_CAPTURE_STDOUT } else { 0 }
+        if self.merged_stderr {
+            flags = flags + FLAG_MERGE_STDERR
+        }
+
+        let argv = self.build_argv()
+        let job = if self.envs.len() == 0 {
+            __saw_rt_proc_spawn(self.program as UnsafePointer<Int8>, argv, flags)
+        } else {
+            let envp = self.build_envp()
+            let with_env = __saw_rt_proc_spawn_env(
+                self.program as UnsafePointer<Int8>, argv, envp, flags)
+            free(envp)
+            with_env
+        }
+        free(argv)
+        job
+    }
+
     // Run the command, inheriting stdin/stdout/stderr.
     //
     // Ok(code)  = the command LAUNCHED and its process exited with `code`
@@ -189,9 +351,7 @@ extension Command {
     //             is the design-92 distinction — a failed launch is surfaced,
     //             not folded into a bogus exit code (never hide errors).
     public func run(&self) unsafe -> Result<Int32, ProcessError> {
-        let argv = self.build_argv()
-        let job = __saw_rt_proc_spawn(self.program as UnsafePointer<Int8>, argv, 0)
-        free(argv)
+        let job = self.spawn_job(false)
         if job <= 0 {
             return ProcessError(program: self.program)
         }
@@ -209,10 +369,12 @@ extension Command {
     // Run the command and capture its stdout.
     // Returns CommandOutput with stdout and exit code, or None if the child
     // could not be spawned.
+    //
+    // The child's STDERR is inherited — it goes to this process's own stderr —
+    // unless `merge_stderr()` was called, which folds it into the captured
+    // stdout instead.
     public func output(&self) unsafe -> CommandOutput? {
-        let argv = self.build_argv()
-        let job = __saw_rt_proc_spawn(self.program as UnsafePointer<Int8>, argv, 1)
-        free(argv)
+        let job = self.spawn_job(true)
         if job <= 0 {
             return None
         }

@@ -30,16 +30,36 @@ extern "C" {
     func _exit(code: Int32)
     func waitpid(pid: Int32, status: UnsafePointer<Int32>, options: Int32) -> Int32
     func __saw_rt_last_syserror() -> Int
+
+    // The process environment (design 155). Saw cannot name a C global, so the
+    // two accessors live in shim.c under DF-113a; see the comment there for why
+    // the child sets `environ` rather than calling `execve`.
+    func __saw_environ_get() -> UnsafePointer<UnsafePointer<Int8>>
+    func __saw_environ_set(env: UnsafePointer<UnsafePointer<Int8>>)
 }
 
 // SysError tags this file branches on (the full space is in ABI.md).
 static SYS_INTERRUPTED: Int = 4
+static SYS_EXHAUSTED: Int = 15
+
+// `=`, the byte that ends the NAME of a `NAME=VALUE` environment entry.
+static EQUALS_BYTE: Int8 = 61
+// The null `char**`, as a word. Passed AS an environment it means "leave the
+// child's `environ` alone"; returned BY `merge_environ` it means the array
+// allocation was refused.
+static NULL_ENVP: Int = 0
 
 static STDOUT_FILENO: Int32 = 1
+static STDERR_FILENO: Int32 = 2
 // POSIX shell convention for "command not found / could not exec": the child
 // that fails to exec exits 127, which std maps back to a launch failure.
 static EXEC_FAILED_STATUS: Int32 = 127
 static NO_FD: Int32 = -1
+
+// The spawn `flags` word, one bit per redirection (ABI.md). `1` alone is what
+// the capture flag has always meant, so nothing that predates the bits changes.
+static FLAG_CAPTURE_STDOUT: Int = 1
+static FLAG_MERGE_STDERR: Int = 2
 
 // pipe() writes fds[0]=read, fds[1]=write into two adjacent Int32s.
 struct PipeFds {
@@ -53,11 +73,105 @@ struct ProcJob {
     stdout_fd: Int32   // the read end when capturing, NO_FD otherwise
 }
 
-// Spawn `path` with `argv` (a NULL-terminated char* array whose [0] is the
-// program name, exactly as execvp wants). `capture != 0` redirects the child's
-// stdout into a pipe this job owns. Returns the job handle (> 0) or -tag.
-@export("__saw_rt_proc_spawn")
-func rt_proc_spawn(path: UnsafePointer<Int8>, argv: UnsafePointer<Int8>, capture: Int) unsafe -> Int {
+// Does the `NAME=VALUE` entry `entry` name the same variable as the override
+// `spec` (also `NAME=VALUE`)? Only the NAME is compared — the bytes up to the
+// override's `=` — so `PATH=/bin` and `PATHOLOGY=x` do not collide.
+func same_env_name(entry: UnsafePointer<Int8>, spec: UnsafePointer<Int8>) unsafe sync -> Bool {
+    var i = 0
+    var same = false
+    var scanning = true
+    while scanning {
+        let s = spec[i]
+        let e = entry[i]
+        if s == EQUALS_BYTE {
+            // The override's NAME ends here, so the entry's must end here too.
+            same = e == EQUALS_BYTE
+            scanning = false
+        } else if s == (0 as Int8) || e != s {
+            // A spec with no `=` names no variable (std never builds one), and
+            // any differing byte — the entry's own NUL included — decides it.
+            scanning = false
+        } else {
+            i = i + 1
+        }
+    }
+    same
+}
+
+// The child's environment: the parent's, with every `NAME=VALUE` in `overrides`
+// replacing the entry of that name (appended when the parent had none).
+//
+// Returns a malloc'd NULL-terminated array as a word, or NULL_ENVP when the
+// allocation was refused. The slots BORROW strings from two places — the
+// parent's own `environ` and the caller's `overrides` array — so the result is
+// valid only while both are, which is exactly the fork-then-exec window it
+// exists for. The ARRAY is the caller's to free; the strings are not.
+//
+// This runs in the PARENT, before the fork, because it allocates: everything
+// the child then does with the result is a pointer store.
+func merge_environ(overrides: UnsafePointer<UnsafePointer<Int8>>) unsafe -> Int {
+    let parent = __saw_environ_get()
+    var n_over = 0
+    while (overrides[n_over] as Int) != 0 {
+        n_over = n_over + 1
+    }
+    var n_parent = 0
+    while (parent[n_parent] as Int) != 0 {
+        n_parent = n_parent + 1
+    }
+
+    let slot = sizeof<UnsafePointer<Int8>>()
+    let raw = malloc((n_parent + n_over + 1) * slot)
+    if (raw as Int) == NULL_ENVP {
+        return NULL_ENVP
+    }
+    let out = raw as UnsafePointer<UnsafePointer<Int8>>
+
+    var w = 0
+    var i = 0
+    while i < n_parent {
+        let entry = parent[i]
+        var overridden = false
+        var k = 0
+        while k < n_over {
+            if same_env_name(entry, overrides[k]) {
+                overridden = true
+            }
+            k = k + 1
+        }
+        if not overridden {
+            out[w] = entry
+            w = w + 1
+        }
+        i = i + 1
+    }
+    var j = 0
+    while j < n_over {
+        out[w] = overrides[j]
+        w = w + 1
+        j = j + 1
+    }
+
+    // Terminate with a NULL pointer, written as a slot of zero bytes (there is
+    // no null-pointer literal, and the element type is not optional).
+    let bytes = raw as UnsafePointer<Int8>
+    let end = w * slot
+    var b = 0
+    while b < slot {
+        bytes[end + b] = 0 as Int8
+        b = b + 1
+    }
+    raw as Int
+}
+
+// The spawn body both seams share. `envp` is NULL_ENVP to inherit the parent
+// environment, or a merged `char**` as a word — the child points `environ` at
+// it just before `execvp`, which is what a portable `execvpe` does and the only
+// way to choose the environment without giving up the PATH search.
+func proc_spawn_impl(path: UnsafePointer<Int8>, argv: UnsafePointer<Int8>, envp: Int, flags: Int) unsafe -> Int {
+    let capture = flags & FLAG_CAPTURE_STDOUT
+    let merge_stderr = flags & FLAG_MERGE_STDERR
+
     var fds = PipeFds(r: NO_FD, w: NO_FD)
     if capture != 0 {
         if pipe((&fds) as UnsafePointer<Int8>) != (0 as Int32) {
@@ -81,7 +195,17 @@ func rt_proc_spawn(path: UnsafePointer<Int8>, argv: UnsafePointer<Int8>, capture
         if capture != 0 {
             let _ = close(fds.r)
             let _ = dup2(fds.w, STDOUT_FILENO)
+            if merge_stderr != 0 {
+                let _ = dup2(fds.w, STDERR_FILENO)
+            }
             let _ = close(fds.w)
+        } else if merge_stderr != 0 {
+            // Nothing to capture INTO, so the bit means what `2>&1` means: the
+            // child's stderr goes wherever its (inherited) stdout goes.
+            let _ = dup2(STDOUT_FILENO, STDERR_FILENO)
+        }
+        if envp != NULL_ENVP {
+            __saw_environ_set(envp as UnsafePointer<UnsafePointer<Int8>>)
         }
         let _ = execvp(path, argv)
         // Only reachable when exec FAILED (bad path, not executable, ENOENT).
@@ -98,6 +222,35 @@ func rt_proc_spawn(path: UnsafePointer<Int8>, argv: UnsafePointer<Int8>, capture
     p[0].pid = pid
     p[0].stdout_fd = fds.r
     raw as Int
+}
+
+// Spawn `path` with `argv` (a NULL-terminated char* array whose [0] is the
+// program name, exactly as execvp wants), inheriting this process's
+// environment. `flags` is the redirection bit set (ABI.md): bit 0 sends the
+// child's stdout into a pipe this job owns, bit 1 sends its stderr wherever its
+// stdout goes. Returns the job handle (> 0) or -tag.
+@export("__saw_rt_proc_spawn")
+func rt_proc_spawn(path: UnsafePointer<Int8>, argv: UnsafePointer<Int8>, flags: Int) unsafe -> Int {
+    proc_spawn_impl(path, argv, NULL_ENVP, flags)
+}
+
+// The same spawn with environment OVERRIDES (design 155). `envp` is a
+// NULL-terminated `NAME=VALUE` array; the child gets this process's environment
+// with each of those names set to the given value, and everything else
+// inherited. The merge happens here, in the parent, before the fork — the child
+// only stores a pointer, which is what keeps the fork-to-exec window
+// async-signal-safe in a multi-threaded parent.
+@export("__saw_rt_proc_spawn_env")
+func rt_proc_spawn_env(path: UnsafePointer<Int8>, argv: UnsafePointer<Int8>, envp: UnsafePointer<Int8>, flags: Int) unsafe -> Int {
+    let merged = merge_environ(envp as UnsafePointer<UnsafePointer<Int8>>)
+    if merged == NULL_ENVP {
+        return 0 - SYS_EXHAUSTED
+    }
+    let job = proc_spawn_impl(path, argv, merged, flags)
+    // The child has its own copy of the array (fork copies the address space),
+    // so the parent's is finished with either way.
+    free(merged as UnsafePointer<Int8>)
+    job
 }
 
 // Read up to `len` bytes of the child's captured stdout. Returns the byte count

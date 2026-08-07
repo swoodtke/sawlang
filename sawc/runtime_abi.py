@@ -62,8 +62,11 @@ RUNTIME_ABI_SYMBOLS = frozenset({
     "__saw_rt_fs_dirent_name",
     "__saw_rt_env_set",
     "__saw_rt_env_unset",
-    # Process spawn (design 122 unit C): real argv spawn, no shell anywhere
+    # Process spawn (design 122 unit C): real argv spawn, no shell anywhere.
+    # The `_env` twin (design 155) carries per-child environment overrides —
+    # only the runtime can reach the process environment.
     "__saw_rt_proc_spawn",
+    "__saw_rt_proc_spawn_env",
     "__saw_rt_proc_read_stdout",
     "__saw_rt_proc_wait",
     # Cooperative-scheduler fairness (design 89-c)

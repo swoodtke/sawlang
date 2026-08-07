@@ -35,6 +35,9 @@ extern "C" {
     func unsetenv(name: UnsafePointer<Int8>) -> Int32
     // host seams: the nonblocking-socket helper (shim.c), the sockaddr prefix
     // stamp, and the errno -> portable SysError tag mapper (net_os.saw).
+    // The portable open mode -> this host's O_* flag word (shim.c, design 155:
+    // the O_* bits are per-host C macros).
+    func __saw_open_flags(mode: Int) -> Int
     func __saw_rt_set_nonblocking(fd: Int) -> Int
     func __saw_rt_sin_set_family(buf: UnsafePointer<Int8>)
     func __saw_rt_last_syserror() -> Int
@@ -44,6 +47,7 @@ extern "C" {
 static SYS_WOULD_BLOCK: Int = 1
 static SYS_IN_PROGRESS: Int = 2
 static SYS_IS_CONNECTED: Int = 3
+static SYS_INVALID: Int = 14
 
 static AF_INET: Int32 = 2
 static SOCK_STREAM: Int32 = 1
@@ -205,9 +209,17 @@ func rt_tcp_write(fd: Int, buf: UnsafePointer<Int8>, len: Int) unsafe -> Int {
 // unreadable — errno is runtime-internal — so std could only answer `None`. Each
 // returns its natural non-negative result (fd, byte count, offset) or -tag.
 
+// `mode` is the PORTABLE open mode (rt/ABI.md), not a POSIX flag word: the
+// `O_*` bits are per-host macros, so only C can spell them and only the shim
+// can see <fcntl.h> (design 155). `perm` is the creation permission, read by
+// the kernel only when the mode creates.
 @export("__saw_rt_fs_open")
-func rt_fs_open(path: UnsafePointer<Int8>, flags: Int, mode: Int) unsafe -> Int {
-    let fd = open(path, flags as Int32, mode)
+func rt_fs_open(path: UnsafePointer<Int8>, mode: Int, perm: Int) unsafe -> Int {
+    let flags = __saw_open_flags(mode)
+    if flags < 0 {
+        return 0 - SYS_INVALID
+    }
+    let fd = open(path, flags as Int32, perm)
     if fd >= (0 as Int32) {
         return fd as Int
     }

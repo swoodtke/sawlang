@@ -1,0 +1,50 @@
+// Design 155: `Command.merge_stderr` sends the child's standard error wherever
+// its standard output goes, so a tool that captures a child's output can keep
+// its OWN output clean even when the child fails and writes a diagnostic.
+//
+// Without it, `output()` captures stdout and the child's stderr goes straight to
+// this process's stderr — which is right for a command whose errors the user
+// should see, and wrong for one you are running a hundred of and expect some to
+// fail.
+// EXPECT: success
+// EXPECT-OUTPUT:
+// []
+// [diagnostic]
+// [out then diagnostic]
+
+import std.process.{Command}
+
+// Capture the output of a child that writes only to stderr, bracketed so an
+// empty capture is visible.
+func captured_diagnostic(merge: Bool) -> String {
+    var c = Command(program: "/bin/sh")
+    c.arg("-c")
+    c.arg("printf diagnostic 1>&2")
+    if merge {
+        c.merge_stderr()
+    }
+    if let r = c.output() {
+        "[{r.stdout}]"
+    } else {
+        "<spawn failed>"
+    }
+}
+
+func main() {
+    // Inherited: nothing of the child's stderr reaches the capture.
+    print(captured_diagnostic(false))
+
+    // Merged: the diagnostic lands in the captured output instead.
+    print(captured_diagnostic(true))
+
+    // Both streams, in the order the child wrote them.
+    var both = Command(program: "/bin/sh")
+    both.arg("-c")
+    both.arg("printf 'out then '; printf diagnostic 1>&2")
+    both.merge_stderr()
+    if let r = both.output() {
+        print("[{r.stdout}]")
+    } else {
+        print("<spawn failed>")
+    }
+}

@@ -1,7 +1,7 @@
 /* The Saw runtime C shim (design 113b).
  *
  * The `__saw_rt_*` runtime ABI (sawc/rt/ABI.md) is authored in Saw under
- * `--runtime-build` — EXCEPT the three bodies below, each blocked by a specific
+ * `--runtime-build` — EXCEPT the bodies below, each blocked by a specific
  * Saw FFI gap tracked as a DF-finding. Every one of these shrinks to Saw the day
  * its language feature lands (the three future designs queued in designs/todo.md
  * under "FFI gaps blocking a pure-Saw runtime"). Keep this file as small as the
@@ -39,6 +39,60 @@ __attribute__((noreturn))
 void __saw_rt_panic(const char *msg, size_t len) {
     __saw_rt_write(msg, len);
     abort();
+}
+
+/* ---- DF-113a: no C macro (design 155) ----------------------------------
+ * The `open(2)` flag bits are PER-HOST macros, and std had them written out as
+ * decimal literals — the LINUX values, used on both hosts. On macOS that made
+ * `File.create` mean `O_WRONLY | O_ASYNC | O_CREAT` (no `O_TRUNC`: writing 3
+ * bytes over a 30-byte file left a 30-byte file) and `File.open_append` mean
+ * `O_WRONLY | O_ASYNC | O_TRUNC` (no `O_CREAT`: appending to a missing file
+ * failed with ENOENT, and appending to a present one truncated it).
+ *
+ * So `__saw_rt_fs_open` takes a PORTABLE open MODE now (rt/ABI.md) and this
+ * translates it, in the one language that can see <fcntl.h>. Saw cannot name a
+ * C macro any more than it can name a C global, and a table of decimal literals
+ * is exactly the bug: it cannot be right on two hosts at once. Keep the mode
+ * numbering in step with `OpenMode` in sawc/std/file.saw. */
+#include <fcntl.h>
+
+long __saw_open_flags(long mode) {
+    switch (mode) {
+    case 0: return O_RDONLY;
+    case 1: return O_WRONLY | O_CREAT | O_TRUNC;
+    case 2: return O_WRONLY | O_CREAT | O_APPEND;
+    default: return -1;
+    }
+}
+
+/* ---- DF-113a: no extern C global (design 155) ---------------------------
+ * The child of `__saw_rt_proc_spawn_env` gets its environment by having the
+ * process-wide `environ` point at the merged array before `execvp` — which is
+ * how a portable `execvpe` is written, and the only way to keep PATH search
+ * (`execvp` takes the new image's environment from `environ`, per POSIX) while
+ * still choosing that environment. Both halves are a pointer load and a pointer
+ * store, so the SET half is async-signal-safe and legal in the window between
+ * fork and exec; the merge itself runs in the PARENT, before the fork, where
+ * malloc is allowed (rt/common/proc.saw). Saw has no extern-global syntax, so
+ * naming `environ` is C — the same gap that keeps `stdout` here.
+ *
+ * macOS exports `environ` to executables but the supported spelling is
+ * `_NSGetEnviron()`, which works in a bundle or dylib too; Linux has the
+ * variable itself. */
+#ifdef __APPLE__
+#include <crt_externs.h>
+#define SAW_ENVIRON (*_NSGetEnviron())
+#else
+extern char **environ;
+#define SAW_ENVIRON environ
+#endif
+
+char **__saw_environ_get(void) {
+    return SAW_ENVIRON;
+}
+
+void __saw_environ_set(char **env) {
+    SAW_ENVIRON = env;
 }
 
 /* ---- DF-113b: no C function-pointer type -------------------------------

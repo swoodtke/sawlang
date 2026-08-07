@@ -239,9 +239,19 @@ is runtime-internal and must not be called after a bare libc op — so
 `File.open`/`read`/`write` could only answer `None`. Each returns its natural
 non-negative result or `-tag`.
 
-- `__saw_rt_fs_open(path: i8*, flags: word, mode: word) -> word` — the fd, or
-  `-tag`. `flags`/`mode` are the POSIX `open(2)` values; `mode` is read by the
-  kernel only with `O_CREAT`.
+- `__saw_rt_fs_open(path: i8*, mode: word, perm: word) -> word` — the fd, or
+  `-tag`. `mode` is a **PORTABLE OPEN MODE**, not a POSIX flag word: `0` read an
+  existing file, `1` write from the beginning creating-or-emptying, `2` append
+  creating-if-absent. An unrecognized mode is `-Invalid`. `perm` is the creation
+  permission (`0644` from std), read by the kernel only when the mode creates.
+
+  It carried the raw `O_*` flag word until design 155, and could not: those bits
+  are per-host C macros, and std spelled them as the LINUX decimal values for
+  BOTH hosts. On macOS that silently made `File.create` omit `O_TRUNC` (a short
+  write over a long file left the old tail in place) and `File.open_append` omit
+  `O_CREAT` while gaining `O_TRUNC`. A runtime translates the mode into its own
+  host's bits — the hosted one in `shim.c`, which is the only place that can see
+  `<fcntl.h>`.
 - `__saw_rt_fs_read(fd: word, buf: i8*, count: word) -> word` — bytes read
   (`0` = end of file), or `-tag`.
 - `__saw_rt_fs_write(fd: word, buf: i8*, count: word) -> word` — bytes written,
@@ -259,7 +269,7 @@ non-negative result or `-tag`.
 
 ## Process spawn (design 122 — additive)
 
-Three seams added after v2 froze, for the same reason the fs/env ops exist: the
+Seams added after v2 froze, for the same reason the fs/env ops exist: the
 operation crosses the boundary and its status has to come back with it. They
 replace `std.process.Command`'s old `system()`/`popen()` shell command line —
 which re-split every argument and executed anything after a `;` — with a real
@@ -273,12 +283,46 @@ The hosted bodies are `fork` + `execvp` (`rt/common/proc.saw`, OS-independent);
 between fork and exec the child touches only async-signal-safe calls
 (`close`/`dup2`/`execvp`/`_exit`).
 
-### `__saw_rt_proc_spawn(path: i8*, argv: i8**, capture: word) -> word`
+### `__saw_rt_proc_spawn(path: i8*, argv: i8**, flags: word) -> word`
 Spawn `path` with the NULL-terminated `argv` array (`argv[0]` is the program
-name, as `execvp` expects). `capture != 0` redirects the child's stdout into a
-pipe the job owns. Returns the job handle (`> 0`) or `-tag`. A child that cannot
-exec exits **127** (the POSIX "command not found" convention), which std maps
-back to a launch failure.
+name, as `execvp` expects). Returns the job handle (`> 0`) or `-tag`. A child
+that cannot exec exits **127** (the POSIX "command not found" convention), which
+std maps back to a launch failure.
+
+`flags` is a REDIRECTION BIT SET, one bit per stream (design 155 widened what
+design 122 called `capture`; `0` and `1` still mean what they always meant, so
+nothing that predates the bits changes):
+
+| bit | value | meaning |
+|-----|-------|---------|
+| 0   | 1     | the child's stdout goes into a pipe the job owns (`read_stdout` drains it) |
+| 1   | 2     | the child's stderr goes wherever its stdout goes — into the pipe with bit 0, and plain `2>&1` without it |
+
+Bit 1 exists because a spawner that captures a child's output but INHERITS its
+diagnostics cannot keep its own output clean, and had no way to say so: a tool
+that runs hundreds of children it expects some of to fail (the design-155 irdet
+port over a corpus with negative tests in it) would interleave their error text
+with its own report. Discarding stderr and capturing it SEPARATELY are both
+still unexpressible — see DF-155a.
+
+### `__saw_rt_proc_spawn_env(path: i8*, argv: i8**, envp: i8**, flags: word) -> word`
+The same spawn with environment OVERRIDES (design 155 — additive; the seam
+`std.process.Command.env(name:value:)` needs, and the reason it is a seam at all
+is that only the runtime can reach the process environment). `envp` is a
+NULL-terminated `NAME=VALUE` array; the child gets the spawning process's
+environment **with each of those names set to the given value and everything
+else inherited** — not a replacement environment. Names are unique (std replaces
+rather than appends), so no precedence question reaches the seam. Returns the
+job handle (`> 0`) or `-tag`, and `-Exhausted` when the merged array cannot be
+allocated.
+
+The merge runs in the PARENT, before the fork; the child does nothing but point
+`environ` at the result before `execvp`. That ordering is the contract, not an
+implementation detail: a spawning process may be multi-threaded, and the window
+between fork and exec may only touch async-signal-safe calls, which a merge that
+allocates is not. Pointing `environ` at a pre-built array is how a portable
+`execvpe` is written, and it is what keeps the PATH search (`execvp` takes the
+new image's environment from `environ`).
 
 ### `__saw_rt_proc_read_stdout(job: word, buf: i8*, len: word) -> word`
 Read up to `len` bytes of the child's captured stdout: the byte count (`0` =

@@ -1,0 +1,95 @@
+// Design 155: `File.open`/`create`/`open_append` ask the runtime for a PORTABLE
+// open mode, which it translates into its host's `O_*` bits.
+//
+// std used to spell those bits itself, as the decimal LINUX values, on both
+// hosts. On macOS they meant something else: `create` lost `O_TRUNC`, so writing
+// 3 bytes over a 30-byte file left a 30-byte file with the old tail still on it,
+// and `open_append` lost `O_CREAT` and gained `O_TRUNC` — it could not create a
+// missing file, and emptied a present one. Both are silent data loss, so both
+// are checked here.
+// EXPECT: success
+// EXPECT-OUTPUT:
+// long write: 30
+// create truncates: 3
+// create truncates content: BBB
+// append created the file: yes
+// append does not truncate: 6
+// append content: BBBCCC
+
+import std.file.{File}
+import std.path.{Path}
+import std.directory.{Directory}
+
+func write_to(f: &File, text: String) {
+    match f.write(text.to_data()) {
+        case Ok(_) -> {},
+        case Err(e) -> print("write failed: {e}")
+    }
+}
+
+func created(p: Path, text: String) {
+    var f = match File.create(p) {
+        case Ok(handle) -> move handle,
+        case Err(e) -> { print("create failed: {e}")  return }
+    }
+    write_to(&f, text)
+}
+
+func appended(p: Path, text: String) -> Bool {
+    var f = match File.open_append(p) {
+        case Ok(handle) -> move handle,
+        case Err(e) -> { print("open_append failed: {e}")  return false }
+    }
+    write_to(&f, text)
+    true
+}
+
+func contents(p: Path) -> String {
+    var f = match File.open(p) {
+        case Ok(handle) -> move handle,
+        case Err(e) -> { print("open failed: {e}")  return "" }
+    }
+    let bytes = match f.read() {
+        case Ok(d) -> move d,
+        case Err(e) -> { print("read failed: {e}")  return "" }
+    }
+    match bytes.to_string() {
+        case Ok(text) -> text,
+        case Err(_) -> ""
+    }
+}
+
+func main() {
+    let _ = Directory.create(Path(s: ".build"))
+    let p = Path(s: ".build/file_open_modes.txt")
+    if File.exists(p) {
+        let _ = File.remove(p)
+    }
+
+    // A long file, then a SHORT create over it: the second write must empty the
+    // file first, or the tail of the first survives past the new content.
+    created(p, "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAA")
+    print("long write: {contents(p).len()}")
+    created(p, "BBB")
+    print("create truncates: {contents(p).len()}")
+    print("create truncates content: {contents(p)}")
+
+    // Append to a file that is NOT there: the mode creates it.
+    let fresh = Path(s: ".build/file_open_modes_fresh.txt")
+    if File.exists(fresh) {
+        let _ = File.remove(fresh)
+    }
+    if appended(fresh, "made") {
+        print("append created the file: yes")
+    } else {
+        print("append created the file: no")
+    }
+    let _ = File.remove(fresh)
+
+    // And appending to a file that IS there adds to it rather than emptying it.
+    let _ = appended(p, "CCC")
+    print("append does not truncate: {contents(p).len()}")
+    print("append content: {contents(p)}")
+
+    let _ = File.remove(p)
+}

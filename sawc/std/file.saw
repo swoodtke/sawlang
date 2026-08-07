@@ -29,10 +29,25 @@ extern "C" {
     func free(ptr: UnsafePointer<Int8>)
 }
 
-// open(2) flag/mode combinations, named rather than spelled inline.
-static O_RDONLY: Int = 0
-static O_WRONLY_CREAT_TRUNC: Int = 577    // O_WRONLY | O_CREAT | O_TRUNC
-static O_WRONLY_CREAT_APPEND: Int = 1089  // O_WRONLY | O_CREAT | O_APPEND
+// How a file is being opened. This is a PORTABLE mode the runtime translates
+// into its host's `O_*` bits, not a POSIX flag word (design 155).
+//
+// It used to be a flag word, written here as the decimal LINUX values and used
+// on both hosts. On macOS those bits mean something else entirely: `create`
+// came out as `O_WRONLY | O_ASYNC | O_CREAT` — no `O_TRUNC`, so writing 3 bytes
+// over a 30-byte file left a 30-byte file with the old tail still on it — and
+// `open_append` came out as `O_WRONLY | O_ASYNC | O_TRUNC`, which neither
+// created a missing file nor appended to a present one. A per-host macro cannot
+// be a portable literal, so std stopped trying to spell one.
+enum OpenMode: UInt8 {
+    /// Read an existing file.
+    case Read = 0
+    /// Write from the beginning, creating the file or emptying an existing one.
+    case WriteTruncate = 1
+    /// Write at the end, creating the file when it is absent.
+    case Append = 2
+}
+
 static MODE_RW_R_R: Int = 420             // 0644
 static SEEK_SET: Int = 0
 static SEEK_CUR: Int = 1
@@ -56,23 +71,23 @@ extension File {
     // `Err` carries the reason open(2) refused — ENOENT and EACCES are different
     // problems and the caller can now tell them apart (design 92).
     public func open(path: Path) unsafe -> Result<File, IoError> {
-        File._opened(path, O_RDONLY, 0, "open")
+        File._opened(path, OpenMode.Read, 0, "open")
     }
 
     // Create `path` for writing, truncating an existing file.
     public func create(path: Path) unsafe -> Result<File, IoError> {
-        File._opened(path, O_WRONLY_CREAT_TRUNC, MODE_RW_R_R, "open")
+        File._opened(path, OpenMode.WriteTruncate, MODE_RW_R_R, "open")
     }
 
     // Open `path` for appending, creating it if absent.
     public func open_append(path: Path) unsafe -> Result<File, IoError> {
-        File._opened(path, O_WRONLY_CREAT_APPEND, MODE_RW_R_R, "open")
+        File._opened(path, OpenMode.Append, MODE_RW_R_R, "open")
     }
 
     // The one open(2) call the three constructors share.
-    func _opened(path: Path, flags: Int, mode: Int, syscall: String) unsafe -> Result<File, IoError> {
+    func _opened(path: Path, mode: OpenMode, perm: Int, syscall: String) unsafe -> Result<File, IoError> {
         let path_ptr = path.as_str() as UnsafePointer<Int8>
-        let fd = __saw_rt_fs_open(path_ptr, flags, mode)
+        let fd = __saw_rt_fs_open(path_ptr, (mode as UInt8) as Int, perm)
         if fd < 0 {
             return IoError.of(syscall, 0 - fd)
         }
