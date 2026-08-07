@@ -164,6 +164,13 @@ payload's copy): a `String?` retains, a `Vector<Int>?` duplicates the buffer, a
 `File?` has none. A refused optional transfer names THREE ways out —
 `o.copy()`, `move o`, `o.take()`; `take()` is the one that works on a FIELD,
 where `move` would be the no-partial-moves error.
+A TUPLE has `.copy()` on the same terms: it exists unless some element is
+move-only, and each element copies at ITS OWN tier (`String`/`Arc` retains,
+`Vector<Int>` gets its own buffer, trivial is bitwise, a nested tuple recurses).
+`var (a, n) = t.copy()` is the idiom — destructure the copy, since a `&var self`
+method on a tuple ELEMENT (`t.0.push(x)`) is currently a silent no-op (DF-151j).
+A `(File, Int)` is refused naming the element: ``element 0 of type `File` is
+NoCopy``.
 **`Deinit` is NOT declarable** (design 131): `extension T: Deinit {...}` is a
 compile error naming the three policies. A hand-written `deinit` body goes
 INSIDE the policy conformance (`extension Res: NoCopy { func deinit(&var self)

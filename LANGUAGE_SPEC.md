@@ -2023,6 +2023,20 @@ A refused optional transfer names three ways out: `.copy()`, `move`, and
 over, which is what makes it the spelling that works on a *field* — `move` there
 would be a partial move.
 
+A tuple works the same way. `t.copy()` exists when no element is move-only, and
+copies each element at that element's own tier: a `String` or `Arc` element
+retains, a `Vector<Int>` element gets its own buffer, a trivial one is copied
+bitwise. A tuple holding a `NoCopy` element has no `.copy()`, and the refusal
+names the offending element by position and type.
+
+```saw
+var v: Vector<Int> = [1, 2]
+let t = (move v, 7)
+
+var (a, n) = t.copy()   // ok: `a` is an independent buffer
+a.push(3)               // t.0 still holds 2 elements
+```
+
 **Enums declare a policy too.** An enum carrying an `ExplicitCopy` or `NoCopy`
 payload names its transfer class the way a struct with such a field does, and a
 bare one is the same error with the same hints. An enum whose payloads are only

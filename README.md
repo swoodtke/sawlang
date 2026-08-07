@@ -756,7 +756,10 @@ Saw provides deterministic memory management without garbage collection:
   `.copy()`, `File?` is move-only, `Int?` stays trivial, and a struct with a
   `File?` field owes a policy exactly as if the field were a bare `File`.
   `.copy()` on an optional exists when the payload's tier provides one, copying
-  `None` to `None` and `Some` to `Some` of the payload's own copy.
+  `None` to `None` and `Some` to `Some` of the payload's own copy. A tuple's
+  `.copy()` follows the same rule: it exists unless some element is move-only,
+  and each element copies at its own tier, so a `(Vector<Int>, Int)` hands back
+  an independent buffer beside a bitwise `Int`.
 - **Explicit `move`** for ownership transfer, checked at the point of transfer.
 - **Cleanup is written for you.** Any struct or enum that owns something gets a
   `deinit` synthesized from its fields, dropped in reverse declaration order at
