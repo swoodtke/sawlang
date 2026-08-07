@@ -2268,8 +2268,14 @@ caught being nondeterministic.
 
 ### DF findings from the 163a fix (Aug 7)
 
-- **DF-163d — OPEN, needs a user decision. The other three halves of "references
-  cannot escape" are still unenforced.** With `-> &T` closed, a bare `&` in a
+- **DF-163d — DECIDED (user, Aug 7): references are PARAMETER-ONLY by design
+  (plus the implicit lend a `borrows` accessor makes); a reference named in ANY
+  other position is an error.** All four escapes below close: the local binding,
+  the struct field, the type argument, and the inference-typed closure return.
+  Ready to dispatch as a small unit in the post-168 wave (typechecker surface —
+  `expressions.py` guard for three, a named-type walk for type arguments/fields,
+  and the closure-inference return check). Original finding follows.
+  With `-> &T` closed, a bare `&` in a
   NON-argument position is the remaining way out, and all three shapes compile
   and RUN today:
   - bound to a local — `let r = &x`, then `read_one(r)` prints;
