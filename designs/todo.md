@@ -2338,36 +2338,107 @@ statement dropped its `Result` with no diagnostic.
   `a = t.0`: the tuple's missing drop had been masking the missing retain.
   Example `df151h_assign_rhs_retain.saw` (six shapes + the Identifier control),
   in the Guard Malloc lane.
-- **DF-151i — FILED, NOT FIXED (typechecker; found while fixing DF-151f,
-  Aug 7).** **`.copy()` does not exist on a tuple, and the transfer refusal
-  recommends it anyway.** An ExplicitCopy tuple is therefore move-only in
-  practice, and the two diagnostics contradict each other:
+- **DF-151i — FIXED Aug 7.** Filed as "`.copy()` does not exist on a tuple, and
+  the transfer refusal recommends it anyway", and the filing was right in every
+  particular — including its prediction of the fix. Design 139 names three
+  wrappers that carry the tier of what they wrap (`Optional<T>`, `[T; N]`, the
+  tuple) and the tuple was the one that never got the tier's operation, so the
+  two diagnostics contradicted each other: `let u = t` refused an ExplicitCopy
+  tuple with "use .copy() for an explicit deep copy", and `t.copy()` refused the
+  same tuple as "not Copy", while `copy_tier` reported it as 'explicit' —
+  precisely the tier the second message claimed to require. Following the hint
+  led into the refusal, so an ExplicitCopy tuple was MOVE-ONLY in practice: a
+  `move` retires the binding, so a program needing the original AND a duplicate
+  had no spelling at all.
+  **ONE TYPECHECKER ARM, exactly as filed.** `_check_copy_call` gains a TUPLE
+  arm beside its OPTIONAL one; codegen was already ready, so nothing about the
+  copy ITSELF had to be built. The one codegen line is a DISPATCH arm, not
+  machinery: the `.copy()` interception in `calls.py` keys on the receiver's
+  kind, and a tuple has no `struct_name` for the copy-method mangling below it,
+  so without the arm the call fell through to the bitwise "auto-Copy" return —
+  which would have aliased every owned element while DF-151f's drop glue
+  released it twice. Both halves route to `_emit_tuple_deep_copy`, so each
+  element copies at ITS OWN tier (a `String`/`Arc` retains, a `Vector<Int>`
+  duplicates its buffer, a trivial one is bitwise, a nested tuple recurses).
+  **GATED LIKE THE OPTIONAL, NOT LIKE THE ARRAY**, per the filing:
+  `copy_tier != 'nocopy'`. The array arm asks `type_satisfies_copy_bound`, which
+  is the stricter predicate, and the difference is visible — a `(T, Int)` in a
+  generic body keeps its `.copy()` and settles at the instantiation, exactly as
+  `T?.copy()` already did. A `(Res, Int)` with a NoCopy element stays refused,
+  naming the offending element by POSITION and TYPE (``element 0 of type `Res`
+  is NoCopy``) rather than only the tuple, since the wide printed tuple type is
+  not the thing the author has to change; the hint names `move` and the
+  destructuring that takes the result apart, which was verified to compile.
+  Three examples. `df151i_tuple_copy.saw` (deep-copy INDEPENDENCE, element
+  retains counted against an `Arc`, String/Arc/mixed tiers, nesting,
+  destructuring, named tuples, an Optional-of-tuple, a generic tuple, a
+  container read, and a copy across a suspension — in the Guard Malloc lane,
+  since an aliasing copy reads correct and exits 0); plus the two error tests
+  that pin the agreement the finding was about —
+  `df151i_tuple_copy_nocopy_error.saw` for the move-only refusal and
+  `df151i_tuple_transfer_hint_agrees.saw` for the recommendation itself. The
+  last pair is deliberate: silencing either one without the other re-opens the
+  contradiction.
+  Two findings came OUT of this unit — DF-151j (tuple-element mutation is a
+  silent no-op) and DF-151k (`type_satisfies_copy_bound` has no wrapper arms).
+- **DF-151j — FILED, NOT FIXED (codegen; found while fixing DF-151i, Aug 7).**
+  **A `&var self` method called on a TUPLE ELEMENT mutates a copy — the write is
+  a silent no-op.** The same call on a struct FIELD works, which is what makes
+  this a bug rather than a rule:
   ```saw
-  let t = (move v, 5)          // v: Vector<Int>, so the tuple is ExplicitCopy
-  let u = t
-  // error: cannot copy value of type `(Vector<Int, GlobalAllocator>, Int)`
-  //        which implements ExplicitCopy
-  // hint:  use .copy() for an explicit deep copy, or `move` to transfer ownership
-  let u = t.copy()
-  // error: type `(Vector<Int, GlobalAllocator>, Int)` is not Copy; `.copy()`
-  //        requires a trivially-copyable, ImplicitCopy, or ExplicitCopy type
+  var v: Vector<Int> = Vector<Int>()
+  v.push(1)
+  var t = (move v, 7)
+  t.0.push(99)
+  print("{t.0.len()}")     // prints 1 — the push went nowhere
+  //                          `h.v.push(99)` on a struct field prints 2
   ```
-  The second message is wrong on its own terms — `copy_tier` reports that tuple
-  as 'explicit', which is precisely the tier it says it requires. Design 139
-  names the tuple beside `Optional<T>` and `[T; N]` as a wrapper carrying its
-  strongest element's tier, and both of those DO have `.copy()`
-  (`o.copy()` on a `Vector<Int>?` and `a.copy()` on a `[Vector<Int>; 1]` both
-  compile and deep-copy today). The tuple is the one wrapper the rule names that
-  never got the method.
-  Location is the typechecker's `.copy()` resolution, which has no TUPLE arm —
-  NOT codegen, which is already ready: DF-151f's `_emit_tuple_deep_copy` routes
-  each element through `_emit_copy_value`, so an ExplicitCopy element would run
-  its own `copy()` and an ImplicitCopy one would retain, exactly as the array
-  path does. Expected shape of the fix: give the method resolution the arm, and
-  gate it on `copy_tier != 'nocopy'` the way the optional path is gated (a
-  `(File, Int)` must stay refused, naming `move`).
-  Deferred out of DF-151f only because that unit's surface was codegen; a
-  one-arm typechecker change with the codegen already in place.
+  No error, no crash, no diagnostic: the element is read out as a VALUE, the
+  method mutates that temporary, and the temporary dies. Verified PRE-EXISTING
+  (reproduces on the DF-151i parent commit), so it is not fallout from the
+  `.copy()` arm.
+  Design 146 makes `v[i]` and `m[k]` places you reach a `&var self` method
+  through; a tuple index is the projection that did not get the treatment, even
+  though design 161 already made `t.0.name` read correctly. So the READ side of
+  the projection is a place and the WRITE side is not. Expected location is the
+  method-call receiver lowering for a `TupleAccess` object — the receiver needs
+  to be an ADDRESS into the tuple's storage, the way a field projection already
+  produces one.
+  Worth pairing with an audit of whole-element assignment (`t.0 = fresh`) and
+  `f(&var t.0)`, which were not probed and may share the hole. This is a SILENT
+  WRONG ANSWER, so it ranks above the cosmetic findings: it is the failure mode
+  the accessor rule (design 130) exists to forbid — "no silent no-ops".
+  Worked around in `df151i_tuple_copy.saw` by destructuring the copy instead of
+  mutating `u.0` in place; the comment there points here.
+- **DF-151k — FILED, NOT FIXED (typechecker; found while fixing DF-151i,
+  Aug 7).** **`type_satisfies_copy_bound` has no OPTIONAL and no TUPLE arm, so a
+  fixed array of either is refused `.copy()` even when the element tier provides
+  one.**
+  ```saw
+  let a: [Arc<Res>?; 2] = [...]
+  let b = a.copy()
+  // error: type `[Arc<Res>?; 2]` is not Copy; its element type is not copyable
+  // ... and the same for `[(Arc<Res>, Int); 2]`
+  ```
+  Both messages are false: `Arc<Res>?` and `(Arc<Res>, Int)` each report an
+  'implicit' `copy_tier`, and `o.copy()` / `t.copy()` on those very types
+  compile. The array arm of `_check_copy_call` is the only `.copy()` path that
+  consults `type_satisfies_copy_bound` instead of `copy_tier`, and that
+  predicate answers structurally for ARRAY and FUNCTION and then falls to a
+  NAME lookup — an optional and a tuple have no name, so both return False.
+  Only NON-trivial element payloads are affected: `[Int?; 2]` and
+  `[(Int, Int); 2]` copy fine, caught by the `is_trivially_copyable` test at the
+  top, which is why this sat unnoticed.
+  Shared by two wrappers, so it is not tuple-specific and was left out of
+  DF-151i deliberately — the surface there was the `.copy()` arm, and
+  `type_satisfies_copy_bound` also gates generic `T: Copy` bounds, giving a fix
+  a wider blast radius than that unit's scope. Expected shape: give it the two
+  structural arms its ARRAY arm already models (a wrapper satisfies the bound
+  iff its payload/elements do), then re-check what widening the `T: Copy` bound
+  admits — `Vector<(Arc, Int)>.iter()` becomes legal, which is correct per
+  design 139 but should land with a test.
+  Repro noted in `df151i_tuple_copy.saw`, where the array-of-tuples case is
+  commented out rather than written.
 - **DF-151g — FILED, NOT FIXED (codegen; found while fixing DF-151d, Aug 6).**
   **A `_`-discarded NoCopy payload in a match arm never runs its deinit.**
   ```saw
