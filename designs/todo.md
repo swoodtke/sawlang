@@ -46,14 +46,30 @@ items need a probe before being treated as real work.
   NOT apply to generic instantiation, so the conditional-lend contract is
   sound for optional-valued containers (probe:
   .build/scratch/probe_nested_opt.saw).
-- **DF-146l (COMPILER, filed Aug 7, found by that probe): `None` inside a MAP
-  LITERAL ICEs** — `var m: Map<String, Int?> = {"x": None}` dies with
-  "internal compiler error: None literal has no type information". The Vector
-  literal path types the same shape fine (`[None, 42]` with expected
-  `Vector<Int?>` works), so the Map-literal path never propagates the expected
-  VALUE type into a `None` element. Same family as DF-165b (expected-type
-  propagation gaps at literals); `m.insert("x", None)` works meanwhile. Small
-  typechecker unit; queue with the soundness batch.
+- **DF-146l (COMPILER, filed Aug 7, found by that probe): a `None` literal
+  ICEs wherever expected-type propagation misses — TWO trigger sites found.**
+  (1) A Map literal value: `var m: Map<String, Int?> = {"x": None}`;
+  (2) a `??` RHS against a nested optional: `m["x"] ?? None` (LHS `Int??`,
+  RHS should adopt `Int?`). Both die with "internal compiler error: None
+  literal has no type information" — the ICE (not a clean error) is itself
+  the bug, and each missing propagation site is a trigger. Vector literals
+  type the same shape fine. Same family as DF-165b. Workarounds:
+  `m.insert(k, None)` and an annotated `let absent: Int? = None`. Small
+  typechecker unit; queue with the soundness batch; the fix should turn any
+  REMAINING untyped-None into a clean anchored error, not an ICE.
+- **DF-146m (COMPILER, filed Aug 7): call-site optional auto-wrap does not
+  fire at a GENERIC parameter instantiated to an Optional.** `m.insert("y", 7)`
+  on a `Map<String, Int?>` errors "expects `Int?` but got `Int`" — the
+  design-55 auto-wrap works for a written `Int?` parameter but not for `V`
+  instantiated to `Int?` (a bare `None` DOES type there, so the paths
+  diverge). Workaround: an annotated binding. Same batch.
+- **DF-146n (DESIGN QUESTION, filed Aug 7): `m[k]! = v` is a parse error
+  ("invalid assignment target")** — a `!` head is not an assignment target,
+  so a Map value cannot be whole-value REPLACED through the place
+  (`m[k]!.field = v` works; `v[i] = fresh` works on Vector). `insert` is the
+  overwrite spelling meanwhile. Question for the user: should a forced
+  conditional lend be assignable (symmetry with `v[i] = fresh`, panics on
+  absent) or is insert-as-the-only-overwrite deliberate?
 
 ## std.Data findings (Aug 7, user-prompted archaeology) — CLOSED by design 165
 
