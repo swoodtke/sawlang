@@ -309,8 +309,9 @@ extension Map<K: Hashable + Equatable, V, A: Allocator = GlobalAllocator> {
     ///
     /// Reading the place out as a VALUE follows the value's copy tier (design
     /// 131): trivial copies bitwise, `ImplicitCopy` retains, and
-    /// `ExplicitCopy`/`NoCopy` is refused with the ways out named. That is the
-    /// difference from `get`, which hands back an owned `V?`.
+    /// `ExplicitCopy`/`NoCopy` is refused with the ways out named.
+    ///
+    /// `get` is the same lend under a named spelling.
     ///
     /// While the window is open the whole map is borrowed, so inserting or
     /// removing inside one is a compile error rather than an invalidated
@@ -332,13 +333,27 @@ extension Map<K: Hashable + Equatable, V, A: Allocator = GlobalAllocator> {
         }
     }
 
-    // Look up a key. Returns the value (a copy) if present, else None.
-    public func get(&self, key: K) -> V? {
+    /// The value stored under `key`, as a PLACE — the named spelling of `[]`.
+    ///
+    /// `m.get(k)` and `m[k]` are one accessor under two names: both lend the
+    /// value where it sits, both open no window at all for an absent key, and
+    /// both follow design 131's copy tier when the place is read out as a value.
+    ///
+    /// It used to hand back an OWNED `V?` built by copying the slot, which is
+    /// the last copy-shaped exception the places model had — and, for a
+    /// move-only `V`, a non-retained alias that two lookups double-freed
+    /// (DF-146j). Reach a move-only value through the window
+    /// (`m.get(k)!.method()`), or take it out with `remove`.
+    public func get(&self, key: K) borrows -> V? {
         let bucket = self._find(key)
         if bucket < 0 {
             return None
         }
-        self._get_value(bucket)
+        match self.slots[bucket] {
+            case Occupied(_, v) -> { lend v },
+            case Empty -> { return None },
+            case Tombstone -> { return None }
+        }
     }
 
     // Whether the map contains `key`.

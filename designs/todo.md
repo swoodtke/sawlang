@@ -1085,6 +1085,17 @@ never dropped its payload (DF-146o). One new P0 is OPEN and needs a decision:
   (Resolution: the first way out, and it did not need the slot representation to
   change.)
 
+- **DF-146j — FIXED (design 176 unit 3).** `Map.get` is now `borrows -> V?`
+  with the same body as `[]` — one conditional lend, two names. The copy-shaped
+  `get` (the last copy-shaped exception in the places model) is gone, and with
+  it the non-retained alias a move-only value used to come out as. AUDIT of
+  `get`-result-fed-to-`&var` across std, blade, libs, sos, devtools and
+  examples: ZERO, as the brief expected — the single `&var …get(…)!` in the tree
+  is a user-defined `borrows` accessor in `place_conditional_lend_uses.saw` and
+  is unaffected. In-tree migration tail: ZERO (suite green with no edits).
+  `_get_value` stays: `each`/`each_value` still copy whole slots out under their
+  `V: Copy` bound. Tests: `examples/map_get_is_a_place.saw`,
+  `examples/errors/map_get_nocopy_value_read.saw`. Original finding follows.
 - **DF-146j — OPEN, P0 (found Aug 6 while building DF-146d). `Map.get` hands a
   move-only VALUE back as a NON-RETAINED ALIAS, so every lookup over-releases.**
   DF-132a's shape, for Map. Repro — one `Res`, three deinits:

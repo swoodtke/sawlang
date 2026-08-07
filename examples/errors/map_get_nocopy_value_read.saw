@@ -1,0 +1,18 @@
+// DF-146j, the bug the change closes. `Map.get` handed back an owned `V?` built
+// by copying the slot, so a move-only value came out as a non-retained ALIAS —
+// the map kept owning it, the binding dropped it, and two lookups double-freed.
+// It is a place now, so the value read is refused with the ways out named,
+// exactly as `m[k]` already was.
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: lends a place of type `Res`, which is move-only
+
+struct Res { n: Int }
+extension Res: NoCopy {}
+
+func main() {
+    var m = Map<String, Res>()
+    let _ = m.insert("only", Res(n: 5))
+    if let taken = m.get("only") {
+        print("{taken.n}")
+    }
+}

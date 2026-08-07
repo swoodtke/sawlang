@@ -3836,9 +3836,15 @@ Vector-backed linear-scan `Map` was **retired** in design 54; there is now one
 - Power-of-two capacity (bucket = `hash & (cap-1)`); grows (doubling + rehash)
   once the live-load factor would exceed 3/4.
 - `init()`, `len`, `is_empty`, `insert(key, value) -> V?` (returns the old value
-  on update), `get(key) -> V?`, `contains_key(key) -> Bool`,
-  `remove(key) -> V?`. Works with `Int` and `String` keys (and any
-  `Hashable + Equatable` key).
+  on update), `contains_key(key) -> Bool`, `remove(key) -> V?`. Works with `Int`
+  and `String` keys (and any `Hashable + Equatable` key).
+- **`m[k]` and `m.get(k)` are ONE accessor under two names** — a conditional lend
+  of the stored value (`borrows -> V?`; see [Places](#places-borrows-and-lend)).
+  Both name the value where it sits, both open no window at all for an absent
+  key, and both follow the copy tier when the place is read out as a value.
+  `get` used to return an owned `V?` built by copying the slot, which for a
+  move-only value was a non-retained alias two lookups double-freed; reach such
+  a value through the window (`m.get(k)!.method()`) or take it out with `remove`.
 - **Keys must be copyable-with-retain** (design 65): the container probes keys BY
   COPY (hash / compare / slot inspection), so a KEY must be trivial/POD,
   `ImplicitCopy` (String, `Arc<T>`), or `ExplicitCopy` — a **NoCopy** key, or a
@@ -3880,9 +3886,8 @@ cannot borrow the map, so iteration is not an Iterator-over-a-borrow. Two forms:
 - **Visitors** (the zero-allocation primitive) — non-escaping closures, same
   borrow discipline as `Vector.sort_by`/`withCString`:
   `each(body: (K, V) -> Void)`, `each_key((K) -> Void)`, `each_value((V) -> Void)`.
-  Keys/values are handed to the closure **by value** (through the same whole-slot
-  copy path `get` uses), so a visitor works for any key/value type `get` already
-  supports (trivial + ImplicitCopy). Empty/Tombstone slots are skipped. **Order is
+  Keys/values are handed to the closure **by value**, so a visitor works for a
+  trivial or `ImplicitCopy` key/value type. Empty/Tombstone slots are skipped. **Order is
   UNSPECIFIED** (table/bucket order, not insertion order) — sort a `keys()`
   snapshot for deterministic output. Mutating the map inside its own visitor is a
   static Law-of-Exclusivity error (iterator invalidation caught at compile time).

@@ -1070,10 +1070,13 @@ The standard library includes:
   `with_ref`/`with_var_ref` borrow one element in place for the duration of a
   closure, holding the whole vector borrowed so a reallocation cannot invalidate
   it. That is the only way to read or mutate a `NoCopy` element in place.
-- **Map<K, V, A>** - Hash map (open addressing): `insert`, `get`, `remove`,
+- **Map<K, V, A>** - Hash map (open addressing): `insert`, `remove`,
   `contains_key`, `len`; `each` visitors and `keys()`/`values()` snapshots;
   `{k: v}` literals. Keys are any copyable `Hashable + Equatable` type
-  (move-only keys are rejected).
+  (move-only keys are rejected). `m[k]` and `m.get(k)` are one accessor under
+  two names: each lends the stored value where it sits, so `m[k]!.count += 1`
+  writes it in place and an absent key takes the absent path without touching
+  anything.
 - **Set<T, A>** - Hash set: `insert`, `remove`, `contains`, `len`, plus
   `union`/`intersection`/`difference`/`is_subset`; `{a, b}` literals.
 - **Data** - Copy-on-write byte buffer: a window onto `Arc`-owned storage.

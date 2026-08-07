@@ -1,0 +1,54 @@
+// DF-146j: `Map.get` is the NAMED spelling of `Map.[]` — one conditional lend
+// under two names. It used to hand back an owned `V?` built by copying the slot,
+// the last copy-shaped exception in the places model, and for a move-only `V`
+// that copy was a non-retained alias two lookups double-freed.
+//
+// Everything a place does, `get` now does: the value is reached where it sits,
+// an absent key opens no window, a value read follows design 131's copy tier,
+// and a write through the window writes the stored value.
+// EXPECT: success
+// EXPECT-OUTPUT:
+// read 1
+// absent
+// present
+// window 11
+// retained tag-a a
+// nocopy through the window 5
+// nocopy still there 5
+// -- done
+
+struct Res { n: Int }
+extension Res: NoCopy {}
+
+struct Counted { count: Int, tag: String }
+
+extension Res {
+    func peek(&self) -> Int { self.n }
+}
+
+func main() {
+    var m = Map<String, Int>()
+    let _ = m.insert("k", 1)
+    print("read {m.get("k") ?? -1}")
+
+    // The absent path opens no window at all.
+    if let _ = m.get("nope") { print("present") } else { print("absent") }
+    if let _ = m.get("k") { print("present") } else { print("absent") }
+
+    // An exclusive window through the named spelling.
+    var c = Map<String, Counted>()
+    let _ = c.insert("x", Counted(count: 1, tag: "a"))
+    c.get("x")!.count += 10
+    print("window {c.get("x")!.count}")
+
+    // A value read of an ImplicitCopy field retains: the map keeps its own.
+    let tag = c.get("x")!.tag
+    print("retained tag-{tag} {c.get("x")!.tag}")
+
+    // A move-only value is reached THROUGH the window and never copied out.
+    var r = Map<String, Res>()
+    let _ = r.insert("only", Res(n: 5))
+    print("nocopy through the window {r.get("only")!.peek()}")
+    print("nocopy still there {r.get("only")!.peek()}")
+    print("-- done")
+}

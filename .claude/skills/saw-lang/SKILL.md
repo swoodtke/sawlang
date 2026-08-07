@@ -1461,9 +1461,12 @@ construct in the owner and lend `&driver` down.
   conditional lend over the slot's enum payload. `m["k"]!.n += 1` writes the
   stored value, `m["k"]!.push(x)` grows a `Vector` value where it sits (no
   read-modify-write of the whole entry), `m["k"] ?? d` and `if let _ = m["k"]`
-  take the absent path with no window at all. It is the ONLY sound way to reach
-  a move-only value: `m.get(k)` hands back an owned `V?` and a NoCopy one comes
-  out as a non-retained alias (a live over-release — see DF-146j). `Set` has no
+  take the absent path with no window at all. **`m.get(k)` IS that same
+  accessor** under a named spelling (design 176): one conditional lend, two
+  names, same copy-tier rule on a value read. It used to hand back an owned
+  `V?`, which for a NoCopy value was a non-retained alias two lookups double-freed
+  (DF-146j) — reach one through the window (`m.get(k)!.method()`) or take it out
+  with `remove`. `Set` has no
   element accessor on purpose: its elements are the table's keys, and a write
   through one would change an element's hash.
   `iter()`/`enumerated()` carry a `T: Copy` bound (design 122): `next()` yields
