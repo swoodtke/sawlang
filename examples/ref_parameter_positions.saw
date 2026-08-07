@@ -1,0 +1,66 @@
+// The positive half of the DF-163d refusals: every position a reference is
+// still allowed to appear, in one file, so tightening the rule further has to
+// say so out loud.
+//
+// A reference is a call ARGUMENT and nothing else -- plus the implicit lend a
+// `borrows` accessor makes. So: `&`/`&var` arguments to a function and to a
+// method, a re-borrow forwarded onward (design 106), a reference argument to a
+// GENERIC call (whose type argument is the value type -- refusing `f<&Int>` must
+// never refuse `f(&x)`), the `with_ref` identity closure (its parameter is a
+// reference; reading it yields the value, so the closure returns `Int` and the
+// closure-return rule leaves it alone), and a `borrows` window read and write.
+// EXPECT: success
+// EXPECT-OUTPUT:
+// 7
+// 8
+// 12
+// 5
+// 8
+// 20
+// 21
+
+struct Cell { n: Int }
+
+struct Bin { c: Cell, v: Vector<Int> }
+
+extension Bin: NoCopy {}
+
+extension Bin {
+    func slot(&self) borrows -> Cell { lend self.c }
+}
+
+extension Cell {
+    func plus(&self, other: &Int) -> Int { self.n + other }
+}
+
+func read_one(x: &Int) -> Int { x }
+
+func bump(x: &var Int) { x += 1 }
+
+func forward(r: &var Int) { bump(&var r) }
+
+func peek<T: Copy>(r: &T) -> T { r }
+
+func main() {
+    var n = 7
+    print("{read_one(&n)}")
+    bump(&var n)
+    print("{n}")
+
+    var m = 11
+    forward(&var m)
+    print("{m}")
+
+    let k = 3
+    let c = Cell(n: 2)
+    print("{c.plus(&k)}")
+
+    print("{peek<Int>(&n)}")
+
+    var v: Vector<Int> = [20, 30]
+    print("{v.with_ref(0) { e in e }}")
+
+    var b = Bin(c: Cell(n: 20), v: move v)
+    b.slot().n += 1
+    print("{b.slot().n}")
+}

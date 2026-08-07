@@ -864,6 +864,12 @@ class ReferenceExpr(Expression):
     # window's flavor is chosen at each use site. See `self_by_pointer`.
     from_lend: bool = annotation(False)
 
+    # This reference is the operand of a cast to `UnsafePointer<T>` /
+    # `UnsafeConstPointer<T>` — the sanctioned crossing into the unsafe tier
+    # (DF-163f), and the only address-of the language has. Set by the
+    # typechecker's cast check, which is the node that knows the parent.
+    to_pointer_cast: bool = annotation(False)
+
 
 @dataclass
 class CastExpr(Expression):

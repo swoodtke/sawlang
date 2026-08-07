@@ -1,0 +1,14 @@
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: `&` here is not a call argument, and references in Saw are PARAMETERS ONLY
+//
+// The DF-163f blessing is specific: the cast must target `UnsafePointer<T>` or
+// `UnsafeConstPointer<T>`, which is what makes it a crossing into the unsafe
+// tier rather than an escape. A cast to anything else -- `Int` here -- is an
+// ordinary expression position and the reference is refused exactly as a bare
+// binding is.
+
+func main() {
+    let x = 7
+    let n = (&x) as Int
+    print("{n}")
+}

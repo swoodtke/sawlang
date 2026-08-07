@@ -1,0 +1,19 @@
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: a closure may not return a reference
+// EXPECT-ERROR-CONTAINS: this body's value has type `&Int`, which is a reference
+// EXPECT-ERROR-CONTAINS: references in Saw are PARAMETERS ONLY
+// EXPECT-ERROR-CONTAINS: yield the value instead (drop the `&`, so the closure returns `Int`)
+//
+// DF-163d: design 163a refuses a written `-> &T` at the declaration, and a
+// closure literal writes no return type at all -- so `{ &x }` typed `() -> &Int`
+// and handed a pointer to `x` out past the call that made it. Inference is the
+// only place the rule can be applied, so the error is reported there, anchored
+// at the body's tail expression. The `with_ref` identity closure `{ e in e }` is
+// NOT this case: reading a reference binding yields the value.
+
+func main() {
+    let x = 7
+    let f = { &x }
+    let v = f()
+    print("{v}")
+}

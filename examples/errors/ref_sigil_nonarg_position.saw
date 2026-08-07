@@ -1,7 +1,8 @@
-// A `&var` reference is only valid as a call argument (design 34): it cannot be
-// stored or bound to a variable.
+// A `&var` reference is only valid as a call argument (design 34, restated for
+// both flavors by DF-163d): it cannot be stored or bound to a variable.
 // EXPECT: error
-// EXPECT-ERROR-CONTAINS: `&var` is only allowed as a call argument
+// EXPECT-ERROR-CONTAINS: `&var` here is not a call argument, and references in Saw are PARAMETERS ONLY
+// EXPECT-ERROR-CONTAINS: pass it straight to a `&var` parameter
 
 func main() {
     var a = 5

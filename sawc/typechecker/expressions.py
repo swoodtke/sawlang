@@ -730,19 +730,39 @@ class ExpressionsMixin:
         if inner_type is None:
             return None
 
-        # A `&var` reference is only meaningful as a call argument (design 34):
+        # A reference is only meaningful as a call argument (design 34, DF-163d):
         # references cannot be stored, returned, or bound to a variable. The
-        # parser marks argument-position references; a `&var` anywhere else is
-        # rejected here.
-        if expr.mutable and not expr.in_argument_position:
+        # parser marks argument-position references (the place transform marks
+        # the `&var` it builds out of a `lend`, which is the implicit lend a
+        # `borrows` accessor makes); a reference anywhere else is rejected here.
+        #
+        # The one other blessed position is the operand of a cast to
+        # `UnsafePointer<T>`/`UnsafeConstPointer<T>` (DF-163f) — the only
+        # address-of the language has, and a crossing into the unsafe tier
+        # rather than an escape: what survives the expression is a pointer, and
+        # design 130's signature effect fences it from there.
+        if not expr.in_argument_position and not expr.to_pointer_cast:
+            sigil = "&var" if expr.mutable else "&"
             self._error(
                 ErrorKind.TYPE_MISMATCH,
-                "`&var` is only allowed as a call argument",
+                f"`{sigil}` here is not a call argument, and references in Saw "
+                f"are PARAMETERS ONLY — a reference borrows storage for the "
+                f"duration of one call and may not escape it (designs 88/106; "
+                f"the Law of Exclusivity is statically sound only because every "
+                f"live reference belongs to a call still on the stack)",
                 expr.line, expr.column,
-                hint="a mutable reference cannot be stored or bound; pass it "
-                     "directly to a `&var` parameter"
+                hint=f"a reference cannot be stored or bound: pass it straight "
+                     f"to a `{sigil}` parameter, or — to hand out storage a "
+                     f"value already owns — declare a `borrows` accessor "
+                     f"(`... borrows -> T` with `lend`, design 141), which "
+                     f"lends the place for a window rather than letting a "
+                     f"pointer out"
             )
-            return None
+            # Recover as the reference type the author wrote, so one misplaced
+            # `&` yields one message instead of dragging an "undefined variable"
+            # cascade behind it.
+            return SawType(TypeKind.REFERENCE, inner_type=inner_type,
+                           reference_mutable=expr.mutable)
 
         # References can only be taken to lvalues
         if not self._is_lvalue(expr.expr):
@@ -921,6 +941,20 @@ class ExpressionsMixin:
 
     def _check_cast_expr(self, expr: CastExpr) -> Optional[SawType]:
         """Check a type cast expression: expr as Type"""
+        # DF-163f: `(&x) as UnsafePointer<T>` is the sanctioned crossing into the
+        # unsafe tier, and the only address-of Saw has — std and the runtime take
+        # the address of a local, a static or `self` this way, and the chained
+        # `(&self) as UnsafePointer<TaskGroup> as Int` is the token idiom. The
+        # cast hands lifetime responsibility to that tier: the value produced is
+        # a POINTER, so no reference survives the expression, and design 130's
+        # signature effect is what fences it from there on. This is the node that
+        # knows the parent, so it marks the operand before the reference rule
+        # below sees it. Read off the type AS WRITTEN (an alias for a pointer
+        # type is not blessed) so a bad target type is still reported once.
+        if (isinstance(expr.expr, ReferenceExpr)
+                and expr.target_type is not None
+                and expr.target_type.kind == TypeKind.POINTER):
+            expr.expr.to_pointer_cast = True
         from_type = self._check_expression(expr.expr)
         if from_type is None:
             return None
@@ -8372,6 +8406,72 @@ class ExpressionsMixin:
             )
         return self._reconcile_match_arm_types(expr, arm_types)
 
+    def _first_reference_in_type(self, t: Optional[SawType]) -> Optional[SawType]:
+        """The first reference reachable from `t` without entering a function
+        type, or None — the typechecker's copy of the design-163a walk.
+
+        A nested function type is where references belong (`(&T) sync -> R` is
+        the `with_ref` callback), so the walk stops there; everything else a type
+        can be built out of is searched, since `(Int, &Int)` and `&Int?` escape
+        the pointer exactly as well as a bare `&Int`.
+        """
+        if t is None:
+            return None
+        if t.kind == TypeKind.REFERENCE:
+            return t
+        if t.kind == TypeKind.FUNCTION:
+            return None
+        parts = []
+        if t.kind == TypeKind.OPTIONAL:
+            parts.append(t.inner_type)
+        if t.kind == TypeKind.ARRAY:
+            parts.append(t.array_element_type)
+        parts.extend(t.element_types or [])
+        parts.extend(t.type_args or [])
+        for p in parts:
+            hit = self._first_reference_in_type(p)
+            if hit is not None:
+                return hit
+        return None
+
+    def _reject_reference_closure_return(self, expr: ClosureExpr,
+                                         return_type: SawType) -> SawType:
+        """A closure's INFERRED return type may not name a reference (DF-163d).
+
+        Every other return position is refused at the declaration (design 163a),
+        which reads the type as WRITTEN. A closure literal writes none, so
+        `{ &x }` slipped through and typed `() -> &Int` — a pointer to `x` handed
+        out past the call that created it, exactly what design 163a closed for
+        named functions. Recovers as the VALUE type so one mistake yields one
+        message instead of a cascade.
+        """
+        found = self._first_reference_in_type(return_type)
+        if found is None:
+            return return_type
+        value = found.inner_type if found.inner_type is not None else "T"
+        tail = getattr(expr.body, 'final_expr', None)
+        line = tail.line if tail is not None else expr.line
+        column = tail.column if tail is not None else expr.column
+        if found is return_type:
+            names_it = "is a reference"
+        else:
+            names_it = f"names a reference (`{found}`)"
+        self._error(
+            ErrorKind.TYPE_MISMATCH,
+            f"a closure may not return a reference: this body's value has type "
+            f"`{return_type}`, which {names_it}, and references in Saw are "
+            f"PARAMETERS ONLY — a reference borrows storage for the duration of "
+            f"one call and may not escape it (designs 88/106; the Law of "
+            f"Exclusivity is statically sound only because every live reference "
+            f"belongs to a call still on the stack)",
+            line, column,
+            hint=f"yield the value instead (drop the `&`, so the closure returns "
+                 f"`{value}`), or — to hand out storage something already owns — "
+                 f"declare a `borrows` accessor (`... borrows -> {value}` with "
+                 f"`lend`, design 141), which lends the place for a window "
+                 f"rather than letting a pointer out")
+        return found.inner_type if found is return_type else return_type
+
     def _check_closure(self, expr: ClosureExpr, expected_type: Optional[SawType] = None,
                         as_call_argument: bool = False,
                         force_escape: bool = False) -> Optional[SawType]:
@@ -8544,6 +8644,14 @@ class ExpressionsMixin:
         return_type = self._check_block(expr.body)
         if return_type is None:
             return_type = SawType(TypeKind.VOID)
+        # A closure may not RETURN a reference (DF-163d). Design 163a refuses a
+        # written `-> &T` at every declaration that has one, and a closure
+        # literal writes no return type at all — inference is the only place the
+        # rule can be applied, so it is applied here. `{ &x }` is the shape:
+        # it types `() -> &Int` and hands a pointer to `x` out past the call
+        # that made it. The `with_ref` identity closure `{ e in e }` is NOT this
+        # case — reading a reference binding yields the VALUE, so it infers `T`.
+        return_type = self._reject_reference_closure_return(expr, return_type)
         # A closure passed to a known function type takes its RETURN CONTEXT from
         # that type, the same way a function body takes it from its signature —
         # so a bare `None` in tail position learns what it is a `None` OF. The

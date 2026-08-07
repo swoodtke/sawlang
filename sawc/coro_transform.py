@@ -4673,7 +4673,8 @@ def _make_spawn_helper(fb: _FrameBuilder, fbs, helper_name=None):
         LetStatement(name="__cdata", type_annotation=None, mutable=False,
                      value=FunctionCall(name="__saw_box_data", arguments=[Argument(
                          name=None, value=ReferenceExpr(
-                             expr=Identifier(name="__cbox"), mutable=False))])),
+                             expr=Identifier(name="__cbox"), mutable=False,
+                             in_argument_position=True))])),
         LetStatement(name="__cellp", type_annotation=None, mutable=False,
                      value=CastExpr(expr=Identifier(name="__cdata"),
                                     target_type=cell_ptr)),

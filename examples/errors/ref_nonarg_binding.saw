@@ -1,0 +1,17 @@
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: `&` here is not a call argument, and references in Saw are PARAMETERS ONLY
+// EXPECT-ERROR-CONTAINS: a reference cannot be stored or bound: pass it straight to a `&` parameter
+// EXPECT-ERROR-CONTAINS: declare a `borrows` accessor
+//
+// DF-163d: a reference bound to a local outlives the call that created it --
+// the escape design 163a closed for return types, reached by another route.
+// This compiled and printed 7 before the fix. The reference that IS still
+// allowed here is the one feeding a cast to `UnsafePointer<T>` (DF-163f), which
+// hands a pointer rather than a reference onward; see
+// examples/ref_pointer_cast_blessed.saw.
+
+func main() {
+    let x = 7
+    let r = &x
+    print("{r}")
+}
