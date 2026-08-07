@@ -1236,6 +1236,13 @@ class CallsMixin:
             # copy-method dispatch below to mangle.
             if recv_type is not None and recv_type.kind == TypeKind.OPTIONAL:
                 return self._emit_optional_deep_copy(obj_val, recv_type)
+            # `.copy()` on a TUPLE — intercepted for the same reason: the
+            # receiver is an anonymous LLVM struct with no struct_name, so the
+            # dispatch below would find no copy() and fall through to the
+            # bitwise "auto-Copy" return, aliasing every owned element while the
+            # tuple's drop glue released it twice (DF-151i).
+            if recv_type is not None and recv_type.kind == TypeKind.TUPLE:
+                return self._emit_tuple_deep_copy(obj_val, recv_type)
             # A declared copying policy on an ENUM derives a payload-deep copy
             # (design 139). Enums carry no method symbols, so it is emitted
             # inline here rather than dispatched to.

@@ -1,0 +1,277 @@
+// DF-151i: `.copy()` exists on a TUPLE, at the tier the tuple carries.
+//
+// Design 139 names three wrappers that carry the tier of what they wrap — an
+// `Optional<T>`, a `[T; N]`, and a tuple — and each is supposed to offer the
+// operations that tier provides. Two of the three did. The tuple was the one the
+// rule named that never got the method, so the two diagnostics an author met
+// CONTRADICTED each other:
+//
+//     let u = t          // cannot copy `(Vector<Int>, Int)` which implements
+//                        // ExplicitCopy — hint: use .copy() for a deep copy
+//     let u = t.copy()   // `(Vector<Int>, Int)` is not Copy; `.copy()` requires
+//                        // a trivially-copyable, ImplicitCopy or ExplicitCopy type
+//
+// The second was wrong on its own terms: `copy_tier` reports that tuple as
+// 'explicit', precisely the tier it claimed to require. Following the hint led
+// to the refusal, so an ExplicitCopy tuple was MOVE-ONLY in practice — a `move`
+// retires the binding, so a program needing both halves had no spelling at all.
+//
+// The fix is one typechecker arm. Codegen was already ready: DF-151f built
+// `_emit_tuple_deep_copy`, which routes each element through `_emit_copy_value`,
+// so every element copies at ITS OWN tier — the same walk `[T; N]` uses. The arm
+// is gated the way the OPTIONAL arm is gated (`copy_tier != 'nocopy'`) rather
+// than the way the array arm is: only a move-only element withholds the method,
+// so `generic_tuple` below stays callable in a generic body exactly as
+// `T?.copy()` already was.
+//
+// The refusal that recommends `.copy()` is pinned by
+// `df151i_tuple_transfer_hint_agrees.saw`, and the move-only refusal by
+// `df151i_tuple_copy_nocopy_error.saw`. Together the three say the three
+// diagnostics agree with each other and with the method.
+//
+// ORACLE. `LIVE` counts live `Res` values: `res()` bumps it, `Res.deinit` takes
+// it back. Behind an `Arc`, so a zero means the last reference went AND the
+// destructor ran — a released refcount alone does not move it. The
+// `strong_count` readings are the other half: they say the retains HAPPENED,
+// where the zero counts only say nothing was released twice.
+//
+// TWO FAILURES ARE INVISIBLE HERE AND NEED GUARD MALLOC, which is why this
+// program is in the gmgate lane. A tuple copy that ALIASED instead of retaining
+// reads correct values and exits 0, faulting only when some later allocation
+// reuses the freed block; and a `String`/`Arc` element copied without a retain
+// is released twice at the two tuples' scope exits.
+// EXPECT: success
+// EXPECT-OUTPUT:
+// start 0
+// deep_copy_is_independent 23 live 0
+// element_deep_copy_retains 122 live 0
+// arc_element_retains 2 live 0
+// string_element_retains 5 live 0
+// nested_tuple_copy 12 live 0
+// mixed_tier_copy 3 live 0
+// trivial_tuple_copy 9 live 0
+// destructured_copy 2 live 0
+// copy_of_named_tuple 2 live 0
+// optional_tuple_copy 3 live 0
+// generic_tuple 10 live 0
+// tuple_in_vector_copy 1 live 0
+// copy_across_suspend 2 live 0
+// done 0
+
+import std.task.*
+
+static LIVE: Atomic<Int> = Atomic(0)
+
+struct Res {
+    name: String
+}
+
+extension Res: NoCopy {
+    func deinit(&var self) { LIVE.fetch_add(0 - 1) }
+}
+
+func res(tag: Int) -> Arc<Res> {
+    LIVE.fetch_add(1)
+    Arc<Res>(value: Res(name: "res-{tag}"))
+}
+
+// THE FILED REPRO, and the property that makes the copy worth having: the
+// duplicate is INDEPENDENT storage. Growing the copy must leave the original
+// alone — an aliasing "copy" would show both at 3.
+//
+// The copy is reached by DESTRUCTURING rather than by mutating `u.0` in place,
+// because `t.0.push(x)` on a tuple element is a silent no-op today (DF-151j,
+// filed from this unit — it predates this change and is not what this program
+// is about).
+// Reads `orig * 10 + copy`: 23 is an original still at 2 beside a copy grown to
+// 3. An aliasing "copy" would read 33.
+func deep_copy_is_independent() -> Int {
+    var v: Vector<Int> = Vector<Int>()
+    v.push(1)
+    v.push(2)
+    let t = (move v, 7)
+    var (a, b) = t.copy()
+    a.push(99)
+    assert(b == 7, "the trivial element came through wrong")
+    t.0.len() * 10 + a.len()
+}
+
+// The same independence one level down, with a COUNTABLE element: the vector's
+// buffer is duplicated AND each element is retained, so the `Arc` inside reads
+// 2 while both vectors are live and 0 after both release.
+// Reads `orig * 100 + copy * 10 + strong_count`: 122 is an original still at 1,
+// a copy grown to 2, and the shared element held by both.
+func element_deep_copy_retains(k: Int) -> Int {
+    var v: Vector<Arc<Res>> = Vector<Arc<Res>>()
+    v.push(res(tag: k))
+    let t = (move v, k)
+    var (a, b) = t.copy()
+    a.push(res(tag: k + 1))
+    assert(b == k, "the trivial element came through wrong")
+    t.0.len() * 100 + a.len() * 10 + t.0.get(0)!.strong_count()
+}
+
+// An ImplicitCopy element copies at ITS tier — a refcount bump, not a duplicate
+// object. Two live owners, one release each.
+func arc_element_retains(k: Int) -> Int {
+    let t = (res(tag: k), k)
+    let u = t.copy()
+    u.0.strong_count()
+}
+
+// A `String` element retains for the same reason. There is no `strong_count` on
+// a String, so the count cannot say it happened — but the string is built by
+// INTERPOLATION (a literal is immortal and cannot be double-freed), so a copy
+// that failed to retain releases the same heap buffer at each tuple's scope
+// exit. That is the over-release Guard Malloc sees and an ordinary run does not.
+func string_element_retains(k: Int) -> Int {
+    let t = ("one-{k}", k)
+    let u = t.copy()
+    assert(t.0 == u.0, "the copied string differs from the original")
+    assert(u.1 == k, "the trivial element came through wrong")
+    u.0.len()
+}
+
+// Nesting: the outer copy has to recurse into the inner tuple, and the inner
+// vector must come out independent too.
+// Reads `orig * 10 + copy`: 12 is the inner vector still at 1 beside its
+// independent duplicate grown to 2.
+func nested_tuple_copy() -> Int {
+    var v: Vector<Int> = Vector<Int>()
+    v.push(5)
+    let t = ((move v, 1), 2)
+    let (inner, outer) = t.copy()
+    var (iv, tag) = move inner
+    iv.push(6)
+    assert(tag == 1 && outer == 2, "a trivial element came through wrong")
+    t.0.0.len() * 10 + iv.len()
+}
+
+// Elements at DIFFERENT tiers in one tuple. The tuple's own tier is the
+// strongest (explicit, from the `Vector`), but each element still copies at its
+// own: the vector duplicates its buffer, the `Arc` bumps a refcount, the `Int`
+// is bitwise.
+func mixed_tier_copy(k: Int) -> Int {
+    var v: Vector<Int> = Vector<Int>()
+    v.push(k)
+    let t = (move v, res(tag: k), k)
+    let u = t.copy()
+    u.1.strong_count() + u.0.len()
+}
+
+// A trivial tuple takes the cheap copy, as the other wrappers do — `.copy()` is
+// callable there rather than being an error, so generic code that copies a
+// tuple does not have to care which tier it landed on.
+func trivial_tuple_copy() -> Int {
+    let t = (4, 5)
+    let u = t.copy()
+    u.0 + u.1
+}
+
+// Destructuring the copy: `a` and `b` own their halves and the source tuple
+// still owns its own, so this is four owners and four releases.
+func destructured_copy(k: Int) -> Int {
+    let t = (res(tag: k), k)
+    let (a, b) = t.copy()
+    a.strong_count() + b - k
+}
+
+// Field NAMES change nothing — a named tuple is the same type with a projection
+// convenience — so the copy works identically.
+func copy_of_named_tuple(k: Int) -> Int {
+    let t = (r: res(tag: k), n: k)
+    let u = t.copy()
+    u.r.strong_count() + u.n - k
+}
+
+// A tuple as an Optional PAYLOAD: `o.copy()` is the optional's arm, which
+// reaches the tuple's through `_emit_copy_value`. Two wrappers, one walk.
+func optional_tuple_copy(k: Int) -> Int {
+    let o: (Arc<Res>, Int)? = (res(tag: k), k)
+    let p = o.copy()
+    if let t = p { t.0.strong_count() } else { 0 }
+}
+
+// The array wrapper over the tuple wrapper is NOT here, and deliberately: the
+// ARRAY arm gates on `type_satisfies_copy_bound`, which has no OPTIONAL or
+// TUPLE arm at all, so `[(Arc<Res>, Int); 2].copy()` and `[Arc<Res>?; 2].copy()`
+// are both refused today with "its element type is not copyable". That is a
+// pre-existing hole in a DIFFERENT predicate, shared by two wrappers and not
+// specific to this one — DF-151k, filed from this unit.
+
+// A tuple mentioning a type PARAMETER has no tier of its own — the
+// instantiation decides — so the arm lets it through and codegen settles it at
+// the monomorphization, exactly as `T?.copy()` already did.
+func dup<T>(p: (T, Int)) -> (T, Int) {
+    return p.copy()
+}
+
+func generic_tuple() -> Int {
+    let g = dup(p: (7, 3))
+    g.0 + g.1
+}
+
+// Copied out of a container the container still owns: the element read retains,
+// and the explicit copy on top of it is a second independent owner.
+func tuple_in_vector_copy(k: Int) -> Int {
+    var v: Vector<(Arc<Res>, Int)> = Vector<(Arc<Res>, Int)>()
+    v.push((res(tag: k), k))
+    let u = v.get(0)!.copy()
+    u.0.strong_count() - 1
+}
+
+// In a coroutine frame both tuples are frame-resident, and the frame's
+// `__release` drops each through the same structural glue.
+func copy_across_suspend(k: Int) -> Int {
+    let t = (res(tag: k), k)
+    let u = t.copy()
+    yield_now()
+    u.0.strong_count()
+}
+
+func main() {
+    print("start {LIVE.load()}")
+
+    print("deep_copy_is_independent {deep_copy_is_independent()} live {LIVE.load()}")
+    assert(LIVE.load() == 0, "deep_copy_is_independent leaked {LIVE.load()}")
+
+    print("element_deep_copy_retains {element_deep_copy_retains(k: 1)} live {LIVE.load()}")
+    assert(LIVE.load() == 0, "element_deep_copy_retains leaked {LIVE.load()}")
+
+    print("arc_element_retains {arc_element_retains(k: 2)} live {LIVE.load()}")
+    assert(LIVE.load() == 0, "arc_element_retains leaked {LIVE.load()}")
+
+    print("string_element_retains {string_element_retains(k: 5)} live {LIVE.load()}")
+    assert(LIVE.load() == 0, "string_element_retains leaked {LIVE.load()}")
+
+    print("nested_tuple_copy {nested_tuple_copy()} live {LIVE.load()}")
+    assert(LIVE.load() == 0, "nested_tuple_copy leaked {LIVE.load()}")
+
+    print("mixed_tier_copy {mixed_tier_copy(k: 1)} live {LIVE.load()}")
+    assert(LIVE.load() == 0, "mixed_tier_copy leaked {LIVE.load()}")
+
+    print("trivial_tuple_copy {trivial_tuple_copy()} live {LIVE.load()}")
+    assert(LIVE.load() == 0, "trivial_tuple_copy leaked {LIVE.load()}")
+
+    print("destructured_copy {destructured_copy(k: 4)} live {LIVE.load()}")
+    assert(LIVE.load() == 0, "destructured_copy leaked {LIVE.load()}")
+
+    print("copy_of_named_tuple {copy_of_named_tuple(k: 2)} live {LIVE.load()}")
+    assert(LIVE.load() == 0, "copy_of_named_tuple leaked {LIVE.load()}")
+
+    print("optional_tuple_copy {optional_tuple_copy(k: 3)} live {LIVE.load()}")
+    assert(LIVE.load() == 0, "optional_tuple_copy leaked {LIVE.load()}")
+
+    print("generic_tuple {generic_tuple()} live {LIVE.load()}")
+    assert(LIVE.load() == 0, "generic_tuple leaked {LIVE.load()}")
+
+    print("tuple_in_vector_copy {tuple_in_vector_copy(k: 8)} live {LIVE.load()}")
+    assert(LIVE.load() == 0, "tuple_in_vector_copy leaked {LIVE.load()}")
+
+    var group = TaskGroup()
+    let h = group.spawn(copy_across_suspend(9))
+    print("copy_across_suspend {h.join()} live {LIVE.load()}")
+    assert(LIVE.load() == 0, "copy_across_suspend leaked {LIVE.load()}")
+
+    print("done {LIVE.load()}")
+}

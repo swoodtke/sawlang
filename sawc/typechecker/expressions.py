@@ -5904,6 +5904,44 @@ class ExpressionsMixin:
             )
             return True, None
 
+        # A TUPLE is the third wrapper design 139 names, and it gets the rule the
+        # other two already had: the tuple carries its strongest element's tier,
+        # so `.copy()` exists precisely where that tier provides one. Each element
+        # copies at ITS own tier (a `String` retains, a `Vector<Int>` deep-copies),
+        # which is what `_emit_tuple_deep_copy` in codegen already does.
+        #
+        # Without this arm the tuple was the one wrapper the rule named that never
+        # got the method, and the two diagnostics contradicted each other: a plain
+        # `let u = t` on an ExplicitCopy tuple was refused with "use .copy() for an
+        # explicit deep copy", and `t.copy()` was refused with "not Copy" — while
+        # `copy_tier` reported that same tuple as 'explicit', exactly the tier the
+        # second message said it required. An ExplicitCopy tuple was move-only in
+        # practice (DF-151i).
+        #
+        # Gated the way the optional above is gated rather than on the array's
+        # `type_satisfies_copy_bound`: only a move-only element withholds the
+        # method, so a tuple mentioning a type PARAMETER stays callable inside a
+        # generic body and settles at the instantiation, matching `T?.copy()`.
+        if obj_type.kind == TypeKind.TUPLE:
+            if self.namespace.copy_tier(obj_type) != 'nocopy':
+                expr.resolved_type = obj_type
+                return True, obj_type
+            offender = next(
+                ((i, e) for i, e in enumerate(obj_type.element_types or [])
+                 if self.namespace.copy_tier(e) == 'nocopy'),
+                None
+            )
+            where = (f"element {offender[0]} of type `{offender[1]}` is NoCopy"
+                     if offender is not None else "an element type is NoCopy")
+            self._error(
+                ErrorKind.CANNOT_COPY,
+                f"type `{obj_type}` is not Copy; {where}",
+                expr.line, expr.column,
+                hint="use `move` to transfer the tuple, which a destructuring "
+                     "`let (a, b) = move t` can then take apart"
+            )
+            return True, None
+
         # Anything else is not Copy.
         self._error(
             ErrorKind.CANNOT_COPY,

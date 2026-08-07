@@ -1,0 +1,29 @@
+// DF-151i: the tuple transfer refusal recommends `.copy()`, and `.copy()` now
+// exists to be recommended.
+//
+// This pins the half of the contradiction that was always RIGHT. An ExplicitCopy
+// tuple refuses a plain transfer and tells the author to write `.copy()` — good
+// advice, except that until this finding was fixed the very next line produced a
+// second error saying that same tuple was "not Copy", so following the hint led
+// straight into a refusal. The tuple was the one design-139 wrapper the rule
+// named that never got the method, which made an ExplicitCopy tuple move-only in
+// practice: `move` retires the binding, so a program that needed the original
+// AND a duplicate had no spelling at all.
+//
+// The two files are a pair and are meant to be read together. This one says the
+// compiler still recommends `.copy()` here; `df151i_tuple_copy.saw` says the
+// recommendation compiles, deep-copies each element at its own tier, and
+// balances its drops. A change that silences either one without the other has
+// re-opened the contradiction.
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: cannot copy value of type
+// EXPECT-ERROR-CONTAINS: which implements ExplicitCopy
+// EXPECT-ERROR-CONTAINS: use .copy() for an explicit deep copy
+
+func main() {
+    var v: Vector<Int> = Vector<Int>()
+    v.push(1)
+    let t = (move v, 5)
+    let u = t
+    print("{u.1}")
+}

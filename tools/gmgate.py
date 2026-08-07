@@ -81,6 +81,12 @@ GATE = [
     # so getting either half wrong inverts this program's failure. The counts
     # catch a missing retain; only Guard Malloc catches a surplus release.
     "examples/df151f_tuple_drop_glue.saw",
+    # TUPLE `.copy()` (DF-151i), the operation DF-151f's glue exists to balance.
+    # An element-wise deep copy is exactly the shape this lane polices: a tuple
+    # copy that ALIASED a refcounted element instead of retaining it reads
+    # correct values and exits 0, and the surplus release lands at the second
+    # tuple's scope exit where nothing else can see it.
+    "examples/df151i_tuple_copy.saw",
     # An assignment RHS reading out of storage the source keeps (DF-151h). The
     # exact DF-151b shape one statement kind over: `a = h.r` read correct and
     # freed twice, so the surplus release is invisible without Guard Malloc.
