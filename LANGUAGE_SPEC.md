@@ -3582,6 +3582,48 @@ trait Hashable {            // requires Equatable
 - `x.hash(&var h)` streams `x`; primitives mix directly, `String` streams its
   bytes, structs/enums stream their fields/payloads.
 
+### Serialization (`Serialize`, `Deserialize`, `Encoder`, `Decoder`)
+
+**Status: implemented** (`designs/169-serialize-cbor.md`). A value writes itself
+into an `any Encoder` and reads itself back out of an `any Decoder`. The traits
+name a data model; the concrete format decides the bytes (`std.cbor` is the
+format in the tree). All four names are prelude-visible and present in the
+freestanding profile.
+
+```
+trait Serialize {
+    func serialize(&self, to: &var any Encoder) -> Result<Void, EncodeError>
+}
+
+trait Deserialize {
+    func deserialize(from: &var any Decoder) -> Result<Self, DecodeError>
+}
+```
+
+- **`deserialize` is STATIC** — it is called on the type
+  (`Point.deserialize(from: &var d)`), because there is no value yet to call it
+  on. That makes `Deserialize` a generic **bound**, never an `any Deserialize`
+  existential: a static requirement has no receiver to dispatch on, and
+  `Result<Self, DecodeError>` names `Self` by value. Both are rejected at the
+  point the existential is written. `Serialize`, `Encoder` and `Decoder` are
+  object-safe on purpose — they are the traits that travel behind `any`.
+- **Failures are `Result`, never a sentinel or a half-built value.**
+  `EncodeError` carries an `EncodeFault`; `DecodeError` carries a
+  `DecodeFault` *and the byte offset it stopped at*, so a rejected blob can be
+  examined at the position that stopped it. Malformed input always arrives as an
+  error — a decoder never panics on it.
+- **Counts are declared, not implied.** `begin_array(count:)` /
+  `begin_map(count:)` open an item of exactly that length and are followed by
+  exactly that many items; `begin_bytes(count:)` opens a byte string filled by
+  that many `write_byte` calls. Miscounting is `CountMismatch`, not a silently
+  short item.
+- `Decoder` carries three requirements with **default bodies**:
+  `expect_array(count:)` (open an array and check its length),
+  `read_int_range(min:max:)` and `read_uint_max(max:)`. The last two are how a
+  value narrower than `Int` is read back: a narrowing cast would panic on an
+  out-of-range value, and malformed input must never panic, so the range is
+  checked first and the cast that follows cannot trap.
+
 ### `Vector.sort` / `sort_by`
 
 **Status: implemented** (`designs/48-ord-hash.md`). In-place **insertion sort**

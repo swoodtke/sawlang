@@ -171,6 +171,10 @@ class TraitMethodSymbol:
     # `unsafe` trait method (design 130): every conformer's implementation is
     # unsafe, and so is any call through the requirement.
     is_unsafe: bool = False
+    # A STATIC requirement (design 169): declared with no `self`, so it is called
+    # on the TYPE. There is no receiver to dispatch on, which is what keeps a
+    # trait carrying one out of `any`.
+    is_static: bool = False
     # Default method body (design 56): the parsed `TraitMethod` AST when the
     # method declares a `{ ... }` default, else None. Carried so a conformer that
     # omits the method can synthesize a per-conformer Method from this body.

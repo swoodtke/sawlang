@@ -1,0 +1,25 @@
+// design 169 unit 1: `Deserialize.deserialize` returns `Self` by value, so the
+// trait is a generic BOUND, never an `any Deserialize` existential — the rule
+// the Copy family already lives under. `Serialize` and the Encoder/Decoder seam
+// stay object-safe, which is what lets them travel behind `any`.
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: cannot form `any Deserialize`: method `deserialize` is static
+
+struct Endpoint {
+    port: Int
+}
+
+extension Endpoint: Deserialize {
+    func deserialize(from: &var any Decoder) -> Result<Endpoint, DecodeError> {
+        let port = try from.read_int()
+        return Endpoint(port: port)
+    }
+}
+
+func read_one(d: &any Deserialize) -> Int {
+    0
+}
+
+func main() {
+    print("unreachable")
+}

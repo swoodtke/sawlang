@@ -1087,7 +1087,14 @@ The standard library includes:
 - **Numeric extensions** - The two sets are disjoint. `Int`: `abs`, `min`/`max`/
   `clamp`, `pow`, `is_even`/`is_odd`, `signum`. `Float`: `abs`,
   `floor`/`ceil`/`round`, `sqrt`, `min`/`max`.
-- **Traits** - `Equatable`, `Comparable`, `Hashable`, `Printable`, `Error`.
+- **Serialization** - `Serialize`/`Deserialize` over an `Encoder`/`Decoder`
+  seam, prelude-visible and present in both profiles. A value writes itself into
+  an `any Encoder` and reads itself back with a static
+  `Type.deserialize(from:)`. Failures are `Result`: `DecodeError` carries the
+  byte offset it stopped at, so malformed input is reported rather than
+  panicked on.
+- **Traits** - `Equatable`, `Comparable`, `Hashable`, `Printable`, `Error`,
+  `Serialize`, `Deserialize`.
 
 ## Getting Started
 

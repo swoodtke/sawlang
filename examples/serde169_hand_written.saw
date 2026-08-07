@@ -1,0 +1,236 @@
+// design 169 unit 1: the prelude Serialize/Deserialize pair over the
+// Encoder/Decoder seam. Both conformances are HAND-WRITTEN here — the point is
+// that the vocabulary works on its own, before any derivation exists. The
+// encoder writes into a sink it owns, and `deserialize` is a static method
+// returning `Self`, so it is called on the type.
+// EXPECT: success
+// EXPECT-OUTPUT:
+// encoded 11 bytes
+// port=443 secure=true name=api
+
+import std.data.{Data}
+
+struct Endpoint {
+    port: Int
+    secure: Bool
+    name: String
+}
+
+extension Endpoint: Serialize {
+    func serialize(&self, to: &var any Encoder) -> Result<Void, EncodeError> {
+        try to.begin_array(3)
+        try to.write_int(self.port)
+        try to.write_bool(self.secure)
+        try to.write_text(self.name)
+        return
+    }
+}
+
+extension Endpoint: Deserialize {
+    func deserialize(from: &var any Decoder) -> Result<Endpoint, DecodeError> {
+        try from.expect_array(3)
+        let port = try from.read_int()
+        let secure = try from.read_bool()
+        let name = try from.read_text()
+        return Endpoint(port: port, secure: secure, name: name)
+    }
+}
+
+// A deliberately tiny format: one tag byte per item, ints as one byte.
+static TAG_ARRAY: UInt8 = 1u8
+static TAG_INT: UInt8 = 2u8
+static TAG_TRUE: UInt8 = 3u8
+static TAG_FALSE: UInt8 = 4u8
+static TAG_TEXT: UInt8 = 5u8
+
+struct ByteEncoder {
+    out: Data
+}
+
+extension ByteEncoder {
+    public init() -> ByteEncoder { ByteEncoder(out: Data()) }
+    public func len(&self) -> Int { self.out.len() }
+    public func bytes(&self) -> Data { self.out.copy() }
+}
+
+extension ByteEncoder: Encoder {
+    func write_uint(&var self, v: UInt) -> Result<Void, EncodeError> {
+        self.write_int(v as Int)
+    }
+
+    func write_int(&var self, v: Int) -> Result<Void, EncodeError> {
+        if v < 0 || v > 65535 {
+            return EncodeError(fault: EncodeFault.Unsupported)
+        }
+        self.out.push(TAG_INT)
+        self.out.push(((v >> 8) & 255) as UInt8)
+        self.out.push((v & 255) as UInt8)
+        return
+    }
+
+    func write_bool(&var self, v: Bool) -> Result<Void, EncodeError> {
+        self.out.push(if v { TAG_TRUE } else { TAG_FALSE })
+        return
+    }
+
+    func write_null(&var self) -> Result<Void, EncodeError> {
+        return EncodeError(fault: EncodeFault.Unsupported)
+    }
+
+    func write_text(&var self, v: String) -> Result<Void, EncodeError> {
+        self.out.push(TAG_TEXT)
+        let bytes = v.to_data()
+        if bytes.len() > 255 {
+            return EncodeError(fault: EncodeFault.BufferFull)
+        }
+        self.out.push(bytes.len() as UInt8)
+        var i = 0
+        while i < bytes.len() {
+            self.out.push(bytes[i])
+            i = i + 1
+        }
+        return
+    }
+
+    func begin_bytes(&var self, count: Int) -> Result<Void, EncodeError> {
+        return EncodeError(fault: EncodeFault.Unsupported)
+    }
+
+    func write_byte(&var self, b: UInt8) -> Result<Void, EncodeError> {
+        return EncodeError(fault: EncodeFault.Unsupported)
+    }
+
+    func begin_array(&var self, count: Int) -> Result<Void, EncodeError> {
+        self.out.push(TAG_ARRAY)
+        self.out.push(count as UInt8)
+        return
+    }
+
+    func begin_map(&var self, count: Int) -> Result<Void, EncodeError> {
+        return EncodeError(fault: EncodeFault.Unsupported)
+    }
+}
+
+extension ByteEncoder: NoCopy {}
+
+struct ByteDecoder {
+    input: Data
+    pos: Int
+}
+
+extension ByteDecoder {
+    public init(input: Data) -> ByteDecoder {
+        ByteDecoder(input: move input, pos: 0)
+    }
+
+    func fault(&self, f: DecodeFault) -> DecodeError {
+        DecodeError(offset: self.pos, fault: f)
+    }
+
+    func next(&var self) -> Result<UInt8, DecodeError> {
+        if self.pos >= self.input.len() {
+            return self.fault(DecodeFault.Truncated)
+        }
+        let b = self.input[self.pos]
+        self.pos = self.pos + 1
+        return b
+    }
+
+    func expect_tag(&var self, tag: UInt8) -> Result<Void, DecodeError> {
+        let b = try self.next()
+        if b != tag {
+            return self.fault(DecodeFault.TypeMismatch)
+        }
+        return
+    }
+}
+
+extension ByteDecoder: Decoder {
+    func read_uint(&var self) -> Result<UInt, DecodeError> {
+        let v = try self.read_int()
+        return v as UInt
+    }
+
+    func read_int(&var self) -> Result<Int, DecodeError> {
+        try self.expect_tag(TAG_INT)
+        let hi = try self.next()
+        let lo = try self.next()
+        return ((hi as Int) << 8) | (lo as Int)
+    }
+
+    func read_bool(&var self) -> Result<Bool, DecodeError> {
+        let b = try self.next()
+        if b == TAG_TRUE {
+            return true
+        }
+        if b == TAG_FALSE {
+            return false
+        }
+        return self.fault(DecodeFault.TypeMismatch)
+    }
+
+    func read_null(&var self) -> Result<Void, DecodeError> {
+        return self.fault(DecodeFault.Unsupported)
+    }
+
+    func read_text(&var self) -> Result<String, DecodeError> {
+        try self.expect_tag(TAG_TEXT)
+        let n = try self.next()
+        var b = StringBuilder()
+        var i = 0
+        while i < (n as Int) {
+            let byte = try self.next()
+            b.append_char(byte as Int8)
+            i = i + 1
+        }
+        return b.build()
+    }
+
+    func begin_bytes(&var self) -> Result<Int, DecodeError> {
+        return self.fault(DecodeFault.Unsupported)
+    }
+
+    func read_byte(&var self) -> Result<UInt8, DecodeError> {
+        return self.fault(DecodeFault.Unsupported)
+    }
+
+    func begin_array(&var self) -> Result<Int, DecodeError> {
+        try self.expect_tag(TAG_ARRAY)
+        let n = try self.next()
+        return n as Int
+    }
+
+    func begin_map(&var self) -> Result<Int, DecodeError> {
+        return self.fault(DecodeFault.Unsupported)
+    }
+
+    func at_null(&var self) -> Result<Bool, DecodeError> {
+        return false
+    }
+
+    func offset(&self) -> Int {
+        self.pos
+    }
+
+    func skip(&var self) -> Result<Void, DecodeError> {
+        return self.fault(DecodeFault.Unsupported)
+    }
+}
+
+extension ByteDecoder: NoCopy {}
+
+func main() {
+    var enc = ByteEncoder()
+    let ep = Endpoint(port: 443, secure: true, name: "api")
+
+    match ep.serialize(to: &var enc) {
+        case Ok(_) -> print("encoded {} bytes", enc.len()),
+        case Err(e) -> print("encode failed: {}", e)
+    }
+
+    var dec = ByteDecoder(input: enc.bytes())
+    match Endpoint.deserialize(from: &var dec) {
+        case Ok(back) -> print("port={} secure={} name={}", back.port, back.secure, back.name),
+        case Err(e) -> print("decode failed: {}", e)
+    }
+}

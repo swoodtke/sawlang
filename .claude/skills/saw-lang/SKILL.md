@@ -654,6 +654,29 @@ v.map<String>({ $0.to_string() })   // the closure's return; explicit still wins
   Comparable requires Equatable (no auto, so EVERY Comparable conformance is
   written and every derived one is marked). Hashable mirrors Equatable.
   Printable: hand-written `format` (no synthesis).
+- **SERIALIZATION (design 169): `Serialize` / `Deserialize` over `Encoder` /
+  `Decoder`.** Prelude-visible, both profiles. A value writes itself into a
+  format-agnostic sink and reads itself back out of one:
+  ```saw
+  extension Endpoint: Serialize {
+      func serialize(&self, to: &var any Encoder) -> Result<Void, EncodeError> {
+          try to.begin_array(2)
+          try to.write_int(self.port)
+          try to.write_text(self.name)
+          return
+      }
+  }
+  let back = try Endpoint.deserialize(from: &var dec)   // STATIC — on the TYPE
+  ```
+  `deserialize` is a STATIC requirement returning `Self`, so `Deserialize` is a
+  generic BOUND and never an `any Deserialize` (a static requirement has no
+  receiver to dispatch on — clean error where you write the existential).
+  `Serialize`/`Encoder`/`Decoder` ARE object-safe and travel behind `&var any`.
+  Errors are Result: `DecodeError` carries the BYTE OFFSET it stopped at, and
+  malformed input is never a panic. Counts are declared —
+  `begin_array(count:)` is followed by exactly that many items, else
+  `CountMismatch`. Narrow ints read back through `read_int_range`/`read_uint_max`
+  (a narrowing cast would panic; the range is checked first).
 - Overloads resolve by EXACT types (no conversions), labels
   disambiguate same-type sets (`f(0, value: 4)`). Between platform `Int` and
   `UInt` the EXACT one wins (design 137), so `f(Int)`/`f(UInt)` twins are
@@ -1027,6 +1050,8 @@ import mymodule as mm       // aliasing; `module`/`public`/`package`/`parent`
   (prelude): primitives, `Vector`/`Map`/`Set`, `Optional`/`Result`/`Box`/`Arc`/
   `Allocator`/`GlobalAllocator`, the Copy family + `Deinit`/`Iterator`/
   `Equatable`/`Comparable`/`Hashable`/`Printable`/`Error`/`Send`/`Sync`,
+  `Serialize`/`Deserialize` + `Encoder`/`Decoder`/`EncodeError`/`DecodeError`
+  (std.serde — design 169),
   `print`/`panic`/`assert`/`sizeof`/`alignof`/`static_assert`, `TaskGroup`/
   `sleep`/`spawn`/`cancelled`, `StringBuilder`. IMPORT-REQUIRED:
   `File`/`Directory`/`Path` (std.file/directory/path), `Data` (std.data),

@@ -572,16 +572,23 @@ class TypeUtilsMixin:
                  f"associated types is not yet supported")
             return
 
-        # Per-method safety: Self-by-value params/returns, generic methods.
+        # Per-method safety: static requirements, Self-by-value params/returns,
+        # generic methods.
         for mname, m in trait.methods.items():
+            if getattr(m, "is_static", False):
+                fail(f"method `{mname}` is static — it is called on the type, so "
+                     f"there is no receiver to dispatch on",
+                     hint="a trait with a static requirement is a generic bound "
+                          "(`<T: " + trait.name + ">`), never an existential")
+                return
             rt = m.return_type
-            if rt is not None and rt.kind == TypeKind.SELF:
+            if rt is not None and self._names_self(rt):
                 fail(f"method `{mname}` returns `Self` by value "
                      f"(Self-by-value signatures, including the Copy family, are "
                      f"not object-safe)")
                 return
             for pt in (m.param_types or []):
-                if pt is not None and pt.kind == TypeKind.SELF:
+                if pt is not None and self._names_self(pt):
                     fail(f"method `{mname}` takes `Self` by value "
                          f"(Self-by-value parameters are not object-safe)")
                     return
@@ -589,6 +596,25 @@ class TypeUtilsMixin:
                 fail(f"method `{mname}` is generic — generic methods are not "
                      f"object-safe")
                 return
+
+    def _names_self(self, t, depth=0):
+        """Whether `t` NAMES `Self` anywhere, generic arguments included.
+
+        `Result<Self, DecodeError>` is as unerasable as a bare `Self`: the vtable
+        thunk would have to return a value whose size it does not know. Reading
+        only the OUTER kind let a `-> Result<Self, E>` requirement through, which
+        is how design 169's `Deserialize` first passed object safety.
+        """
+        if t is None or depth > 8:
+            return False
+        if t.kind == TypeKind.SELF:
+            return True
+        if t.inner_type is not None and self._names_self(t.inner_type, depth + 1):
+            return True
+        for arg in (t.type_args or []):
+            if self._names_self(arg, depth + 1):
+                return True
+        return False
 
     def _validate_existentials_in_program(self, program):
         """Signature-level pass: validate every declared `any Trait` occurrence in

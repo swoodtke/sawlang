@@ -546,6 +546,11 @@ class RegistrationMixin:
                 self_is_reference=method.self_is_reference,
                 is_sync=getattr(method, 'is_sync', False),
                 is_unsafe=getattr(method, 'is_unsafe', False),
+                # A requirement with no `self` is STATIC (design 169): it is
+                # called on the type, so there is no receiver to dispatch on and
+                # the trait cannot be erased to `any`. Staticness is read off the
+                # parameter list, the same way a method's is.
+                is_static=not any(p.name == "self" for p in method.parameters),
                 # Carry the AST so a conformer can synthesize a Method from the
                 # default body (design 56); inherited symbols keep their own
                 # ast_node, so defaults propagate through trait inheritance.
