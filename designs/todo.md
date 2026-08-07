@@ -1905,6 +1905,16 @@ a load average of 50-83: the 159 agent was building on the same machine, and
 the "worker" was that machine too. They say nothing about a real Studio.)
 Self-test: `tools/remote_worker_selftest.py`, 8 checks, all green.
 
+- **DF-160d — the daemon's silent console costs operator confusion (Aug 7,
+  from the user's first Studio deployment attempt).** The user saw /health
+  answer (core count reached the client) and concluded nothing was happening
+  remotely, because a healthy job shows NOTHING on the worker's console — job
+  output goes to per-job log files and per-request HTTP logging is
+  suppressed. Follow-up: a `--verbose` console mode (request lines + job
+  lifecycle + a pointer to the live log path at job start), and the startup
+  banner should print WHERE job logs will appear. Small unit, rides any 160
+  follow-up. The user's deployment investigation is still open — first real
+  sandbox application (DF-160a below) also still pending.
 - **DF-160a — the sandbox profile could not be APPLIED during development, only
   compiled.** A process already inside a seatbelt sandbox cannot apply a second
   one: `sandbox_apply` returns EPERM, so `sandbox-exec` fails outright from
