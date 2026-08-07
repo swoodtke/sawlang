@@ -5661,6 +5661,33 @@ run time. `sawc --runtime-build`, which is how `sawc/rt/` itself is compiled, is
 the same permission plus a std-free unlinked build; a kernel wants the package
 form.
 
+**On aarch64 the freestanding profile turns Advanced SIMD OFF**
+(`-neon,-fp-armv8`, design 172). An AArch64 core traps every SIMD instruction at
+EL1 out of reset — `CPACR_EL1.FPEN` is 0 — and LLVM reaches for `q` registers to
+move a struct, so a kernel that had not yet enabled FP faulted on its first block
+copy. Nothing reported it, because the fault arrived before the exception vectors
+were installed. A freestanding target is by definition one where no OS has
+enabled FP, so the profile says so instead of each kernel author rediscovering
+it. The general-registers-only lowering is complete: the backend has an
+instruction for everything, and the cost is a few extra `ldp`/`stp` pairs on a
+large struct move.
+
+`--target-features` OVERRIDES it completely. A kernel whose boot code *does*
+enable `CPACR_EL1.FPEN` before any compiled code runs, and that wants the
+vectorized block moves back, asks for them by name:
+
+```bash
+sawc kernel.saw -o kernel.o --freestanding --target aarch64-unknown-none-elf \
+    --target-features +neon,+fp-armv8
+```
+
+Note what such a kernel takes on with them: SIMD registers are live state, so
+every context switch has to save and restore them.
+
+Other targets get no default of their own — riscv32 still needs an explicit
+`--target-features +m,+a,+c`, because *which* extensions a RISC-V part has is a
+fact about the part, not about the profile.
+
 ---
 
 ## 10. Interoperability
@@ -6502,9 +6529,12 @@ sawc <source.saw> [options]
                `+m,+a,+c` for rv32imac). A triple names an architecture but not
                its optional extensions; base rv32i has no divide instruction,
                so an integer `/` becomes a libcall freestanding cannot link.
+               Overrides the freestanding profile's own default (below).
   --freestanding
                Freestanding profile: runtime seams as declarations only, no
-               hosted std modules, no Float printing, unlinked object output
+               hosted std modules, no Float printing, unlinked object output.
+               On aarch64 it also implies `--target-features -neon,-fp-armv8`
+               (below).
   --no-hidden-alloc
                Reject allocations the compiler inserts that no source construct
                names: string interpolation, an escaping closure's captured

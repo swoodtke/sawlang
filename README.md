@@ -1033,6 +1033,14 @@ Base rv32i has no divide instruction, so `--target-features +m` is what keeps
 integer formatting from emitting a libcall the freestanding profile has no
 library to satisfy.
 
+On aarch64 the profile supplies one default of its own: `-neon,-fp-armv8`. An
+AArch64 core traps Advanced SIMD at EL1 out of reset, and LLVM reaches for `q`
+registers to move a struct, so a kernel used to fault on its first block copy —
+before the exception vectors that would have reported it were installed. Pass
+`--target-features +neon,+fp-armv8` to get SIMD back if your boot code enables
+`CPACR_EL1.FPEN` first; you then own saving those registers across a context
+switch.
+
 ## Standard Library
 
 The standard library includes:
@@ -1151,8 +1159,10 @@ Options:
   -O0                Disable optimization (default is an O1-style pass pipeline)
   --target <triple>  Cross-compile for a target triple (default: the host)
   --target-features <list>
-                     LLVM subtarget features for --target (e.g. +m,+a,+c)
-  --freestanding     Freestanding profile: no hosted std, unlinked object output
+                     LLVM subtarget features for --target (e.g. +m,+a,+c);
+                     overrides the freestanding profile's aarch64 default
+  --freestanding     Freestanding profile: no hosted std, unlinked object
+                     output; on aarch64 implies -neon,-fp-armv8
   --no-hidden-alloc  Reject allocations the compiler inserts that your source
                      does not name (see Kernels and Embedded)
   --runtime-build    Build a Saw runtime exporting the __saw_rt_* ABI

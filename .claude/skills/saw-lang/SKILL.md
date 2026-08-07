@@ -1200,6 +1200,15 @@ slab in std/slab.saw; `UnsafeMemory<T, Device|Normal>` for MMIO
   so `func bump(&self) { self.n.fetch_add(1) }` mutates the real cell on a
   field or a static. Every other `&self` still arrives BY VALUE (the
   `FixedBuf.ptr()` gotcha).
+- **`--freestanding` on aarch64 implies `--target-features -neon,-fp-armv8`**
+  (design 172). An AArch64 core traps Advanced SIMD at EL1 out of reset
+  (`CPACR_EL1.FPEN` = 0) and LLVM uses `q` registers to move a struct, so a
+  kernel faulted on its first block copy — before the vectors that would
+  have reported it were installed. `--target-features` OVERRIDES completely,
+  so a kernel whose boot code enables FPEN asks for `+neon,+fp-armv8` by
+  name (and then owns saving those registers across a context switch). No
+  other target gets a profile default: riscv32's `+m,+a,+c` is a fact about
+  the PART, not about the profile.
 - **A package can BE the runtime** (design 149): `[package] runtime = true`
   in Saw.toml lets it `@export` the frozen `__saw_rt_*` seams, links no
   runtime beside it, and CHECKS each seam's signature against

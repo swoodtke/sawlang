@@ -84,6 +84,44 @@ def has_native_atomics(target_triple: Optional[str] = None,
     return 'a' in isa or 'g' in isa
 
 
+#: What the freestanding profile turns OFF on aarch64 (DF-162a). `neon` is the
+#: vectorizer's entry point and `fp-armv8` is the scalar floating-point unit
+#: under it; disabling only the first still leaves LLVM free to emit `fmov`.
+FREESTANDING_AARCH64_FEATURES = "-neon,-fp-armv8"
+
+
+def effective_target_features(target_triple: Optional[str],
+                              target_features: Optional[str],
+                              freestanding: bool) -> str:
+    """The LLVM subtarget feature string a compile actually runs with.
+
+    ONE default lives here, and it is aarch64's (DF-162a). Out of reset an
+    AArch64 core traps every Advanced-SIMD instruction at EL1 — `CPACR_EL1.FPEN`
+    is 0 — and LLVM vectorizes ordinary integer loops, so a freestanding aarch64
+    build emitted code that faulted on the first such loop, BEFORE the exception
+    vectors it was being run to install could report anything. The failure mode
+    is a silent hang, not a link error, and every bare-metal arm64 user hits it
+    exactly once (SOS did: designs/todo.md DF-162a).
+
+    A freestanding target is by definition one where nothing has enabled FP yet,
+    so the profile says so instead of each user rediscovering it. `--target-features`
+    OVERRIDES completely — a kernel that does enable FPEN in its boot code and
+    wants vectorized memcpy asks for it by name.
+
+    Hosted builds are untouched: a hosted process runs under an OS that enabled
+    FP before `main`.
+    """
+    explicit = (target_features or "").strip()
+    if explicit:
+        return explicit
+    if not freestanding:
+        return ""
+    arch = (target_triple or "").lower().split('-')[0]
+    if arch.startswith("aarch64") or arch.startswith("arm64"):
+        return FREESTANDING_AARCH64_FEATURES
+    return ""
+
+
 def platform_int_width(target_triple: Optional[str] = None) -> int:
     """Platform `Int`/`UInt` width in bits for `target_triple` (default host).
 

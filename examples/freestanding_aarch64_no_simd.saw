@@ -1,0 +1,74 @@
+// design 172 unit 7 (DF-162a): the freestanding profile turns Advanced SIMD off
+// on aarch64, and the general-registers-only lowering has to be COMPLETE.
+//
+// An AArch64 core traps SIMD at EL1 out of reset (`CPACR_EL1.FPEN` is 0), and
+// LLVM moves a struct with `ldr q0` / `stp q1, q0`. So a freestanding arm64
+// kernel faulted on its first block copy — before the exception vectors that
+// would have reported it were installed. `--freestanding` now implies
+// `-neon,-fp-armv8`, which is only safe if the backend can still express
+// everything with general registers.
+//
+// This file is the shapes that reach for `q` registers when SIMD is on: a wide
+// struct copied between a local and a static, a fixed array zeroed on the stack,
+// and a byte loop over a region. It exists to FAIL TO COMPILE if the
+// no-SIMD lowering ever loses an instruction; the behavioural proof that the
+// default reaches real kernel code is `tools/sos_runner.py`'s arm64 half, whose
+// boot code no longer enables FPEN at all.
+//
+// COMPILE-FLAGS: --freestanding --target aarch64-unknown-none-elf
+// EXPECT: object
+// EXPECT-SYMBOL-UNDEFINED: __saw_rt_panic
+
+struct Wide {
+    a: UInt64, b: UInt64, c: UInt64, d: UInt64,
+    e: UInt64, f: UInt64, g: UInt64, h: UInt64,
+}
+
+unsafe static var SLOT: Wide = Wide(a: 0, b: 0, c: 0, d: 0, e: 0, f: 0, g: 0, h: 0)
+unsafe static var REGION: [UInt8; 4096] = [0; 4096]
+
+/// A whole-struct store: the block move that used to become `str q0`.
+@export("stash")
+func stash(v: UInt64) unsafe {
+    SLOT = Wide(a: v, b: v, c: v, d: v, e: v, f: v, g: v, h: v)
+}
+
+/// A whole-struct load back out of the static.
+@export("recall")
+func recall() unsafe -> UInt64 {
+    let out = SLOT
+    out.a + out.h
+}
+
+/// A stack buffer zeroed by a repeat literal — a memset the backend may inline.
+@export("scratch")
+func scratch() unsafe -> Int {
+    var buf: [UInt8; 128] = [0; 128]
+    buf[7] = 9u8
+    buf[127] = 1u8
+    (buf[7] as Int) + (buf[127] as Int)
+}
+
+/// A byte loop over a region: the vectorizer's favourite shape.
+@export("fill_region")
+func fill_region(v: UInt8) unsafe -> Int {
+    var i = 0
+    while i < 4096 {
+        REGION[i] = v
+        i = i + 1
+    }
+    var acc = 0
+    var n = 0
+    while n < 4096 {
+        acc = acc + (REGION[n] as Int)
+        n = n + 1
+    }
+    acc
+}
+
+@export("kmain")
+func kmain() unsafe -> Int {
+    stash(3u64)
+    let _ = recall()
+    scratch() + fill_region(1u8)
+}

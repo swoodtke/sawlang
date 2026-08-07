@@ -153,7 +153,14 @@ class CodeGenerator(ResultsMixin, MatchMixin, StructsMixin, CollectionsMixin, Ca
         # freestanding profile has no library to satisfy. Formatting an integer
         # needs division, so a kernel that logs a number cannot link without
         # this (design 137).
-        self.target_features = target_features or ""
+        #
+        # The freestanding profile supplies ONE default of its own — aarch64's
+        # `-neon,-fp-armv8` (DF-162a) — because a bare-metal AArch64 core traps
+        # Advanced SIMD out of reset and the failure is a hang rather than a link
+        # error. `--target-features` overrides it. See `effective_target_features`.
+        from target_info import effective_target_features
+        self.target_features = effective_target_features(
+            self.triple, target_features, freestanding)
 
         # Create module in a FRESH llvmlite context (not the process-global one).
         # llvmlite's `ir.Module` defaults to a module-level singleton
