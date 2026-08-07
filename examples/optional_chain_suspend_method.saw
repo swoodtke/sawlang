@@ -11,7 +11,7 @@
 // 5
 // -1
 
-import std.task
+import std.task.*
 struct S { n: Int }
 extension S {
     func tick(&self) -> Int {

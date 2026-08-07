@@ -2,7 +2,7 @@
 //! `std.data` to receive.
 // EXPECT: skip
 
-import std.data
+import std.data.*
 
 public func make_bytes() -> Data {
     var d = Data()

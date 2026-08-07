@@ -7,7 +7,7 @@
 // EXPECT: panic
 // EXPECT-PANIC-CONTAINS: already joined
 
-import std.task
+import std.task.*
 
 func work(n: Int) -> Int {
     yield_now()

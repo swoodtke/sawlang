@@ -7,7 +7,7 @@
 // 7
 // 3
 
-import std.task
+import std.task.*
 func serve(n: Int) -> Int {
     yield_now()
     n + 1              // tail expression is the result

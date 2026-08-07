@@ -11,7 +11,7 @@
 // -1
 // 9
 
-import std.task
+import std.task.*
 struct Res { id: Int }
 extension Res: NoCopy { func deinit(&var self) { print(self.id) } }
 

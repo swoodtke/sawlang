@@ -7,7 +7,7 @@
 // EXPECT-OUTPUT:
 // 0
 
-import std.task
+import std.task.*
 func child() -> Int {
     var i = 0
     while not cancelled() {

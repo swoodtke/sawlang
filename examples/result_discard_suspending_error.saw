@@ -4,7 +4,7 @@
 // EXPECT: error
 // EXPECT-ERROR-CONTAINS: result of `fetch` is `Result<Int, ParseError>` and is silently discarded
 
-import std.task
+import std.task.*
 
 struct ParseError { at: Int }
 extension ParseError: Printable {

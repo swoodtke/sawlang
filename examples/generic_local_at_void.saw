@@ -30,7 +30,7 @@
 // suspended 8
 // done
 
-import std.task
+import std.task.*
 
 struct Runner { n: Int }
 

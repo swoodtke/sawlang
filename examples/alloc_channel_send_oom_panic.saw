@@ -8,7 +8,7 @@
 // EXPECT: panic
 // EXPECT-PANIC-CONTAINS: Channel.send: allocation failed
 
-import std.channel
+import std.channel.*
 
 extern "C" {
     func __saw_rt_alloc_deny_after(allow: Int)

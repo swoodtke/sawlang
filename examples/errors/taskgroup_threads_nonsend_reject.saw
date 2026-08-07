@@ -9,7 +9,7 @@
 // EXPECT-ERROR-CONTAINS: parameter `data`
 // EXPECT-ERROR-CONTAINS: is not `Send`
 
-import std.task
+import std.task.*
 func work(data: Vector<Int>) -> Int {
     yield_now()
     data.len()

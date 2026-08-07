@@ -11,7 +11,7 @@
 // 8
 // 5
 
-import std.task
+import std.task.*
 
 static REGISTER_COUNT: Int = 4
 static REGISTER_STRIDE: Int = 4

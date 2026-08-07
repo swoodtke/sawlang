@@ -15,7 +15,7 @@
 // chain wrote: 5
 // done
 
-import std.task
+import std.task.*
 
 struct ParseError { at: Int }
 extension ParseError: Printable {

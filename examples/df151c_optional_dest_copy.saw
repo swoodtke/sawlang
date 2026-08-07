@@ -48,7 +48,7 @@
 // balance-suspending-arm 1 4 1
 // deinit 3
 
-import std.task
+import std.task.*
 
 struct Res { id: Int }
 extension Res: NoCopy {

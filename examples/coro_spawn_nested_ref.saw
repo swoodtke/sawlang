@@ -12,7 +12,7 @@
 // EXPECT: success
 // EXPECT-OUTPUT: 40
 
-import std.task
+import std.task.*
 struct Buf { total: Int }
 
 func accumulate(buf: &var Buf, amount: Int) -> Int {

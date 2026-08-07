@@ -4,7 +4,7 @@
 // EXPECT-ERROR-CONTAINS: cannot derive copy() for `Holder`: field `f`
 // EXPECT-ERROR-CONTAINS: implements NoCopy and cannot be copied
 
-import std.file
+import std.file.*
 
 struct Holder {
     f: File

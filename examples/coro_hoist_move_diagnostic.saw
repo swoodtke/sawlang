@@ -15,7 +15,7 @@
 // EXPECT-ERROR-CONTAINS: coro_hoist_move_diagnostic.saw:30:25
 // EXPECT-ERROR-CONTAINS: value was moved at line 29
 
-import std.task
+import std.task.*
 
 func slow(n: Int) -> Int {
     yield_now()

@@ -8,7 +8,7 @@
 // source_location_suspending.saw:14:worker
 // done 23
 
-import std.task
+import std.task.*
 func worker(n: Int) -> String {
     yield_now()
     let loc = "{#file}:{#line}:{#function}"

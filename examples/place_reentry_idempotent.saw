@@ -17,7 +17,7 @@
 // ok
 // 4
 
-import std.task
+import std.task.*
 
 type MyInt = Int
 type OptInt = Int?

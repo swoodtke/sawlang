@@ -8,7 +8,7 @@
 // 0
 // 31
 
-import std.channel
+import std.channel.*
 
 func inc(x: Int) -> Int { x + 1 }
 

@@ -5,7 +5,7 @@
 // EXPECT-OUTPUT:
 // 49
 
-import std.task
+import std.task.*
 func compute(x: Int) -> Int {
     let base = x
     yield_now()

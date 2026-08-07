@@ -17,7 +17,7 @@
 // final 0
 // live 0
 
-import std.task
+import std.task.*
 
 static LIVE: Atomic<Int> = Atomic(0)
 

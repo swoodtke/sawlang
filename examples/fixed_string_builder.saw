@@ -17,7 +17,7 @@
 // 0
 // true
 
-import std.fixedbuf
+import std.fixedbuf.*
 
 func main() unsafe {
     var buf = FixedBuf<8>()

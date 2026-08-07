@@ -14,7 +14,7 @@
 // sync elem: 4
 // sync after: 3
 
-import std.task
+import std.task.*
 
 func slow(n: Int) -> Int { yield_now()  return n }
 func fast(n: Int) sync -> Int { return n }

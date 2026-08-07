@@ -7,7 +7,7 @@
 // EXPECT-OUTPUT:
 // 6
 
-import std.task
+import std.task.*
 func napper(ms: Int, val: Int) -> Int {
     sleep(ms)
     yield_now()

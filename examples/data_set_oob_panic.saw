@@ -5,7 +5,7 @@
 // EXPECT: panic
 // EXPECT-PANIC-CONTAINS: Data.set: index out of range
 
-import std.data
+import std.data.*
 
 func main() {
     var d = Data()

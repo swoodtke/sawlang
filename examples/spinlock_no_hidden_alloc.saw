@@ -14,7 +14,7 @@
 // misses 1
 // stage 1
 
-import std.spinlock
+import std.spinlock.*
 
 struct Counters {
     hits: Int,

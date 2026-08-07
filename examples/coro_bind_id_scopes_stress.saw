@@ -18,7 +18,7 @@
 // catches: 1005
 // sync stress: 109
 
-import std.task
+import std.task.*
 
 enum Step { case Go(n: Int), case Stop }
 

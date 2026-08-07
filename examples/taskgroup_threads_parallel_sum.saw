@@ -8,7 +8,7 @@
 // EXPECT-OUTPUT:
 // 4950
 
-import std.task
+import std.task.*
 func tiny(n: Int) -> Int {
     yield_now()
     yield_now()

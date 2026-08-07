@@ -20,7 +20,7 @@
 // continue 500
 // nested 600
 
-import std.task
+import std.task.*
 
 func count_range(n: Int) -> Int {
     var seen = 0

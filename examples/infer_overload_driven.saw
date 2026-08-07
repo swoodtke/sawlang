@@ -9,7 +9,7 @@
 // 100
 // 20
 
-import std.task
+import std.task.*
 struct Wrap<T> { v: T }
 struct Cell<T> { v: T }
 

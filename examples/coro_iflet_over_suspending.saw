@@ -8,7 +8,7 @@
 // 51
 // -1
 
-import std.task
+import std.task.*
 func maybe_get(n: Int) -> Int? {
     yield_now()
     if n > 0 {

@@ -7,7 +7,7 @@
 // EXPECT: error
 // EXPECT-ERROR-CONTAINS: static assertion failed
 // EXPECT-ERROR-CONTAINS: FixedStringBuilder needs at least 5 bytes
-import std.fixedbuf
+import std.fixedbuf.*
 
 func main() unsafe {
     var out = FixedStringBuilder<4>()

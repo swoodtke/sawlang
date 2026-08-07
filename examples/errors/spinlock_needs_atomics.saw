@@ -9,7 +9,7 @@
 // EXPECT-ERROR-CONTAINS: `SpinLock` needs target atomics
 // EXPECT-ERROR-CONTAINS: --target-features +a
 
-import std.spinlock
+import std.spinlock.*
 
 static COUNT: SpinLock<Int>
 

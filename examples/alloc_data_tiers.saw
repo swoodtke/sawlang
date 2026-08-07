@@ -18,7 +18,7 @@
 // with_capacity denied
 // 9
 
-import std.data
+import std.data.*
 
 extern "C" {
     func __saw_rt_alloc_deny_after(allow: Int)

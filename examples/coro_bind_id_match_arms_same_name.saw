@@ -20,7 +20,7 @@
 // sync A: 42
 // sync B: 99
 
-import std.task
+import std.task.*
 
 enum Pair { case A(n: Int), case B(m: Int) }
 enum Mixed { case A(n: Int), case B(b: Bool) }

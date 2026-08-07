@@ -15,7 +15,7 @@
 // void joined twice
 // 0
 
-import std.task
+import std.task.*
 
 static VOID_RAN: Atomic<Int> = Atomic(0)
 

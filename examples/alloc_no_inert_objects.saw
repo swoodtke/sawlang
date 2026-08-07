@@ -19,7 +19,7 @@
 // 42
 
 import std.mutex.{Mutex}
-import std.channel
+import std.channel.*
 
 extern "C" {
     func __saw_rt_alloc_deny_after(allow: Int)

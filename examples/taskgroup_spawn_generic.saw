@@ -7,7 +7,7 @@
 // 20
 // 40
 
-import std.task
+import std.task.*
 trait Seed { func seed(&self) -> Int }
 
 struct Slow { n: Int }

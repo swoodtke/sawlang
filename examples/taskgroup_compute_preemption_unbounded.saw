@@ -17,7 +17,7 @@
 // 5
 
 import std.mutex.{Mutex}
-import std.task
+import std.task.*
 
 // Poll the stop flag every 1000 iterations — often enough to exit promptly,
 // rarely enough that the loop is overwhelmingly plain arithmetic.

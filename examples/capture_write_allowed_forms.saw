@@ -11,7 +11,7 @@
 // 3
 // 2
 
-import std.mutex
+import std.mutex.*
 
 func each3(body: (Int) -> Bool) { body(1) body(2) body(3) }
 

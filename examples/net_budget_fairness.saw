@@ -16,7 +16,7 @@
 // EXPECT-OUTPUT:
 // 5
 
-import std.task
+import std.task.*
 import std.net.{TcpStream}
 import std.mutex.{Mutex}
 

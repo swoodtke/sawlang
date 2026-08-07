@@ -19,8 +19,8 @@
 // 0
 // true
 
-import std.process
-import std.directory
+import std.process.*
+import std.directory.*
 
 func main() {
     var c = Command(program: "/bin/echo")

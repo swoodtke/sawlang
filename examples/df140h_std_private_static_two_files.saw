@@ -11,7 +11,7 @@
 // EXPECT-OUTPUT: 999
 // EXPECT-OUTPUT: 7
 // EXPECT-OUTPUT: 4
-import std.net
+import std.net.*
 
 static ASCII_ZERO: Int = 48
 static AF_UNIX: Int = 999

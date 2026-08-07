@@ -7,8 +7,8 @@
 // EXPECT-ERROR-CONTAINS: cannot suspend in a `sync` closure context
 // EXPECT-ERROR-CONTAINS: yield_now
 
-import std.spinlock
-import std.task
+import std.spinlock.*
+import std.task.*
 
 static COUNT: SpinLock<Int>
 

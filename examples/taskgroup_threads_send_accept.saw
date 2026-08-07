@@ -6,7 +6,7 @@
 // EXPECT-OUTPUT:
 // 60
 
-import std.task
+import std.task.*
 import std.channel.{Channel}
 func square(n: Int) -> Int {
     yield_now()

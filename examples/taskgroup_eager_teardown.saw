@@ -16,7 +16,7 @@
 // 5
 // 999
 
-import std.task
+import std.task.*
 struct R { id: Int }
 extension R: NoCopy { func deinit(&var self) { print(self.id) } }
 

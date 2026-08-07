@@ -8,7 +8,7 @@
 // EXPECT: error
 // EXPECT-ERROR-CONTAINS: is both `__saw_drive`n and spawned into a `TaskGroup`
 
-import std.task
+import std.task.*
 
 func work(n: Int) -> Int {
     yield_now()

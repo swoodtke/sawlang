@@ -13,7 +13,7 @@
 // turns 1000
 // locked? false
 
-import std.spinlock
+import std.spinlock.*
 
 struct Tally {
     total: Int,

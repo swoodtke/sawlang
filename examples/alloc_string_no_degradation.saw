@@ -16,7 +16,7 @@
 // EXPECT: panic
 // EXPECT-PANIC-CONTAINS: string allocation failed
 
-import std.path
+import std.path.*
 
 extern "C" {
     func __saw_rt_alloc_deny_after(allow: Int)

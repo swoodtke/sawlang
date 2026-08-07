@@ -15,7 +15,7 @@
 // sync arm sees: 6
 // sync later: 8
 
-import std.task
+import std.task.*
 
 enum Step { case Go(n: Int), case Stop }
 

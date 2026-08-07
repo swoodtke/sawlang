@@ -24,8 +24,8 @@
 // EXPECT-OUTPUT: echo 4
 // EXPECT-OUTPUT: done
 
-import std.net
-import std.task
+import std.net.*
+import std.task.*
 
 // Parks on its stream, is cancelled there, and hands the STREAM back — so the
 // fd outlives this frame while the registration it armed would not.

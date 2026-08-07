@@ -32,7 +32,7 @@
 // EXPECT-OUTPUT: slow-1
 // EXPECT-OUTPUT: r6=6-2
 
-import std.task
+import std.task.*
 
 func slow(tag: Int) -> Int {
     yield_now()

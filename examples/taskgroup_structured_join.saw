@@ -8,7 +8,7 @@
 // 1
 // 2
 
-import std.task
+import std.task.*
 func w(id: Int) -> Int {
     yield_now()
     print(id)

@@ -18,8 +18,8 @@
 // ends with the deepest component: true
 // cleaned up: true
 
-import std.directory
-import std.path
+import std.directory.*
+import std.path.*
 
 static COMPONENT_LENGTH: Int = 200
 static COMPONENT_COUNT: Int = 10

@@ -9,7 +9,7 @@
 // spawned: 15
 // sync: 15
 
-import std.task
+import std.task.*
 
 // One body per driver: a function may be `__saw_drive`n or spawned, not both.
 func driven(n: Int) -> Int {

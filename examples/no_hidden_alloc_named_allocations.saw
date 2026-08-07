@@ -22,7 +22,7 @@
 // load failed: file not found: cfg.toml
 // n = 7 flag = true text = hi
 
-import std.task
+import std.task.*
 
 struct Point { x: Int, y: Int }
 

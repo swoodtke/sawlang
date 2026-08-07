@@ -22,7 +22,7 @@
 // r4: 8
 // r5: 9
 
-import std.task
+import std.task.*
 
 func r1(x: Int?) -> Int {
     if let x = x {

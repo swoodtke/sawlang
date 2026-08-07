@@ -13,7 +13,7 @@
 // final 0
 // ran 32
 
-import std.task
+import std.task.*
 
 static RAN: Atomic<Int> = Atomic(0)
 

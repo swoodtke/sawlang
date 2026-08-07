@@ -10,7 +10,7 @@
 // EXPECT-ERROR-CONTAINS: struct `Keeper` contains NoCopy field `handle` of type `File?` but does not implement NoCopy
 // EXPECT-ERROR-CONTAINS: add `extension Keeper: NoCopy {}`
 
-import std.file
+import std.file.*
 
 struct Keeper {
     handle: File?

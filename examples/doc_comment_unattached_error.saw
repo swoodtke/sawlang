@@ -8,7 +8,7 @@
 // end of file.
 
 /// In front of an import, which carries no documentation.
-import std.time
+import std.time.*
 
 /// Displaced from `main` by the block below.
 

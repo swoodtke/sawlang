@@ -13,7 +13,7 @@
 // false
 // true
 // 6
-import std.task
+import std.task.*
 
 struct Tag {
     name: String

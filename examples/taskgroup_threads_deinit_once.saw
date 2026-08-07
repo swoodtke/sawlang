@@ -9,7 +9,7 @@
 // EXPECT-OUTPUT:
 // 6
 
-import std.task
+import std.task.*
 static DROPS: Atomic<Int> = Atomic(0)
 
 struct Res { id: Int }
