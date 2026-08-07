@@ -4,7 +4,6 @@ Saw Language AST Node Definitions
 
 import copy as _copy
 import dataclasses
-import itertools
 from dataclasses import dataclass, field
 from typing import List, Optional, Dict, Any
 from enum import Enum, auto
@@ -615,11 +614,39 @@ class ExportDecl:
 # sub-parser, a per-module parser, or the ~180 nodes the coroutine transform
 # synthesizes. A per-instance counter would collide across modules, and a plain
 # `= 0` default would give every synthesized node the same id.
-_NODE_ID_COUNTER = itertools.count(1)
+_NEXT_NODE_ID = 1
 
 
 def _next_node_id() -> int:
-    return next(_NODE_ID_COUNTER)
+    global _NEXT_NODE_ID
+    node_id = _NEXT_NODE_ID
+    _NEXT_NODE_ID += 1
+    return node_id
+
+
+def current_node_id_bound() -> int:
+    """The highest id issued so far (design 168 unit 4).
+
+    Stored beside a serialized std graph so a later process can restore it
+    without walking it: every node in the blob has an id at or below this.
+    """
+    return _NEXT_NODE_ID - 1
+
+
+def seed_node_ids(bound: int) -> None:
+    """Advance the allocator past a restored graph (design 168 unit 4).
+
+    `pickle` preserves `node_id` verbatim, so a restored std graph arrives
+    holding ids the counter would otherwise hand out again. A collision is
+    SILENT: `effects.py` merges two functions' suspend analysis under one key,
+    and the coroutine transform's entry-vs-std membership test misfiles a std
+    extension as user code. Design 164's prototype hit exactly that on 13 of
+    1,114 examples. One assignment closes it, which is why the restore has to
+    happen before anything else is parsed.
+    """
+    global _NEXT_NODE_ID
+    if bound >= _NEXT_NODE_ID:
+        _NEXT_NODE_ID = bound + 1
 
 
 @dataclass(kw_only=True)

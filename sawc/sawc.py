@@ -96,6 +96,34 @@ IMPORT_REQUIRED_STD_SYMBOLS = {
 }
 
 
+def std_source_paths(freestanding: bool = False, runtime_build: bool = False):
+    """The stdlib sources a compile under these flags reads, in load order.
+
+    One source of truth for two callers: `load_builtins` parses them, and the
+    design-168 std cache hashes them into its key. A key computed from a
+    different file set than the one that was parsed is a stale-cache miscompile,
+    so the two must not be able to drift.
+    """
+    sawc_dir = os.path.dirname(__file__)
+    paths = []
+
+    # builtin.saw first (core traits).
+    builtin_path = os.path.join(sawc_dir, 'builtin.saw')
+    if os.path.exists(builtin_path):
+        paths.append(builtin_path)
+
+    # std/ is skipped entirely in runtime-build mode.
+    std_dir = os.path.join(sawc_dir, 'std')
+    if not runtime_build and os.path.isdir(std_dir):
+        std_files = sorted(f for f in os.listdir(std_dir) if f.endswith('.saw'))
+        if freestanding:
+            std_files = [f for f in std_files
+                         if os.path.splitext(f)[0] not in HOSTED_STD_MODULES]
+        paths.extend(os.path.join(std_dir, f) for f in std_files)
+
+    return paths
+
+
 def load_builtins(verbose: bool = False, freestanding: bool = False,
                   runtime_build: bool = False):
     """Load and parse the builtin.saw file and all std/*.saw files.
@@ -111,55 +139,34 @@ def load_builtins(verbose: bool = False, freestanding: bool = False,
     """
     from ast_nodes import Program
 
-    sawc_dir = os.path.dirname(__file__)
     combined_ast = None
     # design 121: builtin.saw + every std file merge into ONE Program, so each
     # file's `//!` module doc is kept here, keyed by path, for `--emit-docs`.
     file_module_docs = {}
 
-    # Load builtin.saw first (core traits)
-    builtin_path = os.path.join(sawc_dir, 'builtin.saw')
-    if os.path.exists(builtin_path):
-        with open(builtin_path, 'r') as f:
-            builtin_source = f.read()
+    for filepath in std_source_paths(freestanding, runtime_build):
+        with open(filepath, 'r') as f:
+            source = f.read()
         if verbose:
-            print("  Loading builtins...")
-        combined_ast = parse_source(builtin_source, builtin_path, verbose)
-        file_module_docs[builtin_path] = combined_ast.module_doc
-
-    # Load all files from std/ directory (skipped entirely in runtime-build).
-    std_dir = os.path.join(sawc_dir, 'std')
-    if runtime_build:
-        std_dir = None
-    if std_dir and os.path.isdir(std_dir):
-        std_files = sorted([f for f in os.listdir(std_dir) if f.endswith('.saw')])
-        if freestanding:
-            std_files = [f for f in std_files
-                         if os.path.splitext(f)[0] not in HOSTED_STD_MODULES]
-        for filename in std_files:
-            filepath = os.path.join(std_dir, filename)
-            with open(filepath, 'r') as f:
-                source = f.read()
-            if verbose:
-                print(f"  Loading std/{filename}...")
-            file_ast = parse_source(source, filepath, verbose)
-            file_module_docs[filepath] = file_ast.module_doc
-            if combined_ast is None:
-                combined_ast = file_ast
-            else:
-                combined_ast = Program(
-                    structs=combined_ast.structs + file_ast.structs,
-                    functions=combined_ast.functions + file_ast.functions,
-                    extensions=combined_ast.extensions + file_ast.extensions,
-                    enums=combined_ast.enums + file_ast.enums,
-                    traits=combined_ast.traits + file_ast.traits,
-                    type_definitions=combined_ast.type_definitions + file_ast.type_definitions,
-                    extern_blocks=combined_ast.extern_blocks + file_ast.extern_blocks,
-                    statics=getattr(combined_ast, 'statics', []) + getattr(file_ast, 'statics', []),
-                    static_asserts=getattr(combined_ast, 'static_asserts', []) + getattr(file_ast, 'static_asserts', []),
-                    line=combined_ast.line,
-                    column=combined_ast.column
-                )
+            print(f"  Loading {os.path.basename(filepath)}...")
+        file_ast = parse_source(source, filepath, verbose)
+        file_module_docs[filepath] = file_ast.module_doc
+        if combined_ast is None:
+            combined_ast = file_ast
+        else:
+            combined_ast = Program(
+                structs=combined_ast.structs + file_ast.structs,
+                functions=combined_ast.functions + file_ast.functions,
+                extensions=combined_ast.extensions + file_ast.extensions,
+                enums=combined_ast.enums + file_ast.enums,
+                traits=combined_ast.traits + file_ast.traits,
+                type_definitions=combined_ast.type_definitions + file_ast.type_definitions,
+                extern_blocks=combined_ast.extern_blocks + file_ast.extern_blocks,
+                statics=getattr(combined_ast, 'statics', []) + getattr(file_ast, 'statics', []),
+                static_asserts=getattr(combined_ast, 'static_asserts', []) + getattr(file_ast, 'static_asserts', []),
+                line=combined_ast.line,
+                column=combined_ast.column
+            )
 
     if combined_ast is not None:
         combined_ast.file_module_docs = file_module_docs
@@ -388,6 +395,40 @@ def build_builtin_namespace(verbose: bool = False, freestanding: bool = False,
     return builtin_ast, builtin_ns
 
 
+def _prepared_builtins(verbose, freestanding, runtime_build, target_triple,
+                       target_features, no_hidden_alloc, optimize):
+    """The pristine `(builtin_ast, builtin_ns)` pair, from the cache or fresh.
+
+    Called BEFORE the entry file is parsed (design 168 unit 4), and the pair it
+    returns has to STAY pristine long enough to be stored: user type-checking
+    mutates the shared builtin symbols (`generic_primitive_bounds.saw` adds a
+    method and a conformance to the cached `Int` and `Float`) and place lowering
+    rewrites std method bodies in place. So the store happens here, one statement
+    after the build, and never on a re-entry.
+    """
+    import stdcache
+
+    if not stdcache.enabled():
+        return build_builtin_namespace(verbose, freestanding, runtime_build,
+                                       target_triple=target_triple)
+
+    key = stdcache.cache_key(
+        std_source_paths(freestanding, runtime_build),
+        freestanding, runtime_build, target_triple, target_features,
+        no_hidden_alloc, optimize)
+
+    restored = stdcache.load(key)
+    if restored is not None:
+        if verbose:
+            print(f"  Builtins: restored from .build/stdcache/{key}.blob")
+        return restored
+
+    builtins = build_builtin_namespace(verbose, freestanding, runtime_build,
+                                       target_triple=target_triple)
+    stdcache.store(key, *builtins)
+    return builtins
+
+
 def _strip_line_comments(text: str) -> str:
     """Drop `//` line comments so a symbol name mentioned only in prose is not
     counted as a code reference by the std dependency scan (design 82 Part B)."""
@@ -563,7 +604,7 @@ def _reject_freestanding_macho(target_triple: str = None):
     sys.exit(1)
 
 
-def _prepare_codegen(source_path: str, entry_ast, entry_source: str, verbose: bool = False, object_only: bool = False, target_triple: str = None, freestanding: bool = False, module_paths: dict = None, runtime_build: bool = False, docs_out: dict = None, post_transform: bool = False, target_features: str = None, parsed=None, places_lowered: bool = False, no_hidden_alloc: bool = False, runtime_provider: bool = False):
+def _prepare_codegen(source_path: str, entry_ast, entry_source: str, verbose: bool = False, object_only: bool = False, target_triple: str = None, freestanding: bool = False, module_paths: dict = None, runtime_build: bool = False, docs_out: dict = None, post_transform: bool = False, target_features: str = None, parsed=None, places_lowered: bool = False, no_hidden_alloc: bool = False, runtime_provider: bool = False, builtins=None):
     """Resolve modules, load builtins, and type-check the whole program.
 
     This is the single front half of the compile pipeline: a plain single file
@@ -766,10 +807,18 @@ def _prepare_codegen(source_path: str, entry_ast, entry_source: str, verbose: bo
                     sys.exit(1)
 
     # Load builtins and build the (type-checked) builtin namespace once.
-    builtin_ast, builtin_ns = build_builtin_namespace(
-        verbose, freestanding, runtime_build,
-        builtin_ast=parsed['builtin_ast'] if parsed else None,
-        target_triple=target_triple)
+    # design 168 unit 4: `builtins` is a pristine pair the caller already has —
+    # restored from the std cache, or built by the caller ahead of the entry
+    # parse. A RE-ENTRY never takes it: place lowering rewrites std bodies in
+    # place and the coroutine transform re-enters after that, so those passes
+    # must re-check the program's own mutated std, not a fresh copy.
+    if builtins is not None:
+        builtin_ast, builtin_ns = builtins
+    else:
+        builtin_ast, builtin_ns = build_builtin_namespace(
+            verbose, freestanding, runtime_build,
+            builtin_ast=parsed['builtin_ast'] if parsed else None,
+            target_triple=target_triple)
     # The AST to hand a re-entry is this one, BEFORE `_filter_std_ast` narrows
     # it for codegen: the filter drops the std files this program does not
     # compile in, and a re-entry has to start from the whole stdlib again.
@@ -1221,6 +1270,26 @@ def compile_saw(source_path: str, output_path: str, verbose: bool = False, objec
 
     if verbose:
         print(f"Compiling {source_path}...")
+
+    # design 168 unit 4: the stdlib is parsed + type-checked BEFORE the entry
+    # file, always — cached or not. Two reasons, and only one of them is speed.
+    #
+    # The cache needs it: `pickle` preserves `node_id` verbatim, so a blob
+    # restored AFTER the entry parse carries ids the entry file already took, and
+    # a collision silently merges two functions' suspend analysis (design 164's
+    # prototype miscompiled 13 of 1,114 examples exactly that way).
+    #
+    # But building it first on the COLD path too is what makes the cache
+    # invisible: both paths then allocate node ids in the same order, so a warm
+    # compile is not merely correct but byte-identical to a cold one. Restoring
+    # ahead of a cold build that still ran late would have left every generated
+    # name shifted between the two, which is what turned design 164's strict
+    # differential red.
+    builtins = _prepared_builtins(verbose, freestanding, runtime_build,
+                                  target_triple, target_features,
+                                  no_hidden_alloc, optimize)
+
+    if verbose:
         print("  Parsing...")
     entry_ast = parse_source(source, source_path, verbose)
     entry_ast.source_path = os.path.abspath(source_path)
@@ -1236,7 +1305,7 @@ def compile_saw(source_path: str, output_path: str, verbose: bool = False, objec
         source_path, entry_ast, source, verbose, object_only, target_triple,
         freestanding, module_paths, runtime_build,
         target_features=target_features, no_hidden_alloc=no_hidden_alloc,
-        runtime_provider=runtime_provider)
+        runtime_provider=runtime_provider, builtins=builtins)
 
     if verbose:
         print("  Generating LLVM IR...")
