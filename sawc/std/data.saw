@@ -2,28 +2,14 @@
 // Part of the Saw standard library
 //
 // =============================================================================
-// TODO: Known Issues to Investigate
-// =============================================================================
-//
-// 1. memcpy causes segfaults when used in copy()
-//    - Using memcpy to copy bytes from one Data to another causes crashes
-//    - Workaround: copy() uses manual byte-by-byte loop instead
-//    - Need to investigate: pointer arithmetic issues? Type casting issues?
-//    - The memcpy in append() may have the same issue (untested)
-//
-// 2. make_unique() copy-on-write causes segfaults
-//    - When set() detects shared buffer (refcount > 1), calling make_unique()
-//      to copy before modifying causes crashes
-//    - Likely issue: ownership transfer when assigning old_data.inner to self.inner
-//      while old_data is still in scope and will have deinit called
-//    - Workaround: set() now directly modifies shared buffer (no COW)
-//    - Users must call copy() explicitly before modifying if they need isolation
-//
-// 3. DataIterator doesn't hold a reference
-//    - Iterator copies the inner pointer but doesn't increment refcount
-//    - This means iterators can become invalid if source Data is deallocated
-//    - For safety, should increment refcount in iter() and decrement in deinit
-//
+// Open items (tracker: "std.Data findings", Aug 7) — two RESOLVED, two live:
+// the historical "memcpy segfaults" and "make_unique segfaults" notes are
+// retired (compiler defects of their era, since fixed; both paths are
+// regression-tested by examples/data_cow_slice.saw, native + Guard Malloc).
+// Still open, in the tracker: DataIterator holds no reference (an iterator
+// returned past its Data's death dangles), and set() writes THROUGH a shared
+// buffer while push()/append() copy-on-write — a view-vs-value inconsistency
+// awaiting a user decision.
 // =============================================================================
 
 // =============================================================================
@@ -372,12 +358,6 @@ extension Data {
         Data(inner: self.inner, offset: self.offset + start, length: end - start)
     }
 
-    // Create an independent copy of this Data
-    // TODO: Using manual byte-by-byte copy because memcpy version causes segfaults
-    // Original memcpy-based implementation:
-    //   let dest = new_inner[0].buffer as UnsafePointer<Int8>
-    //   let src = self_inner[0].buffer as UnsafePointer<Int8>
-    //   memcpy(dest, src + self.offset, self.length)
     /// Duplicates the bytes into an independent buffer.
     ///
     /// Panics if the allocator refuses (design 123, infallible tier). It used
@@ -418,14 +398,20 @@ extension Data {
     // length-set) buffer.
     // Uses a manual byte loop because the memcpy version segfaults — see the
     // TODO at the top of the file.
-    func _fill_from(&var self, source: &Data) {
-        var i = 0
-        while i < self.length {
-            if let b = source.get(i) {
-                self.set(i, b)
-            }
-            i = i + 1
+    // Internal: fill self's first `length` bytes from `source`, offset-aware
+    // on BOTH sides (a source SLICE copies from buffer + offset). One memcpy —
+    // the per-byte get/set loop this replaces predated several fixed compiler
+    // defects; examples/data_cow_slice.saw pins both directions.
+    func _fill_from(&var self, source: &Data) unsafe {
+        guard let dst_inner = self.inner else {
+            return
         }
+        guard let src_inner = source.inner else {
+            return
+        }
+        let dst = (dst_inner[0].buffer as UnsafePointer<Int8>) + self.offset
+        let src = (src_inner[0].buffer as UnsafePointer<Int8>) + source.offset
+        memcpy(dst, src, self.length)
     }
 
     // =========================================================================
@@ -502,12 +488,12 @@ extension Data {
         self._allocate_buffer(new_capacity)
     }
 
-    // Ensure we have exclusive ownership (copy if shared)
-    // TODO: This method causes segfaults and is currently unused
-    // The issue is likely with ownership transfer: when we assign old_data.inner
-    // to self.inner, old_data still exists and its deinit will be called at scope
-    // end, causing double-free or use-after-free issues despite refcount manipulation.
-    // Need to investigate proper ownership transfer patterns in Saw.
+    // Internal: exclusive ownership of the control block (copy if shared) —
+    // the copy-on-write half of `_reserve_unique`. Deep-copies, detaches from
+    // the shared block, and PRE-INCREMENTS the fresh block's refcount so the
+    // local copy's scope-exit deinit lands the count at exactly 1 with `self`
+    // the owner. Regression-tested (native + Guard Malloc) by
+    // examples/data_cow_slice.saw.
     func _make_unique(&var self) unsafe {
         guard let inner = self.inner else {
             return

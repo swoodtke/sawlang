@@ -105,6 +105,12 @@ GATE = [
     # the hand-off is exactly the over-release this lane exists to see. Its live
     # count proves nothing leaks; only Guard Malloc proves nothing is freed twice.
     "examples/coro_spawn_and_embed_owning.saw",
+    # Data's copy-on-write ownership transfer (_make_unique: deep copy, steal
+    # the block, pre-incremented refcount cancelled by the local's deinit) plus
+    # the offset-aware memcpy fill. Manual refcounts over raw allocations —
+    # a drop miscount here frees a block a live Data or slice still points at,
+    # which reads correct natively and only Guard Malloc sees.
+    "examples/data_cow_slice.saw",
 ]
 
 
