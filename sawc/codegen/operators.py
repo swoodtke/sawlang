@@ -10,7 +10,7 @@ Usage:
 """
 
 from llvmlite import ir
-from ast_nodes import BinaryOp, UnaryOp, MoveExpr, ReferenceExpr, CastExpr, TypeKind, Identifier, MemberAccess, ArrayIndex, SelfExpr, SawType, IntLiteral, ForceUnwrap
+from ast_nodes import BinaryOp, UnaryOp, MoveExpr, ReferenceExpr, CastExpr, TypeKind, Identifier, MemberAccess, ArrayIndex, SelfExpr, SawType, IntLiteral, ForceUnwrap, TupleIndex
 from .mangle import mangle_named
 
 # Unsigned integer kinds: everything else that is an integer is treated as
@@ -1254,6 +1254,11 @@ class OperatorsMixin:
         elif isinstance(inner_expr, ArrayIndex):
             # Reference to array/pointer element - get a stable GEP pointer
             return self._get_array_element_pointer(inner_expr)
+        elif isinstance(inner_expr, TupleIndex):
+            # `&t.0` / `&var t.0` (DF-151j) — a tuple element is storage like a
+            # struct field, so lend its slot. Without this the `else` below
+            # spilled a COPY and a `&var` callee mutated the copy.
+            return self._get_tuple_element_pointer(inner_expr)
         elif isinstance(inner_expr, ForceUnwrap):
             # `&(opt!)` — a pointer into the optional's payload slot (guarded by a
             # None-check, matching force-unwrap read semantics). Optionals lower to

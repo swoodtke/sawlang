@@ -1,0 +1,21 @@
+// DF-151j: the Law of Exclusivity reaches tuple elements by PATH — the same rule
+// `exclusivity_disjoint_fields.saw` pins for struct fields. Lending the SAME
+// element `&var` and `&` in one call is the violation; the disjoint pair
+// `&var t.0` with `&t.1` compiles (`df151j_tuple_element_ref.saw`).
+//
+// Nothing in the checker changed for this: `_build_access_path` already recorded
+// a `('tuple', i)` projection and `_paths_overlap` already told two indices
+// apart. No program could reach that code, because `&var t.0` was refused as a
+// non-lvalue before exclusivity was ever consulted.
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: exclusive access violation: `t.0` is passed as `&var`
+
+func add_into(x: &var Int, y: &Int) -> Int {
+    x = x + y
+    x
+}
+
+func main() {
+    var t = (1, 10)
+    print("{add_into(&var t.0, &t.0)}")
+}

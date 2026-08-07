@@ -1,0 +1,139 @@
+// DF-151j: `&var t.0` lends the tuple's ELEMENT SLOT, and the Law of Exclusivity
+// judges tuple elements by PATH, exactly as it judges struct fields.
+//
+// `_is_lvalue` listed Identifier / MemberAccess / ArrayIndex / SelfExpr, so a
+// tuple index was refused outright ("can only take reference to a variable,
+// field, or array element"). It is storage on the same terms a field is, so it
+// belongs on that list; the codegen half is the same element GEP the receiver
+// and assignment paths use, in place of an `else` that spilled a COPY and let a
+// `&var` callee mutate it.
+//
+// THE EXCLUSIVITY RULE THAT LANDED: path-precise, charged at the element, NOT
+// at the tuple root. That is not a new decision — `_build_access_path` already
+// recorded a `('tuple', i)` projection and `_paths_overlap` already treated two
+// different indices as disjoint; nothing reached that code because `&var t.0`
+// never type-checked. So `f(&var t.0, &t.1)` compiles, for the same reason
+// `f(&var p.x, &p.y)` does (`exclusivity_disjoint_fields.saw`), and
+// `f(&var t.0, &t.0)` is the violation (`errors/df151j_tuple_element_
+// exclusivity.saw`). Root-charging is the PLACE rule (design 141: `&v[i]`
+// charges `v` wholesale, because a dynamic index cannot be told apart); a tuple
+// index is a static projection like a field name, so it gets the field answer.
+// Consistency with struct fields decided it — the two shapes are the same shape.
+// EXPECT: success
+// EXPECT-OUTPUT:
+// mutate_through_ref 2
+// disjoint_shared 12
+// disjoint_both_mutable 23
+// owning_element 2
+// named_element 2
+// nested_element 8
+// element_of_struct_tuple 5
+// forwarded_onward 4
+// across_suspend 6
+
+import std.task.*
+
+struct Holder { pair: (Int, Int) }
+
+func bump(x: &var Int) { x = x + 1 }
+
+func add_into(x: &var Int, y: &Int) -> Int {
+    x = x + y
+    x
+}
+
+func both_mutable(x: &var Int, y: &var Int) -> Int {
+    x = x + 1
+    y = y + 1
+    x * 10 + y
+}
+
+func grow(v: &var Vector<Int>) { v.push(7) }
+
+// A `&var` callee's write reaches the tuple's own element.
+func mutate_through_ref() -> Int {
+    var t = (1, 10)
+    bump(&var t.0)
+    t.0
+}
+
+// TWO DISJOINT ELEMENTS in one call: `&var t.0` beside `&t.1`. Allowed, because
+// the paths differ at the tuple projection — the struct-field answer.
+func disjoint_shared() -> Int {
+    var t = (2, 10)
+    add_into(&var t.0, &t.1)
+}
+
+// Two disjoint elements, BOTH exclusive.
+func disjoint_both_mutable() -> Int {
+    var t = (1, 2)
+    both_mutable(&var t.0, &var t.1)
+}
+
+// An OWNING element lent mutably: the callee grows the tuple's own vector, so
+// the length survives the call.
+func owning_element() -> Int {
+    var t = (Vector<Int>(), 0)
+    grow(&var t.0)
+    grow(&var t.0)
+    t.0.len()
+}
+
+// The named-tuple spelling of the same lend.
+func named_element() -> Int {
+    var pair = (x: 1, y: 2)
+    bump(&var pair.x)
+    pair.x
+}
+
+// Two hops down.
+func nested_element() -> Int {
+    var t = ((7, 0), 1)
+    bump(&var t.0.0)
+    t.0.0
+}
+
+// A tuple that lives in a struct field.
+func element_of_struct_tuple() -> Int {
+    var h = Holder(pair: (4, 0))
+    bump(&var h.pair.0)
+    h.pair.0
+}
+
+// A received `&var` forwarded onward as a re-borrow (design 106) — the tuple
+// element is where the chain starts.
+func relay(x: &var Int) { bump(&var x) }
+
+func forwarded_onward() -> Int {
+    var t = (2, 0)
+    relay(&var t.0)
+    relay(&var t.0)
+    t.0
+}
+
+// A reference into a tuple element held across a SUSPEND (design 88): the
+// frame-resident pointer still addresses the caller's element on resume.
+func bump_after_suspend(x: &var Int) {
+    yield_now()
+    x = x + 1
+    yield_now()
+    x = x + 1
+}
+
+func across_suspend() -> Int {
+    var t = (4, 0)
+    bump_after_suspend(&var t.0)
+    t.0
+}
+
+func main() {
+    print("mutate_through_ref {mutate_through_ref()}")
+    print("disjoint_shared {disjoint_shared()}")
+    print("disjoint_both_mutable {disjoint_both_mutable()}")
+    print("owning_element {owning_element()}")
+    print("named_element {named_element()}")
+    print("nested_element {nested_element()}")
+    print("element_of_struct_tuple {element_of_struct_tuple()}")
+    print("forwarded_onward {forwarded_onward()}")
+    print("across_suspend {across_suspend()}")
+}

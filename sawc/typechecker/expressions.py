@@ -833,7 +833,11 @@ class ExpressionsMixin:
         # this node — `_check_reference_expr` checks the operand first.
         if getattr(expr, 'place_struct', None) is not None:
             return True
-        return isinstance(expr, (Identifier, MemberAccess, ArrayIndex, SelfExpr))
+        # A TUPLE INDEX is storage on the same terms a struct field is
+        # (DF-151j): `&var t.0` lends the element slot, so a `&var` callee
+        # mutates the tuple's own element rather than a spilled copy.
+        return isinstance(
+            expr, (Identifier, MemberAccess, ArrayIndex, SelfExpr, TupleIndex))
 
     def _check_cast_expr(self, expr: CastExpr) -> Optional[SawType]:
         """Check a type cast expression: expr as Type"""
