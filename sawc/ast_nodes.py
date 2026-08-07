@@ -983,6 +983,12 @@ class MemberAccess(Expression):
     tuple_field_index: Optional[int] = annotation(None)
     # A builtin integer bound (`Int.max`): (type name, member).
     int_limit: Optional[tuple] = annotation(None)
+    # A raw-backed enum CASE (`SysOp.Shutdown`): the tag value it denotes
+    # (design 145 unit B2). Stamped only when the enum declared a backing, which
+    # is exactly when the value is part of the type rather than an ordinal the
+    # compiler may renumber — so this is the constant a `static_assert` may
+    # read, and an unbacked enum's case stays non-constant.
+    enum_raw_value: Optional[int] = annotation(None)
     # Projection into an UnsafeMemory register block (design 112).
     um_projection: bool = annotation(False)
 

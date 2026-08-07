@@ -1,0 +1,49 @@
+// A raw-BACKED enum's case is a compile-time constant, and `as` folds, so a
+// `static_assert` can pin a wire table against the enum that declares it
+// rather than against a transcribed copy of its numbers (design 145 unit B2 +
+// design 53). Transcribing them is what this exists to stop: a copy drifts
+// silently, an assert over the declaration itself cannot.
+// EXPECT: success
+// EXPECT-OUTPUT:
+// 258
+
+enum SysOp: UInt {
+    case DebugPrint = 0
+    case Shutdown = 1
+}
+
+enum SystemRight: UInt32 {
+    case Transfer = 1
+    case Manage = 2
+    case Debug = 256
+}
+
+enum ChannelRight: UInt32 {
+    case Transfer = 1
+    case Manage = 2
+    case Send = 256
+}
+
+// The op table, pinned.
+static_assert((SysOp.DebugPrint as UInt) == 0, "DebugPrint is op 0")
+static_assert((SysOp.Shutdown as UInt) == 1, "Shutdown is op 1")
+
+// A universal low byte shared across two independent enums: the assert is what
+// makes "identical in every kind" a checked claim instead of a comment.
+static_assert((SystemRight.Transfer as UInt32) == 1, "Transfer is bit 0")
+static_assert((ChannelRight.Transfer as UInt32) == 1, "Transfer is bit 0")
+static_assert((SystemRight.Manage as UInt32) == 2, "Manage is bit 1")
+static_assert((ChannelRight.Manage as UInt32) == 2, "Manage is bit 1")
+
+// Kind-specific rights start above that byte.
+static_assert((SystemRight.Debug as UInt32) >= 256, "kind rights start at bit 8")
+static_assert((ChannelRight.Send as UInt32) >= 256, "kind rights start at bit 8")
+
+// Folds inside arithmetic and against another case, not just against a literal.
+static_assert((SystemRight.Manage as UInt32) - (SystemRight.Transfer as UInt32) == 1,
+              "the two universal bits are adjacent")
+
+func main() {
+    static_assert((SystemRight.Debug as UInt32) + 2 == 258, "arithmetic over a case")
+    print((SystemRight.Debug as UInt32) + (SystemRight.Manage as UInt32))
+}

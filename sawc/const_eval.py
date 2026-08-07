@@ -23,7 +23,11 @@ array length beside it would disagree about the same expression.
 
 The accepted grammar is exactly what design 53 documented, plus `env`:
 integer/Bool literals, unary `-`/`not`, `+ - * / %`, the comparisons, `&&`/`||`,
-`sizeof<T>()`/`alignof<T>()`, the `Int.max`/`.min` limits, and a bound name.
+`sizeof<T>()`/`alignof<T>()`, the `Int.max`/`.min` limits, and a bound name —
+plus a raw-BACKED enum's case and an `as` between integer types, which are what
+let a `static_assert` pin a wire table against the enum that declares it
+(`static_assert((SysOp.Shutdown as UInt) == 1, ...)`) instead of against a
+hand-copied number that could drift from it silently.
 Division and modulo truncate toward zero, matching Saw's runtime semantics
 (`LANGUAGE_SPEC.md`, Integer Arithmetic Semantics), so a constant-folded
 expression and its runtime twin can never disagree.
@@ -31,7 +35,7 @@ expression and its runtime twin can never disagree.
 
 from ast_nodes import (
     BoolLiteral, IntLiteral, UnaryOp, BinaryOp, FunctionCall, MemberAccess,
-    Identifier,
+    Identifier, CastExpr, TypeKind,
 )
 
 # (type name) -> (bit width, or None to mean the platform word) x (is signed).
@@ -41,6 +45,16 @@ INT_LIMIT_SPECS = {
     'Int32': (32, True), 'Int64': (64, True),
     'UInt8': (8, False), 'UInt16': (16, False),
     'UInt32': (32, False), 'UInt64': (64, False),
+}
+
+# The integer kinds an `as` may target in a constant, on the same (width,
+# signed) terms — `None` is the platform word, resolved from `width`.
+CAST_INT_KINDS = {
+    TypeKind.INT: (None, True), TypeKind.UINT: (None, False),
+    TypeKind.INT8: (8, True), TypeKind.INT16: (16, True),
+    TypeKind.INT32: (32, True), TypeKind.INT64: (64, True),
+    TypeKind.UINT8: (8, False), TypeKind.UINT16: (16, False),
+    TypeKind.UINT32: (32, False), TypeKind.UINT64: (64, False),
 }
 
 
@@ -128,7 +142,32 @@ def const_eval(expr, env=None, metric=None, width: int = 64):
         limit = getattr(expr, 'int_limit', None)
         if limit is not None:
             return int_limit_value(limit, width)
+        # A case of a raw-BACKED enum (design 145 unit B2). Its value is pinned
+        # by the declaration, so it is as constant as a literal; an unbacked
+        # enum's case is stamped with nothing and falls through to the
+        # rejection below, because its ordinal is not part of the type.
+        raw = getattr(expr, 'enum_raw_value', None)
+        if raw is not None:
+            return int(raw)
         _reject(expr, "this member access")
+    if isinstance(expr, CastExpr):
+        value = const_eval(expr.expr, env, metric, width)
+        if isinstance(value, bool):
+            _reject(expr, "a cast of a Bool")
+        spec = CAST_INT_KINDS.get(getattr(expr.target_type, 'kind', None))
+        if spec is None:
+            _reject(expr, f"a cast to `{expr.target_type}`")
+        bits, signed = spec
+        if bits is None:
+            bits = width
+        lo = -(1 << (bits - 1)) if signed else 0
+        hi = ((1 << (bits - 1)) - 1) if signed else (1 << bits) - 1
+        if not (lo <= value <= hi):
+            # Refused rather than wrapped: a constant that does not fit its
+            # target is a mistake in the assertion, and silently truncating it
+            # would make the `static_assert` agree with nothing.
+            _reject(expr, f"`{value}` does not fit `{expr.target_type}`")
+        return value
     _reject(expr, type(expr).__name__)
 
 

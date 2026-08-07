@@ -100,6 +100,26 @@ class ExpressionsMixin:
         'UInt32': TypeKind.UINT32, 'UInt64': TypeKind.UINT64,
     }
 
+    def _stamp_enum_raw_value(self, expr, enum_info) -> None:
+        """Record a raw-backed enum case's tag value on the access node.
+
+        A case of an enum that DECLARED a backing denotes a fixed number — that
+        is what design 145 unit B2 means by pinning the values, and it is why
+        `e as UInt8` is total. Recording it here is what lets the constant
+        evaluator fold `SysOp.Shutdown as UInt`, so a `static_assert` can pin a
+        wire table against the enum that defines it rather than against a
+        transcribed copy of its numbers.
+
+        An UNBACKED enum stamps nothing: its ordinals are the compiler's
+        business and reordering its cases must stay a free edit, so its cases
+        are deliberately not constants anything may read.
+        """
+        raw_values = getattr(enum_info, 'raw_values', None)
+        if raw_values:
+            value = raw_values.get(expr.member)
+            if value is not None:
+                expr.enum_raw_value = value
+
     def visit_IntLiteral(self, expr: IntLiteral) -> Optional[SawType]:
         suffix = getattr(expr, 'suffix', None)
         if suffix is not None:
@@ -4627,6 +4647,7 @@ class ExpressionsMixin:
                             # Constructs a value rather than reading one out of
                             # storage — see the unqualified path (design 139).
                             expr.enum_variant_literal = True
+                            self._stamp_enum_raw_value(expr, enum_info)
                             _eid = self._sym_identity(enum_info,
                                                       obj_type.enum_name)
                             expr.resolved_type_identity = _eid
@@ -4733,6 +4754,7 @@ class ExpressionsMixin:
                         # A payload-free variant CONSTRUCTS a value; it does not
                         # read one out of storage (design 139).
                         expr.enum_variant_literal = True
+                        self._stamp_enum_raw_value(expr, enum_info)
                         expr.resolved_type_identity = self._sym_identity(
                             enum_info, expr.object.name)
                         return SawType(TypeKind.ENUM,
