@@ -91,8 +91,14 @@ objects are built + cached under `.build/rt/` and auto-linked (delete
 ## Testing
 - `make test` (venv active) or `./.venv/bin/python test_runner.py` —
   full compiler suite, ~1 min uncontended. Multi-pattern filter:
-  `./.venv/bin/python test_runner.py -f test_a,test_b`. Zero xfails is
-  the bar; run the FULL suite before every commit.
+  `./.venv/bin/python test_runner.py -f test_a,test_b`. Run the FULL
+  suite before every commit. XFAIL policy (user, Aug 7): a
+  `// XFAIL: reason` test is legal ONLY as a pin of a filed finding —
+  the reason MUST cite the DF number, the body is the minimal repro
+  with EXPECT directives stating the intended behavior (so the XPASS
+  flip validates the fix). The bar: zero UNCITED xfails, and a brief
+  never xfails breakage IT introduced. Stale markers (XPASS) break
+  the build — remove the marker in the landing that fixes the bug.
 - Never run two suite invocations at once.
 - Tests support a `// COMPILE-FLAGS:` directive (`{TESTDIR}`
   placeholder), and — for warnings, which are reported on the SUCCESS
