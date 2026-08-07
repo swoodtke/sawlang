@@ -415,7 +415,7 @@ A handful of functions are compiler-known (no import needed):
 - `print(value?)` — write a value (Int family, `Bool`, `String`, `Float`, or a
   string interpolation) plus a newline; no argument prints a bare newline.
 - `panic(message: String) -> Never` — abort with `message` (design 49). It
-  routes through the freestanding-safe `saw_panic` runtime seam and **diverges**:
+  routes through the freestanding-safe `__saw_rt_panic` runtime seam and **diverges**:
   its type is `Never`, so a function ending in `panic(...)` needs no return
   value, and `guard let x = … else { panic(…) }` is a valid diverging exit. The
   abort message carries the source location — `panic at FILE:LINE: {message}`
@@ -3172,7 +3172,7 @@ branch only. A passing assert costs the condition test.
   with an "integer overflow" message. The behavior is identical at `-O0` and the
   default `O1` pipeline — the optimizer never elides a check. Overflow joins the
   existing panic family (division by zero, force-unwrap, `try!`) and routes
-  through the same `saw_panic` seam, so it works freestanding.
+  through the same `__saw_rt_panic` seam, so it works freestanding.
 - **Division and modulo**: `a / 0` and `a % 0` **panic** with a "division by
   zero" message rather than raising a hardware fault. `INT_MIN / -1` and
   `INT_MIN % -1` **panic** with "integer overflow" — the modulo result is
@@ -3221,8 +3221,9 @@ branch only. A passing assert costs the condition test.
   `panic at FILE:LINE: {reason}`. FILE is the source basename (the spelling
   `#file` produces); LINE is the line of the expression that trapped, not the
   top of the enclosing function. Both are compile-time constants folded into the
-  message text, so a check still lowers to one constant and one `saw_panic`
-  call, and the format is the same in the hosted and freestanding profiles.
+  message text, so a check still lowers to one constant and one
+  `__saw_rt_panic` call, and the format is the same in the hosted and
+  freestanding profiles.
 - **Force-unwrap of `None`** (`opt!`) panics with "force unwrap of None".
   **`try!` on an `Err`** panics with "try! failed".
 - **Fixed-array indexing with an out-of-bounds compile-time constant** is a
@@ -3461,7 +3462,8 @@ multiple threads (design 75) — carrying the coroutine transform, suspending
   conformance (`extension X: Send`) is rejected — derivation only, no
   unsafe-impl story in v1.
 - **`Arc<T>`** — atomic reference-counted shared ownership (`ImplicitCopy +
-  Deinit`). One `saw_alloc`'d control block `{ i64 strong, i64 weak, T payload }`;
+  Deinit`). One control block `{ i64 strong, i64 weak, T payload }` taken from
+  the `__saw_rt_alloc` seam;
   the weak count is reserved now as ABI (init 1) even though `Weak` does not ship
   yet. `copy()` retains (atomic add, monotonic); `deinit()` releases (atomic sub,
   release), and the thread that takes strong to 0 issues an acquire fence, runs
@@ -3472,7 +3474,7 @@ multiple threads (design 75) — carrying the coroutine transform, suspending
   reference parameters is **non-storable** (legal only as a direct call
   argument) — the conservative gate ahead of full non-escaping closures.
 - **`Mutex<T>`** — `NoCopy + Deinit`, backed by a `pthread_mutex_t` in a
-  `saw_alloc`'d block. `lock(body)` runs the closure once, synchronously, with
+  seam-allocated block. `lock(body)` runs the closure once, synchronously, with
   `&var` access to the payload under the lock, and is **non-reentrant**
   (self-deadlock on re-lock). The pthread opaque buffer is a conservative
   64-byte slot (real sizes: macOS 64, glibc/x86_64 40, glibc/aarch64 48),
@@ -3480,7 +3482,7 @@ multiple threads (design 75) — carrying the coroutine transform, suspending
 - **Escaping-closure heap environments — `ImplicitCopy`, refcounted env**
   (design 71 + 73) — a closure used in value position (bound, returned, stored,
   or passed to `spawn`) outlives its creating frame, so its captured environment
-  is `saw_alloc`'d instead of stack-allocated. Captures are **moved in at
+  comes from the allocator instead of the stack. Captures are **moved in at
   creation** (ImplicitCopy retained, trivial copied bitwise; a `move` capture
   takes ownership); the creating frame does not release a moved-in capture early.
   **An escaping closure is an `ImplicitCopy` value** (the family of `String` and
@@ -5783,7 +5785,7 @@ declares `unsafe` in its effect slot.
 stdlib types (`Vector`, `Map`, `Data`, `StringBuilder`, `Arc`, ...) obtain memory
 through the `Allocator` trait — `alloc(&self, size: Int, align: Int) ->
 UnsafePointer<Int8>?` and `dealloc(&self, ptr, size, align)` — rather than
-calling the `saw_alloc` / `saw_dealloc` seams directly. `GlobalAllocator` is a zero-field
+calling the `__saw_rt_alloc` / `__saw_rt_dealloc` seams directly. `GlobalAllocator` is a zero-field
 unit struct that wraps the seams; because it is zero-sized, `GlobalAllocator().alloc(...)`
 monomorphizes to a direct seam call with no allocator value materialized at
 runtime.
