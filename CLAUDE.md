@@ -98,15 +98,21 @@ objects are built + cached under `.build/rt/` and auto-linked (delete
 - App-level: `blade test` (tests/*.saw exit 0 = pass; see TESTING.md);
   `./.venv/bin/python tools/blade_bootstrap.py` or
   `make blade-bootstrap` runs the self-hosting loop (stage0→stage2).
-- IR determinism: `make irdet` samples 40 examples — cheap enough per
-  commit. **A brief's FINAL gate battery runs `irdet --all`** (the
-  whole corpus; design 146 unit D) — via the VENV interpreter
-  (`./.venv/bin/python tools/irdet.py --all`), since the Makefile's bare
-  `python3` cannot compile anything and every file counts as skipped.
-  A random sample cannot police a
+- IR determinism: the harness is **written in Saw** (`devtools/irdet/`,
+  design 155 — the first devtool port; it still drives the PYTHON
+  sawc). `make irdet` builds `.build/irdetbin` and samples 40 examples
+  — cheap enough per commit. **A brief's FINAL gate battery runs
+  `irdet --all`** (the whole corpus; design 146 unit D):
+  ```bash
+  ./.venv/bin/python sawc/sawc.py devtools/irdet/src/main.saw -o .build/irdetbin
+  ./.build/irdetbin --all
+  ```
+  (`make irdet-all` does both, but the Makefile's bare `python3` cannot
+  build it — activate the venv first.) A random sample cannot police a
   whole-corpus property: design 141 found two nondeterministic emission
   orders that had sat in the tree unnoticed until two unrelated new
-  examples reshuffled the sample onto one of them.
+  examples reshuffled the sample onto one of them. Two machines:
+  `./.venv/bin/python tools/irdet_remote.py --all --remote HOST:PORT`.
 - Pyright diagnostics on sawc/ are NOISE (mixin `self.X` false
   positives) — ignore unless a real behavior test fails.
 

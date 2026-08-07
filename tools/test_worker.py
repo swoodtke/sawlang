@@ -367,14 +367,40 @@ class JobRunner:
             self.sink.emit(event="log", text=_tail(log))
         return rc == 0, ran[0]
 
+    # The determinism harness is a compiled SAW binary now (design 155), so the
+    # worker builds its own: `.build/` is excluded from the snapshot, and a
+    # client's binary would be the wrong architecture half the time anyway.
+    IRDET_SOURCE = "devtools/irdet/src/main.saw"
+    IRDET_BIN = ".build/irdetbin"
+
+    def _build_irdet(self):
+        """Compile the Saw irdet harness inside the unpacked tree.
+
+        Returns `(path, None)` on success or `(None, log_tail)`. The runtime
+        objects are already seeded by `_seed_runtime_cache`, so this is one sawc
+        invocation and a link.
+        """
+        log = self.dir / "irdet-build.log"
+        proc = self._spawn([self.config.venv, "sawc/sawc.py",
+                            self.IRDET_SOURCE, "-o", self.IRDET_BIN], log)
+        rc = self._await(proc)
+        built = self.tree / self.IRDET_BIN
+        if rc != 0 or not built.exists():
+            return None, _tail(log)
+        return built, None
+
     def _run_irdet(self):
         paths = [p for p in self.spec.get("paths", []) if p]
         if not paths:
             return True, 0
+        binary, why = self._build_irdet()
+        if binary is None:
+            self.sink.emit(event="log", text=f"could not build irdet:\n{why}")
+            return False, 0
         list_file = self.dir / "irdet-files.txt"
         list_file.write_text("\n".join(paths) + "\n", encoding="utf-8")
         results = self.dir / "irdet.jsonl"
-        argv = [self.config.venv, "tools/irdet.py",
+        argv = [str(binary),
                 "--only-files", str(list_file), "--jsonl", str(results)]
         if self.spec.get("jobs"):
             argv += ["-j", str(int(self.spec["jobs"]))]
@@ -399,23 +425,38 @@ class JobRunner:
 
     # The battery, in the order a finishing agent runs it. SOS stays on the
     # client in v1: it needs QEMU, which the worker is not required to have.
+    # `native` marks a gate that is a compiled Saw binary rather than a Python
+    # script, so it is built here and run with no interpreter in front of it
+    # (design 155 made irdet the first one).
     BATTERY = (
-        ("suite", ["test_runner.py"]),
-        ("lexdiff", ["tools/lexdiff.py"]),
-        ("astdiff", ["tools/astdiff.py"]),
-        ("irdet", ["tools/irdet.py", "--all"]),
+        ("suite", ["test_runner.py"], False),
+        ("lexdiff", ["tools/lexdiff.py"], False),
+        ("astdiff", ["tools/astdiff.py"], False),
+        ("irdet", ["--all"], True),
     )
 
     def _run_battery(self):
         all_ok = True
         ran = 0
-        for name, argv in self.BATTERY:
+        for name, argv, native in self.BATTERY:
             if self.sink.broken:
                 break
             self.sink.emit(event="gate-start", name=name)
             log = self.dir / f"{name}.log"
             started = time.monotonic()
-            proc = self._spawn([self.config.venv] + argv, log)
+            if native:
+                binary, why = self._build_irdet()
+                if binary is None:
+                    ran += 1
+                    all_ok = False
+                    self.sink.emit(event="gate", name=name, ok=False, status=1,
+                                   seconds=round(time.monotonic() - started, 1),
+                                   tail=f"could not build irdet:\n{why}")
+                    continue
+                cmd = [str(binary)] + argv
+            else:
+                cmd = [self.config.venv] + argv
+            proc = self._spawn(cmd, log)
             rc = self._await(proc)
             ran += 1
             ok = rc == 0

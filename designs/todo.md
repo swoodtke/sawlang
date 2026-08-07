@@ -1343,6 +1343,78 @@ noted live-range packing of locals; do both in one sizing brief.
   are inlined above). Worth a follow-up brief if the ANF hoist can be taught to
   lift a nested short-circuit.
 
+## Design 155 — irdet in Saw, the first devtool port (LANDED, Aug 7)
+
+`designs/155-irdet-in-saw.md` closed. `tools/irdet.py` is deleted; the IR
+determinism harness is `devtools/irdet/` — a Saw package, built to
+`.build/irdetbin`, and the gate `make irdet` / `make irdet-all` runs. It still
+drives the PYTHON sawc: the tool is Saw, the compiler under test is not, and
+that stays true for the whole rewrite track.
+
+The port is ~500 lines of Saw and reads like the Python it replaces:
+`git ls-files` and the two per-file compiles through `Command`, the negative-test
+filter through `std.file`, the byte comparison over `Data`, `TaskGroup(threads:
+N)` where the thread pool was, `-n/--all/-v/-j` plus `--only-files`/`--jsonl`
+(the design-160 worker contract) and a new `--plan`.
+
+**The `--remote` conflict, resolved.** The brief was written before design 160,
+and did not know that `tools/irdet.py` had grown a second job: the client half
+of the two-machine split, riding on `worker_client`/`worker_proto`. Deleting it
+would have silently retired a landed capability. That orchestration is
+`tools/irdet_remote.py` now — the split, the submit, the fallback, and nothing
+else; it shells out to the Saw binary for the local share, so there is still
+exactly ONE implementation of what determinism MEANS. `--plan` exists for it:
+which examples are negative tests is the harness's rule, and a driver that
+recomputed it would be a second rule.
+
+### What the port found (the DF product)
+
+- **DF-155d — a struct holding an enum was not `Send`. FIXED** (`namespace.py`,
+  `examples/taskgroup_threads_send_enum_field.saw`). A payload-free enum is Send
+  on its own, but a FIELD written as a bare name arrives at the derivation with
+  the generic STRUCT kind, and the struct lookup for an enum name found nothing.
+  Hit on the port's FIRST compile, because a worker result is exactly that shape:
+  a verdict enum plus a message.
+- **DF-155e — `File.create` did not truncate on macOS, and `File.open_append`
+  neither created nor appended. FIXED** (`std/file.saw`, `rt/common/os_ops.saw`,
+  `shim.c`, `examples/file_open_modes.saw`). std spelled the `open(2)` flags as
+  decimal literals — the LINUX values, on both hosts. Silent data loss on one of
+  the two supported platforms, found because the JSONL sink appends. The seam
+  takes a PORTABLE open mode now; only C can see `<fcntl.h>`.
+- **DF-155a — a child's stderr can be merged, but not captured or discarded.**
+  `Command.merge_stderr()` landed with unit 1 because the port could not produce
+  readable output without it (a corpus sweep expects ~40 compiles to fail, and
+  their diagnostics are not the tool's to print). The fuller question is open and
+  is a design decision, not an implementation one: a `CommandOutput.stderr` of
+  its own needs a second pipe and a second read seam, and would change what
+  `output()` does today for every existing caller. Three shapes are defensible
+  (separate capture / discard-to-null / the merge that landed); the user picks.
+- **DF-155b — std cannot report the core count.** Python's irdet defaulted `-j`
+  to `min(10, cores - 2)`; the port has a fixed 8 with `-j` to override. Wanted:
+  something like `System.cpu_count()`. Small, and every parallel tool will want
+  it.
+- **DF-155c — a `String` cannot be a `static`.** Statics take compile-time
+  constants and a String owns a heap buffer, so every named string constant in
+  the port is a zero-argument function (`func sawc_path() -> String { ... }`).
+  It reads acceptably and the call folds, but the ceremony is visible, and the
+  no-magic-numbers ruling pushes toward naming MORE constants, not fewer.
+- **DF-155f — verdicts do not stream out during a `--all` sweep.** The tool
+  spawns every task, then joins in input order — which is what keeps the report,
+  the JSONL stream and the exit status independent of completion order (the
+  Python one got that from `executor.map`). But a suspending `main`'s loop is
+  charged by design 127, so the spawn loop force-yields and the corpus is largely
+  CHECKED before the join loop begins: the JSONL records then land in a burst
+  near the end instead of continuously. Every verdict still arrives and the
+  worker's heartbeat is independent, so this costs a live progress view rather
+  than a result. The fix is a sliding window (spawn `2*jobs` ahead, join the
+  oldest), which needs a FIFO `Vector` cannot give — there is no `pop_front`, and
+  handles are move-only.
+
+Also worth recording, though neither is a defect: a multi-line boolean needs
+enclosing parentheses (a newline ends a statement outside brackets — design
+129), and matching an `Optional` with `case Some`/`case None` is not a thing —
+`??`, `if let` and `guard let` are the spellings.
+
 ## Design 164 — std compile caching: INVESTIGATION COMPLETE (Aug 7), user picks
 
 `designs/164-std-compile-cache-investigation.md` carries the full report

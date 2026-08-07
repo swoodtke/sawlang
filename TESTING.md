@@ -631,8 +631,9 @@ Put the token where the client can find it (`~/.config/saw-worker/token`, or
 # The suite, split between here and the worker
 ./.venv/bin/python test_runner.py --remote studio.local:8710
 
-# IR determinism, the second-longest gate, split the same way
-./.venv/bin/python tools/irdet.py --all --remote studio.local:8710
+# IR determinism, the second-longest gate, split the same way. The harness
+# itself is Saw (devtools/irdet/); this driver builds it and splits the corpus.
+./.venv/bin/python tools/irdet_remote.py --all --remote studio.local:8710
 
 # The whole battery on the worker: suite, lexdiff, astdiff, irdet --all
 ./.venv/bin/python tools/remote_battery.py --remote studio.local:8710

@@ -1067,7 +1067,9 @@ The standard library includes:
   An Optional is reserved for a genuine absence — `Directory.current` answers
   `None` only when getcwd(2) itself fails. Nothing in std silently swallows an
   error.
-- **std.process** - `Command.run() -> Result<Int32, ProcessError>`, `.output()`.
+- **std.process** - `Command.run() -> Result<Int32, ProcessError>`, `.output()`,
+  `.env(name:value:)` (one environment variable for the child, on top of the one
+  it inherits), `.merge_stderr()`.
 - **std.time** - `Duration`, `Instant` (hosted).
 - **Numeric extensions** - The two sets are disjoint. `Int`: `abs`, `min`/`max`/
   `clamp`, `pow`, `is_even`/`is_odd`, `signum`. `Float`: `abs`,
@@ -1173,7 +1175,7 @@ On this machine:
 
 ```bash
 ./.venv/bin/python test_runner.py --remote studio.local:8710
-./.venv/bin/python tools/irdet.py --all --remote studio.local:8710
+./.venv/bin/python tools/irdet_remote.py --all --remote studio.local:8710
 ```
 
 Tests are assigned by a hash of each test's path, weighted by the two machines'

@@ -101,6 +101,7 @@ struct Options {
     all: Bool
     verbose: Bool
     plan: Bool
+    help: Bool
     jobs: Int
     python: String
     only_files: String?
@@ -152,6 +153,7 @@ func parse_options(argv: &Vector<String>) -> Options? {
     var all = false
     var verbose = false
     var plan = false
+    var help = false
     var jobs = DEFAULT_JOBS
     var python = default_python()
     var only_files: String? = None
@@ -174,8 +176,8 @@ func parse_options(argv: &Vector<String>) -> Options? {
             plan = true
             i = i + 1
         } else if flag == "-h" || flag == "--help" {
-            usage()
-            return None
+            help = true
+            i = i + 1
         } else if not takes_value(flag) {
             print("irdet: unknown option `{flag}`")
             usage()
@@ -212,8 +214,8 @@ func parse_options(argv: &Vector<String>) -> Options? {
         }
     }
 
-    Options(count: count, all: all, verbose: verbose, plan: plan, jobs: jobs,
-            python: python, only_files: only_files, jsonl: jsonl)
+    Options(count: count, all: all, verbose: verbose, plan: plan, help: help,
+            jobs: jobs, python: python, only_files: only_files, jsonl: jsonl)
 }
 
 /// Every tracked `examples/*.saw`, sorted. Asking git rather than walking the
@@ -473,6 +475,11 @@ func main() -> Int {
     let argv = Env.args()
     guard let opts = parse_options(&argv) else {
         return EXIT_USAGE
+    }
+    // Asking for the usage message is not a usage ERROR.
+    if opts.help {
+        usage()
+        return EXIT_OK
     }
 
     // The file set: a worker's shard verbatim, or the tracked examples with the

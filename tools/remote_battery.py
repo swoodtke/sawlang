@@ -8,7 +8,7 @@ Submits the working tree as it stands and runs, on the worker, in order:
     test_runner.py          the full suite
     tools/lexdiff.py        the two lexers agree
     tools/astdiff.py        the two parsers agree
-    tools/irdet.py --all    every example compiles to byte-identical IR
+    irdet --all             every example compiles to byte-identical IR
 
 This is the agent-workflow half of design 160: the machine that just finished a
 unit ships its tree to the worker and starts the next one while the battery
@@ -42,7 +42,9 @@ LOCAL_BATTERY = (
     "./.venv/bin/python test_runner.py",
     "./.venv/bin/python tools/lexdiff.py",
     "./.venv/bin/python tools/astdiff.py",
-    "./.venv/bin/python tools/irdet.py --all",
+    # The harness is a compiled Saw binary (design 155); `make irdet-all`
+    # builds it and runs it in one step.
+    "make irdet-all",
 )
 
 

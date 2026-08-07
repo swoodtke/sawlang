@@ -52,11 +52,19 @@ astdiff:
 # and design 141 proved it — two nondeterministic emission orders had been
 # sitting in the tree unnoticed until adding two unrelated examples reshuffled
 # the sample onto one of them.
-irdet:
-	@python3 tools/irdet.py
+# The harness itself is written in SAW (design 155, the first devtool port):
+# `devtools/irdet/`, built here the way lexdiff builds the Saw lexer. It still
+# drives the PYTHON sawc — the tool is Saw, the compiler under test is not.
+IRDET_BIN := .build/irdetbin
 
-irdet-all:
-	@python3 tools/irdet.py --all
+$(IRDET_BIN): devtools/irdet/src/main.saw
+	@python3 sawc/sawc.py devtools/irdet/src/main.saw -o $(IRDET_BIN)
+
+irdet: $(IRDET_BIN)
+	@./$(IRDET_BIN)
+
+irdet-all: $(IRDET_BIN)
+	@./$(IRDET_BIN) --all
 
 # Ownership gate under Guard Malloc (design 159 unit 4). A missing retain does
 # not fail an ordinary run: the surplus release lands in a freed-but-mapped

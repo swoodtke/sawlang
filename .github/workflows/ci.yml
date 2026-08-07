@@ -115,7 +115,9 @@ jobs:
         run: make astdiff
 
   # Compiler output determinism (design 126 R2): compile a corpus sample twice
-  # under differing PYTHONHASHSEED and require byte-identical IR.
+  # under differing PYTHONHASHSEED and require byte-identical IR. The harness is
+  # written in Saw (design 155); `make irdet` builds it first, so this job needs
+  # clang for the link as well as llvmlite for the compile.
   irdet:
     name: irdet (ubuntu)
     runs-on: ubuntu-latest
