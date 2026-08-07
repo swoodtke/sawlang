@@ -4,8 +4,9 @@
 // `length` whether or not the reservation succeeded, so a refused copy reported
 // `len() == N` with `capacity() == 0` and every `get` answering `None`.
 //
-// push/append/copy/Data(capacity:) panic now; try_push/try_append/try_copy/
-// try_reserve/try_with_capacity report and leave the buffer exactly as it was.
+// push/append/detached/Data(capacity:) panic now; try_push/try_append/
+// try_detached/try_reserve/try_with_capacity report and leave the buffer
+// exactly as it was.
 // EXPECT: success
 // EXPECT-OUTPUT:
 // 3
@@ -59,9 +60,12 @@ func main() {
     }
     print(d.get(2)!)                // 3 — still untouched
 
-    // try_copy is all-or-nothing: no Data that claims bytes it does not have.
+    // try_detached is all-or-nothing: no Data that claims bytes it does not
+    // have. (Design 165 renamed the eager copy: `copy()` is the ImplicitCopy
+    // retain now, and the spelling that materializes bytes — the one that can
+    // run out of allocator — says so.)
     __saw_rt_alloc_deny_after(0)
-    let copied = d.try_copy()
+    let copied = d.try_detached()
     __saw_rt_alloc_deny_after(-1)
     match copied {
         case Ok(c) -> print(c.len()),

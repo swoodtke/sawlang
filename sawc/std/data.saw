@@ -1,22 +1,35 @@
-// Data - Raw byte buffer type with reference-counted storage
-// Part of the Saw standard library
-//
-// =============================================================================
-// Open items (tracker: "std.Data findings", Aug 7) — two RESOLVED, two live:
-// the historical "memcpy segfaults" and "make_unique segfaults" notes are
-// retired (compiler defects of their era, since fixed; both paths are
-// regression-tested by examples/data_cow_slice.saw, native + Guard Malloc).
-// Still open, in the tracker: DataIterator holds no reference (an iterator
-// returned past its Data's death dangles), and set() writes THROUGH a shared
-// buffer while push()/append() copy-on-write — a view-vs-value inconsistency
-// awaiting a user decision.
-// =============================================================================
+//! Raw bytes with value semantics — `Data`, rebuilt on `Arc` (design 165).
+//!
+//! `Data` is a window onto `Arc`-owned storage: an offset and a length over a
+//! buffer whose lifetime the `Arc` runs. Copying a `Data` — or slicing one —
+//! retains that storage instead of duplicating it, and the bytes are separated
+//! lazily, at the first write that finds them shared. That is copy-on-write,
+//! and it is why `Data` is `ImplicitCopy`: a copy costs a refcount bump.
+//!
+//! ```saw
+//! var a = Data(capacity: 4)
+//! a.push(1)
+//! var b = a            // a retain; both windows see the same byte
+//! b.push(2)            // b is shared, so it separates here
+//! print("{a.len()} {b.len()}")   // 1 2
+//! ```
+//!
+//! Every mutation takes the same uniqueness gate, so there is no operation that
+//! writes through to a sibling and no rule to remember about which ones do. It
+//! used to be otherwise: `set` wrote through shared storage while `push` and
+//! `append` copied first (tracker DATA-2), which made the answer to "does my
+//! slice see this?" depend on which method you called. The gate dissolves the
+//! question — `Data` is a value, and values do not alias.
+//!
+//! This also retires the hand-rolled refcount that used to live here. `Arc`
+//! owns the count now, so the buffer is freed by exactly one `deinit` in one
+//! place, and an iterator that outlives its `Data` holds a real reference
+//! rather than a dangling pointer (tracker DATA-1).
+//!
+//! The std triangle this completes: `String` is shared-immutable, `Vector` is
+//! unique-mutable, `Data` is shared-until-written.
 
-// =============================================================================
-// FFI declarations for memory management
-// =============================================================================
-
-// Data is an alloc-layer type: it allocates through the `GlobalAllocator` allocator
+// `Data` is an alloc-layer type: it allocates through `GlobalAllocator`
 // (design 19 §4 / brief 28), which wraps the runtime seams — never libc
 // directly. memcpy is a compiler builtin, not a seam.
 extern "C" {
@@ -24,27 +37,91 @@ extern "C" {
 }
 
 // =============================================================================
-// DataBuffer - Internal refcounted buffer storage
+// DataBuf — the heap buffer, owned by exactly one Arc
 // =============================================================================
+//
+// The whole unsafe surface of this file is here, and it is reachable only two
+// ways: through `&self` reads (which an `Arc` forwards freely — a live strong
+// reference pins the payload) and through `Arc.with_unique`, which hands out
+// `&var DataBuf` exactly when nobody else holds the storage. There is no third
+// way to write these bytes, which is what makes the copy-on-write discipline
+// structural rather than a convention.
 
-struct DataBuffer {
-    buffer: UnsafePointer<UInt8>
+struct DataBuf {
+    buffer: UnsafePointer<Int8>
     capacity: Int
-    refcount: Int
+}
+
+extension DataBuf {
+    // Allocate `capacity` bytes. `None` = the allocator refused.
+    func make(capacity: Int) unsafe -> DataBuf? {
+        if let raw = GlobalAllocator().alloc(capacity, 1) {
+            return DataBuf(buffer: raw, capacity: capacity)
+        }
+        None
+    }
+
+    func cap(&self) -> Int {
+        self.capacity
+    }
+
+    // ---- reads: forwarded through `Arc`'s immutable borrow ----
+
+    func at(&self, index: Int) unsafe -> UInt8 {
+        let bytes = self.buffer as UnsafePointer<UInt8>
+        bytes[index]
+    }
+
+    func head(&self) unsafe -> UnsafePointer<Int8> {
+        self.buffer
+    }
+
+    // ---- writes: reachable only through `Arc.with_unique` ----
+
+    func store(&var self, index: Int, value: UInt8) unsafe {
+        let bytes = self.buffer as UnsafePointer<UInt8>
+        bytes[index] = value
+    }
+
+    func absorb(&var self, index: Int, src: UnsafePointer<Int8>, len: Int) unsafe {
+        memcpy(self.buffer + index, src, len)
+    }
+
+    // Grow to `new_capacity`, carrying the first `live` bytes over. The seams
+    // provide no realloc, so this is alloc + copy + dealloc. `false` = the
+    // allocator refused and this buffer is untouched.
+    func grow(&var self, new_capacity: Int, live: Int) unsafe -> Bool {
+        if let fresh = GlobalAllocator().alloc(new_capacity, 1) {
+            if live > 0 {
+                memcpy(fresh, self.buffer, live)
+            }
+            GlobalAllocator().dealloc(self.buffer, self.capacity, 1)
+            self.buffer = fresh
+            self.capacity = new_capacity
+            return true
+        }
+        false
+    }
+}
+
+// The one place a Data byte buffer is freed. `Arc` runs this when the last
+// strong reference goes, so no caller counts anything.
+extension DataBuf: NoCopy {
+    func deinit(&var self) unsafe {
+        GlobalAllocator().dealloc(self.buffer, self.capacity, 1)
+    }
 }
 
 // =============================================================================
-// Data - A dynamically-sized byte buffer with slice support
+// Data — a copy-on-write window onto shared storage
 // =============================================================================
-//
-// Data uses a reference-counted internal buffer, allowing efficient slicing
-// without copying. The buffer is freed when the last Data referencing it
-// is deinitialized.
 
 struct Data {
-    inner: UnsafePointer<DataBuffer>?
-    offset: Int   // Start offset within buffer (for slices)
-    length: Int   // Length of this view
+    // `None` is the empty Data: no storage, and none allocated until the first
+    // byte arrives. `offset`/`length` are then both 0.
+    storage: Arc<DataBuf>?
+    offset: Int   // where this window starts in the buffer
+    length: Int   // how many bytes it covers
 }
 
 extension Data {
@@ -52,30 +129,28 @@ extension Data {
     // Constructors
     // =========================================================================
 
-    // Create an empty Data buffer
+    /// An empty buffer. Allocates nothing — storage arrives with the first byte.
     public init() -> Data {
-        Data(inner: None, offset: 0, length: 0)
+        Data(storage: None, offset: 0, length: 0)
     }
 
-    /// Creates an empty buffer with room for `capacity` bytes.
+    /// An empty buffer with room for `capacity` bytes.
     ///
     /// Panics if the allocator refuses the request (design 123, infallible
-    /// tier); it used to hand back a capacity-0 buffer, so a caller that asked
-    /// to reserve and got nothing carried on as if it had succeeded.
-    /// `try_with_capacity` reports the failure instead.
+    /// tier); `try_with_capacity` reports the failure instead.
     public init(capacity: Int) -> Data {
-        var data = Data(inner: None, offset: 0, length: 0)
-        if not data._reserve(capacity) {
+        var data = Data(storage: None, offset: 0, length: 0)
+        if not data._make_ready(capacity) {
             panic("Data(capacity:): allocation failed")
         }
         move data
     }
 
-    /// Creates an empty buffer with room for `n` bytes, reporting allocator
-    /// exhaustion as `Err(AllocError)`.
+    /// An empty buffer with room for `n` bytes, reporting allocator exhaustion
+    /// as `Err(AllocError)`.
     public func try_with_capacity(n: Int) -> Result<Data, AllocError> {
-        var data = Data(inner: None, offset: 0, length: 0)
-        if not data._reserve(n) {
+        var data = Data(storage: None, offset: 0, length: 0)
+        if not data._make_ready(n) {
             return AllocError(size: data._grow_target(n), align: 1)
         }
         return move data
@@ -85,80 +160,109 @@ extension Data {
     // Basic Properties
     // =========================================================================
 
-    // Get the number of bytes
+    /// The number of bytes in this window.
     public func len(&self) -> Int {
         self.length
     }
 
-    // Check if the buffer is empty
+    /// Whether this window covers no bytes.
     public func is_empty(&self) -> Bool {
         self.length == 0
     }
 
-    // Get the capacity of the underlying buffer
-    public func capacity(&self) unsafe -> Int {
-        if let inner = self.inner {
-            inner[0].capacity
-        } else {
-            0
+    /// How many bytes this `Data` can take before a mutation has to allocate.
+    ///
+    /// For sole ownership of a whole buffer that is the buffer's capacity. When
+    /// the storage is SHARED, or this is a slice that starts partway in, the
+    /// next write separates the bytes into a buffer of its own, so the answer
+    /// is `len()`. Reserving against this number always reserves enough.
+    public func capacity(&self) -> Int {
+        if self.offset == 0 && self._is_unique() {
+            return self.storage!.cap()
         }
+        self.length
     }
 
     // =========================================================================
     // Element Access
     // =========================================================================
 
-    /// The byte at `index`, as a PLACE (design 141).
+    /// The byte at `index`, as a PLACE (design 141) — `d[i] = 0` writes it
+    /// where it sits and `d[i] += 1` reads, adds and stores in one window.
     ///
-    /// `d[i] = 0` writes the byte where it sits, and `print(d[i])` reads it
-    /// there. Panics if `index` is outside `0..<len()`, on the same terms as
-    /// `set`.
+    /// Panics if `index` is outside `0..<len()`, on the same terms as `set`.
     ///
-    /// If the buffer is SHARED, a write through the window reaches every holder
-    /// — call `copy()` first for copy-on-write semantics, exactly as with `set`.
-    public func [](&self, index: Int) unsafe borrows -> UInt8 {
+    /// The receiver is `&var self` because a `borrows` accessor cannot see
+    /// whether its window will be read or written (design 146: the flavor is
+    /// the use site's, and one body serves both), while copy-on-write has to
+    /// separate shared storage BEFORE lending a place that might be written.
+    /// So `[]` takes the uniqueness gate up front and every use of it — reads
+    /// included — borrows the receiver exclusively. Two consequences worth
+    /// knowing: `d[i]` needs a `var d`, and the first `d[i]` on a shared `Data`
+    /// copies the bytes (every one after it is free, since the copy made this
+    /// window the sole owner). Reading a shared `Data` without separating it is
+    /// what `get` is for.
+    public func [](&var self, index: Int) unsafe borrows -> UInt8 {
         if index < 0 || index >= self.length {
             panic("Data.[]: index out of range")
         }
-        guard let inner = self.inner else {
-            panic("Data.[]: buffer is empty")
+        if not self._make_ready(self.length) {
+            panic("Data.[]: allocation failed")
         }
-        let buf = inner[0].buffer
-        lend buf[self.offset + index]
+        let bytes = self.byte_ptr() as UnsafePointer<UInt8>
+        lend bytes[index]
     }
 
-    // Get byte at index (returns None if out of bounds)
-    public func get(&self, index: Int) unsafe -> UInt8? {
+    /// The byte at `index`, or `None` when it is out of range.
+    ///
+    /// A shared read: this never separates the storage and never allocates, so
+    /// it is the way to look at bytes a slice or a sibling also holds.
+    public func get(&self, index: Int) -> UInt8? {
         if index < 0 || index >= self.length {
             return None
         }
-        guard let inner = self.inner else {
+        guard let _ = self.storage else {
             return None
         }
-        let buf = inner[0].buffer
-        buf[self.offset + index]
+        self.storage!.at(self.offset + index)
     }
 
     /// Writes `value` at `index`.
     ///
     /// Panics if `index` is outside `0..<len()`.
     ///
-    /// If the buffer is SHARED this writes through to every holder — call
-    /// `copy()` first for copy-on-write semantics.
-    ///
-    /// This returned `Bool` and wrote nothing out of range. Design 130's
-    /// accessor rule made it panic instead, matching `Vector.set`: nothing in
-    /// the tree ever read the flag, so a bad index silently did nothing — the
-    /// ignorable-sentinel shape design 92 rules out.
-    public func set(&var self, index: Int, value: UInt8) unsafe {
+    /// If the storage is shared this separates it first, so the write lands on
+    /// this `Data` and no sibling sees it. That is a BEHAVIOR CHANGE ratified
+    /// with design 165: `set` used to write THROUGH to every holder while
+    /// `push` and `append` copied first. Panics if the separation needs the
+    /// allocator and the allocator refuses (design 123, infallible tier);
+    /// `try_set` reports that instead.
+    public func set(&var self, index: Int, value: UInt8) {
         if index < 0 || index >= self.length {
             panic("Data.set: index out of range")
         }
-        guard let inner = self.inner else {
-            panic("Data.set: buffer is empty")
+        if not self._make_ready(self.length) {
+            panic("Data.set: allocation failed")
         }
-        let buf = inner[0].buffer
-        buf[self.offset + index] = value
+        self._store_at(index, value)
+    }
+
+    /// Writes `value` at `index`, reporting allocator exhaustion as
+    /// `Err(AllocError)`.
+    ///
+    /// Only the copy-on-write separation can fail, so on shared storage this is
+    /// all-or-nothing: an `Err` leaves both this `Data` and its siblings exactly
+    /// as they were. An out-of-range `index` still panics — the fallible tier is
+    /// about the allocator, not about bounds (design 130's accessor rule).
+    public func try_set(&var self, index: Int, value: UInt8) -> Result<Void, AllocError> {
+        if index < 0 || index >= self.length {
+            panic("Data.try_set: index out of range")
+        }
+        if not self._make_ready(self.length) {
+            return AllocError(size: self._grow_target(self.length), align: 1)
+        }
+        self._store_at(index, value)
+        return
     }
 
     // =========================================================================
@@ -167,15 +271,15 @@ extension Data {
 
     /// Appends one byte.
     ///
-    /// Panics if the buffer must grow and the allocator refuses (design 123,
-    /// infallible tier). The refused grow used to leave `capacity` short and
-    /// this write then landed past the end of the buffer, with `length`
-    /// advancing past `capacity` — RS-1's shape. `try_push` reports the failure.
+    /// Separates shared storage first, so a sibling's bytes are never touched.
+    /// Panics if the allocator refuses (design 123, infallible tier);
+    /// `try_push` reports the failure.
     public func push(&var self, value: UInt8) {
-        if not self._reserve_unique(self.length + 1) {
+        if not self._make_ready(self.length + 1) {
             panic("Data.push: allocation failed")
         }
-        self._place(value)
+        self._store_at(self.length, value)
+        self.length = self.length + 1
     }
 
     /// Appends one byte, reporting allocator exhaustion as `Err(AllocError)`.
@@ -183,65 +287,63 @@ extension Data {
     /// The buffer is unchanged on `Err`.
     public func try_push(&var self, value: UInt8) -> Result<Void, AllocError> {
         let wanted = self.length + 1
-        if not self._reserve_unique(wanted) {
+        if not self._make_ready(wanted) {
             return AllocError(size: self._grow_target(wanted), align: 1)
         }
-        self._place(value)
+        self._store_at(self.length, value)
+        self.length = self.length + 1
         return
-    }
-
-    // Internal: store one byte into the (already reserved) buffer.
-    func _place(&var self, value: UInt8) unsafe {
-        if let inner = self.inner {
-            let buf = inner[0].buffer
-            buf[self.offset + self.length] = value
-            self.length = self.length + 1
-        }
     }
 
     /// Reserves room for `additional` more bytes, reporting allocator
     /// exhaustion as `Err(AllocError)`.
     ///
-    /// On `Ok` the next `additional` pushes cannot allocate, so they cannot
-    /// fail.
+    /// On `Ok` this `Data` solely owns a buffer with that much room, so the
+    /// next `additional` pushes cannot allocate and cannot fail.
     public func try_reserve(&var self, additional: Int) -> Result<Void, AllocError> {
         let wanted = self.length + additional
-        if not self._reserve_unique(wanted) {
+        if not self._make_ready(wanted) {
             return AllocError(size: self._grow_target(wanted), align: 1)
         }
         return
     }
 
-    // Remove and return the last byte (returns None if empty)
-    public func pop(&var self) unsafe -> UInt8? {
+    /// Removes and returns the last byte, or `None` when there is none.
+    ///
+    /// Shrinking a window is not a write, so this never separates the storage
+    /// and never allocates: a sibling keeps every byte it could see.
+    public func pop(&var self) -> UInt8? {
         if self.length == 0 {
             return None
         }
-        guard let inner = self.inner else {
+        guard let _ = self.storage else {
             return None
         }
-        let buf = inner[0].buffer
-        let value = buf[self.offset + self.length - 1]
+        let value = self.storage!.at(self.offset + self.length - 1)
         self.length = self.length - 1
         value
     }
 
-    // Clear all bytes (keeps capacity)
+    /// Drops every byte from this window, keeping the storage for reuse.
+    ///
+    /// Like `pop`, this only narrows the window — siblings are untouched.
     public func clear(&var self) {
         self.length = 0
     }
 
     /// Appends every byte of `other`.
     ///
-    /// Panics if the buffer must grow and the allocator refuses (design 123,
-    /// infallible tier); the refused grow used to leave the memcpy below running
-    /// past the end of the buffer. `try_append` reports the failure.
-    // TODO: This uses memcpy which may have the same issues as copy() - needs testing
+    /// `d.append(d)` is well defined: the argument is a retain, which makes the
+    /// storage shared, so the separation happens before the copy and reads a
+    /// buffer nothing is writing.
+    ///
+    /// Panics if the allocator refuses (design 123, infallible tier);
+    /// `try_append` reports the failure.
     public func append(&var self, other: Data) {
         if other.length == 0 {
             return
         }
-        if not self._reserve_unique(self.length + other.length) {
+        if not self._make_ready(self.length + other.length) {
             panic("Data.append: allocation failed")
         }
         self._place_data(&other)
@@ -250,374 +352,309 @@ extension Data {
     /// Appends every byte of `other`, reporting allocator exhaustion as
     /// `Err(AllocError)`.
     ///
-    /// This buffer is unchanged on `Err` — no partial append. `other` is
-    /// consumed either way; reserve first with `try_reserve` when it has to
-    /// survive a refusal.
+    /// This buffer is unchanged on `Err` — no partial append.
     public func try_append(&var self, other: Data) -> Result<Void, AllocError> {
         if other.length == 0 {
             return
         }
         let wanted = self.length + other.length
-        if not self._reserve_unique(wanted) {
+        if not self._make_ready(wanted) {
             return AllocError(size: self._grow_target(wanted), align: 1)
         }
         self._place_data(&other)
         return
     }
 
-    // Internal: copy `other`'s live bytes into the (already reserved) buffer.
-    func _place_data(&var self, other: &Data) unsafe {
-        if let self_inner = self.inner {
-            if let other_inner = other.inner {
-                let dest = self_inner[0].buffer as UnsafePointer<Int8>
-                let src = other_inner[0].buffer as UnsafePointer<Int8>
-                let dest_offset = dest + self.offset + self.length
-                let src_offset = src + other.offset
-                memcpy(dest_offset, src_offset, other.length)
-                self.length = self.length + other.length
-            }
-        }
-    }
-
-    // Append `len` raw bytes from `src` to the end (grows as needed). The
-    // pointer-typed signature is the design-81 visible marker: callers in the
-    // marked domain (std.net's socket read path) fill a Data from a stack buffer
-    // with no per-byte overhead. `src`/`len` must describe `len` valid bytes.
-    // Panics if the buffer must grow and the allocator refuses (design 123,
-    // infallible tier); `try_append_bytes` reports the failure.
+    /// Appends `len` raw bytes from `src`.
+    ///
+    /// The pointer-typed signature is the design-130 visible marker: callers in
+    /// the unsafe domain (std.net's socket read path) fill a `Data` from a stack
+    /// buffer with no per-byte overhead. `src` and `len` must describe `len`
+    /// valid bytes. Panics if the allocator refuses (design 123, infallible
+    /// tier); `try_append_bytes` reports the failure.
     public func append_bytes(&var self, src: UnsafePointer<Int8>, len: Int) unsafe {
         if len <= 0 {
             return
         }
-        if not self._reserve_unique(self.length + len) {
+        if not self._make_ready(self.length + len) {
             panic("Data.append_bytes: allocation failed")
         }
         self._place_bytes(src, len)
     }
 
-    // The fallible twin of `append_bytes` (design 123). The buffer is unchanged
-    // on `Err`.
+    /// The fallible twin of `append_bytes` (design 123). The buffer is
+    /// unchanged on `Err`.
     public func try_append_bytes(&var self, src: UnsafePointer<Int8>, len: Int) unsafe -> Result<Void, AllocError> {
         if len <= 0 {
             return
         }
         let wanted = self.length + len
-        if not self._reserve_unique(wanted) {
+        if not self._make_ready(wanted) {
             return AllocError(size: self._grow_target(wanted), align: 1)
         }
         self._place_bytes(src, len)
         return
     }
 
-    // Internal: copy `len` bytes from `src` into the (already reserved) buffer.
-    func _place_bytes(&var self, src: UnsafePointer<Int8>, len: Int) unsafe {
-        if let inner = self.inner {
-            let dest = inner[0].buffer as UnsafePointer<Int8>
-            memcpy(dest + self.offset + self.length, src, len)
-            self.length = self.length + len
-        }
-    }
-
-    // A pointer to this Data's first live byte (offset applied). The pointer-typed
-    // signature is the design-81 visible marker; std.net's write path uses it to
-    // stream bytes to a socket without copying. Empty Data yields a null pointer.
+    /// A pointer to this window's first byte, or a null pointer when it is
+    /// empty.
+    ///
+    /// The pointer-typed signature is the design-130 visible marker; std.net's
+    /// write path streams bytes to a socket through it without copying. It
+    /// addresses SHARED storage, so it is a read pointer: writing through it
+    /// would be the write-through this type no longer does.
     public func byte_ptr(&self) unsafe -> UnsafePointer<Int8> {
-        if let inner = self.inner {
-            (inner[0].buffer as UnsafePointer<Int8>) + self.offset
-        } else {
-            0 as UnsafePointer<Int8>
+        guard let _ = self.storage else {
+            return 0 as UnsafePointer<Int8>
         }
+        self.storage!.head() + self.offset
     }
 
     // =========================================================================
-    // Slicing
+    // Slicing and copying
     // =========================================================================
 
-    // Create a slice of this Data (shares underlying buffer)
-    // Returns None if bounds are invalid
-    public func slice(&var self, start: Int, end: Int) unsafe -> Data? {
+    /// A narrower window onto the same bytes, or `None` when the bounds are
+    /// invalid.
+    ///
+    /// O(1) — the storage is retained, never copied, at any size. The slice is
+    /// an independent value: writing to either it or this `Data` separates the
+    /// bytes first, so neither can see the other's edits.
+    public func slice(&self, start: Int, end: Int) -> Data? {
         if start < 0 || end < start || end > self.length {
             return None
         }
-
-        // Handle empty data case
         if self.length == 0 {
             if start == 0 && end == 0 {
                 return Data()
             }
             return None
         }
-
-        guard let inner = self.inner else {
+        guard let _ = self.storage else {
             return None
         }
-
-        // Increment refcount
-        inner[0].refcount = inner[0].refcount + 1
-
-        Data(inner: self.inner, offset: self.offset + start, length: end - start)
+        Data(storage: self.storage!.copy(), offset: self.offset + start, length: end - start)
     }
 
-    /// Duplicates the bytes into an independent buffer.
+    /// An independent buffer holding exactly these bytes, materialized now.
     ///
-    /// Panics if the allocator refuses (design 123, infallible tier). It used
-    /// to set `length` regardless of whether the reservation succeeded, so a
-    /// refused copy reported `len() == N` with `capacity() == 0` and every
-    /// `get` answering `None`. `try_copy` reports the failure instead.
-    public func copy(&self) -> Data {
-        if self.length == 0 {
-            return Data()
+    /// `copy()` already gives value semantics, lazily, and is what you want
+    /// almost always. Reach for `detached` when the timing or the memory
+    /// matters: it separates the bytes immediately rather than at the next
+    /// write, and it sizes the new buffer to `len()` — so a small slice stops
+    /// pinning the large buffer it was cut from.
+    ///
+    /// Panics if the allocator refuses (design 123, infallible tier);
+    /// `try_detached` reports the failure.
+    public func detached(&self) -> Data {
+        match self.try_detached() {
+            case Ok(fresh) -> move fresh,
+            case Err(_) -> panic("Data.detached: allocation failed")
         }
-
-        // Allocate new buffer
-        var new_data = Data()
-        if not new_data._reserve(self.length) {
-            panic("Data.copy: allocation failed")
-        }
-        new_data.length = self.length
-        new_data._fill_from(&self)
-        move new_data
     }
 
-    /// Duplicates the bytes into an independent buffer, reporting allocator
+    /// An independent buffer holding exactly these bytes, reporting allocator
     /// exhaustion as `Err(AllocError)`.
-    public func try_copy(&self) -> Result<Data, AllocError> {
+    ///
+    /// All-or-nothing: an `Err` allocates nothing and leaves this `Data` alone.
+    public func try_detached(&self) unsafe -> Result<Data, AllocError> {
         if self.length == 0 {
             return Data()
         }
-        var new_data = Data()
-        if not new_data._reserve(self.length) {
-            return AllocError(size: new_data._grow_target(self.length), align: 1)
+        guard let raw = DataBuf.make(self.length) else {
+            return AllocError(size: self.length, align: 1)
         }
-        new_data.length = self.length
-        new_data._fill_from(&self)
-        return move new_data
-    }
-
-    // Internal: copy `source`'s live bytes into this (already reserved, already
-    // length-set) buffer.
-    // Uses a manual byte loop because the memcpy version segfaults — see the
-    // TODO at the top of the file.
-    // Internal: fill self's first `length` bytes from `source`, offset-aware
-    // on BOTH sides (a source SLICE copies from buffer + offset). One memcpy —
-    // the per-byte get/set loop this replaces predated several fixed compiler
-    // defects; examples/data_cow_slice.saw pins both directions.
-    func _fill_from(&var self, source: &Data) unsafe {
-        guard let dst_inner = self.inner else {
-            return
+        var fresh = move raw
+        fresh.absorb(0, self.byte_ptr(), self.length)
+        match Arc<DataBuf>.try_make(value: move fresh) {
+            case Ok(owner) -> {
+                return Data(storage: move owner, offset: 0, length: self.length)
+            },
+            case Err(e) -> {
+                return e
+            }
         }
-        guard let src_inner = source.inner else {
-            return
-        }
-        let dst = (dst_inner[0].buffer as UnsafePointer<Int8>) + self.offset
-        let src = (src_inner[0].buffer as UnsafePointer<Int8>) + source.offset
-        memcpy(dst, src, self.length)
     }
 
     // =========================================================================
     // Iteration
     // =========================================================================
 
-    // Create an iterator over the bytes
-    // TODO: Iterator doesn't increment refcount, so it can become invalid if
-    // source Data is deallocated. Should add refcount management to be safe.
-    public func iter(&self) unsafe -> DataIterator {
-        DataIterator(inner: self.inner, offset: self.offset, length: self.length, index: 0)
+    /// An iterator over the bytes of this window.
+    ///
+    /// The iterator HOLDS this `Data` — which is to say it holds a retain — so
+    /// one returned from a function outlives the binding it was made from and
+    /// still reads live bytes. It used to copy a raw pointer and no count, so
+    /// exactly that shape was a use-after-free reachable from safe code
+    /// (tracker DATA-1).
+    public func iter(&self) -> DataIterator {
+        DataIterator(source: self.copy(), index: 0)
     }
 
     // =========================================================================
     // Conversion
     // =========================================================================
 
-    // Decode these bytes as UTF-8 into a String.
-    //
-    // Ok(s)  = the whole buffer is valid UTF-8.
-    // Err(e) = it is not; `e.offset` is the byte index where the first
-    //          malformed sequence begins (`String.fromBytes` semantics).
-    //
-    // A `String`'s contents are ALWAYS valid UTF-8 — literals are source-encoded
-    // and `String.fromBytes` validates — and the language's own iterators rely on
-    // that invariant. This used to byte-copy into a StringBuilder with no
-    // validation, minting Strings that broke it: `Data` of `[0x68, 0xC8, 0x69]`
-    // produced a `len() == 3` String whose `chars()` yielded ONE scalar and then
-    // stopped, i.e. std silently truncated the caller's data (design 122 unit B).
-    // Decoding is fallible, so it says so — through the same `Utf8Error` surface
-    // `String` decoding already uses.
+    /// Decodes these bytes as UTF-8.
+    ///
+    /// `Ok(s)` = the whole window is valid UTF-8. `Err(e)` = it is not, and
+    /// `e.offset` is the byte index where the first malformed sequence begins
+    /// (`String.fromBytes` semantics).
+    ///
+    /// A `String`'s contents are ALWAYS valid UTF-8 — literals are
+    /// source-encoded and `String.fromBytes` validates — and the language's own
+    /// iterators rely on that invariant. This used to byte-copy into a
+    /// StringBuilder with no validation, minting Strings that broke it (design
+    /// 122 unit B), so decoding says that it can fail.
     public func to_string(&self) -> Result<String, Utf8Error> {
         String.fromBytes(&self)
     }
 
     // =========================================================================
-    // Internal Helper Methods
+    // Internal — the uniqueness gate
     // =========================================================================
 
-    // Internal: the capacity a growth to `min_capacity` would allocate.
-    func _grow_target(&self, min_capacity: Int) -> Int {
-        let current_cap = self.capacity()
-        var target = if current_cap == 0 { 16 } else { current_cap }
-        while target < min_capacity {
+    // Whether this Data is the sole owner of its storage. An empty Data owns
+    // nothing, so it answers `false` and takes the allocating path.
+    //
+    // Note both lookups below are BORROWS (design 131): `guard let _ =` binds
+    // nothing and `self.storage!.m()` reaches through the payload in place.
+    // Binding the Arc out (`if let s = self.storage`) would RETAIN it and this
+    // would then never report unique.
+    func _is_unique(&self) -> Bool {
+        guard let _ = self.storage else {
+            return false
+        }
+        self.storage!.strong_count() == 1
+    }
+
+    // The capacity a growth from `current` to at least `wanted` allocates:
+    // doubling from a 16-byte floor.
+    func _grow_target_from(&self, current: Int, wanted: Int) -> Int {
+        var target = if current == 0 { 16 } else { current }
+        while target < wanted {
             target = target * 2
         }
         target
     }
 
-    // Internal: ensure `capacity() >= min_capacity`. Returns whether the buffer
-    // now has that room — FALSE means the allocator refused and the Data is
-    // untouched. The old `ensure_capacity` returned Void, so `push`/`append`/
-    // `append_bytes` wrote past a buffer that had never grown (RS-1's shape).
-    func _reserve(&var self, min_capacity: Int) unsafe -> Bool {
-        let current_cap = self.capacity()
-        if current_cap >= min_capacity {
+    // The capacity a growth to `min_capacity` would allocate.
+    func _grow_target(&self, min_capacity: Int) -> Int {
+        self._grow_target_from(self.capacity(), min_capacity)
+    }
+
+    // THE gate every mutation passes. Leaves this Data the sole owner of a
+    // buffer that starts at offset 0 and holds at least `min_capacity` bytes.
+    // `false` = the allocator refused, and NOTHING changed.
+    //
+    // Two conditions, not one. Sole ownership is the copy-on-write half. A zero
+    // offset is the other: a window that starts partway into a buffer has room
+    // measured from `offset`, and every write site here indexes from 0, so
+    // re-basing a slice rather than reasoning about `offset + length` against
+    // `capacity` removes a whole class of off-by-offset overruns.
+    func _make_ready(&var self, min_capacity: Int) -> Bool {
+        // An empty Data asked for no room needs no storage — `Data(capacity: 0)`
+        // allocates nothing. Every caller that goes on to WRITE asks for at
+        // least one byte, so this cannot hand a write an absent buffer.
+        if min_capacity <= 0 && self.length == 0 {
             return true
         }
-        let new_capacity = self._grow_target(min_capacity)
-
-        if let inner = self.inner {
-            // Grow via alloc + copy + dealloc (the seams provide no realloc).
-            let raw = inner[0].buffer as UnsafePointer<Int8>
-            if let new_raw = GlobalAllocator().alloc(new_capacity, 1) {
-                memcpy(new_raw, raw, current_cap)
-                GlobalAllocator().dealloc(raw, current_cap, 1)
-                inner[0].buffer = new_raw as UnsafePointer<UInt8>
-                inner[0].capacity = new_capacity
+        if self.offset == 0 && self._is_unique() {
+            if self.storage!.cap() >= min_capacity {
                 return true
             }
+            let target = self._grow_target_from(self.storage!.cap(), min_capacity)
+            let live = self.length
+            return self.storage!.with_unique({ buf in buf.grow(target, live) }) ?? false
+        }
+        self._rebase(min_capacity)
+    }
+
+    // Move the live bytes into a fresh, solely-owned buffer based at offset 0.
+    // This is the copy in copy-on-write, and the compaction an offset window
+    // needs before it can grow.
+    func _rebase(&var self, min_capacity: Int) unsafe -> Bool {
+        let wanted = if min_capacity < self.length { self.length } else { min_capacity }
+        guard let raw = DataBuf.make(self._grow_target_from(0, wanted)) else {
             return false
         }
-        // Allocate new buffer and DataBuffer
-        self._allocate_buffer(new_capacity)
-    }
-
-    // Internal: exclusive ownership of the control block (copy if shared) —
-    // the copy-on-write half of `_reserve_unique`. Deep-copies, detaches from
-    // the shared block, and PRE-INCREMENTS the fresh block's refcount so the
-    // local copy's scope-exit deinit lands the count at exactly 1 with `self`
-    // the owner. Regression-tested (native + Guard Malloc) by
-    // examples/data_cow_slice.saw.
-    func _make_unique(&var self) unsafe {
-        guard let inner = self.inner else {
-            return
+        var fresh = move raw
+        if self.length > 0 {
+            fresh.absorb(0, self.byte_ptr(), self.length)
         }
-
-        if inner[0].refcount > 1 {
-            // We're sharing - need to copy
-            let old_data = self.copy()
-
-            // Decrement old refcount
-            inner[0].refcount = inner[0].refcount - 1
-
-            // Take ownership of the copy's buffer
-            self.inner = old_data.inner
-            self.offset = old_data.offset
-            self.length = old_data.length
-
-            // Prevent old_data's deinit from freeing the buffer we just took
-            // by incrementing refcount (it will be decremented in old_data's deinit)
-            if let new_inner = self.inner {
-                new_inner[0].refcount = new_inner[0].refcount + 1
-            }
-        }
-    }
-
-    // Internal: exclusive ownership plus `min_capacity` bytes of room. Returns
-    // whether both were obtained; FALSE leaves the Data untouched.
-    func _reserve_unique(&var self, min_capacity: Int) unsafe -> Bool {
-        // First ensure we have exclusive ownership
-        if let inner = self.inner {
-            if inner[0].refcount > 1 {
-                self._make_unique()
-            }
-        }
-
-        // Then ensure capacity
-        self._reserve(min_capacity)
-    }
-
-    // Internal: allocate a control block plus a `capacity`-byte buffer.
-    // Returns whether both allocations succeeded; on a partial failure the
-    // control block is released and the Data is left with no buffer at all.
-    func _allocate_buffer(&var self, capacity: Int) unsafe -> Bool {
-        // The control block's real size/alignment, not a 64-bit-only literal:
-        // `DataBuffer` is 24 bytes on a 64-bit target and 12 on riscv32 — the
-        // live SOS target — where the hardcoded 24 over-allocated and then told
-        // the allocator the wrong size at free (design 122 unit F).
-        let buffer_struct_size = sizeof<DataBuffer>()
-        if let inner_raw = GlobalAllocator().alloc(buffer_struct_size, alignof<DataBuffer>()) {
-            let inner = inner_raw as UnsafePointer<DataBuffer>
-
-            // Allocate the actual byte buffer
-            if let buf_raw = GlobalAllocator().alloc(capacity, 1) {
-                let buf = buf_raw as UnsafePointer<UInt8>
-                inner[0].buffer = buf
-                inner[0].capacity = capacity
-                inner[0].refcount = 1
-                self.inner = inner
+        match Arc<DataBuf>.try_make(value: move fresh) {
+            case Ok(owner) -> {
+                // Installing the new storage releases the old one, which frees
+                // it when this was the last window onto it.
+                self.storage = move owner
                 self.offset = 0
                 return true
-            }
-            // Failed to allocate buffer, free the struct
-            let a = alignof<DataBuffer>()
-            GlobalAllocator().dealloc(inner_raw, buffer_struct_size, a)
-            return false
-        }
-        false
-    }
-}
-
-// Data uses reference counting for memory management
-extension Data: NoCopy {
-    public func deinit(&var self) unsafe {
-        if let inner = self.inner {
-            inner[0].refcount = inner[0].refcount - 1
-
-            if inner[0].refcount == 0 {
-                // We're the last reference - free everything
-                let buf = inner[0].buffer as UnsafePointer<Int8>
-                GlobalAllocator().dealloc(buf, inner[0].capacity, 1)
-
-                let inner_raw = inner as UnsafePointer<Int8>
-                let block_size = sizeof<DataBuffer>()
-                let block_align = alignof<DataBuffer>()
-                GlobalAllocator().dealloc(inner_raw, block_size, block_align)
+            },
+            case Err(_) -> {
+                return false
             }
         }
     }
+
+    // Write one byte into the buffer. Sound because `with_unique` runs the body
+    // only when this Data solely owns the storage, and every caller has just
+    // been through `_make_ready`.
+    func _store_at(&var self, index: Int, value: UInt8) {
+        let at = self.offset + index
+        let _ = self.storage!.with_unique({ buf in buf.store(at, value) })
+    }
+
+    // Copy `other`'s live bytes onto the end of this window. Read `other`'s
+    // pointer AFTER `_make_ready`: if the two shared storage, the separation
+    // has already given this Data a different buffer to write into.
+    func _place_data(&var self, other: &Data) unsafe {
+        self._place_bytes(other.byte_ptr(), other.length)
+    }
+
+    // Copy `len` bytes from `src` onto the end of this window.
+    func _place_bytes(&var self, src: UnsafePointer<Int8>, len: Int) unsafe {
+        let at = self.offset + self.length
+        let _ = self.storage!.with_unique({ buf in buf.absorb(at, src, len) })
+        self.length = self.length + len
+    }
 }
+
+/// Copying a `Data` retains its storage — the bytes separate later, at the
+/// first write that finds them shared.
+///
+/// So `let b = a` and `a.copy()` are refcount bumps, and both spellings still
+/// give value semantics: neither `a` nor `b` can observe the other's edits.
+/// `Data` was `NoCopy` before design 165, which is why the tree is full of
+/// `move` on values that no longer need it — `move` still works on any type, so
+/// none of it had to change.
+///
+/// `detached()` is the eager spelling for callers who want the bytes now.
+@synthesize
+extension Data: ImplicitCopy {}
 
 // =============================================================================
-// DataIterator - Iterator over Data bytes
+// DataIterator — iteration that holds its storage
 // =============================================================================
 
 struct DataIterator {
-    inner: UnsafePointer<DataBuffer>?
-    offset: Int
-    length: Int
+    source: Data
     index: Int
 }
 
 extension DataIterator: Iterator {
     type Item = UInt8
 
-    public func next(&var self) unsafe -> UInt8? {
-        if self.index >= self.length {
+    public func next(&var self) -> UInt8? {
+        if self.index >= self.source.len() {
             return None
         }
-        guard let inner = self.inner else {
-            return None
-        }
-        let buf = inner[0].buffer
-        let value = buf[self.offset + self.index]
+        let value = self.source.get(self.index)
         self.index = self.index + 1
         value
     }
 }
 
-// DataIterator also needs to manage refcount
-extension DataIterator: NoCopy {
-    public func deinit(&var self) {
-        // Note: We don't increment refcount when creating iterator,
-        // so we don't decrement here. The source Data object owns the reference.
-        // This means iterators should not outlive their source Data.
-        // For safety, we could add refcounting to iterators too.
-    }
-}
+// Copying an iterator retains the same bytes and keeps its own position — the
+// tier its `Data` field already carries.
+@synthesize
+extension DataIterator: ImplicitCopy {}
