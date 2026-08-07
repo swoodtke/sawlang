@@ -2365,13 +2365,52 @@ caught being nondeterministic.
 
 ### DF findings from the 163a fix (Aug 7)
 
-- **DF-163d — DECIDED (user, Aug 7): references are PARAMETER-ONLY by design
-  (plus the implicit lend a `borrows` accessor makes); a reference named in ANY
-  other position is an error.** All four escapes below close: the local binding,
-  the struct field, the type argument, and the inference-typed closure return.
-  Ready to dispatch as a small unit in the post-168 wave (typechecker surface —
-  `expressions.py` guard for three, a named-type walk for type arguments/fields,
-  and the closure-inference return check). Original finding follows.
+- **DF-163d — FIXED (Aug 7), all four positions.** References are
+  parameter-only (plus the implicit lend a `borrows` accessor makes, and the
+  one unsafe-tier crossing DF-163f rules on). What closed each:
+  - **LOCAL BINDING (and every other non-argument expression position)** — the
+    `expr.mutable and` guard in `_check_reference_expr` is gone, so the rule
+    now covers `&` and `&var` alike: `let r = &x`, an operand, a literal
+    element. The message is one sentence for both flavors, anchored at the
+    sigil, and it RECOVERS as the written reference type so a misplaced `&`
+    does not drag an "undefined variable" cascade behind it. The carve-out
+    DF-163f ratifies rides on a `to_pointer_cast` annotation the CAST check
+    sets (that is the node that knows the parent).
+    `examples/errors/ref_nonarg_binding.saw`,
+    `ref_cast_to_int_not_blessed.saw`; `ref_sigil_nonarg_position.saw` (the
+    `&var` twin) moved onto the new wording.
+  - **struct FIELD** — `parse_struct` refuses a field type that NAMES a
+    reference (`reject_reference_field`, `parser/types.py`, on design 163a's
+    walk). Refusing the DECLARATION closes the CONSTRUCTION with it: no field
+    has a reference type, so `Holder(r: &x)` has nothing to fill, which is why
+    the field is the position that must say no (a struct literal is not a call
+    argument). `examples/errors/ref_field_type.saw`,
+    `ref_field_nested_in_tuple.saw`.
+  - **type ARGUMENT** — `_parse_one_type_arg` refuses an argument that names a
+    reference, covering both spellings (`let v: Vector<&Int>` and the
+    instantiation `idn<&Int>(&x)`), which leaves `v.push(&x)` alone at the call,
+    where a reference argument means what it says. The refusal raises
+    `ReferenceTypeArgument` under a new `CommittedGenericError` base that the
+    speculative generic-vs-comparison lookahead lets through — a plain
+    `SyntaxError` there backtracks into a nonsense comparison and buries the
+    message. Design 129's trailing comma moved onto the same base. `a < b > c`
+    still parses as a comparison. `examples/errors/ref_type_arg_generic_struct.saw`,
+    `ref_type_arg_generic_func.saw`.
+  - **closure INFERRED return** — `_reject_reference_closure_return` runs at
+    closure inference (the declaration-side rule has no return type to read),
+    anchored on the body's tail expression and recovering as the VALUE type so
+    one mistake yields one message. `{ e in e }` is untouched: reading a
+    reference binding yields the value, so `with_ref`'s identity closure infers
+    `T`. `examples/errors/ref_closure_return_inferred.saw`.
+
+  Positives pinned in two files. `examples/ref_pointer_cast_blessed.saw` covers
+  the DF-163f crossing in every shape std and the runtime use — a local
+  binding, a method RETURN, the shared const-pointer flavor, and the chained
+  `as UnsafePointer<Int> as Int` token. `examples/ref_parameter_positions.saw`:
+  `&`/`&var` arguments to a function and to a method, a forwarded re-borrow, a
+  reference argument to a GENERIC call (type argument at the value type — the
+  discrimination the type-argument rule has to make), the `with_ref` identity
+  closure, and a `borrows` window read + write. Original finding follows.
   With `-> &T` closed, a bare `&` in a
   NON-argument position is the remaining way out, and all three shapes compile
   and RUN today:
@@ -2397,12 +2436,49 @@ caught being nondeterministic.
   type at all. Not landed with 163a because it is a language-surface RULING
   rather than a bug fix — it decides whether a reference may ever be named
   outside a call — and it reaches fields, bindings, captures and type arguments
-  rather than the one position DF-163a named. Wants a small brief.
+  rather than the one position DF-163a named. (The one claim above that did not
+  survive contact: the blast radius was NOT empty. See DF-163f.)
 - **DF-163e — CLOSED BY RULING, note for whoever picks up DF-146k.** DF-146k
   floats `shared borrows` *or* `borrows -> &T` as spellings for a shared-flavor
   place. `borrows -> &T` is now a parse error like any other reference return, so
   `shared borrows` (or an equivalent that never names a reference) is the only
   live candidate. Nothing to do unless 146k is taken up.
+- **DF-163f — DECIDED (user, Aug 7) and IMPLEMENTED with DF-163d: a reference
+  whose IMMEDIATE parent is a cast to `UnsafePointer<T>`/`UnsafeConstPointer<T>`
+  is blessed in ANY expression position** — call argument, local binding,
+  accessor tail / return expression, and the chained
+  `(&self) as UnsafePointer<TaskGroup> as Int` (the reference's immediate parent
+  there is the inner pointer cast, so the chain qualifies). Every OTHER
+  non-argument bare `&` is refused per DF-163d.
+  **Rationale, as ruled:** the cast transfers lifetime responsibility to the
+  unsafe tier; the result is unsafe-TYPED, so design 130's signature effect is
+  the fence that matters; and policing the expression POSITION would not fence
+  escape anyway. Implementation is an annotation (`ReferenceExpr.to_pointer_cast`)
+  set by `_check_cast_expr`, read off the target type AS WRITTEN — an alias for
+  a pointer type is not blessed (v1 fence, no in-tree use), and `(&x) as Int` is
+  refused like any other bare `&`. Pinned by
+  `examples/ref_pointer_cast_blessed.saw` (positive, all four shapes) and
+  `examples/errors/ref_cast_to_int_not_blessed.saw` (the discriminator).
+  What made the ruling necessary, kept for the record: DF-163d prescribed
+  dropping the `expr.mutable and` guard in `typechecker/expressions.py`
+  (`_check_reference_expr`), which refuses every reference outside argument
+  position. Measured, not predicted: with the guard dropped
+  `examples/hello.saw` does not compile — 21 errors, all from the STDLIB
+  (`std.net` 195, `std.directory` 72, `std.fixedbuf` 44, `std.spinlock` 115,
+  `std.taskgroup` 505/516/570/760). About 45 sites across `sawc/std/`,
+  `sawc/rt/` and `examples/` write the shape, e.g.
+  `(&self) as UnsafePointer<TaskGroup> as Int`, `(&self.value) as
+  UnsafePointer<T>`, `(&sa) as UnsafePointer<Int8>`. It is also the FFI idiom
+  LANGUAGE_SPEC and the saw-lang skill both bless ("a stack local + `(&sa) as
+  UnsafePointer<...>` for the syscall") and the only way to take the address of
+  a local, a static or `self`.
+  **The DF-163d premise is false for this shape**: "the 163a reliance audit
+  found ZERO in-tree uses of `&` outside a call argument across 1511 files" —
+  the audit evidently covered declaration positions and missed the cast
+  operand, which is where every in-tree non-argument reference lives. The
+  alternative the ruling passed over was giving address-of its own spelling (an
+  `addr_of` intrinsic) and porting the ~45 sites onto it — bigger, and it puts
+  a new name in the unsafe surface for a shape the cast already expresses.
 
 ## Design 161 — the tuple-index and number-scanner lex rules (LANDED, Aug 6)
 

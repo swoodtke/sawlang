@@ -2258,6 +2258,63 @@ instead of letting a pointer out (see *Places* below). Until this was enforced,
 `func dangle() -> &Int { let local = 99  return &local }` compiled and ran,
 printing out of a frame that had already died.
 
+**A field, a generic argument and a closure's return may not name one either.**
+Three more positions carry a reference past the call that created it without
+ever writing a `&` in a signature, and each is refused where it is written:
+
+- **A struct field.** `struct Holder { r: &Int }` is rejected at the field
+  declaration. That closes the construction with it: no field has a reference
+  type, so `Holder(r: &x)` has nothing to fill. A struct literal is not a call
+  argument, which is why the field is the position that has to say no.
+- **A generic argument**, in a type position (`let v: Vector<&Int>`) and at an
+  explicit instantiation (`idn<&Int>(&x)`) alike. A generic holds its argument
+  as storage, and `v.push(&x)` into a `Vector<&Int>` is a genuine call argument
+  — so the refusal is at the argument rather than at the call, where a
+  reference argument is exactly what is meant.
+- **A closure's inferred return.** A closure literal writes no return type, so
+  the declaration-side rule above has nothing to read: `{ &x }` typed
+  `() -> &Int`. The check runs at inference instead and anchors on the body's
+  tail expression. Reading a reference *binding* yields the value, so the
+  `with_ref` identity closure `{ e in e }` returns a `T` and is untouched.
+
+All three read what the type *names*, on the same walk as the return rule, and
+each diagnostic states the rule and the same two ways out. A reference written
+anywhere else that is not a call argument — bound to a `let`/`var`, used as an
+operand, placed in a literal — is refused on the same terms.
+
+**The one crossing: a cast to a pointer.** `(&x) as UnsafePointer<T>` and its
+const twin are legal in **any** expression position — a call argument, a local
+binding, a function's return expression, and the chained
+`(&self) as UnsafePointer<TaskGroup> as Int` that turns an address into a
+token. This is the only address-of Saw has, and it is a crossing into the
+unsafe tier rather than an escape: the cast hands lifetime responsibility to
+that tier, what survives the expression is a pointer rather than a reference,
+and the unsafe effect the pointer forces onto every signature that names it is
+the fence from there on. The cast must name a pointer type to qualify —
+`(&x) as Int` is an ordinary expression and the reference in it is refused.
+
+```saw
+extension Counter {
+    func cell(&var self) unsafe -> UnsafePointer<Int> {
+        (&var self.n) as UnsafePointer<Int>   // the address, into the unsafe tier
+    }
+}
+
+let r = &x        // error: `&` here is not a call argument, and references in
+                  // Saw are PARAMETERS ONLY ...
+```
+
+```saw
+struct Holder { r: &Int }
+// error: field `r` of `Holder` may not be a reference: its type `&Int` is a
+// reference, and references in Saw are PARAMETERS ONLY — a reference borrows
+// storage for the duration of one call and may not escape it ...
+
+let f = { &x }
+// error: a closure may not return a reference: this body's value has type
+// `&Int`, which is a reference ...
+```
+
 **Call-site reference sigils:** the call site mirrors the parameter's reference
 spelling. `&x` lends immutably to a `&T` parameter; `&var x` lends mutably to a
 `&var T` parameter. A mismatch in **either** direction is a compile error

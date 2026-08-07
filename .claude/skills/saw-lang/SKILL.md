@@ -197,6 +197,26 @@ var u = w.copy()       // explicit duplicate
   of a dead frame. Two ways to write what you meant — return the VALUE, or lend
   the STORAGE with a `borrows` accessor (Places, below), the sanctioned way to
   hand out a place. Reference PARAMETERS are untouched.
+  **THREE MORE POSITIONS REFUSE ONE (DF-163d)**, each where it is written, all on
+  the same NAMES walk and with the same two outs: a struct FIELD
+  (`struct Holder { r: &Int }` — refused at the field, which closes
+  `Holder(r: &x)` with it, since a struct literal is not a call argument); a
+  GENERIC ARGUMENT in either spelling (`let v: Vector<&Int>`, `idn<&Int>(&x)` —
+  refused at the argument, because `v.push(&x)` into it IS a genuine call
+  argument); and a closure's INFERRED return (`{ &x }` typed `() -> &Int` — a
+  closure literal writes no return type, so the check runs at inference and
+  anchors on the tail expression). The `with_ref` identity closure `{ e in e }`
+  is fine: reading a reference binding yields the VALUE, so it returns `T`.
+  A bare `&` anywhere else that is not a call argument — bound to a `let`/`var`,
+  an operand, a literal element — is refused too.
+  **ONE CROSSING (DF-163f): `(&x) as UnsafePointer<T>`** (and the const twin) is
+  legal in ANY expression position — argument, local binding, return expression,
+  and the chained `(&self) as UnsafePointer<TaskGroup> as Int` token idiom. It is
+  the only address-of the language has, and it crosses into the UNSAFE TIER
+  rather than escaping: a pointer survives the expression, not a reference, and
+  the `unsafe` effect it forces onto every signature naming it is the fence. The
+  target must BE a pointer type — `(&x) as Int` is refused like any other bare
+  `&`.
   Call sites mirror the sigil: `f(&x)` / `f(&var x)` (and `x`
   must be `var`). Mutate through `&var` via compound assignment, methods, or
   whole-referent REPLACEMENT `x = v` (design 110 — uniform across functions,

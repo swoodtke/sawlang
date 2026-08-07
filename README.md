@@ -842,12 +842,20 @@ Saw provides deterministic memory management without garbage collection:
 - **References compose**: a `&T` or `&var T` you receive can be passed on to
   another function as a re-borrow. A reference is never made more permissive than
   the one it came from, and references stay valid across suspension points.
-- **References are parameters only**, and the compiler holds the line at the
-  declaration: a return type that names a reference is an error, in every
-  position a return type is written. The diagnostic names the two ways to write
-  what was meant — return the value, or lend the storage with a `borrows`
-  accessor, which hands out the place itself for a window. A reference in
-  parameter position is untouched.
+- **References are parameters only**, and the compiler holds the line where a
+  reference is written: a return type that names one is an error, in every
+  position a return type is written, and so are a struct field (`struct Holder
+  { r: &Int }`), a generic argument (`Vector<&Int>`, `idn<&Int>(x)`) and a
+  closure whose inferred return is a reference (`{ &x }`). Refusing the field
+  closes the construction with it, and refusing the generic argument leaves
+  `v.push(&x)` alone, which is a call argument and means what it says. Each
+  diagnostic names the two ways to write what was meant — pass or return the
+  value, or lend the storage with a `borrows` accessor, which hands out the
+  place itself for a window. A reference in parameter position is untouched.
+  One expression crosses the line on purpose: `(&x) as UnsafePointer<T>` is the
+  language's address-of, legal in any position, and it hands the lifetime
+  question to the unsafe tier — a pointer leaves, not a reference, and the
+  `unsafe` effect on every signature naming it is the fence.
 - **Shared ownership** through `Arc<T>` (Saw uses atomic reference counts only)
   and owned heap allocation through `Box<T, A>`.
 - **Allocation failure is loud**: an infallible operation (`push`, `append`,
