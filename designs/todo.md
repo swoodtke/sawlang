@@ -62,16 +62,28 @@ items need a probe before being treated as real work.
   sound for optional-valued containers (probe:
   .build/scratch/probe_nested_opt.saw).
 - **DF-146l (COMPILER, filed Aug 7, found by that probe): a `None` literal
-  ICEs wherever expected-type propagation misses — TWO trigger sites found.**
+  ICEs wherever expected-type propagation misses — FOUR trigger sites known**
+  (2 filed Aug 7, 2 more added by design 174's sweep).
   (1) A Map literal value: `var m: Map<String, Int?> = {"x": None}`;
   (2) a `??` RHS against a nested optional: `m["x"] ?? None` (LHS `Int??`,
-  RHS should adopt `Int?`). Both die with "internal compiler error: None
-  literal has no type information" — the ICE (not a clean error) is itself
-  the bug, and each missing propagation site is a trigger. Vector literals
-  type the same shape fine. Same family as DF-165b. Workarounds:
-  `m.insert(k, None)` and an annotated `let absent: Int? = None`. Small
-  typechecker unit; queue with the soundness batch; the fix should turn any
-  REMAINING untyped-None into a clean anchored error, not an ICE.
+  RHS should adopt `Int?`);
+  (3) **a bare `None` as a GENERIC CALL ARGUMENT** — `idn(None)` for
+  `func idn<T>(x: T) -> T`. This one is genuinely underdetermined, so the
+  right outcome is the clean "cannot infer type argument `T`" error, and the
+  ICE hides it (explicit `idn<Int?>(None)` works);
+  (4) **a `None` DEFAULT VALUE typed by a type param** — `func f<T>(a: Int,
+  b: T = None)` ICEs at the DECLARATION, before any call site. Design 108
+  makes such a default legal and lets it drive inference, so it should infer
+  or fail cleanly.
+  All four die with "internal compiler error: None literal has no type
+  information" — the ICE (not a clean error) is itself the bug, and each
+  missing propagation site is a trigger. Vector literals type the same shape
+  fine. Same family as DF-165b. Workarounds: `m.insert(k, None)` and an
+  annotated `let absent: Int? = None`. Small typechecker unit; queue with the
+  soundness batch; the fix should turn any REMAINING untyped-None into a
+  clean anchored error, not an ICE. Sites 1-4 are xfail-pinned as
+  `examples/optional_generic_none_{map_literal,coalesce,generic_arg,
+  default_value}_xfail.saw`.
 - **DF-146m (COMPILER, filed Aug 7): call-site optional auto-wrap does not
   fire at a GENERIC parameter instantiated to an Optional.** `m.insert("y", 7)`
   on a `Map<String, Int?>` errors "expects `Int?` but got `Int`" — the
@@ -96,6 +108,87 @@ items need a probe before being treated as real work.
   overwrite spelling meanwhile. Question for the user: should a forced
   conditional lend be assignable (symmetry with `v[i] = fresh`, panics on
   absent) or is insert-as-the-only-overwrite deliberate?
+
+## Design 174 — the T = U? sweep (Aug 7, probe-only investigation)
+
+**Headline: NO silent wrong behavior exists in the matrix.** 21 of the ~31
+probed behaviors work; every break is loud (parse error, clean error, ICE, or
+a malformed-IR crash). The two properties that would have been undiagnosable
+if wrong were checked directly and are both CORRECT: drop counts through an
+optional element type (`Vector<Res?>`/`Map<String, Res?>` deinit each `Some`
+exactly once, `None` not at all; an ImplicitCopy payload read out of a place
+is a real retain), and discriminant-aware hashing (`Set<Int?>` and
+`Map<Int?, V>` keep `None` and `0` DISTINCT). The brief expected `Set<Int?>`
+to be a clean refusal — it is instead correct, which is better. Full report +
+verdict table: `designs/174-optional-generic-sweep.md`. 19 tests landed as
+`examples/optional_generic_*.saw` (7 pins, 12 xfails).
+
+- **DF-174a (COMPILER, P0-severity, filed Aug 7 by the 174 sweep): a generic
+  function returning `T?` skips the return auto-wrap for a TAIL EXPRESSION and
+  emits MALFORMED LLVM IR.** `func wrap<T>(x: T) -> T? { x }` compiles to
+  `ret i64 %x` against a `{ i1, i64 }` result type; the LLVM verifier is the
+  only thing catching it, and what it is catching is a skipped optional wrap
+  that would otherwise be a type-confused read. **NOT Optional-specific** — it
+  reproduces at `T = Int` exactly as at `T = Int?`, so it is a generic-return
+  bug the sweep happened to walk into. The `return x` spelling of the same
+  function is correct, and so is the non-generic `func w(x: Int) -> Int? { x }`;
+  it is specifically `-> T?` plus a tail expression. Severity is the highest of
+  this batch: a crash today, a soundness hole if the verifier ever stops
+  looking. Test: `examples/optional_generic_return_tail_xfail.saw`.
+- **DF-174b (COMPILER, filed Aug 7): spawning a task whose RESULT TYPE is an
+  Optional ICEs.** `group.spawn(work())` where `work() -> Int?` dies with
+  "internal compiler error: cannot store {i1, i64} to {i1, {i1, i64}}*". The
+  group's result cell is `T?` (present once the task completes), i.e. `Int??`
+  at `T = Int?`, but the completion path stores the bare `Int?`. A task
+  returning a non-optional joins fine. Test:
+  `examples/optional_generic_spawn_result_xfail.saw`.
+- **DF-174c (LANGUAGE GAP, filed Aug 7): a nested optional type has NO
+  SPELLING.** The containers genuinely produce `Int??` values (`Vector<Int?>.get`,
+  `Map<String, Int?>.[]`, `pop`, `remove`) and those values behave correctly,
+  but the type cannot be NAMED, so no function can take or return one and no
+  local can be annotated as one. All three candidates fail: `Int??` is a parse
+  error ("Expected '=' in variable declaration"); `Optional<Int?>` is not a
+  spelling at all (DF-174d); `(Int?)?` makes the parenthesized type a distinct
+  1-tuple-ish type whose `!` yields `(Int?)`. Consequence: every two-layer read
+  must be peeled INLINE at each use — the natural `func report(o: Int??)`
+  helper is unwritable. Test:
+  `examples/optional_generic_nested_spelling_xfail.saw`.
+- **DF-174d (COMPILER, diagnostic quality, filed Aug 7): `Optional<T>` is not a
+  writable type name, and a bare UNKNOWN type name gets NO diagnostic.**
+  `Optional` has zero meaning to the compiler — no `register_enum`, no
+  `.saw` declaration, no parser special case — so `Optional<Int>` resolves to
+  an opaque nominal STRUCT named "Optional" and `let a: Optional<Int> = 5`
+  reports "cannot assign `Int` to variable of type `Optional<Int>`". `Result`
+  WAS wired up this way (`typechecker/registration.py`, plus `is_result()`
+  accepting the STRUCT spelling), so the asymmetry is historical, not
+  principled. The deeper half: a bare unknown name is indistinguishable from a
+  type parameter at resolution time, so `let a: Frobnicate<Int> = 5` gets the
+  same confusing mismatch instead of "unknown type". Prelude docs list
+  `Optional` as a core name and the spec documents `Optional.take`, so users
+  WILL write it. Adjacent nit: interpolating an optional errors cleanly but
+  hints "conform it with `extension Int?: Printable`", which is not writable
+  advice (you cannot extend `Int?`, and the orphan rule forbids it).
+- **DF-174e (COMPILER, filed Aug 7): `v[i] = <a T? value>` on a `Vector<T?>` is
+  refused, and the error names the WRONG element type.** Assigning an existing
+  `Int?` through the place gives "cannot assign `Int?` to element of type
+  `Int`" — but the element type of a `Vector<Int?>` IS `Int?`. The
+  place-assignment path unwraps one Optional layer off the element type and
+  then auto-wraps the RHS, which is why `v[i] = 9` and `v[i] = None` both work
+  while handing it a value that is already the right type does not.
+  `v.set(i, value)` accepts the same value, so the accessor and the place
+  disagree about the element type. Test:
+  `examples/optional_generic_place_assign_xfail.saw`.
+- **DF-174f (COMPILER, filed Aug 7): later-arg inference will not unify a bare
+  `None` with the Optional a later argument fixes.** `pick(None, some)` where
+  `some: Int?` and `func pick<T>(a: T, b: T) -> T` errors "cannot infer type
+  argument `T`: it is required to be both `OPTIONAL` and `Int?`" — two
+  requirements that are not in conflict, since `Int?` SATISFIES "is an
+  optional". Design 105's fixpoint solves the shape; what fails is treating the
+  None literal's own type as an irreconcilable constraint rather than a
+  constraint any optional discharges. Same root family as DF-146m (None vs
+  Optional unification at a generic parameter) and a natural companion fix.
+  Clean error rather than an ICE, but a wrong rejection. Test:
+  `examples/optional_generic_infer_later_arg_xfail.saw`.
 
 ## std.Data findings (Aug 7, user-prompted archaeology) — CLOSED by design 165
 
