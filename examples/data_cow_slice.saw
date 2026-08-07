@@ -7,6 +7,9 @@
 //    count at exactly 1. The slice's bytes must be unaffected.
 // 2. copy() FROM A SLICE must read buffer + offset (the restored memcpy
 //    fill), not the buffer head.
+// EXPECT: success
+// EXPECT-OUTPUT:
+// ok
 import std.data.*
 
 func main() {
