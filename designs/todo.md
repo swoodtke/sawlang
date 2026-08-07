@@ -275,6 +275,39 @@ half-built. What part 2 inherits:
   the `_emit_hash` precedent), so it was routed around rather than fixed, but
   the asymmetry is real and worth a probe before anyone relies on either half.
 
+## Design 170 — checked integer casts (LANDED, Aug 7)
+
+`as` between integer types traps on an unrepresentable value; `T.from(x)` is
+the `None`-returning twin and `T.from(truncating: x)` the deliberate wrap.
+Follow-ups and findings the sweep produced:
+
+- **DF-170a (OPEN, pre-existing, now STATED): `rt_sleep_ms` wraps past ~35
+  minutes.** `usleep` takes microseconds in a 32-bit slot, so
+  `sawc/rt/common/sleep.saw` has always truncated `ms &* 1000` into it — the
+  file's own header comment documented the truncation as deliberate. Design
+  170 only changed the SPELLING (`Int32.from(truncating:)`), because
+  preserving documented behavior is the sweep's job and clamping is the
+  saturating the brief declares a non-goal. The latent bug is unchanged: a
+  sleep of 2_147_484 ms or more returns early, silently. Real fix is a chunked
+  loop in the seam (the ABI takes a platform `Int`, so the request is
+  representable and only the libc call is not) — small, but it is a runtime
+  behavior change and wants its own decision.
+- **DF-170b (FOLLOW-UP, mechanical): re-run the cast census over
+  `sawc/std/data.saw`.** Skipped in this sweep because design 165 was
+  rewriting the file concurrently. As it stood at 170's dispatch it had 23
+  ` as ` tokens, 13 of them pointer casts and ZERO integer casts, so it was a
+  no-op for this design — but the rewrite could introduce integer casts, and
+  nothing checked the rewritten file. Grep it for ` as ` and triage each hit
+  provably-in-range (keep `as`) vs deliberate-wrap (`from(truncating:)`).
+- **The `fd as Int32` cluster (~30 sites, KEPT as `as` deliberately).**
+  `sawc/rt/common/os_ops.saw` plus both `reactor.saw` files hold fds in `Int`
+  fields and narrow at each libc call. Every one is guarded non-negative at
+  creation and an fd is always small, so the checked cast now ENFORCES an
+  invariant that was previously only true — which is the outcome the design
+  wants, not a site to respell. The tidier end state is typing the seam
+  fields `Int32` end-to-end so no cast exists at all; that is a refactor
+  worth doing on its own, not under a semantics change.
+
 ## std.Data findings (Aug 7, user-prompted archaeology)
 
 The three historical "known issues" in data.saw's header, resolved or filed

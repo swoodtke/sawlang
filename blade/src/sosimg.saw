@@ -118,6 +118,13 @@ static SOSIMG_ADDR_MAX: UInt = 0xFFFFFFFF
 // copy never straddles one. Not required by the format; kindness to the loader.
 static SEGMENT_ALIGN: Int = 4
 
+// The header carries `seg_count` in ONE byte, so the format cannot describe
+// more loadable segments than this. Checked where the header is built rather
+// than left to the narrowing cast: a build tool owes the caller a diagnostic,
+// and design 170 turned the silent truncation that used to happen here into a
+// panic, which is a better failure but still not a message anyone can act on.
+static SEG_COUNT_MAX: Int = 255
+
 // spec §7: eight system priority levels, four named bands.
 static PRIORITY_LEVEL_MAX: Int = 7
 static BAND_COUNT: Int = 4
@@ -737,6 +744,9 @@ public func elf_to_sosimg(elf: &Data, prio_map: UInt, arch: SosimgArch) -> Resul
     let entry = try narrow(entry_raw, "entry point")
 
     let count = segments.len()
+    if count > SEG_COUNT_MAX {
+        return SosError(msg: "ELF has {count} loadable segments; a sosimg header carries at most {SEG_COUNT_MAX}")
+    }
     let header_len = sizeof<SosimgHeader>()
     let seg_len = sizeof<SosimgSeg>()
 
