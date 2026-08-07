@@ -4581,7 +4581,7 @@ So tier one of the handle model costs zero instructions in both directions.
 **Three compiler gaps, found by writing the ratified idioms and fixed here.**
 Each has regression tests in `examples/`, and each BLOCKED a ratified change
 rather than merely inconveniencing it — which is why the branch touches `sawc/`
-at all. Filed as DF-163a/b/c below.
+at all. Filed as DF-140l/m/n below.
 
 - **A backed enum's case was not a compile-time constant**, so change 4 could not
   be written: `static_assert((SystemRight.Transfer as UInt32) == 1, ...)` was
@@ -4638,7 +4638,7 @@ runs, 0 failing.
 
 ## Design 140 — DF-findings (SOS M1)
 
-- **DF-163a — FIXED here (the M1 review round, Aug 7). A raw-backed enum's case
+- **DF-140l — FIXED here (the M1 review round, Aug 7). A raw-backed enum's case
   was not a compile-time constant, so a wire table could not be
   `static_assert`ed against its own declaration.** Design 145 unit B2 makes a
   declared backing mean the case values are ABI — pinned, not ordinals the
@@ -4661,7 +4661,7 @@ runs, 0 failing.
   not fit its target. One evaluator, so an array length and a repeat count gain
   the same grammar. Test: `examples/static_assert_backed_enum.saw`.
 
-- **DF-163b — FIXED here (the M1 review round, Aug 7). A distinct `type` alias
+- **DF-140m — FIXED here (the M1 review round, Aug 7). A distinct `type` alias
   had no constructor, so an alias over an unsigned or fixed-width underlying
   could not be given a value at all.** LANGUAGE_SPEC documented `UserId(42)` as
   implemented and the `42 as UserId` diagnostic named it as the sanctioned form;
@@ -4681,7 +4681,7 @@ runs, 0 failing.
   range-checked there. Representationally free — codegen emits the operand.
   Tests: `examples/type_alias_construction.saw` + two error cases.
 
-- **DF-163c — FIXED here (the M1 review round, Aug 7). Two distinct aliases over
+- **DF-140n — FIXED here (the M1 review round, Aug 7). Two distinct aliases over
   one underlying type flowed into each other, in assignment and argument
   position.** Only the sibling CAST was rejected, so `type` was enforced in
   exactly one position and was a comment everywhere else:
