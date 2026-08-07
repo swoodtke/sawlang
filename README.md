@@ -3,28 +3,34 @@
 [![CI](https://github.com/swoodtke/claudes-lang/actions/workflows/ci.yml/badge.svg)](https://github.com/swoodtke/claudes-lang/actions/workflows/ci.yml)
 
 A systems programming language with Rust-style memory safety and Swift-style
-syntax. It has no garbage collector and no lifetimes.
+syntax. It has no garbage collector and no lifetimes, and it compiles for bare
+metal as readily as for a hosted target.
 
 ## What Saw gives you
 
-- **Memory safety without a garbage collector or lifetimes** - There are no null
-  pointers. Memory safety is checked when a value is transferred, and mutable
-  aliasing is caught at compile time by the Law of Exclusivity: a value can have
-  many readers or one writer, never both at once.
-- **Swift-style syntax** - `let`/`var` bindings, `extension` blocks, `T?`
-  optionals, and trailing closures.
-- **Zero-cost abstractions** - Generics and traits compile down to specialized
-  machine code, with no runtime overhead for the abstraction.
-- **Predictable performance** - Allocation is visible in the type: the
-  allocating containers carry their allocator as a type parameter, and no
-  assignment is secretly O(n). No hidden allocations, enforced by
-  `sawc --no-hidden-alloc` — every allocation is named by the expression or by a
-  type you wrote, and the compiler allocating on its own authority is a compile
-  error. The only implicit copies are cheap ones, and values are destroyed in a
-  defined order (last in, first out) as they go out of scope.
-- **Runs on bare metal** - Saw is freestanding. Pluggable allocators,
-  memory-mapped registers, compile-time layout checks, and C-ABI exports let it
-  target kernels and embedded systems.
+- **Bare metal is a target, not a port.** The freestanding profile links no
+  libc and rests on a frozen set of runtime seams the environment supplies.
+  Allocators are a type parameter, `UnsafeMemory<T, Device>` gives a register
+  block a typed view, `static_assert` fails the build when a layout drifts, and
+  `@export` gives a function an exact C symbol. The SOS kernel in this repo is
+  built that way and boots under QEMU on every `make sos-test`.
+- **Memory safety without a garbage collector or lifetimes.** There are no null
+  pointers. Ownership is checked where a value is transferred, and mutable
+  aliasing is caught at compile time by the Law of Exclusivity: many readers or
+  one writer, never both at once. There is nothing to annotate — Saw has no
+  lifetime parameters.
+- **Allocation is visible in the type.** The allocating containers carry their
+  allocator as a type parameter, the only implicit copies are refcount bumps,
+  and no assignment is secretly O(n). `sawc --no-hidden-alloc` turns the
+  guarantee into a check: every allocation must be named by the expression or
+  by a type you wrote, and the compiler allocating on its own authority is a
+  compile error.
+- **Destruction is deterministic.** Values are destroyed last-in-first-out as
+  they leave scope, and the `deinit` is written for you from the type's fields.
+- **Swift-style syntax, monomorphized generics.** `let`/`var` bindings,
+  `extension` blocks, `T?` optionals, trailing closures — over generics and
+  traits that compile to specialized machine code rather than dispatching at
+  runtime.
 
 ## Quick Example
 
@@ -558,11 +564,9 @@ func serve(port: Int) {
 
 ### The Copy Trait Family
 
-You can see the cost of a transfer at the point where it happens. Trivial types
-(integers, simple structs) copy implicitly and cheaply. Owning types move by
-default: duplicating one is a visible `.copy()`, and transferring ownership
-requires the `move` keyword. Reference-counted types like `String` and `Arc` are
-`ImplicitCopy`, so a copy is a cheap refcount bump and needs no `move`.
+The cost of a transfer is readable at the point where it happens. The tiers and
+the one decision they leave you are under
+[Memory Management](#memory-management); this is what they look like.
 
 ```saw
 let a = Point(x: 1, y: 2)
@@ -830,12 +834,13 @@ Saw provides deterministic memory management without garbage collection:
 - **Shared ownership** through `Arc<T>` (Saw uses atomic reference counts only)
   and owned heap allocation through `Box<T, A>`.
 - **Allocation failure is loud**: an infallible operation (`push`, `append`,
-  `insert`, `send`, `Box.make`, any constructor) panics with the name of the
-  method that ran out of memory. It never truncates the container, never returns
-  a plausible substitute value, and never hands back an object that has quietly
-  stopped working. The `try_`-prefixed twins (`try_push`, `try_reserve`,
-  `try_make`, `try_insert`, `try_send`) return `Result<_, AllocError>` for code
-  that handles exhaustion rather than dying of it.
+  `insert`, `send`, `Box.make`, any constructor) panics through the
+  `__saw_rt_panic` seam naming the method that ran out (`Vector.push: allocation
+  failed`), so a kernel picks the policy. It never truncates the container, never
+  returns a plausible substitute value, and never hands back an object that has
+  quietly stopped working. The `try_`-prefixed twins (`try_push`, `try_reserve`,
+  `try_make`, `try_insert`, `try_send`) return `Result<_, AllocError>` and are
+  all-or-nothing: on `Err` the container is exactly as it was.
 - **Unsafety is carried in the type, and declared by the function**: raw
   pointers live in `Unsafe*` types, and so does anything you declare with
   `unsafe struct` (the compiler enforces the name). A function that names, binds,
@@ -879,13 +884,9 @@ Saw is freestanding: the same language targets bare metal.
   `Map<K, V, A = GlobalAllocator>`, `Box<T, A = GlobalAllocator>`). A custom zero-sized allocator produces a distinct type
   that routes through its own `A` as a direct call. Per-type slab allocators over
   a `static` region make the `type JobBox = Box<Job, JobSlab>` kernel idiom work.
-- **One answer when allocation fails**: an infallible signature panics through
-  the `__saw_rt_panic` seam, naming the method that ran out (`Vector.push:
-  allocation failed`), so a kernel picks the policy. Every such operation has a
-  `try_`-prefixed twin returning `Result<_, AllocError>` — `try_push`,
-  `try_reserve`, `try_make`, `try_insert`, `try_send` — which is all-or-nothing:
-  on `Err` the container is exactly as it was. Nothing truncates, and no type
-  constructs an object that quietly stopped working.
+- **One answer when allocation fails**: the panicking and `try_` tiers described
+  under [Memory Management](#memory-management) are what a kernel gets too, and
+  the panic routes through a seam the environment supplies.
 - **Memory-mapped I/O**: `UnsafeMemory<T, Use>` is a compiler-known view of memory
   at a fixed address, with volatile `read()`/`write()` for device registers and
   field-offset projection. It is an unsafe type, so a driver method that touches
@@ -1096,6 +1097,8 @@ Options:
   --no-hidden-alloc  Reject allocations the compiler inserts that your source
                      does not name (see Kernels and Embedded)
   --runtime-build    Build a Saw runtime exporting the __saw_rt_* ABI
+  --runtime-provider This package IS a runtime: it may export the __saw_rt_*
+                     seams, each checked against sawc/rt/ABI.md
   --module-path NAME=DIR
                      Map a package name to a source directory (repeatable)
   -W <name>          Enable a warning category (repeatable; `-W all` for every
@@ -1105,7 +1108,7 @@ Options:
 
 ## Running Tests
 
-The compiler ships a comprehensive test runner. `make test` calls bare
+The compiler ships a test runner covering every example. `make test` calls bare
 `python3`, so activate the virtualenv first (or invoke the runner directly):
 
 ```bash
@@ -1161,19 +1164,28 @@ profile's allowances, and the self-test are in [TESTING.md](TESTING.md).
 
 ## Current Status
 
-Saw is in active development. Implemented so far: generics with trait bounds and
-call-site type inference (generics compile to specialized code); algebraic data
-types with exhaustive `match`; the Copy trait family; synthesized destruction
-and `@synthesize`d conformances; traits with default bodies
-and trait objects (`any Trait`); overloading; the `Printable`, `Error`,
-`Equatable`, `Comparable`, and `Hashable` traits; multi-hop optional chaining
-including chained assignment; whole-referent replacement through a `&var`
-reference; colorless concurrency (a cooperative scheduler with a precise I/O
-reactor, multi-threaded task groups, blocking-FFI offload, and suspending calls
-in expression positions); member visibility with a curated prelude;
-earned shadowing; source-location literals; doc comments with `--emit-docs`
-extraction; pluggable allocators; and the freestanding toolkit (memory-mapped
-I/O, `static_assert`, and C-ABI exports).
+Saw is in active development. Implemented so far:
+
+- **Types and generics** — algebraic data types with exhaustive `match`, enums
+  that carry methods and an integer wire backing, generics with trait bounds
+  and call-site type inference, const generic parameters, traits with default
+  bodies and `any Trait` objects, overloading, and the `Printable` / `Error` /
+  `Equatable` / `Comparable` / `Hashable` traits with `@synthesize` derivation.
+- **Ownership** — the Copy trait family, synthesized destruction, places
+  (`borrows` accessors that lend storage rather than a value), whole-referent
+  replacement through `&var`, and a `Result` that cannot be dropped by accident.
+- **Concurrency** — colorless, with a cooperative scheduler over a precise I/O
+  reactor, multi-threaded task groups, blocking-FFI offload, and suspending
+  calls in any expression position.
+- **Modules** — three import forms, member visibility over a curated prelude,
+  import-scoped extensions under an orphan rule for conformances, per-module
+  type identity, and earned shadowing.
+- **Systems work** — pluggable allocators, memory-mapped I/O, `static_assert`,
+  C-ABI exports, `SpinLock<T>` and `unsafe static var` for global state,
+  allocation-free formatting, and `--no-hidden-alloc`.
+- **Tooling** — source-location literals, doc comments with `--emit-docs`
+  extraction, opt-in compiler warnings, and the Blade package manager, which is
+  self-hosting.
 
 [LANGUAGE_SPEC.md](LANGUAGE_SPEC.md) is the authoritative language reference —
 when it and the compiler disagree, the compiler wins and the spec is the bug.
@@ -1235,7 +1247,7 @@ Nothing generated sits beside a source file, so a package needs one ignore rule
 `blade clean --target <triple>` removes one target and leaves the rest. Neither
 touches `.blade/deps/`, which holds dependency source rather than output.
 
-### Dependencies (design 64)
+### Dependencies
 
 A project declares dependencies in its `Saw.toml`:
 
@@ -1295,13 +1307,9 @@ suite.
 
 ### Key Similarities to Swift
 
-- `let`/`var` for immutability
-- `guard let` for early exit
-- `T?` optional syntax
-- `extension` for adding methods
-- `init` for custom initializers
-- Trailing closure syntax
-- String interpolation with `{}`
+`let`/`var`, `guard let`, postfix `T?`, `extension` blocks, custom `init`s,
+trailing closures, and `{}` string interpolation all mean what a Swift reader
+expects. The divergences are ownership and effects, not surface syntax.
 
 ## Project Structure
 
@@ -1325,7 +1333,8 @@ TESTING.md             # Test suite documentation
 
 ## Contributing
 
-Saw is an experimental language. Contributions, feedback, and ideas are welcome!
+Saw is an experimental language. Issues and pull requests are welcome; start
+from [LANGUAGE_SPEC.md](LANGUAGE_SPEC.md) and the design briefs in `designs/`.
 
 ## License
 
