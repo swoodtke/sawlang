@@ -1829,6 +1829,12 @@ statement dropped its `Result` with no diagnostic.
   struct-literal init and the suspending arm measured across a frame that has
   DIED, so `after == alone` is the balance. Every string in it is interpolated
   (design 159's lesson: a literal is immortal and cannot fail).
+  **Follow-up worth doing:** add that example to the Guard Malloc lane
+  (`tools/gmgate.py`), as design 159 did with `df151b_implicit_tier_transfers`.
+  The counts prove the retains HAPPEN; only Guard Malloc proves no SURPLUS
+  release happens, since an over-release reads correct until the freed block is
+  reused. Not done here only because `tools/` belonged to a concurrent agent —
+  the example passes the existing lane's 10-run shape when run by hand.
 - **DF-151d — FILED, NOT FIXED (codegen; found by the DF-151c audit, Aug 6).**
   A `match` whose SCRUTINEE is a TEMPORARY never releases it, so an owning
   payload LEAKS. Silent — no error, no crash, just a destructor that never runs.
