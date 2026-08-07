@@ -129,6 +129,21 @@ ARCHES = [
         "hex_width": 8,
         "root_entry": 0x80200000,
     },
+    {
+        "name": "arm64",
+        "triple": "aarch64-unknown-none-elf",
+        "qemu": "qemu-system-aarch64",
+        # `-cpu cortex-a53` (design 162 decision 3): ubiquitous, EL1
+        # well-exercised. `-semihosting` is what makes SYS_EXIT carry a status
+        # code — see sos/hal/arm64/kernel/sink.c for why not PSCI.
+        "qemu_args": ["-M", "virt", "-cpu", "cortex-a53", "-semihosting"],
+        # The base aarch64 triple already has everything this kernel uses, and
+        # there is no ABI variant to select.
+        "cc_args": [],
+        "features": None,
+        "hex_width": 16,
+        "root_entry": 0x40200000,
+    },
 ]
 
 

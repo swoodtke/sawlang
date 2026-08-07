@@ -5010,6 +5010,97 @@ over 903 examples (38 skipped); blade bootstrap `BOOTSTRAP: ok` (stage0->stage2
 plus the lib suites); `make sos-test` 11/11 under QEMU; gmgate 20 programs x 10
 runs, 0 failing.
 
+## Design 162 — DF-findings (SOS M1b: arm64 EL1 parity + the HAL extraction)
+
+The headline finding is a negative one and worth stating first: **sawc's
+freestanding aarch64 codegen needed nothing.** The Saw half of the kernel
+compiled for `aarch64-unknown-none-elf` on the first attempt and every later
+failure was in code this branch wrote — assembly, page tables, a manifest. The
+port hit ONE compiler-surface sharp edge (DF-162a), and it is not a miscompile.
+
+- **DF-162a — FILED. sawc's freestanding aarch64 profile emits Advanced SIMD,
+  and a bare-metal EL1 target traps it out of reset.** `CPACR_EL1.FPEN` is 0
+  after reset, so the first compiler-vectorized loop takes an EC=0x07 trap —
+  in SOS's case a page-table fill loop in the HAL's C, which faulted BEFORE the
+  exception vectors it was being run to install could report anything. The
+  generated code is correct for a target with FP enabled; the sharp edge is that
+  a freestanding arm64 target does not have FP enabled until its boot code says
+  so, and the failure mode is a silent triple-fault-shaped hang rather than a
+  link error. Every arm64 freestanding user hits this exactly once, invisibly.
+  Three ways out, and picking one is a decision this branch did not take:
+  (a) document it in the freestanding profile notes — cheapest, and matches how
+  the riscv32 `--target-features +a` requirement is handled;
+  (b) make `--target-features -neon,-fp-armv8` work and verify the aarch64
+  backend copes with a general-registers-only lowering;
+  (c) nothing, since a kernel has to write `_start` anyway.
+  SOS took the HAL route — `boot.S` enables FPEN before any compiled code runs —
+  and states the consequence in `sos/hal/arm64/kernel/ABI.md`: FP state is NOT
+  saved across a trap, which is sound with one user thread and no preemption and
+  becomes M2's context-switch problem.
+
+- **DF-162b — FIXED here (unit 1). The "arch-free" kernel was not arch-free.**
+  M1's structure note claimed the architecture lived in `sos/hal/`; in fact
+  `sos/kernel/core/lib.saw` held an NS16550A register block, a `mcause` enum,
+  the PMP wrappers, `mepc + 4`, the SiFive finisher and the board's memory map.
+  All of it moved behind a `hal` module. The fix that matters is not the move
+  but the ENFORCEMENT: `tools/sos_runner.py` scans the arch-free kernel for
+  architecture names, comments included, and fails the run on a hit. A leaked
+  constant still COMPILES — it is only wrong on the profile nobody happened to
+  be building — so a claim like this one has to be mechanical or it decays.
+
+- **DF-162c — FIXED here (unit 3). `HEX_DIGITS_PER_WORD = 8` made every kernel
+  address diagnostic print the low half of a 64-bit word** and look like a
+  complete answer. It was written when riscv32 was the only profile. Now
+  `hex_digits_per_word()` asks `sizeof<UInt>()`, which is the fact the constant
+  was standing in for.
+
+- **DF-162d — FIXED here (unit 3). The sosimg format had no arch tag**, so the
+  two profiles' images were byte-compatible headers wrapping incompatible
+  instructions and the only thing stopping one booting on the other was that
+  nobody had tried. v2 spends the reserved byte on a `SosimgArch` tag; the
+  kernel refuses a mismatch before copying anything, Blade writes it from the
+  target triple (an unknown triple is a build error, never an untagged image),
+  and both profiles have a test that feeds their kernel the other's tag.
+
+- **DF-162e — FIXED here (unit 2). The loader never checked that a segment's
+  load address was aligned to the target's grant granularity.** A grant covers
+  whole units of it, so a segment starting mid-unit is granted along with
+  whatever shares its first unit, at that segment's permissions. On Profile A
+  the unit is four bytes and the question never arose; on a page-granular
+  profile it is how root's code silently becomes writable because its data
+  started 200 bytes later. The check is arch-free (`hal.PROT_GRAIN`) and refuses
+  the image.
+
+- **DF-162f — FIXED here (unit 3). Blade's sosimg emitter read ELF32 only**, so
+  no 64-bit profile could produce a root image at all. It now takes the class
+  from the header and looks its field offsets up (ELF64 widens `e_entry` and
+  `e_phoff` and moves `p_flags` ahead of the offsets, so nothing is shared but
+  the identification bytes). The 32-bit address fields stay 32-bit ON BOTH
+  PROFILES by design — one format, one overlay, one byte count — and an address
+  that does not fit is now a REFUSAL naming the 4 GiB bound rather than a
+  truncation into an image that loads somewhere the linker never meant.
+
+- **DF-162g — FIXED here. `sos/hal/riscv32/user/ABI.md` documented
+  `sos_syscall1_value`, which does not exist** in `syscall.c` and never did. A
+  seam document that lists a symbol nobody implemented is worse than a short
+  one. The row now says what is true: no M1 op returns a value, and the twin
+  belongs beside `sos_syscall1` the day one does.
+
+- **VERIFIED, no gap: the design 148/149 toolkit works on aarch64
+  freestanding**, which the brief asked for proof of rather than assumption.
+  A `static COUNTERS: SpinLock<Int>` compiles (16 bytes of `.bss`) and lowers to
+  inline exclusives with NO `__atomic_*` libcalls left undefined — the opposite
+  of rv32i without `+a`, where naming a `SpinLock` is a compile error pointing
+  at the flag. Const generics, `[0; N]` and `static_assert(sizeof<Ring<8>>() ==
+  64)` all fold at the 64-bit width.
+
+- **CORRECTION to the brief's decision 3.** It notes cortex-a53 as having "LSE
+  atomics present". Cortex-A53 is ARMv8.0-A and has no LSE (that is ARMv8.1).
+  Nothing was blocked: ARMv8.0 load/store exclusives cover everything the kernel
+  and `SpinLock` need, which is what the verification above measured. Worth
+  correcting so a later brief does not plan around an extension that is not
+  there.
+
 ## Design 140 — DF-findings (SOS M1)
 
 - **DF-140l — FIXED here (the M1 review round, Aug 7). A raw-backed enum's case

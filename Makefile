@@ -22,11 +22,13 @@ test-filter:
 blade-bootstrap:
 	@python3 tools/blade_bootstrap.py
 
-# SOS QEMU tests (designs 112, 140): build the freestanding riscv32 kernel AND
-# the root-server sosimg (via blade), stitch them, and run under QEMU `virt`,
-# asserting the UART transcript + emulator exit status. Requires host tools
-# qemu-system-riscv32, ld.lld, and clang (the harness probes for them and prints
-# install hints if missing).
+# SOS QEMU tests (designs 112, 140, 162): build the freestanding kernel AND the
+# root-server sosimg (via blade), stitch them, and run under QEMU `virt` on
+# EVERY architecture SOS targets — riscv32 and arm64 — asserting the console
+# transcript + emulator exit status. Either failing is red. Requires host tools
+# qemu-system-riscv32, qemu-system-aarch64, ld.lld, and clang (the harness
+# probes for them and prints install hints if missing). `--arch <name>` runs one,
+# for development.
 sos-test:
 	@python3 tools/sos_runner.py
 
@@ -104,7 +106,7 @@ help:
 	@echo "  make test-sequential - Run tests sequentially (no parallelism)"
 	@echo "  make test-filter     - Run tests matching FILTER pattern"
 	@echo "                         Example: make test-filter FILTER=enum"
-	@echo "  make sos-test        - Build + boot the SOS riscv32 kernel + root server under QEMU"
+	@echo "  make sos-test        - Build + boot the SOS kernel + root server under QEMU (riscv32 AND arm64)"
 	@echo "  make lexdiff         - Diff the Saw lexer against sawc's over the corpus"
 	@echo "  make astdiff         - Dump every tracked .saw file and require stability"
 	@echo "  make irdet           - IR determinism over a 40-example sample (per commit)"
