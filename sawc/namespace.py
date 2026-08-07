@@ -1830,6 +1830,18 @@ class Namespace:
                 return self._send_sync(inner, want_sync, visiting)
             struct_sym = self._lookup_struct_deep(name)
             if struct_sym is None:
+                # An ENUM reached through a struct-kind spelling (design 155,
+                # DF-155d). A field, payload or type argument written as a bare
+                # name arrives here with the generic STRUCT kind whether it names
+                # a struct or an enum, so `struct Check { verdict: Verdict }`
+                # used to be judged not-Send even though the payload-free
+                # `Verdict` is — and the only symptom was a spawn into a
+                # multi-threaded TaskGroup being refused for a type that has
+                # nothing unsendable in it.
+                enum_sym = self._lookup_enum_deep(name)
+                if enum_sym is not None:
+                    return self._enum_send_sync(enum_sym, name, args,
+                                                want_sync, visiting)
                 # Opaque / unresolved type parameter: not structurally known.
                 # (Abstract `T: Send` bodies are handled at the call site via
                 # the parameter's declared bounds.)
@@ -1852,21 +1864,30 @@ class Namespace:
             enum_sym = self._lookup_enum_deep(name)
             if enum_sym is None:
                 return False
-            key = (name, tuple(str(a) for a in args))
-            if key in visiting:
-                return True
-            visiting = visiting | {key}
-            subst = {}
-            for tp, arg in zip(enum_sym.type_params, args):
-                subst[tp.name] = arg
-            for payload in enum_sym.variants.values():
-                for _field_name, ptype in payload:
-                    resolved = ptype.substitute(subst) if subst else ptype
-                    if not self._send_sync(resolved, want_sync, visiting):
-                        return False
-            return True
+            return self._enum_send_sync(enum_sym, name, args, want_sync, visiting)
         # TYPE_PARAM / SELF / MODULE and anything else: not structurally known.
         return False
+
+    def _enum_send_sync(self, enum_sym, name: str, args, want_sync: bool,
+                        visiting: set) -> bool:
+        """An enum is Send/Sync iff every payload it can hold is.
+
+        Shared by both spellings that reach an enum — the ENUM kind, and the
+        struct-kind bare name a field or type argument carries (DF-155d).
+        """
+        key = (name, tuple(str(a) for a in args))
+        if key in visiting:
+            return True  # co-recursive type: assume ok on the back-edge
+        visiting = visiting | {key}
+        subst = {}
+        for tp, arg in zip(enum_sym.type_params, args):
+            subst[tp.name] = arg
+        for payload in enum_sym.variants.values():
+            for _field_name, ptype in payload:
+                resolved = ptype.substitute(subst) if subst else ptype
+                if not self._send_sync(resolved, want_sync, visiting):
+                    return False
+        return True
 
     def get_type_assignment(self, type_name: str, trait_name: str,
                            assoc_type_name: str) -> Optional[SawType]:

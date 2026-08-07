@@ -1,0 +1,56 @@
+// A struct holding an ENUM is `Send` when the enum is (design 155, DF-155d).
+//
+// A payload-free enum is a bare tag and has always been Send on its own, but a
+// FIELD written as a bare name reaches the Send derivation with the generic
+// struct kind whether it names a struct or an enum — and the struct lookup for
+// an enum name found nothing, so the whole containing struct was judged not
+// Send. The only symptom was a spawn into a multi-threaded TaskGroup being
+// refused for a type with nothing unsendable in it, which is exactly the shape
+// a worker's result takes: a verdict plus a message.
+// EXPECT: success
+// EXPECT-OUTPUT:
+// ok: 3
+// skip: 1
+
+enum Verdict: UInt8 {
+    case Ok = 0
+    case Skip = 1
+}
+
+struct Outcome {
+    verdict: Verdict
+    detail: String
+}
+
+func judge(n: Int) -> Outcome {
+    if n == 2 {
+        Outcome(verdict: Verdict.Skip, detail: "nothing to do")
+    } else {
+        Outcome(verdict: Verdict.Ok, detail: "checked")
+    }
+}
+
+func main() {
+    var group = TaskGroup(threads: 2)
+    var handles = Vector<TaskHandle<Outcome>>()
+    var i = 0
+    while i < 4 {
+        let h = group.spawn(judge(i))
+        handles.push(move h)
+        i = i + 1
+    }
+
+    var ok = 0
+    var skipped = 0
+    while handles.len() > 0 {
+        if let hh = handles.pop() {
+            let outcome = hh.join()
+            match outcome.verdict {
+                case Ok -> { ok = ok + 1 },
+                case Skip -> { skipped = skipped + 1 }
+            }
+        }
+    }
+    print("ok: {ok}")
+    print("skip: {skipped}")
+}
