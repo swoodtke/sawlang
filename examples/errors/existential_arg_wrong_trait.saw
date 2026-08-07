@@ -1,0 +1,41 @@
+// design 51 + DF-169a: forwarding an already-erased existential reference onward
+// is a pass-through, so the trait must MATCH. Forwarding a `&var any Counter`
+// into a `&var any Logger` slot is caught at the argument, naming both traits,
+// rather than being reported as a failed erasure of a "concrete" type.
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: expected `&any Logger` but got `&any Counter`
+
+trait Counter {
+    func bump(&var self)
+}
+
+trait Logger {
+    func log(&var self)
+}
+
+struct Sink { n: Int }
+
+extension Sink: Counter {
+    func bump(&var self) { self.n = self.n + 1 }
+}
+
+extension Sink: Logger {
+    func log(&var self) { self.n = self.n + 2 }
+}
+
+struct Relay { k: Int }
+
+extension Relay {
+    func take_logger(&self, l: &var any Logger) { l.log() }
+
+    func relay(&self, c: &var any Counter) {
+        self.take_logger(l: &var c)
+    }
+}
+
+func main() {
+    var s = Sink(n: 0)
+    let r = Relay(k: 0)
+    r.relay(c: &var s)
+    print(s.n)
+}

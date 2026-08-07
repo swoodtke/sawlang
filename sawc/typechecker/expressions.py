@@ -1572,8 +1572,18 @@ class ExpressionsMixin:
                 if is_gp or at is None or pt is None:
                     continue  # generic slot / closure arg: neutral
                 if not self._types_compatible(at, pt):
-                    ok = False
-                    break
+                    # design 51 + DF-169a: a `&concrete` argument fits a
+                    # `&any Trait` slot when the concrete conforms. Candidate
+                    # selection has to know that, or an overload set holding an
+                    # existential parameter matches nothing and the erasure the
+                    # argument pass would have performed is never reached.
+                    if not self._erasure_compatible(at, pt):
+                        ok = False
+                        break
+                    # An exact concrete overload outranks the erasing one, the
+                    # same way an exact type outranks an optional wrap.
+                    penalty += 1
+                    continue
                 if pt.is_optional() and not at.is_optional():
                     penalty += 1  # exact-vs-optional-wrap discriminator
                 elif (at.kind in self._PLATFORM_INT_KINDS
@@ -1922,7 +1932,9 @@ class ExpressionsMixin:
                 at = self._check_closure(arg.value, expected, as_call_argument=True)
             else:
                 at = arg_types[i]
-            if (at is not None and expected is not None
+            if self._try_existential_arg_coercion(arg, at, expected):
+                pass  # `&concrete -> &any Trait` erasure (or its error) handled
+            elif (at is not None and expected is not None
                     and not self._arg_type_ok(arg.value, at, expected)):
                 self._error(
                     ErrorKind.TYPE_MISMATCH,
@@ -6614,6 +6626,26 @@ class ExpressionsMixin:
         expr.resolved_type = handle_type
         return handle_type
 
+    def _erasure_compatible(self, at, pt):
+        """Whether `&concrete` (or an already-erased `&any T`) fits a `&any T`
+        slot (design 51). Used by overload CANDIDATE SELECTION, which runs before
+        `_try_existential_arg_coercion` gets to perform the erasure."""
+        if (at is None or pt is None
+                or pt.kind != TypeKind.REFERENCE or at.kind != TypeKind.REFERENCE
+                or pt.inner_type is None or at.inner_type is None
+                or pt.inner_type.kind != TypeKind.EXISTENTIAL):
+            return False
+        if pt.reference_mutable and not at.reference_mutable:
+            return False
+        trait_name = pt.inner_type.existential_trait
+        inner = at.inner_type
+        if inner.kind == TypeKind.EXISTENTIAL:
+            return inner.existential_trait == trait_name
+        conc_name = inner.struct_name if inner.kind == TypeKind.STRUCT else (
+            "String" if inner.kind == TypeKind.STRING else None)
+        return (conc_name is not None
+                and self.namespace.type_conforms_to(conc_name, trait_name))
+
     def _try_existential_arg_coercion(self, arg, arg_type, expected_type):
         """Coerce `&concrete -> &any Trait` at a call boundary (design 51). Returns
         True if this argument slot is an existential-reference target (whether the
@@ -6639,6 +6671,18 @@ class ExpressionsMixin:
                 ErrorKind.TYPE_MISMATCH,
                 f"`&var any {trait_name}` requires a mutable borrow (`&var value`)",
                 arg.value.line, arg.value.column)
+            return True
+        # Already erased: forwarding a received `&any T` / `&var any T` onward as a
+        # re-borrow (design 106). There is nothing to erase — the fat pointer is
+        # passed through — so accept it here rather than treating the existential
+        # as a "concrete" type that fails the conformance lookup below.
+        if arg_type.inner_type.kind == TypeKind.EXISTENTIAL:
+            if arg_type.inner_type.existential_trait != trait_name:
+                self._error(
+                    ErrorKind.TYPE_MISMATCH,
+                    f"expected `&any {trait_name}` but got "
+                    f"`&any {arg_type.inner_type.existential_trait}`",
+                    arg.value.line, arg.value.column)
             return True
         conc = arg_type.inner_type
         conc_name = conc.struct_name if conc.kind == TypeKind.STRUCT else (
@@ -7345,7 +7389,9 @@ class ExpressionsMixin:
                 arg_type = self._check_closure(arg.value, expected_type, as_call_argument=True)
             else:
                 arg_type = self._check_expression(arg.value)
-            if arg_type and not self._arg_type_ok(arg.value, arg_type, expected_type, allow_wrap):
+            if self._try_existential_arg_coercion(arg, arg_type, expected_type):
+                pass  # `&concrete -> &any Trait` erasure (or its error) handled
+            elif arg_type and not self._arg_type_ok(arg.value, arg_type, expected_type, allow_wrap):
                 param_name = method_info.param_names[p + param_offset]
                 self._error(
                     ErrorKind.TYPE_MISMATCH,
@@ -7712,7 +7758,9 @@ class ExpressionsMixin:
             arg_type = self._check_expression(arg.value)
             allow_wrap = self._df3_allow_wrap(
                 declared_type, set(type_map.keys()) if type_map else None)
-            if arg_type and not self._arg_type_ok(arg.value, arg_type, expected_type, allow_wrap):
+            if self._try_existential_arg_coercion(arg, arg_type, expected_type):
+                pass  # `&concrete -> &any Trait` erasure (or its error) handled
+            elif arg_type and not self._arg_type_ok(arg.value, arg_type, expected_type, allow_wrap):
                 param_name = method_info.param_names[p]
                 self._error(
                     ErrorKind.TYPE_MISMATCH,

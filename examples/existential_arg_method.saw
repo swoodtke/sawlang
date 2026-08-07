@@ -1,0 +1,76 @@
+// design 51 + design 169 (DF-169a): erasing `&concrete` to `&any Trait` at a
+// call boundary works in a METHOD argument, not only a free-function one. The
+// coercion used to run on the free-function path alone, so an instance method,
+// a static method, an overloaded method and a trait-required method all
+// rejected a concrete reference their signature accepted.
+// Forwarding an ALREADY-erased `&var any Trait` onward (design 106 re-borrow)
+// is a pass-through, not a second erasure.
+// EXPECT: success
+// EXPECT-OUTPUT:
+// 11
+// 12
+// 13
+// 14
+// 15
+// 16
+
+trait Counter {
+    func bump(&var self)
+    func value(&self) -> Int
+}
+
+struct C { n: Int }
+extension C: Counter {
+    func bump(&var self) { self.n = self.n + 1 }
+    func value(&self) -> Int { self.n }
+}
+
+func pump_free(c: &var any Counter) { c.bump() }
+
+struct Driver { k: Int }
+
+extension Driver {
+    // Instance method taking an existential reference.
+    func pump_method(&self, c: &var any Counter) { c.bump() }
+
+    // Static method taking one.
+    func pump_static(c: &var any Counter) { c.bump() }
+
+    // Overload set: the existential slot must survive candidate selection.
+    func pump_over(&self, c: &var any Counter) { c.bump() }
+    func pump_over(&self, n: Int) { }
+
+    // Forwarding a received existential onward — no second erasure.
+    func relay(&self, c: &var any Counter) { pump_free(&var c) }
+}
+
+trait Pumper {
+    func pump_trait(&self, c: &var any Counter)
+}
+
+extension Driver: Pumper {
+    func pump_trait(&self, c: &var any Counter) { c.bump() }
+}
+
+func main() {
+    var c = C(n: 10)
+    let d = Driver(k: 0)
+
+    pump_free(&var c)
+    print(c.value())          // 11
+
+    d.pump_method(c: &var c)
+    print(c.value())          // 12
+
+    Driver.pump_static(c: &var c)
+    print(c.value())          // 13
+
+    d.pump_over(c: &var c)
+    print(c.value())          // 14
+
+    d.pump_trait(c: &var c)
+    print(c.value())          // 15
+
+    d.relay(c: &var c)
+    print(c.value())          // 16
+}
