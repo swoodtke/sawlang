@@ -105,12 +105,26 @@ GATE = [
     # the hand-off is exactly the over-release this lane exists to see. Its live
     # count proves nothing leaks; only Guard Malloc proves nothing is freed twice.
     "examples/coro_spawn_and_embed_owning.saw",
-    # Data's copy-on-write ownership transfer (_make_unique: deep copy, steal
-    # the block, pre-incremented refcount cancelled by the local's deinit) plus
-    # the offset-aware memcpy fill. Manual refcounts over raw allocations —
-    # a drop miscount here frees a block a live Data or slice still points at,
-    # which reads correct natively and only Guard Malloc sees.
+    # Data's copy-on-write separation plus the offset-aware eager fill. Since
+    # design 165 the count is Arc's rather than hand-rolled, which is exactly
+    # why these stay: the release now runs through Arc's two-phase drop into
+    # DataBuf's deinit, so a miscount frees a buffer a live Data or slice still
+    # points at — correct-reading natively, visible only here.
     "examples/data_cow_slice.saw",
+    # Every Data mutation taking the uniqueness gate (design 165). Each
+    # separation allocates a buffer, copies into it, and RELEASES the old
+    # storage; getting that release wrong in either direction is invisible
+    # natively — a leak reads correct, and a double release reads correct until
+    # the block is reused. The program holds a sibling live across every one of
+    # them precisely so a premature free has a live reader.
+    "examples/data_cow_value_semantics.saw",
+    # DATA-1: an iterator that OUTLIVES its Data — the use-after-free design 165
+    # closes. Reverting `iter()` to its pre-165 shape (a raw pointer and no
+    # retain) makes this program read `7 0 48` for `7 8 9`, so the suite catches
+    # that regression on its own. It is in this lane for the read that does NOT
+    # corrupt visibly: the iterator holds a retain now, so the source Data stays
+    # alive with a count this lane can see miscounted in either direction.
+    "examples/data_iter_outlives_source.saw",
 ]
 
 

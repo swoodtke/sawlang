@@ -1,0 +1,96 @@
+// Design 165 closes tracker DATA-1: a `DataIterator` HOLDS its `Data`, so
+// holding an iterator is holding a retain.
+//
+// `iter()` used to copy a raw buffer pointer and no reference count, so an
+// iterator returned past its `Data`'s death read freed memory — a
+// use-after-free reachable from entirely safe code, with no `unsafe` anywhere
+// at the call site. The function below is exactly that shape: the `Data` it
+// builds goes out of scope at the `return`, and the bytes must still be there.
+//
+// Natively this reads correct either way once the block is reused for
+// something benign, which is why this program is also in the Guard Malloc lane
+// (tools/gmgate.py) — that is what actually sees a read of a freed page.
+// EXPECT: success
+// EXPECT-OUTPUT:
+// 7 8 9
+// 1 2 3 4
+// 20 30
+// ok
+import std.data.*
+
+// The source `Data` dies here. The iterator is the only owner that survives.
+func orphaned_iter() -> DataIterator {
+    var d = Data(capacity: 4)
+    d.push(7)
+    d.push(8)
+    d.push(9)
+    d.iter()
+}
+
+// The same shape one level further out: a slice's iterator outliving BOTH the
+// slice and the buffer it was cut from.
+func orphaned_slice_iter() -> DataIterator {
+    var d = Data(capacity: 8)
+    d.push(10)
+    d.push(20)
+    d.push(30)
+    d.push(40)
+    let s = d.slice(1, 3)!
+    s.iter()
+}
+
+func drain(it: &var DataIterator) -> String {
+    var out = StringBuilder()
+    var first = true
+    while true {
+        if let b = it.next() {
+            if not first {
+                out.append(" ")
+            }
+            out.append(b as Int)
+            first = false
+        } else {
+            break
+        }
+    }
+    out.build()
+}
+
+func main() {
+    var orphan = orphaned_iter()
+    print(drain(&var orphan))
+
+    // A for-in loop over a live Data still works — the iterator's retain is
+    // released with it at the end of the loop.
+    var live = Data(capacity: 4)
+    live.push(1)
+    live.push(2)
+    live.push(3)
+    live.push(4)
+    var seen = StringBuilder()
+    var first = true
+    for b in live.iter() {
+        if not first {
+            seen.append(" ")
+        }
+        seen.append(b as Int)
+        first = false
+    }
+    print(seen.build())
+
+    var from_slice = orphaned_slice_iter()
+    print(drain(&var from_slice))
+
+    // Iterating does not disturb the source: the iterator's retain makes the
+    // Data shared, so a write to it separates rather than moving the bytes the
+    // iterator is walking.
+    var d = Data(capacity: 4)
+    d.push(1)
+    d.push(2)
+    var walking = d.iter()
+    d.set(0, 50)
+    assert(walking.next()! == 1, "the iterator saw a write to its source")
+    assert(d.get(0)! == 50, "d[0] not 50")
+
+    print("ok")
+}
