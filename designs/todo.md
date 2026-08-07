@@ -4862,8 +4862,12 @@ inlined (the `.build/scratch` probes are gitignored).
     and diagnostics come from mapping the common failure errnos to named tags.
     `__saw_rt_last_syserror` is a runtime-INTERNAL seam (common os_ops → host
     net_os), not a std-facing errno accessor, so the errno CHANNEL still dies.
-  - **DF-117a — `if let {}` block absorbs a following leading-`-` line as binary
-    subtraction.** A function whose body is `if let x = y { … }` immediately
+  - **DF-117a — DECIDED (user, Aug 7): `if let` block termination matches
+    plain `if` (a newline after the closing `}` ends the statement;
+    `(if let {...}) - x` needs parens), the NoneType ICE becomes a real
+    diagnostic regardless, and the net.saw/os_ops.saw `return 0 - X`
+    workarounds revert to the wanted spelling. Queued in the
+    soundness/semantics batch. Original finding:** A function whose body is `if let x = y { … }` immediately
     followed by a line beginning with a unary minus, e.g.
     `func f() -> Int { if let p = alloc() { … return r }\n    -SOME_CONST }`,
     parses the trailing `-SOME_CONST` as `(if let {…}) - SOME_CONST` and ICEs
@@ -4968,7 +4972,11 @@ inlined (the `.build/scratch` probes are gitignored).
   poll-buffer gap — is no longer load-bearing: design 117 dissolved it with the
   instance reactor's per-call heap buffer; the language nicety is optional now.)
   General C-interop / low-level value beyond the runtime. [113/113b/117]
-- **DECIDE: infinite loops should type as `Never` (probe Aug 4, lead).**
+- **DECIDED (user, Aug 7): a conditionless no-`break` `while { }` types as
+  `Never`; the literal `while true { }` does NOT join it (the conditionless
+  form is the blessed infinite idiom — constant-folding a `true` literal
+  into typing is Rust's line too); the `NEVER` diagnostic spelling fixed in
+  the same unit. Queued in the soundness/semantics batch. Original:**
   `func f() -> Never` is satisfiable ONLY by ending in a Never-typed
   EXPRESSION (`panic(...)` / a Never call); a no-`break` infinite loop —
   `while { }` conditionless AND `while true { }` — is rejected with
@@ -5009,8 +5017,12 @@ inlined (the `.build/scratch` probes are gitignored).
     - Migration: 43 example files gained `import std.task`
       (`source_location_suspending` EXPECT-OUTPUT line numbers bumped +1).
       New negative test `examples/errors/yield_now_bare_gated.saw`.
-  - **FLAG (brief premise wrong — io_wait gating DEFERRED, needs lead
-    decision).** The brief's Aug-4 audit stated io_wait is "used by std.net"
+  - **FLAG — DECIDED (user, Aug 7): io_wait stays UNGATED for now; the real
+    gating FOLDS INTO DESIGN 118 (the executor-in-Saw relocation redraws
+    this exact seam behind a Reactor trait, and the 11 white-box tests are
+    rebuilt against that boundary — deleting reactor-level coverage to
+    enforce a gate 118 will redraw would pay twice). No action until 118
+    dispatches; its brief inherits this. Original flag:** The brief's Aug-4 audit stated io_wait is "used by std.net"
     (internal only) and budgeted NO io_wait migration. FALSE: **11 example
     programs call `io_wait(...)` directly** — white-box reactor tests that
     drive the FULL raw private seam (`tcp_socketpair`/`tcp_try_read`/
