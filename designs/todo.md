@@ -6012,7 +6012,12 @@ inlined (the `.build/scratch` probes are gitignored).
 ## Queued briefs (Aug 4) — awaiting dispatch
 - **PARSER-PORT INTEGRATION STRATEGY (user, Aug 7 — fold into the parser-port
   brief when the rewrite track resumes): a LANGUAGE-NEUTRAL BINARY AST FORMAT
-  as the frontend/backend seam.** The Saw-written lexer+parser emits the
+  as the frontend/backend seam.** The format is now DECIDED-BY-BRIEF: design
+  169 (Serialize/Deserialize traits + std.cbor, RFC 8949 deterministic
+  profile — a standard with an existing Python impl instead of a bespoke
+  notation, user Aug 7); the AST envelope (node-id high-water mark etc.)
+  layers over it in the parser-port brief. 169 queues post-168 integration,
+  before the parser port. The Saw-written lexer+parser emits the
   binary AST per module; the Python typechecker+codegen+LLVM backend consumes
   it — the Saw frontend drives real builds EARLY while the Python parser stays
   the oracle. Cut point is PARSE (the only clean seam: the 164 audit proved the
