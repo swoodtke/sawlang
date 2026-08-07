@@ -2167,28 +2167,100 @@ statement dropped its `Result` with no diagnostic.
   Int/String/Arc payloads, mixed presence, nesting, element writes, and Arc
   balance oracles in a sync AND a suspending context; in the Guard Malloc lane)
   and `df151e_optional_element_repeat_error.saw` for the tier refusal.
-- **DF-151f — FILED, NOT FIXED (codegen; found while fixing DF-151d, Aug 6).**
-  **A TUPLE has no drop glue, so an owning element is never destroyed.** Not a
-  temporary-lifetime problem — a plain NAMED local leaks:
+- **DF-151f — FIXED Aug 7.** Filed as "a TUPLE has no drop glue, so an owning
+  element is never destroyed", and that was exactly right: `_needs_cleanup` had
+  arms for a struct's fields, an enum's active payload, an `Optional`'s payload
+  and a `[T; N]`'s elements, and none for a tuple, so `let t = (res(), k)`
+  registered nothing and `_emit_drop_at` fell through to the struct-field path,
+  which finds no fields on a structural type.
+  **FOUR WALKERS, NOT TWO.** Drop, retain, release and copy each needed the arm.
+  Elements drop in REVERSE position order (the LIFO rule fields already follow);
+  a tuple has no `deinit` of its own and can never have one, so the glue is
+  purely structural and every container that already had glue composes for free
+  — a tuple struct FIELD, a tuple enum PAYLOAD, a `Vector` element, a
+  `[(Arc, Int); 2]` array, an `Optional` payload and a coroutine frame slot all
+  reach it through their own walkers. `_tuple_elements` substitutes the
+  monomorphization context, so a `(T, Int)` local in a generic body is judged on
+  the instantiation's element types rather than on an opaque `T`.
+  **THE FILING'S "AUDIT THE COPY SIDE" WAS THE LOAD-BEARING HALF.** `copy_tier`
+  was already correct (the typechecker has had the tuple join since design 139);
+  CODEGEN was not. `_generate_copy`, `_emit_copy_value` and the three fallbacks
+  that decide a read-out-of-storage retain (`_transfer_needs_copy`'s
+  container-slot arm, `_slot_read_needs_copy`, `_frame_read_needs_copy`) all
+  listed STRUCT/ENUM/OPTIONAL and not TUPLE. Bitwise copy plus no drop is a leak;
+  bitwise copy plus a real drop is a DOUBLE FREE — landing the drop arm alone
+  crashed `let u = t` and every coroutine-frame tuple read. There is no
+  `_get_cleanup_behavior` answer for a tuple to catch it earlier (a structural
+  type has no name to look a conformance up under), so those kind lists are the
+  whole decision.
+  **AUDIT of the other composite arms, as the brief asked:** a fixed array of
+  owning elements had its glue from design 33 and balanced BEFORE this change —
+  `owning_array` in the example is the control that keeps it that way, and
+  `array_of_tuples` is the composition that did not work. Optionals, enums,
+  closures and erased boxes were all already covered. TUPLE was the only missing
+  kind, and it was missing in every walker at once.
+  One example, `df151f_tuple_drop_glue.saw`: eighteen shapes (named local, field
+  names, nesting, tuple-in-struct, tuple-in-enum, destructuring, the DF-151d
+  temporary scrutinee, whole-tuple copy, by-value argument, return, element
+  read, `Vector` element, fixed array, optional payload, reassignment, and two
+  across a suspension) against an Arc-behind-deinit counter; in the Guard Malloc
+  lane, where the over-release this fix could invert to is the failure nothing
+  else can see.
+- **DF-151h — FIXED Aug 7 (codegen; found while fixing DF-151f).**
+  **An assignment RHS did not retain what it read out of storage.** DF-139a
+  retired the question "is the initializer a bare Identifier?" at the `let`
+  path — it retained a whole-binding read and bitwise-aliased every PROJECTION
+  beside it. The ASSIGNMENT path, one statement kind over, still asked exactly
+  that question:
   ```saw
-  func named_tuple(a: Arc<Res>, k: Int) -> Int {
-      let t = (mk(a: a), k)     // mk returns an owning enum
-      t.1
-  }                             // count 1 -> 2 -> 3 across two calls
+  var a = res(200)
+  a = h.r          // `h` keeps owning it; the alias was not retained
   ```
-  `_needs_cleanup` has no TUPLE arm and `_emit_drop_at` has none either (it falls
-  through to `_emit_field_cleanup_at`, which finds no struct fields), so the
-  scope-exit drop of a tuple binding is a no-op. Reproduces with a `String`
-  element as well as an enum one. Consequence: a temporary tuple SCRUTINEE
-  (`match (f(), k) { ... }`) still leaks after DF-151d — the match now registers
-  it for cleanup, and the cleanup does nothing. That is the one shape of DF-151d
-  left standing, and it is this bug, not that one.
-  Fixing it is its own unit: `_needs_cleanup`/`_emit_drop_at` need TUPLE arms
-  (walk `element_types`, drop in reverse — the LIFO rule fields already follow),
-  and design 139's wrapper-tier rule names tuples explicitly, so the COPY side
-  (`copy_tier`, `_emit_copy_value`) should be audited in the same pass rather
-  than left half-done. Worth checking a tuple RETURN and a tuple struct field
-  too.
+  so both halves released one reference: one allocation, two frees. Latent
+  rather than loud — the surplus release lands in a block libmalloc has freed
+  but not unmapped, so `strong_count` read one low and nothing faulted until an
+  unrelated allocation tripped over the damage (the DF-151b failure mode).
+  All five assignment targets now ask the shared transfer oracle
+  (`_transfer_site_needs_copy`, renamed from `_let_init_needs_copy` since it is
+  no longer a `let`-only question): a local, a struct field, a fixed-array
+  element, a nested-array element, and a design-110 `&var` referent replacement
+  — a projection RHS reaches every one. The design-124 frame-read branch is
+  checked FIRST and keeps its own type source, so its copy stays driven by the
+  VALUE's type rather than the destination's.
+  Surfaced because DF-151f's drop glue turned it into a hard crash on
+  `a = t.0`: the tuple's missing drop had been masking the missing retain.
+  Example `df151h_assign_rhs_retain.saw` (six shapes + the Identifier control),
+  in the Guard Malloc lane.
+- **DF-151i — FILED, NOT FIXED (typechecker; found while fixing DF-151f,
+  Aug 7).** **`.copy()` does not exist on a tuple, and the transfer refusal
+  recommends it anyway.** An ExplicitCopy tuple is therefore move-only in
+  practice, and the two diagnostics contradict each other:
+  ```saw
+  let t = (move v, 5)          // v: Vector<Int>, so the tuple is ExplicitCopy
+  let u = t
+  // error: cannot copy value of type `(Vector<Int, GlobalAllocator>, Int)`
+  //        which implements ExplicitCopy
+  // hint:  use .copy() for an explicit deep copy, or `move` to transfer ownership
+  let u = t.copy()
+  // error: type `(Vector<Int, GlobalAllocator>, Int)` is not Copy; `.copy()`
+  //        requires a trivially-copyable, ImplicitCopy, or ExplicitCopy type
+  ```
+  The second message is wrong on its own terms — `copy_tier` reports that tuple
+  as 'explicit', which is precisely the tier it says it requires. Design 139
+  names the tuple beside `Optional<T>` and `[T; N]` as a wrapper carrying its
+  strongest element's tier, and both of those DO have `.copy()`
+  (`o.copy()` on a `Vector<Int>?` and `a.copy()` on a `[Vector<Int>; 1]` both
+  compile and deep-copy today). The tuple is the one wrapper the rule names that
+  never got the method.
+  Location is the typechecker's `.copy()` resolution, which has no TUPLE arm —
+  NOT codegen, which is already ready: DF-151f's `_emit_tuple_deep_copy` routes
+  each element through `_emit_copy_value`, so an ExplicitCopy element would run
+  its own `copy()` and an ImplicitCopy one would retain, exactly as the array
+  path does. Expected shape of the fix: give the method resolution the arm, and
+  gate it on `copy_tier != 'nocopy'` the way the optional path is gated (a
+  `(File, Int)` must stay refused, naming `move`).
+  Deferred out of DF-151f only because that unit's surface was codegen; a
+  one-arm typechecker change with the codegen already in place.
 - **DF-151g — FILED, NOT FIXED (codegen; found while fixing DF-151d, Aug 6).**
   **A `_`-discarded NoCopy payload in a match arm never runs its deinit.**
   ```saw
