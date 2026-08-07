@@ -74,6 +74,18 @@ print("{#file}:{#line} - msg")  // #file/#line/#function: definition-site consts
   suppression needs the parser to have committed to the generic reading. An
   unclosed `(`/`[` is reported AT THE OPENER, not at EOF. Wrap a long signature
   or call rather than hoisting extra bindings just to fit a line.
+  **A BINARY EXPRESSION DOES NOT WRAP unless brackets already enclose it**
+  (DF-172d) — neither spelling works, so reach for parentheses:
+  ```saw
+  let d = base | VALID | PAGE
+        | AF | UXN            // error: Unexpected token: PIPE
+  let d = base | VALID | PAGE |
+          AF | UXN            // error: Unexpected token: NEWLINE
+  let d = (base | VALID | PAGE
+           | AF | UXN)        // OK — the newline is inside `(`
+  ```
+  Hits hardest when OR-ing named bits into a hardware descriptor, which is the
+  most common long line in a driver.
 - Doc comments (design 121): `///` documents the declaration that FOLLOWS it
   (top-level func/struct/enum/trait/extension/type/static, struct fields, enum
   cases, extension methods + inits, trait methods); a run of `///` lines is one
