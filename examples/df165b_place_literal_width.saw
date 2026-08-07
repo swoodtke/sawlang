@@ -1,0 +1,52 @@
+// DF-165b: a bare integer literal assigned into an indexed PLACE adopts the
+// element's fixed width, exactly as it does at a `let`, a parameter, a field or
+// a plain assignment.
+//
+// It did not. `v[0] = 7` on a `Vector<UInt8>` type-checked the literal with no
+// expected type in force, so it stayed platform `Int` and reached codegen as a
+// `store i64` into an `i8*` — an internal compiler error on a line with nothing
+// wrong with it. The same gap meant no range check ran on the literal either,
+// so the diagnostic for an out-of-range one was the ICE rather than an error
+// naming the value.
+//
+// Found while building design 165's `Data` place tests; the bug is older and
+// has nothing to do with `Data` — it reproduces on a bare `Vector<UInt8>`.
+// EXPECT: success
+// EXPECT-OUTPUT:
+// vector 7 9
+// data 42 3
+// array 5 -6
+// wide 1000 70000
+import std.data.*
+
+func main() {
+    // A Vector place: the shape that ICEd.
+    var v: Vector<UInt8> = Vector<UInt8>()
+    v.push(0 as UInt8)
+    v.push(0 as UInt8)
+    v[0] = 7            // bare literal, adopts UInt8
+    v[1] = 9u8          // suffixed literal still exact
+    print("vector {v[0]} {v[1]}")
+
+    // A Data place: same lowering, same rule.
+    var d = Data(capacity: 4)
+    d.push(0)
+    d.push(1)
+    d[0] = 42
+    d[1] += 2
+    print("data {d[0]} {d[1]}")
+
+    // A fixed array element, including a signed narrow width.
+    var a: [Int8; 2] = [0; 2]
+    a[0] = 5
+    a[1] = -6
+    print("array {a[0]} {a[1]}")
+
+    // Wider fixed widths take the same path.
+    var w: Vector<Int32> = Vector<Int32>()
+    w.push(0i32)
+    w.push(0i32)
+    w[0] = 1000
+    w[1] = 70000
+    print("wide {w[0]} {w[1]}")
+}

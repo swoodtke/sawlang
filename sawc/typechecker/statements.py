@@ -1998,7 +1998,15 @@ class StatementsMixin:
                         stmt.target.index.line, stmt.target.index.column
                     )
 
-            # Check value type matches element type
+            # Check value type matches element type. The element type is an
+            # EXPECTED type for the value, so a bare literal adopts its width
+            # here exactly as it does at a `let`, a parameter or a plain
+            # assignment (DF-165b). Without this an `v[i] = 7` into a
+            # `Vector<UInt8>` left the literal at platform `Int` and reached
+            # codegen as a `store i64` into an `i8*` — an internal compiler
+            # error on a line with nothing wrong with it, and no range check on
+            # the literal either.
+            self._apply_literal_expected_type(stmt.value, element_type)
             value_type = self._check_expression(stmt.value)
             if value_type and element_type:
                 if not self._types_compatible(value_type, element_type):
