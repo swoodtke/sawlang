@@ -1,9 +1,11 @@
 # Design 162 — SOS M1b: arm64 EL1 parity + the HAL extraction
 
-**Status: DRAFT for user review (M1 integration in flight). Process
-pin: like every early SOS branch, M1b PARKS for user review before
-integrating — the compiler-side DF fixes it produces cherry-pick to
-main immediately, the sos/ work waits.**
+**Status: APPROVED (user, Aug 7: "approve the M1b recommendations -
+dispatch when M1 integrates") — all three decisions below are
+ratified as recommended. Dispatches the moment M1 lands on main.
+Process pin: like every early SOS branch, M1b PARKS for user review
+before integrating — the compiler-side DF fixes it produces
+cherry-pick to main immediately, the sos/ work waits.**
 
 ## Goal
 
@@ -57,21 +59,21 @@ arch means writing a HAL, not editing the kernel.
    all have arm64 answers to verify: LSE/`+a`-equivalent atomics
    exist at EL1, so `SpinLock` should just work; prove it.)
 
-## Decisions for the user (recommendations marked)
+## Decisions (all three RATIFIED as recommended [user, Aug 7])
 
-1. **arm64 syscall register convention** — [recommend] `svc #0`,
+1. **arm64 syscall register convention** — [ratified] `svc #0`,
    `x0` = handle, `x8` = op (the Linux-style op register keeps
    x0-x5 clean for args), args `x1-x5`, returns `x0` = status
    (`SosStatus` tag), `x1` = value/handle. Mirrors the riscv shape
    one-to-one; recorded in spec §5.7 beside the riscv column.
-2. **Memory protection at EL1** — [recommend] a minimal STATIC
+2. **Memory protection at EL1** — [ratified] a minimal STATIC
    identity-mapped MMU setup (block mappings, kernel RWX under EL1,
    the root image's region EL0-accessible per its SegFlags-validated
    permissions) as the PMP parity. The alternative — MMU off — runs
    but abandons M1's protection story on arm64. No dynamic mapping,
    no ASIDs, no TLB games beyond the mandatory: Mapping objects stay
    M2.
-3. **QEMU machine/CPU** — [recommend] `-M virt -cpu cortex-a53`
+3. **QEMU machine/CPU** — [ratified] `-M virt -cpu cortex-a53`
    (ubiquitous, EL1 well-exercised, LSE atomics present).
 
 ## Gates
