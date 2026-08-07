@@ -2604,6 +2604,13 @@ g[4].weight += 1        // exclusive window on `g`
 bump(&var g[4])         // exclusive window, spanning the call
 ```
 
+A shared window lends the element **read-only**: inside it the place is a `&T`,
+so a write is a compile error there and not merely a use site the classifier was
+supposed to have called exclusive. Nested windows take the inner one's flavor —
+`b[0][1].count += 1` opens two exclusive windows, since the write reaches the
+outer place's storage — and an immutable root is refused for either of them,
+named as the root rather than as the window.
+
 > **`borrows` changes what `&self` means.** A `borrows` accessor's receiver is
 > borrowed with the **window's** flavor, decided at each use site — this is the
 > one place in Saw where a `&self` spelling does not mean shared-only. A read

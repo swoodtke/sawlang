@@ -298,8 +298,28 @@ accessors are already emitted per window result type
   its own; it is also a PREREQUISITE for `#lend_var`, whose shared copy is
   only as trustworthy as this rule.
 
-- **DF-175b — OPEN (LANGUAGE/SOUNDNESS). A SHARED place window is enforced by
-  use-site classification, not by the window's type.** The declaration
+- **DF-175b — FIXED (design 176 unit 14). A SHARED place window was enforced by
+  use-site classification, not by the window's type.** The window's PARAMETER is
+  now bound read-only for the shared flavor (`ClosureParam.place_shared_window`,
+  honored where the checker defines a closure parameter) while the closure's
+  TYPE keeps the one `(&var T)` shape the declaration lowers to — so the flavor
+  stays a use-site property and a misclassification became a compile error
+  instead of a silent write. Building it turned up TWO live misclassifications,
+  both of which let a `let` root be mutated and both fixed here:
+  (1) `_method_mutates` asked `kind == STRUCT`, so a `&var self` method on an
+  ENUM element (design 145 gave enums method tables) classified as a read —
+  `let frozen = build(); frozen[0].flip()` compiled and mutated;
+  (2) `_chain_is_exclusive` did not see an already-lowered INNER window, so
+  every CONTAINING window of a nested write came out shared —
+  `let frozen = Bag(...); frozen[0][1].count += 10` compiled and mutated, and
+  what error there was named the synthesized `__p58`. Both verified against
+  unmodified `main` before the fix. Tests:
+  `examples/errors/place_window_enum_method_let_root.saw`,
+  `examples/errors/place_nested_window_let_root.saw`,
+  `examples/place_shared_window_readonly.saw`. In-tree migration tail: ZERO
+  (one example, `place_shared_accessor_flavors.saw`, changed VERDICT under the
+  half-fix and was correct again once the nested-flavor propagation landed).
+  Original finding follows. The declaration
   lowering gives every accessor ONE window closure shape,
   `__window: (&var T) sync -> __R` (`place_transform._lower`), so a window
   classified shared still receives a MUTABLE reference to the element;

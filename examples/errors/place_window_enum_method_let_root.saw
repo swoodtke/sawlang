@@ -1,0 +1,37 @@
+// DF-175b. The window's flavor comes from the USE SITE, and the classifier
+// asked "does this method take `&var self`" only of STRUCT receivers. Enums
+// have carried method tables since design 145, so a `&var self` method on an
+// ENUM element answered "does not mutate": `frozen[0].flip()` opened a SHARED
+// window and then wrote through it, because every lowered accessor takes one
+// `(&var T)` window closure whatever the use site decided.
+//
+// Nothing caught it — the write landed and looked right. What it cost was the
+// exclusivity accounting: a `let` root accepted a mutation.
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: cannot open an exclusive place window on immutable variable `frozen`
+
+enum Light { case Red, case Green }
+
+extension Light {
+    func flip(&var self) {
+        match self {
+            case Red -> { self = Light.Green },
+            case Green -> { self = Light.Red }
+        }
+    }
+    func name(&self) -> String {
+        match self { case Red -> "red", case Green -> "green" }
+    }
+}
+
+func build() -> Vector<Light> {
+    var v = Vector<Light>()
+    v.push(Light.Red)
+    move v
+}
+
+func main() {
+    let frozen = build()
+    frozen[0].flip()
+    print("{frozen[0].name()}")
+}

@@ -1496,6 +1496,15 @@ class ClosureParam:
     type_annotation: Optional[SawType] = None
     is_reference: bool = False       # True for `&data` / `&var data` params
     reference_mutable: bool = False  # True for `&var data`
+    # Design 176 (DF-175b): set on the parameter of a SHARED place window that
+    # `place_uses` synthesizes. Every accessor is lowered with one `(&var T)`
+    # window closure — the flavor is a property of the use site, not of the
+    # declaration — so the shared flavor used to receive a mutable reference and
+    # soundness rested entirely on the use-site classifier being complete. The
+    # binding is read-only whatever the closure's TYPE says, which turns a
+    # misclassification into a compile error instead of a silent write through
+    # storage the root holds immutably. No source spells this.
+    place_shared_window: bool = False
     line: int = 0
     column: int = 0
 

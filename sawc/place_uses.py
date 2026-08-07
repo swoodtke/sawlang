@@ -484,7 +484,8 @@ class _PlaceUses:
         """The accessor call that opens one window."""
         closure = ClosureExpr(
             parameters=[ClosureParam(name=param_name, line=place.line,
-                                     column=place.column)],
+                                     column=place.column,
+                                     place_shared_window=not exclusive)],
             body=body, line=place.line, column=place.column)
         args = [Argument(value=self._value(a)) for a in self._place_args(place)]
         args.append(Argument(value=closure))
@@ -656,6 +657,16 @@ class _PlaceUses:
         node = expr
         while node is not place:
             if isinstance(node, MethodCall):
+                if getattr(node, 'place_window_exclusive', False):
+                    # An already-lowered INNER window that writes. Windows nest
+                    # (`b[0][1].count += 1` is two), and the write reaches the
+                    # outer place's storage, so the outer window is exclusive
+                    # too. Reading only `_method_mutates` here answered "shared"
+                    # for every containing window: the outer borrow of `b` was
+                    # joined as a shared one, and a `let` root would have taken
+                    # the write. Harmless only because the window closure was
+                    # `&var` regardless — which is the coupling DF-175b removed.
+                    return True
                 if self._method_mutates(node):
                     return True
                 node = node.object
@@ -672,10 +683,10 @@ class _PlaceUses:
         return False
 
     def _method_mutates(self, call) -> bool:
-        recv_t = getattr(call.object, 'resolved_type', None)
-        if recv_t is None or recv_t.kind != TypeKind.STRUCT:
+        owner = _method_owner_name(getattr(call.object, 'resolved_type', None))
+        if owner is None:
             return False
-        info = self.ns.lookup_method(recv_t.struct_name, call.method_name)
+        info = self.ns.lookup_method(owner, call.method_name)
         return bool(info is not None and getattr(info, 'self_mutable', False))
 
     # -- chain plumbing ----------------------------------------------------
@@ -810,6 +821,37 @@ class _PlaceUses:
 
 def _is_expr(node) -> bool:
     return isinstance(node, Expression)
+
+
+# Kinds whose methods are registered under their display name — the design-57
+# extensible pseudo-structs. A `String` receiver is a STRUCT already.
+_PRIMITIVE_METHOD_KINDS = frozenset({
+    TypeKind.INT, TypeKind.UINT,
+    TypeKind.INT8, TypeKind.INT16, TypeKind.INT32, TypeKind.INT64,
+    TypeKind.UINT8, TypeKind.UINT16, TypeKind.UINT32, TypeKind.UINT64,
+    TypeKind.FLOAT, TypeKind.BOOL, TypeKind.STRING,
+})
+
+
+def _method_owner_name(saw_type):
+    """The name a method on this type is registered under, or None.
+
+    Enums carry method tables exactly as structs do (design 145), and the
+    classifier below used to test `kind == STRUCT` — so a `&var self` method on
+    an ENUM element answered "does not mutate" and its use site opened a SHARED
+    window. The write still landed (the window is `&var` either way), which is
+    why nothing caught it: `let frozen = build()` then `frozen[0].flip()`
+    compiled and mutated an immutable root.
+    """
+    if saw_type is None:
+        return None
+    if saw_type.kind == TypeKind.STRUCT:
+        return saw_type.struct_name
+    if saw_type.kind == TypeKind.ENUM:
+        return saw_type.enum_name
+    if saw_type.kind in _PRIMITIVE_METHOD_KINDS:
+        return str(saw_type)
+    return None
 
 
 def _arm_bindings(arm):

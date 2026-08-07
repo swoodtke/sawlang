@@ -8833,7 +8833,22 @@ class ExpressionsMixin:
                 # (or module static) is a flat error.
                 self._check_shadowing(param.name, None, param.line,
                                       param.column, site="param")
-                self.current_scope.define(param.name, VariableInfo(param_type, False, param.line, param.column))
+                # DF-175b: a SHARED place window binds its element read-only.
+                # The closure's TYPE keeps the `(&var T)` shape the accessor's
+                # one lowered `__window` parameter declares — the flavor is a
+                # use-site property, not a declaration one — but the BINDING is
+                # a shared borrow, so a write through it is the ordinary
+                # immutable-reference error rather than a write that lands in
+                # storage the root holds immutably.
+                bound_type = param_type
+                if (getattr(param, 'place_shared_window', False)
+                        and bound_type is not None
+                        and bound_type.kind == TypeKind.REFERENCE
+                        and bound_type.reference_mutable):
+                    bound_type = SawType(TypeKind.REFERENCE,
+                                         inner_type=bound_type.inner_type,
+                                         reference_mutable=False)
+                self.current_scope.define(param.name, VariableInfo(bound_type, False, param.line, param.column))
         elif expr.shorthand_param_count > 0:
             for i in range(expr.shorthand_param_count):
                 if expected_type and expected_type.kind == TypeKind.FUNCTION:

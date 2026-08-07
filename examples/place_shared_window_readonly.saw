@@ -1,0 +1,73 @@
+// DF-175b, the positive half. A shared place window binds its element READ-ONLY,
+// so the two flavors are told apart by the binding and not only by the use-site
+// classifier that picked them. What still works is every read, at every nesting
+// depth and on a `let` root; what changed is that a misclassified WRITE is now a
+// compile error rather than a write through storage the root holds immutably.
+//
+// The enum element is the case that used to slip through: `&var self` methods on
+// enums were invisible to the classifier, so `v[0].flip()` opened a shared
+// window. It opens an exclusive one now, which is why the `var` root below is
+// required and the `let` root in errors/place_window_enum_method_let_root.saw is
+// refused.
+// EXPECT: success
+// EXPECT-OUTPUT:
+// flipped green
+// frozen red
+// nested read 2
+// nested write 12
+// -- done
+
+enum Light { case Red, case Green }
+
+extension Light {
+    func flip(&var self) {
+        match self {
+            case Red -> { self = Light.Green },
+            case Green -> { self = Light.Red }
+        }
+    }
+    func name(&self) -> String {
+        match self { case Red -> "red", case Green -> "green" }
+    }
+}
+
+struct Cell { count: Int }
+struct Row { cells: [Cell; 2] }
+struct Bag { rows: [Row; 2] }
+
+extension Row {
+    public func [](&self, i: Int) borrows -> Cell {
+        if i < 0 || i >= 2 { panic("Row.[]: index out of range") }
+        lend self.cells[i]
+    }
+}
+
+extension Bag {
+    public func [](&self, i: Int) borrows -> Row {
+        if i < 0 || i >= 2 { panic("Bag.[]: index out of range") }
+        lend self.rows[i]
+    }
+}
+
+func lights() -> Vector<Light> {
+    var v = Vector<Light>()
+    v.push(Light.Red)
+    move v
+}
+
+func main() {
+    var v = lights()
+    v[0].flip()
+    print("flipped {v[0].name()}")
+
+    // A shared window over the same accessor, on an immutable root.
+    let frozen = lights()
+    print("frozen {frozen[0].name()}")
+
+    var b = Bag(rows: [Row(cells: [Cell(count: 1), Cell(count: 2)]),
+                       Row(cells: [Cell(count: 3), Cell(count: 4)])])
+    print("nested read {b[0][1].count}")
+    b[0][1].count += 10
+    print("nested write {b[0][1].count}")
+    print("-- done")
+}

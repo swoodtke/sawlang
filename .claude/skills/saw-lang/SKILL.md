@@ -296,9 +296,13 @@ var u = w.copy()       // explicit duplicate
   once or diverges first (`panic` before the lend is the bounds-check shape);
   `lend` inside a loop is rejected (lend once, after the loop picks the place).
   **The USE SITE picks the flavor**: a read opens a shared window, a write or a
-  `&var` argument opens an exclusive one, out of ONE declaration. Window extent
+  `&var` argument opens an exclusive one, out of ONE declaration. A SHARED
+  window lends the element READ-ONLY (`&T`), so a write inside one is a compile
+  error (design 176 — before that the window was `&var` whichever flavor was
+  picked, and a misclassified use site wrote through it silently). Window extent
   = the smallest expression that turns the place back into a value; windows
-  NEST (`b[0][1].n += 1` is two, epilogues LIFO). A place borrow charges its
+  NEST (`b[0][1].n += 1` is two, epilogues LIFO) and a nested WRITE makes every
+  containing window exclusive too, so an immutable root is refused by NAME. A place borrow charges its
   ROOT, so `v.push(x)` inside a window is a compile error (invalidation-proof
   by the Law of Exclusivity, not by a closure scope) and so is swapping two
   elements through two windows (`v.swap(i, j)` is the method for that).
