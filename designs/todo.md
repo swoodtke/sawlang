@@ -1341,6 +1341,120 @@ noted live-range packing of locals; do both in one sizing brief.
   are inlined above). Worth a follow-up brief if the ANF hoist can be taught to
   lift a nested short-circuit.
 
+## Design 164 — std compile caching: INVESTIGATION COMPLETE (Aug 7), user picks
+
+`designs/164-std-compile-cache-investigation.md` carries the full report
+(per-tier numbers, the cache key, the differential-gate design). Nothing under
+`sawc/` was modified; every probe lives in `.build/scratch/` (gitignored). The
+implement decision is the user's.
+
+**The premise checks out but the conclusion moved.** Caching std's FRONT half is
+real and small — parse is 14.3% of a compile and typecheck 9.8%, and the
+re-entry passes can never be served, so tier A is worth ~11% and tier B ~19%.
+The compile is dominated by the BACK half: codegen + LLVM is 65%, and **90.1%
+of the emitted IR is std** (user code is 1.3%). `hello.saw` — four lines —
+emits 27,922 IR lines / 449 defines / a 265 KB object, and ~93% of its compile
+is std work. Only tier C touches that.
+
+**Per-tier verdicts** (ceiling / win / effort / risk):
+
+- **Tier A — serialized std ASTs: CLEAN.** 14.3% / ~11% measured / 0.5-1 d /
+  LOW. Pickles as-is (1.59 MB, no lambdas, no llvmlite, no file handles
+  reachable); the restored AST is **byte-identical to a fresh parse under the
+  `ast_dump` oracle**; load is 4-6x cheaper than parse and the deserialization
+  IS the per-compile copy. Prototype built out of tree
+  (`.build/scratch/sawc_cached.py`, ~40 lines) and gated; see below for why it
+  did not land.
+- **Tier B — typechecked namespace: CLEAN, one mandatory fix.** 24% / ~19% /
+  2-4 d / MEDIUM. The `(ast, ns)` pair pickles at 2.08 MB (gzip-1 → 0.30 MB),
+  works at the default recursion limit, and every identity invariant survives a
+  SINGLE-blob round trip — `SawType` aliasing `shared=106 broken=0`,
+  `StructSymbol.ast_node` `ok=19 broken=0`, enum singletons `is`-identical;
+  9/9 sample examples emit byte-identical IR from a restored namespace. The
+  hazard is `node_id`: pickle preserves it, `__deepcopy__` deliberately
+  freshens it, and `compile_saw` parses the USER file first — so restored std
+  ids collide with user ids (~0.6% per entry extension) and corrupt
+  `effects.py:255` and `coro_transform.py:5152` SILENTLY. Fix: restore the blob
+  before parsing the entry file and seed the counter past it (free). **Never
+  split the pair across two pickles** — that breaks the aliasing above and
+  compiles a struct against another struct's layout with no diagnostic.
+- **Tier C — precompiled std object: FEASIBLE ON IDENTITY, BLOCKED ON
+  EXCLUSIONS.** ~87% of emitted IR / est. 3-5x on `hello` / 8-12 d / HIGH.
+  Design 144 delivers what tier C needs and it was VERIFIED, not assumed: 312
+  std symbols carry byte-identical mangled names across 12 programs and across
+  targets. std bodies are byte-identical across programs once four counters are
+  normalized (DF-164c). Non-generic std is 54.5% of std IR; adding the 142
+  monomorphizations present in 13/13 binaries (92.3% of the mono weight, all
+  arising from std instantiating ITSELF) covers ~96.5% of std IR. **The blocker
+  is `compute_std_codegen_exclusions` (`sawc.py:401-469`): 288 distinct
+  compiled-std sets over the 2^12 import subsets, and a fixed whole-std object
+  re-opens the design-82/84 collision — verified, `struct File` + `import
+  std.file` gives `ambiguous struct File` and the symbols hard-collide.**
+  Unblocking whole-std means reversing design 144's std type-identity
+  exemption — a user decision. Short of that, tier C is a content-keyed
+  per-(triple, profile, exclusion-set) object cache in the `.build/rt/<hash>/`
+  mould, which still captures most of the win.
+
+**Recommended order — the first item is not a cache.** (1) Land DF-164b
+dead-strip alone, 0.5 d, 52-76% off every binary, and it is the precondition
+that makes any fixed-set std object size-neutral. (2) DF-164c + DF-164a,
+~2 d, the entire remaining IR-variance obstacle to tier C. (3) Then ONE
+front-half tier — **B subsumes A** (same mechanism, same key, one blob, +8
+points), so taking A now and B later builds the same thing twice. (4) Tier C
+last, after the design-144 decision.
+
+**Tier A did not land as a flag,** though the brief permits it: a default-off
+flag delivering 11% is a path nobody enables and everybody maintains, and tier
+B replaces it wholesale with the same plumbing. It is one commit away if the
+user wants it.
+
+- **DF-164a — `__collit_{node_id}` leaks the process-global node counter into
+  emitted IR.** `codegen/collections.py:86`. A process that compiles more than
+  once emits different IR TEXT for identical source (`%"__collit_14189"` vs
+  `%"__collit_29638"` on `place_paired_literal_fields.saw` and
+  `shadow_owning_lifetime.saw`). Objects are byte-identical, so it is IR-only
+  today — but `tools/irdet.py`'s one-compile-per-process oracle structurally
+  cannot see it, and design 126 R2 introduced `node_id` precisely to make output
+  reproducible. Same class at `codegen/match.py:152`, which builds
+  `__match_scrutinee.{id(expr)}` from a RAW ADDRESS. Found by the tier-A
+  differential, which then exonerated the cache with a fresh-vs-fresh repro.
+- **DF-164b — the hosted link line has no dead-strip.** `sawc.py:1146` is
+  `["clang", obj, *rt_objects, "-o", out]` — no `-dead_strip`, no
+  `--gc-sections`, no `-ffunction-sections`; hosted std keeps external linkage
+  (0/312 internal, measured) so `-O1`'s `globaldce` cannot reach it either.
+  Every Saw binary ships 52-76% dead std: `hello` is 218 KB of which 155 KB is
+  unreachable, 534 external symbols of which 84 are live. Relinked with
+  `-Wl,-dead_strip` the binaries still run, and `allstd` (every std module
+  compiled in) strips to within 16 bytes of `hello`. Re-verified by hand:
+  `hello` 218,216 -> 62,712 bytes (71%), output unchanged. One line, highest
+  value per unit effort in the whole investigation, independent of every tier.
+  ONE caveat before it lands blind: an `@export`ed symbol in a HOSTED
+  executable that nothing references from the entry graph is exactly what
+  dead-strip removes, so `@export`/`@section` and the design-149
+  runtime-provider role need a deliberate keep (`-u`, or
+  `__attribute__((used))`-equivalent linkage). `examples/export_roundtrip.saw`
+  and the `EXPECT-SYMBOL-UNDEFINED` tests are the oracle. Freestanding and
+  `--runtime-build` do not link at all, so they are untouched.
+- **DF-164c — four synthesized-symbol counters make std's IR
+  program-dependent for no reason.** `.sawstr.N` (`codegen/core.py:1534`),
+  `.rawbytes.N` (`codegen/calls.py:478`), `__closure_N`
+  (`codegen/closures.py:126`), `__task_tramp_N` (`codegen/calls.py:1805`) —
+  one counter shared by std and user code, so any user string literal
+  renumbers every std reference. Normalize all four and **0/312 std bodies
+  differ across 12 programs**. Blocks tier C; harmless otherwise.
+- **DF-164d — the front half re-typechecks std 2-3 times per compile.** The
+  place-lowering re-entry (`sawc.py:1005-1024`) and the coro-transform re-entry
+  (`:1040-1075`) each re-run `build_builtin_namespace`. Design 146 removed the
+  re-PARSE; the re-CHECK remains at ~150 ms a pass and NO cache can serve it,
+  since the AST being rechecked is the program's own mutated std. Whether the
+  second check is necessary was not established — worth a look, because
+  removing one pass is worth about as much as tier A.
+- **VERIFY (not a defect, a measurement correction for future gates): the
+  linked binary is not a reproducible artifact on macOS.** It carries an N_OSO
+  debug-map stab holding the object's path and mtime, so two COLD compiles of
+  one file into different directories already differ. Byte-compare the `.ll`,
+  the `.o`, and exit/stdout/stderr — not the executable.
+
 ## Design 138 — the all-sources docs consistency sweep (LANDED, Aug 6)
 
 `designs/138-readme-docs-pass.md` closed, at the user's expanded scope: a
