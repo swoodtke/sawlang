@@ -421,12 +421,12 @@ class StatementsMixin:
                         self._transfer_site_needs_copy(stmt.value):
                     value = self._generate_copy_for_dest(value, var_type)
 
-                # Wrap in optional if assigning T to T?
+                # Wrap in optional if assigning T to T? (one layer at most —
+                # `_fit_optional_slot` compares against the slot's payload, so a
+                # nested optional fits too).
                 expected_type = self._get_llvm_type(var_type)
-                if (var_type.is_optional() and
-                    self._is_optional_type(expected_type) and
-                    not self._is_optional_type(value.type)):
-                    value = self._wrap_in_optional(value)
+                if var_type.is_optional():
+                    value = self._fit_optional_slot(value, expected_type)
 
             self.builder.store(value, target_ptr)
             # DF-146h: re-arm the drop flag of a moved-from local. A static
@@ -530,9 +530,7 @@ class StatementsMixin:
             # opt-encoded coroutine closure frame field `f: (()->Int)?` whose value
             # is the 3-word closure struct (design 77 item 4).
             expected_field_type = field_ptr.type.pointee
-            if (self._is_optional_type(expected_field_type)
-                    and not self._is_optional_type(value.type)):
-                value = self._wrap_in_optional(value)
+            value = self._fit_optional_slot(value, expected_field_type)
 
             # Store value to field
             self.builder.store(value, field_ptr)
@@ -653,9 +651,7 @@ class StatementsMixin:
             # Missing here until DF-151e, because no `[T?; N]` could be built to
             # reach it: `b[0] = s` on a `[String?; 2]` stored a bare `i8*` into a
             # `{i1, i8*}` slot.
-            if (self._is_optional_type(elem_type)
-                    and not self._is_optional_type(value.type)):
-                value = self._wrap_in_optional(value)
+            value = self._fit_optional_slot(value, elem_type)
 
             # Store value to element
             self.builder.store(value, elem_ptr)
@@ -724,9 +720,7 @@ class StatementsMixin:
         elif self._frame_owning_read_copy(stmt.value):
             value = self._generate_copy(value, self._expr_type(stmt.value))
         expected_type = elem_ptr.type.pointee
-        if (self._is_optional_type(expected_type)
-                and not self._is_optional_type(value.type)):
-            value = self._wrap_in_optional(value)
+        value = self._fit_optional_slot(value, expected_type)
         self.builder.store(value, elem_ptr)
 
     def _store_replacement_through_ptr(self, stmt, value, referent_ptr,
@@ -754,9 +748,7 @@ class StatementsMixin:
                 or self._transfer_site_needs_copy(stmt.value)):
             value = self._generate_copy_for_dest(value, referent_saw)
         expected_type = referent_ptr.type.pointee
-        if (self._is_optional_type(expected_type)
-                and not self._is_optional_type(value.type)):
-            value = self._wrap_in_optional(value)
+        value = self._fit_optional_slot(value, expected_type)
         self.builder.store(value, referent_ptr)
 
     def _generate_compound_assign_statement(self, stmt: CompoundAssignStatement):

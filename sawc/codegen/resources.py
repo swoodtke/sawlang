@@ -1269,11 +1269,20 @@ class ResourcesMixin:
         reasons: it is the same test the wrap itself uses, and it holds for the
         synthesized nodes (coroutine frame stores) that carry no `resolved_type`
         to consult.
+
+        "Same test as the wrap" is the load-bearing part, so it asks the question
+        the way `_fit_optional_slot` now does: the value is the PAYLOAD when its
+        LLVM type is the payload's. A bare shape test could not see that at a
+        NESTED optional — an `Int?` value bound for an `Int??` destination is
+        itself optional-shaped, so the glue was driven with `Int??` over a value
+        that has one tag word, not two (DF-174b's family).
         """
         if (dest_saw is not None and dest_saw.is_optional()
-                and dest_saw.inner_type is not None
-                and not self._is_optional_type(value.type)):
-            return dest_saw.inner_type
+                and dest_saw.inner_type is not None):
+            inner_llvm = self._get_llvm_type(dest_saw.inner_type)
+            if (value.type == inner_llvm
+                    or not self._is_optional_type(value.type)):
+                return dest_saw.inner_type
         return dest_saw
 
     def _generate_copy_for_dest(self, value, dest_saw: SawType):

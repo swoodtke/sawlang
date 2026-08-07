@@ -1,0 +1,68 @@
+// DF-174b, widened. A task whose RESULT TYPE is an Optional, joined from both a
+// single-threaded and a multi-threaded group.
+//
+// The group's result cell holds `T?` — the encoding's `None` is what "no result
+// yet" means, and it is what lets `join` take the value exactly once. At
+// `T = Int?` that cell is an `Int??`, and two separate things had collapsed a
+// layer: the store's wrap test asked only whether the value was optional-SHAPED
+// (an `Int?` is, so nothing wrapped, and LLVM refused the store), and a bare
+// `return None` typed itself against the cell and became the OUTER None, which
+// reads as "not finished" and made `join` force-unwrap nothing.
+//
+// A `String?` result carries the ImplicitCopy case through the same path: the
+// payload must survive the move out of the cell.
+// EXPECT: success
+// EXPECT-OUTPUT:
+// st some 6
+// st none absent
+// mt sum 30
+// mt absent 2
+// text hello
+// text absent
+// -- done
+
+import std.task.*
+
+func double_or_none(n: Int) -> Int? {
+    yield_now()
+    if n < 0 { return None }
+    let r: Int? = n * 2
+    return r
+}
+
+func label(n: Int) -> String? {
+    yield_now()
+    if n < 0 { return None }
+    "hello"
+}
+
+func main() {
+    var st = TaskGroup()
+    let a = st.spawn(double_or_none(3))
+    let b = st.spawn(double_or_none(-1))
+    print("st some {a.join() ?? -1}")
+    if let value = b.join() { print("st none {value}") } else { print("st none absent") }
+
+    // Multi-threaded: the result travels worker -> main across the join barrier.
+    var mt = TaskGroup(threads: 2)
+    let h1 = mt.spawn(double_or_none(5))
+    let h2 = mt.spawn(double_or_none(10))
+    let h3 = mt.spawn(double_or_none(-2))
+    let h4 = mt.spawn(double_or_none(-3))
+    var sum = 0
+    var absent = 0
+    if let v = h1.join() { sum += v } else { absent += 1 }
+    if let v = h2.join() { sum += v } else { absent += 1 }
+    if let v = h3.join() { sum += v } else { absent += 1 }
+    if let v = h4.join() { sum += v } else { absent += 1 }
+    print("mt sum {sum}")
+    print("mt absent {absent}")
+
+    // An ImplicitCopy payload out of the same cell.
+    var sg = TaskGroup()
+    let t1 = sg.spawn(label(1))
+    let t2 = sg.spawn(label(-1))
+    if let text = t1.join() { print("text {text}") } else { print("text absent") }
+    if let text = t2.join() { print("text {text}") } else { print("text absent") }
+    print("-- done")
+}

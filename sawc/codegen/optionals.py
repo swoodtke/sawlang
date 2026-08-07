@@ -80,6 +80,30 @@ class OptionalsMixin:
                 len(llvm_type.elements) == 2 and
                 llvm_type.elements[0] == ir.IntType(1))
 
+    def _fit_optional_slot(self, value, slot_type):
+        """`value`, wrapped once if that is what `slot_type` is asking for.
+
+        Every store into an optional slot used to ask "is the slot an optional
+        and the value not one" — a SHAPE test, which cannot tell an already-fit
+        value from one that needs another layer. At a NESTED optional both
+        answers are "optional" and the wrap was skipped, so an `Int?` was stored
+        into an `Int??` slot (DF-174b: `group.spawn(work())` where
+        `work() -> Int?`, whose result cell is `T?` at `T = Int?`).
+
+        Comparing the value against the slot's PAYLOAD type answers both cases
+        exactly, and the shape test is kept as the fallback so a value that
+        merely needs a later coercion (a narrower integer, say) still wraps
+        where it always did.
+        """
+        if value is None or not self._is_optional_type(slot_type):
+            return value
+        if value.type == slot_type:
+            return value
+        if (value.type == slot_type.elements[1]
+                or not self._is_optional_type(value.type)):
+            return self._wrap_in_optional(value)
+        return value
+
     def _generate_none_literal(self, expr: NoneLiteral):
         """Generate code for None literal.
 
@@ -541,9 +565,7 @@ class OptionalsMixin:
                 if field_saw is not None and isinstance(expr.value, Identifier):
                     value = self._generate_copy_for_dest(value, field_saw)
                 expected_field_type = field_ptr.type.pointee
-                if (self._is_optional_type(expected_field_type)
-                        and not self._is_optional_type(value.type)):
-                    value = self._wrap_in_optional(value)
+                value = self._fit_optional_slot(value, expected_field_type)
                 self.builder.store(value, field_ptr)
             elif kind == 'field':
                 field_ptr, _, _ = self._chain_field_gep(base_ptr, node.member)

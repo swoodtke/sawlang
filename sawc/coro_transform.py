@@ -4123,6 +4123,33 @@ class _FrameBuilder:
         cap_lets, self._cap_lets = self._cap_lets, saved_cap
         return cap_lets + [ns] + self._forgets(forgets)
 
+    def _result_store_value(self, value):
+        """The expression to store into an OPT-ENCODED result slot.
+
+        The slot is `T?` and the body produces a `T`; the encoding's `None` means
+        "no result yet", which is what lets `join` take the value exactly once.
+        When `T` is ITSELF an optional that reading is ambiguous for a bare
+        `return None`: typed against the slot, the literal becomes the OUTER
+        `None` — the not-yet state — and `join`'s `take()!` then force-unwraps
+        nothing (DF-174b, the half that survived the store-shape fix). Say which
+        layer it belongs to: a `None` of `T`, wrapped, so the slot reads "result
+        present, and the result is None".
+
+        Only this shape needs saying. A non-`None` value is already a `T` and the
+        store's own one-layer fit wraps it.
+        """
+        if not _enc_unwraps(self.result_enc):
+            return value
+        if self.ret is None or self.ret.kind != TypeKind.OPTIONAL:
+            return value
+        if not isinstance(value, NoneLiteral):
+            return value
+        # `expected_type`, not `resolved_type`: the tree is re-checked after the
+        # transform and the chokepoint would overwrite the latter.
+        value.expected_type = self.ret
+        return OptionalWrap(value=value, target_type=_opt(self.ret),
+                            line=value.line, column=value.column)
+
     def _lower_block_in_place(self, block):
         block.statements = self._lower_stmt_list(block.statements)
         if block.final_expr is not None:
@@ -4143,7 +4170,8 @@ class _FrameBuilder:
         flag without disturbing the moved value."""
         seq = []
         if value is not None and not self.is_void:
-            seq.append(AssignStatement(target=self._result_place(), value=value))
+            seq.append(AssignStatement(target=self._result_place(),
+                                       value=self._result_store_value(value)))
         elif value is not None and self.is_void:
             # A void `return foo()` (foo void) still runs its side effects; there
             # is no result slot to store into.

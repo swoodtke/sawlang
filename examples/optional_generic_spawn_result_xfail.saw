@@ -7,12 +7,17 @@
 // The cell is `T?` (present once the task completes) at `T = Int?`, i.e.
 // `Int??`, but the completion path stores the bare `Int?` result. A task
 // returning a non-optional joins fine, so this is specific to T = U?.
+//
+// FIXED by design 176 unit 8, which found two collapsed layers rather than one.
+// Every store into an optional slot asked whether the value was optional-SHAPED,
+// which cannot tell an already-fit value from one owing another layer; and a
+// bare `return None` typed itself against the cell, becoming the OUTER None —
+// the encoding's "no result yet" — so `join` force-unwrapped nothing.
 // EXPECT: success
 // EXPECT-OUTPUT:
 // joined 6
 // joined none -1
 // -- done
-// XFAIL: DF-174b spawning a task whose result type is an Optional ICEs in the result-cell store
 
 import std.task.*
 

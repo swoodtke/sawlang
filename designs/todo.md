@@ -191,6 +191,21 @@ verdict table: `designs/174-optional-generic-sweep.md`. 19 tests landed as
   it is specifically `-> T?` plus a tail expression. Severity is the highest of
   this batch: a crash today, a soundness hole if the verifier ever stops
   looking. Test: `examples/optional_generic_return_tail_xfail.saw`.
+- **DF-174b — FIXED (design 176 unit 8). Two collapsed layers, not one.**
+  (1) Every codegen store into an optional slot asked "is the slot optional and
+  the value not" — a SHAPE test, which cannot tell an already-fit value from one
+  owing another layer, so an `Int?` into an `Int??` cell wrapped nothing and
+  LLVM refused the store. Replaced at all seven sites by `_fit_optional_slot`,
+  which compares the value against the slot's PAYLOAD type and keeps the shape
+  test as the fallback; `_transfer_type_for` (which picks the type the copy/drop
+  glue is driven with) had the identical blind spot and now asks the same way.
+  (2) A bare `return None` from an `Int?`-returning task typed itself against
+  the cell and became the OUTER None — the encoding's "no result yet" — so
+  `join`'s `take()!` force-unwrapped nothing. The coro transform now says which
+  layer a `None` return belongs to when the result type is itself optional.
+  Tests: the pin, plus `examples/spawn_optional_result.saw` (single-threaded and
+  `threads: 2` groups, absent and present results, and a `String?` payload
+  through the same cell). Original finding follows.
 - **DF-174b (COMPILER, filed Aug 7): spawning a task whose RESULT TYPE is an
   Optional ICEs.** `group.spawn(work())` where `work() -> Int?` dies with
   "internal compiler error: cannot store {i1, i64} to {i1, {i1, i64}}*". The
