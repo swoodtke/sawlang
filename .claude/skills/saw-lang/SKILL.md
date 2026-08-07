@@ -514,8 +514,37 @@ if err.is<IoErr>() { if let io = err.take<IoErr>() { retry(io) } }  // downcast
   `let y = x` retains a `String?` and is REFUSED on a `Vector<Int>?`/`File?`
   (`x.copy()` / `move x` / `x.take()`). A payload read out of a CALL RESULT
   (`v.get(0)!`, `if let x = f()`) is unaffected — that value is already yours.
+- **INTEGER CONVERSION IS CHECKED (design 170) — three spellings, pick by
+  meaning.** `x as UInt8` PANICS when the value has no representation in the
+  target, by range OR by sign (`panic at FILE:LINE: cast to UInt8 out of range:
+  1000`). `UInt8.from(x) -> UInt8?` is the partial twin — `None` when it does
+  not fit, for input you do not control. `UInt8.from(truncating: x) -> UInt8`
+  is the deliberate wrap: total, keeps the low bits (value mod 2^n), the
+  cast-shaped sibling of `&+ &- &*`. The LABEL is the operation, so there is no
+  boolean parameter.
+  ```saw
+  let n = read_len()
+  let a = n as UInt8                    // panics if n > 255 or n < 0
+  let b = UInt8.from(n)                 // UInt8? — None if it does not fit
+  let c = UInt8.from(truncating: n)     // low 8 bits, on purpose
+  ```
+  Both `from` forms exist for EVERY source/target pair, total ones included
+  (`Int.from(x: Int8)` is always `Some`), so a generic body can rely on the
+  shape. WIDENING is untouched — same-sign widening, the identity, and unsigned
+  to strictly-wider signed emit exactly one sext/zext and no check. A checked
+  pair costs one compare and a branch. A CONSTANT operand is answered at
+  compile time: `0xFF as UInt8` is free, `1000 as UInt8` is a COMPILE ERROR
+  (const arithmetic and a raw-backed enum's case value fold too; a `let` local
+  does NOT fold and takes the runtime check). GOTCHA: same-width sign flips are
+  checked, so `-1 as UInt8` (255) and `255u8 as Int8` (-1) are no longer how you
+  reinterpret a byte — write `UInt8.from(truncating:)` / `Int8.from(truncating:)`.
+  That is the `Int8`↔`UInt8` idiom whenever C `char` bytes meet `Data`.
+  A raw-backed enum's `e as Backing` stays TOTAL; narrowing BELOW the backing
+  takes the ordinary rule. An alias projects to its underlying first, then these
+  rules apply. Saturating is deliberately not offered.
 - `panic(msg) -> Never`; `assert(cond, msg)`. Overflow/bounds/shift/div-zero
-  violations panic ALWAYS (wrap intentionally with `&+ &- &*`). EVERY panic —
+  violations panic ALWAYS (wrap intentionally with `&+ &- &*`; an out-of-range
+  integer CAST panics too — see above). EVERY panic —
   the compiler-raised traps included — prints `panic at FILE:LINE: {reason}`,
   where LINE is the trapping expression's own line (a closure body reports its
   own line, not the enclosing function's), in both profiles. The message is

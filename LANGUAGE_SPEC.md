@@ -3426,7 +3426,95 @@ branch only. A passing assert costs the condition test.
   single token (no interior whitespace), sharing the precedence of its checked
   counterpart (`&+`/`&-` add-tier, `&*` multiply-tier). They are unambiguous
   against a call-site reference `&x` (a prefix position) and a bare binary `&`.
+  Their cast-shaped sibling is `T.from(truncating:)`, below: the same intent
+  (defined two's-complement wrap, stated rather than implied) applied to a
+  conversion rather than to an operator.
 - **Float arithmetic** is untouched: IEEE semantics (inf/nan), no overflow trap.
+
+### Integer Conversions
+
+**Status: implemented (design 170).**
+
+Three spellings, one for each thing a conversion between integer types can
+mean. Choosing among them states what an unrepresentable value would mean at
+that site.
+
+```saw
+let big = 1000
+
+let a = big as UInt8                    // panics: 1000 has no UInt8 value
+let b = UInt8.from(big)                 // None
+let c = UInt8.from(truncating: big)     // 232 — the low 8 bits, on purpose
+```
+
+- **`x as UInt8` is CHECKED.** A value the target cannot represent, by range
+  or by sign, panics: `panic at FILE:LINE: cast to UInt8 out of range: 1000`.
+  The message renders the offending value through the allocation-free format
+  path, so it works under an exhausted allocator and in the freestanding
+  profile. A conversion that quietly yields a different number is the defect
+  class arithmetic overflow already panics for, so `as` behaves the same way.
+- **`UInt8.from(x)` returns `UInt8?`.** `None` when the value does not fit.
+  This is the spelling for input the program does not control, where out of
+  range is a fact about the input rather than a bug in the program.
+- **`UInt8.from(truncating: x)` returns `UInt8`.** Total, and keeps the low
+  bits — the value mod 2^n. The label *is* the operation: labels are overload
+  identity, so there is no boolean parameter and no `truncate: false` corner.
+
+Both `from` forms are defined for **every** source/target pair, total ones
+included, so `Int.from(x: Int8)` type-checks and is always `Some`. A generic
+body can rely on the shape existing at whatever type it is instantiated at.
+
+Saturating conversion is not offered. Clamping is a value-domain policy, not a
+bit operation, and offering it as an escape from the checked cast would
+readmit plausible-looking corruption at sites that meant to convert.
+
+#### What each pair costs
+
+| Pair | Checked | Emitted |
+|---|---|---|
+| Same-sign widening (`Int8` → `Int`, `UInt8` → `UInt`) | no | one `sext`/`zext` |
+| Unsigned → strictly wider signed (`UInt8` → `Int16`) | no | one `zext` |
+| Identity (`Int` → `Int`) | no | nothing |
+| Narrowing (`Int` → `UInt8`, `Int64` → `Int32`) | yes | one compare + branch |
+| Sign change at or above the source width (`Int` → `UInt`) | yes | one compare + branch |
+
+Total pairs emit exactly what they emitted before the rule existed: a check
+there could only ever be true. A checked pair costs one compare and a branch —
+the same class as the overflow check — and the optimizer removes it wherever
+it can prove the range on its own.
+
+#### Constants
+
+An operand that folds to a compile-time value is answered at compile time. In
+range, the check is elided and the cast is free. Out of range, it is a
+**compile error**, not a program that builds and aborts on its first run:
+
+```saw
+let ok = 0xFF as UInt8      // fine, and free
+let bad = 1000 as UInt8
+// error: `1000` is not representable as `UInt8`, so this cast would always panic
+// hint: `UInt8` holds 0 through 255; write `UInt8.from(truncating: ...)` to keep
+//       the low bits, or `UInt8.from(...)` to get `None` instead
+```
+
+The folding evaluator is the one behind `static_assert` and `[T; N]` lengths,
+so a folded cast and its runtime twin cannot disagree. It sees through const
+arithmetic and a raw-backed enum's case value. It does **not** see through a
+`let`: a local is a runtime value whatever it was initialized with, so
+`let big = 1000` followed by `big as UInt8` takes the runtime check and
+panics. The compile error is for a cast whose operand is written as a
+constant, which is where a wrong constant is a typo the compiler can catch.
+
+#### Interactions
+
+- **Raw-backed enums.** `e as Backing` stays total — the enum *is* its tag.
+  Casting **below** the backing (`enum E: UInt16` value `as UInt8`) is an
+  ordinary narrowing and takes the ordinary rule. The partial inverse is still
+  `E.from(raw:)`.
+- **Distinct type aliases.** Projection resolves to the underlying first, then
+  these rules apply, so an alias narrows exactly as its underlying does.
+- **Pointer and address casts** are unaffected; see "Address casts".
+- **Float** conversions are unchanged.
 
 ### Bitwise and Shift Operators
 
@@ -3469,6 +3557,11 @@ branch only. A passing assert costs the condition test.
   freestanding profiles.
 - **Force-unwrap of `None`** (`opt!`) panics with "force unwrap of None".
   **`try!` on an `Err`** panics with "try! failed".
+- **An integer `as` whose value the target cannot represent** panics with
+  "cast to `T` out of range: `value`" (design 170). The value is rendered on
+  the failing branch only, through the allocation-free format path. An operand
+  that folds out of range is a compile error instead, and a total pair is never
+  checked. See "Integer Conversions".
 - **Fixed-array indexing with an out-of-bounds compile-time constant** is a
   **compile error** ("index out of range"), mirroring the tuple-index check.
 - **Fixed-array indexing with a *dynamic* index** is **bounds-checked at

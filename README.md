@@ -885,6 +885,14 @@ Saw provides deterministic memory management without garbage collection:
   panics (`Vector.set`, `String.substring`) or returns `None` (`Vector.get`).
   Never a silent no-op, never a clamp to a plausible answer. Unchecked access
   exists only through `UnsafePointer`.
+- **Integer conversion is checked too**, with three spellings for the three
+  things it can mean. `x as UInt8` panics when the value has no `UInt8` —
+  by range or by sign — instead of quietly producing a different number;
+  `UInt8.from(x)` returns `UInt8?` for input the program does not control; and
+  `UInt8.from(truncating: x)` keeps the low bits when that is the intent, the
+  cast-shaped sibling of `&+`/`&-`/`&*`. Widening still emits one instruction
+  and no check, and a constant that cannot fit its target is a compile error
+  rather than a first-run abort.
 
 ```saw
 // Mutable reference parameter (the call site mirrors the parameter's sigil;
