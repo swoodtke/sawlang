@@ -750,7 +750,11 @@ public func elf_to_sosimg(elf: &Data, prio_map: UInt, arch: SosimgArch) -> Resul
         guard var placed = segments.get(i) else {
             return SosError(msg: "internal: segment {i} vanished")
         }
-        placed.record.file_off = cursor as UInt32
+        // Through `narrow` like every other field of this record: an offset is
+        // as much a 32-bit wire field as an address, and this is the one that
+        // is computed here rather than read from the ELF, so it is the one a
+        // silent `as` would truncate without anything upstream noticing.
+        placed.record.file_off = try narrow(cursor as UInt, "segment {i} image offset")
         cursor = cursor + (placed.record.file_len as Int)
         segments.set(i, placed)
         i = i + 1
