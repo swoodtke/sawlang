@@ -1212,9 +1212,22 @@ def _emit_object(codegen, source_path: str, output_path: str, verbose: bool,
         # `@llvm.used`, which LLVM lowers to `.no_dead_strip` on mach-O and to an
         # SHF_GNU_RETAIN/`llvm.used` keep on ELF. `main` is the entry point and is
         # a root by definition.
-        strip_flag = ("-Wl,-dead_strip" if codegen._is_apple_triple()
-                      else "-Wl,--gc-sections")
-        link_cmd = ["clang", obj_path, *rt_objects, strip_flag, "-o", output_path]
+        apple = codegen._is_apple_triple()
+        strip_flag = "-Wl,-dead_strip" if apple else "-Wl,--gc-sections"
+
+        # Say the keep-roots to the LINKER as well, rather than trusting each
+        # platform's lowering of `@llvm.used`. On mach-O that lowering is
+        # verifiable here and works — an `@export`ed function nothing calls is
+        # still in the binary. On ELF it rests on the backend marking the section
+        # retained, which cannot be checked from this host. `-u` is the portable
+        # spelling of "this symbol is required" and both linkers honour it, so an
+        # export is a keep-root by instruction rather than by inference. mach-O
+        # prefixes C symbols with an underscore.
+        keep_flags = [f"-Wl,-u,{'_' if apple else ''}{g.name}"
+                      for g in codegen._exported_llvm_globals]
+
+        link_cmd = ["clang", obj_path, *rt_objects, strip_flag, *keep_flags,
+                    "-o", output_path]
 
         try:
             result = subprocess.run(link_cmd, capture_output=True, text=True)
