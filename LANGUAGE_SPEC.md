@@ -1273,6 +1273,12 @@ exhaustiveness. A raw-ordered `Comparable` derivation is not available.
 let maybe: Int? = 42
 let nothing: Int? = None
 
+// `Optional<T>` is the same type under a written name (the spelling `Result`
+// always had). It is what gives a NESTED optional a form — the containers
+// genuinely produce two-layer values, and `Vector<Int?>.get(i)` is one.
+let same: Optional<Int> = maybe
+func describe(o: Optional<Int?>) -> String { ... }
+
 // Optional chaining — `?.field` / `?.method()` on ANY Optional-typed expression,
 // arbitrary length. Each optional hop carries its own `?`; the first None
 // short-circuits the WHOLE tail. The result is `U?`, flattened (never `U??`).

@@ -1,0 +1,51 @@
+// DF-174d: `Optional<T>` is a writable type name — the same spelling `Result`
+// always had. It resolves to `T?`, so the two are ONE type rather than two that
+// happen to describe the same values.
+//
+// That also gives the nested optional a written form. The containers genuinely
+// produce two-layer values (`Vector<Int?>.get`, `Map<String, Int?>.[]`, `pop`,
+// `remove`) and until now no function could take or return one.
+// EXPECT: success
+// EXPECT-OUTPUT:
+// named 5
+// none -1
+// same 5
+// nested some 5
+// nested inner-absent
+// nested outer-absent
+// -- done
+
+func unwrap_or(o: Optional<Int>, fallback: Int) -> Int {
+    if let v = o { v } else { fallback }
+}
+
+// The helper the two-layer reads wanted and could not have.
+func describe(o: Optional<Int?>) -> String {
+    if let inner = o {
+        if let v = inner { "some {v}" } else { "inner-absent" }
+    } else {
+        "outer-absent"
+    }
+}
+
+func main() {
+    let a: Optional<Int> = 5
+    print("named {unwrap_or(a, fallback: -1)}")
+    let b: Optional<Int> = None
+    print("none {unwrap_or(b, fallback: -1)}")
+
+    // `Optional<Int>` and `Int?` are the same type, in both directions.
+    let c: Int? = a
+    let d: Optional<Int> = c
+    print("same {d ?? -1}")
+
+    var v = Vector<Int?>()
+    let five: Int? = 5
+    let gone: Int? = None
+    v.push(five)
+    v.push(gone)
+    print("nested {describe(v.get(0))}")
+    print("nested {describe(v.get(1))}")
+    print("nested {describe(v.get(9))}")
+    print("-- done")
+}

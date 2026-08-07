@@ -279,11 +279,22 @@ class ExpressionsMixin:
         # A `T: Printable` bound satisfies this inside a generic body.
         if self._bound_satisfied(expr_type, "Printable"):
             return True
+        # An OPTIONAL cannot be conformed (DF-174d's adjacent nit): `extension
+        # Int?: Printable` is not writable — `Int?` is not a nominal type, and
+        # the orphan rule would forbid it even if it were. Name what actually
+        # works instead of advice the reader would spend a while failing at.
+        if expr_type.kind == TypeKind.OPTIONAL:
+            hint = ("unwrap it first — `if let v = o` / `o ?? <fallback>` — "
+                    "since an optional cannot be given a `Printable` "
+                    "conformance of its own")
+        else:
+            hint = (f"conform it with `extension "
+                    f"{self._type_display_name(expr_type)}: Printable {{ ... }}`")
         self._error(
             ErrorKind.TYPE_MISMATCH,
             f"{verb} value of type `{expr_type}`{where}: it is not `Printable`",
             getattr(sub_expr, 'line', 0), getattr(sub_expr, 'column', 0),
-            hint=f"conform it with `extension {self._type_display_name(expr_type)}: Printable {{ ... }}`")
+            hint=hint)
         return False
 
     def visit_StringInterpolation(self, expr: StringInterpolation) -> Optional[SawType]:

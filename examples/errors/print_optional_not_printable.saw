@@ -4,9 +4,14 @@
 // codegen and die there with `internal compiler error: Cannot print type:
 // {i1, i64}` (DF-128d / DF-129a). `Vector.get` returns `T?`, which is the easy
 // way to meet this by accident.
+//
+// The HINT changed in design 176 (DF-174d's adjacent nit). It used to say
+// `conform it with extension Int?: Printable`, which cannot be written in two
+// independent ways — `Int?` is not a nominal type, and the orphan rule would
+// forbid the conformance even if it were. It now names what works.
 // EXPECT: error
 // EXPECT-ERROR-CONTAINS: cannot print value of type `Int?`: it is not `Printable`
-// EXPECT-ERROR-CONTAINS: extension Int?: Printable
+// EXPECT-ERROR-CONTAINS: unwrap it first
 // EXPECT-ERROR-CONTAINS: cannot interpolate value of type `Int?` in a string: it is not `Printable`
 
 func main() {

@@ -499,7 +499,9 @@ if err.is<IoErr>() { if let io = err.take<IoErr>() { retry(io) } }  // downcast
 - Downcast an owned `Box<any Trait>` with `b.is<T>() -> Bool` (borrow) and
   `b.take<T>() -> T?` (CONSUMES the box — moves the payload out on a hit, drops
   it on a miss; use `is<T>()` first to branch). Explicit `T`, must conform.
-- Optionals: `T?`, `None`, force `!` (panics), `??`, call-site auto-wrap
+- Optionals: `T?` — or `Optional<T>`, the same type under a written name
+  (design 176; it is also how a NESTED optional is spelled, `Optional<Int?>`,
+  which is what `Vector<Int?>.get(i)` yields). `None`, force `!` (panics), `??`, call-site auto-wrap
   (`f(5)` matches `f(x: Int?)` — and, since design 176, a generic parameter
   INSTANTIATED to an optional too, so `m.insert("y", 7)` on a
   `Map<String, Int?>` and `v.push(3)` on a `Vector<Int?>` both wrap),

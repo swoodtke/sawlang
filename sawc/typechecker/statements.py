@@ -745,6 +745,10 @@ class StatementsMixin:
                 resolved_type, f"parameter `{param.name}`",
                 func.line, func.column,
                 source_file=getattr(func, 'source_file', None))
+            self._check_type_name_resolves(
+                resolved_type, f"parameter `{param.name}`",
+                func.line, func.column,
+                source_file=getattr(func, 'source_file', None))
             # Design 100: a function parameter shadowing a module-level `static`
             # is a flat error (a bare use would otherwise resolve to the param).
             self._check_shadowing(param.name, None, func.line, func.column,
@@ -1346,6 +1350,12 @@ class StatementsMixin:
             # annotation, so a qualified owning type would otherwise miss its
             # deinit (L18, design 68).
             stmt.type_annotation = resolved_type
+            # DF-174d: a written name with type arguments that resolves to
+            # nothing is reported HERE, as an unknown type, rather than as a
+            # mismatch against the opaque nominal it used to become.
+            self._check_type_name_resolves(
+                resolved_type, f"the annotation of `{stmt.name}`",
+                stmt.line, stmt.column)
             # A binding annotation is a non-parameter role (design 16/29): a
             # closure type there is escaping; the `escaping` marker is redundant.
             self._stamp_escaping_roles(resolved_type, is_param=False,

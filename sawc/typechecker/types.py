@@ -1010,6 +1010,31 @@ class TypeUtilsMixin:
         if saw_type.kind == TypeKind.STRUCT and saw_type.struct_name:
             struct_name = self._canonical_type_name(saw_type.struct_name)
 
+            # `Optional<T>` IS `T?` (DF-174d). `Result` was wired up as a name
+            # from the start and `Optional` never was, so `let a: Optional<Int>`
+            # resolved to an opaque nominal struct nothing could satisfy and the
+            # mismatch named a type with no members. The asymmetry was
+            # historical: the prelude lists `Optional` as a core name and the
+            # spec documents `Optional.take`, so users write it. It is a
+            # SPELLING, resolved here rather than registered as a nominal type —
+            # `Optional<Int>` and `Int?` are one type, and this is also how a
+            # nested optional gets a written form (`Optional<Int?>`).
+            if (struct_name == "Optional"
+                    and self.get_struct_info(struct_name, from_type=saw_type) is None
+                    and self.get_enum_info(struct_name, from_type=saw_type) is None):
+                args = saw_type.type_args or []
+                if len(args) != 1:
+                    self._error(
+                        ErrorKind.TYPE_MISMATCH,
+                        f"`Optional` takes exactly one type argument, but "
+                        f"{len(args)} were given",
+                        getattr(saw_type, 'line', 0) or 0,
+                        getattr(saw_type, 'column', 0) or 1,
+                        hint="write `Optional<T>`, or the postfix `T?`")
+                    return SawType(TypeKind.OPTIONAL, inner_type=None)
+                return SawType(TypeKind.OPTIONAL,
+                               inner_type=self._resolve_type(args[0]))
+
             # Handle module-qualified types (e.g., lib.Point, mod.lib.Color)
             if '.' in struct_name:
                 parts = struct_name.split('.')
@@ -1225,6 +1250,49 @@ class TypeUtilsMixin:
         if t.kind == TypeKind.STRUCT and t.struct_name and '.' in t.struct_name:
             return t.struct_name
         return None
+
+    def _unknown_generic_type_name(self, t):
+        """A written type name with ARGUMENTS that resolves to nothing, or None.
+
+        DF-174d's second half: a bare unknown name is genuinely indistinguishable
+        from a type parameter or an associated type at resolution time, so
+        `let a: Frobnicate<Int> = 5` reported a mismatch against an opaque
+        nominal type rather than saying the name means nothing. Type ARGUMENTS
+        settle it — a type parameter takes none, and neither does an associated
+        type — so a name carrying them and resolving to no struct, enum or alias
+        is a name the program does not define.
+
+        Looks through the wrappers an annotation puts around a nominal type.
+        """
+        if t is None:
+            return None
+        if t.kind in (TypeKind.REFERENCE, TypeKind.OPTIONAL) and t.inner_type:
+            return self._unknown_generic_type_name(t.inner_type)
+        if t.kind != TypeKind.STRUCT or not t.struct_name or not t.type_args:
+            return None
+        name = t.struct_name
+        if '.' in name:
+            return None          # `_check_qualified_type_resolves` owns this one
+        if (self.get_struct_info(name, from_type=t) is not None
+                or self.get_enum_info(name, from_type=t) is not None
+                or self.get_type_alias_info(name) is not None):
+            return None
+        if name in (getattr(self, 'current_type_params', None) or {}):
+            return None
+        return name
+
+    def _check_type_name_resolves(self, t, context: str, line: int, column: int,
+                                  source_file=None):
+        """Report a written type name that resolves to nothing (DF-174d)."""
+        name = self._unknown_generic_type_name(t)
+        if name is None:
+            return
+        self._error(
+            ErrorKind.UNKNOWN_TYPE,
+            f"unknown type `{name}` in {context}",
+            line, column, source_file=source_file,
+            hint="check the spelling, and that the module defining it is "
+                 "imported")
 
     def _check_qualified_type_resolves(self, t, context: str, line: int, column: int,
                                        source_file=None):

@@ -1,0 +1,15 @@
+// DF-174d, second half. A bare unknown name is indistinguishable from a type
+// parameter or an associated type at resolution time, so an unknown one used to
+// become an opaque nominal and report a MISMATCH against it — a type with no
+// declaration, no members and no explanation.
+//
+// Type ARGUMENTS settle the question: a type parameter takes none and neither
+// does an associated type, so a name carrying them and resolving to nothing is a
+// name the program does not define.
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: unknown type `Frobnicate` in the annotation of `a`
+
+func main() {
+    let a: Frobnicate<Int> = 5
+    print("{a}")
+}

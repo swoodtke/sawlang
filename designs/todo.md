@@ -245,6 +245,22 @@ verdict table: `designs/174-optional-generic-sweep.md`. 19 tests landed as
   must be peeled INLINE at each use — the natural `func report(o: Int??)`
   helper is unwritable. Test:
   `examples/optional_generic_nested_spelling_xfail.saw`.
+- **DF-174d — FIXED (design 176 unit 9), all three parts.** (1) `Optional<T>`
+  resolves to `T?` — a SPELLING, not a nominal registration, so the two are ONE
+  type and flow into each other. It also gives the nested optional a written
+  form (`Optional<Int?>`), which is what the containers genuinely produce, so
+  the `func describe(o: Int??)` helper DF-174c wanted is writable today under
+  that name. (`Int??` itself stays a parse error — the postfix sugar is the
+  user decision this batch is explicitly out of.) (2) A written name with TYPE
+  ARGUMENTS that resolves to nothing is now `unknown type `Frobnicate``, at the
+  annotation. Type arguments are what make it decidable: a type parameter takes
+  none and neither does an associated type, so a BARE unknown name is still
+  indistinguishable from either and is left alone. (3) The adjacent nit: the
+  not-`Printable` hint no longer advises `extension Int?: Printable`, which is
+  unwritable in two independent ways; for an optional it says to unwrap first.
+  Tests: `examples/optional_type_name.saw`,
+  `examples/errors/unknown_generic_type_name.saw`,
+  `examples/errors/print_optional_hint.saw`. Original finding follows.
 - **DF-174d (COMPILER, diagnostic quality, filed Aug 7): `Optional<T>` is not a
   writable type name, and a bare UNKNOWN type name gets NO diagnostic.**
   `Optional` has zero meaning to the compiler — no `register_enum`, no
