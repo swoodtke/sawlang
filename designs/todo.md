@@ -2075,59 +2075,143 @@ statement dropped its `Result` with no diagnostic.
   struct-literal init and the suspending arm measured across a frame that has
   DIED, so `after == alone` is the balance. Every string in it is interpolated
   (design 159's lesson: a literal is immortal and cannot fail).
-  **Follow-up worth doing:** add that example to the Guard Malloc lane
-  (`tools/gmgate.py`), as design 159 did with `df151b_implicit_tier_transfers`.
-  The counts prove the retains HAPPEN; only Guard Malloc proves no SURPLUS
-  release happens, since an over-release reads correct until the freed block is
-  reused. Not done here only because `tools/` belonged to a concurrent agent —
-  the example passes the existing lane's 10-run shape when run by hand.
-- **DF-151d — FILED, NOT FIXED (codegen; found by the DF-151c audit, Aug 6).**
-  A `match` whose SCRUTINEE is a TEMPORARY never releases it, so an owning
-  payload LEAKS. Silent — no error, no crash, just a destructor that never runs.
+  **Follow-up DONE Aug 6** (with DF-151d): the example is in the Guard Malloc
+  lane (`tools/gmgate.py`), as design 159 did with
+  `df151b_implicit_tier_transfers`. The counts prove the retains HAPPEN; only
+  Guard Malloc proves no SURPLUS release happens, since an over-release reads
+  correct until the freed block is reused. Clean at 10 runs.
+- **DF-151d — FIXED Aug 6.** Filed as "a `match` whose SCRUTINEE is a TEMPORARY
+  never releases it". The filed diagnosis was exact — the named local is
+  registered for cleanup and the temporary is not — and the fix follows the
+  filed workaround: make the two spellings differ only in whether the value has
+  a name.
+  **TWO LOWERINGS, TWO ANSWERS, because they own their scrutinee differently.**
+  The CLASSIC enum switch CONSUMES (the arm's bindings take the payload), so a
+  temporary is spilled into the storage a named local would have had and run
+  through that same consume model. The spill is also what makes the release
+  addressable at all: every drop needs a pointer and a temporary has none.
+  The GENERAL if-chain (a guard, a tuple, a literal or range arm) BORROWS — every
+  binding it hands an arm is an alias — so there the temporary gets a cleanup
+  SCOPE spanning the match: dropped once at the merge block, which dominates
+  every falling-through arm, and via `_cleanup_all_scopes` on an arm that
+  returns. A scope rather than `_register_stmt_temp` (which the filing suggested,
+  and which was tried first) because a match is an EXPRESSION and can be a
+  function body's TAIL, where `statement_temps` is None and registering one
+  silently does nothing — `guarded_let` balanced and `guarded_tail` did not.
+  **THE GENERAL LOWERING ALSO HAD A LIVE OVER-RELEASE, on a NAMED local.** It
+  read an arm's result raw, so a binding that ESCAPES came out non-retained and
+  the scrutinee's drop then freed it: `case A(x) if k > 0 -> x` returned a
+  handle to a dead block (`strong_count` on the caller's own Arc read 3 after the
+  object was freed and its page reused). Fixed by routing the arm result through
+  `_gen_transfer_value`, the DF12 rule the enum switch already had.
+  **A THIRD HOLE SURFACED WITH THEM: an arm that CLAIMS NOTHING.** `case _` over
+  an owning variant leaked on BOTH spellings and for a NAMED local too — the
+  consume model suppresses the scrutinee's own drop on the strength of bindings
+  that arm does not have. Such an arm now drops the scrutinee itself and the
+  enum's own tag switch picks the payload, which is the only thing that can: the
+  catching arm may name a different variant entirely (`match Two.Right(r) { case
+  Left(_) -> 1, case _ -> 8 }`).
+  **`_is_owned_temporary` gained the aggregate literals.** Every one builds its
+  elements through `_gen_transfer_value`, so a `(f(), k)` tuple, an `[s0, s1]`
+  array and a `{k: v}` map hold references they took themselves — that makes the
+  literal an OWNER, and an unclaimed one leaked exactly as an unclaimed call
+  result did (`[mk(a), mk(a)].len()` was one; that path is `calls.py:1408`).
+  `examples/df151d_match_temporary_scrutinee.saw` counts live `Res` values behind
+  an `Arc`, so the count returns to zero only when the last reference goes AND
+  the destructor runs — a released refcount alone does not move it. Twelve
+  shapes: the filed repro, both wildcard forms, the named control, return / break
+  / diverging arms, a retained and a `move`d-out escaping binding, the general
+  lowering's escaping binding, nesting, and the whole thing inside a coroutine
+  frame. On the pre-fix compiler its five sync shapes read 1, 2, 2, 3, 4 instead
+  of 0. It is in the Guard Malloc lane, together with `df151c_optional_dest_copy`
+  (that finding's follow-up, done here) and the DF-151e example — a leak inverts
+  to an over-release under a fix that drops one time too many, so the counts and
+  that lane police opposite failures of one change.
+  **The filing's two open questions, answered.** A temporary STRUCT scrutinee is
+  not a thing (a struct has no patterns to match); a temporary TUPLE one leaks
+  still, but for an unrelated reason — see DF-151f. `if let f()` was already
+  correct.
+- **DF-151e — FIXED Aug 6.** Filed as "a fixed array of optionals `[T?; N]`
+  cannot be constructed AT ALL". The filed through-line was right and the filed
+  LOCATION was one layer too low: the array literal never pushes the element type
+  into its elements, but it is the TYPECHECKER that never reads the annotation,
+  not codegen that fails to wrap.
+  **ONE MISSING STEP, THREE ICEs.** `_check_array_literal` took its element type
+  from element 0 and consulted `expected` only for a Vector. So `[None, None]`
+  left the literal `inner_type=None` (`_generate_none_literal` fails loud), and
+  `[1, 2]` / `[s0, s1]` stored the payload UNWRAPPED — laid out `[T x N]` while
+  the storage, the element drop and every read believed `[{i1,T} x N]`. The
+  repeat form `[None; 4]` / `[7; 4]` is the same gap in `_check_repeat_literal`.
+  **THE FIX.** Read the element type off the EXPECTED array — the job `vec_elem`
+  already did for a Vector — and check each element against it through
+  `_element_fits`, which routes an optional slot to `_arg_type_ok`. That is the
+  same one-level `T -> T?` auto-wrap a call argument and a struct-literal field
+  take, so a `None` gets its payload type and a bare `T` records the wrap codegen
+  builds `Some(x)` from; the wrap lands AFTER the copy, so the existing
+  `_gen_transfer_value` retain is already driven by the payload's type
+  (DF-151c's rule, unchanged). `_apply_literal_expected_type` now stamps the
+  array expectation on the literal and not only its element type, which is what
+  makes nesting compose — `[[Int?; 2]; 2]` reaches the inner literals through the
+  same recursion.
+  **The filing's prediction about the assignment sites was exactly right.**
+  `statements.py`'s two array-element transfer sites carried the DF-151c copy
+  rule but had never been reachable, and reaching them showed the WRAP was
+  missing there: `b[0] = s` on a `[String?; 2]` stored a bare `i8*` into a
+  `{i1, i8*}` slot. That is the one codegen line this needed.
+  **Design 139's wrapper-tier rule holds on the new shapes** without any work:
+  `[Vector<Int>?; 3]` is ExplicitCopy (a repeat literal is refused by name,
+  `let b = a` demands `.copy()`), and a NoCopy payload behind a `?` is refused
+  naming NoCopy — the diagnostic reads `` `Handle?` is NoCopy ``, i.e. the
+  wrapper's tier IS the payload's.
+  Two examples: `df151e_optional_element_array.saw` (both initializer forms at
+  Int/String/Arc payloads, mixed presence, nesting, element writes, and Arc
+  balance oracles in a sync AND a suspending context; in the Guard Malloc lane)
+  and `df151e_optional_element_repeat_error.saw` for the tier refusal.
+- **DF-151f — FILED, NOT FIXED (codegen; found while fixing DF-151d, Aug 6).**
+  **A TUPLE has no drop glue, so an owning element is never destroyed.** Not a
+  temporary-lifetime problem — a plain NAMED local leaks:
   ```saw
-  enum ArcE { case A(a: Arc<Res>), case B }
-  func leaks(a: Arc<Res>) -> Int {
-      match ArcE.A(a: a) {          // built here, never released
-          case A(_) -> 1,
-          case B -> 0
-      }
-  }
-  // count before 1, after 2; `Res.deinit` never runs
+  func named_tuple(a: Arc<Res>, k: Int) -> Int {
+      let t = (mk(a: a), k)     // mk returns an owning enum
+      t.1
+  }                             // count 1 -> 2 -> 3 across two calls
   ```
-  **Not about coroutines, not about bindings, not about DF-151c.** It reproduces
-  with a SYNC arm and with `case A(_)`, which binds nothing and therefore never
-  reaches the copy path DF-151c fixed; it is byte-identical on the pre-fix
-  compiler. Binding the scrutinee to a local first BALANCES
-  (`let e = ArcE.A(a: a)` then `match e` releases correctly), which is both the
-  workaround and the shape of the diagnosis: the named local is registered for
-  cleanup and the temporary is not. Suspect the match lowering's scrutinee
-  handling in `sawc/codegen/match.py` — a temporary scrutinee needs the
-  statement-temp registration (`_register_stmt_temp`) that other owned
-  temporaries get. Worth checking whether a temporary scrutinee that is a
-  STRUCT (not an enum) leaks the same way, and whether `if let f()` does.
-  This is the reason `examples/df151c_optional_dest_copy.saw` binds its oracle's
-  scrutinee to a local — the leak would otherwise sit on top of its counts.
-- **DF-151e — FILED, NOT FIXED (codegen; found by the DF-151c audit, Aug 6).**
-  **A fixed array of optionals `[T?; N]` cannot be constructed AT ALL** — at any
-  payload type, by any initializer. Three different ICEs, all pre-existing
-  (identical on the pre-fix compiler), none of them DF-151c:
+  `_needs_cleanup` has no TUPLE arm and `_emit_drop_at` has none either (it falls
+  through to `_emit_field_cleanup_at`, which finds no struct fields), so the
+  scope-exit drop of a tuple binding is a no-op. Reproduces with a `String`
+  element as well as an enum one. Consequence: a temporary tuple SCRUTINEE
+  (`match (f(), k) { ... }`) still leaks after DF-151d — the match now registers
+  it for cleanup, and the cleanup does nothing. That is the one shape of DF-151d
+  left standing, and it is this bug, not that one.
+  Fixing it is its own unit: `_needs_cleanup`/`_emit_drop_at` need TUPLE arms
+  (walk `element_types`, drop in reverse — the LIFO rule fields already follow),
+  and design 139's wrapper-tier rule names tuples explicitly, so the COPY side
+  (`copy_tier`, `_emit_copy_value`) should be audited in the same pass rather
+  than left half-done. Worth checking a tuple RETURN and a tuple struct field
+  too.
+- **DF-151g — FILED, NOT FIXED (codegen; found while fixing DF-151d, Aug 6).**
+  **A `_`-discarded NoCopy payload in a match arm never runs its deinit.**
   ```saw
-  var a: [Int?; 2] = [None, None]      // None literal ... has no type information
-  var a: [Int?; 2] = [1, 2]            // Can't index at [0] in i64
-  var a: [String?; 2] = [s0, s1]       // Type of #1 arg mismatch: i8** != i8*
+  enum Slot { case Filled(r: Res), case Empty }   // Res is NoCopy with a deinit
+  match filled() { case Filled(_) -> 1, case Empty -> 0 }   // Res.deinit never runs
   ```
-  The through-line is that the array literal never pushes the ELEMENT type into
-  its elements: a `None` is left with an `OPTIONAL` whose `inner_type` is None
-  (`_generate_none_literal` fails loud on it), and a bare `T` element is stored
-  UNWRAPPED, so the array is laid out `[T x N]` while everything downstream —
-  the element drop, `a[i] = v`, the read — believes `[{i1,T} x N]`. Fixing it
-  means the element wrap the struct-literal and assignment paths already do,
-  applied in `_generate_array_literal`; the first ICE looks like a typechecker
-  gap (element-type propagation into `None`) rather than a codegen one.
-  Consequence worth knowing while it stands: the two array-element transfer
-  sites in `_generate_assign_statement` (`statements.py:540`/`587`) carry the
-  DF-151c rule but cannot be exercised, because no `[T?; N]` can be built to
-  exercise them.
+  Deliberate, and deliberately wrong for this case. `match.py`'s design-65 (L17)
+  branch releases a `_`-bound owning payload with `_emit_release_at`, which
+  RELEASES a refcounted field but leaves a non-refcounted `Deinit` one untouched
+  — because `Map._slot_state`'s `Occupied(_, _)` peek matches a by-value,
+  NON-RETAINED copy of a slot the map still owns, and firing the payload's deinit
+  there would destroy the map's live value. So the same code serves an OWNER and
+  an ALIAS, and it can only be right for one.
+  Same for a NAMED local (`let s = filled(); match s { case Filled(_) -> ... }`),
+  so it is not about DF-151d; an `Arc` or `String` payload is unaffected (the
+  release is the whole drop). The real fix is upstream: `Map._slot_state` should
+  read its slot through a BORROW rather than a by-value copy, at which point the
+  consume path stops seeing an alias and this branch can become a full
+  `_emit_drop_at`. Doing it the other way round — changing the release to a drop
+  first — would break the design-61 exactly-once VALUE tests, so the order
+  matters. `examples/df151d_match_temporary_scrutinee.saw` measures an
+  `Arc<Res>` payload for exactly this reason; a bare NoCopy payload would have
+  read as a leak that is this finding, not that one.
 
 ## Design 149 — runtime authoring in Saw (LANDED, Aug 6)
 
