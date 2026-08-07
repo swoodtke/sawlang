@@ -10,6 +10,7 @@
 // ada
 // 3
 // 2
+// hopper
 // 10
 // 20
 // ada is 3 bytes
@@ -29,6 +30,9 @@ func main() {
 
     let nested = ((1, 2), 3)
     print(nested.0.1)             // two index hops, NOT the float 0.1
+
+    let deep = ((Person(name: "grace"), Person(name: "hopper")), 9)
+    print(deep.0.1.name)          // two hops and then a field
 
     let pair = ((x: 10, y: 20), 30)
     print(pair.0.x)               // a named-tuple field after an index
