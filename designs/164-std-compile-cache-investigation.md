@@ -122,14 +122,100 @@ Three structural facts the table encodes:
 
 The warm in-process path — the floor a cross-process cache competes
 with — still pays ~20% per compile on std: the uncacheable re-entry
-typechecks (~180 ms) plus the cache's own `deepcopy` (~190 ms). Note
-that the deepcopy costs almost half of what it saves; `pickle.loads`
-is ~2.3-2.5x cheaper than `deepcopy` on the same graph, so **the
-suite's own warm path would get faster from this work too** — a point
-the brief asked to be honest about, and it lands the other way than
-expected.
+typechecks (~180 ms) plus the cache's own `deepcopy` (~190 ms).
 
-## Unit 2 — tier A (serialized std ASTs): CLEAN, ~11%
+**The suite's win is NOT the CLI's win, and the brief was right to
+ask.** The CLI pays the full parse every invocation, so tier A is
+worth ~11% there. The test runner already amortizes the parse across
+its workers (`test_runner.py:345`), so its marginal win is only the
+difference between `deepcopy` (~190 ms) and `pickle.loads` (~80-110 ms)
+— roughly **3-4% per compile, a third of the CLI's**. The
+beneficiaries of a cross-process cache are the CLI paths: blade
+package builds, `blade_bootstrap`, `sos_runner`, `irdet`, and the
+remote worker's jobs. That the suite gets anything at all is
+incidental — but it does land the right way, because the deepcopy
+currently costs almost half of what it saves.
+
+## Unit 2 — tier A (serialized std ASTs): ~10%, and NOT the low-risk tier
+
+**The differential gate earned its keep on the first run, and the
+brief's risk model for this tier was wrong.** Tier A was pencilled in
+as the cheap, obviously-safe option. It is not: it carries the SAME
+mandatory `node_id` work as tier B, and the naive implementation —
+restore the blob inside `load_builtins`, which is the obvious place —
+**miscompiles**.
+
+Why: `compile_saw` parses the ENTRY FILE first (`sawc.py:1203`) and
+builds builtins second (`:769`). `pickle` preserves `node_id`
+verbatim, whereas `__deepcopy__` (`ast_nodes.py:631`) deliberately
+freshens it. So a restored std graph carrying ids 1..14,321 collides
+with the ids the entry file has already taken, and the effect graph —
+keyed by `node_id` — merges two unrelated functions' suspend analysis.
+
+The whole-corpus differential (1114 examples, one compile per process)
+returned **RED: 1101 identical, 13 divergent**, twelve of them
+differing in EXIT CODE. The symptom is std failing its own type-check:
+
+```
+error: internal compiler error: builtins failed to type-check
+error: cannot suspend in a `sync` closure context:
+       method `Channel.receive` calls yield_now
+  --> sawc/std/channel.saw:194:12
+```
+
+It also made every SURVIVING compile slower — the first gate run
+measured warm at 935 ms/file against cold's 369 — because perturbed
+suspend analysis makes the effect fixpoint do more work. A "cache"
+that is 2.5x slower and breaks 1% of the corpus is what the naive
+version of the cheapest tier looks like.
+
+**The fix is the one the tier-B audit prescribed**, and it is O(1):
+restore the blob BEFORE the entry file is parsed, and seed the
+counter past the restored graph using an upper bound stored beside the
+AST (the counter's value at dump time), so no walk is needed. With
+that, the failing examples compile and the win appears.
+
+The lesson for the recommendation: **there is no version of this work
+that skips the `node_id` design.** That was the one thing separating
+tier A's effort from tier B's.
+
+### The gate, run 2 (corrected prototype, 1114 examples)
+
+```
+COLD (cache off): 1382.7 s      WARM (cache on): 989.1 s   (+28.5%)
+DIFFERENTIAL: 1071 identical / 43 divergent
+   ... all 43 differ in `ll` ONLY — never rc, out, err, or o
+GATE: RED
+```
+
+**Every semantically meaningful artifact matched on all 1114
+examples**: exit code, stdout, stderr, and the OBJECT FILE. The 43
+divergences are IR sidecar TEXT only, and every one is DF-164a:
+
+```
+< %"__collit_8"     = load %"Map$3$Int$Int$GlobalAllocator", ...
+> %"__collit_14033" = load %"Map$3$Int$Int$GlobalAllocator", ...
+   map_literal.o  95748561a2907ca9…  (cold)
+   map_literal.o  95748561a2907ca9…  (warm)  — byte-identical
+```
+
+The mechanism is unavoidable and it generalizes: **any std cache
+changes the ORDER in which node ids are allocated** (cold numbers the
+entry file first, warm restores std at 1..14,321 and numbers the entry
+file after), so every generated name derived from `node_id` shifts.
+
+**This upgrades DF-164a from a cosmetic curiosity to a hard
+prerequisite.** A std cache cannot pass an IR-level differential gate
+until the node-id-derived names are gone. Fix DF-164a (and DF-164c
+with it) FIRST, then tier A or B goes green on the strict oracle.
+
+Timing note: the +28.5% corpus figure is NOT the honest win — both
+passes ran under uncontrolled load from sibling agents (cold alone
+drifted from 369 to 1241 ms/file between the two runs for identical
+work). **The trustworthy number is the isolated one: 2.22 s -> 2.00 s,
+9.9%, three runs each.**
+
+### Tier A, measured
 
 - **Serializable as-is.** 44,236 reachable objects, no lambdas, no
   bound methods, no llvmlite, no `re.Pattern`, no file handles, no
@@ -139,9 +225,10 @@ expected.
   both sides) — the astdiff-grade check the brief asked for.
 - **Load is 4-6x cheaper than parse**, and deserialization IS the
   per-compile copy (no `deepcopy` needed on top).
-- **Ceiling: 14.3% of a compile. Measured win: ~11%** (parse ~385 ms
-  replaced by a ~55-110 ms load).
-- **Differential:** see the gate section below.
+- **Ceiling: 14.3% of a compile. Measured win: 9.9%** — uncontended,
+  three runs each, `hello.saw` end to end: **2.22 s -> 2.00 s**. The
+  ~220 ms is the ~385 ms parse replaced by a ~55-110 ms load, less
+  ~10-20 ms of key computation.
 
 Prototype built OUT OF TREE at `.build/scratch/sawc_cached.py` —
 `sawc.load_builtins` wrapped with a digest-keyed pickle cache, ~40
@@ -244,6 +331,15 @@ strings carry the std file BASENAME + line, definition-site and
 program-independent); no allocator variance (a user allocator makes a
 new mangled name, not a different body); statics are already
 module-qualified. The four counters are DF-164c.
+
+Corroborated independently on the UNOPTIMIZED IR sidecars of three
+unrelated programs (`hello`, `map_basic`, `net_http_roundtrip`) via
+`probe_stdbody.py`, and the result is sharper: of the **449 functions
+defined in all three, 448 are byte-identical** once `!dbg` metadata
+and `.sawstr.N`/`.rawbytes.N` numbering are normalized. The single
+function that still differs is `main` — the user's own code, which is
+exactly right. Std codegen output is program-invariant modulo global
+numbering, which is the whole feasibility case for tier C.
 
 **Design 144 makes tier C feasible — verified, not assumed.** 312 std
 symbols carry byte-identical mangled names across all 12 hosted
@@ -361,13 +457,23 @@ for reasons that have nothing to do with caching.
 
 | tier | ceiling | measured / est. win | effort | risk |
 |---|---|---|---|---|
-| **A** std AST blob | 14.3% | **~11%** (measured) | 0.5-1 d | LOW — round-trip is astdiff-identical; restore IS the copy |
-| **B** typechecked namespace | 24% | **~19%** (est.) | 2-4 d | MEDIUM — `node_id` seeding is mandatory; a wrong restore miscompiles SILENTLY |
+| **A** std AST blob | 14.3% | **9.9%** (measured, 2.22 -> 2.00 s) | 1-2 d | MEDIUM — `node_id` restructuring is MANDATORY; the naive version miscompiles (gate-proven) |
+| **B** typechecked namespace | 24% | **~19%** (est.) | 2-4 d | MEDIUM — same `node_id` work, same key, bigger payload |
 | **C** precompiled std object | ~87% of emitted IR (~60% of compile) | est. 3-5x on `hello` | 8-12 d | HIGH — needs DF-164b + DF-164c first, and whole-std needs a design-144 reversal |
-| **DF-164b** dead-strip | — | **52-76% binary size** | **0.5 d** | LOW — one line |
+| **DF-164b** dead-strip | — | **52-76% binary size** | **0.5 d** | LOW — one line, one caveat |
+
+The A/B risk ratings CONVERGED once the gate ran. Tier A was supposed
+to be the cheap safe one; its only claim to being cheaper than B was
+that it needed no `node_id` design, and that claim is false. A and B
+now differ only in payload size and ~8 points of win.
 
 **Recommended order — and note that the first item is not a cache.**
 
+0. **DF-164a is now a PREREQUISITE, not an optional cleanup.** Gate
+   run 2 proved no std cache can pass an IR-level differential until
+   the node-id-derived generated names are gone, because any cache
+   changes node-id allocation order. Do it with step 2 below; they are
+   the same fix applied to six symbol families.
 1. **Land `-dead_strip` / `--gc-sections` (DF-164b) on its own.** One
    line at `sawc.py:1146`. Every Saw binary today ships 52-76% dead
    std: `hello` is 218 KB of which 155 KB is unreachable, 534 external
@@ -382,11 +488,12 @@ for reasons that have nothing to do with caching.
    the ENTIRE remaining IR-variance obstacle to tier C, and it
    strengthens the design-126/141 reproducibility property on its own
    merits. ~2 d + an `irdet --all` gate.
-3. **Then pick a front-half tier.** Tier B subsumes tier A: same
-   mechanism, same cache key, one blob instead of two, +8 points of
-   win for the `node_id` work. If the appetite is one afternoon, take
-   A; if it is a week, take B and skip A entirely. **Taking A now and
-   B later means building the same thing twice.**
+3. **Then take tier B, and skip tier A.** This is the one
+   recommendation the gate CHANGED. Tier A was the "one afternoon"
+   option only while it looked free of the `node_id` problem; it
+   isn't, so its remaining advantage over B is a smaller pickle. Same
+   mechanism, same cache key, same restructuring, +8 points of win.
+   **Taking A now and B later means paying the hard part twice.**
 4. **Tier C last, and only after a user decision** on whether design
    144's std type-identity exemption survives. Without that decision,
    tier C is limited to a content-keyed per-exclusion-set object

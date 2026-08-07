@@ -1358,13 +1358,24 @@ is std work. Only tier C touches that.
 
 **Per-tier verdicts** (ceiling / win / effort / risk):
 
-- **Tier A — serialized std ASTs: CLEAN.** 14.3% / ~11% measured / 0.5-1 d /
-  LOW. Pickles as-is (1.59 MB, no lambdas, no llvmlite, no file handles
-  reachable); the restored AST is **byte-identical to a fresh parse under the
-  `ast_dump` oracle**; load is 4-6x cheaper than parse and the deserialization
-  IS the per-compile copy. Prototype built out of tree
-  (`.build/scratch/sawc_cached.py`, ~40 lines) and gated; see below for why it
-  did not land.
+- **Tier A — serialized std ASTs: NOT the low-risk tier, 9.9%.** 14.3% /
+  **9.9% measured** (2.22 -> 2.00 s, isolated, 3 runs each) / 1-2 d / MEDIUM.
+  Pickles as-is (1.59 MB, no lambdas, no llvmlite, no file handles reachable)
+  and the restored AST is **byte-identical to a fresh parse under the
+  `ast_dump` oracle**. But the whole-corpus differential returned **RED on run
+  1: 1101 identical, 13 divergent, twelve differing in EXIT CODE** — the naive
+  cache (restore inside `load_builtins`) MISCOMPILES. `compile_saw` parses the
+  entry file first and builds builtins second, pickle preserves `node_id`
+  verbatim where `__deepcopy__` deliberately freshens it, so restored std ids
+  1..14,321 collide with the entry's and the effect graph merges two functions'
+  suspend analysis — std then fails its own type-check
+  (`Channel.receive` reported as a sync violation). It also made every
+  surviving compile SLOWER (935 vs 369 ms/file) by perturbing the effect
+  fixpoint. Fixed as the tier-B audit prescribed — restore before the entry
+  parse, seed the counter past the graph via a stored upper bound (O(1), no
+  walk). **So tier A needs the same `node_id` restructuring as tier B; its only
+  claim to being the cheap option is gone.** Prototype is out of tree
+  (`.build/scratch/sawc_cached.py`); see below for why it did not land.
 - **Tier B — typechecked namespace: CLEAN, one mandatory fix.** 24% / ~19% /
   2-4 d / MEDIUM. The `(ast, ns)` pair pickles at 2.08 MB (gzip-1 → 0.30 MB),
   works at the default recursion limit, and every identity invariant survives a
@@ -1395,18 +1406,29 @@ is std work. Only tier C touches that.
   per-(triple, profile, exclusion-set) object cache in the `.build/rt/<hash>/`
   mould, which still captures most of the win.
 
-**Recommended order — the first item is not a cache.** (1) Land DF-164b
-dead-strip alone, 0.5 d, 52-76% off every binary, and it is the precondition
-that makes any fixed-set std object size-neutral. (2) DF-164c + DF-164a,
-~2 d, the entire remaining IR-variance obstacle to tier C. (3) Then ONE
-front-half tier — **B subsumes A** (same mechanism, same key, one blob, +8
-points), so taking A now and B later builds the same thing twice. (4) Tier C
-last, after the design-144 decision.
+**Corrected differential (run 2, prototype fixed, 1114 examples): every
+semantically meaningful artifact matched — exit code, stdout, stderr and the
+OBJECT FILE, on all 1114.** 43 differ in IR sidecar TEXT only, every one
+DF-164a (`__collit_8` vs `__collit_14033`, objects byte-identical). The
+mechanism generalizes: any std cache changes the ORDER node ids are allocated
+in, so every `node_id`-derived generated name shifts. **GATE: RED on the strict
+`.ll` oracle, and that upgrades DF-164a from cosmetic to PREREQUISITE** — no
+std cache can pass an IR-level differential until those names are gone.
 
-**Tier A did not land as a flag,** though the brief permits it: a default-off
-flag delivering 11% is a path nobody enables and everybody maintains, and tier
-B replaces it wholesale with the same plumbing. It is one commit away if the
-user wants it.
+**Recommended order.** (0) **DF-164a first — it now gates every tier.**
+(1) DF-164b dead-strip alone, 0.5 d, 52-76% off every binary, and it is the
+precondition that makes any fixed-set std object size-neutral. (2) DF-164c
+alongside DF-164a — same fix, six symbol families — clearing the entire
+IR-variance obstacle to tier C. (3) Then **tier B, skipping tier A**: the gate
+removed A's only advantage (it needs the identical `node_id` restructuring), so
+A now differs from B only in payload size and ~8 points of win. Taking A now
+and B later pays the hard part twice. (4) Tier C last, after the design-144
+decision.
+
+**Tier A did not land as a flag,** though the brief permits it: the gate is RED
+on the strict oracle until DF-164a lands, and a default-off flag delivering
+9.9% is a path nobody enables and everybody maintains. The prototype is one
+commit away if the user wants it.
 
 - **DF-164a — `__collit_{node_id}` leaks the process-global node counter into
   emitted IR.** `codegen/collections.py:86`. A process that compiles more than
@@ -1418,6 +1440,10 @@ user wants it.
   reproducible. Same class at `codegen/match.py:152`, which builds
   `__match_scrutinee.{id(expr)}` from a RAW ADDRESS. Found by the tier-A
   differential, which then exonerated the cache with a fresh-vs-fresh repro.
+  **PREREQUISITE for design 164 work**: gate run 2 showed 43/1114 examples
+  diverging in IR text for this reason alone (objects byte-identical), because
+  any std cache changes node-id allocation order. Fix it and the differential
+  goes green on the strict oracle.
 - **DF-164b — the hosted link line has no dead-strip.** `sawc.py:1146` is
   `["clang", obj, *rt_objects, "-o", out]` — no `-dead_strip`, no
   `--gc-sections`, no `-ffunction-sections`; hosted std keeps external linkage
