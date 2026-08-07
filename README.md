@@ -20,8 +20,9 @@ metal as readily as for a hosted target.
   one writer, never both at once. There is nothing to annotate — Saw has no
   lifetime parameters.
 - **Allocation is visible in the type.** The allocating containers carry their
-  allocator as a type parameter, the only implicit copies are refcount bumps,
-  and no assignment is secretly O(n). `sawc --no-hidden-alloc` turns the
+  allocator as a type parameter, and the only implicit copies are cheap ones —
+  a bitwise copy or a refcount bump — so no assignment is secretly O(n).
+  Duplicating a `Vector` is a visible `.copy()`. `sawc --no-hidden-alloc` turns the
   guarantee into a check: every allocation must be named by the expression or
   by a type you wrote, and the compiler allocating on its own authority is a
   compile error.
