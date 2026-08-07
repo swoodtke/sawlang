@@ -85,6 +85,13 @@ GATE = [
     # exact DF-151b shape one statement kind over: `a = h.r` read correct and
     # freed twice, so the surplus release is invisible without Guard Malloc.
     "examples/df151h_assign_rhs_retain.saw",
+    # A move-only param and a refcounted result crossing the DF-138a spawn-root
+    # trampoline: the trampoline frame holds the value only long enough to hand
+    # it down to the sub-frame, and takes the result back up. Both halves are a
+    # move BETWEEN two frames the same task owns, so a drop on the wrong side of
+    # the hand-off is exactly the over-release this lane exists to see. Its live
+    # count proves nothing leaks; only Guard Malloc proves nothing is freed twice.
+    "examples/coro_spawn_and_embed_owning.saw",
 ]
 
 

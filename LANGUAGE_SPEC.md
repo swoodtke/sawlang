@@ -3780,6 +3780,16 @@ anti-suspension boundary, so it is `sync`) plus `__wake_reason(&self) sync -> In
   conformance), and a synthesized `__spawn_f` helper builds the frame, erases it
   into a `Box<any Resumable>`, enqueues it, and returns a typed handle. A `Void`
   task is fine too: it returns a result-less `VoidTaskHandle` (design 102 item 1).
+- **One function, several roles.** A function may be spawned, `__saw_drive`n and
+  embedded as another frame's sub-frame in the same program. The spawn role
+  reaches its result and cancel word through the group-owned cell (`__cellp`)
+  while the other two keep both in the frame, so a function carrying a spawn role
+  and any other one gets a second frame: the transform synthesizes
+  `f$spawnroot(<params>) -> T { return f(<params>) }` and spawns that, leaving `f`
+  a single driven-flavour frame that every other role shares. The cancel word
+  propagates down the trampoline and the result threads back up through the
+  ordinary sub-frame machinery. A spawn-only root is its own spawn frame and
+  gains neither a field nor a hop.
 - **The scheduler** is ambient and per-thread (design 89-b): spawned frames enter
   the thread's shared run queue and run EAGERLY — whenever the scheduler runs, not
   only at `join`. A group is a membership/lifetime scope, not a private executor:
