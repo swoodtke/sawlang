@@ -39,7 +39,21 @@ items need a probe before being treated as real work.
   (revisit if kinds multiply).
 - **DF-146j Map.get: STILL OPEN by choice** (user: discuss later) — the
   borrows-get recommendation stands; the soundness batch dispatches without
-  this unit.
+  this unit. PROBED (Aug 7, user's nested-optional question): `T??`
+  instantiates honestly — `Vector<Int?>.get(0)` on a present-None element
+  yields Some(None), absent yields None, one `if let` peels exactly the outer
+  layer; same for `Map<String, Int?>.[]`. The `?.`-chain flattening rule does
+  NOT apply to generic instantiation, so the conditional-lend contract is
+  sound for optional-valued containers (probe:
+  .build/scratch/probe_nested_opt.saw).
+- **DF-146l (COMPILER, filed Aug 7, found by that probe): `None` inside a MAP
+  LITERAL ICEs** — `var m: Map<String, Int?> = {"x": None}` dies with
+  "internal compiler error: None literal has no type information". The Vector
+  literal path types the same shape fine (`[None, 42]` with expected
+  `Vector<Int?>` works), so the Map-literal path never propagates the expected
+  VALUE type into a `None` element. Same family as DF-165b (expected-type
+  propagation gaps at literals); `m.insert("x", None)` works meanwhile. Small
+  typechecker unit; queue with the soundness batch.
 
 ## std.Data findings (Aug 7, user-prompted archaeology) — CLOSED by design 165
 
