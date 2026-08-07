@@ -1143,7 +1143,21 @@ def _emit_object(codegen, source_path: str, output_path: str, verbose: bool,
             for o in rt_objects:
                 print(f"    {o}")
 
-        link_cmd = ["clang", obj_path, *rt_objects, "-o", output_path]
+        # design 168 unit 1 (DF-164b): dead-strip the link. Codegen emits every
+        # loaded std definition with external linkage, so -O1's globaldce cannot
+        # touch any of it and 52-76% of every Saw binary was unreachable stdlib
+        # (`hello` measured 218,216 bytes, 155 KB of it dead). The linker is the
+        # one component that sees the whole program, so it is where the floor
+        # gets set — and it stays the backstop for the pre-LLVM reachability
+        # strip, whose soundness rule is "when in doubt, keep it".
+        #
+        # `@export`ed symbols survive: `_emit_llvm_used` (design 58) puts them in
+        # `@llvm.used`, which LLVM lowers to `.no_dead_strip` on mach-O and to an
+        # SHF_GNU_RETAIN/`llvm.used` keep on ELF. `main` is the entry point and is
+        # a root by definition.
+        strip_flag = ("-Wl,-dead_strip" if codegen._is_apple_triple()
+                      else "-Wl,--gc-sections")
+        link_cmd = ["clang", obj_path, *rt_objects, strip_flag, "-o", output_path]
 
         try:
             result = subprocess.run(link_cmd, capture_output=True, text=True)

@@ -1,0 +1,34 @@
+// design 168 unit 1 (DF-164b): the hosted link dead-strips.
+//
+// Codegen emits every loaded std definition with external linkage, so -O1's
+// globaldce cannot reach any of it and the linker was keeping the lot: `hello`
+// linked at 218,216 bytes with roughly 155 KB unreachable, 534 external symbols
+// of which 84 were live. `-Wl,-dead_strip` (mach-O) / `-Wl,--gc-sections` (ELF)
+// takes hello to 62,712.
+//
+// This program measures ITSELF: argv[0] is the binary the runner just built, so
+// seeking to its end is the size assertion. It imports env + file + path, so it
+// carries more std than `hello` does and still has to come in far under the
+// unstripped floor — without the strip flag this same program links at ~250 KB.
+// EXPECT: success
+// EXPECT-OUTPUT: dead-strip: ok
+import std.env.*
+import std.file.*
+import std.path.*
+
+// Generous on purpose: the point is to catch the strip flag going missing, not
+// to police every kilobyte across two platforms and future std growth.
+static MAX_BYTES: Int = 160_000
+
+func main() {
+    let exe = Env.arg(0)!
+    let f = try! File.open(Path(s: exe))
+    let size = try! f.seek_end(0)
+
+    assert(size > 0, "argv[0] measured {} bytes — did it open the binary?", size)
+    assert(size < MAX_BYTES,
+           "binary is {} bytes, over the {}-byte limit — dead-strip flag lost?",
+           size, MAX_BYTES)
+
+    print("dead-strip: ok")
+}

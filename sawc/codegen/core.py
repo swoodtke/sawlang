@@ -1698,7 +1698,7 @@ class CodeGenerator(ResultsMixin, MatchMixin, StructsMixin, CollectionsMixin, Ca
         # (entry + `@llvm.used`). Guarded by `freestanding`: hosted builds are
         # byte-identical to before.
         if self.freestanding:
-            self._apply_freestanding_sections()
+            self._apply_section_layout()
         elif self.runtime_build:
             # design 113b: a runtime-build object keeps ONLY its `@export`ed
             # seams external; every other definition (String/atomic/print/argv
@@ -1708,16 +1708,31 @@ class CodeGenerator(ResultsMixin, MatchMixin, StructsMixin, CollectionsMixin, Ca
             # per-symbol `.text.<name>` sectioning: this object is linked by
             # clang on the HOST (mach-O rejects that ELF section spelling), and
             # -O1 globaldce already strips the unreferenced internal defs.
-            self._apply_freestanding_sections(place_sections=False)
+            self._apply_section_layout(place_sections=False)
+        elif not self._is_apple_triple():
+            # design 168 unit 1 (DF-164b): a HOSTED ELF link gets the same
+            # per-symbol sections so `ld --gc-sections` (added to the clang link
+            # line in sawc.py) can drop what nothing reaches. Sections ONLY — a
+            # hosted object keeps external linkage, because the runtime objects
+            # linked beside it and any `@export`ed entry point are resolved by
+            # the linker, not by this module's own reference graph. Mach-O needs
+            # none of this: `ld64 -dead_strip` works at symbol granularity and
+            # rejects the ELF section spelling, so apple triples skip it.
+            self._apply_section_layout(place_sections=True, internalize=False)
 
         return str(self.module)
 
-    def _apply_freestanding_sections(self, place_sections: bool = True):
-        """Prepare the freestanding module for dead-code-free linking (design 112).
+    def _apply_section_layout(self, place_sections: bool = True,
+                              internalize: bool = True):
+        """Prepare the module for dead-code-free linking (design 112, 168).
 
         `place_sections=False` (design 113b runtime-build): internalize only, with
         NO per-symbol section assignment — the object is host-linked by clang and
         the mach-O host rejects the ELF `.text.<name>` spelling.
+
+        `internalize=False` (design 168 hosted ELF): section the symbols but leave
+        linkage alone, so `--gc-sections` has per-symbol granularity to work at
+        while the linker still resolves cross-object references.
 
         Codegen emits EVERY loaded stdlib method (and its closure/vtable
         descriptor globals + backend constant pools) regardless of reachability,
@@ -1750,7 +1765,7 @@ class CodeGenerator(ResultsMixin, MatchMixin, StructsMixin, CollectionsMixin, Ca
                 continue  # declaration / intrinsic — nothing to place
             if fn.name.startswith('llvm.'):
                 continue
-            if fn.name not in keep:
+            if internalize and fn.name not in keep:
                 fn.linkage = "internal"
             if place_sections and not getattr(fn, 'section', None):
                 fn.section = f".text.{fn.name}"
@@ -1762,7 +1777,7 @@ class CodeGenerator(ResultsMixin, MatchMixin, StructsMixin, CollectionsMixin, Ca
                 continue  # external declaration — no storage here
             if gv.name.startswith('llvm.'):
                 continue  # llvm.used / metadata anchors stay put
-            if gv.name not in keep:
+            if internalize and gv.name not in keep:
                 gv.linkage = "internal"
             if place_sections and not getattr(gv, 'section', None):
                 # Constants (incl. relro tables of function pointers, resolved at
