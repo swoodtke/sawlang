@@ -412,18 +412,26 @@ ordered call binding rule, by design (design 66).
 
 A handful of functions are compiler-known (no import needed):
 
-- `print(value?)` — write a value (Int family, `Bool`, `String`, `Float`, or a
-  string interpolation) plus a newline; no argument prints a bare newline.
-- `panic(message: String) -> Never` — abort with `message` (design 49). It
+- `print(value?)` — write a value plus a newline; no argument prints a bare
+  newline. The value may be any `Printable`: the Int family, `Bool`, `String`,
+  `Float` and the user types that conform, or a string interpolation.
+- `panic(message) -> Never` — abort with `message` (design 49). It
   routes through the freestanding-safe `__saw_rt_panic` runtime seam and **diverges**:
   its type is `Never`, so a function ending in `panic(...)` needs no return
   value, and `guard let x = … else { panic(…) }` is a valid diverging exit. The
   abort message carries the source location — `panic at FILE:LINE: {message}`
   (design 69).
-- `assert(cond: Bool, message: String)` — a no-op when `cond` is true; when
+- `assert(cond: Bool, message)` — a no-op when `cond` is true; when
   false it panics with the same unified location format,
   `panic at FILE:LINE: assertion failed: {message}` (design 69). `debug_assert`
   is deferred until a build-profile split exists.
+
+All three also take a **literal format string with `{}` placeholders** followed
+by one value per placeholder — `print("x = {}", x)`,
+`panic("out of {}: wanted {}", "frames", 64)`,
+`assert(a == b, "want {} got {}", a, b)`. That spelling allocates nothing, and
+the placeholder count is checked against the argument count at compile time. See
+[Format arguments and the allocation-free path](#format-arguments-and-the-allocation-free-path).
 
 **Debug info (design 69):** the compiler emits DWARF line tables by default (on
 every build, no flag) via llvmlite debug metadata — a DICompileUnit, a
@@ -2615,21 +2623,27 @@ than a returned lock guard, `lock` takes a non-escaping closure and runs it with
 released on the way out. `get()` snapshots the payload (`T: Copy`).
 
 ```saw
-// Mutex for exclusive mutable access
+// lock<R>(body: (&var T) sync -> R) -> R — the body's own result comes back out
 let m = Mutex<Int>(value: 0)
 
-m.lock { &var c in
+let doubled = m.lock({ c in
     c = c + 1
-    true            // the closure returns a Bool result
-}                   // lock released automatically
+    c * 2
+})                  // lock released automatically
 
+print(doubled)      // 2
 print(m.get())      // 1
 ```
 
+The result type is the closure's, not a fixed `Bool`: `lock` is generic in `R`,
+the same shape [`SpinLock.lock`](#spinlockt) has. A body that computes nothing
+gives a `Void` result. Naming the parameter `&var c` instead of `c` is also
+accepted, and means the same thing — the parameter type says `&var T` either
+way.
+
 `Mutex(value:)` panics if the allocator refuses its control block (design 123,
-see [Allocation failure](#allocation-failure)), so there is no inert mutex: the
-`false` from `lock` is the one the closure computed, and `get` is not optional.
-`Mutex.try_make(value:)` is the fallible twin.
+see [Allocation failure](#allocation-failure)), so there is no inert mutex and
+`get` is not optional. `Mutex.try_make(value:)` is the fallible twin.
 
 `RwLock` (multiple readers XOR single writer) is planned; it is not yet in the
 stdlib.
@@ -5126,8 +5140,9 @@ my_project/
 
 ## 9. Standard Library Overview
 
-**Status: partially implemented.** The module *paths* below sketch the intended
-namespace layout and are largely *illustrative* (the concrete names may differ).
+**Status: partially implemented.** Each std file is its own module (design 82),
+so the module list below is also the import list: a leaf name is what
+`import std.<leaf>` binds as a qualifier.
 Actually shipped today: `String`, `StringBuilder`, `Vector<T, A>`,
 `Map<K, V, A>`, `Set<T, A>`, `Arc<T>`, `Box<T, A>`, `Mutex<T>`, `Channel<T>`,
 `Task<T>`, `TaskGroup`, `File`, `Directory`, `Path`, `Data`, `Env`,
@@ -5141,45 +5156,42 @@ run `/bin/sh -c` explicitly if a shell is what you want, design 122),
 sockets are still planned. There is no `async`/`future`
 module: concurrency is colorless (no `async`/`await`).
 
-### Core Types
+### The modules
 
-```saw
-std.option.{Option, None}          // the empty case is the keyword `None`;
-                                   // there is no `Some(...)` constructor
-std.result.{Result, Ok, Err}
-std.string.String
-std.vec.Vector
-std.collections.{Map, Set}         // no `Deque` today
-```
+`Optional` and `Result` are language features rather than modules — the empty
+case is the keyword `None`, and there is no `Some(...)` constructor. Everything
+else lives in one of these files. The prelude column says whether the module's
+names are bare already (see [The prelude](#the-prelude-design-82)); the rest
+need one of the three [import forms](#imports).
 
-### I/O
+| Module | Principal names | Prelude |
+|---|---|---|
+| `std.vector` | `Vector<T, A>` | yes |
+| `std.map` / `std.set` | `Map<K, V, A>`, `Set<T, A>` | yes |
+| `std.string` | `String` methods, `Utf8Error` | `String` only |
+| `std.stringbuilder` | `StringBuilder` | yes |
+| `std.arc` / `std.box` | `Arc<T>`, `Box<T, A>` | yes |
+| `std.alloc` / `std.slab` | `Allocator`, `GlobalAllocator`, `AllocError`, `SlabHead` | `Allocator`, `GlobalAllocator` |
+| `std.numeric` | the `Int` / `Float` extensions | yes (methods on primitives) |
+| `std.taskgroup` | `TaskGroup`, `TaskHandle<T>`, `VoidTaskHandle` | yes |
+| `std.task` | `yield_now`, `Task<T>` (the `spawn` handle) | no |
+| `std.channel` | `Channel<T>` | no |
+| `std.mutex` / `std.spinlock` | `Mutex<T>`, `SpinLock<T>` | no |
+| `std.data` | `Data` | no |
+| `std.file` / `std.directory` / `std.path` | `File`, `Directory`, `Path` | no |
+| `std.net` | `TcpListener`, `TcpStream`, `IoError` | no |
+| `std.process` / `std.env` | `Command`, `ProcessError`, `Env` | no |
+| `std.time` | `Duration`, `Instant` | no |
+| `std.fixedbuf` | `FixedBuf<N>`, `FixedStringBuilder<N>` | no |
 
-```saw
-std.io.{Read, Write, Seek}
-std.fs.{File, Path, read_to_string, write}
-std.net.{TcpStream, TcpListener, UdpSocket}
-```
+Concurrency has no module of its own beyond those: it is colorless, with no
+thread API and no `async`/`await`. `spawn { ... } -> Task<T>` is the
+thread-per-task engine and `group.spawn(f(args)) -> TaskHandle<T>` the
+cooperative one; see [§6 Concurrency](#6-concurrency) for the real API.
 
-### Concurrency
-
-```saw
-// Colorless tasks — no thread API, no async/await. Cooperative primitives
-// (yield_now/sleep), TaskGroup (spawn/join/cancel), and the thread-per-task
-// spawn/Task/Channel engine. See §6 Concurrency for the real API.
-spawn { ... } -> Task<T>          // thread-per-task engine
-group.spawn(f(args)) -> TaskHandle<T>   // cooperative TaskGroup
-Mutex<T>, Arc<T>, Channel<T>      // sharing + synchronization primitives
-```
-
-### Utilities
-
-```saw
-std.fmt.{format, Display, Debug}
-std.iter.{Iterator, IntoIterator}
-std.cmp.{Ord, PartialOrd, Eq, PartialEq}
-std.hash.{Hash, Hasher}
-std.time.{Instant, Duration}
-```
+`Iterator`, `Equatable`, `Comparable`, `Hashable`, `Printable`, `Error`, `Send`
+and `Sync` are prelude traits declared in `builtin.saw`, not module contents.
+There is no `Deque`, no `RwLock`, and no `UdpSocket` yet.
 
 **`std.fixedbuf`** is **implemented** (`std/fixedbuf.saw`) and works in both
 profiles: it allocates nothing. `FixedBuf<N>` is `N` bytes of zeroed storage held
@@ -6069,6 +6081,11 @@ sawc <source.saw> [options]
                pipeline: entry-block allocas + mem2reg and friends)
   --target TRIPLE
                Cross-compile for a target triple (default: the host)
+  --target-features FEATURES
+               LLVM subtarget features for --target, comma separated (e.g.
+               `+m,+a,+c` for rv32imac). A triple names an architecture but not
+               its optional extensions; base rv32i has no divide instruction,
+               so an integer `/` becomes a libcall freestanding cannot link.
   --freestanding
                Freestanding profile: runtime seams as declarations only, no
                hosted std modules, no Float printing, unlinked object output
@@ -6081,10 +6098,22 @@ sawc <source.saw> [options]
   --runtime-build
                Compile a Saw runtime that `@export`s the frozen `__saw_rt_*`
                ABI. Sync-only, unlinked object output; builds `sawc/rt/`.
+  --runtime-provider
+               This package IS a runtime (design 149; blade passes it for
+               `[package] runtime = true`). Permits `@export`ing the frozen
+               seams, checks each against sawc/rt/ABI.md, and links no runtime
+               of ours beside it. Unlike --runtime-build this is an ordinary
+               package build: std is available and the output links.
   --module-path NAME=DIR
                Map package NAME to source directory DIR (`import NAME` ->
                DIR/lib.saw, `import NAME.sub` -> DIR/sub.saw). Repeatable;
                this is how the package manager wires dependencies.
+  -W NAME      Enable a warning category (repeatable; `-W all` for every one).
+               Warnings are off by default and never affect the exit status.
+               See Compiler warnings.
+  --ids        With --emit-ast, include each node's stable node_id. Off by
+               default: ids are stable within a run but carry no
+               cross-implementation meaning, so the canonical dump omits them.
 ```
 
 Optimization: by default `sawc` runs an O1-style pass pipeline (allocas hoisted
@@ -6129,12 +6158,16 @@ type     unsafe   var      while
 
 Contextual (parser- or typechecker-recognized in one position; still valid
 identifiers):
-any      deinit   escaping export   import   module   package  parent
-Self     sync
+any      const    deinit   escaping export   import   module   package
+parent   Self     sync
 
 Planned / reserved:
-and  const  defer  do  generic  macro  none  or  some  where
+and  defer  do  generic  macro  none  or  some  where
 ```
+
+`const` joined the contextual list with const generics (design 148). It is
+recognized only in a generic parameter position, so `let const = 3` still
+compiles.
 
 `async` and `await` are deliberately **absent** — Saw is colorless and will
 never have them (see §6 Concurrency).
