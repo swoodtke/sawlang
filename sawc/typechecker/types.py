@@ -59,6 +59,27 @@ class TypeUtilsMixin:
             return name
         return ns.resolve_type_identity(name)
 
+    def _canonical_trait_name(self, name: str) -> str:
+        """A trait REFERENCE as its identity, resolving a module qualifier.
+
+        DF-150b: a type-parameter bound and a trait's parent list hold bare
+        STRINGS, not `SawType`s, so `_resolve_type`'s module-walk never sees
+        them — `_canonical_type_name` deliberately leaves any dotted name alone
+        for that branch to handle. A qualified `T: qual.Named` therefore stayed
+        a literal spelling, matching no conformance registered under the trait's
+        identity. Design 150 makes the qualifier the only way to name a trait a
+        whole-module import brought in, so the string form has to resolve too.
+
+        Total, like its sibling: an unresolvable name comes back unchanged and
+        the existing "unknown trait" diagnostic reports it."""
+        if not name or '.' not in name:
+            return self._canonical_type_name(name)
+        simple = name.rpartition('.')[2]
+        trait = self.get_trait_info(simple, qualified_path=name)
+        if trait is None:
+            return name
+        return getattr(trait, 'type_identity', "") or simple
+
     # Fields that hold a BACK-REFERENCE out of the tree being walked (a resolved
     # symbol, a declaring node). Following one would carry the walk below into
     # another module's declarations and rewrite them against THIS module's
@@ -133,8 +154,13 @@ class TypeUtilsMixin:
                     names = getattr(obj, _slot, None)
                     if isinstance(names, list) and all(
                             isinstance(n, str) for n in names):
-                        setattr(obj, _slot,
-                                [self._canonical_type_name(n) for n in names])
+                        # DF-150b: a bound or parent may be module-qualified;
+                        # `conformances` keeps the spelling, which the orphan-rule
+                        # check in registration resolves itself.
+                        canon = (self._canonical_type_name
+                                 if _slot == "conformances"
+                                 else self._canonical_trait_name)
+                        setattr(obj, _slot, [canon(n) for n in names])
                 for f in dataclasses.fields(obj):
                     if f.name in self._CANON_SKIP_FIELDS:
                         continue
@@ -343,7 +369,19 @@ class TypeUtilsMixin:
             symbol = self.namespace.resolve(qualified_path, check_access=False)
             if symbol and symbol.kind == SymbolKind.TRAIT:
                 return symbol
-        return self.namespace.lookup_trait(name)
+        result = self.namespace.lookup_trait(name)
+        if result is not None:
+            return result
+        # DF-150b: the same visibility-honoring cross-module fallback
+        # `get_struct_info`/`get_enum_info` have had since design 40. A trait
+        # reached through a module qualifier resolves to its own identity (see
+        # `_resolve_type`'s EXISTENTIAL branch), and from then on every consumer
+        # asks for it by that bare name — which is not in the importer's
+        # namespace, because a whole-module import binds a qualifier and nothing
+        # else. Without this, `&any qual.Named` type-checked its way to the
+        # erasure site and then failed method dispatch with `unknown trait`.
+        return self._cross_module_lookup('trait', name,
+                                         lambda ns: ns.lookup_trait(name))
 
     def get_type_alias_info(self, name: str, qualified_path: str = None) -> Optional[TypeAliasSymbol]:
         """Lookup type alias info via namespace, supporting qualified names.
@@ -1008,6 +1046,25 @@ class TypeUtilsMixin:
             resolved_inner = self._resolve_type(saw_type.inner_type)
             return SawType(TypeKind.REFERENCE, inner_type=resolved_inner,
                            reference_mutable=saw_type.reference_mutable)
+        elif (saw_type.kind == TypeKind.EXISTENTIAL
+              and saw_type.existential_trait
+              and '.' in saw_type.existential_trait):
+            # DF-150a: `&any qual.Named`. The same gap DF-140c closed for
+            # references, one composite over: every downstream consumer — method
+            # dispatch on the erased value, the conformance check at an erasure
+            # site, vtable selection — compares trait names, and none of them
+            # knows how to strip a module qualifier. Resolve it to the trait's
+            # own identity HERE, so a qualified spelling and a bare one are the
+            # same type from this point on. Design 150 makes this reachable:
+            # under a whole-module import the qualifier is the ONLY way to name
+            # an imported trait.
+            module_part, _, simple = saw_type.existential_trait.rpartition('.')
+            trait = self.get_trait_info(
+                simple, qualified_path=saw_type.existential_trait)
+            if trait is not None:
+                import dataclasses
+                identity = getattr(trait, 'type_identity', "") or simple
+                return dataclasses.replace(saw_type, existential_trait=identity)
         elif saw_type.kind == TypeKind.OPTIONAL and saw_type.inner_type:
             # Recursively resolve optional inner types
             resolved_inner = self._resolve_type(saw_type.inner_type)

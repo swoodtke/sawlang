@@ -404,6 +404,23 @@ class Parser(ExpressionsMixin, StatementsMixin, DeclarationsMixin, TypeParsingMi
 
         return Visibility.PUBLIC
 
+    def _parse_bound_name(self, after: str) -> str:
+        """A trait bound name, which may be MODULE-QUALIFIED (`qual.Named`).
+
+        DF-150b: the bound grammar read a single identifier, so a trait brought
+        in by a whole-module import was unnameable in a bound — and design 150
+        makes the qualifier the only way to name one. `T: a.b.Trait` nests, for
+        the same reason a qualified type does.
+        """
+        token = self.expect(TokenType.IDENT, f"Expected trait name after {after}")
+        name = token.value
+        while self.match(TokenType.DOT):
+            self.advance()
+            part = self.expect(TokenType.IDENT,
+                               "Expected a trait name after `.` in a bound")
+            name = f"{name}.{part.value}"
+        return name
+
     def _parse_single_type_param(self) -> TypeParameter:
         """Parse a single type parameter: T, T: Bound + OtherBound, or the const
         VALUE parameter `const N: Int` (design 148).
@@ -449,18 +466,14 @@ class Parser(ExpressionsMixin, StatementsMixin, DeclarationsMixin, TypeParsingMi
                 column=start.column
             )
 
-        # Parse optional bounds: T: Trait1 + Trait2
+        # Parse optional bounds: T: Trait1 + Trait2, each possibly qualified
         bounds = []
         if self.match(TokenType.COLON):
             self.advance()
-            # Parse first bound
-            bound_token = self.expect(TokenType.IDENT, "Expected trait name after ':'")
-            bounds.append(bound_token.value)
-            # Parse additional bounds
+            bounds.append(self._parse_bound_name("':'"))
             while self.match(TokenType.PLUS):
                 self.advance()
-                bound_token = self.expect(TokenType.IDENT, "Expected trait name after '+'")
-                bounds.append(bound_token.value)
+                bounds.append(self._parse_bound_name("'+'"))
 
         # Parse optional default: `A: Allocator = Global` (design 37). Default
         # type parameters — a TYPE after `=`, never a value. Enables the allocator

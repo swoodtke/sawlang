@@ -3126,8 +3126,18 @@ class ExpressionsMixin:
                                      f"`<{resolved_arg.struct_name}: {bound}>`"
                             )
                     elif concrete_type_name:
-                        conformances = self.namespace.get_conformances(concrete_type_name)
-                        if bound not in conformances:
+                        # DF-150b: ask the query that WALKS imported modules.
+                        # `get_conformances` reads only this namespace's own
+                        # table, so a conformance declared in the module that
+                        # defines the type was invisible unless an import had
+                        # copied it in — which the glob and selective forms do
+                        # and a qualifier binding does not. Design 142 makes a
+                        # conformance coherent program-wide and visible wherever
+                        # the type and the trait are, so the import form must not
+                        # decide the answer. The inference path beside this one
+                        # already used the walking query (`_bound_satisfied`).
+                        if not self.namespace.type_conforms_to(
+                                concrete_type_name, bound):
                             self._error(
                                 ErrorKind.TYPE_MISMATCH,
                                 f"type `{resolved_arg}` does not implement trait `{bound}`",
