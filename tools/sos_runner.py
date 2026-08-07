@@ -74,6 +74,27 @@ SOSABI_MODULE = f"sosabi={SOSABI_DIR}"
 HAL_KERNEL_DIR = os.path.join(REPO_ROOT, "sos", "hal", "riscv32", "kernel")
 RT_COMMON_C_DIR = os.path.join(REPO_ROOT, "sos", "rt", "common_c")
 
+# The kernel HAL's SAW half (design 162 unit 1). `kcore` reaches the board, the
+# privilege transition and the protection hardware only through this module, so
+# a second architecture is a second directory here and no edit above it.
+HAL_MODULE = f"hal={HAL_KERNEL_DIR}"
+
+# The seam, enforced rather than asserted (design 162 unit 1). `kcore` is
+# compiled for every architecture, so an arch name that leaks into it would
+# still BUILD — it would just be wrong on the other target, discovered whenever
+# someone next ported. This scan is what makes the leak fail here instead.
+ARCH_FREE_DIRS = [
+    os.path.join(REPO_ROOT, "sos", "kernel", "core"),
+    os.path.join(REPO_ROOT, "sos", "kernel", "main.saw"),
+]
+ARCH_WORDS = [
+    "riscv", "rv32", "rv64", "aarch64", "arm64", "armv8",
+    "mcause", "mepc", "mtval", "mstatus", "mscratch", "mtvec", "ecall", "pmp",
+    "sifive", "ns16550", "csr", "m-mode", "u-mode",
+    "esr_el", "elr_el", "far_el", "vbar", "ttbr", "sctlr", "tcr_el", "mair",
+    "pl011", "psci", "semihost", " svc ", "el0", "el1",
+]
+
 # sos/tests/payload_badcall.S shuts down with this when all of its own checks
 # passed. Kept in step with the `.equ EXPECTED_CODE` there.
 PAYLOAD_CHECKS_PASSED = 7
@@ -410,6 +431,7 @@ def _build_elf(case, shared_objs, lld, clang):
           "--freestanding", "--no-hidden-alloc", "--target", TRIPLE,
           "--target-features", MFEATURES,
           "--module-path", CORE_MODULE,
+          "--module-path", HAL_MODULE,
           "--module-path", IMGFORMAT_MODULE,
           "--module-path", SOSRT_MODULE,
           "--module-path", SOSABI_MODULE])
@@ -423,7 +445,7 @@ def _build_elf(case, shared_objs, lld, clang):
     if case.get("root_pkg"):
         objs.append(_stitch_root_image(case["_root_image"], clang))
 
-    _run([lld, "-T", os.path.join(KERNEL_DIR, "virt.ld"), "--gc-sections",
+    _run([lld, "-T", os.path.join(HAL_KERNEL_DIR, "virt.ld"), "--gc-sections",
           "-o", elf, *objs])
     return elf
 
@@ -471,8 +493,52 @@ def _check(case, status, out, timed_out):
     return True, ""
 
 
+def _sources_under(path):
+    """Every `.saw` file at or under `path`."""
+    if os.path.isfile(path):
+        return [path]
+    found = []
+    for root, _dirs, files in os.walk(path):
+        for name in sorted(files):
+            if name.endswith(".saw"):
+                found.append(os.path.join(root, name))
+    return found
+
+
+def _check_arch_free():
+    """Fail the run if an architecture name appears in the arch-free kernel.
+
+    Design 162 unit 1: the deliverable is as much the SEAM as the port. A
+    kernel that names its architecture still compiles — the leak only shows up
+    on the OTHER target, whenever someone next ports — so the check that keeps
+    the seam honest has to be mechanical. Comments count: a note that says
+    `mepc` is a note that will be wrong on the profile that has no `mepc`.
+    """
+    bad = []
+    for path in ARCH_FREE_DIRS:
+        for src in _sources_under(path):
+            with open(src, encoding="utf-8") as f:
+                for lineno, line in enumerate(f, 1):
+                    low = line.lower()
+                    for word in ARCH_WORDS:
+                        if word in low:
+                            rel = os.path.relpath(src, REPO_ROOT)
+                            bad.append(f"{rel}:{lineno}: {word!r} in: {line.strip()}")
+    if bad:
+        print(f"{RED}{BOLD}sos-test: architecture names in the arch-free kernel"
+              f"{RESET}", file=sys.stderr)
+        for line in bad:
+            print(f"  {line}", file=sys.stderr)
+        print("  (design 162 unit 1: kcore reaches the machine through `hal` "
+              "only)", file=sys.stderr)
+        return False
+    return True
+
+
 def main():
     qemu, lld, clang = _probe_tools()
+    if not _check_arch_free():
+        sys.exit(1)
     print(f"{BOLD}SOS QEMU tests{RESET} (riscv32 `virt`)")
     print(f"  qemu : {qemu}")
     print(f"  clang: {clang}")
