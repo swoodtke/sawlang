@@ -56,6 +56,25 @@ nested optionals their generic spelling, so nothing stays unnameable.**
 12. **Tracker hygiene**: renumber the colliding Aug 7 DF-146l/m/n/o entries
     against the older Aug 6 design-146 set (174's report flagged it); one
     commit, links updated where cited.
+13. **DF-175a (P0-class, DO THIS UNIT FIRST) — a `&self` method may mutate
+    its receiver.** Only the `&var self.<field>` projection form is checked;
+    a direct field write in a plain `&self` method is a SILENT NO-OP (writes
+    the callee's copy), and in a `&self` borrows body (by-pointer receiver)
+    it LANDS — a read through a shared window mutates a `let` root. Fix:
+    the design-146 rule ("a field write in a `&self` body is an error")
+    enforced for the direct-write form everywhere. Expect a small in-tree
+    migration tail (any code relying on the silent no-op was already broken).
+14. **DF-175b — a shared window is enforced by use-site classification
+    only.** Every accessor gets one `(&var T)` window closure; give the
+    shared flavor a `(&T)` window so shared-copy soundness is structural,
+    not dependent on `_chain_is_exclusive`'s completeness. Small; hardens
+    every existing accessor and is the prerequisite design 175 named for
+    `#lend_var`.
+15. **DF-175d — a NAMED borrows accessor as an assignment target** (the
+    `v.get(0)?.value = x` head family): fold into units 4/5's grammar work
+    so subscripts and named lends are uniform on the write side.
+    (DF-175c, --emit-docs flavor visibility, stays filed — docs-tooling
+    polish, not this batch.)
 
 ## Gates
 
