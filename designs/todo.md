@@ -37,9 +37,24 @@ items need a probe before being treated as real work.
   LLVM-C FFI). The parser-port brief inherits this; the seam stays swappable.
 - **Rights-table single-source: BACKLOG** on the tracker's own trigger
   (revisit if kinds multiply).
-- **DF-146j Map.get: STILL OPEN by choice** (user: discuss later) — the
-  borrows-get recommendation stands; the soundness batch dispatches without
-  this unit. PROBED (Aug 7, user's nested-optional question): `T??`
+- **DF-146j DECIDED (user, Aug 7 after the nested-optional + asymmetry
+  discussion): `Map.get` becomes the borrows-get SYNONYM of `[]`** — both
+  conditional lends returning `V?`; the copy-shaped `get` (the last
+  copy-shaped exception to the places model, and the source of the NoCopy
+  over-release) is deleted. The panic-vs-None asymmetry between `Vector.[]`
+  and `Map.[]` is RATIFIED as-is (dense-checkable domain panics on bug,
+  sparse domain returns data; `!` composes the panic spelling from the
+  Optional one). Nested `V??` differentiation verified by probe.
+- **DF-146l/m/n/o ALL DECIDED (user, Aug 7): "we should fix all those
+  issues."** 146l: the None-ICE propagation gaps get fixed AND any remaining
+  untyped-None becomes a clean anchored error; 146m: auto-wrap fires at a
+  generic param instantiated to an Optional; 146n: `m[k]! = v` becomes a
+  legal assignment target (whole-value place write, panics on absent —
+  symmetry with `v[i] = fresh`); 146o: optional-chain assignment accepts
+  place-expression heads (`m[k]?.field = v` — head lends, absent path skips
+  the write and the RHS, types `Void?`). DISPATCH: one "places/optional
+  plumbing" batch agent (146j+l+m+n+o), AFTER 170 integrates (shared
+  typechecker surface). PROBED (Aug 7, user's nested-optional question): `T??`
   instantiates honestly — `Vector<Int?>.get(0)` on a present-None element
   yields Some(None), absent yields None, one `if let` peels exactly the outer
   layer; same for `Map<String, Int?>.[]`. The `?.`-chain flattening rule does
