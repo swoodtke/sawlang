@@ -490,7 +490,10 @@ if err.is<IoErr>() { if let io = err.take<IoErr>() { retry(io) } }  // downcast
   `b.take<T>() -> T?` (CONSUMES the box — moves the payload out on a hit, drops
   it on a miss; use `is<T>()` first to branch). Explicit `T`, must conform.
 - Optionals: `T?`, `None`, force `!` (panics), `??`, call-site auto-wrap
-  (`f(5)` matches `f(x: Int?)`), and full **optional chaining** `?.` (design 111):
+  (`f(5)` matches `f(x: Int?)` — and, since design 176, a generic parameter
+  INSTANTIATED to an optional too, so `m.insert("y", 7)` on a
+  `Map<String, Int?>` and `v.push(3)` on a `Vector<Int?>` both wrap),
+  and full **optional chaining** `?.` (design 111):
   `a?.b?.c()` any length, `?.field`/`?.method()`, call-result heads
   (`x.a()?.b`); each optional hop needs its own `?`, a plain intermediate uses
   `.`; the first None short-circuits the WHOLE tail INCLUDING skipped-call args

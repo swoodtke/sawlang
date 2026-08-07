@@ -1917,17 +1917,28 @@ class ExpressionsMixin:
         return True
 
     def _df3_allow_wrap(self, declared_type, tp_names=None):
-        """DF3: auto-wrap is disallowed when the parameter's optional-ness comes
-        from substituting a generic type parameter (design 57 — explicit at
-        generic boundaries). Returns False iff the DECLARED (pre-substitution)
-        parameter type is a bare type-parameter reference."""
-        if declared_type is None:
-            return True
-        if declared_type.kind == TypeKind.TYPE_PARAM:
-            return False
-        if (declared_type.kind == TypeKind.STRUCT and tp_names
-                and declared_type.struct_name in tp_names):
-            return False
+        """Whether call-site optional auto-wrap may fire for this parameter.
+
+        Design 57's DF3 said no when the parameter's optional-ness came from
+        SUBSTITUTING a type parameter — auto-wrap was to be explicit at generic
+        boundaries. DF-146m retires that: `m.insert("y", 7)` on a
+        `Map<String, Int?>` errored with ``expects `Int?` but got `Int` `` while
+        the identical call on a type whose parameter was WRITTEN `Int?` wrapped
+        fine, and a bare `None` typed at that very position either way. One
+        parameter, two answers, decided by how the callee happened to spell its
+        signature — which is not something a caller can see or should care
+        about.
+
+        The wrap is still exactly ONE level (`_arg_type_ok` refuses `Int` into
+        an `Int??`), and inference is unaffected: it runs first and solves a
+        parameter from the argument's own type, so this only ever applies where
+        the instantiation is already fixed — by the receiver, by explicit type
+        arguments, or by another argument.
+
+        Kept as a named predicate rather than deleted at its six call sites: the
+        question "may this parameter auto-wrap" is a real one, and a later rule
+        that needs to answer it differently has a place to live.
+        """
         return True
 
     def _has_explicit_type_args(self, expr) -> bool:

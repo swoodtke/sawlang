@@ -1,15 +1,37 @@
-// DF3 does NOT wrap through a generic instantiation boundary (design 57):
-// when a generic parameter U is instantiated to Int?, a bare Int argument does
-// not auto-wrap — the optional must be explicit at the generic boundary.
-// EXPECT: error
-// EXPECT-ERROR-CONTAINS: expects
+// DF3 auto-wrap DOES fire through a generic instantiation boundary
+// (DF-146m, design 176 unit 2 — this reverses design 57's original rule, which
+// wanted the optional written explicitly at a generic boundary).
+//
+// The rule was not defensible from the caller's side: `m.insert("y", 7)` on a
+// `Map<String, Int?>` was refused while the identical call on a type whose
+// parameter was WRITTEN `Int?` wrapped fine, and a bare `None` typed at that
+// same position either way. One parameter, two answers, decided by how the
+// callee happened to spell its signature.
+//
+// The wrap is still exactly one level: an argument that is already the optional
+// is passed through unchanged, as df3_no_double_wrap.saw pins for a written
+// parameter.
+// EXPECT: success
+// EXPECT-OUTPUT:
+// wrapped 5
+// already 9
+// none-arg absent
+// -- done
 
-func id<U>(x: U) -> U {
-    x
-}
+func id<U>(x: U) -> U { x }
 
 func main() {
-    // U := Int?, argument is a bare Int -> rejected (no wrap through generics).
+    // U := Int?, argument is a bare Int -> wraps to Some(5).
     let r = id<Int?>(5)
-    print(0)
+    print("wrapped {r ?? -1}")
+
+    // An argument that is ALREADY the optional is untouched.
+    let nine: Int? = 9
+    let s = id<Int?>(nine)
+    print("already {s ?? -1}")
+
+    // A bare `None` types at the same position, as it always did.
+    let n = id<Int?>(None)
+    if let value = n { print("none-arg {value}") } else { print("none-arg absent") }
+    print("-- done")
 }

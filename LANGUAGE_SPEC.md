@@ -1420,10 +1420,10 @@ module-qualified, struct `init`, and enum-payload construction). It is **one
 level only** (`T → T?`, never `T → T??` — and an already-optional argument is
 passed through, never re-wrapped). It runs **after overload resolution**, so an
 exact match still beats the wrap (design 55 rule 1: `f(5)` picks `f(Int)` over a
-coexisting `f(Int?)`). It does **not** fire through a generic-instantiation
-boundary — passing a bare `Int` where a generic parameter `U` was instantiated to
-`Int?` is an error; the optional must be explicit there. Move/copy semantics are
-unchanged (the wrap consumes the argument exactly as an explicit `Some(x)` would).
+coexisting `f(Int?)`). It fires at a generic parameter INSTANTIATED to an
+optional too, so `m.insert("y", 7)` on a `Map<String, Int?>` wraps exactly as a
+written `Int?` parameter does. Move/copy semantics are unchanged (the wrap
+consumes the argument exactly as an explicit `Some(x)` would).
 
 ### Traits
 

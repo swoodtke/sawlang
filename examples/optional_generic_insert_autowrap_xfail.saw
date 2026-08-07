@@ -6,14 +6,16 @@
 //
 // The same wrap DOES fire for a written `Int?` parameter, and a bare `None`
 // types correctly at this very position — so the two paths diverge.
-// Workaround today: an annotated `let v: Int? = 7` binding.
+// FIXED by design 176 unit 2, which retires design 57's DF3 rule that auto-wrap
+// must be explicit at a generic boundary. The rule was invisible from the
+// caller's side: whether `7` wrapped depended on how the callee happened to
+// spell the parameter.
 // EXPECT: success
 // EXPECT-OUTPUT:
 // len 2
 // y 7
 // v 3
 // -- done
-// XFAIL: DF-146m call-site auto-wrap does not fire at a generic param instantiated to an Optional
 
 func main() {
     var m = Map<String, Int?>()

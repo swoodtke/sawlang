@@ -114,6 +114,17 @@ items need a probe before being treated as real work.
   clean anchored error, not an ICE. Sites 1-4 are xfail-pinned as
   `examples/optional_generic_none_{map_literal,coalesce,generic_arg,
   default_value}_xfail.saw`.
+- **DF-146m — FIXED (design 176 unit 2).** `_df3_allow_wrap` returns True
+  unconditionally now: design 57's DF3 rule (auto-wrap must be explicit at a
+  generic boundary) is retired, because it was invisible from the caller's side
+  — whether `7` wrapped depended on whether the callee spelled the parameter
+  `Int?` or `V`, and a bare `None` typed at that position either way. Still
+  exactly one level; inference is unaffected (it runs first and solves a
+  parameter from the argument's own type, so this only applies where the
+  instantiation is already fixed). MIGRATION: one example,
+  `examples/df3_generic_no_wrap_error.saw`, PINNED the retired rule and was
+  rewritten to pin the new one (same filename, kept so the reversal is visible
+  in its history). Original finding follows.
 - **DF-146m (COMPILER, filed Aug 7): call-site optional auto-wrap does not
   fire at a GENERIC parameter instantiated to an Optional.** `m.insert("y", 7)`
   on a `Map<String, Int?>` errors "expects `Int?` but got `Int`" — the
