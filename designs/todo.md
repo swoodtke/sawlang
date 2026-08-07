@@ -7,11 +7,16 @@ items need a probe before being treated as real work.
 
 ## DECIDED — Aug 7 afternoon round (user, one-by-one review)
 
-- **DF-162a DECIDED: compiler default.** Freestanding aarch64 implies
+- ~~**DF-162a DECIDED: compiler default.** Freestanding aarch64 implies
   `-neon,-fp-armv8` unless `--target-features` overrides — freestanding
   output must not trap before main. Lands as a compiler-side unit in design
   172 (cherry-picks to main immediately per SOS flow); M1b's HAL drops its
-  explicit flags when it rides.
+  explicit flags when it rides.~~ **DONE (design 172 unit 7).**
+  `target_info.effective_target_features` is the one place the default
+  lives. It is load-bearing for the SAW half too, not only the C the finding
+  was found in: the arm64 SOS kernel object carried five NEON block-move
+  instructions (`ldr q0` / `ldp q1, q0`, a struct copy) and now carries none.
+  The HAL did NOT drop `CPACR_EL1.FPEN` — see DF-172c, which is why.
 - **sosimg v3 DECIDED: widen addresses to 64-bit NOW** (header 16→24,
   records 20→24, fixtures both arches, both producers/consumers). Unit added
   to design 172.
@@ -5519,6 +5524,99 @@ port hit ONE compiler-surface sharp edge (DF-162a), and it is not a miscompile.
   and `SpinLock` need, which is what the verification above measured. Worth
   correcting so a later brief does not plan around an extension that is not
   there.
+
+## Design 172 — DF-findings (the SOS C diet)
+
+- **DF-172a — FILED, and it is the brief's predicted one. Saw cannot name an
+  externally-defined symbol's ADDRESS**, so the four `sos_payload_start` /
+  `sos_payload_end` accessors stay C. Three shapes were probed and all three
+  fail, each for a different reason, which is what makes this a language gap
+  rather than a spelling one:
+
+  ```saw
+  extern "C" { static _payload_start: UInt8 }   // parse error: "Expected 'func'
+                                                //   in extern block"
+  extern "C" { func _payload_start() }
+  let p = _payload_start                        // error: undefined variable
+                                                //   (an extern func is not a value)
+  @export("_payload_start")
+  static PAYLOAD_START: UInt8 = 0u8             // compiles — and `nm` shows
+                                                //   `B _payload_start`: a
+                                                //   DEFINITION, which collides
+                                                //   with the linker script's
+  ```
+
+  The DF-163f-blessed `(&sym) as UnsafePointer<T>` needs a `sym` that is a Saw
+  binding; a linker symbol is not one. What the language is missing is an
+  `extern` DATA declaration — "this name exists, the linker will place it, its
+  address is what I want" — which is `extern char _end[]` in C and
+  `extern "C" { static _end: u8 }` in Rust. Two shapes worth weighing when it
+  is designed: whether it declares a TYPE at all (the C idiom uses an
+  unsized array precisely so nobody reads through it), and whether taking the
+  address is the only legal operation.
+
+  There is a NON-language alternative that would delete these four functions
+  today, and it is an open question for the user rather than a finding: the
+  bounds could be passed INTO `kmain` from `boot.S` (`ldr x0, =_payload_start`),
+  which names the symbol in assembly — already bucket 1 — and hands Saw a word.
+  It costs every kernel entry a parameter and moves the payload from something
+  the HAL is asked for to something the kernel is handed, so it is a seam
+  change, not a cleanup.
+
+- **DF-172b — NOT a gap: the panic-path writer is check-free by construction,
+  verified from emitted IR.** Design 172 unit 4 says the UART writer STOPS
+  rather than ships best-effort if check-freedom cannot be guaranteed. It can.
+  `--emit-ir` on the whole call cone (`sos_rt_write` -> `console_byte` ->
+  the design-112 driver) shows `ptrtoint`, a plain `load i8`, `add`/`sub` —
+  NOT `llvm.uadd.with.overflow`, because the cursor advances with `&+`/`&-` —
+  an `icmp`, a `getelementptr inbounds`, and volatile MMIO load/store. There is
+  no bounds check, no overflow trap block and no call to `__saw_rt_panic`
+  anywhere in it, so a panic raised inside the panic reporter is not merely
+  unlikely, it is unreachable. The ingredients that make that true are the
+  design-130 raw pointer surface, `&+`/`&-`, and the design-112 `UnsafeMemory`
+  driver idiom — no new language work was needed.
+
+- **DF-172d — LANGUAGE PAIN, filed. A binary expression cannot be wrapped
+  across lines outside brackets — NEITHER spelling works.** Design 129 made
+  newlines insignificant inside `()`/`[]`/committed `<>`, but a bare
+  continuation is still a statement end, so both of the two things a
+  programmer reaches for are parse errors:
+
+  ```saw
+  let d = base | DESC_VALID | DESC_PAGE
+        | ATTR_AF | ATTR_UXN            // error: Unexpected token: PIPE
+  let d = base | DESC_VALID | DESC_PAGE |
+          ATTR_AF | ATTR_UXN            // error: Unexpected token: NEWLINE
+  ```
+
+  The working spelling is a pair of parentheses around the whole expression,
+  which is the shape this branch adopted:
+
+  ```saw
+  let d = (base | DESC_VALID | DESC_PAGE
+           | ATTR_AF | ATTR_UXN)
+  ```
+
+  This is not a corner: OR-ing eight named bits into a hardware descriptor is
+  the single most common line in a page-table or register driver, and it does
+  not fit in 79 columns. The parenthesis is a workaround a reader has to
+  decode as "line continuation" rather than as grouping, and forgetting it
+  gives an error that names a token rather than the rule. Worth a decision:
+  a trailing binary operator suppressing the newline is the low-risk half
+  (the parser has already committed to needing an operand), a leading one
+  needs lookahead. Neither is in this brief's scope.
+
+- **DF-172c — the arm64 HAL keeps `CPACR_EL1.FPEN`, and the brief's line about
+  dropping it is vacuous as written.** Two facts: the arm64 harness entry
+  passed no `--target-features` to begin with (`"features": None`), so there
+  were no explicit flags to drop; and `sos/rt/common_c/support.c` — whose
+  `memcpy`/`memset` are PERMANENTLY C, being the loop-idiom self-recursion case
+  — compiles to 16 SIMD references at `-O2` and is linked into the kernel and
+  every process image. Turning FPEN off would trap in `memcpy`. So the boot
+  line stays, now with that as its stated reason. Removing it needs
+  `-mgeneral-regs-only` on every aarch64 C compile, which means a Blade
+  manifest key for per-target C flags (Blade's native compile hardcodes its
+  flag list today). Small, additive, and NOT part of this brief.
 
 ## Design 140 — DF-findings (SOS M1)
 
