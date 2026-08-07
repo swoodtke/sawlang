@@ -1,0 +1,60 @@
+// Design 165: appending a Data to itself, and the neighbouring aliasing cases.
+//
+// `d.append(d)` is the case a copy-on-write buffer has to be asked about. The
+// argument is a retain, so the storage is shared when `append` runs; the gate
+// separates BEFORE the copy, which leaves the source buffer owned by the
+// argument alone and nothing writing to it while it is read. Getting the order
+// wrong here reads a buffer that `grow` has already freed, or copies from the
+// destination it is halfway through filling.
+// EXPECT: success
+// EXPECT-OUTPUT:
+// self-append 1,2,1,2
+// slice-append 10,20,30,20,30
+// shared-append 7,9 sibling 7
+// grow-append 5,5,5,5
+import std.data.*
+
+func show(d: &Data) -> String {
+    var out = StringBuilder()
+    var i = 0
+    while i < d.len() {
+        if i > 0 {
+            out.append(",")
+        }
+        out.append(d.get(i)! as Int)
+        i = i + 1
+    }
+    out.build()
+}
+
+func main() {
+    var a = Data(capacity: 4)
+    a.push(1)
+    a.push(2)
+    a.append(a)
+    print("self-append {show(&a)}")
+
+    // A slice of self: the argument holds a retain AND a narrower window.
+    var b = Data(capacity: 4)
+    b.push(10)
+    b.push(20)
+    b.push(30)
+    b.append(b.slice(1, 3)!)
+    print("slice-append {show(&b)}")
+
+    // Appending into storage a sibling shares: the sibling keeps its bytes.
+    var c = Data(capacity: 4)
+    c.push(7)
+    let sibling = c.copy()
+    var tail = Data(capacity: 4)
+    tail.push(9)
+    c.append(move tail)
+    print("shared-append {show(&c)} sibling {show(&sibling)}")
+
+    // Separation and growth in the same call, twice over.
+    var e = Data(capacity: 2)
+    e.push(5)
+    e.append(e)
+    e.append(e)
+    print("grow-append {show(&e)}")
+}

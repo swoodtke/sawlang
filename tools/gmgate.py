@@ -125,6 +125,12 @@ GATE = [
     # corrupt visibly: the iterator holds a retain now, so the source Data stays
     # alive with a count this lane can see miscounted in either direction.
     "examples/data_iter_outlives_source.saw",
+    # Appending a Data to itself (design 165). The argument is a retain, so the
+    # separation and the read race each other by construction: separate too
+    # late and the memcpy source is a buffer `grow` has freed, separate without
+    # re-reading and it is the destination being filled. Both read plausible
+    # bytes natively.
+    "examples/data_cow_self_append.saw",
 ]
 
 
