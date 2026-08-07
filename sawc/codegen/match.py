@@ -137,14 +137,41 @@ class MatchMixin:
                 and expr.matched_expr.name in self.variables
                 and not self._is_borrowed_name(expr.matched_expr.name)):
             consume_name = expr.matched_expr.name
-        if consume_name is not None:
+        # DF-151d: a TEMPORARY scrutinee (`match f() { ... }`, `match E.A(x)`)
+        # is owned by NOBODY. It is not a binding, so it was never registered
+        # for cleanup, and it is not an lvalue, so the consume path above did
+        # not claim it either — its payload simply leaked, silently, on every
+        # arm. Give it the storage a named local would have had and run it
+        # through the SAME consume model, so `match f() {...}` and
+        # `let s = f(); match s {...}` differ only in whether the value has a
+        # name. The spill is what makes the drops below addressable: every one
+        # of them needs a pointer to the scrutinee, and a temporary has none.
+        temp_scrut_name = None
+        if (consume_name is None and enum_has_owning
+                and self._is_owned_temporary(expr.matched_expr)):
+            temp_scrut_name = f"__match_scrutinee.{id(expr)}"
+            scrut_slot = self._entry_alloca(matched_val.type,
+                                            name="match_scrutinee")
+            self.builder.store(matched_val, scrut_slot)
+            self.variables[temp_scrut_name] = scrut_slot
+            consume_name = temp_scrut_name
+        if consume_name is not None and temp_scrut_name is None:
             # Suppress the scrutinee's own drop on every path: its payload is
-            # handed to the arm bindings. Clear a runtime drop flag if present
-            # (conditional-move machinery) and mark it moved for the flat skip.
+            # handed to the arm bindings, or dropped by the unclaimed-arm path
+            # below. Clear a runtime drop flag if present (conditional-move
+            # machinery) and mark it moved for the flat skip. A temporary has
+            # neither, so it is skipped here.
             flag = self.drop_flags.get(consume_name)
             if flag is not None:
                 self.builder.store(ir.Constant(ir.IntType(1), 0), flag)
             self.moved_variables.add(consume_name)
+
+        # The type the scrutinee's own drop glue is driven by, for the arms that
+        # claim nothing (below). `matched_enum_type` is already substituted and
+        # canonicalized above, which is what `enum_name` was mangled from.
+        scrut_saw = matched_enum_type
+        if scrut_saw is None or scrut_saw.kind != TypeKind.ENUM:
+            scrut_saw = self._expr_type(expr.matched_expr)
 
         # Create basic blocks for each arm + merge block
         arm_blocks = []
@@ -209,9 +236,27 @@ class MatchMixin:
             _mv_all_void = (_mv_variant_params is not None
                             and all(isinstance(self._get_llvm_type(t), ir.VoidType)
                                     for _, t in _mv_variant_params))
-            if (arm.variant_name != "_" and arm.bindings
-                    and not isinstance(matched_val.type, ir.IntType)
-                    and not _mv_all_void):
+            arm_extracts = (arm.variant_name != "_" and arm.bindings
+                            and not isinstance(matched_val.type, ir.IntType)
+                            and not _mv_all_void)
+            # An arm that CLAIMS NOTHING leaves the scrutinee's payload
+            # unclaimed: the consume model suppressed the scrutinee's own drop
+            # on the strength of the bindings taking it, and this arm has none.
+            # A `case _` over an owning variant leaked exactly this way whether
+            # the scrutinee was a temporary or a named local — the wildcard is
+            # the shape where the compiler cannot know which variant it holds,
+            # so the whole scrutinee is dropped and its own tag switch decides
+            # what runs. A named variant arm is dropped only when THAT variant
+            # actually owns something, so a payload-free `case B` costs nothing.
+            if consume_name is not None and not arm_extracts:
+                unclaimed = (arm.variant_name == "_"
+                             or any(self._needs_cleanup(ft) for _, ft
+                                    in variant_cleanup_info.get(
+                                        arm.variant_name, ())))
+                scrut_ptr_owned = self.variables.get(consume_name)
+                if unclaimed and scrut_ptr_owned is not None and scrut_saw is not None:
+                    self._emit_drop_at(scrut_ptr_owned, scrut_saw)
+            if arm_extracts:
                 # Get variant info and enum type
                 llvm_enum_type, _, variant_info = self.enum_types[enum_name]
                 variant_params = variant_info[arm.variant_name]
@@ -362,6 +407,13 @@ class MatchMixin:
             if not self.builder.block.is_terminated:
                 self.builder.branch(merge_block)
 
+        # The spilled temporary scrutinee's slot is dead now: every arm either
+        # handed its payload to bindings or dropped it. Retire the synthetic
+        # name so nothing downstream can resolve it (DF-151d).
+        if temp_scrut_name is not None:
+            self.variables.pop(temp_scrut_name, None)
+            self.moved_variables.discard(temp_scrut_name)
+
         # Position at merge block
         self.builder.position_at_end(merge_block)
 
@@ -396,6 +448,31 @@ class MatchMixin:
         scrut_type = getattr(expr, 'matched_scrutinee_type', None)
         if scrut_type is not None and self.type_param_context:
             scrut_type = scrut_type.substitute(self.type_param_context)
+
+        # DF-151d: this lowering BORROWS its scrutinee — every binding it hands
+        # an arm is an alias into the value, and nothing here consumes it. That
+        # is already right for a named local, whose own scope drops it; a
+        # TEMPORARY (`match f() { ... }`, a guarded or tuple or literal match on
+        # a call result) has no owner at all, so its payload leaked. Give it a
+        # slot and a cleanup scope of its own, spanning the whole match: the
+        # aliases stay valid for every arm, the merge block drops it once on
+        # every falling-through path, and an arm that `return`s reaches it
+        # through `_cleanup_all_scopes` — after the return value has been
+        # transferred, so a returned alias is retained before the drop runs.
+        #
+        # A scope rather than a statement temporary because a match is an
+        # EXPRESSION and can be a function body's tail, where there is no
+        # enclosing statement to hang a temporary on (`statement_temps` is None
+        # there, so registering one silently did nothing).
+        scrut_scope_pushed = False
+        if (self._is_owned_temporary(expr.matched_expr)
+                and scrut_type is not None
+                and self._needs_cleanup(scrut_type)):
+            scrut_slot = self._entry_alloca(scrut.type, name="match_scrutinee")
+            self.builder.store(scrut, scrut_slot)
+            self.cleanup_stack.append(
+                [("__match_scrutinee", scrut_type, scrut_slot, None)])
+            scrut_scope_pushed = True
 
         func = self.builder.function
         merge_block = func.append_basic_block("match_merge")
@@ -440,11 +517,18 @@ class MatchMixin:
                 self.builder.cbranch(gval, guard_ok, next_block)
                 self.builder.position_at_end(guard_ok)
 
-            # Arm body.
+            # Arm body. A bare-expression body goes through the value-transfer
+            # path, not a raw expression read, for the same reason the enum
+            # lowering does (DF12): an arm binding is an ALIAS into the
+            # scrutinee, so a binding that ESCAPES as the match's value must be
+            # RETAINED — the scrutinee's own drop (its binding's scope, or the
+            # match scope pushed above) releases that same payload afterwards.
+            # Without the retain `case A(x) if k > 0 -> x` handed back a value
+            # that was freed on the way out.
             if isinstance(arm.body, Block):
                 arm_result = self._generate_block(arm.body)
             else:
-                arm_result = self._generate_expression(arm.body)
+                arm_result = self._gen_transfer_value(arm.body)
             if arm_result is None or isinstance(arm_result.type, ir.VoidType):
                 arm_result = ir.Constant(ir.IntType(32), 0)  # placeholder
             else:
@@ -465,13 +549,21 @@ class MatchMixin:
         self.builder.unreachable()
 
         self.builder.position_at_end(merge_block)
+        phi = None
         if arm_results and match_produces_value:
             result_type = arm_results[0][0].type
             phi = self.builder.phi(result_type, name="match_result")
             for val, block in arm_results:
                 phi.add_incoming(val, block)
-            return phi
-        return None
+        # The temporary scrutinee dies with the match. Merge dominates every arm
+        # that fell through, so one drop here covers all of them; an arm that
+        # returned already dropped it through `_cleanup_all_scopes` (DF-151d).
+        # AFTER the phi — a phi has to lead its block, and the arm result it
+        # merges was already retained by the transfer above, so releasing the
+        # scrutinee behind it is safe.
+        if scrut_scope_pushed:
+            self._cleanup_scope(self.cleanup_stack.pop())
+        return phi
 
     def _match_pattern(self, pattern, value, saw_type):
         """Return (i1 condition, bindings) for `pattern` against `value`.

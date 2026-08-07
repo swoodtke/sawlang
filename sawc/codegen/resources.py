@@ -16,7 +16,8 @@ from typing import Optional, List
 from llvmlite import ir
 from ast_nodes import (SawType, TypeKind, MoveExpr, Identifier, MemberAccess,
                        ArrayIndex, TupleIndex, SelfExpr,
-                       FunctionCall, MethodCall, StructInit, EnumInit)
+                       FunctionCall, MethodCall, StructInit, EnumInit,
+                       TupleLiteral, ArrayLiteral, MapLiteral, SetLiteral)
 from .mangle import mangle_type
 
 
@@ -402,8 +403,17 @@ class ResourcesMixin:
         (Identifier / self / field / element access) instead *borrows* a value
         owned by an existing binding, which runs its own cleanup -- registering
         one of those as a temporary would double-free it.
+
+        An aggregate LITERAL mints a value the same way (DF-151d): every one of
+        them builds its elements through `_gen_transfer_value`, so a `(f(), k)`
+        tuple, an `[s0, s1]` array and a `{k: v}` map each hold references they
+        took themselves -- retained from a binding or moved off one. That makes
+        the literal an owner, not a borrow, and an unclaimed one leaks exactly
+        as an unclaimed call result does.
         """
-        return isinstance(expr, (FunctionCall, MethodCall, StructInit, EnumInit))
+        return isinstance(expr, (FunctionCall, MethodCall, StructInit, EnumInit,
+                                 TupleLiteral, ArrayLiteral, MapLiteral,
+                                 SetLiteral))
 
     def _register_stmt_temp(self, value, saw_type: SawType):
         """Spill an owned temporary `value` to a slot and register it for LIFO

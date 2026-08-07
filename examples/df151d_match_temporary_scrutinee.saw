@@ -1,0 +1,261 @@
+// DF-151d: a `match` whose SCRUTINEE is a TEMPORARY releases it.
+//
+// It did not. `match f() { ... }` built an owned value that no binding held: the
+// consume model claims a scrutinee only when it is an owned NAME, so nothing
+// registered the temporary for cleanup and nothing dropped it. Silent — no
+// error, no crash, just a destructor that never ran. Naming the value first
+// (`let s = f(); match s {...}`) balanced, which is the shape of the diagnosis.
+//
+// Two lowerings had to learn it. The classic enum switch gives the temporary the
+// storage a named local would have had and runs it through the SAME consume
+// model, so the two spellings differ only in whether the value has a name. The
+// general if-chain (a guard, a tuple, a literal or range arm) BORROWS its
+// scrutinee instead — every binding it hands an arm is an alias — so there the
+// temporary gets a cleanup scope spanning the match, and an arm result that is a
+// bare binding is retained on its way out (it was handed back non-retained, and
+// the scrutinee's drop then freed it under the caller).
+//
+// One more hole surfaced with them, and is fixed here too: an arm that CLAIMS
+// NOTHING left the payload unclaimed on both spellings. `case _` over an owning
+// variant leaked whether the scrutinee was a temporary or a named local — the
+// consume model had suppressed the scrutinee's own drop on the strength of
+// bindings that this arm does not have.
+//
+// ORACLE. `LIVE` counts live `Res` values: `res()` bumps it, `Res.deinit` takes
+// it back. Behind an `Arc`, so the count only returns to zero when the last
+// reference goes AND the destructor runs — a released refcount alone does not
+// move it. The name is an INTERPOLATED String (design 159's lesson: a literal is
+// immortal and cannot fail). On the pre-fix compiler the five sync shapes below
+// read 1, 2, 2, 3, 4 instead of 0.
+// EXPECT: success
+// EXPECT-OUTPUT:
+// start 0
+// bind_nothing 1 live 0
+// wildcard 9 live 0
+// wildcard_other 8 live 0
+// named 1 live 0
+// returns_out 4 live 0
+// guarded 6 live 0
+// retained 1 live 0
+// consumed 1 live 0
+// escaped_guard 1 live 0
+// broke 7 live 0
+// nested 2 live 0
+// suspending 1 live 0
+// done 0
+
+import std.task.*
+
+static LIVE: Atomic<Int> = Atomic(0)
+
+struct Res {
+    name: String
+}
+
+extension Res: NoCopy {
+    func deinit(&var self) { LIVE.fetch_add(0 - 1) }
+}
+
+func res(tag: Int) -> Arc<Res> {
+    LIVE.fetch_add(1)
+    Arc<Res>(value: Res(name: "res-{tag}"))
+}
+
+enum Slot {
+    case Filled(r: Arc<Res>),
+    case Empty
+}
+
+extension Slot: NoCopy {}
+
+func filled(tag: Int) -> Slot {
+    Slot.Filled(r: res(tag: tag))
+}
+
+// A second owning variant, for the wildcard case below: the arm that catches the
+// value has to drop a payload no pattern in the match ever named.
+enum Two {
+    case Left(r: Arc<Res>),
+    case Right(r: Arc<Res>)
+}
+
+extension Two: NoCopy {}
+
+func right(tag: Int) -> Two {
+    Two.Right(r: res(tag: tag))
+}
+
+// The filed repro: an arm that binds NOTHING, so no binding-transfer path is
+// involved at all.
+func bind_nothing(tag: Int) -> Int {
+    match filled(tag: tag) {
+        case Filled(_) -> 1,
+        case Empty -> 0
+    }
+}
+
+// A wildcard arm cannot know which variant it holds, so the whole scrutinee is
+// dropped and its own tag switch decides what runs.
+func wildcard(tag: Int) -> Int {
+    match filled(tag: tag) {
+        case _ -> 9
+    }
+}
+
+// The sharpest wildcard shape: the arm that catches the value names a DIFFERENT
+// variant, so nothing static says which payload is in hand. The drop is the
+// enum's own, and its tag switch is what picks the right one.
+func wildcard_other(tag: Int) -> Int {
+    match right(tag: tag) {
+        case Left(_) -> 1,
+        case _ -> 8
+    }
+}
+
+// The control the filing named: give the value a name and it always balanced.
+func named(tag: Int) -> Int {
+    let s = filled(tag: tag)
+    match s {
+        case Filled(_) -> 1,
+        case Empty -> 0
+    }
+}
+
+// An arm that leaves the function: the scrutinee is released on the way out.
+func returns_out(tag: Int) -> Int {
+    match filled(tag: tag) {
+        case Filled(_) -> { return 4 },
+        case Empty -> 0
+    }
+}
+
+// A guard routes the match through the general if-chain lowering.
+func guarded(tag: Int, k: Int) -> Int {
+    match filled(tag: tag) {
+        case Filled(_) if k > 0 -> 6,
+        case _ -> 0
+    }
+}
+
+// The arm's binding ESCAPES as the match's value. It is an ImplicitCopy payload,
+// so the read retains and the caller's handle stays live after the scrutinee is
+// gone: a count of exactly 1 says the value survived the match AND that the
+// scrutinee's own reference went with it.
+func retained(tag: Int) -> Int {
+    let held = match filled(tag: tag) {
+        case Filled(r) -> r,
+        case Empty -> res(tag: 0)
+    }
+    held.strong_count()
+}
+
+// The same, CONSUMED: `move` retires the binding instead of retaining it, so the
+// scrutinee's drop must not release what left.
+func consumed(tag: Int) -> Int {
+    let held = match filled(tag: tag) {
+        case Filled(r) -> move r,
+        case Empty -> res(tag: 0)
+    }
+    held.strong_count()
+}
+
+// An escaping binding out of the GENERAL lowering — the shape that used to hand
+// back a value the scrutinee's drop then freed.
+func escaped_guard(tag: Int, k: Int) -> Int {
+    let held = match filled(tag: tag) {
+        case Filled(r) if k > 0 -> r,
+        case _ -> res(tag: 0)
+    }
+    held.strong_count()
+}
+
+// An arm that breaks out of a loop.
+func broke(tag: Int) -> Int {
+    var n = 0
+    let out = while true {
+        n = n + 1
+        match filled(tag: tag) {
+            case Filled(_) -> { break 7 },
+            case Empty -> 0
+        }
+    }
+    out ?? -1
+}
+
+// Two temporaries alive at once: the inner match's scrutinee is built inside the
+// outer one's arm.
+func nested(tag: Int) -> Int {
+    match filled(tag: tag) {
+        case Filled(_) -> match filled(tag: tag + 100) {
+            case Filled(_) -> 2,
+            case Empty -> 0
+        },
+        case Empty -> 0
+    }
+}
+
+// The same construction inside a coroutine frame.
+func suspending(tag: Int) -> Int {
+    yield_now()
+    let v = match filled(tag: tag) {
+        case Filled(_) -> 1,
+        case Empty -> 0
+    }
+    yield_now()
+    v
+}
+
+func main() {
+    print("start {LIVE.load()}")
+
+    let a = bind_nothing(tag: 1)
+    print("bind_nothing {a} live {LIVE.load()}")
+    assert(LIVE.load() == 0, "bind_nothing leaked {LIVE.load()}")
+
+    let b = wildcard(tag: 2)
+    print("wildcard {b} live {LIVE.load()}")
+    assert(LIVE.load() == 0, "wildcard leaked {LIVE.load()}")
+
+    let w = wildcard_other(tag: 12)
+    print("wildcard_other {w} live {LIVE.load()}")
+    assert(LIVE.load() == 0, "wildcard_other leaked {LIVE.load()}")
+
+    let c = named(tag: 3)
+    print("named {c} live {LIVE.load()}")
+
+    let d = returns_out(tag: 4)
+    print("returns_out {d} live {LIVE.load()}")
+    assert(LIVE.load() == 0, "returns_out leaked {LIVE.load()}")
+
+    let e = guarded(tag: 5, k: 1)
+    print("guarded {e} live {LIVE.load()}")
+    assert(LIVE.load() == 0, "guarded leaked {LIVE.load()}")
+
+    let f = retained(tag: 6)
+    print("retained {f} live {LIVE.load()}")
+    assert(LIVE.load() == 0, "retained leaked {LIVE.load()}")
+
+    let g = consumed(tag: 7)
+    print("consumed {g} live {LIVE.load()}")
+    assert(LIVE.load() == 0, "consumed leaked {LIVE.load()}")
+
+    let h = escaped_guard(tag: 8, k: 1)
+    print("escaped_guard {h} live {LIVE.load()}")
+    assert(LIVE.load() == 0, "escaped_guard leaked {LIVE.load()}")
+
+    let i = broke(tag: 9)
+    print("broke {i} live {LIVE.load()}")
+    assert(LIVE.load() == 0, "broke leaked {LIVE.load()}")
+
+    let j = nested(tag: 10)
+    print("nested {j} live {LIVE.load()}")
+    assert(LIVE.load() == 0, "nested leaked {LIVE.load()}")
+
+    var group = TaskGroup()
+    let handle = group.spawn(suspending(11))
+    let k = handle.join()
+    print("suspending {k} live {LIVE.load()}")
+    assert(LIVE.load() == 0, "suspending leaked {LIVE.load()}")
+
+    print("done {LIVE.load()}")
+}

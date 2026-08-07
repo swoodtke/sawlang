@@ -63,6 +63,19 @@ GATE = [
     "examples/implicit_copy_call_arg.saw",
     "examples/implicit_copy_nested.saw",
     "examples/repeat_literal_implicit_copy.saw",
+    # A refcounted value copied into an OPT-ENCODED destination, at all six
+    # transfer sites (DF-151c). Its Arc counts prove the retains happen; only
+    # Guard Malloc proves no surplus release does, since an over-release reads
+    # correct until the freed block is reused.
+    "examples/df151c_optional_dest_copy.saw",
+    # A match scrutinee that no binding holds (DF-151d). A leak here inverts to
+    # an over-release under a fix that drops one time too many — an escaping arm
+    # binding is an alias into the very value being released — so the counts and
+    # this lane police opposite failures of the same change.
+    "examples/df151d_match_temporary_scrutinee.saw",
+    # Optional ELEMENTS of a fixed array (DF-151e): the retain is driven by the
+    # payload's type and the wrap follows it, at construction and at a write.
+    "examples/df151e_optional_element_array.saw",
 ]
 
 
