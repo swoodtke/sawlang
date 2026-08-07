@@ -1385,6 +1385,22 @@ construct in the owner and lend `&driver` down.
   death = 128+signum, never a bogus 0); Err = could not launch (spawn failed, or
   the child could not exec -> 127). `ProcessError: Error` names the program.
   `.output() -> CommandOutput?` captures stdout (stderr is inherited).
+  `env(name:value:)` (design 155) sets ONE environment variable for the child,
+  under `arg`'s discipline — the name and the value are bytes the child receives
+  verbatim, nothing parsed or expanded. The child INHERITS this process's
+  environment and the overrides win; a second `env` for one name replaces the
+  value, so the child never sees a variable twice. `env_count()` reports how
+  many. A name that is empty or contains `=` panics (it could never be a
+  variable). `merge_stderr()` sends the child's stderr wherever its stdout goes
+  — into the capture under `output()`, plain `2>&1` under `run()` — which is how
+  a tool that runs children it EXPECTS to fail keeps its own output readable.
+  Capturing stderr on its own is not expressible yet.
+  ```saw
+  var c = Command(program: python)
+  c.arg("build.py")
+  c.env("PYTHONHASHSEED", "1")   // this child only; everything else inherited
+  c.merge_stderr()               // its diagnostics are not ours to print
+  ```
 - `UnsafePointer<T> + n` / `- n` / `[i]` are ELEMENT-STRIDE GEPs (the C
   convention: `UnsafePointer<Int32> + 1` advances 4 bytes). Use them for typed
   pointer math. `ptr as Int` (+ int math + `as UnsafePointer<T>`) DESTROYS

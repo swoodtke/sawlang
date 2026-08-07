@@ -5318,7 +5318,10 @@ Actually shipped today: `String`, `StringBuilder`, `Vector<T, A>`,
 `Task<T>`, `TaskGroup`, `File`, `Directory`, `Path`, `Data`, `Env`,
 `Command`/`ProcessError` (std.process — a real argv spawn, never a shell: one
 `arg()` is one argv element and nothing in it is split, expanded or executed;
-run `/bin/sh -c` explicitly if a shell is what you want, design 122),
+run `/bin/sh -c` explicitly if a shell is what you want, design 122. `env(name:
+value:)` sets one environment variable for the child under the same rule, on top
+of the environment it inherits; `merge_stderr()` sends its standard error
+wherever its standard output goes),
 `std.net` (`TcpListener`/`TcpStream`),
 `std.time` (`Duration`/`Instant`), plus `Int`/`Float` numeric extensions and the
 `Equatable`/`Comparable`/`Hashable`/`Printable`/`Error` traits (and
