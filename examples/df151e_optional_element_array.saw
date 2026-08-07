@@ -1,0 +1,117 @@
+// DF-151e: a fixed array of optionals `[T?; N]` can be BUILT.
+//
+// It could not be, at any payload type, by any initializer — three ICEs, because
+// the array literal took its element type from element 0 and never from the
+// annotation. A `None` element was left with an `inner_type` of None ("None
+// literal has no type information"); a bare `T` element was stored UNWRAPPED, so
+// the value was laid out `[T x N]` while the storage, the element drop and every
+// read believed `[{i1,T} x N]` ("Can't index at [0] in i64").
+//
+// The fix reads the element type off the ANNOTATION, exactly as a Vector literal
+// already did, and checks each element against it — which types the `None` and
+// records the one-level `T -> T?` auto-wrap that codegen builds `Some(x)` from.
+//
+// Every String here is INTERPOLATED: a literal is immortal, so a literal-backed
+// oracle cannot fail (design 159's lesson). The Arc counts are the balance
+// oracle — a leaked or double-released element slot moves them.
+// EXPECT: success
+// EXPECT-OUTPUT:
+// list -1 -1
+// repeat -1 -1
+// list 1 2
+// repeat 7 7
+// strings s0 s1
+// repeat-string x1 x1
+// mixed 1 -1 3
+// nested 1 -1 4
+// written w2 -
+// arc base 1
+// arc inside 3
+// arc after 1
+// suspending 5 -1
+// suspending arc after 1
+// done
+
+import std.task.*
+
+struct Res {
+    tag: Int
+}
+
+extension Res: NoCopy {}
+
+func show(o: Int?) -> String {
+    "{o ?? -1}"
+}
+
+// An `[Arc<Res>?; N]` built, read and dropped. The caller's count must come back
+// to what it was: the array slot took a reference and the array's teardown has
+// to give it back.
+func arc_array(r: Arc<Res>) {
+    let cell: [Arc<Res>?; 2] = [r, None]
+    print("arc inside {cell[0]!.strong_count()}")
+}
+
+// The same construction across a suspension, so the array lives in a coroutine
+// frame rather than on the stack.
+func suspending_build(r: Arc<Res>) -> Int {
+    var slots: [Int?; 3] = [None; 3]
+    slots[0] = 5
+    yield_now()
+    let held: [Arc<Res>?; 2] = [r, None]
+    yield_now()
+    print("suspending {show(o: slots[0])} {show(o: slots[1])}")
+    held[0]!.strong_count()
+}
+
+func main() {
+    // 1. Both initializer forms, at the trivial payload the filing used.
+    let empty_list: [Int?; 2] = [None, None]
+    print("list {show(o: empty_list[0])} {show(o: empty_list[1])}")
+    let empty_repeat: [Int?; 4] = [None; 4]
+    print("repeat {show(o: empty_repeat[0])} {show(o: empty_repeat[3])}")
+
+    // 2. Bare payload values auto-wrap into the optional slots.
+    let filled_list: [Int?; 2] = [1, 2]
+    print("list {show(o: filled_list[0])} {show(o: filled_list[1])}")
+    let filled_repeat: [Int?; 4] = [7; 4]
+    print("repeat {show(o: filled_repeat[0])} {show(o: filled_repeat[3])}")
+
+    // 3. A refcounted payload: the retain must be driven by the PAYLOAD's type,
+    //    not the slot's, since the wrap happens after the copy (DF-151c).
+    let s0 = "s{0}"
+    let s1 = "s{1}"
+    let strings: [String?; 2] = [s0, s1]
+    print("strings {strings[0] ?? "-"} {strings[1] ?? "-"}")
+    let word = "x{1}"
+    let repeated: [String?; 3] = [word; 3]
+    print("repeat-string {repeated[0] ?? "-"} {repeated[2] ?? "-"}")
+
+    // 4. Mixed presence in one literal, and nesting through the annotation.
+    let mixed: [Int?; 3] = [1, None, 3]
+    print("mixed {show(o: mixed[0])} {show(o: mixed[1])} {show(o: mixed[2])}")
+    let nested: [[Int?; 2]; 2] = [[1, None], [None, 4]]
+    print("nested {show(o: nested[0][0])} {show(o: nested[0][1])} {show(o: nested[1][1])}")
+
+    // 5. Writing an element: the store has to wrap too, or a bare payload lands
+    //    in an opt-encoded slot. This site carried the DF-151c transfer rule all
+    //    along and had never been reachable.
+    var writable: [String?; 2] = [None, None]
+    writable[0] = "w{2}"
+    print("written {writable[0] ?? "-"} {writable[1] ?? "-"}")
+
+    // 6. Balance, sync.
+    let r = Arc<Res>(value: Res(tag: 1))
+    print("arc base {r.strong_count()}")
+    arc_array(r: r)
+    print("arc after {r.strong_count()}")
+
+    // 7. Balance, across a suspension.
+    var group = TaskGroup()
+    let h = group.spawn(suspending_build(r))
+    let inside = h.join()
+    assert(inside == 3, "suspending arc count should be 3, was {inside}")
+    print("suspending arc after {r.strong_count()}")
+
+    print("done")
+}

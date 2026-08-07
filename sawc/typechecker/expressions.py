@@ -3586,12 +3586,23 @@ class ExpressionsMixin:
         as before."""
         expected = getattr(expr, 'expected_type', None)
         vec_elem = None
+        arr_elem = None
         if (expected is not None and expected.kind == TypeKind.STRUCT
                 and expected.struct_name == "Vector" and expected.type_args):
             vec_elem = expected.type_args[0]
+        elif (expected is not None and expected.kind == TypeKind.ARRAY
+                and expected.array_element_type is not None):
+            # The ANNOTATED element type is the one the elements are checked
+            # against — the same job `vec_elem` does for a Vector (DF-151e).
+            # Without it the literal took its element type from element 0 alone,
+            # so `[T?; N]` never reached its elements: a `None` stayed untyped
+            # (`inner_type=None`, an ICE at the codegen None literal) and a bare
+            # `T` was stored UNWRAPPED, laying the value out `[T x N]` while the
+            # storage, the element drop and every read believed `[{i1,T} x N]`.
+            arr_elem = expected.array_element_type
 
         if expr.repeat_count is not None:
-            return self._check_repeat_literal(expr, vec_elem, expected)
+            return self._check_repeat_literal(expr, vec_elem, expected, arr_elem)
 
         if len(expr.elements) == 0:
             if vec_elem is not None:
@@ -3605,16 +3616,26 @@ class ExpressionsMixin:
             )
             return None
 
-        # Element unification target: the Vector element type when building a
-        # Vector, otherwise inferred from the first element.
+        # Element unification target: the DECLARED element type when the context
+        # named one (a Vector's `T`, or a fixed array's), otherwise inferred from
+        # the first element.
+        declared_elem = vec_elem if vec_elem is not None else arr_elem
         first_type = self._check_expression(expr.elements[0])
         if first_type is None:
             return None
-        target = vec_elem if vec_elem is not None else first_type
-        if vec_elem is not None and not self._types_compatible(first_type, vec_elem):
+        target = declared_elem if declared_elem is not None else first_type
+        if vec_elem is not None and not self._element_fits(expr.elements[0],
+                                                           first_type, vec_elem):
             self._error(
                 ErrorKind.TYPE_MISMATCH,
                 f"vector literal element 0 has type `{first_type}`, expected `{vec_elem}`",
+                expr.elements[0].line, expr.elements[0].column)
+            return None
+        if arr_elem is not None and not self._element_fits(expr.elements[0],
+                                                           first_type, arr_elem):
+            self._error(
+                ErrorKind.TYPE_MISMATCH,
+                f"array element 0 has type `{first_type}`, expected `{arr_elem}`",
                 expr.elements[0].line, expr.elements[0].column)
             return None
         self._check_value_transfer(expr.elements[0], target, "array element",
@@ -3623,7 +3644,7 @@ class ExpressionsMixin:
             elem_type = self._check_expression(element)
             if elem_type is None:
                 return None
-            if not self._types_compatible(elem_type, target):
+            if not self._element_fits(element, elem_type, target):
                 self._error(
                     ErrorKind.TYPE_MISMATCH,
                     f"array element {i} has type `{elem_type}`, expected `{target}`",
@@ -3635,9 +3656,27 @@ class ExpressionsMixin:
         if vec_elem is not None:
             expr.vector_container_type = expected
             return expected
-        return SawType(TypeKind.ARRAY, array_element_type=first_type, array_size=len(expr.elements))
+        return SawType(TypeKind.ARRAY, array_element_type=target,
+                       array_size=len(expr.elements))
 
-    def _check_repeat_literal(self, expr: ArrayLiteral, vec_elem, expected):
+    def _element_fits(self, element, elem_type, target) -> bool:
+        """Whether a collection-literal element of `elem_type` may occupy a
+        `target` slot, recording the one-level `T -> T?` auto-wrap on the element
+        when that is what makes it fit (DF-151e).
+
+        An element position is a transfer into a declared slot, exactly like a
+        call argument or a struct-literal field, so it gets the same rule: a bare
+        `None` takes the slot's payload type and a bare `T` records the wrap that
+        codegen builds `Some(x)` from. `target` is the element's own type when
+        nothing declared one, in which case there is nothing to wrap and this is
+        the plain compatibility test it always was.
+        """
+        if target is not None and target.is_optional():
+            return self._arg_type_ok(element, elem_type, target)
+        return self._types_compatible(elem_type, target)
+
+    def _check_repeat_literal(self, expr: ArrayLiteral, vec_elem, expected,
+                              arr_elem=None):
         """Check a repeat literal `[v; N]` — N copies of one value (design 148).
 
         `[0; 256]` is what finally spells a zero stack buffer; before it, the
@@ -3663,6 +3702,21 @@ class ExpressionsMixin:
         elem_type = self._check_expression(value)
         if elem_type is None:
             return None
+        if arr_elem is not None:
+            # The annotated element type wins, so `[None; 4]` and `[7; 4]` both
+            # reach an `[Int?; 4]` slot: the first gets its payload type, the
+            # second records the `T -> T?` wrap (DF-151e). The copy-tier check
+            # below then asks about `T?`, which design 139 says carries `T`'s
+            # tier — so a `[v; 3]` of a Vector is refused whether or not the
+            # annotation wrapped it in an optional.
+            if not self._element_fits(value, elem_type, arr_elem):
+                self._error(
+                    ErrorKind.TYPE_MISMATCH,
+                    f"array element 0 has type `{elem_type}`, expected "
+                    f"`{arr_elem}`",
+                    value.line, value.column)
+                return None
+            elem_type = arr_elem
 
         count = self._const_count(expr.repeat_count, "repeat count")
         if count is None:
@@ -4039,6 +4093,13 @@ class ExpressionsMixin:
         if isinstance(value_expr, ArrayLiteral):
             elem_t = None
             if rt.kind == TypeKind.ARRAY:
+                # Keep the array expectation on the literal, not just its
+                # element type: `_check_array_literal` reads it to check the
+                # elements against the DECLARED element type rather than
+                # inferring one from element 0 (DF-151e). Stamping it here is
+                # what makes nesting work — a `[[Int?; 2]; 2]` annotation
+                # reaches the inner literals through this same recursion.
+                value_expr.expected_type = rt
                 elem_t = rt.array_element_type
             elif (rt.kind == TypeKind.STRUCT and rt.struct_name == "Vector"
                     and rt.type_args):

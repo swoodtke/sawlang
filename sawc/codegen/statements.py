@@ -613,6 +613,17 @@ class StatementsMixin:
                     # Extend smaller int to larger (sign extend)
                     value = self.builder.sext(value, elem_type, name="sext")
 
+            # Wrap a bare `T` into `T?` when the SLOT is opt-encoded — the same
+            # last step the variable and field assignment paths take, and the
+            # reason the copy above is driven by `_generate_copy_for_dest`
+            # (DF-151c: the value in hand is the payload, the wrap comes after).
+            # Missing here until DF-151e, because no `[T?; N]` could be built to
+            # reach it: `b[0] = s` on a `[String?; 2]` stored a bare `i8*` into a
+            # `{i1, i8*}` slot.
+            if (self._is_optional_type(elem_type)
+                    and not self._is_optional_type(value.type)):
+                value = self._wrap_in_optional(value)
+
             # Store value to element
             self.builder.store(value, elem_ptr)
 
