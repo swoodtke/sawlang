@@ -1,0 +1,18 @@
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: Parse error at 10:27: `func leak` may not return a reference
+// EXPECT-ERROR-CONTAINS: the return type `&var Int` is a reference
+//
+// Both flavors, one rule. `&var` was already refused everywhere except a call
+// argument (design 34), so this position was the last way to write one down --
+// and the worst, since an escaping mutable reference to a dead frame writes
+// through it.
+
+func leak(x: &var Int) -> &var Int {
+    &var x
+}
+
+func main() {
+    var n = 1
+    let r = leak(&var n)
+    print("{r}")
+}

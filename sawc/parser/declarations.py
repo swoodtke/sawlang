@@ -107,10 +107,7 @@ class DeclarationsMixin:
         is_unsafe, is_sync, is_borrows = self._parse_effect_slot()
 
         # Return type (optional, defaults to void)
-        return_type = SawType(TypeKind.VOID)
-        if self.match(TokenType.ARROW):
-            self.advance()
-            return_type = self.parse_type()
+        return_type = self.parse_return_clause(f"`func {name}`")
 
         self.skip_newlines()
         body = self.parse_block()
@@ -396,10 +393,7 @@ class DeclarationsMixin:
                 "the concrete type instead")
 
         # Return type (optional, defaults to void)
-        return_type = SawType(TypeKind.VOID)
-        if self.match(TokenType.ARROW):
-            self.advance()
-            return_type = self.parse_type()
+        return_type = self.parse_return_clause(f"trait method `{name}`")
 
         # Optional default body (design 56): `func m(...) -> T { ... }`. A trait
         # method WITH a body is a default; conformers may omit or override it.
@@ -686,10 +680,7 @@ class DeclarationsMixin:
         self.expect(TokenType.RPAREN)
 
         # Return type (optional, defaults to void)
-        return_type = SawType(TypeKind.VOID)
-        if self.match(TokenType.ARROW):
-            self.advance()
-            return_type = self.parse_type()
+        return_type = self.parse_return_clause(f"`extern func {name}`")
 
         return ExternFunction(
             name=name,
@@ -763,10 +754,8 @@ class DeclarationsMixin:
                 "is an ordinary named method")
 
         # Return type (optional, defaults to void)
-        return_type = SawType(TypeKind.VOID)
-        if self.match(TokenType.ARROW):
-            self.advance()
-            return_type = self.parse_type()
+        return_type = self.parse_return_clause(
+            "`init`" if is_init else f"method `{name}`")
 
         self.skip_newlines()
         body = self.parse_block()

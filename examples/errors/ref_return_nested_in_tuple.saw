@@ -1,0 +1,20 @@
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: Parse error at 12:16: `func pair` may not return a reference
+// EXPECT-ERROR-CONTAINS: the return type `(Int, &Int)` names a reference (`&Int`)
+// EXPECT-ERROR-CONTAINS: drop the `&`: `&Int` becomes `Int`
+//
+// The rule is about what the return type NAMES, not about its outermost
+// spelling: a tuple, an optional, an array or a generic argument carries the
+// pointer out of the frame exactly as a bare `&Int` does, and this one compiled
+// and ran before the fix. The walk stops at a nested function type, whose
+// parameters take references legitimately.
+
+func pair() -> (Int, &Int) {
+    let local = 42
+    (1, &local)
+}
+
+func main() {
+    let t = pair()
+    print("{t.0}")
+}

@@ -1,0 +1,51 @@
+// The positive half of the `-> &T` refusal: everything the rule leaves alone,
+// in one file, so a future tightening of the walk has to say so out loud.
+//
+// A reference is fine in every position it was always fine in -- a parameter, a
+// receiver, a forwarded re-borrow, and a function TYPE's parameter list -- and
+// the two answers the diagnostic offers both work here: return the VALUE, or
+// lend the STORAGE with a `borrows` accessor. A nested function type is checked
+// at its own arrow, so `(&Int) sync -> Int` passes on both counts.
+// EXPECT: success
+// EXPECT-OUTPUT:
+// 7
+// 7
+// 8
+// 12
+// 9
+
+struct Counter { n: Int }
+
+struct Wrap { c: Counter }
+
+extension Counter {
+    // One answer: return the value.
+    func value(&self) -> Int { self.n }
+}
+
+extension Wrap {
+    // The other answer: lend the place for a window, and the use site picks
+    // whether that window is shared or exclusive.
+    func slot(&self) borrows -> Counter { lend self.c }
+}
+
+func read_one(x: &Int) -> Int { x }
+
+func forward(r: &Int) -> Int { read_one(&r) }
+
+func through(f: (&Int) sync -> Int, v: &Int) -> Int { f(&v) }
+
+func main() {
+    var w = Wrap(c: Counter(n: 7))
+    print("{w.c.value()}")
+
+    print("{w.slot().n}")
+    w.slot().n += 1
+    print("{w.slot().n}")
+
+    var n = 12
+    print("{forward(&n)}")
+
+    let m = 9
+    print("{through({ e in read_one(&e) }, &m)}")
+}

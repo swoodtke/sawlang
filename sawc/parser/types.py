@@ -29,6 +29,88 @@ class GenericListTrailingComma(SyntaxError):
 class TypeParsingMixin:
     """Mixin providing type parsing methods for Parser."""
 
+    def parse_return_clause(self, what: str) -> SawType:
+        """Parse an optional `-> T` return clause, defaulting to `Void`.
+
+        Every declaration that has a signature funnels its return type through
+        here — `func`, extension method / `init`, trait requirement, `extern
+        func` — so the parameters-only rule below is stated once and holds in
+        every position. The function-TYPE grammar has its own arrow (it is not
+        optional there) and calls `reject_reference_return` directly.
+        """
+        if not self.match(TokenType.ARROW):
+            return SawType(TypeKind.VOID)
+        self.advance()
+        anchor = self.current()
+        return_type = self.parse_type()
+        self.reject_reference_return(return_type, anchor, what)
+        return return_type
+
+    def reject_reference_return(self, return_type: SawType, anchor,
+                                what: str) -> None:
+        """A return type may not name a reference (DF-163a).
+
+        References in Saw are PARAMETERS ONLY: a `&T`/`&var T` borrows storage
+        the caller owns for exactly the duration of the call, and the Law of
+        Exclusivity is fully static only because of that — every live reference
+        was created at some call expression still on the stack (LANGUAGE_SPEC
+        "no-escape invariant", designs 88/106). A declared `-> &T` broke the
+        invariant silently: `func dangle() -> &Int { let local = 99
+        return &local }` compiled and printed 99 out of a dead frame.
+
+        The reference is refused wherever the return type NAMES one, not only at
+        the top level — a `(Int, &Int)` or a `&Int?` escapes the pointer exactly
+        as well. The walk deliberately stops at a nested function TYPE: its
+        parameters take references legitimately (`(&T) sync -> R` is the
+        `with_ref` callback), and its own return was checked when it was parsed.
+        """
+        found = self._first_reference_in(return_type)
+        if found is None:
+            return
+        value = found.inner_type if found.inner_type is not None else "T"
+        lends = f"`... borrows -> {value}`"
+        if found is return_type:
+            names_it = "is a reference"
+            fix = f"Return the value instead (`-> {value}`)"
+        else:
+            names_it = f"names a reference (`{found}`)"
+            fix = (f"Return the value instead (drop the `&`: `{found}` becomes "
+                   f"`{value}`)")
+        self.error_at(
+            anchor,
+            f"{what} may not return a reference: the return type "
+            f"`{return_type}` {names_it}, and references in Saw are PARAMETERS "
+            f"ONLY — a reference borrows storage for the duration of one call "
+            f"and may not escape it (designs 88/106; the Law of Exclusivity is "
+            f"statically sound only because every live reference belongs to a "
+            f"call still on the stack). Returning one hands back a pointer into "
+            f"the frame that just died. {fix}, or — to hand out storage the "
+            f"receiver already owns — declare a `borrows` accessor ({lends} "
+            f"with `lend`, design 141), which lends the place for a window "
+            f"rather than letting a pointer out")
+
+    def _first_reference_in(self, t: SawType):
+        """The first reference type reachable from `t` without entering a
+        function type, or None. Pre-order, so an outer `&T` names itself."""
+        if t is None:
+            return None
+        if t.kind == TypeKind.REFERENCE:
+            return t
+        if t.kind == TypeKind.FUNCTION:
+            return None
+        parts = []
+        if t.kind == TypeKind.OPTIONAL:
+            parts.append(t.inner_type)
+        if t.kind == TypeKind.ARRAY:
+            parts.append(t.array_element_type)
+        parts.extend(t.element_types or [])
+        parts.extend(t.type_args or [])
+        for p in parts:
+            hit = self._first_reference_in(p)
+            if hit is not None:
+                return hit
+        return None
+
     def parse_type(self) -> SawType:
         """Parse a type annotation, including optional suffix."""
         # Parse base type
@@ -182,7 +264,10 @@ class TypeParsingMixin:
             # Check for arrow to distinguish function type from tuple
             if self.match(TokenType.ARROW):
                 self.advance()
+                ret_anchor = self.current()
                 return_type = self.parse_type()
+                self.reject_reference_return(return_type, ret_anchor,
+                                             "a function TYPE")
                 fn_type = SawType(TypeKind.FUNCTION, param_types=element_types, func_return_type=return_type)
                 if is_sync:
                     fn_type.func_is_sync = True

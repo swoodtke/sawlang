@@ -1,0 +1,22 @@
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: Parse error at 14:18: `func dangle` may not return a reference
+// EXPECT-ERROR-CONTAINS: references in Saw are PARAMETERS ONLY
+// EXPECT-ERROR-CONTAINS: Return the value instead (`-> Int`)
+// EXPECT-ERROR-CONTAINS: declare a `borrows` accessor
+//
+// DF-163a, the repro that found the hole: this function COMPILED and RAN,
+// printing 99 out of a frame that had already died. References are
+// parameters only (designs 88/106) -- the Law of Exclusivity is fully static
+// only because every live reference belongs to a call still on the stack, so a
+// returned one is not a slow leak but a hole under the whole ownership model.
+// The refusal is at the DECLARATION, anchored on the return-type token.
+
+func dangle() -> &Int {
+    let local = 99
+    return &local
+}
+
+func main() {
+    let r = dangle()
+    print("{r}")
+}

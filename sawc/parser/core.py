@@ -238,6 +238,19 @@ class Parser(ExpressionsMixin, StatementsMixin, DeclarationsMixin, TypeParsingMi
                 self._unclosed_bracket_error(opener)
         raise SyntaxError(f"Parse error at {token.line}:{token.column}: {msg}")
 
+    def error_at(self, token: Token, msg: str):
+        """Report a parse error anchored at a SPECIFIC token.
+
+        `error()` anchors at whatever the parser is looking at now, which is the
+        right answer when the current token is the mistake. A rule that only
+        becomes false once a whole construct has been read (a return type, say)
+        has already advanced past the token the author needs to see, so it keeps
+        the anchor it wants and reports against that instead of against the
+        lookahead. No unclosed-bracket redirection here: the caller has an exact
+        position, so there is nothing to recover.
+        """
+        raise SyntaxError(f"Parse error at {token.line}:{token.column}: {msg}")
+
     def _is_skippable_newline(self, pos: int) -> bool:
         """True if the token at `pos` is a NEWLINE the current context ignores."""
         if self.tokens[pos].type != TokenType.NEWLINE:
