@@ -87,6 +87,13 @@ GATE = [
     # correct values and exits 0, and the surplus release lands at the second
     # tuple's scope exit where nothing else can see it.
     "examples/df151i_tuple_copy.saw",
+    # The WHOLE-ELEMENT tuple write `t.0 = fresh` (DF-151j). Replacing an owning
+    # element has to drop the old one exactly once, and this is the third way to
+    # get that wrong: the write had no place at all before, so the drop is new
+    # code on a slot that always holds a live value. Skipping it leaks (the live
+    # count sees that); running it twice reads correct and faults only when the
+    # freed block is reused, which is this lane's job.
+    "examples/df151j_tuple_element_write.saw",
     # An assignment RHS reading out of storage the source keeps (DF-151h). The
     # exact DF-151b shape one statement kind over: `a = h.r` read correct and
     # freed twice, so the surplus release is invisible without Guard Malloc.

@@ -16,7 +16,7 @@ from ast_nodes import (
     LetStatement, AssignStatement, CompoundAssignStatement, ReturnStatement, ExpressionStatement,
     GuardLetStatement, DestructuringLet, LendStatement,
     WhileExpr, ForLoop, BreakStatement, ContinueStatement,
-    Identifier, MemberAccess, ArrayIndex, SelfExpr,
+    Identifier, MemberAccess, ArrayIndex, SelfExpr, TupleIndex,
     OptionalEvalExpr, OptionalChainAssign
 )
 
@@ -215,8 +215,11 @@ class StatementsMixin:
                 )
 
             # Validate that target is assignable (Identifier, MemberAccess,
-            # ArrayIndex, or `self` — design 110 `&var self` replacement).
-            if not isinstance(target_expr, (Identifier, MemberAccess, ArrayIndex, SelfExpr)):
+            # TupleIndex, ArrayIndex, or `self` — design 110 `&var self`
+            # replacement). A tuple index is a place like any other projection
+            # (DF-151j), so `t.0 = fresh` is the whole-element write.
+            if not isinstance(target_expr, (Identifier, MemberAccess, ArrayIndex,
+                                            TupleIndex, SelfExpr)):
                 self.error("Invalid assignment target")
 
             return AssignStatement(
@@ -233,8 +236,10 @@ class StatementsMixin:
             self.advance()  # consume the compound operator
             value_expr = self.parse_expression()
 
-            # Validate that target is assignable (Identifier, MemberAccess, or ArrayIndex)
-            if not isinstance(target_expr, (Identifier, MemberAccess, ArrayIndex)):
+            # Validate that target is assignable (Identifier, MemberAccess,
+            # TupleIndex, or ArrayIndex)
+            if not isinstance(target_expr, (Identifier, MemberAccess, ArrayIndex,
+                                            TupleIndex)):
                 self.error("Invalid compound assignment target")
 
             return CompoundAssignStatement(

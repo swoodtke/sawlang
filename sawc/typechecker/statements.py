@@ -1814,6 +1814,21 @@ class StatementsMixin:
             if not obj_type:
                 return
 
+            # NAMED-TUPLE element write `pair.x = v` (DF-151j). The label names a
+            # position, so this is the whole-element write `pair.0 = v` under its
+            # other spelling — not a struct field, which is why it used to die on
+            # the non-struct error below with no way to say what the author meant.
+            obj_resolved = self._resolve_type_alias(obj_type)
+            if (obj_resolved.kind == TypeKind.TUPLE
+                    and obj_resolved.tuple_field_names
+                    and stmt.target.member in obj_resolved.tuple_field_names
+                    and obj_resolved.element_types):
+                idx = obj_resolved.tuple_field_names.index(stmt.target.member)
+                stmt.target.tuple_field_index = idx  # stamp for codegen
+                self._check_tuple_element_assign(
+                    stmt, obj_resolved.element_types[idx])
+                return
+
             # Must be a struct type
             if obj_type.kind != TypeKind.STRUCT:
                 self._error(
@@ -1876,6 +1891,51 @@ class StatementsMixin:
                 )
             self._check_value_transfer(stmt.value, field_type, "field assignment",
                                        stmt.line, stmt.column)
+
+        elif isinstance(stmt.target, TupleIndex):
+            # WHOLE-ELEMENT TUPLE WRITE `t.0 = fresh` (DF-151j). A tuple index is
+            # a place like a struct field, so it takes the same mutability
+            # questions in the same order — an immutable array element on the
+            # way down, then an immutable `let`/`&` root — before the value side.
+            imm_array = self._assign_target_immutable_array(stmt.target)
+            if imm_array is not None:
+                self._error(
+                    ErrorKind.IMMUTABLE_ASSIGNMENT,
+                    f"cannot assign to element of immutable array `{imm_array}`",
+                    stmt.line, stmt.column,
+                    hint="consider using `var` instead of `let` to make it mutable"
+                )
+            else:
+                imm_root = self._assign_target_immutable_struct_root(stmt.target)
+                if imm_root is not None:
+                    self._error(
+                        ErrorKind.IMMUTABLE_ASSIGNMENT,
+                        f"cannot assign to element of immutable variable `{imm_root}`",
+                        stmt.line, stmt.column,
+                        hint="consider using `var` instead of `let` to make it mutable"
+                    )
+
+            tuple_type = self._check_expression(stmt.target.tuple_expr)
+            if not tuple_type:
+                return
+            tuple_resolved = self._resolve_type_alias(tuple_type)
+            if tuple_resolved.kind != TypeKind.TUPLE:
+                self._error(
+                    ErrorKind.TYPE_MISMATCH,
+                    f"cannot index into non-tuple type `{tuple_type}`",
+                    stmt.target.line, stmt.target.column
+                )
+                return
+            elements = tuple_resolved.element_types or []
+            if stmt.target.index < 0 or stmt.target.index >= len(elements):
+                self._error(
+                    ErrorKind.TYPE_MISMATCH,
+                    f"tuple index {stmt.target.index} out of range for tuple "
+                    f"with {len(elements)} elements",
+                    stmt.target.line, stmt.target.column
+                )
+                return
+            self._check_tuple_element_assign(stmt, elements[stmt.target.index])
 
         elif isinstance(stmt.target, ArrayIndex):
             # Array or pointer element assignment: arr[i] = value or ptr[i] = value
@@ -1961,6 +2021,37 @@ class StatementsMixin:
                 "invalid assignment target",
                 stmt.line, stmt.column
             )
+
+    def _check_tuple_element_assign(self, stmt: AssignStatement,
+                                    element_type: SawType):
+        """Value side of a whole-element tuple write (DF-151j) — `t.0 = fresh`
+        and its named spelling `pair.x = fresh`.
+
+        The same three steps the field path takes: propagate the element's
+        optional type onto a bare `None` RHS so the literal carries its inner
+        type, check assignability, and take the ordinary value-transfer
+        checkpoint against the ELEMENT's type (so an ExplicitCopy/NoCopy RHS
+        must `move`/`.copy()` exactly as it must into a field). The overwritten
+        element's drop is codegen's half: the slot always holds a live value, so
+        the old element deinits exactly once before the new one lands.
+        """
+        stmt.target.resolved_type = element_type
+        value_type = self._check_expression(stmt.value)
+        elem_resolved = self._resolve_type_alias(element_type)
+        if (value_type and value_type.is_none_literal()
+                and elem_resolved.is_optional()):
+            self._propagate_optional_type(stmt.value, elem_resolved)
+            value_type = elem_resolved
+        if value_type and not self._types_compatible(value_type, element_type):
+            self._error(
+                ErrorKind.TYPE_MISMATCH,
+                f"cannot assign `{value_type}` to tuple element of type "
+                f"`{element_type}`",
+                stmt.line, stmt.column
+            )
+        self._check_value_transfer(stmt.value, element_type,
+                                   "tuple element assignment",
+                                   stmt.line, stmt.column)
 
     def _check_ref_replacement_assign(self, stmt: AssignStatement,
                                       ref_type: SawType, name: str):
@@ -2113,20 +2204,32 @@ class StatementsMixin:
                 target_type = var_info.type.inner_type
 
         elif isinstance(stmt.target, MemberAccess):
-            # Check if base object is mutable
-            if isinstance(stmt.target.object, Identifier):
-                base_info = self.current_scope.lookup(stmt.target.object.name)
-                if base_info and not base_info.mutable:
-                    # Check if it's a mutable reference
-                    is_mutable_ref = (base_info.type.kind == TypeKind.REFERENCE and
-                                     base_info.type.reference_mutable)
-                    if not is_mutable_ref:
-                        self._error(
-                            ErrorKind.IMMUTABLE_ASSIGNMENT,
-                            f"cannot use compound assignment on field of immutable variable `{stmt.target.object.name}`",
-                            stmt.line, stmt.column
-                        )
-                        return
+            # Check that the chain's ROOT binding is mutable. This used to look
+            # only at an Identifier base, so a hop of any kind hid the question:
+            # `p.inner.x += 1` and — once a tuple index became a place —
+            # `t.0.n += 1` on a `let` root went unchecked (DF-151j). The walk is
+            # the one plain assignment already uses, so `p.inner.x += 1` and
+            # `p.inner.x = v` now agree.
+            imm_root = self._assign_target_immutable_struct_root(stmt.target)
+            if imm_root is not None:
+                self._error(
+                    ErrorKind.IMMUTABLE_ASSIGNMENT,
+                    f"cannot use compound assignment on field of immutable variable `{imm_root}`",
+                    stmt.line, stmt.column
+                )
+                return
+
+        elif isinstance(stmt.target, TupleIndex):
+            # `t.0 += 1` — the same root question a field compound assignment
+            # asks (DF-151j).
+            imm_root = self._assign_target_immutable_struct_root(stmt.target)
+            if imm_root is not None:
+                self._error(
+                    ErrorKind.IMMUTABLE_ASSIGNMENT,
+                    f"cannot use compound assignment on element of immutable variable `{imm_root}`",
+                    stmt.line, stmt.column
+                )
+                return
 
         elif isinstance(stmt.target, ArrayIndex):
             # Check if array is mutable

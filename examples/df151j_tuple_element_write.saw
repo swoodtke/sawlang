@@ -1,0 +1,187 @@
+// DF-151j: a tuple element is a place on the ASSIGNMENT side too — `t.0 = fresh`
+// is the whole-element write, and the element it replaces deinits exactly once.
+//
+// The projection had no write side at all. `t.0 = fresh` and `t.0 += 1` were
+// refused by the PARSER (a tuple index was not in the assignable-target list),
+// the named spelling `pair.x = v` died in the typechecker on "cannot access
+// field on non-struct type", and `t.0.n = 42` — which did parse — reached the
+// materialize-a-temporary fallback and was a silent no-op like every other
+// write through a tuple element. So the three spellings gave three different
+// answers to one question, and the one that compiled was the one that lied.
+//
+// Now they are one rule: the tuple index is a place, so the write lands in the
+// tuple's own storage and takes the same steps a struct-field write takes —
+// drop the live element FIRST, retain an ImplicitCopy RHS that is an existing
+// binding, wrap a bare `T` into an opt-encoded slot, store.
+//
+// ORACLE. `LIVE` counts live `Res` values: `res()` bumps it, `Res.deinit` takes
+// it back. Behind an `Arc`, so a zero means the last reference went AND the
+// destructor ran — a released refcount alone does not move it. A replaced
+// element that was never dropped LEAKS (the count stays up); one dropped twice
+// over-releases, which reads correct here and faults only once some later
+// allocation reuses the block. That second failure is invisible to this
+// program's own assertions, which is why it is in the gmgate lane.
+// EXPECT: success
+// EXPECT-OUTPUT:
+// start 0
+// whole_element_replace 1 live 0
+// replace_frees_the_buffer 3 live 0
+// element_field_write 42 live 0
+// element_compound 44 live 0
+// tuple_element_compound 8 live 0
+// named_element_write 9 live 0
+// nested_element_write 7 live 0
+// string_element_replace second live 0
+// optional_element_write 5 live 0
+// element_of_array_of_tuples 12 live 0
+// implicit_copy_rhs_retains 2 live 0
+// across_suspend 40 live 0
+// done 0
+
+import std.task.*
+
+static LIVE: Atomic<Int> = Atomic(0)
+
+struct Res { name: String }
+
+extension Res: NoCopy {
+    func deinit(&var self) { LIVE.fetch_add(0 - 1) }
+}
+
+func res(tag: Int) -> Arc<Res> {
+    LIVE.fetch_add(1)
+    Arc<Res>(value: Res(name: "res-{tag}"))
+}
+
+struct Counter { n: Int }
+
+// THE DEINIT-BALANCE CASE. Replacing an owning element must drop the old one
+// exactly ONCE: `res(1)` goes when `res(2)` lands, and `res(2)` goes at scope
+// exit. Reads the live count while the tuple is still in scope — 1 says the
+// first was released and the second was not.
+func whole_element_replace() -> Int {
+    var t = (res(tag: 1), 0)
+    t.0 = res(tag: 2)
+    LIVE.fetch_add(0)
+}
+
+// The same replacement with a HEAP BUFFER rather than a refcount: the old
+// vector's allocation is freed by its drop glue, and the new one is what the
+// tuple holds. A replacement that skipped the drop would leak the buffer; one
+// that dropped twice would double-free it.
+func replace_frees_the_buffer() -> Int {
+    var first: Vector<Int> = Vector<Int>()
+    first.push(1)
+    var t = (move first, 0)
+    var second: Vector<Int> = Vector<Int>()
+    second.push(1)
+    second.push(2)
+    second.push(3)
+    t.0 = move second
+    t.0.len()
+}
+
+// A field write THROUGH an element. This one always parsed; it was silently
+// discarded, which is the shape that makes DF-151j a wrong answer rather than a
+// missing feature.
+func element_field_write() -> Int {
+    var t = (Counter(n: 1), 5)
+    t.0.n = 42
+    t.0.n
+}
+
+// Compound assignment through an element, and then to the element itself.
+func element_compound() -> Int {
+    var t = (Counter(n: 42), 5)
+    t.0.n += 2
+    t.0.n
+}
+
+func tuple_element_compound() -> Int {
+    var t = (Counter(n: 0), 5)
+    t.1 += 3
+    t.1
+}
+
+// The NAMED-TUPLE spelling of the whole-element write. The label names a
+// position, so this is `pair.0 = v` under its other name.
+func named_element_write() -> Int {
+    var pair = (x: 1, y: 2)
+    pair.x = 9
+    pair.x
+}
+
+// Two hops: the inner tuple's slot is addressed through the outer tuple's.
+func nested_element_write() -> Int {
+    var t = ((1, 2), 3)
+    t.0.1 = 7
+    t.0.1
+}
+
+// A refcounted STRING element: the old one is released, the new one installed.
+func string_element_replace() -> String {
+    var t = ("first", 0)
+    t.0 = "second"
+    t.0
+}
+
+// An OPTIONAL element takes the bare-`T` wrap the field path takes, and a
+// `None` RHS picks up the element's inner type.
+//
+// (The optional element is INFERRED from a binding rather than annotated,
+// because a tuple LITERAL ignores its expected type — a separate, older bug,
+// DF-151l, fixed in its own commit. It is not what this program is about.)
+func optional_element_write() -> Int {
+    var o: Int? = 1
+    var t = (o, 0)
+    t.0 = 5
+    let got = t.0 ?? 0
+    t.0 = None
+    got + (t.0 ?? 0)
+}
+
+// A tuple element reached through a fixed-array element.
+func element_of_array_of_tuples() -> Int {
+    var a: [(Counter, Int); 2] = [(Counter(n: 0), 0), (Counter(n: 0), 0)]
+    a[0].0.n = 1
+    a[1].0.n = 2
+    a[0].0.n * 10 + a[1].0.n
+}
+
+// An RHS that is an existing ImplicitCopy binding is RETAINED, not aliased —
+// the same rule the field and element paths follow. Both `held` and the tuple
+// element own a reference here, so the count reads 2 and each releases once.
+func implicit_copy_rhs_retains(k: Int) -> Int {
+    let held = res(tag: k)
+    var t = (res(tag: k + 1), 0)
+    t.0 = held
+    t.0.strong_count()
+}
+
+// ACROSS A SUSPEND: the tuple local is opt-encoded into the coroutine frame, so
+// the write goes through `self.t!.0` and has to land in the real frame slot.
+func across_suspend() -> Int {
+    var t = (1, 2)
+    t.0 = 3
+    yield_now()
+    t.1 += 8
+    yield_now()
+    t.0 * 10 + t.1
+}
+
+func main() {
+    print("start {LIVE.fetch_add(0)}")
+    print("whole_element_replace {whole_element_replace()} live {LIVE.fetch_add(0)}")
+    print("replace_frees_the_buffer {replace_frees_the_buffer()} live {LIVE.fetch_add(0)}")
+    print("element_field_write {element_field_write()} live {LIVE.fetch_add(0)}")
+    print("element_compound {element_compound()} live {LIVE.fetch_add(0)}")
+    print("tuple_element_compound {tuple_element_compound()} live {LIVE.fetch_add(0)}")
+    print("named_element_write {named_element_write()} live {LIVE.fetch_add(0)}")
+    print("nested_element_write {nested_element_write()} live {LIVE.fetch_add(0)}")
+    print("string_element_replace {string_element_replace()} live {LIVE.fetch_add(0)}")
+    print("optional_element_write {optional_element_write()} live {LIVE.fetch_add(0)}")
+    print("element_of_array_of_tuples {element_of_array_of_tuples()} live {LIVE.fetch_add(0)}")
+    print("implicit_copy_rhs_retains {implicit_copy_rhs_retains(7)} live {LIVE.fetch_add(0)}")
+    print("across_suspend {across_suspend()} live {LIVE.fetch_add(0)}")
+    print("done {LIVE.fetch_add(0)}")
+}

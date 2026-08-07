@@ -14,7 +14,7 @@ from ast_nodes import (
     Statement, LetStatement, AssignStatement, CompoundAssignStatement, ReturnStatement,
     GuardLetStatement, BreakStatement, ContinueStatement, ExpressionStatement,
     WhileExpr, ForLoop, Identifier, MemberAccess, ArrayIndex, SelfExpr,
-    MoveExpr, SawType, TypeKind,
+    TupleIndex, MoveExpr, SawType, TypeKind,
     WildcardPattern, BindingPattern, TuplePattern,
 )
 
@@ -434,6 +434,24 @@ class StatementsMixin:
             if not is_static_target:
                 self._revive_assigned_binding(stmt.target.name, var_type)
 
+        elif (isinstance(stmt.target, MemberAccess)
+                and getattr(stmt.target, 'tuple_field_index', None) is not None):
+            # NAMED-TUPLE element write `pair.x = fresh` (DF-151j): the label is
+            # a position, so this is the tuple-slot store below under its other
+            # spelling. Split out ahead of the field path because a tuple has no
+            # `struct_types` entry to look its layout up in.
+            idx = stmt.target.tuple_field_index
+            self._store_into_tuple_slot(
+                stmt, value, self._get_member_pointer(stmt.target),
+                self._tuple_element_saw_type(stmt.target.object, idx))
+
+        elif isinstance(stmt.target, TupleIndex):
+            # WHOLE-ELEMENT TUPLE WRITE `t.0 = fresh` (DF-151j).
+            self._store_into_tuple_slot(
+                stmt, value, self._get_tuple_element_pointer(stmt.target),
+                self._tuple_element_saw_type(stmt.target.tuple_expr,
+                                             stmt.target.index))
+
         elif isinstance(stmt.target, MemberAccess):
             # Field assignment: obj.field = value
             # Resolve a pointer to the object's REAL storage (variable, self,
@@ -672,6 +690,45 @@ class StatementsMixin:
         else:
             raise ValueError(f"Invalid assignment target: {type(stmt.target)}")
 
+    def _tuple_element_saw_type(self, tuple_expr, index):
+        """The SawType of element `index` of the tuple `tuple_expr` denotes, or
+        None if the annotation is not a usable tuple type."""
+        tuple_saw = self._expr_type(tuple_expr)
+        if tuple_saw is None:
+            return None
+        tuple_saw = self._resolve_type_alias(tuple_saw)
+        elements = getattr(tuple_saw, 'element_types', None)
+        if not elements or index < 0 or index >= len(elements):
+            return None
+        return elements[index]
+
+    def _store_into_tuple_slot(self, stmt, value, elem_ptr, elem_saw):
+        """Store a whole-element tuple write into its slot (DF-151j).
+
+        Mirrors the struct-field path step for step, because a tuple element is
+        the same kind of storage: the slot always holds a LIVE value (a tuple is
+        fully initialized at construction and partial moves are forbidden), so
+        the overwritten element's drop glue runs BEFORE the store and it deinits
+        exactly once; an ImplicitCopy RHS that is an existing binding is
+        retained; a coroutine frame reading one of its own owned locals
+        duplicates against the VALUE's type (design 124); a bare `T` into an
+        opt-encoded slot wraps last.
+        """
+        if elem_saw is not None and self._needs_cleanup(elem_saw):
+            self._emit_drop_at(elem_ptr, elem_saw)
+        if (elem_saw is not None
+                and not self._frame_owning_read_copy(stmt.value)
+                and (isinstance(stmt.value, Identifier)
+                     or self._transfer_site_needs_copy(stmt.value))):
+            value = self._generate_copy_for_dest(value, elem_saw)
+        elif self._frame_owning_read_copy(stmt.value):
+            value = self._generate_copy(value, self._expr_type(stmt.value))
+        expected_type = elem_ptr.type.pointee
+        if (self._is_optional_type(expected_type)
+                and not self._is_optional_type(value.type)):
+            value = self._wrap_in_optional(value)
+        self.builder.store(value, elem_ptr)
+
     def _store_replacement_through_ptr(self, stmt, value, referent_ptr,
                                        referent_saw):
         """Design 110 replacement-assignment store: release the old referent
@@ -747,6 +804,15 @@ class StatementsMixin:
             rhs = self._generate_expression(stmt.value)
             new_val = self._apply_compound_op(stmt.op, current_val, rhs, signed)
             self.builder.store(new_val, field_ptr)
+
+        elif isinstance(stmt.target, TupleIndex):
+            # Tuple element compound assignment `t.0 += value` (DF-151j) — the
+            # element slot, loaded and stored back through the same address.
+            elem_ptr = self._get_tuple_element_pointer(stmt.target)
+            current_val = self.builder.load(elem_ptr, name="tuple_elem_val")
+            rhs = self._generate_expression(stmt.value)
+            new_val = self._apply_compound_op(stmt.op, current_val, rhs, signed)
+            self.builder.store(new_val, elem_ptr)
 
         elif isinstance(stmt.target, ArrayIndex):
             # Array element compound assignment: arr[i] += value
