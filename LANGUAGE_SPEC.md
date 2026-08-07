@@ -3063,7 +3063,7 @@ call written as a bare statement throws away the failure it reports, so the
 compiler rejects it:
 
 ```saw
-import std.net
+import std.net.*
 
 func send(stream: &var TcpStream, body: String) {
     stream.write(body)
@@ -3737,11 +3737,13 @@ Observable rules:
 **Suspending `main` and the cooperative executor (design 45 items 1 & 4).** The
 real cooperative primitives are `yield_now()` (suspend and become immediately
 re-ready) and `sleep(ms)` (suspend with a timed wake). Both are inferred
-suspension points. **`yield_now` requires `import std.task`** (design 114): it is
-std.task's public `func yield_now()`, the one explicit cede a pure-compute task
-loop needs; a task doing I/O yields implicitly when it parks, so most code never
-names it. The bare name is a stdlib-internal intrinsic — user code that calls
-`yield_now()` without importing std.task gets a clean error naming the import.
+suspension points. **`yield_now` requires importing std.task** (design 114): it
+is std.task's public `func yield_now()`, the one explicit cede a pure-compute
+task loop needs; a task doing I/O yields implicitly when it parks, so most code
+never names it. Write `import std.task.*` (or `import std.task.{yield_now}`) to
+call it bare, or `import std.task` and write `task.yield_now()`. The bare name
+is otherwise a stdlib-internal intrinsic, and calling it without the import is a
+clean error naming the three forms.
 (`sleep` stays in the prelude.) When `main` transitively reaches one, the compiler infers
 `main` suspending and auto-wraps it in an **entry executor** with no user-visible
 plumbing: `main` becomes a frame + `resume`, and the generated entry drives it to
@@ -3986,7 +3988,7 @@ producer.join()
 ```saw
 // The cooperative multi-task engine (design 52b). Tasks are stackless coroutine
 // frames driven on the current thread — no OS threads, no thread identity.
-import std.task                  // design 114: `yield_now` lives in std.task
+import std.task.*                // design 114: `yield_now` lives in std.task
 
 func worker(base: Int) -> Int {
     print(base)
@@ -4339,7 +4341,7 @@ operating system, and const-initializable, so it can live in a `static`.
 which left global state shared across threads with no safe spelling.
 
 ```saw
-import std.spinlock
+import std.spinlock.*
 
 struct Counters { hits: Int, misses: Int }
 
@@ -4924,41 +4926,180 @@ Everything else in std is **import-required**: `File`, `Directory`, `Path`,
 whole `net` surface (`TcpListener`/`TcpStream`), `yield_now` (std.task —
 design 114), `FixedBuf`/`FixedStringBuilder` (std.fixedbuf), and the
 `process`/`env`/`time` contents. These stay compiler-known for codegen but are not injected into a
-user namespace without `import std.<module>`. A bare reference to one is a clean
-error ("`TcpStream` is not in the prelude and must be imported") naming the
-import that supplies it. Because a non-imported std module is not even compiled
-into the program, a user is free to define its OWN `IoError`/`File`/etc. with no
-clash.
+user namespace without an import of its module. A bare reference to one is a
+clean error ("`TcpStream` is not in the prelude and must be imported") naming
+the three import forms that supply it. Because a non-imported std module is not
+even compiled into the program, a user is free to define its OWN
+`IoError`/`File`/etc. with no clash.
+
+The prelude is independent of the import forms below: it needs no import, and
+`import std.vector` binds a `vector` qualifier over a module whose names were
+already bare.
 
 ### Imports
 
-Imports follow Python-style semantics - only the explicitly named symbol is added to the namespace:
+There are three import forms, and they mean the same thing for std as for any
+other module.
+
+| Form | What enters scope |
+|---|---|
+| `import std.file` | the qualifier `file`; nothing bare |
+| `import std.file.*` | every public name of the module, bare |
+| `import std.file.{File, Path as P}` | `File` and `P` bare, plus the `file` qualifier |
+
+**Whole module** binds the last path segment as a qualifier and exposes no bare
+names. Reach the module's contents through it:
 
 ```saw
-// Import specific std symbols - adds only those names, usable bare (design 82).
-// A std import re-exposes names already compiled into the builtins; it does NOT
-// create a `mod.Name` alias (the leaf, e.g. `data`/`net`, is a common local).
-import std.net.{TcpListener, TcpStream}
-let l = try! TcpListener.listen(0)
+import std.time
+import std.data
 
-// Whole std module - exposes every symbol the module defines, bare.
-import std.file
-import std.path.{Path}
-let f = try! File.create(Path(s: "data.txt"))
+func as_millis(d: time.Duration) -> Int { d.millis() }   // annotation
 
-// User-module imports still support qualified access + aliasing (design 53).
-import mypkg.parser.{Parser}
-import mypkg.collections.{Map as Dict}           // per-symbol alias
-import mypkg.io as fileio                          // module alias
-
-// Import from current package
-import package.parser.Parser
-import parent.helpers.utility
-
-// Glob import (implemented, discouraged) — all public symbols of a USER module
-// enter scope (std imports take only the bare and `.{A, B}` forms)
-import mypkg.utils.*
+func main() {
+    let started = time.Instant.now()                     // static method
+    var buffer: Vector<data.Data> = []                   // generic argument
+    buffer.push(data.Data())                             // constructor
+    print("{as_millis(started.elapsed())}")
+}
 ```
+
+A qualifier works in every position a type or function name appears: type
+annotations (including behind `&`/`&var` and inside `Optional`), return types,
+generic arguments, call heads, constructors, static-method chains, enum
+construction, `any` existentials, and generic bounds.
+
+```saw
+import shapes
+
+func describe(s: &any shapes.Named) -> String { s.label() }
+func widest<T: shapes.Named>(t: &T) -> String { t.label() }
+```
+
+**Glob** is the explicit opt-in for bare names — the "give me this module's
+vocabulary" form:
+
+```saw
+import std.path.*
+let p = Path(s: "/etc/hosts")
+```
+
+**Selective** names what it takes, and also binds the qualifier for reaching
+what it did not:
+
+```saw
+import std.net.{TcpListener, TcpStream}
+let listener = try! TcpListener.listen(0)      // selected, bare
+let err: net.IoError = ...                     // not selected, still reachable
+```
+
+`as` renames either half. On a whole-module or selective import it renames the
+qualifier; inside braces it renames one symbol:
+
+```saw
+import std.time as clock                       // clock.Instant.now()
+import mypkg.collections.{Map as Dict}         // Dict, not Map
+```
+
+`package` and `parent` prefixes resolve a path relative to the current package
+or the parent module:
+
+```saw
+import package.parser.{Parser}
+import parent.helpers.{utility}
+```
+
+A bare reference to a name that only a qualifier is in scope for is a clean
+error naming all three forms:
+
+```
+error: `Data` is not in the prelude and must be imported
+hint: `import std.data.{Data}` selects it, `import std.data.*` takes the
+      module's whole vocabulary bare, and `import std.data` lets you write
+      `data.Data`
+```
+
+#### Qualifier bindings are weak
+
+A qualifier is the lowest-priority name in scope. Resolution runs local scopes,
+then module-level declarations, then imported bare names, and consults
+qualifiers last. So a local, parameter, or loop variable may take a qualifier's
+name, with no shadowing error:
+
+```saw
+import std.data
+
+func fresh() -> data.Data { data.Data() }      // `data` is the module here
+
+func main() {
+    var data = fresh()                          // the local wins from here
+    data.push(65)
+    print("{data.len()}")                       // a method call, not a module access
+    print("{fresh().len()}")                    // the module again, inside `fresh`
+}
+```
+
+The shadow is lexical: outside the declaring scope the qualifier reaches the
+module. This matters because std leaf names — `data`, `path`, `time`, `net` —
+are among the most natural local names in the language, and importing a module
+may not cost the author the word.
+
+When member lookup then fails on a shadowing value, the error says why:
+
+```
+error: type `Int` has no method `Data`
+hint: `data` here is the binding declared on line 4, which shadows the module
+      qualifier bound by `import std.data` — rename the binding, import the
+      module as another name (`import std.data as <name>`), or select `Data`
+      directly (`import std.data.{Data}`)
+```
+
+`sawc -W shadowed-qualifier` flags the declaration instead of waiting for the
+use. See [Compiler warnings](#compiler-warnings).
+
+#### Qualifier collisions
+
+Two imports binding one qualifier is an error at the import, naming both paths.
+`as` resolves it:
+
+```saw
+import std.data
+import data              // error: two imports bind the qualifier `data`:
+                         //        `std.data` and `data`
+                         // hint: rename one with `as`, e.g. `import data as <name>`
+```
+
+#### Import form and extension visibility
+
+Extension methods and conformances are import-scoped (see
+[Extension scoping](#extension-scoping-design-142)). Every import form makes the module a
+direct import, so choosing qualified access never silently loses a module's
+extensions.
+
+### Compiler warnings
+
+`sawc -W <name>` enables a warning category; `-W all` enables every one.
+Warnings are off by default and never affect the exit code — there is no
+`-Werror`. An unrecognized category is an error, so a misspelled flag cannot
+quietly disable itself and read as a clean build.
+
+| Category | Reports |
+|---|---|
+| `shadowed-qualifier` | a declaration takes the name of a module qualifier bound by an import, so qualified access is unavailable in its scope |
+
+```
+$ sawc app.saw -W shadowed-qualifier
+warning [-W shadowed-qualifier]: `data` shadows the module qualifier bound by `import std.data`
+  --> app.saw:5:5
+   |
+ 5 |     var data = fresh()
+   |     ^
+   hint: qualified access is unavailable while this binding is in scope —
+         rename it, or write `import std.data as <name>`
+```
+
+The warning fires at the declaration. The use-site error it anticipates is
+unconditional.
 
 ### Package Structure
 
@@ -5051,7 +5192,7 @@ which four bytes are held back for the marker and terminator, so
 error.
 
 ```saw
-import std.fixedbuf
+import std.fixedbuf.*
 
 var out = FixedStringBuilder<64>()
 out.append("n = ")

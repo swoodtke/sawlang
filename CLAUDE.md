@@ -50,10 +50,13 @@ activated first.
     [--emit-ir] [--emit-ast] [--emit-docs] [--emit-docs-all] [-O0]
     [--target TRIPLE] [--module-path NAME=DIR]
     [--freestanding] [--runtime-build] [--no-hidden-alloc]
+    [-W NAME | -W all]
 ```
-That is the complete flag set (`sawc.py:1125-1156`); `-o` defaults to
+That is the complete flag set (`sawc.py:1274-1345`); `-o` defaults to
 `.build/<source>`. `--no-hidden-alloc` (design 135) rejects the
 allocations the compiler inserts that no source construct names.
+`-W` (design 150) enables a warning category (repeatable, `-W all` for
+every one; warnings are off by default and never affect the exit code).
 Default pipeline is O1-style. `--module-path` maps a package name to a
 module dir (Blade uses this per dependency). `--runtime-build` (design
 113b) compiles a Saw runtime that `@export`s the frozen `__saw_rt_*` ABI
@@ -68,7 +71,9 @@ objects are built + cached under `.build/rt/` and auto-linked (delete
   the bar; run the FULL suite before every commit.
 - Never run two suite invocations at once.
 - Tests support a `// COMPILE-FLAGS:` directive (`{TESTDIR}`
-  placeholder).
+  placeholder), and — for warnings, which are reported on the SUCCESS
+  path and never affect the exit code — `// EXPECT-WARNING-CONTAINS:`
+  and `// EXPECT-NO-WARNINGS` (design 150).
 - App-level: `blade test` (tests/*.saw exit 0 = pass; see TESTING.md);
   `./.venv/bin/python tools/blade_bootstrap.py` or
   `make blade-bootstrap` runs the self-hosting loop (stage0→stage2).
@@ -169,9 +174,23 @@ discipline (design 82): only a curated core is auto-visible
 trait vocabulary, the builtins + concurrency primitives,
 StringBuilder); File/Data/Channel/Mutex/net/IoError/Utf8Error/process/
 env/time — and `yield_now` (std.task, design 114; the cooperative-yield
-wrapper over the now stdlib-internal intrinsic) — need
-`import std.<module>` — so a user type named `IoError`/`File` no longer
-collides. Unsafe surface (design 130 + 136, superseding 81's marking rules):
+wrapper over the now stdlib-internal intrinsic) — need an import — so a
+user type named `IoError`/`File` no longer collides. Imports are
+RUST-STYLE and uniform across std and user modules (design 150, which
+deleted design 82 Part B's std bare-exposure special case): `import
+std.file` binds the last segment as a QUALIFIER and exposes nothing bare
+(`file.File`, `time.Instant.now()`, `let d: time.Duration`, `&any
+mod.Trait`, `<T: mod.Trait>` — every position a name appears);
+`import std.file.*` is the bare opt-in; `import std.file.{A, B as C}`
+selects bare AND binds the qualifier. `as` renames the qualifier.
+Qualifier bindings are WEAK — locals -> module decls -> imported bare
+names -> qualifiers last — so a local `data`/`path`/`time` shadows one
+lexically with no error, and the member-lookup failure names the
+shadowing decl + three outs. Two imports on one qualifier error at the
+import. Every form is a design-142 direct import. sawc gained `-W <name>`
+/ `-W all` (design 150 4b): warnings OFF by default, never affect exit
+code, no -Werror; first category `shadowed-qualifier`, emitted at the
+declaration. Unsafe surface (design 130 + 136, superseding 81's marking rules):
 unsafety is type-carried and DECLARED per declaration — `unsafe struct` marks a
 type (compiler-enforced `Unsafe*` name; a plain `struct UnsafeDefaults` gets no
 semantics); a function whose body or signature NAMES, BINDS, RECEIVES or

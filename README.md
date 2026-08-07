@@ -394,7 +394,7 @@ For formatting you drive yourself, `std.fixedbuf` gives you a builder over
 inline storage, sized by the type:
 
 ```saw
-import std.fixedbuf
+import std.fixedbuf.*
 
 var out = FixedStringBuilder<64>()
 out.append("n = ")
@@ -479,7 +479,7 @@ are in flight. `group.count()` reports the slots held: live tasks, plus tasks
 whose result nobody has joined yet.
 
 ```saw
-import std.task          // `yield_now` lives in std.task
+import std.task.*        // `yield_now` lives in std.task
 
 func work(n: Int) -> Int {
     yield_now()          // cooperative suspension point
@@ -677,10 +677,23 @@ func main() {
 }
 ```
 
-Imports are Python-style (only the named symbol enters scope), with module and
-per-symbol aliasing (`import mypkg.io as fileio`, `import m.{A as B}`), scoped
-visibility (`public(package)`, `public(parent)`), and glob imports
-(`import m.*`).
+There are three import forms, and the standard library takes the same three as
+any other module:
+
+```saw
+import std.time                    // binds the qualifier: time.Instant.now()
+import std.time.*                  // every public name, bare: Instant.now()
+import std.time.{Instant}          // Instant bare, plus the time qualifier
+```
+
+A qualifier works wherever a name does — annotations, generic arguments,
+call heads, static-method chains, `any` existentials, generic bounds. It is
+also the lowest-priority name in scope, so a local called `data` or `time`
+shadows one with no error and no ceremony, lexically. `sawc -W
+shadowed-qualifier` flags the declaration if you want to hear about it.
+`as` renames a qualifier (`import mypkg.io as fileio`) and braces rename a
+symbol (`import m.{A as B}`). Visibility is scoped (`public(package)`,
+`public(parent)`).
 
 **Member visibility**: struct fields and extension methods (including `init`)
 are private by default outside their defining module, and `public` marks the API
@@ -699,8 +712,8 @@ naming both modules.
 `Vector`/`Map`/`Set`, `Optional`/`Result`/`Box`/`Arc`, the trait vocabulary,
 `print`/`panic`/`assert`, the concurrency primitives, `StringBuilder`).
 Everything else
-(`File`, `Data`, `Channel`, `Mutex`, `TcpStream`, `Command`, and so on) needs
-`import std.<module>`, which also means your own type named `File` or
+(`File`, `Data`, `Channel`, `Mutex`, `TcpStream`, `Command`, and so on) needs an
+import of its module, which also means your own type named `File` or
 `IoError` never collides with the standard library's.
 
 ## Memory Management
@@ -917,7 +930,7 @@ Saw is freestanding: the same language targets bare metal.
   have stable layouts for wire formats.
 
 ```saw
-import std.spinlock
+import std.spinlock.*
 
 struct UartRegs {
     data: UInt32
@@ -989,7 +1002,7 @@ The standard library includes:
   never allocates: content that does not fit is cut on a UTF-8 boundary and
   marked with `…`, which `is_truncated()` reports. That is the builder
   `print`/`panic` hand to a `Printable` value's `format`.
-- **FixedBuf&lt;N&gt; / FixedStringBuilder&lt;N&gt;** (`import std.fixedbuf`) - `N`
+- **FixedBuf&lt;N&gt; / FixedStringBuilder&lt;N&gt;** (`import std.fixedbuf.*`) - `N`
   bytes of storage held inline, sized by a const generic parameter, and a
   `StringBuilder` over one. Same `append` surface and same cut-and-mark
   truncation as the fixed-mode builder above, with the storage question
@@ -1073,6 +1086,9 @@ Options:
   --runtime-build    Build a Saw runtime exporting the __saw_rt_* ABI
   --module-path NAME=DIR
                      Map a package name to a source directory (repeatable)
+  -W <name>          Enable a warning category (repeatable; `-W all` for every
+                     one). Warnings are off by default and never affect the
+                     exit code. Categories: shadowed-qualifier
 ```
 
 ## Running Tests

@@ -617,7 +617,7 @@ v.map<String>({ $0.to_string() })   // the closure's return; explicit still wins
 - **The fixed-buffer idiom (std.fixedbuf).** For formatting or scratch bytes
   with no allocator, reach for the std types rather than rolling a buffer:
   ```saw
-  import std.fixedbuf
+  import std.fixedbuf.*
   var out = FixedStringBuilder<64>()   // 64 bytes inline; holds 60 of text
   out.append("n = ")
   out.append(42)
@@ -633,7 +633,8 @@ v.map<String>({ $0.to_string() })   // the closure's return; explicit still wins
 
 ## Concurrency (colorless)
 ```saw
-import std.task                                   // design 114: `yield_now` lives here
+import std.task.*                                 // design 114: `yield_now` lives here
+                                                  // (`import std.task` -> task.yield_now())
 func work(n: Int) -> Int { yield_now(); n * n }  // any call may suspend
 func main() {
     var group = TaskGroup()
@@ -729,7 +730,7 @@ handle.cancel(); if cancelled() { ... }   // cooperative cancellation
   is a no-op on both. `cancel_addr()` pins its slot (a raw address must stay
   valid), giving up reuse for that one slot. Suspending calls yield
   IMPLICITLY when they park (a task doing I/O never needs `yield_now`); `yield_now`
-  (design 114: `import std.task` — no longer prelude) is now needed only where the
+  (design 114: `import std.task.*` — no longer prelude) is now needed only where the
   compute budget does not reach (the bounds below). Fairness backstop — ONE op-count
   budget (default 128, never wall-clock, so interleavings stay deterministic)
   covers both ways a task can fail to cede. (a) An always-ready socket (design
@@ -854,10 +855,50 @@ handle.cancel(); if cancelled() { ... }   // cooperative cancellation
 
 ## Modules & packages
 ```saw
-import std.net.{TcpListener, TcpStream}   // non-prelude std: import to use bare
-import std.file                            // whole module (exposes File, ...)
+import std.net.{TcpListener, TcpStream}   // selective: those names bare + a `net.` qualifier
+import std.file.*                          // glob: every public name of the module, BARE
+import std.file                            // whole module: QUALIFIED ONLY — `file.File`
 import mymodule as mm       // aliasing; `module`/`public`/`package`/`parent`
 ```
+- **THREE IMPORT FORMS, and std takes the same three as any package
+  (design 150).** `import std.time` binds the last segment as a QUALIFIER
+  and exposes nothing bare (`time.Instant.now()`, `let d: time.Duration`);
+  `import std.time.*` puts every public name in scope bare;
+  `import std.time.{Instant}` does both — `Instant` bare AND a `time.`
+  qualifier for what it did not name. `as` renames the qualifier
+  (`import std.time as clock`), braces rename a symbol (`{Map as Dict}`).
+  A qualifier works in EVERY position a name appears: annotations (incl.
+  behind `&`/`&var` and inside `Optional`), return types, generic arguments,
+  call heads, constructors, static-method chains (`time.Instant.now()`),
+  enum construction, `any` existentials (`&any shapes.Named`) and generic
+  bounds (`<T: shapes.Named>`). A bare name that only a qualifier is in
+  scope for is a clean error naming all three forms.
+  **IDIOM**: braces in library code (the import list documents the
+  dependency and survives a rename); glob for a vocabulary module a file
+  leans on (`std.path.*` in a file that is all paths); qualified for
+  occasional use or where the bare name would collide — `import std.time`
+  costs one word per use and never fights your own `Instant`.
+- **A QUALIFIER IS THE WEAKEST NAME IN SCOPE (design 150 pin 4).**
+  Resolution runs local scopes -> module-level declarations -> imported bare
+  names -> qualifiers LAST, so a local, param or loop var named `data`,
+  `path`, `time` or `net` shadows one with NO shadowing error. The shadow is
+  lexical — the next function's `data.` reaches the module again. So writing
+  `import std.data` never costs you the word `data`:
+  ```saw
+  import std.data
+  func fresh() -> data.Data { data.Data() }   // the module
+  func main() {
+      var data = fresh()                       // local wins from here, no error
+      data.push(65)                            // a method call, not module access
+  }
+  ```
+  If member lookup then fails on the shadowing value, the error names the
+  declaration that took the name and the three ways out. `sawc -W
+  shadowed-qualifier` flags the DECLARATION instead of waiting for the use
+  (warnings are off by default and never affect the exit code).
+- Two imports binding ONE qualifier is an error AT THE IMPORT naming both
+  paths; `as` fixes it. Any import form makes the module a DIRECT import, so
+  choosing qualified access never loses its design-142 extensions.
 - **Utility methods belong on the receiver as extensions — including on
   types you don't own** (user idiom ruling, Aug 5). A helper that is
   *about* one value reads as a method: write `extension Data {
@@ -918,10 +959,13 @@ import mymodule as mm       // aliasing; `module`/`public`/`package`/`parent`
   `yield_now` (std.task — design 114; the wrapper over the stdlib-internal
   cooperative-yield intrinsic), `Command` (std.process), `Env` (std.env),
   `FixedBuf`/`FixedStringBuilder` (std.fixedbuf — design 148). A bare non-prelude name is a clean
-  error ("`X` is not in the prelude and must be imported") — add the import.
-  A std import exposes names BARE (no `mod.Name` qualifier). Because a
+  error ("`X` is not in the prelude and must be imported") whose hint names all
+  three forms — so reach it BARE with `import std.X.*` or `import std.X.{Name}`,
+  and `import std.X` alone gives you `X.Name` instead (design 150; the module
+  paths above are the leaf, not the spelling to copy). Because a
   non-imported std module isn't compiled in, you may define your OWN `IoError`/
-  `File`/etc. with no clash.
+  `File`/etc. with no clash. The prelude itself is untouched by all of this:
+  `import std.vector` just binds a harmless `vector` qualifier.
 - Visibility: `public`, `public(package)`, `public(parent)`, private
   default. Package layout: `src/lib.saw` ← `import <pkgname>` (Blade
   `--module-path`); `src/main.saw` for binaries.
@@ -985,7 +1029,7 @@ slab in std/slab.saw; `UnsafeMemory<T, Device|Normal>` for MMIO
   Pick by the SHAPE of the state, not by convenience:
   - **`Atomic<Int>`** — single-word state several tasks update
     independently. Still the recommendation everywhere it fits.
-  - **`SpinLock<T>`** (`import std.spinlock`) — state several THREADS or
+  - **`SpinLock<T>`** (`import std.spinlock.*`) — state several THREADS or
     cores genuinely share. One word + the payload, no allocation, no OS,
     const-initializable, so `static LOCK: SpinLock<Counters>` (NO
     initializer — zero IS unlocked + zeroed payload) finally makes a

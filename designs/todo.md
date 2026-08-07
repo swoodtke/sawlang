@@ -1456,6 +1456,83 @@ first try.
   second `.` as a float. Fixed in both lexers; the `(t.0).name` workaround this
   file used is gone. See the design 161 entry below.
 
+## Design 150 — Rust-style imports (LANDED, Aug 6)
+
+`designs/150-rust-style-imports.md` closed, all seven pins plus the `-W`
+surface. The brief called it a deletion and it was one: design 82 Part B's
+`_process_std_import` bare-exposed a whole-module std import and supported
+neither `.*` nor qualified access, and std now goes through the same three
+forms a user module always has.
+
+- `import std.file` binds the qualifier `file` and exposes NOTHING bare;
+  `import std.file.*` is the bare opt-in; `import std.file.{A, B as C}`
+  selects bare AND binds the qualifier. `as` renames the qualifier.
+- The qualifier resolves through a per-std-FILE `StdLeafNamespace` over the
+  already-checked builtin namespace, SHARING its symbol objects — one type,
+  one identity, one mangling whichever spelling reaches it. Design 82 gave
+  each std file its own module identity; this is the namespace half.
+  Visibility in the view is membership: std's top-level declarations carry
+  no `public` marker (the prelude gate decides who may name one), so an
+  ordinary check would refuse every std type through its own qualifier.
+- **Pin 4 was load-bearing, not a nicety.** Four examples broke the instant
+  `data` became a qualifier, every one a local named after the leaf it
+  imports. Resolution now runs local scopes -> module-level declarations ->
+  imported bare names -> qualifiers LAST, in typechecker and codegen alike,
+  with no shadowing error and a lexical shadow. That was design 82's stated
+  reason for never creating the alias; it is a rule now instead of an
+  omission.
+- Migration: 97 files, 101 whole-module std imports rewritten to `.*`,
+  landed as its own commit BEFORE the semantic flip so the flip had no
+  in-tree fallout to absorb. No idiom churn.
+- `-W <name>` / `-W all`, off by default, never affecting the exit code.
+  First category `shadowed-qualifier`, at the declaration. The reporter's
+  warning path had zero call sites and needed three fixes before it could
+  carry one: invocation-wide enablement + dedup (the pipeline re-enters its
+  front half twice with a fresh reporter, so the warning printed twice),
+  `print_warnings` on the success path (`print_all` runs only on failure, so
+  a warning on a clean compile was collected and dropped), and yellow with a
+  `[-W category]` label instead of error red.
+- The test runner could not SEE a warning — `EXPECT-ERROR-CONTAINS` is
+  consulted only when compilation fails. Added `EXPECT-WARNING-CONTAINS`
+  and `EXPECT-NO-WARNINGS`; the latter is what pins the category's silence.
+- Suite 1332 -> 1341.
+
+### DF-150 findings (all FIXED in the brief)
+
+- **DF-150a — `&any qual.Trait` did not resolve.** `_resolve_type` had no
+  EXISTENTIAL branch, the same shape DF-140c fixed for references one
+  composite over. Every downstream consumer compares trait NAMES (method
+  dispatch on the erased value, the conformance check at an erasure site,
+  vtable selection) and none strips a qualifier, so the spelling travelled
+  intact and failed at the far end with "unknown trait `qmod.Named`".
+  Resolved to the trait's identity at resolution now. `get_trait_info` also
+  gained the visibility-honoring cross-module fallback its struct and enum
+  siblings have had since design 40. Repro:
+  `examples/import150_qualified_trait.saw`.
+- **DF-150b — `<T: qual.Trait>` did not PARSE.** The bound grammar read one
+  identifier ("Expected '>' after type parameters" at the dot). Bounds take
+  a dotted path now. Second half: a bound is a bare STRING, so
+  `_canonicalize_module_types` sent it through `_canonical_type_name`, which
+  deliberately leaves dotted names for `_resolve_type`'s module-walk —
+  bounds and parent traits get their own resolver. Same repro.
+- **DF-150c — the explicit-type-argument bound check used a non-walking
+  conformance query.** `get_conformances` reads only the current namespace's
+  table while the inference path beside it used the module-WALKING
+  `_bound_satisfied`, so `Point` satisfied `Named` under
+  `import qmod.{Point, Named}` (the selective form copies conformances in)
+  and not under `import qmod`. Design 142 makes a conformance coherent
+  program-wide and visible wherever the type and the trait both are — the
+  IMPORT FORM must not decide the answer. Both paths walk now.
+- **Not fixed, recorded:** a bare type name from a whole-module USER-module
+  import still half-resolves through `_cross_module_lookup`, producing the
+  nonsense `cannot assign `Point` to variable of type `Point`` rather than a
+  clean "not in scope, did you mean `qmod.Point`". std is unaffected (the
+  prelude gate catches it first with the three-form hint, which is what the
+  brief's negative test pins). Repro: a `let p: Point = Point(x: 1, y: 2)`
+  under `import qmod`. Worth a small follow-up; the fix is to stop
+  `_cross_module_lookup` answering for qualified-only imports, which needs a
+  check of what else depends on that fallback.
+
 ## Design 161 — the tuple-index and number-scanner lex rules (LANDED, Aug 6)
 
 `designs/161-tuple-index-member-lex.md` closed, including its user-approved
