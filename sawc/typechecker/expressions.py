@@ -4544,7 +4544,9 @@ class ExpressionsMixin:
                 expr.int_limit = (expr.object.name, expr.member)
                 return SawType(limit_kind)
 
-            module_sym = self.namespace.modules.get(expr.object.name)
+            # Design 150 pin 4: a value binding of this name wins; the qualifier
+            # is consulted last.
+            module_sym = self._module_qualifier(expr.object.name)
             if module_sym and module_sym.namespace:
                 from namespace import SymbolKind
                 symbol = module_sym.namespace.resolve(
@@ -4687,11 +4689,15 @@ class ExpressionsMixin:
         if struct_info is None:
             return None
         if expr.member not in struct_info.fields:
+            # Design 150 pin 4: name the shadowing declaration when one took the
+            # qualifier this projection was reaching for.
+            shadow = self._qualifier_shadow_hint(expr.object, expr.member)
             self._error(
                 ErrorKind.TYPE_MISMATCH,
                 f"struct `{obj_type.struct_name}` has no field `{expr.member}`",
                 expr.line, expr.column,
-                hint=f"available fields: {', '.join(struct_info.field_order)}"
+                hint=shadow or
+                     f"available fields: {', '.join(struct_info.field_order)}"
             )
             return None
         self._check_field_visible(struct_info, expr.member,
@@ -6603,7 +6609,9 @@ class ExpressionsMixin:
                         )
                         return None
         if isinstance(expr.object, Identifier):
-            module_sym = self.namespace.modules.get(expr.object.name)
+            # Design 150 pin 4: a value binding of this name wins; the qualifier
+            # is consulted last.
+            module_sym = self._module_qualifier(expr.object.name)
             if module_sym and module_sym.namespace:
                 from namespace import SymbolKind
                 symbol = module_sym.namespace.resolve(
@@ -6932,11 +6940,16 @@ class ExpressionsMixin:
                     available.extend(
                         n for n, sym in struct_info.specialized_methods[spec_key].items()
                         if self._ext_scope_allows(sym, struct_info))
+            # Design 150 pin 4: a shadowed module qualifier explains this call
+            # far better than a method list does.
+            shadow = self._qualifier_shadow_hint(expr.object, expr.method_name)
             self._error(
                 ErrorKind.UNDEFINED_FUNCTION,
                 f"type `{struct_name}` has no method `{expr.method_name}`",
                 expr.line, expr.column,
-                hint=f"available methods: {', '.join(sorted(set(available)))}" if available else "no methods defined"
+                hint=shadow or (
+                    f"available methods: {', '.join(sorted(set(available)))}"
+                    if available else "no methods defined")
             )
             return None
         # Conditional conformance: a method declared in a bounded extension

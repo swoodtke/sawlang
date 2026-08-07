@@ -262,6 +262,11 @@ class Namespace:
     source of truth that both the type checker and code generator use.
     """
 
+    # Design 150: True only on the per-std-file view below. A bare-name
+    # cross-module fallback consults it to leave std's qualified-only surface
+    # out of the bare-name search.
+    is_std_leaf: bool = False
+
     def __init__(self, module_path: Tuple[str, ...] = ()):
         # Module path this namespace belongs to (e.g., ("modules", "utils"))
         self.module_path: Tuple[str, ...] = module_path
@@ -2115,3 +2120,31 @@ class Namespace:
             else:
                 # Extend the list of extensions
                 self.generic_extensions[name].extend(exts)
+
+
+class StdLeafNamespace(Namespace):
+    """The namespace a std module qualifier resolves through (design 150).
+
+    Design 82 gave every std FILE its own module identity; design 150 lets
+    `import std.time` bind `time` as a qualifier over exactly that file's
+    declarations, the same way `import pkg.io` binds `io`. This view holds
+    those declarations — shared symbol objects, never copies, so identity and
+    mangling are unchanged.
+
+    Visibility is membership. std's top-level declarations carry no `public`
+    marker: what decides whether user source may name one is the prelude gate
+    (design 82 Part B), not a modifier, so an ordinary check would refuse every
+    std type through its own qualifier. The names in this view are precisely
+    `_std_file_symbols[leaf]` — the same set the glob form exposes bare — so
+    being in it is the whole permission. Design 80's MEMBER gate is separate
+    and still applies: reaching `time.Instant` says nothing about which of its
+    fields and methods are public.
+    """
+
+    is_std_leaf: bool = True
+
+    def check_visibility(self, visibility: 'Visibility',
+                         symbol_module: Tuple[str, ...],
+                         accessor_module: Tuple[str, ...],
+                         package_root: Tuple[str, ...] = ()) -> bool:
+        return True

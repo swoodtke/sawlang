@@ -1092,7 +1092,10 @@ class CallsMixin:
                     return self._generate_static_method_call(expr, resolved_struct)
 
         # Check if this is a module function call or struct init: ModuleName.symbol(args)
-        if isinstance(expr.object, Identifier):
+        # Design 150 pin 4: module qualifiers are WEAK — a local of the same name
+        # wins, so `data.push(x)` beside `import std.data` is a method call on the
+        # local. The typechecker resolved it that way; codegen must agree.
+        if isinstance(expr.object, Identifier) and expr.object.name not in self.variables:
             if expr.object.name in self.namespace.modules:
                 module_sym = self.namespace.modules[expr.object.name]
                 if module_sym.namespace:

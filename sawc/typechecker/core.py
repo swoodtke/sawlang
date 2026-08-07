@@ -614,12 +614,143 @@ class TypeChecker(ExpressionsMixin, StatementsMixin, RegistrationMixin, TypeUtil
             return "std." + ".".join(module[1:])
         return ".".join(module) if module else "this module"
 
+    def _module_qualifier(self, name):
+        """The module `name` denotes as a qualifier HERE, or None (design 150
+        pin 4).
+
+        Qualifier bindings are WEAK. Resolution runs local scopes -> module-level
+        declarations -> imported bare names -> qualifiers, so a local, parameter
+        or capture called `data` simply wins, with no shadowing error, and the
+        shadow is LEXICAL: in the next function `data.` reaches the module again.
+        std leaves are among the most natural local names in the language
+        (`data`, `path`, `time`, `net`), and binding one as a qualifier may not
+        cost the author the name — that was design 82's whole reason for not
+        creating the alias in the first place."""
+        if not name:
+            return None
+        scope = getattr(self, 'current_scope', None)
+        if scope is not None and scope.lookup(name) is not None:
+            return None
+        ns = self.namespace
+        if name in ns.directly_accessible:
+            return None
+        return ns.modules.get(name)
+
+    def _shadowed_qualifier(self, name):
+        """The module a declaration of `name` would shadow, or None. Feeds both
+        the `-W shadowed-qualifier` warning and the member-lookup diagnostic."""
+        if not name:
+            return None
+        return self.namespace.modules.get(name)
+
+    def _qualifier_shadow_hint(self, obj, member):
+        """Design 150 pin 4's diagnostic contract.
+
+        When member lookup fails on a value whose NAME also binds a module
+        qualifier, the author almost certainly meant the module — `data.Data()`
+        under a local `data`. Say which declaration took the name and give the
+        three ways out. Returns the hint text, or None when this is an ordinary
+        missing member."""
+        from ast_nodes import Identifier
+        if not isinstance(obj, Identifier):
+            return None
+        module_sym = self._shadowed_qualifier(obj.name)
+        if module_sym is None:
+            return None
+        scope = getattr(self, 'current_scope', None)
+        info = scope.lookup(obj.name) if scope is not None else None
+        if info is None:
+            return None
+        path = '.'.join(getattr(module_sym, 'path', ()) or ()) or obj.name
+        return (f"`{obj.name}` here is the binding declared on line {info.line}, "
+                f"which shadows the module qualifier bound by `import {path}` — "
+                f"rename the binding, import the module as another name "
+                f"(`import {path} as <name>`), or select `{member}` directly "
+                f"(`import {path}.{{{member}}}`)")
+
+    def _bind_module_qualifier(self, ns, imp, alias, path, source_ns):
+        """Bind `alias` as a module qualifier in `ns` (design 150 pins 1, 3, 5).
+
+        One import form or another, a qualifier is one name bound to one module.
+        Two imports claiming it is reported HERE, at the import, naming both
+        paths — the use site could only say the qualifier reached the wrong
+        module, which is the wrong place to learn it."""
+        from namespace import ModuleSymbol
+        prior = ns.modules.get(alias)
+        if prior is not None and list(getattr(prior, 'path', ())) != list(path):
+            self._error(
+                ErrorKind.DUPLICATE_IMPORT,
+                f"two imports bind the qualifier `{alias}`: "
+                f"`{'.'.join(prior.path)}` and `{'.'.join(path)}`",
+                getattr(imp, 'line', 0), getattr(imp, 'column', 0),
+                hint=f"rename one with `as`, e.g. "
+                     f"`import {'.'.join(path)} as <name>`")
+            return
+        ns.modules[alias] = ModuleSymbol(
+            namespace=source_ns, path=list(path),
+            visibility=Visibility.PRIVATE,  # an import is never re-exported
+        )
+
+    def _std_leaf_namespace(self, leaf, builtin_namespace):
+        """The namespace `import std.<leaf>` binds its qualifier to (design 150).
+
+        A per-FILE view over the already-checked builtin namespace, holding the
+        leaf's own top-level declarations and sharing every symbol object with
+        it — so `time.Instant` and an `import std.time.{Instant}` name one type,
+        with one identity and one mangling. Built once per leaf per compile."""
+        from namespace import StdLeafNamespace
+        cache = getattr(self, '_std_leaf_ns_cache', None)
+        if cache is None:
+            cache = {}
+            self._std_leaf_ns_cache = cache
+        view = cache.get(leaf)
+        if view is not None:
+            return view
+
+        file_symbols = getattr(builtin_namespace, '_std_file_symbols', {}) or {}
+        view = StdLeafNamespace(module_path=("<std>", leaf))
+        for name in sorted(file_symbols.get(leaf, ())):
+            for lookup, register in (
+                (builtin_namespace.lookup_struct, view.register_struct),
+                (builtin_namespace.lookup_enum, view.register_enum),
+                (builtin_namespace.lookup_trait, view.register_trait),
+                (builtin_namespace.lookup_type_alias, view.register_type_alias),
+            ):
+                sym = lookup(name)
+                if sym is not None:
+                    register(name, sym)
+                    # Carry the type's conformances so a query made through the
+                    # qualifier (does `time.Duration` implement Comparable?)
+                    # answers the same as one made through a bare import.
+                    ident = builtin_namespace.resolve_type_identity(name)
+                    conf = builtin_namespace.conformances.get(ident)
+                    if conf:
+                        view.conformances.setdefault(ident, dict(conf))
+                    break
+            else:
+                fn = builtin_namespace.functions.get(name)
+                if fn is not None:
+                    view.register_function(name, fn)
+                    overloads = builtin_namespace.lookup_function_overloads(name)
+                    if len(overloads) > 1:
+                        view.function_overloads[name] = list(overloads)
+            view.make_accessible(name)
+        cache[leaf] = view
+        return view
+
     def _process_std_import(self, imp, ns, builtin_namespace) -> Optional[str]:
-        """Make the requested std symbols accessible for an `import std.<module>`
-        (design 82 Part B). The symbols already live in `builtin_namespace` and
-        are merged into `ns`; a prelude import simply un-gates the requested
-        names (and registers the module for qualified `mod.Name` access). Non-
-        prelude std stays compiler-known but hidden until imported.
+        """Bind an `import std.<module>` into the importing namespace.
+
+        Design 150: std goes through the SAME three forms as a user module, and
+        the design-82 Part B special case (whole-module std bare-exposes) is
+        gone. `import std.time` binds the qualifier `time` and exposes nothing
+        bare; `import std.time.*` exposes every name of the module bare;
+        `import std.time.{Instant}` exposes the named ones bare AND binds the
+        qualifier for reaching the rest.
+
+        The symbols themselves already live in `builtin_namespace` and are
+        merged into `ns`, so bare exposure is a matter of un-gating a name
+        (design 82's accessibility set) rather than copying a symbol.
 
         Returns the std module's leaf name (`data` for `import std.data`), which
         the caller records as a direct import, or None if the import was
@@ -663,6 +794,8 @@ class TypeChecker(ExpressionsMixin, StatementsMixin, RegistrationMixin, TypeUtil
                         break
             ns.make_accessible(local)
 
+        is_glob = bool(getattr(imp, 'is_glob', False)) or list(imp.path)[-1:] == ['*']
+
         if imp.symbols:
             aliases = imp.symbol_aliases or {}
             for sym_name in imp.symbols:
@@ -674,16 +807,20 @@ class TypeChecker(ExpressionsMixin, StatementsMixin, RegistrationMixin, TypeUtil
                         hint="available: " + ", ".join(sorted(available)))
                     continue
                 _expose(sym_name, aliases.get(sym_name, sym_name))
-        else:
-            # Whole-module import: expose every symbol the module defines.
+        elif is_glob:
+            # `import std.X.*` — the explicit bare opt-in (design 150 pin 2).
             for sym_name in available:
                 _expose(sym_name, sym_name)
 
-        # NOTE: unlike a user-module import, a std prelude import does NOT
-        # register a `leaf.Name` module alias — the leaf name (`data`, `net`,
-        # `path`) is a common local-variable name, and a module alias would
-        # shadow it (`data.push(...)` misparsed as module access). Bare names
-        # (and `.{A, B}`) are the supported std import forms.
+        # Design 150 pins 1 and 3: the whole-module and selective forms bind the
+        # last path segment as a qualifier (`as Y` overrides). The glob form does
+        # not, exactly as a user-module glob does not — it gave you the names.
+        if not is_glob:
+            self._bind_module_qualifier(
+                ns, imp,
+                alias=getattr(imp, 'alias', None) or leaf,
+                path=["std", leaf],
+                source_ns=self._std_leaf_namespace(leaf, builtin_namespace))
         return leaf
 
     def _decl_is_std_sourced(self, node) -> bool:
@@ -735,11 +872,17 @@ class TypeChecker(ExpressionsMixin, StatementsMixin, RegistrationMixin, TypeUtil
         # A user module that defines (or imports) its own symbol of this name has
         # made it directly accessible above, so we never reach here for it — the
         # gate fires only for a bare reference to a hidden std symbol.
+        # Design 150: name all three forms. A whole-module `import std.file` no
+        # longer exposes `File` bare — it binds the qualifier — so a hint that
+        # offered only that spelling would send the reader in a circle.
         self._error(
             ErrorKind.UNKNOWN_TYPE,
             f"`{name}` is not in the prelude and must be imported",
             line, column,
-            hint=f"add `import std.{owner}.{{{name}}}` (or `import std.{owner}`)",
+            hint=f"`import std.{owner}.{{{name}}}` selects it, "
+                 f"`import std.{owner}.*` takes the module's whole vocabulary "
+                 f"bare, and `import std.{owner}` lets you write "
+                 f"`{owner}.{name}`",
         )
         return True
 
@@ -1389,26 +1532,21 @@ class TypeChecker(ExpressionsMixin, StatementsMixin, RegistrationMixin, TypeUtil
                                 ns.register_trait(local, sym,
                                                   source_label=sel_label)
                                 ns.make_accessible(local)
-                    # Also register module for qualified access to non-imported symbols
-                    alias = imp.path[-1] if imp.path else ""
-                    from namespace import ModuleSymbol
-                    ns.modules[alias] = ModuleSymbol(
-                        namespace=source_ns,
-                        path=list(imp_path),
-                        visibility=Visibility.PRIVATE
-                    )
+                    # The selective form ALSO binds the qualifier, for reaching
+                    # the names it did not select (design 150 pin 3).
+                    self._bind_module_qualifier(
+                        ns, imp,
+                        alias=(imp.alias or (imp.path[-1] if imp.path else "")),
+                        path=list(imp_path), source_ns=source_ns)
             else:
                 # import foo.bar -> register module for qualified access
                 direct_imports.add(imp_path)
                 if imp_path in checked_modules:
-                    alias = imp.alias or (imp.path[-1] if imp.path else "")
                     _, source_ns = checked_modules[imp_path]
-                    from namespace import ModuleSymbol
-                    ns.modules[alias] = ModuleSymbol(
-                        namespace=source_ns,
-                        path=list(imp_path),
-                        visibility=Visibility.PRIVATE  # Imports are private
-                    )
+                    self._bind_module_qualifier(
+                        ns, imp,
+                        alias=(imp.alias or (imp.path[-1] if imp.path else "")),
+                        path=list(imp_path), source_ns=source_ns)
 
         # Handle external module declarations (`module foo`)
         # These are registered for qualified access just like imports
