@@ -80,6 +80,45 @@ extension Arc<T> {
             0
         }
     }
+
+    /// Runs `body` on a `&var` borrow of the payload when this handle is the
+    /// only strong owner, and hands back what `body` returned. Answers `None`
+    /// — without running `body` — when the value is shared.
+    ///
+    /// This is the copy-on-write gate. Mutating a shared payload through an
+    /// `Arc` is otherwise impossible by construction: payload-method forwarding
+    /// (design 21b) passes `&self` methods through and refuses `&var self` ones,
+    /// because an aliased write is what `Mutex` exists to make safe. Uniqueness
+    /// is the other sound answer — nobody else can observe a write to a value
+    /// only you hold — and this method is that answer, with the test and the
+    /// access fused so the count cannot go stale between them.
+    ///
+    /// ```saw
+    /// var solo = Arc<Counter>(value: Counter(n: 0))
+    /// if let n = solo.with_unique({ c in c.bump()  c.n }) { print(n) }   // 1
+    ///
+    /// let shared = solo.copy()
+    /// solo.with_unique({ c in c.bump()  c.n })                          // None
+    /// ```
+    ///
+    /// The `None` arm is the caller's cue to clone and write to the clone, which
+    /// is how `Data` gets value semantics over shared storage.
+    ///
+    /// The uniqueness this reports is single-threaded. `strong_count()` alone is
+    /// a racy snapshot; what makes the answer here trustworthy is the `&var
+    /// self` borrow, which stops any new reference being taken from this handle
+    /// while the window is open. Sharing a value across tasks still goes through
+    /// `Mutex` — a count of 1 says nothing about a handle another thread holds.
+    public func with_unique<R>(&var self, body: (&var T) sync -> R) unsafe -> R? {
+        guard let block = self.ptr else {
+            return None
+        }
+        let strong_ptr = block as UnsafePointer<Int>
+        if strong_ptr[0] != 1 {
+            return None
+        }
+        return body((block + 16) as UnsafePointer<T>)
+    }
 }
 
 // Arc's copy policy is ImplicitCopy — a copy is a refcount bump — and its

@@ -1,0 +1,69 @@
+// Design 165 unit 1: `Arc.with_unique` — the copy-on-write gate.
+//
+// Payload-method forwarding (design 21b) passes `&self` methods through an Arc
+// and REFUSES `&var self` ones, so a shared payload cannot be written at all.
+// Uniqueness is the other sound answer, and this is it: the strong-count test
+// and the `&var` access are one operation, so the count cannot go stale between
+// them, and a shared handle gets `None` without the body ever running.
+//
+// EXPECT: success
+// EXPECT-OUTPUT:
+// unique -> 1
+// void arm ran, n = 2
+// shared -> None (body did not run)
+// clone-and-write: mine 3, theirs 2
+// no double count: strong 1
+// res deinit 7
+struct Counter { n: Int }
+
+extension Counter {
+    func bump(&var self) { self.n = self.n + 1 }
+
+    // Read the payload through design 21b's `&self` forwarding — the half of
+    // the Arc surface that never needed a gate.
+    func value(&self) -> Int { self.n }
+}
+
+// A NoCopy payload with a hand-written deinit: the gate must not disturb the
+// two-phase release, so this runs exactly once.
+struct Res { tag: Int }
+
+extension Res: NoCopy {
+    func deinit(&var self) { print("res deinit {self.tag}") }
+}
+
+func main() {
+    var solo = Arc<Counter>(value: Counter(n: 0))
+
+    // Unique: the body runs and its own result comes back.
+    print("unique -> {solo.with_unique({ c in c.bump()  c.n }) ?? -1}")
+
+    // R = Void instantiates too — a critical section that computes nothing.
+    if let _ = solo.with_unique({ c in c.bump() }) {
+        print("void arm ran, n = {solo.with_unique({ c in c.n }) ?? -1}")
+    }
+
+    // Shared: None, and the body does NOT run (n stays 2 below).
+    let theirs = solo.copy()
+    if let v = solo.with_unique({ c in c.bump()  c.n }) {
+        print("BAD: a shared payload was written, n = {v}")
+    } else {
+        print("shared -> None (body did not run)")
+    }
+
+    // The `None` arm is the caller's cue: clone, then write to the clone. This
+    // is exactly what `Data`'s mutations do.
+    var mine = Arc<Counter>(value: Counter(n: theirs.value()))
+    let _ = mine.with_unique({ c in c.bump() })
+    print("clone-and-write: mine {mine.value()}, theirs {theirs.value()}")
+
+    // The gate borrows rather than retains, so asking does not itself share.
+    var lone = Arc<Counter>(value: Counter(n: 0))
+    let _ = lone.with_unique({ c in c.bump() })
+    let _ = lone.with_unique({ c in c.bump() })
+    print("no double count: strong {lone.strong_count()}")
+
+    // A NoCopy payload releases once, through Arc's ordinary two-phase drop.
+    var res = Arc<Res>(value: Res(tag: 7))
+    let _ = res.with_unique({ r in r.tag })
+}
