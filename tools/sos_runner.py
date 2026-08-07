@@ -300,6 +300,17 @@ TEST_CASES = [
         "expect_clean_exit": False,
     },
     {
+        # Design 172 unit 8: a version bump is a REFUSAL boundary. The payload
+        # is a real v2 image — correct magic, right arch, sane permissions —
+        # and a v3 loader must stop at the version rather than guess at a
+        # record whose address field is a different width in a different place.
+        "name": "root_image_bad_version",
+        "src": os.path.join(KERNEL_DIR, "main.saw"),
+        "asm": "payload_badversion.S",
+        "expect_out": "bad root image: unsupported version",
+        "expect_clean_exit": False,
+    },
+    {
         # Design 162 unit 3: one format, two profiles. An image whose header is
         # correct in every other way but says it was built for the other
         # machine is refused on the tag, before a byte is copied.

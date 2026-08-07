@@ -10,7 +10,7 @@
 //  - The reader below is the test's OWN module-private `Data` extension, not
 //    the emitter's. Sharing one would mean a bug in the byte helpers could
 //    cancel itself out.
-//  - Both classes must produce the SAME 16-byte header and 20-byte records.
+//  - Both classes must produce the SAME 24-byte header and 24-byte records.
 //    That is the whole claim of a fixed-width format: two architectures, two
 //    ELF layouts, one image shape.
 //
@@ -21,6 +21,7 @@
 import src.sosimg.{elf_to_sosimg, arch_for_target}
 import imgformat.{
     SosimgHeader, SosimgSeg, SegFlag, SosimgArch, SOSIMG_MAGIC, SOSIMG_VERSION,
+    fits_target_word,
 }
 import std.data.{Data}
 
@@ -37,6 +38,11 @@ extension Data {
 
     func le32(&self, off: Int) -> UInt {
         self.at(off) | (self.at(off + 1) << 8) | (self.at(off + 2) << 16) | (self.at(off + 3) << 24)
+    }
+
+    /// The v3 address fields. Blade is hosted, so `UInt` carries one whole.
+    func le64(&self, off: Int) -> UInt {
+        self.le32(off) | (self.le32(off + 4) << 32)
     }
 
     func emit8(&var self, v: UInt) {
@@ -184,7 +190,7 @@ func minimal_elf64(entry: UInt) -> Data {
 /// Every assertion that holds for BOTH classes. The image is the contract, so
 /// the checks are the same and only the addresses and the tag differ.
 func check_image(img: &Data, entry: UInt, arch: SosimgArch, content_off: Int) {
-    // Header: 16 bytes at offset 0.
+    // Header: 24 bytes at offset 0 (v3 — design 172 unit 8).
     assert(img.at(0) == 83, "magic byte 0 is 'S'")
     assert(img.at(1) == 79, "magic byte 1 is 'O'")
     assert(img.at(2) == 83, "magic byte 2 is 'S'")
@@ -193,28 +199,31 @@ func check_image(img: &Data, entry: UInt, arch: SosimgArch, content_off: Int) {
     assert(img.le16(4) == (SOSIMG_VERSION as UInt), "version at offset 4")
     assert(img.at(6) == 1, "seg_count at offset 6")
     assert(img.at(7) == (arch.tag() as UInt), "arch tag at offset 7")
-    assert(img.le32(8) == entry, "entry at offset 8, taken from e_entry")
-    assert(img.le32(12) == TEST_PRIO_MAP, "prio_map at offset 12")
+    assert(img.le32(8) == TEST_PRIO_MAP, "prio_map at offset 8")
+    assert(img.le32(12) == 0, "reserved0 at offset 12 is zero")
+    // The 8-byte field sits at an 8-byte boundary, which is what lets both
+    // profiles overlay this struct with no interior padding.
+    assert(img.le64(16) == entry, "entry at offset 16, taken from e_entry")
 
-    // Segment record: 20 bytes at offset 16.
-    assert(img.le32(16) == 36, "segment bytes are placed after the 16+20 table")
-    assert(img.le32(20) == entry, "load_addr at record offset 4")
-    assert(img.le32(24) == 4, "file_len at record offset 8, from p_filesz")
-    assert(img.le32(28) == 8, "mem_len at record offset 12, from p_memsz")
+    // Segment record: 24 bytes at offset 24.
+    assert(img.le64(24) == entry, "load_addr at record offset 0")
+    assert(img.le32(32) == 48, "segment bytes are placed after the 24+24 table")
+    assert(img.le32(36) == 4, "file_len at record offset 12, from p_filesz")
+    assert(img.le32(40) == 8, "mem_len at record offset 16, from p_memsz")
     // ELF says X=1,W=2,R=4; sosimg says R=1,W=2,X=4 — so PF_R|PF_X becomes R|X.
-    assert(img.at(32) == (((SegFlag.Read as UInt8) | (SegFlag.Execute as UInt8)) as UInt),
+    assert(img.at(44) == (((SegFlag.Read as UInt8) | (SegFlag.Execute as UInt8)) as UInt),
            "flags translated out of ELF order")
-    assert(img.at(33) == 0, "segment reserved bytes are zero")
-    assert(img.at(34) == 0, "segment reserved bytes are zero")
-    assert(img.at(35) == 0, "segment reserved bytes are zero")
+    assert(img.at(45) == 0, "segment reserved bytes are zero")
+    assert(img.at(46) == 0, "segment reserved bytes are zero")
+    assert(img.at(47) == 0, "segment reserved bytes are zero")
 
     // Segment content: only file_len bytes are carried; the .bss tail is the
     // loader's job, which is the whole reason mem_len exists.
-    assert(img.at(36) == 0xDE, "segment content byte 0")
-    assert(img.at(37) == 0xAD, "segment content byte 1")
-    assert(img.at(38) == 0xBE, "segment content byte 2")
-    assert(img.at(39) == 0xEF, "segment content byte 3")
-    assert(img.len() == 40, "the image carries no bytes for the .bss tail")
+    assert(img.at(48) == 0xDE, "segment content byte 0")
+    assert(img.at(49) == 0xAD, "segment content byte 1")
+    assert(img.at(50) == 0xBE, "segment content byte 2")
+    assert(img.at(51) == 0xEF, "segment content byte 3")
+    assert(img.len() == 52, "the image carries no bytes for the .bss tail")
     assert(content_off > 0, "the fixture placed its content somewhere")
 }
 
@@ -238,15 +247,30 @@ func check_conversion_64() {
                 ELF64_HEADER_LEN + ELF64_PHDR_LEN)
 }
 
-/// The 4 GiB bound is a CONTRACT, not a trap: an ELF64 linked above it is
-/// refused, never truncated into an image whose segments load somewhere the
-/// linker never meant.
-func check_rejects_high_addresses() {
-    let elf = minimal_elf64(0x1_0000_0000)
-    match elf_to_sosimg(&elf, TEST_PRIO_MAP, SosimgArch.Arm64) {
-        case Ok(_) -> panic("an address past 4 GiB does not fit a sosimg field"),
-        case Err(e) -> assert(e.text().contains("4 GiB"), "the refusal names the bound")
+/// An address above 4 GiB now ROUND-TRIPS. This test used to assert the
+/// opposite — that the emitter refused it — because v2's address fields were 32
+/// bits wide and truncating would have placed a segment somewhere the linker
+/// never meant. v3 widened them (design 172 unit 8), so the same address goes
+/// out whole and comes back whole, and the check that it does is what would
+/// catch a `put_u64` that only wrote four bytes.
+///
+/// The refusal did not disappear, it MOVED: a 32-bit kernel handed one of these
+/// refuses it at load time (`imgformat.fits_target_word`), which is where the
+/// question actually is — whether THIS machine can address it, not whether the
+/// format can carry it.
+func check_high_addresses_round_trip() {
+    let high = 0x1_0000_0040
+    let elf = minimal_elf64(high)
+    let img = match elf_to_sosimg(&elf, TEST_PRIO_MAP, SosimgArch.Arm64) {
+        case Ok(bytes) -> move bytes,
+        case Err(e) -> panic("v3 carries a 64-bit address: {e.text()}")
     }
+    assert(img.le64(16) == high, "an entry above 4 GiB survives the header")
+    assert(img.le64(24) == high, "and survives the segment record")
+    // Both halves, so a writer that emitted only the low word fails here rather
+    // than passing on the strength of the bottom four bytes.
+    assert(img.le32(16) == 0x40, "low half of the entry")
+    assert(img.le32(20) == 1, "high half of the entry")
 }
 
 func check_arch_for_target() {
@@ -271,12 +295,13 @@ func check_shared_predicates() {
     // The rules the KERNEL judges an image by, exercised from the writer's
     // side — the point of putting them in a shared package rather than in the
     // loader where only the loader could reach them.
-    assert(sizeof<SosimgHeader>() == 16, "header must be 16 bytes")
-    assert(sizeof<SosimgSeg>() == 20, "segment record must be 20 bytes")
+    assert(sizeof<SosimgHeader>() == 24, "header must be 24 bytes")
+    assert(sizeof<SosimgSeg>() == 24, "segment record must be 24 bytes")
 
     let good = SosimgHeader(
         magic: SOSIMG_MAGIC, version: SOSIMG_VERSION, seg_count: 1u8,
-        arch: SosimgArch.Riscv32 as UInt8, entry: 0x80200000u32, prio_map: 0u32,
+        arch: SosimgArch.Riscv32 as UInt8, prio_map: 0u32, reserved0: 0u32,
+        entry: 0x80200000u64,
     )
     assert(good.is_wellformed(), "a header the emitter builds is well-formed")
     assert(good.is_for_arch(SosimgArch.Riscv32 as UInt8), "it is for the profile it says")
@@ -285,37 +310,56 @@ func check_shared_predicates() {
 
     let wrong_magic = SosimgHeader(
         magic: 0u32, version: SOSIMG_VERSION, seg_count: 1u8,
-        arch: SosimgArch.Riscv32 as UInt8, entry: 0x80200000u32, prio_map: 0u32,
+        arch: SosimgArch.Riscv32 as UInt8, prio_map: 0u32, reserved0: 0u32,
+        entry: 0x80200000u64,
     )
     assert(not wrong_magic.is_wellformed(), "a zero magic is rejected")
 
     let no_segments = SosimgHeader(
         magic: SOSIMG_MAGIC, version: SOSIMG_VERSION, seg_count: 0u8,
-        arch: SosimgArch.Riscv32 as UInt8, entry: 0x80200000u32, prio_map: 0u32,
+        arch: SosimgArch.Riscv32 as UInt8, prio_map: 0u32, reserved0: 0u32,
+        entry: 0x80200000u64,
     )
     assert(not no_segments.is_wellformed(), "an image with no segments is not loadable")
 
+    // The version the loader will accept is the one the emitter writes, and a
+    // header carrying any other is not this build's to read.
+    let stale = SosimgHeader(
+        magic: SOSIMG_MAGIC, version: (SOSIMG_VERSION - 1u16), seg_count: 1u8,
+        arch: SosimgArch.Riscv32 as UInt8, prio_map: 0u32, reserved0: 0u32,
+        entry: 0x80200000u64,
+    )
+    assert(not stale.has_known_version(), "the previous version is refused, not guessed at")
+    assert(not stale.is_wellformed(), "and a stale header is not well-formed")
+
     // mem_len < file_len cannot be loaded: the loader zero-fills the difference.
     let shrunk = SosimgSeg(
-        file_off: 0u32, load_addr: 0x80200000u32, file_len: 16u32, mem_len: 8u32,
+        load_addr: 0x80200000u64, file_off: 0u32, file_len: 16u32, mem_len: 8u32,
         flags: SegFlag.Read as UInt8, reserved0: 0u8, reserved1: 0u8, reserved2: 0u8,
     )
     assert(not shrunk.mem_covers_file(), "mem_len below file_len is rejected")
 
     // Write-without-read is an encoding one profile's hardware reserves.
     let write_only = SosimgSeg(
-        file_off: 0u32, load_addr: 0x80200000u32, file_len: 8u32, mem_len: 8u32,
+        load_addr: 0x80200000u64, file_off: 0u32, file_len: 8u32, mem_len: 8u32,
         flags: SegFlag.Write as UInt8, reserved0: 0u8, reserved1: 0u8, reserved2: 0u8,
     )
     assert(not write_only.has_sane_perms(), "write-without-read is not a valid grant")
 
     let text = SosimgSeg(
-        file_off: 0u32, load_addr: 0x80200000u32, file_len: 8u32, mem_len: 8u32,
+        load_addr: 0x80200000u64, file_off: 0u32, file_len: 8u32, mem_len: 8u32,
         flags: (SegFlag.Read as UInt8) | (SegFlag.Execute as UInt8),
         reserved0: 0u8, reserved1: 0u8, reserved2: 0u8,
     )
     assert(text.is_wellformed(), "R+X is a valid text segment")
     assert(text.is_executable() && not text.is_writable(), "W^X holds for text")
+
+    // The v3 addressability boundary, from the writer's side: what a 64-bit
+    // profile can place and a 32-bit one cannot. The kernel makes this exact
+    // call before narrowing a field into a machine word.
+    assert(fits_target_word(0x80200000u64), "a Profile A address fits any machine")
+    assert(fits_target_word(0x1_0000_0000u64) == (sizeof<UInt>() >= 8),
+           "an address above 4 GiB fits a 64-bit machine and no other")
 }
 
 func check_rejects_non_elf() {
@@ -336,7 +380,7 @@ func check_rejects_non_elf() {
 func main() {
     check_conversion_32()
     check_conversion_64()
-    check_rejects_high_addresses()
+    check_high_addresses_round_trip()
     check_arch_for_target()
     check_shared_predicates()
     check_rejects_non_elf()

@@ -26,20 +26,35 @@
 //! A big-endian profile would have to byte-assemble instead of overlaying;
 //! riscv32 and arm64 are both little-endian, so neither does today.
 //!
-//! ADDRESSES ARE 32-BIT, ON BOTH PROFILES, AND THAT IS A DECISION (design 162
-//! unit 3). `entry` and `load_addr` are `UInt32`, so an image can only place
-//! itself in the low 4 GiB. Both M1b profiles load well inside that — QEMU
-//! `virt` puts RAM at 0x8000_0000 on riscv32 and 0x4000_0000 on arm64 — and a
-//! fixed 32-bit field is what keeps ONE format readable by a 32-bit and a
-//! 64-bit kernel with the same overlay and the same byte count. It is NOT a
-//! platform-width field that happens to be small: widening it is a version-3
-//! format change with a wider header, not something a 64-bit build does
-//! silently. Blade REFUSES an image whose linked addresses exceed the field
-//! rather than truncating them, which is what makes the bound a contract
-//! instead of a trap.
+//! ADDRESSES ARE 64-BIT SINCE VERSION 3 (design 172 unit 8), ON BOTH PROFILES.
+//! v2 spent 32 bits on `entry` and `load_addr` because both M1b boards load
+//! inside the low 4 GiB — QEMU `virt` puts RAM at 0x8000_0000 on riscv32 and
+//! 0x4000_0000 on arm64 — and the narrow field kept one overlay readable by a
+//! 32-bit and a 64-bit kernel. That reasoning held exactly as long as no
+//! 64-bit board wanted to load high, which is a property of the two machines
+//! that happened to be first rather than of the format. Widening it now, while
+//! there are two producers and one consumer and every one of them is in this
+//! tree, costs a fixture edit; widening it later costs a migration.
+//!
+//! The two fields that stay 32-bit are the ones that describe the IMAGE rather
+//! than the machine: `file_off` and the lengths. A 4 GiB process image is not
+//! the constraint anyone will hit first, and keeping them narrow is what makes
+//! the records 24 bytes instead of 40.
+//!
+//! A 32-BIT KERNEL REFUSES AN IMAGE IT CANNOT ADDRESS. `fits_target_word`
+//! below is the boundary: an address that does not fit this build's machine
+//! word is a clean load error, never a truncation into an image that loads
+//! somewhere the linker never meant. That is the same rule Blade already
+//! applies at the writing end.
 
-/// The image header: 16 bytes at offset 0, followed immediately by
+/// The image header: 24 bytes at offset 0, followed immediately by
 /// `seg_count` segment records.
+///
+/// FIELD ORDER IS CHOSEN FOR THE OVERLAY, not for reading order. `entry` is
+/// last because it is the only 8-byte field, and putting it on an 8-byte
+/// boundary is what lets both profiles read this struct with one view
+/// construction and no interior padding. `reserved0` is that padding, spelled
+/// out — a hole in a wire struct is a field like any other (design 58).
 public struct SosimgHeader {
     /// `SOSIMG_MAGIC` — the bytes 'S','O','S','I' read as a little-endian word.
     public magic: UInt32,
@@ -59,22 +74,28 @@ public struct SosimgHeader {
     /// headers wrapping incompatible instructions, and the only thing that
     /// stopped one booting on the other was that nobody had tried.
     public arch: UInt8,
-    /// ABSOLUTE load address of the first instruction. Not an offset: nothing
-    /// relocates on Profile A, so an offset would only be an addition every
-    /// loader has to perform and re-validate.
-    public entry: UInt32,
     /// The §7 band -> level map, one byte per band, low byte first:
     /// background, low, normal, high. Build-time metadata and a REQUEST — the
     /// launcher may honor, clamp or override it (§7). The kernel applies
     /// root's verbatim because root is trusted by construction (§12).
     public prio_map: UInt32,
+    /// Zero. Present so `entry` lands 8-aligned; a later version can spend it
+    /// without moving anything.
+    public reserved0: UInt32,
+    /// ABSOLUTE load address of the first instruction, 64-bit since v3. Not an
+    /// offset: nothing relocates on Profile A, so an offset would only be an
+    /// addition every loader has to perform and re-validate.
+    public entry: UInt64,
 }
 
-/// One loadable segment: 20 bytes, `seg_count` of them from offset 16.
+/// One loadable segment: 24 bytes, `seg_count` of them from offset 24.
 public struct SosimgSeg {
+    /// ABSOLUTE address this segment loads at, 64-bit since v3. First for the
+    /// same reason `entry` is last in the header — the 8-byte field goes where
+    /// it is 8-aligned.
+    public load_addr: UInt64,
     /// Offset from the IMAGE BASE to this segment's bytes.
     public file_off: UInt32,
-    public load_addr: UInt32,
     /// Bytes present in the image.
     public file_len: UInt32,
     /// Bytes the segment occupies once loaded. `mem_len > file_len` is how a
@@ -88,9 +109,9 @@ public struct SosimgSeg {
     /// field would mint a `SegFlag` straight from an attacker-chosen byte with
     /// no `from(raw:)` anywhere, and a `match` on a value that names no case
     /// still selects an arm — measured, not assumed (a byte of 6 read back as
-    /// the first case). The kernel would then install a PMP region from a
-    /// permission it never validated. Raw bytes stay raw; `has` and
-    /// `has_sane_perms` below are the validating boundary.
+    /// the first case). The kernel would then install a grant from a permission
+    /// it never validated. Raw bytes stay raw; `has` and `has_sane_perms` below
+    /// are the validating boundary.
     public flags: UInt8,
     public reserved0: UInt8,
     public reserved1: UInt8,
@@ -98,18 +119,43 @@ public struct SosimgSeg {
 }
 
 // The ABI pin. These sizes are the format; a layout edit that skews them stops
-// the build here instead of corrupting a boot.
-static_assert(sizeof<SosimgHeader>() == 16, "sosimg header must be exactly 16 bytes")
-static_assert(sizeof<SosimgSeg>() == 20, "sosimg segment record must be exactly 20 bytes")
+// the build here instead of corrupting a boot. They hold on BOTH profiles —
+// which is the whole claim the field order is arranged to make true.
+static_assert(sizeof<SosimgHeader>() == 24, "sosimg header must be exactly 24 bytes")
+static_assert(sizeof<SosimgSeg>() == 24, "sosimg segment record must be exactly 24 bytes")
 
 /// 'S','O','S','I' as a little-endian word.
 public static SOSIMG_MAGIC: UInt32 = 0x49534F53
 
-/// Version 2 added the `arch` tag over version 1's reserved byte. The size did
-/// not change and neither did any other field, but a v1 image carries no
-/// statement of what machine it is for — so a loader that understands v2 must
-/// refuse v1 rather than assume the answer.
-public static SOSIMG_VERSION: UInt16 = 2
+/// Version 3 widened `entry` and `load_addr` to 64 bits, taking the header from
+/// 16 bytes to 24 and each record from 20 to 24.
+///
+/// Every version bump so far has been a REFUSAL boundary rather than a
+/// negotiation: v2 refused v1 because a v1 image made no statement about what
+/// machine it was for, and v3 refuses v2 because a v2 record's address field is
+/// in a different place and a different width. There is no reading of a v2
+/// record that is safe to guess at, so a loader says the version is wrong and
+/// stops — which is a diagnostic, where guessing would be a jump into whatever
+/// the misread bytes pointed at.
+public static SOSIMG_VERSION: UInt16 = 3
+
+/// The largest address a 32-bit loader can place.
+static WORD32_MAX: UInt64 = 0xFFFFFFFFu64
+static BYTES_PER_64BIT_WORD: Int = 8
+
+/// Can THIS build's machine word hold `v`?
+///
+/// The format's addresses are 64-bit on both profiles, so a 32-bit kernel can
+/// be handed an image it cannot address. That is a refusable image, not a
+/// truncation: `sizeof<UInt>()` folds at compile time, so on a 64-bit profile
+/// this is the constant `true` and costs nothing, and on a 32-bit one it is the
+/// bound check that keeps a high address from wrapping into a low one.
+public func fits_target_word(v: UInt64) -> Bool {
+    if sizeof<UInt>() >= BYTES_PER_64BIT_WORD {
+        return true
+    }
+    v <= WORD32_MAX
+}
 
 /// Which machine an image's code is for.
 ///

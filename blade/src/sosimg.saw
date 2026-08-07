@@ -61,9 +61,13 @@ public extension SosError: Error {
 // ELF32 and an arm64 one is ELF64, with a different header layout, a different
 // program-header size, and 64-bit offsets in place of 32-bit ones. So the
 // reader takes a CLASS and looks its field offsets up, rather than assuming
-// one. What comes out is the same `SosimgSeg` either way, because the sosimg
-// format is deliberately 32-bit-addressed on both (see `imgformat`) — and an
-// address that does not fit that field is an ERROR here, never a truncation.
+// one. What comes out is the same `SosimgSeg` either way.
+//
+// SINCE v3 THE ADDRESSES NEED NO NARROWING (design 172 unit 8): `entry` and
+// `load_addr` are 64-bit wire fields, so an ELF64 address crosses whole. What
+// still narrows is what still IS 32-bit — the image offsets and lengths, which
+// describe the file rather than the machine — and `narrow` below is now only
+// about those.
 
 static ELF_CLASS_OFF: Int = 4
 static ELF_DATA_OFF: Int = 5
@@ -109,10 +113,10 @@ static PF_X: UInt = 1
 static PF_W: UInt = 2
 static PF_R: UInt = 4
 
-/// The largest value a sosimg address or length field can carry. The format
-/// pins those at 32 bits on both profiles (design 162 unit 3), so a 64-bit
-/// link whose addresses run past this is refused rather than wrapped.
-static SOSIMG_ADDR_MAX: UInt = 0xFFFFFFFF
+/// The largest value a sosimg OFFSET or LENGTH field can carry. Addresses are
+/// 64-bit since v3; these describe the image file and stay 32-bit, so a link
+/// that produced a segment longer than 4 GiB is refused rather than wrapped.
+static SOSIMG_SIZE_MAX: UInt = 0xFFFFFFFF
 
 // Segment payloads are placed on this boundary so the kernel's word-granular
 // copy never straddles one. Not required by the format; kindness to the loader.
@@ -492,21 +496,29 @@ extension Data {
         self.put_u8(v >> 24)
     }
 
-    /// Append the 16-byte header, field by field in declaration order — the
+    /// The v3 address fields. Blade is a HOSTED binary and every host Saw
+    /// targets is 64-bit, so `UInt` carries one whole.
+    func put_u64(&var self, v: UInt) {
+        self.put_u32(v)
+        self.put_u32(v >> 32)
+    }
+
+    /// Append the 24-byte header, field by field in declaration order — the
     /// same order `imgformat` declares and the kernel overlays.
     func put_header(&var self, h: &SosimgHeader) {
         self.put_u32(h.magic as UInt)
         self.put_u16(h.version as UInt)
         self.put_u8(h.seg_count as UInt)
         self.put_u8(h.arch as UInt)
-        self.put_u32(h.entry as UInt)
         self.put_u32(h.prio_map as UInt)
+        self.put_u32(h.reserved0 as UInt)
+        self.put_u64(h.entry as UInt)
     }
 
-    /// Append one 20-byte segment record.
+    /// Append one 24-byte segment record.
     func put_seg(&var self, s: &SosimgSeg) {
+        self.put_u64(s.load_addr as UInt)
         self.put_u32(s.file_off as UInt)
-        self.put_u32(s.load_addr as UInt)
         self.put_u32(s.file_len as UInt)
         self.put_u32(s.mem_len as UInt)
         self.put_u8(s.flags as UInt)
@@ -639,15 +651,14 @@ func elf_shape(elf: &Data) -> Result<ElfShape, SosError> {
     return SosError(msg: "linked image has an unknown ELF class {class_byte}")
 }
 
-/// Narrow a linked value into the 32-bit field the sosimg format gives it.
+/// Narrow a linked value into a 32-bit sosimg SIZE field.
 ///
-/// The format is 32-bit-addressed on both profiles by design (`imgformat`), and
-/// a 64-bit link CAN produce an address that does not fit. Truncating it would
-/// emit an image whose segments load somewhere the linker never meant; refusing
-/// is the only answer that cannot corrupt a boot.
+/// Offsets and lengths stay 32-bit in v3 (`imgformat` says why), and truncating
+/// one would emit an image whose segment table disagrees with its own bytes.
+/// Refusing is the only answer that cannot corrupt a boot.
 func narrow(value: UInt, what: String) -> Result<UInt32, SosError> {
-    if value > SOSIMG_ADDR_MAX {
-        return SosError(msg: "{what} is 0x{value} — past the 32-bit sosimg field (the format addresses the low 4 GiB)")
+    if value > SOSIMG_SIZE_MAX {
+        return SosError(msg: "{what} is 0x{value} — past the 32-bit sosimg size field (offsets and lengths address 4 GiB of image)")
     }
     value as UInt32
 }
@@ -696,8 +707,10 @@ func collect_segments(elf: &Data, shape: &ElfShape) -> Result<Vector<PlacedSeg>,
                 // `file_off` is filled in by placement below; everything else
                 // is known now.
                 let record = SosimgSeg(
+                    // 64-bit since v3, so an ELF64 address crosses whole and
+                    // there is nothing here that can fail.
+                    load_addr: p_vaddr as UInt64,
                     file_off: 0u32,
-                    load_addr: try narrow(p_vaddr, "segment {i} load address"),
                     file_len: try narrow(p_filesz, "segment {i} file length"),
                     mem_len: try narrow(p_memsz, "segment {i} memory length"),
                     flags: sos_flags(p_flags),
@@ -741,7 +754,8 @@ public func elf_to_sosimg(elf: &Data, prio_map: UInt, arch: SosimgArch) -> Resul
     guard let entry_raw = shape.word_at(&elf, shape.entry_off) else {
         return SosError(msg: "truncated ELF header (no entry point)")
     }
-    let entry = try narrow(entry_raw, "entry point")
+    // 64-bit since v3 — no narrowing, and so no way to refuse a high entry.
+    let entry = entry_raw as UInt64
 
     let count = segments.len()
     if count > SEG_COUNT_MAX {
@@ -777,8 +791,9 @@ public func elf_to_sosimg(elf: &Data, prio_map: UInt, arch: SosimgArch) -> Resul
         version: SOSIMG_VERSION,
         seg_count: count as UInt8,
         arch: arch.tag(),
-        entry: entry,
         prio_map: prio_map as UInt32,
+        reserved0: 0u32,
+        entry: entry,
     )
     out.put_header(&header)
 
