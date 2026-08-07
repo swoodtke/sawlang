@@ -212,11 +212,24 @@ class StatementsMixin:
             # L18 (design 68): a module-qualified annotation (`p: shapes.Point`)
             # must be resolved to its simple name — otherwise the binding carries
             # the dotted `struct_name`, member access on it fails to resolve, and
-            # codegen later ICEs. Resolve+write-back only when a qualifier is
-            # actually present so generic/abstract param types are untouched.
+            # codegen later ICEs. The WRITE-BACK stays conditional on a qualifier
+            # actually being present, so generic/abstract param types are left as
+            # the extension declared them.
             elif self._annotation_has_module_qualifier(param_type):
                 param_type = self._resolve_type(param_type)
                 param.type = param_type
+            else:
+                # The BINDING resolves either way (DF-140h). The parser gives any
+                # bare named type a STRUCT kind, and only resolution knows which
+                # names are enums — so without this an `r: Right` parameter
+                # entered the body scope STRUCT-kinded and every enum-shaped
+                # operation on it failed: `r as UInt` on a backed enum reported
+                # "cannot cast `Right` to `UInt`" (design 145's cast looks for
+                # ENUM kind), with a bogus "body has no value" behind it.
+                # A plain function has always resolved here; an extension method
+                # only did so for a qualified annotation, which is why the same
+                # parameter worked in a free function and not in a method.
+                param_type = self._resolve_type(param_type)
             # Design 100: a method parameter shadowing a module-level `static`
             # is a flat error (`self` never collides with a static).
             if param.name != "self":
