@@ -122,9 +122,17 @@ class ClosuresMixin:
         else:
             env_struct_type = None
 
-        # Create unique name for closure function
-        closure_name = f"__closure_{self.closure_counter}"
-        self.closure_counter += 1
+        # design 168 unit 3 (DF-164c): named after its OWNER and its source
+        # position, not a compilation-unit-wide counter. One counter numbered
+        # every closure std and the user program contained, so a user closure
+        # renumbered std's — the reason 12 unrelated programs disagreed on one of
+        # 312 std bodies until this name was normalized away. The owner is the
+        # enclosing llvm function, whose name already carries the
+        # monomorphization, so a closure inside `Vector<Int>.map` and the same
+        # source closure inside `Vector<String>.map` are distinct by construction.
+        owner = self.builder.function.name if self.builder is not None else "module"
+        closure_name = self._synth_symbol(
+            f"__closure${owner}${getattr(expr, 'line', 0)}_{getattr(expr, 'column', 0)}")
 
         # Create closure function type: (env_ptr, params...) -> ret
         fn_param_types = [env_ptr_type] + param_types

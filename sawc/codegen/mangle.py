@@ -63,7 +63,23 @@ with the `$C$` arm below — so `FixedBuf<256>` mangles as `FixedBuf$1$$C$256` a
 through the same code path that already separated `Box<Int>` from `Box<String>`.
 """
 
+import hashlib
+
 from ast_nodes import SawType, TypeKind
+
+
+def content_tag(data: bytes) -> str:
+    """A short, PROCESS-STABLE tag for a blob of bytes (design 168 unit 3).
+
+    Names a compiler-synthesized global after WHAT IS IN IT rather than after
+    how many came before it, so the same literal gets the same symbol in every
+    program that contains it.
+
+    `hashlib`, never the builtin `hash()`: string and bytes hashing is salted by
+    `PYTHONHASHSEED`, which `tools/irdet.py` deliberately varies (seeds 1 and
+    424242) precisely to catch a name that leaked it.
+    """
+    return hashlib.blake2b(data, digest_size=8).hexdigest()
 
 
 _PRIMITIVES = {

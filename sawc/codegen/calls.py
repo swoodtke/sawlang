@@ -17,7 +17,7 @@ from ast_nodes import (
     MethodCall, MemberAccess, Identifier, SelfExpr, EnumInit, ArrayIndex,
     ForceUnwrap, ReferenceExpr, StringLiteral, StringInterpolation, TupleIndex
 )
-from .mangle import mangle_type
+from .mangle import content_tag, mangle_type
 
 
 class PreparedValue:
@@ -490,9 +490,12 @@ class CallsMixin:
         encoded = data.encode("utf-8")
         if data not in cache:
             arr_type = ir.ArrayType(ir.IntType(8), len(encoded))
+            # design 168 unit 3 (DF-164c): content-named, like `.sawstr`. It
+            # shared `string_counter` with the string literals, so a print format
+            # piece anywhere renumbered every one of them.
             g = ir.GlobalVariable(self.module, arr_type,
-                                  name=f".rawbytes.{self.string_counter}")
-            self.string_counter += 1
+                                  name=self._synth_symbol(
+                                      f".rawbytes.{content_tag(encoded)}"))
             g.linkage = "private"
             g.global_constant = True
             g.initializer = ir.Constant(arr_type, bytearray(encoded))
@@ -1818,8 +1821,10 @@ class CallsMixin:
         """
         i8ptr = ir.IntType(8).as_pointer()
         fn_ty = self.pthread_tramp_type  # i8*(i8*)
-        name = f"__task_tramp_{self.closure_counter}"
-        self.closure_counter += 1
+        # design 168 unit 3 (DF-164c): one trampoline per spawn site, and the
+        # spawn site's body IS `closure_fn` — whose name is now owner+position
+        # derived, so this inherits that stability for free.
+        name = self._synth_symbol(f"__task_tramp${closure_fn.name}")
         tramp = ir.Function(self.module, fn_ty, name=name)
 
         saved_builder = self.builder

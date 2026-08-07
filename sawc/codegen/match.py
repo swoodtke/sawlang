@@ -149,7 +149,11 @@ class MatchMixin:
         temp_scrut_name = None
         if (consume_name is None and enum_has_owning
                 and self._is_owned_temporary(expr.matched_expr)):
-            temp_scrut_name = f"__match_scrutinee.{id(expr)}"
+            # design 168 unit 3 (DF-164a): from the scrutinee's source position.
+            # This was `id(expr)` — a raw heap ADDRESS, the exact thing design
+            # 126 R2 removed everywhere else, and unreproducible between two runs
+            # of the same compiler on the same file.
+            temp_scrut_name = self._positional_local(expr, "__match_scrutinee")
             scrut_slot = self._entry_alloca(matched_val.type,
                                             name="match_scrutinee")
             self.builder.store(matched_val, scrut_slot)

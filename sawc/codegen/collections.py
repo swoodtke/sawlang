@@ -83,7 +83,14 @@ class CollectionsMixin:
         tmp_ptr = self._entry_alloca(cont_val.type, name=type_name.lower() + "lit")
         self.builder.store(cont_val, tmp_ptr)
 
-        tmpname = f"__collit_{expr.node_id}"
+        # design 168 unit 3 (DF-164a): named from the literal's own SOURCE
+        # POSITION, not its `node_id`. A node id is a process-global counter, so
+        # this name shifted with how much had been parsed before the literal —
+        # two compiles of one file in one process emitted `%"__collit_14189"` and
+        # `%"__collit_29638"`, and any std cache (which changes the order ids are
+        # allocated in) moved every one of them. A position is a property of the
+        # source and nothing else.
+        tmpname = self._positional_local(expr, "__collit")
         self.variables[tmpname] = tmp_ptr
         self.variable_types[tmpname] = ct
         try:

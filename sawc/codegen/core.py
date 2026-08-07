@@ -56,6 +56,7 @@ from .results import ResultsMixin
 from .existentials import ExistentialsMixin
 from .debuginfo import DebugInfoMixin
 from .reachability import ReachabilityMixin
+from .mangle import content_tag
 import copy
 
 
@@ -241,9 +242,14 @@ class CodeGenerator(ResultsMixin, MatchMixin, StructsMixin, CollectionsMixin, Ca
 
         # String constants (raw C strings: [N x i8] globals for printf etc.)
         self.string_constants: dict = {}
-        self.string_counter = 0
         # Saw String literal globals: value -> {i64 refcount(=-1), i64 len, [N+1 x i8]}
         self.string_literal_globals: dict = {}
+        # design 168 unit 3: how many synthesized globals have claimed one base
+        # name. Every base is derived from content or from an owner + position,
+        # so this stays 1 per base in practice; it exists so a duplicate is
+        # disambiguated by a rule that lives here rather than by llvmlite's
+        # scope, and never silently shared.
+        self._synth_symbol_counts: dict = {}
 
         # Loop tracking for break/continue
         # Stack of (continue_block, break_block, result_storage) for nested loops
@@ -280,8 +286,6 @@ class CodeGenerator(ResultsMixin, MatchMixin, StructsMixin, CollectionsMixin, Ca
         # Bodies are generated after all signatures are declared
         self.pending_method_bodies: List[tuple] = []
 
-        # Closure counter for unique names
-        self.closure_counter = 0
         # design 126 R1: llvmlite values codegen produces for a ClosureExpr and
         # then needs again at the `spawn` site (the generated body function, the
         # env pointer, the env destructor), keyed by `ClosureExpr.node_id`.
@@ -481,8 +485,10 @@ class CodeGenerator(ResultsMixin, MatchMixin, StructsMixin, CollectionsMixin, Ca
         encoded = (value + '\0').encode('utf-8')
         str_type = ir.ArrayType(ir.IntType(8), len(encoded))
 
-        name = f".str.{self.string_counter}"
-        self.string_counter += 1
+        # design 168 unit 3 (DF-164c), same rule as `.sawstr` below: the cache is
+        # keyed by content, so the name is too. (This is the C-string half —
+        # DF-164c enumerated four counters and there were five.)
+        name = self._synth_symbol(f".str.{content_tag(encoded)}")
 
         global_str = ir.GlobalVariable(self.module, str_type, name=name)
         global_str.linkage = 'private'
@@ -1521,6 +1527,39 @@ class CodeGenerator(ResultsMixin, MatchMixin, StructsMixin, CollectionsMixin, Ca
         # The compiler no longer synthesizes a `__saw_reactor()` getter nor injects
         # an instance at seam call sites; `create`/`destroy` are called from Saw.
 
+    def _positional_local(self, expr, prefix: str) -> str:
+        """A compiler-introduced LOCAL binding's name, keyed by source position
+        (design 168 unit 3).
+
+        These names reach the emitted IR as SSA value names, so anything
+        process-global in them (a `node_id`, an `id()`) makes the same source
+        emit different text depending on what was compiled before it. A source
+        position cannot. `self.variables` is per-llvm-function, so a position is
+        unique within its scope; the `_N` tail covers the one case that is not (a
+        default-argument expression inlined at two call sites in one body) and
+        stays a function of source order.
+        """
+        name = f"{prefix}_{getattr(expr, 'line', 0)}_{getattr(expr, 'column', 0)}"
+        if name not in self.variables:
+            return name
+        n = 2
+        while f"{name}_{n}" in self.variables:
+            n += 1
+        return f"{name}_{n}"
+
+    def _synth_symbol(self, base: str) -> str:
+        """A unique GLOBAL symbol for a compiler-synthesized definition.
+
+        The base is already meant to be unique (a content tag, an owner plus a
+        position); this only guarantees it. Disambiguating here rather than
+        leaving it to llvmlite's scope deduplication keeps the collision visible
+        in this file, where the naming rule lives.
+        """
+        seen = self._synth_symbol_counts
+        n = seen.get(base, 0)
+        seen[base] = n + 1
+        return base if n == 0 else f"{base}${n}"
+
     def _create_string_literal_global(self, value: str) -> ir.GlobalVariable:
         """Create (or reuse) an immortal Saw String literal block.
 
@@ -1538,8 +1577,13 @@ class CodeGenerator(ResultsMixin, MatchMixin, StructsMixin, CollectionsMixin, Ca
         word = self.int_type
         hdr_type = ir.LiteralStructType([word, word, arr_type])
 
-        name = f".sawstr.{self.string_counter}"
-        self.string_counter += 1
+        # design 168 unit 3 (DF-164c): named after the CONTENT. One counter used
+        # to number every string literal in the compilation unit, std's and the
+        # user's alike, so adding a single string to a program renumbered every
+        # std reference and std's emitted IR was program-dependent for no reason.
+        # The global is already content-keyed (`string_literal_globals`), so the
+        # content is the name it should always have had.
+        name = self._synth_symbol(f".sawstr.{content_tag(encoded)}")
         g = ir.GlobalVariable(self.module, hdr_type, name=name)
         g.linkage = 'private'
         g.global_constant = True
