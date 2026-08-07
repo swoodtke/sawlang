@@ -4421,7 +4421,7 @@ Flagged rather than edited — the skill is another agent's surface tonight.
   the width of the register the op arrives in, because a7 is PROCESS-CONTROLLED
   — a narrower backing would need a truncation first, and `0x100` would arrive
   as a valid `DebugPrint`. Verified `from(raw: 0x10000)` is None.
-  `SysError` is backed `UInt8` (its tags cross the trap boundary; design 47
+  The status enum is backed `UInt8` (its tags cross the trap boundary; design 47
   pins the width) and gained `describe()` + `Printable` + `Error`, which retired
   the free `sys_error(status)` helper. Because conformances must live with the
   type (orphan rule), the enum MOVED from `sysapi` to `sosabi`, so both halves
@@ -4432,7 +4432,8 @@ Flagged rather than edited — the skill is another agent's surface tonight.
   `HandleEntry.allows(Right)`, and `ROOT_SYSTEM_RIGHTS = 3 // DEBUG | SHUTDOWN`
   became `root_system_rights()` (a function, because a static initializer takes
   plain literals and a `3` with a comment naming its bits is the magic number
-  the pass exists to remove).
+  the pass exists to remove). (`Right` became the per-kind `SystemRight`, and
+  the check moved onto a validated-handle type, in the review round below.)
 - **145-C, the image format.** `SEG_FLAG_*` became `SegFlag`, per the finding
   above. The hand-assembled test payloads (`sos/tests/payload_*.S`) keep their
   own `.equ SEG_FLAG_R, 1` and status literals, unchanged and on purpose: they
@@ -4500,18 +4501,23 @@ is a plain sawc flag, so the kernel needs no move to Blade to adopt it.
 **Open questions for the user.**
 
 1. **The runtime migration above** — worth its own brief, or fold into M1b?
-2. **`SysError.Unknown` lost its payload.** The old enum had
-   `Unknown(status: UInt)`, carrying the unrecognized number; a backed enum is
-   payload-free, so `Unknown` is now a plain case (255 — not a value the kernel
-   returns) where the userspace `from(raw:)` miss lands. In M1 it is unreachable
-   (both halves compile from one table) and no caller printed the number, so
-   nothing regressed today. If a diagnostic should carry the raw tag later, that
-   wants a struct error or a companion field, not a backed enum.
+2. **`Unknown` lost its payload.** (The type is `SosStatus` since the review
+   round below.) The old enum had `Unknown(status: UInt)`, carrying the
+   unrecognized number; a backed enum is payload-free, so `Unknown` is now a
+   plain case (255 — not a value the kernel returns) where the userspace
+   `from(raw:)` miss lands. In M1 it is unreachable (both halves compile from
+   one table) and no caller printed the number, so nothing regressed today. If a
+   diagnostic should carry the raw tag later, that wants a struct error or a
+   companion field, not a backed enum.
 3. **The wire-enum caveat** for the saw-lang skill (above).
-4. **`SysError` living in `sosabi`, a KERNEL-INTERNAL package**, is a slight
-   tension with that package's "nothing else imports this, ever" charter. It is
-   forced by the orphan rule and it costs userspace nothing (verified), but the
-   module docstring's claim is now narrower than it reads.
+4. **The status enum living in `sosabi`, a KERNEL-INTERNAL package**, is a
+   slight tension with that package's "nothing else imports this, ever"
+   charter. It is forced by the orphan rule and it costs userspace nothing
+   (verified), but the module docstring's claim is now narrower than it reads.
+   The review round below put `SystemHandle` there for the same reason — one
+   declaration the dispatch and the wrappers share — so the tension is now
+   structural rather than incidental, and worth a line in the charter if the
+   package grows a third resident.
 
 **A gate-coverage note worth keeping.** The `SegFlag` rename swept `sos/` and
 `blade/src/` but missed `blade/tests/sosimg_wire.saw`, and NOTHING in the usual
@@ -4533,7 +4539,161 @@ identical over 883 examples; abidoc 53 seam signatures matching the frozen set;
 blade bootstrap `BOOTSTRAP: ok` (stage0->stage2, 21/21 twice + the lib suites);
 gmgate 12 programs x 10 runs, 0 failing; `make sos-test` 11/11 under QEMU.
 
+## SOS M1 — the review round (Aug 7, branch RE-PARKED for user review)
+
+**Branch: `worktree-agent-a6dd63281e227ac66`.** The adoption-pass branch rebased
+onto main at 9cd0f8f (clean; two of its DF-fix commits were already upstream and
+dropped as duplicates) and the FOUR review-round changes applied. All four were
+**ratified by the user on Aug 7** and written into `sos/spec.md` (§3 and §5.7
+item 7) before any code moved; this pass implements what those sections say.
+SOS-review policy still applies: NOT integrated without explicit user sign-off.
+
+**The four changes.**
+
+1. **Typed handles.** `type SystemHandle = UInt` in `sosabi`, taken by the
+   Saw-facing wrappers and by the kernel's op layer. The distinct alias gives
+   the wanted asymmetry for free: it flows TO `UInt` implicitly, and a raw word
+   or another kind's handle cannot flow in. Two sites cross INTO the type —
+   userspace adopting its boot handle, and dispatch after the table resolved the
+   handle — which is what makes it mean "validated as System". The typing stops
+   at the ABI boundary: `@export`ed symbols and `sos_syscall1` keep raw words.
+2. **`SysError` -> `SosStatus`.** A status with an `Ok` case is not an error, and
+   the `Sos` prefix separates it from the hosted runtime's own frozen `SysError`
+   (`sawc/rt/ABI.md`), which is untouched. Cases keep their values.
+3. **Kind-scoped rights.** `Right` -> `SystemRight: UInt32`, and the check moved
+   onto `SystemObject` — the pairing of a validated handle with its rights word
+   — so `allows` takes a `SystemRight` and nothing else.
+4. **The universal low byte.** Bits 0-7 identical in every kind's enum (0
+   Transfer, 1 Manage, 2-7 reserved); kind rights from bit 8. `static_assert`s
+   pin it against the enums themselves.
+
+**The lowering, verified rather than assumed.** The brief asked for one checked
+lowering; both halves were read out of `--emit-ir`:
+
+- Userspace: `%boot_handle` reaches `sos_syscall1` as itself. No `zext`, no
+  `trunc`, no `bitcast`, no temporary — the construction, the `System.handle`
+  field and the flow back out to a `UInt` parameter all lower to nothing.
+- Kernel: `SystemObject` never materializes (no alloca, no insertvalue), and the
+  rights check against root's constant mask folds away entirely.
+
+So tier one of the handle model costs zero instructions in both directions.
+
+**Three compiler gaps, found by writing the ratified idioms and fixed here.**
+Each has regression tests in `examples/`, and each BLOCKED a ratified change
+rather than merely inconveniencing it — which is why the branch touches `sawc/`
+at all. Filed as DF-163a/b/c below.
+
+- **A backed enum's case was not a compile-time constant**, so change 4 could not
+  be written: `static_assert((SystemRight.Transfer as UInt32) == 1, ...)` was
+  rejected, and the only way to assert anything about a wire table was to
+  transcribe its numbers into the assertion — which is what an assertion exists
+  to make unnecessary.
+- **Distinct aliases had no constructor**, so change 1 could not be written.
+  `UserId(42)` — the form LANGUAGE_SPEC documents and the `42 as UserId`
+  diagnostic points at — was `undefined function`. The only spelling that
+  produced an alias value was an annotated `let`, which accepts an underlying of
+  just the four primitive kinds, so `type SystemHandle = UInt` had no way to be
+  given a value AT ALL.
+- **Sibling aliases flowed into each other**, which would have made change 1
+  cosmetic. `let order: OrderId = user` compiled, and so did passing a `UserId`
+  where an `OrderId` was expected; only the sibling CAST was rejected. A typed
+  handle is a safety property exactly to the extent that another kind's handle
+  cannot land in it, so this was the one that mattered most.
+  - A fourth, found while fixing the third: **an IMPORTED alias was not treated
+    as an alias**, so it neither flowed nor constructed one module away from its
+    declaration, while annotations using it checked fine.
+
+**Two notes for the user.**
+
+1. **LANGUAGE_SPEC's Type Definitions section described three things that did not
+   work** — the constructor, the sibling rejection, and `Float64`, which is not a
+   type this compiler has at all (only `Float`). The first two now work and the
+   section was rewritten against tested snippets. `Float64` was left alone: `let
+   x: Float64 = 100.0` fails on its own, independent of aliases, so whether the
+   fix is a real `Float64` or a spec correction is a decision, not a bug fix.
+2. **The universal table is asserted per kind, by repetition.** Each kind's enum
+   repeats the same two `static_assert`s. That repetition IS the check — there is
+   no way yet to state the table once and have a kind conform to it — so adding a
+   kind means copying the block. Worth revisiting if kinds multiply faster than
+   expected.
+
 ## Design 140 — DF-findings (SOS M1)
+
+- **DF-163a — FIXED here (the M1 review round, Aug 7). A raw-backed enum's case
+  was not a compile-time constant, so a wire table could not be
+  `static_assert`ed against its own declaration.** Design 145 unit B2 makes a
+  declared backing mean the case values are ABI — pinned, not ordinals the
+  compiler may renumber — which is exactly the property an assertion wants to
+  read. The evaluator had no case for a `CastExpr` or an enum member, so:
+
+  ```saw
+  enum SysOp: UInt { case DebugPrint = 0, case Shutdown = 1 }
+  static_assert((SysOp.Shutdown as UInt) == 1, "op 1")
+  // error: static_assert condition is not a compile-time constant:
+  //        CastExpr is not allowed here
+  ```
+
+  The only way to assert anything about the table was to transcribe its numbers
+  into the assertion, where the copy drifts silently in precisely the case the
+  assert exists to catch. The typechecker now stamps a payload-free case with its
+  raw value — ONLY under a declared backing, so an unbacked enum's ordinals stay
+  non-constant and reordering it stays a free edit — and the evaluator folds that
+  plus an `as` between integer types, refusing (not wrapping) a value that does
+  not fit its target. One evaluator, so an array length and a repeat count gain
+  the same grammar. Test: `examples/static_assert_backed_enum.saw`.
+
+- **DF-163b — FIXED here (the M1 review round, Aug 7). A distinct `type` alias
+  had no constructor, so an alias over an unsigned or fixed-width underlying
+  could not be given a value at all.** LANGUAGE_SPEC documented `UserId(42)` as
+  implemented and the `42 as UserId` diagnostic named it as the sanctioned form;
+  it was an `undefined function` error. The one working spelling was an
+  annotated `let`, which accepts an underlying of just the four primitive kinds
+  (`Int`, `Float`, `Bool`, `String`), so `type Handle = UInt` was undeclarable in
+  practice:
+
+  ```saw
+  type Handle = UInt
+  let h: Handle = 7      // error: cannot assign `Int` to variable of type `Handle`
+  let h = Handle(7)      // error: undefined function `Handle`
+  ```
+
+  Now a construction taking one unlabeled argument, checked against the
+  underlying with that type pushed down so a bare literal adopts it and is
+  range-checked there. Representationally free — codegen emits the operand.
+  Tests: `examples/type_alias_construction.saw` + two error cases.
+
+- **DF-163c — FIXED here (the M1 review round, Aug 7). Two distinct aliases over
+  one underlying type flowed into each other, in assignment and argument
+  position.** Only the sibling CAST was rejected, so `type` was enforced in
+  exactly one position and was a comment everywhere else:
+
+  ```saw
+  type UserId = Int
+  type OrderId = Int
+  func lookup(o: OrderId) -> Int { o as Int }
+  let user: UserId = 42
+  let order: OrderId = user   // compiled
+  lookup(user)                // compiled
+  ```
+
+  This is the one that mattered for SOS: a typed handle is a safety property
+  exactly to the extent that another kind's handle cannot land in it. Compat now
+  asks what the cast already asked — an alias satisfies another alias by BEING
+  it or by having it on its own definition chain (`type Super = Mid` still flows
+  to `Mid`), and siblings do not. The chain walk was duplicated across the two
+  sites and now lives in one helper the cast calls, so the rule cannot drift from
+  itself. Blast radius was nil: no distinct alias appears in std, blade, libs,
+  sos or selfhost. Tests: `examples/type_alias_sibling_no_flow_error.saw`,
+  `examples/type_alias_sibling_arg_error.saw`.
+
+  A fourth gap surfaced while fixing this: **an IMPORTED alias was not treated as
+  an alias.** `get_type_alias_info` looked only in the current namespace, so
+  across a module boundary the name resolved as a TYPE (an annotation or field
+  using it checked fine) while every rule asking "is this an alias?" answered no
+  — it neither flowed to its underlying nor accepted its constructor, one module
+  away from the declaration. The deep lookup already existed and
+  `is_trivially_copyable` already used it. Tests:
+  `examples/type_alias_cross_module.saw` + the cross-module sibling error.
 
 - **DF-140j — FIXED here (the M1 adoption pass, Aug 6). A place use inside a
   struct or map literal reached codegen unlowered.** See the adoption-pass
