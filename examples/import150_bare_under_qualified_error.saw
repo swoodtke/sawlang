@@ -1,0 +1,16 @@
+// Design 150: a bare name under a QUALIFIED-ONLY import is an error, and the
+// hint names all three forms. Before design 150 `import std.data` exposed
+// `Data` bare, so the old hint offered exactly the import already written —
+// a reader following it went in a circle.
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: `Data` is not in the prelude and must be imported
+// EXPECT-ERROR-CONTAINS: `import std.data.{Data}` selects it
+// EXPECT-ERROR-CONTAINS: `import std.data.*` takes the module's whole vocabulary bare
+// EXPECT-ERROR-CONTAINS: `import std.data` lets you write `data.Data`
+import std.data
+
+func main() {
+    var d = Data()
+    d.push(1)
+    print("{d.len()}")
+}

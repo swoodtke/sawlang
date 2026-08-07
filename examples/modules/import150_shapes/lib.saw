@@ -1,0 +1,31 @@
+// Fixture for design 150's qualified-name tests. Everything here is reachable
+// ONLY through a qualifier when the importer writes `import shapes` — which is
+// the point: a whole-module import binds a name and exposes nothing.
+
+public struct Point {
+    public x: Int,
+    public y: Int,
+}
+
+extension Point {
+    public func sum(&self) -> Int { self.x + self.y }
+    public func origin() -> Point { Point(x: 0, y: 0) }
+}
+
+public enum Tint { case Warm, case Cool }
+
+extension Tint {
+    public func name(&self) -> String {
+        match self { case Warm -> "warm", case Cool -> "cool" }
+    }
+}
+
+public trait Named {
+    func label(&self) -> String
+}
+
+extension Point: Named {
+    public func label(&self) -> String { "point" }
+}
+
+public func doubled(n: Int) -> Int { n * 2 }

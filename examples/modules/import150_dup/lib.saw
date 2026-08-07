@@ -1,0 +1,4 @@
+// Fixture for design 150 pin 5. Mapped as the package name `data` so its
+// qualifier collides head-on with the one `import std.data` binds.
+
+public func tripled(n: Int) -> Int { n * 3 }

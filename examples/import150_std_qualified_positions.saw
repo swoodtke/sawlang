@@ -1,0 +1,49 @@
+// Design 150 pin 1: `import std.X` binds the qualifier `X` and exposes
+// NOTHING bare. Qualified access has to work in every position a name can
+// appear, which is what this exercises — annotations, generic arguments,
+// static-method chains, call heads and constructors, all through the
+// qualifier and none of them bare.
+// EXPECT: success
+// EXPECT-OUTPUT: annotation 250
+// EXPECT-OUTPUT: generic 2
+// EXPECT-OUTPUT: static true
+// EXPECT-OUTPUT: callhead 7
+// EXPECT-OUTPUT: nested 3
+import std.time
+import std.data
+import std.task
+
+// Type annotation position, by value and behind a reference.
+func as_millis(d: time.Duration) -> Int { d.millis() }
+
+func first_byte(d: &data.Data) -> Int { d.get(0) ?? 0 }
+
+// Return position.
+func quarter_second() -> time.Duration { time.Duration.from_millis(250) }
+
+// Generic ARGUMENT position: the qualified name inside `Vector<...>`.
+func count(v: &Vector<data.Data>) -> Int { v.len() }
+
+func main() {
+    print("annotation {as_millis(quarter_second())}")
+
+    var v: Vector<data.Data> = []
+    v.push(data.Data())          // constructor through the qualifier
+    v.push(data.Data())
+    print("generic {count(&v)}")
+
+    // Static-method chain: qualifier -> type -> static method.
+    let started = time.Instant.now()
+    print("static {started.elapsed().millis() >= 0}")
+
+    // Free function through the qualifier — a call head.
+    task.yield_now()
+
+    var bytes = data.Data()
+    bytes.push(7)
+    print("callhead {first_byte(&bytes)}")
+
+    // A qualified type nested inside another composite.
+    let maybe: data.Data? = move bytes
+    print("nested {(maybe?.len() ?? 0) + 2}")
+}

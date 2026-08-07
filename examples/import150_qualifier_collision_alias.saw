@@ -1,0 +1,16 @@
+// Design 150 pin 5, the resolution: `as` gives one import another qualifier and
+// both modules are reachable from one file.
+// COMPILE-FLAGS: --module-path data={TESTDIR}/modules/import150_dup
+// EXPECT: success
+// EXPECT-OUTPUT: std 2
+// EXPECT-OUTPUT: user 42
+import std.data
+import data as userdata
+
+func main() {
+    var d = data.Data()
+    d.push(1)
+    d.push(2)
+    print("std {d.len()}")
+    print("user {userdata.tripled(14)}")
+}

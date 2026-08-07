@@ -1,0 +1,20 @@
+// Design 150 section 4b: `-W shadowed-qualifier`, the language's first warning
+// category. Emitted at the DECLARATION that takes a visible qualifier's name,
+// not at the later line that trips over it. The program is LEGAL — pin 4 makes
+// qualifiers weak — so this compiles and runs, and the warning never touches
+// the exit code. Its silence without the flag is pinned by
+// `import150_weak_qualifier`.
+// COMPILE-FLAGS: -W shadowed-qualifier
+// EXPECT: success
+// EXPECT-WARNING-CONTAINS: warning [-W shadowed-qualifier]
+// EXPECT-WARNING-CONTAINS: `data` shadows the module qualifier bound by `import std.data`
+// EXPECT-WARNING-CONTAINS: qualified access is unavailable while this binding is in scope
+// EXPECT-OUTPUT: ok 2
+import std.data
+
+func main() {
+    var data = data.Data()
+    data.push(1)
+    data.push(2)
+    print("ok {data.len()}")
+}

@@ -36,6 +36,13 @@ Test expectations are specified via comments in the source files:
     // more output
     // EXPECT-ERROR-CONTAINS: text  - Error message should contain "text"
     // EXPECT-PANIC-CONTAINS: text  - Panic message should contain "text"
+    // EXPECT-WARNING-CONTAINS: text - Compiler output should contain "text"
+                                (design 150: warnings are reported on the
+                                SUCCESS path and never affect the exit code,
+                                so EXPECT-ERROR-CONTAINS cannot see one)
+    // EXPECT-NO-WARNINGS    - The compile emits no warning at all — how a
+                                `-W` category's SILENCE without its flag is
+                                pinned
     // XFAIL: reason         - Known-broken test; still runs, but a failure is
                               reported as xfail instead of breaking the build.
                               Keep the EXPECT directives above accurate: if the
@@ -98,6 +105,10 @@ class TestCase:
     compile_flags: List[str] = None  # Extra sawc flags from '// COMPILE-FLAGS:'
     expected_undefined_symbols: List[str] = None  # '// EXPECT-SYMBOL-UNDEFINED:'
     object_max_bytes: Optional[int] = None  # '// EXPECT-OBJECT-MAX-BYTES:'
+    # design 150: compiler WARNINGS, which are reported on the SUCCESS path and
+    # never affect the exit code — so no existing directive can see one.
+    expected_warning_contains: List[str] = None  # '// EXPECT-WARNING-CONTAINS:'
+    expect_no_warnings: bool = False  # '// EXPECT-NO-WARNINGS'
     out_name: Optional[str] = None  # unique build-output stem; see `binary_stem`
 
     @property
@@ -154,6 +165,8 @@ def parse_test_metadata(file_path: Path) -> Optional[TestCase]:
     compile_flags = []
     expected_undefined_symbols = []
     object_max_bytes = None
+    expected_warning_contains = []
+    expect_no_warnings = False
 
     with open(file_path, 'r') as f:
         in_output_block = False
@@ -209,6 +222,15 @@ def parse_test_metadata(file_path: Path) -> Optional[TestCase]:
                 expected_panic_contains.append(panic_text)
                 in_output_block = False
 
+            elif '// EXPECT-WARNING-CONTAINS:' in line:
+                warn_text = line.split('// EXPECT-WARNING-CONTAINS:')[1].strip()
+                expected_warning_contains.append(warn_text)
+                in_output_block = False
+
+            elif '// EXPECT-NO-WARNINGS' in line:
+                expect_no_warnings = True
+                in_output_block = False
+
             elif '// XFAIL:' in line:
                 xfail_reason = line.split('// XFAIL:')[1].strip()
                 in_output_block = False
@@ -241,7 +263,9 @@ def parse_test_metadata(file_path: Path) -> Optional[TestCase]:
         xfail_reason=xfail_reason,
         compile_flags=compile_flags,
         expected_undefined_symbols=expected_undefined_symbols,
-        object_max_bytes=object_max_bytes
+        object_max_bytes=object_max_bytes,
+        expected_warning_contains=expected_warning_contains,
+        expect_no_warnings=expect_no_warnings
     )
 
 
@@ -916,7 +940,27 @@ def compile_test(test: TestCase, compile_fn=None) -> CompileOutcome:
             msg = f"Compilation failed:\n{compile_stderr[:500]}"
             return CompileOutcome(True, False, msg)
 
+        # design 150: compiler warnings are reported on the SUCCESS path and
+        # never affect the exit code, so this is the only stage that can see
+        # one. Judged here, before the binary is queued to run.
+        warn_outcome = _check_warnings(test, compile_stdout + compile_stderr)
+        if warn_outcome is not None:
+            return warn_outcome
+
         return _to_run(exe_path, placed)
+
+
+def _check_warnings(test: TestCase, output: str) -> Optional[CompileOutcome]:
+    """Judge a test's warning directives, or None if they hold (design 150)."""
+    for expected in (test.expected_warning_contains or []):
+        if expected not in output:
+            return CompileOutcome(True, False, (
+                f"Warning output should contain '{expected}'\n"
+                f"Got: {output[:400] or '<nothing on stderr>'}"))
+    if test.expect_no_warnings and 'warning' in output:
+        return CompileOutcome(True, False, (
+            f"Expected no warnings, but the compiler emitted:\n{output[:400]}"))
+    return None
 
 
 def _to_run(exe_path: Path, placed: set) -> CompileOutcome:

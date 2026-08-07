@@ -1,0 +1,45 @@
+// Design 150 pin 4: qualifier bindings are WEAK. A local named after the std
+// leaf it imports shadows the qualifier with no shadowing error, and the shadow
+// is LEXICAL — the next function reaches the module again. std leaves are among
+// the most natural local names in the language, which is exactly why design 82
+// declined to create the alias at all.
+//
+// EXPECT-NO-WARNINGS pins the other half of section 4b: the
+// `shadowed-qualifier` category says nothing unless `-W` asks for it.
+// EXPECT: success
+// EXPECT-NO-WARNINGS
+// EXPECT-OUTPUT: qualifier 1
+// EXPECT-OUTPUT: local 2
+// EXPECT-OUTPUT: inner 2
+// EXPECT-OUTPUT: param 4
+// EXPECT-OUTPUT: qualifier-again 1
+import std.data
+
+// No local in sight: `data` is the module.
+func one() -> data.Data {
+    var d = data.Data()
+    d.push(65)
+    move d
+}
+
+// A PARAMETER named after the leaf shadows it just as a local does.
+func widen(data: &data.Data) -> Int { data.len() + 2 }
+
+func main() {
+    print("qualifier {one().len()}")
+
+    // The local wins, and takes no shadowing error for it.
+    var data = one()
+    data.push(66)
+    print("local {data.len()}")
+
+    // Still the local inside a narrower scope.
+    if data.len() > 0 {
+        print("inner {data.len()}")
+    }
+
+    print("param {widen(&data)}")
+
+    // Lexical: a call into a function with no such local reaches the module.
+    print("qualifier-again {one().len()}")
+}

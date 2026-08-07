@@ -1,0 +1,36 @@
+// DF-150a and DF-150b: a TRAIT reached through a module qualifier, in the two
+// positions a trait name appears — an `any` existential and a generic bound.
+//
+// Design 150 makes this the ONLY way to name an imported trait under a
+// whole-module import, so both had to work. Neither did: `&any shapes.Named`
+// resolved as a type and then failed method dispatch with "unknown trait", and
+// `<T: shapes.Named>` did not parse at all (the bound grammar read one
+// identifier and stopped at the dot).
+// COMPILE-FLAGS: --module-path shapes={TESTDIR}/modules/import150_shapes
+// EXPECT: success
+// EXPECT-OUTPUT: existential point
+// EXPECT-OUTPUT: bound point
+// EXPECT-OUTPUT: enum cool
+// EXPECT-OUTPUT: static 0
+// EXPECT-OUTPUT: func 42
+import shapes
+
+// Existential position.
+func by_erasure(t: &any shapes.Named) -> String { t.label() }
+
+// Generic-bound position.
+func by_bound<T: shapes.Named>(t: &T) -> String { t.label() }
+
+func main() {
+    let p = shapes.Point(x: 3, y: 4)
+    print("existential {by_erasure(&p)}")
+    print("bound {by_bound(&p)}")
+
+    // Qualified enum construction and a method on it.
+    let t = shapes.Tint.Cool
+    print("enum {t.name()}")
+
+    // Qualified static-method chain, and a qualified free function.
+    print("static {shapes.Point.origin().sum()}")
+    print("func {shapes.doubled(21)}")
+}

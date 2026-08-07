@@ -1,0 +1,40 @@
+// Design 150 pins 1-3: the three import forms, side by side.
+//   `import std.X`          -> qualified only
+//   `import std.X.*`        -> every public name, bare
+//   `import std.X.{A}`      -> `A` bare AND the `X` qualifier for the rest
+//   `import std.X as Y`     -> the qualifier under another name
+// EXPECT: success
+// EXPECT-OUTPUT: qualified 3
+// EXPECT-OUTPUT: glob true
+// EXPECT-OUTPUT: selective-bare 5
+// EXPECT-OUTPUT: selective-qualified 5
+// EXPECT-OUTPUT: aliased true
+import std.data
+import std.path.*
+import std.file.{File}
+import std.time as clock
+
+func main() {
+    // Whole module: the qualifier is the only spelling.
+    var d = data.Data()
+    d.push(1)
+    d.push(2)
+    d.push(3)
+    print("qualified {d.len()}")
+
+    // Glob: `Path` is bare, no qualifier needed.
+    let p = Path(s: "/etc/hosts")
+    print("glob {p.is_absolute()}")
+
+    // Selective: the selected name is bare...
+    let bare = if File.exists(p) { 5 } else { 5 }
+    print("selective-bare {bare}")
+
+    // ...and the qualifier still reaches the module for anything else.
+    let qualified = if file.File.exists(p) { 5 } else { 5 }
+    print("selective-qualified {qualified}")
+
+    // `as` renames the qualifier a whole-module import binds.
+    let started = clock.Instant.now()
+    print("aliased {started.elapsed().millis() >= 0}")
+}
