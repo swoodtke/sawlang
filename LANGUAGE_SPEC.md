@@ -736,6 +736,66 @@ language with no `move` discipline — `greet(s)` does not consume `s`.
     op. Literals are never retained or released, so the common case pays zero
     atomic traffic.
 
+### Data
+
+`Data` is a **copy-on-write byte buffer**: a window (an offset and a length)
+onto storage an `Arc` owns. Copying a `Data` retains that storage rather than
+duplicating it, and the bytes separate at the first write that finds them
+shared. It is `ImplicitCopy`, so byte buffers flow through the language with no
+`move` discipline, and a copy costs a refcount bump. It lives in `std.data` and
+needs an import.
+
+```saw
+import std.data.*
+
+var a = Data(capacity: 4)
+a.push(1)
+var b = a              // a retain: no bytes copied
+b.push(2)              // b is shared here, so it separates first
+print("{a.len()} {b.len()}")     // prints: 1 2
+```
+
+This completes the standard library's three byte-container positions: `String`
+is shared and immutable, `Vector` is uniquely owned and mutable, `Data` is
+shared until written.
+
+- **The uniqueness gate.** Every mutation — `push`, `append`, `append_bytes`,
+  `set`, `try_set`, a write through `d[i]`, and the reservations behind them —
+  takes the same test: sole owner, write in place; shared, copy the live bytes
+  into a fresh buffer and write there. The mechanism is
+  `Arc.with_unique(body:)`, which runs its body on a `&var` borrow of the
+  payload when the handle is the only strong owner and answers `None` when it
+  is not. Because there is no second path, no operation on a `Data` can be
+  observed by another `Data`.
+- **Slicing is O(1) at any size.** `slice(start, end) -> Data?` retains the same
+  storage and narrows the window; `None` means the bounds were invalid. The
+  slice is an independent value, so writing either it or its source separates
+  the bytes first.
+- **`copy()` is lazy; `detached()` is eager.** `copy()` is the `ImplicitCopy`
+  retain and cannot fail. `detached()` materializes the bytes into a buffer
+  sized to `len()`, which is what to reach for when a small slice would
+  otherwise keep a large buffer alive; it panics if the allocator refuses, and
+  `try_detached()` reports that as `Err(AllocError)`.
+- **`capacity()` reports what fits before the next allocation.** For a sole
+  owner of a whole buffer that is the buffer's capacity. For shared storage, or
+  a slice that starts partway in, the next write separates the bytes, so the
+  answer is `len()`.
+- **Reads never separate.** `get(i) -> UInt8?`, `len()`, `is_empty()`, `pop()`,
+  `clear()` and `byte_ptr()` leave the storage shared. `pop` and `clear` only
+  narrow this window, so a sibling keeps every byte it could see.
+- **`d[i]` is a place with an exclusive receiver.** A `borrows` accessor cannot
+  see whether its window will be read or written (the flavor is the use site's
+  — see [Places](#places)), while copy-on-write has to separate shared storage
+  before lending a place that might be written. `Data.[]` therefore declares
+  `&var self` and takes the gate up front, which means `d[i]` needs a `var d`
+  and the first such use on shared storage copies. `get(i)` is the shared read.
+- **Iterating holds a retain.** `iter()` returns a `DataIterator` that owns a
+  `Data`, so an iterator outliving the binding it came from still reads live
+  bytes.
+
+Out of range, `set`/`try_set`/`d[i]` panic and `get`/`slice` answer
+`None` — design 130's accessor rule, the same split `Vector` uses.
+
 ### Source-location literals
 
 Three magic literals expand at compile time to their **definition site** — the
@@ -1907,8 +1967,10 @@ claim: the cost of every transfer is now readable at the use site.
   are in this class. `x.copy()` on them compiles to a bitwise copy.
 - **`ImplicitCopy`** — the compiler invokes `copy()` automatically at every
   transfer site (binding, assignment, argument, return, aggregate element).
-  **Contract: cheap, O(1)-ish** — e.g. a refcount bump. `String` and `Arc`
-  are `ImplicitCopy`.
+  **Contract: cheap, O(1)-ish** — e.g. a refcount bump. `String`, `Arc` and
+  `Data` are `ImplicitCopy`. `Data`'s copy is a retain of shared storage; the
+  bytes separate at the first write that finds them shared, so the copy stays
+  O(1) without giving up value semantics (see [Data](#data)).
 - **`ExplicitCopy`** — the compiler *never* copies implicitly; a transfer out of
   an existing binding requires `move`, and duplication is always a visible
   `v.copy()`. **Contract: may be expensive/deep** — e.g. `Vector` (whose
@@ -2705,9 +2767,16 @@ v[0].count += 1                  // exclusive window
 v[0] = Entry(count: 0)           // whole-element write; the old one deinits once
 f(&var v[0])                     // the window spans the call
 
-var d = Data()
+var d = Data(capacity: 1)
+d.push(9u8)
 d[0] = 0u8                       // panicking place, same rules
 ```
+
+`Data.[]` differs from `Vector.[]` in one way: its receiver is `&var self`, so
+every use of it borrows the receiver exclusively and `d` must be a `var`. That
+is copy-on-write asking for the only receiver that can separate shared storage
+before lending a place a caller might write to (see [Data](#data)); `d.get(i)`
+is the shared read that never separates.
 
 Both panic out of range, on design 130's accessor-rule terms. `Vector.get(i)` is
 the `None`-returning twin of `v[i]` and the same lowering — a conditional lend:
@@ -6050,7 +6119,7 @@ Every such operation has a **`try_`-prefixed twin** returning
 | `Vector` | `init(capacity:)`, `push`, `copy` | `try_with_capacity`, `try_push`, `try_reserve`, `try_copy` |
 | `Box` | `make` | `try_make` |
 | `StringBuilder` | `init(capacity:)`, `append`, `append_char` | `try_with_capacity`, `try_append`, `try_append_char` |
-| `Data` | `init(capacity:)`, `push`, `append`, `append_bytes`, `copy` | `try_with_capacity`, `try_push`, `try_append`, `try_append_bytes`, `try_reserve`, `try_copy` |
+| `Data` | `init(capacity:)`, `push`, `append`, `append_bytes`, `set`, `detached` | `try_with_capacity`, `try_push`, `try_append`, `try_append_bytes`, `try_reserve`, `try_set`, `try_detached` |
 | `Map` / `Set` | `insert` | `try_insert` |
 | `Arc` / `Mutex` | `init(value:)` | `try_make` |
 | `Channel` | `init()`, `send` | `try_make`, `try_send` |

@@ -5,11 +5,63 @@ Open items ONLY. Landed work lives in `designs/NN-*.md` + git history
 landed recaps). Conventions: cite source designs in [brackets]; VERIFY
 items need a probe before being treated as real work.
 
-## std.Data findings (Aug 7, user-prompted archaeology)
+## std.Data findings (Aug 7, user-prompted archaeology) — CLOSED by design 165
+
+**DATA-1 and DATA-2 are both closed BY CONSTRUCTION** (design 165, Aug 7).
+`Data` was rebuilt as a copy-on-write value over `Arc`: storage is
+`Arc<DataBuf>?` plus an offset and a length, the hand-rolled refcount and its
+`unsafe` allocation bookkeeping are gone, and the tier moved NoCopy →
+ImplicitCopy. DATA-2 dissolved because every mutation now takes one uniqueness
+gate (`Arc.with_unique`), so CoW-everywhere is the only path that exists —
+the ratified behavior change is that a byte `set` through a slice-sharing
+`Data` no longer writes through. DATA-1 dissolved because `DataIterator` holds
+a `Data`, and holding a `Data` is holding a retain
+(`examples/data_iter_outlives_source.saw`, also in the Guard Malloc lane).
+The two RESOLVED entries below are kept as history.
+
+Findings raised while building it:
+
+- **DF-165a (TOOLING, worth fixing): `.build/rt/`'s cache key does not track
+  `sawc/std/*.saw`.** Editing any std file leaves the cached hosted runtime
+  objects built from the OLD std; the next program links a mismatched runtime
+  and HANGS at startup. It presents as a mass failure with no compile error —
+  328 to 567 suite tests "timed out at runtime" — and it looks exactly like
+  contention or a sibling's codegen regression, which is where the time goes.
+  `rm -rf .build/rt` fixes it. Anyone editing std today has to know to do that,
+  which is the argument for keying the cache on the std sources (or stamping a
+  digest into the cached objects and revalidating). Cost me roughly an hour;
+  it will cost the same to every agent that edits std until it is fixed.
+- **DF-165b (COMPILER, FIXED in this brief): a bare integer literal assigned
+  into an indexed PLACE did not adopt the element's fixed width.**
+  `v[0] = 7` on a `Vector<UInt8>` type-checked the literal with no expected
+  type in force, so it stayed platform `Int` and reached codegen as a
+  `store i64` into an `i8*` — `internal compiler error: cannot store i64 to
+  i8*`, on a line with nothing wrong with it. The same gap meant no range check
+  ran, so `v[0] = 256` was the ICE rather than a diagnostic naming 256. The
+  assignment path had every other expected-type propagation
+  (`_apply_literal_expected_type` at a `let`, a `static` write, a tuple
+  element) and was missing this one; one call added in
+  `statements.py`, covering fixed arrays, pointer element writes and `borrows`
+  places alike. Regression tests
+  `examples/df165b_place_literal_width.saw` (+ `_range_error`). Predates design
+  165 and reproduces on a bare `Vector<UInt8>`.
+- **DF-165c (LANGUAGE, filed): a `borrows` accessor cannot see its window's
+  flavor, which forces a copy-on-write type to choose between a copying read
+  and a write-through write.** Design 141 decided the use site picks shared vs
+  exclusive out of ONE `&self` declaration and the body is polymorphic over
+  that choice. A CoW container needs the opposite: it must separate shared
+  storage BEFORE lending a place that might be written, and must NOT separate
+  for one that will only be read. With no way to branch, `Data.[]` takes the
+  strict option — `&var self`, gate in the prologue — so `d[i]` needs a `var`
+  binding and the first indexed READ of shared storage copies. `get(i)` covers
+  the shared read, so nothing is unreachable, but the ergonomics are worse than
+  Swift's, which solves it with a `_read`/`_modify` accessor pair. If a second
+  CoW type ever wants a subscript, splitting `borrows` into read and modify
+  bodies is the fix; one type does not justify the language change.
 
 The three historical "known issues" in data.saw's header, resolved or filed
 (user asked about the line-506 segfault note; probed from the public surface —
-push into a sliced Data drives `_reserve_unique` → `_make_unique`):
+push into a sliced Data drove `_reserve_unique` → `_make_unique`):
 
 - **RESOLVED — `_make_unique` CoW "segfaults."** The path is sound today:
   0/50 native + 0/20 Guard Malloc failures, values correct. The crash class
@@ -23,20 +75,20 @@ push into a sliced Data drives `_reserve_unique` → `_make_unique`):
   was offset-correct; the crash was compiler-era. `_fill_from` is one
   offset-aware-on-both-sides memcpy again (hot-path win over the per-byte
   get/set loop); the same test pins copy-from-slice and copy-from-whole.
-- **DATA-1 (OPEN, fix-worthy): DataIterator holds no reference.** `iter()`
-  copies `inner` without bumping the refcount, so an iterator RETURNED past
-  its Data's death dangles (use-after-free reachable from safe code). Fix
-  shape: iterator bumps on creation, deinit decrements — but DataIterator
-  then needs a copy policy, and the for-in machinery's design-122 `T: Copy`
-  iterator bound needs checking against a NoCopy iterator. Own small unit.
-- **DATA-2 (OPEN, needs a USER DECISION): `set()` writes THROUGH a shared
-  buffer while `push()`/`append()` copy-on-write** (the old workaround note
-  admitted it). Mixed view-vs-value semantics on one type: a byte write
-  through a slice-sharing Data is visible to siblings, a push is not.
-  Options: (a) CoW everywhere (value semantics, consistent with the rest of
-  Saw; slices stay cheap for READS); (b) document slices as views and make
-  push/append write through too (aliasing semantics — un-Saw-like);
-  (c) forbid mutation at refcount > 1 (panic, "copy() first"). Recommend (a).
+- **DATA-1 (CLOSED, design 165): DataIterator held no reference.** `iter()`
+  copied `inner` without bumping the refcount, so an iterator RETURNED past
+  its Data's death dangled (use-after-free reachable from safe code). The
+  rebuild dissolved it rather than patching it: `DataIterator` holds a `Data`,
+  and a `Data` IS a retain. The anticipated complications did not arise — the
+  iterator is `ImplicitCopy` (the tier its `Data` field carries), and the
+  design-122 `T: Copy` iterator bound is on the ELEMENT (`UInt8`), so for-in is
+  untouched.
+- **DATA-2 (CLOSED, design 165; user ratified the behavior change): `set()`
+  wrote THROUGH a shared buffer while `push()`/`append()` copied on write.**
+  Resolved as option (a), CoW everywhere: every mutation takes one uniqueness
+  gate, so a byte set through a slice-sharing `Data` is no longer visible to
+  the slice. This is a BEHAVIOR CHANGE and was approved as one. Pinned by
+  `examples/data_cow_value_semantics.saw`.
 
 ## Review sweep (Aug 4) — TRIAGED (user, Aug 4 evening), briefs 122-127
 Four reviewer reports in `designs/reviews/2026-08-04-*.md`; probe repros live

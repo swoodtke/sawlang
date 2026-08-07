@@ -741,7 +741,8 @@ import of its module, which also means your own type named `File` or
 Saw provides deterministic memory management without garbage collection:
 
 - **The Copy trait family**: trivial types copy bitwise. `ImplicitCopy` types
-  (like `String` and `Arc`) copy cheaply on every transfer as a refcount bump.
+  (like `String`, `Arc` and `Data`) copy cheaply on every transfer as a refcount
+  bump.
   `ExplicitCopy` types (like `Vector`) never copy implicitly: you `move` to
   transfer them or `.copy()` to duplicate. `NoCopy` types (like `File`, `Mutex`,
   and for now `Map`/`Set`) can only be moved. A struct that owns such a field
@@ -805,6 +806,9 @@ Saw provides deterministic memory management without garbage collection:
   compile error — iterator invalidation is caught by the Law of Exclusivity
   rather than by a callback's scope. `Vector` and `Data` publish `v[i]` this
   way, which is what lets a move-only element be reached without copying it out.
+  `Data.[]` declares `&var self`, so indexing one needs a `var` binding: it is a
+  copy-on-write buffer, and it has to be able to separate shared bytes before
+  lending a place that might be written.
   Reading a place *out* as a value follows the copy-tier table above. One
   consequence to know: on a `borrows` method the receiver is borrowed with the
   window's flavor, so `&self` there does not mean shared-only (see
@@ -1056,7 +1060,16 @@ The standard library includes:
   (move-only keys are rejected).
 - **Set<T, A>** - Hash set: `insert`, `remove`, `contains`, `len`, plus
   `union`/`intersection`/`difference`/`is_subset`; `{a, b}` literals.
+- **Data** - Copy-on-write byte buffer: a window onto `Arc`-owned storage.
+  Copying or slicing one is a refcount bump (`slice` is O(1) at any size), and
+  the bytes separate at the first write that finds them shared, so no mutation
+  is ever visible through another `Data`. `detached()` materializes the bytes
+  eagerly, sized to `len()`, when a small slice would otherwise keep a large
+  buffer alive.
 - **Arc<T>** / **Box<T, A>** - Atomic reference counting / owned heap allocation.
+  `Arc.with_unique(body:)` runs `body` on a `&var` borrow of the payload when
+  the handle is the only strong owner and answers `None` when it is shared —
+  the copy-on-write gate `Data` is built on.
 - **Mutex<T>**, **Channel<T>**, **Task<T>**, **TaskGroup** - Concurrency.
 - **std.net** - `TcpListener`/`TcpStream`: owning, cooperative, `Result`-honest
   (accept/connect/read/`read_into`/overloaded write).

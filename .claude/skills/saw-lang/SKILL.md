@@ -105,13 +105,32 @@ print("{#file}:{#line} - msg")  // #file/#line/#function: definition-site consts
 
 ## Ownership (the part that bites)
 Copy tiers: trivial/POD = implicit bitwise copy; `ImplicitCopy`
-(String, Arc, escaping closures) = free refcount bump; `ExplicitCopy`
+(String, Arc, Data, escaping closures) = free refcount bump; `ExplicitCopy`
 (Vector — the ONLY ExplicitCopy std type — and a conformance bounded `T: Copy`)
 = must `move v` or `v.copy()` at every transfer; `NoCopy` (File, Mutex, Box,
-Data, StringBuilder, TcpListener/TcpStream, Command, TaskGroup, SpinLock — and
+StringBuilder, TcpListener/TcpStream, Command, TaskGroup, SpinLock — and
 currently Map/Set: their `ExplicitCopy` is future work, `.copy()` on them is a
-compile error) = `move` only. `Data` has an inherent `copy()` even so, but as a
-plain method, not a policy — you still `move` a `Data` to transfer it.
+compile error) = `move` only.
+**`Data` MOVED OFF the NoCopy list (design 165)** and is now the COPY-ON-WRITE
+member of the ImplicitCopy tier: a `Data` is a window (offset + length) onto
+`Arc`-owned storage, `let b = a` and `a.copy()` are retains, and the bytes
+separate at the first write that finds them shared. Value semantics hold — no
+mutation is ever visible through another `Data` — so `move` on a `Data` still
+works but is no longer required anywhere. Three things to know:
+- **Every mutation takes one uniqueness gate.** `set` used to write THROUGH
+  shared storage while `push`/`append` copied first; it no longer does. A byte
+  set through a slice-sharing `Data` is invisible to the slice.
+- **`slice()` is O(1)** (a retain, narrower window) and `copy()` is lazy;
+  `detached()`/`try_detached()` are the EAGER spelling, sized to `len()`, for
+  when a small slice would otherwise pin a large buffer. (`try_copy` is gone —
+  `try_detached` is it, under a name that says which one can run out of memory.)
+- **`d[i]` takes `&var self`**, so it needs a `var d` and the first use on
+  shared storage copies. A `borrows` accessor cannot see whether its window
+  will be read or written, and CoW must separate before lending a writable
+  place. `d.get(i)` is the shared read that never separates.
+The gate itself is `Arc.with_unique(body:) -> R?` — runs `body` on a `&var`
+borrow of the payload when the handle is the only strong owner, `None` when
+shared (Arc's `&self` payload forwarding still refuses `&var self` methods).
 **A struct that OWNS one of those must pick its own copy policy** — the #1 thing
 you hit writing Saw. `struct Holder { v: Vector<Int> }` does not compile bare;
 the compiler knows how to DESTROY it but not whether you want it duplicated:
