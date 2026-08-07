@@ -106,9 +106,12 @@ print("{#file}:{#line} - msg")  // #file/#line/#function: definition-site consts
 ## Ownership (the part that bites)
 Copy tiers: trivial/POD = implicit bitwise copy; `ImplicitCopy`
 (String, Arc, escaping closures) = free refcount bump; `ExplicitCopy`
-(Vector, conformance bounded `T: Copy`) = must `move v` or `v.copy()` at every
-transfer; `NoCopy` (File, Mutex, Box — and currently Map/Set: their
-`ExplicitCopy` is future work, `.copy()` on them is a compile error) = `move` only.
+(Vector — the ONLY ExplicitCopy std type — and a conformance bounded `T: Copy`)
+= must `move v` or `v.copy()` at every transfer; `NoCopy` (File, Mutex, Box,
+Data, StringBuilder, TcpListener/TcpStream, Command, TaskGroup, SpinLock — and
+currently Map/Set: their `ExplicitCopy` is future work, `.copy()` on them is a
+compile error) = `move` only. `Data` has an inherent `copy()` even so, but as a
+plain method, not a policy — you still `move` a `Data` to transfer it.
 **A struct that OWNS one of those must pick its own copy policy** — the #1 thing
 you hit writing Saw. `struct Holder { v: Vector<Int> }` does not compile bare;
 the compiler knows how to DESTROY it but not whether you want it duplicated:
@@ -1016,9 +1019,13 @@ one allocator behind them panics (covers `to_uppercase`/`replace`/`trim`/
 Nothing degrades: no truncated container, no `Ok("")` from a validating
 constructor, no un-joined path, no dropped message, and no inert object
 (`Arc`/`Mutex`/`Channel` used to construct one and no longer can). `Mutex.get()`
-is `T`, not `T?`, for the same reason. Still open: `Mutex.lock`'s result is
-`Bool` rather than the closure's own type (M1, blocked on DF-123c — Arc payload
-forwarding cannot reach a method-generic method).
+is `T`, not `T?`, for the same reason. **`Mutex.lock` hands back the closure's
+OWN result** — `lock<R>(body: (&var T) sync -> R) -> R`, the same shape
+`SpinLock.lock` has (M1 landed; DF-123c is closed, and `Arc<Mutex<T>>`
+forwarding reaches the method-generic `lock` too):
+```saw
+let n = shared.lock({ c in c = c + 5  c })   // shared: Arc<Mutex<Int>> -> n == 5
+```
 
 ## Systems/embedded corner
 `static NAME: T = const_init` (Sync-only, immortal); `Atomic<Int>`;
