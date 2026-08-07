@@ -3544,16 +3544,48 @@ class ExpressionsMixin:
 
     def _check_tuple_literal(self, expr: TupleLiteral) -> Optional[SawType]:
         """Check a tuple literal (design 63: carries field labels for a named
-        tuple literal `(x: 3, y: 4)`)."""
+        tuple literal `(x: 3, y: 4)`).
+
+        DF-151l: when the context DECLARED a tuple type, its element types are
+        what the elements are checked against — the same job the array literal's
+        `arr_elem` does (DF-151e), through the same `_element_fits` helper, so
+        the one-level `T -> T?` auto-wrap is recorded on the element. Without it
+        the literal took each element's own type, so an annotated `(Int?, Int)`
+        never reached its elements: a bare `None` stayed untyped (`inner_type=
+        None`, an ICE at the codegen None literal) and a bare `Int` was stored
+        UNWRAPPED, laying the tuple out `{i64, i64}` while the storage and every
+        read believed `{{i1,i64}, i64}` — an ICE on the first read.
+        """
+        expected = getattr(expr, 'expected_type', None)
+        declared = None
+        if (expected is not None and expected.kind == TypeKind.TUPLE
+                and expected.element_types
+                and len(expected.element_types) == len(expr.elements)):
+            declared = expected.element_types
+
         element_types = []
-        for element in expr.elements:
+        for i, element in enumerate(expr.elements):
             elem_type = self._check_expression(element)
             if elem_type is None:
                 return None
-            element_types.append(elem_type)
-            self._check_value_transfer(element, elem_type, "tuple element",
+            target = declared[i] if declared is not None else elem_type
+            if declared is not None and not self._element_fits(element, elem_type,
+                                                               target):
+                self._error(
+                    ErrorKind.TYPE_MISMATCH,
+                    f"tuple element {i} has type `{elem_type}`, expected "
+                    f"`{target}`",
+                    element.line, element.column
+                )
+                return None
+            element_types.append(target)
+            self._check_value_transfer(element, target, "tuple element",
                                        element.line, element.column)
         field_names = getattr(expr, 'field_names', None)
+        if declared is not None and expected.tuple_field_names:
+            # A declared named tuple keeps its labels even when the literal was
+            # written positionally (`let p: (x: Int, y: Int) = (1, 2)`).
+            field_names = field_names or expected.tuple_field_names
         return SawType(TypeKind.TUPLE, element_types=element_types,
                        tuple_field_names=field_names)
 
@@ -4084,8 +4116,15 @@ class ExpressionsMixin:
                 getattr(value_expr, 'final_expr', None), rt)
             return
 
-        # (4) Tuple literal into a tuple type: element-wise.
+        # (4) Tuple literal into a tuple type: element-wise. Keep the tuple
+        #     expectation on the literal, not only its element types —
+        #     `_check_tuple_literal` reads it to check each element against the
+        #     DECLARED element type rather than taking the element's own
+        #     (DF-151l). This is the same stamp the ARRAY branch below makes,
+        #     and what makes nesting work: a `((Int?, Int), Int)` annotation
+        #     reaches the inner literal through this recursion.
         if isinstance(value_expr, TupleLiteral) and rt.kind == TypeKind.TUPLE:
+            value_expr.expected_type = rt
             elem_types = rt.element_types or []
             if len(elem_types) == len(value_expr.elements):
                 for e, et in zip(value_expr.elements, elem_types):
