@@ -5924,6 +5924,14 @@ class ExpressionsMixin:
                 node = node.tuple_expr
             elif isinstance(node, ArrayIndex):
                 node = node.array_expr
+            elif (isinstance(node, MethodCall)
+                  and getattr(node, 'place_struct', None) is not None):
+                # A NAMED borrows accessor is a projection like any other
+                # (DF-175d): `v.get(0)?.value = x` names storage `v` holds, so
+                # the mutability question is `v`'s. The subscript spelling of the
+                # same lend walked through as an ArrayIndex and this one did not,
+                # which is the whole of why one worked and the other did not.
+                node = node.object
             else:
                 return node
 

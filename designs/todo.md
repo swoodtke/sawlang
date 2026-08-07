@@ -131,6 +131,21 @@ items need a probe before being treated as real work.
   design-55 auto-wrap works for a written `Int?` parameter but not for `V`
   instantiated to `Int?` (a bare `None` DOES type there, so the paths
   diverge). Workaround: an annotated binding. Same batch.
+- **DF-146o — LANDED (design 176 unit 5).** The write becomes the BODY of the
+  head's window: `m[k]?.f = v` lowers to `m.[](k, { __p0 in __p0.f = v }, { })`.
+  The `?` is CONSUMED by the lowering — it was the lend's own optionality, and
+  inside the window the payload is simply there — which is also why the head is
+  never read out as a value first (the field write would land in the copy). The
+  expression still types `Void?`, and Saw offers exactly two positions for one,
+  so each gets the window result it needs: `Void` for statement position, `Bool`
+  for the `_`-blessed `if let`/`guard let`, and no `Void?` has to be synthesized.
+  Named heads (`v.get(0)?.f = v`, DF-175d) work through the same path, once
+  `_chain_assign_root` learned to walk a place method call as the projection it
+  is — the subscript spelling of the same lend always walked through as an
+  ArrayIndex, which is the whole of why one worked and the other did not. V1
+  FENCE: a second `?` hop past the lend (`m[k]?.a?.b = v`) keeps design 111's
+  existing behavior; the inner hop would need its own short-circuit inside the
+  window. Original finding follows.
 - **DF-146o (DESIGN QUESTION, filed Aug 7, user's spelling): optional-chain
   ASSIGNMENT rejects a place-expression head.** `m["x"]?.value = 42` and
   `v.get(0)?.value = 42` both error ("the head of an optional-chain
@@ -142,6 +157,12 @@ items need a probe before being treated as real work.
   short-circuit, types `Void?`) is the obvious completion — one cluster with
   DF-146n (assignment-target grammar vs places). Add to 171's probe round
   (conditional lend + `?.` composition: READS compose, WRITES don't).
+- **DF-146n — LANDED (design 176 unit 4).** A `ForceUnwrap` is an assignment
+  target when its subject is a place. The use-site lowering already knew how to
+  consume the `!` (the same promise `v.get(i)!.m()` makes), so the write becomes
+  an exclusive window's body and the absent path is the panic the `!` asked for.
+  On an ordinary optional local the `!` is still not a target, and says so.
+  Original finding follows.
 - **DF-146n (DESIGN QUESTION, filed Aug 7): `m[k]! = v` is a parse error
   ("invalid assignment target")** — a `!` head is not an assignment target,
   so a Map value cannot be whole-value REPLACED through the place
@@ -421,6 +442,12 @@ accessors are already emitted per window result type
   borrows receiver correctly reports `"self": "window"`. Cheap fix
   (`"window-var"`); matters more once accessors are flavored.
 
+- **DF-175d — LANDED (design 176 unit 15, folded into units 4/5 as the brief
+  directed).** `c.slot(1) = 99` and `v.get(0)?.value = x` both work: a MethodCall
+  is an assignment target (the checker refuses one that does not lend a place,
+  naming the method), and `_chain_assign_root` walks a place method call as the
+  projection it is. The `&var`-argument workaround is retired. Original finding
+  follows.
 - **DF-175d — OPEN (minor, ergonomics). A NAMED borrows accessor is not an
   assignment target.** `c.slot(1) = 99` is a parse error ("Invalid assignment
   target") while `v[i] = fresh` works, so whole-element replacement is

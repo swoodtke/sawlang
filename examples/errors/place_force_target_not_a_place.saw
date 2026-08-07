@@ -1,0 +1,12 @@
+// Design 176 unit 4 made `m[k]! = v` legal — a whole-value write through a
+// forced conditional lend. The `!` is an assignment target only there: on an
+// ordinary optional local it names a payload the binding owns outright, and the
+// way to replace that is to assign the optional itself (a bare value auto-wraps).
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: `!` is an assignment target only on a place
+
+func main() {
+    var o: Int? = 1
+    o! = 5
+    print("{o ?? -1}")
+}

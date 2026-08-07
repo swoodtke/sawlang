@@ -1,0 +1,13 @@
+// Design 176 unit 15 opened method calls as assignment targets, because a NAMED
+// `borrows` accessor is one. Whether a call lends a place is not something the
+// parser can see, so the grammar admits the shape and the checker names the
+// method that does not lend it.
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: `len` does not lend a place, so it cannot be assigned to
+
+func main() {
+    var v = Vector<Int>()
+    v.push(1)
+    v.len() = 3
+    print("{v.len()}")
+}

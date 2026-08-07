@@ -17,7 +17,7 @@ from ast_nodes import (
     GuardLetStatement, DestructuringLet, LendStatement,
     WhileExpr, ForLoop, BreakStatement, ContinueStatement,
     Identifier, MemberAccess, ArrayIndex, SelfExpr, TupleIndex,
-    OptionalEvalExpr, OptionalChainAssign
+    OptionalEvalExpr, OptionalChainAssign, ForceUnwrap, MethodCall
 )
 
 # Compound assignment token to operator mapping
@@ -218,8 +218,18 @@ class StatementsMixin:
             # TupleIndex, ArrayIndex, or `self` — design 110 `&var self`
             # replacement). A tuple index is a place like any other projection
             # (DF-151j), so `t.0 = fresh` is the whole-element write.
+            #
+            # Design 176 adds the two PLACE spellings the grammar had not caught
+            # up with. `m[k]! = v` (DF-146n) is the whole-value write through a
+            # forced conditional lend — symmetric with `v[i] = fresh`, panicking
+            # on an absent key — so a ForceUnwrap is a target. `c.slot(1) = 99`
+            # (DF-175d) is the same write through a NAMED accessor, so a
+            # MethodCall is one too; whether that call actually lends a place is
+            # a question only the checker can answer, and it answers it with a
+            # diagnostic naming the accessor.
             if not isinstance(target_expr, (Identifier, MemberAccess, ArrayIndex,
-                                            TupleIndex, SelfExpr)):
+                                            TupleIndex, SelfExpr, ForceUnwrap,
+                                            MethodCall)):
                 self.error("Invalid assignment target")
 
             return AssignStatement(
@@ -237,9 +247,10 @@ class StatementsMixin:
             value_expr = self.parse_expression()
 
             # Validate that target is assignable (Identifier, MemberAccess,
-            # TupleIndex, or ArrayIndex)
+            # TupleIndex, ArrayIndex, or — design 176 — a place reached through
+            # a forced conditional lend or a named accessor).
             if not isinstance(target_expr, (Identifier, MemberAccess, ArrayIndex,
-                                            TupleIndex)):
+                                            TupleIndex, ForceUnwrap, MethodCall)):
                 self.error("Invalid compound assignment target")
 
             return CompoundAssignStatement(

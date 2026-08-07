@@ -1,0 +1,13 @@
+// A write through a place opens an EXCLUSIVE window, whatever spelling reaches
+// it — so the new design-176 assignment targets take the same root-mutability
+// rule `v[i] = fresh` already took, and name the root rather than the accessor.
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: cannot open an exclusive place window on immutable variable `m`
+
+func main() {
+    var built = Map<String, Int>()
+    let _ = built.insert("k", 1)
+    let m = move built
+    m["k"]! = 5
+    print("{m["k"] ?? -1}")
+}

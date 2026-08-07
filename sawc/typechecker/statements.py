@@ -2217,12 +2217,75 @@ class StatementsMixin:
             # (design 110, Swift mutating-self precedent).
             self._check_self_replacement_assign(stmt)
 
+        elif isinstance(stmt.target, (ForceUnwrap, MethodCall)):
+            # design 176: the two PLACE spellings on the write side.
+            # `m[k]! = v` (DF-146n) writes the whole value through a forced
+            # conditional lend and panics on an absent key; `c.slot(1) = 99`
+            # (DF-175d) is the same write through a NAMED accessor. Both are the
+            # element write `v[i] = fresh` already was, reached by another
+            # spelling — the use-site lowering turns each into an exclusive
+            # window over the place and the assignment becomes the window's body.
+            self._check_place_target_assign(stmt)
+
         else:
             self._error(
                 ErrorKind.TYPE_MISMATCH,
                 "invalid assignment target",
                 stmt.line, stmt.column
             )
+
+    def _check_place_target_assign(self, stmt: AssignStatement):
+        """`m[k]! = v` / `c.slot(i) = v`: a whole-value write through a place.
+
+        The target must BE a place — checking it is what stamps the accessor
+        annotations the use-site lowering reads. Anything else that parses here
+        (`f() = 1`, `o! = 1` on a plain optional local) is refused by name.
+        """
+        target = stmt.target
+        subject = target.expr if isinstance(target, ForceUnwrap) else target
+        self._check_expression(subject)
+        if not getattr(subject, 'place_struct', None):
+            if isinstance(target, ForceUnwrap):
+                self._error(
+                    ErrorKind.TYPE_MISMATCH,
+                    "`!` is an assignment target only on a place — a `borrows` "
+                    "accessor's conditional lend, such as `m[k]! = v`",
+                    stmt.line, stmt.column,
+                    hint="to replace the payload of an ordinary optional, "
+                         "assign the optional itself (`o = v` wraps)")
+            else:
+                name = getattr(target, 'method_name', 'that call')
+                self._error(
+                    ErrorKind.TYPE_MISMATCH,
+                    f"`{name}` does not lend a place, so it cannot be assigned to",
+                    stmt.line, stmt.column,
+                    hint="declare it `borrows -> T` to lend storage the caller "
+                         "may write through")
+            return
+        if isinstance(target, ForceUnwrap) and not getattr(
+                subject, 'place_optional', False):
+            self._error(
+                ErrorKind.TYPE_MISMATCH,
+                "this accessor always lends, so there is nothing for `!` to "
+                "unwrap — write the assignment without it",
+                stmt.line, stmt.column)
+            return
+        element_type = getattr(subject, 'place_elem_type', None)
+        # Root mutability is not asked here. The write opens an EXCLUSIVE window,
+        # the use-site lowering stamps that on the synthesized accessor call, and
+        # the re-check refuses an immutable root by name — the same path
+        # `v[i] = fresh` already takes.
+        self._apply_literal_expected_type(stmt.value, element_type)
+        value_type = self._check_expression(stmt.value)
+        if value_type is not None and element_type is not None:
+            if not self._types_compatible(value_type, element_type):
+                self._error(
+                    ErrorKind.TYPE_MISMATCH,
+                    f"cannot assign `{value_type}` to place of type "
+                    f"`{element_type}`",
+                    stmt.line, stmt.column)
+        self._check_value_transfer(stmt.value, element_type, "place assignment",
+                                   stmt.line, stmt.column)
 
     def _check_tuple_element_assign(self, stmt: AssignStatement,
                                     element_type: SawType):

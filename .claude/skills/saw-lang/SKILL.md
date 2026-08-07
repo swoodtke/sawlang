@@ -306,6 +306,16 @@ var u = w.copy()       // explicit duplicate
   ROOT, so `v.push(x)` inside a window is a compile error (invalidation-proof
   by the Law of Exclusivity, not by a closure scope) and so is swapping two
   elements through two windows (`v.swap(i, j)` is the method for that).
+  **FOUR SPELLINGS WRITE THROUGH A PLACE** (design 176), all meaning "replace or
+  mutate the storage the container already holds, where it sits": `v[i] = fresh`
+  (unconditional lend), `m[k]! = fresh` (forced conditional lend — panics on
+  absent, the `!` being the panic spelling of `?` exactly as for a read),
+  `c.slot(i) = fresh` (NAMED accessor), and `m[k]?.field = v` /
+  `v.get(i)?.field = v` (chain assignment — the head lends, an absent head
+  writes nothing and evaluates no RHS, types `Void?`). Each opens an EXCLUSIVE
+  window, so each needs a `var` root. A method call is an assignment target only
+  when it lends a place; anything else is refused naming the method. Fence: a
+  second `?` hop past the lend (`m[k]?.a?.b = v`) is not supported — bind first.
   **`borrows -> T?` is the CONDITIONAL lend**: each path either `lend`s or
   plainly `return None`. The absent path opens NO window and runs NO epilogue —
   `if let x = d.at(i)` sees `None`, and `d.at(i)!.m()` panics (the `!` is the

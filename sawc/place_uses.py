@@ -56,7 +56,8 @@ from ast_nodes import (
     CompoundAssignStatement, ContinueStatement, ErasedErrWrap, Expression,
     ExpressionStatement, ForceUnwrap, ForLoop, FunctionCall, GuardLetStatement,
     Identifier, IfExpr, IfLetExpr, LetStatement, MatchArm, MatchExpr,
-    MemberAccess, MethodCall, MoveExpr, NoneLiteral, OptionalWrap,
+    MemberAccess, MethodCall, MoveExpr, NoneLiteral, OptionalChainAssign,
+    OptionalEvalExpr, OptionalWrap, BindOptional,
     ReferenceExpr, ResultErrWrap, ResultOkWrap, ReturnStatement, SawType,
     SelfExpr, StringLiteral, TupleIndex, TypeKind, UnaryOp, structural_fields,
 )
@@ -202,6 +203,12 @@ class _PlaceUses:
     # -- statements --------------------------------------------------------
 
     def _stmt(self, stmt):
+        if isinstance(stmt, ExpressionStatement) and isinstance(
+                stmt.expression, OptionalChainAssign):
+            lowered = self._chain_assign_window(stmt.expression, want='void')
+            if lowered is not None:
+                return ExpressionStatement(expression=lowered,
+                                           line=stmt.line, column=stmt.column)
         if isinstance(stmt, (AssignStatement, CompoundAssignStatement)):
             return self._assignment(stmt)
         if isinstance(stmt, LetStatement):
@@ -399,6 +406,11 @@ class _PlaceUses:
         """
         if name != "_" or pattern is not None:
             return None
+        if isinstance(subject, OptionalChainAssign):
+            # `guard let _ = m[k]?.f = v` — the blessed way to consume a chain
+            # assignment's `Void?` ("did it write"). The window's answer IS that
+            # question, so it comes back as the Bool the caller is testing.
+            return self._chain_assign_window(subject, want='bool')
         place = subject if is_place(subject) else None
         if place is None or not getattr(place, 'place_optional', False):
             return None
@@ -443,6 +455,95 @@ class _PlaceUses:
                      line=expr.line, column=expr.column)
         return self._window_call(place, name, body, result_type,
                                  exclusive=False, absent='panic')
+
+    # -- chain assignment through a place head (DF-146o / DF-175d) ---------
+    #
+    # `m[k]?.field = v` composes two things that had never met: design 111's
+    # chained assignment, which writes a payload field in place iff every hop is
+    # non-None, and design 146's conditional lend, whose absent path opens no
+    # window at all. They mean the same thing here — the head lends, an absent
+    # head skips the write AND the RHS — so the composition is a window whose
+    # BODY is the write:
+    #
+    #     m[k]?.field = v   =>   m.[](k, { __p0 in __p0.field = v }, { })
+    #
+    # The `?` is CONSUMED by the lowering, exactly as `!` is in `v.get(i)!.m()`:
+    # it was the lend's own optionality, and inside the window the payload is
+    # simply there. That is also why the head may not be read out as a value
+    # first — the field write would land in the copy.
+    #
+    # The chain assignment types `Void?`, and Saw offers exactly two positions
+    # for one: discard it in statement position, or consume "did it write" with
+    # the `_`-blessed `if let`/`guard let`. Each gets the window result it
+    # actually needs — Void for the first, Bool for the second — so no `Void?`
+    # has to be synthesized at all.
+
+    def _chain_assign_window(self, node, want):
+        """`m[k]?.f = v` as a window call, or None if it is not that shape."""
+        found = self._chain_assign_head(node)
+        if found is None:
+            return None
+        place, bind = found
+        name = self._fresh()
+        node.value = self._value(node.value)
+        target = self._replace_bind(node.target.expr, bind, name)
+        write = AssignStatement(target=target, value=node.value,
+                                line=node.line, column=node.column)
+        # A nested place inside the rewritten target or the RHS.
+        write = self._stmt(write)
+        if want == 'bool':
+            body = Block(statements=[write],
+                         final_expr=BoolLiteral(value=True, line=node.line,
+                                                column=node.column),
+                         line=node.line, column=node.column)
+            result_type = SawType(TypeKind.BOOL)
+            absent = 'false'
+        else:
+            body = Block(statements=[write], final_expr=None,
+                         line=node.line, column=node.column)
+            result_type = SawType(TypeKind.VOID)
+            absent = 'void'
+        return self._window_call(place, name, body, result_type,
+                                 exclusive=True, absent=absent)
+
+    def _chain_assign_head(self, node):
+        """`(place, bind_node)` when this chain assignment's ONLY optional hop is
+        a conditional lend; None otherwise.
+
+        v1 fence: a chain with a second `?` hop past the lend (`m[k]?.a?.b = v`)
+        keeps design 111's existing behavior. The inner hop would need its own
+        short-circuit inside the window, and the honest spelling for that today
+        is to bind the lend first.
+        """
+        if not isinstance(node, OptionalChainAssign):
+            return None
+        target = node.target
+        if not isinstance(target, OptionalEvalExpr):
+            return None
+        cur = target.expr
+        if not isinstance(cur, MemberAccess):
+            return None
+        hops = 0
+        while cur is not None:
+            if isinstance(cur, MemberAccess):
+                cur = cur.object
+            elif isinstance(cur, BindOptional):
+                hops += 1
+                inner = cur.expr
+                if is_place(inner) and getattr(inner, 'place_optional', False):
+                    return (inner, cur) if hops == 1 else None
+                cur = inner
+            else:
+                return None
+        return None
+
+    def _replace_bind(self, expr, bind, name):
+        """`expr` with the `bind` hop swapped for the window's parameter."""
+        if expr is bind:
+            return Identifier(name=name, line=bind.line, column=bind.column)
+        if isinstance(expr, MemberAccess):
+            expr.object = self._replace_bind(expr.object, bind, name)
+        return expr
 
     def _span_call(self, expr):
         """A call with `&place` / `&var place` arguments -> nested windows."""
@@ -521,6 +622,14 @@ class _PlaceUses:
         the place (`v.get(i)!.m()`, a write) has already promised the place is
         there, so absence is the force-unwrap's panic.
         """
+        if kind == 'void':
+            # A chain assignment discarded in statement position: absence means
+            # the write simply did not happen, and there is no value to say so
+            # with.
+            return ClosureExpr(
+                parameters=[], body=Block(statements=[], final_expr=None,
+                                          line=place.line, column=place.column),
+                line=place.line, column=place.column)
         if kind == 'none':
             body_expr = NoneLiteral(line=place.line, column=place.column)
         elif kind == 'false':

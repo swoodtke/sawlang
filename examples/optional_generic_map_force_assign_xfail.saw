@@ -6,12 +6,17 @@
 // The decision is symmetry with `v[i] = fresh`: a forced conditional lend
 // becomes a legal assignment target and panics on an absent key. `insert` is
 // the overwrite spelling meanwhile.
+//
+// LANDED in design 176 unit 4. A `ForceUnwrap` is an assignment target when its
+// subject is a place; the use-site lowering already knew how to consume the `!`
+// (it is the same promise `v.get(i)!.m()` makes), so the write simply becomes
+// the body of an exclusive window and the absent path is the panic the `!`
+// asked for.
 // EXPECT: success
 // EXPECT-OUTPUT:
 // before 1
 // after 5
 // -- done
-// XFAIL: DF-146n `m[k]! = v` is a parse error - a forced conditional lend is not an assignment target
 
 func main() {
     var m = Map<String, Int>()

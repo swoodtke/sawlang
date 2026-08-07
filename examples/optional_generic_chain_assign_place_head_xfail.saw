@@ -10,12 +10,17 @@
 // `if let _ = m[k] { m[k]!.f = v }`. The decision is to compose them: the head
 // lends, the absent path skips the write AND the RHS like any `?.`
 // short-circuit, and the whole thing types `Void?`.
+//
+// LANDED in design 176 unit 5. The write becomes the BODY of the head's window:
+// `m.[](k, { __p0 in __p0.field = v }, { })`. The `?` is consumed by the
+// lowering — it was the lend's own optionality, and inside the window the
+// payload is simply there — which is also why the head cannot be read out as a
+// value first: the field write would land in the copy.
 // EXPECT: success
 // EXPECT-OUTPUT:
 // present 42
 // absent skipped
 // -- done
-// XFAIL: DF-146o optional-chain assignment rejects a place-expression head
 
 struct Cell { value: Int }
 

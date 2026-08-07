@@ -1331,6 +1331,20 @@ consumed via optional binding, **not** a `!= nil` comparison —
 `guard let` bound pattern: evaluate and test the Optional, bind nothing, drop the
 payload immediately).
 
+The head may be a **place** — a conditional lend, in either spelling:
+
+```saw
+m["x"]?.value = 42        // subscript head
+v.get(0)?.value = 8       // named-accessor head
+```
+
+The head lends, and an absent head opens no window, writes nothing and evaluates
+no RHS — the ordinary `?.` short-circuit. The `?` is the LEND's optionality, so
+inside the window the payload is simply there; the head is never read out as a
+value first, which is what would make the write land in a copy. One fence: a
+second `?` hop past the lend (`m[k]?.a?.b = v`) is not supported — bind the lend
+first.
+
 A **suspending hop** is supported (`designs/120`), on the read and the write
 side. The chain lowers to its branch shape before the suspension is embedded, so
 `o?.read()` runs the hop only when every earlier hop is non-None, and a
@@ -2603,6 +2617,23 @@ print(g[4].weight)      // shared window on `g`
 g[4].weight += 1        // exclusive window on `g`
 bump(&var g[4])         // exclusive window, spanning the call
 ```
+
+#### Writing through a place
+
+Four spellings reach the write side, and they all mean the same thing — replace
+or mutate storage the container already holds, where it sits:
+
+```saw
+v[i] = fresh              // subscript, unconditional lend
+m[k]! = fresh             // forced conditional lend; panics if `k` is absent
+c.slot(i) = fresh         // named accessor
+m[k]?.field = v           // chain assignment; an absent key writes nothing
+```
+
+The `!` form is the panic spelling of the `?` form, exactly as it is for a read.
+Each opens an **exclusive** window, so each needs a mutable root and reports an
+immutable one by name. A method call is an assignment target only when it lends
+a place; anything else is refused naming the method.
 
 A shared window lends the element **read-only**: inside it the place is a `&T`,
 so a write is a compile error there and not merely a use site the classifier was

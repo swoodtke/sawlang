@@ -1,0 +1,77 @@
+// Design 176 units 4, 5 and 15: assignment-target grammar catches up with
+// places. Four spellings, one meaning — write through storage the container
+// already holds, in place.
+//
+//   m[k]! = v            forced conditional lend, panics on absent (DF-146n)
+//   c.slot(i) = v        NAMED accessor, whole-value write     (DF-175d)
+//   m[k]?.field = v      chain assignment, absent skips it     (DF-146o)
+//   v.get(i)?.field = v  the same, through a named lend        (DF-175d)
+//
+// The last two consume the `?`: it was the LEND's optionality, so inside the
+// window the payload is simply there. An absent head runs no window, writes
+// nothing, and evaluates no RHS — the ordinary `?.` short-circuit.
+// EXPECT: success
+// EXPECT-OUTPUT:
+// forced 5
+// named 99
+// named field 7
+// chain 42
+// chain absent skipped
+// named chain 8
+// rhs not evaluated
+// -- done
+
+struct Cell { value: Int }
+struct Carrier { slots: Vector<Cell> }
+extension Carrier: NoCopy {}
+
+extension Carrier {
+    public func slot(&self, i: Int) borrows -> Cell {
+        if i < 0 || i >= self.slots.len() { panic("Carrier.slot: index out of range") }
+        lend self.slots[i]
+    }
+}
+
+func loud(n: Int) -> Int {
+    print("rhs evaluated")
+    n
+}
+
+func main() {
+    // 1. `m[k]! = v` — the whole-value write through a forced conditional lend.
+    var m = Map<String, Int>()
+    let _ = m.insert("k", 1)
+    m["k"]! = 5
+    print("forced {m["k"] ?? -1}")
+
+    // 2. A NAMED accessor as a target, whole value and then a field of it.
+    var slots = Vector<Cell>()
+    slots.push(Cell(value: 1))
+    slots.push(Cell(value: 2))
+    var c = Carrier(slots: move slots)
+    c.slot(1) = Cell(value: 99)
+    print("named {c.slot(1).value}")
+    c.slot(0).value = 7
+    print("named field {c.slot(0).value}")
+
+    // 3. Chain assignment through a subscript head.
+    var cells = Map<String, Cell>()
+    let _ = cells.insert("x", Cell(value: 1))
+    cells["x"]?.value = 42
+    print("chain {cells["x"]!.value}")
+
+    guard let _ = cells["nope"]?.value = 7 else {
+        print("chain absent skipped")
+
+        // 4. The same through a named lend, and the short-circuit skipping the RHS.
+        var v = Vector<Cell>()
+        v.push(Cell(value: 1))
+        v.get(0)?.value = 8
+        print("named chain {v[0].value}")
+        v.get(9)?.value = loud(3)
+        print("rhs not evaluated")
+        print("-- done")
+        return
+    }
+    print("unreachable")
+}
