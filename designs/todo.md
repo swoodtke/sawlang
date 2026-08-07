@@ -21,8 +21,14 @@ The two RESOLVED entries below are kept as history.
 
 Findings raised while building it:
 
-- **DF-165a (TOOLING, worth fixing): `.build/rt/`'s cache key does not track
-  `sawc/std/*.saw`.** Editing any std file leaves the cached hosted runtime
+- **DF-165a (FIXED at 165 integration, main): the rt cache key now digests the
+  WHOLE input set** — the compiler tree (codegen decides layout), builtin.saw
+  and all of std, beside the rt sources it already tracked (`rt_build.py`
+  `_compiler_and_lang_inputs`, key tag v2). The 164 key lesson applied: a
+  curated subset IS the bug class. Cost: single-digit ms per compile + one rt
+  rebuild after any compiler/std edit. Original finding follows.
+  `.build/rt/`'s cache key did not track
+  `sawc/std/*.saw`. Editing any std file leaves the cached hosted runtime
   objects built from the OLD std; the next program links a mismatched runtime
   and HANGS at startup. It presents as a mass failure with no compile error —
   328 to 567 suite tests "timed out at runtime" — and it looks exactly like

@@ -50,13 +50,32 @@ def _runtime_sources(triple: str):
     return saw, shim
 
 
+def _compiler_and_lang_inputs() -> list:
+    """Every non-rt input whose change can alter the built runtime's ABI:
+    the whole compiler tree (codegen decides layout), builtin.saw, and all of
+    std (runtime sources compile against their declarations, and a program
+    built with a NEW std layout linking rt objects built against an OLD one
+    hangs with no compile error — DF-165a). A curated subset is the bug class
+    this key exists to prevent; hashing the lot costs single-digit ms."""
+    sawc_dir = os.path.dirname(os.path.abspath(__file__))
+    inputs = []
+    for dirpath, _dirnames, filenames in os.walk(sawc_dir):
+        rel = os.path.relpath(dirpath, sawc_dir)
+        if rel.split(os.sep)[0] in ("rt", "__pycache__"):
+            continue
+        for fn in filenames:
+            if fn.endswith(".py") or fn.endswith(".saw"):
+                inputs.append(os.path.join(dirpath, fn))
+    return sorted(inputs)
+
+
 def _cache_key(saw_sources, shim_c, triple: str) -> str:
     h = hashlib.sha256()
-    h.update(b"saw-rt-v1\0")
+    h.update(b"saw-rt-v2\0")
     h.update((triple or "").encode() + b"\0")
-    # This builder file participates in the key, so a change to HOW the runtime
-    # is compiled also invalidates the cache.
-    for path in [os.path.abspath(__file__)] + sorted(saw_sources) + [shim_c]:
+    # The key covers every input that can change what the built runtime IS:
+    # rt sources + shim, the compiler tree, builtin.saw and std (DF-165a).
+    for path in _compiler_and_lang_inputs() + sorted(saw_sources) + [shim_c]:
         h.update(path.encode() + b"\0")
         try:
             with open(path, "rb") as f:
