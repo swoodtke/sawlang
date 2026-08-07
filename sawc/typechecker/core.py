@@ -643,6 +643,28 @@ class TypeChecker(ExpressionsMixin, StatementsMixin, RegistrationMixin, TypeUtil
             return None
         return self.namespace.modules.get(name)
 
+    def _warn_shadowed_qualifier(self, name, line, column):
+        """`-W shadowed-qualifier` (design 150 section 4b), the language's first
+        warning category. Emitted where a binding TAKES the name of a visible
+        module qualifier — the declaration, not the later use that trips over
+        it. Off unless the flag asks for it; the use-site error is what fires
+        unconditionally."""
+        if getattr(self, '_checking_builtins', False):
+            return
+        if self.post_transform or self._in_synthesized_context():
+            return
+        module_sym = self._shadowed_qualifier(name)
+        if module_sym is None:
+            return
+        path = '.'.join(getattr(module_sym, 'path', ()) or ()) or name
+        self._warning(
+            ErrorKind.DUPLICATE_VARIABLE,
+            f"`{name}` shadows the module qualifier bound by `import {path}`",
+            line, column,
+            hint=f"qualified access is unavailable while this binding is in "
+                 f"scope — rename it, or write `import {path} as <name>`",
+            category="shadowed-qualifier")
+
     def _qualifier_shadow_hint(self, obj, member):
         """Design 150 pin 4's diagnostic contract.
 
@@ -906,11 +928,15 @@ class TypeChecker(ExpressionsMixin, StatementsMixin, RegistrationMixin, TypeUtil
         self.reporter.error(kind, message, line, column, hint, source_file)
 
     def _warning(self, kind: ErrorKind, message: str, line: int, column: int,
-                 hint: Optional[str] = None, source_file: Optional[str] = None):
-        """Report a warning with automatic source file detection."""
+                 hint: Optional[str] = None, source_file: Optional[str] = None,
+                 category: Optional[str] = None):
+        """Report a warning with automatic source file detection. A `category`
+        names a `-W` opt-in (design 150); without one the warning is
+        unconditional."""
         if source_file is None:
             source_file = self._get_current_source_file()
-        self.reporter.warning(kind, message, line, column, hint, source_file)
+        self.reporter.warning(kind, message, line, column, hint, source_file,
+                              category=category)
 
     def _validate_exports(self, program: Program):
         """`export` statements are only permitted in init.saw facade files.

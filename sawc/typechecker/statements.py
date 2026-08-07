@@ -1171,6 +1171,12 @@ class StatementsMixin:
         """
         if name == "_":
             return
+        # Design 150 section 4b: the first `-W` category. A binding that takes a
+        # module qualifier's name is LEGAL (pin 4 makes qualifiers weak), so this
+        # is a warning and an opt-in one — but it is worth flagging early,
+        # because the cost is invisible until a later line reaches for `time.`
+        # and finds an Instant.
+        self._warn_shadowed_qualifier(name, line, column)
         pos = self._shadowed_binding_pos(name)
         if pos is None:
             return

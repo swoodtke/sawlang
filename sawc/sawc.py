@@ -18,7 +18,8 @@ import tempfile
 from lexer import Lexer
 from parser import Parser
 from codegen import CodeGenerator
-from errors import ErrorReporter, ErrorKind
+from errors import (ErrorReporter, ErrorKind, WARNING_CATEGORIES,
+                    enable_warnings)
 from typechecker import TypeChecker
 from module_resolver import ModuleResolver, ModulePathError
 
@@ -924,6 +925,10 @@ def _prepare_codegen(source_path: str, entry_ast, entry_source: str, verbose: bo
         reporter.print_all()
         sys.exit(1)
 
+    # design 150: warnings never affect the exit code, so the success path is
+    # the ONLY place most of them are ever seen — `print_all` runs on failure.
+    reporter.print_warnings()
+
     # design 113b: enforce the runtime-build sync-only discipline. Every seam is
     # an `@export` function, which the design-22 effect system already treats as
     # a sync context (an `@export`ed body has no Saw caller to drive it across a
@@ -1330,8 +1335,27 @@ Examples:
                         help="Map package NAME to source directory DIR "
                              "(`import NAME` -> DIR/lib.saw, `import NAME.sub` -> "
                              "DIR/sub.saw). Repeatable. Used by the package manager.")
+    parser.add_argument("-W", metavar="NAME", action="append",
+                        default=[], dest="warnings",
+                        help="Enable a warning category (design 150). Repeatable; "
+                             "`-W all` enables every one. Warnings are off by "
+                             "default and never affect the exit code. "
+                             "Categories: "
+                             + ", ".join(sorted(WARNING_CATEGORIES)))
 
     args = parser.parse_args()
+
+    # design 150: warning categories are opt-in, and an unrecognized one is a
+    # clean error rather than a silently ignored flag — a misspelled `-W` that
+    # quietly did nothing would read as "the code is clean".
+    unknown_warnings = enable_warnings(args.warnings)
+    if unknown_warnings:
+        for name in unknown_warnings:
+            print(f"\033[1;31merror\033[0m: unknown warning category `{name}`",
+                  file=sys.stderr)
+        print("known categories: " + ", ".join(sorted(WARNING_CATEGORIES)),
+              file=sys.stderr)
+        sys.exit(1)
 
     # Parse --module-path NAME=DIR pairs into a name->dir dict.
     module_paths = {}
