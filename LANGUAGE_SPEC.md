@@ -2230,6 +2230,34 @@ process(original)  // original is copied, unchanged
   an escaping closure (the non-escaping `[&x]`/`[&var x]` borrow-captures are
   confined to the call)
 
+**A return type may not name a reference.** The no-escape property above is
+enforced at the declaration, in every position a return type is written: a
+`func`, an extension method or `init`, a trait requirement, an `extern func`,
+and the function-**TYPE** grammar (`(Int) sync -> &Int`). The rule reads what
+the return type *names*, not its outermost spelling, so `(Int, &Int)`, `&Int?`
+and `Vector<&Int>` are refused on the same terms. It stops at a nested function
+type: that type's parameter list takes references legitimately — `(&T) sync -> R`
+is `Vector.with_ref`'s callback — and its own return was checked at its own
+arrow. A reference in *parameter* position is untouched anywhere.
+
+```saw
+extension Counter {
+    func peek(&self) -> &Int { &self.n }
+    // error: method `peek` may not return a reference: the return type `&Int`
+    // is a reference, and references in Saw are PARAMETERS ONLY — a reference
+    // borrows storage for the duration of one call and may not escape it ...
+
+    func slot(&self) borrows -> Int { lend self.n }   // the accessor that works
+}
+```
+
+The diagnostic anchors on the return-type token and names the two ways to write
+what was meant: return the **value**, or — to hand out storage the receiver
+already owns — declare a `borrows` accessor, which lends the place for a window
+instead of letting a pointer out (see *Places* below). Until this was enforced,
+`func dangle() -> &Int { let local = 99  return &local }` compiled and ran,
+printing out of a frame that had already died.
+
 **Call-site reference sigils:** the call site mirrors the parameter's reference
 spelling. `&x` lends immutably to a `&T` parameter; `&var x` lends mutably to a
 `&var T` parameter. A mismatch in **either** direction is a compile error

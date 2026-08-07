@@ -186,7 +186,18 @@ var u = w.copy()       // explicit duplicate
   revives on reassignment.
 - NO partial moves (`move p.x` is an error) — move whole bindings.
 - References `&T`/`&var T` are PARAMETER-ONLY, cannot escape/be
-  stored. Call sites mirror the sigil: `f(&x)` / `f(&var x)` (and `x`
+  stored. **A RETURN TYPE MAY NOT NAME ONE** — `-> &T` is a compile error at the
+  declaration, in every position a return type is written (`func`, extension
+  method/`init`, trait requirement, `extern func`, and the function TYPE
+  `(Int) sync -> &Int`), reading what the type NAMES rather than its outer
+  spelling (`(Int, &Int)`, `&Int?`, `Vector<&Int>` are refused too; the walk
+  stops at a nested function type, whose PARAMETERS take references
+  legitimately). It used to compile:
+  `func dangle() -> &Int { let local = 99  return &local }` ran and printed out
+  of a dead frame. Two ways to write what you meant — return the VALUE, or lend
+  the STORAGE with a `borrows` accessor (Places, below), the sanctioned way to
+  hand out a place. Reference PARAMETERS are untouched.
+  Call sites mirror the sigil: `f(&x)` / `f(&var x)` (and `x`
   must be `var`). Mutate through `&var` via compound assignment, methods, or
   whole-referent REPLACEMENT `x = v` (design 110 — uniform across functions,
   `&var self` methods via `self = v`, and closures; matches Swift `inout`).

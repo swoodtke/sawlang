@@ -835,6 +835,12 @@ Saw provides deterministic memory management without garbage collection:
 - **References compose**: a `&T` or `&var T` you receive can be passed on to
   another function as a re-borrow. A reference is never made more permissive than
   the one it came from, and references stay valid across suspension points.
+- **References are parameters only**, and the compiler holds the line at the
+  declaration: a return type that names a reference is an error, in every
+  position a return type is written. The diagnostic names the two ways to write
+  what was meant — return the value, or lend the storage with a `borrows`
+  accessor, which hands out the place itself for a window. A reference in
+  parameter position is untouched.
 - **Shared ownership** through `Arc<T>` (Saw uses atomic reference counts only)
   and owned heap allocation through `Box<T, A>`.
 - **Allocation failure is loud**: an infallible operation (`push`, `append`,

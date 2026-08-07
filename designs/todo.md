@@ -450,9 +450,11 @@ never dropped its payload (DF-146o). One new P0 is OPEN and needs a decision:
   wrong for a Map KEY or a Set element: `s.get(x)!.mutate()` would change an
   element's hash and lose it in its own table, with no diagnostic anywhere.
   Rust draws the same line by having `HashSet::get` and no `get_mut`; Saw has no
-  spelling for it. Options: a `shared borrows` (or `borrows -> &T`) declaration
-  that pins the flavor; or accept that slot-keyed containers publish only
-  by-value reads. Until then `Set` has no element accessor, and the spec says so.
+  spelling for it. Options: a `shared borrows` declaration that pins the flavor;
+  or accept that slot-keyed containers publish only by-value reads. (The second
+  option once floated here, `borrows -> &T`, is gone: a return type that names a
+  reference is a parse error since DF-163a's fix.) Until then `Set` has no
+  element accessor, and the spec says so.
   Adjacent, same brief: a borrows body cannot FORWARD another conditional place
   (`lend self.map.get_key(k)!` — `lend` takes an
   Identifier/MemberAccess/ArrayIndex/TupleIndex/deref, and even if it took a
@@ -2101,8 +2103,9 @@ coroutine, has no frame, and occupies no `__subN` — a lend window makes ZERO
 children live, not two. The brief's "lend-until-epilogue" hazard is real as a
 liveness description and vacuous as a constraint. Two riders: nothing pins the
 rejection with a test (it is structural, via two independent `sync` gates), and
-DF-146k floats `shared borrows` / `borrows -> &T` — if that fence is ever lifted
-this becomes a genuine two-live-children shape and overlay needs re-verification.
+DF-146k floats `shared borrows` (its `borrows -> &T` alternative is a parse error
+since DF-163a's fix) — if that fence is ever lifted this becomes a genuine
+two-live-children shape and overlay needs re-verification.
 
 **2. State-aware teardown — NOT state-keyed today, and this is the entire cost.**
 `__release` is a flat statement list with no reference to `__state`
@@ -2146,7 +2149,9 @@ sibling, never down into a child. A callee's result is COPIED OUT into a caller
 local plus `__saw_forget` before the slot is released (`:3714-3722`). Probed the
 one hole the code review flagged, `-> &T`: `return v` on a `&Int` param fails
 ("expected return type `&Int` but got `Int`"), but `return &v` and
-`return &local` both COMPILE (see DF-163a). The suspending case — the only one
+`return &local` both COMPILE (see DF-163a, fixed Aug 7 — a reference return is a
+parse error now, so what follows records what the probe found on the day). The
+suspending case — the only one
 that could aim into a sub-frame — is closed on BOTH paths: spawn rejects cleanly
 ("local `r` of type `&Int` is a reference held across a suspension"), and the
 driven path errors (see DF-163c).
@@ -2209,17 +2214,33 @@ caught being nondeterministic.
 
 ### DF findings from the investigation
 
-- **DF-163a — `-> &T` escapes the "references are parameters only" rule.**
-  Probe: `func dangle() -> &Int { let local = 99  return &local }` COMPILES and
-  runs, printing 99 out of a dead frame. `return &v` (forwarding a `&Int` param)
-  also compiles. Only `return v` is caught, and by accident — the reference
-  decays to `Int` on read, so it fails the return-type check rather than a
-  positional one. LANGUAGE_SPEC:2142 and :2301-2305 say references are never
-  returned or stored, and :2317-2322 notes the Law of Exclusivity's soundness
-  RESTS on that. `expressions.py:657-665` rejects `&var` in a non-argument
-  position but nothing rejects `&`, and nothing rejects a declared `-> &T`.
-  Orthogonal to 163 (a non-suspending function has no frame) but a real hole.
-  Repro kept at `.build/scratch/probe_retref{2,3}.saw`.
+- **DF-163a — FIXED (Aug 7, commit d98d413). `-> &T` escaped the "references
+  are parameters only" rule.** Probe: `func dangle() -> &Int { let local = 99
+  return &local }` COMPILED and ran, printing 99 out of a dead frame. `return &v`
+  (forwarding a `&Int` param) compiled too. Only `return v` was caught, and by
+  accident — the reference decays to `Int` on read, so it failed the return-TYPE
+  check rather than a positional one. LANGUAGE_SPEC said references are never
+  returned or stored and that the Law of Exclusivity's soundness RESTS on that;
+  nothing enforced it.
+  **Fix:** a return type that NAMES a reference is refused in the PARSER, at the
+  return-type token, in every position a return type is written — `func`,
+  extension method / `init`, trait requirement, `extern func`, and the function
+  TYPE `(Int) sync -> &Int`. Four declaration sites now share
+  `parse_return_clause` (`parser/types.py`), which calls the one rule; the
+  function-TYPE arrow calls it directly. The walk reads what the type NAMES, not
+  its outer spelling — `(Int, &Int)`, `&Int?` and `Vector<&Int>` compiled and ran
+  before and are refused now — and stops at a NESTED function type, whose
+  parameter list takes references legitimately (`(&T) sync -> R` is
+  `Vector.with_ref`'s callback) and whose own return is checked at its own arrow.
+  The message names the parameters-only rule and both outs: return the value, or
+  lend the storage with a `borrows` accessor. Reliance audit before the change
+  found ZERO `.saw` sites in the tree (1511 files) declaring a reference return
+  and ZERO compiler sites synthesizing one, so no carve-out was needed;
+  `borrows -> T` is spelled with no `&` anywhere and is untouched. Tests:
+  `examples/errors/ref_return_{dangles,method,trait_method,extern,function_type,
+  var_flavor,nested_in_tuple,suspending_anchored}.saw` (the investigation's
+  dangling probe is the first) plus the positive
+  `examples/ref_return_alternatives.saw`, which pins what stays legal.
 - **DF-163b — a nested `yield_now()`/`sleep()` silently does not cede.** A user
   helper whose only suspension is a cooperative primitive is treated as
   suspending when spawned DIRECTLY (2 states) but NOT when called from another
@@ -2235,11 +2256,50 @@ caught being nondeterministic.
   the same nesting, so this is specific to the cooperative free-function
   primitives. **Worth its own brief** — it also means the corpus measurement
   above UNDERSTATES the child population: fix this and more frames gain children.
-- **DF-163c — unanchored diagnostic on the driven `-> &T` path.** The driven
-  (non-spawn) case of a suspending function returning a reference reports
+- **DF-163c — FIXED (Aug 7, commit d98d413, with 163a).** The driven
+  (non-spawn) case of a suspending function returning a reference reported
   ``cannot assign `&Int` to field of type `UnsafeConstPointer<Int>` `` at
   `0:0` with no source anchor — an internal message leaking through the design-74
-  (A8) anchoring rule. It is a fence (nothing compiles), just an ugly one.
+  (A8) anchoring rule. It was a fence (nothing compiled), just an ugly one.
+  Refusing the DECLARATION closes it: the transform never sees the signature, and
+  the message is now the same anchored sentence every other position gets.
+  `examples/errors/ref_return_suspending_anchored.saw` asserts the exact
+  `Parse error at 15:23:` anchor, so a regression to `0:0` fails the suite.
+
+### DF findings from the 163a fix (Aug 7)
+
+- **DF-163d — OPEN, needs a user decision. The other three halves of "references
+  cannot escape" are still unenforced.** With `-> &T` closed, a bare `&` in a
+  NON-argument position is the remaining way out, and all three shapes compile
+  and RUN today:
+  - bound to a local — `let r = &x`, then `read_one(r)` prints;
+  - stored in a struct FIELD — `struct Holder { r: &Int }`, built with
+    `Holder(r: &x)` and read back;
+  - as a TYPE ARGUMENT — `Vector<&Int>` with `v.push(&x)`, and a generic
+    instantiated at a reference (`idn<&Int>(&v)`);
+  - returned out of a CLOSURE by inference — `let f = { &x }` types `() -> &Int`,
+    since a closure literal has no written return type for the declaration-side
+    rule to read. (The `with_ref` identity closure `{ e in e }` is NOT this case:
+    the reference decays to the value on read, so `R` infers `Int` — probed.)
+
+  `expressions.py:657-665` already rejects the `&var` flavor everywhere but a
+  call argument (design 34), and a struct-init argument does NOT count as one —
+  `Holder(r: &var x)` is refused today, probed. So dropping the `expr.mutable
+  and` guard closes THREE of the four in one edit (the binding, the field
+  construction, the closure body), and the design-163a reliance audit found ZERO
+  in-tree uses of `&` outside a call argument across 1511 `.saw` files, so the
+  blast radius looks empty. The TYPE-ARGUMENT case survives it and needs its own
+  rule: `v.push(&x)` into a `Vector<&Int>` is a genuine call argument, so what
+  has to be refused there is naming a reference as a type argument or a field
+  type at all. Not landed with 163a because it is a language-surface RULING
+  rather than a bug fix — it decides whether a reference may ever be named
+  outside a call — and it reaches fields, bindings, captures and type arguments
+  rather than the one position DF-163a named. Wants a small brief.
+- **DF-163e — CLOSED BY RULING, note for whoever picks up DF-146k.** DF-146k
+  floats `shared borrows` *or* `borrows -> &T` as spellings for a shared-flavor
+  place. `borrows -> &T` is now a parse error like any other reference return, so
+  `shared borrows` (or an equivalent that never names a reference) is the only
+  live candidate. Nothing to do unless 146k is taken up.
 
 ## Design 161 — the tuple-index and number-scanner lex rules (LANDED, Aug 6)
 
