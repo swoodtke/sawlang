@@ -1,0 +1,69 @@
+// DF-169d: user conformances on primitives, uniform across the whole set.
+//
+// `extension T: MyTrait` used to be accepted for exactly Int, Float and String
+// and refused as "cannot extend undefined struct" for UInt, Bool and all eight
+// fixed-width integers — a split with no rule behind it, and one that landed
+// squarely on the wire-vocabulary case (`<T: MyProto>` at `T = UInt8`). Every
+// primitive registers an extensible pseudo-struct now, so all three layers work
+// alike: the declaration, direct dispatch, and a generic BOUND.
+//
+// Bounds are monomorphized, so this costs nothing at runtime. Erasure to
+// `&any`/`Box<any>` is a separate question with a separate answer — see
+// errors/primitive_erasure_refused.saw.
+// EXPECT: success
+// EXPECT-OUTPUT:
+// direct int u8 bool
+// bound int
+// bound uint
+// bound i8
+// bound i16
+// bound i32
+// bound i64
+// bound u8
+// bound u16
+// bound u32
+// bound u64
+// bound bool
+// bound float
+// bound string
+// -- done
+
+trait Tagged { func tag(&self) -> String }
+
+extension Int: Tagged { func tag(&self) -> String { "int" } }
+extension UInt: Tagged { func tag(&self) -> String { "uint" } }
+extension Int8: Tagged { func tag(&self) -> String { "i8" } }
+extension Int16: Tagged { func tag(&self) -> String { "i16" } }
+extension Int32: Tagged { func tag(&self) -> String { "i32" } }
+extension Int64: Tagged { func tag(&self) -> String { "i64" } }
+extension UInt8: Tagged { func tag(&self) -> String { "u8" } }
+extension UInt16: Tagged { func tag(&self) -> String { "u16" } }
+extension UInt32: Tagged { func tag(&self) -> String { "u32" } }
+extension UInt64: Tagged { func tag(&self) -> String { "u64" } }
+extension Bool: Tagged { func tag(&self) -> String { "bool" } }
+extension Float: Tagged { func tag(&self) -> String { "float" } }
+extension String: Tagged { func tag(&self) -> String { "string" } }
+
+func describe<T: Tagged>(v: T) -> String { v.tag() }
+
+func main() {
+    // Direct dispatch on a primitive receiver.
+    print("direct {5.tag()} {7u8.tag()} {true.tag()}")
+
+    // The same conformance through a generic bound, at every instantiation.
+    let u: UInt = 1
+    print("bound {describe(5)}")
+    print("bound {describe(u)}")
+    print("bound {describe(1i8)}")
+    print("bound {describe(1i16)}")
+    print("bound {describe(1i32)}")
+    print("bound {describe(1i64)}")
+    print("bound {describe(1u8)}")
+    print("bound {describe(1u16)}")
+    print("bound {describe(1u32)}")
+    print("bound {describe(1u64)}")
+    print("bound {describe(true)}")
+    print("bound {describe(1.5)}")
+    print("bound {describe("s")}")
+    print("-- done")
+}

@@ -1271,10 +1271,10 @@ class CallsMixin:
             recv_saw_conc = recv_saw
             if recv_saw_conc is not None and self.type_param_context:
                 recv_saw_conc = recv_saw_conc.substitute(self.type_param_context)
-            if recv_saw_conc is not None and recv_saw_conc.kind == TypeKind.INT:
-                struct_name = "Int"
-            elif recv_saw_conc is not None and recv_saw_conc.kind == TypeKind.FLOAT:
-                struct_name = "Float"
+            prim_name = (self._primitive_ext_name(recv_saw_conc)
+                         if recv_saw_conc is not None else None)
+            if prim_name is not None:
+                struct_name = prim_name
             elif recv_saw_conc is not None and self._canonicalize_type_kind(
                     recv_saw_conc).kind == TypeKind.ENUM:
                 # Design 145: an enum receiver must be named from the stamped

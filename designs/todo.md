@@ -636,6 +636,23 @@ half-built. What part 2 inherits:
   whose implementations are meant to be callable from a place window, a lock
   body or a `Deinit` must declare `sync` on its requirements, because dispatch
   through `any Trait` is assumed suspending otherwise.
+- **DF-169d — FIXED (design 176 unit 6), the a-lite shape exactly as decided.**
+  EVERY primitive registers an extensible pseudo-struct now (Int, UInt, the
+  eight fixed-width integers, Bool, Float, String), so declaration acceptance,
+  direct dispatch and generic-BOUND participation are uniform — the wire case
+  `<T: MyProto>` at `T = UInt8` included, monomorphized with no vtable. Four
+  places had hardcoded the Int/Float/String subset and each now reads one
+  table: `_PRIMITIVE_CONFORMANCE_KEYS` (namespace, plus a
+  `primitive_conformance_key` accessor), `_PRIMITIVE_EXT_KINDS` (codegen
+  receiver types + method base), the checker's method-call receiver mapping,
+  and codegen's receiver naming. ERASURE to `&any`/`Box<any>` is ONE clean
+  error for every primitive, naming both outs (generic bound / wrapper struct);
+  the `String` `i8* != i8**` codegen ICE and the Int/Float "does not conform"
+  both fold into it. Boxing stays additive — if it ever lands the error simply
+  becomes working code. In-tree migration tail: ZERO. Tests:
+  `examples/primitive_conformances.saw`,
+  `examples/errors/primitive_erasure_refused.saw`,
+  `examples/errors/primitive_box_erasure_refused.saw`. Original finding follows.
 - **DF-169d (filed Aug 7, user-prompted full matrix — SUPERSEDES the VERIFY
   note below): primitive user-conformances are broken at three layers.**
   Probed every builtin: `extension T: MyTrait` is ACCEPTED for exactly

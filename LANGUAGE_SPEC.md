@@ -3918,6 +3918,25 @@ methods are called with ordinary `value.method(...)` syntax.
   functions and follow **IEEE** semantics — a `NaN` propagates, and `min`/`max`
   with one `NaN` operand return the non-`NaN` one.
 
+#### Conformances on primitives
+
+**Every** primitive is an extendable pseudo-struct — `Int`, `UInt`, the eight
+fixed-width integers, `Bool`, `Float`, `String` — so a user trait may be
+conformed to any of them and the conformance participates in generic bounds:
+
+```saw
+trait Wire { func encoded(&self) -> UInt8 }
+extension UInt8: Wire { func encoded(&self) -> UInt8 { self } }
+
+func put<T: Wire>(v: T) -> UInt8 { v.encoded() }   // monomorphized, no vtable
+```
+
+A primitive cannot be **erased** to `&any Trait` or `Box<any Trait>`: an
+existential carries a vtable beside the value and a primitive has no boxed form
+to carry one. That is a clean error naming the two ways out — a generic bound
+(above), or a wrapper struct you own and conform. Neither costs anything at
+runtime.
+
 ---
 
 ## 6. Concurrency

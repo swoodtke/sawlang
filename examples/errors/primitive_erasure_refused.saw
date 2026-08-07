@@ -1,0 +1,28 @@
+// DF-169d, the half that stays refused — and now says so once, the same way,
+// for every primitive.
+//
+// An existential carries a vtable beside the value, and a primitive has no
+// boxed form to carry one. That single reason used to produce three different
+// outcomes: `Int`/`Float` reported "does not conform" (the conformance was
+// real; the existential path never consulted it), `String` reached codegen and
+// died there on `i8* != i8**`, and the fixed-width integers could not declare
+// the conformance at all.
+//
+// Both ways out work today and neither costs anything at runtime: a generic
+// bound monomorphizes, and a wrapper struct is a nominal type with a real
+// layout. Boxing stays additive later — if it lands, this error just becomes
+// working code.
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: `Int` is a primitive and cannot be erased to `any Tagged`
+// EXPECT-ERROR-CONTAINS: take it through a generic BOUND instead
+
+trait Tagged { func tag(&self) -> String }
+
+extension Int: Tagged { func tag(&self) -> String { "int" } }
+
+func show(t: &any Tagged) -> String { t.tag() }
+
+func main() {
+    let n = 5
+    print("{show(&n)}")
+}

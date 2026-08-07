@@ -99,15 +99,23 @@ class RegistrationMixin:
         self.namespace.register_conformance("String", "Comparable")
         self.namespace.register_conformance("String", "Hashable")
 
-        # Register Int and Float as pseudo-structs so they can carry method
-        # extensions (design 57 Part 5), the same mechanism String uses. No
-        # conformances are registered here: their Copy/Equatable/Comparable/
-        # Hashable behavior is handled by the primitive-aware bound checks and
-        # the compiler-intercepted copy/hash/compare/format lowerings, all of
-        # which run before ordinary struct-method dispatch. The pseudo-struct
-        # only makes `extension Int { ... }` / `extension Float { ... }` and
+        # Register EVERY primitive as a pseudo-struct so it can carry method
+        # extensions and conformances (design 57 Part 5, widened by design 176 /
+        # DF-169d). No conformances are registered here: their Copy/Equatable/
+        # Comparable/Hashable behavior is handled by the primitive-aware bound
+        # checks and the compiler-intercepted copy/hash/compare/format
+        # lowerings, all of which run before ordinary struct-method dispatch.
+        # The pseudo-struct only makes `extension Int8 { ... }` and
         # value.method() dispatch resolve.
-        for _prim in ("Int", "Float"):
+        #
+        # This list used to be Int and Float alone (String is registered
+        # separately, above), which made `extension UInt8: MyProto` — the
+        # wire-vocabulary case — the error "cannot extend undefined struct
+        # `UInt8`" while the identical declaration on `Int` compiled. There was
+        # no rule behind the split; it was the set someone happened to need.
+        for _prim in ("Int", "UInt", "Float", "Bool",
+                      "Int8", "Int16", "Int32", "Int64",
+                      "UInt8", "UInt16", "UInt32", "UInt64"):
             self.namespace.register_struct(_prim, StructSymbol(
                 fields={}, field_order=[], line=0, column=0))
 

@@ -6765,6 +6765,10 @@ class ExpressionsMixin:
                              type_args=[existential_type, allocator])
         if concrete is None:
             return box_result
+        if self._reject_primitive_erasure(
+                concrete, trait_name,
+                expr.arguments[0].value.line, expr.arguments[0].value.column):
+            return box_result
         conc_name = None
         if concrete.kind == TypeKind.STRUCT:
             conc_name = concrete.struct_name
@@ -6923,6 +6927,9 @@ class ExpressionsMixin:
                     arg.value.line, arg.value.column)
             return True
         conc = arg_type.inner_type
+        if self._reject_primitive_erasure(conc, trait_name,
+                                          arg.value.line, arg.value.column):
+            return True
         conc_name = conc.struct_name if conc.kind == TypeKind.STRUCT else (
             "String" if conc.kind == TypeKind.STRING else None)
         if conc_name is None or not self.namespace.type_conforms_to(conc_name, trait_name):
@@ -6934,6 +6941,36 @@ class ExpressionsMixin:
             return True
         arg.value.erase_to_trait = trait_name
         arg.value.erase_concrete = conc
+        return True
+
+    def _reject_primitive_erasure(self, conc, trait_name, line, column) -> bool:
+        """DF-169d: erasing a PRIMITIVE to an existential is one clean error.
+
+        A primitive has no boxed representation to carry a vtable beside it, so
+        `&any Trait` has nothing to point at. That was three different outcomes
+        before — `Int`/`Float` reported "does not conform" (the conformance was
+        real, the existential path just never saw it), `String` reached codegen
+        and died there on `i8* != i8**`, and the fixed-width integers could not
+        declare a conformance at all — for one underlying reason.
+
+        Both ways out work TODAY and neither costs anything at runtime: a
+        generic bound monomorphizes, and a wrapper struct is a nominal type with
+        a real layout. Boxing stays additive later; if it lands, this error
+        simply becomes working code.
+        """
+        name = self.namespace.primitive_conformance_key(conc)
+        if name is None:
+            return False
+        self._error(
+            ErrorKind.TYPE_MISMATCH,
+            f"`{name}` is a primitive and cannot be erased to "
+            f"`any {trait_name}`: an existential carries a vtable beside the "
+            f"value, and a primitive has no boxed form to carry one",
+            line, column,
+            hint=f"take it through a generic BOUND instead — "
+                 f"`<T: {trait_name}>` monomorphizes and costs nothing at "
+                 f"`T = {name}` — or wrap it in a struct you own and conform "
+                 f"that")
         return True
 
     def _check_array_method(self, expr: MethodCall, arr_type: SawType) -> Optional[SawType]:
@@ -7339,13 +7376,10 @@ class ExpressionsMixin:
                 and not getattr(expr, 'type_args', None)):
             return self._check_optional_take(expr, obj_type)
 
-        _prim_ext_name = {
-            TypeKind.STRING: "String",
-            TypeKind.INT: "Int",
-            TypeKind.FLOAT: "Float",
-        }.get(obj_type.kind)
+        _prim_ext_name = self.namespace.primitive_conformance_key(obj_type)
         if _prim_ext_name is not None:
-            # Method on a primitive pseudo-struct (design 57: String/Int/Float).
+            # Method on a primitive pseudo-struct (design 57, every primitive
+            # since design 176 / DF-169d).
             struct_name = _prim_ext_name
             struct_info = self.get_struct_info(struct_name)
         elif obj_type.kind == TypeKind.STRUCT:

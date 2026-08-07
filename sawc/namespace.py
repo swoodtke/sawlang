@@ -985,10 +985,37 @@ class Namespace:
     # Primitive kinds that register an extensible pseudo-struct (design 57), so a
     # `extension Int: Fooable` conformance is keyed under this name — the same key
     # trait-method dispatch resolves a primitive receiver's methods by.
+    #
+    # Every primitive is here since design 176 (DF-169d). It used to be Int and
+    # Float, which meant `extension UInt8: MyProto` either would not declare at
+    # all or declared and then failed a `<T: MyProto>` bound at `T = UInt8` —
+    # the wire-vocabulary case, and the whole point of conforming a fixed-width
+    # integer.
     _PRIMITIVE_CONFORMANCE_KEYS = {
         TypeKind.INT: "Int",
+        TypeKind.UINT: "UInt",
+        TypeKind.INT8: "Int8",
+        TypeKind.INT16: "Int16",
+        TypeKind.INT32: "Int32",
+        TypeKind.INT64: "Int64",
+        TypeKind.UINT8: "UInt8",
+        TypeKind.UINT16: "UInt16",
+        TypeKind.UINT32: "UInt32",
+        TypeKind.UINT64: "UInt64",
         TypeKind.FLOAT: "Float",
+        TypeKind.BOOL: "Bool",
+        TypeKind.STRING: "String",
     }
+
+    def primitive_conformance_key(self, saw_type) -> Optional[str]:
+        """The pseudo-struct name for a PRIMITIVE type, or None if it is not one.
+
+        Also the answer to "can this type be erased to an existential" — it
+        cannot, and a primitive is exactly the set that cannot (DF-169d).
+        """
+        if saw_type is None:
+            return None
+        return self._PRIMITIVE_CONFORMANCE_KEYS.get(saw_type.kind)
 
     def _lookup_struct_deep(self, name: str) -> Optional[StructSymbol]:
         """Look up a struct in this namespace or any imported module namespace."""
@@ -1729,8 +1756,7 @@ class Namespace:
             # A primitive that carries method extensions (design 57) conforms to
             # a user trait through the SAME conformance key the trait-method
             # dispatch uses for its pseudo-struct (`extension Int: Fooable`).
-            # Only Int/Float register as extensible pseudo-structs; other
-            # primitives cannot be extended, so their conformance set is empty.
+            # Every primitive registers one since design 176 (DF-169d).
             name = self._PRIMITIVE_CONFORMANCE_KEYS.get(saw_type.kind)
         if name is None:
             return False

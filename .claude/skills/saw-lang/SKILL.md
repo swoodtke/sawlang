@@ -665,6 +665,15 @@ v.map({ $0.to_string() })           // type args INFERRED (design 93): U from
 v.map<String>({ $0.to_string() })   // the closure's return; explicit still wins
 ```
 - `any` only behind `&`, `&var`, or `Box` (unsized otherwise).
+- **EVERY primitive takes a user conformance** (design 176): `Int`, `UInt`, all
+  eight fixed-width integers, `Bool`, `Float`, `String`. `extension UInt8:
+  MyProto { ... }` declares, dispatches directly (`b.encoded()`), and satisfies
+  a generic BOUND (`<T: MyProto>` at `T = UInt8` — monomorphized, no vtable).
+  That set used to be Int/Float/String only, with no rule behind the split.
+  A primitive still cannot be ERASED to `&any Trait`/`Box<any Trait>` — an
+  existential carries a vtable beside the value and a primitive has no boxed
+  form — and that is one clean error naming the two outs: the generic bound, or
+  a wrapper struct you own.
 - **Generic type-arg inference (design 93 + 105):** a generic free function or
   method may omit its `<...>` — argument types (and a closure's inferred RETURN
   type) solve them (`wrap(5)`, `first(7,"hi")`, `v.map({...})`, `v.fold(0){...}`).

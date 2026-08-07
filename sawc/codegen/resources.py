@@ -55,17 +55,47 @@ class ResourcesMixin:
             return saw_type.enum_name
         return None
 
+    # Every primitive pseudo-struct an extension may be written on (design 57,
+    # widened to the whole set by design 176 / DF-169d), and the `SawType` kind
+    # its `self` carries.
+    _PRIMITIVE_EXT_KINDS = {
+        "String": TypeKind.STRING,
+        "Int": TypeKind.INT,
+        "UInt": TypeKind.UINT,
+        "Float": TypeKind.FLOAT,
+        "Bool": TypeKind.BOOL,
+        "Int8": TypeKind.INT8,
+        "Int16": TypeKind.INT16,
+        "Int32": TypeKind.INT32,
+        "Int64": TypeKind.INT64,
+        "UInt8": TypeKind.UINT8,
+        "UInt16": TypeKind.UINT16,
+        "UInt32": TypeKind.UINT32,
+        "UInt64": TypeKind.UINT64,
+    }
+
+    def _primitive_ext_name(self, saw_type):
+        """The pseudo-struct name a primitive receiver dispatches under, or None.
+
+        Named from the stamped `SawType`, never from the LLVM shape: an `Int` is
+        an i64 and so is an `Int64` and a `UInt`, and a payload-free enum is an
+        i32 like an `Int32`.
+        """
+        if saw_type is None:
+            return None
+        for name, kind in self._PRIMITIVE_EXT_KINDS.items():
+            if saw_type.kind == kind:
+                return name
+        return None
+
     def _primitive_self_llvm_type(self, struct_name: str):
         """The LLVM `self` type for a method in an extension on a primitive
-        pseudo-struct (String/Int/Float, design 57), or None for an ordinary
-        struct. String is i8*; Int is the platform word; Float is a double."""
-        if struct_name == "String":
-            return ir.IntType(8).as_pointer()
-        if struct_name == "Int":
-            return self.int_type
-        if struct_name == "Float":
-            return ir.DoubleType()
-        return None
+        pseudo-struct (design 57), or None for an ordinary struct. String is
+        i8*; the integers are their own widths; Float is a double."""
+        kind = self._PRIMITIVE_EXT_KINDS.get(struct_name)
+        if kind is None:
+            return None
+        return self._get_llvm_type(SawType(kind))
 
     def _enum_tag_llvm_type(self, enum_name: str):
         """The LLVM integer type of an enum's TAG.
@@ -95,9 +125,7 @@ class ResourcesMixin:
         `match self` in the body would fail to resolve its cases."""
         prim = self._primitive_self_llvm_type(type_name)
         if prim is not None:
-            kind = {"String": TypeKind.STRING, "Int": TypeKind.INT,
-                    "Float": TypeKind.FLOAT}[type_name]
-            return prim, SawType(kind)
+            return prim, SawType(self._PRIMITIVE_EXT_KINDS[type_name])
         if type_name in self.enum_types:
             return (self.enum_types[type_name][0],
                     SawType(TypeKind.ENUM, enum_name=type_name))
@@ -131,13 +159,11 @@ class ResourcesMixin:
         each element was freed exactly once by accident. Fixing either half by
         itself frees twice. `get` is a place now, so this lands with it.
         """
-        if saw_type.kind == TypeKind.STRING:
-            return "String"
-        # Primitive pseudo-structs carrying method extensions (design 57).
-        if saw_type.kind == TypeKind.INT:
-            return "Int"
-        if saw_type.kind == TypeKind.FLOAT:
-            return "Float"
+        # Primitive pseudo-structs carrying method extensions (design 57, the
+        # whole set since design 176 / DF-169d).
+        for _name, _kind in self._PRIMITIVE_EXT_KINDS.items():
+            if saw_type.kind == _kind:
+                return _name
         if saw_type.kind in (TypeKind.STRUCT, TypeKind.ENUM):
             name = (saw_type.struct_name if saw_type.kind == TypeKind.STRUCT
                     else saw_type.enum_name)
