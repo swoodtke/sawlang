@@ -16,8 +16,9 @@ Pipeline per test case:
   1. sawc   : <src>.saw  -> <name>.o   (--freestanding --no-hidden-alloc
               --target riscv32-..., --module-path kcore=sos/kernel/core — the
               shared kernel module carrying the trap handler boot.S calls)
-  2. clang  : boot.S     -> boot.o     (shared; assembled once)
-  3. clang  : rt.c       -> rt.o       (shared; runtime seams, compiled once)
+  2. clang  : boot.S     -> boot.o     (kernel HAL; assembled once)
+  3. clang  : sink.c     -> sink.o     (kernel HAL: board hooks + PMP/CSR)
+     clang  : support.c  -> support.o  (shared runtime seams, compiled once)
   4. the `.payload` blob, if the case has one — EITHER a hand-written `.S`
      (unit A's U-mode code, unit B's hand-assembled sosimgs) OR a root package
      built by Blade and pulled in through sos/kernel/rootimg.S's `.incbin`
@@ -45,9 +46,10 @@ KERNEL_DIR = os.path.join(REPO_ROOT, "sos", "kernel")
 CORE_DIR = os.path.join(KERNEL_DIR, "core")
 TESTS_DIR = os.path.join(REPO_ROOT, "sos", "tests")
 
-# Every kernel image is `boot.S` + `rt.c` + the shared kernel core + one entry
-# `.saw` defining `kmain`. The core carries the trap handler boot.S calls, so
-# the module path is not optional for any case.
+# Every kernel image is the riscv32 kernel HAL (`boot.S` + `sink.c`) + the shared
+# runtime seams (`support.c`) + the shared kernel core + one entry `.saw`
+# defining `kmain`. The core carries the trap handler boot.S calls, so the
+# module path is not optional for any case.
 CORE_MODULE = f"kcore={CORE_DIR}"
 
 # The sosimg layout, shared with the Blade target that emits images. The kernel
