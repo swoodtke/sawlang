@@ -4,13 +4,14 @@
 //
 //   internal compiler error: None literal has no type information
 //
-// Workaround today: an annotated `let absent: Int? = None` as the RHS.
+// FIXED by design 176 unit 1: `??` stamps its LHS's payload type onto a bare
+// `None` RHS, and the expression's own result type is that payload type rather
+// than the literal's untyped one.
 // EXPECT: success
 // EXPECT-OUTPUT:
 // missing inner-absent
 // present 1
 // -- done
-// XFAIL: DF-146l None literal as a `??` RHS at a nested optional ICEs
 
 func main() {
     var m = Map<String, Int?>()

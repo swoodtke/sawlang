@@ -38,6 +38,26 @@ class StaticAssertError(Exception):
         self.column = column
 
 
+class CodegenUserError(Exception):
+    """A rejected PROGRAM discovered during code generation (design 176).
+
+    Codegen's other failures are compiler-invariant violations and rightly
+    surface as internal errors. This one is not: the only way an untyped `None`
+    reaches codegen is that no slot in the program pinned its payload type
+    (DF-146l), which is the author's to fix, so it is reported at the literal
+    with a hint rather than as an ICE. Same shape as `StaticAssertError` — a
+    user error the driver renders, not a traceback.
+    """
+    def __init__(self, message: str, line: int, column: int,
+                 hint: str = None, source_file: str = None):
+        super().__init__(message)
+        self.message = message
+        self.line = line
+        self.column = column
+        self.hint = hint
+        self.source_file = source_file
+
+
 from .types import TypesMixin
 from .resources import ResourcesMixin
 from .generics import GenericsMixin

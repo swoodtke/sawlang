@@ -1,24 +1,47 @@
-// Design 174 — DF-146l trigger site 4 (NEW, found by this sweep). A `None`
-// DEFAULT VALUE typed by a type parameter ICEs at the DECLARATION, before any
-// call site is considered:
+// Design 174 — DF-146l trigger site 4. A `None` DEFAULT VALUE typed by a type
+// parameter ICEd at the DECLARATION, before any call site was considered:
 //
 //   internal compiler error: None literal has no type information
 //
-// Design 108 makes a default value typed by a type param legal and lets it
-// DRIVE inference, so `b: T = None` should infer `T = <some optional>` at a
-// call that supplies nothing — or fail cleanly. It ICEs instead.
+// FIXED by design 176 unit 1. The declaration compiles, and an OMITTED `None`
+// default is materialized from the callee's own parameter type at each call —
+// which is the only thing that knows the answer, since the default expression
+// lives on the declaration and the instantiation decides. Both shapes work:
+// `b: T = None` at `T = Int?`, and `b: T? = None` at `T = Int` (the latter used
+// to reach the LLVM lowering with an abstract `T` even after the None was
+// typed).
+//
+// The one call this cannot serve is the one where NOTHING fixes `T` — a bare
+// `None` names no type, so `T` is genuinely underdetermined there. The tracker's
+// ruling for this site is "it should infer or fail cleanly"; that call takes the
+// second branch and is pinned in errors/none_default_underdetermined.saw.
+//
+// `describe` cannot LOOK at `b`: `if let` on a bare `T` is refused in the
+// abstract body, since not every instantiation is an optional. That the call
+// runs at all is what it pins — an ill-formed default used to be an ICE, and
+// before that a malformed value in the argument slot. `tagged` carries the
+// absent-versus-present half, where the parameter type says `T?` outright.
 // EXPECT: success
 // EXPECT-OUTPUT:
-// default 1
-// supplied 2
+// omitted ok
+// supplied ok
+// param-optional omitted no b
+// param-optional supplied with b
 // -- done
-// XFAIL: DF-146l None as a generic default value ICEs at the declaration
 
-func with_default<T>(a: Int, b: T = None) -> Int { a }
+func describe<T>(a: T, b: T = None) -> String { "ok" }
+
+func tagged<T>(a: Int, b: T? = None) -> String {
+    if let _ = b { "with b" } else { "no b" }
+}
 
 func main() {
-    print("default {with_default(1)}")
     let some: Int? = 9
-    print("supplied {with_default(2, b: some)}")
+    let other: Int? = 3
+    print("omitted {describe(some)}")
+    print("supplied {describe(some, b: other)}")
+
+    print("param-optional omitted {tagged<Int>(1)}")
+    print("param-optional supplied {tagged(1, b: 5)}")
     print("-- done")
 }

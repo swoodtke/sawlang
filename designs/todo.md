@@ -66,6 +66,31 @@ items need a probe before being treated as real work.
   NOT apply to generic instantiation, so the conditional-lend contract is
   sound for optional-valued containers (probe:
   .build/scratch/probe_nested_opt.saw).
+- **DF-146l — FIXED (design 176 unit 1), all four sites plus the hardening
+  rule.** Site 1 (Map literal value) and every other ELEMENT position went
+  through one fix: `_apply_literal_expected_type`, the recursion that already
+  pushes a fixed integer width into a container's elements, now pushes an
+  OPTIONAL expectation onto a bare `None` (stamped as `expected_type`, since
+  `_check_expression`'s own stamp would overwrite a `resolved_type` written
+  before the check). Site 2: `??` stamps its LHS's payload type onto a `None`
+  RHS and returns that payload type rather than the literal's untyped one.
+  Sites 3 and 4 turned out to be one bug in inference: `_unify_infer` BOUND a
+  type parameter to the untyped optional, so `idn(None)` "solved" and then died
+  in codegen. A bare `None` now records no binding at all, which makes the
+  underdetermined call report itself cleanly AND fixes DF-174f for free (unit
+  11 — nothing left for the later argument's `Int?` to conflict with). Site 4's
+  remaining half is codegen: an OMITTED `None` default is materialized from the
+  CALLEE's parameter type, the only thing that knows the instantiation (the
+  default expression lives on the declaration, and stamping it would let one
+  call's instantiation win for another's). That also fixed a second, separate
+  ICE the first fix uncovered — a `b: T? = None` default reached the LLVM
+  lowering with an abstract `T`. HARDENING: an untyped `None` reaching codegen
+  is now a clean anchored error (`CodegenUserError`, rendered by the driver like
+  `StaticAssertError`), never an ICE. NOT ACHIEVABLE and pinned as an error
+  instead: `with_default(1)` where `T` appears only in `b: T = None` — a bare
+  `None` names no type, so `T` is genuinely underdetermined; the ruling's "infer
+  or fail cleanly" takes its second branch (`examples/errors/
+  none_default_underdetermined.saw`). Original finding follows.
 - **DF-146l (COMPILER, filed Aug 7, found by that probe): a `None` literal
   ICEs wherever expected-type propagation misses — FOUR trigger sites known**
   (2 filed Aug 7, 2 more added by design 174's sweep).
@@ -183,6 +208,13 @@ verdict table: `designs/174-optional-generic-sweep.md`. 19 tests landed as
   `v.set(i, value)` accepts the same value, so the accessor and the place
   disagree about the element type. Test:
   `examples/optional_generic_place_assign_xfail.saw`.
+- **DF-174f — FIXED (design 176 unit 11, delivered by unit 1's one-line change
+  to `_unify_infer`). Later-arg inference would not unify a bare `None` with the
+  Optional a later argument fixes.** The literal was BINDING the type parameter
+  to the untyped optional, so the later `Int?` looked like a second, conflicting
+  binding. A `None` records nothing now, leaving design 105's fixpoint to solve
+  the parameter from whichever argument has a type — in either order. Original
+  finding follows.
 - **DF-174f (COMPILER, filed Aug 7): later-arg inference will not unify a bare
   `None` with the Optional a later argument fixes.** `pick(None, some)` where
   `some: Int?` and `func pick<T>(a: T, b: T) -> T` errors "cannot infer type

@@ -8,9 +8,13 @@
 // correct outcome is a clean anchored error naming `T`, exactly as
 // `idn<Int?>(None)` (which works) is the way to say it. What must not happen is
 // an ICE. The EXPECT below therefore pins the ERROR, not a successful run.
+//
+// FIXED by design 176 unit 1: a bare `None` no longer BINDS a type parameter
+// during inference. It has no type of its own, so it constrains nothing — which
+// leaves this call underdetermined and reported as such, and (DF-174f) leaves a
+// later argument free to fix the parameter instead.
 // EXPECT: error
 // EXPECT-ERROR-CONTAINS: cannot infer type argument
-// XFAIL: DF-146l bare None as a generic call argument ICEs instead of a clean underdetermined error
 
 func idn<T>(x: T) -> T { x }
 

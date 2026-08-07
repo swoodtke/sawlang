@@ -2147,6 +2147,18 @@ class ExpressionsMixin:
             return
         nm = self._infer_tp_name(pattern, names)
         if nm is not None:
+            if actual.is_none_literal():
+                # A bare `None` has no type of its own, so it constrains nothing
+                # (DF-146l site 3, DF-174f). Binding the parameter to the untyped
+                # optional made two calls go wrong in two directions: `idn(None)`
+                # "solved" `T` and then died in codegen with no payload type, and
+                # `pick(None, some)` reported `T` as required to be both
+                # `OPTIONAL` and `Int?` — never a conflict, since every optional
+                # discharges a `None`. Recording nothing leaves a later argument
+                # free to fix the parameter (design 105's fixpoint does the rest)
+                # and leaves a genuinely underdetermined call to the clean
+                # "cannot infer type argument" error below.
+                return
             prev = out.get(nm)
             if prev is None:
                 out[nm] = actual
@@ -4335,6 +4347,22 @@ class ExpressionsMixin:
         if rt is None:
             return
 
+        # (0) Bare `None` → adopt an OPTIONAL expectation (DF-146l). A None
+        #     literal has no type of its own, and every slot that pins one used
+        #     to do it by hand (`let`/`return`/field/`var` assignment), so the
+        #     slots reached only through this recursion — a Map literal VALUE, a
+        #     Vector/array/Set element, a tuple element — left the literal
+        #     untyped and it reached codegen as an ICE. Doing it here fixes each
+        #     of them once, at the point that already knows the expected type.
+        #     Stamped as `expected_type` rather than `resolved_type`, exactly as
+        #     the integer case below is: this runs BEFORE the literal is checked,
+        #     and `_check_expression`'s own stamp would overwrite a `resolved_type`
+        #     written here ("later contextual annotation wins").
+        if isinstance(value_expr, NoneLiteral):
+            if rt.kind == TypeKind.OPTIONAL and rt.inner_type is not None:
+                value_expr.expected_type = rt
+            return
+
         # (1) Bare integer literal → adopt a fixed-width expectation, range-check
         #     it AT the literal, and stamp the fixed-width type. Stamping here (not
         #     only via visit_IntLiteral) covers the POST-HOC sites — overloaded
@@ -5546,7 +5574,18 @@ class ExpressionsMixin:
         return SawType(TypeKind.STRUCT, struct_name=expr.struct_name, type_args=expr.type_args, symbol=struct_info)
 
     def _check_none_literal(self, expr: NoneLiteral) -> Optional[SawType]:
-        """Check None literal - returns a special 'None' type that can unify with any T?."""
+        """Check None literal - returns a special 'None' type that can unify with any T?.
+
+        Deliberately still the UNTYPED optional even when
+        `_apply_literal_expected_type` has pushed an expectation down (DF-146l):
+        the untyped form is what unifies with any `T?`, and returning the
+        expectation here would make `_check_expression` stamp a concrete type on
+        an absence — which, for a `UnsafePointer<T>?` field initialized to
+        `None`, reads as the enclosing function NAMING a value of unsafe type
+        under design 130's trigger rule. Writing `None` names no pointer. The
+        expectation is consumed by codegen, which is the one place that needs a
+        payload type to size the `{i1, T}` it builds.
+        """
         return SawType(TypeKind.OPTIONAL, inner_type=None)
 
     def _propagate_optional_type(self, expr: Expression, expected_type: SawType):
@@ -5667,6 +5706,16 @@ class ExpressionsMixin:
                 expr.line, expr.column
             )
             return opt_type
+        # DF-146l site 2: a bare `None` on the RHS is a `None` of the LHS's
+        # PAYLOAD type. `m["x"] ?? None` on a `Map<String, Int?>` has an `Int??`
+        # left operand, so the default is an `Int?` — the one shape where the
+        # RHS of `??` is itself an optional and the literal has nowhere else to
+        # learn that from. Without the stamp it reached codegen untyped, and the
+        # expression's own result type came back as the untyped optional too.
+        if (default_type.is_none_literal() and opt_type.inner_type is not None
+                and self._resolve_type_alias(opt_type.inner_type).is_optional()):
+            self._propagate_optional_type(expr.default, opt_type.inner_type)
+            default_type = opt_type.inner_type
         if opt_type.inner_type and not self._types_compatible(opt_type.inner_type, default_type):
             self._error(
                 ErrorKind.TYPE_MISMATCH,

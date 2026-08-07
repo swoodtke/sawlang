@@ -11,12 +11,16 @@
 // A bare `None` should unify with any optional type the rest of the call
 // determines. Same root family as DF-146m (None vs Optional unification at a
 // generic parameter). Clean error rather than an ICE, but a wrong rejection.
+//
+// FIXED by design 176 unit 1, which is where DF-174f's fix fell out: a bare
+// `None` records no binding for a type parameter at all, so there is nothing for
+// the later argument's `Int?` to conflict WITH. Design 105's fixpoint does the
+// rest, in either argument order.
 // EXPECT: success
 // EXPECT-OUTPUT:
 // later 3
 // earlier inner-absent
 // -- done
-// XFAIL: DF-174f later-arg inference will not unify a bare None with the Optional a later argument fixes
 
 func pick<T>(a: T, b: T) -> T { b }
 

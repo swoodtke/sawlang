@@ -15,7 +15,8 @@ from llvmlite import ir
 from ast_nodes import (
     FunctionCall, StructInit, Argument, SawType, TypeKind,
     MethodCall, MemberAccess, Identifier, SelfExpr, EnumInit, ArrayIndex,
-    ForceUnwrap, ReferenceExpr, StringLiteral, StringInterpolation, TupleIndex
+    ForceUnwrap, ReferenceExpr, StringLiteral, StringInterpolation, TupleIndex,
+    NoneLiteral
 )
 from .mangle import content_tag, mangle_type
 
@@ -79,9 +80,50 @@ class CallsMixin:
         defaults = self.func_defaults.get(key)
         if not defaults:
             return
+        ptypes = self._callee_param_types(key)
         for i in range(len(args), len(defaults)):
             if defaults[i] is not None:
-                args.append(self._gen_transfer_value(defaults[i]))
+                args.append(self._gen_default_value(
+                    defaults[i], ptypes[i] if i < len(ptypes) else None))
+
+    def _callee_param_types(self, key):
+        """The declared LLVM parameter types of an already-declared callee."""
+        llvm_func = self.functions.get(key)
+        if llvm_func is None:
+            return []
+        return list(llvm_func.function_type.args)
+
+    def _gen_default_value(self, expr, llvm_param_type):
+        """One default argument, with the callee's parameter type in hand.
+
+        A `None` default whose type mentions a type PARAMETER (`b: T = None`,
+        `b: T? = None` — design 108) cannot be generated from the caller's
+        context: the default expression lives on the DECLARATION, `T` is not
+        bound here, and the payload type is the instantiation's to decide. Two
+        different failures came out of that — no payload type at all, and an
+        abstract `T` reaching the LLVM lowering.
+
+        The callee's own parameter type answers both, and it is the authority
+        anyway: an absent optional has no payload bits to compute, so the
+        constant is fully determined by the slot it fills. Stamping the shared
+        declaration node instead would be wrong — two calls may instantiate the
+        parameter differently and the last stamp would win for both (DF-146l
+        site 4).
+
+        Every other default is generated exactly as before.
+        """
+        if isinstance(expr, NoneLiteral) and llvm_param_type is not None:
+            none_val = self._none_constant(llvm_param_type)
+            if none_val is not None:
+                return none_val
+        return self._gen_transfer_value(expr)
+
+    def _none_constant(self, llvm_type):
+        """An absent optional of `llvm_type`, or None if that is not one."""
+        if not self._is_optional_type(llvm_type):
+            return None
+        value = ir.Constant(llvm_type, ir.Undefined)
+        return self.builder.insert_value(value, ir.Constant(ir.IntType(1), 0), 0)
 
     def _planned_arg_values(self, expr, logical_defaults, gen_default=None):
         """Design 66: build the ordered argument values (excluding self) for a

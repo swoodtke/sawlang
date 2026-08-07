@@ -94,18 +94,38 @@ class OptionalsMixin:
         none_type = self._expr_type(expr)  # OPTIONAL, inner_type may be None
         inner_type = none_type.inner_type
 
+        if inner_type is None:
+            # The expectation the checker pushed down from the surrounding slot
+            # (DF-146l). `_apply_literal_expected_type` stamps it on the literal
+            # before checking it, exactly as it stamps a fixed width on a bare
+            # integer, so a `None` in a Map/Vector/Set/tuple ELEMENT position —
+            # every slot reached only through that recursion — carries its
+            # payload type here. The checker keeps returning the untyped form so
+            # the literal still unifies with any `T?`.
+            expected = getattr(expr, 'expected_type', None)
+            if expected is not None and expected.is_optional():
+                inner_type = expected.inner_type
+                if inner_type and self.type_param_context:
+                    inner_type = inner_type.substitute(self.type_param_context)
+
         if inner_type is None and self.current_return_type and self.current_return_type.is_optional():
             inner_type = self.current_return_type.inner_type
             if inner_type and self.type_param_context:
                 inner_type = inner_type.substitute(self.type_param_context)
 
         if inner_type is None:
-            # No fallback - fail loudly so we can fix the root cause
-            raise ValueError(
-                f"None literal at line {expr.line} has no type information. "
-                f"resolved_type={getattr(expr, 'resolved_type', None)}, "
-                f"current_return_type={self.current_return_type}"
-            )
+            # DF-146l's hardening rule: a `None` that reached here with no
+            # payload type is a program no slot pinned, not a compiler-invariant
+            # violation. Report it where the author wrote it.
+            from .core import CodegenUserError
+            raise CodegenUserError(
+                "cannot tell what this `None` is a `None` OF — no annotation, "
+                "parameter, field, return type or element type in scope fixes "
+                "its payload type",
+                expr.line, getattr(expr, 'column', 0) or 1,
+                hint="annotate the slot it flows into (`let absent: Int? = "
+                     "None`), or give the call an explicit type argument",
+                source_file=self._di_current_basename())
 
         # Lower the OPTIONAL, not the payload: `Void?` has no void-in-struct
         # representation and carries an `i8` placeholder instead, and that rule

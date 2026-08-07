@@ -561,12 +561,20 @@ def run_codegen(codegen, ast):
     diagnostic with the standard exit code, mirroring how parse errors are
     reported. Individual raise-site message quality is out of scope.
     """
-    from codegen.core import StaticAssertError
+    from codegen.core import StaticAssertError, CodegenUserError
     try:
         return codegen.generate(ast)
     except StaticAssertError as e:
         # design 53: a failed/non-constant static_assert is a user compile error.
         print(f"\033[1;31merror\033[0m: {e.message}", file=sys.stderr)
+        sys.exit(1)
+    except CodegenUserError as e:
+        # design 176: a rejected PROGRAM, anchored where it was written.
+        where = f"{e.source_file}:{e.line}" if e.source_file else f"line {e.line}"
+        print(f"\033[1;31merror\033[0m: {e.message}", file=sys.stderr)
+        print(f"  \033[1;34m-->\033[0m {where}:{e.column}", file=sys.stderr)
+        if e.hint:
+            print(f"   \033[1;32mhint\033[0m: {e.hint}", file=sys.stderr)
         sys.exit(1)
     except SystemExit:
         raise
