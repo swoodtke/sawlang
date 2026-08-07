@@ -20,7 +20,9 @@ class MethodsMixin:
     """Mixin providing method and function generation for CodeGenerator.
 
     Methods:
-        _generate_extension_methods: Generate all methods in an extension
+        _defer_function_body: register a free function's body behind its symbol
+        _defer_extension_method_bodies: same for every method in an extension
+        _ext_method_symbol: the `self.functions` key one extension method uses
         _generate_method: Generate a single instance method
         _generate_field_deinit_calls: Generate deinit calls for struct fields
         _generate_init_method: Generate a custom init method
@@ -29,30 +31,68 @@ class MethodsMixin:
         _generate_block: Generate a block of statements
     """
 
-    def _generate_extension_methods(self, extension: Extension):
-        """Generate code for all methods in an extension."""
+    def _defer_function_body(self, func: Function):
+        """Register one non-generic free function's body (design 168 unit 2)."""
+        name_override = getattr(func, 'mangled_symbol', None)
+        llvm_func = self.functions[name_override or func.name]
+
+        def emit():
+            self._generate_function(func, name_override=name_override)
+
+        self._defer_body(llvm_func, emit)
+
+    def _ext_method_symbol(self, struct_name: str, method: Method) -> str:
+        """The `self.functions` key an extension method's body is looked up
+        under.
+
+        Mirrors what `_generate_init_method` / `_generate_static_method` /
+        `_generate_method` each compute for themselves — deferring a body means
+        knowing its symbol BEFORE running it, and the three spellings have to
+        stay one rule.
+        """
+        if method.is_init:
+            # Init methods mangle their parameter NAMES in, which is what lets
+            # two inits differ only by label.
+            return self._mangle_method_name(struct_name, method.name,
+                                            [p.name for p in method.parameters])
+        # Overloading (design 55): a member of a 2+ overload set is emitted under
+        # the type-signature symbol the typechecker stamped on the AST node.
+        return (getattr(method, 'mangled_symbol', None)
+                or self._mangle_method_name(struct_name, method.name))
+
+    def _defer_extension_method_bodies(self, extension: Extension):
+        """Register a body for every method in a non-generic extension."""
         # Skip generic extensions - they'll be monomorphized when the struct is used
         if extension.type_params:
             return
-
-        # Set Self type context for this extension
-        old_self_context = self.self_type_context
-        self.self_type_context = extension.struct_name
 
         for method in extension.methods:
             # Design 40 item 9 (C6): generic methods are monomorphized on demand
             # per call-site method type args, not generated eagerly.
             if getattr(method, 'type_params', None) and not method.is_init:
                 continue
-            if method.is_init:
-                self._generate_init_method(extension.struct_name, method)
-            elif method.is_static:
-                self._generate_static_method(extension.struct_name, method)
-            else:
-                self._generate_method(extension.struct_name, method)
+            self._defer_body(
+                self.functions[self._ext_method_symbol(extension.struct_name, method)],
+                self._ext_method_body_thunk(extension.struct_name, method))
 
-        # Restore Self type context
-        self.self_type_context = old_self_context
+    def _ext_method_body_thunk(self, struct_name: str, method: Method):
+        """The deferred generator for one extension method. Carries the Self type
+        context with it, since the body may now run long after its extension was
+        walked."""
+        def emit():
+            old_self_context = self.self_type_context
+            self.self_type_context = struct_name
+            try:
+                if method.is_init:
+                    self._generate_init_method(struct_name, method)
+                elif method.is_static:
+                    self._generate_static_method(struct_name, method)
+                else:
+                    self._generate_method(struct_name, method)
+            finally:
+                self.self_type_context = old_self_context
+
+        return emit
 
     def _generate_method(self, struct_name: str, method: Method):
         """Generate code for a single instance method."""

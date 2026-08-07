@@ -1079,10 +1079,18 @@ def _prepare_codegen(source_path: str, entry_ast, entry_source: str, verbose: bo
 
     if verbose:
         print("  Building code generator...")
+    # design 168 unit 2: emit only what the entry graph reaches. Sound exactly
+    # when this compile owns the whole program — an executable link, or an object
+    # that already internalizes everything but its `@export`s (freestanding,
+    # --runtime-build). A plain hosted `-c` object is somebody else's to link, so
+    # it keeps every symbol.
+    whole_program = (not object_only) or freestanding or runtime_build
+
     codegen = CodeGenerator(typechecker.namespace, target_triple=target_triple,
                             freestanding=freestanding, source_path=source_path,
                             runtime_build=runtime_build,
-                            target_features=target_features)
+                            target_features=target_features,
+                            strip_unreachable=whole_program)
     return codegen, merged_ast
 
 

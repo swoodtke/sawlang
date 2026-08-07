@@ -602,13 +602,27 @@ class GenericsMixin:
             # _ensure_monomorphized_generic_method. Skip them here.
             if getattr(method, 'type_params', None):
                 continue
-            self._declare_monomorphized_method(mangled_struct_name, method, type_mapping)
-            methods_to_generate.append(method)
+            symbol = self._declare_monomorphized_method(
+                mangled_struct_name, method, type_mapping)
+            methods_to_generate.append((symbol, method))
 
         # Second pass: queue method bodies for later generation
         # This ensures all method signatures are declared before any bodies are generated
-        for method in methods_to_generate:
-            self.pending_method_bodies.append((mangled_struct_name, method, type_mapping.copy(), method.is_init))
+        for symbol, method in methods_to_generate:
+            entry = (mangled_struct_name, method, type_mapping.copy(), method.is_init)
+            if self._strip_unreachable:
+                # design 168 unit 2. NAMING a generic type is what runs this, so
+                # `let v: Vector<Int>` used to queue a body for every method of
+                # every matching extension — the single largest source of dead
+                # emitted IR. Register them behind their symbols instead: the
+                # instantiation still costs its layout and its full set of
+                # signatures (later bodies resolve callees by bare
+                # `self.functions[...]` lookup), but only the methods the program
+                # calls cost a body.
+                self._defer_body(self.functions[symbol],
+                                 self._mono_body_thunk(entry))
+            else:
+                self.pending_method_bodies.append(entry)
 
         # Restore type param context (other state will be set up when generating bodies)
         self.type_param_context = old_context
@@ -790,25 +804,41 @@ class GenericsMixin:
             (mangled_struct_name, method, type_mapping.copy(), method.is_init))
         return mangled_name
 
+    def _mono_body_thunk(self, entry):
+        """The deferred generator for one monomorphized method body (design 168)."""
+        def emit():
+            self._generate_pending_method_body(entry)
+
+        return emit
+
+    def _generate_pending_method_body(self, entry):
+        """Generate ONE monomorphized method body under its type binding."""
+        mangled_struct_name, method, type_mapping, is_init = entry
+
+        # Set up type param context for this method
+        old_context = self.type_param_context
+        self.type_param_context = type_mapping
+
+        if is_init:
+            self._generate_init_method_generic(mangled_struct_name, method, type_mapping)
+        else:
+            self._generate_method_generic(mangled_struct_name, method, type_mapping)
+
+        self.type_param_context = old_context
+
     def _generate_pending_method_bodies(self):
         """Generate all pending monomorphized method bodies.
 
         This is called after all method signatures have been declared,
         ensuring that method calls within bodies can find their targets.
+
+        The queue is per-CALL-SITE work (`_ensure_monomorphized_generic_method`)
+        once the design-168 strip is on — the struct-instantiation half registers
+        deferred bodies instead — so draining it unconditionally stays right:
+        nothing reaches this list that a call site did not ask for.
         """
         while self.pending_method_bodies:
-            mangled_struct_name, method, type_mapping, is_init = self.pending_method_bodies.pop(0)
-
-            # Set up type param context for this method
-            old_context = self.type_param_context
-            self.type_param_context = type_mapping
-
-            if is_init:
-                self._generate_init_method_generic(mangled_struct_name, method, type_mapping)
-            else:
-                self._generate_method_generic(mangled_struct_name, method, type_mapping)
-
-            self.type_param_context = old_context
+            self._generate_pending_method_body(self.pending_method_bodies.pop(0))
 
     def _generate_method_generic(self, struct_name: str, method: Method, type_mapping: dict[str, SawType]):
         """Generate code for a method with type substitution."""

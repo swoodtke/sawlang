@@ -55,6 +55,7 @@ from .match import MatchMixin
 from .results import ResultsMixin
 from .existentials import ExistentialsMixin
 from .debuginfo import DebugInfoMixin
+from .reachability import ReachabilityMixin
 import copy
 
 
@@ -98,13 +99,19 @@ def _install_volatile_ir_support():
 _install_volatile_ir_support()
 
 
-class CodeGenerator(ResultsMixin, MatchMixin, StructsMixin, CollectionsMixin, CallsMixin, OperatorsMixin, StatementsMixin, MethodsMixin, LoopsMixin, ConditionalsMixin, OptionalsMixin, ClosuresMixin, GenericsMixin, ExistentialsMixin, TypesMixin, ResourcesMixin, DebugInfoMixin):
+class CodeGenerator(ResultsMixin, MatchMixin, StructsMixin, CollectionsMixin, CallsMixin, OperatorsMixin, StatementsMixin, MethodsMixin, LoopsMixin, ConditionalsMixin, OptionalsMixin, ClosuresMixin, GenericsMixin, ExistentialsMixin, TypesMixin, ResourcesMixin, DebugInfoMixin, ReachabilityMixin):
     def __init__(self, namespace: Namespace, target_triple: Optional[str] = None,
                  freestanding: bool = False, source_path: Optional[str] = None,
                  runtime_build: bool = False,
-                 target_features: Optional[str] = None):
+                 target_features: Optional[str] = None,
+                 strip_unreachable: bool = False):
         # Unified namespace from type checker (Phase 0 of module system)
         self.namespace = namespace
+
+        # design 168 unit 2: emit only the bodies the program reaches. Off by
+        # default so a caller that builds an object somebody ELSE links keeps
+        # every symbol; `compile_saw` turns it on for whole-program builds.
+        self._init_reachability(strip_unreachable)
 
         # Profile flag (design 19/20): freestanding emits the runtime seams as
         # declarations only (no hosted libc-backed defaults) and gates hosted
@@ -1666,22 +1673,24 @@ class CodeGenerator(ResultsMixin, MatchMixin, StructsMixin, CollectionsMixin, Ca
         for sa in getattr(program, 'static_asserts', []):
             self._eval_static_assert(sa)
 
-        # Fifth pass: generate function bodies (skip generic functions)
+        # Fifth pass: function bodies. design 168 unit 2 — REGISTERED here, not
+        # generated: `_emit_bodies` decides which of them the program reaches.
+        # Registration order is the order the old eager passes ran in, and with
+        # the strip off the registry drains in exactly that order, so a
+        # non-whole-program build emits a byte-identical module.
         for func in program.functions:
             if not func.type_params:
-                self._generate_function(func, name_override=getattr(func, 'mangled_symbol', None))
+                self._defer_function_body(func)
 
-        # Generate extension method bodies
         for extension in program.extensions:
-            self._generate_extension_methods(extension)
+            self._defer_extension_method_bodies(extension)
 
-        # Generate pending monomorphized method bodies
-        # These were queued during monomorphization to ensure all signatures exist first
-        self._generate_pending_method_bodies()
+        self._seed_reachability_roots()
 
-        # design 51: fill any `any Trait` vtables requested during body codegen
-        # (destructor + method thunks) now that every impl function is declared.
-        self._emit_pending_vtables()
+        # Emit the bodies, draining the monomorphization queue (design 40) and
+        # the `any Trait` vtable queue (design 51) to a fixpoint — both are fed
+        # from INSIDE body generation, and a vtable's thunks call their impls.
+        self._emit_bodies()
 
         # design 58: anchor `@export`ed symbols against DCE.
         self._emit_llvm_used()
