@@ -162,6 +162,106 @@ Findings raised while building it:
   CoW type ever wants a subscript, splitting `borrows` into read and modify
   bodies is the fix; one type does not justify the language change.
 
+## Design 169 part 2 — std.cbor itself (DEFERRED, ready to dispatch)
+
+Units 1 (the trait pair + Encoder/Decoder), 2 (`@synthesize` derivation) and the
+PYTHON half of unit 5 (`tools/sawcbor.py`, `sawc/std/CBOR.md`, the golden
+vectors) LANDED on the design-169 branch. Units 3 (the `std.cbor` encoder +
+decoder in Saw), 4 (decoder limits as constructor parameters) and 6 (the
+migration proof on one site) are NOT started — deliberately, rather than
+half-built. What part 2 inherits:
+
+- **The contract is already frozen and already tested.** `sawc/std/CBOR.md` is
+  the profile note (the rt/ABI.md pattern), and `tests/cbor_vectors/` holds 32
+  accept + 19 reject blobs that `tools/sawcbor.py verify` checks against an
+  independent `cbor2` reader today. The Saw encoder/decoder is the SECOND
+  implementation of a spec that already has a passing first one — write it to
+  the vectors, not to the RFC.
+- **The seam it plugs into is done.** A concrete encoder conforms to `Encoder`
+  and a decoder to `Decoder` (`sawc/std/serde.saw`); both are object-safe and
+  travel behind `&var any`. `examples/serde169_hand_written.saw` and
+  `examples/serde169_derived.saw` each carry a complete miniature codec written
+  against those traits, so they double as worked examples of what `std.cbor`
+  must implement.
+- **Units 3 and 4 are ONE job, not two.** The limits are not a wrapper over a
+  finished decoder: the design decided in this dispatch is that `CborDecoder`
+  validates the whole input against `max_depth`/`max_size`/`max_items` in an
+  up-front structural scan driven by an EXPLICIT work stack, then typed reads
+  run over bytes already known to be well-formed. Depth is the stack's height,
+  checked BEFORE descending, so the decoder never recurses on input and a
+  hostile blob cannot reach the call stack at all. Build the scan first.
+- **Unit 6 should be the blade lock file**, not sosimg (which has a parked M1b
+  branch under it). `blade/src/lock.saw` is columnar today (five parallel
+  `Vector<String>`); the CBOR shape is a `LockEntry { name, version, source,
+  loc, rev }` plus `Vector<LockEntry>`, which the unit-2 derivation already
+  covers end to end — `Vector<T>` of a conforming struct is a supported walk.
+- **`std.cbor` is import-required**, unlike `std.serde`: add `"cbor"` to
+  `IMPORT_REQUIRED_STD_MODULES` in `sawc/sawc.py`. `std.serde` stays out of that
+  set on purpose (prelude-visible), because a derived body names `Encoder` and
+  `DecodeError` bare and must resolve them however the user wrote their imports.
+
+## Design 169 — DF-findings (Serialize/Deserialize + std.cbor, units 1/2/5 LANDED)
+
+- **DF-169a — `&concrete` did not erase to `&any Trait` in a METHOD argument.
+  FIXED** (commit before unit 1). Design 51's call-boundary erasure ran on the
+  free-function argument path alone (`_try_existential_arg_coercion` had one
+  call site). An instance method, a static method, a trait-required method and
+  every overload set holding an existential parameter all rejected a concrete
+  reference their signature accepted — the overload case failing during
+  CANDIDATE SELECTION, before the argument pass could erase anything, so no
+  amount of fixing the argument loops alone would have helped. Found
+  immediately: design 169's trait pair is method-based
+  (`func serialize(&self, to: &var any Encoder)`), so literally nothing could
+  call it. Three argument loops gained the coercion; candidate selection gained
+  `_erasure_compatible`, scored so an exact concrete overload still outranks the
+  erasing one. Second half: forwarding an ALREADY-erased `&var any T` onward
+  (design 106 re-borrow) is a pass-through, not a second erasure — it used to
+  reach the conformance lookup with `any T` in the "concrete" slot. Repros:
+  `examples/existential_arg_method.saw`,
+  `examples/errors/existential_arg_wrong_trait.saw`.
+- **DF-169b — `any Deserialize` was accepted, and a static requirement was
+  invisible to object safety. FIXED** (unit 1). Two independent holes in
+  `_check_object_safety`: (1) it read only the OUTER type kind, so a
+  `-> Result<Self, DecodeError>` requirement passed while a bare `-> Self` was
+  caught — the vtable thunk would have had to return a value whose size it does
+  not know; (2) a requirement declared with no `self` (STATIC — called on the
+  type) was not considered at all, though there is no receiver to dispatch on
+  and `_trait_slot_fn_type` assumes `param_types[0]` is the self placeholder.
+  `_names_self` now walks generic arguments, and `TraitMethodSymbol.is_static`
+  is recorded at trait registration and rejected at the existential. Repro:
+  `examples/errors/serde169_deserialize_not_any.saw`.
+- **Not a bug, recorded — the serde vocabulary cannot live in `builtin.saw`.**
+  `--runtime-build` skips std entirely, so an `extension EncodeError: Printable`
+  in builtin.saw synthesizes design-56's `to_string` default body against a
+  `StringBuilder` that is not loaded, and the runtime build fails with eight
+  errors inside builtin.saw itself. The existing `trait Printable` survives only
+  because it has no CONFORMERS there. Home is `sawc/std/serde.saw`: a std file
+  is skipped in runtime-build, kept in freestanding, and — by staying out of
+  `IMPORT_REQUIRED_STD_MODULES` — prelude-visible, which is also what makes a
+  derived body's bare `Encoder`/`DecodeError` resolve regardless of how the user
+  imported anything.
+- **DF-169c — a derived body could not walk a `Vector` until serde went `sync`.
+  FIXED by design, not by a workaround** (unit 2). The derived walk reads
+  elements as PLACES, and a place window is a `sync` context (design 141), so
+  `self.deps[i].serialize(to:)` failed with "cannot suspend in a `sync` closure
+  context: a call through `any Encoder` dispatch". Rather than route the walk
+  around places, every requirement in `std.serde` now carries the `sync` effect.
+  That is the honest contract — serialization writes into a buffer — and it buys
+  more than it costs: a value can serialize inside a place window, under a
+  `SpinLock`, or in a kernel, and a conformer that wants I/O is pushed to write
+  the buffer first and send it afterwards. Worth knowing generally: any trait
+  whose implementations are meant to be callable from a place window, a lock
+  body or a `Deinit` must declare `sync` on its requirements, because dispatch
+  through `any Trait` is assumed suspending otherwise.
+- **VERIFY / open — primitives take conformances unevenly.**
+  `extension Int: SomeTrait { ... }` compiles and runs; `extension Bool: ...`
+  is `cannot extend undefined struct `Bool``. Not needed by this brief (the
+  derivation dispatches on the field's type and emits the encoder call directly,
+  the `_emit_hash` precedent), so it was routed around rather than fixed, but
+  the asymmetry is real and worth a probe before anyone relies on either half.
+
+## std.Data findings (Aug 7, user-prompted archaeology)
+
 The three historical "known issues" in data.saw's header, resolved or filed
 (user asked about the line-506 segfault note; probed from the public surface —
 push into a sliced Data drove `_reserve_unique` → `_make_unique`):

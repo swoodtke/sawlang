@@ -1,11 +1,61 @@
 # Design 169 — Serialize/Deserialize + std.cbor (RFC 8949)
 
-**Status: BRIEFED (Aug 7, from the user's parser-port seam conversation);
-decisions below marked [recommended] await user ratification. QUEUE: dispatches
-after design 168 integrates (user: "after 168 part b lands"); eligible
-concurrent with the post-168 wave (surfaces disjoint from 155/165/DF-163d);
-MUST land before the parser-port brief on the rewrite track, which consumes
-it.**
+**Status: PARTIALLY LANDED (Aug 7). Units 1, 2 and the PYTHON half of unit 5 are
+built and gated on the design-169 worktree branch. Units 3, 4 and 6 are NOT
+started and are deferred to a follow-up dispatch — "169 part 2" — whose
+state-of-the-world is at the bottom of this file. All four decisions below were
+implemented as recommended; nothing was renegotiated.**
+
+## What landed
+
+- **Unit 1 — the trait pair + the Encoder/Decoder seam.** `sawc/std/serde.saw`:
+  `Serialize`, `Deserialize`, `Encoder`, `Decoder`, `EncodeError`/`EncodeFault`,
+  `DecodeError`/`DecodeFault`. `deserialize` is a STATIC requirement returning
+  `Self`, so `Deserialize` is a generic bound and never an existential.
+  Prelude-visible, kept in the freestanding profile, absent under
+  `--runtime-build`.
+- **Unit 2 — `@synthesize` structural derivation**, both directions, covering
+  the integer types, `Bool`, `String`, `Optional`, `Vector`, raw-backed enums
+  (both directions, per decision 2 and design 145) and any nested conforming
+  member. A member outside that set is a clean error naming the field.
+- **Unit 5, Python half** — `tools/sawcbor.py` (an independent implementation of
+  the profile over `cbor2`), `sawc/std/CBOR.md` (the frozen profile note, the
+  rt/ABI.md pattern), and `tests/cbor_vectors/` with 32 accept + 19 reject
+  blobs. `tools/sawcbor.py verify` is green today.
+
+Commits, each with the full battery green: `ea13a3e` (DF-169a, the prerequisite
+fix), `95f55c5` (unit 1), `defad53` (unit 2), `17fd67f` (unit 5 Python half).
+Final tip battery: suite 1403/1403, lexdiff 0 mismatches, astdiff 0, `irdet
+--all` 914 examples byte-identical, blade bootstrap ok, gmgate 0 failing,
+sos_runner 11/11, `sawcbor.py verify` 32 accept + 19 reject.
+
+Three decisions were forced by contact with the compiler and are worth carrying
+forward:
+
+1. **The vocabulary lives in `sawc/std/serde.saw`, not `builtin.saw`.**
+   `--runtime-build` skips std entirely, so a `Printable` conformance in
+   builtin.saw synthesizes design-56's `to_string` default body against a
+   `StringBuilder` that is not loaded — eight errors inside builtin.saw itself.
+   A std FILE is skipped there, kept freestanding, and — by staying out of
+   `IMPORT_REQUIRED_STD_MODULES` — prelude-visible, which is also what makes a
+   derived body's bare `Encoder`/`DecodeError` resolve however the user wrote
+   their imports.
+2. **Every serde signature is `sync`.** The derived `Vector` walk reads elements
+   as PLACES, and a place window is a sync context (design 141), so the first
+   build failed with "cannot suspend in a `sync` closure context". `sync` is the
+   right contract rather than a workaround: serialization writes into a buffer,
+   and the effect is what lets a value serialize inside a place window, under a
+   `SpinLock`, or in a kernel. I/O happens on the buffer afterwards.
+3. **Derived bodies are synthesized AST, not emitted IR.** The
+   Equatable/Comparable/Hashable derivations emit IR from the field layout,
+   which works because a hash is a fold over words. A serialize body is a chain
+   of fallible calls whose failures propagate; emitting it as IR would mean
+   re-implementing `try` in llvmlite. `sawc/typechecker/serde.py` builds real
+   source and hands it to the ordinary front end.
+
+Two compiler bugs were found and fixed on the way in (DF-169a, DF-169b — see the
+tracker); the first was a hard blocker, since the brief's trait pair is
+method-based and method arguments could not erase to `any Trait` at all.
 
 ## The problem
 
@@ -93,6 +143,57 @@ byte-identical from BOTH sides (Saw encode → cbor2 decode → cbor2 re-encode 
 byte-compare, and the mirror). Decoder fuzz-shaped rejection tests (truncated,
 over-depth, over-size, shortest-form violations REJECTED on decode per the
 deterministic profile). DF-169x findings for every language pain hit.
+
+## 169 part 2 — the deferred half (units 3, 4, 6)
+
+Not started, deliberately: a half-built CBOR codec is worse than none, because
+the vectors would start passing against an implementation that does not yet
+enforce the profile. Whoever picks this up inherits a complete contract and a
+complete seam.
+
+**Where the hooks are.** The derivation mixin is `sawc/typechecker/serde.py`
+(`SerdeMixin`), mixed into `TypeChecker` in `sawc/typechecker/core.py` and driven
+by `_synthesize_serde_bodies(program)`, called in BOTH drivers right after
+`_check_ord_hash_require_equatable()` — after every type is registered (the walk
+needs a nested type's conformance and an enum's raw backing) and before body
+checking (what it builds is ordinary source the checker then sees). The
+derivation TRIGGER is in `registration.py::_register_extension`, beside the
+Hashable block; it mints only a signature, copied from the trait's own AST via
+`_serde_derived_signature` so the derived method's type is identical to the
+requirement it satisfies. `Serialize`/`Deserialize` are deliberately NOT in
+`_ENUM_DERIVABLE_TRAITS` — unlike equals/compare/hash they mint a real method
+rather than being inlined at the call site, so enums must fall through to the
+ordinary registration path.
+
+**The decoder-limits design, already made (units 3 and 4 are ONE job).** The
+limits are not a wrapper over a finished decoder. `CborDecoder` validates the
+WHOLE input against `max_depth` / `max_size` / `max_items` in an up-front
+structural scan driven by an EXPLICIT work stack; typed reads then run over
+bytes already known to be well-formed. Depth is the stack's height, checked
+BEFORE descending, so the decoder never recurses on input and a hostile blob
+cannot reach the call stack at all. Build the scan first; the typed read surface
+is straightforward once it exists. Limits are constructor parameters with hosted
+defaults, per the brief.
+
+**What the vectors expect.** `sawc/std/CBOR.md` is authoritative and frozen —
+write the Saw codec to it, not to the RFC. `tests/cbor_vectors/accept/` holds 32
+blobs with `.json` sidecars carrying the value, its hex, and its diagnostic
+notation; `reject/` holds 19 blobs each paired with the `DecodeFault` it must
+report (truncation, non-shortest-form integers at all four widths, indefinite
+lengths, floats, tags, `undefined`, unsorted and duplicate map keys, trailing
+bytes, bad UTF-8, a reserved additional-info value). `tools/sawcbor.py verify`
+already checks all 51 against an independent `cbor2` reader; the Saw side needs
+a harness that encodes the same case table and compares bytes, at which point
+the round-trip is closed in both directions.
+
+**Unit 6 should be the blade lock file, not sosimg** (which has a parked M1b
+branch under it). `blade/src/lock.saw` is columnar today — five parallel
+`Vector<String>` — and the CBOR shape is a `LockEntry { name, version, source,
+loc, rev }` plus `Vector<LockEntry>`, which the unit-2 derivation already covers
+end to end.
+
+**One packaging note:** `std.cbor` is import-required, unlike `std.serde` — add
+`"cbor"` to `IMPORT_REQUIRED_STD_MODULES` in `sawc/sawc.py`.
 
 ## Explicitly out
 
