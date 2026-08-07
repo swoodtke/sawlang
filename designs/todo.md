@@ -261,14 +261,14 @@ half-built. What part 2 inherits:
   three, DIRECT calls work but `&any Trait` erasure fails: Int/Float "does
   not conform" (the conformance never registers for existentials), String
   ICEs in codegen (`i8* != i8**`). No Char type exists (by design). Probes:
-  .build/scratch/probe_primitive_ext*.saw. DESIGN QUESTION for the user —
-  pick the uniform rule: (a) primitives take user conformances FULLY (needs
-  value-boxing vtable machinery for `&any`); (b) uniform clean error
-  (extension METHODS yes, user conformances no); or (a-lite, recommended)
-  uniform declaration acceptance + full GENERIC-BOUND participation
-  (monomorphized — no vtable needed, covers the wire-vocabulary use case:
-  `<T: MyProto>` at T=UInt8) while `&any` erasure of a primitive stays a
-  clean documented error, boxing deferred until demanded.
+  .build/scratch/probe_primitive_ext*.saw. **DECIDED (user, Aug 7): a-lite.**
+  Uniform declaration acceptance for EVERY primitive + full GENERIC-BOUND
+  participation (monomorphized, no vtable — covers the wire-vocabulary case
+  `<T: MyProto>` at T=UInt8); `&any`/`Box<any>` erasure of a primitive is a
+  uniform CLEAN ERROR naming the two outs (generic bound, or a wrapper
+  struct) — never an ICE, never a per-type split. Boxing (full (a)) stays
+  additive later if demanded: the clean error would just become working
+  code. JOINS THE PLACES/OPTIONAL PLUMBING BATCH (with DF-146j/l/m/n/o).
   `extension Int: SomeTrait { ... }` compiles and runs; `extension Bool: ...`
   is `cannot extend undefined struct `Bool``. Not needed by this brief (the
   derivation dispatches on the field's type and emits the encoder call directly,
