@@ -207,6 +207,45 @@ verdict table: `designs/174-optional-generic-sweep.md`. 19 tests landed as
   freestanding aarch64) is cherry-picked to main (e6b5cbe); DF-162a CLOSED
   measured (arm64 kernel object: 5 NEON block-moves → 0).
 
+## Design 176 findings (places/optional plumbing batch, Aug 7)
+
+- **DF-176a (COMPILER, filed Aug 7 by unit 13's probing; PRE-EXISTING, verified
+  against unmodified `main`): a place READ in the RHS of a place WRITE to the
+  same root is a wrong error or an ICE.** `v[0] = v[0] * 4` on a local root
+  reports ``cannot copy value of type `Vector<Int, GlobalAllocator>` which
+  implements ExplicitCopy`` — the element is a trivial `Int` and nothing is
+  being copied; the same shape through a receiver field
+  (`self.cells[i] = self.cells[i] * by`, in a `&self` OR a `&var self` method)
+  dies with `internal compiler error: 'self' not found in current scope`. The
+  root is `place_uses._assignment`, which lowers the RHS first and then wraps
+  the whole assignment in the TARGET's window, so the RHS window ends up NESTED
+  inside the write window and two overlapping borrows of one root reach the
+  checker with no diagnostic that names them. The compound spelling
+  (`v[0] *= 4`, `self.cells[i] *= by`) works and is the idiom, so the
+  user-visible cost is a read-modify-write spelling that fails confusingly
+  rather than a capability gap. Needs a decision before a fix: either evaluate
+  a place write's RHS BEFORE opening the target window (making the shape legal,
+  which is what every other language does here) or make it a clean exclusivity
+  error naming the two windows and pointing at `*=`. Probes:
+  `.build/scratch/p176_scale{,2,4,5}.saw`.
+- **DF-176b (COMPILER, soundness, filed Aug 7 by unit 13's probing): calling a
+  `&var self` METHOD on a field of a plain `&self` receiver is unchecked.**
+  The third form DF-175a named. `self.cells.push(9)` in a `func peek(&self)`
+  compiles; the push runs against the receiver's COPY of the `Vector` header, so
+  the caller sees no new element and the callee's growth is lost —
+  `.build/scratch/p176_selfmethod.saw` prints `a 2` then `b 1`. Worse than the
+  vanishing field write, because the copy and the original share a buffer: a
+  push that does NOT reallocate writes into storage the caller owns while the
+  caller's `length` stays behind. Design 176 unit 13 deliberately scoped itself
+  to the direct-write form and this was left filed rather than reinterpreted.
+  NOT a mechanical extension of the same rule — a struct holding an `Atomic` is
+  received BY POINTER even at `&self`, so `func bump(&self) { self.n.fetch_add(1) }`
+  is a blessed idiom that a naive "no `&var self` method on a `self` field" rule
+  would break, and `SpinLock`/`UnsafeMemory` are the same shape. The fix has to
+  ask whether the receiver's field is reached by pointer, which is the same
+  question `_writes_into_self_storage` now answers for writes. Wants a user
+  decision on the Atomic/interior-mutability carve-out first.
+
 ## Design 175 findings (`#lend_var` investigation, Aug 7 — PROBE-ONLY, no compiler changes)
 
 Full report in `designs/175-lend-var-investigation.md`. Verdict: GO, but
@@ -223,8 +262,22 @@ each copy is then checked as an ordinary method. Mangling needs ZERO work —
 accessors are already emitted per window result type
 (`Grid_[]$1$Int` / `Grid_[]$1$Void`) and the flavor is not in that key.
 
-- **DF-175a — OPEN, P0-class (COMPILER). A `&self` method may mutate its
-  receiver; only the `&var self.<field>` PROJECTION form is checked.**
+- **DF-175a — FIXED (design 176 unit 13). A `&self` method may mutate its
+  receiver; only the `&var self.<field>` PROJECTION form was checked.**
+  The direct-write form is now rejected in both spellings (plain and compound),
+  by a walk that tracks TYPES rather than syntax: storage INSIDE the receiver
+  (field, nested field, tuple element, optional payload, inline `[T; N]`
+  element) is refused, storage the receiver only POINTS AT is not — a `Vector`
+  field's heap elements and an `UnsafePointer` field's pointee are shared by the
+  copy, not duplicated by it, which is what `TaskHandle.cancel` writes and what
+  a purely syntactic walk was rejecting. IN-TREE MIGRATION TAIL: ZERO. Nothing
+  in examples/, std, blade, libs, devtools or sos relied on the hole once the
+  indirection carve-out was right; the two std hits the first (syntactic) cut
+  produced were both `self.cancel_ptr[0] = true`. Tests:
+  `examples/errors/shared_self_field_write.saw` (vanishing write),
+  `examples/errors/shared_self_borrows_epilogue_write.saw` (the landing one),
+  `examples/shared_self_write_alternatives.saw` (the carve-out + `&var self`).
+  Original finding follows.
   Design 146, the skill, and `examples/errors/var_ref_into_shared_self.saw`
   all state that a field write in a `&self` method is a hard error "including
   the prologue and epilogue of a borrows body". It is not. The check lives at

@@ -1351,11 +1351,24 @@ construct in the owner and lend `&driver` down.
   every use site then borrows the receiver exclusively, reads included, so a
   `let` root stops working. `--emit-docs` reports a `&self` borrows receiver as
   `"self": "window"`, not `"borrows"`.
-- **`&var self.<field>` inside a plain `&self` method is a compile error**
-  (design 146). A `&self` receiver arrives by VALUE, so that projection used to
-  hand out a mutable reference into the callee's copy and the write vanished —
-  silently, for years. Same rule design 106 already applied to a `&` parameter.
-  Fix: declare `&var self`, or `borrows -> T` if you meant to lend the place.
+- **A `&self` METHOD MAY NOT WRITE ITS RECEIVER** (design 146 + 176). A `&self`
+  receiver arrives by VALUE, so the write lands in the callee's copy and
+  vanishes. Both spellings are compile errors: the DIRECT write
+  (`self.hits = self.hits + 1`, `self.hits += 1` — unchecked until design 176,
+  a silent no-op for years) and the `&var self.<field>` PROJECTION that hands
+  the write to someone else. Fix: declare `&var self`, or `borrows -> T` if you
+  meant to lend the place. The rule covers storage INSIDE the receiver — a
+  field, a nested field, a tuple element, an optional payload, an inline
+  `[T; N]` element. Storage the receiver only POINTS AT is not covered, since
+  the copy shares it: `self.cells[i] = v` on a `Vector` field writes the
+  caller's element and is fine, and so is a write through an `UnsafePointer`
+  field (std's `TaskHandle.cancel`).
+  **It holds in a `borrows` body, prologue and epilogue included — and that is
+  where it bites hardest**: an accessor's receiver travels by POINTER, so a
+  field write there does not vanish, it LANDS, and a read through a shared
+  window mutated a `let` root (DF-175a). An epilogue that genuinely counts
+  reads declares the accessor `&var self`, which is STRICTER — every use site
+  then borrows the receiver exclusively, reads included.
 - **RAW-BACKED ENUMS are the wire idiom** (design 145 B2). A payload-free enum
   may declare an integer backing in the colon position; that PINS the width and
   the tag values, so it may be a field of an `UnsafeMemory`-viewed wire struct

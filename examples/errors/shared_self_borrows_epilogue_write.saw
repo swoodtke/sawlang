@@ -1,0 +1,31 @@
+// DF-175a, the half that was not merely lost. A `borrows` accessor's receiver
+// travels by POINTER whatever flavor the author spelled — that is what lets an
+// exclusive window write through — so a field write in the prologue or epilogue
+// of a `&self` borrows body LANDS. Two pure READS of a `let frozen` grid
+// therefore mutated it, visible through a `&Grid` parameter too: `let`
+// immutability stopped holding.
+//
+// The place transform's own documentation already claimed this was rejected
+// "exactly as it is in any other `&self` method". Now it is. An epilogue that
+// genuinely means to count reads declares the accessor `&var self`, which is
+// STRICTER — every use site then borrows the receiver exclusively.
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: cannot use compound assignment on storage reached through a `&self` receiver
+
+struct Grid { cells: Vector<Int>, reads: Int }
+extension Grid: NoCopy {}
+
+extension Grid {
+    func [](&self, i: Int) borrows -> Int {
+        if i < 0 || i >= self.cells.len() { panic("Grid.[]: index out of range") }
+        lend self.cells[i]
+        self.reads += 1
+    }
+}
+
+func main() {
+    var cells = Vector<Int>()
+    cells.push(10)
+    let frozen = Grid(cells: move cells, reads: 0)
+    print("{frozen[0]}")
+}

@@ -1,0 +1,26 @@
+// DF-175a. Design 146 says a field write in a `&self` body is an error, but
+// only the `&var self.<field>` PROJECTION form was ever checked (see
+// var_ref_into_shared_self.saw). The DIRECT write went straight through, and a
+// `&self` receiver arrives BY VALUE — so `self.hits = self.hits + 1` landed in
+// the callee's copy and was discarded with it. Two calls left `hits` at 0 and
+// nothing said so.
+//
+// The compound form asks the same question and gets the same answer; see
+// shared_self_borrows_epilogue_write.saw for the variant where the write LANDS.
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: cannot assign to storage reached through a `&self` receiver
+
+struct Counter { hits: Int }
+
+extension Counter {
+    func peek(&self) -> Int {
+        self.hits = self.hits + 1
+        self.hits
+    }
+}
+
+func main() {
+    var c = Counter(hits: 0)
+    let _ = c.peek()
+    print("{c.hits}")
+}

@@ -1937,7 +1937,39 @@ extension Point: Display {
 - Custom `init` methods return the struct type
 - Multiple `init` methods distinguished by parameter names
 - Mutable methods receive a reference for efficient mutation
-- Field assignment supported: `self.field = value`
+- Field assignment needs `&var self`: `self.field = value` in a `&self` method
+  is a compile error (below)
+
+#### A `&self` method may not write its receiver
+
+A `&self` receiver is a shared borrow, and it arrives **by value**. A write into
+it would land in the copy the method discards:
+
+```saw
+extension Counter {
+    func peek(&self) -> Int {
+        self.hits = self.hits + 1   // error: cannot assign to storage reached
+        self.hits                   //        through a `&self` receiver
+    }
+}
+```
+
+The rule covers every write whose target is storage inside the receiver — a
+field, a nested field, a tuple element, an optional payload, an element of an
+inline `[T; N]` — in both the plain and the compound spelling, and it covers the
+`&var self.field` projection that would hand such a write to someone else. Two
+ways to say what you meant: declare the method `&var self`, or lend the storage
+with a `borrows` accessor and let each use site pick the window's flavor.
+
+Storage the receiver only *points at* is not covered, because a copy of the
+receiver shares it rather than duplicating it. A `Vector` field's elements live
+in its heap buffer, so `self.cells[i] = v` writes the caller's element and is
+allowed; the same goes for a write through an `UnsafePointer` field.
+
+The rule holds inside a `borrows` body too, prologue and epilogue included. That
+is where it matters most: an accessor's receiver travels by pointer, so a field
+write there does not vanish, it *lands* — a read through a shared window would
+mutate a `let` root.
 
 ---
 

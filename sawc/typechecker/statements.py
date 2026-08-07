@@ -16,6 +16,7 @@ from ast_nodes import (
     BreakStatement, ContinueStatement, ExpressionStatement,
     WhileExpr, ForLoop, RangeExpr,
     Identifier, MemberAccess, ArrayIndex, TupleIndex, MoveExpr, IntLiteral,
+    ForceUnwrap,
     FunctionCall, StructInit, SelfExpr, ClosureExpr,
     IfExpr, IfLetExpr, MatchExpr, MethodCall,
     SawType, TypeKind,
@@ -1532,6 +1533,147 @@ class StatementsMixin:
             return expr.name
         return None
 
+    def _reject_shared_self_write(self, target, line, column, compound=False):
+        """DF-175a: a WRITE into the receiver of a plain `&self` method.
+
+        Design 146 states the rule — a field write in a `&self` body is an
+        error, the prologue and epilogue of a `borrows` body included — but only
+        the `&var self.<field>` PROJECTION form was ever enforced
+        (`_check_reference_expr`). The DIRECT write went through, and it went
+        through two different ways:
+
+        - in a PLAIN `&self` method the receiver arrives BY VALUE, so
+          `self.hits = self.hits + 1` landed in the callee's copy and was
+          silently discarded — the DF-146b bug class through the door that fix
+          did not cover;
+        - in a `&self` BORROWS body the receiver travels by POINTER
+          (`place_self_by_pointer`, which is what lets an exclusive window write
+          through), so the same write LANDED: a pure read through a shared
+          window mutated an immutable root, and `let` immutability stopped
+          holding.
+
+        One rule closes both. The walk is `_projects_from_self`, the same one
+        the projection check uses, so `self.f = v`, `self.a.b = v`,
+        `self.t.0 = v`, `self.cells[i] = v` and `self.opt! = v` all answer
+        alike — and so do their compound forms.
+
+        Returns True (and reports) when the write is rejected.
+        """
+        # `self = v` is design 110's whole-receiver replacement and has its own
+        # diagnostic in `_check_self_replacement_assign`.
+        if isinstance(target, SelfExpr):
+            return False
+        if not self._writes_into_self_storage(target):
+            return False
+        method = getattr(self, 'current_method', None)
+        if method is None or getattr(method, 'self_mutable', False):
+            return False
+        verb = "use compound assignment on" if compound else "assign to"
+        self._error(
+            ErrorKind.IMMUTABLE_ASSIGNMENT,
+            f"cannot {verb} storage reached through a `&self` receiver: "
+            f"`self` is borrowed SHARED here, so the write either lands in a "
+            f"copy that is discarded when the method returns or mutates a "
+            f"value the caller holds immutably",
+            line, column,
+            hint="declare the method `&var self` to mutate through the "
+                 "receiver, or `borrows -> T` to lend the place and let each "
+                 "use site choose the window's flavor"
+        )
+        return True
+
+    def _writes_into_self_storage(self, target) -> bool:
+        """Does this lvalue name storage INSIDE the receiver's own value?
+
+        The distinction that matters for DF-175a is where the bytes live, not
+        what the expression is rooted at. A struct FIELD, a nested field, a
+        tuple element, an optional payload and a FIXED-array element are all
+        inside the receiver — a `&self` copy takes them with it, so a write
+        there is the vanishing (or, by pointer, the sound-breaking) one.
+
+        Storage reached through an INDIRECTION is not: `self.cancel_ptr[0]`
+        writes the pointee, which lives in a task cell the group owns, and
+        `self.buffer![i]` writes a heap block the copy merely shares. Those are
+        exactly the writes std's handle types make on purpose, and the reason
+        this walk tracks TYPES rather than reusing `_projects_from_self`'s
+        purely syntactic one — an `ArrayIndex` continues the walk only when its
+        container is an inline `[T; N]`.
+        """
+        hops = []
+        node = target
+        while True:
+            if isinstance(node, SelfExpr):
+                break
+            if isinstance(node, MemberAccess):
+                hops.append(node)
+                node = node.object
+            elif isinstance(node, TupleIndex):
+                hops.append(node)
+                node = node.tuple_expr
+            elif isinstance(node, ForceUnwrap):
+                hops.append(node)
+                node = node.expr
+            elif isinstance(node, ArrayIndex):
+                hops.append(node)
+                node = node.array_expr
+            else:
+                return False
+
+        self_info = self.current_scope.lookup("self")
+        current = self_info.type if self_info is not None else None
+        for hop in reversed(hops):
+            current = self._hop_type(current, hop)
+            if current is None:
+                return False
+        return True
+
+    def _hop_type(self, container, hop):
+        """The type one lvalue hop yields, or None when the hop leaves the
+        receiver's own storage (or cannot be resolved without side effects)."""
+        if container is None:
+            return None
+        container = self._resolve_type_alias(container)
+        if container.kind == TypeKind.REFERENCE and container.inner_type:
+            container = self._resolve_type_alias(container.inner_type)
+
+        if isinstance(hop, ForceUnwrap):
+            return (container.inner_type
+                    if container.kind == TypeKind.OPTIONAL else None)
+
+        if isinstance(hop, ArrayIndex):
+            # Only an inline fixed array keeps the walk inside the receiver.
+            return (container.array_element_type
+                    if container.kind == TypeKind.ARRAY else None)
+
+        if isinstance(hop, TupleIndex):
+            if container.kind != TypeKind.TUPLE:
+                return None
+            elements = container.element_types or []
+            if hop.index < 0 or hop.index >= len(elements):
+                return None
+            return elements[hop.index]
+
+        # MemberAccess: a struct field, or a named-tuple element by label.
+        if container.kind == TypeKind.TUPLE:
+            names = container.tuple_field_names or []
+            elements = container.element_types or []
+            if hop.member in names and len(names) == len(elements):
+                return elements[names.index(hop.member)]
+            return None
+        if container.kind != TypeKind.STRUCT or not container.struct_name:
+            return None
+        struct_info = self.get_struct_info(container.struct_name)
+        if struct_info is None or hop.member not in struct_info.fields:
+            return None
+        field_type = struct_info.fields[hop.member]
+        tps = getattr(struct_info, 'type_params', None)
+        if tps and getattr(container, 'type_args', None):
+            type_map = {tp.name: arg
+                        for tp, arg in zip(tps, container.type_args)}
+            if type_map:
+                field_type = field_type.substitute(type_map)
+        return field_type
+
     def _assign_target_static_root(self, target) -> Optional[str]:
         """If an assignment target's root is an IMMUTABLE module-level static,
         return its name; else None.
@@ -1730,6 +1872,10 @@ class StatementsMixin:
 
         # A write to a by-value closure capture is discarded (design 132 unit A).
         if self._reject_capture_write(stmt.target, stmt.line, stmt.column):
+            return
+
+        # A write through a `&self` receiver is discarded, or worse (DF-175a).
+        if self._reject_shared_self_write(stmt.target, stmt.line, stmt.column):
             return
 
         # Handle both simple variable assignment and field assignment
@@ -2167,6 +2313,12 @@ class StatementsMixin:
 
         # `n += 1` on a by-value capture is the same discarded write.
         if self._reject_capture_write(stmt.target, stmt.line, stmt.column):
+            return
+
+        # `self.hits += 1` in a `&self` method is the same discarded write
+        # (DF-175a) — the plain-assignment form asks the same question.
+        if self._reject_shared_self_write(stmt.target, stmt.line, stmt.column,
+                                          compound=True):
             return
 
         # Get target type

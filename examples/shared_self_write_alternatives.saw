@@ -1,0 +1,54 @@
+// DF-175a, the positive half: what a `&self` body may still write, and what an
+// accessor that genuinely counts its reads is declared as.
+//
+// The rule is about where the BYTES live, not what the expression is rooted at.
+// A field, a nested field, a tuple element, an optional payload and an inline
+// `[T; N]` element are all inside the receiver, and a `&self` copy takes them
+// with it — so a write there is refused. Storage reached through an
+// INDIRECTION is not the receiver's: a `Vector`'s heap buffer is shared by the
+// copy, which is why `self.cells[i] = v` still writes the caller's element.
+// std's `TaskHandle.cancel` is the same shape one level lower (it writes a
+// pointee in a group-owned cell through an `UnsafePointer` field).
+//
+// An accessor whose epilogue mutates the receiver declares `&var self`. That is
+// STRICTER, not a loophole: every use site then borrows the receiver
+// exclusively, reads included, so a `let` root stops working — which is exactly
+// the property DF-175a was breaking.
+// EXPECT: success
+// EXPECT-OUTPUT:
+// through the buffer 40
+// counted 7
+// reads 2
+// -- done
+
+struct Grid { cells: Vector<Int>, reads: Int }
+extension Grid: NoCopy {}
+
+extension Grid {
+    // A `&self` method may write an element: the buffer is not in the receiver.
+    func put(&self, i: Int, v: Int) {
+        self.cells[i] = v
+    }
+
+    // An epilogue that counts reads is what `&var self` is for.
+    func [](&var self, i: Int) borrows -> Int {
+        if i < 0 || i >= self.cells.len() { panic("Grid.[]: index out of range") }
+        lend self.cells[i]
+        self.reads = self.reads + 1
+    }
+}
+
+func main() {
+    var cells = Vector<Int>()
+    cells.push(10)
+    cells.push(7)
+    var g = Grid(cells: move cells, reads: 0)
+
+    g.put(0, v: 40)
+    print("through the buffer {g.cells[0]}")
+
+    print("counted {g[1]}")
+    let _ = g[0]
+    print("reads {g.reads}")
+    print("-- done")
+}
