@@ -28,6 +28,13 @@ metal as readily as for a hosted target.
   compile error.
 - **Destruction is deterministic.** Values are destroyed last-in-first-out as
   they leave scope, and the `deinit` is written for you from the type's fields.
+- **A binary carries the program, not the standard library.** An import makes a
+  module available to type-check against; it does not put the module in your
+  output. Code generation walks out from `main` and the `@export`s and emits
+  only what it reaches, and the link then strips whatever is left over. A
+  four-line program links at about 63 KB, where it used to link at 218 KB.
+  `examples/link_dead_strip.saw` opens its own binary and fails if it grows past
+  a fixed bound.
 - **Swift-style syntax, monomorphized generics.** `let`/`var` bindings,
   `extension` blocks, `T?` optionals, trailing closures — over generics and
   traits that compile to specialized machine code rather than dispatching at
@@ -1194,8 +1201,8 @@ Saw is in active development. Implemented so far:
   C-ABI exports, `SpinLock<T>` and `unsafe static var` for global state,
   allocation-free formatting, and `--no-hidden-alloc`.
 - **Tooling** — source-location literals, doc comments with `--emit-docs`
-  extraction, opt-in compiler warnings, and the Blade package manager, which is
-  self-hosting.
+  extraction, opt-in compiler warnings, reachability-scoped code generation with
+  a dead-stripped link, and the Blade package manager, which is self-hosting.
 
 [LANGUAGE_SPEC.md](LANGUAGE_SPEC.md) is the authoritative language reference —
 when it and the compiler disagree, the compiler wins and the spec is the bug.

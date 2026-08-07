@@ -1432,7 +1432,8 @@ on the strict oracle until DF-164a lands, and a default-off flag delivering
 9.9% is a path nobody enables and everybody maintains. The prototype is one
 commit away if the user wants it.
 
-- **DF-164a — `__collit_{node_id}` leaks the process-global node counter into
+- **DF-164a — DONE (design 168 unit 3; 45 -> 0 on the whole-corpus re-emit
+  differential). `__collit_{node_id}` leaks the process-global node counter into
   emitted IR.** `codegen/collections.py:86`. A process that compiles more than
   once emits different IR TEXT for identical source (`%"__collit_14189"` vs
   `%"__collit_29638"` on `place_paired_literal_fields.saw` and
@@ -1446,7 +1447,8 @@ commit away if the user wants it.
   diverging in IR text for this reason alone (objects byte-identical), because
   any std cache changes node-id allocation order. Fix it and the differential
   goes green on the strict oracle.
-- **DF-164b — the hosted link line has no dead-strip.** `sawc.py:1146` is
+- **DF-164b — DONE (design 168 unit 1; 218,216 -> 62,712, both caveats checked).
+  The hosted link line has no dead-strip.** `sawc.py:1146` is
   `["clang", obj, *rt_objects, "-o", out]` — no `-dead_strip`, no
   `--gc-sections`, no `-ffunction-sections`; hosted std keeps external linkage
   (0/312 internal, measured) so `-O1`'s `globaldce` cannot reach it either.
@@ -1463,14 +1465,19 @@ commit away if the user wants it.
   `__attribute__((used))`-equivalent linkage). `examples/export_roundtrip.saw`
   and the `EXPECT-SYMBOL-UNDEFINED` tests are the oracle. Freestanding and
   `--runtime-build` do not link at all, so they are untouched.
-- **DF-164c — four synthesized-symbol counters make std's IR
+- **DF-164c — DONE (design 168 unit 3; and there were FIVE counters, not four —
+  `.str.N` in `_create_string_constant` is the same class). Four
+  synthesized-symbol counters make std's IR
   program-dependent for no reason.** `.sawstr.N` (`codegen/core.py:1534`),
   `.rawbytes.N` (`codegen/calls.py:478`), `__closure_N`
   (`codegen/closures.py:126`), `__task_tramp_N` (`codegen/calls.py:1805`) —
   one counter shared by std and user code, so any user string literal
   renumbers every std reference. Normalize all four and **0/312 std bodies
   differ across 12 programs**. Blocks tier C; harmless otherwise.
-- **DF-164d — the front half re-typechecks std 2-3 times per compile.** The
+- **DF-164d — INVESTIGATED (design 168 unit 5), still open: see DF-168b. It is
+  now the LARGEST single stage (30.3% of a `hello` compile) and the cheap skip
+  does not exist, because std is the program place lowering rewrites.
+  The front half re-typechecks std 2-3 times per compile.** The
   place-lowering re-entry (`sawc.py:1005-1024`) and the coro-transform re-entry
   (`:1040-1075`) each re-run `build_builtin_namespace`. Design 146 removed the
   re-PARSE; the re-CHECK remains at ~150 ms a pass and NO cache can serve it,
@@ -1482,6 +1489,78 @@ commit away if the user wants it.
   debug-map stab holding the object's path and mtime, so two COLD compiles of
   one file into different directories already differ. Byte-compare the `.ll`,
   the `.o`, and exit/stdout/stderr — not the executable.
+
+## Design 168 — the compile-speed batch: LANDED (Aug 7)
+
+Design 164's four findings, built. Full results in
+`designs/168-compile-speed-batch.md`; the headline is that **the profile
+INVERTED**. The back half was 64% of a compile and is now under 15%, which
+promoted the front half from "worth ~19%" to the dominant cost and made tier B
+worth roughly double the investigation's estimate. Every wall-clock figure is an
+INTERLEAVED A/B ratio against a sibling worktree (DF-156a method): this box
+demotes busy work to efficiency cores, so identical work drifted 2.6x across the
+session while load average ranged 3 to 71, and only paired ratios mean anything.
+
+- **Unit 1 (DF-164b) — link dead-strip.** `hello` 218,216 -> 62,712, the
+  investigation's number exactly; the flag itself costs nothing (24 ms link
+  either way). Both caveats CHECKED: an `@export` nothing references survives
+  (`nm` finds it), and the darwin N_OSO debug map coexists with the strip (lldb
+  resolves `hello.saw:7` identically stripped and not). Exports are also passed
+  as `-Wl,-u` keep-roots, since the ELF lowering of `@llvm.used` cannot be
+  verified from this host. Pinned by `examples/link_dead_strip.saw`, which reads
+  its own binary back.
+- **Unit 2 — the pre-LLVM reachability strip. 2.3x (B/A = 0.433), no cache
+  involved.** hello 449 defines -> 17, 27,928 IR lines -> 1,068; over a
+  six-program spread -86.0% defines and -84.4% IR lines. Declaration stays
+  eager (codegen resolves callees by bare `self.functions[name]` lookup), only
+  bodies defer. **Reachability is read off the EMITTED IR, not walked on the
+  AST** — an AST walk would have to re-derive overload resolution, trait
+  dispatch, drop glue, closure/trampoline synthesis and the coro transform's
+  callees, and every gap is an over-strip. The fixpoint owns the
+  monomorphization and vtable queues, so vtables PULL their methods.
+  `irdet --all` stayed green: the reachable set is deterministic.
+- **Unit 3 (DF-164a + DF-164c) — deterministic synthesized names.** Seven sites,
+  not six (`.str.N` was a fifth counter the finding missed). New oracle
+  `tools/reemitdiff.py` compiles each example twice INSIDE one process, which is
+  what irdet structurally cannot see and what the suite's persistent workers
+  actually do: **858 identical / 45 divergent before, 903 / 0 after**, every
+  divergence `.ll`-only. That 45 is design 164's 43, found independently.
+- **Unit 4 — tier B, the front-half cache. 39.4% (B/A = 0.606).** One 2.08 MB
+  pickle of the `(ast, ns)` pair, keyed exactly per 164 unit 5. The decision
+  that mattered: **the stdlib is built before the entry parse on the COLD path
+  too.** Restore-before-parse is required for correctness (pickle preserves
+  `node_id`), but making the cold path agree is what makes the cache INVISIBLE
+  rather than merely safe — both paths allocate ids in the same order, so warm
+  output is byte-identical to cold. Combined with unit 2, 3.8x on a `hello`
+  compile.
+- **Unit 5 (DF-164d) — measured, not skippable at small cost.** See DF-168b.
+
+- **DF-168a — `_CatchError_{node_id}` is the last node-id-derived name in the
+  compiler.** `typechecker/expressions.py:9077`, the union enum a multi-type
+  `try`/`catch` synthesizes. Same class as DF-164a, and its own comment claims
+  the name "reaches codegen and the emitted type table" — but no current program
+  shows it doing so: `try_catch_multi_match` emits ZERO occurrences of
+  `_CatchError_` in its `.ll`, and no `try_catch_*` example is among the 45
+  `reemitdiff` flagged. Left alone rather than changed on a guess. The fix is
+  NOT the mechanical one the other six got: a `try`/`catch` inside a generic body
+  can be checked per instantiation with DIFFERENT error sets, so a position-only
+  name would let two unions share one layout. Name it from the position PLUS the
+  variant identities, or leave it.
+- **DF-168b — the place-lowering re-entry re-checks std for every program, and a
+  dirty flag cannot avoid it.** DF-164d, measured after the rest of the batch:
+  the re-entry is now the single largest stage of a compile (30.3% of `hello`;
+  two passes, ~0.4 s, for a driven program). The obvious saving does not apply —
+  `hello.saw` is four lines with no place uses of its own and STILL forces it,
+  because the program `transform_place_uses` rewrites is **std** (85 extensions),
+  and it `uncheck`s every program in its list once any one changed. std is dirty
+  for essentially every program. What WOULD work: std's post-lowering state is
+  the same for every program, so cache the pair AFTER place lowering. The blocker
+  is that `transform_place_uses` gets ONE merged namespace with no per-module
+  scoping, so a user `borrows` extension on a std type could in principle change
+  how std's own bodies lower — either a design-142 scoping violation to fix
+  first, or a contribution the key must cover. A design question, not an
+  implementation detail. Worth its own brief: it is ~30% of every compile and
+  design 168's cache machinery is most of the implementation.
 
 ## Design 138 — the all-sources docs consistency sweep (LANDED, Aug 6)
 

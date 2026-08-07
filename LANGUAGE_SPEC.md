@@ -5443,6 +5443,12 @@ alive through DCE** (via `@llvm.used`, so it survives the default -O1 pipeline
 even when nothing in the program references it — the `_start` / vector-table
 shape). There is deliberately no separate `no_mangle`/`c_abi` split.
 
+An export is a keep-root at all three points where unreached code is discarded:
+the `-O1` pipeline above, code generation (which emits only the functions
+reachable from `main`, the exports, and an `@section` placement), and the link
+(`-dead_strip` on mach-O, `--gc-sections` on ELF). So an exported function that
+nothing in the program calls is still in the object and still in the executable.
+
 Restrictions on an exported **function** (each a clean error):
 
 - top-level free functions only (grammar already excludes methods/closures);
