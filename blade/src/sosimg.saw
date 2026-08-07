@@ -21,7 +21,9 @@
 // too, type annotations included, since design 150 — the DF-140c limit this
 // import used to work around is gone.)
 import toml.{TomlDoc, TomlSection}
-import imgformat.{SosimgHeader, SosimgSeg, SegFlag, SOSIMG_MAGIC, SOSIMG_VERSION}
+import imgformat.{
+    SosimgHeader, SosimgSeg, SegFlag, SosimgArch, SOSIMG_MAGIC, SOSIMG_VERSION,
+}
 import std.data.{Data}
 import std.env.{Env}
 import std.file.{File}
@@ -52,29 +54,65 @@ public extension SosError: Error {
 }
 
 // =============================================================================
-// ELF32 constants (the only ELF this module knows)
+// ELF constants — BOTH classes (design 162 unit 3)
 // =============================================================================
+//
+// SOS has two profiles and they do not agree about ELF: a riscv32 image is
+// ELF32 and an arm64 one is ELF64, with a different header layout, a different
+// program-header size, and 64-bit offsets in place of 32-bit ones. So the
+// reader takes a CLASS and looks its field offsets up, rather than assuming
+// one. What comes out is the same `SosimgSeg` either way, because the sosimg
+// format is deliberately 32-bit-addressed on both (see `imgformat`) — and an
+// address that does not fit that field is an ERROR here, never a truncation.
+
 static ELF_CLASS_OFF: Int = 4
 static ELF_DATA_OFF: Int = 5
 static ELF_CLASS_32: UInt = 1
+static ELF_CLASS_64: UInt = 2
 static ELF_DATA_LSB: UInt = 1
-static ELF_ENTRY_OFF: Int = 24
-static ELF_PHOFF_OFF: Int = 28
-static ELF_PHENTSIZE_OFF: Int = 42
-static ELF_PHNUM_OFF: Int = 44
+
+// ELF32: e_entry at 24, e_phoff at 28, both 4 bytes; e_phentsize/e_phnum at
+// 42/44. ELF64 widens e_entry and e_phoff to 8 bytes, which pushes everything
+// after them along.
+static ELF32_ENTRY_OFF: Int = 24
+static ELF32_PHOFF_OFF: Int = 28
+static ELF32_PHENTSIZE_OFF: Int = 42
+static ELF32_PHNUM_OFF: Int = 44
 static ELF32_PHDR_LEN: Int = 32
 
-static PHDR_TYPE: Int = 0
-static PHDR_OFFSET: Int = 4
-static PHDR_VADDR: Int = 8
-static PHDR_FILESZ: Int = 16
-static PHDR_MEMSZ: Int = 20
-static PHDR_FLAGS: Int = 24
+static ELF64_ENTRY_OFF: Int = 24
+static ELF64_PHOFF_OFF: Int = 32
+static ELF64_PHENTSIZE_OFF: Int = 54
+static ELF64_PHNUM_OFF: Int = 56
+static ELF64_PHDR_LEN: Int = 56
+
+// Program-header field offsets. ELF32 orders them
+// type/offset/vaddr/paddr/filesz/memsz/flags/align; ELF64 moves `flags` up to
+// right after `type` so the 64-bit fields stay 8-aligned. Two orders, which is
+// why these cannot be one set of constants.
+static ELF32_PHDR_TYPE: Int = 0
+static ELF32_PHDR_OFFSET: Int = 4
+static ELF32_PHDR_VADDR: Int = 8
+static ELF32_PHDR_FILESZ: Int = 16
+static ELF32_PHDR_MEMSZ: Int = 20
+static ELF32_PHDR_FLAGS: Int = 24
+
+static ELF64_PHDR_TYPE: Int = 0
+static ELF64_PHDR_FLAGS: Int = 4
+static ELF64_PHDR_OFFSET: Int = 8
+static ELF64_PHDR_VADDR: Int = 16
+static ELF64_PHDR_FILESZ: Int = 32
+static ELF64_PHDR_MEMSZ: Int = 40
 
 static PT_LOAD: UInt = 1
 static PF_X: UInt = 1
 static PF_W: UInt = 2
 static PF_R: UInt = 4
+
+/// The largest value a sosimg address or length field can carry. The format
+/// pins those at 32 bits on both profiles (design 162 unit 3), so a 64-bit
+/// link whose addresses run past this is refused rather than wrapped.
+static SOSIMG_ADDR_MAX: UInt = 0xFFFFFFFF
 
 // Segment payloads are placed on this boundary so the kernel's word-granular
 // copy never straddles one. Not required by the format; kindness to the loader.
@@ -120,6 +158,35 @@ static DEFAULT_LOW: Int = 1
 static DEFAULT_NORMAL: Int = 1
 static DEFAULT_HIGH: Int = 1
 
+/// The toolchain flags a profile needs when its manifest does not say.
+///
+/// Keyed on the TARGET TRIPLE rather than on which section the keys came from,
+/// which is the difference between a default and an accident: the riscv32
+/// values used to be the defaults for every target, so an arm64 image would
+/// silently have been handed `-march=rv32imac_zicsr`. A profile with nothing to
+/// say gets empty strings, and an empty flag is not passed at all.
+///
+/// All fields are plain strings, so this needs no copy policy beyond the
+/// automatic ImplicitCopy tier.
+struct ToolchainDefaults {
+    march: String
+    mabi: String
+    target_features: String
+}
+
+func toolchain_defaults(target: String) -> ToolchainDefaults {
+    if target.starts_with("riscv32") {
+        // The `virt`/ESP32-P4 Profile A baseline. `target-features` restates
+        // `march` in LLVM subtarget form because a triple names the
+        // architecture but not which optional extensions the part has.
+        return ToolchainDefaults(march: "rv32imac_zicsr", mabi: "ilp32",
+                                 target_features: "+m,+a,+c")
+    }
+    // Profile B needs none of the three: the base aarch64 triple already has
+    // multiply, atomics and the rest, and there is no ABI variant to select.
+    ToolchainDefaults(march: "", mabi: "", target_features: "")
+}
+
 // Reading a band is *about* a section, so it reads as a method on one. The
 // extension is module-private (design 80/142), so nothing outside this file
 // sees a `band_level` on `TomlSection`.
@@ -144,7 +211,37 @@ extension TomlSection {
 
 /// Read the `[sos]` section of `<dir>/Saw.toml`. Returns None when the package
 /// has no `[sos]` section — an ordinary host package, built the ordinary way.
-public func load_sos_config(dir: Path) -> Result<SosConfig?, Box<any Error>> {
+///
+/// TWO SPELLINGS, ONE MEANING (design 162 unit 4). A package that builds for
+/// one machine states it flat:
+///
+///     [sos]
+///     emit = "sosimg"
+///     target = "riscv32-unknown-none-elf"
+///     linker-script = "..."
+///
+/// A package that builds for SEVERAL puts the per-machine keys in a section
+/// named for the triple, and `blade build --target <triple>` picks one:
+///
+///     [sos]
+///     emit = "sosimg"
+///     priorities = { ... }
+///
+///     [sos.riscv32-unknown-none-elf]
+///     linker-script = "../hal/riscv32/user/root.ld"
+///     native = "..."
+///
+///     [sos.aarch64-unknown-none-elf]
+///     linker-script = "../hal/arm64/user/root.ld"
+///     native = "..."
+///
+/// `emit` and `priorities` stay in `[sos]` either way, because they are
+/// properties of the PROGRAM and not of the machine it is built for. A
+/// `--target` the manifest has no section for is an ERROR naming the ones it
+/// does have — never a build for something else, and never a silent fallback
+/// to the first section, which would be a wrong-machine image with a valid
+/// header.
+public func load_sos_config(dir: Path, requested: String = "") -> Result<SosConfig?, Box<any Error>> {
     let manifest_path = dir.join("Saw.toml")
     // std.file surfaces its IoError on open and read alike (design 92); `try`
     // re-boxes each into the erased Result, alongside the Utf8Error and the
@@ -172,36 +269,121 @@ public func load_sos_config(dir: Path) -> Result<SosConfig?, Box<any Error>> {
         return SosError(msg: "[sos] emit: expected \"sosimg\", got `{emit}`")
     }
 
-    let target = doc.section_at(sos).get("target") ?? ""
-    if target.is_empty() {
-        return SosError(msg: "[sos] target is required (the cross-compilation triple)")
-    }
-    let linker_script = doc.section_at(sos).get("linker-script") ?? ""
-    if linker_script.is_empty() {
-        return SosError(msg: "[sos] linker-script is required (an SOS image has a fixed load address)")
-    }
-
+    // `priorities` describes the PROGRAM, so it is read from `[sos]` whichever
+    // spelling the per-machine keys use.
     let background = try doc.section_at(sos).band_level("background", DEFAULT_BACKGROUND)
     let low = try doc.section_at(sos).band_level("low", DEFAULT_LOW)
     let normal = try doc.section_at(sos).band_level("normal", DEFAULT_NORMAL)
     let high = try doc.section_at(sos).band_level("high", DEFAULT_HIGH)
     let packed = pack_priorities(background, low, normal, high)
 
-    // riscv32 defaults: the `virt`/ESP32-P4 Profile A baseline.
-    //
-    // Typed local again (DF-140d): returning the value directly would have to
+    // Which section carries the per-machine keys, and which triple it is for.
+    let flat_target = doc.section_at(sos).get("target") ?? ""
+    let per_target = sos_target_sections(&doc)
+    var section_name = ""
+    var target = ""
+
+    if not requested.is_empty() {
+        let named = "sos.{requested}"
+        if doc.has_section(named) {
+            section_name = named
+            target = requested
+        } else if flat_target.equals(requested) {
+            section_name = "sos"
+            target = requested
+        } else {
+            return SosError(msg: "[sos]: no configuration for target `{requested}` ({sos_targets_summary(&doc, flat_target)})")
+        }
+    } else if not flat_target.is_empty() {
+        section_name = "sos"
+        target = flat_target
+    } else if per_target.len() == 1 {
+        section_name = "sos.{per_target[0]}"
+        target = per_target[0]
+    } else if per_target.len() == 0 {
+        return SosError(msg: "[sos] target is required (the cross-compilation triple), or a [sos.<triple>] section per machine")
+    } else {
+        return SosError(msg: "[sos]: this package builds for several machines — pass --target ({sos_targets_summary(&doc, flat_target)})")
+    }
+
+    guard let chosen = doc.index_of(section_name) else {
+        return SosError(msg: "internal: [{section_name}] vanished")
+    }
+
+    let linker_script = doc.section_at(chosen).get("linker-script") ?? ""
+    if linker_script.is_empty() {
+        return SosError(msg: "[{section_name}] linker-script is required (an SOS image has a fixed load address)")
+    }
+
+    // Toolchain flags default from the TRIPLE, so a profile that needs none
+    // gets none. An explicit key always wins.
+    let defaults = toolchain_defaults(target)
+
+    // Typed local (DF-140d): returning the value directly would have to
     // auto-wrap twice — into the Optional and then into the Result — and that
     // is an internal compiler error.
     let found: SosConfig? = SosConfig(
         target: target,
-        march: doc.section_at(sos).get("march") ?? "rv32imac_zicsr",
-        mabi: doc.section_at(sos).get("mabi") ?? "ilp32",
-        target_features: doc.section_at(sos).get("target-features") ?? "+m,+a,+c",
+        march: doc.section_at(chosen).get("march") ?? defaults.march,
+        mabi: doc.section_at(chosen).get("mabi") ?? defaults.mabi,
+        target_features: doc.section_at(chosen).get("target-features") ?? defaults.target_features,
         linker_script: linker_script,
-        native: doc.section_at(sos).get("native") ?? "",
+        native: doc.section_at(chosen).get("native") ?? "",
         prio_map: packed,
     )
     return found
+}
+
+/// Every triple this manifest has a `[sos.<triple>]` section for, in document
+/// order.
+func sos_target_sections(doc: &TomlDoc) -> Vector<String> {
+    var out = Vector<String>()
+    let names = doc.section_names()
+    var i = 0
+    while i < names.len() {
+        guard let name = names.get(i) else {
+            i = i + 1
+            continue
+        }
+        if name.starts_with("sos.") {
+            out.push(name.substring(SOS_PREFIX_LEN, name.len()))
+        }
+        i = i + 1
+    }
+    move out
+}
+
+static SOS_PREFIX_LEN: Int = 4      // "sos."
+
+/// What a refusal tells the user they COULD have asked for. A list of names is
+/// the difference between an error you can act on and one you have to go read
+/// the manifest for.
+func sos_targets_summary(doc: &TomlDoc, flat_target: String) -> String {
+    let per_target = sos_target_sections(&doc)
+    if per_target.len() == 0 {
+        if flat_target.is_empty() {
+            return "this manifest declares no target"
+        }
+        return "this manifest declares `{flat_target}`"
+    }
+    var listed = ""
+    var i = 0
+    while i < per_target.len() {
+        guard let name = per_target.get(i) else {
+            i = i + 1
+            continue
+        }
+        if listed.is_empty() {
+            listed = name
+        } else {
+            listed = "{listed}, {name}"
+        }
+        i = i + 1
+    }
+    if flat_target.is_empty() {
+        return "this manifest declares {listed}"
+    }
+    "this manifest declares {flat_target}, {listed}"
 }
 
 /// The cross-compiler driving the native translation unit. An SOS image is
@@ -274,6 +456,19 @@ extension Data {
         (b0 as UInt) | ((b1 as UInt) << 8) | ((b2 as UInt) << 16) | ((b3 as UInt) << 24)
     }
 
+    /// The ELF64 half of the reader. Blade is a HOSTED binary and every host
+    /// Saw targets is 64-bit, so `UInt` holds this; a 32-bit host would need
+    /// the top half kept separately, which is a problem for the day one exists.
+    func u64_at(&self, off: Int) -> UInt? {
+        guard let lo = self.u32_at(off) else {
+            return None
+        }
+        guard let hi = self.u32_at(off + 4) else {
+            return None
+        }
+        lo | (hi << 32)
+    }
+
     func put_u8(&var self, v: UInt) {
         self.push((v & 0xFF) as UInt8)
     }
@@ -296,7 +491,7 @@ extension Data {
         self.put_u32(h.magic as UInt)
         self.put_u16(h.version as UInt)
         self.put_u8(h.seg_count as UInt)
-        self.put_u8(h.reserved0 as UInt)
+        self.put_u8(h.arch as UInt)
         self.put_u32(h.entry as UInt)
         self.put_u32(h.prio_map as UInt)
     }
@@ -353,8 +548,41 @@ func align_up(v: Int, align: Int) -> Int {
     }
 }
 
-func check_elf_header(elf: &Data) -> Result<Void, SosError> {
-    if elf.len() < ELF32_PHDR_LEN {
+/// Where an ELF of one class keeps the handful of fields this reader needs.
+///
+/// Carrying the offsets as DATA rather than branching at each read is what
+/// keeps the walk below identical for both classes: the class is decided once,
+/// at the header, and everything after it reads the same way. All fields are
+/// trivially copyable, so this needs no copy policy.
+struct ElfShape {
+    is_64: Bool
+    entry_off: Int
+    phoff_off: Int
+    phentsize_off: Int
+    phnum_off: Int
+    phdr_len: Int
+    ph_type: Int
+    ph_flags: Int
+    ph_offset: Int
+    ph_vaddr: Int
+    ph_filesz: Int
+    ph_memsz: Int
+}
+
+extension ElfShape {
+    /// A word-sized field: four bytes in an ELF32, eight in an ELF64.
+    func word_at(&self, elf: &Data, off: Int) -> UInt? {
+        if self.is_64 {
+            elf.u64_at(off)
+        } else {
+            elf.u32_at(off)
+        }
+    }
+}
+
+/// Identify the linked image, or say why it is not one this can read.
+func elf_shape(elf: &Data) -> Result<ElfShape, SosError> {
+    if elf.len() < ELF64_PHNUM_OFF {
         return SosError(msg: "linked image is too short to be an ELF")
     }
     let m0 = elf.u8_at(0) ?? 0
@@ -365,28 +593,69 @@ func check_elf_header(elf: &Data) -> Result<Void, SosError> {
     if m0 != 0x7F || m1 != 69 || m2 != 76 || m3 != 70 {
         return SosError(msg: "linked image is not an ELF")
     }
-    if (elf.u8_at(ELF_CLASS_OFF) ?? 0) != ELF_CLASS_32 {
-        return SosError(msg: "linked image is not ELF32 (sosimg addresses are 32-bit)")
-    }
     if (elf.u8_at(ELF_DATA_OFF) ?? 0) != ELF_DATA_LSB {
         return SosError(msg: "linked image is not little-endian")
     }
-    return
+    let class_byte = elf.u8_at(ELF_CLASS_OFF) ?? 0
+    if class_byte == ELF_CLASS_32 {
+        return ElfShape(
+            is_64: false,
+            entry_off: ELF32_ENTRY_OFF,
+            phoff_off: ELF32_PHOFF_OFF,
+            phentsize_off: ELF32_PHENTSIZE_OFF,
+            phnum_off: ELF32_PHNUM_OFF,
+            phdr_len: ELF32_PHDR_LEN,
+            ph_type: ELF32_PHDR_TYPE,
+            ph_flags: ELF32_PHDR_FLAGS,
+            ph_offset: ELF32_PHDR_OFFSET,
+            ph_vaddr: ELF32_PHDR_VADDR,
+            ph_filesz: ELF32_PHDR_FILESZ,
+            ph_memsz: ELF32_PHDR_MEMSZ,
+        )
+    }
+    if class_byte == ELF_CLASS_64 {
+        return ElfShape(
+            is_64: true,
+            entry_off: ELF64_ENTRY_OFF,
+            phoff_off: ELF64_PHOFF_OFF,
+            phentsize_off: ELF64_PHENTSIZE_OFF,
+            phnum_off: ELF64_PHNUM_OFF,
+            phdr_len: ELF64_PHDR_LEN,
+            ph_type: ELF64_PHDR_TYPE,
+            ph_flags: ELF64_PHDR_FLAGS,
+            ph_offset: ELF64_PHDR_OFFSET,
+            ph_vaddr: ELF64_PHDR_VADDR,
+            ph_filesz: ELF64_PHDR_FILESZ,
+            ph_memsz: ELF64_PHDR_MEMSZ,
+        )
+    }
+    return SosError(msg: "linked image has an unknown ELF class {class_byte}")
 }
 
-func collect_segments(elf: &Data) -> Result<Vector<PlacedSeg>, SosError> {
-    try check_elf_header(&elf)
+/// Narrow a linked value into the 32-bit field the sosimg format gives it.
+///
+/// The format is 32-bit-addressed on both profiles by design (`imgformat`), and
+/// a 64-bit link CAN produce an address that does not fit. Truncating it would
+/// emit an image whose segments load somewhere the linker never meant; refusing
+/// is the only answer that cannot corrupt a boot.
+func narrow(value: UInt, what: String) -> Result<UInt32, SosError> {
+    if value > SOSIMG_ADDR_MAX {
+        return SosError(msg: "{what} is 0x{value} — past the 32-bit sosimg field (the format addresses the low 4 GiB)")
+    }
+    value as UInt32
+}
 
-    guard let phoff_raw = elf.u32_at(ELF_PHOFF_OFF) else {
+func collect_segments(elf: &Data, shape: &ElfShape) -> Result<Vector<PlacedSeg>, SosError> {
+    guard let phoff_raw = shape.word_at(&elf, shape.phoff_off) else {
         return SosError(msg: "truncated ELF header (no program-header offset)")
     }
-    guard let phentsize = elf.u16_at(ELF_PHENTSIZE_OFF) else {
+    guard let phentsize = elf.u16_at(shape.phentsize_off) else {
         return SosError(msg: "truncated ELF header (no program-header size)")
     }
-    guard let phnum = elf.u16_at(ELF_PHNUM_OFF) else {
+    guard let phnum = elf.u16_at(shape.phnum_off) else {
         return SosError(msg: "truncated ELF header (no program-header count)")
     }
-    if phentsize != (ELF32_PHDR_LEN as UInt) {
+    if phentsize != (shape.phdr_len as UInt) {
         return SosError(msg: "unexpected ELF program-header size {phentsize}")
     }
 
@@ -394,36 +663,36 @@ func collect_segments(elf: &Data) -> Result<Vector<PlacedSeg>, SosError> {
     var segments = Vector<PlacedSeg>()
     var i = 0
     while i < (phnum as Int) {
-        let rec = phoff + i * ELF32_PHDR_LEN
-        guard let ptype = elf.u32_at(rec + PHDR_TYPE) else {
+        let rec = phoff + i * shape.phdr_len
+        guard let ptype = elf.u32_at(rec + shape.ph_type) else {
             return SosError(msg: "truncated ELF program header {i}")
         }
         if ptype == PT_LOAD {
-            guard let p_offset = elf.u32_at(rec + PHDR_OFFSET) else {
+            guard let p_offset = shape.word_at(&elf, rec + shape.ph_offset) else {
                 return SosError(msg: "truncated ELF program header {i}")
             }
-            guard let p_vaddr = elf.u32_at(rec + PHDR_VADDR) else {
+            guard let p_vaddr = shape.word_at(&elf, rec + shape.ph_vaddr) else {
                 return SosError(msg: "truncated ELF program header {i}")
             }
-            guard let p_filesz = elf.u32_at(rec + PHDR_FILESZ) else {
+            guard let p_filesz = shape.word_at(&elf, rec + shape.ph_filesz) else {
                 return SosError(msg: "truncated ELF program header {i}")
             }
-            guard let p_memsz = elf.u32_at(rec + PHDR_MEMSZ) else {
+            guard let p_memsz = shape.word_at(&elf, rec + shape.ph_memsz) else {
                 return SosError(msg: "truncated ELF program header {i}")
             }
-            guard let p_flags = elf.u32_at(rec + PHDR_FLAGS) else {
+            guard let p_flags = elf.u32_at(rec + shape.ph_flags) else {
                 return SosError(msg: "truncated ELF program header {i}")
             }
             // A zero-length PT_LOAD carries nothing and would only cost the
-            // kernel a PMP region.
+            // kernel a grant.
             if p_memsz != 0 {
                 // `file_off` is filled in by placement below; everything else
                 // is known now.
                 let record = SosimgSeg(
                     file_off: 0u32,
-                    load_addr: p_vaddr as UInt32,
-                    file_len: p_filesz as UInt32,
-                    mem_len: p_memsz as UInt32,
+                    load_addr: try narrow(p_vaddr, "segment {i} load address"),
+                    file_len: try narrow(p_filesz, "segment {i} file length"),
+                    mem_len: try narrow(p_memsz, "segment {i} memory length"),
                     flags: sos_flags(p_flags),
                     reserved0: 0u8,
                     reserved1: 0u8,
@@ -441,13 +710,31 @@ func collect_segments(elf: &Data) -> Result<Vector<PlacedSeg>, SosError> {
     move segments
 }
 
-/// Convert a linked ELF32 image into a sosimg carrying `prio_map`.
-public func elf_to_sosimg(elf: &Data, prio_map: UInt) -> Result<Data, SosError> {
-    var segments = try collect_segments(&elf)
+/// Which profile's tag an image linked for `target` carries.
+///
+/// A triple this does not recognize is an ERROR, never a default: emitting an
+/// image tagged for the wrong machine is worse than emitting none, because the
+/// kernel's arch check would then wave it through.
+public func arch_for_target(target: String) -> Result<SosimgArch, SosError> {
+    if target.starts_with("riscv32") {
+        return SosimgArch.Riscv32
+    }
+    if target.starts_with("aarch64") || target.starts_with("arm64") {
+        return SosimgArch.Arm64
+    }
+    return SosError(msg: "[sos] target: `{target}` is not a profile sosimg has an arch tag for")
+}
 
-    guard let entry = elf.u32_at(ELF_ENTRY_OFF) else {
+/// Convert a linked ELF image into a sosimg carrying `prio_map`, tagged for
+/// `arch`.
+public func elf_to_sosimg(elf: &Data, prio_map: UInt, arch: SosimgArch) -> Result<Data, SosError> {
+    let shape = try elf_shape(&elf)
+    var segments = try collect_segments(&elf, &shape)
+
+    guard let entry_raw = shape.word_at(&elf, shape.entry_off) else {
         return SosError(msg: "truncated ELF header (no entry point)")
     }
+    let entry = try narrow(entry_raw, "entry point")
 
     let count = segments.len()
     let header_len = sizeof<SosimgHeader>()
@@ -475,8 +762,8 @@ public func elf_to_sosimg(elf: &Data, prio_map: UInt) -> Result<Data, SosError> 
         magic: SOSIMG_MAGIC,
         version: SOSIMG_VERSION,
         seg_count: count as UInt8,
-        reserved0: 0u8,
-        entry: entry as UInt32,
+        arch: arch.tag(),
+        entry: entry,
         prio_map: prio_map as UInt32,
     )
     out.put_header(&header)
@@ -515,8 +802,10 @@ public func elf_to_sosimg(elf: &Data, prio_map: UInt) -> Result<Data, SosError> 
     move out
 }
 
-/// Read `elf_path`, convert it, and write the image to `img_path`.
-public func write_sosimg(elf_path: Path, img_path: Path, prio_map: UInt) -> Result<Int, SosError> {
+/// Read `elf_path`, convert it, and write the image to `img_path`, tagged for
+/// the profile it was linked for.
+public func write_sosimg(elf_path: Path, img_path: Path, prio_map: UInt,
+                         arch: SosimgArch) -> Result<Int, SosError> {
     var f = match File.open(elf_path) {
         case Ok(handle) -> move handle,
         case Err(e) -> { return SosError(msg: "could not open {elf_path.as_str()}: {e}") }
@@ -525,7 +814,7 @@ public func write_sosimg(elf_path: Path, img_path: Path, prio_map: UInt) -> Resu
         case Ok(bytes) -> move bytes,
         case Err(e) -> { return SosError(msg: "could not read {elf_path.as_str()}: {e}") }
     }
-    let img = try elf_to_sosimg(&elf, prio_map)
+    let img = try elf_to_sosimg(&elf, prio_map, arch)
     let size = img.len()
     let out = match File.create(img_path) {
         case Ok(handle) -> move handle,

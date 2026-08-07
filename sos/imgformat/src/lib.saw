@@ -25,6 +25,18 @@
 //!
 //! A big-endian profile would have to byte-assemble instead of overlaying;
 //! riscv32 and arm64 are both little-endian, so neither does today.
+//!
+//! ADDRESSES ARE 32-BIT, ON BOTH PROFILES, AND THAT IS A DECISION (design 162
+//! unit 3). `entry` and `load_addr` are `UInt32`, so an image can only place
+//! itself in the low 4 GiB. Both M1b profiles load well inside that — QEMU
+//! `virt` puts RAM at 0x8000_0000 on riscv32 and 0x4000_0000 on arm64 — and a
+//! fixed 32-bit field is what keeps ONE format readable by a 32-bit and a
+//! 64-bit kernel with the same overlay and the same byte count. It is NOT a
+//! platform-width field that happens to be small: widening it is a version-3
+//! format change with a wider header, not something a 64-bit build does
+//! silently. Blade REFUSES an image whose linked addresses exceed the field
+//! rather than truncating them, which is what makes the bound a contract
+//! instead of a trap.
 
 /// The image header: 16 bytes at offset 0, followed immediately by
 /// `seg_count` segment records.
@@ -34,9 +46,19 @@ public struct SosimgHeader {
     /// `SOSIMG_VERSION`. A loader refuses anything it does not know.
     public version: UInt16,
     /// How many `SosimgSeg` records follow. A loader bounds this against its
-    /// own budget (the kernel's is its PMP region count).
+    /// own budget (the kernel's is its grant budget).
     public seg_count: UInt8,
-    public reserved0: UInt8,
+    /// Which architecture this image's code is for — a `SosimgArch` tag.
+    ///
+    /// Deliberately a raw `UInt8` and not a `SosimgArch`, for the same reason
+    /// `SosimgSeg.flags` is raw: this struct is overlaid on bytes the loader
+    /// did not produce, and an enum-typed field would mint a tag straight from
+    /// an attacker-chosen byte with no `from(raw:)` anywhere. A loader compares
+    /// it against its OWN tag; a mismatch is a refused image (design 162 unit
+    /// 3). Before this field the two profiles' images were byte-compatible
+    /// headers wrapping incompatible instructions, and the only thing that
+    /// stopped one booting on the other was that nobody had tried.
+    public arch: UInt8,
     /// ABSOLUTE load address of the first instruction. Not an offset: nothing
     /// relocates on Profile A, so an offset would only be an addition every
     /// loader has to perform and re-validate.
@@ -82,7 +104,42 @@ static_assert(sizeof<SosimgSeg>() == 20, "sosimg segment record must be exactly 
 
 /// 'S','O','S','I' as a little-endian word.
 public static SOSIMG_MAGIC: UInt32 = 0x49534F53
-public static SOSIMG_VERSION: UInt16 = 1
+
+/// Version 2 added the `arch` tag over version 1's reserved byte. The size did
+/// not change and neither did any other field, but a v1 image carries no
+/// statement of what machine it is for — so a loader that understands v2 must
+/// refuse v1 rather than assume the answer.
+public static SOSIMG_VERSION: UInt16 = 2
+
+/// Which machine an image's code is for.
+///
+/// The registry, in one place, because BOTH sides read it: the kernel compares
+/// an image's tag against its own before jumping into it, and Blade writes the
+/// tag from the target triple it linked for. A tag is not an ISA description
+/// and never will be — it answers exactly one question, "would this code run
+/// here", and the answer is a table lookup rather than a guess.
+///
+/// Fixed-width backing because these values are the wire format (design 47).
+public enum SosimgArch: UInt8 {
+    case Riscv32 = 1,
+    case Arm64 = 2,
+}
+
+public extension SosimgArch {
+    /// The tag as it appears in a header.
+    public func tag(&self) -> UInt8 {
+        self as UInt8
+    }
+
+    /// A short name, for a diagnostic that has to say which profile an image
+    /// was built for.
+    public func describe(&self) -> String {
+        match self {
+            case Riscv32 -> "riscv32",
+            case Arm64 -> "arm64",
+        }
+    }
+}
 
 /// One segment permission, as the BIT it occupies in a `SosimgSeg.flags` mask.
 ///
@@ -108,10 +165,21 @@ public extension SosimgHeader {
         self.version == SOSIMG_VERSION
     }
 
+    /// Was this image built for `arch`?
+    ///
+    /// The comparison is on the RAW byte rather than on a decoded
+    /// `SosimgArch`, and that is the point: an unrecognized tag is simply not
+    /// this loader's, so it fails here without ever needing a name. Decoding is
+    /// for the diagnostic, not for the check.
+    public func is_for_arch(&self, arch: UInt8) -> Bool {
+        self.arch == arch
+    }
+
     /// Everything a header can be judged on WITHOUT knowing where the image
-    /// lives or how big it is. A loader still has to bound `seg_count` against
-    /// its own budget and check every segment against its own memory map —
-    /// those are target decisions and stay with the target.
+    /// lives, how big it is, or what machine is reading it. A loader still has
+    /// to check the arch tag, bound `seg_count` against its own budget and
+    /// check every segment against its own memory map — those are target
+    /// decisions and stay with the target.
     public func is_wellformed(&self) -> Bool {
         self.has_magic() && self.has_known_version() && self.seg_count > 0u8
     }

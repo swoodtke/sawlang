@@ -96,18 +96,23 @@ func append_dir_saw(b: &var StringBuilder, dir: String) {
 public struct Builder {
     manifest: Manifest
     layout: BuildLayout
+    // The triple `--target` asked for, kept as WRITTEN rather than only as the
+    // layout's directory name: an SOS package may carry a `[sos.<triple>]`
+    // section per machine, and selecting one needs the request itself.
+    requested_target: String
 }
 
 public extension Builder {
     // A builder for the default hosted build.
     public init(m: Manifest) -> Builder {
-        Builder(manifest: m, layout: BuildLayout())
+        Builder(manifest: m, layout: BuildLayout(), requested_target: "")
     }
 
     // A builder for an explicit sawc target triple; an empty `target` is the
     // hosted default, which is how a command with no `--target` spells itself.
     public init(m: Manifest, target: String) -> Builder {
-        Builder(manifest: m, layout: BuildLayout(triple: target))
+        Builder(manifest: m, layout: BuildLayout(triple: target),
+                requested_target: target)
     }
 
     // The compiler command. Honours a `SAWC` override so an in-tree compiler can
@@ -365,8 +370,15 @@ public extension Builder {
             let native_obj = layout.artifact("{name}.native{u}.o")
             var cc = Command(program: sos_clang())
             cc.arg("--target={cfg.target}")
-            cc.arg("-march={cfg.march}")
-            cc.arg("-mabi={cfg.mabi}")
+            // An empty flag is NOT passed. Profile B needs neither `-march` nor
+            // `-mabi`, and `-march=` with nothing after it is a clang error
+            // rather than a no-op.
+            if not cfg.march.is_empty() {
+                cc.arg("-march={cfg.march}")
+            }
+            if not cfg.mabi.is_empty() {
+                cc.arg("-mabi={cfg.mabi}")
+            }
             cc.arg("-ffreestanding")
             // -fno-builtin matters: sos/rt/common_c/support.c DEFINES memcpy,
             // and without it LLVM may rewrite its byte loop into a call to
@@ -400,7 +412,15 @@ public extension Builder {
         }
         try self.run_tool(&ld, "ld.lld")
 
-        match write_sosimg(Path(s: elf), Path(s: image), cfg.prio_map) {
+        // The image is tagged for the profile it was linked for, from the one
+        // place that knows which that is: the manifest's target triple. A
+        // triple with no tag is a build error rather than an untagged image.
+        let arch = match arch_for_target(cfg.target) {
+            case Ok(found) -> found,
+            case Err(e) -> { return BuildError(msg: "could not emit {image}: {e.text()}") }
+        }
+
+        match write_sosimg(Path(s: elf), Path(s: image), cfg.prio_map, arch) {
             case Ok(size) -> {
                 // A stamp we cannot write only costs the next build its cache hit.
                 match File.create(Path(s: layout.stamp())) {
@@ -423,7 +443,7 @@ public extension Builder {
     // and no host runtime at all.
     public func build(&self, force: Bool) -> Result<Int, BuildError> {
         var sos_cfg: SosConfig? = None
-        match load_sos_config(self.manifest.root_dir) {
+        match load_sos_config(self.manifest.root_dir, self.requested_target) {
             case Ok(found) -> { sos_cfg = found },
             case Err(e) -> { return BuildError(msg: "Saw.toml [sos]: {e}") }
         }

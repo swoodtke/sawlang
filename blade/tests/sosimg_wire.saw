@@ -1,7 +1,8 @@
-// Test: the sosimg wire encoding, end to end (design 140; sos/spec.md §6).
+// Test: the sosimg wire encoding, end to end (designs 140, 162; sos/spec.md §6).
 //
-// Feeds `elf_to_sosimg` a hand-built minimal ELF32 and checks the resulting
-// image BYTE BY BYTE at literal offsets. Two things make this worth its length:
+// Feeds `elf_to_sosimg` hand-built minimal ELFs — one of EACH class, because
+// SOS has a 32-bit profile and a 64-bit one — and checks the resulting images
+// BYTE BY BYTE at literal offsets. Three things make this worth its length:
 //
 //  - The offsets are written out by hand on purpose. A test that recomputed
 //    them from the structs would agree with a wrong layout as readily as a
@@ -9,13 +10,18 @@
 //  - The reader below is the test's OWN module-private `Data` extension, not
 //    the emitter's. Sharing one would mean a bug in the byte helpers could
 //    cancel itself out.
+//  - Both classes must produce the SAME 16-byte header and 20-byte records.
+//    That is the whole claim of a fixed-width format: two architectures, two
+//    ELF layouts, one image shape.
 //
 // (`src/sosimg.saw`'s own `Data` extension is invisible here — design-80/82
 // visibility, which is exactly what makes extending a std type from a package
 // safe. Two modules can each have their own without colliding.)
 
-import src.sosimg.{elf_to_sosimg}
-import imgformat.{SosimgHeader, SosimgSeg, SegFlag, SOSIMG_MAGIC, SOSIMG_VERSION}
+import src.sosimg.{elf_to_sosimg, arch_for_target}
+import imgformat.{
+    SosimgHeader, SosimgSeg, SegFlag, SosimgArch, SOSIMG_MAGIC, SOSIMG_VERSION,
+}
 import std.data.{Data}
 
 // The test's own little-endian view. Reads panic past the end: this test builds
@@ -48,12 +54,22 @@ extension Data {
         self.emit8(v >> 16)
         self.emit8(v >> 24)
     }
+
+    func emit64(&var self, v: UInt) {
+        self.emit32(v)
+        self.emit32(v >> 32)
+    }
 }
 
-static ELF_HEADER_LEN: Int = 52
-static ELF_PHDR_LEN: Int = 32
-static TEST_ENTRY: UInt = 0x80200000
+static ELF32_HEADER_LEN: Int = 52
+static ELF32_PHDR_LEN: Int = 32
+static ELF64_HEADER_LEN: Int = 64
+static ELF64_PHDR_LEN: Int = 56
+
+static TEST_ENTRY_32: UInt = 0x80200000
+static TEST_ENTRY_64: UInt = 0x40200000
 static TEST_PRIO_MAP: UInt = 0x01010100
+
 // `ELF_`-prefixed because these are ELF's numbering, not sosimg's — the two
 // disagree about the permission bits and the prefix keeps that visible.
 // (They also used to have to be prefixed to dodge DF-140f, where a
@@ -63,20 +79,16 @@ static ELF_PT_LOAD: UInt = 1
 static ELF_PF_X: UInt = 1
 static ELF_PF_R: UInt = 4
 static EM_RISCV: UInt = 243
+static EM_AARCH64: UInt = 183
 static ET_EXEC: UInt = 2
 
-/// A minimal little-endian ELF32 with one PT_LOAD segment: 4 bytes of content
-/// and a 4-byte `.bss` tail (p_memsz > p_filesz), which is the shape that makes
-/// the sosimg `mem_len` field earn its place.
-func minimal_elf() -> Data {
-    var elf = Data(capacity: 128)
-
-    // e_ident
+/// The 16 identification bytes, which are the only part both classes share.
+func emit_ident(elf: &var Data, class_byte: UInt) {
     elf.emit8(0x7F)
     elf.emit8(69)               // 'E'
     elf.emit8(76)               // 'L'
     elf.emit8(70)               // 'F'
-    elf.emit8(1)                // ELFCLASS32
+    elf.emit8(class_byte)
     elf.emit8(1)                // ELFDATA2LSB
     elf.emit8(1)                // EV_CURRENT
     var pad = 0
@@ -84,26 +96,34 @@ func minimal_elf() -> Data {
         elf.emit8(0)
         pad = pad + 1
     }
+}
+
+/// A minimal little-endian ELF32 with one PT_LOAD segment: 4 bytes of content
+/// and a 4-byte `.bss` tail (p_memsz > p_filesz), which is the shape that makes
+/// the sosimg `mem_len` field earn its place.
+func minimal_elf32() -> Data {
+    var elf = Data(capacity: 128)
+    emit_ident(&var elf, 1)                     // ELFCLASS32
 
     elf.emit16(ET_EXEC)
     elf.emit16(EM_RISCV)
     elf.emit32(1)                               // e_version
-    elf.emit32(TEST_ENTRY)                      // e_entry
-    elf.emit32(ELF_HEADER_LEN as UInt)          // e_phoff
+    elf.emit32(TEST_ENTRY_32)                   // e_entry
+    elf.emit32(ELF32_HEADER_LEN as UInt)        // e_phoff
     elf.emit32(0)                               // e_shoff
     elf.emit32(0)                               // e_flags
-    elf.emit16(ELF_HEADER_LEN as UInt)          // e_ehsize
-    elf.emit16(ELF_PHDR_LEN as UInt)            // e_phentsize
+    elf.emit16(ELF32_HEADER_LEN as UInt)        // e_ehsize
+    elf.emit16(ELF32_PHDR_LEN as UInt)          // e_phentsize
     elf.emit16(1)                               // e_phnum
     elf.emit16(0)                               // e_shentsize
     elf.emit16(0)                               // e_shnum
     elf.emit16(0)                               // e_shstrndx
 
-    let content_off = ELF_HEADER_LEN + ELF_PHDR_LEN
+    let content_off = ELF32_HEADER_LEN + ELF32_PHDR_LEN
     elf.emit32(ELF_PT_LOAD)
     elf.emit32(content_off as UInt)             // p_offset
-    elf.emit32(TEST_ENTRY)                      // p_vaddr
-    elf.emit32(TEST_ENTRY)                      // p_paddr
+    elf.emit32(TEST_ENTRY_32)                   // p_vaddr
+    elf.emit32(TEST_ENTRY_32)                   // p_paddr
     elf.emit32(4)                               // p_filesz
     elf.emit32(8)                               // p_memsz — a 4-byte .bss tail
     elf.emit32(ELF_PF_R | ELF_PF_X)             // p_flags
@@ -118,13 +138,52 @@ func minimal_elf() -> Data {
     move elf
 }
 
-func check_conversion() {
-    let elf = minimal_elf()
-    let img = match elf_to_sosimg(&elf, TEST_PRIO_MAP) {
-        case Ok(bytes) -> move bytes,
-        case Err(e) -> panic("the minimal ELF should convert: {e.text()}")
-    }
+/// The same image as an ELF64: wider `e_entry`/`e_phoff`, a 56-byte program
+/// header, and `p_flags` moved up to sit right after `p_type` so the 64-bit
+/// fields stay aligned. Everything the emitter reads is in a different place,
+/// which is the point.
+///
+/// `entry` is a parameter so one builder serves both the ordinary case and the
+/// out-of-range case below.
+func minimal_elf64(entry: UInt) -> Data {
+    var elf = Data(capacity: 192)
+    emit_ident(&var elf, 2)                     // ELFCLASS64
 
+    elf.emit16(ET_EXEC)
+    elf.emit16(EM_AARCH64)
+    elf.emit32(1)                               // e_version
+    elf.emit64(entry)                           // e_entry
+    elf.emit64(ELF64_HEADER_LEN as UInt)        // e_phoff
+    elf.emit64(0)                               // e_shoff
+    elf.emit32(0)                               // e_flags
+    elf.emit16(ELF64_HEADER_LEN as UInt)        // e_ehsize
+    elf.emit16(ELF64_PHDR_LEN as UInt)          // e_phentsize
+    elf.emit16(1)                               // e_phnum
+    elf.emit16(0)                               // e_shentsize
+    elf.emit16(0)                               // e_shnum
+    elf.emit16(0)                               // e_shstrndx
+
+    let content_off = ELF64_HEADER_LEN + ELF64_PHDR_LEN
+    elf.emit32(ELF_PT_LOAD)                     // p_type
+    elf.emit32(ELF_PF_R | ELF_PF_X)             // p_flags — BEFORE the offsets
+    elf.emit64(content_off as UInt)             // p_offset
+    elf.emit64(entry)                           // p_vaddr
+    elf.emit64(entry)                           // p_paddr
+    elf.emit64(4)                               // p_filesz
+    elf.emit64(8)                               // p_memsz — a 4-byte .bss tail
+    elf.emit64(4096)                            // p_align
+
+    elf.emit8(0xDE)
+    elf.emit8(0xAD)
+    elf.emit8(0xBE)
+    elf.emit8(0xEF)
+
+    move elf
+}
+
+/// Every assertion that holds for BOTH classes. The image is the contract, so
+/// the checks are the same and only the addresses and the tag differ.
+func check_image(img: &Data, entry: UInt, arch: SosimgArch, content_off: Int) {
     // Header: 16 bytes at offset 0.
     assert(img.at(0) == 83, "magic byte 0 is 'S'")
     assert(img.at(1) == 79, "magic byte 1 is 'O'")
@@ -133,14 +192,13 @@ func check_conversion() {
     assert(img.le32(0) == (SOSIMG_MAGIC as UInt), "magic reads back as one word")
     assert(img.le16(4) == (SOSIMG_VERSION as UInt), "version at offset 4")
     assert(img.at(6) == 1, "seg_count at offset 6")
-    assert(img.at(7) == 0, "header reserved byte is zero")
-    assert(img.le32(8) == TEST_ENTRY, "entry at offset 8, taken from e_entry")
+    assert(img.at(7) == (arch.tag() as UInt), "arch tag at offset 7")
+    assert(img.le32(8) == entry, "entry at offset 8, taken from e_entry")
     assert(img.le32(12) == TEST_PRIO_MAP, "prio_map at offset 12")
 
     // Segment record: 20 bytes at offset 16.
-    let seg_file_off = img.le32(16)
-    assert(seg_file_off == 36, "segment bytes are placed after the 16+20 table")
-    assert(img.le32(20) == TEST_ENTRY, "load_addr at record offset 4")
+    assert(img.le32(16) == 36, "segment bytes are placed after the 16+20 table")
+    assert(img.le32(20) == entry, "load_addr at record offset 4")
     assert(img.le32(24) == 4, "file_len at record offset 8, from p_filesz")
     assert(img.le32(28) == 8, "mem_len at record offset 12, from p_memsz")
     // ELF says X=1,W=2,R=4; sosimg says R=1,W=2,X=4 — so PF_R|PF_X becomes R|X.
@@ -157,6 +215,56 @@ func check_conversion() {
     assert(img.at(38) == 0xBE, "segment content byte 2")
     assert(img.at(39) == 0xEF, "segment content byte 3")
     assert(img.len() == 40, "the image carries no bytes for the .bss tail")
+    assert(content_off > 0, "the fixture placed its content somewhere")
+}
+
+func check_conversion_32() {
+    let elf = minimal_elf32()
+    let img = match elf_to_sosimg(&elf, TEST_PRIO_MAP, SosimgArch.Riscv32) {
+        case Ok(bytes) -> move bytes,
+        case Err(e) -> panic("the minimal ELF32 should convert: {e.text()}")
+    }
+    check_image(&img, TEST_ENTRY_32, SosimgArch.Riscv32,
+                ELF32_HEADER_LEN + ELF32_PHDR_LEN)
+}
+
+func check_conversion_64() {
+    let elf = minimal_elf64(TEST_ENTRY_64)
+    let img = match elf_to_sosimg(&elf, TEST_PRIO_MAP, SosimgArch.Arm64) {
+        case Ok(bytes) -> move bytes,
+        case Err(e) -> panic("the minimal ELF64 should convert: {e.text()}")
+    }
+    check_image(&img, TEST_ENTRY_64, SosimgArch.Arm64,
+                ELF64_HEADER_LEN + ELF64_PHDR_LEN)
+}
+
+/// The 4 GiB bound is a CONTRACT, not a trap: an ELF64 linked above it is
+/// refused, never truncated into an image whose segments load somewhere the
+/// linker never meant.
+func check_rejects_high_addresses() {
+    let elf = minimal_elf64(0x1_0000_0000)
+    match elf_to_sosimg(&elf, TEST_PRIO_MAP, SosimgArch.Arm64) {
+        case Ok(_) -> panic("an address past 4 GiB does not fit a sosimg field"),
+        case Err(e) -> assert(e.text().contains("4 GiB"), "the refusal names the bound")
+    }
+}
+
+func check_arch_for_target() {
+    // The tag comes from the target triple, and an unknown triple is an ERROR:
+    // an image tagged for the wrong machine is worse than no image, because the
+    // kernel's arch check would then wave it through.
+    match arch_for_target("riscv32-unknown-none-elf") {
+        case Ok(a) -> assert(a.tag() == (SosimgArch.Riscv32 as UInt8), "riscv32 triple"),
+        case Err(e) -> panic("riscv32 should have a tag: {e.text()}")
+    }
+    match arch_for_target("aarch64-unknown-none-elf") {
+        case Ok(a) -> assert(a.tag() == (SosimgArch.Arm64 as UInt8), "aarch64 triple"),
+        case Err(e) -> panic("aarch64 should have a tag: {e.text()}")
+    }
+    match arch_for_target("x86_64-unknown-none-elf") {
+        case Ok(_) -> panic("x86_64 is not an SOS profile"),
+        case Err(e) -> assert(not e.text().is_empty(), "the refusal says why")
+    }
 }
 
 func check_shared_predicates() {
@@ -168,19 +276,22 @@ func check_shared_predicates() {
 
     let good = SosimgHeader(
         magic: SOSIMG_MAGIC, version: SOSIMG_VERSION, seg_count: 1u8,
-        reserved0: 0u8, entry: 0x80200000u32, prio_map: 0u32,
+        arch: SosimgArch.Riscv32 as UInt8, entry: 0x80200000u32, prio_map: 0u32,
     )
     assert(good.is_wellformed(), "a header the emitter builds is well-formed")
+    assert(good.is_for_arch(SosimgArch.Riscv32 as UInt8), "it is for the profile it says")
+    assert(not good.is_for_arch(SosimgArch.Arm64 as UInt8),
+           "and not for the other one — the check the kernel makes before jumping")
 
     let wrong_magic = SosimgHeader(
         magic: 0u32, version: SOSIMG_VERSION, seg_count: 1u8,
-        reserved0: 0u8, entry: 0x80200000u32, prio_map: 0u32,
+        arch: SosimgArch.Riscv32 as UInt8, entry: 0x80200000u32, prio_map: 0u32,
     )
     assert(not wrong_magic.is_wellformed(), "a zero magic is rejected")
 
     let no_segments = SosimgHeader(
         magic: SOSIMG_MAGIC, version: SOSIMG_VERSION, seg_count: 0u8,
-        reserved0: 0u8, entry: 0x80200000u32, prio_map: 0u32,
+        arch: SosimgArch.Riscv32 as UInt8, entry: 0x80200000u32, prio_map: 0u32,
     )
     assert(not no_segments.is_wellformed(), "an image with no segments is not loadable")
 
@@ -191,7 +302,7 @@ func check_shared_predicates() {
     )
     assert(not shrunk.mem_covers_file(), "mem_len below file_len is rejected")
 
-    // Write-without-read is a PMP encoding RISC-V reserves.
+    // Write-without-read is an encoding one profile's hardware reserves.
     let write_only = SosimgSeg(
         file_off: 0u32, load_addr: 0x80200000u32, file_len: 8u32, mem_len: 8u32,
         flags: SegFlag.Write as UInt8, reserved0: 0u8, reserved1: 0u8, reserved2: 0u8,
@@ -208,22 +319,25 @@ func check_shared_predicates() {
 }
 
 func check_rejects_non_elf() {
-    // The emitter refuses input that is not a little-endian ELF32 rather than
+    // The emitter refuses input that is not a little-endian ELF rather than
     // producing an image out of nonsense.
-    var junk = Data(capacity: 64)
+    var junk = Data(capacity: 128)
     var i = 0
-    while i < 64 {
+    while i < 128 {
         junk.push(0u8)
         i = i + 1
     }
-    match elf_to_sosimg(&junk, 0) {
+    match elf_to_sosimg(&junk, 0, SosimgArch.Riscv32) {
         case Ok(_) -> panic("a zeroed buffer is not an ELF"),
         case Err(e) -> assert(not e.text().is_empty(), "the refusal says why")
     }
 }
 
 func main() {
-    check_conversion()
+    check_conversion_32()
+    check_conversion_64()
+    check_rejects_high_addresses()
+    check_arch_for_target()
     check_shared_predicates()
     check_rejects_non_elf()
     print("sosimg_wire: ok")
