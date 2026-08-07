@@ -220,7 +220,7 @@ class StatementsMixin:
         #
         # A `move` initializer transfers ownership and is not in the oracle's
         # aliasing set, so it still copies nothing.
-        if var_type and self._let_init_needs_copy(stmt.value):
+        if var_type and self._transfer_site_needs_copy(stmt.value):
             value = self._generate_copy(value, var_type)
 
         # Handle None literal type conversion if assigning to optional with different inner type
@@ -316,8 +316,9 @@ class StatementsMixin:
             if self.cleanup_stack and self._needs_cleanup(var_type):
                 self._register_cleanup(stmt.name, var_type)
 
-    def _let_init_needs_copy(self, value_expr) -> bool:
-        """Whether a `let` initializer must retain the value it reads (DF-139a).
+    def _transfer_site_needs_copy(self, value_expr) -> bool:
+        """Whether a `let` initializer or an ASSIGNMENT RHS must retain the value
+        it reads (DF-139a, extended to assignments by DF-151h).
 
         The answer is the shared transfer oracle's, with ONE carve-out: indexing
         a RAW POINTER. `self.buffer[i]` inside `Vector`/`Map` is the unsafe
@@ -406,12 +407,19 @@ class StatementsMixin:
                 if self._needs_cleanup(var_type) and not is_static_target:
                     self._generate_deinit_call(stmt.target.name, var_type)
 
-                # Apply copy behavior for ImplicitCopy types
-                if isinstance(stmt.value, Identifier):
-                    value = self._generate_copy_for_dest(value, var_type)
-                elif self._frame_owning_read_copy(stmt.value):
+                # An assignment RHS is a TRANSFER into a new home and takes the
+                # same copy decision every other transfer site takes (DF-151h).
+                # It used to ask only "is the RHS a bare Identifier?" — the very
+                # question DF-139a had already retired at the `let` path one
+                # statement kind over — so `a = h.r` / `a = t.0` / `a = arr[i]`
+                # bitwise-aliased a value the source keeps owning, and both
+                # halves then released it.
+                if self._frame_owning_read_copy(stmt.value):
                     # design 124: see the field-assignment path below.
                     value = self._generate_copy(value, self._expr_type(stmt.value))
+                elif isinstance(stmt.value, Identifier) or \
+                        self._transfer_site_needs_copy(stmt.value):
+                    value = self._generate_copy_for_dest(value, var_type)
 
                 # Wrap in optional if assigning T to T?
                 expected_type = self._get_llvm_type(var_type)
@@ -484,7 +492,10 @@ class StatementsMixin:
             # ImplicitCopy retain when the RHS is an existing binding (mirrors the
             # variable- and array-element-assignment paths); NoCopy/ExplicitCopy
             # already moved at the value-transfer checkpoint.
-            if field_saw is not None and isinstance(stmt.value, Identifier):
+            if (field_saw is not None
+                    and not self._frame_owning_read_copy(stmt.value)
+                    and (isinstance(stmt.value, Identifier)
+                         or self._transfer_site_needs_copy(stmt.value))):
                 value = self._generate_copy_for_dest(value, field_saw)
             elif self._frame_owning_read_copy(stmt.value):
                 # design 124: a coroutine frame reading one of its own owned
@@ -541,7 +552,9 @@ class StatementsMixin:
                     # ImplicitCopy value copied from an existing binding (mirrors
                     # the Identifier-target path). NoCopy/ExplicitCopy already
                     # moved at the value-transfer checkpoint.
-                    if elem_saw is not None and isinstance(stmt.value, Identifier):
+                    if elem_saw is not None and (
+                            isinstance(stmt.value, Identifier)
+                            or self._transfer_site_needs_copy(stmt.value)):
                         value = self._generate_copy_for_dest(value, elem_saw)
                 elif isinstance(container_val.type, ir.PointerType):
                     # Pointer: GEP with single index.
@@ -588,7 +601,9 @@ class StatementsMixin:
                     elem_saw = container_saw.array_element_type
                     if elem_saw is not None and self._needs_cleanup(elem_saw):
                         self._emit_drop_at(elem_ptr, elem_saw)
-                    if elem_saw is not None and isinstance(stmt.value, Identifier):
+                    if elem_saw is not None and (
+                            isinstance(stmt.value, Identifier)
+                            or self._transfer_site_needs_copy(stmt.value)):
                         value = self._generate_copy_for_dest(value, elem_saw)
                 else:
                     # A non-identifier container (e.g. `self.field_ptr[i] = v`,
@@ -677,7 +692,9 @@ class StatementsMixin:
         # An ImplicitCopy RHS that is an existing binding is retained (mirrors the
         # variable/field/element paths); NoCopy/ExplicitCopy already moved at the
         # value-transfer checkpoint, and `move v`/temporaries are not Identifiers.
-        if referent_saw is not None and isinstance(stmt.value, Identifier):
+        if referent_saw is not None and (
+                isinstance(stmt.value, Identifier)
+                or self._transfer_site_needs_copy(stmt.value)):
             value = self._generate_copy_for_dest(value, referent_saw)
         expected_type = referent_ptr.type.pointee
         if (self._is_optional_type(expected_type)

@@ -1,0 +1,135 @@
+// DF-151h: an ASSIGNMENT RHS retains what it reads out of storage.
+//
+// DF-139a retired the question "is the initializer a bare Identifier?" at the
+// `let` path, because it retained a whole-binding read (`let c = s`) and
+// bitwise-aliased every PROJECTION beside it (`let c = h.s`, `let c = arr[i]`).
+// The assignment path — one statement kind over, same transfer, same five
+// targets — still asked exactly that question. So `a = h.r` took a
+// non-retaining alias of a value `h` keeps owning, and the two halves then
+// released it once each: one allocation, two frees.
+//
+// It read as correct in every ordinary run. The surplus release lands in a
+// block libmalloc has already freed but not unmapped, so `strong_count` came
+// back one low and nothing faulted until an unrelated allocation tripped over
+// the damage — the DF-151b failure mode exactly, which is why this program is
+// in the Guard Malloc lane and why the counts below are the readable half of
+// the oracle rather than the whole of it.
+//
+// The fix is the fix DF-139a already wrote: ask the SHARED transfer oracle,
+// which reads the typechecker's `needs_copy` mark and re-derives the projection
+// rules codegen owns. All five assignment targets take it — a local, a struct
+// field, a fixed-array element, a nested-array element, and a `&var` referent
+// replacement — since a projection RHS reaches every one of them.
+//
+// ORACLE. `LIVE` counts live `Res` values: `res()` bumps it, `Res.deinit` takes
+// it back. Behind an `Arc`, so the count returns to zero only when the last
+// reference goes AND the destructor runs. The `strong_count` readings say the
+// retain HAPPENED; the zeros say nothing was released twice. On the pre-fix
+// compiler every count below read 1 instead of 2.
+// EXPECT: success
+// EXPECT-OUTPUT:
+// start 0
+// local_from_field 2 live 0
+// local_from_element 2 live 0
+// local_from_identifier 2 live 0
+// field_from_field 2 live 0
+// element_from_field 2 live 0
+// referent_from_field 2 live 0
+// done 0
+
+static LIVE: Atomic<Int> = Atomic(0)
+
+struct Res {
+    name: String
+}
+
+extension Res: NoCopy {
+    func deinit(&var self) { LIVE.fetch_add(0 - 1) }
+}
+
+func res(tag: Int) -> Arc<Res> {
+    LIVE.fetch_add(1)
+    Arc<Res>(value: Res(name: "res-{tag}"))
+}
+
+struct Holder {
+    r: Arc<Res>
+}
+
+extension Holder: NoCopy {}
+
+// A LOCAL target reading a struct FIELD: the filed repro.
+func local_from_field(k: Int) -> Int {
+    let h = Holder(r: res(tag: k))
+    var a = res(tag: k + 100)
+    a = h.r
+    a.strong_count()
+}
+
+// The same read out of a fixed-array ELEMENT.
+func local_from_element(k: Int) -> Int {
+    let arr: [Arc<Res>; 2] = [res(tag: k), res(tag: k + 1)]
+    var a = res(tag: k + 100)
+    a = arr[0]
+    a.strong_count()
+}
+
+// The control: a whole-binding read, which always retained.
+func local_from_identifier(k: Int) -> Int {
+    let b = res(tag: k)
+    var a = res(tag: k + 100)
+    a = b
+    a.strong_count()
+}
+
+// A struct FIELD target.
+func field_from_field(k: Int) -> Int {
+    let h = Holder(r: res(tag: k))
+    var g = Holder(r: res(tag: k + 100))
+    g.r = h.r
+    g.r.strong_count()
+}
+
+// A fixed-array ELEMENT target.
+func element_from_field(k: Int) -> Int {
+    let h = Holder(r: res(tag: k))
+    var arr: [Arc<Res>; 2] = [res(tag: k + 100), res(tag: k + 200)]
+    arr[0] = h.r
+    arr[0].strong_count()
+}
+
+// A `&var` REFERENT replacement (design 110).
+func replace(dst: &var Arc<Res>, src: &Holder) {
+    dst = src.r
+}
+
+func referent_from_field(k: Int) -> Int {
+    let h = Holder(r: res(tag: k))
+    var a = res(tag: k + 100)
+    replace(dst: &var a, src: &h)
+    a.strong_count()
+}
+
+func main() {
+    print("start {LIVE.load()}")
+
+    print("local_from_field {local_from_field(k: 1)} live {LIVE.load()}")
+    assert(LIVE.load() == 0, "local_from_field leaked {LIVE.load()}")
+
+    print("local_from_element {local_from_element(k: 2)} live {LIVE.load()}")
+    assert(LIVE.load() == 0, "local_from_element leaked {LIVE.load()}")
+
+    print("local_from_identifier {local_from_identifier(k: 3)} live {LIVE.load()}")
+    assert(LIVE.load() == 0, "local_from_identifier leaked {LIVE.load()}")
+
+    print("field_from_field {field_from_field(k: 4)} live {LIVE.load()}")
+    assert(LIVE.load() == 0, "field_from_field leaked {LIVE.load()}")
+
+    print("element_from_field {element_from_field(k: 5)} live {LIVE.load()}")
+    assert(LIVE.load() == 0, "element_from_field leaked {LIVE.load()}")
+
+    print("referent_from_field {referent_from_field(k: 6)} live {LIVE.load()}")
+    assert(LIVE.load() == 0, "referent_from_field leaked {LIVE.load()}")
+
+    print("done {LIVE.load()}")
+}
