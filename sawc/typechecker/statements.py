@@ -1473,15 +1473,18 @@ class StatementsMixin:
         """If an lvalue chain indexes into an immutable fixed array, return that
         array's name; else None.
 
-        Walks down through MemberAccess/ArrayIndex nodes. The first index into a
-        `let`-bound fixed array (identifier container) is the offending write —
-        mirrors the bare `a[0] = x` element-mutability rule so a field reached
-        through such an element (`a[0].v = x`) is rejected the same way.
+        Walks down through MemberAccess/TupleIndex/ArrayIndex nodes. The first
+        index into a `let`-bound fixed array (identifier container) is the
+        offending write — mirrors the bare `a[0] = x` element-mutability rule so
+        a field reached through such an element (`a[0].v = x`) is rejected the
+        same way.
         """
         expr = target
         while True:
             if isinstance(expr, MemberAccess):
                 expr = expr.object
+            elif isinstance(expr, TupleIndex):
+                expr = expr.tuple_expr
             elif isinstance(expr, ArrayIndex):
                 container = expr.array_expr
                 if isinstance(container, Identifier):
@@ -1496,19 +1499,27 @@ class StatementsMixin:
 
     def _assign_target_immutable_struct_root(self, target):
         """Design 40 item 6 (L11): if a field-assignment lvalue is a chain of
-        MemberAccess reaching a `let`-bound (immutable, non-`&var`) variable,
-        return that variable's name; else None.
+        MemberAccess/TupleIndex hops reaching a `let`-bound (immutable,
+        non-`&var`) variable, return that variable's name; else None.
 
         Assigning to a field through an immutable binding
         (`let p = Point(...); p.x = 5`, nested `p.inner.x = 5`) is rejected
-        just like element assignment on a `let` array. The walk stops at the
-        first non-MemberAccess node: a `self` receiver (SelfExpr) is governed by
-        `&self`/`&var self`, and an array-element base is handled by the array
-        rule — neither is a `let`-binding question.
+        just like element assignment on a `let` array. A TUPLE hop is one of
+        these: `let t = (v, 7)` then `t.0 = fresh` or `t.0.push(x)` is the same
+        write through the same `let` (DF-151j — the walk stopped at the tuple
+        projection, so both went unchecked). The walk stops at the first other
+        node: a `self` receiver (SelfExpr) is governed by `&self`/`&var self`,
+        and an array-element base is handled by the array rule — neither is a
+        `let`-binding question.
         """
         expr = target
-        while isinstance(expr, MemberAccess):
-            expr = expr.object
+        while True:
+            if isinstance(expr, MemberAccess):
+                expr = expr.object
+            elif isinstance(expr, TupleIndex):
+                expr = expr.tuple_expr
+            else:
+                break
         if isinstance(expr, Identifier):
             info = self.current_scope.lookup(expr.name)
             if info is None or info.mutable:

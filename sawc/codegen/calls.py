@@ -15,7 +15,7 @@ from llvmlite import ir
 from ast_nodes import (
     FunctionCall, StructInit, Argument, SawType, TypeKind,
     MethodCall, MemberAccess, Identifier, SelfExpr, EnumInit, ArrayIndex,
-    ForceUnwrap, ReferenceExpr, StringLiteral, StringInterpolation
+    ForceUnwrap, ReferenceExpr, StringLiteral, StringInterpolation, TupleIndex
 )
 from .mangle import mangle_type
 
@@ -1477,6 +1477,13 @@ class CallsMixin:
                 # 52b: `__group[0].__enqueue(...)`). Address the real element slot
                 # so the mutation lands on the pointee, not a materialized copy.
                 self_arg = self._get_element_pointer(expr.object)
+            elif isinstance(expr.object, TupleIndex):
+                # A TUPLE-ELEMENT receiver — `t.0.push(x)` (DF-151j). The tuple
+                # projection is a place on the write side exactly as a struct
+                # field is, so address the element slot; otherwise this fell to
+                # the materialize-a-temporary `else` below and every mutation
+                # through a tuple element was silently discarded.
+                self_arg = self._get_tuple_element_pointer(expr.object)
             elif isinstance(expr.object, ForceUnwrap):
                 # A `&var self` method on an opt-encoded lvalue `x!` — most
                 # commonly a coroutine frame-local `self.acc!` (design 62: an
@@ -1555,6 +1562,10 @@ class CallsMixin:
             struct_ptr = self.variables["self"]
         elif isinstance(obj_expr, MemberAccess):
             struct_ptr = self._get_member_pointer(obj_expr)
+        elif isinstance(obj_expr, TupleIndex):
+            # An `Atomic` held in a tuple element (`counters.0.fetch_add(1)`):
+            # the cell has to be the real one, not a spilled copy (DF-151j).
+            struct_ptr = self._get_tuple_element_pointer(obj_expr)
         else:
             val = self._generate_expression(obj_expr)
             struct_ptr = self._entry_alloca(val.type, name="atomic_tmp")
@@ -2095,6 +2106,8 @@ class CallsMixin:
             return self._get_member_pointer(expr)
         if isinstance(expr, ArrayIndex):
             return self._get_element_pointer(expr)
+        if isinstance(expr, TupleIndex):
+            return self._get_tuple_element_pointer(expr)
         if isinstance(expr, ForceUnwrap):
             # `opt!.field = v` — a write THROUGH a force-unwrapped optional lvalue.
             # Optionals lower to `{ i1 is_some, T payload }`, so address the
@@ -2183,6 +2196,32 @@ class CallsMixin:
             return self.builder.gep(base, [index_val], name="ptr_elem")
         raise ValueError(f"Cannot index into type for element pointer: {pointee}")
 
+    def _tuple_slot_pointer(self, base_expr, index: int, name: str):
+        """GEP to element `index` of the tuple stored at `base_expr` (DF-151j).
+
+        A tuple lowers to an LLVM literal struct, so an element slot is the same
+        two-index GEP a struct field takes; composing through
+        `_get_lvalue_pointer` is what makes `t.0`, `h.pair.0` and `a[i].0` all
+        address real storage. Until this existed the tuple projection was a READ
+        ONLY: `t.0.push(x)` fell through to the materialize-a-temporary fallback
+        and mutated a copy that died at the end of the statement — a silent
+        no-op, the failure mode design 130's accessor rule exists to forbid.
+        """
+        base_ptr = self._get_lvalue_pointer(base_expr)
+        pointee = base_ptr.type.pointee
+        if not isinstance(pointee, ir.LiteralStructType) and not isinstance(
+                pointee, ir.BaseStructType):
+            raise ValueError(
+                f"tuple element access on non-struct storage: {pointee}")
+        zero = ir.Constant(ir.IntType(32), 0)
+        idx = ir.Constant(ir.IntType(32), index)
+        return self.builder.gep(base_ptr, [zero, idx], name=name)
+
+    def _get_tuple_element_pointer(self, expr: TupleIndex):
+        """Return a pointer to the `t.0` element slot as an lvalue."""
+        return self._tuple_slot_pointer(
+            expr.tuple_expr, expr.index, name=f"tuple_{expr.index}_ptr")
+
     def _get_member_pointer(self, expr: MemberAccess):
         """Get a pointer to a struct field for mutable access.
 
@@ -2191,6 +2230,17 @@ class CallsMixin:
         The base object is resolved through `_get_lvalue_pointer`, so a field
         reached through an array element (`a[i].field`) GEPs into real storage.
         """
+        # A NAMED-TUPLE field (`pair.x`) is a MemberAccess the typechecker
+        # stamped with the label's position (design 63). It is a tuple slot, not
+        # a struct field: resolve it by index before the `struct_types` lookup
+        # below, which would either fail outright (a tuple is an anonymous
+        # literal struct, so it has no entry) or — worse — string-match a user
+        # struct of identical layout and GEP by ITS field order (DF-151j).
+        tuple_idx = getattr(expr, 'tuple_field_index', None)
+        if tuple_idx is not None:
+            return self._tuple_slot_pointer(
+                expr.object, tuple_idx, name=f"{expr.member}_ptr")
+
         # Get pointer to the base object (variable/self/field/element/fallback).
         base_ptr = self._get_lvalue_pointer(expr.object)
 

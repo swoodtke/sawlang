@@ -1,0 +1,159 @@
+// DF-151j: a TUPLE ELEMENT is a place, so a `&var self` method called on it
+// mutates the tuple's own storage.
+//
+// Design 161 made the tuple projection READ correctly (`t.0.name` parses and
+// resolves). The write side never became a place: `_get_lvalue_pointer` and the
+// method-call receiver chain both had a `MemberAccess` arm and no `TupleIndex`
+// one, so `t.0.push(99)` fell through to the materialize-a-temporary fallback —
+// the element was read out as a VALUE, the method mutated that temporary, and
+// the temporary died at the end of the statement. No error, no crash, no
+// diagnostic: a SILENT NO-OP, the failure mode design 130's accessor rule exists
+// to forbid. `h.v.push(99)` on a struct FIELD had worked all along, which is
+// what made this a bug rather than a rule.
+//
+// The fix is the missing arm, in the two places that dispatch on receiver shape:
+// a tuple lowers to an LLVM literal struct, so an element slot is the same
+// two-index GEP a struct field takes. Named-tuple `pair.x` needed its own
+// handling in `_get_member_pointer` — it is a MemberAccess the typechecker
+// stamps with the label's position, and the struct-name lookup there could not
+// see a tuple at all (worse, its string-comparison fallback could match a user
+// struct of identical layout and GEP by ITS field order).
+//
+// Mutability comes with the place: the immutable-root walk now hops a tuple
+// index too, so `let t = (v, 7)` then `t.0.push(x)` is the same
+// immutable-binding error `let h` then `h.v.push(x)` already gave
+// (`errors/df151j_tuple_let_root.saw`).
+// EXPECT: success
+// EXPECT-OUTPUT:
+// filed_repro 2
+// named_tuple_spelling 2
+// nested_tuple 3
+// struct_method_receiver 2
+// tuple_field_of_struct 2
+// tuple_through_self 3
+// tuple_in_array 12
+// across_suspend 3
+// destructuring_unchanged 32
+
+import std.task.*
+
+struct Counter { n: Int }
+
+extension Counter {
+    func bump(&var self) { self.n = self.n + 1 }
+}
+
+struct Holder { pair: (Vector<Int>, Int) }
+
+extension Holder: NoCopy {}
+
+extension Holder {
+    func grow(&var self, x: Int) { self.pair.0.push(x) }
+    func count(&self) -> Int { self.pair.0.len() }
+}
+
+// THE FILED REPRO, verbatim. Read `t.0.len()`: 2 is the push landing in the
+// tuple's own vector. Before the fix this printed 1 — the push went nowhere.
+func filed_repro() -> Int {
+    var v: Vector<Int> = Vector<Int>()
+    v.push(1)
+    var t = (move v, 7)
+    t.0.push(99)
+    t.0.len()
+}
+
+// The NAMED-TUPLE spelling reaches the same slot by label. This one took a
+// different code path in (a MemberAccess carrying `tuple_field_index`), so it
+// is a distinct failure and a distinct fix.
+func named_tuple_spelling() -> Int {
+    var pair = (x: Vector<Int>(), y: 0)
+    pair.x.push(5)
+    pair.x.push(6)
+    pair.x.len()
+}
+
+// Two index hops compose: the inner tuple's address comes from the outer
+// tuple's, and the vector is grown where it sits.
+func nested_tuple() -> Int {
+    var t = ((1, Vector<Int>()), 2)
+    t.0.1.push(7)
+    t.0.1.push(8)
+    t.0.1.push(9)
+    t.0.1.len()
+}
+
+// A user `&var self` method, not just a std container: the receiver is the
+// element slot, so both bumps count in the tuple.
+func struct_method_receiver() -> Int {
+    var c = (Counter(n: 0), 9)
+    c.0.bump()
+    c.0.bump()
+    c.0.n
+}
+
+// A tuple that lives in a STRUCT FIELD — the base of the projection is itself a
+// field access, and the two hops compose into one address.
+func tuple_field_of_struct() -> Int {
+    var h = Holder(pair: (Vector<Int>(), 0))
+    h.pair.0.push(1)
+    h.pair.0.push(2)
+    h.pair.0.len()
+}
+
+// The same projection rooted at `self` inside a `&var self` method.
+func tuple_through_self() -> Int {
+    var h = Holder(pair: (Vector<Int>(), 0))
+    h.grow(1)
+    h.grow(2)
+    h.grow(3)
+    h.count()
+}
+
+// A tuple element reached through a fixed-array element: `a[i].0` is an
+// element pointer feeding a tuple GEP.
+func tuple_in_array() -> Int {
+    var a: [(Counter, Int); 2] = [(Counter(n: 0), 1), (Counter(n: 0), 2)]
+    a[0].0.bump()
+    a[1].0.bump()
+    a[1].0.bump()
+    a[0].0.n * 10 + a[1].0.n
+}
+
+// ACROSS A SUSPEND. An owning across-suspend local is opt-encoded into the
+// coroutine frame, so the receiver arrives as `self.t!.0` — a tuple index over
+// a force-unwrapped frame field. The write must land in the real frame slot,
+// which is the same property design 86 established for a plain `&var self`
+// receiver held across a park.
+func across_suspend() -> Int {
+    var t = (Vector<Int>(), 0)
+    t.0.push(1)
+    yield_now()
+    t.0.push(2)
+    yield_now()
+    t.0.push(3)
+    t.0.len()
+}
+
+// Destructuring and `move` are untouched by any of this: the tuple is still
+// consumed whole, and the elements still arrive owned.
+func destructuring_unchanged() -> Int {
+    var v: Vector<Int> = Vector<Int>()
+    v.push(1)
+    var t = (move v, 2)
+    t.0.push(9)
+    var (a, b) = move t
+    a.push(9)
+    a.len() * 10 + b
+}
+
+func main() {
+    print("filed_repro {filed_repro()}")
+    print("named_tuple_spelling {named_tuple_spelling()}")
+    print("nested_tuple {nested_tuple()}")
+    print("struct_method_receiver {struct_method_receiver()}")
+    print("tuple_field_of_struct {tuple_field_of_struct()}")
+    print("tuple_through_self {tuple_through_self()}")
+    print("tuple_in_array {tuple_in_array()}")
+    print("across_suspend {across_suspend()}")
+    print("destructuring_unchanged {destructuring_unchanged()}")
+}

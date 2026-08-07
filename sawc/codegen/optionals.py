@@ -19,7 +19,7 @@ from llvmlite import ir
 from ast_nodes import (
     NoneLiteral, ForceUnwrap, NilCoalesce, OptionalChain, OptionalWrap,
     BindOptional, OptionalEvalExpr, OptionalChainAssign,
-    MemberAccess, MethodCall, Identifier, ArrayIndex, SelfExpr,
+    MemberAccess, MethodCall, Identifier, ArrayIndex, SelfExpr, TupleIndex,
     SawType, TypeKind,
 )
 
@@ -343,8 +343,10 @@ class OptionalsMixin:
     def _is_chain_lvalue(self, head) -> bool:
         """A chain head that already denotes real storage — borrowed in place, not
         spilled/consumed. Everything else (a call/constructor result) is an owned
-        rvalue the chain spills and drops."""
-        return isinstance(head, (Identifier, MemberAccess, ArrayIndex, SelfExpr))
+        rvalue the chain spills and drops. A tuple projection is storage on the
+        same terms a struct field is (DF-151j)."""
+        return isinstance(
+            head, (Identifier, MemberAccess, ArrayIndex, SelfExpr, TupleIndex))
 
     def _chain_head_pointer(self, head):
         """Return `(ptr, temps)` for a chain head. An lvalue is addressed in place
