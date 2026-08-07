@@ -128,7 +128,8 @@ on discovery unless genuinely ambiguous (then tracker + flag). Record
 language pain hit while writing Saw as DF-findings in the tracker.
 
 ## Language state (orientation digest — details in spec/skill)
-Landed through design 136 (Aug 5): full trait system (default bodies,
+Landed through design 161 (Aug 6; 152-155, 157 and 158 are briefs, not yet
+built): full trait system (default bodies,
 `any Trait` existentials, Equatable/Comparable/Hashable/Printable/
 Error), overloading + labeled arguments (lenient model), generics with
 default type params + default VALUES that drive inference (108) +
@@ -172,8 +173,9 @@ too — design 82 makes each std FILE its own module). Prelude
 discipline (design 82): only a curated core is auto-visible
 (primitives, Vector/Map/Set, Optional/Result/Box/Arc/Allocator, the
 trait vocabulary, the builtins + concurrency primitives,
-StringBuilder); File/Data/Channel/Mutex/net/IoError/Utf8Error/process/
-env/time — and `yield_now` (std.task, design 114; the cooperative-yield
+StringBuilder); File/Data/Channel/Mutex/SpinLock/net/IoError/Utf8Error/
+process/env/time/fixedbuf (FixedBuf/FixedStringBuilder) — and `yield_now`
+(std.task, design 114; the cooperative-yield
 wrapper over the now stdlib-internal intrinsic) — need an import — so a
 user type named `IoError`/`File` no longer collides. Imports are
 RUST-STYLE and uniform across std and user modules (design 150, which
@@ -210,7 +212,8 @@ is spelled as an unsafe-typed parameter). The line-level `unsafe` expression
 marker is GONE (writing one is a parse error). Accessor rule: on a safe type
 every indexed accessor is checked — direct accessors panic out of range
 (`Vector.set`/`swap`/`swap_out`/`with_ref`/`with_var_ref`, `Data.set`,
-`String.byte_at`/`substring`), `get`-shaped ones return `None`; no silent
+`String.byte_at`/`substring`), `get`-shaped ones return `None`/`Err`
+(`Vector.get`, `Data.get`, `Data.slice`); no silent
 no-ops, no clamps, no ignorable status flags.
 `Vector.with_ref`/`with_var_ref` (scoped, invalidation-proof element borrow)
 replaced `ref_at`. The Aug-5 batch (122-131): every runtime-check panic
@@ -236,5 +239,43 @@ Doc comments (121):
 (lexdiff parity, `--docs` dump), parser-attached with unattached-doc
 errors, `--emit-docs` JSON of the typechecked surface (design-80 gate on
 members); std.task + std.time docstringed; the saw-docs skill is the
-style guide for all user-facing doc text. Blade (package manager
+style guide for all user-facing doc text.
+The Aug-6 batch (135-161): `--no-hidden-alloc` rejects the THREE allocations
+the compiler inserts that no source construct names — interpolation anywhere
+(no panic/assert carve-out), an escaping closure's captured env, and
+single-arg `print` of a user Printable (135); `{}` FORMAT ARGUMENTS on
+`print`/`panic`/`assert` (`print("x = {}", x)`) render through stack scratch
+and allocate nothing, slot-vs-arg count is a compile error, and
+`StringBuilder(bytes:capacity:)` fixed mode cuts on a UTF-8 boundary with `…`
++ `is_truncated()` (137). PLACES (141 + 146): a `borrows` method LENDS storage
+(`lend` is a suspension of the accessor, not a return — prologue, window,
+epilogue), the USE SITE picks shared vs exclusive out of ONE `&self`
+declaration, windows nest LIFO, `borrows -> T?` is the conditional lend whose
+absent path opens no window, a borrowing `match` arm may lend its PAYLOAD
+binding (DF-146d), and a place borrow charges its ROOT so `v.push` inside a
+window is a clean exclusivity error; `v[i]`/`d[i]`/`Vector.get`/`Map.[]` are
+all places, value reads follow the copy tier, and a place read in a generic
+body needs a `Copy` bound. Extensions are IMPORT-SCOPED (own module + direct
+imports + the receiver's defining module; a transitive dep contributes
+nothing) while CONFORMANCES follow the ORPHAN RULE (142); TYPE IDENTITY is
+(defining module, name), so a dep's private `Header` reserves nothing (144).
+ENUMS gained extensions — methods, statics, hand-written trait bodies,
+`@synthesize`, no `init` — plus RAW BACKINGS (`enum E: UInt8` with every case
+stating its value; `e as UInt8` total, `E.from(raw:) -> E?` partial), which is
+the wire idiom (145). CONST GENERICS `<const N: Int>` + the repeat literal
+`[v; N]`, folded before mangling, `[T; N]` params inferring N (148). Runtime
+authoring (149): `unsafe static var` for compound global state (prefix
+position, exempt from Sync, triggers 130's rule at every touching function),
+`SpinLock<T>` const-initializable in a static with a `sync`-ENFORCED body, an
+all-zero static costs no image bytes, and `[package] runtime = true` lets a
+package BE the runtime with each seam checked against rt/ABI.md. Discarding a
+`Result` is a COMPILE ERROR in every implicit-discard position — `let _ =` is
+the explicit out, Result only (151). The automatic ImplicitCopy TIER: a
+struct/enum whose owning members are all trivial/ImplicitCopy IS ImplicitCopy
+with no declaration owed, copies retaining each member (139 wrappers carry the
+tier they wrap; 159 fixed the missing retain). A tuple index never eats a
+following `.`, so `t.0.name` and `t.0.1` work and a float literal needs a
+digit on each side (161). Tooling: the test runner is two-stage and pipelined
+behind a settle lag (156) and can shard onto a sandboxed remote worker (160) —
+see TESTING.md. Blade (package manager
 in Saw) is self-hosting. License: Apache-2.0 WITH LLVM-exception.
