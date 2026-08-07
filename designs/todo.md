@@ -1431,6 +1431,30 @@ different lowerings. No doc claim is wrong because of it (the spec's
 sub-frame-embedding claim holds), so nothing was written to match the bug, per
 the brief's rule.
 
+### DF-138c — `std.slab` is not gated by the prelude rule
+
+**OPEN, needs a DECISION (not a guess).** Every import-required std module is
+gated: a bare `Data`, `Mutex` or `FixedStringBuilder` is the clean
+"`X` is not in the prelude and must be imported" error. `std.slab` is not.
+`SlabHead`, `slab_alloc` and `slab_dealloc` all resolve with no import
+(`.build/scratch/s06_slab.saw`, `s09_slabfn.saw` — the latter builds a working
+`Vector<Int, JobSlab>` over a static region without naming `std.slab` once).
+
+The prelude list in design 82 does not include them, so the rule and the
+implementation disagree. Two readings, and the brief's own instruction was to
+record rather than guess:
+
+- **slab is deliberately prelude** — it is part of the freestanding toolkit, and
+  a kernel writing an allocator arguably should not need the import. Then the
+  prelude list gains `std.slab` and the docs are the bug.
+- **the gate has a hole** — std/slab.saw's names leak the way std did before
+  design 82. Then `sawc` is the bug and the kernel idiom needs
+  `import std.slab.*` added to it.
+
+The spec's Slab-allocators example relies on the current behavior, so it is
+correct either way today; §9's module table carries a note pointing here rather
+than asserting a prelude status the tree does not have.
+
 ### DF-138b — CLAUDE.md's "complete flag set" line is not complete
 
 **OPEN, trivial.** `CLAUDE.md`'s Compiler-usage block says "That is the complete

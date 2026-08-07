@@ -5171,7 +5171,8 @@ need one of the three [import forms](#imports).
 | `std.string` | `String` methods, `Utf8Error` | `String` only |
 | `std.stringbuilder` | `StringBuilder` | yes |
 | `std.arc` / `std.box` | `Arc<T>`, `Box<T, A>` | yes |
-| `std.alloc` / `std.slab` | `Allocator`, `GlobalAllocator`, `AllocError`, `SlabHead` | `Allocator`, `GlobalAllocator` |
+| `std.alloc` | `Allocator`, `GlobalAllocator`, `AllocError` | `Allocator`, `GlobalAllocator` |
+| `std.slab` | `SlabHead`, `slab_alloc`, `slab_dealloc` | bare today — see below |
 | `std.numeric` | the `Int` / `Float` extensions | yes (methods on primitives) |
 | `std.taskgroup` | `TaskGroup`, `TaskHandle<T>`, `VoidTaskHandle` | yes |
 | `std.task` | `yield_now`, `Task<T>` (the `spawn` handle) | no |
@@ -5192,6 +5193,13 @@ cooperative one; see [§6 Concurrency](#6-concurrency) for the real API.
 `Iterator`, `Equatable`, `Comparable`, `Hashable`, `Printable`, `Error`, `Send`
 and `Sync` are prelude traits declared in `builtin.saw`, not module contents.
 There is no `Deque`, no `RwLock`, and no `UdpSocket` yet.
+
+> **`std.slab` is the one loose end.** Its names resolve with no import, while
+> every other import-required module is gated — a bare `Data`, `Mutex` or
+> `FixedStringBuilder` is the "not in the prelude" error. The prelude list above
+> does not name `std.slab`, so the two disagree; the
+> [Slab allocators](#slab-allocators-the-kernel-idiom) example relies on the
+> current behavior. Which way it resolves is tracked as DF-138c.
 
 **`std.fixedbuf`** is **implemented** (`std/fixedbuf.saw`) and works in both
 profiles: it allocates nothing. `FixedBuf<N>` is `N` bytes of zeroed storage held
