@@ -1,0 +1,83 @@
+// Design 174 (the T = U? sweep) — the honest `U??` nesting, pinned.
+//
+// The `?.` chain FLATTENS (design 111: a chain never produces `U??`). Generic
+// INSTANTIATION deliberately does not: a conditional lend over a container of
+// `Int?` returns a genuine two-layer `Int??`, because collapsing the layers
+// would make "no such slot" and "the slot holds None" the same answer and
+// silently destroy data. This test pins that distinction across every
+// two-layer read in the collection surface.
+//
+// Every check below is written inline because the two-layer type cannot be
+// NAMED: `Int??` is a parse error and there is no other spelling, so the
+// obvious `func report(o: Int??)` helper is not expressible today (DF-174c).
+// EXPECT: success
+// EXPECT-OUTPUT:
+// vector present-some 1
+// vector present-none inner-absent
+// vector out-of-range outer-absent
+// map present-some 1
+// map present-none inner-absent
+// map missing-key outer-absent
+// pop present-none inner-absent
+// remove present-none inner-absent
+// generic return present-some 5
+// generic return present-none inner-absent
+// -- done
+
+// A generic returning `T?` at `T = Int?` builds the same two layers.
+func lift<T>(x: T) -> T? { return x }
+
+func main() {
+    let some: Int? = 1
+    let none: Int? = None
+
+    var v = Vector<Int?>()
+    v.push(some)
+    v.push(none)
+
+    if let inner = v.get(0) {
+        if let value = inner { print("vector present-some {value}") } else { print("vector present-some inner-absent") }
+    } else { print("vector present-some outer-absent") }
+
+    if let inner = v.get(1) {
+        if let value = inner { print("vector present-none {value}") } else { print("vector present-none inner-absent") }
+    } else { print("vector present-none outer-absent") }
+
+    if let inner = v.get(9) {
+        if let value = inner { print("vector out-of-range {value}") } else { print("vector out-of-range inner-absent") }
+    } else { print("vector out-of-range outer-absent") }
+
+    var m = Map<String, Int?>()
+    let _ = m.insert("s", some)
+    let _ = m.insert("n", none)
+
+    if let inner = m["s"] {
+        if let value = inner { print("map present-some {value}") } else { print("map present-some inner-absent") }
+    } else { print("map present-some outer-absent") }
+
+    if let inner = m["n"] {
+        if let value = inner { print("map present-none {value}") } else { print("map present-none inner-absent") }
+    } else { print("map present-none outer-absent") }
+
+    if let inner = m["absent"] {
+        if let value = inner { print("map missing-key {value}") } else { print("map missing-key inner-absent") }
+    } else { print("map missing-key outer-absent") }
+
+    if let inner = v.pop() {
+        if let value = inner { print("pop present-none {value}") } else { print("pop present-none inner-absent") }
+    } else { print("pop present-none outer-absent") }
+
+    if let inner = m.remove("n") {
+        if let value = inner { print("remove present-none {value}") } else { print("remove present-none inner-absent") }
+    } else { print("remove present-none outer-absent") }
+
+    let five: Int? = 5
+    if let inner = lift<Int?>(five) {
+        if let value = inner { print("generic return present-some {value}") } else { print("generic return present-some inner-absent") }
+    } else { print("generic return present-some outer-absent") }
+
+    if let inner = lift<Int?>(none) {
+        if let value = inner { print("generic return present-none {value}") } else { print("generic return present-none inner-absent") }
+    } else { print("generic return present-none outer-absent") }
+    print("-- done")
+}

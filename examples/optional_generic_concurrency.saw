@@ -1,0 +1,76 @@
+// Design 174 (the T = U? sweep) — Optionals through the concurrency surface.
+//
+// The question the sweep asked of `Channel<Int?>`: does a `None` VALUE collide
+// with the channel's own "nothing here" signal? It does not. `try_receive`
+// returns `T?`, so at `T = Int?` a queued `None` comes back with its OUTER
+// layer PRESENT and an empty queue comes back outer-absent — the two are
+// distinguishable, and a sent `None` is neither swallowed nor reordered.
+//
+// Also pinned here: an `Int??` local held ACROSS A SUSPEND keeps both layers
+// through the coroutine frame slot, and `Arc<Int?>`/`Mutex<Int?>` forward an
+// optional payload to their closure bodies.
+// EXPECT: success
+// EXPECT-OUTPUT:
+// t1 present -1
+// t2 present 7
+// t3 EMPTY
+// across suspend 106
+// with_unique 5
+// mutex 5
+// mutex after -7
+// -- done
+
+import std.channel.*
+import std.mutex.*
+import std.task.*
+
+// Three `Int??` locals — a present Some, a present None, an out-of-range
+// absence — all held across a `yield_now()`.
+func across_suspend() -> Int {
+    var v = Vector<Int?>()
+    let a: Int? = 5
+    let n: Int? = None
+    v.push(a)
+    v.push(n)
+
+    let held = v.get(0)
+    let held_none = v.get(1)
+    let absent = v.get(9)
+    yield_now()
+
+    var acc = 0
+    if let inner = held { acc = acc + (inner ?? -1) } else { acc = acc - 1000 }
+    if let inner = held_none { acc = acc + (inner ?? 100) } else { acc = acc - 1000 }
+    if let _ = absent { acc = acc - 1000 } else { acc = acc + 1 }
+    return acc
+}
+
+func main() {
+    var ch = Channel<Int?>()
+    let n: Int? = None
+    let a: Int? = 7
+    ch.send(n)
+    ch.send(a)
+
+    if let got = ch.try_receive() { print("t1 present {got ?? -1}") } else { print("t1 EMPTY") }
+    if let got = ch.try_receive() { print("t2 present {got ?? -1}") } else { print("t2 EMPTY") }
+    if let got = ch.try_receive() { print("t3 present {got ?? -1}") } else { print("t3 EMPTY") }
+
+    var group = TaskGroup()
+    let h = group.spawn(across_suspend())
+    print("across suspend {h.join()}")
+
+    let payload: Int? = 5
+    var arc = Arc<Int?>(value: payload)
+    let r = arc.with_unique({ p in p ?? -1 })
+    print("with_unique {r ?? -1}")
+
+    var m = Mutex<Int?>(value: payload)
+    print("mutex {m.lock({ p in p ?? -1 })}")
+    let _ = m.lock({ p in
+        p = None
+        0
+    })
+    print("mutex after {m.lock({ p in p ?? -7 })}")
+    print("-- done")
+}

@@ -1,0 +1,57 @@
+// Design 174 (the T = U? sweep) — `Map<K, V>` instantiated at an Optional VALUE.
+//
+// `Map.[]` is a conditional lend returning `V?`, so at `V = Int?` it hands back
+// an `Int??`: the outer layer is "was the key present", the inner is the stored
+// value. A key bound to a `None` VALUE and a key that is absent stay distinct —
+// the property the whole optional-valued-map idiom rests on.
+// EXPECT: success
+// EXPECT-OUTPUT:
+// len 2
+// a 1
+// n -1
+// zz absent
+// get n -1
+// contains n true
+// outer coalesce 42
+// values len 2
+// each_value 1001
+// each pairs 2
+// removed -1
+// len 1
+// -- done
+
+func main() {
+    var m = Map<String, Int?>()
+    let a: Int? = 1
+    let n: Int? = None
+    let _ = m.insert("a", a)
+    let _ = m.insert("n", n)
+    print("len {m.len()}")
+
+    if let e = m["a"] { print("a {e ?? -1}") } else { print("a absent") }
+    if let e = m["n"] { print("n {e ?? -1}") } else { print("n absent") }
+    if let _ = m["zz"] { print("zz present") } else { print("zz absent") }
+
+    if let e = m.get("n") { print("get n {e ?? -1}") } else { print("get n absent") }
+    let has_n = m.contains_key("n")
+    print("contains n {has_n}")
+
+    // `??` at the OUTER layer takes an `Int?` on the right.
+    let fallback: Int? = 42
+    let outer = m["zz"] ?? fallback
+    print("outer coalesce {outer ?? -1}")
+
+    print("values len {m.values().len()}")
+
+    var sum = 0
+    m.each_value({ [&var sum] v in sum = sum + (v ?? 1000) })
+    print("each_value {sum}")
+
+    var pairs = 0
+    m.each({ [&var pairs] k, v in pairs = pairs + 1 })
+    print("each pairs {pairs}")
+
+    if let r = m.remove("n") { print("removed {r ?? -1}") } else { print("removed absent") }
+    print("len {m.len()}")
+    print("-- done")
+}

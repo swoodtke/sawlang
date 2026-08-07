@@ -1,0 +1,66 @@
+// Design 174 (the T = U? sweep) — an Optional as a Set ELEMENT and a Map KEY.
+//
+// The sweep asked whether `Set<Int?>` even type-checks, expecting a clean
+// refusal. It does better than that: an Optional whose payload is Hashable is
+// itself Hashable, and the hash covers the DISCRIMINANT — so `None` and `0`
+// are different elements rather than colliding, which is the one way an
+// optional-keyed table could go silently wrong.
+// EXPECT: success
+// EXPECT-OUTPUT:
+// ins 1 true
+// ins 1 again false
+// ins 0 true
+// ins None true
+// ins None again false
+// len 3
+// has 1 true
+// has 0 true
+// has None true
+// has 2 false
+// remove None true
+// len 2
+// has 0 still true
+// map len 3
+// at 0 zero
+// at None none
+// at 1 one
+// -- done
+
+func main() {
+    var s = Set<Int?>()
+    let one: Int? = 1
+    let zero: Int? = 0
+    let none: Int? = None
+
+    print("ins 1 {s.insert(one)}")
+    print("ins 1 again {s.insert(one)}")
+    print("ins 0 {s.insert(zero)}")
+    print("ins None {s.insert(none)}")
+    print("ins None again {s.insert(none)}")
+    print("len {s.len()}")
+
+    print("has 1 {s.contains(one)}")
+    print("has 0 {s.contains(zero)}")
+    print("has None {s.contains(none)}")
+    let two: Int? = 2
+    print("has 2 {s.contains(two)}")
+
+    // Removing the None element leaves the numerically adjacent `0` alone.
+    print("remove None {s.remove(none)}")
+    print("len {s.len()}")
+    print("has 0 still {s.contains(zero)}")
+
+    // The same holds for an Optional KEY.
+    var m = Map<Int?, String>()
+    let _ = m.insert(zero, "zero")
+    let _ = m.insert(none, "none")
+    let _ = m.insert(one, "one")
+    print("map len {m.len()}")
+    let at_zero = m[zero] ?? "MISSING"
+    let at_none = m[none] ?? "MISSING"
+    let at_one = m[one] ?? "MISSING"
+    print("at 0 {at_zero}")
+    print("at None {at_none}")
+    print("at 1 {at_one}")
+    print("-- done")
+}

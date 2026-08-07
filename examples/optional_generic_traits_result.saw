@@ -1,0 +1,71 @@
+// Design 174 (the T = U? sweep) — an Optional as a trait-bound satisfier, and
+// through the Result/`try_` tiers.
+//
+// `Int?` satisfies `T: Equatable` exactly where `Int` does, and the derived
+// equality covers the discriminant: `None == None` holds and `Some == None`
+// does not. `Result<Int?, E>` round-trips both layers through `try!`, and the
+// fallible allocation tier accepts an optional element like any other.
+// EXPECT: success
+// EXPECT-OUTPUT:
+// some==some true
+// none==none true
+// some==none false
+// operator eq true
+// try_push none ok
+// try_push some ok
+// len 2
+// try! 7
+// try! none -1
+// err bad
+// -- done
+
+struct Bad { code: Int }
+extension Bad: Error {
+    func format(&self, into: &var StringBuilder) { into.append("bad") }
+}
+
+func eq<T: Equatable>(a: T, b: T) -> Bool { a == b }
+
+func maybe(flag: Bool) -> Result<Int?, Bad> {
+    if flag { return Bad(code: 1) }
+    let v: Int? = 7
+    return v
+}
+
+func none_result() -> Result<Int?, Bad> {
+    let v: Int? = None
+    return v
+}
+
+func main() {
+    let a: Int? = 5
+    let b: Int? = 5
+    let n: Int? = None
+    let n2: Int? = None
+
+    print("some==some {eq<Int?>(a, b)}")
+    print("none==none {eq<Int?>(n, n2)}")
+    print("some==none {eq<Int?>(a, n)}")
+    print("operator eq {a == b}")
+
+    var v = Vector<Int?>()
+    match v.try_push(n) {
+        case Ok(_) -> print("try_push none ok"),
+        case Err(e) -> print("try_push err {e}")
+    }
+    match v.try_push(a) {
+        case Ok(_) -> print("try_push some ok"),
+        case Err(e) -> print("try_push err {e}")
+    }
+    print("len {v.len()}")
+
+    let ok = try! maybe(false)
+    let empty = try! none_result()
+    print("try! {ok ?? -1}")
+    print("try! none {empty ?? -1}")
+    match maybe(true) {
+        case Ok(x) -> print("unexpected {x ?? -1}"),
+        case Err(e) -> print("err {e}")
+    }
+    print("-- done")
+}
