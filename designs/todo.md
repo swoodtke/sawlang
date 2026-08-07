@@ -239,6 +239,16 @@ verdict table: `designs/174-optional-generic-sweep.md`. 19 tests landed as
   WILL write it. Adjacent nit: interpolating an optional errors cleanly but
   hints "conform it with `extension Int?: Printable`", which is not writable
   advice (you cannot extend `Int?`, and the orphan rule forbids it).
+- **DF-174e — FIXED (design 176 unit 10).** The write path read
+  `_check_place_use`'s RETURN value and stripped an optional off it. That return
+  is `T?` only when the accessor lends CONDITIONALLY; `Vector.[]` lends
+  unconditionally, so on a `Vector<Int?>` the `Int?` WAS the element and the
+  strip invented an `Int` — hence a diagnostic naming a type the program never
+  mentions, and a refusal of exactly the right value. The element type is
+  stamped on the place by the same function, and the write checks against that
+  now. The refusal path still works and names the real element type
+  (`examples/errors/place_assign_wrong_element_type.saw`). Original finding
+  follows.
 - **DF-174e (COMPILER, filed Aug 7): `v[i] = <a T? value>` on a `Vector<T?>` is
   refused, and the error names the WRONG element type.** Assigning an existing
   `Int?` through the place gives "cannot assign `Int?` to element of type

@@ -2167,9 +2167,19 @@ class StatementsMixin:
                         stmt.target.line, stmt.target.column
                     )
                     return
-                element_type = (place_type.inner_type
-                                if place_type.kind == TypeKind.OPTIONAL
-                                else place_type)
+                # `_check_place_use` returns the place's type — `T`, or `T?`
+                # when the accessor lends CONDITIONALLY — and stamps the
+                # element type it lends either way. Reading the return value and
+                # stripping an optional off it confuses the two: on a
+                # `Vector<Int?>` the lend is unconditional and `Int?` IS the
+                # element, so the strip made the write expect an `Int` and say
+                # so (DF-174e: ``cannot assign `Int?` to element of type
+                # `Int` ``, naming a type the container does not have — while
+                # `v.set(i, value)` accepted the same value). The stamp answers
+                # the question directly.
+                element_type = getattr(stmt.target, 'place_elem_type', None)
+                if element_type is None:
+                    element_type = place_type
 
             # Check index type
             index_type = self._check_expression(stmt.target.index)

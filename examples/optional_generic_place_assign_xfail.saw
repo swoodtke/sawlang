@@ -10,12 +10,18 @@
 // work, while handing it an `Int?` that is already the right type does not.
 // `v.set(i, value)` accepts the same value fine, so the accessor and the place
 // disagree.
+//
+// FIXED by design 176 unit 10. The write path read `_check_place_use`'s RETURN
+// value and stripped an optional off it, which conflated two different things:
+// that return is `T?` only when the accessor lends CONDITIONALLY, and
+// `Vector.[]` lends unconditionally, so `Int?` was the element and the strip
+// invented an `Int`. The element type is stamped on the place directly, and that
+// is what the write checks against now.
 // EXPECT: success
 // EXPECT-OUTPUT:
 // before 1 inner-absent
 // after 4 7
 // -- done
-// XFAIL: DF-174e `v[i] = <T? value>` on a Vector<T?> is refused and the error names the wrong element type
 
 func main() {
     var v = Vector<Int?>()
