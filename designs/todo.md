@@ -5648,6 +5648,24 @@ there are.
   rather than as part of an adoption sweep, and a language gap in the middle of
   it is the strongest possible argument for that.
 
+  **It costs something ELSE, visible in this branch's own code.** Because no
+  Saw function can say "I stop the machine", every diverging helper is typed
+  `Void` and the compiler believes control returns from it. So a bounds check
+  written as
+
+  ```saw
+  if va < RAM_BASE {
+      grant_outside_window(va)      // never returns — but the type says Void
+  }
+  let page = (va - RAM_BASE) >> PAGE_SHIFT
+  ```
+
+  reads to the checker as a path where the subtraction runs below `RAM_BASE`
+  and traps. It is correct at run time and the harness proves it, but the
+  guard's whole point is unstateable, and the same shape is already in
+  `kcore`'s `fatal_image`. A `Never` return would make these guards
+  self-documenting AND let the compiler drop the unreachable tail.
+
   What would unblock it, smallest first: an `extern` return type of `Never` is
   already accepted, so the narrow fix is making a loop with no `break` type as
   `Never` — the rule Rust has for `loop {}`. That is a typechecker change to
