@@ -1,0 +1,46 @@
+// DF-138a's roles, on a METHOD. `Counter.climb` is driven directly as a method
+// root AND embedded as `viaFn`'s sub-frame. Both roles want the same frame —
+// neither is a spawn root — exactly as a free function in two roles already
+// shared one.
+//
+// The closure walk used to skip a method it had already seen as a driven root,
+// believing the embedding site would then be rejected cleanly. It was not:
+// `_classify_method_call` asks only whether the method suspends, so the site was
+// classified, embedded, and died on a raw `KeyError` looking for a frame nobody
+// had built. Now the root and the sub-frame share the one frame and the driver
+// is emitted over it.
+//
+// `&var self` still reaches the caller's storage through the frame's `__recv`
+// pointer in both roles: `c` is mutated in place by the driven call, and
+// `viaFn`'s own local by the embedded one.
+// EXPECT: success
+// EXPECT-OUTPUT:
+// 12
+// 12
+// 102
+
+struct Counter { value: Int }
+
+extension Counter {
+    func climb(&var self) -> Int {
+        self.value = self.value + 1
+        __saw_suspend()
+        self.value = self.value + 1
+        self.value
+    }
+}
+
+func viaFn() -> Int {
+    var inner = Counter(value: 100)
+    let r = inner.climb()      // climb embedded as viaFn's sub-frame
+    return r
+}
+
+func main() {
+    var c = Counter(value: 10)
+    let a = __saw_drive(c.climb())    // climb driven directly as a root
+    let b = __saw_drive(viaFn())
+    print(a)          // 12
+    print(c.value)    // 12 — mutated through &var self
+    print(b)          // 102
+}

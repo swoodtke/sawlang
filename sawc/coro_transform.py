@@ -5054,18 +5054,40 @@ def _promote_nested_generic_calls(program, funcs_by_name, seed_names, typechecke
 
     def scan_call_stmt(s):
         """A drivable nested-call position mirrors `_classify_call`: a top-level
-        `let x = g(...)` or bare `g(...)`."""
+        `let x = g(...)`, a bare `g(...)`, or the design-83 tail `return g(...)`.
+
+        The TAIL forms were missing until DF-138a's audit. `_classify_call`
+        accepts `return g(args)`, so the call reached the embedding machinery as
+        a still-generic call — which is rejected — but only AFTER the promotion
+        had declined to splice its instantiation. What surfaced was neither: the
+        template stayed a plain call in a body that had become a resume method,
+        so the user got `cannot suspend in a sync func: __Frame_caller.resume`,
+        naming a method the compiler had synthesized, about a `sync` region they
+        had not written. `let r = g<A>(x); return r` compiled and `return g<A>(x)`
+        did not."""
         fc = None
         if isinstance(s, LetStatement) and isinstance(s.value, FunctionCall):
             fc = s.value
         elif (isinstance(s, ExpressionStatement)
               and isinstance(s.expression, FunctionCall)):
             fc = s.expression
+        elif isinstance(s, ReturnStatement) and isinstance(s.value, FunctionCall):
+            fc = s.value
         if fc is not None:
             return maybe_promote(fc)
         return None
 
     def scan_block(block, out):
+        # A block's last bare expression is parked in `final_expr`; design 83's
+        # tail normalization turns a suspending one into `return <expr>`, but
+        # that runs inside `prepare`, long after this walk. So reach it here too
+        # — otherwise `func f() -> Int { g<A>(x) }` is the same missed promotion
+        # as the `return` form, one line shorter.
+        tail = getattr(block, 'final_expr', None)
+        if isinstance(tail, FunctionCall):
+            promoted = maybe_promote(tail)
+            if promoted is not None:
+                out.append(promoted)
         for s in block.statements:
             promoted = scan_call_stmt(s)
             if promoted is not None:
@@ -5211,8 +5233,6 @@ def transform_program(program, typechecker, imported_ast=None):
             methods_by_id[m.node_id] = (sname, m, ext)
             methods_by_key[_method_frame_key(
                 sname, m.name, getattr(m, 'mangled_symbol', None))] = m.node_id
-    # design 95: `method_roots` is keyed by the resolved-signature frame key.
-    method_root_keys = set(method_roots.keys())
     _susp_methods_set = typechecker._suspending_methods_set
 
     def _scan_method_callees(body):
@@ -5319,12 +5339,21 @@ def transform_program(program, typechecker, imported_ast=None):
             sname, mast, ext = entry
             fbkey = _method_frame_key(
                 sname, mast.name, getattr(mast, 'mangled_symbol', None))
-            # A method-level or generic-struct generic, or one already driven
-            # directly (a method root), is not embedded here — the call site is
-            # rejected cleanly by `_reject_suspending_method_call`.
+            # A method-level or generic-struct generic is not embedded here —
+            # the call site is rejected cleanly by
+            # `_reject_suspending_method_call`.
+            #
+            # A method ALREADY DRIVEN directly used to be skipped here too, on
+            # the belief that the same rejection caught its call site. It does
+            # not: `_classify_method_call` asks only whether the method
+            # suspends, so the site was classified, embedded, and then died on
+            # `fbs[<key>]` with a raw `KeyError` — the DF-138a crash with the
+            # roles swapped. A driven method ROOT and an embedded method
+            # sub-frame are the SAME frame (neither is a spawn root), so let it
+            # join the closure and share one, exactly as a free function in both
+            # roles already did.
             if (getattr(mast, 'type_params', None)
-                    or getattr(ext, 'type_params', None)
-                    or fbkey in method_root_keys):
+                    or getattr(ext, 'type_params', None)):
                 continue
             method_closure[key] = (sname, mast, ext)
             if getattr(mast, 'body', None) is not None:
@@ -5534,6 +5563,17 @@ def transform_program(program, typechecker, imported_ast=None):
             new_extensions.append(resume_ext)
             for mode in sorted(modes):   # deterministic emission order
                 new_functions.append(_make_driver(mfb, mode, fbs))
+            continue
+        if frame_key in fbs:
+            # This method is ALSO embedded as some frame's sub-frame, so its
+            # frame was built, prepared and resumed with the rest of the
+            # closure. Emit only the drivers over that one frame: building a
+            # second builder here would re-lower an already-lowered body, and
+            # the body was stripped from its extension by `nested_method_fbs`
+            # (entry-module methods only — an imported one stays put, so this
+            # branch must not add it to `removed_methods` either).
+            for mode in sorted(modes):   # deterministic emission order
+                new_functions.append(_make_driver(fbs[frame_key], mode, fbs))
             continue
         # design 95: disambiguate an overloaded method by its resolved symbol.
         method_ast, ext = _find_method(program, struct_name, method_name,

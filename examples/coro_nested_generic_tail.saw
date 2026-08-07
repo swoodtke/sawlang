@@ -1,0 +1,48 @@
+// design 74 (A5-rest, shape 3), found in DF-138a's role audit: a nested
+// suspending GENERIC call is promoted to its concrete instantiation from a TAIL
+// position too, not only from `let r = g<A>(x)`.
+//
+// `_classify_call` has always accepted the design-83 tail `return g(args)`, but
+// the promotion walk that turns `g<A>(x)` into its mangled instantiation looked
+// only at `let` and bare-call statements — so a tail-position generic call
+// reached the embedding machinery still generic and the user got `cannot suspend
+// in a sync func: __Frame_viaReturn.resume`, a complaint about a method the
+// compiler had synthesized. `let r = g<A>(x)` compiled; `return g<A>(x)` did
+// not. A block's trailing expression (where the parser parks a bare last
+// expression) is the same case one line shorter.
+//
+// `work<A>` is also driven directly here, so the instantiation is a root AND
+// two other frames' sub-frame at once.
+// EXPECT: success
+// EXPECT-OUTPUT:
+// 30
+// 40
+// 50
+
+import std.task.*
+
+trait Seed { func seed(&self) -> Int }
+struct A { n: Int }
+extension A: Seed { func seed(&self) -> Int { self.n } }
+
+func work<T: Seed>(w: T) -> Int {
+    let base = w.seed()
+    yield_now()
+    base * 10
+}
+
+func viaReturn() -> Int {
+    return work<A>(A(n: 3))      // tail return
+}
+
+func viaTailExpr() -> Int {
+    work<A>(A(n: 4))             // trailing expression
+}
+
+func main() {
+    print(__saw_drive(viaReturn()))
+    var group = TaskGroup()
+    let h = group.spawn(viaTailExpr())
+    print(h.join())
+    print(__saw_drive(work<A>(A(n: 5))))
+}

@@ -1397,10 +1397,10 @@ review artifact** — 23 items, grouped by source.
 
 ### DF-138a — ICE: a suspending function that is both a task ROOT and a SUB-FRAME
 
-**OPEN, P1 (a crash, not a clean error).** Found while compiling the README's
-concurrency examples. Each README block compiles alone and `report()` prints
-exactly the documented `squared: 25` / `74`; the crash needs both shapes in one
-program. Minimal repro (14 lines, `.build/scratch/ice_min5.saw`):
+**CLOSED (Aug 7, commits 3104524 + the audit commit below).** Found while
+compiling the README's concurrency examples. Each README block compiles alone
+and `report()` prints exactly the documented `squared: 25` / `74`; the crash
+needs both shapes in one program. Minimal repro (14 lines):
 
 ```saw
 import std.task.*
@@ -1425,11 +1425,118 @@ AttributeError: 'NoneType' object has no attribute 'line'
 
 Spawning `leaf` alone, `caller` alone, two roots of differing arity, or two
 groups all compile — it is specifically one function serving as both a spawnable
-root and an embedded callee. `_check_struct_init` reaches a field value with no
-`line`, which reads like a synthesized frame-init node built twice under two
-different lowerings. No doc claim is wrong because of it (the spec's
-sub-frame-embedding claim holds), so nothing was written to match the bug, per
-the brief's rule.
+root and an embedded callee. The filer's read ("a synthesized frame-init node
+built twice under two different lowerings") was close: it is ONE node built for
+the WRONG lowering.
+
+**Root cause — two roles are two frame PROTOCOLS, and a function had one frame.**
+A spawn root keeps its result and its cancel word in the group-owned CELL it
+reaches through `__cellp` (design 134), which is what lets the frame box be
+released the instant the task completes. A driven root and an embedded sub-frame
+keep both IN the frame: a sub-frame is copied its root's cancel word at every
+drive (design 102) and hands its result up to its parent. `_FrameBuilder` took
+`is_spawn_root` straight from "is this name a spawn root", so a dual-role
+function got the spawn layout in BOTH roles — `_build_frame_init` then emitted
+`("__cellp", None)` for the embedded copy, the `None` the second typecheck died
+on. Getting past that field would only have moved the failure: the embedded
+frame had no `__cancel` to receive the copy-down and would have written its
+result through a pointer to nothing. The layout was wrong, not the field.
+
+**Fix — the spawn role gets a frame of its own, when and only when the function
+has another role.** `_make_spawn_trampoline` synthesizes
+
+```saw
+func f$spawnroot(<params of f>) -> T { return f(<params>) }
+```
+
+whose single statement is the ordinary `return g(args)` tail the transform
+already lowers. `f$spawnroot` is the spawn root, so ITS frame carries `__cellp`;
+`__Frame_f` is embedded below it in the driven flavour, the same shape every
+other embedded callee has. The cancel word propagates down the chain and the
+result threads back up through the existing machinery, so neither protocol grew
+a special case and `f` keeps exactly one frame however many roles it plays. A
+spawn-only root is still its own spawn frame and pays nothing — not a field, not
+a hop. Design 134's `__saw_drive`+spawn rejection went with it: that was the
+same limitation seen from the other side, and the trampoline serves it too, so
+`coro_drive_and_spawn_rejected.saw` became `coro_drive_and_spawn.saw`.
+
+**The role matrix was audited end to end. Nothing in it is genuinely illegal —
+every shape that failed was a compiler limitation, and all of them now work.**
+
+| shape | before | now |
+| --- | --- | --- |
+| spawned + embedded as a sub-frame | ICE | works |
+| spawned + driven in place (`__saw_drive`) | design-134 rejection | works |
+| spawned + driven + embedded, all three | rejection | works |
+| driven root + embedded | already worked | unchanged |
+| generic: one instantiation a root, ANOTHER embedded | already worked | unchanged |
+| generic: the SAME instantiation in both roles | ICE | works |
+| method: driven root + embedded | `KeyError` ICE | works (DF-138e) |
+| method: `Dual<T>.mix<U>` (design 104 dual-generic keying) | clean rejection | unchanged |
+
+A generic's roles are per INSTANTIATION, because a generic spawn root is keyed
+by its mangled symbol (design 70) — which is why the split case never collided
+and the same-instantiation case was the identical bug. The design-104
+dual-generic keying is untouched and cannot reach this bug at all: `spawn` takes
+a free function, so a method is never a spawn root, and a generic-struct or
+method-generic method is excluded from sub-frame embedding by the closure walk
+and rejected at its call site by `_reject_suspending_method_call`. That
+rejection is a pre-existing design-104 limit on embedding generic METHODS, not a
+role-tracking failure, and it is a clean anchored diagnostic rather than a crash.
+
+Tests: `coro_spawn_and_embed` (two-deep chain, every link also spawned),
+`coro_spawn_and_embed_owning` (move-only param + refcounted result with a
+live-count oracle, plus the `Void` twin), `coro_spawn_and_embed_generic`,
+`coro_spawn_and_embed_cancel`, `coro_spawn_and_embed_mt`,
+`coro_drive_and_spawn`, `coro_method_root_and_embedded`,
+`coro_nested_generic_tail`.
+
+No doc claim was wrong because of any of this (the spec's sub-frame-embedding
+claim held throughout), so no user-facing prose needed correcting.
+
+### DF-138d — a nested suspending GENERIC call was promoted only from a `let`
+
+**CLOSED (Aug 7, the same audit commit).** Found building DF-138a's role matrix.
+`let r = work<A>(x)` inside a driven or spawned body compiled; `return
+work<A>(x)` and a trailing `work<A>(x)` did not, failing with
+
+```
+cannot suspend in `sync func` method: method `__Frame_caller.resume` calls `work`
+```
+
+— a complaint about a `sync` region the user never wrote, naming a method the
+compiler had synthesized.
+
+`_classify_call` has always accepted the design-83 tail `return g(args)`, but
+`_promote_nested_generic_calls` — the walk that splices a nested generic call's
+concrete instantiation and rewrites the site to the mangled symbol — looked only
+at `LetStatement` and bare `ExpressionStatement`. A tail-position generic call
+was therefore never promoted, reached the embedding machinery still generic, and
+left the template as a plain call inside a body that had already become a resume
+method. Fixed by teaching the scan the `return` form and a block's `final_expr`
+(where the parser parks a bare trailing expression; design 83's tail
+normalization would convert it, but that runs inside `prepare`, long after the
+promotion). Test: `coro_nested_generic_tail`.
+
+### DF-138e — a driven-root METHOD that is also embedded ICEd with a `KeyError`
+
+**CLOSED (Aug 7, the same audit commit).** DF-138a's shape with the roles
+swapped onto a method. A suspending method both `__saw_drive`n directly and
+called from another driven body died on `KeyError: 'Counter_climb'` in
+`_emit_nested_call`.
+
+The closure walk skipped adding a method to `method_closure` when its frame key
+was already a driven method root, on the stated belief that the embedding site
+would then be rejected cleanly by `_reject_suspending_method_call`. It is not:
+`_classify_method_call` asks only whether the method suspends, so the site was
+classified and embedded, and then looked up a frame nobody had built — method
+ROOT frames were built in a later loop and never registered in `fbs`.
+
+A driven method root and an embedded method sub-frame are the SAME frame
+(neither is a spawn root), exactly as a free function in both roles already
+shared one. So the skip is gone and the method joins the closure normally; the
+method-root loop now reuses `fbs[frame_key]` when it is already there and emits
+only the drivers. Test: `coro_method_root_and_embedded`.
 
 ### DF-138c — `std.slab` is not gated by the prelude rule
 
