@@ -5,6 +5,39 @@ Open items ONLY. Landed work lives in `designs/NN-*.md` + git history
 landed recaps). Conventions: cite source designs in [brackets]; VERIFY
 items need a probe before being treated as real work.
 
+## std.Data findings (Aug 7, user-prompted archaeology)
+
+The three historical "known issues" in data.saw's header, resolved or filed
+(user asked about the line-506 segfault note; probed from the public surface —
+push into a sliced Data drives `_reserve_unique` → `_make_unique`):
+
+- **RESOLVED — `_make_unique` CoW "segfaults."** The path is sound today:
+  0/50 native + 0/20 Guard Malloc failures, values correct. The crash class
+  the old comment described (assign `old_data.inner` to `self.inner`, both
+  halves release) matches the compiler defects fixed this week (DF-151h
+  assignment-RHS aliasing, DF-151c destination-type glue, design 159 field
+  retains). Comment replaced with the real invariant (pre-incremented
+  refcount cancelled by the local copy's deinit); regression test
+  `examples/data_cow_slice.saw` (also in the gmgate lane).
+- **RESOLVED — "memcpy causes segfaults" in `copy()`.** The archived memcpy
+  was offset-correct; the crash was compiler-era. `_fill_from` is one
+  offset-aware-on-both-sides memcpy again (hot-path win over the per-byte
+  get/set loop); the same test pins copy-from-slice and copy-from-whole.
+- **DATA-1 (OPEN, fix-worthy): DataIterator holds no reference.** `iter()`
+  copies `inner` without bumping the refcount, so an iterator RETURNED past
+  its Data's death dangles (use-after-free reachable from safe code). Fix
+  shape: iterator bumps on creation, deinit decrements — but DataIterator
+  then needs a copy policy, and the for-in machinery's design-122 `T: Copy`
+  iterator bound needs checking against a NoCopy iterator. Own small unit.
+- **DATA-2 (OPEN, needs a USER DECISION): `set()` writes THROUGH a shared
+  buffer while `push()`/`append()` copy-on-write** (the old workaround note
+  admitted it). Mixed view-vs-value semantics on one type: a byte write
+  through a slice-sharing Data is visible to siblings, a push is not.
+  Options: (a) CoW everywhere (value semantics, consistent with the rest of
+  Saw; slices stay cheap for READS); (b) document slices as views and make
+  push/append write through too (aliasing semantics — un-Saw-like);
+  (c) forbid mutation at refcount > 1 (panic, "copy() first"). Recommend (a).
+
 ## Review sweep (Aug 4) — TRIAGED (user, Aug 4 evening), briefs 122-127
 Four reviewer reports in `designs/reviews/2026-08-04-*.md`; probe repros live
 there. Triage outcome: **122** fix batch (RS-2/4/5, RC-1/4/5, P2, DF-119b —
@@ -1561,6 +1594,14 @@ record rather than guess:
 The spec's Slab-allocators example relies on the current behavior, so it is
 correct either way today; §9's module table carries a note pointing here rather
 than asserting a prelude status the tree does not have.
+
+**TWIN (Aug 7, from the user's repo review): `std.spinlock` has the same
+hole.** LANGUAGE_SPEC says it is import-gated (`import std.spinlock`), but
+`IMPORT_REQUIRED_STD_MODULES` (sawc.py) lists neither `spinlock` nor `slab`
+— verified by grep. Unlike slab there is no prelude-by-design reading:
+design 149 documented the import, so for spinlock the gate is simply the
+bug. Whatever the slab DECISION is, the fix unit should sweep the whole
+std directory against the spec's import table so no third twin survives.
 
 ### DF-138b — CLAUDE.md's "complete flag set" line is not complete
 
