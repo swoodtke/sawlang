@@ -1976,6 +1976,271 @@ forms a user module always has.
   `_cross_module_lookup` answering for qualified-only imports, which needs a
   check of what else depends on that fallback.
 
+## Design 163 — frame-overlay sizing: the INVESTIGATION REPORT (Aug 7 — user decides)
+
+`designs/163-frame-overlay-investigation.md`. Measurement + constraints only; no
+layout change shipped. **Lead recommendation: DECLINE the overlay now, land the
+tooling, and put design 152's frame-size warning on top of it as the trigger to
+revisit.** The reasoning is that the saving is large in theory and ~absent in
+this tree, while the cost lands squarely in frame teardown — the code path that
+has produced a silent double-free in four separate briefs (124/131/134/146).
+
+### What landed (tooling only — no behavior change)
+
+- **`sawc --emit-frame-layout`** (`sawc/frame_layout.py`, flag in `sawc/sawc.py`,
+  mirroring `--emit-ir`'s shape). JSON per monomorphized `__Frame_*`: total ABI
+  size + alignment, every field's offset/size/alignment, which fields are
+  embedded children (`kind: "sub"`, with the callee frame and the resume state
+  the child is live in), plus `own_bytes`/`sub_bytes`, the state count, and the
+  spawn-root/method flags. Layout comes from LLVM (`codegen.struct_types` is the
+  authority); a `layout_agrees` field cross-checks our C-layout walk against
+  `get_abi_size` and was true for all 339 frames measured.
+- **`tools/framesizes.py`** — sweeps a corpus, aggregates the distribution and
+  top offenders, and solves the overlay recurrence bottom-up. `--only`,
+  `--top`, `--json`, `--frame NAME`.
+- **Two three-line stashes in `coro_transform.py`** feeding the report:
+  `info['drive_state']` in `_emit_nested_call`, and `frame_struct.coro_frame_info`
+  at the end of `build_resume`. Read-only; no codegen consults them.
+
+### Unit 1 — reality
+
+Corpus = `examples/` (103 programs contain a suspending function; 339
+monomorphized frames). **`blade` and the SOS kernel contribute ZERO frames** —
+both are entirely synchronous, so `--emit-frame-layout` reports `"frames": {}`
+for each. Two of the brief's three flagship shapes therefore do not exist.
+
+Frame size today: min 32, **p50 72**, p90 432, p99 672, **max 688** bytes; mean
+140. Per-task spawn cost (177 spawn-root frames, each a heap box): mean 181 B,
+max 688 B.
+
+The shape that decides everything is the **child-count histogram**:
+
+| children | frames | share |
+|---|---|---|
+| 0 | 271 | 80% |
+| 1 | 38 | 11% |
+| 2 | 15 | 4% |
+| 3 | 15 | 4% |
+
+Overlay can only help a frame with **two or more** children — 30 frames, 9% of
+the corpus. Nothing in the tree has more than three.
+
+### Unit 2 — the hypothetical
+
+Every `__subN` is live in **exactly one** resume state. Construction and the
+`_goto` into the drive block happen in the same resume tick (`_goto` is a state
+assignment + `continue`, never a suspension) and the Done arm moves the result
+out and leaves for `after`, so the child's storage is live precisely while
+`__state == drive`. The tool CHECKS this rather than assuming it: **zero
+violations across all 339 frames**. So the overlay size is a clean recurrence —
+`overlay(F) = layout(F's own fields, with the contiguous `__subN` run replaced
+by one slot of size max over children of overlay(c))`.
+
+Corpus-wide: **47600 B → 41344 B, 13.1%**. Only 30/339 frames shrink; of those,
+median size after overlay is 65% of today. Restricted to the frames that CAN
+shrink (>=2 children): 17576 → 11320, **35.6%** (min 25%, max 43%). Spawn roots:
+**147 of 177 (83%) are unchanged**; the mean falls 181 → 146 B. Taking each
+program's largest task frame (the real per-task heap box): mean **155 → 132 B**,
+14.8% across 103 programs.
+
+Top offenders today: `__Frame_recirc` / `__Frame_iflet_shadow` 688 → 400 (42%),
+`__Frame_guardlet_*` 672 → 384 (43%), `__Frame_serve` 656 → 424 (35%).
+
+**Flagships.** The accept-loop server (`net_accept_loop_concurrent`) is the
+disappointment: `__Frame_server` is **552 → 552, 0%**. It has ONE suspending
+call site (`listener.accept()`), and its bulk is a 296-byte `TaskGroup` local,
+not children. Its siblings do better — `__Frame_client` 536 → 392 (27%),
+`__Frame_handle` (`net_http_roundtrip`) 576 → 432 (25%). Blade's dependency walk
+and the SOS root have no frames at all.
+
+**But the corpus understates the model badly.** A synthetic probe
+(`.build/scratch/probe_width2.saw`, using `TcpStream.read` as the suspension)
+separates the two axes:
+
+| shape | children | today | overlay | saving |
+|---|---|---|---|---|
+| `w1` — 1 call site | 1 | 272 | 272 | 0% |
+| `w2` — 2 sequential | 2 | 496 | 352 | 29% |
+| `w4` — 4 sequential | 4 | 944 | 512 | 46% |
+| `w8` — 8 sequential | 8 | 1840 | 832 | 55% |
+| `d1` — depth-4 chain, 1 call each | 1 | 496 | 496 | **0%** |
+| `t3` — branching 2, depth 1 | 2 | 608 | 336 | 45% |
+| `t2` — branching 2, depth 2 | 2 | 1280 | 400 | 69% |
+| `t1` — branching 2, depth 3 | 2 | 2624 | 464 | **82%** |
+| `root` — 6 call sites over the above | 6 | **6768** | **928** | **86%** |
+
+Depth ALONE saves nothing, exactly as predicted — a call chain is genuinely
+live at once, so the chain IS the high-water mark. The blow-up is
+**branching x depth**: today's flat-frame model is O(k^depth) in a call tree of
+branching factor k, the overlay is O(depth). A 6-call-site root over that tree
+is **7.3x**. Nothing in the tree today is anywhere near it, but an ordinary
+HTTP-handler decomposition (parse -> headers -> body, each calling two
+suspending helpers) lands in the `t1`/`root` regime, and Saw boxes one frame
+per task.
+
+### Unit 3 — constraints
+
+| # | constraint | verdict |
+|---|---|---|
+| 1 | `lend` windows (141/146) | **compatible** |
+| 2 | state-aware teardown (124/134) | **needs work — the whole cost** |
+| 3 | design 158 backtrace tables | **compatible** (gets simpler) |
+| 4 | held references / re-borrows (88/106) | **compatible** |
+| 5 | DF-138a spawn trampoline | **compatible** (no interaction) |
+| 6 | generation-checked slots (134) | **compatible** (no interaction) |
+
+**1. Lend windows — compatible, and the hazard cannot arise today.** A `borrows`
+accessor is forced `sync`: `place_transform.py:194-198` sets `decl.is_sync = True`
+unconditionally, and `effects.py:698-709` rejects any suspension in it. The
+window PARAMETER's type is built `sync` too (`place_transform.py:168-173`,
+`:181-184`), and the use site synthesizes a closure checked against it
+(`place_uses.py:482-513` -> `effects.py:282-284`), so a suspending call inside a
+window is rejected before the coro transform ever runs (place lowering precedes
+it and forces a re-typecheck). A `borrows` accessor is therefore never a
+coroutine, has no frame, and occupies no `__subN` — a lend window makes ZERO
+children live, not two. The brief's "lend-until-epilogue" hazard is real as a
+liveness description and vacuous as a constraint. Two riders: nothing pins the
+rejection with a test (it is structural, via two independent `sync` gates), and
+DF-146k floats `shared borrows` / `borrows -> &T` — if that fence is ever lifted
+this becomes a genuine two-live-children shape and overlay needs re-verification.
+
+**2. State-aware teardown — NOT state-keyed today, and this is the entire cost.**
+`__release` is a flat statement list with no reference to `__state`
+(`coro_transform.py:4189-4227`; its one conditional is the `__io_fd >= 0`
+reactor disarm), and it deliberately EXCLUDES sub-frames — `_owned_frame_fields`
+(`:4170-4187`) documents "each sub-frame releases itself at ITS own Done". Child
+storage is reclaimed by the frame struct's MEMBERWISE teardown
+(`codegen/resources.py:637-664`, `_emit_field_cleanup_at` recursing into each
+`__subN` by STATIC FIELD TYPE), which is also the path a frame torn down WITHOUT
+completing takes at group teardown. The whole correctness argument today is
+"every owned field's None/Some tag is a valid drop flag at all times": the frame
+is fully `StructInit`'d at construction (`_build_frame_init:4267-4316`,
+recursively zero-initializing every embedded child) and a completed child left
+all its fields None, so re-dropping it is a no-op. Overlay breaks the
+*at all times* clause. Three sites need work, all mechanical given each child's
+single live state:
+
+  (a) `_emit_field_cleanup_at` must switch on `__state` to pick the live child's
+      TYPE — nothing else can, and a shared slot has no single static type.
+  (b) `_build_sub_frame`'s rebuild store (`:3789`, through
+      `codegen/statements.py:497-509` "LIVE-SLOT RELEASE") drops the slot's prior
+      occupant AS THE NEW CHILD'S TYPE — a type confusion the instant two callee
+      frames share an offset. The overlay slot must be stored WITHOUT the
+      live-slot release; it is known dead.
+  (c) `_build_frame_init`'s recursive child zero-init becomes one slot zeroing.
+      This is a construction-cost WIN, not just a size one: today spawning a task
+      writes the whole sum-sized frame, so `root` above memsets 6768 bytes to
+      construct what the overlay would construct in 928.
+
+**3. Design 158 tables — compatible, and simpler.** 158 is a brief, not code, so
+the constraint is on the design. Because each child is live in exactly one
+state, `(function, state) -> child offset` stays a static function of the state;
+under overlay the OFFSET becomes constant (the slot) and only the child TYPE
+varies by state — which the table must record anyway.
+
+**4. Held references — compatible; no legal program can observe a reused slot.**
+Seeded reference arguments always point from a child OUTWARD into the caller /
+task frame (`coro_transform.py:3784-3793`, "a raw pointer into THIS (caller)
+frame's storage"; `__recv` likewise at `:3796-3807`) — never sideways at a
+sibling, never down into a child. A callee's result is COPIED OUT into a caller
+local plus `__saw_forget` before the slot is released (`:3714-3722`). Probed the
+one hole the code review flagged, `-> &T`: `return v` on a `&Int` param fails
+("expected return type `&Int` but got `Int`"), but `return &v` and
+`return &local` both COMPILE (see DF-163a). The suspending case — the only one
+that could aim into a sub-frame — is closed on BOTH paths: spawn rejects cleanly
+("local `r` of type `&Int` is a reference held across a suspension"), and the
+driven path errors (see DF-163c).
+
+**5/6. Trampoline and generation slots — no interaction.**
+`_make_spawn_trampoline` (`:4754-4808`) synthesizes `f$spawnroot` whose sole
+statement embeds `__Frame_f`: one child, one drive state, high-water mark ==
+sum, so overlay neither helps nor hurts it. The generation counter is
+`TaskGroup.gen: Vector<Int>` (`std/taskgroup.saw:278-287`, bumped in
+`__recycle:451-458`) with handles as `(slot, generation)` pairs; no
+generation state lives in a frame, whose only 134 field is `__cellp`.
+
+### Unit 4 — recommendation
+
+**The brief's suggested cheap partial (branch-arms-only) should be declined on
+its own terms.** It was proposed to "dodge the sequential-liveness analysis" —
+but the measurement shows there is no such analysis to dodge. Sequential
+liveness is already exact and free: the transform stamps each child's single
+live state, and it held across all 339 corpus frames with zero violations.
+Branch-arms-only would be strictly MORE work (it must distinguish arms) for
+strictly LESS saving. The real choice is implement-in-full vs decline.
+
+**Recommend DECLINE now, with a trigger.** The case against implementing today:
+
+- 13.1% corpus-wide, and 80% of frames have no children at all.
+- 83% of spawn roots do not move; the mean per-task frame is 155 B.
+- The flagship accept-loop server saves **0%** — its bulk is a `TaskGroup` local.
+- Two of the three flagship shapes (blade, SOS) have no coroutines whatsoever.
+- The cost is concentrated in frame teardown, where a mistake is a silent
+  double-free, and where 124/131/134/146 each already found one.
+
+The case for is entirely prospective and rests on the `root` number: the model
+is multiplicative where the overlay is additive, so the day a real Saw server
+gets a normal handler decomposition, per-task memory jumps by ~7x with no
+warning. That is a good reason to make the exponential VISIBLE and a poor reason
+to rewrite teardown before any program has hit it.
+
+**So: land the tooling (done), and hang design 152's task-frame-size warning off
+`--emit-frame-layout`'s data** — the same numbers, reported at compile time.
+Suggested threshold from the measured distribution: warn above ~1 KB (p99 today
+is 672 B, max 688 B, so the corpus is silent) and additionally when a frame's
+`sub_bytes` exceed its `own_bytes` by more than 2x (the signature of the
+branching blow-up; no corpus frame trips it — the >=256 B frames split 45% own /
+55% embedded). **Revisit 163 the first time a real program trips either.** The
+transform sketch is written down above (three sites, (a)-(c)) so picking it up
+later is cheap.
+
+If the user prefers to implement now, the shape is: keep the source-level
+`__subN` fields exactly as they are and do the overlay in CODEGEN — emit the
+frame struct as `{own fields..., [N x i8] __overlay}` in `_register_struct` and
+resolve each `__subN` GEP to the slot. That confines the change to layout +
+field addressing + the three teardown sites, leaves `coro_transform` untouched,
+and keeps the state-keying in one place. Test plan: an example per child-count
+(2, 4, 8 sequential) asserting output AND an `EXPECT-OBJECT-MAX-BYTES`-style
+size bound; a cancellation test per shape (the group-teardown path is the one
+`__release` does not cover); a loop-carried rebuild test (site (b)); the
+`t1`/`root` tree shape end-to-end; and `irdet --all`, since the slot's size is a
+`max` over a dict-ordered child set and is exactly the kind of thing design 141
+caught being nondeterministic.
+
+### DF findings from the investigation
+
+- **DF-163a — `-> &T` escapes the "references are parameters only" rule.**
+  Probe: `func dangle() -> &Int { let local = 99  return &local }` COMPILES and
+  runs, printing 99 out of a dead frame. `return &v` (forwarding a `&Int` param)
+  also compiles. Only `return v` is caught, and by accident — the reference
+  decays to `Int` on read, so it fails the return-type check rather than a
+  positional one. LANGUAGE_SPEC:2142 and :2301-2305 say references are never
+  returned or stored, and :2317-2322 notes the Law of Exclusivity's soundness
+  RESTS on that. `expressions.py:657-665` rejects `&var` in a non-argument
+  position but nothing rejects `&`, and nothing rejects a declared `-> &T`.
+  Orthogonal to 163 (a non-suspending function has no frame) but a real hole.
+  Repro kept at `.build/scratch/probe_retref{2,3}.saw`.
+- **DF-163b — a nested `yield_now()`/`sleep()` silently does not cede.** A user
+  helper whose only suspension is a cooperative primitive is treated as
+  suspending when spawned DIRECTLY (2 states) but NOT when called from another
+  suspending function: the call is emitted as a plain sync call and the caller
+  gets one state and no `__subN`. Repro (`.build/scratch/probe_susp3.saw`):
+  `func helper(n: Int) -> Int { yield_now()  n + 1 }`;
+  `func viahelper(n: Int) -> Int { let x = helper(n)  let y = helper(x)  y }`;
+  `group.spawn(viahelper(1))` -> `__Frame_viahelper` has `states: 1`,
+  `children: []`. `group.spawn(helper(1))` -> `__Frame_helper` has `states: 2`.
+  Same for `sleep`. The program runs and prints the right answer — it just never
+  yields, which is the "never silently block" contract design 96/101/104 exist to
+  hold. A std suspending METHOD (`stream.read()`) propagates correctly through
+  the same nesting, so this is specific to the cooperative free-function
+  primitives. **Worth its own brief** — it also means the corpus measurement
+  above UNDERSTATES the child population: fix this and more frames gain children.
+- **DF-163c — unanchored diagnostic on the driven `-> &T` path.** The driven
+  (non-spawn) case of a suspending function returning a reference reports
+  ``cannot assign `&Int` to field of type `UnsafeConstPointer<Int>` `` at
+  `0:0` with no source anchor — an internal message leaking through the design-74
+  (A8) anchoring rule. It is a fence (nothing compiles), just an ugly one.
+
 ## Design 161 — the tuple-index and number-scanner lex rules (LANDED, Aug 6)
 
 `designs/161-tuple-index-member-lex.md` closed, including its user-approved

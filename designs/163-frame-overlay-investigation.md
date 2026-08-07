@@ -58,3 +58,67 @@ useful — 152's task-frame-size warning wants the same data), but no
 layout change ships from this brief. Full battery only if tooling
 lands (suite zero xfails, lexdiff, astdiff, irdet --all, bootstrap,
 sos_runner, gmgate).
+
+## OUTCOME (Aug 7) — investigation complete, awaiting the user's call
+
+Full report: **`designs/todo.md`, "Design 163 — frame-overlay sizing:
+the INVESTIGATION REPORT"**. Summary:
+
+**Landed (tooling only, no behavior change):** `sawc
+--emit-frame-layout` (`sawc/frame_layout.py`) and
+`tools/framesizes.py`, plus two read-only stashes in
+`coro_transform.py` (`info['drive_state']`,
+`frame_struct.coro_frame_info`).
+
+**Unit 1 — reality.** 339 monomorphized frames across the 103
+`examples/` programs that suspend. **blade and the SOS kernel have NO
+coroutine frames at all** (both are entirely synchronous), so two of
+the three flagship shapes do not exist. Sizes: p50 72 B, p99 672 B,
+max 688 B. 80% of frames have zero embedded children; only 9% have the
+two-or-more that overlay needs. Nothing exceeds three children.
+
+**Unit 2 — the hypothetical.** Every `__subN` is live in exactly ONE
+resume state; the tool checks this rather than assuming it, and found
+**zero violations across all 339 frames**. Corpus-wide saving
+**13.1%**; restricted to frames that can shrink, **35.6%**. 83% of
+spawn roots do not move. The accept-loop server saves **0%** (one call
+site; its bulk is a 296-byte `TaskGroup` local). But a synthetic probe
+shows the model is O(branching^depth) where the overlay is O(depth):
+depth alone saves nothing, while a branching-2 tree goes 45% -> 69% ->
+82% over three levels and a 6-call-site root is **6768 B -> 928 B,
+7.3x**.
+
+**Unit 3 — constraints.** Five of six are **compatible**: lend windows
+(a `borrows` accessor is force-`sync`, so it has no frame and a window
+makes zero children live), design 158's tables (they get simpler — the
+offset becomes constant and only the child type varies by state), held
+references (seeded pointers always run child -> parent, and the
+suspending `-> &T` case is closed on both the spawn and driven paths),
+the DF-138a trampoline, and generation-checked slots (entirely in
+`TaskGroup.gen`/`TaskHandle`, never in a frame). The one that
+**needs work** is teardown: `__release` is NOT state-keyed and
+deliberately excludes sub-frames — child storage is reclaimed by the
+frame struct's MEMBERWISE drop, which recurses by static field type.
+Three enumerated sites would need state-keying.
+
+**Unit 4 — recommendation: DECLINE now, with a trigger.** The brief's
+suggested cheap partial (branch-arms-only) should be declined on its
+own terms — it exists to dodge a sequential-liveness analysis that
+turns out to be already exact and free, so it is more work for less
+saving. The real choice is implement-in-full vs decline, and the
+corpus does not justify paying for state-keyed teardown (the path that
+produced a silent double-free in each of 124/131/134/146) to fix a
+problem no program in the tree has. Instead: hang **design 152's
+task-frame-size warning** off this tooling's data (suggested: warn
+above ~1 KB, and when `sub_bytes` exceed `own_bytes` by >2x — the
+corpus trips neither), and revisit 163 the first time a real program
+trips it. The transform sketch and a test plan are recorded in the
+tracker so picking it up later is cheap.
+
+**Three DF findings**, all pre-existing and none blocking: **DF-163a**
+`-> &T` escapes the parameters-only rule (`return &local` compiles and
+dangles); **DF-163b** a nested `yield_now()`/`sleep()` silently does
+not cede (the helper is suspending when spawned directly but is
+emitted as a plain sync call when called from another suspending
+function — worth its own brief); **DF-163c** an unanchored `0:0`
+diagnostic on the driven `-> &T` path.
