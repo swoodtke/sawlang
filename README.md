@@ -113,7 +113,7 @@ func main() {
 
     // Pattern match on Result
     match parse(false) {
-        case Ok(n) -> print(n),
+        case Ok(parsed) -> print(parsed),
         case Err(e) -> print(e.message)
     }
 }
@@ -266,12 +266,17 @@ the candidates rather than guessing. You can always write `<...>` explicitly, an
 an explicit type argument always wins:
 
 ```saw
-func first<T>(v: &Vector<T>) -> T? { v.get(0) }
+func first<T: Copy>(v: &Vector<T>) -> T? { v.get(0) }
 
 let names: Vector<String> = ["ada", "alan"]
 let n = first(&names)              // T = String, inferred
 let squares = names.map({ $0.len() })   // map<Int> solved from the closure
 ```
+
+The `Copy` bound is not about inference. `v.get(0)` hands back a place rather
+than a value, so reading one out inside a generic body is legal only where the
+bounds prove every instantiation can be copied — the compiler asks once, in the
+body, instead of at one unlucky call site.
 
 ### Debug-Friendly Source Locations
 
@@ -534,18 +539,21 @@ end-of-stream is represented as a distinct value from an error:
 ```saw
 import std.net.{TcpListener, TcpStream}
 
-let listener = try! TcpListener.listen(0)
-while {
-    let conn = try! listener.accept()        // parks; siblings keep running
-    let _ = group.spawn(handle(move conn))
-}
-
 func handle(stream: TcpStream) {
-    let chunk = try! stream.read()           // Result<Data, IoError>; empty Ok = EOF
-    try! stream.write("hello")               // writes everything or errors honestly
-}                                            // stream deinits here: the fd closes
-                                             // when the handler returns
+    let chunk = try! stream.read()      // Result<Data, IoError>; an empty Ok is EOF
+    print(chunk.len())
+    try! stream.write("hello")          // writes every byte, or surfaces the error
+}                                       // `stream` deinits here: the fd closes when
+                                        // the handler returns
 
+func serve(port: Int) {
+    var group = TaskGroup()
+    let listener = try! TcpListener.listen(port)
+    while {
+        let conn = try! listener.accept()    // parks; siblings keep running
+        let _ = group.spawn(handle(move conn))
+    }
+}
 ```
 
 ### The Copy Trait Family
@@ -932,6 +940,8 @@ Saw is freestanding: the same language targets bare metal.
 ```saw
 import std.spinlock.*
 
+static UART_BASE: Int = 0x1000_0000
+
 struct UartRegs {
     data: UInt32
     status: UInt32
@@ -967,8 +977,10 @@ func add(a: Int, b: Int) -> Int {
     a + b
 }
 
-// Reaches the console through the runtime seam; allocates nothing.
-print("uart at {} regs {}", UART_BASE, sizeof<UartRegs>())
+func boot() {
+    // Reaches the console through the runtime seam; allocates nothing.
+    print("uart at {} regs {}", UART_BASE, sizeof<UartRegs>())
+}
 ```
 
 Cross-compiling to a bare-metal target takes a triple and, where the part has
