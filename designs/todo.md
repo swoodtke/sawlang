@@ -4210,6 +4210,14 @@ riscv32 boot-to-root-server. `make sos-test` is 11 cases; the two-image boot
 prints kernel banner -> root banner -> clean exit. SOS-review policy applies:
 the branch is NOT integrated without explicit user sign-off.
 
+> **SUPERSEDED BY THE ADOPTION PASS (Aug 6).** The branch to review is now
+> `worktree-agent-ae0afeb4057ec52bc` — this work rebased onto main at bbdb2e3
+> and modernized to designs 139-161. The original parked branch
+> (`worktree-agent-a45480eb72c6ab0f1`, 8b027c7) no longer compiles against
+> current main. See "SOS M1 — the adoption pass" below for the rebase conflicts,
+> what changed, and the open questions. Everything in THIS section still
+> describes the design; only the spellings moved.
+
 REVISED after the first user review (five items + a rebase onto designs
 132/133). The numbered-syscall pin below is SUPERSEDED by the object-op model.
 
@@ -4334,7 +4342,207 @@ must replace them, and building the Saw object for `rv32ia` would retire them.
 A singleton `static` driver still awaits Once/Lazy (tracker F5), so `console()`
 constructs its `Uart16550` per use.
 
+## SOS M1 — the adoption pass (Aug 6, branch RE-PARKED for user review)
+
+**Branch: `worktree-agent-ae0afeb4057ec52bc`.** The parked M1 branch
+(`worktree-agent-a45480eb72c6ab0f1`, 8b027c7) rebased onto main at bbdb2e3 and
+brought up to the rules that landed while it sat — designs 139-161. SOS-review
+policy still applies: NOT integrated without explicit user sign-off. `make
+sos-test` is 11/11 and the full battery is green (numbers at the end).
+
+**The rebase.** Seven M1 commits over 118 commits of main, four conflicts, all
+in shared plumbing rather than in SOS logic:
+
+- `sos/kernel/main.saw` — main's design-135 commit edited comments in the M0
+  kernel body that M1's unit A had already moved into `core/lib.saw`. Took M1's
+  structure; the design-135 substance (the sos gate builds under
+  `--no-hidden-alloc`) survives in `sos_runner.py`, whose comment says it.
+- `tools/sos_runner.py` (twice) — main added `--no-hidden-alloc` to the compile
+  line, M1 added `--module-path kcore=...` and the payload-object list. Both
+  wanted, so both kept.
+- `.gitignore` / `Makefile` — additive on both sides. One real decision:
+  M1's own internal-rebase commit had already DELETED its `*.sosimg` ignore
+  rules because design 143 moved Blade artifacts under `<package>/.build/`, so
+  the deletion is what survived, alongside main's worker-jobs and fixture-lock
+  rules.
+
+**Two compiler bugs, found by writing the adopted idioms and fixed here.** Both
+have regression tests in `examples/` and are why the branch touches `sawc/`.
+
+- **DF-140j — a place use inside a struct or map literal reached codegen
+  unlowered (ICE).** `place_uses._recurse` tested each list item for
+  `Expression` then `ASTNode`. `StructInit.field_inits` is `(field_name, value)`
+  and `MapLiteral.entries` is `(key, value)` — plain tuples, neither test — so
+  the expressions inside them were never walked and a `borrows` accessor in
+  those positions met codegen raw: `internal compiler error: Undefined method:
+  Holder.at`. `let` and argument positions worked, which made it read as a
+  module-boundary problem for a while. `_recurse` now descends into a tuple item
+  through `_paired`. Test: `place_paired_literal_fields.saw`.
+- **DF-140k — an extension method's parameter types were never resolved.** The
+  parser gives every bare named type a STRUCT kind and only resolution knows
+  which names are enums. A plain function has always resolved its parameters
+  before binding them; an extension method did so only for a module-QUALIFIED
+  annotation (design 68's L18 fix). Nothing noticed until a backed enum met
+  design 145's cast, which looks for ENUM kind: ``cannot cast `Right` to
+  `UInt` `` inside a method, with the identical cast compiling in a free
+  function. The binding now resolves either way; the write-back to `param.type`
+  stays qualifier-only, which is what the original comment was protecting.
+  Test: `backed_enum_extension_param.saw`. Found because the rights check is
+  `entry.allows(Right.Debug)` — an enum parameter cast inside a method on the
+  receiver, i.e. two of design 153's idioms at once.
+
+**A safety finding that changed a brief item — worth the user's attention.**
+The adoption list asked for `imgformat`'s `SegFlags` to become "a backed-enum
+FIELD in the typed header view". It should not, and the measurement is short:
+
+    a wire byte of 6 (W|X — a combination `has_sane_perms` rejects), overlaid
+    through `UnsafeMemory` on a struct whose field is a backed enum, read back
+    as the FIRST case and matched its arm silently.
+
+`SosimgSeg` is overlaid on bytes the loader did NOT produce. An enum-typed field
+mints an enum value straight from an attacker-chosen byte with no `from(raw:)`
+between them, and a `match` on a value naming no case still selects an arm — so
+the kernel would install a PMP region from a permission it never validated. The
+bits became `SegFlag` and the mask field stayed a raw `UInt8`, with `has` /
+`has_sane_perms` as the validating boundary.
+
+The general rule this suggests, for the skill's wire-idiom section: **a backed
+enum is safe as a wire-struct field only when the producer is trusted. Anything
+PARSED keeps its raw integer field and exposes a `from(raw:)` accessor.** The
+skill currently shows `flags: SegFlags` as the idiom with no such caveat.
+Flagged rather than edited — the skill is another agent's surface tonight.
+
+**What was adopted.**
+
+- **145-C, the syscall ABI.** `sosabi`'s four families of parallel `static
+  UInt`s became backed enums. `SysOp.from(raw:)` retired `OP_SYSTEM_MAX`: the
+  range check and the decode are one step now, and the dispatch is an exhaustive
+  `match`, so a new op fails to compile until handled. It is backed by `UInt`,
+  the width of the register the op arrives in, because a7 is PROCESS-CONTROLLED
+  — a narrower backing would need a truncation first, and `0x100` would arrive
+  as a valid `DebugPrint`. Verified `from(raw: 0x10000)` is None.
+  `SysError` is backed `UInt8` (its tags cross the trap boundary; design 47
+  pins the width) and gained `describe()` + `Printable` + `Error`, which retired
+  the free `sys_error(status)` helper. Because conformances must live with the
+  type (orphan rule), the enum MOVED from `sysapi` to `sosabi`, so both halves
+  of the contract now compile from one declaration. A process still never
+  imports `sosabi` — checked with a two-module probe that it can interpolate the
+  error and match its cases through the value alone.
+  `Right` and `ObjType` complete the set; the mask arithmetic moved into
+  `HandleEntry.allows(Right)`, and `ROOT_SYSTEM_RIGHTS = 3 // DEBUG | SHUTDOWN`
+  became `root_system_rights()` (a function, because a static initializer takes
+  plain literals and a `3` with a comment naming its bits is the magic number
+  the pass exists to remove).
+- **145-C, the image format.** `SEG_FLAG_*` became `SegFlag`, per the finding
+  above. The hand-assembled test payloads (`sos/tests/payload_*.S`) keep their
+  own `.equ SEG_FLAG_R, 1` and status literals, unchanged and on purpose: they
+  exist to pin the format independently of the Saw definition, so that two
+  producers agree with one loader. Renumbering `SegFlag` would need them edited
+  too, and nothing enforces that — which is the price of the independent check,
+  and was equally true when the Saw side was statics.
+- **146, the toml API.** `TomlDoc.get_section` is gone (it handed back a
+  non-retained alias — DF-132a), so `blade/src/sosimg.saw`'s `[sos]` reader
+  searches once with `index_of` and reads through `section_at` windows, the
+  shape `manifest.saw` already used. `band_level` became an extension method on
+  `TomlSection` rather than a free function taking `&TomlSection` — a question
+  about a section reads as one, and a method call is also the single expression
+  a place window wants.
+- **153, the kernel's own families.** `TrapCause` (nine `CAUSE_*` statics, and
+  with them `cause_tag`'s nine-branch if-else — the hardware CAN raise a cause
+  the kernel does not model, so `from(raw:)` names that miss and the rest is
+  exhaustive), `PmpPerm` (the third bits/mask instance, spelled like `Right` and
+  `SegFlag`), and `ExitCode`, which is now `fatal`'s parameter type instead of a
+  bare `UInt` in the position the harness asserts on.
+- **Stale prose.** `rt.c` has not existed since design 140's revision split it
+  into `sos/hal/riscv32/kernel/sink.c` and `sos/rt/common_c/support.c`; five
+  places still described an image as `boot.S` + `rt.c`, including the kernel
+  entry header and the runner's pipeline listing.
+- **A workaround main fixed.** `sos/rt/common` named its digit constants
+  `HEX_ASCII_ZERO` etc. to dodge DF-140h (a private std static reserving its
+  simple name program-wide). Design 145 unit A fixed that, so they are
+  `ASCII_ZERO` / `ASCII_LOWER_A_MINUS_TEN` again.
+
+**What design 149 had NO target for, and why — checked, not skipped.**
+
+- **Zero regions.** Already right, and already at real size: the 64 KiB kernel
+  stack and the 128-byte trap frame are `.bss` reservations in `boot.S`, which
+  is where they belong. No Saw declaration wants to become one.
+- **`SpinLock`.** Nowhere, as the brief predicted. rv32 M1 is single-hart AND
+  the kernel holds no mutable global state in Saw at all — the handle "table" is
+  a comparison against one constant, deliberately, until the object model. Not
+  forced.
+- **`unsafe static var`.** Same reason: there is no compound static using a
+  workaround, because there is no compound static.
+
+**The one real design-149 opportunity, NOT taken here — the top item for
+review.** `sos/rt/common_c/support.c` gave three reasons it had to be C. One is
+permanent: a Saw byte-copy loop is what LLVM's loop-idiom pass rewrites into a
+call to `memcpy`, which in a freestanding build IS this memcpy, so mem* stays C
+under `-fno-builtin`. The other two WERE DF-140g, which design 149 closed:
+
+  1. the arena needed mutable module state and a `.bss` reservation —
+     `unsafe static var` plus a zero-initialized `static ARENA: [UInt8; N] =
+     [0; N]` (zerofill in both profiles) now express it;
+  2. the seams needed to `@export` reserved `__saw_rt_*` names —
+     `sawc --runtime-provider` (Blade: `[package] runtime = true`) now allows it
+     from an ordinary freestanding build, with each signature checked against
+     `sawc/rt/ABI.md`.
+
+So the arena and the four seams COULD be Saw today, and SOS is precisely the
+case design 149 was built for. Not done here because it changes the allocation
+and panic paths of the kernel and every process image at once — a deliberate
+decision, not an adoption sweep. The file's comment now says this instead of
+citing the closed gap. Note the build-path split when scoping it: the ROOT
+packages are Blade packages and would use the manifest key, while the kernel is
+built by `tools/sos_runner.py` invoking sawc directly — but `--runtime-provider`
+is a plain sawc flag, so the kernel needs no move to Blade to adopt it.
+
+**Open questions for the user.**
+
+1. **The runtime migration above** — worth its own brief, or fold into M1b?
+2. **`SysError.Unknown` lost its payload.** The old enum had
+   `Unknown(status: UInt)`, carrying the unrecognized number; a backed enum is
+   payload-free, so `Unknown` is now a plain case (255 — not a value the kernel
+   returns) where the userspace `from(raw:)` miss lands. In M1 it is unreachable
+   (both halves compile from one table) and no caller printed the number, so
+   nothing regressed today. If a diagnostic should carry the raw tag later, that
+   wants a struct error or a companion field, not a backed enum.
+3. **The wire-enum caveat** for the saw-lang skill (above).
+4. **`SysError` living in `sosabi`, a KERNEL-INTERNAL package**, is a slight
+   tension with that package's "nothing else imports this, ever" charter. It is
+   forced by the orphan rule and it costs userspace nothing (verified), but the
+   module docstring's claim is now narrower than it reads.
+
+**A gate-coverage note worth keeping.** The `SegFlag` rename swept `sos/` and
+`blade/src/` but missed `blade/tests/sosimg_wire.saw`, and NOTHING in the usual
+loop noticed: `test_runner.py` does not compile `blade/tests/`, so the suite,
+lexdiff, astdiff, irdet and sos-test were all green with blade's own suite
+broken. The only gate that runs `blade test` is the bootstrap, which is why a
+brief's final battery has to include it rather than treating it as optional.
+
+It nearly escaped anyway, through a harness bug of mine rather than a repo one:
+the first battery script piped each gate into `tail`, so `$?` was `tail`'s status
+and every gate looked green. Rewritten to capture each gate's real exit code and
+report a FAILED list. Worth stating because the same shape would hide any gate
+failure, not just this one.
+
+**Gate battery** (re-run strictly, against the final tree). Full compiler suite
+1343 green (1341 at the branch point plus the two regression tests above);
+lexdiff zero mismatches; astdiff clean over 1499 files; `irdet --all` byte-
+identical over 883 examples; abidoc 53 seam signatures matching the frozen set;
+blade bootstrap `BOOTSTRAP: ok` (stage0->stage2, 21/21 twice + the lib suites);
+gmgate 12 programs x 10 runs, 0 failing; `make sos-test` 11/11 under QEMU.
+
 ## Design 140 — DF-findings (SOS M1)
+
+- **DF-140j — FIXED here (the M1 adoption pass, Aug 6). A place use inside a
+  struct or map literal reached codegen unlowered.** See the adoption-pass
+  section above for the walk gap and the fix; test
+  `examples/place_paired_literal_fields.saw`.
+
+- **DF-140k — FIXED here (the M1 adoption pass, Aug 6). An extension method's
+  parameter types were never resolved, so a backed enum parameter could not be
+  cast.** See above; test `examples/backed_enum_extension_param.saw`.
 
 - **DF-140a — OPEN. A bare integer literal outside the TARGET's platform-`Int`
   range silently wraps; the same source means a different number per profile.**
