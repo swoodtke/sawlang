@@ -51,6 +51,11 @@ Findings raised while building it:
   places alike. Regression tests
   `examples/df165b_place_literal_width.saw` (+ `_range_error`). Predates design
   165 and reproduces on a bare `Vector<UInt8>`.
+- **DF-165c evidence, same day:** the strict `&var self` choice for `Data.[]`
+  broke real code at 165's own integration — devtools/irdet's `same_bytes`
+  read `a[i]` on `let` bindings and stopped compiling; switched to `get(i)!`
+  (integration commit). One data point for the `_read`/`_modify` split when
+  design 171's probe round runs.
 - **DF-165c (LANGUAGE, filed): a `borrows` accessor cannot see its window's
   flavor, which forces a copy-on-write type to choose between a copying read
   and a write-through write.** Design 141 decided the use site picks shared vs
