@@ -253,7 +253,22 @@ half-built. What part 2 inherits:
   whose implementations are meant to be callable from a place window, a lock
   body or a `Deinit` must declare `sync` on its requirements, because dispatch
   through `any Trait` is assumed suspending otherwise.
-- **VERIFY / open — primitives take conformances unevenly.**
+- **DF-169d (filed Aug 7, user-prompted full matrix — SUPERSEDES the VERIFY
+  note below): primitive user-conformances are broken at three layers.**
+  Probed every builtin: `extension T: MyTrait` is ACCEPTED for exactly
+  Int/Float/String and REJECTED ("cannot extend undefined struct") for UInt,
+  all eight fixed-width ints, and Bool — an arbitrary split. For the accepted
+  three, DIRECT calls work but `&any Trait` erasure fails: Int/Float "does
+  not conform" (the conformance never registers for existentials), String
+  ICEs in codegen (`i8* != i8**`). No Char type exists (by design). Probes:
+  .build/scratch/probe_primitive_ext*.saw. DESIGN QUESTION for the user —
+  pick the uniform rule: (a) primitives take user conformances FULLY (needs
+  value-boxing vtable machinery for `&any`); (b) uniform clean error
+  (extension METHODS yes, user conformances no); or (a-lite, recommended)
+  uniform declaration acceptance + full GENERIC-BOUND participation
+  (monomorphized — no vtable needed, covers the wire-vocabulary use case:
+  `<T: MyProto>` at T=UInt8) while `&any` erasure of a primitive stays a
+  clean documented error, boxing deferred until demanded.
   `extension Int: SomeTrait { ... }` compiles and runs; `extension Bool: ...`
   is `cannot extend undefined struct `Bool``. Not needed by this brief (the
   derivation dispatches on the field's type and emits the encoder call directly,
