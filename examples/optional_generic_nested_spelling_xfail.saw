@@ -1,0 +1,41 @@
+// Design 174 — DF-174c. A nested optional type cannot be NAMED. The type
+// exists and behaves correctly (see optional_generic_nested_reads.saw), but no
+// spelling reaches it, so no function can take or return one and no local can
+// be annotated as one. All three candidate spellings fail:
+//
+//   Int??              parse error ("Expected '=' in variable declaration")
+//   Optional<Int?>     `Optional` is not a type name the compiler knows at all;
+//                      it resolves to an opaque nominal struct (DF-174d)
+//   (Int?)?            the parenthesized type becomes a distinct 1-tuple-ish
+//                      type, so `!` yields `(Int?)`, not `Int?`
+//
+// This test uses the `Int??` spelling — the one the language should accept.
+// EXPECT: success
+// EXPECT-OUTPUT:
+// some 5
+// inner-absent
+// outer-absent
+// -- done
+// XFAIL: DF-174c a nested optional type has no spelling - `Int??` is a parse error
+
+// The helper every two-layer read wants, and cannot have today.
+func report(label: String, o: Int??) {
+    if let inner = o {
+        if let value = inner { print("{label} {value}") } else { print("inner-absent") }
+    } else {
+        print("outer-absent")
+    }
+}
+
+func main() {
+    let some: Int? = 5
+    let none: Int? = None
+    var v = Vector<Int?>()
+    v.push(some)
+    v.push(none)
+
+    report("some", v.get(0))
+    report("none", v.get(1))
+    report("gone", v.get(9))
+    print("-- done")
+}

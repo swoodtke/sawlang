@@ -1,0 +1,36 @@
+// Design 174 — DF-174e (NEW, found by this sweep). Writing an existing `Int?`
+// VALUE into a `Vector<Int?>` element through the place is refused, and the
+// message states a type that is not the element type:
+//
+//   error: cannot assign `Int?` to element of type `Int`
+//
+// The element type of a `Vector<Int?>` IS `Int?`. The place-assignment path
+// unwraps one Optional layer off the element type and then auto-wraps the RHS,
+// which is why the two spellings that DO work — `v[i] = 9` and `v[i] = None` —
+// work, while handing it an `Int?` that is already the right type does not.
+// `v.set(i, value)` accepts the same value fine, so the accessor and the place
+// disagree.
+// EXPECT: success
+// EXPECT-OUTPUT:
+// before 1 inner-absent
+// after 4 7
+// -- done
+// XFAIL: DF-174e `v[i] = <T? value>` on a Vector<T?> is refused and the error names the wrong element type
+
+func main() {
+    var v = Vector<Int?>()
+    let a: Int? = 1
+    let n: Int? = None
+    v.push(a)
+    v.push(n)
+    let first = v[0] ?? -1
+    if let _ = v[1] { print("before {first} present") } else { print("before {first} inner-absent") }
+
+    // Both of these are the natural spelling and both should hold.
+    let fresh: Int? = 4
+    let other: Int? = 7
+    v[0] = fresh
+    v[1] = other
+    print("after {v[0] ?? -1} {v[1] ?? -1}")
+    print("-- done")
+}

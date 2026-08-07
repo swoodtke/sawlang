@@ -1,0 +1,20 @@
+// Design 174 — DF-146l trigger site 3 (NEW, found by this sweep). A bare `None`
+// passed as a GENERIC CALL ARGUMENT ICEs instead of producing the clean
+// "cannot infer type argument" error the underdetermined case deserves:
+//
+//   internal compiler error: None literal has no type information
+//
+// `idn(None)` is genuinely underdetermined — nothing says what `T` is — so the
+// correct outcome is a clean anchored error naming `T`, exactly as
+// `idn<Int?>(None)` (which works) is the way to say it. What must not happen is
+// an ICE. The EXPECT below therefore pins the ERROR, not a successful run.
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: cannot infer type argument
+// XFAIL: DF-146l bare None as a generic call argument ICEs instead of a clean underdetermined error
+
+func idn<T>(x: T) -> T { x }
+
+func main() {
+    let r = idn(None)
+    print("unreachable")
+}

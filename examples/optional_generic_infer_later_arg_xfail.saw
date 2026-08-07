@@ -1,0 +1,31 @@
+// Design 174 — DF-174f (NEW, found by this sweep). Design 105's later-arg
+// fixpoint does not solve a type parameter whose EARLIER argument is a bare
+// `None`. A later argument fixes `T = Int?`, and `None` is a perfectly good
+// `Int?`, but the solver treats the None literal's own type as an
+// irreconcilable constraint:
+//
+//   error: cannot infer type argument `T` for function `pick`:
+//          it is required to be both `OPTIONAL` and `Int?`
+//
+// The two requirements are not in conflict — `Int?` SATISFIES "is an optional".
+// A bare `None` should unify with any optional type the rest of the call
+// determines. Same root family as DF-146m (None vs Optional unification at a
+// generic parameter). Clean error rather than an ICE, but a wrong rejection.
+// EXPECT: success
+// EXPECT-OUTPUT:
+// later 3
+// earlier inner-absent
+// -- done
+// XFAIL: DF-174f later-arg inference will not unify a bare None with the Optional a later argument fixes
+
+func pick<T>(a: T, b: T) -> T { b }
+
+func main() {
+    let some: Int? = 3
+    let r = pick(None, some)
+    print("later {r ?? -1}")
+
+    let e = pick(some, None)
+    if let value = e { print("earlier {value}") } else { print("earlier inner-absent") }
+    print("-- done")
+}

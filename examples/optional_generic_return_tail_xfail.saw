@@ -1,0 +1,28 @@
+// Design 174 — DF-174a. A generic function whose return type is `T?` does not
+// auto-wrap its TAIL EXPRESSION, so codegen returns the bare value into an
+// optional result slot and emits MALFORMED LLVM IR
+// (`ret i64` into a `{ i1, i64 }` result). The `return x` spelling of the same
+// function is correct, and the non-generic `func w(x: Int) -> Int? { x }` is
+// correct — it is specifically `-> T?` plus a tail expression.
+//
+// Found by the T = U? sweep but NOT Optional-specific: it reproduces at
+// `T = Int` just as it does at `T = Int?`. Both instantiations are below.
+// EXPECT: success
+// EXPECT-OUTPUT:
+// plain 7
+// nested 5
+// XFAIL: DF-174a generic `-> T?` tail expression skips the return auto-wrap and emits malformed LLVM IR
+
+func wrap<T>(x: T) -> T? { x }
+
+func main() {
+    let plain = wrap<Int>(7)
+    print("plain {plain ?? -1}")
+
+    let inner: Int? = 5
+    if let peeled = wrap<Int?>(inner) {
+        print("nested {peeled ?? -1}")
+    } else {
+        print("nested outer-absent")
+    }
+}

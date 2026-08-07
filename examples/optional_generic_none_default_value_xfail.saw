@@ -1,0 +1,24 @@
+// Design 174 — DF-146l trigger site 4 (NEW, found by this sweep). A `None`
+// DEFAULT VALUE typed by a type parameter ICEs at the DECLARATION, before any
+// call site is considered:
+//
+//   internal compiler error: None literal has no type information
+//
+// Design 108 makes a default value typed by a type param legal and lets it
+// DRIVE inference, so `b: T = None` should infer `T = <some optional>` at a
+// call that supplies nothing — or fail cleanly. It ICEs instead.
+// EXPECT: success
+// EXPECT-OUTPUT:
+// default 1
+// supplied 2
+// -- done
+// XFAIL: DF-146l None as a generic default value ICEs at the declaration
+
+func with_default<T>(a: Int, b: T = None) -> Int { a }
+
+func main() {
+    print("default {with_default(1)}")
+    let some: Int? = 9
+    print("supplied {with_default(2, b: some)}")
+    print("-- done")
+}

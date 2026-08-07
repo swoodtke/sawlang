@@ -1,0 +1,26 @@
+// Design 174 — DF-146l trigger site 1. A bare `None` as a Map literal VALUE
+// dies with an ICE rather than adopting the annotated value type:
+//
+//   internal compiler error: None literal has no type information
+//
+// The annotation says `Map<String, Int?>`, so the expected value type reaches
+// the literal element; the Vector form of the same shape types fine. The ICE
+// (rather than a clean anchored error) is itself the bug.
+// Workaround today: `m.insert(k, none)` with an annotated `let none: Int? = None`.
+// EXPECT: success
+// EXPECT-OUTPUT:
+// len 1
+// x inner-absent
+// -- done
+// XFAIL: DF-146l None literal as a Map literal value ICEs (no expected-type propagation)
+
+func main() {
+    var m: Map<String, Int?> = {"x": None}
+    print("len {m.len()}")
+    if let inner = m["x"] {
+        if let value = inner { print("x {value}") } else { print("x inner-absent") }
+    } else {
+        print("x outer-absent")
+    }
+    print("-- done")
+}

@@ -1,0 +1,25 @@
+// Design 174 — DF-146n (DECIDED: make it legal). `m[k]! = v` is a parse error
+// ("invalid assignment target"), so a Map value cannot be whole-value REPLACED
+// through the place even though `m[k]!.field = v` works and `v[i] = fresh`
+// works on a Vector.
+//
+// The decision is symmetry with `v[i] = fresh`: a forced conditional lend
+// becomes a legal assignment target and panics on an absent key. `insert` is
+// the overwrite spelling meanwhile.
+// EXPECT: success
+// EXPECT-OUTPUT:
+// before 1
+// after 5
+// -- done
+// XFAIL: DF-146n `m[k]! = v` is a parse error - a forced conditional lend is not an assignment target
+
+func main() {
+    var m = Map<String, Int>()
+    let _ = m.insert("k", 1)
+    let before = m["k"] ?? -1
+    print("before {before}")
+    m["k"]! = 5
+    let after = m["k"] ?? -1
+    print("after {after}")
+    print("-- done")
+}

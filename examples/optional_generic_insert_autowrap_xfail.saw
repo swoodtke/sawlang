@@ -1,0 +1,31 @@
+// Design 174 — DF-146m. Call-site optional auto-wrap does not fire at a GENERIC
+// parameter instantiated to an Optional. `Map<String, Int?>.insert` takes a
+// `value: V` with `V = Int?`, so design 55's auto-wrap should lift the `7`:
+//
+//   error: argument `value` expects `Int?` but got `Int`
+//
+// The same wrap DOES fire for a written `Int?` parameter, and a bare `None`
+// types correctly at this very position — so the two paths diverge.
+// Workaround today: an annotated `let v: Int? = 7` binding.
+// EXPECT: success
+// EXPECT-OUTPUT:
+// len 2
+// y 7
+// v 3
+// -- done
+// XFAIL: DF-146m call-site auto-wrap does not fire at a generic param instantiated to an Optional
+
+func main() {
+    var m = Map<String, Int?>()
+    let _ = m.insert("y", 7)
+
+    var v = Vector<Int?>()
+    v.push(3)
+
+    print("len {m.len() + v.len()}")
+    if let inner = m["y"] {
+        if let value = inner { print("y {value}") } else { print("y inner-absent") }
+    } else { print("y outer-absent") }
+    print("v {v[0] ?? -1}")
+    print("-- done")
+}

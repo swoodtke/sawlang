@@ -1,0 +1,33 @@
+// Design 174 — DF-174b. Spawning a task whose RESULT TYPE is an Optional is an
+// ICE: the group's result cell is typed one Optional layer deeper than the
+// value being stored into it.
+//
+//   internal compiler error: cannot store {i1, i64} to {i1, {i1, i64}}*
+//
+// The cell is `T?` (present once the task completes) at `T = Int?`, i.e.
+// `Int??`, but the completion path stores the bare `Int?` result. A task
+// returning a non-optional joins fine, so this is specific to T = U?.
+// EXPECT: success
+// EXPECT-OUTPUT:
+// joined 6
+// joined none -1
+// -- done
+// XFAIL: DF-174b spawning a task whose result type is an Optional ICEs in the result-cell store
+
+import std.task.*
+
+func work(n: Int) -> Int? {
+    yield_now()
+    if n < 0 { return None }
+    let r: Int? = n * 2
+    return r
+}
+
+func main() {
+    var group = TaskGroup()
+    let a = group.spawn(work(3))
+    let b = group.spawn(work(-1))
+    print("joined {a.join() ?? -1}")
+    print("joined none {b.join() ?? -1}")
+    print("-- done")
+}
