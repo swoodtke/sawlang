@@ -15,9 +15,11 @@
 // ELF32 in, sosimg bytes out. The kernel does the mirror-image job by
 // overlaying the same structs on the bytes this produces.
 
-// The toml types are imported BARE, not reached through a `toml.` qualifier: a
-// module-qualified name does not resolve in TYPE position (DF-140c), so
-// `&TomlSection` is the only spelling that works for `band_level`'s parameter.
+// The toml types are imported BARE by the design-150 brace form, which is the
+// idiom for a library dependency: the list documents what this module uses and
+// survives a rename upstream. (A `toml.` qualifier would work in every position
+// too, type annotations included, since design 150 — the DF-140c limit this
+// import used to work around is gone.)
 import toml.{TomlDoc, TomlSection}
 import imgformat.{SosimgHeader, SosimgSeg, SOSIMG_MAGIC, SOSIMG_VERSION, SEG_FLAG_R, SEG_FLAG_W, SEG_FLAG_X}
 import std.data.{Data}
@@ -118,17 +120,26 @@ static DEFAULT_LOW: Int = 1
 static DEFAULT_NORMAL: Int = 1
 static DEFAULT_HIGH: Int = 1
 
-func band_level(section: &TomlSection, band: String, fallback: Int) -> Result<Int, SosError> {
-    guard let raw = section.table_value("priorities", band) else {
-        return fallback
+// Reading a band is *about* a section, so it reads as a method on one. The
+// extension is module-private (design 80/142), so nothing outside this file
+// sees a `band_level` on `TomlSection`.
+extension TomlSection {
+    /// The level for one spec §7 priority band, or `fallback` when
+    /// `[sos.priorities]` does not name it. A malformed or out-of-range level is
+    /// an ERROR, never a silent fallback: a typo'd level would otherwise ship an
+    /// image whose scheduling silently disagrees with its manifest.
+    func band_level(&self, band: String, fallback: Int) -> Result<Int, SosError> {
+        guard let raw = self.table_value("priorities", band) else {
+            return fallback
+        }
+        guard let level = raw.to_int() else {
+            return SosError(msg: "[sos] priorities.{band}: `{raw}` is not an integer")
+        }
+        if level < 0 || level > PRIORITY_LEVEL_MAX {
+            return SosError(msg: "[sos] priorities.{band}: level {level} is outside 0..{PRIORITY_LEVEL_MAX}")
+        }
+        level
     }
-    guard let level = raw.to_int() else {
-        return SosError(msg: "[sos] priorities.{band}: `{raw}` is not an integer")
-    }
-    if level < 0 || level > PRIORITY_LEVEL_MAX {
-        return SosError(msg: "[sos] priorities.{band}: level {level} is outside 0..{PRIORITY_LEVEL_MAX}")
-    }
-    level
 }
 
 /// Read the `[sos]` section of `<dir>/Saw.toml`. Returns None when the package
@@ -143,32 +154,37 @@ public func load_sos_config(dir: Path) -> Result<SosConfig?, Box<any Error>> {
     let content = try data.to_string()
     let doc = try TomlDoc.parse(content)
 
-    guard let section = doc.get_section("sos") else {
+    // A `TomlSection` is NoCopy and stays IN the document, so it is reached as a
+    // PLACE rather than held (design 146). The search runs once here and every
+    // read below opens its own window off the index — which is exactly the
+    // pairing `index_of` and `section_at` exist for when one section feeds a
+    // dozen reads. (`section(name)` is the one-read spelling.)
+    guard let sos = doc.index_of("sos") else {
         // The absent case is spelled through a typed local: a bare
         // `return None` from a `Result<T?, E>` is an internal compiler error
-        // (DF-140c's neighbour, DF-140d).
+        // (DF-140d).
         let absent: SosConfig? = None
         return absent
     }
 
-    let emit = section.get("emit") ?? ""
+    let emit = doc.section_at(sos).get("emit") ?? ""
     if not emit.equals("sosimg") {
         return SosError(msg: "[sos] emit: expected \"sosimg\", got `{emit}`")
     }
 
-    let target = section.get("target") ?? ""
+    let target = doc.section_at(sos).get("target") ?? ""
     if target.is_empty() {
         return SosError(msg: "[sos] target is required (the cross-compilation triple)")
     }
-    let linker_script = section.get("linker-script") ?? ""
+    let linker_script = doc.section_at(sos).get("linker-script") ?? ""
     if linker_script.is_empty() {
         return SosError(msg: "[sos] linker-script is required (an SOS image has a fixed load address)")
     }
 
-    let background = try band_level(&section, "background", DEFAULT_BACKGROUND)
-    let low = try band_level(&section, "low", DEFAULT_LOW)
-    let normal = try band_level(&section, "normal", DEFAULT_NORMAL)
-    let high = try band_level(&section, "high", DEFAULT_HIGH)
+    let background = try doc.section_at(sos).band_level("background", DEFAULT_BACKGROUND)
+    let low = try doc.section_at(sos).band_level("low", DEFAULT_LOW)
+    let normal = try doc.section_at(sos).band_level("normal", DEFAULT_NORMAL)
+    let high = try doc.section_at(sos).band_level("high", DEFAULT_HIGH)
     let packed = pack_priorities(background, low, normal, high)
 
     // riscv32 defaults: the `virt`/ESP32-P4 Profile A baseline.
@@ -178,11 +194,11 @@ public func load_sos_config(dir: Path) -> Result<SosConfig?, Box<any Error>> {
     // is an internal compiler error.
     let found: SosConfig? = SosConfig(
         target: target,
-        march: section.get("march") ?? "rv32imac_zicsr",
-        mabi: section.get("mabi") ?? "ilp32",
-        target_features: section.get("target-features") ?? "+m,+a,+c",
+        march: doc.section_at(sos).get("march") ?? "rv32imac_zicsr",
+        mabi: doc.section_at(sos).get("mabi") ?? "ilp32",
+        target_features: doc.section_at(sos).get("target-features") ?? "+m,+a,+c",
         linker_script: linker_script,
-        native: section.get("native") ?? "",
+        native: doc.section_at(sos).get("native") ?? "",
         prio_map: packed,
     )
     return found
