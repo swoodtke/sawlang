@@ -294,6 +294,20 @@ class ResourcesMixin:
             # (design 33): each live element is destroyed at scope death.
             return (saw_type.array_element_type is not None
                     and self._needs_cleanup(saw_type.array_element_type))
+        if saw_type.kind == TypeKind.TUPLE:
+            # A tuple owns its elements exactly as a struct owns its fields
+            # (design 139: a composite takes its strongest element's tier), so
+            # it needs cleanup iff any element does. Named tuples included —
+            # the names are a projection convenience, not a different type.
+            # This arm was MISSING (DF-151f), and its absence was silent in
+            # both directions: `_needs_cleanup` answered False, so no binding
+            # ever registered a tuple for cleanup, and `_emit_drop_at` fell
+            # through to the struct-field path, which finds no fields. A
+            # `(Arc<Res>, Int)` local leaked its Arc with no error and no
+            # crash.
+            return any(self._needs_cleanup(e)
+                       for e in (saw_type.element_types or [])
+                       if e is not None)
         return self._struct_needs_field_cleanup(saw_type)
 
     def _concrete_field_types(self, saw_type: SawType):
@@ -508,6 +522,9 @@ class ResourcesMixin:
         if saw_type.kind == TypeKind.ARRAY:
             self._emit_array_cleanup_at(ptr, saw_type)
             return
+        if saw_type.kind == TypeKind.TUPLE:
+            self._emit_tuple_cleanup_at(ptr, saw_type)
+            return
         self._emit_field_cleanup_at(ptr, saw_type)
 
     def _emit_closure_drop_at(self, ptr, saw_type: SawType):
@@ -573,6 +590,49 @@ class ResourcesMixin:
                 array_ptr, [ir.Constant(i32, 0), ir.Constant(i32, idx)],
                 name=f"arr_drop_{idx}")
             self._emit_drop_at(elem_ptr, elem_type)
+
+    def _tuple_elements(self, saw_type: SawType):
+        """The element SawTypes of a tuple, with the active monomorphization's
+        type arguments substituted in. One place that knows how to read a
+        tuple's parts, so the drop / retain / release / copy walkers below stay
+        the same three lines each.
+
+        Substitution matters for the same reason it does for a struct field: a
+        `(T, Int)` local inside a generic body describes its first element with
+        an opaque parameter, and every lifecycle decision below is made off the
+        element's KIND. Left unsubstituted, `T = Arc<Res>` reads as an unknown
+        struct that needs no cleanup.
+        """
+        elements = saw_type.element_types or []
+        if self.type_param_context:
+            elements = [e.substitute(self.type_param_context) if e is not None
+                        else None for e in elements]
+        return elements
+
+    def _emit_tuple_cleanup_at(self, tuple_ptr, saw_type: SawType):
+        """Release every cleanup-needing element of the tuple at `tuple_ptr`, in
+        REVERSE position order (LIFO) — the same rule a struct's fields follow,
+        for the same reason: a tuple is a positional aggregate whose elements it
+        owns outright. Each element drops through `_emit_drop_at`, so a nested
+        tuple, an optional element, a fixed-array element and a Deinit struct
+        element all recurse.
+
+        A tuple has no `deinit` method of its own and can never have one (it is
+        a structural type, not a nameable one), so this is the whole story: the
+        caller in `_emit_drop_at` reaches here directly, and a tuple nested in a
+        struct field / enum payload / array element / coroutine frame slot
+        reaches it through that container's own glue.
+        """
+        elements = self._tuple_elements(saw_type)
+        i32 = ir.IntType(32)
+        for idx in reversed(range(len(elements))):
+            etype = elements[idx]
+            if etype is None or not self._needs_cleanup(etype):
+                continue
+            elem_ptr = self.builder.gep(
+                tuple_ptr, [ir.Constant(i32, 0), ir.Constant(i32, idx)],
+                name=f"tup_drop_{idx}")
+            self._emit_drop_at(elem_ptr, etype)
 
     def _emit_field_cleanup_at(self, struct_ptr, saw_type: SawType):
         """Release every cleanup-needing field of the struct at `struct_ptr`, in
@@ -750,7 +810,23 @@ class ResourcesMixin:
         if saw_type.kind == TypeKind.ARRAY:
             self._emit_array_retain_at(ptr, saw_type)
             return
+        if saw_type.kind == TypeKind.TUPLE:
+            self._emit_tuple_retain_at(ptr, saw_type)
+            return
         self._emit_field_retain_at(ptr, saw_type)
+
+    def _emit_tuple_retain_at(self, tuple_ptr, saw_type: SawType):
+        """Bump every owning element of the tuple at `tuple_ptr` — the mirror of
+        `_emit_tuple_cleanup_at`, in forward position order."""
+        elements = self._tuple_elements(saw_type)
+        i32 = ir.IntType(32)
+        for idx, etype in enumerate(elements):
+            if etype is None or not self._needs_cleanup(etype):
+                continue
+            elem_ptr = self.builder.gep(
+                tuple_ptr, [ir.Constant(i32, 0), ir.Constant(i32, idx)],
+                name=f"tup_retain_{idx}")
+            self._emit_retain_at(elem_ptr, etype)
 
     def _emit_closure_retain_at(self, ptr):
         """Bump the refcount of the escaping closure stored at `ptr` (design 73).
@@ -984,7 +1060,24 @@ class ResourcesMixin:
         if saw_type.kind == TypeKind.ARRAY:
             self._emit_array_release_at(ptr, saw_type)
             return
+        if saw_type.kind == TypeKind.TUPLE:
+            self._emit_tuple_release_at(ptr, saw_type)
+            return
         self._emit_field_release_at(ptr, saw_type)
+
+    def _emit_tuple_release_at(self, tuple_ptr, saw_type: SawType):
+        """Release the tuple at `tuple_ptr` down to exactly what
+        `_emit_tuple_retain_at` would have bumped, in reverse position order."""
+        elements = self._tuple_elements(saw_type)
+        i32 = ir.IntType(32)
+        for idx in reversed(range(len(elements))):
+            etype = elements[idx]
+            if etype is None or not self._needs_cleanup(etype):
+                continue
+            elem_ptr = self.builder.gep(
+                tuple_ptr, [ir.Constant(i32, 0), ir.Constant(i32, idx)],
+                name=f"tup_release_{idx}")
+            self._emit_release_at(elem_ptr, etype)
 
     def _emit_array_release_at(self, array_ptr, saw_type: SawType):
         elem_type = saw_type.array_element_type
@@ -1106,6 +1199,14 @@ class ResourcesMixin:
         if saw_type.kind == TypeKind.ARRAY:
             return self._emit_array_deep_copy(value, saw_type)
 
+        # A tuple copies per element for the same reason an array does: it is a
+        # positional aggregate that owns its parts, and design 139 gives it the
+        # strongest element's tier. This has to land WITH the drop glue above —
+        # a bitwise tuple copy beside a real element drop is one allocation and
+        # two releases, which is the over-release half of DF-151f.
+        if saw_type.kind == TypeKind.TUPLE:
+            return self._emit_tuple_deep_copy(value, saw_type)
+
         # An escaping closure is ImplicitCopy (design 73): copying it bumps the
         # shared heap env's refcount and returns the same (aliased) value. A
         # null-env / non-owning closure retains as a no-op. Non-escaping closures
@@ -1192,6 +1293,8 @@ class ResourcesMixin:
         """
         if saw_type.kind == TypeKind.ARRAY:
             return self._emit_array_deep_copy(value, saw_type)
+        if saw_type.kind == TypeKind.TUPLE:
+            return self._emit_tuple_deep_copy(value, saw_type)
         if saw_type.kind == TypeKind.OPTIONAL:
             return self._emit_optional_deep_copy(value, saw_type)
         if self.namespace.is_trivially_copyable(saw_type):
@@ -1270,6 +1373,29 @@ class ResourcesMixin:
             elem_copy = self._emit_copy_value(elem, elem_type)
             result = self.builder.insert_value(result, elem_copy, idx,
                                                name=f"arr_cp{idx}")
+        return result
+
+    def _emit_tuple_deep_copy(self, value, saw_type: SawType):
+        """Copy a tuple VALUE element by element, in position order (DF-151f).
+
+        The exact counterpart of `_emit_array_deep_copy`: each element is
+        duplicated through `_emit_copy_value`, so every element copies at ITS
+        own tier — a String or `Arc` element retains, a `Vector<Int>` element
+        deep-copies into an independent buffer, a trivial one is bitwise, and a
+        nested tuple recurses. The result is a tuple whose eventual drop
+        releases exactly the retains taken here.
+        """
+        elements = self._tuple_elements(saw_type)
+        if not elements:
+            return value
+        result = value
+        for idx, etype in enumerate(elements):
+            if etype is None or self.namespace.is_trivially_copyable(etype):
+                continue
+            elem = self.builder.extract_value(value, idx, name=f"tup_cp_src{idx}")
+            result = self.builder.insert_value(
+                result, self._emit_copy_value(elem, etype), idx,
+                name=f"tup_cp{idx}")
         return result
 
     def _gen_transfer_value(self, value_expr):
@@ -1415,7 +1541,7 @@ class ResourcesMixin:
             if (isinstance(value_expr, (ArrayIndex, MemberAccess, TupleIndex))
                     and self._needs_cleanup(t)
                     and t.kind in (TypeKind.STRUCT, TypeKind.ENUM,
-                                   TypeKind.OPTIONAL)):
+                                   TypeKind.OPTIONAL, TypeKind.TUPLE)):
                 return True
             # An escaping closure read out of a container slot (`buf[i]` inside
             # `Vector<() -> Int>.get`, a closure struct FIELD) is ImplicitCopy —
@@ -1447,7 +1573,7 @@ class ResourcesMixin:
             return True
         if (self._needs_cleanup(t)
                 and t.kind in (TypeKind.STRUCT, TypeKind.ENUM,
-                               TypeKind.OPTIONAL)):
+                               TypeKind.OPTIONAL, TypeKind.TUPLE)):
             return True
         return (t.kind == TypeKind.FUNCTION
                 and bool(getattr(t, 'func_is_escaping', False)))
@@ -1487,8 +1613,16 @@ class ResourcesMixin:
             return True
         if t.kind == TypeKind.FUNCTION and getattr(t, 'func_is_escaping', False):
             return True
+        # TUPLE belongs on this list for the same reason the others do, and its
+        # absence is what made DF-151f's fix crash before it landed: an owning
+        # tuple read out of a coroutine frame slot took a non-retaining alias
+        # while the frame kept its own reference, so the new drop glue released
+        # the same `Arc` twice. There is no `_get_cleanup_behavior` answer for a
+        # tuple to catch it earlier — a structural type has no name to look a
+        # conformance up under — so this kind list is the whole decision.
         return (self._needs_cleanup(t)
-                and t.kind in (TypeKind.STRUCT, TypeKind.ENUM, TypeKind.OPTIONAL))
+                and t.kind in (TypeKind.STRUCT, TypeKind.ENUM,
+                               TypeKind.OPTIONAL, TypeKind.TUPLE))
 
     def _needs_copy_for_struct_init(self, value_expr, field_type: SawType) -> bool:
         """Check if a value expression needs copy() called during struct initialization.

@@ -76,6 +76,15 @@ GATE = [
     # Optional ELEMENTS of a fixed array (DF-151e): the retain is driven by the
     # payload's type and the wrap follows it, at construction and at a write.
     "examples/df151e_optional_element_array.saw",
+    # TUPLE drop glue (DF-151f). The leak and the over-release are one change:
+    # elements now drop at scope exit AND a whole-tuple copy now retains them,
+    # so getting either half wrong inverts this program's failure. The counts
+    # catch a missing retain; only Guard Malloc catches a surplus release.
+    "examples/df151f_tuple_drop_glue.saw",
+    # An assignment RHS reading out of storage the source keeps (DF-151h). The
+    # exact DF-151b shape one statement kind over: `a = h.r` read correct and
+    # freed twice, so the surplus release is invisible without Guard Malloc.
+    "examples/df151h_assign_rhs_retain.saw",
 ]
 
 

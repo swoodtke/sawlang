@@ -1,0 +1,301 @@
+// DF-151f: a TUPLE owns its elements, so it drops them.
+//
+// It did not. `_needs_cleanup` had arms for a struct's fields, an enum's active
+// payload, an `Optional`'s payload and a `[T; N]`'s elements — and none for a
+// tuple. So no binding holding a tuple was ever registered for cleanup, and
+// `_emit_drop_at` fell through to the struct-field path, which finds no fields
+// on a structural type. A `let t = (res(), k)` leaked its `Arc` with no error,
+// no crash and no diagnostic: the destructor simply never ran.
+//
+// The COPY side had the mirror hole, and the two had to land together. A tuple
+// takes its strongest element's tier (design 139), so `let u = t` is a retain of
+// every owning element — but `_generate_copy` listed STRUCT/ENUM/OPTIONAL and
+// not TUPLE, so it copied the bytes and bumped nothing. Bitwise copy plus no
+// drop is a leak; bitwise copy plus a real drop is a DOUBLE FREE. Fixing one
+// without the other would have traded this finding for a worse one, which is
+// why `whole_copy` and `by_value_arg` below sit beside the leak shapes and why
+// this program is in the Guard Malloc lane.
+//
+// A tuple has no `deinit` of its own and can never have one, so the glue is
+// purely structural: elements drop in REVERSE position order, exactly as a
+// struct's fields do, and each element goes through `_emit_drop_at` so a nested
+// tuple, an optional element and a Deinit struct element all recurse. Every
+// container that already had glue composes for free once the tuple arm exists —
+// a tuple struct FIELD, a tuple enum PAYLOAD, a tuple `Vector` element, a
+// `[(Arc, Int); 2]` array and a coroutine frame slot all reach it through their
+// own walkers.
+//
+// AUDITED AND ALREADY CORRECT: a fixed array of owning elements. `[Arc<Cell>; 2]`
+// had its arm from design 33 and balanced before this change; `owning_array`
+// keeps it that way, and `array_of_tuples` is the composition that did not.
+//
+// ORACLE. `LIVE` counts live `Res` values: `res()` bumps it, `Res.deinit` takes
+// it back. Behind an `Arc`, so the count returns to zero only when the last
+// reference goes AND the destructor runs — a released refcount alone does not
+// move it. The name is an INTERPOLATED String (design 159's lesson: a literal is
+// immortal and cannot fail). The `strong_count` readings are the other half:
+// they say the retains HAPPENED, where the zero counts only say nothing was
+// released twice. On the pre-fix compiler every LIVE reading below was nonzero.
+// EXPECT: success
+// EXPECT-OUTPUT:
+// start 0
+// named_tuple 1 live 0
+// field_named_tuple 3 live 0
+// nested_tuple 2 live 0
+// tuple_in_struct 3 live 0
+// tuple_in_enum 1 live 0
+// destructured 2 live 0
+// matched_temp 5 live 0
+// whole_copy 2 live 0
+// by_value_arg 2 live 0
+// returned 1 live 0
+// element_read 2 live 0
+// in_vector 2 live 0
+// owning_array 1 live 0
+// array_of_tuples 6 live 0
+// optional_tuple 8 live 0
+// overwritten 12 live 0
+// across_suspend 13 live 0
+// destructured_across_suspend 2 live 0
+// done 0
+
+import std.task.*
+
+static LIVE: Atomic<Int> = Atomic(0)
+
+struct Res {
+    name: String
+}
+
+extension Res: NoCopy {
+    func deinit(&var self) { LIVE.fetch_add(0 - 1) }
+}
+
+func res(tag: Int) -> Arc<Res> {
+    LIVE.fetch_add(1)
+    Arc<Res>(value: Res(name: "res-{tag}"))
+}
+
+// The filed repro: a plain local, no temporary lifetime question anywhere.
+func named_tuple(k: Int) -> Int {
+    let t = (res(tag: k), k)
+    t.1
+}
+
+// Field NAMES change nothing — they are a projection convenience, not a
+// different type — so a named tuple leaked identically.
+func field_named_tuple(k: Int) -> Int {
+    let t = (r: res(tag: k), n: k)
+    t.n
+}
+
+// Nesting: the outer tuple's drop has to recurse into the inner one.
+func nested_tuple(k: Int) -> Int {
+    let t = ((res(tag: k), k), res(tag: k + 1))
+    t.0.1
+}
+
+struct Holder {
+    pair: (Arc<Res>, Int)
+}
+
+// A struct's own field drop is what reaches this tuple, so it exercises the
+// recursion rather than the scope-exit registration.
+func tuple_in_struct(k: Int) -> Int {
+    let h = Holder(pair: (res(tag: k), k))
+    h.pair.1
+}
+
+enum Pack {
+    case Pair(p: (Arc<Res>, Int)),
+    case Nothing
+}
+
+// The same one variant deeper: the enum's tag switch picks the payload, and the
+// payload is a tuple.
+func tuple_in_enum(k: Int) -> Int {
+    let e = Pack.Pair(p: (res(tag: k), k))
+    match e {
+        case Pair(_) -> 1,
+        case Nothing -> 0
+    }
+}
+
+// Destructuring must not double drop: `a` is an independent owner (the read
+// retains), and the tuple still drops its own reference. A count of 2 says both
+// are live at the read; a zero at the end says both released exactly once.
+func destructured(k: Int) -> Int {
+    let t = (res(tag: k), k)
+    let (a, b) = t
+    a.strong_count() + b - k
+}
+
+// The DF-151d leftover. That fix registered a temporary scrutinee for cleanup;
+// the cleanup was a no-op because the temporary was a tuple.
+func matched_temp(k: Int) -> Int {
+    match (res(tag: k), k) {
+        case (_, n) -> n
+    }
+}
+
+// The over-release half. `let u = t` aliases storage `t` keeps, so it must
+// retain every owning element — a count of 2 with a zero LIVE at the end is
+// what says the retain and the two drops agree.
+func whole_copy(k: Int) -> Int {
+    let t = (res(tag: k), k)
+    let u = t
+    u.0.strong_count()
+}
+
+func takes(p: (Arc<Res>, Int)) -> Int {
+    p.0.strong_count()
+}
+
+// The same copy at a call argument: caller and callee each own one.
+func by_value_arg(k: Int) -> Int {
+    let t = (res(tag: k), k)
+    takes(p: t)
+}
+
+func makes(k: Int) -> (Arc<Res>, Int) {
+    (res(tag: k), k)
+}
+
+// A returned tuple is the caller's, and dropped once there.
+func returned(k: Int) -> Int {
+    let t = makes(k: k)
+    t.0.strong_count()
+}
+
+// Reading ONE element out is a place read at the element's own tier.
+func element_read(k: Int) -> Int {
+    let t = (res(tag: k), k)
+    let a = t.0
+    a.strong_count()
+}
+
+// Tuple elements of a container the container destroys.
+func in_vector(k: Int) -> Int {
+    var v: Vector<(Arc<Res>, Int)> = Vector<(Arc<Res>, Int)>()
+    v.push((res(tag: k), k))
+    v.push((res(tag: k + 1), k + 1))
+    v.len()
+}
+
+struct Cell {
+    tag: String
+}
+
+extension Cell: NoCopy {
+    func deinit(&var self) { LIVE.fetch_add(0 - 1) }
+}
+
+// The audit control: a fixed array of owning elements had its glue already
+// (design 33) and balanced before this change. Kept so it stays that way.
+func owning_array(k: Int) -> Int {
+    LIVE.fetch_add(2)
+    let a: [Arc<Cell>; 2] = [Arc<Cell>(value: Cell(tag: "c-{k}")),
+                             Arc<Cell>(value: Cell(tag: "d-{k}"))]
+    a[0].strong_count()
+}
+
+// The composition that did NOT: the array walker reached each element and the
+// element was a tuple.
+func array_of_tuples(k: Int) -> Int {
+    let a: [(Arc<Res>, Int); 2] = [(res(tag: k), k), (res(tag: k + 1), k + 1)]
+    a[0].1
+}
+
+// A tuple as an Optional payload: the Some path drops it, the None path does
+// not.
+func optional_tuple(k: Int) -> Int {
+    let o: (Arc<Res>, Int)? = (res(tag: k), k)
+    if let t = o { t.1 } else { 0 }
+}
+
+// Reassignment drops the old tuple exactly once before installing the new one.
+func overwritten(k: Int) -> Int {
+    var t = (res(tag: k), k)
+    t = (res(tag: k + 1), k + 1)
+    t.1
+}
+
+// In a coroutine frame the tuple is an opt-encoded field whose `__release`
+// assigns `None` — which drops through the very same glue.
+func across_suspend(k: Int) -> Int {
+    let t = (res(tag: k), k)
+    yield_now()
+    t.1
+}
+
+// Destructuring across a suspension: three frame-resident owners, one release
+// each.
+func destructured_across_suspend(k: Int) -> Int {
+    let t = (res(tag: k), k)
+    let (a, b) = t
+    yield_now()
+    a.strong_count() + b - k
+}
+
+func main() {
+    print("start {LIVE.load()}")
+
+    print("named_tuple {named_tuple(k: 1)} live {LIVE.load()}")
+    assert(LIVE.load() == 0, "named_tuple leaked {LIVE.load()}")
+
+    print("field_named_tuple {field_named_tuple(k: 3)} live {LIVE.load()}")
+    assert(LIVE.load() == 0, "field_named_tuple leaked {LIVE.load()}")
+
+    print("nested_tuple {nested_tuple(k: 2)} live {LIVE.load()}")
+    assert(LIVE.load() == 0, "nested_tuple leaked {LIVE.load()}")
+
+    print("tuple_in_struct {tuple_in_struct(k: 3)} live {LIVE.load()}")
+    assert(LIVE.load() == 0, "tuple_in_struct leaked {LIVE.load()}")
+
+    print("tuple_in_enum {tuple_in_enum(k: 4)} live {LIVE.load()}")
+    assert(LIVE.load() == 0, "tuple_in_enum leaked {LIVE.load()}")
+
+    print("destructured {destructured(k: 4)} live {LIVE.load()}")
+    assert(LIVE.load() == 0, "destructured leaked {LIVE.load()}")
+
+    print("matched_temp {matched_temp(k: 5)} live {LIVE.load()}")
+    assert(LIVE.load() == 0, "matched_temp leaked {LIVE.load()}")
+
+    print("whole_copy {whole_copy(k: 1)} live {LIVE.load()}")
+    assert(LIVE.load() == 0, "whole_copy leaked {LIVE.load()}")
+
+    print("by_value_arg {by_value_arg(k: 2)} live {LIVE.load()}")
+    assert(LIVE.load() == 0, "by_value_arg leaked {LIVE.load()}")
+
+    print("returned {returned(k: 3)} live {LIVE.load()}")
+    assert(LIVE.load() == 0, "returned leaked {LIVE.load()}")
+
+    print("element_read {element_read(k: 4)} live {LIVE.load()}")
+    assert(LIVE.load() == 0, "element_read leaked {LIVE.load()}")
+
+    print("in_vector {in_vector(k: 5)} live {LIVE.load()}")
+    assert(LIVE.load() == 0, "in_vector leaked {LIVE.load()}")
+
+    print("owning_array {owning_array(k: 6)} live {LIVE.load()}")
+    assert(LIVE.load() == 0, "owning_array leaked {LIVE.load()}")
+
+    print("array_of_tuples {array_of_tuples(k: 6)} live {LIVE.load()}")
+    assert(LIVE.load() == 0, "array_of_tuples leaked {LIVE.load()}")
+
+    print("optional_tuple {optional_tuple(k: 8)} live {LIVE.load()}")
+    assert(LIVE.load() == 0, "optional_tuple leaked {LIVE.load()}")
+
+    print("overwritten {overwritten(k: 11)} live {LIVE.load()}")
+    assert(LIVE.load() == 0, "overwritten leaked {LIVE.load()}")
+
+    var group = TaskGroup()
+    let h = group.spawn(across_suspend(13))
+    print("across_suspend {h.join()} live {LIVE.load()}")
+    assert(LIVE.load() == 0, "across_suspend leaked {LIVE.load()}")
+
+    let h2 = group.spawn(destructured_across_suspend(9))
+    print("destructured_across_suspend {h2.join()} live {LIVE.load()}")
+    assert(LIVE.load() == 0, "destructured_across_suspend leaked {LIVE.load()}")
+
+    print("done {LIVE.load()}")
+}
