@@ -5527,6 +5527,25 @@ port hit ONE compiler-surface sharp edge (DF-162a), and it is not a miscompile.
 
 ## Design 172 — DF-findings (the SOS C diet)
 
+**The count, before and after.** Raw lines move with the reason comments the
+brief asks for, so CODE lines (non-blank, non-comment) are the honest number:
+
+| file | before | after |
+|---|---|---|
+| `sos/hal/arm64/kernel/sink.c` | 170 | 47 |
+| `sos/hal/riscv32/kernel/sink.c` | 75 | 22 |
+| `sos/hal/arm64/user/syscall.c` | 32 | 32 |
+| `sos/hal/riscv32/user/syscall.c` | 31 | 31 |
+| `sos/rt/common_c/support.c` | 75 | 75 |
+| **total** | **383** | **207** (-46%) |
+
+The two kernel HALs took all of it, which is the shape the brief predicted: the
+kernel side had arithmetic wearing C's clothes, and the process side is a
+syscall instruction plus a family of seams blocked on DF-172e. Units 1, 3 and 4
+landed; unit 2 stopped on the language and unit 5 filed. Every surviving line
+states its reason in its own file, and sos/spec.md §5c states the three reasons
+there are.
+
 - **DF-172a — FILED, and it is the brief's predicted one. Saw cannot name an
   externally-defined symbol's ADDRESS**, so the four `sos_payload_start` /
   `sos_payload_end` accessors stay C. Three shapes were probed and all three
@@ -5575,6 +5594,66 @@ port hit ONE compiler-surface sharp edge (DF-162a), and it is not a miscompile.
   unlikely, it is unreachable. The ingredients that make that true are the
   design-130 raw pointer surface, `&+`/`&-`, and the design-112 `UnsafeMemory`
   driver idiom — no new language work was needed.
+
+- **DF-172e — FILED, and it is what STOPPED unit 2 (the arena). Saw cannot
+  type a diverging loop as `Never`**, so a freestanding runtime cannot write
+  the `noreturn` panic seam the ABI requires.
+
+  Everything else about unit 2 checks out, and was measured rather than
+  assumed. A probe compiled clean under
+  `--freestanding --no-hidden-alloc --runtime-provider`, and `nm` showed
+  exactly the structure `support.c` has today — the four seams DEFINED, the two
+  per-side hooks UNDEFINED:
+
+  ```
+  00000000 T __saw_rt_alloc      U sos_rt_abort
+  00000000 T __saw_rt_dealloc    U sos_rt_write
+  00000000 T __saw_rt_panic
+  00000000 T __saw_rt_write
+  ```
+
+  The bump arena IS expressible (design 149's `unsafe static var` + a zero
+  static + `(&var ARENA) as UnsafePointer<UInt8>`), an `extern "C"`
+  declaration in one Saw module unifies with an `@export` definition in
+  another, and `sosrt` is already a dependency of both the kernel and every
+  process, so it is the module they would share. What fails is one signature:
+
+  ```
+  error: `@export` seam `__saw_rt_panic` does not match the runtime ABI:
+         it returns `void` where the ABI returns `noreturn`
+  ```
+
+  — which is design 149's ABI check doing exactly its job. Meeting it needs a
+  `-> Never` body, and the only two things in Saw that produce `Never` are
+  `panic()` (which is what this seam IS, so it cannot call it) and an `extern`
+  declared `-> Never`. A diverging loop is not one:
+
+  ```saw
+  func spin_forever() -> Never { while true { } }
+  // error: function `spin_forever` should return `NEVER` but body has no value
+  ```
+
+  Profile B could scrape through, because its `sos_platform_exit` is still C
+  (semihosting `hlt`) and can be declared `-> Never`. Profile A cannot: after
+  unit 4 the finisher write is an ordinary Saw MMIO store and there is no C
+  leaf left to lean on. Adding one back to buy a type would be the diet in
+  reverse.
+
+  **The decision this branch took: do NOT split the seam family.** Moving three
+  of four seams to Saw and leaving `__saw_rt_panic` in C would thread
+  `--runtime-provider` through the harness and two manifests, change the
+  allocation and panic paths of the kernel and every process image at once, and
+  leave `support.c` with a story that is HARDER to state than the one it has.
+  `support.c`'s own header already says this move should be taken deliberately
+  rather than as part of an adoption sweep, and a language gap in the middle of
+  it is the strongest possible argument for that.
+
+  What would unblock it, smallest first: an `extern` return type of `Never` is
+  already accepted, so the narrow fix is making a loop with no `break` type as
+  `Never` — the rule Rust has for `loop {}`. That is a typechecker change to
+  the tail-expression rule for an infinite `while`, and it would also let any
+  "this function stops the machine" signature say so, which is a thing a kernel
+  wants to write more than once.
 
 - **DF-172d — LANGUAGE PAIN, filed. A binary expression cannot be wrapped
   across lines outside brackets — NEITHER spelling works.** Design 129 made
