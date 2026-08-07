@@ -58,7 +58,17 @@ public struct SosimgSeg {
     /// Bytes the segment occupies once loaded. `mem_len > file_len` is how a
     /// `.bss` tail is expressed; the loader zero-fills the difference.
     public mem_len: UInt32,
-    /// `SEG_FLAG_R` | `SEG_FLAG_W` | `SEG_FLAG_X`.
+    /// A MASK of `SegFlag` bits.
+    ///
+    /// Deliberately a raw `UInt8` and not a `SegFlag`, for two reasons. A mask
+    /// is a SET of bits, and no single case names `R|W`. More importantly this
+    /// struct is overlaid on bytes the loader did not produce: an enum-typed
+    /// field would mint a `SegFlag` straight from an attacker-chosen byte with
+    /// no `from(raw:)` anywhere, and a `match` on a value that names no case
+    /// still selects an arm — measured, not assumed (a byte of 6 read back as
+    /// the first case). The kernel would then install a PMP region from a
+    /// permission it never validated. Raw bytes stay raw; `has` and
+    /// `has_sane_perms` below are the validating boundary.
     public flags: UInt8,
     public reserved0: UInt8,
     public reserved1: UInt8,
@@ -74,13 +84,18 @@ static_assert(sizeof<SosimgSeg>() == 20, "sosimg segment record must be exactly 
 public static SOSIMG_MAGIC: UInt32 = 0x49534F53
 public static SOSIMG_VERSION: UInt16 = 1
 
-/// Segment permission bits. This order — R = 1, W = 2, X = 4 — is deliberately
-/// the same as a RISC-V PMP config's low three bits, so the kernel installs a
-/// segment's permissions without translating them. (ELF numbers them the other
-/// way round; Blade converts when it reads the linked image.)
-public static SEG_FLAG_R: UInt8 = 1
-public static SEG_FLAG_W: UInt8 = 2
-public static SEG_FLAG_X: UInt8 = 4
+/// One segment permission, as the BIT it occupies in a `SosimgSeg.flags` mask.
+///
+/// This order — R = 1, W = 2, X = 4 — is deliberately the same as a RISC-V PMP
+/// config's low three bits, so the kernel installs a segment's permissions
+/// without translating them. (ELF numbers them the other way round; Blade
+/// converts when it reads the linked image.) The backing is fixed-width because
+/// these values are the wire format, not an implementation detail — design 47.
+public enum SegFlag: UInt8 {
+    case Read = 1,
+    case Write = 2,
+    case Execute = 4,
+}
 
 public extension SosimgHeader {
     /// Are these bytes a sosimg at all?
@@ -103,16 +118,24 @@ public extension SosimgHeader {
 }
 
 public extension SosimgSeg {
+    /// Does this segment's mask carry `flag`?
+    ///
+    /// The one place the mask arithmetic lives, so a bit test reads as a
+    /// question about a permission rather than as an `&` against a constant.
+    public func has(&self, flag: SegFlag) -> Bool {
+        (self.flags & (flag as UInt8)) != 0u8
+    }
+
     public func is_readable(&self) -> Bool {
-        (self.flags & SEG_FLAG_R) != 0u8
+        self.has(SegFlag.Read)
     }
 
     public func is_writable(&self) -> Bool {
-        (self.flags & SEG_FLAG_W) != 0u8
+        self.has(SegFlag.Write)
     }
 
     public func is_executable(&self) -> Bool {
-        (self.flags & SEG_FLAG_X) != 0u8
+        self.has(SegFlag.Execute)
     }
 
     /// A segment's memory image can never be smaller than its file image.

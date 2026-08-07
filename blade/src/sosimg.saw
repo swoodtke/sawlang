@@ -21,7 +21,7 @@
 // too, type annotations included, since design 150 — the DF-140c limit this
 // import used to work around is gone.)
 import toml.{TomlDoc, TomlSection}
-import imgformat.{SosimgHeader, SosimgSeg, SOSIMG_MAGIC, SOSIMG_VERSION, SEG_FLAG_R, SEG_FLAG_W, SEG_FLAG_X}
+import imgformat.{SosimgHeader, SosimgSeg, SegFlag, SOSIMG_MAGIC, SOSIMG_VERSION}
 import std.data.{Data}
 import std.env.{Env}
 import std.file.{File}
@@ -333,13 +333,13 @@ func sos_flags(elf_flags: UInt) -> UInt8 {
     // match a RISC-V PMP config, so the kernel installs them untranslated).
     var f: UInt8 = 0u8
     if (elf_flags & PF_R) != 0 {
-        f = f | SEG_FLAG_R
+        f = f | (SegFlag.Read as UInt8)
     }
     if (elf_flags & PF_W) != 0 {
-        f = f | SEG_FLAG_W
+        f = f | (SegFlag.Write as UInt8)
     }
     if (elf_flags & PF_X) != 0 {
-        f = f | SEG_FLAG_X
+        f = f | (SegFlag.Execute as UInt8)
     }
     f
 }
