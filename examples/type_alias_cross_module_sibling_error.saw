@@ -1,0 +1,14 @@
+// Design 63: the sibling rule survives the module boundary. Two handle kinds
+// declared in one module stay distinct in every module that imports them —
+// which is the property a typed handle exists for.
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: expects `SystemHandle` but got `ChannelHandle`
+
+import modules.alias63_handles.{SystemHandle, ChannelHandle}
+
+func system_op(h: SystemHandle) -> UInt { h }
+
+func main() {
+    let ch = ChannelHandle(20)
+    print(system_op(ch))
+}

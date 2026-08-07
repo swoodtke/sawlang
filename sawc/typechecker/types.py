@@ -397,7 +397,16 @@ class TypeUtilsMixin:
             symbol = self.namespace.resolve(qualified_path, check_access=False)
             if symbol and symbol.kind == SymbolKind.TYPE_ALIAS:
                 return symbol
-        return self.namespace.lookup_type_alias(name)
+        local = self.namespace.lookup_type_alias(name)
+        if local is not None:
+            return local
+        # An IMPORTED alias is still an alias. Without this the name resolves as
+        # a type (an annotation using it checks fine) while every rule that asks
+        # "is this an alias?" answers no — so the alias neither flows to its
+        # underlying nor accepts its own constructor, and the failure appears one
+        # module away from the declaration. `is_trivially_copyable` already
+        # reached through imports this way; this makes the rest agree with it.
+        return self.namespace._lookup_type_alias_deep(name)
 
     def get_method_info(self, struct_name: str, method_name: str,
                         spec_key: Tuple[str, ...] = None) -> Optional[FunctionSymbol]:

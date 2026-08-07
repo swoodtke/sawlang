@@ -1,0 +1,11 @@
+// A module declaring distinct handle aliases, for the cross-module alias test.
+// This is the SOS shape: one place owns the handle types, and both the code
+// that validates a handle and the code that calls through it import them.
+
+public type SystemHandle = UInt
+public type ChannelHandle = UInt
+
+/// The raw-word boundary: takes the underlying, as a syscall stub does.
+public func raw_op(handle: UInt, arg: UInt) -> UInt {
+    handle + arg
+}
