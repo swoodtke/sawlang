@@ -485,10 +485,20 @@ verdict table: `designs/174-optional-generic-sweep.md`. 19 tests landed as
 - **Delivery shape: ONE design-182 batch** for all approved 181 remediation,
   DF-181f (the seam-annotation contract fix) FIRST — it is a bug, not a
   policy choice, and gates the rest.
-- **STILL OPEN by choice (user: discuss, not menu):** the Command.run/output
-  remediation shape and the DF-181d connect fix scope. 182's brief waits on
-  those two conversations; the xfail pin keeps Command's starvation cited
-  meanwhile.
+- **Command remediation DECIDED (user, Aug 8): the ZERO-THREAD route.**
+  The stdout pipe goes nonblocking on the reactor (the std.net machinery),
+  and the child WAIT parks on the reactor too — `pidfd_open` on Linux,
+  `EVFILT_PROC` on kqueue — no offload thread anywhere in Command. More
+  per-platform seam surface, accepted deliberately: the net stack is the
+  model, taken to its end. DF-181f (annotation ignored on seams) still
+  fixes first as a correctness matter even though this route no longer
+  depends on the annotation.
+  Ratified context note: readiness semantics attach to file TYPE — network-
+  backed regular files also always report ready (epoll refuses them, VFS
+  ignores O_NONBLOCK) — so file async was only ever prompt-vs-offload, and
+  io_uring is the future-work escape hatch if network mounts ever bite.
+- **STILL OPEN by choice:** the DF-181d connect fix scope (IPv4-literals-now
+  vs full resolution). 182 briefs once it's ruled.
 
 ## DECIDED — Aug 7 evening round (user)
 
