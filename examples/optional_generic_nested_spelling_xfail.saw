@@ -1,24 +1,23 @@
-// Design 174 — DF-174c. A nested optional type cannot be NAMED. The type
-// exists and behaves correctly (see optional_generic_nested_reads.saw), but no
-// spelling reaches it, so no function can take or return one and no local can
-// be annotated as one. All three candidate spellings fail:
+// Design 174 — DF-174c, FIXED. A nested optional type has a POSTFIX spelling.
+// The type always existed and behaved correctly (see
+// optional_generic_nested_reads.saw), but nothing could name it, so no function
+// could take or return one. Of the three candidates the finding tried:
 //
-//   Int??              parse error ("Expected '=' in variable declaration")
-//   Optional<Int?>     `Optional` is not a type name the compiler knows at all;
-//                      it resolves to an opaque nominal struct (DF-174d)
-//   (Int?)?            the parenthesized type becomes a distinct 1-tuple-ish
-//                      type, so `!` yields `(Int?)`, not `Int?`
+//   Int??              THIS FILE — `?` nests in type position now
+//   Optional<Int?>     the generic spelling, the same type (design 176 unit 9)
+//   (Int?)?            still a distinct 1-tuple-ish type; not a spelling of this
 //
-// This test uses the `Int??` spelling — the one the language should accept.
+// `??` reaches the parser as ONE token (the nil-coalescing operator's), so the
+// type grammar counts it as two layers rather than making the lexer stop fusing
+// it — which is what keeps both lexers byte-identical and lexdiff untouched.
 // EXPECT: success
 // EXPECT-OUTPUT:
 // some 5
 // inner-absent
 // outer-absent
 // -- done
-// XFAIL: DF-174c a nested optional type has no spelling - `Int??` is a parse error
 
-// The helper every two-layer read wants, and cannot have today.
+// The helper every two-layer read wants, and could not have.
 func report(label: String, o: Int??) {
     if let inner = o {
         if let value = inner { print("{label} {value}") } else { print("inner-absent") }

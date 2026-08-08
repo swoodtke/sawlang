@@ -385,7 +385,11 @@ class ExpressionsMixin:
 
         while self.match(TokenType.AS):
             as_token = self.advance()
-            target_type = self.parse_type()
+            # `x as Int? ?? y` is a cast followed by the coalescing operator,
+            # not a cast to `Int???`. This is the only place the type grammar
+            # and the expression grammar meet at a `??` (DF-174c) — everywhere
+            # else a type is followed by `=`, `,`, `)`, `>`, `{` or a newline.
+            target_type = self.parse_type(allow_nested_optional=False)
             expr = CastExpr(
                 expr=expr,
                 target_type=target_type,

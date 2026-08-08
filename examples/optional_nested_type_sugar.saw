@@ -1,0 +1,77 @@
+// DF-174c: the `Int??` postfix sugar reaches EVERY position a type is written,
+// and `Optional<Int?>` (design 176 unit 9) names the same type.
+//
+// The interaction worth pinning is that `??` is also the nil-coalescing
+// OPERATOR, and one token serves both: in type position the parser counts a
+// `??` as two optional layers, in expression position it stays the operator.
+// The last two cases put both on one line.
+// EXPECT: success
+// EXPECT-OUTPUT:
+// param some 7
+// return inner-absent
+// generic arg some 7
+// field outer-absent
+// reference param some 7
+// coalesce in a nested annotation some 7
+// operator after a nested type some 7
+
+struct Slot {
+    held: Int??
+}
+
+// PARAM and RETURN position.
+func through(o: Int??) -> Int?? { o }
+
+// Behind a REFERENCE, where the sugar sits inside the base type.
+func peek(o: &Int??) -> String { describe(o) }
+
+func describe(o: Int??) -> String {
+    if let inner = o {
+        if let v = inner { return "some {v}" }
+        return "inner-absent"
+    }
+    return "outer-absent"
+}
+
+func describe_one(o: Int?) -> String {
+    if let v = o { return "some {v}" }
+    return "absent"
+}
+
+func main() {
+    var v = Vector<Int?>()
+    v.push(7)
+    v.push(None)
+
+    // The containers genuinely produce a two-layer value; now it has a name.
+    print("param {describe(v.get(0))}")
+    print("return {describe(through(v.get(1)))}")
+
+    // GENERIC ARGUMENT position.
+    var nested = Vector<Int??>()
+    nested.push(v.get(0))
+    print("generic arg {describe(nested.get(0)!)}")
+
+    // FIELD position — an absent outer layer.
+    let s = Slot(held: v.get(9))
+    print("field {describe(s.held)}")
+
+    // The generic spelling and the sugar are ONE type, so they flow together.
+    let generic: Optional<Int?> = v.get(0)
+    print("reference param {peek(&generic)}")
+
+    // TYPE position and OPERATOR position, back to back. The annotation takes
+    // its `??` as two layers; the next line's `??` is the operator. (Combining
+    // the two in ONE statement parses correctly but hits the nested-optional
+    // VALUE plumbing — DF-174g/DF-174h — so it is pinned in those findings
+    // rather than here.)
+    let absent: Int?? = v.get(9)
+    let plain: Int? = None
+    print("coalesce in a nested annotation {describe_one(plain ?? 7)}")
+
+    // The operator applied to a value of the sugared type peels ONE layer, so
+    // its default is an `Int?` and the result is an `Int?`.
+    let inner: Int? = v.get(0)!
+    let recovered: Int? = absent ?? inner
+    print("operator after a nested type {describe_one(recovered)}")
+}

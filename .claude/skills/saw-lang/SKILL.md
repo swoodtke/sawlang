@@ -539,8 +539,20 @@ if err.is<IoErr>() { if let io = err.take<IoErr>() { retry(io) } }  // downcast
   `b.take<T>() -> T?` (CONSUMES the box — moves the payload out on a hit, drops
   it on a miss; use `is<T>()` first to branch). Explicit `T`, must conform.
 - Optionals: `T?` — or `Optional<T>`, the same type under a written name
-  (design 176; it is also how a NESTED optional is spelled, `Optional<Int?>`,
-  which is what `Vector<Int?>.get(i)` yields). `None`, force `!` (panics), `??`, call-site auto-wrap
+  (design 176). **`?` NESTS**: `Int??` / `String???` in every type position
+  (annotation, param, return, generic arg, field, behind a `&`), and
+  `Optional<Int?>` names that same type — this is what `Vector<Int?>.get(i)`
+  yields, one layer for "no such element" and one for "the element is absent".
+  `??` is also the coalescing OPERATOR and one token serves both: type position
+  counts two layers, expression position stays the operator. They never collide
+  — a type is otherwise followed by `=`, `,`, `)`, `>`, `{` or a newline —
+  EXCEPT in an `as` cast target, where the operator wins (`x as Int? ?? y` is a
+  cast then a coalesce). GOTCHA: the nested-optional VALUE plumbing has two open
+  gaps (DF-174g/h) — a bare value written into a two-layer slot
+  (`let a: Int?? = 5`) is mis-lowered, and `a ?? b` with a default one layer too
+  deep crashes the compiler instead of erroring. Reach a nested optional through
+  the containers (`let got: Int?? = v.get(0)`, `func f(o: Int??)`), which is the
+  route that works. `None`, force `!` (panics), `??`, call-site auto-wrap
   (`f(5)` matches `f(x: Int?)` — and, since design 176, a generic parameter
   INSTANTIATED to an optional too, so `m.insert("y", 7)` on a
   `Map<String, Int?>` and `v.push(3)` on a `Vector<Int?>` both wrap),

@@ -210,15 +210,52 @@ class TypeParsingMixin:
                 return hit
         return None
 
-    def parse_type(self) -> SawType:
-        """Parse a type annotation, including optional suffix."""
+    def parse_type(self, allow_nested_optional: bool = True) -> SawType:
+        """Parse a type annotation, including optional suffixes.
+
+        `?` NESTS (DF-174c): `Int??` is an optional of an optional, `String???`
+        three deep, and the sugar reaches every position a type is written
+        because every one of them funnels through here. `Optional<Int?>`
+        remains the generic spelling and parses to the identical type — the
+        typechecker resolves `Optional<T>` to `T?` (design 176 unit 9), so
+        neither spelling is privileged.
+
+        The lexer's maximal munch makes `Int??` come through as one
+        DOUBLE_QUESTION token, so the loop below counts it as TWO layers rather
+        than asking the lexer to stop fusing. That is deliberate: `??` stays one
+        token for the nil-coalescing operator, both lexers keep byte-identical
+        token streams, and the lexdiff parity harness needs no change at all.
+        (The design-129 `<<` precedent splits in the other direction — the
+        lexer leaves `<` `<` apart so `Vector<Box<Int>>` closes naturally, and
+        the parser fuses them in expression position. Same principle, opposite
+        default: fuse where the common reading is, split where the rarer one
+        is.)
+
+        `allow_nested_optional=False` is the ONE position where the type
+        grammar and the expression grammar meet at a `??`: the target of an
+        `as` cast is followed by an expression continuation, so `x as Int? ?? y`
+        must read as a cast to `Int?` and then the coalescing operator. A cast
+        to a nested optional is not a thing anyone writes — `as` converts
+        numbers, projects aliases and takes addresses — so the operator wins
+        there and the suffix loop stops at a `?`. Nested types INSIDE the cast
+        target are unaffected (`x as Vector<Int??>` re-enters this function
+        without the restriction).
+        """
         # Parse base type
         base_type = self._parse_base_type()
 
-        # Check for optional suffix (?)
-        if self.match(TokenType.QUESTION):
-            self.advance()
-            return SawType(TypeKind.OPTIONAL, inner_type=base_type)
+        # Optional suffixes, innermost first: `Int??` is `Optional<Optional<Int>>`.
+        while True:
+            if self.match(TokenType.QUESTION):
+                self.advance()
+                base_type = SawType(TypeKind.OPTIONAL, inner_type=base_type)
+            elif allow_nested_optional and self.match(TokenType.DOUBLE_QUESTION):
+                self.advance()
+                base_type = SawType(
+                    TypeKind.OPTIONAL,
+                    inner_type=SawType(TypeKind.OPTIONAL, inner_type=base_type))
+            else:
+                break
 
         return base_type
 

@@ -343,6 +343,56 @@ verdict table: `designs/174-optional-generic-sweep.md`. 19 tests landed as
   at `T = Int?`, but the completion path stores the bare `Int?`. A task
   returning a non-optional joins fine. Test:
   `examples/optional_generic_spawn_result_xfail.saw`.
+- **DF-174g (COMPILER, filed Aug 8 by the DF-174c sugar work; PRE-EXISTING,
+  verified in the `Optional<...>` spelling with no `??` token anywhere): a value
+  needing MORE THAN ONE wrap into a nested optional slot is mis-lowered.**
+  `_fit_optional_slot` wraps exactly ONCE, which was all any slot asked for
+  while the containers were the only source of a nested optional (their payload
+  is already one layer down). Naming the type puts a BARE value two layers below
+  its slot, and one wrap leaves an `Int?` in an `Int??` cell: the outer layer
+  reads present and the inner is garbage, so the FIRST peel works and the second
+  crashes (exit 133). At three layers it does not even compile — `internal
+  compiler error: 'IntType' object has no attribute 'gep'`. Probes:
+  `.build/scratch/p174c_min5.saw` (`let a: Optional<Int?> = 5`),
+  `p174c_min6.saw` (an `Int?` local into an `Int??`),
+  `p174_pre_three2.saw` (`Optional<Optional<String?>> = "x"`, the ICE);
+  `p174_pre_three.saw` shows a three-deep `= None` compiling fine, so it is the
+  WRAP depth that breaks, not the type depth. A one-line recursive fit was tried
+  and does NOT fix it (the crash survives), so the gap is in the wrap/peel pair
+  rather than the store — same family as DF-174b, which took design 176 unit 8.
+  Not reached by any container route: `let got: Int?? = v.get(0)` and passing it
+  to a `func f(o: Int??)` both work, which is what the DF-174c pin exercises.
+- **DF-174h (COMPILER, filed Aug 8 by the DF-174c sugar work; PRE-EXISTING,
+  same verification): `a ?? b` whose DEFAULT is one layer too deep is accepted
+  by the typechecker and emits invalid LLVM IR.** `v.get(9) ?? v.get(0)` on a
+  `Vector<Int?>` — both operands `Int??` — should be a clean type error (`??`
+  peels one layer, so the default owes an `Int?`), and instead reaches codegen,
+  which builds a phi with `{i1, i64}` on one edge and `{i1, {i1, i64}}` on the
+  other: `LLVM IR parsing error ... defined with type ... but expected ...`, a
+  compiler crash rather than a diagnostic. Probe:
+  `.build/scratch/p174_pre_coalesce.saw`. The fix is a typechecker one (check
+  the default against the PEELED type); the IR error is the symptom.
+- **DF-174c — FIXED (Aug 8, DF-176b/174c batch unit 2). The postfix sugar.**
+  `?` NESTS in type position — `Int??`, `String???` by induction — in every
+  position a type is written, because all 21 of them funnel through one
+  `parse_type`. `Optional<Int?>` (design 176 unit 9) stays the generic spelling
+  and parses to the IDENTICAL type; neither is privileged. MECHANISM: `??`
+  reaches the parser as ONE `DOUBLE_QUESTION` token (the lexer's maximal munch,
+  in BOTH lexers), so the type grammar COUNTS it as two layers rather than
+  asking the lexer to stop fusing it. That is the opposite of the design-129
+  `<<` precedent — which leaves `<` `<` apart so `Vector<Box<Int>>` closes and
+  fuses them in expression position — and it is the right direction here: it
+  touches NEITHER lexer, so both token streams stay byte-identical and the
+  lexdiff parity harness needed no change at all. The one place the two grammars
+  meet at a `??` is the target of an `as` cast, whose type is followed by an
+  expression continuation; `parse_type(allow_nested_optional=False)` there keeps
+  `x as Int? ?? y` reading as a cast then the operator. Nested types INSIDE a
+  cast target are unaffected. Tests: the flipped pin
+  `examples/optional_generic_nested_spelling_xfail.saw` (XFAIL marker removed,
+  EXPECT directives now enforced) and `examples/optional_nested_type_sugar.saw`
+  (param, return, generic argument, struct field, behind a `&`, the generic
+  spelling flowing into the sugar's type, and the operator beside the type).
+  Original finding follows.
 - **DF-174c (LANGUAGE GAP, filed Aug 7): a nested optional type has NO
   SPELLING.** The containers genuinely produce `Int??` values (`Vector<Int?>.get`,
   `Map<String, Int?>.[]`, `pop`, `remove`) and those values behave correctly,
@@ -431,9 +481,11 @@ verdict table: `designs/174-optional-generic-sweep.md`. 19 tests landed as
   receiver, with the INTERIOR-MUTABILITY EXEMPTION — fields of type
   Atomic / SpinLock / UnsafeMemory (the by-pointer-at-`&self` family) stay
   callable; everything else is the same error class as 176 unit 13.
-- **DF-174c DECIDED: implement the `Int??` postfix sugar** (type-position
-  `??` nesting; `Optional<Int?>` remains the generic spelling). Flips the
-  suite's last cited xfail. Same batch.
+- **DF-174c DECIDED — LANDED Aug 8** (batch unit 2; see the FIXED entry under
+  the design-174 findings). The `Int??` postfix sugar (type-position `??`
+  nesting; `Optional<Int?>` remains the generic spelling). Flipped the cited
+  xfail it pinned; the sugar also made two PRE-EXISTING nested-optional codegen
+  gaps easy to reach, filed as DF-174g/DF-174h.
 - **DF-176a: SKIPPED by choice (user)** — stays filed; the compound
   spelling (`*=`) is the idiom; the RHS-first-vs-clean-error ruling waits
   for a real collision.

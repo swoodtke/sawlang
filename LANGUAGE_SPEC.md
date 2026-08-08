@@ -1334,10 +1334,15 @@ let maybe: Int? = 42
 let nothing: Int? = None
 
 // `Optional<T>` is the same type under a written name (the spelling `Result`
-// always had). It is what gives a NESTED optional a form — the containers
-// genuinely produce two-layer values, and `Vector<Int?>.get(i)` is one.
+// always had).
 let same: Optional<Int> = maybe
-func describe(o: Optional<Int?>) -> String { ... }
+
+// `?` NESTS. The containers genuinely produce two-layer values —
+// `Vector<Int?>.get(i)` is one — and both spellings name that type.
+let two: Int?? = v.get(0)
+let also: Optional<Int?> = two          // the same type, written the other way
+func describe(o: Int??) -> String { ... }
+let three: String??? = None             // by induction
 
 // Optional chaining — `?.field` / `?.method()` on ANY Optional-typed expression,
 // arbitrary length. Each optional hop carries its own `?`; the first None
@@ -1362,6 +1367,22 @@ guard let value = maybe else {
     return
 }
 ```
+
+**Nested optionals have two spellings, and they are one type.** The postfix `?`
+nests (`Int??`, `String???`) in every position a type is written — annotations,
+parameters, returns, generic arguments, struct fields, behind a `&` — and
+`Optional<Int?>` names the same type. Neither is privileged; the containers are
+what produce two-layer values in the first place, since `Vector<Int?>.get(i)`
+answers "no such element" and "the element, which is itself absent" on separate
+layers.
+
+`??` is also the nil-coalescing *operator*, and one token serves both readings:
+the type grammar counts a `??` as two optional layers, and expression position
+keeps it as the operator. The two never collide, because a type is otherwise
+followed by `=`, `,`, `)`, `>`, `{` or a newline — with one exception. The
+target of an `as` cast *is* followed by an expression continuation, so there the
+operator wins and `x as Int? ?? y` is a cast to `Int?` and then a coalesce.
+Types nested inside a cast target (`x as Vector<Int??>`) are unaffected.
 
 **Optional chaining** (`designs/111`) is **implemented** in full (Swift-style).
 `e?.field` and `e?.method(args)` are legal where `e: T?`: `None` short-circuits,
