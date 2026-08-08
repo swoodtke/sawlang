@@ -1,0 +1,109 @@
+// Design 179 composition: a GENERIC accessor with a flavored body, and a
+// flavored accessor whose place is a MATCH-ARM PAYLOAD.
+//
+// The specialization set becomes (type arguments) x (flavor), which the
+// distinct-method-name approach handles for free: each instantiation of the
+// twin mangles under the twin's name exactly as each instantiation of the
+// authored accessor mangles under its own.
+//
+// The match-arm payload lend (a slot enum's `Filled` arm) composes with a gate
+// the same way: the prologue runs before the match, so the gate is in the
+// exclusive specialization and the arm lends the payload where it sits.
+// EXPECT: success
+// EXPECT-OUTPUT:
+// Int read 7, gates 0
+// Int write 8, gates 1
+// String read ada, gates 0
+// String write ada!, gates 1
+// slot read 5, gates 0
+// slot write 6, gates 1
+// empty slot: absent, gates 1
+// -- done
+
+struct Holder<T> {
+    a: T,
+    b: T,
+    gates: Int
+}
+
+extension Holder<T> {
+    func run_gate(&var self) {
+        self.gates = self.gates + 1
+    }
+
+    public func [](&self, i: Int) borrows -> T {
+        if i < 0 || i >= 2 {
+            panic("Holder.[]: index out of range")
+        }
+        if #lend_var {
+            self.run_gate()
+        }
+        if i == 0 {
+            lend self.a
+        } else {
+            lend self.b
+        }
+    }
+
+    public func gates_seen(&self) -> Int {
+        self.gates
+    }
+}
+
+enum Slot {
+    case Empty,
+    case Filled(v: Int)
+}
+
+struct Table {
+    slots: [Slot; 3],
+    gates: Int
+}
+
+extension Table {
+    func run_gate(&var self) {
+        self.gates = self.gates + 1
+    }
+
+    public func at(&self, i: Int) borrows -> Int? {
+        if i < 0 || i >= 3 {
+            return None
+        }
+        if #lend_var {
+            self.run_gate()
+        }
+        match self.slots[i] {
+            case Filled(v) -> { lend v },
+            case Empty -> { return None }
+        }
+    }
+
+    public func gates_seen(&self) -> Int {
+        self.gates
+    }
+}
+
+func main() {
+    var nums = Holder<Int>(a: 7, b: 0, gates: 0)
+    print("Int read {nums[0]}, gates {nums.gates_seen()}")
+    nums[0] += 1
+    print("Int write {nums[0]}, gates {nums.gates_seen()}")
+
+    var names = Holder<String>(a: "ada", b: "", gates: 0)
+    print("String read {names[0]}, gates {names.gates_seen()}")
+    names[0] = "ada!"
+    print("String write {names[0]}, gates {names.gates_seen()}")
+
+    var t = Table(slots: [Slot.Filled(v: 5), Slot.Empty, Slot.Empty], gates: 0)
+    print("slot read {t.at(0)!}, gates {t.gates_seen()}")
+    t.at(0)! += 1
+    print("slot write {t.at(0)!}, gates {t.gates_seen()}")
+
+    var absent = true
+    if let _ = t.at(1) {
+        absent = false
+    }
+    print("empty slot: absent, gates {t.gates_seen()}")
+    assert(absent, "the Empty slot lent something")
+    print("-- done")
+}

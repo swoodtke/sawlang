@@ -1,0 +1,90 @@
+// Design 179 composition: a flavored window inside a COROUTINE frame, and the
+// forwarded-inner-accessor pessimization stated as a v1 limit.
+//
+// Coroutines: the declaration lowering forces every accessor `sync`, so an
+// accessor never becomes a coroutine frame itself. What has to work is a window
+// OPENED inside a suspending body, on either side of a suspension, in both
+// flavors. It does.
+//
+// The pessimization: `lend other[i]` forwards another accessor's place, and
+// `lend X` lowers to a `&var X` argument, so the inner accessor is reached
+// exclusively no matter which specialization of the OUTER one is running. A
+// shared read through `Outer` therefore runs `Inner`'s gate. Sound — separating
+// storage is never wrong, only wasteful — but a shared read of a nested
+// copy-on-write buffer would copy. Fixable by propagating the enclosing copy's
+// flavor into the lend's inner place; stated here as a known v1 limit rather
+// than papered over.
+//
+// The gate count below is that cost, stated plainly: three runs for one read,
+// one write and one more read, because EVERY use of the forwarded place — reads
+// included — reaches the inner accessor exclusively.
+// EXPECT: success
+// EXPECT-OUTPUT:
+// task results 12 22
+// forwarded read 3, inner gates 1
+// forwarded write 4, inner gates 3
+// -- done
+import std.task.*
+
+struct Grid { cells: [Int; 4], gates: Int }
+
+extension Grid {
+    func run_gate(&var self) { self.gates = self.gates + 1 }
+
+    public func [](&self, i: Int) borrows -> Int {
+        if i < 0 || i >= 4 { panic("Grid.[]: index out of range") }
+        if #lend_var { self.run_gate() }
+        lend self.cells[i]
+    }
+
+    public func gates_seen(&self) -> Int { self.gates }
+}
+
+// A window on both sides of a suspension, in both flavors.
+func tally(n: Int) -> Int {
+    var g = Grid(cells: [1, 2, 3, 4], gates: 0)
+    yield_now()
+    g[0] += n
+    yield_now()
+    g[0] + g.gates_seen()
+}
+
+struct Inner { cells: [Int; 2], gates: Int }
+
+extension Inner {
+    func run_gate(&var self) { self.gates = self.gates + 1 }
+
+    public func [](&self, i: Int) borrows -> Int {
+        if i < 0 || i >= 2 { panic("Inner.[]: index out of range") }
+        if #lend_var { self.run_gate() }
+        lend self.cells[i]
+    }
+
+    public func gates_seen(&self) -> Int { self.gates }
+}
+
+struct Outer { inner: Inner }
+
+extension Outer {
+    // Forwards the inner accessor's place. `lend X` becomes `__window(&var X)`,
+    // so the inner accessor is always the exclusive specialization.
+    public func [](&self, i: Int) borrows -> Int {
+        lend self.inner[i]
+    }
+
+    public func inner_gates(&self) -> Int { self.inner.gates_seen() }
+}
+
+func main() {
+    var group = TaskGroup()
+    let a = group.spawn(tally(10))
+    let b = group.spawn(tally(20))
+    print("task results {a.join()} {b.join()}")
+
+    var o = Outer(inner: Inner(cells: [3, 4], gates: 0))
+    // A SHARED read of the outer place still runs the inner gate — the limit.
+    print("forwarded read {o[0]}, inner gates {o.inner_gates()}")
+    o[0] += 1
+    print("forwarded write {o[0]}, inner gates {o.inner_gates()}")
+    print("-- done")
+}

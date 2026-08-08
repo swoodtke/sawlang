@@ -816,9 +816,28 @@ def _fold_block(block: Block, flavor: bool) -> None:
     out = []
     for stmt in block.statements:
         out.extend(_fold_statement(stmt, flavor))
+    # The TAIL is not in the statement list. A block's last expression statement
+    # becomes its `final_expr`, so a gate written as the last thing in a body —
+    # an EPILOGUE, which is exactly where one belongs — arrives here rather than
+    # above, and pruning it means splicing the taken branch's statements out
+    # plus adopting its own tail as this block's value. That preserves the
+    # block's value exactly, so the splice is correct in expression position
+    # too, not only in a `borrows` body.
+    tail = block.final_expr
+    while isinstance(tail, IfExpr):
+        tail.condition = _fold_node(tail.condition, flavor)
+        taken = _const_bool(tail.condition)
+        if taken is None:
+            break
+        kept = tail.then_branch if taken else tail.else_branch
+        if kept is None:
+            tail = None
+            break
+        _fold_block(kept, flavor)
+        out.extend(kept.statements)
+        tail = kept.final_expr
     block.statements = out
-    if block.final_expr is not None:
-        block.final_expr = _fold_node(block.final_expr, flavor)
+    block.final_expr = _fold_node(tail, flavor) if tail is not None else None
 
 
 def _fold_statement(stmt, flavor: bool) -> List:

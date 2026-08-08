@@ -1,0 +1,105 @@
+// Design 179 composition: `#lend_var` in a CONDITIONAL lend (`borrows -> T?`).
+//
+// The absent path specializes exactly like the present one — it is the same
+// body, folded the same way — so the interesting question is not whether it
+// works but WHERE the author puts the gate. The prologue runs on BOTH paths: a
+// gate written above the presence test runs on a MISS too, where no window ever
+// opens and nothing needed separating. Writing it below the test is the fix, and
+// it is the author's call to make, which is why both shapes are here.
+// EXPECT: success
+// The transcript is the evidence for both halves. `eager prologue` prints twice
+// — once for the PRESENT shared read and once for the ABSENT one, which is the
+// prologue running on a path where no window opens — and not at all for the
+// exclusive write, whose specialization runs the gate instead.
+// EXPECT-OUTPUT:
+// eager prologue
+// present 20
+// eager prologue
+// absent, gates 0
+// after write 25, gates 1
+// late: present 25
+// late: absent, gates 1
+// late: after write 25, gates 2
+// -- done
+
+struct Bag {
+    slots: [Int; 4],
+    count: Int,
+    gates: Int
+}
+
+extension Bag {
+    func run_gate(&var self) {
+        self.gates = self.gates + 1
+    }
+
+    func note_shared(&self) {
+        print("eager prologue")
+    }
+
+    /// The gate ABOVE the presence test. Both specializations run their half of
+    /// the prologue on the absent path as well — visible here because the shared
+    /// half prints.
+    public func at_eager(&self, i: Int) borrows -> Int? {
+        if #lend_var {
+            self.run_gate()
+        } else {
+            self.note_shared()
+        }
+        if i < 0 || i >= self.count {
+            return None
+        }
+        lend self.slots[i]
+    }
+
+    /// The gate BELOW it: a miss returns before the prologue's flavored half,
+    /// so nothing is separated for a lookup that found nothing.
+    public func at_late(&self, i: Int) borrows -> Int? {
+        if i < 0 || i >= self.count {
+            return None
+        }
+        if #lend_var {
+            self.run_gate()
+        }
+        lend self.slots[i]
+    }
+
+    public func gates_seen(&self) -> Int {
+        self.gates
+    }
+}
+
+func main() {
+    var b = Bag(slots: [10, 20, 30, 40], count: 3, gates: 0)
+
+    // present, shared: a value read out of a conditional lend
+    if let v = b.at_eager(1) {
+        print("present {v}")
+    }
+
+    // absent, shared: no window opens, and the gate has still not run
+    var missing = true
+    if let _ = b.at_eager(9) {
+        missing = false
+    }
+    print("absent, gates {b.gates_seen()}")
+    assert(missing, "at_eager(9) on a 3-slot Bag found something")
+
+    // present, exclusive: `!` is the promise the window keeps
+    b.at_eager(1)! += 5
+    print("after write {b.at_late(1)!}, gates {b.gates_seen()}")
+
+    // the same three through the late gate
+    if let v = b.at_late(1) {
+        print("late: present {v}")
+    }
+    var late_missing = true
+    if let _ = b.at_late(9) {
+        late_missing = false
+    }
+    print("late: absent, gates {b.gates_seen()}")
+    assert(late_missing, "at_late(9) on a 3-slot Bag found something")
+    b.at_late(1)! += 0
+    print("late: after write {b.at_late(1)!}, gates {b.gates_seen()}")
+    print("-- done")
+}
