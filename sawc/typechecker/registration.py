@@ -14,7 +14,7 @@ from typing import Dict, List, Optional, Tuple
 from ast_nodes import (
     TypeDefinition, Struct, Enum, Trait, Function, Extension, Method, Parameter,
     Program, StaticDecl, SawType, TypeKind, Visibility, has_synthesize,
-    Block, ReturnStatement, BreakStatement, ContinueStatement, IfExpr,
+    Block, ReturnStatement, BreakStatement, ContinueStatement, IfExpr, WhileExpr,
     IntLiteral, FloatLiteral, BoolLiteral, UnaryOp, ArrayLiteral, StructInit,
     FunctionCall, ExpressionStatement, SourceLocationLiteral
 )
@@ -154,6 +154,12 @@ class RegistrationMixin:
             # return, so `guard let x = ... else { panic("...") }` is a valid exit.
             if isinstance(stmt, ExpressionStatement) and self._expr_diverges(stmt.expression):
                 return True
+            # design 177: a conditionless `while { ... }` nothing breaks out of
+            # diverges on the same terms, so `guard let v = o else { while { } }`
+            # is a valid exit. The flag is stamped while the block is checked,
+            # which every caller of this does first.
+            if isinstance(stmt, WhileExpr) and stmt.diverges:
+                return True
             # Check if-else: both branches must have early exits
             if isinstance(stmt, IfExpr) and stmt.else_branch:
                 then_exits = self._block_has_early_exit(stmt.then_branch)
@@ -167,9 +173,11 @@ class RegistrationMixin:
         return False
 
     def _expr_diverges(self, expr) -> bool:
-        """True if evaluating `expr` never falls through — i.e. it is a
-        `panic(...)` call (design 49). Used to treat a trailing panic as an
-        early exit for guard/if divergence analysis."""
+        """True if evaluating `expr` never falls through — a `panic(...)` call
+        (design 49) or a diverging `while { ... }` (design 177). Used to treat a
+        trailing one as an early exit for guard/if divergence analysis."""
+        if isinstance(expr, WhileExpr):
+            return expr.diverges
         return isinstance(expr, FunctionCall) and expr.name == "panic"
 
     def _check_loop_body(self, body: Block, outer_scope):

@@ -503,6 +503,8 @@ class CallsMixin:
         # the executor threads it explicitly through `SystemReactor` (std/taskgroup.saw),
         # so every reactor seam call site already passes the instance as arg 0.
         result = self.builder.call(func, self._coerce_call_args(func, args), name="calltmp")
+        if self._terminate_after_noreturn(func):
+            return None
 
         # Wrap result in optional for extern functions that return nullable pointers
         if expr.name in self.extern_optional_returns:
@@ -518,6 +520,27 @@ class CallsMixin:
             return opt_val
 
         return result
+
+    def _terminate_after_noreturn(self, callee) -> bool:
+        """Terminate the current block when `callee` is a `-> Never` function.
+
+        A `-> Never` declaration is emitted as `void` + `noreturn` (design 58),
+        so control does not continue past a call to it — the same fact an inline
+        `panic(...)` has, and it needs the same `unreachable`. Without it the
+        `call`'s VOID value flowed on as if it were a result and reached the
+        caller's `ret` against a real return type, which nothing but the LLVM IR
+        parser objected to ("value doesn't match function result type"), and it
+        surfaced as an uncaught compiler crash rather than any diagnostic.
+        Design 177 makes a diverging function writable without a panic in it, so
+        this stopped being a corner nobody reached.
+
+        Returns True when the block was terminated (the caller must then hand
+        back None, exactly as `_generate_panic` does).
+        """
+        if "noreturn" not in getattr(callee, "attributes", ()):
+            return False
+        self.builder.unreachable()
+        return True
 
     def _raw_bytes_ptr(self, data: str):
         """Private global holding exactly `data`'s bytes (no added NUL).
@@ -1628,7 +1651,10 @@ class CallsMixin:
                         args.append(self._generate_expression(defaults[i]))
 
         # Call the method
-        return self.builder.call(method_func, self._coerce_call_args(method_func, args), name="methodcall")
+        mresult = self.builder.call(method_func, self._coerce_call_args(method_func, args), name="methodcall")
+        if self._terminate_after_noreturn(method_func):
+            return None
+        return mresult
 
     def _atomic_cell_pointer(self, obj_expr):
         """Return an `i64*` pointing at an Atomic receiver's cell (its `value`
@@ -2078,7 +2104,10 @@ class CallsMixin:
                     if defaults[i] is not None:
                         args.append(self._generate_expression(defaults[i]))
 
-        return self.builder.call(method_func, self._coerce_call_args(method_func, args), name="static_methodcall")
+        sresult = self.builder.call(method_func, self._coerce_call_args(method_func, args), name="static_methodcall")
+        if self._terminate_after_noreturn(method_func):
+            return None
+        return sresult
 
     def _resolve_module_chain(self, expr: MemberAccess):
         """Resolve a chain of module accesses like Parent.Child to get the final ModuleSymbol.
@@ -2123,7 +2152,10 @@ class CallsMixin:
             for arg in expr.arguments:
                 args.append(self._gen_transfer_value(arg.value))
 
-        return self.builder.call(func, self._coerce_call_args(func, args), name="module_call")
+        modresult = self.builder.call(func, self._coerce_call_args(func, args), name="module_call")
+        if self._terminate_after_noreturn(func):
+            return None
+        return modresult
 
     def _generate_module_struct_init(self, expr: MethodCall):
         """Generate a module struct initialization: ModuleName.StructName(args)

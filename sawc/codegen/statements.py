@@ -191,6 +191,16 @@ class StatementsMixin:
         """Generate code for a let binding."""
         value = self._generate_expression(stmt.value)
 
+        # The initializer DIVERGED (`let x = panic("...")`, and since design 177
+        # `let x = while { }`): it produced no value and terminated the block
+        # with `unreachable`. There is nothing to bind and nowhere to bind it —
+        # appending the store would put instructions after a terminator, which
+        # is invalid IR. Before this guard the None crashed the pass with
+        # "'NoneType' object has no attribute 'type'" reported as an internal
+        # compiler error.
+        if value is None and self.builder.block.is_terminated:
+            return
+
         # Resolve type alias in annotation
         resolved_annotation = self._resolve_type_alias(stmt.type_annotation) if stmt.type_annotation else None
 

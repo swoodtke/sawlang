@@ -26,6 +26,16 @@ from ast_nodes import (
 from errors import ErrorKind
 
 
+def _statement_diverges(stmt) -> bool:
+    """Does control never continue PAST this statement (design 177)?
+
+    One shape today: the conditionless `while { ... }` that nothing breaks out
+    of. `panic(...)` is the other diverging construct, but it is an expression,
+    so it arrives as a block's `final_expr` and is typed `Never` there.
+    """
+    return isinstance(stmt, WhileExpr) and stmt.diverges
+
+
 class StatementsMixin:
     """Mixin providing statement checking methods for TypeChecker.
 
@@ -852,6 +862,15 @@ class StatementsMixin:
         result_type = None
         if block.final_expr is not None:
             result_type = self._check_expression(block.final_expr)
+        elif block.statements and _statement_diverges(block.statements[-1]):
+            # Design 177: a block whose last STATEMENT is a diverging
+            # `while { ... }` produces no value AND cannot fall out of its end,
+            # which is the bottom type. A trailing `panic(...)` reaches the same
+            # conclusion through `final_expr` (a call is an expression); a `while`
+            # is a statement, so it needs this arm to say the same thing. It is
+            # what makes `func spin() -> Never { while { } }` satisfy its
+            # declaration, and what types a diverging `match`/`if` arm block.
+            result_type = SawType(TypeKind.NEVER)
 
         # Restore scope
         self.current_scope = old_scope
@@ -2739,11 +2758,20 @@ class StatementsMixin:
                     stmt.line, stmt.column
                 )
 
-        # Check body with increased loop depth but NO break type tracking
-        # (statements don't need to return values)
+        # A statement-position loop yields no value, but it still has to know
+        # whether anything BREAKS out of it: design 177 makes a conditionless
+        # loop that nothing breaks out of a diverging expression. Pushing an
+        # entry also keeps a `break` in this loop from being attributed to an
+        # enclosing expression-position loop — every `break` writes to
+        # `loop_break_info[-1]`, so without a frame of its own an inner
+        # statement loop's break would set the OUTER loop's break type.
+        is_infinite = stmt.condition is None
+        self.loop_break_info.append((None, is_infinite, False))
         self.loop_depth += 1
         self._check_loop_body(stmt.body, self.current_scope)
         self.loop_depth -= 1
+        _, _, has_break = self.loop_break_info.pop()
+        stmt.diverges = is_infinite and not has_break
 
     def _check_while_expr_as_expression(self, expr: WhileExpr) -> Optional[SawType]:
         """Check a while loop expression and return its type."""
@@ -2772,14 +2800,18 @@ class StatementsMixin:
         break_type, _, has_break = self.loop_break_info.pop()
 
         if is_infinite:
-            # Infinite loop: must have at least one break with value
+            # Design 177: nothing breaks out of a conditionless loop, so control
+            # never takes its exit edge — the loop DIVERGES. It types `Never`,
+            # the same bottom type `panic(...)` produces, which is what lets a
+            # `-> Never` function body be one (and satisfies any other declared
+            # return type, since Never flows to everything). The `while true
+            # { ... }` spelling is deliberately excluded: it carries a condition,
+            # so it takes the conditional path below and keeps its old typing.
             if not has_break:
-                self._error(
-                    ErrorKind.TYPE_MISMATCH,
-                    "infinite while loop used as expression must have at least one `break` statement",
-                    expr.line, expr.column
-                )
-                return None
+                expr.diverges = True
+                never = SawType(TypeKind.NEVER)
+                expr.result_type = never
+                return never
             if break_type is None:
                 self._error(
                     ErrorKind.TYPE_MISMATCH,

@@ -70,6 +70,15 @@ class LoopsMixin:
         # Position at end block for next statements
         self.builder.position_at_end(end_block)
 
+        # Design 177: a conditionless loop nothing breaks out of DIVERGES, so
+        # this end block has no predecessors — nothing can reach the code after
+        # the loop. Terminate it with `unreachable`, which is precisely what a
+        # `panic(...)` leaves behind, so every downstream `is_terminated` check
+        # treats the rest of the block as the dead code it is (not emitted, no
+        # scope cleanup, no fallthrough `ret`).
+        if getattr(stmt, 'diverges', False):
+            self.builder.unreachable()
+
     def _generate_for_loop(self, stmt: ForLoop):
         """Generate LLVM IR for a for loop using Iterator.
 
@@ -439,6 +448,13 @@ class LoopsMixin:
 
         # Load and return result
         self.builder.position_at_end(end_block)
+        if getattr(expr, 'diverges', False):
+            # Design 177, expression position: the loop produced no value and
+            # nothing reaches here. Same shape as `_generate_panic` — terminate
+            # and hand back None, which every value site already has to tolerate
+            # from a diverging initializer.
+            self.builder.unreachable()
+            return None
         return self.builder.load(result_alloca, name="while.value")
 
     def _generate_break_statement(self, stmt: BreakStatement):

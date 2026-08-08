@@ -302,6 +302,12 @@ class SawType:
             TypeKind.BOOL: "Bool",
             TypeKind.STRING: "String",
             TypeKind.VOID: "Void",
+            # The bottom type is WRITTEN `Never` (design 49), so a diagnostic
+            # about it has to spell it the way the author would. Without this
+            # entry the fallback printed the enum member name, `NEVER`, and hints
+            # like "conform it with `extension NEVER: Printable`" named a type
+            # nobody can write.
+            TypeKind.NEVER: "Never",
         }
         return display_names.get(self.kind, self.kind.name)
 
@@ -1623,6 +1629,15 @@ class WhileExpr(Expression):
     condition: Optional[Expression]  # None for infinite loop
     body: 'Block'
     result_type: Optional['SawType'] = None  # Set by typechecker for expression context
+    # design 177: does this loop DIVERGE? True for the conditionless
+    # `while { ... }` whose body holds no `break` targeting it — nothing ever
+    # takes the loop's exit edge, so the expression types `Never` exactly as
+    # `panic(...)` does and codegen terminates the (predecessor-less) exit block
+    # with `unreachable`. Stamped by whichever while-checking entry point the
+    # loop went through. The `while true { ... }` spelling is deliberately
+    # EXCLUDED and is never marked: it carries a condition, so it stays an
+    # ordinary loop a later edit may falsify.
+    diverges: bool = annotation(default=False)
 
 
 @dataclass
