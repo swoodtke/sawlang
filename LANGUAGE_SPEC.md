@@ -1014,11 +1014,23 @@ let flowed: (Int, Int) = named      // named -> positional (compatible)
 let fixed: [Int; 5] = [1, 2, 3, 4, 5]
 
 // The REPEAT literal `[v; N]` is N copies of one value. `N` is a compile-time
-// constant: a literal, constant arithmetic, or a const generic parameter (see
-// Generics). The value expression is evaluated exactly once.
+// constant: a literal, constant arithmetic, a const generic parameter (see
+// Generics), or a module `static` that is one (see Module-level statics). The
+// value expression is evaluated exactly once.
 var scratch: [Int8; 256] = [0; 256]      // a zeroed stack buffer
 let flags = [true; 4]                    // type `[Bool; 4]`
 let sized = [0; 2 * 128]                 // type `[Int; 256]`
+
+// The same constants size the TYPE, so one `static` can be the only place a
+// region's size is written:
+static REGION_SIZE: Int = 65536
+var region: [UInt8; REGION_SIZE] = [0; REGION_SIZE]
+var half: [UInt8; REGION_SIZE / 2] = [0; REGION_SIZE / 2]
+
+// A length that folds to a negative number is a compile error:
+//
+//   struct Bad { bytes: [UInt8; 2 - 3] }
+//   // error: array length is negative (`-1`)
 
 // An all-zero repeat lowers to a single zeroinitializer store; other values
 // lower to a splat loop. Elements must copy for free — trivially copyable or
@@ -5007,6 +5019,50 @@ Statics obey four rules, ratified in design 19 (Rust's model):
 Reads elsewhere in the module (or `mod.NAME` from an importer of a
 `public` static) behave like an immutable binding.
 
+**A static is a constant where a constant is required.** An `Int` or
+`UInt` static whose initializer is a plain integer literal folds into
+every position the language fixes at compile time: an array length
+`[T; N]`, a repeat-literal count `[v; N]`, a const generic argument, and
+a `static_assert` condition. Constant arithmetic composes over it, so one
+declaration can size a region and everything derived from it:
+
+```saw
+static REGION_SIZE: Int = 65536
+
+static_assert(REGION_SIZE % 4096 == 0, "the region must be page-aligned")
+
+struct Region { bytes: [UInt8; REGION_SIZE] }
+static ARENA: [UInt8; REGION_SIZE] = [0; REGION_SIZE]
+
+func main() {
+    var half: [UInt8; REGION_SIZE / 2] = [0; REGION_SIZE / 2]
+    print(half.len())                  // prints: 32768
+}
+```
+
+The foldable subset is narrow on purpose: the value has to already be a
+literal when the type is resolved. A mutable `unsafe static var`, a
+static of any other type, one declared without an initializer, and one
+whose initializer is anything but an integer literal are each refused,
+and the message names which static and why rather than reading as "a
+static may not be named here":
+
+```saw
+unsafe static var ARENA_BYTES: Int = 1024
+static ARENA: [UInt8; ARENA_BYTES] = [0; 1024]
+// error: array length is not a compile-time constant: the mutable static
+//        `ARENA_BYTES` is not allowed here
+```
+
+The name resolves as it would in any other read. A local wins over a
+static, so a derived shadow (`let REGION_SIZE = REGION_SIZE + 1`) is the
+runtime value it looks like and is refused in a length; a const generic
+parameter wins over both. Across modules the ordinary visibility gate
+applies — a `public` static reached through an import folds, a
+module-private one is not nameable at all. The qualifier spelling
+(`dep.REGION_SIZE`) is not accepted in a length yet; import the name to
+use it there.
+
 **Zero statics cost no image bytes.** A static whose initializer is
 all-zero — a bare declaration, or an explicit `[0; N]` — is emitted as
 zerofill storage, in both the hosted and the freestanding profile. The 64
@@ -5321,6 +5377,9 @@ Scope, deliberately narrow in this version:
   and `+ - * / %` over them. `FixedBuf<2 * 128>` and `FixedBuf<256>` are the
   same instantiation — the value is folded before anything mangles it, the same
   identity rule default type arguments follow.
+- **A module `static`** may be the argument on the same terms, so
+  `FixedBuf<REGION_SIZE>` and `FixedBuf<65536>` are one instantiation with one
+  layout and one symbol. See Module-level statics for which statics fold.
 - **Declarations**: structs, enums, and free functions all take const
   parameters, and an extension on a const-generic type is written like any
   generic extension (`extension FixedBuf<N>` — the constness comes from the
@@ -5379,9 +5438,10 @@ position. The condition is evaluated at compile time (with authoritative target
 layout, so `sizeof`/`alignof` are exact): a false result is a **compile error
 carrying the message**, a true result emits **zero code**. The evaluator accepts
 integer/`Bool` literals, unary `-`/`not`, arithmetic/comparison/logical
-operators, `sizeof<T>()`/`alignof<T>()`, the `Int.max`/`.min` limits, and a const
-generic parameter in scope; anything else (e.g. a runtime function call) is
-rejected as non-constant.
+operators, `sizeof<T>()`/`alignof<T>()`, the `Int.max`/`.min` limits, a const
+generic parameter in scope, and a module `static` of type `Int`/`UInt`
+initialized by a plain integer literal; anything else (e.g. a runtime function
+call) is rejected as non-constant.
 
 One evaluator answers everywhere a constant is required — a `static_assert`
 condition, an array length, a repeat-literal count, a const generic argument —

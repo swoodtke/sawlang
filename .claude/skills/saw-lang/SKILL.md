@@ -405,8 +405,9 @@ let e: Map<String,Int> = {:}        // empty map needs annotation
 var scratch: [Int8; 256] = [0; 256] // REPEAT literal: N copies of one value
 ```
 - **`[v; N]` is the repeat literal (design 148)** — the way to spell a zero
-  stack buffer. `N` is a compile-time constant (literal, const arithmetic, or a
-  const generic param); the value expression runs EXACTLY ONCE and is copied
+  stack buffer. `N` is a compile-time constant (literal, const arithmetic, a
+  const generic param, or a module `static` — see the SIZE-IN-ONE-PLACE idiom
+  below); the value expression runs EXACTLY ONCE and is copied
   into every slot. `[0; 4096]` lowers to one zeroinitializer store (a memset);
   anything else splat-loops. Elements must copy for FREE — trivial or
   ImplicitCopy — since there is nowhere to write the `.copy()` an ExplicitCopy
@@ -859,7 +860,9 @@ v.map<String>({ $0.to_string() })   // the closure's return; explicit still wins
   flows into the other. v1 scope: `Int`/`UInt` values only; usable as a `[T; N]`
   length, a `static_assert` operand, a `sizeof` operand, a repeat count, or a
   plain Int; const ARITHMETIC in instantiation position (`FixedBuf<2 * 128>` IS
-  `FixedBuf<256>` — folded before mangling); defaults compose with design 37
+  `FixedBuf<256>` — folded before mangling), and a module `static` counts as a
+  constant there too (DF-172j: `FixedBuf<CAP>` IS `FixedBuf<16>` for a
+  `static CAP: Int = 16`); defaults compose with design 37
   (`<const N: Int = 4>`, so `Ring()` means `Ring<4>`); structs, enums and free
   functions all take them. Explicit at the use site except for ONE inference
   case — a `[T; N]` PARAMETER binds N from the argument's length:
@@ -1683,6 +1686,28 @@ construct in the owner and lend `&driver` down.
   literal, so `static BUF: [Int8; 4096] = [0; 4096]` is the spelling for a large
   zeroed region (design 148); std-module statics are NOT visible cross-module
   yet.
+- **A SIZE GOES IN ONE PLACE, and that place is a `static` (DF-172j).** An
+  `Int`/`UInt` static initialized by a plain integer literal IS a compile-time
+  constant, so it may be an array length, a repeat count, a const generic
+  argument and a `static_assert` operand — with const arithmetic composing over
+  it. Write the size once and derive the rest; the named-array-type-plus-
+  `sizeof` workaround is retired.
+  ```saw
+  static REGION_SIZE: Int = 65536
+  static_assert(REGION_SIZE % 4096 == 0, "the region must be page-aligned")
+  struct Region { bytes: [UInt8; REGION_SIZE] }
+  static ARENA: [UInt8; REGION_SIZE] = [0; REGION_SIZE]
+  var half: [UInt8; REGION_SIZE / 2] = [0; REGION_SIZE / 2]   // in a body
+  ```
+  The foldable subset is exactly that: an `unsafe static var` (mutable), a
+  static of another type, one with no initializer, and one whose initializer is
+  not an integer literal are each a clean error NAMING which static and why
+  (``the mutable static `ARENA_BYTES` is not allowed here``). A local shadows a
+  static here as anywhere else, so a derived shadow is the runtime value it
+  looks like. Cross-module follows visibility: a `public` static reached by
+  `import dep.{REGION_SIZE}` folds; the QUALIFIER spelling
+  (`[UInt8; dep.REGION_SIZE]`) is a parse error — import the name. A length that
+  folds NEGATIVE is a clean error too (it used to reach LLVM as `[-1 x i8]`).
 - For a KNOWN C struct, declare a typed Saw struct (declaration-order natural ABI,
   design 58) as a stack local + `(&sa) as UnsafePointer<...>` for the syscall —
   never a raw byte blob; alignment comes free from the widest field. Only

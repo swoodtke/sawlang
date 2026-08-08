@@ -542,6 +542,79 @@ verdict table: `designs/174-optional-generic-sweep.md`. 19 tests landed as
   aarch64) is cherry-picked to main (e6b5cbe); DF-162a CLOSED measured (arm64
   kernel object: 5 NEON block-moves → 0).
 
+- **DF-172j FIXED (RULED Aug 8, landed on main Aug 8).** A module `static` may
+  be an array length, a repeat count, a const generic argument and a
+  `static_assert` operand. **The entry itself rides the parked 172p2 branch —
+  this is the note that reconciles at its merge; do not edit the parked copy,
+  mark it FIXED against these commits.** The rule as built: an `Int`/`UInt`
+  static whose initializer is a plain integer literal (optionally negated)
+  folds, const arithmetic composes over it (`[0; REGION_SIZE * 2]`), and the
+  name resolves as an ordinary read does — a local wins (so design 100's derived
+  shadow stays the runtime value it looks like), a const generic parameter wins
+  over both, and cross-module is the ordinary visibility gate. That closes the
+  SOS finding's own case: `static REGION_SIZE: Int = 65536` is now the one
+  checked source for `[UInt8; REGION_SIZE]` and `[0; REGION_SIZE]`, and the
+  named-array-type-plus-`sizeof` workaround is retired.
+
+  What stays an error, with a message that now says WHICH static and why rather
+  than reading as "no static may be named here": a mutable `unsafe static var`,
+  a static of any other type, one declared with no initializer, and one whose
+  initializer is not an integer literal. DF-172f's pin
+  (`examples/array_length_nonconst_error.saw`) was split — its case is legal
+  now, so it holds the mutable-static half and `const_static_length.saw` holds
+  the legal one.
+
+  CROSS-MODULE, both halves: the BARE spelling works and is pinned
+  (`import dep.{REGION_SIZE}` then `[UInt8; REGION_SIZE]`; a dependency's
+  PRIVATE static is not nameable at all, so the gate needed nothing new). The
+  **QUALIFIER spelling is filed, not guessed — DF-172l below.**
+
+  Implementation shape worth knowing before touching it: `const_eval` stays a
+  pure function of the AST (the typechecker stamps the value on the identifier
+  node, exactly as it stamps `Int.max` and a raw-enum case on a MemberAccess),
+  and the fold reaches DECLARED types through two whole-program walks — lengths
+  before registration, const type ARGUMENTS after it, because the second needs
+  the referenced type's parameter list. A struct FIELD's type is the position
+  that forces this: it is stored as written and is never resolved before codegen
+  reads it.
+
+- **DF-172k FIXED (found by the 172j work, landed with it).** Two adjacent holes
+  in the same rule, neither about statics:
+  1. A NEGATIVE array length. `[UInt8; -1]` and `[UInt8; 2 - 3]` folded and
+     reached llvmlite as `[-1 x i8]`, which came back as
+     `internal compiler error: LLVM IR parsing error`. The repeat count has
+     checked this since design 148; the type position had not. Reported where it
+     folds now, and the length is left unfolded so it is one error rather than a
+     cascade against `[UInt8; -1]`.
+  2. A BINDING's annotation is the one `[T; N]` position codegen never sees:
+     when the initializer supplies its own type the annotation is only compared
+     against it, and an unfolded length compares equal to anything. `var buf:
+     [UInt8; NOPE] = [0; 4]` compiled clean with the annotation silently
+     dropped. Under 172j that would have read as the fold WORKING when it was
+     the check missing, which is why it could not be left.
+
+  **NUMBERING — reconcile at 172p2's merge.** `k` was assigned here, on main,
+  while design 172's own letters ride the parked branch and cannot be read. If
+  the parked branch already spends `DF-172k`, renumber THIS one (five citations:
+  `sawc/codegen/types.py`, `sawc/typechecker/types.py`, and the two
+  `examples/array_length_*_error.saw` headers, plus the landing commit), not
+  theirs.
+
+- **DF-172l FILED — the module-QUALIFIER spelling of a static in a constant.**
+  `[UInt8; dep.REGION_SIZE]` is a **parse error** ("Expected `]` after array
+  type"): the design-148 const grammar in TYPE position has no member access,
+  deliberately, because a generic list is closed by `>`. The repeat-count
+  position takes full expressions and so reaches a clean semantic error instead
+  (``this member access is not allowed here``) — so one rule has two spellings
+  with two failure modes, which is the same asymmetry DF-172f closed for the
+  static case. Not guessed at, because admitting `a.b` to that grammar decides
+  more than this: `Int.max` and a raw-backed enum case are member accesses the
+  evaluator already understands in an EXPRESSION, nested qualifiers are a
+  question, and the typechecker would need module-qualifier resolution in a
+  type-resolution context. Workaround today is exact and cheap: import the name
+  (`import dep.{REGION_SIZE}`), which folds. Worth doing if a kernel module that
+  imports qualified-only wants a dependency's size.
+
 ## Design 176 findings (places/optional plumbing batch, Aug 7)
 
 **DF-146 letter collision — RESOLVED (unit 12), in the opposite direction to the

@@ -457,6 +457,23 @@ var scratch: [Int8; 256] = [0; 256]
 static POOL: [Int8; 4096] = [0; 4096]     // zeroinitializer, in .bss
 ```
 
+A module `static` is a constant in all of those positions too, which is how a
+size gets written once and derived everywhere else:
+
+```saw
+static REGION_SIZE: Int = 65536
+
+static_assert(REGION_SIZE % 4096 == 0, "the region must be page-aligned")
+
+struct Region { bytes: [UInt8; REGION_SIZE] }
+static ARENA: [UInt8; REGION_SIZE] = [0; REGION_SIZE]
+```
+
+The static has to be an `Int`/`UInt` initialized by a plain integer literal —
+enough to be a literal already when the type is resolved. A mutable
+`unsafe static var` or a static of another type is a compile error that names
+which static and why.
+
 ### Errors as Values
 
 Every `Error` is `Printable`. Returning `Result<T, Box<any Error>>` lets a
