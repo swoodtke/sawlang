@@ -1,0 +1,133 @@
+// Design 169 unit 6: the lock data goes over the Serialize/Deserialize traits
+// with no hand-written wire code. `LockEntry` derives both directions under
+// `@synthesize`, so `to_cbor`/`from_cbor` are a walk over the record and the
+// bytes are the deterministic CBOR profile.
+//
+// The proof that the derivation agrees with the frozen contract is the golden
+// vector: `tests/cbor_vectors/lock_entry.cbor` in the compiler repo was written
+// by `tools/sawcbor.py` over `cbor2` for exactly this record, and the hex below
+// is that blob.
+import src.lock.*
+import src.resolver.*
+import src.manifest.*
+import std.cbor.{CborEncoder, CborDecoder}
+import std.data.{Data}
+import std.path.{Path}
+
+func hex(d: &Data) -> String {
+    let digits = "0123456789abcdef"
+    var b = StringBuilder()
+    var i = 0
+    while i < d.len() {
+        let v = (d.get(i) ?? 0u8) as Int
+        let hi = v >> 4
+        let lo = v & 15
+        b.append(digits.substring(hi, hi + 1))
+        b.append(digits.substring(lo, lo + 1))
+        i = i + 1
+    }
+    b.build()
+}
+
+func encode_entry(e: &LockEntry) -> Result<Data, EncodeError> {
+    var enc = CborEncoder()
+    try e.serialize(to: &var enc)
+    return enc.finish()
+}
+
+// One entry, against the blob the Python half wrote for the same record.
+func check_golden_entry() {
+    let entry = LockEntry(name: "toml", version: "0.1.0", source: "path",
+                          loc: "libs/toml", rev: "")
+    let blob = match encode_entry(&entry) {
+        case Ok(d) -> move d,
+        case Err(e) -> panic("entry encode failed: {e}")
+    }
+    let want = "8564746f6d6c65302e312e306470617468696c6962732f746f6d6c60"
+    assert(hex(&blob).equals(want), "the derived entry is the golden lock_entry blob")
+
+    var dec = match CborDecoder.open(bytes: move blob) {
+        case Ok(d) -> move d,
+        case Err(e) -> panic("entry decoder refused the blob: {e}")
+    }
+    match LockEntry.deserialize(from: &var dec) {
+        case Ok(back) -> {
+            assert(back.name.equals("toml"), "name round-trips")
+            assert(back.version.equals("0.1.0"), "version round-trips")
+            assert(back.source.equals("path"), "source round-trips")
+            assert(back.loc.equals("libs/toml"), "loc round-trips")
+            assert(back.rev.equals(""), "an empty rev stays empty")
+        },
+        case Err(e) -> panic("entry decode failed: {e}")
+    }
+}
+
+// A whole resolution: resolve the chain fixture, lock it, and take the lock
+// through CBOR and back.
+func check_whole_lock() {
+    let m = match Manifest.load_from(Path(s: "tests/fixtures/chain/app")) {
+        case Ok(loaded) -> loaded,
+        case Err(_) -> panic("could not load chain/app manifest")
+    }
+    let res = match resolve(m) {
+        case Ok(r) -> move r,
+        case Err(e) -> panic("resolve failed: {e.text()}")
+    }
+    let mhash = manifest_deps_hash(m)
+    guard let lock = parse_lock(serialize(&res, mhash)) else {
+        panic("lock did not parse")
+    }
+
+    let blob = match to_cbor(&lock) {
+        case Ok(d) -> move d,
+        case Err(e) -> panic("lock encode failed: {e}")
+    }
+    let again = match to_cbor(&lock) {
+        case Ok(d) -> move d,
+        case Err(e) -> panic("second lock encode failed: {e}")
+    }
+    assert(hex(&blob).equals(hex(&again)), "the CBOR lock is deterministic")
+
+    let back = match from_cbor(move blob) {
+        case Ok(d) -> move d,
+        case Err(e) -> panic("lock decode failed: {e}")
+    }
+    assert(back.manifest_hash.equals(lock.manifest_hash), "manifest hash survives")
+    assert(back.len() == lock.len(), "package count survives")
+
+    var i = 0
+    while i < lock.len() {
+        let name = lock.name(i)
+        let j = back.index_of(name)
+        assert(j >= 0, "every locked package comes back")
+        assert(back.version(j).equals(lock.version(i)), "version survives")
+        assert(back.source(j).equals(lock.source(i)), "source survives")
+        assert(back.loc(j).equals(lock.loc(i)), "loc survives")
+        assert(back.rev(j).equals(lock.rev(i)), "rev survives")
+        i = i + 1
+    }
+}
+
+// Malformed input is a DecodeError naming a byte, never a half-loaded lock.
+func check_truncated() {
+    let entry = LockEntry(name: "semver", version: "2.0.0", source: "git",
+                          loc: "https://example.invalid/semver", rev: "abc123")
+    let blob = match encode_entry(&entry) {
+        case Ok(d) -> move d,
+        case Err(e) -> panic("entry encode failed: {e}")
+    }
+    guard let cut = blob.slice(0, blob.len() - 3) else {
+        panic("could not truncate the blob")
+    }
+    match CborDecoder.open(bytes: move cut) {
+        case Ok(_) -> panic("a truncated lock entry was accepted"),
+        case Err(e) -> assert(e.offset > 0, "the failure names a byte offset")
+    }
+}
+
+func main() {
+    check_golden_entry()
+    check_whole_lock()
+    check_truncated()
+    print("lock_cbor: ok")
+}

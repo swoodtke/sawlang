@@ -21,43 +21,81 @@ import src.manifest.*
 import src.resolver.*
 import std.file.{File}
 import std.path.{Path}
+import std.cbor.{CborEncoder, CborDecoder}
+import std.data.{Data}
 
 // =============================================================================
-// Lock data (columnar)
+// Lock data
 // =============================================================================
+
+// One locked package. This was five parallel `Vector<String>` until design 169:
+// a record per package is what the data is, and it is also what the
+// `@synthesize` derivation walks, so the CBOR form below costs no hand-written
+// wire code.
+public struct LockEntry {
+    public name: String
+    public version: String
+    public source: String
+    public loc: String
+    public rev: String
+}
+
+@synthesize
+extension LockEntry: Serialize {}
+
+@synthesize
+extension LockEntry: Deserialize {}
 
 public struct LockData {
     public manifest_hash: String
-    names: Vector<String>
-    versions: Vector<String>
-    sources: Vector<String>
-    locs: Vector<String>
-    revs: Vector<String>
+    entries: Vector<LockEntry>
 }
 
 extension LockData: NoCopy {}
 
 public extension LockData {
     public init() -> LockData {
-        let a = Vector<String>()
-        let b = Vector<String>()
-        let c = Vector<String>()
-        let d = Vector<String>()
-        let e = Vector<String>()
-        LockData(manifest_hash: "", names: move a, versions: move b, sources: move c, locs: move d, revs: move e)
+        var entries = Vector<LockEntry>()
+        LockData(manifest_hash: "", entries: move entries)
     }
 
-    public func len(&self) -> Int { self.names.len() }
-    public func name(&self, i: Int) -> String { self.names.get(i) ?? "" }
-    public func version(&self, i: Int) -> String { self.versions.get(i) ?? "" }
-    public func source(&self, i: Int) -> String { self.sources.get(i) ?? "" }
-    public func loc(&self, i: Int) -> String { self.locs.get(i) ?? "" }
-    public func rev(&self, i: Int) -> String { self.revs.get(i) ?? "" }
+    public func len(&self) -> Int { self.entries.len() }
+
+    // Each accessor reaches its entry as a PLACE and copies out one field, so
+    // reading a name does not retain the other four.
+    public func name(&self, i: Int) -> String {
+        if i < 0 || i >= self.entries.len() { return "" }
+        self.entries[i].name
+    }
+
+    public func version(&self, i: Int) -> String {
+        if i < 0 || i >= self.entries.len() { return "" }
+        self.entries[i].version
+    }
+
+    public func source(&self, i: Int) -> String {
+        if i < 0 || i >= self.entries.len() { return "" }
+        self.entries[i].source
+    }
+
+    public func loc(&self, i: Int) -> String {
+        if i < 0 || i >= self.entries.len() { return "" }
+        self.entries[i].loc
+    }
+
+    public func rev(&self, i: Int) -> String {
+        if i < 0 || i >= self.entries.len() { return "" }
+        self.entries[i].rev
+    }
+
+    public func add(&var self, entry: LockEntry) {
+        self.entries.push(entry)
+    }
 
     public func index_of(&self, name: String) -> Int {
         var i = 0
-        while i < self.names.len() {
-            if (self.names.get(i) ?? "").equals(name) {
+        while i < self.entries.len() {
+            if self.entries[i].name.equals(name) {
                 return i
             }
             i = i + 1
@@ -206,11 +244,12 @@ public func parse_lock(content: String) -> LockData? {
             guard let sec = doc.index_of(name) else {
                 continue
             }
-            data.names.push(pkg)
-            data.versions.push(doc.section_at(sec).get("version") ?? "")
-            data.sources.push(doc.section_at(sec).get("source") ?? "")
-            data.locs.push(doc.section_at(sec).get("loc") ?? "")
-            data.revs.push(doc.section_at(sec).get("rev") ?? "")
+            let version = doc.section_at(sec).get("version") ?? ""
+            let source = doc.section_at(sec).get("source") ?? ""
+            let loc = doc.section_at(sec).get("loc") ?? ""
+            let rev = doc.section_at(sec).get("rev") ?? ""
+            data.add(LockEntry(name: pkg, version: version, source: source,
+                               loc: loc, rev: rev))
         }
     }
 
@@ -220,4 +259,54 @@ public func parse_lock(content: String) -> LockData? {
 // True if the lock's manifest_hash still matches the manifest (no drift).
 public func lock_is_current(lock: &LockData, m: Manifest) -> Bool {
     lock.manifest_hash.equals(manifest_deps_hash(m))
+}
+
+// =============================================================================
+// CBOR (design 169 unit 6)
+// =============================================================================
+//
+// `Saw.lock` stays TOML on disk: a lock file is read in review, and every
+// package in this repo commits one. What CBOR gives the same data is a
+// machine-readable form for tools that consume a resolution rather than read
+// it — one array of `[manifest_hash, [entry, ...]]`, deterministic bytes, and
+// no hand-written wire code, since `LockEntry` derives both directions.
+
+/// The lock data as CBOR: `[manifest_hash, [entry, ...]]`.
+///
+/// Deterministic, so the same resolution always produces the same bytes.
+public func to_cbor(lock: &LockData) -> Result<Data, EncodeError> {
+    var enc = CborEncoder()
+    try enc.begin_array(2)
+    try enc.write_text(lock.manifest_hash)
+    try enc.begin_array(lock.len())
+    var i = 0
+    while i < lock.len() {
+        // Read the entry out before serializing it. Calling a method on the
+        // PLACE would put `enc` inside the lowered window closure, which
+        // refuses to capture a NoCopy value (DF-169h); a `LockEntry` is five
+        // Strings, so the read is five retains.
+        let entry = lock.entries[i]
+        try entry.serialize(to: &var enc)
+        i = i + 1
+    }
+    return enc.finish()
+}
+
+/// Reads back what `to_cbor` wrote.
+///
+/// `Err` names the byte it stopped at. The whole blob is validated before any
+/// field is read, so a truncated or non-canonical lock never half-loads.
+public func from_cbor(bytes: Data) -> Result<LockData, DecodeError> {
+    var dec = try CborDecoder.open(bytes: bytes)
+    try dec.expect_array(2)
+    var out = LockData()
+    out.manifest_hash = try dec.read_text()
+    let n = try dec.begin_array()
+    var i = 0
+    while i < n {
+        let entry = try LockEntry.deserialize(from: &var dec)
+        out.add(entry)
+        i = i + 1
+    }
+    return move out
 }
