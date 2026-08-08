@@ -1,0 +1,66 @@
+// design 183 unit 3: the other half of the pointer-lifetime rule — HEAP storage.
+// An offloaded call's pointer arguments must point into storage that outlives the
+// park, which means the suspended frame or the heap; this reader's buffer is
+// `malloc`ed, and the offload runs in a LOOP so the same call site starts three
+// jobs against three different offsets into it. (A loop is where the marshalling
+// has to be careful: the argument slots are an entry-block slot reused per
+// iteration, not a fresh one per pass, so a driven loop cannot grow the stack.)
+// EXPECT: success
+// EXPECT-OUTPUT:
+// writer: fed the pipe
+// reader: 97,98,99
+
+struct PipeFds { r: Int32, w: Int32 }
+
+extern "C" {
+    func pipe(fds: UnsafePointer<Int8>) -> Int32
+    func write(fd: Int32, buf: UnsafePointer<Int8>, n: Int) -> Int
+    func malloc(size: Int) -> UnsafePointer<Int8>?
+    func free(ptr: UnsafePointer<Int8>)
+    blocking func read(fd: Int32, buf: UnsafePointer<Int8>, n: Int) -> Int
+}
+
+func make_pipe() unsafe -> PipeFds {
+    var fds = PipeFds(r: 0, w: 0)
+    if pipe((&fds) as UnsafePointer<Int8>) != 0 {
+        panic("pipe(2) failed")
+    }
+    fds
+}
+
+func reader(fd: Int32) unsafe -> Int {
+    let buf = malloc(16)!
+    var i = 0
+    while i < 3 {
+        let n = read(fd, buf + i, 1)      // offloaded three times, one byte each
+        if n != 1 {
+            panic("short read")
+        }
+        i = i + 1
+    }
+    let b0 = buf[0] as Int
+    let b1 = buf[1] as Int
+    let b2 = buf[2] as Int
+    print("reader: {b0},{b1},{b2}")
+    free(buf)
+    return 0
+}
+
+func writer(fd: Int32) unsafe -> Int {
+    var out: [Int8; 4] = [0; 4]
+    out[0] = 97     // a
+    out[1] = 98     // b
+    out[2] = 99     // c
+    let n = write(fd, (&out) as UnsafePointer<Int8>, 3)
+    print("writer: fed the pipe")
+    return n
+}
+
+func main() unsafe {
+    let fds = make_pipe()
+    var group = TaskGroup()
+    let hr = group.spawn(reader(fds.r))     // parks inside the first offloaded read
+    let hw = group.spawn(writer(fds.w))     // runs while the reader is parked
+    let _ = hw.join()
+    let _ = hr.join()
+}

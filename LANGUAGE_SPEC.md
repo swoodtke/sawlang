@@ -5043,42 +5043,99 @@ task on that thread waiting behind it. There is no per-call opt-out; code that
 knows it is on such a mount should do that work in a `spawn`-ed `Task`, whose own
 thread is then the one that waits.
 
-**`extern blocking func`.** An FFI call that may block for an unbounded time is
-annotated `blocking` inside an `extern` block; the call is a suspension point (it
-offloads to a worker thread and suspends the task, rather than blocking the
-executor):
+#### Blocking externs and the offload
+
+An FFI call that may block for an unbounded time is annotated `blocking` inside
+an `extern` block. The call is a suspension point: it runs on a worker thread
+and the task parks, instead of the call holding the executor thread.
 
 ```saw
 extern "C" {
-    blocking func db_query(id: Int) -> Int   // unbounded FFI -> suspends
+    // `read(2)` on a pipe or a slow device is unbounded.
+    blocking func read(fd: Int32, buf: UnsafePointer<Int8>, n: Int) -> Int
+}
+
+func drain(fd: Int32) unsafe -> Int {
+    var chunk: [Int8; 4096] = [0; 4096]
+    read(fd, (&chunk) as UnsafePointer<Int8>, 4096)   // siblings keep running
 }
 ```
 
 An unannotated extern promises promptness and is `sync`-callable. A `blocking`
-extern call is illegal in a `sync` context (a compile error, like any other
-suspension), and `blocking` externs are rejected in the freestanding profile
-(no thread pool).
+extern call is illegal in a `sync` context, like any other suspension, and
+`blocking` externs are rejected in the freestanding profile, which has no
+threads to offload onto.
 
-Design 103 (A6) — the offload actually RUNS. Inside a suspending body (a driven /
-spawned task, or a suspending `main`), a blocking-extern call bound to its own
-statement (`let r = db_query(id)`, a bare call, or a tail `return db_query(id)`)
-is lowered to: start a worker thread that runs the extern, PARK the task on the
-worker's self-pipe (registered with the reactor exactly like a socket read), then
-take the result when the pipe signals completion. So the task suspends
-cooperatively — siblings keep running while it blocks, and the single reactor
-thread is never wedged. The worker thread touches only its own job + pipe; all
-wake routing stays in the reactor; the pipe byte and the join of the worker form
-the release/acquire boundary, so the result transfers with no data race. v1 is
-thread-per-call and restricts the extern to the C-ABI `(Int) -> Int` whitelist (a
-pool + wider signatures are future work); a wider signature is a clean compile
-error anchored at the call site. A blocking-extern call buried in a larger
-expression (an argument, an operand, a `try!`) is hoisted to its own statement by
-the design-120 rewrite and offloads from there. A blocking-extern call at statement position inside
-a suspension-spanning `if let`/`guard let` body offloads like any other (design 104
-item 1 CFG-splits the branch). Cancelling a task parked on an
-offload job wakes it (via the design-102 reactor self-pipe), but the in-flight
-blocking call cannot be aborted — the task joins the worker before taking its
-cancel path.
+`blocking` is part of an extern's contract, not a spelling of it. Two
+declarations of one symbol that disagree about it are a clean error, so a
+declaration cannot be silently dropped along with its annotation, and no
+downstream declaration can make a function another module calls a suspension
+source.
+
+**What the offload does.** Inside a suspending body (a driven or spawned task,
+or a suspending `main`), the call lowers to three steps: start a worker thread
+that runs the extern, park the task on that worker's self-pipe (registered with
+the reactor exactly like a socket read), and take the result when the pipe
+signals completion. The task suspends cooperatively, so siblings keep running
+while it blocks and the reactor thread is never wedged. The worker touches only
+its own job and pipe; wake routing stays in the reactor. The pipe byte and the
+join of the worker are the release/acquire boundary, so the result transfers
+with no data race. It is a thread per call; there is no pool yet.
+
+**Signatures.** Any signature the C-ABI whitelist admits can be offloaded —
+fixed-width integers, `Int`/`UInt`, `Float`, `UnsafePointer<T>`, and `Void` or
+`Never` as the return. That is the same set `@export` admits, and the
+diagnostic for a type outside it is the same, anchored at the declaration:
+
+```saw
+extern "C" {
+    blocking func slow_named(s: String) -> Int
+}
+// error: `extern blocking func slow_named`: parameter `s` has type `String`,
+//        which is not C-ABI-safe
+```
+
+Arity is unrestricted. Pass an aggregate as `UnsafePointer<S>`.
+
+**Pointer arguments must outlive the call.** The worker reads through a pointer
+argument while the task is parked, and it may still be reading after a cancel.
+So a pointer argument must address storage in one of two places: the suspended
+frame, or the heap. Both survive the park by construction — a suspending
+function's locals live in its frame, which is heap-resident across every
+suspension, and heap storage lives until it is freed.
+
+```saw
+func reader(fd: Int32) unsafe -> Int {
+    var buf: [Int8; 64] = [0; 64]          // frame-owned: survives the park
+    read(fd, (&buf) as UnsafePointer<Int8>, 64)
+}
+```
+
+The third possibility, a stack temporary, cannot arise: stack storage that dies
+before the worker is done belongs to a function that returned, and a function
+that can return while an offload is in flight is a `sync` one, which cannot
+reach an offload at all. That is the same fence as any other suspension, and it
+is what makes the rule keepable rather than a convention.
+
+Storage the frame owns must also stay put until the join. The compiler arranges
+this for the frame's own locals; if you free heap storage yourself, free it
+after the call returns, not on a cancel path that races it.
+
+**Position.** A blocking-extern call bound to its own statement (`let r =
+db_query(id)`, a bare call, a tail `return db_query(id)`) offloads directly. One
+buried in a larger expression — an argument, an operand, a `try!` subject — is
+hoisted to its own statement first and offloads from there, and one at statement
+position inside a suspension-spanning `if let`/`guard let` body offloads like any
+other, since that branch is split like an `if`.
+
+**Cancellation.** Cancelling a task parked on an offload job wakes it: the
+reactor's self-pipe rouses the poll, and the park loop re-checks the cancel word
+at its top and leaves. The in-flight C call is not aborted, and cannot be — a
+thread sitting in `read(2)` has no cooperative point to observe anything at.
+Taking the result therefore joins the worker first, on the cancel path as much as
+the completion path. Two consequences worth stating: a cancelled task still waits
+for its C call to finish before it can return, and nothing the call points at may
+be released until that join, which is why the frame keeps its storage until then.
 
 **Two engines coexist today, deliberately not unified.** `spawn`/`Task`/`Channel`
 (design 21b) run on a **thread-per-task** engine: `spawn` starts an OS thread,
