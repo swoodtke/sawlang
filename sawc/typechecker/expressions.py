@@ -3338,6 +3338,14 @@ class ExpressionsMixin:
                     column=expr.column
                 )
                 result = self._check_struct_init(struct_init)
+                # The canonicalized argument list belongs to the CALL node too:
+                # codegen monomorphizes from this one, and design 37's
+                # default-filling / design 148's const fold both happen on the
+                # StructInit copy. A bare-name const argument (DF-172j
+                # `FixedBuf<CAP>`) becomes a number exactly here, so without the
+                # write-back codegen would still see the name.
+                if struct_init.type_args:
+                    expr.type_args = struct_init.type_args
                 expr.resolved_init_params = struct_init.resolved_init_params
                 # Design 53: a matched init may have appended default-valued named
                 # arguments; carry the augmented field-init list to codegen, which
@@ -5272,8 +5280,38 @@ class ExpressionsMixin:
         monomorphizes it — the same rule design 37 applies to defaults.
         """
         folded = [self._fold_const_arg(a) for a in args]
+        folded = self._const_static_args(folded, type_params)
         self._check_const_arg_kinds(folded, type_params, what, line, column)
         return folded
+
+    def _const_static_args(self, args, type_params):
+        """A bare NAME on a const parameter may be a module `static` (DF-172j).
+
+        `FixedBuf<CAP * 2>` already arrives as a value — the parser's retry
+        reads anything followed by an operator as a constant expression — but a
+        bare `FixedBuf<CAP>` is genuinely ambiguous at parse time and stays a
+        TYPE until something knows the parameter it lands on. That is here, the
+        same place a forwarded const parameter (`FixedBuf<N>` inside `extension
+        FixedBuf<N>`) is recognized, so the static is recognized beside it: it
+        folds to a number BEFORE mangling, and `FixedBuf<CAP>` and
+        `FixedBuf<16>` are then one instantiation with one symbol.
+        """
+        from ast_nodes import IntLiteral
+        out = list(args)
+        for i, (tp, arg) in enumerate(zip(type_params, args)):
+            if not getattr(tp, 'is_const', False):
+                continue
+            if arg is None or arg.kind != TypeKind.STRUCT or arg.type_args:
+                continue
+            name = arg.struct_name
+            if not name or name in self._const_param_types():
+                continue
+            value, _reason = self._const_static_lookup(name)
+            if value is None:
+                continue
+            out[i] = SawType(TypeKind.CONST_VALUE, const_value=value,
+                             array_size_expr=IntLiteral(value=value))
+        return out
 
     def _fold_const_arg(self, arg):
         """Give a CONST_VALUE argument its integer, if it does not have one."""

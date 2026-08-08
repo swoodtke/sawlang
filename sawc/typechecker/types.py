@@ -990,7 +990,15 @@ class TypeUtilsMixin:
         """
         info = self.get_enum_info(name) if is_enum else self.get_struct_info(name)
         params = getattr(info, 'type_params', None) if info is not None else None
-        if not params or len(args) >= len(params):
+        if not params:
+            return args
+        # DF-172j: a bare NAME on a const parameter may be a module `static`.
+        # The parser cannot tell `FixedBuf<CAP>`'s argument from a type, so it
+        # arrives here as one; this is the same chokepoint the paragraph above
+        # describes, and the same reason applies — the argument has to BE a
+        # number before anything takes the type's identity from it.
+        args = self._const_static_args(args, params)
+        if len(args) >= len(params):
             return args
         filled = list(args)
         for i in range(len(args), len(params)):
@@ -1305,43 +1313,105 @@ class TypeUtilsMixin:
         elif reason is not None:
             expr.const_static_reject = reason
 
-    def _fold_const_lengths_in_program(self, program) -> None:
-        """Fold every DECLARED array length in this AST, in place.
+    def _walk_declared_types(self, program, visit) -> None:
+        """Call `visit(t)` on every type WRITTEN in this AST, sub-types included.
 
-        A local's annotation is folded when the statement checker resolves it,
-        but a struct FIELD's type is stored exactly as written and is never
-        resolved before codegen reads it — so a `[UInt8; REGION_SIZE]` field
-        would arrive there with no length at all while the `var` spelling of the
-        same type worked. One walk over the declared positions, before
-        registration copies any of them, is what makes the two agree.
+        The declared positions are what a `static` in a constant has to reach. A
+        local's annotation is resolved when the statement checker gets to it, but
+        a struct FIELD's type is stored exactly as written and is never resolved
+        before codegen reads it — so a `[UInt8; REGION_SIZE]` field would arrive
+        there with no length at all while the `var` spelling of the same type
+        worked.
 
-        Only lengths that fold TO something are touched: a `[T; N]` on a const
-        generic parameter has no value in the abstract body and keeps its
-        expression, exactly as design 148 wrote it.
+        Reflective over sub-types rather than a hand-listed set of fields: a
+        length or a const argument can sit anywhere a type can
+        (`Vector<[UInt8; SIZE]>`, a parameter of a function type, an optional
+        payload), and a list that missed one would fail silently, in codegen, on
+        the one spelling nobody wrote a test for.
         """
+        import dataclasses
+        seen = set()
+
+        def walk(t):
+            if not isinstance(t, SawType) or id(t) in seen:
+                return
+            seen.add(id(t))
+            visit(t)
+            for f in dataclasses.fields(t):
+                v = getattr(t, f.name, None)
+                if isinstance(v, SawType):
+                    walk(v)
+                elif isinstance(v, (list, tuple)):
+                    for item in v:
+                        if isinstance(item, SawType):
+                            walk(item)
+
+        def walk_signature(fn):
+            for p in getattr(fn, 'parameters', []) or []:
+                walk(getattr(p, 'type', None))
+            walk(getattr(fn, 'return_type', None))
+
         for struct in getattr(program, 'structs', []) or []:
             for f in getattr(struct, 'fields', []) or []:
-                self._fold_const_lengths_in_type(getattr(f, 'type', None))
+                walk(getattr(f, 'type', None))
         for enum in getattr(program, 'enums', []) or []:
             for variant in getattr(enum, 'variants', []) or []:
                 for payload in (variant.associated_types or []):
-                    pt = payload[1] if isinstance(payload, tuple) else payload
-                    self._fold_const_lengths_in_type(pt)
+                    walk(payload[1] if isinstance(payload, tuple) else payload)
         for fn in getattr(program, 'functions', []) or []:
-            self._fold_const_lengths_in_signature(fn)
+            walk_signature(fn)
         for ext in getattr(program, 'extensions', []) or []:
             for method in getattr(ext, 'methods', []) or []:
-                self._fold_const_lengths_in_signature(method)
+                walk_signature(method)
         for trait in getattr(program, 'traits', []) or []:
             for tm in getattr(trait, 'methods', []) or []:
-                self._fold_const_lengths_in_signature(tm)
+                walk_signature(tm)
         for block in getattr(program, 'extern_blocks', []) or []:
             for fn in getattr(block, 'functions', []) or []:
-                self._fold_const_lengths_in_signature(fn)
+                walk_signature(fn)
         for static in getattr(program, 'statics', []) or []:
-            self._fold_const_lengths_in_type(getattr(static, 'type', None))
+            walk(getattr(static, 'type', None))
         for td in getattr(program, 'type_definitions', []) or []:
-            self._fold_const_lengths_in_type(getattr(td, 'defined_type', None))
+            walk(getattr(td, 'defined_type', None))
+
+    def _fold_const_lengths_in_program(self, program) -> None:
+        """Fold every DECLARED array length in this AST, in place.
+
+        Runs BEFORE registration, since registration copies field types into the
+        struct symbol. Only lengths that fold TO something are touched: a
+        `[T; N]` on a const generic parameter has no value in the abstract body
+        and keeps its expression, exactly as design 148 wrote it.
+        """
+        def fold(t):
+            if t.kind == TypeKind.ARRAY and t.array_size is None and \
+                    t.array_size_expr is not None:
+                value = self._try_const_value(t.array_size_expr)
+                if value is not None and not self._reject_negative_length(
+                        value, t.array_size_expr):
+                    t.array_size = value
+        self._walk_declared_types(program, fold)
+
+    def _fold_const_type_args_in_program(self, program) -> None:
+        """Fold a bare-NAME const generic ARGUMENT that is a `static` (DF-172j).
+
+        The twin of the length pass, one phase later: this one needs the
+        REFERENCED type's parameter list to know that `FixedBuf<CAP>`'s argument
+        lands on a const parameter rather than a type one, so it cannot run
+        until structs and enums are registered. It mutates in place, which
+        reaches the already-registered struct symbol too — the symbol holds the
+        same field-type objects the AST does.
+        """
+        def fold(t):
+            if t.kind == TypeKind.STRUCT and t.struct_name and t.type_args:
+                info = self.get_struct_info(t.struct_name)
+            elif t.kind == TypeKind.ENUM and t.enum_name and t.type_args:
+                info = self.get_enum_info(t.enum_name)
+            else:
+                return
+            params = getattr(info, 'type_params', None) if info else None
+            if params:
+                t.type_args = self._const_static_args(t.type_args, params)
+        self._walk_declared_types(program, fold)
 
     def _reject_negative_length(self, value: int, expr, line: int = 0,
                                 column: int = 0) -> bool:
@@ -1416,39 +1486,6 @@ class TypeUtilsMixin:
                     if isinstance(item, SawType):
                         self._check_declared_array_lengths(
                             item, what, line, column, seen)
-
-    def _fold_const_lengths_in_signature(self, fn) -> None:
-        for p in getattr(fn, 'parameters', []) or []:
-            self._fold_const_lengths_in_type(getattr(p, 'type', None))
-        self._fold_const_lengths_in_type(getattr(fn, 'return_type', None))
-
-    def _fold_const_lengths_in_type(self, t, seen=None) -> None:
-        """Fold the array lengths inside one declared type, in place."""
-        import dataclasses
-        if not isinstance(t, SawType):
-            return
-        seen = set() if seen is None else seen
-        if id(t) in seen:
-            return
-        seen.add(id(t))
-        if t.kind == TypeKind.ARRAY and t.array_size is None and \
-                t.array_size_expr is not None:
-            value = self._try_const_value(t.array_size_expr)
-            if value is not None and not self._reject_negative_length(
-                    value, t.array_size_expr):
-                t.array_size = value
-        # Reflective rather than a hand-listed set of sub-type fields: a length
-        # can sit anywhere a type can (`Vector<[UInt8; SIZE]>`, a parameter of a
-        # function type, an optional payload), and a list that missed one would
-        # fail silently, in codegen, on the one spelling nobody wrote a test for.
-        for f in dataclasses.fields(t):
-            v = getattr(t, f.name, None)
-            if isinstance(v, SawType):
-                self._fold_const_lengths_in_type(v, seen)
-            elif isinstance(v, (list, tuple)):
-                for item in v:
-                    if isinstance(item, SawType):
-                        self._fold_const_lengths_in_type(item, seen)
 
     def _try_const_value(self, expr):
         """Fold a constant expression, or return None if it cannot be folded yet.

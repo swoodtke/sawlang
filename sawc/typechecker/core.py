@@ -1029,6 +1029,13 @@ class TypeChecker(ExpressionsMixin, StatementsMixin, RegistrationMixin, TypeUtil
         for trait in program.traits:
             self._register_trait(trait)
 
+        # DF-172j second half: a bare-name const generic ARGUMENT that is a
+        # `static` (`FixedBuf<CAP>`). Needs the referenced type's parameter list
+        # to tell a const argument from a type one, so it runs here — after
+        # structs and enums are registered, before anything takes a type's
+        # identity from its arguments.
+        self._fold_const_type_args_in_program(program)
+
         # Fifth pass: register extensions and their methods. The structural
         # `deinit` (design 128) is synthesized first, as a whole-program
         # pre-pass, so registration sees it like any hand-written one.
@@ -1673,6 +1680,10 @@ class TypeChecker(ExpressionsMixin, StatementsMixin, RegistrationMixin, TypeUtil
         for trait in module_ast.traits:
             self._register_trait(trait)
             ns.make_accessible(trait.name)
+
+        # DF-172j second half: a bare-name const generic ARGUMENT that is a
+        # `static`, now that the referenced types' parameter lists exist.
+        self._fold_const_type_args_in_program(module_ast)
 
         # Design 144: this module's types are all registered now, so its
         # name -> identity view is complete. Rewrite every type REFERENCE in the
