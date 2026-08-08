@@ -1,0 +1,14 @@
+// Design 185 unit 1 against DF-172k's class: a NEGATIVE length must not sneak
+// in through a shift. `1 << 63` folds to `Int.min` — the width masking is what
+// makes it a number at all — and a length that reaches llvmlite negative comes
+// back as `internal compiler error: LLVM IR parsing error`, so the fold hands
+// its result to the same negative-length check every other constant goes
+// through, in both spellings of the rule.
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: repeat count is negative
+// EXPECT-ERROR-CONTAINS: an array length counts elements, so it starts at 0
+
+func main() {
+    let sneaky = [0; 1 << 63]
+    print(sneaky.len())
+}

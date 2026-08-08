@@ -25,15 +25,25 @@ doing: two of them drift, and the drift is silent — a `static_assert` and the
 array length beside it would disagree about the same expression.
 
 The accepted grammar is exactly what design 53 documented, plus `env`:
-integer/Bool literals, unary `-`/`not`, `+ - * / %`, the comparisons, `&&`/`||`,
-`sizeof<T>()`/`alignof<T>()`, the `Int.max`/`.min` limits, and a bound name —
-plus a raw-BACKED enum's case and an `as` between integer types, which are what
-let a `static_assert` pin a wire table against the enum that declares it
+integer/Bool literals, unary `-`/`not`/`~`, `+ - * / %`, the bitwise `& | ^`
+and the shifts `<< >>`, the comparisons, `&&`/`||`, `sizeof<T>()`/`alignof<T>()`,
+the `Int.max`/`.min` limits, and a bound name — plus a raw-BACKED enum's case
+and an `as` between integer types, which are what let a `static_assert` pin a
+wire table against the enum that declares it
 (`static_assert((SysOp.Shutdown as UInt) == 1, ...)`) instead of against a
 hand-copied number that could drift from it silently.
 Division and modulo truncate toward zero, matching Saw's runtime semantics
 (`LANGUAGE_SPEC.md`, Integer Arithmetic Semantics), so a constant-folded
 expression and its runtime twin can never disagree.
+
+The bit operators (design 185) are evaluated at `width`, the TARGET's integer
+width, not in Python's unbounded integers — `1 << (width - 1)` is the negative
+number the runtime `shl` produces, not a value no `Int` can hold, and a shift
+count that is negative or `>= width` is the compile-time form of the runtime
+"shift out of range" panic. The domain is the platform `Int`: signed,
+pointer-wide, which is the type a bare integer literal already has. A narrower
+destination is range-checked where the constant LANDS (an `as`, a fixed-width
+slot, an array length), not inside the arithmetic.
 """
 
 from ast_nodes import (
@@ -95,6 +105,31 @@ def _reject(expr, what):
                          getattr(expr, 'column', 0))
 
 
+def _at_width(value: int, width: int) -> int:
+    """`value` as the platform `Int` holds it: two's complement, `width` bits.
+
+    The bit operators are the ones that need this. `1 << 63` in Python is a
+    65-bit positive number; in a 64-bit `Int` it is `Int.min`, which is what the
+    runtime `shl` produces and what an array length written that way must be
+    caught as (DF-172k's negative-length rule does the catching).
+    """
+    value &= (1 << width) - 1
+    return value - (1 << width) if value >> (width - 1) else value
+
+
+def _int_operand(expr, value, op: str):
+    """An operand of a BIT operator, which a `Bool` may not be.
+
+    Python's `bool` is an `int`, so `true & false` would quietly evaluate to `0`
+    here — in a length position, where nothing type-checked it first. Saw spells
+    the Bool operators `&& || not`, so the refusal names them.
+    """
+    if isinstance(value, bool):
+        _reject(expr, f"operator `{op}` on a Bool (its Bool form is "
+                      f"`&&` / `||` / `not`)")
+    return value
+
+
 def const_eval(expr, env=None, metric=None, width: int = 64):
     """Evaluate `expr` to a Python int/bool, or raise `ConstEvalError`.
 
@@ -130,6 +165,10 @@ def const_eval(expr, env=None, metric=None, width: int = 64):
             return -const_eval(expr.operand, env, metric, width)
         if expr.op == 'not':
             return not const_eval(expr.operand, env, metric, width)
+        if expr.op == '~':
+            operand = _int_operand(
+                expr, const_eval(expr.operand, env, metric, width), '~')
+            return _at_width(~operand, width)
         _reject(expr, f"unary operator `{expr.op}`")
     if isinstance(expr, BinaryOp):
         left = const_eval(expr.left, env, metric, width)
@@ -148,6 +187,24 @@ def const_eval(expr, env=None, metric=None, width: int = 64):
                 _reject(expr, "modulo by zero")
             r = abs(left) % abs(right)
             return -r if left < 0 else r
+        if op in ('&', '|', '^', '<<', '>>'):
+            # design 185. `& | ^` are exact on operands the platform `Int`
+            # holds, so only the shifts need the width: `<<` wraps at it (the
+            # runtime `shl`), and a count outside `0..<width` is the compile-time
+            # form of the "shift out of range" panic rather than a fold nobody
+            # can predict. `>>` on a signed domain is Python's arithmetic shift,
+            # which is the `ashr` the runtime emits for a signed left operand.
+            left = _int_operand(expr, left, op)
+            right = _int_operand(expr, right, op)
+            if op == '&': return left & right
+            if op == '|': return left | right
+            if op == '^': return left ^ right
+            if not (0 <= right < width):
+                _reject(expr, f"shift count `{right}` out of range "
+                              f"(0..<{width})")
+            if op == '<<':
+                return _at_width(left << right, width)
+            return left >> right
         if op == '==': return left == right
         if op == '!=': return left != right
         if op == '<': return left < right
