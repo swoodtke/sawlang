@@ -1359,6 +1359,40 @@ never dropped its payload (DF-146s). One new P0 is OPEN and needs a decision:
   option once floated here, `borrows -> &T`, is gone: a return type that names a
   reference is a parse error since DF-163a's fix.) Until then `Set` has no
   element accessor, and the spec says so.
+  **PROBE VERDICT (design 179 unit 5, probe-only — no accessor built). The
+  IMPLEMENTATION question is now answered; the DECISION is untouched.** A
+  shared-only accessor is expressible TODAY with no new language surface, by
+  gating a compile-time reject on `#lend_var`:
+  ```saw
+  public func [](&self, i: Int) borrows -> Int {
+      if i < 0 || i >= 4 { panic("Keys.[]: index out of range") }
+      if #lend_var {
+          static_assert(false, "Keys.[] lends a KEY: writing one changes its hash")
+      }
+      lend self.items[i]
+  }
+  ```
+  Reads compile and run; an exclusive use site is a COMPILE ERROR carrying the
+  author's own message, verified for both shapes that open one — an assignment
+  (`k[0] = 99`) and a `&var` argument (`bump(&var k[0])`). It works because
+  `static_assert`'s condition is type-checked at check time but its VALUE is
+  evaluated at codegen (`typechecker/statements.py:901-905`), and design 179's
+  exclusive twin is a generic method only monomorphized when a use site
+  retargets to it: no exclusive use site, no twin emitted, no assertion
+  evaluated. The shared copy never contains the assert at all, because the fold
+  PRUNES rather than skips.
+  NOT SHIPPABLE AS THE SPELLING, for one reason: the diagnostic has NO source
+  location — not the write site, not the accessor —
+  `error: static assertion failed: Keys.[] lends a KEY: ...` and nothing else.
+  For a std `Set` accessor a user would see that and nothing pointing into
+  their own code.
+  RECOMMENDATION: a viable IMPLEMENTATION, not a viable SPELLING. If `Set`
+  should publish a shared-only element accessor, the honest surface is the
+  `shared borrows` declaration floated above, LOWERED to exactly this — emit no
+  twin, and error in `place_uses._flavored_method`, where the use site's own
+  line and column are already in hand (every other diagnostic in that pass uses
+  them). Roughly ten lines for a message anchored at the write. Probes:
+  `.build/scratch/p179_setlock_{read,write,ref}.saw`.
   Adjacent, same brief: a borrows body cannot FORWARD another conditional place
   (`lend self.map.get_key(k)!` — `lend` takes an
   Identifier/MemberAccess/ArrayIndex/TupleIndex/deref, and even if it took a
