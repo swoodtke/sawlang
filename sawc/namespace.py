@@ -241,6 +241,13 @@ class StaticSymbol:
     # non-root module is nameable only from here, so it lives in the namespace's
     # per-module overlay rather than the shared simple-name slot.
     def_module: Tuple[str, ...] = ()
+    # DF-172j: what this static means in a const-required position — the integer
+    # it folds to, or the reason it folds to nothing. Carried on the SYMBOL and
+    # not looked up from the declaration, because an import may bind the symbol
+    # under another name (`import kcore.{REGION_SIZE as RS}`) and the answer has
+    # to travel with it. Computed once, where the static is registered.
+    const_value: Optional[int] = None
+    const_reject: Optional[str] = None
 
 
 @dataclass

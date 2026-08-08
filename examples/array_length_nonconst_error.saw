@@ -1,19 +1,21 @@
 // DF-172f: one rule, two positions, and until design 172 part 2 only one of
-// them had a diagnostic. `[T; N]`'s length is fixed at compile time, so a
-// module `static` in that position is refused — but the REPEAT literal
-// (`[0; ARENA_BYTES]`) said so cleanly while the TYPE annotation
-// (`[UInt8; ARENA_BYTES]`) reached codegen with an unresolved length and died
-// as `internal compiler error: Array type missing element type or size`.
+// them had a diagnostic. The REPEAT literal said cleanly what it would not
+// accept; the TYPE annotation reached codegen with an unresolved length and
+// died as `internal compiler error: Array type missing element type or size`.
 //
-// Design 148 already named this position as the one that owns the requirement
-// ("a declared array length reaching codegen reports it"); it just raised the
-// wrong kind of error. Found writing the SOS arena, whose size wants ONE
-// spelling — the working one is a named array type plus `sizeof`.
+// DF-172j then made the foldable half of that rule WORK — a `static
+// REGION_SIZE: Int = 1024` is a length now (see `const_static_length.saw`) —
+// so what is left to pin here is the half that is still refused, and the
+// message that separates the two. An `unsafe static var` is mutable: its value
+// is a fact about the running program, not about the source, so it can be no
+// more a length than a `var` local can. The diagnostic names WHICH static and
+// why, rather than reading as "a static may not be named here".
 // EXPECT: error
 // EXPECT-ERROR-CONTAINS: array length is not a compile-time constant
-// EXPECT-ERROR-CONTAINS: `ARENA_BYTES`
+// EXPECT-ERROR-CONTAINS: the mutable static `ARENA_BYTES`
+// EXPECT-ERROR-CONTAINS: initialized by a plain integer literal
 
-static ARENA_BYTES: Int = 1024
+unsafe static var ARENA_BYTES: Int = 1024
 
 static ARENA: [UInt8; ARENA_BYTES] = [0; 1024]
 

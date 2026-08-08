@@ -1,0 +1,44 @@
+// DF-172j: a module `static` is a compile-time constant, so it may BE an array
+// length and a repeat count. This is the shape SOS asked for — one checked
+// source for a region size, named everywhere the size is spelled, instead of a
+// literal repeated at each use and a named array type plus `sizeof` to tie them
+// together.
+//
+// What the pin asserts, beyond "it compiles": every position agrees on the same
+// number. The struct field, the local annotation, the repeat literal filling it
+// and `sizeof` of the type all fold the same static, so a size the author
+// changes in one place changes in all of them.
+// EXPECT: success
+// EXPECT-OUTPUT: 64
+// EXPECT-OUTPUT: 9
+// EXPECT-OUTPUT: 64
+// EXPECT-OUTPUT: 132
+// EXPECT-OUTPUT: 64
+// EXPECT-OUTPUT: 128
+// EXPECT-OUTPUT: 4
+
+static REGION_SIZE: Int = 64
+static GUARD: UInt = 4
+
+struct Region { bytes: [UInt8; REGION_SIZE] }
+
+// Const arithmetic composes over a static exactly as it does over a literal,
+// and a `UInt` static folds beside an `Int` one.
+struct Guarded { head: [UInt8; GUARD], body: [UInt8; REGION_SIZE * 2] }
+
+static ARENA: [UInt8; REGION_SIZE] = [0; REGION_SIZE]
+
+func main() {
+    var scratch: [UInt8; REGION_SIZE] = [0; REGION_SIZE]
+    scratch[REGION_SIZE - 1] = 9
+    print(scratch.len())
+    print(scratch[REGION_SIZE - 1])
+
+    print(sizeof<Region>())
+    print(sizeof<Guarded>())
+    print(ARENA.len())
+
+    let g = Guarded(head: [0; GUARD], body: [0; REGION_SIZE * 2])
+    print(g.body.len())
+    print(g.head.len())
+}

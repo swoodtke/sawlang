@@ -31,7 +31,7 @@ from ast_nodes import (
     Argument, ASTNode, MatchArm, structural_fields,
 )
 from errors import ErrorKind
-from const_eval import const_eval, ConstEvalError
+from const_eval import const_eval, ConstEvalError, CONST_LENGTH_HINT
 from namespace import Visibility, EnumSymbol
 
 # Sentinel: a length that IS a compile-time constant but whose value belongs to
@@ -4203,6 +4203,9 @@ class ExpressionsMixin:
         # "a constant this pass cannot see", which are different answers.
         probe = dict.fromkeys(self._const_param_types().keys(), 1)
         probe.update(self._const_param_env())
+        # DF-172j: bind the module statics the count names, so `[0; REGION_SIZE]`
+        # folds beside the `[UInt8; REGION_SIZE]` it fills.
+        self._stamp_const_statics(expr)
         try:
             value = const_eval(expr, env=probe, width=self.platform_int_width)
         except ConstEvalError as e:
@@ -4211,8 +4214,7 @@ class ExpressionsMixin:
                 f"{what} is not a compile-time constant: {e.what} is not "
                 f"allowed here",
                 e.line or expr.line, e.column or expr.column,
-                hint="a length is fixed at compile time — use a literal, a "
-                     "const generic parameter, or arithmetic over them")
+                hint=CONST_LENGTH_HINT)
             return None
         if isinstance(value, bool) or not isinstance(value, int):
             self._error(

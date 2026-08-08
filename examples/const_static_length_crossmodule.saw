@@ -1,0 +1,26 @@
+// DF-172j: a static that folds into a length folds across a module boundary on
+// the ordinary visibility terms — a `public` one reached through an import is
+// nameable here, so it is foldable here. Which is the whole point of the rule:
+// a size a dependency owns is spelled once, in the module that owns it, and
+// every consumer's buffer agrees with it by construction.
+// EXPECT: success
+// EXPECT-OUTPUT: 39
+// EXPECT-OUTPUT: 32
+// EXPECT-OUTPUT: 64
+// EXPECT-OUTPUT: 32
+
+import modules.const_static_dep.{FRAME_BYTES, dep_frame}
+
+struct Frame { bytes: [UInt8; FRAME_BYTES] }
+
+func main() {
+    print(dep_frame())
+
+    var buf: [UInt8; FRAME_BYTES] = [0; FRAME_BYTES]
+    print(buf.len())
+
+    var wide: [UInt8; FRAME_BYTES * 2] = [0; FRAME_BYTES * 2]
+    print(wide.len())
+
+    print(sizeof<Frame>())
+}

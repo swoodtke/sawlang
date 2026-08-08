@@ -1,0 +1,16 @@
+// DF-172k: a length that folds to a NEGATIVE number. `[UInt8; 2 - 3]` reached
+// llvmlite as `[-1 x i8]` and came back as "internal compiler error: LLVM IR
+// parsing error" — the one thing a user-written length must never produce. The
+// repeat count has checked this since design 148; the type position had not,
+// and DF-172j gives the fold one more way to arrive here (a static may now be
+// negative).
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: array length is negative (`-1`)
+// EXPECT-ERROR-CONTAINS: counts elements, so it starts at 0
+
+struct Bad { bytes: [UInt8; 2 - 3] }
+
+func main() {
+    let b = Bad(bytes: [0; 1])
+    print(b.bytes.len())
+}

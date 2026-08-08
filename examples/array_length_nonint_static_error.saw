@@ -1,0 +1,16 @@
+// DF-172j: the other half of the still-refused set. A static folds into a
+// length when it is an `Int`/`UInt` initialized by a plain integer literal;
+// this one is neither, and the message names its type rather than leaving the
+// author to guess whether statics are allowed here at all.
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: array length is not a compile-time constant
+// EXPECT-ERROR-CONTAINS: the `Bool` static `ENABLED`
+
+static ENABLED: Bool = true
+
+struct Region { bytes: [UInt8; ENABLED] }
+
+func main() {
+    let r = Region(bytes: [0; 4])
+    print(r.bytes.len())
+}

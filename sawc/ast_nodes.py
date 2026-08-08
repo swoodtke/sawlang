@@ -809,6 +809,16 @@ class Identifier(Expression):
     # Set when this name resolved to a const generic PARAMETER (design 148), so
     # codegen emits the instantiation's value instead of looking for storage.
     const_param_name: Optional[str] = annotation(None)
+    # DF-172j: this name resolved, in a const-required position, to a module
+    # `static` the typechecker could fold — an `Int`/`UInt` one initialized by a
+    # plain integer literal. `const_static_reject` is the other half: the name IS
+    # such a static and is NOT foldable, carrying the reason so the diagnostic
+    # can say which rather than implying a static may not be named at all.
+    # The evaluator (`const_eval.py`) reads these exactly as it reads the
+    # `Int.max` and raw-enum stamps on a MemberAccess, so it never needs a
+    # namespace of its own.
+    const_static_value: Optional[int] = annotation(None)
+    const_static_reject: Optional[str] = annotation(None)
 
 
 @dataclass

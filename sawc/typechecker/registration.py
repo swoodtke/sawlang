@@ -1153,6 +1153,12 @@ class RegistrationMixin:
             f"saw.static.{static.name}", def_module,
             visibility) or f"saw.static.{static.name}"
         static.mangled_symbol = mangled
+        # DF-172j: what this static means in a constant position rides on the
+        # symbol, so an importing module gets the same answer — including under
+        # a rename, where the simple name no longer finds the declaration.
+        const_value, const_reject = (
+            getattr(self, '_const_static_decls', None) or {}
+        ).get((def_module, static.name), (None, None))
         self.namespace.register_static(static.name, StaticSymbol(
             type=resolved_type,
             mangled_name=mangled,
@@ -1160,7 +1166,9 @@ class RegistrationMixin:
             is_var=static.is_var,
             line=static.line,
             column=static.column,
-            def_module=def_module
+            def_module=def_module,
+            const_value=const_value,
+            const_reject=const_reject
         ))
 
     def _is_zero_initable_type(self, t: SawType, seen=None) -> bool:

@@ -1006,6 +1006,13 @@ class TypeChecker(ExpressionsMixin, StatementsMixin, RegistrationMixin, TypeUtil
         # folded before anything reads a type-parameter list.
         self._resolve_const_params_in_program(program)
 
+        # DF-172j: same position, same reason. A `static` may be an array
+        # length, so the constant a name denotes has to be known before the
+        # struct pass below resolves the first `[UInt8; REGION_SIZE]` field —
+        # four passes earlier than statics are registered.
+        self._collect_const_statics(program)
+        self._fold_const_lengths_in_program(program)
+
         # First pass: register type definitions (aliases)
         for type_def in program.type_definitions:
             self._register_type_definition(type_def)
@@ -1641,6 +1648,11 @@ class TypeChecker(ExpressionsMixin, StatementsMixin, RegistrationMixin, TypeUtil
 
         # design 148: const VALUE parameters, before any type-param list is read.
         self._resolve_const_params_in_program(module_ast)
+
+        # DF-172j: this module's const-foldable statics, before the struct pass
+        # resolves a field whose length names one.
+        self._collect_const_statics(module_ast)
+        self._fold_const_lengths_in_program(module_ast)
 
         # Register type definitions
         for type_def in module_ast.type_definitions:

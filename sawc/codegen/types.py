@@ -241,17 +241,21 @@ class TypesMixin:
                 # happened to run substitution first.
                 size, _ = saw_type._substituted_length(self.type_param_context)
             if size is None:
-                # A DECLARED length that never folded — `[UInt8; ARENA_BYTES]`
-                # naming a module `static`, say. This is the position design 148
-                # says owns the requirement ("a declared array length reaching
+                # A DECLARED length that never folded — `[UInt8; count]` naming
+                # a runtime binding, say. This is the position design 148 says
+                # owns the requirement ("a declared array length reaching
                 # codegen reports it"), and it is the author's mistake, not a
                 # compiler invariant: report it where the length is written,
                 # with the same wording the repeat-count position already uses.
                 # It raised a bare ValueError until design 172 part 2 hit it —
                 # so one spelling of one rule gave a clean, hint-carrying error
                 # and the other gave an internal compiler error (DF-172f).
+                # DF-172j narrowed what reaches here: a module `static` of type
+                # `Int`/`UInt` initialized by a plain integer literal now folds,
+                # and the ones that still do not say which static and why.
                 from .core import CodegenUserError
-                from const_eval import const_eval, ConstEvalError
+                from const_eval import (const_eval, ConstEvalError,
+                                        CONST_LENGTH_HINT)
                 expr = saw_type.array_size_expr
                 what, line, column = "the length", 0, 0
                 if expr is not None:
@@ -268,8 +272,23 @@ class TypesMixin:
                 raise CodegenUserError(
                     f"array length is not a compile-time constant: {what} is "
                     f"not allowed here", line, column,
-                    hint="a length is fixed at compile time — use a literal, a "
-                         "const generic parameter, or arithmetic over them",
+                    hint=CONST_LENGTH_HINT,
+                    source_file=getattr(expr, 'source_file', None))
+            if size < 0:
+                # DF-172k: a length that folded to a NEGATIVE number. `[UInt8;
+                # -1]` and `[UInt8; 2 - 3]` reached llvmlite as `[-1 x i8]` and
+                # came back as an "internal compiler error: LLVM IR parsing
+                # error", which is the one thing a user-written length must
+                # never produce. The repeat count has checked this since design
+                # 148 ("repeat count is negative"); the type position had not,
+                # and DF-172j gives the fold one more way to arrive here.
+                from .core import CodegenUserError
+                expr = saw_type.array_size_expr
+                raise CodegenUserError(
+                    f"array length is negative (`{size}`)",
+                    getattr(expr, 'line', 0) or 0,
+                    getattr(expr, 'column', 0) or 0,
+                    hint="an array length counts elements, so it starts at 0",
                     source_file=getattr(expr, 'source_file', None))
             elem_type = self._get_llvm_type(saw_type.array_element_type)
             return ir.ArrayType(elem_type, size)

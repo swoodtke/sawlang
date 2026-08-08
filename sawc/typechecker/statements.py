@@ -1375,6 +1375,11 @@ class StatementsMixin:
             self._check_type_name_resolves(
                 resolved_type, f"the annotation of `{stmt.name}`",
                 stmt.line, stmt.column)
+            # DF-172k: an annotation is the one `[T; N]` position codegen never
+            # sees, so its length is checked here or nowhere.
+            self._check_declared_array_lengths(
+                resolved_type, f"the annotation of `{stmt.name}`",
+                stmt.line, stmt.column)
             # A binding annotation is a non-parameter role (design 16/29): a
             # closure type there is escaping; the `escaping` marker is redundant.
             self._stamp_escaping_roles(resolved_type, is_param=False,

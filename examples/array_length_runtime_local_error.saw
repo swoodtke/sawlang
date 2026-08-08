@@ -1,0 +1,16 @@
+// DF-172k: a BINDING's annotation is the one `[T; N]` position codegen never
+// sees. When the initializer supplies its own type the annotation is only
+// compared against it, and an unfolded length compares equal to anything — so
+// `var buf: [UInt8; n] = [0; 4]` compiled clean with the annotation silently
+// dropped. Found while DF-172j was making a static legal in that position: an
+// accepted-looking annotation would have read as the fold working when it was
+// the check missing.
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: array length is not a compile-time constant
+// EXPECT-ERROR-CONTAINS: `n`
+
+func main() {
+    var n = 4
+    var buf: [UInt8; n] = [0; 4]
+    print(buf.len())
+}

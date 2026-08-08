@@ -10,7 +10,10 @@ resolved — so the phase-dependent parts became parameters instead:
   `env`     name -> int, for the identifiers that denote compile-time integers.
             The typechecker binds const generic parameters here; an identifier
             absent from it is rejected as non-constant, which is what keeps a
-            runtime `let` out of a constant position.
+            runtime `let` out of a constant position. A module `static` takes
+            the other route (DF-172j): the typechecker stamps its value on the
+            identifier node, because the question "which `SIZE` is this, and may
+            this file see it" is a namespace question and this file has none.
   `metric`  the layout oracle behind `sizeof<T>()` / `alignof<T>()`. Codegen
             passes one; the typechecker passes None, since it knows the word
             width but not struct layout, and `sizeof` in a type-resolution
@@ -58,6 +61,18 @@ CAST_INT_KINDS = {
 }
 
 
+# The hint every const-required LENGTH position gives. Shared (rather than
+# written twice) because the two positions are two spellings of one rule and are
+# reported from two different phases — the repeat count in the typechecker, the
+# declared array length in codegen — so a drift between them would read as a
+# disagreement about what a length may be.
+CONST_LENGTH_HINT = (
+    "a length is fixed at compile time — use a literal, a const generic "
+    "parameter, arithmetic over them, or a module `static` of type `Int` or "
+    "`UInt` initialized by a plain integer literal"
+)
+
+
 class ConstEvalError(Exception):
     """An expression that is not a compile-time constant.
 
@@ -96,6 +111,19 @@ def const_eval(expr, env=None, metric=None, width: int = 64):
     if isinstance(expr, Identifier):
         if env is not None and expr.name in env:
             return env[expr.name]
+        # DF-172j: a module `static` whose initializer is a plain integer
+        # literal. The typechecker owns the resolution — which module the name
+        # belongs to, whether it is visible here, whether a local shadows it —
+        # and stamps the answer on the node, exactly as it stamps `Int.max` and
+        # a raw-backed enum case on a MemberAccess below. Keeping the lookup
+        # there is what lets this stay a pure function of the AST, callable from
+        # codegen with no namespace in hand.
+        value = getattr(expr, 'const_static_value', None)
+        if value is not None:
+            return int(value)
+        reject = getattr(expr, 'const_static_reject', None)
+        if reject is not None:
+            _reject(expr, reject)
         _reject(expr, f"`{expr.name}`")
     if isinstance(expr, UnaryOp):
         if expr.op == '-':

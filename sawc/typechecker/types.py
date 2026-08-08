@@ -1175,6 +1175,281 @@ class TypeUtilsMixin:
             return SawType(TypeKind.FUNCTION, param_types=resolved_params, func_return_type=resolved_return, func_is_sync=saw_type.func_is_sync, func_is_escaping=saw_type.func_is_escaping, func_escaping_stamped=saw_type.func_escaping_stamped, func_is_unsafe=saw_type.func_is_unsafe)
         return saw_type
 
+    # ---------------------------------------------------------------- DF-172j
+    # A module `static` in a const-required position.
+    #
+    # Design 148 fixed the constants an array length, a repeat count and a const
+    # generic argument accept: literals, const generic parameters, arithmetic
+    # over them. That left a kernel with no way to have ONE checked source for a
+    # region size — `static REGION_SIZE: Int = 65536` beside `[UInt8;
+    # REGION_SIZE]` was a clean error (DF-172f) and the workaround was a named
+    # array type plus `sizeof`. The subset that folds is the subset that is
+    # already a literal by the time anything asks: an `Int`/`UInt` static whose
+    # initializer IS a plain integer literal. Everything else about a static —
+    # `unsafe static var`, a String, a struct literal — keeps DF-172f's error,
+    # now saying WHICH of the two things went wrong.
+    #
+    # Three moving parts, and the ordering is why they are three:
+    #   * `_collect_const_statics` indexes the declarations BEFORE anything is
+    #     registered, because a struct field's `[UInt8; REGION_SIZE]` is resolved
+    #     in the struct pass and statics are registered four passes later.
+    #   * `_register_static` copies the answer onto the SYMBOL, which is what
+    #     travels to an importing module (under a rename, even).
+    #   * `_stamp_const_statics` writes the value onto the identifier NODE, so
+    #     the evaluator — and codegen, which re-evaluates the same nodes with no
+    #     namespace in hand — reads a number instead of a name.
+    # ------------------------------------------------------------------------
+
+    def _collect_const_statics(self, program) -> None:
+        """Index this AST's `static`s by (defining module, name) -> binding.
+
+        Runs before registration, so the answer is computed from the type AS
+        WRITTEN — which is also the only moment it can be, since registration
+        overwrites `static.type` with the resolved one.
+        """
+        table = getattr(self, '_const_static_decls', None)
+        if table is None:
+            table = {}
+            self._const_static_decls = table
+        for static in getattr(program, 'statics', []) or []:
+            module = self._vis_module_for_source(
+                getattr(static, 'source_file', None))
+            # A duplicate is an error at registration; the FIRST declaration is
+            # the one that survives it, so it is the one indexed here.
+            table.setdefault((module, static.name),
+                             self._static_const_binding(static))
+
+    def _static_const_binding(self, static):
+        """`(value, reason)` — the integer this `static` denotes in a constant
+        position, or the reason it denotes none.
+
+        The reason is phrased to complete "<reason> is not allowed here", and
+        NAMES the static: the whole point of the rule is that a static may be
+        written here now, so a refusal has to say which static and why rather
+        than reading as "no static may".
+        """
+        from ast_nodes import IntLiteral, UnaryOp
+        name = static.name
+        if getattr(static, 'is_var', False):
+            # An `unsafe static var` is mutable, so its value is a fact about
+            # the running program, not about the source.
+            return None, f"the mutable static `{name}`"
+        declared = getattr(static, 'type', None)
+        kind = getattr(declared, 'kind', None)
+        if kind not in (TypeKind.INT, TypeKind.UINT):
+            spelled = f"`{declared}` " if declared is not None else ""
+            return None, f"the {spelled}static `{name}`"
+        init = getattr(static, 'initializer', None)
+        if init is None:
+            return None, f"the uninitialized static `{name}`"
+        if isinstance(init, IntLiteral):
+            return int(init.value), None
+        if isinstance(init, UnaryOp) and init.op == '-' and \
+                isinstance(init.operand, IntLiteral):
+            return -int(init.operand.value), None
+        return None, f"the computed static `{name}`"
+
+    def _const_static_lookup(self, name: str):
+        """`(value, reason)` for `name` read as a module static from here, or
+        `(None, None)` when it is not one.
+
+        Visibility is the namespace's answer, asked exactly as an ordinary read
+        of the name would ask it — so a module-private static of another module
+        is invisible here, and a `public` one reached through an import is not.
+        The declaration table is the fallback for the case the symbol table
+        cannot cover: a static of THIS module that has not been registered yet.
+        """
+        sym = self.namespace.get_static(name, self._accessor_vis_module())
+        if sym is not None and self.namespace.is_accessible(name):
+            return getattr(sym, 'const_value', None), \
+                getattr(sym, 'const_reject', None)
+        table = getattr(self, '_const_static_decls', None) or {}
+        return table.get((self._accessor_vis_module(), name), (None, None))
+
+    def _stamp_const_statics(self, expr) -> None:
+        """Resolve the module statics a constant expression names, onto the
+        identifier nodes.
+
+        Name resolution order mirrors an ordinary read (`_check_identifier`):
+        a local binding wins, then a const generic parameter, then a static. The
+        local check is what keeps the derived shadow legal — `let REGION_SIZE =
+        REGION_SIZE + 1` is a binding design 100 allows, and folding the static
+        into `[0; REGION_SIZE]` under it would silently compile the wrong
+        length.
+        """
+        from ast_nodes import Identifier, UnaryOp, BinaryOp, CastExpr
+        if isinstance(expr, UnaryOp):
+            self._stamp_const_statics(expr.operand)
+            return
+        if isinstance(expr, BinaryOp):
+            self._stamp_const_statics(expr.left)
+            self._stamp_const_statics(expr.right)
+            return
+        if isinstance(expr, CastExpr):
+            self._stamp_const_statics(expr.expr)
+            return
+        if not isinstance(expr, Identifier):
+            return
+        if expr.const_static_value is not None or \
+                expr.const_static_reject is not None:
+            return
+        scope = getattr(self, 'current_scope', None)
+        if scope is not None and scope.lookup(expr.name):
+            return
+        if expr.name in self._const_param_types() or \
+                expr.name in self._const_param_env():
+            return
+        value, reason = self._const_static_lookup(expr.name)
+        if value is not None:
+            expr.const_static_value = value
+        elif reason is not None:
+            expr.const_static_reject = reason
+
+    def _fold_const_lengths_in_program(self, program) -> None:
+        """Fold every DECLARED array length in this AST, in place.
+
+        A local's annotation is folded when the statement checker resolves it,
+        but a struct FIELD's type is stored exactly as written and is never
+        resolved before codegen reads it — so a `[UInt8; REGION_SIZE]` field
+        would arrive there with no length at all while the `var` spelling of the
+        same type worked. One walk over the declared positions, before
+        registration copies any of them, is what makes the two agree.
+
+        Only lengths that fold TO something are touched: a `[T; N]` on a const
+        generic parameter has no value in the abstract body and keeps its
+        expression, exactly as design 148 wrote it.
+        """
+        for struct in getattr(program, 'structs', []) or []:
+            for f in getattr(struct, 'fields', []) or []:
+                self._fold_const_lengths_in_type(getattr(f, 'type', None))
+        for enum in getattr(program, 'enums', []) or []:
+            for variant in getattr(enum, 'variants', []) or []:
+                for payload in (variant.associated_types or []):
+                    pt = payload[1] if isinstance(payload, tuple) else payload
+                    self._fold_const_lengths_in_type(pt)
+        for fn in getattr(program, 'functions', []) or []:
+            self._fold_const_lengths_in_signature(fn)
+        for ext in getattr(program, 'extensions', []) or []:
+            for method in getattr(ext, 'methods', []) or []:
+                self._fold_const_lengths_in_signature(method)
+        for trait in getattr(program, 'traits', []) or []:
+            for tm in getattr(trait, 'methods', []) or []:
+                self._fold_const_lengths_in_signature(tm)
+        for block in getattr(program, 'extern_blocks', []) or []:
+            for fn in getattr(block, 'functions', []) or []:
+                self._fold_const_lengths_in_signature(fn)
+        for static in getattr(program, 'statics', []) or []:
+            self._fold_const_lengths_in_type(getattr(static, 'type', None))
+        for td in getattr(program, 'type_definitions', []) or []:
+            self._fold_const_lengths_in_type(getattr(td, 'defined_type', None))
+
+    def _reject_negative_length(self, value: int, expr, line: int = 0,
+                                column: int = 0) -> bool:
+        """Report a NEGATIVE array length, returning whether it did (DF-172k).
+
+        `[UInt8; 2 - 3]` folded to -1 and reached llvmlite as `[-1 x i8]`, which
+        came back as "internal compiler error: LLVM IR parsing error". The
+        repeat-count spelling of the same rule has said "repeat count is
+        negative" since design 148; the type position had not, and DF-172j gives
+        the fold one more way to arrive here, since a static may be negative.
+        """
+        if value >= 0:
+            return False
+        self._error(
+            ErrorKind.TYPE_MISMATCH,
+            f"array length is negative (`{value}`)",
+            getattr(expr, 'line', 0) or line,
+            getattr(expr, 'column', 0) or column,
+            hint="an array length counts elements, so it starts at 0")
+        return True
+
+    def _check_declared_array_lengths(self, t, what: str, line: int,
+                                      column: int, seen=None) -> None:
+        """Report a DECLARED array length that folded to nothing (DF-172k).
+
+        Every other position a `[T; N]` is written reaches codegen, which owns
+        the requirement (design 148) — but a BINDING's annotation does not: when
+        the initializer supplies its own type the annotation is only compared
+        against it, and a length of `None` compares equal to anything. So
+        `var buf: [UInt8; NOPE] = [0; 4]` compiled clean, with the annotation
+        silently ignored, and under DF-172j it would read as the compiler
+        ACCEPTING a static it actually just dropped. Asked here, where the
+        annotation is resolved.
+
+        A length that mentions a const generic parameter is constant with no
+        value in the abstract body and is left alone, exactly as everywhere else.
+        """
+        import dataclasses
+        from const_eval import const_eval, ConstEvalError, CONST_LENGTH_HINT
+        if not isinstance(t, SawType):
+            return
+        seen = set() if seen is None else seen
+        if id(t) in seen:
+            return
+        seen.add(id(t))
+        expr = t.array_size_expr
+        if t.kind == TypeKind.ARRAY and isinstance(t.array_size, int) and \
+                t.array_size < 0:
+            if self._reject_negative_length(t.array_size, expr, line, column):
+                # Do not carry a length nothing can build any further: leaving
+                # it unfolded is what keeps the report to ONE error instead of
+                # a cascade of mismatches against `[UInt8; -1]`.
+                t.array_size = None
+        if t.kind == TypeKind.ARRAY and t.array_size is None and \
+                expr is not None and not self._mentions_const_param(expr):
+            self._stamp_const_statics(expr)
+            try:
+                const_eval(expr, env=self._const_param_env(),
+                           width=self.platform_int_width)
+            except ConstEvalError as e:
+                self._error(
+                    ErrorKind.TYPE_MISMATCH,
+                    f"array length is not a compile-time constant: {e.what} "
+                    f"is not allowed here",
+                    e.line or line, e.column or column, hint=CONST_LENGTH_HINT)
+        for f in dataclasses.fields(t):
+            v = getattr(t, f.name, None)
+            if isinstance(v, SawType):
+                self._check_declared_array_lengths(v, what, line, column, seen)
+            elif isinstance(v, (list, tuple)):
+                for item in v:
+                    if isinstance(item, SawType):
+                        self._check_declared_array_lengths(
+                            item, what, line, column, seen)
+
+    def _fold_const_lengths_in_signature(self, fn) -> None:
+        for p in getattr(fn, 'parameters', []) or []:
+            self._fold_const_lengths_in_type(getattr(p, 'type', None))
+        self._fold_const_lengths_in_type(getattr(fn, 'return_type', None))
+
+    def _fold_const_lengths_in_type(self, t, seen=None) -> None:
+        """Fold the array lengths inside one declared type, in place."""
+        import dataclasses
+        if not isinstance(t, SawType):
+            return
+        seen = set() if seen is None else seen
+        if id(t) in seen:
+            return
+        seen.add(id(t))
+        if t.kind == TypeKind.ARRAY and t.array_size is None and \
+                t.array_size_expr is not None:
+            value = self._try_const_value(t.array_size_expr)
+            if value is not None and not self._reject_negative_length(
+                    value, t.array_size_expr):
+                t.array_size = value
+        # Reflective rather than a hand-listed set of sub-type fields: a length
+        # can sit anywhere a type can (`Vector<[UInt8; SIZE]>`, a parameter of a
+        # function type, an optional payload), and a list that missed one would
+        # fail silently, in codegen, on the one spelling nobody wrote a test for.
+        for f in dataclasses.fields(t):
+            v = getattr(t, f.name, None)
+            if isinstance(v, SawType):
+                self._fold_const_lengths_in_type(v, seen)
+            elif isinstance(v, (list, tuple)):
+                for item in v:
+                    if isinstance(item, SawType):
+                        self._fold_const_lengths_in_type(item, seen)
+
     def _try_const_value(self, expr):
         """Fold a constant expression, or return None if it cannot be folded yet.
 
@@ -1184,6 +1459,7 @@ class TypeUtilsMixin:
         repeat count, a declared array length reaching codegen — reports it.
         """
         from const_eval import const_eval, ConstEvalError
+        self._stamp_const_statics(expr)
         try:
             value = const_eval(expr, env=self._const_param_env(),
                                width=self.platform_int_width)
