@@ -342,10 +342,15 @@ TEST_CASES = [
         "expect_out": ["{banner}",
                        "root image ok segments={two}",
                        "prio={prio}",
-                       # The typed SAW altitude.
+                       # The typed SAW altitude: a method on a handle.
                        "SOS root: hello from U-mode via a System op",
-                       # The typed C altitude: `print` -> `__saw_rt_write` ->
-                       # the HAL sink -> the exported `sos_system_debug_print`.
+                       # The RUNTIME SEAM altitude, end to end: `print` ->
+                       # `__saw_rt_write` (sosrt) -> `sos_rt_write` (sysapi) ->
+                       # `sos_system_debug_print` -> `sos_syscall1` -> `ecall`.
+                       # Every hop but the last is Saw since design 172 part 2;
+                       # before it, the middle of that chain was C and this line
+                       # was described as exercising the C altitude. It no
+                       # longer does — see DF-172i.
                        # Also design 137 formatting with no allocator present.
                        "SOS root: boot handle 1"],
         "expect_clean_exit": True,
