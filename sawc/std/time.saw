@@ -5,8 +5,9 @@
 //! reads the wall clock instead, which is settable and can jump, so it is a
 //! timestamp rather than a way to time anything.
 //!
-//! `Duration` and `Instant` both carry Int64 nanoseconds, so their layout does
-//! not shift with the platform's `Int` width. Nothing here allocates.
+//! A `Duration` carries UInt64 nanoseconds and an `Instant` Int64 nanoseconds,
+//! so neither layout shifts with the platform's `Int` width. Nothing here
+//! allocates.
 //!
 //! Requires `import std.time`. The module links libc for its clocks and is not
 //! available in the freestanding profile.
@@ -19,8 +20,7 @@
 // =============================================================================
 //
 // The macOS/Linux CLOCK_MONOTONIC constant difference and the `struct timespec`
-// layout live inside these compiler shims (the __saw_rt_sleep_ms precedent), so this
-// module stays pure Saw.
+// layout live inside these compiler shims, so this module stays pure Saw.
 extern "C" {
     // Monotonic clock, nanoseconds since an arbitrary epoch (only differences
     // are meaningful). Backs `Instant.now()`.
@@ -30,46 +30,90 @@ extern "C" {
 }
 
 // =============================================================================
-// Duration — a span of time, Int64 nanoseconds
+// Duration — a span of time, UInt64 nanoseconds
 // =============================================================================
+//
+// Design 180 made the backing UNSIGNED. A span is a magnitude, and the whole
+// u64-nanosecond range (about 584 years) is reachable from every constructor,
+// so no request a caller can spell wraps into a shorter one — which is what
+// DF-170a was about at the millisecond API this replaced.
+
+// Unit conversions, named rather than spelled at each site.
+static NANOS_PER_MICRO: UInt64 = 1000
+static NANOS_PER_MILLI: UInt64 = 1000000
+static NANOS_PER_SEC: UInt64 = 1000000000
+static CENTIS_PER_SEC: UInt64 = 100
+// The largest argument each constructor can scale without leaving the u64
+// nanosecond range: UInt64.max divided by that constructor's unit.
+static MAX_MICROS: UInt64 = 18446744073709551
+static MAX_MILLIS: UInt64 = 18446744073709
+static MAX_SECS: UInt64 = 18446744073
 
 /// A span of time, held as whole nanoseconds.
 ///
-/// Build one with `Duration.from_millis` or `from_secs`, or get one by
-/// subtracting instants. Durations compare and print.
+/// Build one with `Duration.ns`, `us`, `ms` or `secs`, or get one by subtracting
+/// instants. Durations compare and print.
 struct Duration {
-    nanos: Int64
+    nanos: UInt64
 }
 
 /// Construction and whole-unit readout for `Duration`.
 extension Duration {
-    /// Returns a span of `ms` whole milliseconds.
-    public func from_millis(ms: Int64) -> Duration {
-        Duration(nanos: ms * (1000000 as Int64))
+    /// Returns a span of `n` nanoseconds.
+    public func ns(n: UInt64) -> Duration {
+        Duration(nanos: n)
     }
 
-    /// Returns a span of `s` whole seconds.
-    public func from_secs(s: Int64) -> Duration {
-        Duration(nanos: s * (1000000000 as Int64))
+    /// Returns a span of `n` whole microseconds.
+    ///
+    /// Panics if the span would run past the representable range, about 584
+    /// years.
+    public func us(n: UInt64) -> Duration {
+        if n > MAX_MICROS {
+            panic("Duration.us: {} microseconds is past the representable span", n)
+        }
+        Duration(nanos: n * NANOS_PER_MICRO)
     }
 
-    /// Returns the whole seconds in the span, truncating toward zero.
-    public func secs(&self) -> Int64 {
-        self.nanos / (1000000000 as Int64)
+    /// Returns a span of `n` whole milliseconds.
+    ///
+    /// Panics if the span would run past the representable range, about 584
+    /// years.
+    public func ms(n: UInt64) -> Duration {
+        if n > MAX_MILLIS {
+            panic("Duration.ms: {} milliseconds is past the representable span", n)
+        }
+        Duration(nanos: n * NANOS_PER_MILLI)
     }
 
-    /// Returns the whole milliseconds in the span, truncating toward zero.
-    public func millis(&self) -> Int64 {
-        self.nanos / (1000000 as Int64)
+    /// Returns a span of `n` whole seconds.
+    ///
+    /// Panics if the span would run past the representable range, about 584
+    /// years.
+    public func secs(n: UInt64) -> Duration {
+        if n > MAX_SECS {
+            panic("Duration.secs: {} seconds is past the representable span", n)
+        }
+        Duration(nanos: n * NANOS_PER_SEC)
     }
 
-    /// Returns the whole microseconds in the span, truncating toward zero.
-    public func micros(&self) -> Int64 {
-        self.nanos / (1000 as Int64)
+    /// Returns the whole seconds in the span, truncating.
+    public func as_secs(&self) -> UInt64 {
+        self.nanos / NANOS_PER_SEC
+    }
+
+    /// Returns the whole milliseconds in the span, truncating.
+    public func as_millis(&self) -> UInt64 {
+        self.nanos / NANOS_PER_MILLI
+    }
+
+    /// Returns the whole microseconds in the span, truncating.
+    public func as_micros(&self) -> UInt64 {
+        self.nanos / NANOS_PER_MICRO
     }
 
     /// Returns the span in nanoseconds, the unit it is stored in.
-    public func nanos(&self) -> Int64 {
+    public func as_nanos(&self) -> UInt64 {
         self.nanos
     }
 }
@@ -90,32 +134,29 @@ extension Duration: Printable {
     /// `5us`, then `42ns`.
     public func format(&self, into: &var StringBuilder) {
         let ns = self.nanos
-        let sec = 1000000000 as Int64
-        let milli = 1000000 as Int64
-        let micro = 1000 as Int64
-        if ns >= sec {
-            let whole = ns / sec
-            let frac = (ns % sec) / (10000000 as Int64)   // centiseconds, 0..99
-            into.append(whole as Int)
+        if ns >= NANOS_PER_SEC {
+            let whole = ns / NANOS_PER_SEC
+            let frac = (ns % NANOS_PER_SEC) / (NANOS_PER_SEC / CENTIS_PER_SEC)
+            into.append(whole as UInt)
             into.append(".")
-            if frac < (10 as Int64) {
+            if frac < (10 as UInt64) {
                 into.append("0")
             }
-            into.append(frac as Int)
+            into.append(frac as UInt)
             into.append("s")
             return
         }
-        if ns >= milli {
-            into.append((ns / milli) as Int)
+        if ns >= NANOS_PER_MILLI {
+            into.append((ns / NANOS_PER_MILLI) as UInt)
             into.append("ms")
             return
         }
-        if ns >= micro {
-            into.append((ns / micro) as Int)
+        if ns >= NANOS_PER_MICRO {
+            into.append((ns / NANOS_PER_MICRO) as UInt)
             into.append("us")
             return
         }
-        into.append(ns as Int)
+        into.append(ns as UInt)
         into.append("ns")
     }
 }
@@ -141,15 +182,27 @@ extension Instant {
     }
 
     /// Returns the span from this instant to now.
+    ///
+    /// Panics if the monotonic clock has stepped backward, which it is
+    /// specified never to do.
     public func elapsed(&self) -> Duration {
-        Duration(nanos: __saw_rt_clock_monotonic_nanos() - self.nanos)
+        let ns = __saw_rt_clock_monotonic_nanos() - self.nanos
+        if ns < (0 as Int64) {
+            panic("Instant.elapsed: the monotonic clock stepped backward")
+        }
+        Duration.ns(ns as UInt64)
     }
 
     /// Returns the span from `earlier` to this instant.
     ///
-    /// The span is negative when `earlier` is in fact the later of the two.
+    /// Panics if `earlier` is in fact the later of the two. A `Duration` is a
+    /// magnitude with no negative values, so the argument order carries the
+    /// meaning rather than the result reporting it.
     public func duration_since(&self, earlier: Instant) -> Duration {
-        Duration(nanos: self.nanos - earlier.nanos)
+        if self.nanos < earlier.nanos {
+            panic("Instant.duration_since: `earlier` is later than this instant")
+        }
+        Duration.ns((self.nanos - earlier.nanos) as UInt64)
     }
 }
 

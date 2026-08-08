@@ -36,5 +36,5 @@ func main() {
 
     // `as` renames the qualifier a whole-module import binds.
     let started = clock.Instant.now()
-    print("aliased {started.elapsed().millis() >= 0}")
+    print("aliased {started.elapsed().as_millis() >= (0 as UInt64)}")
 }

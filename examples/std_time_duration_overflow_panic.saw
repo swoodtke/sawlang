@@ -1,0 +1,16 @@
+// Design 180 unit 1: a `Duration` constructor whose argument would scale past
+// the u64 nanosecond range panics NAMING the constructor, rather than wrapping
+// into a shorter span. The millisecond API this replaced wrapped silently at
+// about 35 minutes (DF-170a) because the conversion narrowed to a 32-bit
+// microsecond count on the way to the seam.
+// EXPECT: panic
+// EXPECT-PANIC-CONTAINS: Duration.secs: 18446744074 seconds is past the representable span
+
+import std.time.{Duration}
+
+func main() {
+    // The last second that fits, and the first that does not.
+    let ok = Duration.secs(18446744073)
+    print(ok.as_secs())                  // 18446744073
+    let _ = Duration.secs(18446744074)
+}

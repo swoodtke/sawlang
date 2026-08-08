@@ -29,8 +29,8 @@ func main() {
     let d = Data()
     print("data {d.len()}")
 
-    let dur = Duration.from_millis(5)
-    print("dur {dur.millis()}")
+    let dur = Duration.ms(5)
+    print("dur {dur.as_millis()}")
 
     // The `{}` rule is unchanged everywhere else: this closure body is a
     // statement container, and its statements still end at end-of-line.

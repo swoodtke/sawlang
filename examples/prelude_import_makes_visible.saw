@@ -8,13 +8,13 @@
 import std.time.{Duration}
 
 func main() {
-    let d = Duration.from_secs(2 as Int64)
+    let d = Duration.secs(2)
     let v: Vector<Int> = [1, 2, 4]
     var sum = 0
     for x in v.iter() {
         sum = sum + x
     }
-    if d.secs() > (0 as Int64) {
+    if d.as_secs() > (0 as UInt64) {
         print(sum)  // 7
     }
 }

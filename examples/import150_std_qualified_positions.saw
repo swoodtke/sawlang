@@ -14,12 +14,12 @@ import std.data
 import std.task
 
 // Type annotation position, by value and behind a reference.
-func as_millis(d: time.Duration) -> Int { d.millis() }
+func as_millis(d: time.Duration) -> UInt64 { d.as_millis() }
 
 func first_byte(d: &data.Data) -> Int { d.get(0) ?? 0 }
 
 // Return position.
-func quarter_second() -> time.Duration { time.Duration.from_millis(250) }
+func quarter_second() -> time.Duration { time.Duration.ms(250) }
 
 // Generic ARGUMENT position: the qualified name inside `Vector<...>`.
 func count(v: &Vector<data.Data>) -> Int { v.len() }
@@ -34,7 +34,7 @@ func main() {
 
     // Static-method chain: qualifier -> type -> static method.
     let started = time.Instant.now()
-    print("static {started.elapsed().millis() >= 0}")
+    print("static {started.elapsed().as_millis() >= (0 as UInt64)}")
 
     // Free function through the qualifier — a call head.
     task.yield_now()

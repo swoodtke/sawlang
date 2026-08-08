@@ -23,7 +23,7 @@ import std.time.*
 
 // The threshold that separates "ran immediately" from "waited out the child".
 // The child sleeps 1000ms, so either answer clears this by a wide margin.
-static STARVED_MS: Int64 = 400
+static STARVED_MS: UInt64 = 400
 
 func run_child() -> Int {
     var c = Command(program: "/bin/sleep")
@@ -35,8 +35,8 @@ func run_child() -> Int {
 }
 
 // Report how long it took this task to be scheduled for the first time.
-func first_tick(start: Instant) -> Int64 {
-    start.elapsed().millis()
+func first_tick(start: Instant) -> UInt64 {
+    start.elapsed().as_millis()
 }
 
 func main() {

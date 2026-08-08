@@ -30,11 +30,11 @@ func main() {
     // std.time: monotonic elapsed is non-negative; Duration accessors work.
     let start = Instant.now()
     let d = start.elapsed()
-    assert(d.nanos() >= (0 as Int64), "elapsed should be non-negative")
+    assert(d.as_nanos() >= (0 as UInt64), "elapsed should be non-negative")
 
-    let dur = Duration.from_millis(1500)
-    assert(dur.secs() == (1 as Int64), "1500ms is 1 whole second")
-    assert(dur > Duration.from_millis(1000), "1.5s > 1s")
+    let dur = Duration.ms(1500)
+    assert(dur.as_secs() == (1 as UInt64), "1500ms is 1 whole second")
+    assert(dur > Duration.ms(1000), "1.5s > 1s")
 
     print("df3_map_time: ok")
 }

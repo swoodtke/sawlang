@@ -592,7 +592,7 @@ func main() -> Int {
         index = index + 1
     }
 
-    let elapsed = started.elapsed().millis()
+    let elapsed = started.elapsed().as_millis()
     let whole = elapsed / 1000
     let tenths = (elapsed % 1000) / 100
     print("irdet: compiled {checked} example(s) twice under differing PYTHONHASHSEED ({skipped} skipped, {whole}.{tenths}s)")

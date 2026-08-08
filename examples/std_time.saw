@@ -1,42 +1,52 @@
-// std.time (design 57): Duration accessors + round-trip, Comparable ordering,
-// Printable human form, monotonic Instant (non-negative elapsed), and a
-// wall-clock sanity check.
+// std.time (design 57, reworked by design 180): Duration unit constructors +
+// accessors, Comparable ordering, Printable human form, monotonic Instant
+// (non-negative elapsed), and a wall-clock sanity check.
 // EXPECT: success
 // EXPECT-OUTPUT:
 // 1
 // 1420
+// 1420000
 // 1420000000
 // true
 // 1.42s
 // 230ms
+// 5us
+// 42ns
+// 18446744073709551615
 // true
 // true
 // true
 
 import std.time.{Duration, Instant, unix_timestamp}
 func main() {
-    // Duration round-trip and accessors.
-    let d = Duration.from_millis(1420)
-    print(d.secs())        // 1
-    print(d.millis())      // 1420
-    print(d.nanos())       // 1420000000
+    // Unit constructors and the whole-unit readout of each.
+    let d = Duration.ms(1420)
+    print(d.as_secs())     // 1
+    print(d.as_millis())   // 1420
+    print(d.as_micros())   // 1420000
+    print(d.as_nanos())    // 1420000000
 
-    let a = Duration.from_secs(2)
+    let a = Duration.secs(2)
     print(a > d)           // true (2s > 1.42s)
 
-    // Printable human form.
-    print("{d}")           // 1.42s
-    print("{Duration.from_millis(230)}")  // 230ms
+    // Printable human form, one line per unit band.
+    print("{d}")                     // 1.42s
+    print("{Duration.ms(230)}")      // 230ms
+    print("{Duration.us(5)}")        // 5us
+    print("{Duration.ns(42)}")       // 42ns
+
+    // The whole u64 nanosecond range is reachable: no request wraps.
+    print(Duration.ns(UInt64.max).as_nanos())   // 18446744073709551615
 
     // Monotonic instant: elapsed is non-negative.
     let start = Instant.now()
     let e = start.elapsed()
-    print(e.nanos() >= (0 as Int64))   // true
+    print(e.as_nanos() >= (0 as UInt64))   // true
 
     // duration_since between two ordered instants.
     let later = Instant.now()
     let span = later.duration_since(start)
-    print(span.nanos() >= (0 as Int64))   // true
+    print(span.as_nanos() >= (0 as UInt64))   // true
 
     // Wall clock is past a fixed historical timestamp (2020-01-01 = 1577836800).
     print(unix_timestamp() > (1577836800 as Int64))   // true
