@@ -137,8 +137,15 @@ mutability expressible by types the compiler does not know a-priori.
    aggregation folds, user `init` BODIES never run at compile time — a
    hand-written init with logic is rejected even where it visibly "would"
    fold, because folding bodies is const-fn and this brief refuses to back
-   into it; (c) runtime-computed initial state is NEVER a static
-   initializer in any form — it is the placeholder-then-assign pattern:
+   into it. Tier (b) ABSORBS DF-185b (filed by design 185, xfail-pinned by
+   `examples/static_const_expr_init_xfail.saw`): design 41's
+   `_is_const_init` is literals-only and separate from the evaluator, so
+   even `static SIZE: Int = 4 * 1024` and the 185 brief's own
+   `static RW: UInt8 = Perm.Read | Perm.Write` are refused today — widening
+   it to the const-foldable tier needs the DF-172j pre-registration static
+   pass to evaluate in DECLARATION ORDER with a cycle rule, which is this
+   unit's work and flips that xfail. (c) runtime-computed initial state is
+   NEVER a static initializer in any form — it is the placeholder-then-assign pattern:
    set-once wants `static X: Once<T>` (unit 6), mutated-throughout keeps
    `unsafe static var` + the author's ordering argument (149's discipline).
    No life-before-main, no static constructors, ever — a static is image
