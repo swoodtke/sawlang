@@ -1,11 +1,13 @@
 # Design 172 — the SOS C diet: rewrite into Saw what is expressible today
 
-**Status: APPROVED (user, Aug 7: "let's rewrite into saw what is expressible
-today. if there are legit unexpressible items (that don't require asm) we
-should note it for future work") — the foundation pass BEFORE M2's interrupt/
-scheduling work. SOS policy: the branch PARKS for user review. Queue:
-dispatches after M1b's integration battery is green; sos/ surface, disjoint
-from 169/170.**
+**Status: DONE, in two parts. Part 1 landed units 1, 3, 4, 6, 7 and 8 and
+STOPPED unit 2 on DF-172e; part 2 (Aug 7, after design 177 closed that finding)
+landed unit 2 and the process side of the same seam family. Unit 5 filed
+DF-172a, which is the "legit unexpressible" case the user named. Approved by
+the user, Aug 7: "let's rewrite into saw what is expressible today. if there
+are legit unexpressible items (that don't require asm) we should note it for
+future work" — the foundation pass BEFORE M2's interrupt/scheduling work. SOS
+policy: the branch PARKS for user review.**
 
 ## Why
 
@@ -82,6 +84,55 @@ Saw-irdet --all, bootstrap, gmgate, sos_runner BOTH ARCHES — either arch
 failing is red). The panic-in-panic test from unit 4 joins the sos test set
 permanently. DF-172x findings for gaps, fixed or filed, never worked around.
 Branch PARKS for user review (SOS policy).
+
+## Part 2 — the landing report (Aug 7)
+
+Unit 2 was the one thing part 1 stopped on, and it resumed exactly as written:
+DF-172e was the only blocker, design 177 closed it, and nothing else about the
+move had changed. It also turned out to cover more than the arena. The seam
+FAMILY has two ends, and the process end was C for the same reason — both user
+`syscall.c` headers said so in their own words: *"the two hooks + the parked
+handle : these ARE expressible ... When that lands, this file should be
+`sos_syscall1` and nothing else."* So part 2 landed both ends.
+
+**What is Saw now.** The four `__saw_rt_*` seams and the bump arena, in `sosrt`
+(one copy, kernel and every process). The process side's `sos_rt_write`,
+`sos_rt_abort` and its parked boot handle, in `sos/kernel/sysapi/` beside the
+System object whose authority they spend — arch-free, so two per-arch C copies
+became one Saw one.
+
+**The C, measured** (code lines: non-blank, non-comment):
+
+| file | M1b | after part 1 | after part 2 |
+|---|---|---|---|
+| `sos/hal/arm64/kernel/sink.c` | 170 | 47 | 47 |
+| `sos/hal/riscv32/kernel/sink.c` | 75 | 22 | 22 |
+| `sos/hal/arm64/user/syscall.c` | 32 | 32 | **11** |
+| `sos/hal/riscv32/user/syscall.c` | 31 | 31 | **11** |
+| `sos/rt/common_c/support.c` | 75 | 75 | **44** |
+| **total** | **383** | **207** (-46%) | **135** (-65%) |
+
+Every surviving line is bucket 1 (an instruction) or bucket 2 (`mem*` + the
+atomic libcalls). Bucket 3 has exactly one member left, DF-172a, and it is the
+one the brief predicted.
+
+**Three deliberate improvements over the C**, none of them translation:
+
+1. The arena aligns the ABSOLUTE ADDRESS it hands back, not the offset. The C
+   rounded `arena_next` and returned `&arena[p]`, which only satisfies the
+   caller if the REGION is itself as aligned as anything asked of it.
+2. `sos_rt_abort` is DECLARED `-> Never` on both sides. What was
+   `__attribute__((noreturn))` — a promise the type system could not see — is
+   now a type, and design 177 is what makes a Saw body able to keep it.
+3. The region's size has ONE spelling, in a named array type, with `sizeof`
+   reading it back and a length mismatch a compile error.
+
+**Four findings, all filed, three of them fixed here.** DF-172f and DF-172g are
+compiler ICEs the single-source-of-truth spelling walked into; DF-172h is a
+`-> Never` extern lowering to an i8 placeholder instead of `void`, which the SOS
+seam shape is the first thing in the tree to hit. All three are isolated
+commits for cherry-pick to main. DF-172i is a coverage note, not a bug: the
+kernel's exported typed C surface has lost its only in-tree CALLER.
 
 ## Explicitly out
 

@@ -521,6 +521,16 @@ verdict table: `designs/174-optional-generic-sweep.md`. 19 tests landed as
 
 ## Design 172 note (branch PARKED for user review; full findings ride the branch)
 
+- **PART 2 IS DONE (Aug 7).** Unit 2 landed as written — DF-172e was the only
+  blocker and design 177 removed it — and it grew by one symmetric half: the
+  seam family's PROCESS end was C for the same reason, so both user
+  `syscall.c` files are now their syscall instruction and nothing else, which
+  is what their own headers said they should be. The SOS C floor is 383 -> 207
+  -> **135** code lines (-65% overall), and every surviving line is an
+  instruction or `mem*`/atomics. Three compiler bugs found on the way
+  (DF-172f/g/h) are FIXED in isolated commits for cherry-pick to main; DF-172i
+  is a coverage note. Full findings below; the branch parks for review.
+
 - **DF-172e CLOSED — "172 part 2" IS DISPATCHABLE.** The decided while{}-Never
   item (decision 9, tracker commit 3134cf7) landed as **design 177**, so
   `__saw_rt_panic`'s frozen `noreturn` signature has a Saw body available: a
@@ -6211,24 +6221,111 @@ port hit ONE compiler-surface sharp edge (DF-162a), and it is not a miscompile.
 
 ## Design 172 — DF-findings (the SOS C diet)
 
-**The count, before and after.** Raw lines move with the reason comments the
+**The count, over both parts.** Raw lines move with the reason comments the
 brief asks for, so CODE lines (non-blank, non-comment) are the honest number:
 
-| file | before | after |
-|---|---|---|
-| `sos/hal/arm64/kernel/sink.c` | 170 | 47 |
-| `sos/hal/riscv32/kernel/sink.c` | 75 | 22 |
-| `sos/hal/arm64/user/syscall.c` | 32 | 32 |
-| `sos/hal/riscv32/user/syscall.c` | 31 | 31 |
-| `sos/rt/common_c/support.c` | 75 | 75 |
-| **total** | **383** | **207** (-46%) |
+| file | M1b | after part 1 | after part 2 |
+|---|---|---|---|
+| `sos/hal/arm64/kernel/sink.c` | 170 | 47 | 47 |
+| `sos/hal/riscv32/kernel/sink.c` | 75 | 22 | 22 |
+| `sos/hal/arm64/user/syscall.c` | 32 | 32 | **11** |
+| `sos/hal/riscv32/user/syscall.c` | 31 | 31 | **11** |
+| `sos/rt/common_c/support.c` | 75 | 75 | **44** |
+| **total** | **383** | **207** (-46%) | **135** (-65%) |
 
-The two kernel HALs took all of it, which is the shape the brief predicted: the
-kernel side had arithmetic wearing C's clothes, and the process side is a
-syscall instruction plus a family of seams blocked on DF-172e. Units 1, 3 and 4
-landed; unit 2 stopped on the language and unit 5 filed. Every surviving line
-states its reason in its own file, and sos/spec.md §5c states the three reasons
-there are.
+Part 1 took it out of the two kernel HALs, which is the shape the brief
+predicted: the kernel side had arithmetic wearing C's clothes. Part 2 took the
+rest — the arena and the four `__saw_rt_*` seams into `sosrt`, and the process
+side's two hooks + parked handle into `sos/kernel/sysapi/` — leaving `mem*`,
+the atomic libcalls and four inline-asm leaves. Units 1, 2, 3, 4, 6, 7 and 8
+landed; unit 5 filed DF-172a. Every surviving line states its reason in its own
+file, and sos/spec.md §5c states the three reasons there are.
+
+- **DF-172i — a COVERAGE NOTE, not a bug, recorded because it is easy to lose.
+  The kernel's `@export`ed typed C surface has no in-tree CALLER any more.**
+  `sos_system_debug_print` / `sos_system_shutdown` (sos/kernel/sysapi/) are the
+  supported interface for non-Saw processes, and the process-side runtime sinks
+  were their only consumer — so when part 2 made those sinks Saw, the last C
+  caller went with them. The surface is still specified, still linked (an
+  `@export` is anchored by `llvm.used`), and its BODIES still run on every boot
+  because the Saw sinks call the same two functions; what no longer happens on
+  every boot is a C caller crossing INTO them, which is what
+  `sos/root/src/main.saw` and the `root_server_boot` harness case used to claim
+  they proved. Both comments now say what is true, and both user ABI.md files
+  carry the note.
+
+  Worth a decision when a second process exists: the honest way back is a real
+  non-Saw process in the harness, not a C shim kept alive to be called. Adding
+  C to the tree to test the C interface is how the diet unwinds itself.
+
+- **DF-172f — FIXED (compiler, isolated commit). An array length that names a
+  module `static` was an ICE in TYPE position and a clean error in REPEAT
+  position.** `[UInt8; ARENA_BYTES]` reached codegen with an unresolved length
+  and died as `internal compiler error: Array type missing element type or
+  size`, while `[0; ARENA_BYTES]` said `repeat count is not a compile-time
+  constant: `ARENA_BYTES` is not allowed here` with a hint naming the three
+  legal forms. One rule, two spellings, and the ICE was the one an author hits
+  first, since the annotation is written before the initializer. Design 148
+  already named codegen as the position that owns a DECLARED length's
+  requirement; it just raised the wrong kind of exception. It now re-runs
+  `const_eval` to recover the offending sub-expression and reports a
+  `CodegenUserError` with the repeat count's own wording.
+  `examples/array_length_nonconst_error.saw` pins it.
+
+- **DF-172g — FIXED (compiler, isolated commit). A static typed through a NAMED
+  ARRAY ALIAS ICEd.** `type Region = [UInt8; 65536]` + `static ARENA: Region =
+  [0; 65536]` died as `internal compiler error: 'NoneType' object has no
+  attribute 'kind'`. `_get_llvm_type` follows an alias, so the LLVM type was
+  right, but the STRUCTURAL reads in `_const_from_expr` (`array_element_type`,
+  `struct_name`) come off the SawType and are None on an alias node — so the
+  array arm recursed with no element type. Resolved once at the top of
+  `_const_from_expr` with the existing total `_resolve_type_alias`.
+
+  The spelling is worth having, which is why this was worth fixing rather than
+  avoiding: it is how a large region gets ONE declaration of its size — the
+  length lives in the alias, `sizeof` reads it back, and an initializer whose
+  length disagrees is already a clean type error. The SOS arena uses it. NOT a
+  bug, and the test says so: an alias is a DISTINCT type, so it does not
+  inherit indexing (`ARENA[0]` is a clean "cannot index into type `Region`")
+  and the way in is `(&var ARENA) as UnsafePointer<T>`.
+  `examples/static_named_array_type_init.saw` pins it.
+
+- **DF-172h — FIXED (compiler, isolated commit). An `extern` declared
+  `-> Never` lowered to an i8 placeholder instead of `void`.** Design 58 says a
+  `-> Never` signature is a `void` + `noreturn` symbol, and
+  `_declare_function` does that for a DEFINITION; `_declare_extern_function`
+  had no such arm and took `_get_llvm_type`'s i8 — the value that exists only
+  so an incidental type query does not crash.
+
+  It reached past the declaration, because an `@export`ed definition UNIFIES
+  with a pre-existing bodyless declaration of the same symbol and inherits its
+  type. So a `-> Never` seam DECLARED in one module and DEFINED in another came
+  out as `define noundef i8 @sos_rt_abort(i32)` — exactly the SOS shape, where
+  `sosrt` declares the abort hook and each side defines it. Written in an entry
+  file with no extern beside it, the same function emitted `void`, which is why
+  every design-177 example looked right. Harmless on the targets in tree
+  (nothing reads a diverging function's return register; the harness was green
+  either way) and wrong everywhere it is written down. The declaration now also
+  carries `noreturn`, which it never did.
+  `examples/never_extern_module_abi.saw` pins the arrangement; verified by
+  reverting the fix (`i8` before, `void` after).
+
+- **DF-172j — LANGUAGE PAIN, filed, NOT blocking. A repeat literal's count and
+  an array length cannot name a module `static`,** so a region's size has no
+  obvious single spelling. `static ARENA_BYTES: Int = 65536` is refused in both
+  `[UInt8; ARENA_BYTES]` and `[0; ARENA_BYTES]` (the first was DF-172f's ICE,
+  the second a clean error), and the workaround — writing 65536 twice — is a
+  drift the compiler cannot catch on its own.
+
+  The spelling that DOES work, and what this branch adopted, is a named array
+  type: the length lives in `type ArenaRegion = [UInt8; 65536]`, `sizeof`
+  reads it back for the bound, and the initializer's own length is checked
+  against the alias. That is good enough that this is pain rather than a
+  blocker. What would remove it is const-evaluating a `static` whose
+  initializer is already a literal, which is a language decision (does a
+  `static` become a const-expression name, and if so which ones) rather than a
+  spelling fix — the same shape as C's `#define SOS_ARENA_BYTES` versus
+  `static const`.
 
 - **DF-172a — FILED, and it is the brief's predicted one. Saw cannot name an
   externally-defined symbol's ADDRESS**, so the four `sos_payload_start` /
@@ -6279,9 +6376,16 @@ there are.
   design-130 raw pointer surface, `&+`/`&-`, and the design-112 `UnsafeMemory`
   driver idiom — no new language work was needed.
 
-- **DF-172e — CLOSED (design 177). Saw types a diverging loop as `Never` now,
-  so the language half of "172 part 2" is gone and unit 2 (the arena +
-  `__saw_rt_panic` in Saw) IS DISPATCHABLE.** The finding's own smallest-first
+- **DF-172e — CLOSED (design 177), and SPENT: part 2 landed on Aug 7.** Saw
+  types a diverging loop as `Never`, so unit 2 (the arena + the four seams in
+  Saw) went in exactly as the stopped unit had been probed, and the process
+  side's hooks — blocked on the same signature — went with it. The predictions
+  in the original finding below all held: the arena was expressible,
+  `--runtime-provider` permitted and checked the exports, and `sosrt` was the
+  module both roles already shared. The second cost it named is paid too —
+  `sos_rt_abort` is `-> Never` on both sides now, so
+  `__attribute__((noreturn))` is a type rather than a comment. The finding's own
+  smallest-first
   suggestion is what landed: a conditionless `while { }` with no `break` types
   `Never`, and `while true { }` is excluded (see the decision entry in the Aug 7
   round). `func spin_forever() -> Never { while { } }` compiles freestanding to

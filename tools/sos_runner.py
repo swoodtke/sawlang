@@ -26,7 +26,8 @@ Pipeline per test case, per architecture:
               kernel and the HAL it reaches the machine through)
   2. clang  : boot.S     -> boot.o     (kernel HAL; assembled once)
   3. clang  : sink.c     -> sink.o     (kernel HAL: board hooks + protection)
-     clang  : support.c  -> support.o  (shared runtime seams, compiled once)
+     clang  : support.c  -> support.o  (mem* + the atomic libcalls — the C that
+                                        must stay C, compiled once)
   4. the `.payload` blob, if the case has one — EITHER a hand-written `.S` from
      `sos/tests/<arch>/` (unit A's user-mode code, unit B's hand-assembled
      sosimgs) OR a root package built by Blade and pulled in through
@@ -495,9 +496,11 @@ def _build_shared(arch, clang):
     """Build one architecture's native objects once; return them as a list.
 
     A kernel image is that architecture's kernel HAL (boot + trap entry, the
-    board sinks, the protection primitive) plus the shared runtime support every
-    SOS build links — the same `support.c` a root package names in its
-    `[sos.<triple>] native`.
+    board sinks, the protection primitive) plus the shared C floor every SOS
+    build links — the same `support.c` a root package names in its
+    `[sos.<triple>] native`, which since design 172 part 2 is `mem*` and the
+    atomic libcalls and nothing else. The runtime seams it used to carry are
+    Saw, and reach the image through `--module-path sosrt=` below.
     """
     dirs = arch_dirs(arch)
     build = dirs["build"]

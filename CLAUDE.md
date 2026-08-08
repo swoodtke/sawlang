@@ -40,13 +40,18 @@ sos/               # SOS microkernel (design 140). spec.md is authoritative.
                    #   (vDSO discipline: numbers are not ABI). Typed Saw +
                    #   @export'd C surface; a process depends on this only
   hal/riscv32/     #   the ONLY arch-aware code: kernel/ (boot.S trap entry,
-                   #   board sinks, PMP) + user/ (ecall stub, syscall sinks),
-                   #   each with an ABI.md. M1b (PARKED branch, user review
-                   #   pending) adds hal/arm64/ and MOVES virt.ld + root.ld
-                   #   into the per-arch HALs
-  rt/common/       #   arch-free role-free Saw helpers (hex, ascii) — kernel
-  rt/common_c/     #   + every process; support.c is the C that must stay C
-                   #   (mem*, atomics, arena, seams) — ONE copy, see DF-140g
+                   #   board sinks, PMP) + user/ (the ecall stub, and since
+                   #   design 172 part 2 nothing else), each with an ABI.md.
+                   #   M1b (PARKED branch, user review pending) adds hal/arm64/
+                   #   and MOVES virt.ld + root.ld into the per-arch HALs
+  rt/common/       #   `sosrt`: THE SOS RUNTIME, arch-free + role-free Saw —
+                   #   the four `__saw_rt_*` seams + the bump arena, over two
+                   #   per-side hooks, plus hex/ascii helpers. Kernel + every
+                   #   process. Its exports need `--runtime-provider` (design
+                   #   149): sos_runner passes it, a process image says
+                   #   `[package] runtime = true`
+  rt/common_c/     #   support.c — the C that must stay C: mem* + the atomic
+                   #   libcalls, ONE copy, see DF-140g
   imgformat/       #   the sosimg layout, shared by BOTH consumers: Blade via a
                    #   path dependency, the kernel via --module-path
   root/            #   the root server: a real Blade package, `[sos] emit =
