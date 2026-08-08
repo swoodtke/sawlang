@@ -1542,6 +1542,38 @@ construct in the owner and lend `&driver` down.
   inverse is `from(raw:)` — a synthesized static returning `E?`, NOT an init: an
   unrecognized wire byte is data, never a trap. Fixed-width backings are the
   wire-safe choice; a raw-ordered Comparable derivation does not exist.
+- **WIRE MATH IS CONST MATH (design 185).** `& | ^ << >> ~` fold in a constant,
+  so a bit position, a mask or a page size is written as the arithmetic that
+  produces it in EVERY const position — a `static_assert`, an array length, a
+  repeat count:
+  ```saw
+  static PAGE_SHIFT: Int = 12
+  static_assert((1 << PAGE_SHIFT) == 4096, "4K pages")
+  static_assert(((addr + 0xFFF) & ~0xFFF) == 0x2000, "align up")
+  struct PageTable { entries: [UInt64; 1 << 9] }
+  var page: [UInt8; 1 << PAGE_SHIFT] = [0; 1 << PAGE_SHIFT]
+  ```
+  Folded at the TARGET's integer width in the signed platform-`Int` domain:
+  `1 << 63` is `Int.min` on a 64-bit target and `1 << 31` is `Int.min` on
+  riscv32, `~0` is `-1` (mask it back — `0xFF & ~0` is 255), and a shift count
+  outside `0..<width` is a compile error rather than a folded surprise.
+  Precedence is Saw's, NOT C's: the bitwise tier sits BELOW comparison, so a
+  compared mask needs its parentheses (`(a | b) == 3`, never `a | b == 3`).
+  **FLAG ENUMS**: a raw-backed case is a constant, so `Perm.Read | Perm.Write`
+  folds — and its type is the BACKING INTEGER, never the enum, because 3 need
+  not be a declared case (typing it `Perm` would break `from(raw:)` and
+  exhaustiveness). An enum is a set of tags; a bit set over them is the integer
+  they are tags for, and Saw ships no OptionSet type. Outside a constant the
+  operands are enum-typed VALUES and the operator is REFUSED — write
+  `(a as UInt8) | (b as UInt8)`, the same total projection design 145 gives.
+  ```saw
+  enum Perm: UInt8 { case Read = 0x01, case Write = 0x02, case Exec = 0x04 }
+  static_assert((Perm.Read | Perm.Write) == 3, "rw")   // UInt8, folds
+  let flags = (held as UInt8) | (Perm.Exec as UInt8)   // runtime: say `as`
+  ```
+  The generic-ARGUMENT position keeps the smaller design-148 grammar (`>` is the
+  shift token, so `FixedBuf<1 << 8>` cannot parse) — write `FixedBuf<2 * 128>`
+  or a `static`.
 - **ENUMS TAKE EXTENSIONS, same as structs** (design 145): instance methods with
   `&self`/`&var self` (`match self` is the idiomatic body, `self = Other` the
   whole-value replacement), static methods (no `self` param), hand-written trait
@@ -1725,9 +1757,15 @@ construct in the owner and lend `&driver` down.
   (``the mutable static `ARENA_BYTES` is not allowed here``). A local shadows a
   static here as anywhere else, so a derived shadow is the runtime value it
   looks like. Cross-module follows visibility: a `public` static reached by
-  `import dep.{REGION_SIZE}` folds; the QUALIFIER spelling
-  (`[UInt8; dep.REGION_SIZE]`) is a parse error — import the name. A length that
-  folds NEGATIVE is a clean error too (it used to reach LLVM as `[-1 x i8]`).
+  `import dep.{REGION_SIZE}` folds, and so does the QUALIFIER spelling
+  (`[UInt8; dep.REGION_SIZE]`, design 185 — it was a parse error until then,
+  which is what DF-172l filed). A length that folds NEGATIVE is a clean error
+  too (it used to reach LLVM as `[-1 x i8]`).
+  **GOTCHA — the static's OWN initializer is still literals-only** (DF-185b):
+  `static MASK: Int = (1 << 12) - 1` is refused ("must be initialized by a
+  compile-time constant") even though that same expression folds in every
+  position that CONSUMES a constant. Write the number in the static, and the
+  arithmetic where it is used.
 - For a KNOWN C struct, declare a typed Saw struct (declaration-order natural ABI,
   design 58) as a stack local + `(&sa) as UnsafePointer<...>` for the syscall —
   never a raw byte blob; alignment comes free from the widest field. Only

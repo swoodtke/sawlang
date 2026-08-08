@@ -1,5 +1,29 @@
 # Design 185 — bitwise operators in const expressions (+ flag enums)
 
+**LANDED Aug 8** in five commits (units 1, 2, the DF-185a fix, units 3+4
+together, docs). All five units built as written, with one deviation and one
+finding:
+
+- **Unit 3's `static RW: UInt8 = Perm.Read | Perm.Write` example does NOT
+  work, and is filed as DF-185b.** A static initializer takes only literals
+  (design 41's const-init list), which is a separate rule from the const
+  evaluator and has its own ordering questions — widening it would also have
+  to teach DF-172j's pre-registration static pass to evaluate, in declaration
+  order, with a cycle rule, before any enum is registered. The rest of unit 3
+  landed: the fold works in every position that CONSUMES a constant (array
+  length, repeat count, const generic argument, `static_assert`). Pinned by an
+  XFAIL that flips to XPASS when the initializer rule widens.
+- **Units 3 and 4 landed in one commit**: the flag-enum reading and the
+  `as` fixit are two branches of one `if` in `_check_binary_op`.
+- **DF-172l CLOSED, both halves** — the parse half by unit 2 and the
+  resolution half by unit 3's stamping walk, which reached the qualified
+  spelling with the ordinary name-resolution machinery.
+- **DF-185a found and fixed on discovery**: a hex enum raw value
+  (`case Debug = 0x100`) was an uncaught parser crash, i.e. the notation the
+  raw-backing feature exists for.
+
+Original brief follows.
+
 **Status: APPROVED + QUEUED, NOT launched (user, Aug 8: "brief that and add
 it to the queue" + "ensure the brief handles enums since it's a usability
 win when uint-based enums are bits"). Small typechecker/const-eval unit —

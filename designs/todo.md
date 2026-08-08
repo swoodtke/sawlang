@@ -5,6 +5,52 @@ Open items ONLY. Landed work lives in `designs/NN-*.md` + git history
 landed recaps). Conventions: cite source designs in [brackets]; VERIFY
 items need a probe before being treated as real work.
 
+## Design 185 — const bitwise + flag enums (LANDED, Aug 8)
+
+All five units built. `& | ^ << >> ~` fold in a constant at the target's
+integer width; the two length positions take one grammar; a raw-backed
+enum's case folds and a combination is the BACKING INTEGER; the
+enum-VALUE refusal stands with an `as` fixit. Two findings, one fixed on
+discovery and one filed with a pin.
+
+- **DF-185a FIXED (found + fixed by this brief).** An enum raw value in
+  anything but decimal was an uncaught compiler crash:
+  `enum Right: UInt32 { case Debug = 0x100 }` died in the parser with
+  `ValueError: invalid literal for int() with base 10: '0x100'`, no
+  location and no message. One site called `int()` on an INT token's
+  canonical text instead of the shared decoder. Hex is exactly the
+  notation raw backings exist for (design 145: wire tables), so the one
+  spelling the feature is for was the one that died. Pinned by
+  `examples/enum_raw_hex_values.saw` (hex, binary, octal, `_`
+  separators, a negated hex on a signed backing).
+- **DF-185b FILED (OPEN, pre-existing, surfaced by this brief's unit 3).
+  A `static` initializer is still literals-only, so a constant
+  EXPRESSION cannot initialize one.** `static SIZE: Int = 4 * 1024` and
+  the brief's own unit-3 example `static RW: UInt8 = Perm.Read |
+  Perm.Write` are both refused ("static `SIZE` must be initialized by a
+  compile-time constant"), even though those expressions now fold in
+  every position that CONSUMES a constant. The rule is design 41's
+  `_is_const_init` list (literals, POD struct literals, constant array
+  literals, `Atomic(<int>)`), unrelated to the const evaluator, and
+  widening it is its own decision with its own ordering questions:
+  - `_is_const_init` would accept anything `const_eval` folds, and
+    codegen would emit the folded value rather than the written
+    expression;
+  - DF-172j's `_collect_const_statics` runs BEFORE registration and
+    decides what a static means in a constant from its initializer AS
+    WRITTEN. To keep `static SIZE = 4 * 1024` foldable in `[UInt8;
+    SIZE]` it would have to evaluate there too — in declaration order,
+    with a cycle rule, and with no enum registered yet (so the
+    flag-enum half needs the pass reordered or enum raw values read off
+    the AST);
+  - cross-module: the symbol carries `const_value`, so an importer sees
+    whatever the declaring module decided — fine, but it has to be
+    decided once.
+  Pinned by `examples/static_const_expr_init_xfail.saw` (XFAIL,
+  intended behavior in the EXPECT directives, so the fix flips it to
+  XPASS). Everything else in unit 3 landed; this is the one sentence of
+  the brief that did not.
+
 ## Design 180 — sleep(Duration) (LANDED, Aug 8)
 
 `sleep` takes a `Duration` and nothing else; the bare-Int form is gone.
@@ -773,20 +819,21 @@ verdict table: `designs/174-optional-generic-sweep.md`. 19 tests landed as
   `examples/array_length_*_error.saw` headers, plus the landing commit), not
   theirs.
 
-- **DF-172l FILED — the module-QUALIFIER spelling of a static in a constant.**
-  `[UInt8; dep.REGION_SIZE]` is a **parse error** ("Expected `]` after array
-  type"): the design-148 const grammar in TYPE position has no member access,
-  deliberately, because a generic list is closed by `>`. The repeat-count
-  position takes full expressions and so reaches a clean semantic error instead
-  (``this member access is not allowed here``) — so one rule has two spellings
-  with two failure modes, which is the same asymmetry DF-172f closed for the
-  static case. Not guessed at, because admitting `a.b` to that grammar decides
-  more than this: `Int.max` and a raw-backed enum case are member accesses the
-  evaluator already understands in an EXPRESSION, nested qualifiers are a
-  question, and the typechecker would need module-qualifier resolution in a
-  type-resolution context. Workaround today is exact and cheap: import the name
-  (`import dep.{REGION_SIZE}`), which folds. Worth doing if a kernel module that
-  imports qualified-only wants a dependency's size.
+- **DF-172l CLOSED by design 185 (units 2 + 3, Aug 8).** Filed as: `[UInt8;
+  dep.REGION_SIZE]` is a **parse error** ("Expected `]` after array type") while
+  the repeat count beside it reaches a clean semantic error — one rule, two
+  spellings, two failure modes. Both halves are done. Unit 2 gave the type
+  position the SAME expression grammar the repeat count takes (`]` closes it, so
+  the `>`-delimiter argument that shaped design 148's small grammar never
+  applied there); unit 3 answered the resolution question the finding said was
+  not to be guessed at, by widening DF-172j's stamping walk from identifiers to
+  the member accesses a constant may name — `Int.max`, a raw-backed enum case,
+  and a module static, each in both the bare and the qualified spelling, all
+  resolved by the ORDINARY machinery (`_module_qualifier` + `get_enum_info`), so
+  a local still wins and a private static of another module is still invisible.
+  Pinned by `examples/const_qualified_length.saw`, renamed qualifier included.
+  The generic-ARGUMENT position deliberately keeps the narrow grammar: there `>`
+  really is the delimiter.
 
 ## Design 176 findings (places/optional plumbing batch, Aug 7)
 

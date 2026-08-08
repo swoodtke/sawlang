@@ -1,0 +1,33 @@
+// A `static` initializer takes only literals, so a constant EXPRESSION cannot
+// initialize one — even though the same expression folds in every position that
+// CONSUMES a constant (an array length, a repeat count, a `static_assert`).
+// Both statics below are refused with "must be initialized by a compile-time
+// constant", and the enum one is refused twice: outside a const position its
+// operands are enum-typed values, so design 185 unit 4's rule fires first.
+//
+// The rule is design 41's const-init list, not the const evaluator; widening it
+// has its own ordering questions (see the tracker entry).
+// XFAIL: DF-185b a static initializer is literals-only, so a constant expression is refused
+// EXPECT: success
+// EXPECT-OUTPUT: 3
+// EXPECT-OUTPUT: 4095
+// EXPECT-OUTPUT: 4096
+
+enum Perm: UInt8 {
+    case Read = 0x01,
+    case Write = 0x02
+}
+
+static RW: UInt8 = Perm.Read | Perm.Write
+static PAGE_MASK: Int = (1 << 12) - 1
+
+// The same expressions in a position that consumes a constant, which is where
+// they already work — so the fix is about the initializer, nothing else.
+static_assert((Perm.Read | Perm.Write) == 3, "the fold itself is fine")
+static_assert(((1 << 12) - 1) == 4095, "and so is this one")
+
+func main() {
+    print(RW)
+    print(PAGE_MASK)
+    print(PAGE_MASK + 1)
+}

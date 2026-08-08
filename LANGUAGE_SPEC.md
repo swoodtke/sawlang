@@ -1311,6 +1311,11 @@ if let e = SysError.from(raw: byte) {
 declares. It is a lookup, not an `init` — an unrecognized byte off a wire is
 data the caller decides about, not a trap.
 
+A case of a backed enum is a compile-time constant, so it may be a
+`static_assert` operand, an array length, or an operand of the bit operators in
+a constant. A combination of cases is the **backing integer**, not the enum; see
+"Flag enums".
+
 Because the representation is pinned, a backed enum is a legal field type in a
 struct read through `UnsafeMemory`, so a typed wire view can name a flags byte
 by its type:
@@ -3814,6 +3819,52 @@ constant, which is where a wrong constant is a typo the compiler can catch.
   design 47): one that does not fit the target word is a compile error at the
   literal — so a value beyond `2^32` compiles on a 64-bit host but is rejected
   under a 32-bit target. Use a wider fixed-width field type for such constants.
+- **All six fold in a constant.** `1 << BIT`, `MASK & ~ALIGN`, `A | B` are
+  compile-time constants wherever their operands are, so a bit position or a
+  mask is an array length, a repeat count, a const generic argument or a
+  `static_assert` operand. See "Compile-Time Evaluation" for the grammar and for
+  the width the folding uses.
+
+#### Flag enums
+
+A raw-backed enum's case is a compile-time constant (see "Raw backings"), so a
+combination of cases folds in any constant position:
+
+```saw
+enum Perm: UInt8 {
+    case Read = 0x01,
+    case Write = 0x02,
+    case Exec = 0x04
+}
+
+static_assert((Perm.Read | Perm.Write) == 3, "read+write")
+
+struct Table { rows: [UInt8; Perm.Read | Perm.Write | Perm.Exec] }
+```
+
+**The result is the backing integer, never the enum.** `Perm.Read | Perm.Write`
+is a `UInt8` holding 3, and 3 is not a declared case: typing it as `Perm` would
+hand `Perm.from(raw:)` and an exhaustive `match` a value outside the closed set
+the enum is. An enum is a set of tags; a bit set over those tags is the integer
+they are tags for. Swift draws this line with `OptionSet` and Rust with
+`bitflags`; Saw states it and does not ship a bit-set type.
+
+Outside a constant, a bit operator applied to an enum-typed **value** is a
+compile error. The projection is explicit:
+
+```saw
+let held = Perm.Write
+let flags = (held as UInt8) | (Perm.Exec as UInt8)   // UInt8, 6
+
+let bad = held | Perm.Exec
+// error: operator `|` requires integer operands, got `Perm` and `Perm`
+//   hint: an enum is a closed set of tags, not a bit set: write
+//         `(a as UInt8) | (b as UInt8)`. The result is the backing integer,
+//         because a combined value need not be a declared case
+```
+
+`e as Backing` is the same total projection design 145 defines, and requiring it
+is what keeps "a raw-backed enum value is always a declared case" true.
 
 ### Runtime Semantics and Traps
 
@@ -5076,10 +5127,17 @@ The name resolves as it would in any other read. A local wins over a
 static, so a derived shadow (`let REGION_SIZE = REGION_SIZE + 1`) is the
 runtime value it looks like and is refused in a length; a const generic
 parameter wins over both. Across modules the ordinary visibility gate
-applies — a `public` static reached through an import folds, a
-module-private one is not nameable at all. The qualifier spelling
-(`dep.REGION_SIZE`) is not accepted in a length yet; import the name to
-use it there.
+applies: a `public` static reached through an import folds, a
+module-private one is not nameable at all. Both spellings work, the bare
+import and the qualifier, and they fold to the same number:
+
+```saw
+import dep
+import dep.{REGION_SIZE}
+
+struct Frame { bytes: [UInt8; dep.REGION_SIZE] }   // qualified
+static ARENA: [UInt8; REGION_SIZE] = [0; REGION_SIZE]   // imported bare
+```
 
 **Zero statics cost no image bytes.** A static whose initializer is
 all-zero — a bare declaration, or an explicit `[0; N]` — is emitted as
@@ -5394,7 +5452,10 @@ Scope, deliberately narrow in this version:
 - **Const arithmetic** in instantiation position: literals, const parameters,
   and `+ - * / %` over them. `FixedBuf<2 * 128>` and `FixedBuf<256>` are the
   same instantiation — the value is folded before anything mangles it, the same
-  identity rule default type arguments follow.
+  identity rule default type arguments follow. The bit operators are not part
+  of the grammar in this position: an argument list is closed by `>`, which is
+  also the shift token. Write the multiplicative form (`FixedBuf<2 * 128>`) or
+  a `static`. An array length is closed by `]` and takes the full grammar.
 - **A module `static`** may be the argument on the same terms, so
   `FixedBuf<REGION_SIZE>` and `FixedBuf<65536>` are one instantiation with one
   layout and one symbol. See Module-level statics for which statics fold.
@@ -5454,30 +5515,69 @@ compile-time reflection below are still *planned*.
 `static_assert(<const-expr>, "message")` is legal at top level and in statement
 position. The condition is evaluated at compile time (with authoritative target
 layout, so `sizeof`/`alignof` are exact): a false result is a **compile error
-carrying the message**, a true result emits **zero code**. The evaluator accepts
-integer/`Bool` literals, unary `-`/`not`, arithmetic/comparison/logical
-operators, `sizeof<T>()`/`alignof<T>()`, the `Int.max`/`.min` limits, a const
-generic parameter in scope, and a module `static` of type `Int`/`UInt`
-initialized by a plain integer literal; anything else (e.g. a runtime function
-call) is rejected as non-constant.
+carrying the message**, a true result emits **zero code**.
+
+#### The constant grammar
 
 One evaluator answers everywhere a constant is required — a `static_assert`
-condition, an array length, a repeat-literal count, a const generic argument —
-so the same expression cannot mean different things in two positions. Division
-and modulo truncate toward zero, matching the runtime semantics above. Array
-lengths and const arguments are resolved during type checking, which is earlier
-than struct layout is known, so `sizeof<T>()` is rejected in those positions
-while remaining available in a `static_assert`.
+condition, an array length `[T; N]`, a repeat-literal count `[v; N]`, a const
+generic argument — so the same expression cannot mean different things in two
+positions. It accepts:
+
+- integer and `Bool` literals, in every notation (`0xFF`, `0b1010`, `0o755`,
+  `1_000_000`);
+- unary `-`, `not`, and `~`;
+- `+ - * / %`, the comparisons, `&&` / `||`;
+- the bitwise `&`, `|`, `^` and the shifts `<<`, `>>`;
+- `sizeof<T>()` / `alignof<T>()`;
+- the `Int.max` / `Int.min` limits, on every integer type;
+- a const generic parameter in scope;
+- a module `static` of type `Int`/`UInt` initialized by a plain integer literal,
+  bare or module-qualified;
+- a case of a raw-backed enum, and an `as` between integer types.
+
+Anything else — a runtime function call, a `let` local, a case of an enum with
+no backing — is rejected as non-constant, and the diagnostic names the
+sub-expression that failed rather than the whole condition.
+
+**A constant is evaluated at the target's integer width.** The domain is the
+platform `Int`: signed, pointer-wide, the type a bare integer literal already
+has. `<<` wraps at that width exactly as the emitted `shl` does, so `1 << 63` is
+`Int.min` on a 64-bit target and `1 << 31` is `Int.min` on a 32-bit one. A shift
+count that is negative or `>=` the width is a compile error, which is the
+compile-time form of the "shift out of range" panic. A narrower destination is
+range-checked where the constant lands (an `as`, a fixed-width slot, an array
+length), not inside the arithmetic — so `~0` is `-1`, and `0xFF & ~0` is the way
+to say 255. Division and modulo truncate toward zero, matching the runtime
+semantics above.
+
+Array lengths and const arguments are resolved during type checking, which is
+earlier than struct layout is known, so `sizeof<T>()` is rejected in those
+positions while remaining available in a `static_assert`.
 
 ```saw
 // Kernel register-block drift check
 static_assert(sizeof<UartRegs>() == 0x1C, "UartRegs layout drift")
 static_assert(alignof<UInt32>() == 4, "unexpected alignment")
 
+static PAGE_SHIFT: Int = 12
+
+static_assert((1 << PAGE_SHIFT) == 4096, "4K pages")
+static_assert(((0x1234 + 0xFFF) & ~0xFFF) == 0x2000, "align up")
+
+struct PageTable { entries: [UInt64; 1 << 9] }
+
 func f() {
     static_assert(Int.max > 0, "sanity")   // also valid in statement position
+    var page: [UInt8; 1 << PAGE_SHIFT] = [0; 1 << PAGE_SHIFT]
+    print(page.len())                      // prints: 4096
 }
 ```
+
+The two length positions take the same expression grammar. `[T; N]` used to
+parse a smaller one and fail at the parser on anything outside it, while the
+repeat count beside it gave a semantic answer; both now parse everything and the
+evaluator gives the one answer.
 
 ```saw
 // Const functions evaluated at compile time (planned)

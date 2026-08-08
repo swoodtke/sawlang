@@ -474,6 +474,39 @@ enough to be a literal already when the type is resolved. A mutable
 `unsafe static var` or a static of another type is a compile error that names
 which static and why.
 
+The bit operators fold too, which is what register and wire arithmetic is
+written in. `<<` wraps at the target's integer width, exactly as the emitted
+shift does, and a shift count outside `0..<width` is a compile error rather
+than a folded surprise:
+
+```saw
+static PAGE_SHIFT: Int = 12
+
+static_assert((1 << PAGE_SHIFT) == 4096, "4K pages")
+static_assert(((0x1234 + 0xFFF) & ~0xFFF) == 0x2000, "align up")
+
+struct PageTable { entries: [UInt64; 1 << 9] }
+```
+
+A case of a raw-backed enum is a constant, so flag combinations fold:
+
+```saw
+enum Perm: UInt8 {
+    case Read = 0x01,
+    case Write = 0x02,
+    case Exec = 0x04
+}
+
+static_assert((Perm.Read | Perm.Write) == 3, "read+write")
+```
+
+The result is the backing integer, `UInt8`, not `Perm` — 3 is not a declared
+case, and calling it one would break `Perm.from(raw:)` and exhaustive `match`.
+An enum is a closed set of tags; a bit set over those tags is the integer they
+are tags for. Outside a constant, where the operands are enum-typed values
+rather than case names, the operator is refused and the projection is written
+out: `(held as UInt8) | (Perm.Exec as UInt8)`.
+
 ### Errors as Values
 
 Every `Error` is `Printable`. Returning `Result<T, Box<any Error>>` lets a
