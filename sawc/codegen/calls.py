@@ -349,7 +349,10 @@ class CallsMixin:
         # same seam, so it resolves through the ordinary call path.)
         if expr.name == "sleep":
             ms = self._generate_expression(expr.arguments[0].value)
-            self.builder.call(self.functions["__saw_rt_sleep_ms"], [ms])
+            ns = self.builder.mul(
+                self.builder.sext(ms, ir.IntType(64)) if ms.type.width < 64 else ms,
+                ir.Constant(ir.IntType(64), 1000000), name="sleepns")
+            self.builder.call(self.functions["__saw_rt_sleep_ns"], [ns])
             return None
 
         if expr.name == "__saw_forget":

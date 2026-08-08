@@ -24,8 +24,10 @@ RUNTIME_ABI_SYMBOLS = frozenset({
     "__saw_rt_alloc_deny_after",
     "__saw_rt_write",
     "__saw_rt_panic",
-    # Time
-    "__saw_rt_sleep_ms",
+    # Time (design 180 replaced the millisecond seam with this one: a u64
+    # nanosecond request, chunked to libc's 32-bit microsecond bound inside the
+    # body, so no span a caller can spell wraps into a shorter one).
+    "__saw_rt_sleep_ns",
     "__saw_rt_clock_monotonic_nanos",
     "__saw_rt_unix_timestamp_secs",
     # Errors (design 117: the errno accessors are gone; the host errno ->

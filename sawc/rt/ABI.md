@@ -100,9 +100,23 @@ policy. Marked `noreturn`.
 
 ## Time
 
-### `__saw_rt_sleep_ms(ms: word) -> void`
-Park the current OS thread for `ms` milliseconds. Non-positive returns at once.
-Hosted default: `usleep(ms * 1000)`.
+### `__saw_rt_sleep_ns(ns: i64) -> void`
+Park the current OS thread for `ns` nanoseconds, read as UNSIGNED — the whole
+u64 range is a valid request. Zero returns at once.
+
+Hosted default: a loop of `usleep` calls, one whole second per chunk plus a
+remainder rounded UP to a whole microsecond. A park is a floor, so returning
+early is the one wrong answer; over-sleeping by under a microsecond is not.
+Chunking is what makes the whole range honest: `usleep` takes a 32-bit
+microsecond count, so the v1 `__saw_rt_sleep_ms` seam this REPLACES (design 180)
+multiplied and narrowed in one step and wrapped a request past about 35 minutes
+into a short nap (DF-170a).
+
+Not interruptible: it returns when the span has elapsed and nothing can cut it
+short. The executor therefore parks in the reactor, not here, whenever it may
+need to abandon the wait — `__saw_rt_reactor_poll` takes the same deadline as
+its timeout and the design-102 self-wake pipe can rouse it. This seam is the
+no-reactor fallback and the body behind a `sleep` reached outside any executor.
 
 ### `__saw_rt_clock_monotonic_nanos() -> Int64`
 A monotonic clock as nanoseconds since an arbitrary epoch (behind `Instant.now()`).
@@ -585,7 +599,8 @@ Emitted as Saw AST by `coro_transform.py` or as IR by `codegen/`:
   `__saw_host_reactor()` (lazy CAS over an `Atomic<Int>` static in
   std/taskgroup.saw) returning the `SystemReactor` `Reactor` impl; the reactor seams
   are plain externs the executor calls at full arity.
-- **Intrinsic lowerings** (`codegen/calls.py`): `sleep`→`__saw_rt_sleep_ms`;
+- **Intrinsic lowerings** (`codegen/calls.py`): `sleep`→`__saw_rt_sleep_ns` (the
+  `Duration` argument's nanosecond field, extracted in IR — design 180);
   `io_wait` outside a frame → `__saw_exec_io_register` + `__saw_exec_park(-1)`
   (design 118 stage 2/3, routed through the trait); `cancelled()`→false,
   `yield_now`/`__saw_io_park`→no-op outside a frame; `__saw_box_data`,
@@ -619,7 +634,7 @@ frame code + these calls.
 | drive/park (single-frame) | `__saw_exec_park(wake: Int)`             | stage 2 ✓ — carved the `_make_entry_executor` `Pending` body into this one Saw call (wake>0 → sleep; wake<0 → reactor poll -1; 0 → return). The trivial resume-until-done loop STAYS synthesized (lead pin: the design-45 allocation-free fast path is contract, and post-carve the loop carries zero policy). |
 | park (io) | `__saw_exec_io_register(fd: Int, dir: Int, token: Int)`  | stage 2 ✓ — Saw wrapper the `io_wait`/offload park lowerings + the outside-frame `io_wait` codegen path call instead of the raw `__saw_rt_reactor_register` extern |
 | wake     | `__saw_exec_reactor_wake()`                                | stage 2 ✓ — Saw wrapper over `__saw_rt_reactor_wake` (`TaskHandle`/`VoidTaskHandle.cancel` call it) |
-| sleep    | `__saw_exec_sleep(ms: Int)`                                | stage 2 ✓ — promoted from a codegen intrinsic to a real Saw fn over `__saw_rt_sleep_ms` |
+| sleep    | `__saw_exec_sleep(ms: Int)`                                | stage 2 ✓ — promoted from a codegen intrinsic to a real Saw fn over `__saw_rt_sleep_ns` |
 
 `spawn` itself stays the synthesized `__spawn_<f>` helper (frame-shaped, cannot
 be generic-erased) whose executor touches are `__enqueue` and the `__gen_at`

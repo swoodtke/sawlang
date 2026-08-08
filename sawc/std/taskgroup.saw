@@ -77,10 +77,11 @@ extern "C" {
     // its cancel flag.
     func __saw_rt_reactor_wake(r: Int)
 
-    // design 45 / 118: the host timer seam. `__saw_exec_sleep` (below) wraps it as
-    // the executor's OWN (non-suspending) blocking sleep — used to honour a task's
-    // sleep wake reason and to nap between MT-worker re-scans.
-    func __saw_rt_sleep_ms(ms: Int)
+    // design 45 / 118 / 180: the host timer seam. `__saw_exec_sleep` (below)
+    // wraps it as the executor's OWN (non-suspending) blocking sleep — used to
+    // honour a task's sleep wake reason and to nap between MT-worker re-scans.
+    // Nanoseconds, read as unsigned, chunked to libc's bound inside the body.
+    func __saw_rt_sleep_ns(ns: UInt64)
 }
 
 // =============================================================================
@@ -152,13 +153,17 @@ func __saw_host_reactor() -> SystemReactor {
     SystemReactor(instance: __saw_reactor_instance.load())
 }
 
+static NANOS_PER_MILLI: UInt64 = 1000000
+
 // design 118 stage 2: the executor's timer park, promoted from a codegen
-// intrinsic to a real Saw function over the `__saw_rt_sleep_ms` seam. The
+// intrinsic to a real Saw function over the `__saw_rt_sleep_ns` seam. The
 // single-frame entry executor (`__saw_exec_park`), the MT worker back-off, and
 // the pure-sleep clock advance all call it. NOT a suspension source — the
 // executor itself never suspends; it blocks the OS thread for real.
 func __saw_exec_sleep(ms: Int) {
-    __saw_rt_sleep_ms(ms)
+    if ms > 0 {
+        __saw_rt_sleep_ns((ms as UInt64) * NANOS_PER_MILLI)
+    }
 }
 
 // design 118 stage 2: the single-frame drive's park POLICY, carved out of the

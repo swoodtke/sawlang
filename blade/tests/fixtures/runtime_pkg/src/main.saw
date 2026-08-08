@@ -2,11 +2,11 @@
 // of those names is refused outright unless the compiler was told this package
 // has the runtime role, which is what `[package] runtime = true` in Saw.toml
 // says and what Blade turns into `--runtime-provider`.
-@export("__saw_rt_sleep_ms")
-func k_sleep(ms: Int) {
-    var spun = 0
-    while spun < ms {
-        spun = spun + 1
+@export("__saw_rt_sleep_ns")
+func k_sleep(ns: UInt64) {
+    var spun = 0 as UInt64
+    while spun < ns {
+        spun = spun + (1 as UInt64)
     }
 }
 

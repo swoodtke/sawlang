@@ -1,0 +1,24 @@
+// Design 180 unit 3: the timer seam takes u64 NANOSECONDS and chunks to libc's
+// 32-bit microsecond bound inside its own body, so a span longer than one chunk
+// is served in full rather than wrapped into a short nap (DF-170a). This parks
+// past the one-second chunk and checks the floor held.
+//
+// Only the floor is asserted. A park is a floor, and how far past it a loaded
+// machine lands is the machine's business, not the seam's.
+// EXPECT: success
+// EXPECT-OUTPUT:
+// slept at least the whole span: true
+// no wrap: true
+
+import std.time.{Instant}
+
+static REQUESTED_MS: UInt64 = 1200
+
+func main() {
+    let t = Instant.now()
+    sleep(1200)
+    let e = t.elapsed()
+    print("slept at least the whole span: {e.as_millis() >= REQUESTED_MS}")
+    // A wrap would land in the low milliseconds, not merely early.
+    print("no wrap: {e.as_millis() > (900 as UInt64)}")
+}

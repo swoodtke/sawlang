@@ -12,6 +12,7 @@
 // EXPECT-ERROR-CONTAINS: it returns `word` where the ABI returns `i64`
 // EXPECT-ERROR-CONTAINS: sawc/rt/ABI.md freezes this contract
 // EXPECT-ERROR-CONTAINS: it takes 1 parameter(s) where the ABI takes 2
+// EXPECT-ERROR-CONTAINS: parameter 1 is `i32` where the ABI takes `i64`
 // EXPECT-ERROR-CONTAINS: parameter 1 is `i32` where the ABI takes `word`
 
 // ABI.md: `__saw_rt_clock_monotonic_nanos() -> Int64`. `Int` is 32 bits on a
@@ -26,9 +27,16 @@ func k_clock() -> Int {
 func k_write(ptr: UnsafePointer<Int8>) unsafe {
 }
 
-// ABI.md: `__saw_rt_sleep_ms(ms: word) -> void`.
-@export("__saw_rt_sleep_ms")
-func k_sleep(ms: Int32) {
+// ABI.md: `__saw_rt_sleep_ns(ns: i64) -> void`. A span is a u64 nanosecond
+// count on every target, so a 32-bit parameter is a real difference.
+@export("__saw_rt_sleep_ns")
+func k_sleep(ns: Int32) {
+}
+
+// ABI.md: `__saw_rt_reactor_destroy(r: ptr) -> void`. Pointer-width, which is
+// what `word` means and what `Int32` is not.
+@export("__saw_rt_reactor_destroy")
+func k_reactor_destroy(r: Int32) {
 }
 
 func main() {

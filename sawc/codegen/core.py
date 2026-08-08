@@ -625,18 +625,22 @@ class CodeGenerator(ResultsMixin, MatchMixin, StructsMixin, CollectionsMixin, Ca
         saw_panic = ir.Function(self.module, ir.FunctionType(void, [i8ptr, i64]),
                                 name="__saw_rt_panic")
         saw_panic.attributes.add("noreturn")
-        # design 45: the cooperative executor's timer seam. `saw_sleep_ms(ms)`
-        # parks the current OS thread for `ms` milliseconds (the simplest correct
-        # hosted timer). Behind `sleep(ms)` and the entry executor's timed waits;
-        # freestanding supplies its own (a WFI/hardware-timer wait).
-        saw_sleep_ms = ir.Function(self.module, ir.FunctionType(void, [i64]),
-                                   name="__saw_rt_sleep_ms")
+        # design 45 / 180: the cooperative executor's timer seam.
+        # `saw_sleep_ns(ns)` parks the current OS thread for `ns` nanoseconds,
+        # read as unsigned. Behind `sleep(Duration)` and the executor's timed
+        # waits; freestanding supplies its own (a WFI/hardware-timer wait). The
+        # parameter is Int64 on EVERY target, not `self.int_type` — a span is a
+        # u64 nanosecond count, and narrowing it on a 32-bit host is the wrap
+        # design 180 removed.
+        ns_type = ir.IntType(64)
+        saw_sleep_ns = ir.Function(self.module, ir.FunctionType(void, [ns_type]),
+                                   name="__saw_rt_sleep_ns")
         # design 57 (std.time): the monotonic + wall-clock seams. Both return
         # i64. `saw_clock_monotonic_nanos` reads a monotonic clock as nanoseconds
         # since an arbitrary epoch (behind Instant.now()); `saw_unix_timestamp_secs`
         # reads the wall clock as seconds since the Unix epoch. Keeping the
         # struct-timespec layout and the macOS/Linux CLOCK_MONOTONIC constant
-        # variance INSIDE the shim (like saw_sleep_ms) is what lets std.time stay
+        # variance INSIDE the shim (like saw_sleep_ns) is what lets std.time stay
         # pure Saw. Hosted-only (std.time is never imported freestanding).
         saw_clock_monotonic_nanos = ir.Function(
             self.module, ir.FunctionType(i64, []), name="__saw_rt_clock_monotonic_nanos")
@@ -647,13 +651,13 @@ class CodeGenerator(ResultsMixin, MatchMixin, StructsMixin, CollectionsMixin, Ca
         self.functions["__saw_rt_dealloc"] = saw_dealloc
         self.functions["__saw_rt_write"] = saw_write
         self.functions["__saw_rt_panic"] = saw_panic
-        self.functions["__saw_rt_sleep_ms"] = saw_sleep_ms
+        self.functions["__saw_rt_sleep_ns"] = saw_sleep_ns
         self.functions["__saw_rt_clock_monotonic_nanos"] = saw_clock_monotonic_nanos
         self.functions["__saw_rt_unix_timestamp_secs"] = saw_unix_timestamp_secs
         self.saw_write = saw_write
         self.saw_panic = saw_panic
 
-        _seams = (saw_alloc, saw_dealloc, saw_write, saw_panic, saw_sleep_ms,
+        _seams = (saw_alloc, saw_dealloc, saw_write, saw_panic, saw_sleep_ns,
                   saw_clock_monotonic_nanos, saw_unix_timestamp_secs)
         # design 113b: these seam BODIES are now authored in Saw + shim.c under
         # `sawc/rt/` (common/mem.saw, common/sleep.saw, host_*/clock.saw,

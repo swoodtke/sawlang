@@ -21,11 +21,11 @@ func k_write(ptr: UnsafePointer<Int8>, len: Int) unsafe {
     }
 }
 
-@export("__saw_rt_sleep_ms")
-func k_sleep(ms: Int) {
-    var spun = 0
-    while spun < ms {
-        spun = spun + 1
+@export("__saw_rt_sleep_ns")
+func k_sleep(ns: UInt64) {
+    var spun = 0 as UInt64
+    while spun < ns {
+        spun = spun + (1 as UInt64)
     }
 }
 

@@ -6,7 +6,7 @@
 // EXPECT-ERROR-CONTAINS: cannot suspend in an `@export` function
 // COMPILE-FLAGS: --runtime-build
 
-@export("__saw_rt_sleep_ms")
-func rt_sleep(ms: Int) {
+@export("__saw_rt_sleep_ns")
+func rt_sleep(ns: UInt64) {
     yield_now()
 }

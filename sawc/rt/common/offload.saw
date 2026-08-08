@@ -17,7 +17,7 @@ extern "C" {
     // thread wrappers (design 117: join is Saw; spawn is shim — DF-113b).
     func __saw_rt_thread_spawn(entry: UnsafePointer<Int8>, env: UnsafePointer<Int8>) -> Int
     func __saw_rt_thread_join(handle: Int)
-    func __saw_rt_sleep_ms(ms: Int)
+    func __saw_rt_sleep_ns(ns: UInt64)
     // The offload thread thunk's address (shim). Saw cannot name a C function
     // pointer, so the shim exposes it as an opaque pointer for pthread_create.
     func __saw_offload_thread_ptr() -> UnsafePointer<Int8>
@@ -35,6 +35,8 @@ struct Job {
     pipe_w: Int32
     thread: Int
 }
+
+static NANOS_PER_MILLI: UInt64 = 1000000
 
 // pipe() writes fds[0]=read, fds[1]=write into two adjacent Int32s.
 struct PipeFds {
@@ -90,8 +92,12 @@ func rt_offload_take(job: Int) unsafe -> Int {
 
 // The reference blocking primitive: a real thread-blocking sleep returning its
 // argument — the offload path + its tests exercise it via a `blocking func`.
+// It keeps its millisecond argument: it stands in for an arbitrary blocking C
+// call, and a C call is whatever shape it is.
 @export("__saw_rt_blocking_sleep")
 func rt_blocking_sleep(ms: Int) -> Int {
-    __saw_rt_sleep_ms(ms)
+    if ms > 0 {
+        __saw_rt_sleep_ns((ms as UInt64) * NANOS_PER_MILLI)
+    }
     ms
 }

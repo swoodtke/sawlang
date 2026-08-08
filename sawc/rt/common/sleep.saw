@@ -1,22 +1,67 @@
-// The thread-park timer seam (design 45 / 113b), authored in Saw.
+// The thread-park timer seam (design 45 / 113b / 180), authored in Saw.
 //
-// `__saw_rt_sleep_ms(ms)` parks the current OS thread for `ms` milliseconds
-// (behind `sleep(ms)` and the executor's timed waits). A non-positive request
-// returns at once. Hosted default: usleep(ms * 1000). `usleep` takes
-// microseconds as a 32-bit unsigned; the multiply and the narrowing both
-// truncate exactly as the pre-113 synthesized seam did — `&*` and, since design
-// 170 made a bare `as` checked, `Int32.from(truncating:)` for the narrowing.
-// Both wraps are stated rather than implied now. A request past ~35 minutes
-// therefore still wraps to a short sleep, as it always has (DF-170a).
+// `__saw_rt_sleep_ns(ns)` parks the current OS thread for `ns` nanoseconds. A
+// zero request returns at once. Hosted default: a clock-corrected loop of
+// `usleep` calls.
+//
+// WHY A LOOP. `usleep` takes microseconds as a 32-bit unsigned, and historical
+// POSIX made an argument at or past one whole second an error, so a second is
+// the largest chunk every host is known to accept. The pre-180 seam took
+// milliseconds, multiplied by 1000 and narrowed to 32 bits in ONE step, so a
+// request past about 35 minutes wrapped to a short nap (DF-170a). Chunking
+// removes the bound rather than checking it.
+//
+// WHY THE CLOCK. Each `usleep` returns a little late, and a plain countdown
+// would bank every one of those overruns: 2400 chunks of a 40-minute park
+// measured about 0.7% long. Each pass therefore charges what the monotonic
+// clock says it actually slept, so an overrun shortens the next chunk and the
+// total converges on the span asked for instead of drifting away from it.
+//
+// A park is a floor, so the two roundings both go UP: the tail is rounded to a
+// whole microsecond (the finest unit `usleep` can express), and the loop exits
+// only once the elapsed total has reached the request.
+//
+// NOT INTERRUPTIBLE. The seam returns when the whole span has elapsed and there
+// is no way to cut it short from another thread — chunking buys total-elapsed
+// fidelity, not responsiveness. That is why the executor does not park here when
+// it may need to abandon the wait: design 180 unit 5 parks it in the reactor
+// with the same deadline as the poll timeout, which the design-102 self-wake
+// pipe can rouse. This seam is the no-reactor fallback and the body behind a
+// `sleep` reached outside any executor.
 
 extern "C" {
-    func usleep(us: Int32) -> Int32
+    func usleep(us: UInt32) -> Int32
+    // Implemented by host_macos/clock.saw and host_linux/clock.saw, linked into
+    // the same runtime. Nanoseconds from an arbitrary epoch; only differences
+    // are meaningful, which is all this needs.
+    func __saw_rt_clock_monotonic_nanos() -> Int64
 }
 
-@export("__saw_rt_sleep_ms")
-func rt_sleep_ms(ms: Int) {
-    if ms > 0 {
-        let us = ms &* 1000
-        usleep(Int32.from(truncating: us))
+static NANOS_PER_MICRO: UInt64 = 1000
+// One chunk: a whole second.
+static CHUNK_NANOS: UInt64 = 1000000000
+
+@export("__saw_rt_sleep_ns")
+func rt_sleep_ns(ns: UInt64) {
+    var left = ns
+    while left > (0 as UInt64) {
+        var chunk = CHUNK_NANOS
+        if left < chunk {
+            chunk = left
+        }
+        let before = __saw_rt_clock_monotonic_nanos()
+        usleep((((chunk + NANOS_PER_MICRO - (1 as UInt64)) / NANOS_PER_MICRO)) as UInt32)
+        let delta = __saw_rt_clock_monotonic_nanos() - before
+        // What the clock says this pass cost. A non-positive reading means the
+        // clock is unusable for correction here; charge the chunk we asked for
+        // instead, so the loop always makes progress and always terminates.
+        var slept = chunk
+        if delta > (0 as Int64) {
+            slept = delta as UInt64
+        }
+        if slept >= left {
+            return
+        }
+        left = left - slept
     }
 }
