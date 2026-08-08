@@ -1,0 +1,25 @@
+// DF-172j on the profile that asked for it. SOS wanted `static REGION_SIZE` to
+// be the ONE checked source for the arena's size, named by the region type, the
+// zeroed static filling it and the alignment claim about it — in a freestanding
+// kernel, at a 32-bit target where a size is a `UInt`. The fold happens during
+// type checking, so it is profile-independent; this pins that, and pins that the
+// all-zero arena still costs no image bytes (design 149).
+// COMPILE-FLAGS: --freestanding --target riscv32-unknown-none-elf
+// EXPECT: object
+// EXPECT-SYMBOL-UNDEFINED: __saw_rt_write
+
+static REGION_SIZE: Int = 65536
+static PAGE_SIZE: UInt = 4096
+
+static_assert(REGION_SIZE % 4096 == 0, "the region must be page-aligned")
+
+struct Region { bytes: [UInt8; REGION_SIZE] }
+
+static ARENA: [UInt8; REGION_SIZE] = [0; REGION_SIZE]
+
+@export("kmain")
+func kmain() {
+    var page: [UInt8; PAGE_SIZE] = [0; PAGE_SIZE]
+    var half: [UInt8; REGION_SIZE / 2] = [0; REGION_SIZE / 2]
+    print("{} {} {} {}", ARENA.len(), page.len(), half.len(), sizeof<Region>())
+}
