@@ -5,6 +5,17 @@ Open items ONLY. Landed work lives in `designs/NN-*.md` + git history
 landed recaps). Conventions: cite source designs in [brackets]; VERIFY
 items need a probe before being treated as real work.
 
+## Design 187 — coro fix batch + 182 completion (QUEUED, held)
+
+`designs/187-coro-fix-batch.md`, approved Aug 8. Ten units, one surface:
+DF-158e (freestanding embedding MISCOMPILE, SOS-M2 blocker) + DF-158c
+(@export width swap on rv32) lead; then DF-158a/b/d (transform
+diagnostics + the yield_now no-op), DF-174g/h (nested-optional wrap/peel
++ `??` depth), DF-182e's ruled Send additions, DF-182c's store-to-move
+surgery, and a cooperative `Command.output()` closing DF-181a whole.
+Five xfail pins flip. HELD: do not dispatch until the user resumes the
+queue (standing order: stop after 183 integrates).
+
 ## Design 185 — const bitwise + flag enums (LANDED, Aug 8)
 
 All five units built. `& | ^ << >> ~` fold in a constant at the target's
