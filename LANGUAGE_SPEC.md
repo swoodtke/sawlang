@@ -907,12 +907,12 @@ One space after the marker is dropped; the rest of the line is kept verbatim.
 The compiler treats the text as opaque — Markdown is the convention, not a rule.
 
 ```saw
-//! Monotonic and wall-clock time.
+//! Spans of time.
 
 /// A span of time, held as whole nanoseconds.
 struct Duration {
     /// Nanoseconds in the span.
-    public nanos: Int64
+    public nanos: UInt64
 }
 ```
 
@@ -4442,7 +4442,7 @@ Observable rules:
 
 **Suspending `main` and the cooperative executor (design 45 items 1 & 4).** The
 real cooperative primitives are `yield_now()` (suspend and become immediately
-re-ready) and `sleep(ms)` (suspend with a timed wake). Both are inferred
+re-ready) and `sleep(d)` (suspend with a timed wake). Both are inferred
 suspension points. **`yield_now` requires importing std.task** (design 114): it
 is std.task's public `func yield_now()`, the one explicit cede a pure-compute
 task loop needs; a task doing I/O yields implicitly when it parks, so most code
@@ -4450,7 +4450,8 @@ never names it. Write `import std.task.*` (or `import std.task.{yield_now}`) to
 call it bare, or `import std.task` and write `task.yield_now()`. The bare name
 is otherwise a stdlib-internal intrinsic, and calling it without the import is a
 clean error naming the three forms.
-(`sleep` stays in the prelude.) When `main` transitively reaches one, the compiler infers
+(`sleep` stays in the prelude, and so does the `Duration` it takes.) When `main`
+transitively reaches one, the compiler infers
 `main` suspending and auto-wraps it in an **entry executor** with no user-visible
 plumbing: `main` becomes a frame + `resume`, and the generated entry drives it to
 completion on a single cooperative run, parking the thread for each `sleep` wake
@@ -4461,7 +4462,7 @@ heterogeneous run queue is now built on `any Trait` erasure (design 51): every
 coroutine frame is compiler-synthesized to conform to a builtin `Resumable`
 trait — `resume(&var self) sync -> __Poll` (advance one step; `resume` is the
 anti-suspension boundary, so it is `sync`) plus `__wake_reason(&self) sync -> Int`
-(the wake surface: `0` = ready/yield, `>0` = sleep that many ms). A frame boxed as
+(the wake surface: `0` = ready/yield, `>0` = sleep that many nanoseconds). A frame boxed as
 `Box<any Resumable>` lets distinct frame types share one queue,
 `Vector<Box<any Resumable>>`.
 
@@ -4484,9 +4485,12 @@ anti-suspension boundary, so it is `sync`) plus `__wake_reason(&self) sync -> In
   the thread's shared run queue and run EAGERLY — whenever the scheduler runs, not
   only at `join`. A group is a membership/lifetime scope, not a private executor:
   its `join`/`Deinit` drive the shared queue until the group's own members
-  finish, honoring wake reasons — `yield_now` requeues immediately, `sleep(ms)`
+  finish, honoring wake reasons — `yield_now` requeues immediately, `sleep(d)`
   is scheduled earliest-deadline over relative sleeps, and a channel wait parks
-  until a send. The drive loop is `sync` (built from `resume`), which is what
+  until a send. When nothing is runnable the scheduler parks in the reactor with
+  the earliest deadline as its timeout, whether anything is waiting on an fd or
+  not, so a cancel arriving mid-nap is observed then rather than at the deadline;
+  a cancelled sleeper is made runnable and takes its cancel path on resume. The drive loop is `sync` (built from `resume`), which is what
   lets the group's `Deinit` run it. A multi-threaded `TaskGroup(threads: N)`
   keeps its own worker-drained queue (design 75).
 - **`TaskHandle<T>`** owns nothing. It records the task's `(slot, generation)` in
@@ -4751,7 +4755,7 @@ func orchestrate(base: Int) -> Int {
     var group = TaskGroup()
     let h1 = group.spawn(worker(base))
     let h2 = group.spawn(worker(base + 1))
-    sleep(1)                              // the parent may suspend between spawn
+    sleep(Duration.ms(1))                 // the parent may suspend between spawn
     return h1.join() + h2.join()          // and join; the group drains at teardown
 }
 
@@ -4799,7 +4803,10 @@ Unbounded external waits (sockets) never block the cooperative executor. A
 process-global **poller** — kqueue on macOS, epoll on Linux — is the reactor: when
 no task is runnable the executor blocks in the poller with a timeout equal to the
 earliest sleep deadline (never busy-waiting, never blocking while a task is
-runnable), and wakes tasks whose fds are ready.
+runnable), and wakes tasks whose fds are ready. That holds even when nothing is
+waiting on an fd and the only thing pending is a timer: the poller is where the
+executor idles either way, so a cancel arriving mid-nap is observed at the wake
+rather than at the deadline.
 
 **Precise wakeup (design 91).** A readiness event wakes EXACTLY the frame(s)
 registered for that `(fd, direction)` — not every io-parked frame. Each park
@@ -5635,10 +5642,11 @@ Not all of std is auto-visible. The **prelude** — the names usable without an
   `Hashable`, `Printable`, `Error`, `Send`, `Sync`);
 - the builtins (`print`/`panic`/`assert`/`sizeof`/`alignof`/`static_assert`) and
   the concurrency primitives (`TaskGroup`, `sleep`, `spawn`, `cancelled`);
-  `StringBuilder` (common enough to stay bare).
+  `StringBuilder` (common enough to stay bare); `Duration`, because `sleep` is
+  a prelude builtin and a `Duration` is the only thing it takes.
 
 Everything else in std is **import-required**: `File`, `Directory`, `Path`,
-`Data`, `Channel`, `Mutex`, `Duration`, `Instant`, `IoError`, `Utf8Error`, the
+`Data`, `Channel`, `Mutex`, `Instant`, `IoError`, `Utf8Error`, the
 whole `net` surface (`TcpListener`/`TcpStream`), `yield_now` (std.task —
 design 114), `FixedBuf`/`FixedStringBuilder` (std.fixedbuf),
 `CborEncoder`/`CborDecoder` (std.cbor), and the
@@ -5671,13 +5679,13 @@ names. Reach the module's contents through it:
 import std.time
 import std.data
 
-func as_millis(d: time.Duration) -> Int { d.millis() }   // annotation
+func since(t: time.Instant) -> Duration { t.elapsed() }  // annotation
 
 func main() {
     let started = time.Instant.now()                     // static method
     var buffer: Vector<data.Data> = []                   // generic argument
     buffer.push(data.Data())                             // constructor
-    print("{as_millis(started.elapsed())}")
+    print("{since(started).as_micros()}")
 }
 ```
 
@@ -5854,7 +5862,8 @@ value:)` sets one environment variable for the child under the same rule, on top
 of the environment it inherits; `merge_stderr()` sends its standard error
 wherever its standard output goes),
 `std.net` (`TcpListener`/`TcpStream`),
-`std.time` (`Duration`/`Instant`), plus `Int`/`Float` numeric extensions and the
+`std.duration` (`Duration`) and `std.time` (`Instant`), plus `Int`/`Float`
+numeric extensions and the
 `Equatable`/`Comparable`/`Hashable`/`Printable`/`Error` traits (and
 `Result`/optionals as language features). `RwLock` and I/O beyond files and
 sockets are still planned. There is no `async`/`future`
@@ -5886,7 +5895,8 @@ need one of the three [import forms](#imports).
 | `std.file` / `std.directory` / `std.path` | `File`, `Directory`, `Path` | no |
 | `std.net` | `TcpListener`, `TcpStream`, `IoError` | no |
 | `std.process` / `std.env` | `Command`, `ProcessError`, `Env` | no |
-| `std.time` | `Duration`, `Instant` | no |
+| `std.duration` | `Duration` | yes |
+| `std.time` | `Instant`, `unix_timestamp` | no |
 | `std.fixedbuf` | `FixedBuf<N>`, `FixedStringBuilder<N>` | no |
 | `std.serde` | `Serialize`, `Deserialize`, `Encoder`, `Decoder`, the error types | yes |
 | `std.cbor` | `CborEncoder`, `CborDecoder`, `encode` | no |
@@ -5928,14 +5938,37 @@ out.append(42)
 print(out.as_string())      // prints: n = 42
 ```
 
+**`Duration`** is a span of time, `UInt64` whole nanoseconds, and is in the
+prelude. Build one with `Duration.ns`, `us`, `ms` or `secs`; read one back with
+`as_nanos`, `as_micros`, `as_millis`, `as_secs`. It is Equatable, Comparable and
+Printable, rendering a human form like `1.42s` or `230ms`.
+
+```saw
+let nap = Duration.ms(200)
+print("{nap}")              // prints: 200ms
+sleep(nap)
+```
+
+The backing is unsigned because a span is a magnitude, and the whole u64
+nanosecond range — about 584 years — is reachable from every constructor, so no
+span a caller can spell wraps into a shorter one. A constructor whose argument
+would scale past that range panics naming itself:
+
+```saw
+let d = Duration.secs(18446744074)
+// panic at duration.saw:79: Duration.secs: 18446744074 seconds is past the
+// representable span
+```
+
 **`std.time`** is **implemented** (`designs/57`, `std/time.saw`) and
 **hosted-only** (it links libc for the clock; freestanding kernels provide their
-own timer): `Duration { nanos: Int64 }` with `secs`/`millis`/`micros`/`nanos`
-accessors and `from_millis`/`from_secs` constructors (Equatable + Comparable +
-Printable, rendering a human form like `1.42s` / `230ms`); `Instant.now()` (a
-monotonic clock), `elapsed()`, and `duration_since(earlier:)`; and a free
+own timer): `Instant.now()` (a monotonic clock), `elapsed()`, and
+`duration_since(earlier:)`, all three handing back a `Duration`; and a free
 `unix_timestamp() -> Int64` (wall-clock seconds since the Unix epoch). `Int64`
-nanoseconds keep the layout stable across platform Int widths.
+nanoseconds keep the `Instant` layout stable across platform Int widths. The two
+span methods panic rather than report a negative one: `elapsed` if the monotonic
+clock stepped backward, `duration_since` if `earlier` is in fact the later of
+the two.
 
 ### Profiles (hosted and freestanding)
 

@@ -310,12 +310,12 @@ it appears in and belongs at the top, ahead of every declaration. A doc comment
 that documents nothing is a compile error rather than a silent drop.
 
 ```saw
-//! Monotonic and wall-clock time.
+//! Spans of time.
 
 /// A span of time, held as whole nanoseconds.
 struct Duration {
     /// Nanoseconds in the span.
-    public nanos: Int64
+    public nanos: UInt64
 }
 ```
 
@@ -1120,7 +1120,11 @@ The standard library includes:
 - **std.process** - `Command.run() -> Result<Int32, ProcessError>`, `.output()`,
   `.env(name:value:)` (one environment variable for the child, on top of the one
   it inherits), `.merge_stderr()`.
-- **std.time** - `Duration`, `Instant` (hosted).
+- **Duration** - A span of time, UInt64 whole nanoseconds, in the prelude
+  because `sleep` takes one. `Duration.ns` / `us` / `ms` / `secs` build one and
+  `as_nanos` / `as_micros` / `as_millis` / `as_secs` read it back; it compares
+  and prints (`200ms`, `1.42s`). Both profiles.
+- **std.time** - `Instant`, `unix_timestamp` (hosted).
 - **Numeric extensions** - The two sets are disjoint. `Int`: `abs`, `min`/`max`/
   `clamp`, `pow`, `is_even`/`is_odd`, `signum`. `Float`: `abs`,
   `floor`/`ceil`/`round`, `sqrt`, `min`/`max`.

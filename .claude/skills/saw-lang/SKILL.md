@@ -885,10 +885,21 @@ func main() {
     let a = group.spawn(work(3))
     print(a.join())        // structured join; group Deinit drains children
 }
-sleep(200)                  // cooperative; sync is the CHECKED negative effect
+sleep(Duration.ms(200))     // cooperative; sync is the CHECKED negative effect
 ch.receive()                // cooperative channel receive (blocking twin: recv)
 handle.cancel(); if cancelled() { ... }   // cooperative cancellation
 ```
+- **`sleep` takes a `Duration` and nothing else** (design 180). The bare-Int form
+  is GONE — `sleep(200)` is now a clean error naming `Duration.ms`. `Duration` is
+  PRELUDE (no import; `Instant` still needs `import std.time`), holds UInt64 whole
+  nanoseconds, and is built by `Duration.ns` / `us` / `ms` / `secs` and read by
+  `as_nanos` / `as_micros` / `as_millis` / `as_secs`. GOTCHA: the constructors take
+  `UInt64`, so a literal is fine (`Duration.ms(200)`) but an `Int` variable needs
+  the conversion stated (`Duration.ms(n as UInt64)`), which panics on a negative.
+  A constructor whose argument would scale past the u64 nanosecond range (about
+  584 years) panics naming itself. A cancel arriving while a task is ASLEEP is
+  observed promptly now, not at the end of the nap (the executor idles in the
+  reactor poll in every case, so the self-wake pipe reaches a pure-timer park).
 - `func f(...) sync -> T` promises no suspension (checked).
 - `TaskGroup(threads: N)` (design 75) opts into MULTI-THREADED execution (N OS
   workers drain a shared queue). `TaskGroup()` / `threads: 1` stay single-threaded
@@ -1106,7 +1117,7 @@ import mymodule as mm       // aliasing; `module`/`public`/`package`/`parent`
 ```
 - **THREE IMPORT FORMS, and std takes the same three as any package
   (design 150).** `import std.time` binds the last segment as a QUALIFIER
-  and exposes nothing bare (`time.Instant.now()`, `let d: time.Duration`);
+  and exposes nothing bare (`time.Instant.now()`, `let t: time.Instant`);
   `import std.time.*` puts every public name in scope bare;
   `import std.time.{Instant}` does both — `Instant` bare AND a `time.`
   qualifier for what it did not name. `as` renames the qualifier
@@ -1198,9 +1209,11 @@ import mymodule as mm       // aliasing; `module`/`public`/`package`/`parent`
   `Serialize`/`Deserialize` + `Encoder`/`Decoder`/`EncodeError`/`DecodeError`
   (std.serde — design 169),
   `print`/`panic`/`assert`/`sizeof`/`alignof`/`static_assert`, `TaskGroup`/
-  `sleep`/`spawn`/`cancelled`, `StringBuilder`. IMPORT-REQUIRED:
+  `sleep`/`spawn`/`cancelled`, `StringBuilder`, `Duration` (std.duration —
+  design 180; `sleep` takes one, so gating it would gate `sleep`).
+  IMPORT-REQUIRED:
   `File`/`Directory`/`Path` (std.file/directory/path), `Data` (std.data),
-  `Channel` (std.channel), `Mutex` (std.mutex), `Duration`/`Instant` (std.time),
+  `Channel` (std.channel), `Mutex` (std.mutex), `Instant` (std.time),
   `IoError`/`TcpListener`/`TcpStream` (std.net), `Utf8Error` (std.string),
   `yield_now` (std.task — design 114; the wrapper over the stdlib-internal
   cooperative-yield intrinsic), `Command` (std.process), `Env` (std.env),

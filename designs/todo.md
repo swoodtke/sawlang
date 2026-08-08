@@ -5,6 +5,40 @@ Open items ONLY. Landed work lives in `designs/NN-*.md` + git history
 landed recaps). Conventions: cite source designs in [brackets]; VERIFY
 items need a probe before being treated as real work.
 
+## Design 180 — sleep(Duration) (LANDED, Aug 8)
+
+`sleep` takes a `Duration` and nothing else; the bare-Int form is gone.
+DF-170a is closed above. One finding, and one decision the brief did not
+anticipate:
+
+- **DF-180a (OPEN, filed Aug 8): a static and an instance method cannot share
+  a name.** `Duration.secs(2)` (construct) and `d.secs()` (project) are never
+  ambiguous at a call site — one names the type, the other a value — but
+  declaring both is rejected: ``method `secs` is already defined for struct
+  `Duration` with an indistinguishable signature``, hinted "overloads must
+  differ in arity or parameter types". The distinguishability check does not
+  consider whether a method has a `self` receiver, though resolution reaches
+  the two through separate paths. It cost design 180 the accessor names the
+  brief asked to keep: the family was renamed `as_nanos` / `as_micros` /
+  `as_millis` / `as_secs` so the constructors could be `ns` / `us` / `ms` /
+  `secs`. That reads well (bare name constructs, `as_` projects) and is what
+  Rust does, so this is not urgent — but the rule as written rejects a
+  program with no ambiguity in it, and a receiver-aware key looks small.
+- **The prelude pin needs ratifying.** Unit 2 put `Duration` in the prelude as
+  recommended, which meant a FILE move (`std/duration.saw`) rather than a
+  flag: prelude membership and code generation are decided by the same module
+  gate, so a per-symbol exception would have made the name visible and its
+  methods absent. `Instant` stayed import-required in `std.time`. Consequence
+  worth a look at review: `time.Duration` no longer resolves, and
+  `import std.time.{Duration}` is now an error (with a hint saying the type is
+  in the prelude and the entry should be deleted).
+- **`Instant.elapsed` / `duration_since` panic on a negative span** rather
+  than returning one, since a `Duration` has no negative values. The first
+  fires only if the monotonic clock steps backward; the second if `earlier`
+  is the later of the two. The brief put Instant changes out of scope, so
+  flagging rather than assuming: `duration_since` used to document a negative
+  result as supported.
+
 ## Design 181 — blocking-call audit findings (filed Aug 7)
 
 Full inventory + policy menu in `designs/181-blocking-call-audit.md`.
@@ -944,17 +978,15 @@ the dispatch inherited follows.
 the `None`-returning twin and `T.from(truncating: x)` the deliberate wrap.
 Follow-ups and findings the sweep produced:
 
-- **DF-170a (OPEN, pre-existing, now STATED): `rt_sleep_ms` wraps past ~35
+- **DF-170a (CLOSED by design 180, Aug 8): `rt_sleep_ms` wrapped past ~35
   minutes.** `usleep` takes microseconds in a 32-bit slot, so
-  `sawc/rt/common/sleep.saw` has always truncated `ms &* 1000` into it — the
-  file's own header comment documented the truncation as deliberate. Design
-  170 only changed the SPELLING (`Int32.from(truncating:)`), because
-  preserving documented behavior is the sweep's job and clamping is the
-  saturating the brief declares a non-goal. The latent bug is unchanged: a
-  sleep of 2_147_484 ms or more returns early, silently. Real fix is a chunked
-  loop in the seam (the ABI takes a platform `Int`, so the request is
-  representable and only the libc call is not) — small, but it is a runtime
-  behavior change and wants its own decision.
+  `sawc/rt/common/sleep.saw` had always truncated `ms &* 1000` into it, and a
+  sleep of 2_147_484 ms or more returned early and silently. Closed BY
+  CONSTRUCTION rather than by a check: the seam is `__saw_rt_sleep_ns(u64)`
+  now and chunks to libc's bound in a clock-corrected loop, so every span the
+  type can hold is served in full. The API above it cannot spell an
+  unrepresentable request either — `sleep` takes a `Duration`, whose UInt64
+  nanosecond backing reaches about 584 years.
 - **DF-170b (FOLLOW-UP, mechanical): re-run the cast census over
   `sawc/std/data.saw`.** Skipped in this sweep because design 165 was
   rewriting the file concurrently. As it stood at 170's dispatch it had 23

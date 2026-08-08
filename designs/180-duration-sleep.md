@@ -1,5 +1,13 @@
 # Design 180 — `sleep(Duration)`, and only that
 
+**LANDED Aug 8** in six units. Two deviations, both recorded in the tracker:
+the accessor family was renamed to `as_*` because a static `Duration.secs(_)`
+and an instance `d.secs()` collide (DF-180a), and the prelude decision was
+implemented as a FILE move to `std/duration.saw` because the module gate
+decides prelude membership and code generation together. Unit 4's seam loop
+also became clock-corrected — a plain countdown banked every `usleep`
+overrun, measuring about 0.7% long over a 40-minute park.
+
 **Status: APPROVED (user, Aug 7 evening): sleep takes `time.Duration`;
 the `sleep(ms: Int)` variant is REMOVED ENTIRELY (no deprecation period —
 the tree is young); Duration gets easy unit-named constructors. Closes
