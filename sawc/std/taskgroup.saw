@@ -85,6 +85,12 @@ extern "C" {
     // honour a task's sleep wake reason and to nap between MT-worker re-scans.
     // Nanoseconds, read as unsigned, chunked to libc's bound inside the body.
     func __saw_rt_sleep_ns(ns: UInt64)
+
+    // design 180 unit 5: the monotonic clock, so a park that the reactor's
+    // self-wake pipe cut short charges its sleepers what actually elapsed
+    // instead of the deadline it asked for. Same seam std.time reads; declared
+    // here because each std file is its own module.
+    func __saw_rt_clock_monotonic_nanos() -> Int64
 }
 
 // =============================================================================
@@ -193,6 +199,13 @@ func __saw_exec_poll_ms(ns: Int) -> Int {
 // reactor until the fd the frame registered is ready — infinite timeout, again
 // nothing else to honour); zero is a plain yield (resume at once). Stage 3
 // routes the reactor poll here through the `Reactor` trait.
+//
+// design 180 unit 5 moved the SWEEP's timer park onto the reactor and left this
+// one on the seam, which is not an oversight. This path drives exactly one
+// frame, reached only from a suspending `main` with no spawns or from the
+// test-only `__saw_drive`: there is no sibling to cede to, no TaskGroup to reach
+// a `cancel()` through, and no `remaining` bookkeeping to re-park against if a
+// poll came back early. A pokeable park would have nothing to be poked by.
 func __saw_exec_park(wake: Int) {
     if wake > 0 {
         __saw_exec_sleep_ns(wake)
@@ -735,12 +748,26 @@ func __saw_exec_worker(addr: Int) unsafe {
                         }
                         let _ = pthread_mutex_unlock(lk)
                     } else {
-                        // Every live task is sleeping and none is in flight: advance
-                        // the clock by the earliest deadline UNDER the lock (no worker
-                        // can claim while we hold it, and none is running), then
-                        // subtract it from all sleepers so the shortest wakes first.
+                        // Every live task is sleeping and none is in flight:
+                        // advance the clock by the earliest deadline, then
+                        // subtract it from all sleepers so the shortest wakes
+                        // first. design 180 unit 5: park in the REACTOR rather
+                        // than `usleep`, so a peer's `cancel()` self-wake ends
+                        // the nap instead of waiting it out. The poll runs
+                        // OUTSIDE the lock (it can block for the whole deadline
+                        // and a worker holding the queue lock that long would
+                        // wedge the drain); the scan that follows retakes it,
+                        // which is the same shape the io branch above uses.
+                        var spent = minrem
                         if minrem > 0 {
-                            __saw_exec_sleep_ns(minrem)
+                            let _ = pthread_mutex_unlock(lk)
+                            let before = __saw_rt_clock_monotonic_nanos()
+                            let _ = __saw_host_reactor().poll(__saw_exec_poll_ms(minrem))
+                            let took = __saw_rt_clock_monotonic_nanos() - before
+                            if took > (0 as Int64) && took < (minrem as Int64) {
+                                spent = took as Int
+                            }
+                            pthread_mutex_lock(lk)
                         }
                         var j = 0
                         while j < n {
@@ -748,11 +775,22 @@ func __saw_exec_worker(addr: Int) unsafe {
                             if not done_j {
                                 let r2 = g[0].remaining.get(j)!
                                 if r2 > 0 {
-                                    var nr = r2 - minrem
-                                    if nr < 0 {
-                                        nr = 0
+                                    // A cancelled SLEEPER becomes runnable now
+                                    // rather than at its deadline (design 180
+                                    // unit 5) — the timer half of what design
+                                    // 102 gave the io half.
+                                    let ck = g[0].tasks.with_var_ref<Bool>(j, { f in
+                                        f!.__is_cancelled()
+                                    })
+                                    if ck {
+                                        g[0].remaining.set(j, 0)
+                                    } else {
+                                        var nr = r2 - spent
+                                        if nr < 0 {
+                                            nr = 0
+                                        }
+                                        g[0].remaining.set(j, nr)
                                     }
-                                    g[0].remaining.set(j, nr)
                                 }
                             }
                             j = j + 1
@@ -1131,6 +1169,43 @@ func __saw_exec_any_latched_io() unsafe -> Bool {
     false
 }
 
+// design 180 unit 5: make every CANCELLED sleeper runnable, and report whether
+// any was. A cancelled task parked on an fd has been woken since design 102, but
+// one parked on a TIMER waited out its whole deadline — so `cancel()` on a task
+// sleeping ten seconds took ten seconds to be observed, however early it
+// arrived. A sleeper woken here resumes right after its `sleep`, sees
+// `cancelled()` at its next check and takes its cancel path, which is the same
+// contract the io side already keeps.
+//
+// The return value is what lets the sweep skip the park entirely when a cancel
+// landed while it was assembling the deadline.
+func __saw_exec_wake_cancelled_sleepers() unsafe -> Bool {
+    var woke = false
+    var cur = __saw_exec_head.load()
+    while cur != 0 {
+        let g = cur as UnsafePointer<TaskGroup>
+        let n = g[0].tasks.len()
+        var i = 0
+        while i < n {
+            let done_i = g[0].done.get(i)!
+            let active_i = g[0].active.get(i)!
+            if (not done_i) && (not active_i) {
+                let r = g[0].remaining.get(i)!
+                if r > 0 {
+                    let c = g[0].tasks.with_var_ref<Bool>(i, { f in f!.__is_cancelled() })
+                    if c {
+                        g[0].remaining.set(i, 0)
+                        woke = true
+                    }
+                }
+            }
+            i = i + 1
+        }
+        cur = g[0].next
+    }
+    woke
+}
+
 // Pure-sleep advance: subtract the parked deadline from every sleeper so the
 // shortest wakes first. Skips frames active on the C stack.
 func __saw_exec_advance_sleep(deadline: Int) unsafe {
@@ -1248,11 +1323,30 @@ func __saw_exec_run(term_group: Int, term_slot: Int, term_gen: Int) unsafe {
                 let events = __saw_host_reactor().poll(__saw_exec_poll_ms(deadline))
                 __saw_exec_wake_io(events, deadline)
             }
-        } else {
-            if deadline > 0 {
-                __saw_exec_sleep_ns(deadline)
+        } else if deadline > 0 {
+            // Pure-timer idle: every live frame is sleeping and none is on an fd.
+            // design 180 unit 5: park in the REACTOR with the earliest deadline
+            // as the poll timeout rather than in `usleep`. Nothing is registered
+            // here, so the poll is a pure timer — but a POKEABLE one, since the
+            // design-102 self-wake pipe reaches it and a `usleep` it could not.
+            // That is the whole difference: a cancel arriving during a long nap
+            // is observed at the poke instead of at the deadline.
+            if not __saw_exec_wake_cancelled_sleepers() {
+                let before = __saw_rt_clock_monotonic_nanos()
+                let _ = __saw_host_reactor().poll(__saw_exec_poll_ms(deadline))
+                let spent = __saw_rt_clock_monotonic_nanos() - before
+                // Charge what actually passed, not what was asked for. A poll cut
+                // short by the self-wake pipe has not earned the whole span, and
+                // crediting it anyway would wake every sleeper early. Capped at
+                // the deadline so the earliest sleeper lands on zero, and floored
+                // at it if the clock reads backward, so the sweep always advances.
+                var advance = deadline
+                if spent > (0 as Int64) && spent < (deadline as Int64) {
+                    advance = spent as Int
+                }
+                __saw_exec_advance_sleep(advance)
+                let _ = __saw_exec_wake_cancelled_sleepers()
             }
-            __saw_exec_advance_sleep(deadline)
         }
     }
 }
