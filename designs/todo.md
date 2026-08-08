@@ -60,12 +60,14 @@ read-only in-binary blob (`__saw_bt_table`, always on), `tools/lldb_saw.py`
 freestanding.
 
 **SIZE (the reserved veto point).** 246-517 bytes per hosted program across
-the nine-program gate corpus — 0.23% to 0.83% of the binary — and 273 bytes
-for the SOS kernel image that runs tasks, 235 for the one that does not. A
-frame record is 24 bytes, a state entry 12, names are shared in one string
-table, and a program with no coroutine frames carries a 32-byte header plus
-the executor descriptor. `tools/test_bt_table.py --sizes` reprints the table
-any time.
+the nine-program gate corpus — 0.23% to 0.83% of the binary. 287 bytes for the
+SOS kernel image that runs tasks. 138 bytes for a program with NO coroutine
+frames at all (header + the debugger's executor descriptor + the string table)
+— the SOS kernel that spawns nothing, and Blade, both land there. A frame
+record is 24 bytes, a state entry 12, and names are shared in one string
+table, so the cost tracks frames rather than program size.
+`tools/test_bt_table.py --sizes` reprints it any time. The debugger's vtable
+map (unit 2) adds one pointer per frame on top.
 
 Five findings, ALL PRE-EXISTING (each reproduced on `main` before 158
 touched anything). Two carry XFAIL pins; three are recorded here because
