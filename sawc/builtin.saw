@@ -318,6 +318,12 @@ trait Resumable {
     // reactor self-wake returns the blocked poll; this tells the scheduler which
     // parked frame to make runnable so it re-checks `cancelled()` at its loop top).
     func __is_cancelled(&self) sync -> Bool
+    // design 158: this frame type's entry in the in-binary backtrace table, or
+    // -1 when the program carries none. A logical backtrace is a walk of static
+    // tables from a frame's `__state` word, and this is the only thing the walk
+    // cannot read out of the frame itself — the frame's TYPE. Reaching it through
+    // the vtable keeps the descriptor out of every frame's storage.
+    func __bt_desc(&self) sync -> Int
 }
 
 // =============================================================================

@@ -96,6 +96,14 @@ def collect_frame_layouts(codegen, program):
             "is_spawn_root": ci.get("is_spawn_root", False),
             "is_method": ci.get("is_method", False),
             "source_file": ci.get("source_file", ""),
+            # design 158: the backtrace-table facts ride the same stash, so the
+            # report doubles as the human-readable view of what got encoded.
+            # `state_lines` keys are ints; JSON has string keys, so render them
+            # as strings here rather than letting json.dumps do it silently.
+            "bt_index": ci.get("bt_index"),
+            "display_name": ci.get("display_name", ""),
+            "state_lines": {str(k): v
+                            for k, v in (ci.get("state_lines") or {}).items()},
             "fields": fields,
         }
     return frames

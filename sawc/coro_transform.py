@@ -736,6 +736,22 @@ class _FrameBuilder:
         else:
             self.name = func.name
         self.frame_name = f"__Frame_{self.name}"
+        # design 158: the name a logical backtrace frame PRINTS. The frame key is
+        # a mangled monomorphization symbol; a reader wants the source spelling,
+        # so a method reads `Struct.method` and a function reads its own name.
+        self.display_name = (f"{struct_name}.{func.name}" if self.is_method
+                             else func.name)
+        # design 158: state index -> the SOURCE LINE a frame parked at that state
+        # is logically stopped on. Filled during the CFG walk — `_suspend_to`
+        # records the suspending statement's line against the state it resumes
+        # into (which is the state a parked frame's `__state` word holds), and
+        # `_emit_nested_call` records the CALL's line against the drive state.
+        # Together those are exactly the two things a backtrace frame can be.
+        self._state_lines = {}
+        # The line the CFG walk is currently lowering, so a synthesized statement
+        # (an ANF temp, a budget check) inherits the user line it came from
+        # instead of reporting 0.
+        self._cur_line = getattr(func, 'line', 0) or 0
         self.ret = func.return_type or SawType(TypeKind.VOID)
         self.is_void = (self.ret.kind == TypeKind.VOID)
         # DF-134a: does this frame ARM a reactor registration itself? Only a body
@@ -2768,7 +2784,7 @@ class _FrameBuilder:
                 f"function `{fc.name}` inside `{self.name}` is not yet supported "
                 f"(design 70 A5-rest)", fc.line, fc.column)
         return {'callee': fc.name, 'args': list(fc.arguments), 'target': target,
-                'ret': is_ret}
+                'ret': is_ret, 'line': getattr(fc, 'line', 0) or 0}
 
     def _classify_method_call(self, stmt, target, is_ret):
         """design 84: classify a nested suspending METHOD call boundary. Returns
@@ -2804,7 +2820,8 @@ class _FrameBuilder:
         return {'callee': _method_frame_key(
                     sname, mc.method_name, getattr(mc, 'resolved_symbol', None)),
                 'args': list(mc.arguments), 'target': target, 'ret': is_ret,
-                'recv': mc.object, 'recv_struct': sname, 'is_method': True}
+                'recv': mc.object, 'recv_struct': sname, 'is_method': True,
+                'line': getattr(mc, 'line', 0) or 0}
 
     def _classify_recv(self, stmt):
         """design 62 G3: if `stmt` is a top-level cooperative `ch.receive()`
@@ -3083,6 +3100,11 @@ class _FrameBuilder:
             'is_spawn_root': self.is_spawn_root,
             'is_method': self.is_method,
             'source_file': getattr(func, 'source_file', "") or "",
+            # design 158: the two halves a logical backtrace needs beside the
+            # embedding tree above — the name to print and, per state, the line
+            # a frame parked there is stopped on.
+            'display_name': self.display_name,
+            'state_lines': dict(self._state_lines),
         }
 
         if_chain = [self._state_if(k, self._blocks[k])
@@ -3154,6 +3176,25 @@ class _FrameBuilder:
             is_synthesized=True,
             line=func.line, column=func.column,
             source_file=getattr(func, 'source_file', ""))
+        # design 158: which entry of the in-binary backtrace table describes THIS
+        # frame type. The literal is patched once every frame has been built and
+        # the table order is fixed (`_assign_bt_indices`) — until then it reads
+        # -1, which the walker treats as "no table entry" rather than as an
+        # index. Reaching the index through the `Resumable` vtable is what lets
+        # the in-process walker start from an erased `Box<any Resumable>` without
+        # spending a word inside every frame.
+        bt_lit = _int(-1)
+        self._bt_desc_lit = bt_lit
+        bt_desc = Method(
+            name="__bt_desc",
+            parameters=[Parameter(name="self", type=SawType(TypeKind.VOID),
+                                  is_reference=True, reference_mutable=False)],
+            return_type=SawType(TypeKind.INT),
+            body=Block(statements=[], final_expr=bt_lit),
+            self_mutable=False, self_is_reference=True, is_sync=True,
+            is_synthesized=True,
+            line=func.line, column=func.column,
+            source_file=getattr(func, 'source_file', ""))
         # design 124: the frame's end-of-scope teardown, called at every `return
         # Done` site so a completed task's owned values die WITH THE TASK rather
         # than with its group. Not part of the `Resumable` protocol — the frame
@@ -3175,7 +3216,8 @@ class _FrameBuilder:
         # (nested sub-frames, the entry executor, `__saw_drive_*`) still bind `resume`
         # statically — conformance only synthesizes a vtable at an erasure site.
         resume_ext = Extension(struct_name=self.frame_name,
-                               methods=[resume, wake_reason, is_cancelled, release],
+                               methods=[resume, wake_reason, is_cancelled,
+                                        bt_desc, release],
                                conformances=["Resumable"],
                                line=func.line, column=func.column,
                                source_file=getattr(func, 'source_file', ""))
@@ -3221,9 +3263,12 @@ class _FrameBuilder:
         self._blocks[self.cur].append(ContinueStatement())
         self._term.add(self.cur)
 
-    def _suspend_to(self, wake, target):
+    def _suspend_to(self, wake, target, line=None):
         if self.cur in self._term:
             return
+        # design 158: a frame parked here holds `__state == target`, so the
+        # suspending statement's line is what a backtrace prints for `target`.
+        self._state_lines[target] = line or self._cur_line
         self._blocks[self.cur].append(
             AssignStatement(target=_self_field("__wake"), value=wake))
         self._blocks[self.cur].append(
@@ -3253,10 +3298,15 @@ class _FrameBuilder:
                 ExpressionStatement(expression=block.final_expr), loop_ctx)
 
     def _lower_stmt(self, s, loop_ctx):
+        # design 158: track the user line the walk is on, so a suspension the
+        # transform SYNTHESIZED (an ANF temp, a design-127 budget yield) reports
+        # the statement it came from rather than 0.
+        self._cur_line = getattr(s, 'line', 0) or self._cur_line
         # A suspension primitive: terminate this block, resume at a fresh one.
         if _is_suspend_stmt(s):
             forgets = []
             fc = s.expression
+            self._cur_line = getattr(fc, 'line', 0) or self._cur_line
             # design 76 (A4): `io_wait(fd, dir)` is register-then-park sugar. Emit
             # the (non-suspending) reactor registration IN PLACE with `fd`/`dir`
             # rewritten to frame fields, then suspend with the IO-PARK wake reason.
@@ -3609,6 +3659,7 @@ class _FrameBuilder:
         idx = bc['idx']
         job = f"__blkjob{idx}"
         fc = bc['call']
+        self._cur_line = getattr(fc, 'line', 0) or self._cur_line   # design 158
         forgets = []
         inner_args = [Argument(name=None, value=self._rewrite_expr(a.value, forgets))
                       for a in fc.arguments]
@@ -3719,6 +3770,11 @@ class _FrameBuilder:
         # `--emit-frame-layout` can report (and CHECK) the per-state live set
         # rather than assert it.
         info['drive_state'] = drive
+        # design 158: while `__state == drive` this frame is logically INSIDE the
+        # callee, so its backtrace line is the call site's — the same line a
+        # native backtrace shows for a non-leaf frame.
+        self._cur_line = info.get('line') or self._cur_line
+        self._state_lines[drive] = self._cur_line
         self._goto(drive)
         # A `return g(...)` tail (design 83) threads the callee's result into THIS
         # frame's `__result` and ends the coroutine; a `let x`/bare/discard call
@@ -5218,6 +5274,31 @@ def _promote_nested_generic_calls(program, funcs_by_name, seed_names, typechecke
     return promoted_all
 
 
+def _assign_bt_indices(frame_structs, builders):
+    """design 158: fix the backtrace table's frame ORDER and patch each frame's
+    `__bt_desc` literal to its index.
+
+    Ordered by frame NAME, not by construction order: the name is a property of
+    the source, the construction order is a property of a work-list pop, and the
+    table is compared byte-for-byte across runs by `irdet`. Runs once, after
+    every frame in the program has been built, because an index is only
+    meaningful against the whole table.
+    """
+    by_name = {}
+    for fb in builders:
+        by_name.setdefault(fb.frame_name, fb)
+    named = sorted(s.name for s in frame_structs
+                   if getattr(s, 'coro_frame_info', None) is not None)
+    for index, name in enumerate(named):
+        fb = by_name.get(name)
+        if fb is None:
+            continue
+        fb.frame_struct.coro_frame_info['bt_index'] = index
+        lit = getattr(fb, '_bt_desc_lit', None)
+        if lit is not None:
+            lit.value = index
+
+
 def transform_program(program, typechecker, imported_ast=None):
     roots = dict(getattr(typechecker, "_driven_roots", {}) or {})
     method_roots = dict(getattr(typechecker, "_driven_method_roots", {}) or {})
@@ -5512,6 +5593,11 @@ def transform_program(program, typechecker, imported_ast=None):
                             is_spawn_root=(n in spawn_roots
                                            and n not in dual_role_spawn_roots))
            for n in closure}
+    # design 158: every builder this pass creates, in one list, so the backtrace
+    # table's frame indices can be assigned once at the end (see
+    # `_assign_bt_indices`). `fbs`/`spawn_fbs` share entries, so this is a list of
+    # the DISTINCT builders, deduplicated there by frame name.
+    all_builders = list(fbs.values())
     # design 84: frame builders for nested suspending method callees, keyed by
     # the resolved-signature frame key (design 95, matching `_FrameBuilder.name`)
     # so a nested method-call site resolves `fbs[callee]` and embeds the RIGHT
@@ -5536,6 +5622,7 @@ def transform_program(program, typechecker, imported_ast=None):
             import copy as _copy
             mast = _copy.deepcopy(mast)
         fbs[fbkey] = _FrameBuilder(mast, struct_name=sname, tc=typechecker)
+        all_builders.append(fbs[fbkey])
         nested_method_fbs.append((fbkey, ext, mast))
     # Prepare ALL layouts (fn + method) before generating any resume, so a caller
     # (fn or method) can embed a fully-known callee frame by value.
@@ -5555,6 +5642,7 @@ def transform_program(program, typechecker, imported_ast=None):
         tfb = _FrameBuilder(_make_spawn_trampoline(funcs_by_name[n], n),
                             tc=typechecker, is_spawn_root=True)
         spawn_fbs[n] = tfb
+        all_builders.append(tfb)
         new_structs.append(tfb.prepare(suspends_set))
     for n in closure:
         _, resume_ext = fbs[n].build_resume(fbs)
@@ -5642,6 +5730,7 @@ def transform_program(program, typechecker, imported_ast=None):
             _instrument_loop_backedges(method_ast)   # design 127
             mfb = _FrameBuilder(method_ast, struct_name=struct_name, tc=typechecker,
                                 recv_saw_type=recv_saw_type)
+            all_builders.append(mfb)
             new_structs.append(mfb.prepare(suspends_set))
             _, resume_ext = mfb.build_resume(fbs)
             new_extensions.append(resume_ext)
@@ -5680,6 +5769,7 @@ def transform_program(program, typechecker, imported_ast=None):
         if ext.node_id in _entry_ext_ids:
             _instrument_loop_backedges(method_ast)   # design 127
         mfb = _FrameBuilder(method_ast, struct_name=struct_name, tc=typechecker)
+        all_builders.append(mfb)
         new_structs.append(mfb.prepare(suspends_set))
         _, resume_ext = mfb.build_resume(fbs)
         new_extensions.append(resume_ext)
@@ -5718,6 +5808,10 @@ def transform_program(program, typechecker, imported_ast=None):
         if const_statics:
             for decl in list(new_extensions) + list(new_functions) + list(new_structs):
                 _inline_static_refs(decl, const_statics)
+
+    # design 158: every frame exists now, so the table order — and each frame's
+    # `__bt_desc` answer — can be fixed.
+    _assign_bt_indices(new_structs, all_builders)
 
     # Splice: remove driven roots, add synthesized declarations.
     program.functions = [f for f in program.functions if f.name not in removed]

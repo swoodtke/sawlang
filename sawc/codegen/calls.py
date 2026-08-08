@@ -368,6 +368,18 @@ class CallsMixin:
                 self.builder.store(ir.Constant(ir.IntType(1), 0), flag_ptr)
             return None
 
+        # design 158: `__saw_bt_table()` — the address of this program's
+        # logical-backtrace table. A link-time constant; Saw cannot name an
+        # extern global (DF-113a), so the walker reaches it through here.
+        if expr.name == "__saw_bt_table":
+            i32 = ir.IntType(32)
+            gv = getattr(self, '_bt_table_global', None)
+            if gv is None:
+                return ir.Constant(ir.IntType(8).as_pointer(), None)
+            return self.builder.gep(
+                gv, [ir.Constant(i32, 0), ir.Constant(i32, 0)],
+                inbounds=True, name="bt_table")
+
         # design 52b item 2: `__saw_box_data(&box)` — the data word (i8*) of a
         # `Box<any T>` fat pointer, i.e. the address of the erased heap payload.
         # `_generate_expression(&box)` is a pointer to the `{ i8* data, i8* vt }`

@@ -1269,6 +1269,49 @@ class CodeGenerator(ResultsMixin, MatchMixin, StructsMixin, CollectionsMixin, Ca
         elems = [g.bitcast(i8ptr) for g in self._exported_llvm_globals]
         used.initializer = ir.Constant(arr_ty, elems)
 
+    # design 158: the section the backtrace table asks for, per object format.
+    # Mach-O needs a `SEGMENT,section` pair; ELF takes a bare name. The
+    # freestanding and runtime-build profiles are deliberately left alone —
+    # `_apply_section_layout` gives every global its own `.rodata.<name>` there,
+    # which is what `--gc-sections` and the kernel linker scripts already
+    # understand, and a bespoke section name would need a linker-script edit in
+    # every downstream kernel to be placed at all.
+    BT_TABLE_SYMBOL = "__saw_bt_table"
+
+    def _emit_bt_table(self, program):
+        """Emit this program's logical-backtrace table as one read-only global.
+
+        ALWAYS emitted, in every profile: a program with no coroutine frames
+        gets a well-formed 32-byte header, so the symbol is there for a debugger
+        to find and for the in-process walker to link against with no
+        conditional compilation on either side. Anchored against DCE the same
+        way an `@export`ed static is — nothing in a normal program references
+        the table, and that is precisely when you want it.
+        """
+        from backtrace_table import build_table
+
+        if self.runtime_build:
+            # A `--runtime-build` object is sync-only (design 113b), so it can
+            # hold no coroutine frame and has nothing to describe — and it is
+            # linked BESIDE the program that does, one object per rt source.
+            # Emitting an empty table in each would be a dozen duplicate
+            # definitions of the program's own symbol.
+            return
+        blob = build_table(self, program)
+        self.bt_table_bytes = blob
+        arr_ty = ir.ArrayType(ir.IntType(8), len(blob))
+        gv = ir.GlobalVariable(self.module, arr_ty, name=self.BT_TABLE_SYMBOL)
+        gv.global_constant = True
+        gv.initializer = ir.Constant(arr_ty, bytearray(blob))
+        # 8-byte aligned so the walkers may read the u32/word fields directly
+        # rather than byte-at-a-time.
+        gv.align = 8
+        if not (self.freestanding or self.runtime_build):
+            gv.section = ("__TEXT,__sawbt" if self._is_apple_triple()
+                          else ".saw_bt")
+        self._bt_table_global = gv
+        self._exported_llvm_globals.append(gv)
+
     def _emit_static_global(self, static):
         """Emit the LLVM global for one module-level static (design 41 item 3).
 
@@ -1757,6 +1800,11 @@ class CodeGenerator(ResultsMixin, MatchMixin, StructsMixin, CollectionsMixin, Ca
         # assertion is a clean compile error; a true one emits nothing.
         for sa in getattr(program, 'static_asserts', []):
             self._eval_static_assert(sa)
+
+        # design 158: the logical-backtrace table. Emitted HERE — after every
+        # type is registered (the layouts it encodes are final) and before any
+        # body (a body may name it through the `__saw_bt_table()` intrinsic).
+        self._emit_bt_table(program)
 
         # Fifth pass: function bodies. design 168 unit 2 — REGISTERED here, not
         # generated: `_emit_bodies` decides which of them the program reaches.

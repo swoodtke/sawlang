@@ -3082,6 +3082,20 @@ class ExpressionsMixin:
                             expr.line, expr.column, hint=hint)
             self._effect_direct_source("sleep", expr.line)
             return SawType(TypeKind.VOID)
+        if expr.name == "__saw_bt_table":
+            # design 158: the address of this program's in-binary backtrace
+            # table. Saw cannot name an extern global (DF-113a), and the table's
+            # size is only known once every frame's layout is fixed, so it is
+            # reached as an intrinsic rather than as a declared symbol. Takes no
+            # arguments; NOT a suspension source (the panic-time walker calls it
+            # from a `sync` context).
+            if len(expr.arguments) != 0:
+                self._error(
+                    ErrorKind.WRONG_ARGUMENT_COUNT,
+                    "`__saw_bt_table` takes no arguments",
+                    expr.line, expr.column)
+            return SawType(TypeKind.POINTER,
+                           inner_type=SawType(TypeKind.UINT8))
         if expr.name == "__saw_box_data":
             # design 52b item 2: extract the data word (i8*) of a `Box<any T>` fat
             # pointer — the address of the erased heap payload. The synthesized

@@ -1421,6 +1421,17 @@ Examples:
                              "callee sub-frame the callee it holds and the "
                              "resume state in which it is live. Writes to -o, "
                              "else stdout. Analysis only.")
+    parser.add_argument("--emit-bt-table", action="store_true",
+                        dest="emit_bt_table",
+                        help="Emit the logical-BACKTRACE TABLE as JSON instead "
+                             "of code (design 158): the in-binary "
+                             "`__saw_bt_table` blob decoded — its byte size, "
+                             "and per monomorphized frame the name and file it "
+                             "prints, the offset of its `__state` word, and "
+                             "per resume state the source line it is parked on "
+                             "or the embedded child it is inside. Writes to -o, "
+                             "else stdout. Analysis only; the table itself is "
+                             "always linked.")
     parser.add_argument("-O0", dest="no_optimize", action="store_true",
                         help="Disable optimization passes (emit raw codegen output for debugging)")
     parser.add_argument("--target", metavar="TRIPLE",
@@ -1573,9 +1584,15 @@ Examples:
         entry_ast = parse_source(source, args.input, args.verbose)
         entry_ast.source_path = os.path.abspath(args.input)
 
+        # `object_only` decides `is_entry`, and `is_entry` is what records a
+        # SUSPENDING `main` as a coroutine root. Forcing it True here reported no
+        # frames at all for any program whose only root is its own `main` (the
+        # whole `async_main_*` family) — the report said "this program has no
+        # coroutine frames" about a program full of them. Follow `--emit-ir` and
+        # let `-c` decide; `--freestanding` forces object output on its own.
         codegen, merged_ast = _prepare_codegen(
             args.input, entry_ast, source, verbose=args.verbose,
-            object_only=True, target_triple=args.target,
+            object_only=args.c, target_triple=args.target,
             freestanding=args.freestanding, module_paths=module_paths,
             runtime_build=args.runtime_build,
             target_features=args.target_features,
@@ -1583,6 +1600,36 @@ Examples:
             runtime_provider=args.runtime_provider)
         run_codegen(codegen, merged_ast)
         text = render_report(build_report(codegen, merged_ast, args.input))
+        if args.output:
+            with open(args.output, 'w') as f:
+                f.write(text)
+            if args.verbose:
+                print(f"  Wrote {args.output}")
+        else:
+            sys.stdout.write(text)
+
+    elif args.emit_bt_table:
+        # design 158: the backtrace table decoded. Same front half as
+        # `--emit-frame-layout` — the table encodes LLVM's own layout, so
+        # codegen has to run — and nothing after it.
+        from backtrace_table import render
+
+        with open(args.input, 'r') as f:
+            source = f.read()
+
+        entry_ast = parse_source(source, args.input, args.verbose)
+        entry_ast.source_path = os.path.abspath(args.input)
+
+        codegen, merged_ast = _prepare_codegen(
+            args.input, entry_ast, source, verbose=args.verbose,
+            object_only=args.c, target_triple=args.target,
+            freestanding=args.freestanding, module_paths=module_paths,
+            runtime_build=args.runtime_build,
+            target_features=args.target_features,
+            no_hidden_alloc=args.no_hidden_alloc,
+            runtime_provider=args.runtime_provider)
+        run_codegen(codegen, merged_ast)
+        text = render(getattr(codegen, 'bt_table_bytes', b''))
         if args.output:
             with open(args.output, 'w') as f:
                 f.write(text)
