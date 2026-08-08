@@ -609,8 +609,16 @@ def _build_elf(case, arch, shared_objs, lld, clang):
     # dogfood), so this costs nothing today and is what keeps it that way — an
     # interpolated log line or an escaping closure added later fails the gate
     # instead of quietly reaching for an allocator the kernel may not have.
+    # design 172 part 2: `--runtime-provider` (design 149) says this compile
+    # IMPLEMENTS the frozen `__saw_rt_*` seams rather than merely calling them.
+    # It has to be here rather than in a manifest because a kernel image is not
+    # a Blade package: `sosrt` carries the seam bodies and rides in on
+    # --module-path, so THIS is the compile that defines them. Without it the
+    # `@export`s are refused by name; with it every signature is checked against
+    # sawc/rt/ABI.md.
     cmd = [sys.executable, SAWC, case["src"], "-o", obj,
-           "--freestanding", "--no-hidden-alloc", "--target", arch["triple"]]
+           "--freestanding", "--no-hidden-alloc", "--runtime-provider",
+           "--target", arch["triple"]]
     if arch["features"]:
         cmd += ["--target-features", arch["features"]]
     cmd += ["--module-path", CORE_MODULE,

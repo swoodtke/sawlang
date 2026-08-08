@@ -338,6 +338,16 @@ public extension Builder {
         saw.arg("--freestanding")
         saw.arg("--target")
         saw.arg(cfg.target)
+        // design 149, reaching the SOS image path (design 172 part 2): a
+        // freestanding image that carries its own `__saw_rt_*` bodies says so
+        // with `[package] runtime = true`, exactly as a host runtime package
+        // does below in `build`. The seams may come from a DEPENDENCY — SOS
+        // process images get them from `sosrt` — because the flag describes
+        // the COMPILE, and a package build compiles its whole module graph
+        // into one unit.
+        if self.manifest.is_runtime() {
+            saw.arg("--runtime-provider")
+        }
         if not cfg.target_features.is_empty() {
             saw.arg("--target-features")
             saw.arg(cfg.target_features)
