@@ -1278,6 +1278,25 @@ class CodeGenerator(ResultsMixin, MatchMixin, StructsMixin, CollectionsMixin, Ca
     # every downstream kernel to be placed at all.
     BT_TABLE_SYMBOL = "__saw_bt_table"
 
+    def _panic_sink(self):
+        """The function a panic site calls (design 158).
+
+        `__saw_bt_panic` when this program links the cooperative executor: it
+        writes the message, then every live task's logical backtrace, then hands
+        the abort to `__saw_rt_panic` with nothing left to say. It decides at
+        RUN time — a panic with no live task takes the seam directly with its
+        message — so a program that has an executor but is not using it panics
+        byte-identically to one that never had one.
+
+        Falls back to the seam whenever the executor is not there: the
+        freestanding profiles that exclude std.taskgroup, and the string-runtime
+        helpers emitted before any Saw function is declared.
+        """
+        sink = self.functions.get("__saw_bt_panic")
+        if sink is not None:
+            return sink
+        return self.functions["__saw_rt_panic"]
+
     def _emit_bt_table(self, program):
         """Emit this program's logical-backtrace table as one read-only global.
 

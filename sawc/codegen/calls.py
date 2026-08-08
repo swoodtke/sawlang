@@ -969,7 +969,7 @@ class CallsMixin:
                            self.builder.gep(base, [offset], inbounds=True,
                                             name="panic_nl"))
         total = self.builder.add(offset, ir.Constant(word, 1), name="panic_total")
-        self.builder.call(self.functions["__saw_rt_panic"], [base, total])
+        self.builder.call(self._panic_sink(), [base, total])
         self.builder.unreachable()
 
     def _panic_location_prefix(self, line: int) -> str:

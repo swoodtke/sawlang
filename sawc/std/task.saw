@@ -140,3 +140,37 @@ extension Task<T>: NoCopy {
 public func yield_now() {
     yield_now()
 }
+
+// design 158: the user-facing name for the in-process task dump. The walker
+// itself lives beside the run queue it reads (std/taskgroup.saw, which is a
+// prelude module); this is the import-gated surface, next to `yield_now`,
+// because a task dump is a TASK-facing debug tool and nothing should reach it
+// by accident.
+/// Writes every live task's logical backtrace to standard output.
+///
+/// One task per entry — which group and slot holds it, and why it is not
+/// running — followed by its stack innermost frame first, with the real
+/// `file:line` of every suspending call between the task's entry point and the
+/// place it is parked. This is what a native backtrace of a parked program
+/// cannot show you: a suspended task is not on any thread stack.
+///
+/// ```saw
+/// import std.task.{dump_tasks}
+///
+/// saw tasks: 2 live (as-of panic, unsynchronized)
+///   task group 1 slot 0 gen 1 sleeping
+///     at worker.saw:21 in leaf
+///     at worker.saw:27 in middle
+/// ```
+///
+/// Allocates nothing and needs no allocator, so it works inside a panic
+/// handler, under an exhausted allocator, and in a freestanding image. The
+/// panic path calls it for you: a program that dies with tasks in flight prints
+/// this dump after its panic line.
+///
+/// The walk is unsynchronized. A multi-threaded group's worker may be resuming
+/// a frame while this reads it, so treat an MT dump as a best-effort snapshot;
+/// a single-threaded group is exact.
+public func dump_tasks() {
+    __saw_bt_dump()
+}

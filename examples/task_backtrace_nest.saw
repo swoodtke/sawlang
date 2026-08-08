@@ -1,0 +1,52 @@
+// design 158 unit 3: the in-process task dump reconstructs a PARKED task's
+// logical stack — the thing a native backtrace of this program cannot show,
+// because a suspended Saw task is not on any thread's stack. `worker` is three
+// frames deep and parked in a sleep at the bottom; the dump names all three
+// with their real source lines, innermost first.
+//
+// The line numbers below are pinned by `tools/test_bt_table.py` as well (it
+// checks the same three against the encoded table) — editing this file means
+// editing that list.
+// EXPECT: success
+// EXPECT-OUTPUT-CONTAINS: saw tasks: 2 live (unsynchronized snapshot)
+// EXPECT-OUTPUT-CONTAINS:   task group 1 slot 0 gen 1 sleeping
+// EXPECT-OUTPUT-CONTAINS:     at task_backtrace_nest.saw:24 in leaf
+// EXPECT-OUTPUT-CONTAINS:     at task_backtrace_nest.saw:29 in middle
+// EXPECT-OUTPUT-CONTAINS:     at task_backtrace_nest.saw:34 in worker
+// EXPECT-OUTPUT-CONTAINS:   task group 1 slot 1 gen 1 running
+// EXPECT-OUTPUT-CONTAINS:     at task_backtrace_nest.saw:41 in watcher
+// EXPECT-OUTPUT-CONTAINS: watcher 0
+// EXPECT-OUTPUT-CONTAINS: worker 9
+
+import std.task.{dump_tasks}
+
+func leaf(n: Int) -> Int {
+    sleep(Duration.secs(2))
+    n * 2
+}
+
+func middle(n: Int) -> Int {
+    let r = leaf(n)
+    r + 1
+}
+
+func worker(seed: Int) -> Int {
+    let n = middle(seed)
+    n
+}
+
+// Runs while `worker` is still parked at the bottom of its nest, so the dump
+// catches a genuinely suspended task rather than one between resumes.
+func watcher() -> Int {
+    sleep(Duration.ms(10))
+    dump_tasks()
+    0
+}
+
+func main() {
+    var g = TaskGroup()
+    let a = g.spawn(worker(4))
+    let b = g.spawn(watcher())
+    print("watcher {}", b.join())
+    print("worker {}", a.join())
+}

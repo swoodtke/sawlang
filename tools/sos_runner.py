@@ -248,6 +248,40 @@ TEST_CASES = [
                        "Vector.[]: index out of range"],
         "expect_clean_exit": False,
     },
+    {
+        # design 158 unit 3: the in-process task dump, freestanding. The kernel
+        # walks its OWN task slots through the in-binary backtrace table and
+        # writes each parked task's logical stack to the serial port — the whole
+        # reason the design exists, since a kernel has no debugger to attach and
+        # no core to open. Both halves are asserted, in order: the explicit
+        # `dump_tasks()` with its two-frame nest, then the panic line, then the
+        # dump the PANIC PATH emits by itself.
+        #
+        # arm64 only — DF-158c (an `@export`ed `Int64`-returning seam is emitted
+        # `i32` on a 32-bit target) makes the executor's clock arithmetic
+        # unbuildable for riscv32. `taskdump_empty` covers riscv32 meanwhile.
+        "name": "task_dump",
+        "src": os.path.join(TESTS_DIR, "taskdump.saw"),
+        "csrc": "taskdump_stubs.c",
+        "arches": ("arm64",),
+        "expect_out": ["saw tasks: 2 live (unsynchronized snapshot)",
+                       "at taskdump.saw:93 in ksleeper",
+                       "panic at taskdump.saw:112: SOS task dump: deliberate panic",
+                       "saw tasks: 1 live (as-of panic, unsynchronized)",
+                       "at taskdump.saw:93 in ksleeper"],
+        "expect_clean_exit": False,
+    },
+    {
+        # design 158 unit 3: the dump path on EVERY architecture — the table is
+        # in the image, the walker links and runs freestanding, and a panic with
+        # no live task still prints exactly its own message and nothing else.
+        "name": "task_dump_empty",
+        "src": os.path.join(TESTS_DIR, "taskdump_empty.saw"),
+        "expect_out": ["saw tasks: none live",
+                       "panic at taskdump_empty.saw:21: "
+                       "SOS task dump: no tasks here"],
+        "expect_clean_exit": False,
+    },
     # --- design 140 unit A: the privilege split, without any image format ----
     {
         "name": "umode_syscall",
@@ -637,6 +671,17 @@ def _build_elf(case, arch, shared_objs, lld, clang):
     _run(cmd)
 
     objs = list(shared_objs) + [obj]
+    # design 158: a case may bring ONE C file of its own, for the bodies Saw
+    # cannot write (a raw C function pointer, DF-113b). Per-case rather than in
+    # the shared `support.c` every image links: a stand-in that satisfies one
+    # test must not satisfy another kernel's accidental reference to a facility
+    # that is not there.
+    if case.get("csrc"):
+        c_src = os.path.join(TESTS_DIR, case["csrc"])
+        c_obj = os.path.join(dirs["build"], f"{name}.stubs.o")
+        _run([clang, f"--target={arch['triple']}", *arch["cc_args"],
+              "-nostdlib", "-ffreestanding", "-O2", "-c", c_src, "-o", c_obj])
+        objs.append(c_obj)
     if case.get("asm"):
         payload_src = os.path.join(dirs["tests"], case["asm"])
         payload_o = os.path.join(dirs["build"], f"{name}.payload.o")
@@ -679,10 +724,20 @@ def _check(case, arch, status, out, timed_out):
         if isinstance(expected, str):
             expected = [expected]
         fmt = expectations(arch)
+        # design 158: matched IN ORDER — each expectation starts where the
+        # previous one ended. A console transcript is a sequence, and a case
+        # like the task dump is asserting that the dump comes AFTER the panic
+        # line, which an unordered `in` cannot see. Every list already reads in
+        # output order, so this only adds what they were already claiming.
+        cursor = 0
         for want in expected:
             want = want.format(**fmt)
-            if want not in out:
-                return False, f"missing expected output {want!r} (got {out!r})"
+            at = out.find(want, cursor)
+            if at < 0:
+                where = "out of order" if want in out else "missing"
+                return False, (f"{where} expected output {want!r} "
+                               f"(got {out!r})")
+            cursor = at + len(want)
     if case["expect_clean_exit"]:
         if status != 0:
             return False, f"expected clean exit (0), got status {status}"
@@ -729,14 +784,20 @@ def _run_arch(arch, qemu, lld, clang, blade_bin):
                   file=sys.stderr)
             return 0, len(TEST_CASES)
 
+    # design 158: a case may name the architectures it applies to. The default
+    # is EVERY architecture and stays that way — an arch list is a claim that
+    # the case is about something arch-specific, or that it is blocked on one,
+    # and each one says which in a comment beside it.
+    cases = [c for c in TEST_CASES
+             if arch["name"] in c.get("arches", (arch["name"],))]
     passed = 0
     failed = 0
-    for i, case in enumerate(TEST_CASES, 1):
+    for i, case in enumerate(cases, 1):
         name = case["name"]
         try:
             elf = _build_elf(case, arch, shared_objs, lld, clang)
         except ToolError as e:
-            print(f"[{i}/{len(TEST_CASES)}] {CROSS} {name}  (build error)")
+            print(f"[{i}/{len(cases)}] {CROSS} {name}  (build error)")
             for line in str(e).splitlines():
                 print(f"    {line}")
             failed += 1
@@ -744,10 +805,10 @@ def _run_arch(arch, qemu, lld, clang, blade_bin):
         status, out, timed_out = _run_qemu(qemu, arch, elf)
         ok, reason = _check(case, arch, status, out, timed_out)
         if ok:
-            print(f"[{i}/{len(TEST_CASES)}] {CHECK} {name}")
+            print(f"[{i}/{len(cases)}] {CHECK} {name}")
             passed += 1
         else:
-            print(f"[{i}/{len(TEST_CASES)}] {CROSS} {name}  ({reason})")
+            print(f"[{i}/{len(cases)}] {CROSS} {name}  ({reason})")
             failed += 1
     print()
     return passed, failed

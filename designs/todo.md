@@ -51,6 +51,88 @@ discovery and one filed with a pin.
   XPASS). Everything else in unit 3 landed; this is the one sentence of
   the brief that did not.
 
+## Design 158 — logical task backtraces (LANDED, Aug 8)
+
+Three units landed: the per-monomorphized-frame state tables as one
+read-only in-binary blob (`__saw_bt_table`, always on), `tools/lldb_saw.py`
+(`saw tasks` / `saw bt` / `saw table`), and the alloc-free in-process dump
+(`dump_tasks()` from std.task, plus the automatic post-panic one) hosted and
+freestanding.
+
+**SIZE (the reserved veto point).** 246-517 bytes per hosted program across
+the nine-program gate corpus — 0.23% to 0.83% of the binary — and 273 bytes
+for the SOS kernel image that runs tasks, 235 for the one that does not. A
+frame record is 24 bytes, a state entry 12, names are shared in one string
+table, and a program with no coroutine frames carries a 32-byte header plus
+the executor descriptor. `tools/test_bt_table.py --sizes` reprints the table
+any time.
+
+Five findings, ALL PRE-EXISTING (each reproduced on `main` before 158
+touched anything). Two carry XFAIL pins; three are recorded here because
+they have no user-facing spelling to pin.
+
+**DF-158a — a diverging `panic` in RESULT position of a suspending body is a
+codegen ICE.** `func boom() -> Int { sleep(...)  panic("x") }` spawned into a
+group: the transform stores the panic's (nonexistent) value into the frame's
+`__result` and codegen stores a Python `None` —
+`internal compiler error: 'NoneType' object has no attribute 'type'`. Both
+the tail and the explicit `return panic(...)` spelling. `panic` is `Never`,
+so no store should be emitted: the frame is dead at that point. A `Void`
+return type compiles and runs; so does the same `panic` tail in a SYNC
+function, which localizes it to the result-store in a coroutine frame.
+PINNED: `examples/coro_panic_value_position_xfail.saw`.
+
+**DF-158b — a suspending call in a `Void` body's TAIL position is
+rejected.** `func f() { yield_now() }` — the parser makes the block's only
+statement its tail expression, the transform lowers a tail through
+`_rewrite_expr`, which has no state to split into, and the call is rejected
+as "a nested/expression position": a message about a shape the author did
+not write. Any statement after it (`return`, another call) compiles. `Void`
+is the whole scope: a body returning a value has a result to compute from
+its tail, a `Void` one has nothing to store, so the tail should lower
+exactly as a statement would. PINNED:
+`examples/coro_tail_suspend_void_xfail.saw`.
+
+**DF-158c — an `@export`ed seam's return WIDTH is wrong on a 32-bit
+target.** `@export("__saw_rt_clock_monotonic_nanos") func f() -> Int64` emits
+`define i32` for riscv32 (and one declared `-> Int` emits `i64`) — the two
+are swapped, so the declared type and the emitted C ABI disagree. Invisible
+on the 64-bit hosts, where `Int` and `Int64` are the same machine width.
+`--runtime-provider`'s signature check does NOT catch it: it compares the
+SAW-declared types, which are correct, against ABI.md. Minimal repro is two
+`@export`ed seams and `--target riscv32-unknown-none-elf`; the symptom
+downstream is an LLVM parse failure where the executor's `Int64` clock
+arithmetic meets the i32 definition. Nothing in tree hits it today (sosrt
+exports only word/pointer-shaped seams), which is why it survived; it blocks
+the SOS live-task dump on riscv32, so that case is arm64-only with a comment
+pointing here. NO XFAIL: the failing spelling needs a 32-bit cross-compile,
+which the examples suite does not do.
+
+**DF-158e — a `-c` / freestanding compile does not EMBED a nested suspending
+callee.** `object_only` decides `is_entry`, `is_entry` is what records a
+suspending `main` as a coroutine root, and without that the closure walk
+never reaches a spawn root's suspending callees: `fmiddle` gets a frame,
+`fleaf` does not, and the call lowers as a direct BLOCKING call. Verified by
+`grep -c __Frame_fleaf` on the IR — 21 occurrences without `-c`, zero with
+it. This is a miscompile, not a diagnostic: in a kernel the nested park runs
+inline instead of parking. It is also why `sos/tests/taskdump.saw` is one
+frame deep. `--emit-frame-layout` had the same root cause for its own
+reason (it reported no frames at all for the whole `async_main_*` family)
+and is FIXED in unit 1 — the flag follows `--emit-ir` now. The transform
+side is untouched. NO XFAIL: an examples test cannot spawn under `-c`.
+
+**DF-158d — `yield_now()` in a nested callee does not make its caller
+suspend.** `func leaf() { yield_now() ... }` called from a spawned `middle`
+leaves `middle` with a single-state frame and no embedded child, so the
+yield is the outside-a-frame no-op and the task never cedes. The digest's
+documented escape hatch for a compute loop in a sync helper is "put a
+`yield_now` in the helper", which is exactly this shape. Seen on both the
+hosted and freestanding paths; likely the same effect-edge gap design 96
+closed for nested std METHOD calls, never closed for the std.task
+`yield_now` WRAPPER (design 114 made it a wrapper). NO XFAIL: writing one
+means asserting an interleaving, which the standing rule forbids — it wants
+a probe that counts cedes.
+
 ## Design 180 — sleep(Duration) (LANDED, Aug 8)
 
 `sleep` takes a `Duration` and nothing else; the bare-Int form is gone.

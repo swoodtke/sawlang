@@ -1,0 +1,52 @@
+// design 158 unit 3: the same three-frame nest, in a MULTI-THREADED group.
+//
+// An MT group deliberately stays OUT of the ambient scheduler's list (design
+// 75: it runs its own worker pool and must never be swept by the cooperative
+// sweep), so the dump walks a SECOND list that every group joins. Without it an
+// MT dump would silently show nothing, which is worse than no dump at all.
+//
+// The MT walk is unsynchronized by design — a worker may be resuming a frame
+// while this reads it — so the margins here are wide on purpose: the watcher
+// gives the pool 150ms to have claimed and parked the other task, and that task
+// stays parked for four seconds.
+// EXPECT: success
+// EXPECT-OUTPUT-CONTAINS: saw tasks: 2 live (unsynchronized snapshot)
+// EXPECT-OUTPUT-CONTAINS:   task group 1 slot 0 gen 1 sleeping
+// EXPECT-OUTPUT-CONTAINS:     at task_backtrace_mt.saw:26 in mt_leaf
+// EXPECT-OUTPUT-CONTAINS:     at task_backtrace_mt.saw:31 in mt_middle
+// EXPECT-OUTPUT-CONTAINS:     at task_backtrace_mt.saw:36 in mt_worker
+// EXPECT-OUTPUT-CONTAINS:   task group 1 slot 1 gen 1 running
+// EXPECT-OUTPUT-CONTAINS:     at task_backtrace_mt.saw:41 in mt_watcher
+// EXPECT-OUTPUT-CONTAINS: watcher 0
+// EXPECT-OUTPUT-CONTAINS: worker 13
+
+import std.task.{dump_tasks}
+
+func mt_leaf(n: Int) -> Int {
+    sleep(Duration.secs(4))
+    n * 2
+}
+
+func mt_middle(n: Int) -> Int {
+    let r = mt_leaf(n)
+    r + 1
+}
+
+func mt_worker(seed: Int) -> Int {
+    let n = mt_middle(seed)
+    n
+}
+
+func mt_watcher() -> Int {
+    sleep(Duration.ms(150))
+    dump_tasks()
+    0
+}
+
+func main() {
+    var g = TaskGroup(threads: 2)
+    let a = g.spawn(mt_worker(6))
+    let b = g.spawn(mt_watcher())
+    print("watcher {}", b.join())
+    print("worker {}", a.join())
+}

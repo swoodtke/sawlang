@@ -1,0 +1,59 @@
+// design 158 unit 3: the dump after slot CHURN shows only what is live.
+//
+// Design 134 releases a completed task's frame box and returns its slot to a
+// free list, retiring the generation so a stale handle is recognisable. That
+// makes a naive slot walk dangerous: slot 0 has held four different tasks by
+// the time this dumps, and three of those frames are freed memory. The walk
+// skips a slot whose task is done AND whose frame box is gone, so what comes
+// out is the one live task — carrying the GENERATION that says which occupant
+// of that slot it is.
+//
+// The `gen 4` in the expected output is the whole point: three completed
+// tasks recycled slot 0 ahead of this one, each advancing the counter, and the
+// dump reports the current occupant rather than a resurrected predecessor.
+// EXPECT: success
+// EXPECT-OUTPUT-CONTAINS: three short tasks done
+// EXPECT-OUTPUT-CONTAINS: saw tasks: 2 live (unsynchronized snapshot)
+// EXPECT-OUTPUT-CONTAINS:   task group 1 slot 0 gen 4 sleeping
+// EXPECT-OUTPUT-CONTAINS:     at task_backtrace_churn.saw:36 in churn_sleeper
+// EXPECT-OUTPUT-CONTAINS:   task group 1 slot 1 gen 1 running
+// EXPECT-OUTPUT-CONTAINS:     at task_backtrace_churn.saw:41 in churn_watcher
+// EXPECT-OUTPUT-CONTAINS: watcher 0
+// EXPECT-OUTPUT-CONTAINS: sleeper 7
+
+import std.task.*
+
+// A Void task leaves nothing joinable behind, so design 134 reclaims its slot
+// the moment it completes — which is what makes the churn happen at all.
+// (The explicit `return` is load-bearing: a suspending call in a Void body's
+// TAIL position is rejected by the coroutine transform — DF-158b.)
+func churn_short() {
+    yield_now()
+    return
+}
+
+func churn_sleeper(n: Int) -> Int {
+    sleep(Duration.secs(2))
+    n
+}
+
+func churn_watcher() -> Int {
+    sleep(Duration.ms(10))
+    dump_tasks()
+    0
+}
+
+func main() {
+    var g = TaskGroup()
+    var i = 0
+    while i < 3 {
+        let h = g.spawn(churn_short())
+        h.join()
+        i = i + 1
+    }
+    print("three short tasks done")
+    let a = g.spawn(churn_sleeper(7))
+    let b = g.spawn(churn_watcher())
+    print("watcher {}", b.join())
+    print("sleeper {}", a.join())
+}

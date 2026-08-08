@@ -594,6 +594,30 @@ endless `accept`-loop server keeps serving live connections. Blocking FFI calls
 (`extern "C" { blocking func ... }`) run on a separate thread and park the task
 like any other I/O, so the remaining tasks stay responsive.
 
+### Task Backtraces
+
+A suspended task is not on any thread's stack, so a native backtrace of a parked
+program shows the executor's poll loop and none of the program. `dump_tasks()`
+prints what is missing: every live task, and the `file:line` of every suspending
+call between its entry point and the place it is parked.
+
+```
+saw tasks: 2 live (unsynchronized snapshot)
+  task group 1 slot 0 gen 1 io-parked
+    at net.saw:412 in TcpStream.read
+    at server.saw:18 in read_header
+    at server.saw:24 in handle
+  task group 1 slot 1 gen 1 running
+    at server.saw:41 in accept_loop
+```
+
+A program that dies with tasks in flight prints this after its panic line, with
+no flag to remember to turn on. Reconstruction is a walk of static tables the
+compiler links into every binary, not an unwind, so it allocates nothing and
+works under an exhausted allocator, in a kernel, and inside a panic handler.
+`tools/lldb_saw.py` adds `saw tasks` and `saw bt` for a process stopped under
+lldb.
+
 ### Cooperative Networking
 
 `std.net` exposes owning, safe types with no raw file descriptors or callbacks.
@@ -1251,6 +1275,9 @@ Options:
   --emit-ast         Dump the typed AST for debugging
   --emit-docs        Emit documentation JSON instead of code
   --emit-docs-all    Same, keeping private fields, methods, and inits
+  --emit-bt-table    Decode the linked task-backtrace table as JSON: per
+                     coroutine frame, the source line each resume state parks
+                     on or the embedded callee it is inside
   -O0                Disable optimization (default is an O1-style pass pipeline)
   --target <triple>  Cross-compile for a target triple (default: the host)
   --target-features <list>

@@ -109,6 +109,13 @@ class TestCase:
     # never affect the exit code — so no existing directive can see one.
     expected_warning_contains: List[str] = None  # '// EXPECT-WARNING-CONTAINS:'
     expect_no_warnings: bool = False  # '// EXPECT-NO-WARNINGS'
+    # design 158: a SUBSTRING of a successful run's stdout. `EXPECT-OUTPUT`
+    # cannot express one, and not only because it is whole-output: the parser
+    # strips each expected line, so INDENTED output — a task dump, a tree, a
+    # table — is unmatchable by it however the rest is written. The
+    # error/panic/warning paths all had a CONTAINS twin; the success path did
+    # not.
+    expected_output_contains: List[str] = None  # '// EXPECT-OUTPUT-CONTAINS:'
     out_name: Optional[str] = None  # unique build-output stem; see `binary_stem`
 
     @property
@@ -167,6 +174,7 @@ def parse_test_metadata(file_path: Path) -> Optional[TestCase]:
     object_max_bytes = None
     expected_warning_contains = []
     expect_no_warnings = False
+    expected_output_contains = []
 
     with open(file_path, 'r') as f:
         in_output_block = False
@@ -203,6 +211,20 @@ def parse_test_metadata(file_path: Path) -> Optional[TestCase]:
             elif '// EXPECT-OBJECT-MAX-BYTES:' in line:
                 raw = line.split('// EXPECT-OBJECT-MAX-BYTES:')[1].strip()
                 object_max_bytes = int(raw.replace('_', ''))
+                in_output_block = False
+
+            elif '// EXPECT-OUTPUT-CONTAINS:' in line:
+                # Checked BEFORE `EXPECT-OUTPUT:`, which is a prefix of it.
+                #
+                # ONE space after the colon is the separator and everything
+                # after it is content, LEADING WHITESPACE INCLUDED — which is
+                # the point of the directive: indented output is what
+                # `EXPECT-OUTPUT` cannot express.
+                out_text = line.split('// EXPECT-OUTPUT-CONTAINS:')[1].rstrip()
+                if out_text.startswith(' '):
+                    out_text = out_text[1:]
+                if out_text:
+                    expected_output_contains.append(out_text)
                 in_output_block = False
 
             elif '// EXPECT-OUTPUT:' in line:
@@ -265,7 +287,8 @@ def parse_test_metadata(file_path: Path) -> Optional[TestCase]:
         expected_undefined_symbols=expected_undefined_symbols,
         object_max_bytes=object_max_bytes,
         expected_warning_contains=expected_warning_contains,
-        expect_no_warnings=expect_no_warnings
+        expect_no_warnings=expect_no_warnings,
+        expected_output_contains=expected_output_contains
     )
 
 
@@ -793,8 +816,10 @@ def directive_shape_error(test: TestCase) -> Optional[str]:
     """
     if test.expect_type is None:
         return "Missing '// EXPECT: success', '// EXPECT: error', or '// EXPECT: panic' directive"
-    if test.expect_type == ExpectType.SUCCESS and not test.expected_output:
-        return "Success test must have '// EXPECT-OUTPUT:' with expected output"
+    if (test.expect_type == ExpectType.SUCCESS and not test.expected_output
+            and not test.expected_output_contains):
+        return ("Success test must have '// EXPECT-OUTPUT:' with expected "
+                "output, or at least one '// EXPECT-OUTPUT-CONTAINS:'")
     if test.expect_type == ExpectType.ERROR and not test.expected_error_contains:
         return "Error test must have at least one '// EXPECT-ERROR-CONTAINS:' directive"
     if test.expect_type == ExpectType.PANIC and not test.expected_panic_contains:
@@ -1008,6 +1033,20 @@ def execute_test(test: TestCase, exe_path: str) -> tuple[bool, str, Optional[str
     # ExpectType.SUCCESS
     if not run_success:
         return False, f"Execution failed:\n{run_stderr[:500]}", note
+
+    # design 158: substring assertions on a successful run's stdout, checked IN
+    # ORDER — each match starts where the previous one ended. Order is half of
+    # what a structured output (a backtrace, a tree) is asserting, and a set of
+    # independent substrings would pass on a shuffled dump.
+    cursor = 0
+    for want in (test.expected_output_contains or []):
+        found = run_stdout.find(want, cursor)
+        if found < 0:
+            where = ("out of order (it appears earlier)"
+                     if want in run_stdout else "missing")
+            return False, (f"Output should contain {want!r} — {where}\n"
+                           f"Got:\n{run_stdout[:2000]}"), note
+        cursor = found + len(want)
 
     # Check expected output if specified
     if test.expected_output:

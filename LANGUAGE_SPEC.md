@@ -4908,6 +4908,67 @@ func job() -> Int {
 // let h = group.spawn(job());  h.cancel();  print(h.join())
 ```
 
+### Task backtraces (design 158)
+
+A suspended task is not on any thread's stack, so a native backtrace of a parked
+program shows the executor's poll loop and nothing about what the program is
+waiting for. `dump_tasks()` prints the missing half: one entry per live task,
+with the `file:line` of every suspending call between the task's entry point and
+the place it is parked, innermost frame first.
+
+```saw
+import std.task.{dump_tasks}
+
+func read_header(s: TcpStream) -> Data { try! s.read() }
+func handle(s: TcpStream) -> Int { read_header(s).len() }
+```
+
+```
+saw tasks: 2 live (unsynchronized snapshot)
+  task group 1 slot 0 gen 1 io-parked
+    at net.saw:412 in TcpStream.read
+    at server.saw:18 in read_header
+    at server.saw:24 in handle
+  task group 1 slot 1 gen 1 running
+    at server.saw:41 in accept_loop
+```
+
+`group` numbers the live `TaskGroup`s in the order they first spawned; `slot` and
+`gen` are the task's identity in that group's run queue, and a generation
+advancing across dumps is a slot that has been reused. The last word says why the
+task is not running: `ready`, `sleeping`, `io-parked`, or `running`.
+
+**The panic path prints one for you.** A program that dies with tasks in flight
+writes its dump after the panic line. Nothing is appended when no task is live,
+so a panic in a program that is not running tasks reads exactly as it did
+before.
+
+Reconstruction is a walk of static tables, not an unwind. A task's frames are
+embedded by value inside one allocation at compile-time-known offsets, each
+carrying a state word naming its resume point, and the compiler records what
+those states mean in a read-only table linked into every binary
+(`__saw_bt_table`). So the dump allocates nothing and needs no runtime support:
+it works under an exhausted allocator, in the freestanding profile, and inside a
+panic handler. `sawc --emit-bt-table` decodes the table as JSON, and
+`tools/test_bt_table.py --sizes` reports what it costs.
+
+The walk reads task slots without cross-thread synchronization. In a
+multi-threaded group that is a best-effort snapshot and the header says so; a
+single-threaded group is exact, since nothing else is running.
+
+**Under a debugger.** `tools/lldb_saw.py` reads the same table out of a stopped
+process:
+
+```
+(lldb) command script import tools/lldb_saw.py
+(lldb) saw tasks     # one line per live task
+(lldb) saw bt        # every live task's logical backtrace
+(lldb) saw table     # the binary's frame table, decoded (no process needed)
+```
+
+It is read-only: it reconstructs where each task is parked, and never steps,
+resumes, or decodes a variable inside a frame.
+
 ### Cooperative IO: the reactor (design 76)
 
 Unbounded external waits (sockets) never block the cooperative executor. A

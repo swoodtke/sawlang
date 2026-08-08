@@ -257,6 +257,20 @@ func __saw_exec_reactor_wake() {
 // list (design 75 bifurcation).
 static __saw_exec_head: Atomic<Int> = Atomic(0)
 
+// design 158: a SECOND intrusive list, for diagnostics only, that EVERY group
+// joins — single-threaded and multi-threaded alike. The scheduler list above
+// deliberately excludes MT groups (they run their own worker pool and must
+// never be swept by the ambient scheduler), but a task dump has to show every
+// live task there is, so linking MT groups into the scheduler's list would be
+// the wrong fix and skipping them would be a dishonest dump. Two links per
+// group, one list per purpose; nothing here is on any scheduling path.
+static __saw_bt_head: Atomic<Int> = Atomic(0)
+
+// design 158: set once, before the first byte of a panic-time dump, and never
+// cleared — the process is ending either way. It is what stops a panic RAISED
+// BY the walk from re-entering the walk that raised it.
+static __saw_bt_dumping: Atomic<Int> = Atomic(0)
+
 // =============================================================================
 // The per-task cell (design 134)
 // =============================================================================
@@ -337,6 +351,10 @@ struct TaskGroup {
     // `__register`/`__unregister`; unused by MT groups (they never register).
     next: Int
     registered: Bool
+    // design 158: the diagnostics-list link, the twin of `next`/`registered`
+    // above. Separate because every group joins this one — see `__saw_bt_head`.
+    bt_next: Int
+    bt_linked: Bool
 }
 
 // The result of resuming one frame, carried OUT of a `with_var_ref` borrow
@@ -360,7 +378,7 @@ extension TaskGroup {
         let gn = Vector<Int>()
         let fr = Vector<Int>()
         let pn = Vector<Bool>()
-        TaskGroup(tasks: move t, cells: move c, done: move d, remaining: move r, active: move a, gen: move gn, free: move fr, pin: move pn, workers: 1, lock: None, next: 0, registered: false)
+        TaskGroup(tasks: move t, cells: move c, done: move d, remaining: move r, active: move a, gen: move gn, free: move fr, pin: move pn, workers: 1, lock: None, next: 0, registered: false, bt_next: 0, bt_linked: false)
     }
 
     // design 75 (A2): opt in to multi-threaded execution with `n` worker threads.
@@ -397,7 +415,7 @@ extension TaskGroup {
                 panic("TaskGroup(threads:): allocation failed")
             }
         }
-        TaskGroup(tasks: move t, cells: move c, done: move d, remaining: move r, active: move a, gen: move gn, free: move fr, pin: move pn, workers: w, lock: lk, next: 0, registered: false)
+        TaskGroup(tasks: move t, cells: move c, done: move d, remaining: move r, active: move a, gen: move gn, free: move fr, pin: move pn, workers: w, lock: lk, next: 0, registered: false, bt_next: 0, bt_linked: false)
     }
 
     // The number of task slots this group currently holds (design 134): live
@@ -419,6 +437,10 @@ extension TaskGroup {
         if self.workers < 2 {
             self.__register()
         }
+        // design 158: the diagnostics list takes EVERY group, so a task dump
+        // sees MT tasks too. Same address discipline as `__register` — `&self`
+        // here is the group's final storage, and `Deinit` unlinks.
+        self.__bt_link()
         let t: Box<any Resumable>? = move task
         let c: Box<any __TaskCell>? = move cell
         // design 134: claim a RECLAIMED slot if there is one, else grow. A reused
@@ -540,6 +562,46 @@ extension TaskGroup {
         self.next = __saw_exec_head.load()
         __saw_exec_head.store((&self) as UnsafePointer<TaskGroup> as Int)
         self.registered = true
+    }
+
+    // design 158: link this group into the diagnostics list (idempotent). The
+    // twin of `__register`, and deliberately not folded into it: that one is a
+    // SCHEDULING membership an MT group must stay out of, this one is a "there
+    // are tasks here" membership every group belongs to.
+    func __bt_link(&var self) unsafe {
+        if self.bt_linked {
+            return
+        }
+        self.bt_next = __saw_bt_head.load()
+        __saw_bt_head.store((&self) as UnsafePointer<TaskGroup> as Int)
+        self.bt_linked = true
+    }
+
+    // design 158: unlink from the diagnostics list (Deinit). Walks the intrusive
+    // list to fix the predecessor's `bt_next`, exactly as `__unregister` does.
+    func __bt_unlink(&var self) unsafe {
+        if not self.bt_linked {
+            return
+        }
+        let me = (&self) as UnsafePointer<TaskGroup> as Int
+        let head = __saw_bt_head.load()
+        if head == me {
+            __saw_bt_head.store(self.bt_next)
+            self.bt_linked = false
+            return
+        }
+        var cur = head
+        while cur != 0 {
+            let cg = cur as UnsafePointer<TaskGroup>
+            let nx = cg[0].bt_next
+            if nx == me {
+                cg[0].bt_next = self.bt_next
+                self.bt_linked = false
+                return
+            }
+            cur = nx
+        }
+        self.bt_linked = false
     }
 
     // design 89: unlink this group from the ambient scheduler list (Deinit, after
@@ -822,6 +884,9 @@ extension TaskGroup: NoCopy {
             __saw_exec_run(me, -1, 0)
             self.__unregister()
         }
+        // design 158: leave the diagnostics list before this group's storage
+        // goes away, whichever engine ran it.
+        self.__bt_unlink()
         // Release every slot explicitly, here rather than in the memberwise field
         // cleanup, so an unconsumed result drops while the group is still whole
         // (and before the run-queue mutex goes away). Clearing a slot's cell runs
@@ -1363,4 +1428,363 @@ func __saw_exec_run_root(rootbox: Box<any Resumable>) {
     // the root.
     let _ = root.__enqueue(move rootbox, Box<any __TaskCell>.make(__VoidCell(__cancel: false)))
     __saw_exec_run(0, -1, 0)
+}
+
+// =============================================================================
+// The logical task backtrace (design 158)
+// =============================================================================
+//
+// A suspended task is ONE allocation: its root coroutine frame, with every
+// suspending callee's frame embedded BY VALUE inside it, each frame holding a
+// `__state` word that names its resume point. The compiler writes down what
+// those states MEAN — the `__saw_bt_table` blob, built by
+// sawc/backtrace_table.py, whose docstring is the format's specification: per
+// monomorphized frame the byte offset of its `__state` word, and per state
+// either the source line the frame is parked on or the embedded child it is
+// inside plus that child's offset.
+//
+// So a task's logical stack is a STATIC TABLE WALK from one address. No
+// unwinder, no reactor, no allocation — which is exactly what lets this run on
+// the panic path, under an allocator that has already refused, and in a
+// freestanding image with no heap at all. Every piece of a dump line goes
+// straight to the output seam; nothing is assembled into a `String` first,
+// because the allocator being gone is precisely when you want the dump
+// (design 137's principle, applied to a diagnostic that is all pieces).
+//
+// `tools/lldb_saw.py` decodes the same bytes from outside a stopped process.
+
+extern "C" {
+    // The seams, named directly rather than reached through `print`: a dump
+    // line is written in PIECES (a file, a colon, a number) and `print` ends
+    // every call with a newline. `__saw_rt_panic` is the abort POLICY — hosted
+    // it aborts, a kernel decides for itself — and is called last, once the
+    // message and the dump are already out.
+    func __saw_rt_write(ptr: UnsafePointer<Int8>, len: Int)
+    func __saw_rt_panic(ptr: UnsafePointer<Int8>, len: Int) -> Never
+}
+
+// The table's field offsets, in bytes. The encoder is the other half of this
+// contract and these names match the record fields it documents.
+static BT_MAGIC: Int = 0x42574153
+static BT_HDR_FRAME_COUNT: Int = 8
+static BT_HDR_FRAMES: Int = 12
+static BT_HDR_STATES: Int = 16
+static BT_HDR_STRTAB: Int = 20
+static BT_FRAME_REC_SIZE: Int = 24
+static BT_FRAME_NAME: Int = 4
+static BT_FRAME_FILE: Int = 8
+static BT_FRAME_FIRST: Int = 12
+static BT_FRAME_STATES: Int = 16
+static BT_FRAME_STATE_OFF: Int = 20
+static BT_STATE_REC_SIZE: Int = 12
+static BT_STATE_CHILD: Int = 4
+static BT_STATE_CHILD_OFF: Int = 8
+
+// A logical stack deeper than this, or a group list longer than this, is a
+// corrupt structure rather than a program: stop and say so instead of following
+// a chain that does not end. The dump runs when something has already gone
+// wrong, so every walk here is bounded.
+static BT_MAX_DEPTH: Int = 64
+static BT_MAX_GROUPS: Int = 1024
+// How far the walker looks for a name's terminating NUL — a bound on a bad
+// table, not a limit the format imposes.
+static BT_MAX_NAME: Int = 256
+// Enough digits for any 64-bit value plus room to spare.
+static BT_DIGITS: Int = 24
+
+// Reads the little-endian u32 `off` bytes into the table.
+func __bt_u32(base: UnsafeConstPointer<UInt8>, off: Int) unsafe -> Int {
+    let p = (base + off) as UnsafeConstPointer<UInt32>
+    p[0] as Int
+}
+
+// Writes a literal to the output seam: no newline, no allocation.
+func __bt_emit(text: String) unsafe {
+    __saw_rt_write(text, text.len())
+}
+
+// Writes a NUL-terminated name out of the table's string table.
+func __bt_emit_name(tbl: UnsafeConstPointer<UInt8>, off: Int) unsafe {
+    if off == 0 {
+        __bt_emit("?")
+        return
+    }
+    let base = tbl + __bt_u32(tbl, BT_HDR_STRTAB) + off
+    var n = 0
+    while n < BT_MAX_NAME {
+        if base[n] == 0u8 {
+            break
+        }
+        n = n + 1
+    }
+    __saw_rt_write(base as UnsafePointer<Int8>, n)
+}
+
+// Writes a non-negative integer as decimal digits.
+//
+// Negative input prints `?` rather than being negated: `Int.min` has no
+// positive counterpart, and an overflow trap raised from inside the panic
+// reporter is the one failure this path must not have. Nothing here is ever
+// negative anyway — lines, slots, generations and counts all start at zero.
+func __bt_emit_int(value: Int) unsafe {
+    if value < 0 {
+        __bt_emit("?")
+        return
+    }
+    var digits: [Int8; BT_DIGITS] = [0; BT_DIGITS]
+    var rest = value
+    var first = BT_DIGITS
+    while true {
+        first = first - 1
+        digits[first] = ((rest % 10) + 48) as Int8
+        rest = rest / 10
+        if rest == 0 {
+            break
+        }
+    }
+    let p = (&digits) as UnsafePointer<Int8>
+    __saw_rt_write(p + first, BT_DIGITS - first)
+}
+
+// Is `index` a frame this table describes?
+func __bt_known_frame(tbl: UnsafeConstPointer<UInt8>, index: Int) unsafe -> Bool {
+    index >= 0 && index < __bt_u32(tbl, BT_HDR_FRAME_COUNT)
+}
+
+// The byte offset of frame `index`'s record.
+func __bt_frame_rec(tbl: UnsafeConstPointer<UInt8>, index: Int) unsafe -> Int {
+    __bt_u32(tbl, BT_HDR_FRAMES) + index * BT_FRAME_REC_SIZE
+}
+
+// The `__state` word of the frame at `addr`, whose type is table entry `index`.
+func __bt_state_of(tbl: UnsafeConstPointer<UInt8>, index: Int, addr: Int) unsafe -> Int {
+    let rec = __bt_frame_rec(tbl, index)
+    let p = (addr + __bt_u32(tbl, rec + BT_FRAME_STATE_OFF)) as UnsafePointer<Int>
+    p[0]
+}
+
+// The byte offset of a state record, or -1 when `index`/`state` name nothing.
+// A completed frame holds a state one past the last, which lands here.
+func __bt_state_rec(tbl: UnsafeConstPointer<UInt8>, index: Int, state: Int) unsafe -> Int {
+    if not __bt_known_frame(tbl, index) {
+        return -1
+    }
+    let rec = __bt_frame_rec(tbl, index)
+    if state < 0 || state >= __bt_u32(tbl, rec + BT_FRAME_STATES) {
+        return -1
+    }
+    (__bt_u32(tbl, BT_HDR_STATES)
+     + (__bt_u32(tbl, rec + BT_FRAME_FIRST) + state) * BT_STATE_REC_SIZE)
+}
+
+// How many logical frames this task's stack has, the root included.
+func __bt_depth(tbl: UnsafeConstPointer<UInt8>, index: Int, addr: Int) unsafe -> Int {
+    var i = index
+    var a = addr
+    var depth = 0
+    while depth < BT_MAX_DEPTH {
+        depth = depth + 1
+        let rec = __bt_state_rec(tbl, i, __bt_state_of(tbl, i, a))
+        if rec < 0 {
+            return depth
+        }
+        let child = __bt_u32(tbl, rec + BT_STATE_CHILD)
+        if child == 0 {
+            return depth
+        }
+        a = a + __bt_u32(tbl, rec + BT_STATE_CHILD_OFF)
+        // Biased by one in the encoding so a 32-bit walker can read the field
+        // into its own `Int` — 0 is "leaf", not "frame 0".
+        i = child - 1
+    }
+    depth
+}
+
+// Writes the one logical frame `want` levels below the root (0 = the root).
+//
+// Re-walking from the root per level is O(depth^2), and deliberately so: it
+// costs nothing to say (the depth is bounded at 64 and this runs once, while a
+// program is dying) and it buys a walk with no storage at all, which is what
+// makes the dump work with the allocator gone.
+func __bt_emit_frame(tbl: UnsafeConstPointer<UInt8>, index: Int, addr: Int,
+                     want: Int) unsafe {
+    var i = index
+    var a = addr
+    var step = 0
+    while step < want {
+        let rec = __bt_state_rec(tbl, i, __bt_state_of(tbl, i, a))
+        if rec < 0 {
+            return
+        }
+        let child = __bt_u32(tbl, rec + BT_STATE_CHILD)
+        if child == 0 {
+            return
+        }
+        a = a + __bt_u32(tbl, rec + BT_STATE_CHILD_OFF)
+        i = child - 1
+        step = step + 1
+    }
+    if not __bt_known_frame(tbl, i) {
+        __bt_emit("    at <unknown frame>\n")
+        return
+    }
+    let rec = __bt_frame_rec(tbl, i)
+    let state = __bt_state_rec(tbl, i, __bt_state_of(tbl, i, a))
+    __bt_emit("    at ")
+    __bt_emit_name(tbl, __bt_u32(tbl, rec + BT_FRAME_FILE))
+    if state >= 0 {
+        __bt_emit(":")
+        __bt_emit_int(__bt_u32(tbl, state))
+    }
+    __bt_emit(" in ")
+    __bt_emit_name(tbl, __bt_u32(tbl, rec + BT_FRAME_NAME))
+    __bt_emit("\n")
+}
+
+// Writes one task's whole logical stack, INNERMOST frame first — a reader looks
+// for where a task is stopped, not where it started, which is the convention
+// every other backtrace follows.
+func __bt_emit_stack(tbl: UnsafeConstPointer<UInt8>, index: Int, addr: Int) unsafe {
+    var level = __bt_depth(tbl, index, addr) - 1
+    while level >= 0 {
+        __bt_emit_frame(tbl, index, addr, level)
+        level = level - 1
+    }
+}
+
+// Is this slot holding a task that has not finished?
+//
+// Design 134 clears a completed task's frame box AND retires its slot, so these
+// two conditions together are what keeps a RECYCLED slot from being DECODED:
+// there is no frame at that index any more, and whatever the allocator did with
+// those bytes since is not a coroutine frame.
+func __bt_slot_live(g: UnsafePointer<TaskGroup>, slot: Int) unsafe -> Bool {
+    if g[0].done.get(slot)! {
+        return false
+    }
+    g[0].tasks.with_ref<Bool>(slot, { t in
+        if let _ = t {
+            true
+        } else {
+            false
+        }
+    })
+}
+
+// Why this task is not running, in the executor's own vocabulary.
+func __bt_emit_status(g: UnsafePointer<TaskGroup>, slot: Int) unsafe {
+    if g[0].active.get(slot)! {
+        __bt_emit("running")
+        return
+    }
+    let remaining = g[0].remaining.get(slot)!
+    if remaining < 0 {
+        __bt_emit("io-parked")
+    } else if remaining == 0 {
+        __bt_emit("ready")
+    } else {
+        __bt_emit("sleeping")
+    }
+}
+
+/// How many tasks are live right now, across every group and both engines.
+public func __saw_bt_live_count() unsafe -> Int {
+    var count = 0
+    var cur = __saw_bt_head.load()
+    var groups = 0
+    while cur != 0 && groups < BT_MAX_GROUPS {
+        groups = groups + 1
+        let g = cur as UnsafePointer<TaskGroup>
+        let n = g[0].tasks.len()
+        var i = 0
+        while i < n {
+            if __bt_slot_live(g, i) {
+                count = count + 1
+            }
+            i = i + 1
+        }
+        cur = g[0].bt_next
+    }
+    count
+}
+
+/// Writes every live task's logical backtrace to the runtime's output seam.
+///
+/// v1 honesty (design 158): the slot walk takes no lock. A multi-threaded
+/// group's worker may be mid-resume while this reads its frame, so what comes
+/// out is a best-effort snapshot and the header says so rather than pretending
+/// otherwise. A single-threaded group is exact — nothing else is running.
+public func __saw_bt_dump() unsafe {
+    let tbl = __saw_bt_table()
+    if __bt_u32(tbl, 0) != BT_MAGIC {
+        return
+    }
+    let live = __saw_bt_live_count()
+    if live == 0 {
+        __bt_emit("saw tasks: none live\n")
+        return
+    }
+    __bt_emit("saw tasks: ")
+    __bt_emit_int(live)
+    // Say WHEN the snapshot was taken, because that is what bounds how much to
+    // trust it: from the panic path nothing will run again, from a live call
+    // the program is still moving underneath the walk.
+    if __saw_bt_dumping.load() != 0 {
+        __bt_emit(" live (as-of panic, unsynchronized)\n")
+    } else {
+        __bt_emit(" live (unsynchronized snapshot)\n")
+    }
+    var cur = __saw_bt_head.load()
+    var number = 0
+    while cur != 0 && number < BT_MAX_GROUPS {
+        number = number + 1
+        let g = cur as UnsafePointer<TaskGroup>
+        let n = g[0].tasks.len()
+        var i = 0
+        while i < n {
+            if __bt_slot_live(g, i) {
+                __bt_emit("  task group ")
+                __bt_emit_int(number)
+                __bt_emit(" slot ")
+                __bt_emit_int(i)
+                __bt_emit(" gen ")
+                __bt_emit_int(g[0].gen.get(i)!)
+                __bt_emit(" ")
+                __bt_emit_status(g, i)
+                __bt_emit("\n")
+                // The frame's TYPE comes through the erased vtable (design 158
+                // `Resumable.__bt_desc`); its ADDRESS is the box's data word.
+                let index = g[0].tasks.with_ref<Int>(i, { t in t!.__bt_desc() })
+                let addr = g[0].tasks.with_ref<Int>(i, { t in
+                    __saw_box_data(&t!) as Int
+                })
+                __bt_emit_stack(tbl, index, addr)
+            }
+            i = i + 1
+        }
+        cur = g[0].bt_next
+    }
+}
+
+/// The panic sink for a program that links the executor.
+///
+/// Writes the panic line, then the task dump, then hands the ABORT to the
+/// runtime seam with nothing left to say. A panic with no live task takes the
+/// seam directly WITH its message, so the overwhelming majority of panics print
+/// exactly what they printed before design 158.
+///
+/// One flag guards re-entry: a panic raised BY the walk — a bounds check, a
+/// half-written frame — reports itself through the plain seam instead of
+/// re-entering the walk that raised it.
+public func __saw_bt_panic(message: UnsafePointer<Int8>, length: Int) unsafe -> Never {
+    if __saw_bt_dumping.load() != 0 {
+        __saw_rt_panic(message, length)
+    }
+    __saw_bt_dumping.store(1)
+    if __saw_bt_live_count() == 0 {
+        __saw_rt_panic(message, length)
+    }
+    __saw_rt_write(message, length)
+    __saw_bt_dump()
+    __saw_rt_panic(message, 0)
 }

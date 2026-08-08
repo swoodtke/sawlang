@@ -903,7 +903,34 @@ func main() {
 sleep(Duration.ms(200))     // cooperative; sync is the CHECKED negative effect
 ch.receive()                // cooperative channel receive (blocking twin: recv)
 handle.cancel(); if cancelled() { ... }   // cooperative cancellation
+dump_tasks()                // every live task's logical backtrace (std.task)
 ```
+- **`dump_tasks()` prints where every live task is PARKED (design 158)** —
+  `import std.task.{dump_tasks}`. A suspended task is not on any thread's stack,
+  so a native backtrace of a parked program shows the executor's poll loop and
+  nothing else; this shows the frames, innermost first, with the real
+  `file:line` of every suspending call between the task's entry point and its
+  park:
+  ```
+  saw tasks: 2 live (unsynchronized snapshot)
+    task group 1 slot 0 gen 1 io-parked
+      at net.saw:412 in TcpStream.read
+      at server.saw:18 in read_header
+    task group 1 slot 1 gen 1 running
+      at server.saw:41 in accept_loop
+  ```
+  `slot`/`gen` are the task's identity in its group's run queue (a generation
+  advancing across dumps is a REUSED slot, design 134); the last word is why it
+  is not running (`ready` / `sleeping` / `io-parked` / `running`). **THE PANIC
+  PATH PRINTS ONE FOR YOU** — a program that dies with tasks in flight writes the
+  dump after its panic line, and a panic with no live task prints exactly what it
+  always did. Allocates NOTHING (a static table walk over a read-only table the
+  compiler links into every binary, not an unwind), so it works under a denied
+  allocator, freestanding, and inside a panic handler; under a debugger,
+  `command script import tools/lldb_saw.py` adds `saw tasks` / `saw bt` /
+  `saw table`. The MT walk is unsynchronized and says so in its header; an ST
+  group is exact. GOTCHA: a RUNNING task's line is its last park point, not where
+  it is executing — the `running` marker is the tell.
 - **`sleep` takes a `Duration` and nothing else** (design 180). The bare-Int form
   is GONE — `sleep(200)` is now a clean error naming `Duration.ms`. `Duration` is
   PRELUDE (no import; `Instant` still needs `import std.time`), holds UInt64 whole
@@ -1243,7 +1270,8 @@ import mymodule as mm       // aliasing; `module`/`public`/`package`/`parent`
   `Channel` (std.channel), `Mutex` (std.mutex), `Instant` (std.time),
   `IoError`/`TcpListener`/`TcpStream` (std.net), `Utf8Error` (std.string),
   `yield_now` (std.task — design 114; the wrapper over the stdlib-internal
-  cooperative-yield intrinsic), `Command` (std.process), `Env` (std.env),
+  cooperative-yield intrinsic) and `dump_tasks` (std.task — design 158),
+  `Command` (std.process), `Env` (std.env),
   `FixedBuf`/`FixedStringBuilder` (std.fixedbuf — design 148),
   `CborEncoder`/`CborDecoder` (std.cbor — design 169; `std.serde`'s
   `Serialize`/`Deserialize`/`Encoder`/`Decoder` stay PRELUDE, only the format is

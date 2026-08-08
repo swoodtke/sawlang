@@ -95,6 +95,7 @@ The rest constrain what the run must show:
 | Directive | Description |
 |-----------|-------------|
 | `// EXPECT-OUTPUT:` | Lines following are expected stdout (one line per `//`) |
+| `// EXPECT-OUTPUT-CONTAINS: text` | Stdout must contain "text". Repeatable, and matched IN ORDER — each match starts where the previous one ended. One space after the colon is the separator and everything after it counts, LEADING WHITESPACE INCLUDED, which is what `EXPECT-OUTPUT:` cannot express (it strips every line, so indented output is unmatchable there) |
 | `// EXPECT-ERROR-CONTAINS: text` | Error message must contain "text" |
 | `// EXPECT-PANIC-CONTAINS: text` | Panic message must contain "text" |
 | `// EXPECT-WARNING-CONTAINS: text` | A warning must contain "text" (warnings ride the SUCCESS path and never change the exit code, so they need their own directive) |
@@ -138,7 +139,8 @@ a fix would go unnoticed and the coverage would stay lost.
 All tests **must** have explicit directives:
 
 1. **`// EXPECT: success`** or **`// EXPECT: error`** - Required for all tests
-2. **`// EXPECT-OUTPUT:`** - Required for success tests (at least one output line)
+2. **`// EXPECT-OUTPUT:`** or **`// EXPECT-OUTPUT-CONTAINS:`** - Required for
+   success tests (at least one output line, or one substring)
 3. **`// EXPECT-ERROR-CONTAINS:`** - Required for error tests (at least one)
 
 Tests without these directives will fail with a clear error message.

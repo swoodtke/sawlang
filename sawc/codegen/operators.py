@@ -67,7 +67,7 @@ class OperatorsMixin:
         if not message.endswith("\n"):
             message += "\n"
         msg_ptr, msg_len = self._raw_bytes_ptr(message)
-        self.builder.call(self.functions["__saw_rt_panic"], [msg_ptr, msg_len])
+        self.builder.call(self._panic_sink(), [msg_ptr, msg_len])
         self.builder.unreachable()
 
     def _alloc_or_panic(self, size: int, align: int, what: str, line: int = 0):

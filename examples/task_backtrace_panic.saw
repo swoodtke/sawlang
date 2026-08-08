@@ -1,0 +1,41 @@
+// design 158 unit 3: a program that dies with tasks in flight prints its task
+// dump AFTER the panic line. This is the reason the design exists — the panic
+// tells you WHERE it happened, and the dump tells you what the rest of the
+// program was waiting for, which is usually the actual question.
+//
+// The dump is on the alloc-free path: every piece goes straight to the output
+// seam, so it survives an exhausted allocator and works in a freestanding
+// image. `sos/tests/taskdump.saw` is the same wiring under QEMU.
+//
+// The header says "as-of panic" here rather than "unsynchronized snapshot":
+// nothing will run again, so the reader knows how much to trust it.
+// EXPECT: panic
+// EXPECT-PANIC-CONTAINS: panic at task_backtrace_panic.saw:32: deliberate
+// EXPECT-PANIC-CONTAINS: saw tasks: 2 live (as-of panic, unsynchronized)
+// EXPECT-PANIC-CONTAINS: at task_backtrace_panic.saw:21 in panicking_leaf
+// EXPECT-PANIC-CONTAINS: at task_backtrace_panic.saw:26 in panicking_worker
+
+import std.task.*
+
+func panicking_leaf(n: Int) -> Int {
+    sleep(Duration.secs(2))
+    n * 2
+}
+
+func panicking_worker(seed: Int) -> Int {
+    let n = panicking_leaf(seed)
+    n
+}
+
+func exploder() {
+    sleep(Duration.ms(10))
+    panic("deliberate")
+}
+
+func main() {
+    var g = TaskGroup()
+    let a = g.spawn(panicking_worker(4))
+    let b = g.spawn(exploder())
+    b.join()
+    print("worker {}", a.join())
+}
