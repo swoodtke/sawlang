@@ -1331,6 +1331,45 @@ class CodeGenerator(ResultsMixin, MatchMixin, StructsMixin, CollectionsMixin, Ca
         self._bt_table_global = gv
         self._exported_llvm_globals.append(gv)
 
+    BT_VTABLES_SYMBOL = "__saw_bt_vtables"
+
+    def _emit_bt_vtables(self):
+        """Emit the frame-index -> `Resumable` vtable pointer array (design 158).
+
+        A DEBUGGER identifies a live task's frame type by the vtable word in its
+        erased `Box<any Resumable>`, and has no other way: the in-process walker
+        asks the vtable itself (`__bt_desc`), which needs running code. Matching
+        the vtable by SYMBOL would be the obvious alternative and does not work —
+        a vtable global is `private`, so the linker is free to drop its name
+        entirely, and does.
+
+        So the mapping is written down, as pointers the loader relocates. Entry
+        `i` is frame `i`'s vtable, or null for a frame nothing ever erased (a
+        driven-only root has no vtable and can never be in a task slot).
+        """
+        table = getattr(self, 'bt_table_bytes', None)
+        if table is None:
+            return
+        from backtrace_table import decode
+        frames = decode(table)["frames"]
+        i8ptr = ir.IntType(8).as_pointer()
+        by_symbol = {}
+        for (concrete, trait), gv in self._vtable_globals.items():
+            if trait == "Resumable":
+                by_symbol[concrete] = gv
+        entries = []
+        for frame in frames:
+            gv = by_symbol.get(frame["symbol"])
+            entries.append(gv.bitcast(i8ptr) if gv is not None
+                           else ir.Constant(i8ptr, None))
+        arr_ty = ir.ArrayType(i8ptr, len(entries))
+        gv = ir.GlobalVariable(self.module, arr_ty,
+                               name=self.BT_VTABLES_SYMBOL)
+        gv.global_constant = True
+        gv.initializer = ir.Constant(arr_ty, entries)
+        self._exported_llvm_globals.append(gv)
+        self._root_symbol(gv.name)
+
     def _emit_static_global(self, static):
         """Emit the LLVM global for one module-level static (design 41 item 3).
 
@@ -1843,6 +1882,10 @@ class CodeGenerator(ResultsMixin, MatchMixin, StructsMixin, CollectionsMixin, Ca
         # the `any Trait` vtable queue (design 51) to a fixpoint — both are fed
         # from INSIDE body generation, and a vtable's thunks call their impls.
         self._emit_bodies()
+
+        # design 158: the frame -> vtable map, emitted AFTER bodies because a
+        # vtable only exists once something erased that frame.
+        self._emit_bt_vtables()
 
         # design 58: anchor `@export`ed symbols against DCE.
         self._emit_llvm_used()

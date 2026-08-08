@@ -1,6 +1,6 @@
 # Saw Language Makefile
 
-.PHONY: test test-verbose test-sequential clean help blade-bootstrap sos-test lexdiff astdiff irdet irdet-all gmgate abidoc
+.PHONY: test test-verbose test-sequential clean help blade-bootstrap sos-test lexdiff astdiff irdet irdet-all gmgate abidoc bttable bttable-sizes lldbtest
 
 # Default target
 all: test
@@ -83,6 +83,24 @@ gmgate:
 abidoc:
 	@python3 tools/test_runtime_abi_doc.py
 
+# The logical-backtrace table (design 158 unit 1): cross-check every frame
+# record against the frame-layout report the same compile produced. A wrong
+# offset there reads a live frame at the wrong place and prints a confident lie,
+# which no runtime test would catch. `bttable-sizes` reports what the
+# always-linked table costs per program.
+bttable:
+	@python3 tools/test_bt_table.py
+
+bttable-sizes:
+	@python3 tools/test_bt_table.py --sizes
+
+# The lldb commands (design 158 unit 2): drive a real lldb over a real binary
+# and check that `saw table` / `saw tasks` / `saw bt` agree with the fixture.
+# Skips where lldb is absent, and downgrades to the no-process tier where lldb
+# cannot attach.
+lldbtest:
+	@python3 tools/test_lldb_saw.py
+
 # Clean build artifacts. Everything generated lives under a `.build/` directory
 # — the repo's own, plus one per Saw package holding that package's per-target
 # output (design 143). Nothing generated sits beside a source file, so these two
@@ -113,6 +131,9 @@ help:
 	@echo "  make irdet-all       - IR determinism over the WHOLE corpus (final gate)"
 	@echo "  make gmgate          - Ownership oracles under Guard Malloc (macOS)"
 	@echo "  make abidoc          - rt/ABI.md describes exactly the frozen seam set"
+	@echo "  make bttable         - Task-backtrace table vs the frame layouts"
+	@echo "  make bttable-sizes   - What the always-linked backtrace table costs"
+	@echo "  make lldbtest        - saw tasks / saw bt under a real lldb"
 	@echo "  make clean           - Remove build artifacts"
 	@echo "  make help            - Show this help message"
 	@echo ""

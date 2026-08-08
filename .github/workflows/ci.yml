@@ -47,6 +47,12 @@ jobs:
       - name: Debug-info line tables (design 69)
         run: python tools/test_debug_info.py
 
+      - name: Task-backtrace table (design 158)
+        run: python tools/test_bt_table.py
+
+      - name: lldb task backtraces (design 158; skips where lldb is absent)
+        run: python tools/test_lldb_saw.py
+
       - name: Blade self-hosting bootstrap (builds + tests Blade)
         run: python tools/blade_bootstrap.py
 
