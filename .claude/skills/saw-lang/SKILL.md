@@ -925,7 +925,11 @@ handle.cancel(); if cancelled() { ... }   // cooperative cancellation
   code on counts/sums, NEVER on interleaving. Cross-task cancel:
   `handle.cancel_addr() -> Int` (a Send address a canceller task sets).
 - Thread engine (`spawn`/`Task`/`Channel.recv`) is separate from the
-  cooperative TaskGroup engine — don't mix per task.
+  cooperative TaskGroup engine — don't mix per task. `Channel.recv` from a task is
+  the worst version of mixing them: the block is unbounded and the thread it stops
+  is the EXECUTOR's, so every sibling stops too — including the task that would
+  have sent the value, which turns the wait into a group deadlock. Use `receive`
+  (drop-in). Nothing rejects the call today (DF-181c).
 - Cooperative net (design 84, std.net, hosted-only): use the SAFE OWNING TYPES —
   `TcpListener` and `TcpStream` (both NoCopy, `Deinit` closes the fd exactly once).
   NO raw fds, NO pointers, NO `io_wait` in your code — suspension is hidden INSIDE

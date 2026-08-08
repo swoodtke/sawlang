@@ -1124,7 +1124,11 @@ The standard library includes:
   `Arc.with_unique(body:)` runs `body` on a `&var` borrow of the payload when
   the handle is the only strong owner and answers `None` when it is shared —
   the copy-on-write gate `Data` is built on.
-- **Mutex<T>**, **Channel<T>**, **Task<T>**, **TaskGroup** - Concurrency.
+- **Mutex<T>**, **Channel<T>**, **Task<T>**, **TaskGroup** - Concurrency. A
+  channel has two receives, one per engine: `receive()` suspends the task and is
+  what cooperative code wants; `recv()` blocks the calling thread and belongs to
+  the `spawn`/`Task` engine. Calling `recv` from a task stops the executor
+  thread, and with it the task that would have sent the value.
 - **std.net** - `TcpListener`/`TcpStream`: owning, cooperative, `Result`-honest
   (accept/connect/read/`read_into`/overloaded write).
 - **File**, **Directory**, **Path**, **Data**, **Env** - System I/O. Every

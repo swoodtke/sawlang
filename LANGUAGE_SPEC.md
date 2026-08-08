@@ -4659,7 +4659,11 @@ anti-suspension boundary, so it is `sync`) plus `__wake_reason(&self) sync -> In
   signature `(&self) -> T`, so overloading — which cannot differ by effect —
   cannot distinguish the two). A `receive()` buried in an expression position is
   hoisted to its own statement first (design 120), so `inc(ch.receive()) +
-  ch.receive()` takes the two values left to right.
+  ch.receive()` takes the two values left to right. **Never call `recv` from a
+  cooperative task.** Its block is unbounded, and the thread it stops is the
+  executor's — so every sibling task stops with it, including the one that would
+  have sent the value. `receive` is a drop-in replacement. Nothing rejects the
+  call today.
 
 **Multi-threaded execution — `TaskGroup(threads: N)` (design 75 A2).** By default a
 `TaskGroup()` runs its children on ONE thread (deterministic interleaving, above).
