@@ -306,10 +306,20 @@ class TypeParsingMixin:
             # parameter (`[UInt8; N]`) or arithmetic over them. A literal is
             # resolved right here; anything else carries its expression until
             # there is an environment to evaluate it in.
+            #
+            # design 185 unit 2: the FULL expression grammar, the same one the
+            # repeat count `[v; N]` takes. `]` closes this position, so none of
+            # what forced design 148's narrow grammar applies here — that was
+            # the generic-argument position, closed by `>`, where a general
+            # parser would read `FixedBuf<N + 1>` as a comparison and eat the
+            # delimiter. One rule spelled two ways had two failure modes: `<<`
+            # and `dep.SIZE` (DF-172l) were PARSE errors in a type and clean
+            # semantic ones in a repeat count. Now both positions parse
+            # everything and `const_eval` gives the one answer.
             self.advance()  # consume '['
             element_type = self.parse_type()
             self.expect(TokenType.SEMICOLON, "Expected ';' in array type")
-            size_expr = self.parse_const_expr("array size")
+            size_expr = self.parse_expression()
             self.expect(TokenType.RBRACKET, "Expected ']' after array type")
             return self._array_type(element_type, size_expr)
         elif token.type == TokenType.LPAREN:
@@ -486,14 +496,19 @@ class TypeParsingMixin:
             self.error(f"Expected type, got {token.type.name}")
 
     # ---------------------------------------------------------------- design 148
-    # Constant expressions in TYPE position: an array length and a const generic
-    # argument. Deliberately its own small grammar rather than `parse_expression`,
-    # for one reason that decides it: a generic argument list is closed by `>`,
-    # which is also a comparison operator, so a general expression parser would
-    # read `FixedBuf<N + 1>` as a comparison and eat the delimiter. Restricting
-    # the grammar to what a constant can actually be — literals, names, `+ - *
-    # / %`, parentheses, `sizeof`/`alignof` — makes `>` unambiguous by
-    # construction. It is also exactly the v1 scope the design fixed.
+    # Constant expressions in a GENERIC ARGUMENT: `FixedBuf<2 * 128>`.
+    # Deliberately its own small grammar rather than `parse_expression`, for one
+    # reason that decides it: a generic argument list is closed by `>`, which is
+    # also a comparison operator, so a general expression parser would read
+    # `FixedBuf<N + 1>` as a comparison and eat the delimiter. Restricting the
+    # grammar to what a constant can actually be — literals, names, `+ - * / %`,
+    # parentheses, `sizeof`/`alignof` — makes `>` unambiguous by construction.
+    #
+    # design 185 unit 2 took the ARRAY LENGTH out of here: `[T; N]` is closed by
+    # `]`, so it can and does take the full expression grammar. This one keeps
+    # the narrow scope, and `<<`/`>>` are the reason it must — the shift tokens
+    # ARE the delimiter. A generic argument that needs them names a `static` or
+    # a const parameter folded from one.
 
     _CONST_ADD_OPS = None   # filled below (TokenType is imported at module load)
     _CONST_MUL_OPS = None

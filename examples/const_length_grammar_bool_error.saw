@@ -1,0 +1,15 @@
+// Design 185 unit 2: the type-length position parses everything now, so the
+// EVALUATOR is what says no — and it has to say no to a `Bool` operand of a bit
+// operator explicitly. Nothing type-checks a declared length before it folds,
+// and the evaluator's integers are Python's, where a `Bool` IS an integer: a
+// silent `[UInt8; true & false]` of length 0 is the failure this closes. Saw
+// spells the Bool operators `&& || not`, and the refusal says so.
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: array length is not a compile-time constant
+// EXPECT-ERROR-CONTAINS: operator `&` on a Bool (its Bool form is `&&` / `||` / `not`)
+
+struct Flags { bits: [UInt8; true & false] }
+
+func main() {
+    print(sizeof<Flags>())
+}
