@@ -5,15 +5,20 @@
 //! reads the wall clock instead, which is settable and can jump, so it is a
 //! timestamp rather than a way to time anything.
 //!
-//! A `Duration` carries UInt64 nanoseconds and an `Instant` Int64 nanoseconds,
-//! so neither layout shifts with the platform's `Int` width. Nothing here
-//! allocates.
+//! An `Instant` carries Int64 nanoseconds, so its layout does not shift with the
+//! platform's `Int` width. Nothing here allocates.
 //!
 //! Requires `import std.time`. The module links libc for its clocks and is not
-//! available in the freestanding profile.
+//! available in the freestanding profile. The `Duration` these methods return is
+//! in the prelude and needs no import of its own.
 
 // std.time (design 57 Part 4). HOSTED-ONLY: never loaded in the freestanding
 // profile (see HOSTED_STD_MODULES in sawc.py) — a kernel supplies its own timer.
+//
+// `Duration` used to live here; design 180 unit 2 moved it to std/duration.saw
+// so it could be prelude-visible in both profiles. `sleep` takes one and `sleep`
+// is a prelude builtin, so requiring an import for its argument type would have
+// put `import std.time` at the top of every file that naps.
 
 // =============================================================================
 // Clock seams (defined by the compiler — see codegen/core.py)
@@ -27,138 +32,6 @@ extern "C" {
     func __saw_rt_clock_monotonic_nanos() -> Int64
     // Wall clock, seconds since the Unix epoch. Backs `unix_timestamp()`.
     func __saw_rt_unix_timestamp_secs() -> Int64
-}
-
-// =============================================================================
-// Duration — a span of time, UInt64 nanoseconds
-// =============================================================================
-//
-// Design 180 made the backing UNSIGNED. A span is a magnitude, and the whole
-// u64-nanosecond range (about 584 years) is reachable from every constructor,
-// so no request a caller can spell wraps into a shorter one — which is what
-// DF-170a was about at the millisecond API this replaced.
-
-// Unit conversions, named rather than spelled at each site.
-static NANOS_PER_MICRO: UInt64 = 1000
-static NANOS_PER_MILLI: UInt64 = 1000000
-static NANOS_PER_SEC: UInt64 = 1000000000
-static CENTIS_PER_SEC: UInt64 = 100
-// The largest argument each constructor can scale without leaving the u64
-// nanosecond range: UInt64.max divided by that constructor's unit.
-static MAX_MICROS: UInt64 = 18446744073709551
-static MAX_MILLIS: UInt64 = 18446744073709
-static MAX_SECS: UInt64 = 18446744073
-
-/// A span of time, held as whole nanoseconds.
-///
-/// Build one with `Duration.ns`, `us`, `ms` or `secs`, or get one by subtracting
-/// instants. Durations compare and print.
-struct Duration {
-    nanos: UInt64
-}
-
-/// Construction and whole-unit readout for `Duration`.
-extension Duration {
-    /// Returns a span of `n` nanoseconds.
-    public func ns(n: UInt64) -> Duration {
-        Duration(nanos: n)
-    }
-
-    /// Returns a span of `n` whole microseconds.
-    ///
-    /// Panics if the span would run past the representable range, about 584
-    /// years.
-    public func us(n: UInt64) -> Duration {
-        if n > MAX_MICROS {
-            panic("Duration.us: {} microseconds is past the representable span", n)
-        }
-        Duration(nanos: n * NANOS_PER_MICRO)
-    }
-
-    /// Returns a span of `n` whole milliseconds.
-    ///
-    /// Panics if the span would run past the representable range, about 584
-    /// years.
-    public func ms(n: UInt64) -> Duration {
-        if n > MAX_MILLIS {
-            panic("Duration.ms: {} milliseconds is past the representable span", n)
-        }
-        Duration(nanos: n * NANOS_PER_MILLI)
-    }
-
-    /// Returns a span of `n` whole seconds.
-    ///
-    /// Panics if the span would run past the representable range, about 584
-    /// years.
-    public func secs(n: UInt64) -> Duration {
-        if n > MAX_SECS {
-            panic("Duration.secs: {} seconds is past the representable span", n)
-        }
-        Duration(nanos: n * NANOS_PER_SEC)
-    }
-
-    /// Returns the whole seconds in the span, truncating.
-    public func as_secs(&self) -> UInt64 {
-        self.nanos / NANOS_PER_SEC
-    }
-
-    /// Returns the whole milliseconds in the span, truncating.
-    public func as_millis(&self) -> UInt64 {
-        self.nanos / NANOS_PER_MILLI
-    }
-
-    /// Returns the whole microseconds in the span, truncating.
-    public func as_micros(&self) -> UInt64 {
-        self.nanos / NANOS_PER_MICRO
-    }
-
-    /// Returns the span in nanoseconds, the unit it is stored in.
-    public func as_nanos(&self) -> UInt64 {
-        self.nanos
-    }
-}
-
-// Duration is a trivial (POD) struct, so it auto-conforms to Equatable; the
-// `@synthesize`d compare runs over the single `nanos` field, i.e. numeric order.
-/// Durations order by length.
-@synthesize
-extension Duration: Comparable {
-}
-
-/// Durations print as a number and a unit.
-extension Duration: Printable {
-    /// Writes the span using the largest unit at or below its magnitude.
-    ///
-    /// Seconds carry two fractional digits; smaller units are whole. A span of
-    /// 1_420_000_000ns writes as `1.42s`, and 230_000_000ns as `230ms`, then
-    /// `5us`, then `42ns`.
-    public func format(&self, into: &var StringBuilder) {
-        let ns = self.nanos
-        if ns >= NANOS_PER_SEC {
-            let whole = ns / NANOS_PER_SEC
-            let frac = (ns % NANOS_PER_SEC) / (NANOS_PER_SEC / CENTIS_PER_SEC)
-            into.append(whole as UInt)
-            into.append(".")
-            if frac < (10 as UInt64) {
-                into.append("0")
-            }
-            into.append(frac as UInt)
-            into.append("s")
-            return
-        }
-        if ns >= NANOS_PER_MILLI {
-            into.append((ns / NANOS_PER_MILLI) as UInt)
-            into.append("ms")
-            return
-        }
-        if ns >= NANOS_PER_MICRO {
-            into.append((ns / NANOS_PER_MICRO) as UInt)
-            into.append("us")
-            return
-        }
-        into.append(ns as UInt)
-        into.append("ns")
-    }
 }
 
 // =============================================================================

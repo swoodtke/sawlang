@@ -1,0 +1,26 @@
+// Design 180 unit 2: `Duration` is in the prelude. `sleep` is a prelude builtin
+// and a `Duration` is the only thing it takes, so requiring an import for the
+// argument type would have put `import std.time` at the top of every file that
+// naps. The whole surface — constructors, accessors, ordering, printing — is
+// reachable here with no import at all.
+//
+// EXPECT: success
+// EXPECT-OUTPUT:
+// 200ms
+// 200
+// true
+// 1.50s
+
+func longer(a: Duration, b: Duration) -> Duration {
+    if a > b { a } else { b }
+}
+
+func main() {
+    let nap = Duration.ms(200)
+    print("{nap}")                       // 200ms
+    print(nap.as_millis())               // 200
+
+    // Ordering and a Duration in a signature, still with no import.
+    print(longer(nap, Duration.us(50)).as_millis() == (200 as UInt64))   // true
+    print("{longer(Duration.ms(1500), nap)}")                            // 1.50s
+}

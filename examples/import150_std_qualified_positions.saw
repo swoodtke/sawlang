@@ -4,7 +4,7 @@
 // static-method chains, call heads and constructors, all through the
 // qualifier and none of them bare.
 // EXPECT: success
-// EXPECT-OUTPUT: annotation 250
+// EXPECT-OUTPUT: annotation true
 // EXPECT-OUTPUT: generic 2
 // EXPECT-OUTPUT: static true
 // EXPECT-OUTPUT: callhead 7
@@ -14,18 +14,18 @@ import std.data
 import std.task
 
 // Type annotation position, by value and behind a reference.
-func as_millis(d: time.Duration) -> UInt64 { d.as_millis() }
+func has_elapsed(t: time.Instant) -> Bool { t.elapsed().as_nanos() >= (0 as UInt64) }
 
 func first_byte(d: &data.Data) -> Int { d.get(0) ?? 0 }
 
-// Return position.
-func quarter_second() -> time.Duration { time.Duration.ms(250) }
+// Return position, with a static method reached through the qualifier.
+func origin() -> time.Instant { time.Instant.now() }
 
 // Generic ARGUMENT position: the qualified name inside `Vector<...>`.
 func count(v: &Vector<data.Data>) -> Int { v.len() }
 
 func main() {
-    print("annotation {as_millis(quarter_second())}")
+    print("annotation {has_elapsed(origin())}")
 
     var v: Vector<data.Data> = []
     v.push(data.Data())          // constructor through the qualifier

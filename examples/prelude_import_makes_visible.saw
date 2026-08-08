@@ -1,20 +1,22 @@
 // Design 82 Part B: `import std.<module>.{Name}` makes a non-prelude std type
-// visible by its bare name. Here `Duration` (import-required, from std.time)
-// becomes usable after the import; a prelude core type (`Vector`) needs none.
+// visible by its bare name. Here `Instant` (import-required, from std.time)
+// becomes usable after the import; a prelude core type (`Vector`) needs none,
+// and neither does `Duration`, which design 180 put in the prelude beside it.
 //
 // EXPECT: success
 // EXPECT-OUTPUT: 7
 
-import std.time.{Duration}
+import std.time.{Instant}
 
 func main() {
+    let start = Instant.now()
     let d = Duration.secs(2)
     let v: Vector<Int> = [1, 2, 4]
     var sum = 0
     for x in v.iter() {
         sum = sum + x
     }
-    if d.as_secs() > (0 as UInt64) {
+    if d.as_secs() > start.elapsed().as_secs() {
         print(sum)  // 7
     }
 }

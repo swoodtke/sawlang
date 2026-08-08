@@ -17,7 +17,8 @@
 // true
 // true
 
-import std.time.{Duration, Instant, unix_timestamp}
+// `Duration` is prelude (design 180) and is NOT imported here; `Instant` is not.
+import std.time.{Instant, unix_timestamp}
 func main() {
     // Unit constructors and the whole-unit readout of each.
     let d = Duration.ms(1420)

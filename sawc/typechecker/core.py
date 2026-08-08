@@ -833,11 +833,27 @@ class TypeChecker(ExpressionsMixin, StatementsMixin, RegistrationMixin, TypeUtil
             aliases = imp.symbol_aliases or {}
             for sym_name in imp.symbols:
                 if sym_name not in available:
+                    # A name std HAS, in another file, is the interesting case:
+                    # say where it moved to instead of listing what is here. A
+                    # prelude owner is worth naming as such — the fix is to
+                    # DELETE the import, which no list of alternatives suggests.
+                    owner = getattr(builtin_namespace, '_std_symbol_file',
+                                    {}).get(sym_name)
+                    required = getattr(builtin_namespace,
+                                       '_import_required_modules', set())
+                    if owner is not None and owner != leaf and owner in required:
+                        hint = (f"it is in `std.{owner}` — write "
+                                f"`import std.{owner}.{{{sym_name}}}`")
+                    elif owner is not None and owner != leaf:
+                        hint = ("it is in the prelude and needs no import — "
+                                "drop it from this list")
+                    else:
+                        hint = "available: " + ", ".join(sorted(available))
                     self._error(
                         ErrorKind.UNKNOWN_TYPE,
                         f"`{sym_name}` is not defined in `std.{leaf}`",
                         getattr(imp, 'line', 0), getattr(imp, 'column', 0),
-                        hint="available: " + ", ".join(sorted(available)))
+                        hint=hint)
                     continue
                 _expose(sym_name, aliases.get(sym_name, sym_name))
         elif is_glob:

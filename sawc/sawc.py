@@ -82,9 +82,18 @@ HOSTED_STD_MODULES = {"file", "process", "env", "directory", "time", "net"}
 # structural types the compiler references implicitly (Range, Ordering, Hasher,
 # TaskHandle, AllocError, the iterator/slot structs) — stays prelude. This
 # realizes design 82's allowlist: the curated core is auto-visible; File,
-# Data, Channel, Mutex, Duration/Instant, IoError/Utf8Error, and the whole net
+# Data, Channel, Mutex, Instant, IoError/Utf8Error, and the whole net
 # surface are import-required, so a user type named `IoError`/`File` no longer
 # collides with the prelude.
+#
+# `Duration` is the design-180 addition to that core, and it is why the type
+# sits in its own `std/duration.saw` rather than in `std.time` beside `Instant`:
+# `sleep` is a prelude builtin taking exactly one `Duration`, so requiring an
+# import for its argument type would put `import std.time` at the top of every
+# file that naps. The module gate below is what decides prelude membership AND
+# what decides whether a module is code-generated at all, so a prelude symbol
+# has to live in a non-import-required FILE — a per-symbol exception would make
+# the name visible and its methods absent.
 IMPORT_REQUIRED_STD_MODULES = {
     "file", "directory", "path", "data", "channel", "mutex", "time",
     "net", "process", "env", "task", "fixedbuf", "cbor",

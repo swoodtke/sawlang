@@ -6,8 +6,6 @@
 // EXPECT: panic
 // EXPECT-PANIC-CONTAINS: Duration.secs: 18446744074 seconds is past the representable span
 
-import std.time.{Duration}
-
 func main() {
     // The last second that fits, and the first that does not.
     let ok = Duration.secs(18446744073)
