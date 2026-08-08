@@ -1,0 +1,1055 @@
+//! CBOR (RFC 8949) in its deterministic encoding profile.
+//!
+//! `sawc/std/CBOR.md` is the wire contract and it is frozen: shortest-form
+//! arguments, definite lengths only, canonically ordered map keys, no floats,
+//! no tags, one top-level item. `tools/sawcbor.py` implements the same document
+//! over `cbor2`, and `tests/cbor_vectors/` holds the blobs the two must agree
+//! on byte for byte.
+//!
+//! `CborEncoder` is an `Encoder` and `CborDecoder` is a `Decoder`, so any
+//! `Serialize`/`Deserialize` value travels over them:
+//!
+//! ```saw
+//! import std.cbor.{CborEncoder, CborDecoder}
+//!
+//! var enc = CborEncoder()
+//! try entry.serialize(to: &var enc)
+//! let blob = try enc.finish()
+//!
+//! var dec = try CborDecoder.open(bytes: move blob)
+//! let back = try LockEntry.deserialize(from: &var dec)
+//! ```
+//!
+//! `CborDecoder.open` validates the whole input before returning, so every
+//! typed read runs over bytes already known to be well formed. The scan walks
+//! an explicit work stack rather than the call stack: nesting depth is the
+//! stack's height, checked before each descent, so no input can reach the call
+//! stack at all. The three limits are constructor parameters with hosted
+//! defaults, and a kernel caller passes its own.
+//!
+//! Floats are a decode error in v1. The profile writes none and rejects every
+//! Float16, Float32 and Float64 item it reads: Saw's `Float` has no settled
+//! serialization, and choosing one here would freeze it into stored blobs.
+//! Half- and single-precision stay out permanently under the shortest-form
+//! rule, which admits one spelling per value.
+
+// =============================================================================
+// The head byte
+// =============================================================================
+
+// The eight CBOR major types. They occupy the top three bits of an item's first
+// byte; the low five are the additional-info field.
+enum CborMajor: UInt8 {
+    case Unsigned = 0,
+    case Negative = 1,
+    case Bytes = 2,
+    case Text = 3,
+    case Array = 4,
+    case Map = 5,
+    case Tag = 6,
+    case Simple = 7
+}
+
+// The additional-info values major 7 carries. The profile writes three of them
+// and rejects every other simple value, `undefined` included.
+enum CborSimple: UInt8 {
+    case BoolFalse = 20,
+    case BoolTrue = 21,
+    case Null = 22,
+    case Undefined = 23
+}
+
+// Additional-info values that name an argument width rather than being one.
+static INFO_INLINE_MAX: UInt8 = 23u8
+static INFO_UINT8: UInt8 = 24u8
+static INFO_UINT16: UInt8 = 25u8
+static INFO_UINT32: UInt8 = 26u8
+static INFO_UINT64: UInt8 = 27u8
+static INFO_INDEFINITE: UInt8 = 31u8
+
+static MAJOR_SHIFT: Int = 5
+static INFO_MASK: UInt8 = 31u8
+static BYTE_MASK: UInt = 255
+
+// Hosted defaults for the decoder limits. A freestanding caller states its own.
+static DEFAULT_MAX_DEPTH: Int = 64
+static DEFAULT_MAX_SIZE: Int = 16777216
+static DEFAULT_MAX_ITEMS: Int = 100000
+
+// UTF-8 lead and continuation boundaries, from RFC 3629's table.
+static UTF8_ASCII_MAX: UInt8 = 127u8
+static UTF8_LEAD_MIN: UInt8 = 194u8
+static UTF8_LEAD_3: UInt8 = 224u8
+static UTF8_LEAD_4: UInt8 = 240u8
+static UTF8_LEAD_MAX: UInt8 = 245u8
+static UTF8_CONT_MIN: UInt8 = 128u8
+static UTF8_CONT_MAX: UInt8 = 191u8
+static UTF8_E0_MIN: UInt8 = 160u8
+static UTF8_ED_MAX: UInt8 = 159u8
+static UTF8_F0_MIN: UInt8 = 144u8
+static UTF8_F4_MAX: UInt8 = 143u8
+
+// =============================================================================
+// Encoder
+// =============================================================================
+
+// One open array or map. `remaining` counts the items still owed (a map owes
+// two per pair) and `start` is where the container's own head byte went, so a
+// finished level can report itself to its parent as one completed item.
+// `key_start`/`key_end` hold the previous key's encoded bytes, which is what
+// the canonical ordering rule compares against.
+struct CborLevel {
+    remaining: Int
+    is_map: Bool
+    start: Int
+    key_start: Int
+    key_end: Int
+}
+
+/// An `Encoder` that writes the deterministic profile into a growable buffer.
+///
+/// The buffer belongs to the encoder and `finish` hands it over once every open
+/// item is closed. An allocation the buffer cannot serve is
+/// `EncodeFault.BufferFull` rather than a panic, so a value can be encoded
+/// under a constrained allocator.
+public struct CborEncoder {
+    out: Data
+    levels: Vector<CborLevel>
+    max_depth: Int
+    bytes_left: Int
+    bytes_start: Int
+}
+
+extension CborEncoder: NoCopy {}
+
+public extension CborEncoder {
+    /// A new encoder over an empty buffer.
+    ///
+    /// `max_depth` bounds how deeply arrays and maps may nest; a deeper
+    /// `begin_array` or `begin_map` is `EncodeFault.TooDeep`.
+    public init(max_depth: Int = 64) -> CborEncoder {
+        var levels = Vector<CborLevel>()
+        CborEncoder(out: Data(), levels: move levels, max_depth: max_depth,
+                    bytes_left: 0, bytes_start: 0)
+    }
+
+    /// The number of bytes written so far.
+    public func len(&self) -> Int {
+        self.out.len()
+    }
+
+    /// The encoded bytes, once every open item has been closed.
+    ///
+    /// `Err(CountMismatch)` means an array, map or byte string is still open:
+    /// fewer items were written than were declared.
+    public func finish(&self) sync -> Result<Data, EncodeError> {
+        if self.levels.len() > 0 || self.bytes_left > 0 {
+            return EncodeError(fault: EncodeFault.CountMismatch)
+        }
+        return self.out.copy()
+    }
+
+    // Grow the buffer by `n` bytes up front so the pushes that follow cannot
+    // fail. Allocator refusal is a fault, not a panic (design 123's `try_` tier).
+    func reserve(&var self, n: Int) sync -> Result<Void, EncodeError> {
+        match self.out.try_reserve(n) {
+            case Ok(_) -> {},
+            case Err(_) -> { return EncodeError(fault: EncodeFault.BufferFull) }
+        }
+        return
+    }
+
+    // Refuse a new item while an open byte string is still owed bytes.
+    func check_ready(&self) sync -> Result<Void, EncodeError> {
+        if self.bytes_left > 0 {
+            return EncodeError(fault: EncodeFault.CountMismatch)
+        }
+        return
+    }
+
+    // Write one item head: the major type in the top three bits, then the
+    // argument in the shortest of the five encodings that holds it.
+    func write_head(&var self, major: CborMajor, arg: UInt) sync -> Result<Void, EncodeError> {
+        let base = (major as UInt8) << MAJOR_SHIFT
+        var width = 0
+        if arg > (INFO_INLINE_MAX as UInt) {
+            if arg <= BYTE_MASK {
+                width = 1
+            } else if arg <= 65535 {
+                width = 2
+            } else if ((arg >> 16) >> 16) == 0 {
+                width = 4
+            } else {
+                width = 8
+            }
+        }
+        try self.reserve(1 + width)
+        if width == 0 {
+            self.out.push(base | (arg as UInt8))
+            return
+        }
+        var info = INFO_UINT8
+        if width == 2 {
+            info = INFO_UINT16
+        } else if width == 4 {
+            info = INFO_UINT32
+        } else if width == 8 {
+            info = INFO_UINT64
+        }
+        self.out.push(base | info)
+        var i = width - 1
+        while i >= 0 {
+            self.out.push(((arg >> (i * 8)) & BYTE_MASK) as UInt8)
+            i = i - 1
+        }
+        return
+    }
+
+    // Compare two ranges of the output buffer as unsigned bytes, a prefix
+    // sorting before what extends it. -1 if a precedes b, 0 if equal, 1 if a
+    // follows b. Both ranges are inside the buffer, so an index out of it is a
+    // broken invariant and panics.
+    func compare_out(&var self, a0: Int, a1: Int, b0: Int, b1: Int) sync -> Int {
+        var i = 0
+        while a0 + i < a1 && b0 + i < b1 {
+            let x = self.out[a0 + i]
+            let y = self.out[b0 + i]
+            if x < y {
+                return -1
+            }
+            if x > y {
+                return 1
+            }
+            i = i + 1
+        }
+        let a_len = a1 - a0
+        let b_len = b1 - b0
+        if a_len < b_len {
+            return -1
+        }
+        if a_len > b_len {
+            return 1
+        }
+        0
+    }
+
+    // Record that an item beginning at `at` and ending at the current output
+    // position is complete. A map key is compared against the previous key
+    // here, which is the first moment a container key's own bytes are whole. A
+    // level whose last item this was becomes an item of ITS parent, so the walk
+    // continues upward until a level still owes something.
+    func item_done(&var self, at: Int) sync -> Result<Void, EncodeError> {
+        var start = at
+        while self.levels.len() > 0 {
+            let last = self.levels.len() - 1
+            let rem = self.levels[last].remaining
+            if self.levels[last].is_map && (rem % 2) == 0 {
+                // The RHS of a place write is read into a local first: a write
+                // whose RHS names `self` is an ICE today (DF-169f).
+                let here = self.out.len()
+                let prev_start = self.levels[last].key_start
+                if prev_start >= 0 {
+                    let prev_end = self.levels[last].key_end
+                    if self.compare_out(prev_start, prev_end, start, here) >= 0 {
+                        return EncodeError(fault: EncodeFault.Unsupported)
+                    }
+                }
+                self.levels[last].key_start = start
+                self.levels[last].key_end = here
+            }
+            self.levels[last].remaining = rem - 1
+            if rem > 1 {
+                return
+            }
+            let closed = self.levels[last].start
+            let _ = self.levels.pop()
+            start = closed
+        }
+        return
+    }
+
+    // Open an array or map: write the head, then push a level for the items it
+    // declared. A count of zero is a complete item on its own.
+    func open_container(&var self, major: CborMajor, count: Int,
+                        owed: Int, is_map: Bool) sync -> Result<Void, EncodeError> {
+        try self.check_ready()
+        if count < 0 {
+            return EncodeError(fault: EncodeFault.CountMismatch)
+        }
+        if self.levels.len() >= self.max_depth {
+            return EncodeError(fault: EncodeFault.TooDeep)
+        }
+        let at = self.out.len()
+        try self.write_head(major, count as UInt)
+        if owed == 0 {
+            return self.item_done(at)
+        }
+        self.levels.push(CborLevel(remaining: owed, is_map: is_map, start: at,
+                                   key_start: -1, key_end: -1))
+        return
+    }
+}
+
+extension CborEncoder: Encoder {
+    func write_uint(&var self, v: UInt) sync -> Result<Void, EncodeError> {
+        try self.check_ready()
+        let at = self.out.len()
+        try self.write_head(CborMajor.Unsigned, v)
+        return self.item_done(at)
+    }
+
+    func write_int(&var self, v: Int) sync -> Result<Void, EncodeError> {
+        try self.check_ready()
+        let at = self.out.len()
+        if v >= 0 {
+            try self.write_head(CborMajor.Unsigned, v as UInt)
+        } else {
+            // CBOR stores a negative as -1 - n, which keeps the argument
+            // unsigned. Int.min maps to Int.max exactly, so nothing overflows.
+            try self.write_head(CborMajor.Negative, (-1 - v) as UInt)
+        }
+        return self.item_done(at)
+    }
+
+    func write_bool(&var self, v: Bool) sync -> Result<Void, EncodeError> {
+        try self.check_ready()
+        let at = self.out.len()
+        let simple = if v { CborSimple.BoolTrue } else { CborSimple.BoolFalse }
+        try self.write_head(CborMajor.Simple, (simple as UInt8) as UInt)
+        return self.item_done(at)
+    }
+
+    func write_null(&var self) sync -> Result<Void, EncodeError> {
+        try self.check_ready()
+        let at = self.out.len()
+        try self.write_head(CborMajor.Simple, (CborSimple.Null as UInt8) as UInt)
+        return self.item_done(at)
+    }
+
+    func write_text(&var self, v: String) sync -> Result<Void, EncodeError> {
+        try self.check_ready()
+        let at = self.out.len()
+        let raw = v.to_data()
+        let n = raw.len()
+        try self.write_head(CborMajor.Text, n as UInt)
+        try self.reserve(n)
+        self.out.append(move raw)
+        return self.item_done(at)
+    }
+
+    func begin_bytes(&var self, count: Int) sync -> Result<Void, EncodeError> {
+        try self.check_ready()
+        if count < 0 {
+            return EncodeError(fault: EncodeFault.CountMismatch)
+        }
+        let at = self.out.len()
+        try self.write_head(CborMajor.Bytes, count as UInt)
+        try self.reserve(count)
+        if count == 0 {
+            return self.item_done(at)
+        }
+        self.bytes_left = count
+        self.bytes_start = at
+        return
+    }
+
+    func write_byte(&var self, b: UInt8) sync -> Result<Void, EncodeError> {
+        if self.bytes_left <= 0 {
+            return EncodeError(fault: EncodeFault.CountMismatch)
+        }
+        self.out.push(b)
+        self.bytes_left = self.bytes_left - 1
+        if self.bytes_left == 0 {
+            return self.item_done(self.bytes_start)
+        }
+        return
+    }
+
+    func begin_array(&var self, count: Int) sync -> Result<Void, EncodeError> {
+        self.open_container(CborMajor.Array, count, count, false)
+    }
+
+    func begin_map(&var self, count: Int) sync -> Result<Void, EncodeError> {
+        if count > (Int.max / 2) {
+            return EncodeError(fault: EncodeFault.CountMismatch)
+        }
+        return self.open_container(CborMajor.Map, count, count * 2, true)
+    }
+}
+
+// =============================================================================
+// Decoder
+// =============================================================================
+
+// A parsed item head: where it began, its major type, and its argument. For
+// major 7 the additional-info bits ARE the value, so `arg` carries them raw.
+struct CborHead {
+    start: Int
+    major: CborMajor
+    arg: UInt
+}
+
+// One open container in the up-front scan. The number of these on the work
+// stack IS the nesting depth, which is why the scan never recurses.
+struct CborScanFrame {
+    remaining: Int
+    is_map: Bool
+    start: Int
+    key_start: Int
+    key_end: Int
+}
+
+/// A `Decoder` over a byte buffer, validated against the profile up front.
+///
+/// `open` scans the whole input before handing back a decoder, so a typed read
+/// never has to defend itself against malformed bytes. Every failure is a
+/// `DecodeError` naming the byte offset it was found at; no input, however
+/// hostile, panics or reaches the call stack.
+public struct CborDecoder {
+    input: Data
+    pos: Int
+    max_depth: Int
+    max_size: Int
+    max_items: Int
+    bytes_left: Int
+}
+
+extension CborDecoder: NoCopy {}
+
+public extension CborDecoder {
+    /// Validates `bytes` against the profile and the limits, then returns a
+    /// decoder positioned at the first item.
+    ///
+    /// `max_depth` bounds array and map nesting, `max_size` the input length in
+    /// bytes, and `max_items` the total number of items, counting map keys and
+    /// the containers themselves. A container declaring more items than
+    /// `max_items` is refused at its head, before anything is read for it.
+    ///
+    /// `Err` names the byte offset the scan stopped at. `TooLarge` at offset 0
+    /// also covers the one allocation this makes: the work stack, sized once
+    /// from `max_depth`.
+    public func open(bytes: Data, max_depth: Int = 64,
+                     max_size: Int = 16777216,
+                     max_items: Int = 100000) sync -> Result<CborDecoder, DecodeError> {
+        assert(max_depth >= 0, "CborDecoder.open: max_depth must not be negative")
+        assert(max_size >= 0, "CborDecoder.open: max_size must not be negative")
+        assert(max_items >= 0, "CborDecoder.open: max_items must not be negative")
+        var dec = CborDecoder(input: bytes, pos: 0, max_depth: max_depth,
+                              max_size: max_size, max_items: max_items,
+                              bytes_left: 0)
+        try dec.scan()
+        return move dec
+    }
+
+    /// Moves the cursor back to the first item.
+    ///
+    /// The input has already been validated, so a second pass over it reads the
+    /// same items again.
+    public func rewind(&var self) {
+        self.pos = 0
+        self.bytes_left = 0
+    }
+
+    /// Writes the whole input into `to`, item by item.
+    ///
+    /// Every item is re-encoded from its parsed value rather than copied, so
+    /// against a `CborEncoder` the output is the canonical spelling of the
+    /// input. Reads the input from the start and leaves the cursor at the end.
+    ///
+    /// `Err` is a `DecodeError` for input the decoder cannot represent and an
+    /// `EncodeError` for output the sink refused.
+    public func transcode(&var self, to: &var any Encoder) sync -> Result<Void, Box<any Error>> {
+        self.rewind()
+        var stack = Vector<Int>()
+        try self.reserve_stack_int(&var stack)
+        stack.push(1)
+        while stack.len() > 0 {
+            let last = stack.len() - 1
+            let rem = stack[last]
+            if rem == 0 {
+                let _ = stack.pop()
+                continue
+            }
+            stack[last] = rem - 1
+            let h = try self.read_head()
+            if h.major == CborMajor.Unsigned {
+                try to.write_uint(h.arg)
+            } else if h.major == CborMajor.Negative {
+                if h.arg > (Int.max as UInt) {
+                    return DecodeError(offset: h.start, fault: DecodeFault.OutOfRange)
+                }
+                try to.write_int(-1 - (h.arg as Int))
+            } else if h.major == CborMajor.Bytes {
+                let n = try self.payload_len(h)
+                try to.begin_bytes(n)
+                var i = 0
+                while i < n {
+                    let b = try self.next_byte()
+                    try to.write_byte(b)
+                    i = i + 1
+                }
+            } else if h.major == CborMajor.Text {
+                let s = try self.take_text(h)
+                try to.write_text(s)
+            } else if h.major == CborMajor.Array {
+                let n = try self.container_count(h)
+                try to.begin_array(n)
+                if n > 0 {
+                    stack.push(n)
+                }
+            } else if h.major == CborMajor.Map {
+                let n = try self.container_count(h)
+                try to.begin_map(n)
+                if n > 0 {
+                    stack.push(n * 2)
+                }
+            } else if h.major == CborMajor.Simple {
+                let info = h.arg as UInt8
+                if info == (CborSimple.BoolTrue as UInt8) {
+                    try to.write_bool(true)
+                } else if info == (CborSimple.BoolFalse as UInt8) {
+                    try to.write_bool(false)
+                } else {
+                    try to.write_null()
+                }
+            } else {
+                return DecodeError(offset: h.start, fault: DecodeFault.Unsupported)
+            }
+        }
+        return
+    }
+
+    // Size a work stack once, so no later push can meet a refusal. The scan and
+    // every walk over validated bytes is bounded by `max_depth`.
+    func reserve_stack_int(&self, stack: &var Vector<Int>) sync -> Result<Void, DecodeError> {
+        match stack.try_reserve(self.max_depth + 1) {
+            case Ok(_) -> {},
+            case Err(_) -> { return DecodeError(offset: 0, fault: DecodeFault.TooLarge) }
+        }
+        return
+    }
+
+    func reserve_stack_frame(&self, stack: &var Vector<CborScanFrame>) sync -> Result<Void, DecodeError> {
+        match stack.try_reserve(self.max_depth + 1) {
+            case Ok(_) -> {},
+            case Err(_) -> { return DecodeError(offset: 0, fault: DecodeFault.TooLarge) }
+        }
+        return
+    }
+
+    // Read one byte and advance. Running off the end is `Truncated` at the byte
+    // that was wanted.
+    func next_byte(&var self) sync -> Result<UInt8, DecodeError> {
+        guard let b = self.input.get(self.pos) else {
+            return DecodeError(offset: self.pos, fault: DecodeFault.Truncated)
+        }
+        self.pos = self.pos + 1
+        return b
+    }
+
+    // Read one item head, applying the shortest-form rule to its argument.
+    // Major 7 has no argument: its additional-info bits are the value, and
+    // judging them is the caller's job.
+    func read_head(&var self) sync -> Result<CborHead, DecodeError> {
+        let start = self.pos
+        let b = try self.next_byte()
+        guard let major = CborMajor.from(raw: b >> MAJOR_SHIFT) else {
+            return DecodeError(offset: start, fault: DecodeFault.Malformed)
+        }
+        let info = b & INFO_MASK
+        if major == CborMajor.Simple {
+            return CborHead(start: start, major: major, arg: info as UInt)
+        }
+        if info <= INFO_INLINE_MAX {
+            return CborHead(start: start, major: major, arg: info as UInt)
+        }
+        if info == INFO_INDEFINITE {
+            return DecodeError(offset: start, fault: DecodeFault.Unsupported)
+        }
+        var width = 0
+        if info == INFO_UINT8 {
+            width = 1
+        } else if info == INFO_UINT16 {
+            width = 2
+        } else if info == INFO_UINT32 {
+            width = 4
+        } else if info == INFO_UINT64 {
+            width = 8
+        } else {
+            return DecodeError(offset: start, fault: DecodeFault.Malformed)
+        }
+        var arg: UInt = 0
+        var high_zeros = 0
+        var i = 0
+        while i < width {
+            let byte = try self.next_byte()
+            if arg > (UInt.max >> 8) {
+                // Only reachable where UInt is narrower than the argument, so
+                // the value has no representation on this target.
+                return DecodeError(offset: start, fault: DecodeFault.OutOfRange)
+            }
+            arg = (arg << 8) | (byte as UInt)
+            if byte == 0u8 && i < width / 2 {
+                high_zeros = high_zeros + 1
+            }
+            i = i + 1
+        }
+        // Shortest form: a one-byte argument must not fit the inline bits, and
+        // a wider one must have a non-zero byte in its high half.
+        if width == 1 {
+            if arg <= (INFO_INLINE_MAX as UInt) {
+                return DecodeError(offset: start, fault: DecodeFault.NotCanonical)
+            }
+        } else if high_zeros == width / 2 {
+            return DecodeError(offset: start, fault: DecodeFault.NotCanonical)
+        }
+        return CborHead(start: start, major: major, arg: arg)
+    }
+
+    // The declared byte length of a string item, refused when the input cannot
+    // hold it.
+    func payload_len(&self, h: CborHead) sync -> Result<Int, DecodeError> {
+        let available = self.input.len() - self.pos
+        if h.arg > (available as UInt) {
+            return DecodeError(offset: h.start, fault: DecodeFault.Truncated)
+        }
+        return h.arg as Int
+    }
+
+    // The declared item count of a container. A count past `max_items` is
+    // refused at the head, so a short blob cannot make the decoder work for a
+    // number of items the blob could never hold.
+    func container_count(&self, h: CborHead) sync -> Result<Int, DecodeError> {
+        if h.arg > (self.max_items as UInt) {
+            return DecodeError(offset: h.start, fault: DecodeFault.TooManyItems)
+        }
+        return h.arg as Int
+    }
+
+    // Read a text item's payload as a String, advancing past it.
+    func take_text(&var self, h: CborHead) sync -> Result<String, DecodeError> {
+        let n = try self.payload_len(h)
+        guard let raw = self.input.slice(self.pos, self.pos + n) else {
+            return DecodeError(offset: h.start, fault: DecodeFault.Truncated)
+        }
+        self.pos = self.pos + n
+        match raw.to_string() {
+            case Ok(s) -> { return s },
+            case Err(_) -> { return DecodeError(offset: h.start, fault: DecodeFault.Malformed) }
+        }
+    }
+
+    // One byte of the input, for a position the caller has already bounded.
+    func byte_at(&self, i: Int) sync -> UInt8 {
+        self.input.get(i) ?? 0u8
+    }
+
+    // The length in bytes of the UTF-8 sequence starting at `i`, or 0 if the
+    // bytes up to `end` do not form one. The bounds follow RFC 3629, so an
+    // overlong form, a surrogate and a scalar past U+10FFFF are each rejected.
+    func utf8_width(&self, i: Int, end: Int) sync -> Int {
+        let b0 = self.byte_at(i)
+        if b0 <= UTF8_ASCII_MAX {
+            return 1
+        }
+        if b0 < UTF8_LEAD_MIN {
+            return 0
+        }
+        if b0 < UTF8_LEAD_3 {
+            if i + 1 >= end {
+                return 0
+            }
+            let b1 = self.byte_at(i + 1)
+            if b1 < UTF8_CONT_MIN || b1 > UTF8_CONT_MAX {
+                return 0
+            }
+            return 2
+        }
+        if b0 < UTF8_LEAD_4 {
+            if i + 2 >= end {
+                return 0
+            }
+            var lo = UTF8_CONT_MIN
+            var hi = UTF8_CONT_MAX
+            if b0 == UTF8_LEAD_3 {
+                lo = UTF8_E0_MIN
+            }
+            if b0 == 237u8 {
+                hi = UTF8_ED_MAX
+            }
+            let b1 = self.byte_at(i + 1)
+            if b1 < lo || b1 > hi {
+                return 0
+            }
+            let b2 = self.byte_at(i + 2)
+            if b2 < UTF8_CONT_MIN || b2 > UTF8_CONT_MAX {
+                return 0
+            }
+            return 3
+        }
+        if b0 < UTF8_LEAD_MAX {
+            if i + 3 >= end {
+                return 0
+            }
+            var lo = UTF8_CONT_MIN
+            var hi = UTF8_CONT_MAX
+            if b0 == UTF8_LEAD_4 {
+                lo = UTF8_F0_MIN
+            }
+            if b0 == 244u8 {
+                hi = UTF8_F4_MAX
+            }
+            let b1 = self.byte_at(i + 1)
+            if b1 < lo || b1 > hi {
+                return 0
+            }
+            let b2 = self.byte_at(i + 2)
+            if b2 < UTF8_CONT_MIN || b2 > UTF8_CONT_MAX {
+                return 0
+            }
+            let b3 = self.byte_at(i + 3)
+            if b3 < UTF8_CONT_MIN || b3 > UTF8_CONT_MAX {
+                return 0
+            }
+            return 4
+        }
+        0
+    }
+
+    // Validate `n` bytes at `at` as UTF-8, reporting the item's own start.
+    // Building a String to validate one would put the scan at the allocator's
+    // mercy on hostile input, so the decode runs over the bytes in place.
+    func check_utf8(&self, at: Int, n: Int, item: Int) sync -> Result<Void, DecodeError> {
+        let end = at + n
+        var i = at
+        while i < end {
+            let w = self.utf8_width(i, end)
+            if w == 0 {
+                return DecodeError(offset: item, fault: DecodeFault.Malformed)
+            }
+            i = i + w
+        }
+        return
+    }
+
+    // Judge a major 7 item. Three simple values are in the profile; every other
+    // one, `undefined` and all three float widths included, is refused.
+    func check_simple(&self, h: CborHead) sync -> Result<Void, DecodeError> {
+        guard let simple = CborSimple.from(raw: h.arg as UInt8) else {
+            return DecodeError(offset: h.start, fault: DecodeFault.Unsupported)
+        }
+        if simple == CborSimple.Undefined {
+            return DecodeError(offset: h.start, fault: DecodeFault.Unsupported)
+        }
+        return
+    }
+
+    // Record a completed item spanning `at` up to the cursor against the level
+    // that owns it, checking map key order and duplicates as each key closes.
+    // A container key's bytes are only whole once its level has popped, which
+    // is why the check lives here rather than at the head.
+    func close_item(&var self, stack: &var Vector<CborScanFrame>, at: Int) sync -> Result<Void, DecodeError> {
+        if stack.len() == 0 {
+            return
+        }
+        let last = stack.len() - 1
+        let rem = stack[last].remaining
+        if stack[last].is_map && (rem % 2) == 0 {
+            // Read into a local first: a place write whose RHS names `self` is
+            // an ICE today (DF-169f).
+            let here = self.pos
+            let prev_start = stack[last].key_start
+            if prev_start >= 0 {
+                let prev_end = stack[last].key_end
+                let order = self.compare_in(prev_start, prev_end, at, here)
+                if order == 0 {
+                    return DecodeError(offset: at, fault: DecodeFault.Malformed)
+                }
+                if order > 0 {
+                    return DecodeError(offset: at, fault: DecodeFault.NotCanonical)
+                }
+            }
+            stack[last].key_start = at
+            stack[last].key_end = here
+        }
+        stack[last].remaining = rem - 1
+        return
+    }
+
+    // Compare two ranges of the input as unsigned bytes, a prefix sorting
+    // before what extends it.
+    func compare_in(&self, a0: Int, a1: Int, b0: Int, b1: Int) sync -> Int {
+        var i = 0
+        while a0 + i < a1 && b0 + i < b1 {
+            let x = self.byte_at(a0 + i)
+            let y = self.byte_at(b0 + i)
+            if x < y {
+                return -1
+            }
+            if x > y {
+                return 1
+            }
+            i = i + 1
+        }
+        let a_len = a1 - a0
+        let b_len = b1 - b0
+        if a_len < b_len {
+            return -1
+        }
+        if a_len > b_len {
+            return 1
+        }
+        0
+    }
+
+    // Push a level for a container's items. Depth is the stack's height and is
+    // checked HERE, before the descent, so the bound holds exactly.
+    func descend(&var self, stack: &var Vector<CborScanFrame>, h: CborHead,
+                 owed: Int, is_map: Bool) sync -> Result<Void, DecodeError> {
+        if owed == 0 {
+            return self.close_item(&var stack, h.start)
+        }
+        if stack.len() > self.max_depth {
+            return DecodeError(offset: h.start, fault: DecodeFault.TooDeep)
+        }
+        stack.push(CborScanFrame(remaining: owed, is_map: is_map, start: h.start,
+                                 key_start: -1, key_end: -1))
+        return
+    }
+
+    // Walk the whole input once, checking every profile rule and every limit.
+    // The work stack holds one frame per open container, so nesting costs stack
+    // entries rather than call frames and `max_depth` is a real bound on both.
+    func scan(&var self) sync -> Result<Void, DecodeError> {
+        let total = self.input.len()
+        if total > self.max_size {
+            return DecodeError(offset: 0, fault: DecodeFault.TooLarge)
+        }
+        var stack = Vector<CborScanFrame>()
+        try self.reserve_stack_frame(&var stack)
+        stack.push(CborScanFrame(remaining: 1, is_map: false, start: 0,
+                                 key_start: -1, key_end: -1))
+        var items = 0
+        while stack.len() > 0 {
+            let last = stack.len() - 1
+            if stack[last].remaining == 0 {
+                let closed = stack[last].start
+                let _ = stack.pop()
+                try self.close_item(&var stack, closed)
+                continue
+            }
+            items = items + 1
+            if items > self.max_items {
+                return DecodeError(offset: self.pos, fault: DecodeFault.TooManyItems)
+            }
+            let h = try self.read_head()
+            if h.major == CborMajor.Bytes {
+                let n = try self.payload_len(h)
+                self.pos = self.pos + n
+                try self.close_item(&var stack, h.start)
+            } else if h.major == CborMajor.Text {
+                let n = try self.payload_len(h)
+                try self.check_utf8(self.pos, n, h.start)
+                self.pos = self.pos + n
+                try self.close_item(&var stack, h.start)
+            } else if h.major == CborMajor.Array {
+                let n = try self.container_count(h)
+                try self.descend(&var stack, h, n, false)
+            } else if h.major == CborMajor.Map {
+                let n = try self.container_count(h)
+                if n > (self.max_items / 2) {
+                    return DecodeError(offset: h.start, fault: DecodeFault.TooManyItems)
+                }
+                try self.descend(&var stack, h, n * 2, true)
+            } else if h.major == CborMajor.Tag {
+                return DecodeError(offset: h.start, fault: DecodeFault.Unsupported)
+            } else if h.major == CborMajor.Simple {
+                try self.check_simple(h)
+                try self.close_item(&var stack, h.start)
+            } else {
+                // Unsigned and Negative carry their whole value in the head.
+                try self.close_item(&var stack, h.start)
+            }
+        }
+        if self.pos != total {
+            return DecodeError(offset: self.pos, fault: DecodeFault.TrailingBytes)
+        }
+        self.pos = 0
+        return
+    }
+
+    // Refuse a typed read while an open byte string is still owed bytes.
+    func check_ready(&self) sync -> Result<Void, DecodeError> {
+        if self.bytes_left > 0 {
+            return DecodeError(offset: self.pos, fault: DecodeFault.CountMismatch)
+        }
+        return
+    }
+}
+
+extension CborDecoder: Decoder {
+    func read_uint(&var self) sync -> Result<UInt, DecodeError> {
+        try self.check_ready()
+        let h = try self.read_head()
+        if h.major == CborMajor.Unsigned {
+            return h.arg
+        }
+        return DecodeError(offset: h.start, fault: DecodeFault.TypeMismatch)
+    }
+
+    func read_int(&var self) sync -> Result<Int, DecodeError> {
+        try self.check_ready()
+        let h = try self.read_head()
+        if h.major != CborMajor.Unsigned && h.major != CborMajor.Negative {
+            return DecodeError(offset: h.start, fault: DecodeFault.TypeMismatch)
+        }
+        if h.arg > (Int.max as UInt) {
+            return DecodeError(offset: h.start, fault: DecodeFault.OutOfRange)
+        }
+        let n = h.arg as Int
+        if h.major == CborMajor.Unsigned {
+            return n
+        }
+        return -1 - n
+    }
+
+    func read_bool(&var self) sync -> Result<Bool, DecodeError> {
+        try self.check_ready()
+        let h = try self.read_head()
+        if h.major == CborMajor.Simple {
+            let info = h.arg as UInt8
+            if info == (CborSimple.BoolTrue as UInt8) {
+                return true
+            }
+            if info == (CborSimple.BoolFalse as UInt8) {
+                return false
+            }
+        }
+        return DecodeError(offset: h.start, fault: DecodeFault.TypeMismatch)
+    }
+
+    func read_null(&var self) sync -> Result<Void, DecodeError> {
+        try self.check_ready()
+        let h = try self.read_head()
+        if h.major == CborMajor.Simple && (h.arg as UInt8) == (CborSimple.Null as UInt8) {
+            return
+        }
+        return DecodeError(offset: h.start, fault: DecodeFault.TypeMismatch)
+    }
+
+    func read_text(&var self) sync -> Result<String, DecodeError> {
+        try self.check_ready()
+        let h = try self.read_head()
+        if h.major != CborMajor.Text {
+            return DecodeError(offset: h.start, fault: DecodeFault.TypeMismatch)
+        }
+        return self.take_text(h)
+    }
+
+    func begin_bytes(&var self) sync -> Result<Int, DecodeError> {
+        try self.check_ready()
+        let h = try self.read_head()
+        if h.major != CborMajor.Bytes {
+            return DecodeError(offset: h.start, fault: DecodeFault.TypeMismatch)
+        }
+        let n = try self.payload_len(h)
+        self.bytes_left = n
+        return n
+    }
+
+    func read_byte(&var self) sync -> Result<UInt8, DecodeError> {
+        if self.bytes_left <= 0 {
+            return DecodeError(offset: self.pos, fault: DecodeFault.CountMismatch)
+        }
+        let b = try self.next_byte()
+        self.bytes_left = self.bytes_left - 1
+        return b
+    }
+
+    func begin_array(&var self) sync -> Result<Int, DecodeError> {
+        try self.check_ready()
+        let h = try self.read_head()
+        if h.major != CborMajor.Array {
+            return DecodeError(offset: h.start, fault: DecodeFault.TypeMismatch)
+        }
+        return self.container_count(h)
+    }
+
+    func begin_map(&var self) sync -> Result<Int, DecodeError> {
+        try self.check_ready()
+        let h = try self.read_head()
+        if h.major != CborMajor.Map {
+            return DecodeError(offset: h.start, fault: DecodeFault.TypeMismatch)
+        }
+        return self.container_count(h)
+    }
+
+    func at_null(&var self) sync -> Result<Bool, DecodeError> {
+        try self.check_ready()
+        guard let b = self.input.get(self.pos) else {
+            return DecodeError(offset: self.pos, fault: DecodeFault.Truncated)
+        }
+        let null_head = ((CborMajor.Simple as UInt8) << MAJOR_SHIFT) | (CborSimple.Null as UInt8)
+        return b == null_head
+    }
+
+    func offset(&self) sync -> Int {
+        self.pos
+    }
+
+    func skip(&var self) sync -> Result<Void, DecodeError> {
+        try self.check_ready()
+        var stack = Vector<Int>()
+        try self.reserve_stack_int(&var stack)
+        stack.push(1)
+        while stack.len() > 0 {
+            let last = stack.len() - 1
+            let rem = stack[last]
+            if rem == 0 {
+                let _ = stack.pop()
+                continue
+            }
+            stack[last] = rem - 1
+            let h = try self.read_head()
+            if h.major == CborMajor.Bytes || h.major == CborMajor.Text {
+                let n = try self.payload_len(h)
+                self.pos = self.pos + n
+            } else if h.major == CborMajor.Array {
+                let n = try self.container_count(h)
+                if n > 0 {
+                    stack.push(n)
+                }
+            } else if h.major == CborMajor.Map {
+                let n = try self.container_count(h)
+                if n > 0 {
+                    stack.push(n * 2)
+                }
+            } else if h.major == CborMajor.Tag {
+                return DecodeError(offset: h.start, fault: DecodeFault.Unsupported)
+            }
+        }
+        return
+    }
+}
+
+// =============================================================================
+// One-call forms
+// =============================================================================
+
+/// Encodes one value and returns its bytes.
+///
+/// The two-step form (`CborEncoder`, then `finish`) is what to reach for when
+/// several values share a buffer or the nesting limit needs changing.
+public func encode<T: Serialize>(value: &T) sync -> Result<Data, EncodeError> {
+    var enc = CborEncoder()
+    try value.serialize(to: &var enc)
+    return enc.finish()
+}
+
+// The matching `decode<T: Deserialize>(bytes:)` cannot be written yet: a static
+// trait requirement is not callable on a type PARAMETER (DF-169e), which is the
+// one call `Deserialize`'s static shape exists for. Read a value back through
+// the type's own name instead:
+//
+//     var dec = try CborDecoder.open(bytes: move blob)
+//     let entry = try LockEntry.deserialize(from: &var dec)

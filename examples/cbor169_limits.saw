@@ -1,0 +1,237 @@
+// design 169 unit 4: the decoder's limits are constructor parameters, and the
+// whole input is validated against them before any typed read runs.
+//
+// The point of the up-front scan is that depth is the WORK STACK's height, not
+// the call stack's: a blob nested a hundred thousand deep is refused by a
+// counter, so hostile input can never reach the call stack. That case is here
+// because a recursive decoder would die on it rather than report it.
+// EXPECT: success
+// EXPECT-OUTPUT:
+// nested 4 under max_depth 4: opened
+// nested 5 under max_depth 4: decode error at byte 4: nesting is deeper than the decoder allows
+// nested 100000 under the default: decode error at byte 64: nesting is deeper than the decoder allows
+// 11 bytes under max_size 4: decode error at byte 0: the input is larger than the decoder allows
+// array of 5 under max_items 3: decode error at byte 0: the input holds more items than the decoder allows
+// 5 bytes declaring 4294967295 items: decode error at byte 0: the input holds more items than the decoder allows
+// bytes item read back: 4 bytes, first de
+// skip past the head: read 2 after skipping 1
+
+import std.cbor.{CborEncoder, CborDecoder}
+import std.data.{Data}
+
+// One CBOR head byte for an array of one item (major 4, argument 1 inline).
+static ARRAY_OF_ONE: UInt8 = 129u8
+// Major 0 with the value 0 inline.
+static UNSIGNED_ZERO: UInt8 = 0u8
+// Major 4 with a four-byte argument, followed by 0xffffffff.
+static ARRAY_UINT32_COUNT: UInt8 = 154u8
+static ALL_ONES: UInt8 = 255u8
+
+func nested(depth: Int) -> Data {
+    var d = Data()
+    var i = 0
+    while i < depth {
+        d.push(ARRAY_OF_ONE)
+        i = i + 1
+    }
+    d.push(UNSIGNED_ZERO)
+    move d
+}
+
+func report(label: String, r: Result<CborDecoder, DecodeError>) {
+    match r {
+        case Ok(_) -> print("{}: opened", label),
+        case Err(e) -> print("{}: {}", label, e)
+    }
+}
+
+func check_depth() {
+    report("nested 4 under max_depth 4",
+           CborDecoder.open(bytes: nested(4), max_depth: 4))
+    report("nested 5 under max_depth 4",
+           CborDecoder.open(bytes: nested(5), max_depth: 4))
+    report("nested 100000 under the default",
+           CborDecoder.open(bytes: nested(100000)))
+}
+
+func check_size() {
+    report("11 bytes under max_size 4",
+           CborDecoder.open(bytes: nested(10), max_size: 4))
+}
+
+func check_items() {
+    var enc = CborEncoder()
+    match enc.begin_array(5) {
+        case Ok(_) -> {},
+        case Err(e) -> {
+            print("begin_array failed: {}", e)
+            return
+        }
+    }
+    var i = 0
+    while i < 5 {
+        match enc.write_uint(1) {
+            case Ok(_) -> {},
+            case Err(e) -> {
+                print("write failed: {}", e)
+                return
+            }
+        }
+        i = i + 1
+    }
+    let five = match enc.finish() {
+        case Ok(blob) -> move blob,
+        case Err(e) -> {
+            print("finish failed: {}", e)
+            return
+        }
+    }
+    report("array of 5 under max_items 3",
+           CborDecoder.open(bytes: move five, max_items: 3))
+
+    // A short blob declaring a huge array. The count is refused at the head, so
+    // nothing is ever reserved for items the blob could not hold.
+    var huge = Data()
+    huge.push(ARRAY_UINT32_COUNT)
+    var k = 0
+    while k < 4 {
+        huge.push(ALL_ONES)
+        k = k + 1
+    }
+    report("5 bytes declaring 4294967295 items",
+           CborDecoder.open(bytes: move huge))
+}
+
+// A byte string is opened with its length and then read one byte at a time,
+// which is the `Encoder`/`Decoder` seam's contract for major type 2.
+func check_bytes_item() {
+    var enc = CborEncoder()
+    let payload = "de"
+    match enc.begin_bytes(4) {
+        case Ok(_) -> {},
+        case Err(e) -> {
+            print("begin_bytes failed: {}", e)
+            return
+        }
+    }
+    var i = 0
+    while i < 4 {
+        let b = if i < 2 { (payload.byte_at(i) as Int) as UInt8 } else { 0u8 }
+        match enc.write_byte(b) {
+            case Ok(_) -> {},
+            case Err(e) -> {
+                print("write_byte failed: {}", e)
+                return
+            }
+        }
+        i = i + 1
+    }
+    let blob = match enc.finish() {
+        case Ok(d) -> move d,
+        case Err(e) -> {
+            print("finish failed: {}", e)
+            return
+        }
+    }
+    var dec = match CborDecoder.open(bytes: move blob) {
+        case Ok(d) -> move d,
+        case Err(e) -> {
+            print("decoder refused the byte string: {}", e)
+            return
+        }
+    }
+    let n = match dec.begin_bytes() {
+        case Ok(count) -> count,
+        case Err(e) -> {
+            print("begin_bytes read failed: {}", e)
+            return
+        }
+    }
+    var text = StringBuilder()
+    var j = 0
+    while j < 2 {
+        match dec.read_byte() {
+            case Ok(b) -> text.append_char(Int8.from(truncating: b)),
+            case Err(e) -> {
+                print("read_byte failed: {}", e)
+                return
+            }
+        }
+        j = j + 1
+    }
+    print("bytes item read back: {} bytes, first {}", n, text.build())
+}
+
+// `skip` consumes a whole item, contents included, over the same explicit work
+// stack the scan uses.
+func check_skip() {
+    var enc = CborEncoder()
+    match enc.begin_array(2) {
+        case Ok(_) -> {},
+        case Err(e) -> {
+            print("begin_array failed: {}", e)
+            return
+        }
+    }
+    match enc.begin_array(1) {
+        case Ok(_) -> {},
+        case Err(e) -> {
+            print("inner begin_array failed: {}", e)
+            return
+        }
+    }
+    match enc.write_uint(1) {
+        case Ok(_) -> {},
+        case Err(e) -> {
+            print("write failed: {}", e)
+            return
+        }
+    }
+    match enc.write_uint(2) {
+        case Ok(_) -> {},
+        case Err(e) -> {
+            print("write failed: {}", e)
+            return
+        }
+    }
+    let blob = match enc.finish() {
+        case Ok(d) -> move d,
+        case Err(e) -> {
+            print("finish failed: {}", e)
+            return
+        }
+    }
+    var dec = match CborDecoder.open(bytes: move blob) {
+        case Ok(d) -> move d,
+        case Err(e) -> {
+            print("decoder refused the nested array: {}", e)
+            return
+        }
+    }
+    match dec.begin_array() {
+        case Ok(_) -> {},
+        case Err(e) -> {
+            print("begin_array read failed: {}", e)
+            return
+        }
+    }
+    match dec.skip() {
+        case Ok(_) -> {},
+        case Err(e) -> {
+            print("skip failed: {}", e)
+            return
+        }
+    }
+    match dec.read_uint() {
+        case Ok(v) -> print("skip past the head: read {} after skipping 1", v),
+        case Err(e) -> print("read after skip failed: {}", e)
+    }
+}
+
+func main() {
+    check_depth()
+    check_size()
+    check_items()
+    check_bytes_item()
+    check_skip()
+}

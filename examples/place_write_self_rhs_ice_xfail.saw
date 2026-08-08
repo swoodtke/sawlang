@@ -1,0 +1,50 @@
+// A place WRITE whose RHS names `self` is an internal compiler error today:
+// place lowering hoists the RHS into the window's closure, and that closure
+// never captured `self`, so codegen reports `'self' not found in current
+// scope` with no source anchor. Reading the RHS into a local first compiles and
+// runs, which is what `sawc/std/cbor.saw` does at its two key-bookkeeping
+// sites.
+//
+// Intended behavior is below: both writes land, and the reads see them.
+// XFAIL: DF-169f a place write whose RHS names `self` is an ICE in codegen
+// EXPECT: success
+// EXPECT-OUTPUT:
+// field 5
+// call 11
+
+struct Counter {
+    marks: Vector<Int>
+    tick: Int
+}
+
+extension Counter: NoCopy {}
+
+extension Counter {
+    init() -> Counter {
+        var marks = Vector<Int>()
+        marks.push(0)
+        Counter(marks: move marks, tick: 5)
+    }
+
+    func width(&self) -> Int { 11 }
+
+    // The RHS is a field read off `self`.
+    func from_field(&var self) {
+        self.marks[0] = self.tick
+    }
+
+    // The RHS is a method call on `self`.
+    func from_call(&var self) {
+        self.marks[0] = self.width()
+    }
+
+    func first(&self) -> Int { self.marks[0] }
+}
+
+func main() {
+    var c = Counter()
+    c.from_field()
+    print("field {}", c.first())
+    c.from_call()
+    print("call {}", c.first())
+}

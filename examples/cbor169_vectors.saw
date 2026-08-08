@@ -1,0 +1,216 @@
+// design 169 unit 5, the Saw half: the golden vectors under
+// `tests/cbor_vectors/` gate `std.cbor` the way `tools/sawcbor.py verify` gates
+// the Python side. This WALKS the directory rather than carrying a copy of the
+// case table, so a vector added on either side is tested by both.
+//
+// Accept: decode the blob, write every item back out through a `CborEncoder`,
+// and compare bytes. Each item is re-encoded from its parsed value, so a match
+// means the encoder produced the canonical spelling and the decoder read it as
+// the value it is.
+//
+// Reject: the blob must fail to open, with the fault its `.json` sidecar names
+// and a byte offset to look at.
+//
+// Run from the repo root; the paths are relative to it.
+// EXPECT: success
+// EXPECT-OUTPUT:
+// accept: 0 failures over 32 vectors
+// reject: 0 failures over 19 vectors
+
+import std.cbor.{CborEncoder, CborDecoder}
+import std.data.{Data}
+import std.file.{File}
+import std.directory.{Directory}
+import std.path.{Path}
+
+func blob_path(kind: String, name: String) -> Path {
+    Path(s: "tests/cbor_vectors/{kind}/{name}.cbor")
+}
+
+func sidecar_path(kind: String, name: String) -> Path {
+    Path(s: "tests/cbor_vectors/{kind}/{name}.json")
+}
+
+func read_bytes(p: Path) -> Result<Data, IoError> {
+    var f = try File.open(p)
+    return f.read()
+}
+
+// The stems of every `.cbor` file in one vector directory, sorted so a failure
+// reports in a stable order.
+func vector_names(kind: String) -> Vector<String> {
+    var out = Vector<String>()
+    let entries = match Directory.list(Path(s: "tests/cbor_vectors/{kind}")) {
+        case Ok(v) -> move v,
+        case Err(e) -> {
+            print("cannot list the {} vectors: {}", kind, e)
+            return move out
+        }
+    }
+    // `Path` carries a `String` and copies for free, but the automatic tier is
+    // not a `Copy` conformance yet (DF-169g), so `iter()` is unavailable and
+    // each entry is reached as a PLACE. A method call on a place is a borrow,
+    // which is free whatever the element's tier.
+    var i = 0
+    while i < entries.len() {
+        if let ext = entries[i].ext() {
+            if ext.equals("cbor") {
+                if let stem = entries[i].stem() {
+                    out.push(stem)
+                }
+            }
+        }
+        i = i + 1
+    }
+    out.sort()
+    move out
+}
+
+func same_bytes(a: &Data, b: &Data) -> Bool {
+    if a.len() != b.len() {
+        return false
+    }
+    var i = 0
+    while i < a.len() {
+        if (a.get(i) ?? 0u8) != (b.get(i) ?? 0u8) {
+            return false
+        }
+        i = i + 1
+    }
+    true
+}
+
+// The one field the reject sidecars are read for. A JSON reader would be a
+// heavier dependency than this gate needs; the sidecars are machine-written
+// with one `"key": "value"` per line.
+func json_string_field(text: String, key: String) -> String? {
+    let parts = text.split("\"{key}\": \"")
+    if parts.len() < 2 {
+        return None
+    }
+    let tail = parts.get(1) ?? ""
+    let pieces = tail.split("\"")
+    pieces.get(0)
+}
+
+// The sidecar spelling of a fault, which is the case's own name.
+func fault_name(f: DecodeFault) -> String {
+    match f {
+        case Truncated -> "Truncated",
+        case Malformed -> "Malformed",
+        case TypeMismatch -> "TypeMismatch",
+        case TooDeep -> "TooDeep",
+        case TooLarge -> "TooLarge",
+        case TooManyItems -> "TooManyItems",
+        case NotCanonical -> "NotCanonical",
+        case Unsupported -> "Unsupported",
+        case TrailingBytes -> "TrailingBytes",
+        case OutOfRange -> "OutOfRange",
+        case UnknownCase -> "UnknownCase",
+        case CountMismatch -> "CountMismatch"
+    }
+}
+
+func check_accept(name: String) -> Bool {
+    let blob = match read_bytes(blob_path("accept", name)) {
+        case Ok(d) -> move d,
+        case Err(e) -> {
+            print("accept {}: cannot read the blob: {}", name, e)
+            return false
+        }
+    }
+    var dec = match CborDecoder.open(bytes: blob.copy()) {
+        case Ok(d) -> move d,
+        case Err(e) -> {
+            print("accept {}: refused a valid blob: {}", name, e)
+            return false
+        }
+    }
+    var enc = CborEncoder()
+    match dec.transcode(to: &var enc) {
+        case Ok(_) -> {},
+        case Err(e) -> {
+            print("accept {}: transcode failed: {}", name, e)
+            return false
+        }
+    }
+    let again = match enc.finish() {
+        case Ok(d) -> move d,
+        case Err(e) -> {
+            print("accept {}: encoder left an item open: {}", name, e)
+            return false
+        }
+    }
+    if not same_bytes(&blob, &again) {
+        print("accept {}: re-encoded {} bytes, the blob has {}",
+              name, again.len(), blob.len())
+        return false
+    }
+    true
+}
+
+func check_reject(name: String) -> Bool {
+    let blob = match read_bytes(blob_path("reject", name)) {
+        case Ok(d) -> move d,
+        case Err(e) -> {
+            print("reject {}: cannot read the blob: {}", name, e)
+            return false
+        }
+    }
+    let raw = match read_bytes(sidecar_path("reject", name)) {
+        case Ok(d) -> move d,
+        case Err(e) -> {
+            print("reject {}: cannot read the sidecar: {}", name, e)
+            return false
+        }
+    }
+    let text = match raw.to_string() {
+        case Ok(s) -> s,
+        case Err(_) -> {
+            print("reject {}: the sidecar is not UTF-8", name)
+            return false
+        }
+    }
+    guard let want = json_string_field(text, "fault") else {
+        print("reject {}: the sidecar names no fault", name)
+        return false
+    }
+    match CborDecoder.open(bytes: move blob) {
+        case Ok(_) -> {
+            print("reject {}: accepted, but the profile refuses it as {}", name, want)
+            false
+        },
+        case Err(e) -> {
+            let got = fault_name(e.fault)
+            if not got.equals(want) {
+                print("reject {}: refused as {}, the sidecar says {}", name, got, want)
+                return false
+            }
+            if e.offset < 0 {
+                print("reject {}: refused without a byte offset", name)
+                return false
+            }
+            true
+        }
+    }
+}
+
+func main() {
+    let accepts = vector_names("accept")
+    var accept_failures = 0
+    for name in accepts.iter() {
+        if not check_accept(name) {
+            accept_failures = accept_failures + 1
+        }
+    }
+    print("accept: {} failures over {} vectors", accept_failures, accepts.len())
+
+    let rejects = vector_names("reject")
+    var reject_failures = 0
+    for name in rejects.iter() {
+        if not check_reject(name) {
+            reject_failures = reject_failures + 1
+        }
+    }
+    print("reject: {} failures over {} vectors", reject_failures, rejects.len())
+}

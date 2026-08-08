@@ -790,6 +790,42 @@ half-built. What part 2 inherits:
   derivation dispatches on the field's type and emits the encoder call directly,
   the `_emit_hash` precedent), so it was routed around rather than fixed, but
   the asymmetry is real and worth a probe before anyone relies on either half.
+- **DF-169e — a STATIC trait requirement is not callable on a type PARAMETER.**
+  Inside `func decode<T: Deserialize>(bytes: Data) -> Result<T, DecodeError>`,
+  the call `T.deserialize(from: &var dec)` is ``undefined variable `T` `` plus a
+  follow-on "body has no value". The INSTANCE half of a bound dispatches fine
+  (`v.label()` under `<T: Named>` works), so this is specifically the static
+  call. It matters more than it looks: unit 1 made `deserialize` static so that
+  `Deserialize` would be a generic BOUND and never an existential (DF-169b), and
+  a bound whose requirement cannot be called generically buys nothing. `std.cbor`
+  therefore ships `encode<T: Serialize>(value:)` and NO `decode<T>` twin — a
+  caller names the concrete type, `LockEntry.deserialize(from: &var dec)`. Repro:
+  `.build/scratch/probe_static_bound.saw` (a two-requirement trait, one static
+  one instance, called both ways).
+- **DF-169f — a place WRITE whose RHS names `self` is an ICE.**
+  `self.marks[0] = self.tick` and `self.marks[0] = self.width()` both die with
+  `internal compiler error: 'self' not found in current scope`, no source anchor.
+  Place lowering rewrites the write into an accessor call taking the window as a
+  CLOSURE and hoists the RHS into that closure body, which never captured `self`
+  — so the failure is not about the place at all, it is about what the RHS
+  mentions. A literal or local RHS (`self.marks[0] = 4`) is fine, and so is a
+  place READ off `self` in any position. Reading the RHS into a local first
+  compiles and runs, which is what `sawc/std/cbor.saw` does at its two map-key
+  bookkeeping sites (`item_done`, `close_item`). An ICE with no anchor is the
+  worst shape a rejection can take, so this is the first thing to fix in the
+  places batch. Pinned: `examples/place_write_self_rhs_ice_xfail.saw`.
+- **DF-169g — the automatic ImplicitCopy tier does not satisfy a `Copy` BOUND.**
+  Design 159 put a struct whose owning members are all trivial/ImplicitCopy on
+  the ImplicitCopy tier with no declaration owed, and the BINDING half works:
+  `struct Ticket { code: String }` compiles bare and `let b = a` is a free retain
+  leaving both live. The CONFORMANCE half never registered, so the same type
+  fails a `T: Copy` bound — ``type `Vector<Ticket, GlobalAllocator>` has no
+  method `iter`: requires `T: Copy`, and `Ticket` does not conform``. std's own
+  `Path` is one of these (`struct Path { value: String }`), so `Directory.list`
+  hands back a `Vector<Path>` that cannot be iterated; the design-169 vector
+  harness reaches each entry as a PLACE instead (`entries[i].ext()`, a borrow, so
+  the tier never comes up). The two halves of one tier should agree. Repro:
+  `.build/scratch/probe_auto_tier_bound.saw`.
 
 ## Design 170 — checked integer casts (LANDED, Aug 7)
 

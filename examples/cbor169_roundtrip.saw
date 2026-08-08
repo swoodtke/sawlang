@@ -1,0 +1,258 @@
+// design 169 units 3+4: `std.cbor` under the `@synthesize` derivation. A struct
+// is written as one array of its stored fields, so two of the golden vectors
+// ARE derived structs — this checks the derivation reproduces those blobs byte
+// for byte, then reads them back.
+//
+// Run from the repo root; the vector paths are relative to it.
+// EXPECT: success
+// EXPECT-OUTPUT:
+// endpoint bytes match struct_endpoint.cbor
+// endpoint back: port=443 secure=true name=api
+// lock entry bytes match lock_entry.cbor
+// lock entry back: toml 0.1.0 path libs/toml ''
+// manifest back: track=Release port=8080 tag=none deps=2 first=toml/0.1.0 lo=-7 hi=200
+// a second value in the same blob: decode error at byte 1: bytes remain after the top-level item
+
+import std.cbor.{CborEncoder, CborDecoder}
+import std.data.{Data}
+import std.file.{File}
+import std.path.{Path}
+
+struct Endpoint {
+    port: Int
+    secure: Bool
+    name: String
+}
+
+@synthesize
+extension Endpoint: Serialize {}
+
+@synthesize
+extension Endpoint: Deserialize {}
+
+struct LockEntry {
+    name: String
+    version: String
+    source: String
+    loc: String
+    rev: String
+}
+
+@synthesize
+extension LockEntry: Serialize {}
+
+@synthesize
+extension LockEntry: Deserialize {}
+
+enum Track: UInt8 {
+    case Debug = 0,
+    case Release = 7
+}
+
+@synthesize
+extension Track: Serialize {}
+
+@synthesize
+extension Track: Deserialize {}
+
+struct Manifest {
+    track: Track
+    port: Int
+    tag: String?
+    deps: Vector<LockEntry>
+    lo: Int8
+    hi: UInt8
+}
+
+@synthesize
+extension Manifest: Serialize {}
+
+@synthesize
+extension Manifest: Deserialize {}
+
+extension Manifest: NoCopy {}
+
+func track_name(t: Track) -> String {
+    match t {
+        case Debug -> "Debug",
+        case Release -> "Release"
+    }
+}
+
+func golden(name: String) -> Data {
+    var f = match File.open(Path(s: "tests/cbor_vectors/accept/{name}.cbor")) {
+        case Ok(handle) -> move handle,
+        case Err(e) -> {
+            print("cannot open the {} vector: {}", name, e)
+            return Data()
+        }
+    }
+    match f.read() {
+        case Ok(d) -> move d,
+        case Err(e) -> {
+            print("cannot read the {} vector: {}", name, e)
+            Data()
+        }
+    }
+}
+
+func same_bytes(a: &Data, b: &Data) -> Bool {
+    if a.len() != b.len() {
+        return false
+    }
+    var i = 0
+    while i < a.len() {
+        if (a.get(i) ?? 0u8) != (b.get(i) ?? 0u8) {
+            return false
+        }
+        i = i + 1
+    }
+    true
+}
+
+func encode_endpoint(e: &Endpoint) -> Result<Data, EncodeError> {
+    var enc = CborEncoder()
+    try e.serialize(to: &var enc)
+    return enc.finish()
+}
+
+func encode_entry(e: &LockEntry) -> Result<Data, EncodeError> {
+    var enc = CborEncoder()
+    try e.serialize(to: &var enc)
+    return enc.finish()
+}
+
+func encode_manifest(m: &Manifest) -> Result<Data, EncodeError> {
+    var enc = CborEncoder()
+    try m.serialize(to: &var enc)
+    return enc.finish()
+}
+
+func check_endpoint() {
+    let ep = Endpoint(port: 443, secure: true, name: "api")
+    let blob = match encode_endpoint(&ep) {
+        case Ok(d) -> move d,
+        case Err(e) -> {
+            print("endpoint encode failed: {}", e)
+            return
+        }
+    }
+    let want = golden("struct_endpoint")
+    if same_bytes(&blob, &want) {
+        print("endpoint bytes match struct_endpoint.cbor")
+    } else {
+        print("endpoint bytes DIFFER: wrote {} bytes, the vector has {}",
+              blob.len(), want.len())
+    }
+
+    var dec = match CborDecoder.open(bytes: move blob) {
+        case Ok(d) -> move d,
+        case Err(e) -> {
+            print("endpoint decoder refused the blob: {}", e)
+            return
+        }
+    }
+    match Endpoint.deserialize(from: &var dec) {
+        case Ok(back) -> print("endpoint back: port={} secure={} name={}",
+                               back.port, back.secure, back.name),
+        case Err(e) -> print("endpoint decode failed: {}", e)
+    }
+}
+
+func check_lock_entry() {
+    let entry = LockEntry(name: "toml", version: "0.1.0", source: "path",
+                          loc: "libs/toml", rev: "")
+    let blob = match encode_entry(&entry) {
+        case Ok(d) -> move d,
+        case Err(e) -> {
+            print("lock entry encode failed: {}", e)
+            return
+        }
+    }
+    let want = golden("lock_entry")
+    if same_bytes(&blob, &want) {
+        print("lock entry bytes match lock_entry.cbor")
+    } else {
+        print("lock entry bytes DIFFER: wrote {} bytes, the vector has {}",
+              blob.len(), want.len())
+    }
+
+    var dec = match CborDecoder.open(bytes: move blob) {
+        case Ok(d) -> move d,
+        case Err(e) -> {
+            print("lock entry decoder refused the blob: {}", e)
+            return
+        }
+    }
+    match LockEntry.deserialize(from: &var dec) {
+        case Ok(back) -> print("lock entry back: {} {} {} {} '{}'",
+                               back.name, back.version, back.source, back.loc, back.rev),
+        case Err(e) -> print("lock entry decode failed: {}", e)
+    }
+}
+
+func check_manifest() {
+    var deps = Vector<LockEntry>()
+    deps.push(LockEntry(name: "toml", version: "0.1.0", source: "path",
+                        loc: "libs/toml", rev: ""))
+    deps.push(LockEntry(name: "semver", version: "2.0.0", source: "git",
+                        loc: "https://example.invalid/semver", rev: "abc123"))
+    let m = Manifest(track: Track.Release, port: 8080, tag: None,
+                     deps: move deps, lo: -7i8, hi: 200u8)
+
+    let blob = match encode_manifest(&m) {
+        case Ok(d) -> move d,
+        case Err(e) -> {
+            print("manifest encode failed: {}", e)
+            return
+        }
+    }
+    var dec = match CborDecoder.open(bytes: move blob) {
+        case Ok(d) -> move d,
+        case Err(e) -> {
+            print("manifest decoder refused the blob: {}", e)
+            return
+        }
+    }
+    match Manifest.deserialize(from: &var dec) {
+        case Ok(back) -> {
+            let tag = back.tag ?? "none"
+            print("manifest back: track={} port={} tag={} deps={} first={}/{} lo={} hi={}",
+                  track_name(back.track), back.port, tag, back.deps.len(),
+                  back.deps[0].name, back.deps[0].version, back.lo, back.hi)
+        },
+        case Err(e) -> print("manifest decode failed: {}", e)
+    }
+}
+
+// A blob holds one item. Two values written back to back are not a stream, and
+// the scan says so before any typed read runs.
+func check_one_item() {
+    var enc = CborEncoder()
+    match enc.write_uint(1) {
+        case Ok(_) -> {},
+        case Err(e) -> {
+            print("write failed: {}", e)
+            return
+        }
+    }
+    var blob = match enc.finish() {
+        case Ok(d) -> move d,
+        case Err(e) -> {
+            print("finish failed: {}", e)
+            return
+        }
+    }
+    blob.push(2u8)
+    match CborDecoder.open(bytes: move blob) {
+        case Ok(_) -> print("a second value was accepted"),
+        case Err(e) -> print("a second value in the same blob: {}", e)
+    }
+}
+
+func main() {
+    check_endpoint()
+    check_lock_entry()
+    check_manifest()
+    check_one_item()
+}
