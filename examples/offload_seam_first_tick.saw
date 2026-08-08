@@ -1,0 +1,40 @@
+// DF-181f (design 183 unit 1): `blocking` on a `__saw_rt_*` runtime seam offloads
+// like any other extern. The design-181 audit's control probe, made a test: task A
+// enters a REAL thread-blocking call (300 ms) and task B timestamps its first tick.
+// Offloaded, B ticks at ~0 ms — it is runnable the whole time A is away. Naked, A
+// owns the one cooperative thread and B's first tick lands at ~300 ms, which is the
+// starvation shape the audit measured on `Command.run`. The 150 ms threshold sits
+// halfway between the two outcomes, both of which are ~150 ms clear of it.
+// EXPECT: success
+// EXPECT-OUTPUT:
+// sibling first tick: prompt
+// 300
+
+import std.time
+
+extern "C" {
+    blocking func __saw_rt_blocking_sleep(ms: Int) -> Int
+}
+
+func blocker() -> Int {
+    __saw_rt_blocking_sleep(300)     // offloads to a worker thread; this task parks
+}
+
+func ticker(t0: time.Instant) -> Int {
+    let ms = t0.elapsed().as_millis()
+    if ms < 150 {
+        print("sibling first tick: prompt")
+    } else {
+        print("sibling first tick: STARVED at {ms} ms")
+    }
+    return 0
+}
+
+func main() {
+    let t0 = time.Instant.now()
+    var group = TaskGroup()
+    let hb = group.spawn(blocker())
+    let ht = group.spawn(ticker(t0))
+    let _ = ht.join()
+    print(hb.join())
+}

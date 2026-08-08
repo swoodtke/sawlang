@@ -1002,6 +1002,39 @@ class RegistrationMixin:
             # user code may also declare
             if (existing.param_types == param_types and
                 existing.return_type == resolved_return_type):
+                # DF-181f (design 183 unit 1): `blocking` is part of an extern's
+                # CONTRACT, not a spelling of it, so a redeclaration that
+                # disagrees is a contradiction — one of the two is wrong about
+                # the symbol. Before this, the second declaration was dropped
+                # whole and its annotation with it: every `__saw_rt_*` seam std
+                # already declares silently ignored `blocking`, so the one
+                # remediation the design-181 audit recommends ("annotate the
+                # seam") compiled to a naked thread-blocking call. Design 103
+                # promises an offload or a clean error, never silence.
+                #
+                # The annotation deliberately does NOT win: extern symbols are
+                # global by name, so letting a downstream declaration upgrade
+                # one would retroactively make a function another module calls a
+                # suspension source — an effect change at a distance, landing as
+                # errors inside code the author never wrote. Whoever owns the
+                # declaration owns the claim.
+                if bool(getattr(existing, 'is_blocking', False)) != bool(
+                        getattr(extern_func, 'is_blocking', False)):
+                    now_blocking = getattr(extern_func, 'is_blocking', False)
+                    self._error(
+                        ErrorKind.DUPLICATE_FUNCTION,
+                        f"`{extern_func.name}` is declared "
+                        f"{'`blocking`' if now_blocking else 'without `blocking`'} "
+                        f"here, but another declaration of the same symbol says "
+                        f"{'the opposite' if now_blocking else '`blocking`'}",
+                        extern_func.line, extern_func.column,
+                        source_file=getattr(extern_func, 'source_file', None),
+                        hint="`blocking` is part of an extern's contract (it makes "
+                             "every call a suspension point), so every declaration "
+                             "of one symbol must agree — annotate the declaration "
+                             "they share, or offload a distinctly-named wrapper of "
+                             "your own instead",
+                    )
                 return  # Same signature, allow it
             self._error(
                 ErrorKind.DUPLICATE_FUNCTION,
