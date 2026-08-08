@@ -6241,6 +6241,38 @@ the atomic libcalls and four inline-asm leaves. Units 1, 2, 3, 4, 6, 7 and 8
 landed; unit 5 filed DF-172a. Every surviving line states its reason in its own
 file, and sos/spec.md §5c states the three reasons there are.
 
+- **REVIEW ROUND (user, Aug 8): the two kernel HALs no longer each carry the
+  write loop or the abort-status rule.** Both had the same twelve lines — poll a
+  status register, place a byte, advance a cursor with `&+`/`&-`, count down —
+  and the same three-line "mask to a byte, promote zero" promotion. Only the two
+  register touches actually differed, and they differ in POLARITY as well as
+  shape: a 16550 is ready when LSR bit 5 is SET, a PL011 when FR bit 5 is CLEAR.
+  That is a device difference and it is now the only thing a HAL states.
+
+  `sosrt` gained `trait ConsoleSink { can_write, put }` with a default
+  `write_byte` (the poll-and-place, since every polled transmitter waits the same
+  way), `console_write<S: ConsoleSink>` — the panic path's loop, once — and
+  `abort_status(code)`. Each HAL keeps a two-method conformance and its own
+  machine-stop mechanism. The bound is STATIC, so the loop monomorphizes per
+  architecture with no vtable, no existential and no indirect call on the panic
+  path.
+
+  **The DF-172b check-freedom proof was re-run on BOTH monomorphizations, and
+  that was the condition for shipping this at all.** Generic-ness could have
+  bought a hidden check or an outlined call, so it was measured rather than
+  assumed: in each, the generic loop, the trait's DEFAULT body and both accessor
+  bodies inline completely, leaving `ptrtoint`, a plain `load i8`, the device's
+  volatile load, an `and`, an `icmp`, the volatile store and `add`/`add -1`. No
+  `llvm.uadd.with.overflow`, no bounds check, no trap block, no call back into
+  `__saw_rt_panic` — 32 IR lines on riscv32, 33 on arm64, both fully inlined.
+  `panic_from_check` (the panic-in-panic pin) stays green on both machines.
+
+  Worth recording as a language result, not just an SOS one: a trait with a
+  default body, monomorphized through a static bound, cost NOTHING on a path
+  whose whole contract is that it cannot trap. That is the property that makes
+  `ConsoleSink` the right shape for a HAL seam rather than a nice abstraction to
+  be paid for later.
+
 - **DF-172i — a COVERAGE NOTE, not a bug, recorded because it is easy to lose.
   The kernel's `@export`ed typed C surface has no in-tree CALLER any more.**
   `sos_system_debug_print` / `sos_system_shutdown` (sos/kernel/sysapi/) are the
