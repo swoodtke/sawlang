@@ -1,9 +1,11 @@
 # Design 158 — logical task backtraces from coroutine frames
 
-**Status: APPROVED (user, Aug 6: "yes, brief the debugger work - the
-sos task dump sells it"). Devtools/debugger track; PIN: the in-process
-dump (unit c) lands BEFORE SOS M2 interrupt bring-up starts — task
-dumps under QEMU are the payoff that sold the design.**
+**Status: APPROVED + QUEUED TO DISPATCH (user, Aug 8 — "add 158 to the
+queue"; do NOT launch until the running queue drains + user restarts).
+Devtools/debugger track; PIN: the in-process dump (unit c) lands BEFORE
+SOS M2 interrupt bring-up starts — task dumps under QEMU are the payoff
+that sold the design. Compiler/tooling surface, disjoint from the net
+track (182/183/184) — parallel-eligible once dispatch resumes.**
 
 ## Why this is cheap for Saw
 
