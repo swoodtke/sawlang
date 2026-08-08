@@ -48,6 +48,16 @@ crashes the process.
   flagging rather than assuming: `duration_since` used to document a negative
   result as supported.
 
+## Design 186 — UnsafeMutableInterior (DRAFT, Aug 8)
+
+Brief in `designs/186-unsafe-mutable-interior.md`: interior mutability as ONE
+unsafe primitive + a computed cell-carrying property, replacing the three
+compiler-known names; Mutex rebuilt inline (futex / os_unfair_lock, zero =
+unlocked, static-eligible). Direction + name user-approved. TWO decisions
+need ratification before it queues: **D1** the explicit `Sync` conformance
+surface (bare declared conformance recommended, replacing Sync-by-fiat), and
+**D2** the v1 statics fence (zero-init or const-foldable initializers only).
+
 ## Design 181 — blocking-call audit findings (filed Aug 7)
 
 Full inventory + policy menu in `designs/181-blocking-call-audit.md`.
