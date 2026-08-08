@@ -4913,6 +4913,20 @@ surface.
 Bounded local IO stays synchronous (regular-file read/write) — the never-block
 invariant is about latency-UNBOUNDED waits, not IO in general.
 
+**File and directory IO is prompt by policy, and the policy has a cost worth
+stating.** Nothing in `std.file` or `std.directory` suspends, so the calling
+thread stays inside the system call until it returns. That is deliberate: a
+page-cache read costs less than the thread hop an offload would add, and the
+freestanding profile has no thread to hop to, so a file API whose correctness
+depended on one could not exist there. The cost is that the promise is a property
+of the FILESYSTEM, not of the call. On a network filesystem that has stopped
+answering, on a FUSE mount, on a device node, or on a FIFO (`File.open` on one
+waits for a writer even locally), a read is unbounded — and a cooperative task
+that issues one holds its executor thread for the duration, with every sibling
+task on that thread waiting behind it. There is no per-call opt-out; code that
+knows it is on such a mount should do that work in a `spawn`-ed `Task`, whose own
+thread is then the one that waits.
+
 **`extern blocking func`.** An FFI call that may block for an unbounded time is
 annotated `blocking` inside an `extern` block; the call is a suspension point (it
 offloads to a worker thread and suspends the task, rather than blocking the

@@ -1,7 +1,28 @@
-// File - File I/O operations for the Saw standard library
-// Part of the Saw standard library
-//
-// Provides file reading, writing, and manipulation using POSIX system calls.
+//! Files: `File`, `OpenMode`, and the byte-level read/write surface.
+//!
+//! ## Timing
+//!
+//! Every operation in this module is synchronous. None of them suspends, so none
+//! of them yields to a sibling task: the thread that called stays inside the
+//! system call until it returns. On a healthy local disk that is the right trade.
+//! A page-cache read costs less than the thread hop an offload would add, and the
+//! freestanding profile has no thread to hop to, so a file API whose correctness
+//! depended on one could not exist there at all.
+//!
+//! Where the promise stops holding: a network filesystem whose server is not
+//! answering, a FUSE mount, a device node, or a FIFO — `File.open` on a FIFO waits
+//! for a writer even locally. A read on any of those is unbounded, and a
+//! cooperative task that issues one holds its executor thread for however long it
+//! takes, with every sibling task on that thread waiting behind it. Sockets and
+//! `Command.run` do not behave this way; they park on the reactor. Files are the
+//! exception, and it is a policy rather than an oversight — Rust and Go draw the
+//! same line.
+//!
+//! There is no per-call opt-out. Code that knows it is on a network mount and
+//! cannot afford the stall should do that work in a `spawn`-ed `Task`, whose own
+//! thread is then the one that waits.
+//!
+//! Part of the Saw standard library. POSIX system calls behind the runtime seams.
 
 // =============================================================================
 // FFI declarations for file operations

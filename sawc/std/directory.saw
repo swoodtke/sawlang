@@ -1,7 +1,16 @@
-// Directory - Directory operations for the Saw standard library
-// Part of the Saw standard library
-//
-// Provides directory listing, creation, and manipulation using POSIX system calls.
+//! Directories: listing, creation, removal, and the working directory.
+//!
+//! ## Timing
+//!
+//! Same contract as `std.file`, and for the same reason. Every operation here is
+//! synchronous and none of them suspends, so the calling thread is inside the
+//! system call until it returns. Prompt on a healthy local disk; unbounded on a
+//! network filesystem that has stopped answering or a FUSE mount, where a
+//! cooperative task that lists a directory holds its executor thread and every
+//! sibling task waits behind it. See the `std.file` module documentation for the
+//! full statement and the escape hatch.
+//!
+//! Part of the Saw standard library. POSIX system calls behind the runtime seams.
 
 // =============================================================================
 // FFI declarations for directory operations

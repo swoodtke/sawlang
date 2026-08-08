@@ -1133,7 +1133,12 @@ The standard library includes:
   do the mutating operations (`remove`, `rename`, `create`, env `set`/`unset`).
   An Optional is reserved for a genuine absence — `Directory.current` answers
   `None` only when getcwd(2) itself fails. Nothing in std silently swallows an
-  error.
+  error. These operations are synchronous: prompt on a local disk, and that is
+  the deliberate trade, but a network mount that has stopped answering (or a
+  FUSE mount, or a FIFO with no writer) holds the calling thread — and a
+  cooperative task that issues such a read holds its executor thread, with every
+  sibling behind it. Work that cannot afford the stall belongs in a `spawn`-ed
+  `Task`.
 - **std.process** - `Command.run() -> Result<Int32, ProcessError>`, `.output()`,
   `.env(name:value:)` (one environment variable for the child, on top of the one
   it inherits), `.merge_stderr()`. `run` is cooperative: it parks on the child's
