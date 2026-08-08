@@ -37,3 +37,39 @@ diverging `noreturn` function).**
 ## Gates
 
 Full battery. Small unit — one agent, short.
+
+## Landed (Aug 7)
+
+Four units, as scheduled. The rule went in as decided, with no deviation.
+
+Divergence is stamped on the loop by whichever checking entry point it went
+through, which required one thing the brief did not name: a statement-position
+`while` now pushes its own break-tracking frame. It had none, so a `break`
+inside a statement loop nested in an EXPRESSION loop wrote to the outer loop's
+break type. That was a latent bug of its own; fixing it is what makes "no break
+targeting THIS loop" a question the checker can answer per loop.
+
+The three consequences are `panic(...)`'s handling reused rather than
+reimplemented — a block whose last STATEMENT is such a loop types `Never`, a
+diverging loop is a valid `guard` exit, and codegen terminates the loop's
+predecessor-less exit block with `unreachable`, which is what makes every
+downstream is-terminated check treat what follows as dead.
+
+**Two pre-existing `-> Never` bugs surfaced and are fixed with it**, both of
+them things a Saw-written diverging function makes reachable and neither one
+about the loop. A call to a `-> Never` function in VALUE position emitted its
+`void` result into the caller's `ret` and took the compiler down inside the
+LLVM IR parser (no diagnostic, a traceback); it now terminates the block like an
+inline panic. And `let x = panic("m")` crashed the pass with "'NoneType' object
+has no attribute 'type'" — a diverging initializer binds nothing, and the block
+is already terminated. The bottom type also renders as `Never` now instead of
+the enum member name `NEVER`, which had been leaking into hints that named a
+type nobody can write.
+
+The op-budget interplay was verified rather than assumed, and the answer is the
+one the brief hoped for: design 127 instruments only bodies that become frames,
+so a `sync` function is never reached. `while_never_sync_context` pins it the
+only way that counts — `halt` is declared `sync`, so an inserted `yield_now()`
+would be a compile error, and the program spawns a real task so the transform is
+running while `halt` compiles. Its task body carries a diverging loop of its own,
+where the charge IS inserted and the loop diverges anyway.

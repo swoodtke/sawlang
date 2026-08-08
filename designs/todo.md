@@ -317,15 +317,16 @@ verdict table: `designs/174-optional-generic-sweep.md`. 19 tests landed as
 
 ## Design 172 note (branch PARKED for user review; full findings ride the branch)
 
-- **DF-172e IS the already-decided while{}-Never item** (decision 9, tracker
-  commit 3134cf7: an infinite `while {}` types `Never`, true-literal
-  excluded). 172's unit 2 (arena → Saw, completing the seam family) stopped
-  solely because `__saw_rt_panic`'s frozen `noreturn` signature needs a Saw
-  body ending in a diverging loop. When the decided item lands (small
-  typechecker unit, AFTER 176 — shared surface), unit 2 unblocks as "172
-  part 2". The compiler half of 172 (unit 7, NEON-off default for
-  freestanding aarch64) is cherry-picked to main (e6b5cbe); DF-162a CLOSED
-  measured (arm64 kernel object: 5 NEON block-moves → 0).
+- **DF-172e CLOSED — "172 part 2" IS DISPATCHABLE.** The decided while{}-Never
+  item (decision 9, tracker commit 3134cf7) landed as **design 177**, so
+  `__saw_rt_panic`'s frozen `noreturn` signature has a Saw body available: a
+  conditionless `while { }` with no `break` types `Never`, and the freestanding
+  shape is pinned by `examples/while_never_freestanding.saw`. 172's unit 2
+  (arena → Saw, completing the seam family) stopped on nothing else — everything
+  around it was probed and measured on the parked branch — so it resumes as
+  written. The compiler half of 172 (unit 7, NEON-off default for freestanding
+  aarch64) is cherry-picked to main (e6b5cbe); DF-162a CLOSED measured (arm64
+  kernel object: 5 NEON block-moves → 0).
 
 ## Design 176 findings (places/optional plumbing batch, Aug 7)
 
@@ -5850,6 +5851,20 @@ there are.
   design-130 raw pointer surface, `&+`/`&-`, and the design-112 `UnsafeMemory`
   driver idiom — no new language work was needed.
 
+- **DF-172e — CLOSED (design 177). Saw types a diverging loop as `Never` now,
+  so the language half of "172 part 2" is gone and unit 2 (the arena +
+  `__saw_rt_panic` in Saw) IS DISPATCHABLE.** The finding's own smallest-first
+  suggestion is what landed: a conditionless `while { }` with no `break` types
+  `Never`, and `while true { }` is excluded (see the decision entry in the Aug 7
+  round). `func spin_forever() -> Never { while { } }` compiles freestanding to
+  a `void` + `noreturn` symbol whose body is a bare back-edge —
+  `examples/while_never_freestanding.saw` pins the shape. The second cost this
+  entry names is paid too: a "this stops the machine" helper (`kcore`'s
+  `fatal_image`, `grant_outside_window`) can be declared `-> Never`, which makes
+  the guard self-documenting and lets the compiler drop the unreachable tail.
+  Nothing else about unit 2 changed, so it resumes where it stopped. **Original
+  finding follows.**
+
 - **DF-172e — FILED, and it is what STOPPED unit 2 (the arena). Saw cannot
   type a diverging loop as `Never`**, so a freestanding runtime cannot write
   the `noreturn` panic seam the ABI requires.
@@ -7471,11 +7486,25 @@ inlined (the `.build/scratch` probes are gitignored).
   poll-buffer gap — is no longer load-bearing: design 117 dissolved it with the
   instance reactor's per-call heap buffer; the language nicety is optional now.)
   General C-interop / low-level value beyond the runtime. [113/113b/117]
-- **DECIDED (user, Aug 7): a conditionless no-`break` `while { }` types as
+- ~~**DECIDED (user, Aug 7): a conditionless no-`break` `while { }` types as
   `Never`; the literal `while true { }` does NOT join it (the conditionless
   form is the blessed infinite idiom — constant-folding a `true` literal
   into typing is Rust's line too); the `NEVER` diagnostic spelling fixed in
-  the same unit. Queued in the soundness/semantics batch. Original:**
+  the same unit. Queued in the soundness/semantics batch.~~ **DONE (design
+  177), exactly as decided.** Divergence is judged per loop off the loop's own
+  break-tracking frame, so a `break` in a NESTED loop leaves the outer one
+  diverging and a `return` is not a break. The three consequences are
+  `panic(...)`'s, reused rather than reimplemented: a block whose last
+  STATEMENT is such a loop types `Never`, a diverging loop is a valid `guard`
+  exit, and codegen terminates the loop's predecessor-less exit block with
+  `unreachable`. Two pre-existing `-> Never` bugs fell out and are fixed with
+  it — a call to a `-> Never` function in VALUE position emitted its void
+  result into the caller's `ret` and took the compiler down inside the LLVM IR
+  parser, and `let x = panic("m")` crashed the pass on the None value. Tests:
+  `while_never_diverges`, `while_never_break_forms`,
+  `while_never_freestanding`, `while_never_sync_context`, and three error
+  pins (`while_true_not_never`, `while_break_not_never`,
+  `while_never_unreachable_after`). **Original:**
   `func f() -> Never` is satisfiable ONLY by ending in a Never-typed
   EXPRESSION (`panic(...)` / a Never call); a no-`break` infinite loop —
   `while { }` conditionless AND `while true { }` — is rejected with
