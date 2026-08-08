@@ -1070,7 +1070,15 @@ handle.cancel(); if cancelled() { ... }   // cooperative cancellation
   same-name unwrap `if let x = x` keeps the inner `x: T` and outer `x: T?` in
   distinct fields) — so
   `while going { …; if let ok = maybe(k) { let x = try! s.read(); s.write(move x) } }`
-  just works. It also embeds in any EXPRESSION position (design 120): a chain head
+  just works. The optional binding's SCRUTINEE takes one too (DF-182a), so
+  `guard let d = source.next()` drives the method and parks inside it; the
+  condition is unconditional, so it is lifted to a temp ahead of the binding. A
+  trailing `if let … { v } else { w }` in VALUE position takes one in either
+  branch (DF-182b), and a body that suspends may hand a local out through a tail
+  `move r` rather than a `return` (DF-182d). STILL REJECTED: `if let x = move opt`
+  / `guard let x = move opt` whose continuation spans a suspension (DF-182c —
+  restructure so the `move` read happens after the last suspension, or drive the
+  producer directly). It also embeds in any EXPRESSION position (design 120): a chain head
   or later hop, an argument, a receiver, an operand, a literal element, a string
   interpolation, a `return` value, a `try!` subject, a `?.` hop, a
   `Channel.receive()`. The compiler unchains the statement into evaluation-ordered
@@ -1649,6 +1657,14 @@ construct in the owner and lend `&driver` down.
   death = 128+signum, never a bogus 0); Err = could not launch (spawn failed, or
   the child could not exec -> 127). `ProcessError: Error` names the program.
   `.output() -> CommandOutput?` captures stdout (stderr is inherited).
+  `run()` IS COOPERATIVE (design 182) — it parks on the child's exit, so a task
+  running a child no longer starves its siblings and no thread is spent waiting.
+  Consequence for callers: `run` SUSPENDS, so a `sync` function cannot call it.
+  Cancelling the task ends the WAIT, not the child (which keeps running,
+  unreaped); `ProcessError.cancelled()` distinguishes that Err from a launch
+  failure. `output()` is still SYNCHRONOUS and blocks the calling thread for the
+  child's whole lifetime — capture from a single-threaded group, or from a
+  `spawn`-ed `Task` whose own thread does the waiting (DF-181a/DF-182e).
   `env(name:value:)` (design 155) sets ONE environment variable for the child,
   under `arg`'s discipline — the name and the value are bytes the child receives
   verbatim, nothing parsed or expanded. The child INHERITS this process's

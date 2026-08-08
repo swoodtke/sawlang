@@ -22,7 +22,26 @@ extern "C" {
     // environment, which is why the merge is behind a seam and not done here.
     func __saw_rt_proc_spawn_env(path: UnsafePointer<Int8>, argv: UnsafePointer<Int8>, envp: UnsafePointer<Int8>, flags: Int) -> Int
     func __saw_rt_proc_read_stdout(job: Int, buf: UnsafePointer<Int8>, len: Int) -> Int
+
+    // The v1 reap: BLOCKS the calling thread until the child exits. Only
+    // `output()` still uses it (DF-182e).
     func __saw_rt_proc_wait(job: Int) -> Int
+
+    // The zero-thread wait (design 182), which `run()` uses instead. `try_wait`
+    // reaps only a child that has already exited and answers `-WouldBlock`
+    // otherwise; `wait_fd` hands back a descriptor to PARK on, readable once the
+    // child exits. The job owns that descriptor — std registers it with the
+    // reactor and never closes it. `release` is the cancellation exit: drop the
+    // job, leave the child alone.
+    func __saw_rt_proc_wait_fd(job: Int) -> Int
+    func __saw_rt_proc_try_wait(job: Int) -> Int
+    func __saw_rt_proc_release(job: Int)
+
+    // design 89-c: the cooperative op-count budget. An io op that completes
+    // WITHOUT parking charges the budget; a nonzero `tick` means it ran out and
+    // the primitive should force one fairness yield. A genuine park resets it.
+    func __saw_rt_op_budget_tick() -> Int
+    func __saw_rt_op_budget_reset()
 
     // Memory
     func malloc(size: Int) -> UnsafePointer<Int8>?
@@ -46,6 +65,19 @@ static EQUALS_BYTE: Int8 = 61
 // stdout pipe; `merge_stderr()` adds the second bit.
 static FLAG_CAPTURE_STDOUT: Int = 1
 static FLAG_MERGE_STDERR: Int = 2
+
+// The portable SysError tag this module branches on (the space is in rt/ABI.md;
+// a failing seam returns the NEGATED tag). `-WouldBlock` from `try_wait` means
+// the child is still running.
+static SYS_WOULD_BLOCK: Int = 1
+
+// The degraded wait, in milliseconds. Reached only when the host cannot hand out
+// a child-exit descriptor at all — descriptor exhaustion, or (on macOS) a child
+// that turned into a zombie between the poll and the ask. Polling on a doubling
+// nap keeps the executor free either way; it is slower than a park, never a
+// thread block. Most children are collected on the first or second pass.
+static WAIT_POLL_START_MS: UInt64 = 1
+static WAIT_POLL_MAX_MS: UInt64 = 32
 
 // =============================================================================
 // Wait-status decode (design 59 A, DF2)
@@ -87,8 +119,15 @@ func decode_wait_status(status: Int32) -> Int32 {
 // (the executable was not found, or a child process could not be created) — as
 // distinct from the command running and exiting nonzero (that is Ok(code)).
 // Conforms to `Error`, so it interpolates and boxes into `Box<any Error>`.
+//
+// One other thing ends a `run()` without an exit code: the task was CANCELLED
+// while waiting for the child. That is a different story from a failed launch —
+// the child launched fine and is still out there — so it says so rather than
+// borrowing the launch wording (`cancelled()` below tells the two apart).
 public struct ProcessError {
     program: String
+    // True when the wait was cancelled rather than the launch failing.
+    was_cancelled: Bool
 }
 
 extension ProcessError {
@@ -96,13 +135,34 @@ extension ProcessError {
     public func program_name(&self) -> String {
         self.program
     }
+
+    // True when this error ends a run that was CANCELLED while waiting for the
+    // child, rather than one whose command never started. The child was launched
+    // and keeps running (design 102 cancels the wait, not the process); its exit
+    // status is simply no longer being collected.
+    public func cancelled(&self) -> Bool {
+        self.was_cancelled
+    }
 }
 
 extension ProcessError: Error {
     public func format(&self, into: &var StringBuilder) {
-        into.append("could not launch process: ")
+        if self.was_cancelled {
+            into.append("cancelled while waiting for process: ")
+        } else {
+            into.append("could not launch process: ")
+        }
         into.append(self.program)
     }
+}
+
+// The two ways a `run()` ends without an exit code.
+func launch_failed(program: String) -> ProcessError {
+    ProcessError(program: program, was_cancelled: false)
+}
+
+func wait_cancelled(program: String) -> ProcessError {
+    ProcessError(program: program, was_cancelled: true)
 }
 
 // =============================================================================
@@ -349,19 +409,68 @@ extension Command {
     //             (no child / no argv memory), or the child could not exec and
     //             exited 127 (POSIX "command not found / could not exec"). This
     //             is the design-92 distinction — a failed launch is surfaced,
-    //             not folded into a bogus exit code (never hide errors).
+    //             not folded into a bogus exit code (never hide errors). The one
+    //             other Err is a CANCELLED wait, which `ProcessError.cancelled()`
+    //             tells apart.
+    //
+    // COOPERATIVE (design 182). Waiting for a child costs no thread: the runtime
+    // hands back a descriptor that goes readable when the child exits, and this
+    // parks on it exactly as a socket read parks. Sibling tasks keep running for
+    // the child's whole lifetime — which they did not before, and which matters
+    // most here because a child may never exit at all.
+    //
+    // CANCELLATION cancels the WAIT, not the CHILD. A cancelled task wakes out of
+    // the park and returns `Err`, and the process it launched keeps running with
+    // nobody collecting its exit status. Killing it is the caller's business, and
+    // deliberately so: a `run()` whose caller lost interest is not evidence that
+    // the work should stop.
     public func run(&self) unsafe -> Result<Int32, ProcessError> {
         let job = self.spawn_job(false)
         if job <= 0 {
-            return ProcessError(program: self.program)
+            return launch_failed(self.program)
         }
-        let raw = __saw_rt_proc_wait(job)
+
+        var raw = 0
+        var nap = WAIT_POLL_START_MS
+        while {
+            if cancelled() {
+                let wfd = __saw_rt_proc_wait_fd(job)
+                if wfd >= 0 {
+                    // DF-134a: leaving the loop with the registration still armed
+                    // would strand a token pointing into this frame.
+                    io_unwait(wfd, 0)
+                }
+                __saw_rt_proc_release(job)
+                return wait_cancelled(self.program)
+            }
+            let r = __saw_rt_proc_try_wait(job)
+            if r != -SYS_WOULD_BLOCK {
+                raw = r                        // exited: the raw status, or -tag
+                break
+            }
+            let wfd = __saw_rt_proc_wait_fd(job)
+            if wfd >= 0 {
+                io_wait(wfd, 0)                // park until the child exits
+                __saw_rt_op_budget_reset()          // design 89-c: parked, budget reset
+            } else {
+                // No descriptor to be had — poll on a doubling nap instead. Still
+                // cooperative: `sleep` parks the TASK, never the thread.
+                sleep(Duration.ms(nap))
+                if nap < WAIT_POLL_MAX_MS {
+                    nap = nap * 2
+                }
+            }
+        }
+        if __saw_rt_op_budget_tick() != 0 {         // design 89-c: fairness backstop
+            yield_now()
+        }
+
         if raw < 0 {
-            return ProcessError(program: self.program)
+            return launch_failed(self.program)
         }
         let code = decode_wait_status(raw as Int32)
         if code == EXEC_FAILED_CODE {
-            return ProcessError(program: self.program)
+            return launch_failed(self.program)
         }
         code
     }
@@ -373,6 +482,17 @@ extension Command {
     // The child's STDERR is inherited — it goes to this process's own stderr —
     // unless `merge_stderr()` was called, which folds it into the captured
     // stdout instead.
+    //
+    // SYNCHRONOUS, unlike `run()` — and that is a known gap, not a choice. Both
+    // the drain and the reap block the calling thread, so a task capturing a
+    // child's output holds its executor thread until the child is finished and
+    // every sibling task waits with it. Design 182 landed the cooperative wait for
+    // `run()` and could not land it here: making `output()` suspending makes its
+    // callers coroutine frames, and a frame that holds a `Data` or a `Vector`
+    // across a suspension cannot be spawned into a multi-threaded TaskGroup while
+    // no std container is `Send` (DF-182e). Until that is settled, capture a
+    // child's output from a single-threaded group, or from a `spawn`-ed `Task`
+    // whose own thread is the one that waits.
     public func output(&self) unsafe -> CommandOutput? {
         let job = self.spawn_job(true)
         if job <= 0 {
@@ -444,6 +564,8 @@ extension Command {
 
         // Reap the child. The seam returns the RAW wait status, decoded the same
         // way run() does (DF2): a signal death is a nonzero failure, not exit 0.
+        // This is the BLOCKING reap `run()` no longer uses — see the note on this
+        // method and DF-182e.
         let raw = __saw_rt_proc_wait(job)
         if raw < 0 {
             if let out = output_buf {

@@ -292,10 +292,24 @@ argv spawn. **No shell is involved at any point**, on any implementation: one
 
 A **job** is an opaque heap record owning the child's pid and, when capturing,
 the read end of its stdout pipe. Single-owner discipline, exactly like the
-offload family: `spawn` creates the job, `wait` reaps the child and destroys it.
-The hosted bodies are `fork` + `execvp` (`rt/common/proc.saw`, OS-independent);
-between fork and exec the child touches only async-signal-safe calls
+offload family: `spawn` creates the job, the reap destroys it. The hosted bodies
+are `fork` + `execvp` (`rt/common/proc.saw`, OS-independent); between fork and
+exec the child touches only async-signal-safe calls
 (`close`/`dup2`/`execvp`/`_exit`).
+
+**The child WAIT is zero-thread (design 182).** The v1 shape had two seams that
+blocked the calling thread — a `read` on a blocking pipe and a `waitpid` with no
+options — and design 181 measured what that costs: a sibling task's first tick
+landed only when the child exited, because the one cooperative executor thread was
+inside the wait. The wait half is fixed. `try_wait` reaps with `WNOHANG` and
+answers `-WouldBlock` while the child lives, and a caller that has to wait asks
+for a DESCRIPTOR — `wait_fd` — and parks it on the reactor with the ordinary
+read-interest registration. A runtime that cannot hand out a wait descriptor is
+still correct: `try_wait` alone is a poll, slower but never wedging anything.
+
+`__saw_rt_proc_wait` and `read_stdout` still block, and are documented as such
+below. They are the drain half of DF-181a, blocked on DF-182e rather than on
+anything in this contract.
 
 ### `__saw_rt_proc_spawn(path: i8*, argv: i8**, flags: word) -> word`
 Spawn `path` with the NULL-terminated `argv` array (`argv[0]` is the program
@@ -340,13 +354,66 @@ new image's environment from `environ`).
 
 ### `__saw_rt_proc_read_stdout(job: word, buf: i8*, len: word) -> word`
 Read up to `len` bytes of the child's captured stdout: the byte count (`0` =
-EOF, and `0` immediately for a job spawned without capture) or `-tag`.
+EOF, and `0` immediately for a job spawned without capture) or `-tag`. **BLOCKS**
+until the child writes or closes.
 
 ### `__saw_rt_proc_wait(job: word) -> word`
 Reap the child, close the capture pipe, free the job, and return the **RAW POSIX
 wait status** (`>= 0`) or `-tag`. Raw, not an exit code: std decodes it, because
 the signal bits are what distinguish a crashed child from a clean exit 0 (design
-59 DF2). Retries on `Interrupted`.
+59 DF2). Retries on `Interrupted`. **BLOCKS** for the child's whole lifetime.
+
+The v1 reap, and the last blocking seam in the family. `Command.run` parks on
+`wait_fd` + `try_wait` instead; only `Command.output` still calls this, because
+its drain cannot become a suspension yet (DF-182e). A new runtime should treat it
+as deprecated and implement it as a `try_wait` loop around its own park.
+
+### `__saw_rt_proc_wait_fd(job: word) -> word`
+A descriptor that becomes **readable once the child has exited**, or `-tag`.
+Acquired on the first ask (a spawn nobody waits on costs no descriptor), cached
+in the job, and owned by the job. This is what turns the child wait into an
+ordinary reactor park: register it for read interest, and the poll that would
+have blocked in `waitpid` blocks in `kevent`/`epoll_wait` alongside every other
+parked task.
+
+`-tag` is not a failure of the wait — it means only that this child cannot be
+waited for by descriptor right now, and the caller falls back to polling
+`try_wait`. The common reason is benign: on macOS the child became a zombie
+between the caller's poll and this call, and there is no exit left to register
+for (see `__saw_rt_proc_exit_fd`).
+
+### `__saw_rt_proc_exit_fd(pid: word) -> word`
+**OS-DIVERGENT** — the one host-specific piece of the wait, and the seam
+`wait_fd` is built on. A descriptor readable once process `pid` has exited, or
+`-tag`.
+
+- **Linux** (`rt/host_linux/proc_wait.saw`): `pidfd_open(pid, 0)`. epoll reports
+  a pidfd readable when the process exits; a zombie is fine (the descriptor opens
+  and is readable at once).
+- **macOS** (`rt/host_macos/proc_wait.saw`): a dedicated `kqueue()` armed with
+  `EVFILT_PROC`/`NOTE_EXIT` on `pid`. A kqueue IS a descriptor, and another kqueue
+  reports it readable as soon as it has an event pending — so the reactor watches
+  it with a plain `EVFILT_READ` registration and needs no new filter. `EV_ADD`
+  without `EV_ONESHOT`/`EV_CLEAR` keeps the event pending, so the descriptor stays
+  readable from the exit onward and a re-park fires again instead of hanging.
+  Attaching to a process that is ALREADY a zombie fails with `ESRCH`, which is
+  reported as `-tag`: there is no exit left to wait for, and the caller's next
+  `try_wait` reaps immediately.
+
+### `__saw_rt_proc_try_wait(job: word) -> word`
+Reap the child **if it has already exited**: the **RAW POSIX wait status**
+(`>= 0`), `-WouldBlock` while it is still running, or `-tag`. Raw, not an exit
+code: std decodes it, because the signal bits are what distinguish a crashed
+child from a clean exit 0 (design 59 DF2). Retries on `Interrupted`.
+
+The job is **destroyed** — descriptors closed, record freed — on every answer but
+`-WouldBlock`, which leaves it intact so the caller can park and ask again.
+
+### `__saw_rt_proc_release(job: word) -> void`
+Abandon the job without waiting: one `WNOHANG` reap (so a child that already
+exited does not linger as a zombie), then close its descriptors and free the
+record. The cancellation exit — design 102 cancels the WAIT, not the CHILD, so a
+child still running keeps running and this process never collects its status.
 
 ## Cooperative-scheduler fairness (design 89-c)
 
@@ -532,6 +599,7 @@ Additions since v2, each purely additive (no existing symbol changed):
 | 122    | `__saw_rt_fs_dirent_name`                                      |
 | 122    | `__saw_rt_proc_{spawn,read_stdout,wait}`                       |
 | 132    | `__saw_rt_fs_{open,read,write,lseek,opendir}`                  |
+| 182    | `__saw_rt_proc_{exit_fd,wait_fd,try_wait,release}` — the zero-thread child wait. `__saw_rt_proc_wait` stays, deprecated, for the one caller left |
 
 ## The compiler → executor entry-point boundary (design 118, stage 1: map + carve)
 
@@ -731,11 +799,12 @@ blocks. Layout:
 sawc/rt/
   common/       OS-independent bodies: alloc/sleep/op-budget, pthread mutex/cond
                 init + thread_join, offload, process spawn (proc.saw — fork/exec
-                argv spawn), and the status-carrying OS ops
+                argv spawn, WNOHANG reap), and the status-carrying OS ops
                 (os_ops.saw — tcp_* + fs_* + env_*)
   host_macos/   kqueue reactor + macOS specifics (clock, net_os = errno→tag +
-                sin_set_family, dirent = the d_name offset)
-  host_linux/   epoll reactor + Linux specifics
+                sin_set_family, dirent = the d_name offset, proc_wait = the
+                EVFILT_PROC child-exit descriptor)
+  host_linux/   epoll reactor + Linux specifics (proc_wait = pidfd_open)
   shim.c        the three FFI-blocked bodies (below)
 ```
 

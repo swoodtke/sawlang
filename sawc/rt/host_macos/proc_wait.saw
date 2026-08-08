@@ -1,0 +1,70 @@
+// The child-exit descriptor (design 182) — macOS, authored in Saw.
+//
+// `Command` must not sit in `waitpid` while a cooperative executor thread is
+// inside it, so the wait becomes a PARK: rt/common/proc.saw polls with WNOHANG
+// and, while the child is alive, hands std a descriptor to register with the
+// reactor. This file is the one host-divergent piece of that — the descriptor
+// itself.
+//
+// kqueue has no pidfd, but it has something better: `EVFILT_PROC`/`NOTE_EXIT`
+// tells a kqueue when a child exits, and A KQUEUE IS A DESCRIPTOR — one that
+// another kqueue reports as READABLE the moment it has an event pending. So the
+// child-exit descriptor here is a dedicated kqueue armed on the child's pid, and
+// the executor's own reactor watches it with the same plain `EVFILT_READ`
+// registration it uses for a socket. Nothing about the reactor changes.
+//
+// The event stays queued once it fires (no `EV_CLEAR`, and nobody ever drains
+// this inner kqueue), so the descriptor is level-readable from the exit onward.
+// That is what a re-park after a spurious wake needs: the caller's one-shot
+// registration re-arms and fires again immediately rather than hanging.
+
+extern "C" {
+    func kqueue() -> Int32
+    func kevent(kq: Int32, changelist: UnsafePointer<Int8>, nchanges: Int32, eventlist: UnsafePointer<Int8>, nevents: Int32, timeout: UnsafePointer<Int8>) -> Int32
+    func close(fd: Int32) -> Int32
+    func __saw_rt_last_syserror() -> Int
+}
+
+// struct kevent { uintptr ident; i16 filter; u16 flags; u32 fflags; intptr data;
+//                 void* udata; } — 32 bytes, natural ABI (design 58 layout).
+// Kept in step with host_macos/reactor.saw, which describes the same struct.
+struct KEvent {
+    ident: Int
+    filter: Int16
+    flags: UInt16
+    fflags: UInt32
+    data: Int
+    udata: Int
+}
+
+// EVFILT_PROC watches a process rather than a descriptor.
+static EVFILT_PROC: Int16 = -5
+// EV_ADD alone: no EV_ONESHOT and no EV_CLEAR, so the exit event stays pending
+// and the kqueue stays readable until it is closed.
+static EV_ADD: UInt16 = 0x0001
+// NOTE_EXIT — "the process has exited".
+static NOTE_EXIT: UInt32 = 0x80000000
+
+// A descriptor readable once process `pid` has exited, or -tag.
+//
+// The failure worth naming is `ESRCH`: the kernel refuses to attach to a process
+// that has ALREADY become a zombie, which is exactly the child that exited
+// between the caller's WNOHANG poll and this call. There is no exit left to wait
+// for in that case, so returning the failure is right — the caller's next poll
+// reaps immediately and never needs a descriptor at all.
+@export("__saw_rt_proc_exit_fd")
+func rt_proc_exit_fd(pid: Int) unsafe -> Int {
+    let kq = kqueue()
+    if kq < (0 as Int32) {
+        return 0 - __saw_rt_last_syserror()
+    }
+    let nullp = 0 as UnsafePointer<Int8>
+    var kev = KEvent(ident: pid, filter: EVFILT_PROC, flags: EV_ADD,
+                     fflags: NOTE_EXIT, data: 0, udata: 0)
+    if kevent(kq, (&kev) as UnsafePointer<Int8>, 1, nullp, 0, nullp) < (0 as Int32) {
+        let tag = __saw_rt_last_syserror()
+        let _ = close(kq)
+        return 0 - tag
+    }
+    kq as Int
+}

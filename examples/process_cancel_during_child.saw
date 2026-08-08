@@ -1,0 +1,65 @@
+// Design 182 + the design-102 discipline: cancelling a task parked on a child
+// wakes it, and does NOT kill the child.
+//
+// The waiter parks inside `Command.run()` on the child's exit descriptor. A
+// sibling sets the cancel word, the scheduler finds the parked frame cancelled
+// and wakes it, and `run()` re-checks `cancelled()` at its loop top and returns
+// Err — well before the child's own second is up. `ProcessError.cancelled()`
+// tells that apart from a launch failure, which is a different story entirely.
+//
+// The child keeps running: cancelling the WAIT cancels the wait. Killing it is
+// the caller's business, deliberately (a `run()` whose caller lost interest is
+// not evidence that the work should stop).
+//
+// Deinit oracle: the waiter's held sentinel drops exactly once — a clean
+// cooperative exit out of the park, no double-drop and no leak.
+//
+// EXPECT: success
+// EXPECT-OUTPUT:
+// cancelled: true
+// woke early: true
+// deinits=1
+
+import std.process.*
+import std.time.*
+
+static DEINITS: Atomic<Int> = Atomic(0)
+
+// The child sleeps a second; a cancel that actually woke the park lands far
+// inside this, and one that merely waited the child out lands far outside it.
+static EARLY_MS: UInt64 = 400
+
+struct Res { id: Int }
+extension Res: NoCopy { func deinit(&var self) { DEINITS.fetch_add(1) } }
+
+func child_waiter(start: Instant) {
+    let _held = Res(id: 1)
+    var c = Command(program: "/bin/sleep")
+    c.arg("1")
+    match c.run() {
+        case Ok(code) -> print("child exited {code} — the wait was never cancelled"),
+        case Err(e) -> {
+            print("cancelled: {e.cancelled()}")
+            print("woke early: {start.elapsed().as_millis() < EARLY_MS}")
+        }
+    }
+}
+
+func canceller(addr: Int) unsafe {
+    let p = addr as UnsafePointer<Bool>
+    p[0] = true              // peer-cancel via the Send cancel-word address
+}
+
+func run() {
+    let start = Instant.now()
+    var group = TaskGroup()
+    let waiter = group.spawn(child_waiter(start))
+    let addr = waiter.cancel_addr()
+    let _ = group.spawn(canceller(addr))   // runs once the waiter has parked
+    waiter.join()
+}
+
+func main() {
+    run()
+    print("deinits={DEINITS.load()}")
+}

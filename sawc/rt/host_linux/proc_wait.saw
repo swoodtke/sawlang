@@ -1,0 +1,32 @@
+// The child-exit descriptor (design 182) — Linux, authored in Saw.
+//
+// The epoll mirror of host_macos/proc_wait.saw; see that file for why the wait
+// is a park at all. Linux hands out the descriptor directly: `pidfd_open` gives
+// a file descriptor for a process, and epoll reports it readable (`EPOLLIN`) once
+// that process has exited. No inner poll set, no filter — the reactor registers
+// it with the same plain read interest it uses for a socket.
+//
+// `pidfd_open` is a glibc wrapper (2.36+) / musl wrapper over the Linux 5.3
+// syscall. Declaring the wrapper rather than going through the variadic
+// `syscall(2)` keeps DF-113c's rule — no variadic extern — and turns a libc too
+// old to have it into a link error naming this file, which is a far better
+// failure than a silently wrong argument register.
+//
+// A zombie needs no special case here, unlike kqueue: `pidfd_open` succeeds for a
+// child that has exited but not been reaped, and the descriptor is readable at
+// once, so the caller's park returns immediately and its next poll reaps.
+
+extern "C" {
+    func pidfd_open(pid: Int32, flags: UInt32) -> Int32
+    func __saw_rt_last_syserror() -> Int
+}
+
+// A descriptor readable once process `pid` has exited, or -tag.
+@export("__saw_rt_proc_exit_fd")
+func rt_proc_exit_fd(pid: Int) unsafe -> Int {
+    let fd = pidfd_open(pid as Int32, 0 as UInt32)
+    if fd < (0 as Int32) {
+        return 0 - __saw_rt_last_syserror()
+    }
+    fd as Int
+}

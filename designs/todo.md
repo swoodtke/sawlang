@@ -60,6 +60,131 @@ state); three-tier statics fence (zero / memberwise-const / never-runtime).
 Queue position: after the current wave and the net track — typechecker +
 codegen + builtin.saw + std surface, shares with everything, runs alone.
 
+## Design 182 — Command without threads (PARTIAL, Aug 8) — needs a ruling
+
+**`Command.run()` is cooperative and spends no thread waiting. `Command.output()`
+is unchanged and still blocks, because it cannot be made suspending yet — see
+DF-182e, which is the ruling this section is asking for.**
+
+The wait works the way the brief specified: `try_wait` is `waitpid(WNOHANG)`, and
+while the child lives the task parks on a descriptor that goes readable when it
+exits — `pidfd_open` on Linux, and on macOS a dedicated kqueue armed with
+`EVFILT_PROC`/`NOTE_EXIT`, which is itself a descriptor the executor's reactor
+watches with a plain read registration. So the reactor needed no new filter, no
+new seam, and no change at all. No thread is offloaded anywhere.
+
+DF-181a is HALF closed. Its xfail flipped and is now
+`examples/process_run_concurrent.saw` (sibling's first tick asserted early),
+joined by `process_cancel_during_child`. The output twin the brief asked for
+exists and states the intended behavior, but as a pin:
+`examples/process_output_starvation_xfail.saw`.
+
+**ABI (rt/ABI.md).** Added `__saw_rt_proc_try_wait` (WNOHANG, `-WouldBlock` while
+alive), `_wait_fd` (the descriptor to park on, owned by the job), `_exit_fd` (the
+ONE host-divergent piece) and `_release` (the cancellation exit). Purely
+additive: the blocking `__saw_rt_proc_wait` STAYS, documented as deprecated, for
+`output()`, its last caller. Removing it was the plan and is still right the day
+the drain lands.
+
+Three things worth a look at review:
+
+- **`ProcessError` gained a second story.** A cancelled wait is not a failed
+  launch, and `run()`'s signature can only say `Err`, so the error now carries
+  which one it is: `ProcessError.cancelled()`, and a distinct message
+  ("cancelled while waiting for process: X"). The launch-failure text is
+  unchanged.
+- **Cancel does not kill the child** (the design-102 discipline the brief
+  pinned). `release` does one WNOHANG reap so a child that already exited does
+  not linger, but a child still running keeps running and this process never
+  collects its status. A `Command.kill` is its own future design.
+- **The degraded wait.** When the host will not hand out an exit descriptor —
+  descriptor exhaustion, or (macOS only) a child that turned zombie between the
+  poll and the ask — `run` polls `try_wait` on a doubling 1..32 ms nap instead of
+  parking. Slower than a park, still cooperative, never a thread block. The
+  zombie case costs exactly one nap.
+
+### Why `output()` did not land, and the four findings behind it
+
+Making `Command.output()` suspending is a two-line change to the same park loop
+`run()` uses. What stops it is its BLAST RADIUS: suspension is colorless, so every
+caller becomes a coroutine frame, and four separate limits turn up in real code
+that reads a child's output. Three are transform gaps (two fixed here, one pinned);
+the fourth is a language question only the user can answer.
+
+- **DF-182a (COMPILER, filed AND FIXED Aug 8): a suspending METHOD call in an
+  `if let` / `guard let` SCRUTINEE was rejected, not driven.** The design-62 G2
+  hoist lifted a suspending FREE FUNCTION out of an optional binding's condition
+  into a driven temp, and the design-96 match hoist and design-92 try hoist both
+  took methods — this one never did, so `guard let out = cmd.output()`, the most
+  ordinary way to consume an optional result, hit `coroutine transform: a buried
+  suspending method call ... appears in a control-flow branch the state split
+  cannot express`. It was invisible while nothing in std had a suspending method
+  returning an Optional. Fix: `_hoist_cond` asks `_call_suspends_expr` (the same
+  predicate the match and try hoists use) instead of matching `FunctionCall`
+  alone. The condition is evaluated unconditionally, so lifting it above the
+  binding preserves order exactly. Pinned by
+  `examples/coro_optional_binding_suspending_method.saw`, which also checks a
+  sibling task runs between the two hops.
+- **DF-182b (COMPILER, filed AND FIXED Aug 8): a trailing `if let … { v } else
+  { w }` in VALUE position whose branches suspend.** Tail normalization pushed a
+  function's result flow into the branches of a trailing `if`/`match` so every
+  leaf returns, and left an `if let` tail whole — the suspension inside a branch
+  then reached the CFG walk buried in an expression and was rejected. An `if let`
+  with an `else` produces a value exactly the way an `if`/`else` does, so it now
+  takes the same treatment. Pinned by `examples/coro_tail_if_let_value.saw`.
+- **DF-182d (COMPILER, filed AND FIXED Aug 8): a tail expression that is `move
+  local`, in a body that suspends.** `return move r` has always carried the frame
+  drop-flag clear a moved-out local owes; the tail-expression position refused
+  instead ("move it in a `return` statement"), though the tail IS the return value
+  and `_done` already takes the clears. One argument passed on. Pinned with a
+  deinit oracle by `examples/coro_tail_move_local.saw`.
+- **DF-182c (COMPILER, OPEN, filed Aug 8): an `if let` / `guard let` over a `move`
+  SCRUTINEE whose continuation spans a suspension is rejected.** Reading an owning
+  value out of an Optional needs `move` (design 131), so this is the ordinary
+  shape for consuming one, and `devtools/irdet` is written exactly this way. The
+  `move` owes a drop-flag clear; putting it in both branches of the synthesized
+  dispatch is the right ORDER (tried, and the ordering holds), but the dispatch's
+  value path also STORES the unwrapped payload into a frame field, and that store
+  is a copy — which a NoCopy payload refuses outright and an ExplicitCopy one
+  would double-drop. The store has to become a move before the clear has anywhere
+  to go, which is more surgery than this brief should do unreviewed. Pinned by
+  `examples/coro_move_scrutinee_span_xfail.saw`.
+- **DF-182e (LANGUAGE/STD, OPEN, filed Aug 8 — THE RULING THIS NEEDS): no std
+  container is `Send`, so a task that holds one across a suspension cannot run in
+  a multi-threaded TaskGroup.** `String` is Send by an explicit carve-out
+  ("immutable buffer + atomic refcount"); `Vector`, `Map`, `Set`, `Data`,
+  `StringBuilder` are all NOT, because Send is derived structurally and
+  `UnsafePointer<T>` poisons any struct holding one (`namespace.py:_send_sync`).
+  Verified directly: a task holding a `Vector<Int>` across a `yield_now` is
+  refused by `TaskGroup(threads: 2)`.
+
+  This is what actually blocks `output()`. `devtools/irdet` runs its compiles in
+  `TaskGroup(threads: N)` and holds the first compile's `Data` across the second
+  compile; today that is legal because `Command.output()` does not suspend, and a
+  cooperative `output()` makes it a compile error. The devtool is not doing
+  anything exotic — "fan compiles out across threads and compare the two results"
+  is the plain shape — so working around it in irdet would be hiding the finding.
+
+  The narrow fix is a `Data` carve-out beside `String`'s, and the argument is the
+  same one: `Data` is a copy-on-write window over an `Arc<DataBuf>`, the refcount
+  is atomic, reads go through `&self` on a buffer that is immutable while shared,
+  and the only writes are behind `Arc.with_unique`, which hands out `&var` exactly
+  when nobody else holds the storage. The broad fix is a way for a std container
+  to say its raw-pointer field does not poison it — the same thing the existing
+  `Arc`/`Mutex`/`Channel`/`Task`/`SpinLock`/`UnsafeMemory` overrides say by name,
+  which would reach `Vector` and the rest too. Either is a soundness decision, so
+  it is the user's, not an agent's.
+
+- **NOT EXECUTED HERE: the Linux half.** `rt/host_linux/proc_wait.saw` is written
+  against the documented `pidfd_open`/epoll contract and only COMPILE-checked on
+  this macOS machine (`--runtime-build --target x86_64-unknown-linux-gnu` and
+  `aarch64-...`, and the emitted object references `pidfd_open` as expected); the
+  remote test worker is macOS too. CI is the first real execution. One judgement
+  call in it worth review: it declares the libc wrapper `pidfd_open` rather than
+  going through the variadic `syscall(2)`, which keeps DF-113c's no-variadic-extern
+  rule and turns a libc older than glibc 2.36 into a link error naming the file
+  instead of a silently wrong argument register.
+
 ## Design 181 — blocking-call audit findings (filed Aug 7)
 
 Full inventory + policy menu in `designs/181-blocking-call-audit.md`.
@@ -67,7 +192,11 @@ Headline: **169 externs across sawc/std/ + sawc/rt/, NOT ONE annotated
 `blocking`.** The design-103 offload machinery works and is unused by std.
 
 - **DF-181a (P0-adjacent, filed Aug 7): `Command.run()` / `Command.output()`
-  starve every sibling task for the child's whole lifetime.** Both reap via
+  starve every sibling task for the child's whole lifetime.** **HALF CLOSED
+  (design 182, Aug 8):** `run()` parks on the reactor and spends no thread;
+  `output()` is untouched and still blocks in both `read` and `waitpid`, pinned by
+  `examples/process_output_starvation_xfail.saw` and blocked on DF-182e. See the
+  design-182 section above. The original finding follows. Both reap via
   the unannotated `__saw_rt_proc_wait` (waitpid) and `output()` first drains
   the child's stdout through the unannotated `__saw_rt_proc_read_stdout`
   (a blocking `read` on a blocking pipe). The cooperative executor thread
@@ -81,7 +210,24 @@ Headline: **169 externs across sawc/std/ + sawc/rt/, NOT ONE annotated
   machinery) and annotate the wait, which fits the design-103 whitelist
   exactly — but see DF-181f, which currently blocks the annotation.
 - **DF-181b (P0-adjacent by reach, filed Aug 7): every std.file /
-  std.directory seam is a naked blocking call.** `__saw_rt_fs_open`/`_read`/
+  std.directory seam is a naked blocking call.** **DOCUMENTED (design 182 unit 2,
+  Aug 8):** the prompt-by-policy contract is now stated where a reader meets it —
+  `//!` module docs on std.file and std.directory, and a paragraph in
+  LANGUAGE_SPEC beside the never-block invariant. All three say the same thing:
+  synchronous by design, prompt on a healthy local disk, unbounded on a network
+  mount / FUSE / device node / FIFO, no per-call opt-out, and a `spawn`-ed `Task`
+  is where work that cannot afford the stall belongs. The seams themselves are
+  unchanged — the recommendation was documentation, not offload.
+
+  **The escape hatch that is still missing (io_uring).** The only way to make
+  file IO genuinely non-blocking without a thread hop is a completion-based
+  interface: `io_uring` on Linux, which is Linux-only and a project of its own
+  (a submission/completion ring is a different seam shape from the readiness
+  reactor, so it is an ADDITION to rt/ABI.md rather than a swap of the fs ops).
+  POSIX AIO is not an option — it is a thread pool in libc on both hosts.
+  Revisit if a Linux-only fast path ever becomes acceptable; until then the
+  documented policy above IS the answer. Original finding follows.
+  `__saw_rt_fs_open`/`_read`/
   `_write`/`_lseek`/`_opendir`/`readdir`/`closedir`/`_mkdir`/`_rmdir`/
   `_chdir`/`getcwd`/`_unlink`/`_rename`/`access` — no annotation, and unlike
   the reactor/sleep seams NOT ONE comment in the tree acknowledges that they
@@ -92,7 +238,13 @@ Headline: **169 externs across sawc/std/ + sawc/rt/, NOT ONE annotated
   wrong default, and freestanding has no threads at all) — but the silence
   is not defensible either way.
 - **DF-181c (filed Aug 7): `Channel.recv` from a cooperative task wedges the
-  executor forever.** It blocks the calling thread in `pthread_cond_wait`
+  executor forever.** **DOCUMENTED (design 182 unit 3, Aug 8):** `recv`'s
+  docstring now states the consequence rather than only naming the engine — never
+  from a cooperative task, the thread it stops is the executor's, the sender that
+  would unblock it can no longer run, and `receive()` is a drop-in twin. Still
+  only documentation: making the call a compile error inside a suspending body
+  (the brief's "better" option) is unbuilt. Original finding follows.
+  It blocks the calling thread in `pthread_cond_wait`
   with no sender bound. `channel.saw:206` documents which ENGINE it belongs
   to but never states the consequence, and nothing prevents the call. The
   cooperative twin `receive` is a drop-in. Cheap fix: document it loudly;

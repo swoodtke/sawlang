@@ -1,21 +1,17 @@
-// Design 181 — DF-181a. `Command.run()` reaps its child with the UNANNOTATED
-// extern `__saw_rt_proc_wait` (waitpid), so the cooperative executor thread sits
-// inside the wait for the child's whole lifetime and every sibling task starves.
+// Design 182 (was the DF-181a starvation xfail): `Command.run()` waits for its
+// child on the REACTOR, so a sibling task runs the whole time the child does.
 //
 // Task A runs `/bin/sleep 1`. Task B does nothing but record when it FIRST gets
-// scheduled. B is runnable from the moment it is spawned, so on a healthy
-// executor its first tick lands immediately and it reports "concurrent". Today
-// B's first tick lands only after the child exits, so it reports "starved".
-//
-// The fix is a policy call (design 181's menu): annotate the wait seam
-// `blocking` so it offloads to a worker thread, or reactor-integrate the child
-// wait. Either way this test flips to XPASS — remove the marker then.
+// scheduled. B is runnable from the moment it is spawned, so its first tick lands
+// immediately. Before design 182 the executor thread sat inside `waitpid` for the
+// child's whole lifetime and B's first tick landed at 1000 ms — it had been
+// runnable the entire time and could not be scheduled.
 //
 // EXPECT: success
 // EXPECT-OUTPUT:
 // sibling: concurrent
+// child exit: 0
 // -- done
-// XFAIL: DF-181a Command.run blocks the executor thread in waitpid - siblings starve
 
 import std.process.*
 import std.task.*
@@ -51,10 +47,8 @@ func main() {
     if when < STARVED_MS {
         print("sibling: concurrent")
     } else {
-        print("sibling: starved")
+        print("sibling: starved ({when} ms)")
     }
-    if code != 0 {
-        print("unexpected child exit code {}", code)
-    }
+    print("child exit: {code}")
     print("-- done")
 }

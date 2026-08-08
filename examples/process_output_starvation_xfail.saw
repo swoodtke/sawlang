@@ -1,0 +1,62 @@
+// DF-181a, the half design 182 could not land: `Command.output()` still holds the
+// executor thread for the child's whole lifetime. Both blocking calls the design-181
+// audit found are exercised here — the child writes NOTHING for a second (so the
+// drain sits in `read` on a blocking pipe) and only then exits (so the reap sits in
+// `waitpid`).
+//
+// Task B records when it first gets scheduled. It is runnable from the moment it is
+// spawned, so on a cooperative `output()` its first tick lands immediately; today it
+// lands at ~1000 ms.
+//
+// Making `output()` suspending is what fixes this, and DF-182e is why that could not
+// be done yet: a suspending `output()` turns every caller into a coroutine frame, and
+// a frame holding a `Data` or a `Vector` across a suspension cannot be spawned into a
+// multi-threaded TaskGroup while no std container is `Send`. `devtools/irdet` is
+// exactly that shape. When DF-182e is settled, `run()`'s park loop (std/process.saw)
+// drops straight into `output()` and this test flips to XPASS — remove the marker
+// then and rename the file.
+//
+// EXPECT: success
+// EXPECT-OUTPUT:
+// sibling: concurrent
+// captured: done
+// -- done
+// XFAIL: DF-181a output half - Command.output blocks the executor thread in read+waitpid (blocked on DF-182e)
+
+import std.process.*
+import std.task.*
+import std.time.*
+
+static STARVED_MS: UInt64 = 400
+
+func capture_child() -> String {
+    var c = Command(program: "/bin/sh")
+    c.arg("-c")
+    c.arg("sleep 1; echo done")
+    if let out = c.output() {
+        return out.stdout.trim()
+    }
+    "<no output>"
+}
+
+func first_tick(start: Instant) -> UInt64 {
+    start.elapsed().as_millis()
+}
+
+func main() {
+    let start = Instant.now()
+    var group = TaskGroup()
+    let child = group.spawn(capture_child())
+    let sibling = group.spawn(first_tick(start))
+
+    let when = sibling.join()
+    let text = child.join()
+
+    if when < STARVED_MS {
+        print("sibling: concurrent")
+    } else {
+        print("sibling: starved ({when} ms)")
+    }
+    print("captured: {text}")
+    print("-- done")
+}
