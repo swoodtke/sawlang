@@ -15,7 +15,7 @@
 // EXPECT: success
 // EXPECT-OUTPUT:
 // accept: 0 failures over 32 vectors
-// reject: 0 failures over 19 vectors
+// reject: 0 failures over 20 vectors
 
 import std.cbor.{CborEncoder, CborDecoder}
 import std.data.{Data}

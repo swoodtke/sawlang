@@ -3875,6 +3875,66 @@ trait Deserialize {
   out-of-range value, and malformed input must never panic, so the range is
   checked first and the cast that follows cannot trap.
 
+### `std.cbor` — the concrete format
+
+**Status: implemented** (`designs/169-serialize-cbor.md`, `std/cbor.saw`).
+CBOR (RFC 8949) restricted to its **deterministic encoding** profile. The wire
+contract is frozen in `sawc/std/CBOR.md`, and `tools/sawcbor.py` is a second
+implementation of that same document over the `cbor2` library; the blobs under
+`tests/cbor_vectors/` are what the two are held to. Import-required, and present
+in both profiles.
+
+```saw
+import std.cbor.{CborEncoder, CborDecoder}
+
+var enc = CborEncoder()
+try entry.serialize(to: &var enc)
+let blob = try enc.finish()
+
+var dec = try CborDecoder.open(bytes: move blob)
+let back = try LockEntry.deserialize(from: &var dec)
+```
+
+The profile in one list: shortest-form arguments, definite lengths only, map
+keys sorted by their encoded bytes, no floats, no tags, one top-level item. A
+blob outside it is **rejected on decode** rather than tolerated, because
+accepting two spellings of one value would make "the bytes are the value" false.
+A struct is an array of its stored fields in declaration order, not a map of
+names, so nothing is spent encoding names and schema evolution is a v1 non-goal.
+
+- **`CborEncoder`** writes into a growable buffer it owns. `finish()` hands the
+  bytes over and reports `CountMismatch` if an array, map or byte string is
+  still open. An allocation the buffer cannot serve is `EncodeFault.BufferFull`,
+  not a panic, so a value can be encoded under a constrained allocator. Writing
+  a map whose keys are out of order or repeated is `Unsupported`: the profile
+  has no representation for a non-canonical map, so the encoder cannot emit one.
+- **`CborDecoder.open(bytes:max_depth:max_size:max_items:)` validates the whole
+  input before it returns.** Typed reads then run over bytes already known to be
+  well formed. The scan walks an **explicit work stack**, so nesting depth is
+  the stack's height, checked before each descent: the decoder never recurses on
+  input, and a blob nested a hundred thousand deep is refused at the byte where
+  it passed the limit rather than exhausting the call stack. Limits are
+  constructor parameters with hosted defaults (64 levels, 16 MiB, 100000 items);
+  a kernel caller states its own. A container declaring more items than
+  `max_items` is refused at its head, before anything is reserved for it.
+- **No input panics.** The decoder's one allocation is that work stack, sized
+  once at open from `max_depth`. Text is validated as UTF-8 by decoding the
+  bytes in place rather than by building a `String`, so a text item cannot put
+  the scan at the allocator's mercy.
+- **`transcode(to:)`** writes the whole input into any `Encoder`, item by item,
+  re-encoding each from its parsed value rather than copying bytes. Against a
+  `CborEncoder` that yields the canonical spelling of the input, which is what
+  the vector suite checks.
+- **Floats are a decode error in v1.** No Float16, Float32 or Float64 is written
+  and every one is rejected on read. `Float` has no settled serialization, and
+  choosing one here would freeze it into stored blobs. Half- and
+  single-precision stay out permanently under the shortest-form rule, which
+  admits one spelling per value.
+- `encode<T: Serialize>(value:)` is the one-call write. There is **no**
+  `decode<T>` twin: a static trait requirement is not callable on a type
+  parameter yet (DF-169e), so a value is read back through its own type,
+  `LockEntry.deserialize(from: &var dec)`.
+
 ### `Vector.sort` / `sort_by`
 
 **Status: implemented** (`designs/48-ord-hash.md`). In-place **insertion sort**
@@ -5496,7 +5556,8 @@ Not all of std is auto-visible. The **prelude** — the names usable without an
 Everything else in std is **import-required**: `File`, `Directory`, `Path`,
 `Data`, `Channel`, `Mutex`, `Duration`, `Instant`, `IoError`, `Utf8Error`, the
 whole `net` surface (`TcpListener`/`TcpStream`), `yield_now` (std.task —
-design 114), `FixedBuf`/`FixedStringBuilder` (std.fixedbuf), and the
+design 114), `FixedBuf`/`FixedStringBuilder` (std.fixedbuf),
+`CborEncoder`/`CborDecoder` (std.cbor), and the
 `process`/`env`/`time` contents. These stay compiler-known for codegen but are not injected into a
 user namespace without an import of its module. A bare reference to one is a
 clean error ("`TcpStream` is not in the prelude and must be imported") naming
@@ -5743,6 +5804,8 @@ need one of the three [import forms](#imports).
 | `std.process` / `std.env` | `Command`, `ProcessError`, `Env` | no |
 | `std.time` | `Duration`, `Instant` | no |
 | `std.fixedbuf` | `FixedBuf<N>`, `FixedStringBuilder<N>` | no |
+| `std.serde` | `Serialize`, `Deserialize`, `Encoder`, `Decoder`, the error types | yes |
+| `std.cbor` | `CborEncoder`, `CborDecoder`, `encode` | no |
 
 Concurrency has no module of its own beyond those: it is colorless, with no
 thread API and no `async`/`await`. `spawn { ... } -> Task<T>` is the

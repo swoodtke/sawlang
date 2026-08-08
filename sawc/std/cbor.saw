@@ -71,10 +71,10 @@ static MAJOR_SHIFT: Int = 5
 static INFO_MASK: UInt8 = 31u8
 static BYTE_MASK: UInt = 255
 
-// Hosted defaults for the decoder limits. A freestanding caller states its own.
-static DEFAULT_MAX_DEPTH: Int = 64
-static DEFAULT_MAX_SIZE: Int = 16777216
-static DEFAULT_MAX_ITEMS: Int = 100000
+// The hosted defaults for the decoder limits are written as literals in the
+// signatures below, not as statics: a default value is substituted at the CALL
+// site, and a std-module static is not visible there (DF-169i). They are 64
+// levels of nesting, 16 MiB of input, and 100000 items.
 
 // UTF-8 lead and continuation boundaries, from RFC 3629's table.
 static UTF8_ASCII_MAX: UInt8 = 127u8
@@ -250,6 +250,10 @@ public extension CborEncoder {
                 let prev_start = self.levels[last].key_start
                 if prev_start >= 0 {
                     let prev_end = self.levels[last].key_end
+                    // Out of order and repeated collapse into one fault here,
+                    // where the decoder separates NotCanonical from Malformed:
+                    // `EncodeFault` has no pair to map them onto, and either
+                    // way the profile has no representation for the map.
                     if self.compare_out(prev_start, prev_end, start, here) >= 0 {
                         return EncodeError(fault: EncodeFault.Unsupported)
                     }
@@ -276,14 +280,25 @@ public extension CborEncoder {
         if count < 0 {
             return EncodeError(fault: EncodeFault.CountMismatch)
         }
+        let at = self.out.len()
+        // An empty container is a complete item on its own: it opens no level,
+        // so it costs no depth. The decoder's `descend` makes the same call,
+        // and the two must agree or a blob that decodes at a given `max_depth`
+        // would fail to re-encode at that same depth.
+        if owed == 0 {
+            try self.write_head(major, count as UInt)
+            return self.item_done(at)
+        }
         if self.levels.len() >= self.max_depth {
             return EncodeError(fault: EncodeFault.TooDeep)
         }
-        let at = self.out.len()
-        try self.write_head(major, count as UInt)
-        if owed == 0 {
-            return self.item_done(at)
+        // Room for the level BEFORE the head goes out, so a refused allocation
+        // is a fault rather than a panic and leaves no half-written item.
+        match self.levels.try_reserve(1) {
+            case Ok(_) -> {},
+            case Err(_) -> { return EncodeError(fault: EncodeFault.BufferFull) }
         }
+        try self.write_head(major, count as UInt)
         self.levels.push(CborLevel(remaining: owed, is_map: is_map, start: at,
                                    key_start: -1, key_end: -1))
         return
@@ -370,7 +385,9 @@ extension CborEncoder: Encoder {
     }
 
     func begin_map(&var self, count: Int) sync -> Result<Void, EncodeError> {
-        if count > (Int.max / 2) {
+        // Both ends before the doubling: a negative count would overflow it,
+        // and overflow panics, which is the one thing a fault exists to avoid.
+        if count < 0 || count > (Int.max / 2) {
             return EncodeError(fault: EncodeFault.CountMismatch)
         }
         return self.open_container(CborMajor.Map, count, count * 2, true)
@@ -557,7 +574,12 @@ public extension CborDecoder {
             return DecodeError(offset: start, fault: DecodeFault.Malformed)
         }
         let info = b & INFO_MASK
-        if major == CborMajor.Simple {
+        // Neither of these two majors has an argument to parse. Major 7's
+        // additional-info bits ARE the value, and major 6 is outside the
+        // profile whatever its argument says — parsing one would report the
+        // argument's shape (`NotCanonical`, `Truncated`) instead of the tag,
+        // which is the wrong answer for a rule that admits no exceptions.
+        if major == CborMajor.Simple || major == CborMajor.Tag {
             return CborHead(start: start, major: major, arg: info as UInt)
         }
         if info <= INFO_INLINE_MAX {

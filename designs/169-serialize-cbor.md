@@ -1,10 +1,11 @@
 # Design 169 — Serialize/Deserialize + std.cbor (RFC 8949)
 
-**Status: PARTIALLY LANDED (Aug 7). Units 1, 2 and the PYTHON half of unit 5 are
-built and gated on the design-169 worktree branch. Units 3, 4 and 6 are NOT
-started and are deferred to a follow-up dispatch — "169 part 2" — whose
-state-of-the-world is at the bottom of this file. All four decisions below were
-implemented as recommended; nothing was renegotiated.**
+**Status: LANDED (Aug 7). All six units are built. Units 1, 2 and the Python
+half of unit 5 landed first; units 3, 4, 6 and the Saw half of unit 5 landed in
+the "169 part 2" dispatch, whose report is at the bottom of this file. All four
+decisions below were implemented as recommended; nothing was renegotiated. One
+scope call was made inside unit 6 and is flagged there for ratification:
+`Saw.lock` stays TOML on disk.**
 
 ## What landed
 
@@ -21,7 +22,8 @@ implemented as recommended; nothing was renegotiated.**
 - **Unit 5, Python half** — `tools/sawcbor.py` (an independent implementation of
   the profile over `cbor2`), `sawc/std/CBOR.md` (the frozen profile note, the
   rt/ABI.md pattern), and `tests/cbor_vectors/` with 32 accept + 19 reject
-  blobs. `tools/sawcbor.py verify` is green today.
+  blobs. `tools/sawcbor.py verify` is green today. (Part 2 added a 20th reject
+  vector, `tagged_multibyte` — see the landing report.)
 
 Commits, each with the full battery green: `ea13a3e` (DF-169a, the prerequisite
 fix), `95f55c5` (unit 1), `defad53` (unit 2), `17fd67f` (unit 5 Python half).
@@ -144,12 +146,92 @@ byte-compare, and the mirror). Decoder fuzz-shaped rejection tests (truncated,
 over-depth, over-size, shortest-form violations REJECTED on decode per the
 deterministic profile). DF-169x findings for every language pain hit.
 
-## 169 part 2 — the deferred half (units 3, 4, 6)
+## 169 part 2 — what landed (units 3, 4, 6 + the Saw half of 5)
 
-Not started, deliberately: a half-built CBOR codec is worse than none, because
-the vectors would start passing against an implementation that does not yet
-enforce the profile. Whoever picks this up inherits a complete contract and a
-complete seam.
+Two commits. `sawc/std/cbor.saw` is the codec; `blade/src/lock.saw` is the
+migration proof.
+
+**Units 3 and 4 were one job, as decided.** `CborDecoder.open` validates the
+whole input against `max_depth`/`max_size`/`max_items` before it returns, over
+an explicit work stack; typed reads then run on bytes already known to be well
+formed. Depth is the stack's height checked before each descent, so the decoder
+never recurses on input: a blob nested 100000 deep is refused at byte 64 rather
+than exhausting the call stack (`examples/cbor169_limits.saw` boots that case
+every suite run). A container declaring more items than `max_items` is refused
+at its head, so a five-byte blob claiming 4294967295 items costs nothing.
+
+Three properties are worth carrying forward because they cost design effort:
+
+1. **Nothing panics on input, and that had to be built for.** `Data.to_string`
+   would have validated UTF-8 for free, but it allocates a `String` first and
+   `String` has no fallible tier (design 123), so a hostile text item could
+   panic the scan under a tight allocator. `std.cbor` decodes UTF-8 in place
+   instead. The decoder's ONE allocation is its work stack, sized once at open
+   from `max_depth`; on the write side an allocator refusal is
+   `EncodeFault.BufferFull`, reached through `Data.try_reserve`.
+2. **The encoder cannot emit a non-canonical map.** Key order is checked as each
+   key CLOSES, not at its head, because a container key's bytes are only whole
+   once its level pops — the same reason the decoder's check lives in
+   `close_item`. An out-of-order or repeated key is `Unsupported`: the profile
+   genuinely has no representation for that map.
+3. **Floats stay out, and the profile note says why.** Every Float16/32/64 item
+   is `Unsupported` on decode and none is ever written. Half- and single-
+   precision are out permanently under the shortest-form rule; Float64 waits on
+   design 173 (the float family), after which adding it is one major-7 case on
+   each side plus a vector. Nothing about the current bytes changes when it
+   lands, because no blob written today contains a float.
+4. **`transcode(to:)` is what makes a schemaless round-trip expressible.** The
+   seam is typed, so re-encoding an arbitrary blob would otherwise need a
+   dynamic value tree (recursive, and recursion is what unit 4 exists to avoid).
+   Transcoding walks the validated input on the same explicit stack and re-emits
+   each item from its PARSED value, so byte equality proves both halves agree.
+
+**The vector suite gates both implementations.** `examples/cbor169_vectors.saw`
+WALKS `tests/cbor_vectors/` rather than carrying a copy of the case table, so a
+vector added on either side is tested by both with no regeneration step. 32
+accept blobs round-trip byte-identically, 20 reject blobs are refused with the
+fault their sidecar names and a byte offset. Two of the accept vectors —
+`struct_endpoint` and `lock_entry` — ARE derived structs, and the `@synthesize`
+derivation reproduces both blobs byte for byte, which is the tightest available
+check that the Saw side and the `cbor2` side agree about what a struct is.
+
+**One vector was ADDED, taking reject from 19 to 20.** The format did not change
+and no existing blob moved; the suite had a hole. `tagged` covers a tag with an
+INLINE argument, so a reader that parses the argument before judging the major
+reports the argument's shape and passes anyway — which is exactly what the first
+draft of `read_head` did, calling `0xd8 0x05` `NotCanonical` where rule 5 says
+`Unsupported`. `tagged_multibyte` closes it, and both implementations are now
+held to it. Worth noting as a method point: this was found by REVIEW, not by the
+vectors, in a codec that was already green on all 51.
+
+**Unit 6, with one scope call for ratification.** `blade/src/lock.saw` went from
+five parallel `Vector<String>` to `LockEntry { name, version, source, loc, rev }`
+plus `Vector<LockEntry>`, deriving `Serialize`/`Deserialize`; `to_cbor`/
+`from_cbor` are a walk over the record with no hand-written wire code, and
+`blade/tests/lock_cbor.saw` takes a real resolution through CBOR and back inside
+the bootstrap-gated suite (21 tests to 22, green at stage1 and stage2). What was
+NOT done: **`Saw.lock` still writes TOML**. The brief says "re-express one
+hand-rolled wire surface", and the strict reading is that the lock file itself
+becomes CBOR — but a lock file is read in review, three are tracked in this repo
+(`blade/`, `sos/root/`, `sos/tests/faulting-root/`), and turning them into
+binary blobs is a user-visible product decision this brief never states. The
+reversible half was taken: the shape, the derivation and the round-trip are all
+real and gated, and switching the on-disk format later is swapping `serialize`/
+`parse_lock` for `to_cbor`/`from_cbor` at two call sites. If binary was the
+intent, say so and it is a small follow-up.
+
+**Four findings, none fixed here** (DF-169e/f/g/h in the tracker). Two of them
+are one bug in the place lowering seen from opposite sides: a window's closure
+does not capture `self` (DF-169f, an ICE with no source anchor) and will not
+take the address of a NoCopy local (DF-169h, a misleading "cannot copy" anchored
+at the subscript). Both are pinned by cited xfail examples and both would close
+with one fix, which is the highest-value follow-up here. DF-169e is the one that
+bites the DESIGN: a static trait requirement is not callable on a type
+parameter, so `Deserialize` cannot yet be used as the generic bound unit 1 made
+it static to be, and `std.cbor` ships `encode<T: Serialize>` with no `decode<T>`
+twin.
+
+## 169 part 2 — the brief the dispatch inherited
 
 **Where the hooks are.** The derivation mixin is `sawc/typechecker/serde.py`
 (`SerdeMixin`), mixed into `TypeChecker` in `sawc/typechecker/core.py` and driven

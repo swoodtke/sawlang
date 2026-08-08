@@ -661,14 +661,26 @@ Findings raised while building it:
   CoW type ever wants a subscript, splitting `borrows` into read and modify
   bodies is the fix; one type does not justify the language change.
 
-## Design 169 part 2 — std.cbor itself (DEFERRED, ready to dispatch)
+## Design 169 part 2 — std.cbor itself (LANDED, Aug 7)
 
-Units 1 (the trait pair + Encoder/Decoder), 2 (`@synthesize` derivation) and the
-PYTHON half of unit 5 (`tools/sawcbor.py`, `sawc/std/CBOR.md`, the golden
-vectors) LANDED on the design-169 branch. Units 3 (the `std.cbor` encoder +
-decoder in Saw), 4 (decoder limits as constructor parameters) and 6 (the
-migration proof on one site) are NOT started — deliberately, rather than
-half-built. What part 2 inherits:
+All six units are built; the landing report is at the bottom of
+`designs/169-serialize-cbor.md`. `sawc/std/cbor.saw` is the deterministic-profile
+codec (import-required, both profiles): `CborDecoder.open` validates the whole
+input against max_depth/max_size/max_items over an EXPLICIT work stack before
+any typed read runs, so depth is the stack's height and no input reaches the
+call stack — a 100000-deep blob is refused at byte 64. Nothing panics on input:
+UTF-8 is validated in place rather than through a `String`, and the decoder's one
+allocation is the work stack, sized at open. `examples/cbor169_vectors.saw`
+WALKS `tests/cbor_vectors/`, so the 32 accept + 20 reject blobs now gate the Saw
+codec and `tools/sawcbor.py` together, forever, with no regeneration step; the
+`struct_endpoint` and `lock_entry` vectors are reproduced byte for byte by the
+`@synthesize` derivation. Unit 6 moved `blade/src/lock.saw` from five parallel
+`Vector<String>` to `LockEntry` + `Vector<LockEntry>` with both directions
+derived (bootstrap 21 tests to 22, green stage1 + stage2) — but LEFT `Saw.lock`
+as TOML on disk, which is the one scope call wanting user ratification (a lock
+file is read in review and three are tracked here; the switch is two call sites
+if binary was the intent). Findings DF-169e/f/g/h below. The state-of-the-world
+the dispatch inherited follows.
 
 - **The contract is already frozen and already tested.** `sawc/std/CBOR.md` is
   the profile note (the rt/ABI.md pattern), and `tests/cbor_vectors/` holds 32
@@ -826,6 +838,32 @@ half-built. What part 2 inherits:
   harness reaches each entry as a PLACE instead (`entries[i].ext()`, a borrow, so
   the tier never comes up). The two halves of one tier should agree. Repro:
   `.build/scratch/probe_auto_tier_bound.saw`.
+- **DF-169h — a place window refuses a `&var` argument naming a NoCopy LOCAL.**
+  `v[i].serialize(to: &var enc)` over an encoder you just built is ``cannot copy
+  value of type `CborEncoder` which implements NoCopy``, anchored at the
+  SUBSCRIPT, with a `move` hint that would be wrong — the program copies no
+  encoder anywhere. Same lowering as DF-169f from the other side: the window
+  becomes a closure and the local is captured by value instead of having its
+  address taken. Forwarding a `&var` PARAMETER into the same window works, which
+  is exactly why design 169 unit 2's derived `Vector` walk never hit it (its
+  encoder arrives as a parameter) and why this surfaced only in `blade/src/
+  lock.saw`, whose `to_cbor` builds the encoder locally. The spelling that
+  compiles is a value read first (`let entry = lock.entries[i]`), which for a
+  five-String record is five retains rather than a borrow. Two of the four
+  findings in this brief are one bug in the place lowering seen from two sides;
+  fixing the capture would close both. Pinned:
+  `examples/place_nocopy_arg_in_window_xfail.saw`.
+- **DF-169i — a std-module static as a DEFAULT PARAMETER VALUE breaks at the
+  caller, with a bogus anchor.** `public func open(bytes: Data, max_depth: Int =
+  DEFAULT_MAX_DEPTH)` in `sawc/std/cbor.saw` compiles, and so does a call from
+  inside std; a call from a user module is ``undefined variable
+  `DEFAULT_MAX_DEPTH` `` anchored at an unrelated line of the CALLER (the
+  default is substituted at the call site, where std statics are not visible —
+  the known cross-module static gap, design 82). Two things are wrong
+  independently: the visibility gap itself, and a diagnostic that points at
+  whatever line the substitution landed on rather than at the parameter that
+  supplied it. `std.cbor` writes its three limit defaults as literals because of
+  this, with the names in a comment above them.
 
 ## Design 170 — checked integer casts (LANDED, Aug 7)
 

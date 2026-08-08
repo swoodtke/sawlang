@@ -1116,6 +1116,14 @@ The standard library includes:
   a value serializes inside a lock or a kernel. Failures are `Result`:
   `DecodeError` carries the byte offset it stopped at, so malformed input is
   reported rather than panicked on.
+- **std.cbor** (`import std.cbor.{CborEncoder, CborDecoder}`) - CBOR (RFC 8949)
+  in its deterministic encoding profile: shortest-form arguments, definite
+  lengths, sorted map keys, no floats, no tags, one top-level item. Anything
+  outside the profile is rejected on decode, so the bytes are the value.
+  `CborDecoder.open` validates the whole input against `max_depth`/`max_size`/
+  `max_items` before any typed read runs, walking an explicit work stack rather
+  than the call stack - a deeply nested blob is refused at a byte offset instead
+  of exhausting the stack, and no input panics. Floats are a decode error in v1.
 - **Traits** - `Equatable`, `Comparable`, `Hashable`, `Printable`, `Error`,
   `Serialize`, `Deserialize`.
 

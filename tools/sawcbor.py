@@ -327,6 +327,11 @@ REJECT_CASES = [
      "Unsupported"),
     ("float16", bytes([0xf9, 0x3c, 0x00]), "Unsupported"),
     ("tagged", bytes([0xc0, 0x61, 0x61]), "Unsupported"),
+    # A tag whose argument is multi-byte. `tagged` above only covers an inline
+    # argument, so a reader that parses the argument before judging the major
+    # reports the ARGUMENT's shape (here: not shortest-form) and passes the
+    # vectors anyway. Rule 5 admits no exceptions, so the fault is the tag's.
+    ("tagged_multibyte", bytes([0xd8, 0x05]), "Unsupported"),
     ("undefined", bytes([0xf7]), "Unsupported"),
     ("map_unsorted", bytes([0xa2, 0x61, 0x62, 0x01, 0x61, 0x61, 0x02]),
      "NotCanonical"),

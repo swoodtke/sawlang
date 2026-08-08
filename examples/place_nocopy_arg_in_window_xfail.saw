@@ -1,0 +1,56 @@
+// Calling a method on a PLACE and handing it `&var` to a NoCopy LOCAL is
+// refused: ``cannot copy value of type `Sink` which implements NoCopy``,
+// anchored at the subscript, though the program copies no `Sink` anywhere. The
+// place window lowers to a closure and the local is captured by value.
+//
+// A `&var` PARAMETER forwarded into the same window is fine, which is why the
+// design-169 derived `Vector` walk is unaffected: its encoder arrives as a
+// parameter. It is a local that fails, so `v[i].serialize(to: &var enc)` over
+// an encoder you just built does not compile.
+//
+// Intended behavior is below: both spellings feed the same sink.
+// XFAIL: DF-169h a place window refuses a `&var` argument naming a NoCopy local
+// EXPECT: success
+// EXPECT-OUTPUT:
+// forwarded param: 1
+// place receiver: 2
+// value receiver: 3
+
+struct Sink { n: Int }
+
+extension Sink: NoCopy {}
+
+struct Item { code: String }
+
+extension Item {
+    func feed(&self, into: &var Sink) {
+        into.n = into.n + 1
+    }
+}
+
+// A `&var` parameter forwarded into the window: this half already works.
+func feed_all(items: &Vector<Item>, into: &var Sink) {
+    var i = 0
+    while i < items.len() {
+        items[i].feed(into: &var into)
+        i = i + 1
+    }
+}
+
+func main() {
+    var items = Vector<Item>()
+    items.push(Item(code: "a"))
+    var s = Sink(n: 0)
+
+    feed_all(&items, &var s)
+    print("forwarded param: {}", s.n)
+
+    // The receiver is a place and the argument names a NoCopy local.
+    items[0].feed(into: &var s)
+    print("place receiver: {}", s.n)
+
+    // Reading the element out first is what compiles today.
+    let one = items[0]
+    one.feed(into: &var s)
+    print("value receiver: {}", s.n)
+}

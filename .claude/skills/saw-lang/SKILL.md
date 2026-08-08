@@ -762,6 +762,34 @@ v.map<String>({ $0.to_string() })   // the closure's return; explicit still wins
   `begin_array(count:)` is followed by exactly that many items, else
   `CountMismatch`. Narrow ints read back through `read_int_range`/`read_uint_max`
   (a narrowing cast would panic; the range is checked first).
+- **THE FORMAT IS `std.cbor` (design 169 units 3+4)** — CBOR RFC 8949 in its
+  DETERMINISTIC profile, import-required (`import std.cbor.{CborEncoder,
+  CborDecoder}`), both profiles. Frozen contract: `sawc/std/CBOR.md`; golden
+  blobs: `tests/cbor_vectors/` (32 accept + 20 reject, gating the Saw codec AND
+  `tools/sawcbor.py` over `cbor2`).
+  ```saw
+  var enc = CborEncoder()
+  try entry.serialize(to: &var enc)
+  let blob = try enc.finish()          // CountMismatch if an item is still open
+
+  var dec = try CborDecoder.open(bytes: move blob)
+  let back = try LockEntry.deserialize(from: &var dec)
+  ```
+  Shortest-form arguments, definite lengths, map keys sorted by ENCODED BYTES,
+  no floats, no tags, one top-level item — anything else is a DECODE ERROR, not
+  a tolerated alias, so the bytes ARE the value. A struct is an ARRAY of its
+  fields, never a map of names. `open` validates the WHOLE input first (limits
+  `max_depth`/`max_size`/`max_items` are constructor params, hosted defaults
+  64 / 16 MiB / 100000), walking an EXPLICIT work stack — depth is the stack's
+  height, so a hostile blob never reaches the call stack and never panics.
+  FLOATS ARE A DECODE ERROR in v1 (`Float` has no settled serialization).
+  `encode<T: Serialize>(value:)` is the one-call write; there is NO `decode<T>`
+  twin — name the type (`LockEntry.deserialize(from:)`), because a static
+  requirement is not callable on a type parameter yet (DF-169e).
+  GOTCHA: `v[i].serialize(to: &var enc)` over a LOCAL encoder does not compile
+  (DF-169h — the place window will not capture a NoCopy local); read the element
+  out first (`let e = v[i]`) or take the encoder as a `&var` PARAMETER, which is
+  why the derived `Vector` walk is unaffected.
 - Overloads resolve by EXACT types (no conversions), labels
   disambiguate same-type sets (`f(0, value: 4)`). Between platform `Int` and
   `UInt` the EXACT one wins (design 137), so `f(Int)`/`f(UInt)` twins are
@@ -1144,7 +1172,10 @@ import mymodule as mm       // aliasing; `module`/`public`/`package`/`parent`
   `IoError`/`TcpListener`/`TcpStream` (std.net), `Utf8Error` (std.string),
   `yield_now` (std.task — design 114; the wrapper over the stdlib-internal
   cooperative-yield intrinsic), `Command` (std.process), `Env` (std.env),
-  `FixedBuf`/`FixedStringBuilder` (std.fixedbuf — design 148). A bare non-prelude name is a clean
+  `FixedBuf`/`FixedStringBuilder` (std.fixedbuf — design 148),
+  `CborEncoder`/`CborDecoder` (std.cbor — design 169; `std.serde`'s
+  `Serialize`/`Deserialize`/`Encoder`/`Decoder` stay PRELUDE, only the format is
+  gated). A bare non-prelude name is a clean
   error ("`X` is not in the prelude and must be imported") whose hint names all
   three forms — so reach it BARE with `import std.X.*` or `import std.X.{Name}`,
   and `import std.X` alone gives you `X.Name` instead (design 150; the module
