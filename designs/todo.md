@@ -315,6 +315,23 @@ verdict table: `designs/174-optional-generic-sweep.md`. 19 tests landed as
   Clean error rather than an ICE, but a wrong rejection. Test:
   `examples/optional_generic_infer_later_arg_xfail.saw`.
 
+## DECIDED — Aug 7 evening round (user)
+
+- **DF-176b DECIDED: ban a `&var self` method call on a field of a `&self`
+  receiver, with the INTERIOR-MUTABILITY EXEMPTION** — fields of type
+  Atomic / SpinLock / UnsafeMemory (the by-pointer-at-`&self` family) stay
+  callable; everything else is the same error class as 176 unit 13. Joins
+  the next typechecker batch (after 179 integrates — shared surface).
+- **DF-174c DECIDED: implement the `Int??` postfix sugar** (type-position
+  `??` nesting; `Optional<Int?>` remains the generic spelling). Flips the
+  suite's last cited xfail. Same batch.
+- **DF-176a: SKIPPED by choice (user)** — stays filed; the compound
+  spelling (`*=`) is the idiom; the RHS-first-vs-clean-error ruling waits
+  for a real collision.
+- **DF-170a: resolution rides the sleep-API redesign conversation**
+  (user direction: unsigned + unit-typed sleep; shape under discussion).
+  The bare chunking patch is NOT dispatched separately.
+
 ## Design 172 note (branch PARKED for user review; full findings ride the branch)
 
 - **DF-172e CLOSED — "172 part 2" IS DISPATCHABLE.** The decided while{}-Never
