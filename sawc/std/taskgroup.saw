@@ -1584,6 +1584,15 @@ func __bt_depth(tbl: UnsafeConstPointer<UInt8>, index: Int, addr: Int) unsafe ->
     var depth = 0
     while depth < BT_MAX_DEPTH {
         depth = depth + 1
+        // Bound the index BEFORE reading through it: `__bt_state_of` computes a
+        // record offset from it and then dereferences the frame at that offset,
+        // so an index the table does not describe is a wild read — and this is
+        // the panic path, where a wild read replaces a diagnosable failure with
+        // an undiagnosable one. A frame whose `__bt_desc` was never patched
+        // answers -1, which lands exactly here.
+        if not __bt_known_frame(tbl, i) {
+            return depth
+        }
         let rec = __bt_state_rec(tbl, i, __bt_state_of(tbl, i, a))
         if rec < 0 {
             return depth
@@ -1612,6 +1621,9 @@ func __bt_emit_frame(tbl: UnsafeConstPointer<UInt8>, index: Int, addr: Int,
     var a = addr
     var step = 0
     while step < want {
+        if not __bt_known_frame(tbl, i) {   // see `__bt_depth`
+            return
+        }
         let rec = __bt_state_rec(tbl, i, __bt_state_of(tbl, i, a))
         if rec < 0 {
             return
@@ -1688,7 +1700,7 @@ func __bt_emit_status(g: UnsafePointer<TaskGroup>, slot: Int) unsafe {
 }
 
 /// How many tasks are live right now, across every group and both engines.
-public func __saw_bt_live_count() unsafe -> Int {
+func __saw_bt_live_count() unsafe -> Int {
     var count = 0
     var cur = __saw_bt_head.load()
     var groups = 0
@@ -1776,7 +1788,7 @@ public func __saw_bt_dump() unsafe {
 /// One flag guards re-entry: a panic raised BY the walk — a bounds check, a
 /// half-written frame — reports itself through the plain seam instead of
 /// re-entering the walk that raised it.
-public func __saw_bt_panic(message: UnsafePointer<Int8>, length: Int) unsafe -> Never {
+func __saw_bt_panic(message: UnsafePointer<Int8>, length: Int) unsafe -> Never {
     if __saw_bt_dumping.load() != 0 {
         __saw_rt_panic(message, length)
     }
