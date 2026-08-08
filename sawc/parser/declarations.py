@@ -262,7 +262,13 @@ class DeclarationsMixin:
                 value_tok = self.expect(
                     TokenType.INT,
                     "Expected an integer literal for the enum case's raw value")
-                raw_value = -int(value_tok.value) if negative else int(value_tok.value)
+                # DF-185a: through the shared decoder, not `int()`. An INT
+                # token keeps its canonical text, prefix and all, so a hex or
+                # binary raw value — `case Debug = 0x100`, the way a wire table
+                # is actually written — died here as an uncaught
+                # `invalid literal for int() with base 10: '0x100'`.
+                magnitude = self._decode_int_literal(value_tok.value)
+                raw_value = -magnitude if negative else magnitude
 
             variants.append(EnumVariant(name=variant_name,
                                         associated_types=associated_types,
