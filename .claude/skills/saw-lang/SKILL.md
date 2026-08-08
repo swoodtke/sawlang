@@ -38,9 +38,16 @@ print("{#file}:{#line} - msg")  // #file/#line/#function: definition-site consts
   body they report the ORIGINAL source line/name (not the coroutine frame's).
   `#` takes only these three — any other `#name` is a lex error.
 - Everything is an expression (if/match/while/blocks yield values;
-  `break v` from an infinite `while {}` yields `T` directly — must break;
+  `break v` from an infinite `while {}` yields `T` directly;
   from a conditional while/for it yields `T?`).
 - `for i in 0..5` / `0..=5`; `while cond {}` / infinite `while {}`.
+- **A conditionless `while {}` with NO `break` types `Never`** (design 177) —
+  it diverges exactly like `panic(...)`, so `func halt() -> Never { while { } }`
+  is the halt spelling, a diverging tail satisfies any `-> T`, the code after it
+  is unreachable, and it is a valid `guard ... else` exit. Judged per loop: a
+  `break` in a NESTED loop leaves the outer one diverging, and a `return` is not
+  a break. **`while true {}` is EXCLUDED** and keeps its old typing — write the
+  conditionless form when you mean "this never returns".
 - Integer literals: `0xFF`, `0b1010`, `1_000_000`, fixed-width
   suffixes `255u8`/`1_000i32` (exact-typed, range-checked). A bare
   (unsuffixed) literal adopts a fixed-width EXPECTED type wherever one

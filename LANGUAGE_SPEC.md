@@ -420,7 +420,8 @@ A handful of functions are compiler-known (no import needed):
   its type is `Never`, so a function ending in `panic(...)` needs no return
   value, and `guard let x = … else { panic(…) }` is a valid diverging exit. The
   abort message carries the source location — `panic at FILE:LINE: {message}`
-  (design 69).
+  (design 69). A conditionless `while { }` with no `break` diverges on the same
+  terms and needs no abort ([Diverging loops](#diverging-loops)).
 - `assert(cond: Bool, message)` — a no-op when `cond` is true; when
   false it panics with the same unified location format,
   `panic at FILE:LINE: assertion failed: {message}` (design 69). `debug_assert`
@@ -534,6 +535,58 @@ func process(input: String?) {
 }
 ```
 
+#### Diverging loops
+
+A conditionless `while { ... }` whose body contains no `break` **diverges**: no
+path leaves it through its exit edge, so control never continues past the loop.
+Its type is `Never`, the same bottom type `panic(...)` has (design 177). A
+function whose body ends in one therefore satisfies `-> Never`, and satisfies
+any other declared return type as well, since `Never` is assignable to
+everything.
+
+```saw
+// A halt: no `break`, no `return`, no value owed.
+func halt() -> Never {
+    while { }
+}
+
+// Never flows to everything, so this satisfies `-> Int` with no value in sight.
+func pick(n: Int) -> Int {
+    if n > 0 {
+        return n
+    }
+    while { }
+}
+```
+
+Everything that follows from divergence follows the way it does for
+`panic(...)`. Code written after the loop is unreachable, and is still checked
+where it stands. A diverging loop is a valid `guard` exit
+(`guard let v = o else { while { } }`). A `match`/`if` branch that is one
+contributes no type to the branch join.
+
+Two boundaries decide whether a loop diverges.
+
+**A `break` anywhere in the loop's own body cancels it**, valued or not, and
+every break form keeps the typing it already had: `break v` out of an infinite
+loop yields `T`, out of a conditional loop `T?`. The break belongs to the
+innermost loop enclosing it, so one inside a NESTED loop leaves the outer
+conditionless loop diverging. A `return` is not a break — a loop whose only
+exits are returns still diverges, because nothing continues past the loop
+itself.
+
+**`while true { ... }` is excluded** and keeps today's typing. The conditionless
+form is the deliberate "this diverges" spelling; a literal `true` condition
+stays an ordinary loop that a later edit may falsify, and the compiler does not
+read the condition to decide a type.
+
+```saw
+func spin() -> Never {
+    while true { }
+    // error: function `spin` should return `Never` but body has no value
+}
+```
+
 ---
 
 ## 3. Type System
@@ -553,11 +606,14 @@ are **implemented** (see Traits). Stdlib methods used only to illustrate (e.g.
 Common types — `Int`, `UInt`, the sized `Int8`…`Int64`/`UInt8`…`UInt64`,
 `Float`/`Float64`, `Bool`, and `String` — are implemented. `Int128`/`UInt128`,
 `Float32`, and `Char` are *planned*. `Never` (the bottom type) is the type of a
-diverging `panic(...)` (design 49) and is spellable as a return type
-(`func boom() -> Never`; `@export`'s `_start` shape lowers it to `void` +
-noreturn, design 58). An expression of type `Never` is assignable to any
-expected type, so a function body that ends in `panic(...)` needs no return
-value, and a `panic` arm/branch contributes no type to a `match`/`if`.
+diverging expression and is spellable as a return type (`func boom() -> Never`;
+`@export`'s `_start` shape lowers it to `void` + noreturn, design 58). Two
+expressions have it: `panic(...)` (design 49) and a conditionless
+`while { ... }` with no `break` (design 177, see
+[Diverging loops](#diverging-loops)). An expression of type
+`Never` is assignable to any expected type, so a function body that ends in one
+needs no return value, and such an arm/branch contributes no type to a
+`match`/`if`.
 
 ```saw
 // Integers
@@ -576,7 +632,8 @@ Float       // Alias for Float64
 Bool        // true, false
 Char        // (planned) Unicode scalar value — today a scalar is just an Int
 String      // Immutable, refcounted byte string (see "String" below)
-Never       // Bottom type (a diverging `panic`; usable as a return type)
+Never       // Bottom type (a diverging `panic` or `while { }` with no `break`;
+            // usable as a return type)
 ```
 
 **`Int`/`UInt` are pointer-width** (Swift's model, design 47): 64-bit on
