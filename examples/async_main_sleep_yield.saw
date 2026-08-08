@@ -1,5 +1,5 @@
 // design 45 items 1 + 4: a suspending `main` and the real cooperative
-// primitives. `main` calls `sleep(ms)` and `yield_now()` -- both real suspension
+// primitives. `main` calls `sleep(d)` and `yield_now()` -- both real suspension
 // points -- so the compiler infers `main` suspending and wraps it in the entry
 // executor with NO user-visible plumbing. The executor drives main's frame,
 // honouring each wake reason (a `sleep` parks the thread; a `yield_now` resumes
@@ -13,7 +13,7 @@
 import std.task.*
 func main() {
     print(1)
-    sleep(5)        // real timed suspension: executor parks 5ms, then resumes
+    sleep(Duration.ms(5))   // real timed suspension: executor parks 5ms, then resumes
     print(2)
     yield_now()     // cooperative yield: executor resumes immediately
     print(3)

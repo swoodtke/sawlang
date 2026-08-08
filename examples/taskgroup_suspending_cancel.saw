@@ -24,7 +24,7 @@ func orchestrate() -> Int {
     var group = TaskGroup()
     let h = group.spawn(child())
     h.cancel()               // set before the group is driven
-    sleep(1)                 // parent suspends between spawn and join
+    sleep(Duration.ms(1))    // parent suspends between spawn and join
     return h.join()          // child observes cancel at its first check -> 0
 }
 

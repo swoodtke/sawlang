@@ -30,7 +30,7 @@ func main() {
     var i = 0
     while i < 3 {
         print(i)                     // 0,1,2 print while the worker is blocked
-        sleep(10)
+        sleep(Duration.ms(10))
         i = i + 1
     }
     print(h.join())                  // 61 (the worker's offload finished last)

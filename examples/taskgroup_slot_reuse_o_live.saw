@@ -50,7 +50,7 @@ func main() {
         if held > peak {
             peak = held
         }
-        sleep(1)          // park main; the sweep runs the wave to completion
+        sleep(Duration.ms(1))   // park main; the sweep runs the wave to completion
         wave = wave + 1
     }
     print("peak {peak}")

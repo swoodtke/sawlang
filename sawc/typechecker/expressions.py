@@ -2985,22 +2985,29 @@ class ExpressionsMixin:
                 self._check_expression(expr.arguments[0].value)
             return SawType(TypeKind.INT)
         if expr.name == "sleep":
-            # design 45 item 4: cooperative timed wait — a suspension point that
-            # carries a "sleep for N ms" wake reason. The executor sleeps that long
-            # (the simplest correct hosted timer) before resuming. Takes one Int
-            # (milliseconds); returns Void.
+            # design 45 item 4 / design 180: cooperative timed wait — a
+            # suspension point carrying a "sleep this long" wake reason the
+            # executor honours before resuming. Takes exactly one `Duration`
+            # (prelude, std/duration.saw); returns Void. The bare-Int form is
+            # GONE: a naked number carries no unit, and the one it silently
+            # meant could not express a span past about 35 minutes (DF-170a).
+            hint = ("a span is a `Duration`: `sleep(Duration.ms(200))`, or "
+                    "`Duration.ns` / `us` / `secs`")
             if len(expr.arguments) != 1 or expr.arguments[0].name is not None:
                 self._error(
                     ErrorKind.WRONG_ARGUMENT_COUNT,
-                    f"`sleep` takes exactly one positional Int argument "
-                    f"(milliseconds)", expr.line, expr.column)
+                    f"`sleep` takes exactly one positional `Duration` argument",
+                    expr.line, expr.column, hint=hint)
             else:
-                ms_type = self._check_expression(expr.arguments[0].value)
-                if ms_type is not None and self._get_underlying_type(ms_type).kind != TypeKind.INT:
-                    self._error(
-                        ErrorKind.TYPE_MISMATCH,
-                        f"`sleep` expects an Int (milliseconds), got `{ms_type}`",
-                        expr.line, expr.column)
+                arg_type = self._check_expression(expr.arguments[0].value)
+                if arg_type is not None:
+                    resolved = self._get_underlying_type(arg_type)
+                    if not (resolved.kind == TypeKind.STRUCT
+                            and resolved.struct_name == "Duration"):
+                        self._error(
+                            ErrorKind.TYPE_MISMATCH,
+                            f"`sleep` expects a `Duration`, got `{arg_type}`",
+                            expr.line, expr.column, hint=hint)
             self._effect_direct_source("sleep", expr.line)
             return SawType(TypeKind.VOID)
         if expr.name == "__saw_box_data":

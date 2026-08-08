@@ -16,9 +16,12 @@
 //                   the frame: `TaskHandle` points here, never into the frame.
 //   * `done`      — per-task completion; a Done frame is never resumed again (its
 //                   dispatch loop is guarded but re-resuming would busy-spin).
-//   * `remaining` — ms until this task should next resume: 0 = ready now (yield /
-//                   channel-retry), >0 = sleeping. Earliest-deadline scheduling
-//                   over relative sleeps (no wall clock needed).
+//   * `remaining` — NANOSECONDS until this task should next resume: 0 = ready now
+//                   (yield / channel-retry), >0 = sleeping. Earliest-deadline
+//                   scheduling over relative sleeps (no wall clock needed).
+//                   Nanoseconds since design 180, following `Duration`, which is
+//                   what `sleep` takes; the reactor poll's millisecond timeout is
+//                   a conversion at that one boundary (`__saw_exec_poll_ms`).
 //
 // COEXISTENCE (design 21b): the DEFAULT `TaskGroup()` is the COOPERATIVE
 // single-threaded engine — tasks are stackless coroutine frames driven on the
@@ -77,7 +80,7 @@ extern "C" {
     // its cancel flag.
     func __saw_rt_reactor_wake(r: Int)
 
-    // design 45 / 118 / 180: the host timer seam. `__saw_exec_sleep` (below)
+    // design 45 / 118 / 180: the host timer seam. `__saw_exec_sleep_ns` (below)
     // wraps it as the executor's OWN (non-suspending) blocking sleep — used to
     // honour a task's sleep wake reason and to nap between MT-worker re-scans.
     // Nanoseconds, read as unsigned, chunked to libc's bound inside the body.
@@ -153,31 +156,46 @@ func __saw_host_reactor() -> SystemReactor {
     SystemReactor(instance: __saw_reactor_instance.load())
 }
 
-static NANOS_PER_MILLI: UInt64 = 1000000
+static NANOS_PER_MILLI: Int = 1000000
+// The MT worker's back-off nap when a peer is mid-resume, and its poll cap.
+static BACKOFF_NANOS: Int = 1000000
+static MT_POLL_CAP_NANOS: Int = 50000000
 
 // design 118 stage 2: the executor's timer park, promoted from a codegen
-// intrinsic to a real Saw function over the `__saw_rt_sleep_ns` seam. The
-// single-frame entry executor (`__saw_exec_park`), the MT worker back-off, and
-// the pure-sleep clock advance all call it. NOT a suspension source — the
-// executor itself never suspends; it blocks the OS thread for real.
-func __saw_exec_sleep(ms: Int) {
-    if ms > 0 {
-        __saw_rt_sleep_ns((ms as UInt64) * NANOS_PER_MILLI)
+// intrinsic to a real Saw function over the `__saw_rt_sleep_ns` seam. NOT a
+// suspension source — the executor itself never suspends; it blocks the OS
+// thread for real, and nothing can cut the wait short. Design 180 unit 5 moved
+// every park the executor might need to ABANDON onto the reactor poll, so what
+// is left here is the MT back-off nap and the no-reactor fallback.
+func __saw_exec_sleep_ns(ns: Int) {
+    if ns > 0 {
+        __saw_rt_sleep_ns(ns as UInt64)
     }
+}
+
+// A nanosecond deadline as the reactor poll's millisecond timeout, rounded UP:
+// a poll that returns before the deadline just re-parks, but one that returns
+// after it has overslept the earliest sleeper. A negative deadline (nothing is
+// sleeping) passes through as the reactor's "block indefinitely".
+func __saw_exec_poll_ms(ns: Int) -> Int {
+    if ns < 0 {
+        return -1
+    }
+    (ns + NANOS_PER_MILLI - 1) / NANOS_PER_MILLI
 }
 
 // design 118 stage 2: the single-frame drive's park POLICY, carved out of the
 // synthesized entry executor (`_make_entry_executor`) so the compiler emits no
 // park body — only `resume` + this one call. Given a just-returned frame's
-// `__wake` reason: a positive value is a sleep-ms deadline (there is no other
-// task or timer to honour in a single-frame drive, so park the thread that
-// long); a negative value is an io-park (block in the reactor until the fd the
-// frame registered is ready — infinite timeout, again nothing else to honour);
-// zero is a plain yield (resume at once). Stage 3 routes the reactor poll here
-// through the `Reactor` trait.
+// `__wake` reason: a positive value is a sleep deadline in NANOSECONDS (design
+// 180; there is no other task or timer to honour in a single-frame drive, so
+// park the thread that long); a negative value is an io-park (block in the
+// reactor until the fd the frame registered is ready — infinite timeout, again
+// nothing else to honour); zero is a plain yield (resume at once). Stage 3
+// routes the reactor poll here through the `Reactor` trait.
 func __saw_exec_park(wake: Int) {
     if wake > 0 {
-        __saw_exec_sleep(wake)
+        __saw_exec_sleep_ns(wake)
     } else if wake < 0 {
         let _ = __saw_host_reactor().poll(-1)
     }
@@ -313,7 +331,7 @@ struct TaskGroup {
 // inference is future work) and the frame's `__Poll` is not user-nameable, so
 // the executor's scoped borrow returns this trivial (Copy) struct instead of
 // matching `__Poll` inside the closure. `done` = the frame finished; otherwise
-// `wake` is its `__wake_reason` (0 = ready, >0 = sleep ms, <0 = io-parked).
+// `wake` is its `__wake_reason` (0 = ready, >0 = sleep nanoseconds, <0 = io-parked).
 struct __ResumeOutcome {
     done: Bool
     wake: Int
@@ -668,7 +686,7 @@ func __saw_exec_worker(addr: Int) unsafe {
                         // a task ready. Back off briefly and re-scan (no cond var —
                         // spin+nap keeps the executor free of lost-wakeup bugs).
                         let _ = pthread_mutex_unlock(lk)
-                        __saw_exec_sleep(1)
+                        __saw_exec_sleep_ns(BACKOFF_NANOS)
                     } else if anyio {
                         // design 76 (A4) MT reactor integration (CHOICE: poll on an
                         // idle worker with a BOUNDED timeout — earliest sleep
@@ -684,10 +702,10 @@ func __saw_exec_worker(addr: Int) unsafe {
                         // the `with_var_ref` borrow never races a peer worker.
                         var tmo = minrem
                         if tmo < 0 {
-                            tmo = 50
+                            tmo = MT_POLL_CAP_NANOS
                         }
                         let _ = pthread_mutex_unlock(lk)
-                        let events = __saw_host_reactor().poll(tmo)
+                        let events = __saw_host_reactor().poll(__saw_exec_poll_ms(tmo))
                         pthread_mutex_lock(lk)
                         var k = 0
                         while k < n {
@@ -722,7 +740,7 @@ func __saw_exec_worker(addr: Int) unsafe {
                         // can claim while we hold it, and none is running), then
                         // subtract it from all sleepers so the shortest wakes first.
                         if minrem > 0 {
-                            __saw_exec_sleep(minrem)
+                            __saw_exec_sleep_ns(minrem)
                         }
                         var j = 0
                         while j < n {
@@ -1227,12 +1245,12 @@ func __saw_exec_run(term_group: Int, term_slot: Int, term_gen: Int) unsafe {
                 // instead of blocking in poll on an event that will never come.
                 __saw_exec_wake_io(1, deadline)
             } else {
-                let events = __saw_host_reactor().poll(deadline)
+                let events = __saw_host_reactor().poll(__saw_exec_poll_ms(deadline))
                 __saw_exec_wake_io(events, deadline)
             }
         } else {
             if deadline > 0 {
-                __saw_exec_sleep(deadline)
+                __saw_exec_sleep_ns(deadline)
             }
             __saw_exec_advance_sleep(deadline)
         }

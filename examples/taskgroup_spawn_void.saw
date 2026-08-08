@@ -11,7 +11,7 @@
 static COUNTER: Atomic<Int> = Atomic(0)
 
 func bump(times: Int) {
-    sleep(1)
+    sleep(Duration.ms(1))
     var i = 0
     while i < times {
         COUNTER.fetch_add(1)

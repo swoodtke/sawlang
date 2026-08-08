@@ -8,17 +8,17 @@
 // 6
 
 import std.task.*
-func napper(ms: Int, val: Int) -> Int {
-    sleep(ms)
+func napper(nap: Duration, val: Int) -> Int {
+    sleep(nap)
     yield_now()
-    sleep(ms)
+    sleep(nap)
     val
 }
 
 func main() {
     var group = TaskGroup(threads: 3)
-    let a = group.spawn(napper(5, 1))
-    let b = group.spawn(napper(10, 2))
-    let c = group.spawn(napper(15, 3))
+    let a = group.spawn(napper(Duration.ms(5), 1))
+    let b = group.spawn(napper(Duration.ms(10), 2))
+    let c = group.spawn(napper(Duration.ms(15), 3))
     print(a.join() + b.join() + c.join())   // 1 + 2 + 3 = 6
 }

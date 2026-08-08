@@ -102,6 +102,21 @@ extension Duration {
     }
 }
 
+// The executor's wake-reason projection (design 180). A suspended frame carries
+// its deadline in a platform-Int `__wake` word, so a span past `Int.max`
+// nanoseconds — about 292 years on a 64-bit host — saturates there. Both values
+// mean the task is not coming back and no observer can tell them apart, whereas
+// refusing the span would make `sleep` panic on a `Duration` the type is happy
+// to hold. The coroutine transform emits this call; nothing else calls it, and
+// user code cannot (the lexer reserves the `__saw_` prefix).
+func __saw_wake_nanos(d: Duration) -> Int {
+    let ns = d.as_nanos()
+    if ns >= (Int.max as UInt64) {
+        return Int.max
+    }
+    ns as Int
+}
+
 // Duration is a trivial (POD) struct, so it auto-conforms to Equatable; the
 // `@synthesize`d compare runs over the single `nanos` field, i.e. numeric order.
 /// Durations order by length.

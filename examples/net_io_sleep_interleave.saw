@@ -28,7 +28,7 @@ func reader(fd: Int) unsafe -> Int {
 }
 
 func writer(fd: Int) unsafe -> Int {
-    sleep(10)                       // the reactor poll must honour this deadline
+    sleep(Duration.ms(10))          // the reactor poll must honour this deadline
     let msg = net_buffer(5)
     msg[0] = 104 as Int8
     msg[1] = 101 as Int8

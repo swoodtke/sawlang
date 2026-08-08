@@ -5,7 +5,7 @@
 
 @export
 func worker() {
-    sleep(1)
+    sleep(Duration.ms(1))
 }
 
 func main() { print(1) }

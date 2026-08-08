@@ -29,7 +29,7 @@ func orchestrate() -> Int {
     var group = TaskGroup()
     let h1 = group.spawn(child(1))
     let h2 = group.spawn(child(2))
-    sleep(2)                // parent suspends; children not yet driven
+    sleep(Duration.ms(2))   // parent suspends; children not yet driven
     return 7                // no join: group Deinit drains both at scope exit
 }
 

@@ -114,7 +114,7 @@
 
 /// Suspends: sleeps before answering.
 public func nap(ms: Int) -> Int {
-    sleep(ms)
+    sleep(Duration.ms(ms as UInt64))
     ms
 }
 

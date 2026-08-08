@@ -18,7 +18,7 @@ func orchestrate(base: Int) -> Int {
     var group = TaskGroup()
     let h1 = group.spawn(child(base))
     let h2 = group.spawn(child(base + 1))
-    sleep(1)                            // parent suspends between spawn and join
+    sleep(Duration.ms(1))               // parent suspends between spawn and join
     return h1.join() + h2.join()        // child(10)=20 + child(11)=22 = 42
 }
 

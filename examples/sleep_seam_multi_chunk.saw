@@ -16,7 +16,7 @@ static REQUESTED_MS: UInt64 = 1200
 
 func main() {
     let t = Instant.now()
-    sleep(1200)
+    sleep(Duration.ms(REQUESTED_MS))
     let e = t.elapsed()
     print("slept at least the whole span: {e.as_millis() >= REQUESTED_MS}")
     // A wrap would land in the low milliseconds, not merely early.

@@ -19,7 +19,7 @@ func inner(base: Int) -> Int {
     var g = TaskGroup()
     let a = g.spawn(leaf(base))
     let b = g.spawn(leaf(base + 1))
-    sleep(1)
+    sleep(Duration.ms(1))
     return a.join() + b.join()       // 2*base + 2*(base+1)
 }
 

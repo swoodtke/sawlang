@@ -22,7 +22,7 @@ func run_tasks() -> Int {
 
 func main() {
     print(1)
-    sleep(3)                // main suspends -> entry executor
+    sleep(Duration.ms(3))   // main suspends -> entry executor
     print(run_tasks())      // 42
     yield_now()
     print(2)

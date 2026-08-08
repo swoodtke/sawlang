@@ -568,11 +568,12 @@ Emitted as Saw AST by `coro_transform.py` or as IR by `codegen/`:
   state machine; the `__wake_reason()->Int` and `__is_cancelled()->Bool`
   read accessors; the `Resumable` conformance (vtable for `Box<any Resumable>`
   erasure). A suspension is just `__wake=<reason>; __state=<n>; return Pending`
-  — no executor call. Wake reason: `>0` sleep-ms, `0` yield/ready, `-1`
+  — no executor call. Wake reason: `>0` sleep NANOSECONDS (design 180), `0`
+  yield/ready, `-1`
   (`IO_PARK_WAKE`) io-parked.
 - **Entry executor** — a suspending `main` is replaced by a synthesized `main`:
   - no spawns → `_make_entry_executor`: an INLINE drive loop over main's own
-    stack frame that on `Pending` calls `__saw_exec_sleep(ms)` (wake>0) or
+    stack frame that on `Pending` calls `__saw_exec_sleep_ns(ns)` (wake>0) or
     `__saw_rt_reactor_poll(-1)` (wake<0) or resumes at once (wake==0).
   - spawns → `_make_ambient_entry_executor`: box main erased, call
     `__saw_exec_run_root(box)` (Saw).
@@ -615,7 +616,7 @@ list, design 134), the ambient scheduler
 `__saw_exec_run_root`, the MT fork-join drain `__drain_mt`/`__saw_exec_worker`,
 `TaskHandle`/`VoidTaskHandle` `join`/`cancel`/`cancel_addr`, `yield_now`, and
 the `Task<T>` join/deinit. These call the reactor externs
-(`__saw_rt_reactor_poll`, `__saw_rt_reactor_wake`) and `__saw_exec_sleep`
+(`__saw_rt_reactor_poll`, `__saw_rt_reactor_wake`) and `__saw_exec_sleep_ns`
 DIRECTLY today — those direct calls are exactly what stage 3 routes through the
 `Reactor` trait.
 
@@ -634,7 +635,7 @@ frame code + these calls.
 | drive/park (single-frame) | `__saw_exec_park(wake: Int)`             | stage 2 ✓ — carved the `_make_entry_executor` `Pending` body into this one Saw call (wake>0 → sleep; wake<0 → reactor poll -1; 0 → return). The trivial resume-until-done loop STAYS synthesized (lead pin: the design-45 allocation-free fast path is contract, and post-carve the loop carries zero policy). |
 | park (io) | `__saw_exec_io_register(fd: Int, dir: Int, token: Int)`  | stage 2 ✓ — Saw wrapper the `io_wait`/offload park lowerings + the outside-frame `io_wait` codegen path call instead of the raw `__saw_rt_reactor_register` extern |
 | wake     | `__saw_exec_reactor_wake()`                                | stage 2 ✓ — Saw wrapper over `__saw_rt_reactor_wake` (`TaskHandle`/`VoidTaskHandle.cancel` call it) |
-| sleep    | `__saw_exec_sleep(ms: Int)`                                | stage 2 ✓ — promoted from a codegen intrinsic to a real Saw fn over `__saw_rt_sleep_ns` |
+| sleep    | `__saw_exec_sleep_ns(ns: Int)`                             | stage 2 ✓ — promoted from a codegen intrinsic to a real Saw fn over `__saw_rt_sleep_ns`. Design 180 moved the unit to nanoseconds (the executor's whole deadline bookkeeping follows `Duration`) and moved every ABANDONABLE park off it onto the reactor poll. |
 
 `spawn` itself stays the synthesized `__spawn_<f>` helper (frame-shaped, cannot
 be generic-erased) whose executor touches are `__enqueue` and the `__gen_at`
@@ -644,14 +645,14 @@ thread engine's only executor touch is `__saw_rt_thread_spawn`/`_join`
 
 **Why these:** every reactor/timer touch by synthesized IR OR by the existing
 Saw executor is funnelled through `__saw_exec_park` / `__saw_exec_io_register` /
-`__saw_exec_reactor_wake` / `__saw_exec_sleep` and the poll inside `__saw_exec_run`. Stage
+`__saw_exec_reactor_wake` / `__saw_exec_sleep_ns` and the poll inside `__saw_exec_run`. Stage
 3 then swaps ONLY those bodies to dispatch through a `Reactor` trait object held
 as the executor's singleton (replacing the compiler-injected `__saw_reactor()`
 instance), without touching a single synthesized call site.
 
 ### Stage carve plan (each lands suite-green)
 
-- **Stage 2 (ST core) — LANDED:** added `__saw_exec_park`/`__saw_exec_sleep` (Saw);
+- **Stage 2 (ST core) — LANDED:** added `__saw_exec_park`/`__saw_exec_sleep_ns` (Saw);
   `_make_entry_executor`'s `Pending` arm now calls `__saw_exec_park(__f.__wake)`;
   the resume-until-done loop STAYS synthesized (lead pin — do NOT box main onto
   `__saw_exec_run_root`; the design-45 allocation-free fast path is part of the

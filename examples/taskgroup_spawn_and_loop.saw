@@ -17,7 +17,7 @@ func child() -> Int {
     var i = 100
     while i < 103 {
         print(i)
-        sleep(10)
+        sleep(Duration.ms(10))
         i = i + 1
     }
     return 7
@@ -29,7 +29,7 @@ func main() {
     var i = 0
     while i < 3 {
         print(i)
-        sleep(10)
+        sleep(Duration.ms(10))
         i = i + 1
     }
     print(h.join())

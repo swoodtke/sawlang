@@ -28,7 +28,7 @@ func main() {
     var group = TaskGroup()
     let _h = group.spawn(producer(77))
     // Drive the task to completion without taking its result.
-    sleep(1)
+    sleep(Duration.ms(1))
     print(1)
     // group teardown: the unconsumed result drops exactly once
 }

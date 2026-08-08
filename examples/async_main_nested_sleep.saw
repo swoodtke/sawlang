@@ -15,7 +15,7 @@
 import std.task.*
 func step(label: Int) -> Int {
     print(label)
-    sleep(3)         // wake reason propagates step -> run -> main -> executor
+    sleep(Duration.ms(3))   // wake reason propagates step -> run -> main -> executor
     label + 1
 }
 

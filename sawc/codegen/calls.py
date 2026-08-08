@@ -344,14 +344,16 @@ class CallsMixin:
             return self.builder.call(self.functions[shim], [job], name="blkr")
         # The design-45 `sleep(ms)` primitive reached as a plain (non-suspending)
         # call — no executor to hand back to, so park the OS thread for real via the
-        # timer seam. (design 118 stage 2: `__saw_exec_sleep` is no longer an
+        # timer seam. (design 118 stage 2: `__saw_exec_sleep_ns` is no longer an
         # intrinsic here — it is a real Saw function in std/taskgroup.saw over this
         # same seam, so it resolves through the ordinary call path.)
         if expr.name == "sleep":
-            ms = self._generate_expression(expr.arguments[0].value)
-            ns = self.builder.mul(
-                self.builder.sext(ms, ir.IntType(64)) if ms.type.width < 64 else ms,
-                ir.Constant(ir.IntType(64), 1000000), name="sleepns")
+            # design 180: the argument is a `Duration`, one u64 nanosecond field.
+            # Read the field rather than calling `as_nanos` — this path is not
+            # under the coroutine transform, so there is no re-typecheck to
+            # resolve a synthesized method call against.
+            dur = self._generate_expression(expr.arguments[0].value)
+            ns = self.builder.extract_value(dur, 0, name="sleepns")
             self.builder.call(self.functions["__saw_rt_sleep_ns"], [ns])
             return None
 

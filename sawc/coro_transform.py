@@ -92,11 +92,11 @@ def _poll(variant):
 
 
 # The suspension-boundary intrinsics: `__saw_suspend` (test-only synthetic), and the
-# real primitives `yield_now()` (immediately re-ready) and `sleep(ms)` (timed).
+# real primitives `yield_now()` (immediately re-ready) and `sleep(d)` (timed).
 _SUSPEND_CALLS = ("__saw_suspend", "yield_now", "sleep", "__saw_io_park", "io_wait")
 
 # design 76 (A4): the IO-park wake reason. A negative sentinel distinct from the
-# `sleep(ms)` (>0) and yield/channel-retry (0) reasons: the executor parks in the
+# `sleep(d)` (>0) and yield/channel-retry (0) reasons: the executor parks in the
 # reactor (kqueue/epoll) rather than sleeping or busy-requeuing.
 IO_PARK_WAKE = -1
 
@@ -117,11 +117,19 @@ def _is_suspend_stmt(stmt):
 
 def _wake_expr(stmt):
     """The wake reason a suspension carries, stored in the frame's `__wake` field
-    and read by the executor after a Pending: milliseconds for `sleep(ms)`, else
-    0 (`__saw_suspend`/`yield_now` — immediately re-ready)."""
+    and read by the executor after a Pending: NANOSECONDS for `sleep(d)`, else
+    0 (`__saw_suspend`/`yield_now` — immediately re-ready).
+
+    design 180: `sleep` takes a `Duration`, and the wake word is a plain Int, so
+    the span is projected through `__saw_wake_nanos` (std/duration.saw) — which
+    is also where the saturation at the executor's schedulable horizon is
+    written down. The transformed AST is re-typechecked, so this is an ordinary
+    call and needs no special handling downstream."""
     fc = stmt.expression
     if fc.name == "sleep":
-        return fc.arguments[0].value
+        return FunctionCall(name="__saw_wake_nanos",
+                            arguments=[Argument(name=None,
+                                                value=fc.arguments[0].value)])
     if fc.name == "__saw_io_park":
         return _int(IO_PARK_WAKE)
     return _int(0)
@@ -2640,7 +2648,8 @@ class _FrameBuilder:
                                       type=SawType(TypeKind.INT)))
         fields.append(StructField(name="__state", type=SawType(TypeKind.INT)))
         # The wake reason the frame communicates to the executor on a Pending
-        # (design 45 item 4): 0 = ready (yield), >0 = sleep that many ms.
+        # (design 45 item 4): 0 = ready (yield), >0 = sleep that many NANOSECONDS
+        # (design 180 — the unit follows `Duration`, which is what `sleep` takes).
         fields.append(StructField(name="__wake", type=SawType(TypeKind.INT)))
         # design 91: the reactor wake-word ADDRESS to latch on an io readiness
         # event. For a driven ROOT frame it is `&self.__wake` (set on first resume);
@@ -3262,7 +3271,7 @@ class _FrameBuilder:
                 self._suspend_to(_int(IO_PARK_WAKE), nxt)
                 self.cur = nxt
                 return
-            # The wake expression (e.g. `sleep(ms)`'s `ms`) is ordinary body code:
+            # The wake expression (e.g. `sleep(d)`'s span) is ordinary body code:
             # rewrite its identifiers to frame fields, so a NON-literal argument
             # (`sleep(delay)` where `delay` is a param/local) reads `self.delay`.
             wake = self._rewrite_expr(_wake_expr(s), forgets)
@@ -4368,7 +4377,7 @@ def _make_entry_executor(fb: _FrameBuilder, fbs):
     """Synthesize the entry executor that replaces a suspending `main` (design 45
     item 1). It builds main's frame and drives it to completion on a single
     cooperative run: each Pending consults the frame's `__wake` reason and, for a
-    `sleep(ms)`, parks the thread that long (`__saw_exec_sleep`) before resuming; a
+    `sleep(d)`, parks that long (`__saw_exec_park`) before resuming; a
     `yield_now` (wake 0) resumes at once. `main` may thus suspend with no
     user-visible executor.
     """
