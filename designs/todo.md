@@ -5,6 +5,81 @@ Open items ONLY. Landed work lives in `designs/NN-*.md` + git history
 landed recaps). Conventions: cite source designs in [brackets]; VERIFY
 items need a probe before being treated as real work.
 
+## Design 181 — blocking-call audit findings (filed Aug 7)
+
+Full inventory + policy menu in `designs/181-blocking-call-audit.md`.
+Headline: **169 externs across sawc/std/ + sawc/rt/, NOT ONE annotated
+`blocking`.** The design-103 offload machinery works and is unused by std.
+
+- **DF-181a (P0-adjacent, filed Aug 7): `Command.run()` / `Command.output()`
+  starve every sibling task for the child's whole lifetime.** Both reap via
+  the unannotated `__saw_rt_proc_wait` (waitpid) and `output()` first drains
+  the child's stdout through the unannotated `__saw_rt_proc_read_stdout`
+  (a blocking `read` on a blocking pipe). The cooperative executor thread
+  sits inside them, so nothing else runs. DEMONSTRATED, not inferred: with
+  task A running `/bin/sleep 2`, a sibling's FIRST tick lands at 2012 ms and
+  it then completes 20 cooperative yields in 0 ms — it was runnable the
+  entire time. Unbounded (the child may never exit) and reachable from a
+  common, documented API. Test:
+  `examples/process_run_starvation_xfail.saw`. Fix is a policy call:
+  reactor-integrate the stdout pipe (cheap — std.net already has the
+  machinery) and annotate the wait, which fits the design-103 whitelist
+  exactly — but see DF-181f, which currently blocks the annotation.
+- **DF-181b (P0-adjacent by reach, filed Aug 7): every std.file /
+  std.directory seam is a naked blocking call.** `__saw_rt_fs_open`/`_read`/
+  `_write`/`_lseek`/`_opendir`/`readdir`/`closedir`/`_mkdir`/`_rmdir`/
+  `_chdir`/`getcwd`/`_unlink`/`_rename`/`access` — no annotation, and unlike
+  the reactor/sleep seams NOT ONE comment in the tree acknowledges that they
+  block. Bounded-slow on a healthy local disk; genuinely UNBOUNDED on a
+  network mount, a FUSE filesystem, or a FIFO (`File.open` on a FIFO blocks
+  until a writer arrives). Recommendation in the brief is prompt-by-policy
+  + a documented sentence rather than offload (a thread hop per read is the
+  wrong default, and freestanding has no threads at all) — but the silence
+  is not defensible either way.
+- **DF-181c (filed Aug 7): `Channel.recv` from a cooperative task wedges the
+  executor forever.** It blocks the calling thread in `pthread_cond_wait`
+  with no sender bound. `channel.saw:206` documents which ENGINE it belongs
+  to but never states the consequence, and nothing prevents the call. The
+  cooperative twin `receive` is a drop-in. Cheap fix: document it loudly;
+  better: make `recv` inside a suspending body a compile error.
+- **DF-181d (filed Aug 7): `TcpStream.connect` silently IGNORES its `host`
+  argument.** `connect(host: String, port: Int)` never reads `host` —
+  `net.saw:389-390` calls `__saw_rt_tcp_connect_start(port)`, whose body
+  builds a `loopback_sockaddr`. So `connect("example.com", 80)` dials
+  127.0.0.1:80 and reports success. Silent wrong-destination: violates both
+  "never hide errors" and "APIs do the expected thing". Related: there is NO
+  DNS anywhere in sawc/ (no getaddrinfo/gethostbyname/inet_pton), so the
+  classic unbounded-resolver hazard is absent TODAY — but resolution will be
+  the worst blocking call in the library the day hostnames land, and should
+  be designed offloaded or reactor-integrated from the start, never added as
+  a naked seam.
+- **DF-181e (filed Aug 7): the design-103 offload whitelist `(Int) -> Int`
+  is too narrow to express the annotations the audit recommends.** Of the
+  naked calls, only `__saw_rt_proc_wait(job: Int) -> Int` fits.
+  `__saw_rt_proc_read_stdout` (3 args), every `__saw_rt_fs_*` I/O seam
+  (3 args) and `__saw_rt_thread_join` (Void return) are all off-whitelist.
+  This also removes the escape hatch the DF-181b policy assumes: a user who
+  knows they are on a network mount has no way to offload the read. Widening
+  it (multi-arg + a real pool) was already future work; this audit is the
+  concrete demand for it.
+- **DF-181f (COMPILER, filed Aug 7): the `blocking` annotation is SILENTLY
+  IGNORED on `__saw_rt_*` runtime seams — so "annotate the seams" does not
+  work today.** Design 103 promises an offload or "a clean anchored error,
+  never a silent miscompile"; on exactly the symbols this audit would
+  annotate, neither happens. Demonstrated three ways: an off-whitelist
+  `blocking func getpid() -> Int32` errors cleanly (in both `let` and
+  statement position), the IDENTICAL shape on
+  `blocking func __saw_rt_last_syserror() -> Int` compiles silently, and
+  `blocking func __saw_rt_sleep_ms(ms: Int)` (off-whitelist, Void return)
+  compiles AND blocks the thread for the full 2 s with no offload and no
+  error. Mechanism not pinned down; the transform's
+  `_blocking_extern_sym` does `ns.lookup_function(name)` and checks
+  `is_blocking`, so the likely cause is either effect inference never
+  marking a `__saw_rt_*` call suspending (leaving the body untransformed, so
+  `_check_blk_whitelist` never runs) or the lookup resolving to a
+  compiler-registered seam symbol instead of the user's declaration. Blocks
+  DF-181a and DF-181b remediation — fix this FIRST.
+
 ## DECIDED — Aug 7 afternoon round (user, one-by-one review)
 
 - ~~**DF-162a DECIDED: compiler default.** Freestanding aarch64 implies

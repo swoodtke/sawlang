@@ -1,0 +1,60 @@
+// Design 181 — DF-181a. `Command.run()` reaps its child with the UNANNOTATED
+// extern `__saw_rt_proc_wait` (waitpid), so the cooperative executor thread sits
+// inside the wait for the child's whole lifetime and every sibling task starves.
+//
+// Task A runs `/bin/sleep 1`. Task B does nothing but record when it FIRST gets
+// scheduled. B is runnable from the moment it is spawned, so on a healthy
+// executor its first tick lands immediately and it reports "concurrent". Today
+// B's first tick lands only after the child exits, so it reports "starved".
+//
+// The fix is a policy call (design 181's menu): annotate the wait seam
+// `blocking` so it offloads to a worker thread, or reactor-integrate the child
+// wait. Either way this test flips to XPASS — remove the marker then.
+//
+// EXPECT: success
+// EXPECT-OUTPUT:
+// sibling: concurrent
+// -- done
+// XFAIL: DF-181a Command.run blocks the executor thread in waitpid - siblings starve
+
+import std.process.*
+import std.task.*
+import std.time.*
+
+// The threshold that separates "ran immediately" from "waited out the child".
+// The child sleeps 1000ms, so either answer clears this by a wide margin.
+static STARVED_MS: Int64 = 400
+
+func run_child() -> Int {
+    var c = Command(program: "/bin/sleep")
+    c.arg("1")
+    match c.run() {
+        case Ok(code) -> code as Int,
+        case Err(_) -> -1
+    }
+}
+
+// Report how long it took this task to be scheduled for the first time.
+func first_tick(start: Instant) -> Int64 {
+    start.elapsed().millis()
+}
+
+func main() {
+    let start = Instant.now()
+    var group = TaskGroup()
+    let child = group.spawn(run_child())
+    let sibling = group.spawn(first_tick(start))
+
+    let when = sibling.join()
+    let code = child.join()
+
+    if when < STARVED_MS {
+        print("sibling: concurrent")
+    } else {
+        print("sibling: starved")
+    }
+    if code != 0 {
+        print("unexpected child exit code {}", code)
+    }
+    print("-- done")
+}
