@@ -1,0 +1,43 @@
+// Design 185 unit 4, RATIFIED: a bit operator applied to an enum-typed VALUE
+// stays explicit. Arithmetic on an enum value is not something the language
+// does silently — the spelling is `(a as UInt8) | (b as UInt8)`, and the `as`
+// names the enum -> bitset crossing exactly as design 145 made `e as UInt8` the
+// explicit total projection. That is what keeps "a raw-backed enum value is
+// always a declared case" true: a combined flag is a number, not a case.
+//
+// The constant folding of design 185 unit 3 is a different position and is
+// unaffected (see `flag_enum_const.saw`): there the operands are CASE NAMES
+// whose values are fixed by the declaration.
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: operator `|` requires integer operands, got `Perm` and `Perm`
+// EXPECT-ERROR-CONTAINS: an enum is a closed set of tags, not a bit set
+// EXPECT-ERROR-CONTAINS: write `(a as UInt8) | (b as UInt8)`
+// EXPECT-ERROR-CONTAINS: operator `<<` requires integer operands
+// EXPECT-ERROR-CONTAINS: write `(e as UInt8) << n`
+// EXPECT-ERROR-CONTAINS: operator `~` requires an integer operand, got `Perm`
+// EXPECT-ERROR-CONTAINS: write `~(e as UInt8)`
+// EXPECT-ERROR-CONTAINS: `Color` has no raw backing, so its cases are not numbers
+
+enum Perm: UInt8 {
+    case Read = 1,
+    case Write = 2
+}
+
+// No backing, so its cases are not numbers at all — the fixit is the backing,
+// not the cast.
+enum Color {
+    case Red,
+    case Blue
+}
+
+func main() {
+    let a = Perm.Read
+    let b = Perm.Write
+
+    let held = a | b
+    let moved = a << 1
+    let flipped = ~b
+    let mixed = Color.Red | Color.Blue
+
+    print("{} {} {} {}", held, moved, flipped, mixed)
+}

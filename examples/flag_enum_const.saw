@@ -1,0 +1,88 @@
+// Design 185 unit 3: flag enums. A raw-BACKED enum's case is already a
+// compile-time constant (design 145), so once the bit operators fold, the
+// combination folds — `Perm.Read | Perm.Write` is the flag word it looks like,
+// in every position that requires a constant.
+//
+// The load-bearing rule is the RESULT TYPE: it is the BACKING INTEGER, never
+// the enum. `Perm.Read | Perm.Write` is 3, and 3 is not a declared case — typing
+// it as `Perm` would hand `from(raw:)` and `match` a value outside the closed
+// set the enum is. An enum is a set of TAGS; a bit set over those tags is the
+// integer they are tags for. That is Swift's OptionSet / Rust's bitflags line,
+// and this file is where it is pinned.
+// EXPECT: success
+// EXPECT-OUTPUT: 3
+// EXPECT-OUTPUT: 7
+// EXPECT-OUTPUT: 15
+// EXPECT-OUTPUT: 5
+// EXPECT-OUTPUT: 16
+// EXPECT-OUTPUT: 6
+
+enum Perm: UInt8 {
+    case Read = 0x01,
+    case Write = 0x02,
+    case Exec = 0x04
+}
+
+// A wire enum written the way wire enums are written: hex, wide, with a mask
+// case. (Hex raw values were an uncaught parser crash until DF-185a.)
+enum Cfg: UInt16 {
+    case Mask = 0x000F,
+    case Wide = 0x1000
+}
+
+// Every operator over cases, in the position that STATES the claim.
+static_assert((Perm.Read | Perm.Write) == 3, "read+write")
+static_assert((Perm.Read | Perm.Write | Perm.Exec) == 7, "all three")
+static_assert((Perm.Exec << 2) == 16, "a flag moved into another byte")
+static_assert((Cfg.Wide >> 12) == 1, "the high nibble")
+static_assert((Cfg.Mask & 0xF0) == 0, "disjoint masks")
+static_assert((Perm.Read ^ Perm.Exec) == 5, "xor of two bits")
+
+// The complement is evaluated in the platform `Int` domain (signed,
+// pointer-wide — the type a bare literal already has), so `~Perm.Read` is -2,
+// not 254. That is the domain the align-down idiom wants, and masking is what
+// brings it back into the byte:
+static_assert(~Perm.Read == -2, "the complement is signed at the platform width")
+static_assert((0xFF & ~Perm.Read) == 254, "masked back into the byte")
+static_assert(((0x1234 + 0xFFF) & ~0xFFF) == 0x2000, "align up to a page")
+
+// Mixed with a literal, and beside the `as` projection of the same case: both
+// spellings fold to the same number, which is what makes `as` a projection and
+// not a conversion. (A COMPARISON is not a bit operator and does not read a
+// case as its backing — `(Perm.Write as UInt8) == Perm.Write` compares a
+// `UInt8` with a `Perm` and says so.)
+static_assert((Perm.Write | 0x10) == 0x12, "a case beside a literal")
+static_assert((Perm.Write as UInt8) == 2, "the projection agrees with the fold")
+static_assert((Perm.Write | 0) == (Perm.Write as UInt8), "and with each other")
+
+// And in the LENGTH positions, both spellings.
+struct Table { rows: [UInt8; Cfg.Mask & 0x0F] }
+
+static_assert(sizeof<Table>() == 15, "the mask is the row count")
+
+func main() {
+    // The repeat count.
+    let rw = [0; Perm.Read | Perm.Write]
+    print(rw.len())
+
+    let all = [0; Perm.Read | Perm.Write | Perm.Exec]
+    print(all.len())
+
+    // The declared type.
+    var rows: [UInt8; Cfg.Mask & 0x0F] = [0; 15]
+    print(rows.len())
+
+    var rx: [UInt8; Perm.Read | Perm.Exec] = [0; 5]
+    print(rx.len())
+
+    // Outside a constant the operands are enum-typed VALUES, and the explicit
+    // `as` projection is the spelling (unit 4) — the same 16, said out loud.
+    let moved: UInt8 = (Perm.Exec as UInt8) << 2
+    print(moved)
+
+    // A held value combines the same way, through the projection design 145
+    // already gave it.
+    let held = Perm.Write
+    let combined = (held as UInt8) | (Perm.Exec as UInt8)
+    print(combined)
+}

@@ -1255,6 +1255,59 @@ class ExpressionsMixin:
         )
         return None
 
+    def _flag_enum_backing(self, operand, t):
+        """The BACKING integer a raw-backed enum CASE denotes here, or None.
+
+        Design 185 unit 3, and the boundary is the whole rule: the result of a
+        bit operator over enum cases is the BACKING INTEGER, never the enum. A
+        combined flag value (`Perm.Read | Perm.Write` = 3) need not be a
+        declared case, so typing it as the enum would break `from(raw:)` and
+        exhaustiveness alike (design 145) — an enum is a closed set of tags, and
+        a bit SET over those tags is the integer they are tags for. That is the
+        line Swift draws with `OptionSet` and Rust with `bitflags`.
+
+        Only a CASE qualifies, and only in a const position: the operand must
+        carry the tag value design 145 stamps, which is a compile-time constant
+        of a known number. An enum-typed value in running code carries nothing
+        and stays refused (unit 4).
+        """
+        if t is None or t.kind != TypeKind.ENUM:
+            return None
+        if getattr(operand, 'enum_raw_value', None) is None:
+            return None
+        if not self._in_const_position():
+            return None
+        info = self.get_enum_info(t.enum_name, from_type=t)
+        return getattr(info, 'raw_type', None) if info is not None else None
+
+    def _enum_bit_op_hint(self, op: str, *types):
+        """The `as` fixit for a bit operator applied to an enum (design 185 u4).
+
+        Ratified: arithmetic on an enum VALUE is not silently allowed. The `as`
+        names the enum -> bitset crossing exactly as design 145 made `e as UInt8`
+        the explicit total projection, and it is what keeps "a raw-backed enum
+        value is always a declared case" true.
+        """
+        for t in types:
+            if t is None or t.kind != TypeKind.ENUM:
+                continue
+            info = self.get_enum_info(t.enum_name, from_type=t)
+            raw = getattr(info, 'raw_type', None) if info is not None else None
+            if raw is None:
+                return (f"`{t}` has no raw backing, so its cases are not "
+                        f"numbers — give it one (`enum {t}: UInt8`, design 145) "
+                        f"and project each operand with `as`")
+            if op == '~':
+                projection = f"`~(e as {raw})`"
+            elif op in ('<<', '>>'):
+                projection = f"`(e as {raw}) {op} n`"
+            else:
+                projection = f"`(a as {raw}) {op} (b as {raw})`"
+            return (f"an enum is a closed set of tags, not a bit set: write "
+                    f"{projection}. The result is the backing integer, because "
+                    f"a combined value need not be a declared case")
+        return None
+
     def _check_binary_op(self, expr: BinaryOp) -> Optional[SawType]:
         """Check a binary operation."""
         left_type = self._check_expression(expr.left)
@@ -1331,6 +1384,18 @@ class ExpressionsMixin:
             # (Bool uses `&&`/`||`; Float and everything else is rejected). The
             # result takes the left operand's type — for `>>` that also fixes the
             # arithmetic-vs-logical choice (signed left → arithmetic shift).
+            #
+            # design 185 unit 3: in a CONST position a raw-backed enum's CASE
+            # reads as its backing integer, so `Perm.Read | Perm.Write` is the
+            # flag constant it looks like. Everywhere else — and for an
+            # enum-typed VALUE anywhere — the operator is refused and the `as`
+            # projection is the spelling (unit 4).
+            backing = self._flag_enum_backing(expr.left, left_type)
+            if backing is not None:
+                left_type = left_underlying = backing
+            backing = self._flag_enum_backing(expr.right, right_type)
+            if backing is not None:
+                right_type = right_underlying = backing
             if left_underlying.kind in int_kinds and right_underlying.kind in int_kinds:
                 return left_type
             else:
@@ -1338,7 +1403,8 @@ class ExpressionsMixin:
                     ErrorKind.TYPE_MISMATCH,
                     f"operator `{expr.op}` requires integer operands, "
                     f"got `{left_type}` and `{right_type}`",
-                    expr.line, expr.column
+                    expr.line, expr.column,
+                    hint=self._enum_bit_op_hint(expr.op, left_type, right_type)
                 )
                 return None
         elif expr.op in ['&&', '||']:
@@ -1491,13 +1557,19 @@ class ExpressionsMixin:
                 TypeKind.INT8, TypeKind.INT16, TypeKind.INT32, TypeKind.INT64,
                 TypeKind.UINT8, TypeKind.UINT16, TypeKind.UINT32, TypeKind.UINT64
             }
+            # design 185: the flag-enum reading and the `as` fixit, on the same
+            # terms the binary bit operators take them.
+            backing = self._flag_enum_backing(expr.operand, operand_type)
+            if backing is not None:
+                operand_type = underlying = backing
             if underlying.kind in int_kinds:
                 return operand_type
             else:
                 self._error(
                     ErrorKind.TYPE_MISMATCH,
                     f"operator `~` requires an integer operand, got `{operand_type}`",
-                    expr.line, expr.column
+                    expr.line, expr.column,
+                    hint=self._enum_bit_op_hint('~', operand_type)
                 )
                 return None
         return None
@@ -4202,9 +4274,11 @@ class ExpressionsMixin:
         """
         # Type-check it first: that surfaces an ordinary type error in the
         # count (and stamps the `Int.max` annotation the evaluator reads)
-        # before the constant question is asked.
-        if self._check_expression(expr) is None:
-            return None
+        # before the constant question is asked. In a CONST position (design 185
+        # unit 3), which is what this is.
+        with self._const_position():
+            if self._check_expression(expr) is None:
+                return None
         # Const parameters in scope are constants with no value here — a generic
         # body is checked once, abstractly, and the values arrive per
         # instantiation. Probing with a stand-in separates "not a constant" from
@@ -4213,7 +4287,7 @@ class ExpressionsMixin:
         probe.update(self._const_param_env())
         # DF-172j: bind the module statics the count names, so `[0; REGION_SIZE]`
         # folds beside the `[UInt8; REGION_SIZE]` it fills.
-        self._stamp_const_statics(expr)
+        self._stamp_const_names(expr)
         try:
             value = const_eval(expr, env=probe, width=self.platform_int_width)
         except ConstEvalError as e:

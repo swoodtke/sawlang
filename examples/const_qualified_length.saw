@@ -1,0 +1,44 @@
+// DF-172l CLOSED (design 185 units 2 + 3). `[UInt8; dep.REGION_SIZE]` was a
+// PARSE error — the type-position grammar had no member access — while the
+// repeat count beside it reached a clean semantic error, so one rule had two
+// spellings with two failure modes. Unit 2 gave the type position the full
+// grammar; the name resolution behind it is the ordinary one, asked exactly as
+// an ordinary read asks it, so a qualified static and its bare import fold to
+// the same number and a renamed qualifier folds too.
+//
+// The qualified WIRE ENUM comes along on the same terms: a case of a raw-backed
+// enum a dependency owns is as constant here as it is there.
+// EXPECT: success
+// EXPECT-OUTPUT: 24
+// EXPECT-OUTPUT: 48
+// EXPECT-OUTPUT: 24
+// EXPECT-OUTPUT: 3
+// EXPECT-OUTPUT: 24
+
+import modules.const_qualified_dep
+import modules.const_qualified_dep as dep
+import modules.const_static_dep as sizes
+
+struct Frame { bytes: [UInt8; const_qualified_dep.WIRE_BYTES] }
+
+static_assert(const_qualified_dep.WIRE_BYTES == 24, "the dependency's size")
+static_assert((dep.Wire.Head | dep.Wire.Tail) == 3, "the dependency's flags")
+
+func main() {
+    var buf: [UInt8; dep.WIRE_BYTES] = [0; dep.WIRE_BYTES]
+    print(buf.len())
+
+    var wide: [UInt8; dep.WIRE_BYTES << 1] = [0; dep.WIRE_BYTES << 1]
+    print(wide.len())
+
+    print(sizeof<Frame>())
+
+    // A qualified enum case, in the position that never type-checks its length.
+    var flags: [UInt8; dep.Wire.Head | dep.Wire.Tail] = [0; 3]
+    print(flags.len())
+
+    // Another dependency, reached under a RENAMED qualifier: the fold rides the
+    // symbol, not the spelling.
+    var renamed: [UInt8; sizes.FRAME_BYTES - 8] = [0; sizes.FRAME_BYTES - 8]
+    print(renamed.len())
+}

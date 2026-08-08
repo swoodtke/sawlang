@@ -1036,6 +1036,14 @@ class TypeChecker(ExpressionsMixin, StatementsMixin, RegistrationMixin, TypeUtil
         # identity from its arguments.
         self._fold_const_type_args_in_program(program)
 
+        # design 185 unit 3: lengths again, now that enums exist. A length may
+        # name a raw-backed enum's case (`[UInt8; Perm.Read | Perm.Write]`), and
+        # a case has no value until the enum is registered — which is two passes
+        # after the first fold. Folding is idempotent (only a length that is
+        # still unresolved is touched) and it mutates the same type objects the
+        # struct symbols hold, so a FIELD written that way lands too.
+        self._fold_const_lengths_in_program(program)
+
         # Fifth pass: register extensions and their methods. The structural
         # `deinit` (design 128) is synthesized first, as a whole-program
         # pre-pass, so registration sees it like any hand-written one.
@@ -1684,6 +1692,10 @@ class TypeChecker(ExpressionsMixin, StatementsMixin, RegistrationMixin, TypeUtil
         # DF-172j second half: a bare-name const generic ARGUMENT that is a
         # `static`, now that the referenced types' parameter lists exist.
         self._fold_const_type_args_in_program(module_ast)
+
+        # design 185 unit 3: and lengths again, now that this module's enums are
+        # registered — a raw-backed case is a constant only once it has one.
+        self._fold_const_lengths_in_program(module_ast)
 
         # Design 144: this module's types are all registered now, so its
         # name -> identity view is complete. Rewrite every type REFERENCE in the

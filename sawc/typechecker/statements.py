@@ -908,8 +908,9 @@ class StatementsMixin:
         breath, for the same reason: one evaluator answers in all four
         const-required positions, so a `static REGION_SIZE` that is an array
         length must also be assertable about."""
-        cond_type = self._check_expression(stmt.condition)
-        self._stamp_const_statics(stmt.condition)
+        with self._const_position():
+            cond_type = self._check_expression(stmt.condition)
+        self._stamp_const_names(stmt.condition)
         if (cond_type is not None and cond_type.kind
                 not in (TypeKind.BOOL, TypeKind.INT)):
             self._error(

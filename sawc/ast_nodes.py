@@ -1053,6 +1053,13 @@ class MemberAccess(Expression):
     # compiler may renumber — so this is the constant a `static_assert` may
     # read, and an unbacked enum's case stays non-constant.
     enum_raw_value: Optional[int] = annotation(None)
+    # The QUALIFIED spelling of DF-172j's stamps: `dep.REGION_SIZE` in a
+    # constant. Same two halves and same reader as the `Identifier` pair — the
+    # bare and qualified spellings of one name have to fold to one number, which
+    # is what DF-172l filed (design 185 unit 2 gave the type position a grammar
+    # that reaches the member access; this is the resolution behind it).
+    const_static_value: Optional[int] = annotation(None)
+    const_static_reject: Optional[str] = annotation(None)
     # Projection into an UnsafeMemory register block (design 112).
     um_projection: bool = annotation(False)
 

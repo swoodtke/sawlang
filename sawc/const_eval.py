@@ -234,6 +234,15 @@ def const_eval(expr, env=None, metric=None, width: int = 64):
         raw = getattr(expr, 'enum_raw_value', None)
         if raw is not None:
             return int(raw)
+        # The QUALIFIED spelling of a module `static` (`dep.REGION_SIZE`),
+        # stamped by the same typechecker walk that stamps the bare one — see
+        # the `Identifier` case above for why the lookup lives there (DF-172l).
+        value = getattr(expr, 'const_static_value', None)
+        if value is not None:
+            return int(value)
+        reject = getattr(expr, 'const_static_reject', None)
+        if reject is not None:
+            _reject(expr, reject)
         _reject(expr, "this member access")
     if isinstance(expr, CastExpr):
         value = const_eval(expr.expr, env, metric, width)

@@ -9,6 +9,7 @@ Usage:
         pass
 """
 
+from contextlib import contextmanager
 from typing import Optional, Tuple
 from ast_nodes import (
     SawType, TypeKind, Visibility,
@@ -1203,9 +1204,17 @@ class TypeUtilsMixin:
     #     in the struct pass and statics are registered four passes later.
     #   * `_register_static` copies the answer onto the SYMBOL, which is what
     #     travels to an importing module (under a rename, even).
-    #   * `_stamp_const_statics` writes the value onto the identifier NODE, so
+    #   * `_stamp_const_names` writes the value onto the identifier NODE, so
     #     the evaluator — and codegen, which re-evaluates the same nodes with no
     #     namespace in hand — reads a number instead of a name.
+    #
+    # design 185 unit 3 widened the third part from identifiers to the MEMBER
+    # ACCESSES a constant can name, on the same terms and for the same reason: a
+    # length in TYPE position is never type-checked, so nothing else was going to
+    # stamp `Perm.Read`, `Int.max` or `dep.REGION_SIZE` there. That is DF-172l's
+    # remaining half — the bare and qualified spellings of one static now fold to
+    # one number — and it is what makes a raw-backed enum's case usable as the
+    # constant it already is.
     # ------------------------------------------------------------------------
 
     def _collect_const_statics(self, program) -> None:
@@ -1274,9 +1283,8 @@ class TypeUtilsMixin:
         table = getattr(self, '_const_static_decls', None) or {}
         return table.get((self._accessor_vis_module(), name), (None, None))
 
-    def _stamp_const_statics(self, expr) -> None:
-        """Resolve the module statics a constant expression names, onto the
-        identifier nodes.
+    def _stamp_const_names(self, expr) -> None:
+        """Resolve the names a constant expression reads, onto its own nodes.
 
         Name resolution order mirrors an ordinary read (`_check_identifier`):
         a local binding wins, then a const generic parameter, then a static. The
@@ -1285,16 +1293,19 @@ class TypeUtilsMixin:
         into `[0; REGION_SIZE]` under it would silently compile the wrong
         length.
         """
-        from ast_nodes import Identifier, UnaryOp, BinaryOp, CastExpr
+        from ast_nodes import Identifier, UnaryOp, BinaryOp, CastExpr, MemberAccess
         if isinstance(expr, UnaryOp):
-            self._stamp_const_statics(expr.operand)
+            self._stamp_const_names(expr.operand)
             return
         if isinstance(expr, BinaryOp):
-            self._stamp_const_statics(expr.left)
-            self._stamp_const_statics(expr.right)
+            self._stamp_const_names(expr.left)
+            self._stamp_const_names(expr.right)
             return
         if isinstance(expr, CastExpr):
-            self._stamp_const_statics(expr.expr)
+            self._stamp_const_names(expr.expr)
+            return
+        if isinstance(expr, MemberAccess):
+            self._stamp_const_member(expr)
             return
         if not isinstance(expr, Identifier):
             return
@@ -1308,6 +1319,115 @@ class TypeUtilsMixin:
                 expr.name in self._const_param_env():
             return
         value, reason = self._const_static_lookup(expr.name)
+        if value is not None:
+            expr.const_static_value = value
+        elif reason is not None:
+            expr.const_static_reject = reason
+
+    @contextmanager
+    def _const_position(self):
+        """Check the enclosed expression as a CONSTANT (design 185 unit 3).
+
+        A repeat count and a `static_assert` condition are type-checked before
+        they are folded, which is what lets an ordinary type error in one be
+        reported as itself. The one rule that needs to know it is standing in a
+        constant is the flag-enum reading: `Perm.Read | Perm.Write` is a bit set
+        over compile-time-known tags HERE, and stays a refusal in running code,
+        where the operands would be enum-typed VALUES (design 185 unit 4).
+        """
+        depth = getattr(self, '_const_position_depth', 0)
+        self._const_position_depth = depth + 1
+        try:
+            yield
+        finally:
+            self._const_position_depth = depth
+
+    def _in_const_position(self) -> bool:
+        """Whether the expression being checked is required to be constant."""
+        return getattr(self, '_const_position_depth', 0) > 0
+
+    def _stamp_const_member(self, expr) -> None:
+        """The MEMBER ACCESSES a constant may name (design 185 unit 3).
+
+        Three shapes, and they are the three the evaluator already understands
+        in an expression — `Int.max`, a raw-BACKED enum's case, and a module
+        `static`, the last two in both the bare and the qualified spelling. In
+        an EXPRESSION the ordinary member-access check stamps all of them; a
+        declared array length is the position that is never checked as an
+        expression at all, so without this it could name none of them.
+
+        Resolution is asked exactly as an ordinary read asks it, which is what
+        `_module_qualifier` and `get_enum_info` are: a local named `Perm` or
+        `dep` wins, a private static of another module is invisible, and a
+        member this file may not see stamps nothing and falls through to the
+        evaluator's "this member access is not allowed here".
+        """
+        from ast_nodes import Identifier, MemberAccess
+        if expr.int_limit is not None or expr.enum_raw_value is not None or \
+                expr.const_static_value is not None or \
+                expr.const_static_reject is not None:
+            return
+        obj = expr.object
+        if isinstance(obj, Identifier):
+            scope = getattr(self, 'current_scope', None)
+            if scope is not None and scope.lookup(obj.name):
+                return
+            limit_kind = self._INT_LIMIT_TYPE_KINDS.get(obj.name)
+            if limit_kind is not None and expr.member in ("max", "min"):
+                expr.int_limit = (obj.name, expr.member)
+                return
+            enum_info = self.get_enum_info(obj.name)
+            if enum_info is not None:
+                self._stamp_enum_raw_value(expr, enum_info)
+                return
+            self._stamp_qualified_const(expr, obj.name, expr.member)
+            return
+        # `dep.Perm.Read`: the qualifier resolves the ENUM, this hop the case.
+        if isinstance(obj, MemberAccess) and isinstance(obj.object, Identifier):
+            enum_info = self._qualified_enum_info(obj.object.name, obj.member)
+            if enum_info is not None:
+                self._stamp_enum_raw_value(expr, enum_info)
+
+    def _qualified_module_symbol(self, qualifier: str, name: str):
+        """`qualifier.name` resolved through an import, or None (design 150)."""
+        module_sym = self._module_qualifier(qualifier)
+        if module_sym is None or not module_sym.namespace:
+            return None
+        return module_sym.namespace.resolve(
+            name, check_visibility=True, accessor_module=())
+
+    def _qualified_enum_info(self, qualifier: str, name: str):
+        """The enum `qualifier.name` names, or None."""
+        from namespace import SymbolKind
+        symbol = self._qualified_module_symbol(qualifier, name)
+        if symbol is None or symbol.kind != SymbolKind.ENUM:
+            return None
+        identity = getattr(symbol, 'type_identity', "") or name
+        return self.get_enum_info(identity)
+
+    def _stamp_qualified_const(self, expr, qualifier: str, name: str) -> None:
+        """`dep.REGION_SIZE` in a constant — DF-172l's remaining half.
+
+        The bare spelling folds through the SYMBOL (`_const_static_lookup`), and
+        so does this one: the qualifier only changes how the symbol is found, not
+        what it means, so a renamed import and a `{...}` selection agree with the
+        module's own reading of its static.
+        """
+        from namespace import SymbolKind
+        symbol = self._qualified_module_symbol(qualifier, name)
+        if symbol is None:
+            return
+        if symbol.kind == SymbolKind.ENUM:
+            identity = getattr(symbol, 'type_identity', "") or name
+            enum_info = self.get_enum_info(identity)
+            if enum_info is not None:
+                # `dep.Perm` as a whole is a TYPE, not a value; only the case
+                # hop below it is constant. Nothing to stamp here.
+                return
+        if symbol.kind != SymbolKind.STATIC:
+            return
+        value = getattr(symbol, 'const_value', None)
+        reason = getattr(symbol, 'const_reject', None)
         if value is not None:
             expr.const_static_value = value
         elif reason is not None:
@@ -1467,7 +1587,7 @@ class TypeUtilsMixin:
                 t.array_size = None
         if t.kind == TypeKind.ARRAY and t.array_size is None and \
                 expr is not None and not self._mentions_const_param(expr):
-            self._stamp_const_statics(expr)
+            self._stamp_const_names(expr)
             try:
                 const_eval(expr, env=self._const_param_env(),
                            width=self.platform_int_width)
@@ -1496,7 +1616,7 @@ class TypeUtilsMixin:
         repeat count, a declared array length reaching codegen — reports it.
         """
         from const_eval import const_eval, ConstEvalError
-        self._stamp_const_statics(expr)
+        self._stamp_const_names(expr)
         try:
             value = const_eval(expr, env=self._const_param_env(),
                                width=self.platform_int_width)

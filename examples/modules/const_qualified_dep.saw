@@ -1,0 +1,12 @@
+//! Design 185 / DF-172l fixture: a dependency that OWNS both a size and a wire
+//! enum. A consumer that imports it QUALIFIED (the spelling that keeps its own
+//! namespace clean) must be able to name either one in a constant, or the
+//! module boundary would decide what a constant is.
+// EXPECT: skip
+
+public static WIRE_BYTES: Int = 24
+
+public enum Wire: UInt8 {
+    case Head = 0x01,
+    case Tail = 0x02
+}
