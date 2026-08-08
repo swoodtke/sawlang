@@ -46,6 +46,17 @@ prove the handle machinery generalizes past System.
    needing it immediately.
 5. **arm64 FP state is not saved across traps** (M1b's recorded
    inheritance).
+6. **Fault, don't status (ratified Aug 8, from the 180 review).** A caller
+   error the process could have checked — an invalid or stale handle, a
+   malformed op, a rights violation — TERMINATES the offending process
+   (the kernel stays up; it is the process's bug, the same line the
+   language-level accessor rule draws). SosStatus returns are reserved for
+   conditions the caller could not reasonably know: memory exhaustion, a
+   peer process dying mid-operation. This cuts userspace error handling to
+   the cases that are real. M2 agenda item: restate the op tables under
+   this rule and decide which of BadHandle/BadOp/AccessDenied survive as
+   statuses at all (candidate: none — all three become faults; `Unknown`
+   stays a userspace mapping artifact per §5.7).
 
 ## Proposed simplifications to ratify (the decisions agenda)
 

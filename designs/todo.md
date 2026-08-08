@@ -11,6 +11,15 @@ items need a probe before being treated as real work.
 DF-170a is closed above. One finding, and one decision the brief did not
 anticipate:
 
+**Aug 8 review: all three items below RATIFIED as-is** (the prelude file
+move, the negative-span panics, the `as_` renames). The panic ruling is
+now a stated API principle: **panic on inputs the caller could have
+checked** — a caller bug — and reserve Result/status returns for
+conditions the caller could not reasonably know about (allocation
+failure, a peer dying mid-operation). It is the same line the accessor
+rule draws. Carried into SOS as designs/178 pin 6: an invalid handle
+crashes the process.
+
 - **DF-180a (OPEN, filed Aug 8): a static and an instance method cannot share
   a name.** `Duration.secs(2)` (construct) and `d.secs()` (project) are never
   ambiguous at a call site — one names the type, the other a value — but
@@ -24,7 +33,7 @@ anticipate:
   `secs`. That reads well (bare name constructs, `as_` projects) and is what
   Rust does, so this is not urgent — but the rule as written rejects a
   program with no ambiguity in it, and a receiver-aware key looks small.
-- **The prelude pin needs ratifying.** Unit 2 put `Duration` in the prelude as
+- **The prelude pin (RATIFIED above).** Unit 2 put `Duration` in the prelude as
   recommended, which meant a FILE move (`std/duration.saw`) rather than a
   flag: prelude membership and code generation are decided by the same module
   gate, so a per-symbol exception would have made the name visible and its
