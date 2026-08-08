@@ -1,11 +1,12 @@
 # Design 186 — `UnsafeMutableInterior<T>`: interior mutability without the name list
 
-**Status: DRAFT (Aug 8). Direction + type name approved by the user ("i like
-the proposal", `UnsafeMutableInterior<T>`). Two decisions below (D1 Sync
-surface, D2 statics fence) are PROPOSED, not ratified — settle both before
-this queues. Sequencing: after the current wave (158/182/185) and the net
-track; touches typechecker + codegen + builtin.saw + std, so nothing else on
-those surfaces runs beside it.**
+**Status: APPROVED + QUEUED, not yet dispatched (user, Aug 8 — direction +
+name in the morning round, D1/D2 ratified in the afternoon round). D1 =
+the `UnsafeSync`/`UnsafeSend` declared markers with all three fences. D2 =
+the three statics tiers, with the set-once half split out to `Once<T>` —
+PROMOTED into this brief as unit 6 by the same round. Sequencing: after the
+current wave (158/182/185) and the net track; touches typechecker + codegen
++ builtin.saw + std, so nothing else on those surfaces runs beside it.**
 
 ## The gap
 
@@ -48,26 +49,40 @@ mutability expressible by types the compiler does not know a-priori.
    never exploited it); (d) structural `Sync` derivation is BLOCKED — a
    cell-carrying type is not `Sync` unless it says so (D1). `Send` stays
    structural (a cell moves fine; it is sharing that needs an argument).
-3. **D1 (PROPOSED — needs ratification): explicit `Sync` conformance.** A
-   cell-carrying type may declare `extension T: Sync {}`, and that declaration
-   is the author's audited assertion that the type synchronizes its own
-   interior (lock protocol, atomicity) — the same declared-conformance shape
-   `Send` already has, and the principled replacement for today's "`Sync` by
-   fiat (the Atomic precedent)" comments. The conformance is only legal on a
-   cell-carrying type (on anything else it is derivable or impossible), and
-   the error for a cell-carrying type crossing threads without it names the
-   missing declaration. Alternative if ratification wants more ceremony: gate
-   the declaration behind an attribute; the recommendation is the bare
-   conformance — the cell in the field list is already the audit trail.
+3. **`UnsafeSync` / `UnsafeSend` — the thread-safety assertion (RATIFIED).**
+   `Sync`/`Send` stay DERIVATION-ONLY — `extension X: Sync` remains rejected
+   exactly per builtin.saw:203 (the draft's claim that `Send` had a declared
+   precedent was wrong; nothing does). The assertion gets its own names: two
+   new builtin marker traits, `trait UnsafeSync: Sync {}` and
+   `trait UnsafeSend: Send {}` (the `Error: Printable` inheritance
+   machinery), so a declared conformance satisfies every `T: Sync` /
+   `T: Send` bound through the parent while generic code keeps its
+   vocabulary. The `Unsafe` name carries the claim per 130's idiom — the
+   conformance header IS the audited, greppable assertion, replacing every
+   "`Sync` by fiat" comment. LEGALITY: declaring one is legal only where the
+   structural derivation FAILED and every blocking field is unsafe-typed (a
+   cell, `UnsafePointer`, `UnsafeMemory`) — you may hand-assert exactly what
+   the unsafe domain already owns, never past a SAFE non-Sync field, which
+   would be a claim about someone else's invariants. Conditional headers are
+   supported and are half the point: `extension Mutex<T: Send>: UnsafeSync {}`.
+   Three fences: (a) NOT boundable, NOT erasable — `T: UnsafeSync` and
+   `any UnsafeSync` are errors hinting at `Sync`; the trait appears in
+   exactly one position, the conformance header; (b) these are TWO BUILTIN
+   traits, not a user-definable unsafe-trait feature — no 130
+   name-enforcement extends to trait declarations; (c) the design-142 orphan
+   rule applies unchanged. The error for a cell-carrying type crossing a
+   task boundary without the conformance names the missing declaration AND
+   the blocking field.
 4. **Migrate the three, dissolve the list.** `Atomic<T>` holds
    `UnsafeMutableInterior<T>` (its four ops stay codegen-intercepted — the
    ATOMICITY is still intrinsic; only its interior-mutability stops being
-   fiat) and declares `Sync`. `SpinLock.value` becomes
+   fiat) and declares `UnsafeSync`. `SpinLock.value` becomes
    `UnsafeMutableInterior<T>`; `_payload` becomes `self.value.ptr()` — the
-   subtle `(&self.value) as UnsafePointer<T>` idiom retires. `UnsafeMemory` is
-   NOT cell-carrying (it is a one-word address; mutation lands through the
-   pointer, the indirection carve-out's territory) and keeps `Sync` by
-   declaration. Then re-derive what remains of `_INTERIOR_MUTABLE_TYPES`:
+   subtle `(&self.value) as UnsafePointer<T>` idiom retires — and its fiat
+   migrates to a declared `extension SpinLock<T: Send>: UnsafeSync {}`.
+   `UnsafeMemory` is NOT cell-carrying (it is a one-word address; mutation
+   lands through the pointer, the indirection carve-out's territory); its
+   fiat migrates to declarations under the same legality rule. Then re-derive what remains of `_INTERIOR_MUTABLE_TYPES`:
    expected outcome is the set DISSOLVES (every blessed call is a `&self`
    method and never trips the `&var self` rule) — any residue that turns out
    to be load-bearing is kept per-case with a stated reason, not as a name
@@ -89,23 +104,66 @@ mutability expressible by types the compiler does not know a-priori.
    and the blocking semantics are UNCHANGED (the thread-blocking contended
    path is preexisting, per the `mutex_lock_suspend` discipline — parity, not
    regression). Hosted only; freestanding Mutex stays out.
-6. **D2 (PROPOSED — needs ratification): the statics fence.** v1
-   cell-carrying user statics are legal when zero-init (already design 149's
-   rule) or when the initializer tree is const-foldable end-to-end (185's
-   const-eval does the arithmetic); anything runtime-computed still needs
-   `unsafe static var`. This keeps "a static is image bytes" true and defers
-   const-init generality to a real const-fn design.
-7. **Docs + tests.** Spec: rewrite the §3 interior-mutability paragraph
-   around the property instead of the trio, the 149 statics section, the
-   Sync/Send section for D1; saw-lang skill: the wrapper idiom (cell field +
-   `&self` methods + one small unsafe helper + explicit Sync). Tests: the
+6. **`Once<T>` — the set-once static, the second proof (PROMOTED by the
+   ratification round).** A small std type over this brief's own primitives:
+   an `Atomic` state word + an `UnsafeMutableInterior<T>` payload slot,
+   release-publish / acquire-read ordering INSIDE the type (the pairing a
+   hand-rolled placeholder pattern silently gets wrong), and a declared
+   `UnsafeSync` whose header bound is chosen in-unit so the sharing story is
+   actually true for how the accessors move `T`. Semantics, pinned: zero =
+   UNSET, so `static POOL: Once<UnsafePointer<UInt8>>` with no initializer
+   is bss under the 149 rule; `set(v)` publishes once and a SECOND set
+   PANICS (racing sets: compare-exchange, first wins, loser panics — two
+   boot paths initializing is a program bug, not a condition); `get()`
+   before initialization PANICS — both panics are the fault-not-status
+   principle ratified in the 180 review (caller-checkable bug → panic,
+   never a status); `try_get() -> T?` is the inspectable twin. Readers of a
+   `Once<Config>` are SAFE functions — the unsafe domain around the old
+   placeholder-then-assign pattern shrinks to the type's internals. This
+   SPLITS the runtime tier of unit 7: set-once state is `static X: Once<T>`;
+   `unsafe static var` remains only for state genuinely MUTATED under a
+   serialization argument (the spec's TABLE/LIVE) — `var` means what it
+   says again. The user's `unsafe static let` alternative was considered
+   and declined WITH this as the replacement: a `let` you assign later
+   bends the binding vocabulary, and the once-enforcement is dynamic
+   either way — better carried by a named type than a hidden flag on a
+   third static flavor.
+7. **The statics tiers (RATIFIED).** A cell-carrying user static is legal
+   at exactly three tiers: (a) ZERO-INIT — bare declaration, bss, design
+   149's rule unchanged (the futex Mutex and an unset Once are both valid
+   at zero by construction); (b) CONST-FOLDABLE MEMBERWISE construction —
+   the initializer tree is synthesized/memberwise construction over
+   const-foldable leaves (185's vocabulary), and the line is crisp: field
+   aggregation folds, user `init` BODIES never run at compile time — a
+   hand-written init with logic is rejected even where it visibly "would"
+   fold, because folding bodies is const-fn and this brief refuses to back
+   into it; (c) runtime-computed initial state is NEVER a static
+   initializer in any form — it is the placeholder-then-assign pattern:
+   set-once wants `static X: Once<T>` (unit 6), mutated-throughout keeps
+   `unsafe static var` + the author's ordering argument (149's discipline).
+   No life-before-main, no static constructors, ever — a static is image
+   bytes. A plain static must still be Sync, so a cell-carrying static
+   needs its type's `UnsafeSync` declaration: units 3, 6 and 7 compose
+   deliberately.
+8. **Docs + tests.** Spec: rewrite the §3 interior-mutability paragraph
+   around the property instead of the trio, the 149 statics section (the
+   three tiers + the Once/unsafe-static-var split), the Sync/Send section
+   (derivation-only stands; UnsafeSync/UnsafeSend are the declared markers);
+   saw-lang skill: the wrapper idiom (cell field + `&self` methods + one
+   small unsafe helper + declared UnsafeSync) and the set-once static idiom.
+   Tests: the
    callee-copy regression a no-atomic cell-carrying type would have hit
    (by-pointer receiver proof); rodata/bss placement of cell-carrying statics
-   (zero and const-init); Sync blocked structurally + unblocked by
-   declaration + the missing-declaration error text; a user-built Cell type
-   end-to-end in a test (the "compiler never heard of it" proof); static
-   Mutex + the Mutex concurrency set over TEN stable repeats (180 precedent);
-   the 176b suite unchanged (wrapper `&var self` still rejected).
+   (zero and const-init); Sync blocked structurally + unblocked by a declared
+   UnsafeSync + the missing-declaration error naming the blocking field + the
+   legality rejections (asserting past a safe non-Sync field; `T: UnsafeSync`
+   bound; `any UnsafeSync`); a user-built Cell type end-to-end in a test (the
+   "compiler never heard of it" proof); static Mutex + the Mutex concurrency
+   set over TEN stable repeats (180 precedent); Once: double-set panic,
+   get-before-set panic (both carrying `panic at FILE:LINE:`), cross-thread
+   publish/read, zero-static bss placement, and the safe-reader proof (a
+   `Once<Config>` consumer compiles with no `unsafe` anywhere); the 176b
+   suite unchanged (wrapper `&var self` still rejected).
 
 ## Gates
 
@@ -116,10 +174,13 @@ DF-186x findings as usual.
 
 ## Explicitly out
 
-Safe `Cell`/`RefCell`/`OnceCell` std types (natural follow-ups, each ~a page
-of library code over the cell — a later std design); a field-level `interior`
-marker or method-level marker (rejected in the design conversation: blesses
-code or unsynchronized storage rather than an auditable primitive); making
-the 176b CALL exemption transitive to wrappers (reintroduces the
+Safe `Cell`/`RefCell` std types (natural follow-ups, each ~a page of library
+code over the cell — a later std design; `Once<T>` alone was promoted IN, as
+unit 6); a field-level `interior` marker, a method-level marker, or an
+`unsafe static let` binding flavor (each rejected in the design
+conversation: they bless code, unsynchronized storage, or a hidden dynamic
+flag rather than an auditable primitive); user-definable unsafe traits;
+making the 176b CALL exemption transitive to wrappers (reintroduces the
 sibling-field bug); freestanding/SOS Mutex; robust/priority-inheritance
-mutex features; const-fn generality.
+mutex features; const-fn generality; a blocking/waiting `Once.get` (the
+OnceLock wait — a panic is the v1 answer and the fault principle's).
