@@ -82,7 +82,12 @@ mutability expressible by types the compiler does not know a-priori.
    migrates to a declared `extension SpinLock<T: Send>: UnsafeSync {}`.
    `UnsafeMemory` is NOT cell-carrying (it is a one-word address; mutation
    lands through the pointer, the indirection carve-out's territory); its
-   fiat migrates to declarations under the same legality rule. Then re-derive what remains of `_INTERIOR_MUTABLE_TYPES`:
+   fiat migrates to declarations under the same legality rule. The `Send`
+   override list migrates in the same sweep: `Arc`/`Mutex`/`Channel`/
+   `Task`/`SpinLock` plus the DF-182e container ruling (`Vector<T: Send>`,
+   `Map`, `Set` conditional; `Data`/`StringBuilder` unconditional) all
+   become declared `UnsafeSend` conformances, and `namespace.py:_send_sync`'s
+   name list dissolves with the interior-mutability one. Then re-derive what remains of `_INTERIOR_MUTABLE_TYPES`:
    expected outcome is the set DISSOLVES (every blessed call is a `&self`
    method and never trips the `&var self` rule) — any residue that turns out
    to be load-bearing is kept per-case with a stated reason, not as a name

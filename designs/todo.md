@@ -106,7 +106,7 @@ state); three-tier statics fence (zero / memberwise-const / never-runtime).
 Queue position: after the current wave and the net track — typechecker +
 codegen + builtin.saw + std surface, shares with everything, runs alone.
 
-## Design 182 — Command without threads (PARTIAL, Aug 8) — needs a ruling
+## Design 182 — Command without threads (PARTIAL, Aug 8) — RULED, completion queued
 
 **`Command.run()` is cooperative and spends no thread waiting. `Command.output()`
 is unchanged and still blocks, because it cannot be made suspending yet — see
@@ -195,9 +195,23 @@ the fourth is a language question only the user can answer.
   would double-drop. The store has to become a move before the clear has anywhere
   to go, which is more surgery than this brief should do unreviewed. Pinned by
   `examples/coro_move_scrutinee_span_xfail.saw`.
-- **DF-182e (LANGUAGE/STD, OPEN, filed Aug 8 — THE RULING THIS NEEDS): no std
-  container is `Send`, so a task that holds one across a suspension cannot run in
-  a multi-threaded TaskGroup.** `String` is Send by an explicit carve-out
+- **DF-182e — RULED (user, Aug 8: "containers are Send if T is Send and
+  UnsafeSend where the compiler needs to be told a type is Send").** The
+  semantics: an OWNING container is `Send` iff its contents are —
+  `Vector<T: Send>`, `Map<K: Send, V: Send>`, `Set<T: Send>` conditional;
+  `Data`/`StringBuilder` unconditional by the same argument as `String`'s
+  carve-out. Mechanism NOW: additions to the by-name override list
+  (`namespace.py:_send_sync`) in the 182-COMPLETION unit below; mechanism
+  LATER: design 186's declared `UnsafeSend` conformances replace the whole
+  fiat list in its migration unit. **The 182-completion unit** (queued
+  BEHIND 158 + 183 — both hold the coro_transform/codegen surface): the
+  Send additions, the DF-182c store-becomes-move fix, `output()` goes
+  suspending on `run()`'s park loop, and both pins flip
+  (`process_output_starvation_xfail`, `coro_move_scrutinee_span_xfail`);
+  `__saw_rt_proc_wait` drains to zero callers and is removed per the ABI
+  note. Original finding, for the record: no std
+  container was `Send`, so a task that held one across a suspension could
+  not run in a multi-threaded TaskGroup. `String` is Send by an explicit carve-out
   ("immutable buffer + atomic refcount"); `Vector`, `Map`, `Set`, `Data`,
   `StringBuilder` are all NOT, because Send is derived structurally and
   `UnsafePointer<T>` poisons any struct holding one (`namespace.py:_send_sync`).
