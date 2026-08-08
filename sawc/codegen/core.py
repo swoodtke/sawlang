@@ -1189,6 +1189,16 @@ class CodeGenerator(ResultsMixin, MatchMixin, StructsMixin, CollectionsMixin, Ca
         from ast_nodes import (IntLiteral, FloatLiteral, BoolLiteral, UnaryOp,
                                 ArrayLiteral, StructInit, FunctionCall,
                                 SourceLocationLiteral)
+        # A static may declare its type through a NAMED ALIAS — `type Region =
+        # [UInt8; 65536]` then `static ARENA: Region = [0; 65536]`, which is how
+        # a large region gets ONE spelling of its size. `_get_llvm_type` follows
+        # the alias on its own, but the STRUCTURAL reads below
+        # (`array_element_type`, `struct_name`) come off the SawType, and on an
+        # alias node they are None — so the array arm recursed with `None` as
+        # the element type and died as `internal compiler error: 'NoneType'
+        # object has no attribute 'kind'` (DF-172g). Resolve once, here, and
+        # every arm sees the type the alias stands for.
+        saw_type = self._resolve_type_alias(saw_type)
         llvm_type = self._get_llvm_type(saw_type)
         if isinstance(expr, IntLiteral):
             return ir.Constant(llvm_type, expr.value)
