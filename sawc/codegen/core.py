@@ -2316,8 +2316,25 @@ class CodeGenerator(ResultsMixin, MatchMixin, StructsMixin, CollectionsMixin, Ca
 
         # For extern functions, unwrap optionals from return type for C ABI
         # C functions return raw pointers which can be NULL
+        is_never = saw_return_type.kind == TypeKind.NEVER
         if saw_return_type.kind == TypeKind.OPTIONAL and saw_return_type.inner_type:
             return_type = self._get_llvm_type(saw_return_type.inner_type)
+        elif is_never:
+            # `extern "C" { func abort_now() -> Never }` is the C `noreturn`
+            # declaration, and design 58 says a `-> Never` signature lowers to
+            # `void` + `noreturn`. `_declare_function` does exactly this for a
+            # DEFINITION; without the same arm here the DECLARATION took
+            # `_get_llvm_type`'s i8 placeholder, and the two disagreed about one
+            # symbol's C ABI.
+            #
+            # It reached further than a declaration, because an `@export`ed
+            # definition UNIFIES with a pre-existing bodyless declaration of the
+            # same symbol (just below in `_declare_function`) and inherits its
+            # type. So a `-> Never` seam DEFINED in a module the entry file also
+            # `extern`s — the SOS `sos_rt_abort` shape, design 172 part 2 —
+            # emitted `define noundef i8 @sos_rt_abort(...)` while the ABI
+            # document and every other spelling said `void` (DF-172h).
+            return_type = ir.VoidType()
         else:
             return_type = self._get_llvm_type(saw_return_type)
 
@@ -2325,6 +2342,8 @@ class CodeGenerator(ResultsMixin, MatchMixin, StructsMixin, CollectionsMixin, Ca
         llvm_func = ir.Function(self.module, func_type, name=extern_func.name)
         # Set external linkage (default for declarations)
         llvm_func.linkage = 'external'
+        if is_never:
+            llvm_func.attributes.add("noreturn")
         self.functions[extern_func.name] = llvm_func
 
     # Generic methods moved to codegen_generics.py (GenericsMixin)
