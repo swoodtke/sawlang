@@ -41,7 +41,7 @@ from ast_nodes import (
     IfLetExpr, EnumInit, MatchArm, MatchExpr, RangeExpr, ClosureExpr, ClosureParam,
     SawType, TypeParameter, Argument, ExternFunction,
     # design 126 R11: the previously-uncovered node types.
-    ReferenceExpr, MapLiteral, SetLiteral, SourceLocationLiteral,
+    ReferenceExpr, MapLiteral, SetLiteral, SourceLocationLiteral, LendVarLiteral,
     BindOptional, OptionalEvalExpr, OptionalChainAssign, OptionalWrap,
     ResultOkWrap, ResultErrWrap, ErasedErrWrap, TryExpr, TryCatchExpr,
     DestructuringLet, CompoundAssignStatement, StaticDecl,
@@ -941,6 +941,9 @@ class ASTDumper:
         elif isinstance(expr, SourceLocationLiteral):
             self._emit(f"SourceLocationLiteral #{expr.kind}")
 
+        elif isinstance(expr, LendVarLiteral):
+            self._emit("LendVarLiteral #lend_var")
+
         elif isinstance(expr, BindOptional):
             self._emit(f"BindOptional ?")
             self._indent()
@@ -1123,6 +1126,8 @@ class ASTDumper:
             return '"..."'
         elif isinstance(expr, SourceLocationLiteral):
             return f"#{expr.kind}"
+        elif isinstance(expr, LendVarLiteral):
+            return "#lend_var"
         elif isinstance(expr, CastExpr):
             return f"{self._expr_summary(expr.expr)} as {self._type_str(expr.target_type)}"
         elif isinstance(expr, MemberAccess):

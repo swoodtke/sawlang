@@ -228,6 +228,30 @@ class ExpressionsMixin:
         return SawType(TypeKind.INT if expr.resolved_kind == 'int'
                        else TypeKind.STRING)
 
+    def visit_LendVarLiteral(self, expr) -> Optional[SawType]:
+        """The `#lend_var` scope fence (design 179).
+
+        Every LEGAL occurrence is folded away before the checker runs: the
+        place transform duplicates a `borrows` body that names the constant and
+        folds it per specialization, pruning the branch it decides. So anything
+        that reaches here is, by construction, misplaced — and this visitor
+        never has to ask where it is.
+
+        It still types `Bool`, so a body that misuses it gets ONE diagnostic
+        rather than a cascade from an unknown-typed condition."""
+        from errors import ErrorKind
+        self._error(
+            ErrorKind.TYPE_MISMATCH,
+            "`#lend_var` is legal only inside a `borrows` body — it names the "
+            "SPECIALIZATION the compiler is building (`false` for the shared "
+            "window, `true` for the exclusive one), and a declaration that "
+            "lends no place has no specializations",
+            expr.line, expr.column,
+            hint="declare the accessor `func name(&self, ...) borrows -> T` if "
+                 "it means to lend a place; a runtime condition is an ordinary "
+                 "`Bool` expression")
+        return SawType(TypeKind.BOOL)
+
     def _source_location_file(self, expr: SourceLocationLiteral) -> str:
         """The source BASENAME for `#file` — matches the design-69 panic prefix
         (`os.path.basename` of the file the token appears in). Falls back to the

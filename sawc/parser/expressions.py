@@ -25,7 +25,8 @@ from ast_nodes import (
     TupleLiteral, TupleIndex, ArrayLiteral, ArrayIndex,
     MapLiteral, SetLiteral,
     MemberAccess, StructInit,
-    NoneLiteral, SourceLocationLiteral, ForceUnwrap, NilCoalesce, OptionalChain,
+    NoneLiteral, SourceLocationLiteral, LendVarLiteral,
+    ForceUnwrap, NilCoalesce, OptionalChain,
     BindOptional, OptionalEvalExpr, OptionalChainAssign,
     TryExpr, TryCatchExpr,
     RangeExpr, MatchExpr, MatchArm,
@@ -595,6 +596,11 @@ class ExpressionsMixin:
             # for an interpolation sub-parser lacking it — the enclosing string
             # token's file, threaded through `_parse_expression_from_string`.
             self.advance()
+            if token.value == 'lend_var':
+                # `#lend_var` (design 179) is the other magic literal: it names
+                # the SPECIALIZATION a `borrows` body is being compiled as, not
+                # anything about the source position, so it carries no payload.
+                return LendVarLiteral(line=token.line, column=token.column)
             return SourceLocationLiteral(
                 kind=token.value,
                 source_file=(self.source_file or None),

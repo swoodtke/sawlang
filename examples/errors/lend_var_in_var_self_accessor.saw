@@ -1,0 +1,30 @@
+// Design 179: `#lend_var` in a `&var self`-DECLARED accessor is the redundancy
+// error the design-175 report recommended, not an always-true constant.
+//
+// A `&var self` accessor is the STRICTER declaration: every use site of one
+// borrows the receiver exclusively, reads included. So there is only one
+// specialization, the constant is always true, and the branch is always live —
+// and a silently-always-true constant would read as a live decision to every
+// later reader of the body. The fix is in the receiver, so the message names it.
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: `#lend_var` is always true in a `&var self` accessor
+
+struct Grid { cells: [Int; 4], gates: Int }
+
+extension Grid {
+    func run_gate(&var self) { self.gates = self.gates + 1 }
+
+    public func [](&var self, i: Int) borrows -> Int {
+        if i < 0 || i >= 4 { panic("Grid.[]: index out of range") }
+        if #lend_var {
+            self.run_gate()
+        }
+        lend self.cells[i]
+    }
+}
+
+func main() {
+    var g = Grid(cells: [1, 2, 3, 4], gates: 0)
+    g[0] = 9
+    print("{g.gates}")
+}

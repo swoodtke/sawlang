@@ -1090,6 +1090,24 @@ class SourceLocationLiteral(Expression):
 
 
 @dataclass
+class LendVarLiteral(Expression):
+    """The `#lend_var` compile-time constant (design 179).
+
+    Legal ONLY inside a `borrows` body, where it names the SPECIALIZATION being
+    compiled rather than anything about the running program: `false` in the
+    shared copy, `true` in the exclusive one. A body that mentions it compiles
+    TWICE — `place_transform` folds the constant and prunes the branch it
+    decides, so each copy reaches the type checker as an ordinary method with
+    no trace of the other. A body that never mentions it compiles once, exactly
+    as before.
+
+    Nothing downstream of the place transform can see one: every LEGAL
+    occurrence is folded away before checking, so the type checker's visitor is
+    the scope fence and always errors."""
+    pass
+
+
+@dataclass
 class ForceUnwrap(Expression):
     """Force unwrap: expr!
 
@@ -1865,6 +1883,15 @@ class Method(ASTNode):
     # a POINTER even when the author wrote `&self`, because the window may write
     # through it (design 146, DF-146b). See `self_by_pointer`.
     place_self_by_pointer: bool = annotation(False)
+    # `#lend_var` (design 179). `place_lend_var` marks the AUTHORED declaration
+    # whose body named the constant — it is the SHARED specialization, folded
+    # with the constant false. `place_var_twin` marks the synthesized exclusive
+    # sibling: same body folded true, `self_mutable` set, a reserved name no
+    # author could write. The twin is an implementation detail of one authored
+    # accessor, so `--emit-docs` skips it and every diagnostic names the
+    # original.
+    place_lend_var: bool = annotation(False)
+    place_var_twin: bool = annotation(False)
     # Method-level generic type params (brief 36): the `U` in `func map<U>(...)`,
     # distinct from and in addition to the enclosing extension's own type params.
     type_params: List['TypeParameter'] = field(default_factory=list)

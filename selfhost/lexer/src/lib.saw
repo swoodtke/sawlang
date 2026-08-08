@@ -925,7 +925,9 @@ extension Lexer {
         if name_str.is_empty() {
             return self.err_at("expected a directive name after `#`", start_line, start_col)
         }
-        let known = name_str.equals("file") || name_str.equals("line") || name_str.equals("function")
+        // `#file`/`#line`/`#function` (design 98) plus `#lend_var` (design 179).
+        let known = (name_str.equals("file") || name_str.equals("line")
+                     || name_str.equals("function") || name_str.equals("lend_var"))
         if not known {
             return self.err_at("unknown directive after `#`", start_line, start_col)
         }

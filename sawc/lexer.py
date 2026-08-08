@@ -540,14 +540,17 @@ class Lexer:
             self._check_int_range(ival, start_col)
         return Token(TokenType.INT, value, self.line, start_col, suffix=suffix)
 
-    # Source-location magic literals (design 98): the ONLY `#` directives.
-    HASH_DIRECTIVES = {'file', 'line', 'function'}
+    # The compile-time magic literals — the ONLY `#` directives. Three name the
+    # DEFINITION SITE (design 98); `#lend_var` (design 179) names the
+    # SPECIALIZATION a `borrows` body is being compiled as.
+    HASH_DIRECTIVES = {'file', 'line', 'function', 'lend_var'}
+    _HASH_LIST = "#file, #line, #function, #lend_var"
 
     def read_hash_directive(self) -> Token:
-        """Lex a `#file` / `#line` / `#function` source-location literal (design
-        98). `#` is otherwise unused at the token level. An unrecognized
-        `#foo` is a clean "unknown directive" lex error (never silently
-        consumed)."""
+        """Lex a `#file` / `#line` / `#function` / `#lend_var` magic literal
+        (designs 98 and 179). `#` is otherwise unused at the token level. An
+        unrecognized `#foo` is a clean "unknown directive" lex error (never
+        silently consumed)."""
         start_col = self.column
         self.advance()  # consume '#'
         name_chars = []
@@ -557,11 +560,11 @@ class Lexer:
         if not name:
             raise SyntaxError(
                 f"Lexer error at {self.line}:{start_col}: expected a directive "
-                f"name after `#` (one of #file, #line, #function)")
+                f"name after `#` (one of {self._HASH_LIST})")
         if name not in self.HASH_DIRECTIVES:
             raise SyntaxError(
                 f"Lexer error at {self.line}:{start_col}: unknown directive "
-                f"`#{name}` (expected one of #file, #line, #function)")
+                f"`#{name}` (expected one of {self._HASH_LIST})")
         return Token(TokenType.HASH_DIRECTIVE, name, self.line, start_col)
 
     def read_identifier(self) -> Token:

@@ -64,6 +64,35 @@ scrutinee is read out as a VALUE, which is exactly what lending an enum payload
 exists to avoid. An epilogue keeps the tail form too: the sequence simply ends
 in `__wr` instead of returning it.
 
+**`#lend_var`: one authored accessor, two specializations** (design 179). The
+body cannot see which window flavor is coming, but the COMPILER can — every use
+site's flavor is static. A body that names the constant is therefore emitted
+TWICE, here, before the checker runs:
+
+    func [](&self, i) borrows -> UInt8 {          func [](&self, i) borrows -> UInt8 {
+        if #lend_var {                     =>        <bounds check>
+            self.separate_if_shared()                lend ...
+        }                                        }
+        <bounds check>                           func __lend_var_[](&var self, i) borrows -> UInt8 {
+        lend ...                                     self.separate_if_shared()
+    }                                                <bounds check>
+                                                     lend ...
+                                                 }
+
+The authored declaration keeps `&self` and folds the constant FALSE, so the
+gate is gone from the tree before anything checks it and the copy is an
+honestly non-mutating `&self` body a `let` root may call. The twin takes
+`&var self`, folds TRUE, and keeps the gate; `place_uses` retargets an
+exclusive use site at it, and the re-check that already follows the use-site
+lowering checks the retarget like any other call.
+
+Nothing here needs a per-specialization checking mode, because the
+specialization set is {shared, exclusive} — fixed, and known with no caller
+information. Nothing needs mangler work either: the accessor's symbol key is
+the window's result type `__R` and the flavor was never part of it, so two
+METHOD NAMES are two symbol families and `mangle_method` composes them as it
+composes any other.
+
 The transform runs BEFORE type checking, inside `parse_source`, so everything
 downstream — registration, inference, monomorphization, codegen — sees an
 ordinary generic method and needs to know nothing about places. The
@@ -76,12 +105,13 @@ import dataclasses
 from typing import List
 
 from ast_nodes import (
-    Argument, ArrayIndex, Block, BreakStatement, ClosureExpr,
-    ContinueStatement, ExpressionStatement, ForceUnwrap, ForLoop, FunctionCall,
-    GuardLetStatement, Identifier, IfExpr, IfLetExpr, LendStatement,
-    LetStatement, MatchExpr, MemberAccess, MethodCall, NoneLiteral, Parameter,
-    Program, ReferenceExpr, ReturnStatement, SawType, SelfExpr, TupleIndex,
-    TypeKind, TypeParameter, WhileExpr, structural_fields,
+    Argument, ArrayIndex, BinaryOp, Block, BoolLiteral, BreakStatement,
+    ClosureExpr, ContinueStatement, ExpressionStatement, ForceUnwrap, ForLoop,
+    FunctionCall, GuardLetStatement, Identifier, IfExpr, IfLetExpr,
+    LendStatement, LendVarLiteral, LetStatement, MatchExpr, MemberAccess,
+    MethodCall, NoneLiteral, Parameter, Program, ReferenceExpr, ReturnStatement,
+    SawType, SelfExpr, TupleIndex, TypeKind, TypeParameter, UnaryOp, WhileExpr,
+    structural_fields,
 )
 from errors import ErrorKind
 
@@ -92,6 +122,18 @@ WINDOW_PARAM = "__window"
 ABSENT_PARAM = "__absent"
 RESULT_TYPE_PARAM = "__R"
 _EPILOGUE_LOCAL = "__wr"
+# The exclusive specialization's method name (design 179). A DISTINCT NAME is
+# the whole of the mangling story: `mangle_method` composes the receiver's
+# specialization with the method name, so two names are two symbol families and
+# the mangler needs no new key component, no ordering decision, and no new
+# determinism surface. The flavor was never part of the accessor's symbol key —
+# that key is the window's result type `__R` — so nothing about it moves.
+_VAR_TWIN_PREFIX = "__lend_var_"
+
+
+def var_twin_name(method_name: str) -> str:
+    """The exclusive specialization's name for an accessor named `method_name`."""
+    return _VAR_TWIN_PREFIX + method_name
 
 # How a path through a block leaves it.
 _FALL, _LEND, _ABSENT, _DIVERGE = 'fall', 'lend', 'absent', 'diverge'
@@ -125,16 +167,83 @@ class _PlaceTransform:
     def run(self, program: Program) -> None:
         for func in getattr(program, 'functions', []) or []:
             if getattr(func, 'is_borrows', False):
+                if _mentions_lend_var(getattr(func, 'body', None)):
+                    self._error(
+                        func,
+                        "`#lend_var` chooses between a SHARED and an EXCLUSIVE "
+                        "receiver, so it belongs in an accessor that has one. "
+                        "A free `borrows` function has no receiver to borrow "
+                        "either way")
+                    _fold_lend_var(func.body, False)
                 self._lower(func, is_method=False)
         for ext in getattr(program, 'extensions', []) or []:
-            for method in getattr(ext, 'methods', []) or []:
-                if getattr(method, 'is_borrows', False):
-                    self._lower(method, is_method=True)
+            twins = []
+            for method in list(getattr(ext, 'methods', []) or []):
+                if not getattr(method, 'is_borrows', False):
+                    continue
+                twin = self._specialize(method)
+                self._lower(method, is_method=True)
+                if twin is not None:
+                    self._lower(twin, is_method=True)
+                    twins.append(twin)
+            if twins:
+                ext.methods.extend(twins)
         # Inline `module X { ... }` bodies are separate Programs.
         for decl in getattr(program, 'module_decls', []) or []:
             body = getattr(decl, 'body', None)
             if body is not None:
                 self.run(body)
+
+    # -- `#lend_var`: the two specializations (design 179) ------------------
+
+    def _specialize(self, decl):
+        """Fold `#lend_var` and hand back the exclusive twin, or None.
+
+        An accessor whose body never names the constant compiles ONCE, exactly
+        as it did before — this returns None and nothing else happens, so the
+        unflavored majority pays no code-size tax by construction.
+
+        One that DOES name it compiles TWICE:
+
+          * the authored declaration keeps its `&self` receiver and is folded
+            with the constant FALSE. Whatever the constant gated is gone from
+            the tree before the checker sees it, so the copy is checked as an
+            ordinary non-mutating `&self` body by machinery that needs to know
+            nothing about any of this — and a `let` root can call it;
+          * a synthesized sibling under a reserved name takes `&var self` and is
+            folded TRUE, keeping the gate. `place_uses` retargets an exclusive
+            use site at it, and pass 2 re-checks the retarget honestly.
+
+        The specialization set is fixed at {shared, exclusive} and known with no
+        caller information at all — unlike a const generic, whose set is
+        caller-derived — which is exactly why this can be a source-level
+        duplication in a pass that already runs before the type checker rather
+        than a per-specialization checking mode the checker does not have.
+        """
+        if not _mentions_lend_var(decl.body):
+            return None
+        if getattr(decl, 'self_mutable', False):
+            # In a `&var self` accessor every use site is already exclusive, so
+            # the constant is always true and the branch always live. A silently
+            # always-true constant reads as a live decision, which would mislead
+            # every later reader of the body.
+            self._error(
+                decl,
+                "`#lend_var` is always true in a `&var self` accessor — every "
+                "use site of one already borrows the receiver exclusively, so "
+                "there is only one specialization and the constant decides "
+                "nothing. Declare the receiver `&self` to get both")
+            _fold_lend_var(decl.body, True)
+            return None
+        twin = copy.deepcopy(decl)
+        twin.name = var_twin_name(decl.name)
+        twin.self_mutable = True
+        twin.place_var_twin = True
+        twin.doc = None
+        decl.place_lend_var = True
+        _fold_lend_var(twin.body, True)
+        _fold_lend_var(decl.body, False)
+        return twin
 
     # -- lowering ----------------------------------------------------------
 
@@ -671,6 +780,113 @@ class _PlaceTransform:
                             getattr(node, 'line', 0) or 0,
                             getattr(node, 'column', 0) or 1,
                             None, self.source_file)
+
+
+# ---------------------------------------------------------------------------
+# `#lend_var`: folding the constant (design 179)
+# ---------------------------------------------------------------------------
+
+def _mentions_lend_var(node) -> bool:
+    return node is not None and _contains(node, LendVarLiteral)
+
+
+def _fold_lend_var(block: Block, flavor: bool) -> None:
+    """Fold `#lend_var` to `flavor` through `block`, PRUNING what it decides.
+
+    Substituting the constant is not enough on its own. A branch left standing
+    behind a `false` condition is still CHECKED, and the whole point of the
+    shared specialization is that the copy-on-write gate — a `&var self` call
+    inside a `&self` body — is not there to be checked. So the untaken branch
+    has to leave no trace in the tree at all.
+
+    An `if` STATEMENT whose condition folds to a constant is therefore REPLACED
+    by the branch it takes, spliced into the enclosing statement list. That is
+    also what makes a lending branch work (`if #lend_var { lend a } else
+    { lend b }`): the coverage rule then sees one unconditional `lend`, which is
+    the truth about the specialization it is looking at.
+
+    Everywhere else the constant is an ordinary compile-time `Bool` —
+    `let writing = #lend_var` folds and works — because pruning needs a
+    statement list to splice into and an expression has none.
+    """
+    _fold_block(block, flavor)
+
+
+def _fold_block(block: Block, flavor: bool) -> None:
+    out = []
+    for stmt in block.statements:
+        out.extend(_fold_statement(stmt, flavor))
+    block.statements = out
+    if block.final_expr is not None:
+        block.final_expr = _fold_node(block.final_expr, flavor)
+
+
+def _fold_statement(stmt, flavor: bool) -> List:
+    """One statement, folded — as a LIST, because a pruned `if` may vanish."""
+    ctrl = _ctrl(stmt)
+    if isinstance(ctrl, IfExpr):
+        ctrl.condition = _fold_node(ctrl.condition, flavor)
+        taken = _const_bool(ctrl.condition)
+        if taken is not None:
+            kept = ctrl.then_branch if taken else ctrl.else_branch
+            if kept is None:
+                return []
+            _fold_block(kept, flavor)
+            spliced = list(kept.statements)
+            if kept.final_expr is not None:
+                spliced.append(ExpressionStatement(
+                    expression=kept.final_expr,
+                    line=kept.final_expr.line,
+                    column=kept.final_expr.column))
+            return spliced
+    return [_fold_node(stmt, flavor)]
+
+
+def _fold_node(node, flavor: bool):
+    """`node` with the constant folded and every nested block pruned."""
+    if node is None or isinstance(node, SawType):
+        return node
+    if isinstance(node, LendVarLiteral):
+        return BoolLiteral(value=flavor, line=node.line, column=node.column)
+    if isinstance(node, Block):
+        _fold_block(node, flavor)
+        return node
+    if not dataclasses.is_dataclass(node):
+        return node
+    for f in structural_fields(node):
+        value = getattr(node, f.name, None)
+        if isinstance(value, list):
+            for i, item in enumerate(value):
+                value[i] = (tuple(_fold_node(x, flavor) for x in item)
+                            if isinstance(item, tuple)
+                            else _fold_node(item, flavor))
+        elif not isinstance(value, (str, bytes)):
+            setattr(node, f.name, _fold_node(value, flavor))
+    return node
+
+
+def _const_bool(expr):
+    """The compile-time `Bool` this condition folds to, or None.
+
+    Only what the constant itself can decide: the bare literal, `not`, and the
+    short-circuit operators whose LEFT side is already constant. A condition
+    that still depends on the receiver stays a runtime condition in the
+    specialization that keeps it — which is right, and is how
+    `if #lend_var && self.shared` means "gate, but only when it is shared".
+    """
+    if isinstance(expr, BoolLiteral):
+        return expr.value
+    if isinstance(expr, UnaryOp) and expr.op == 'not':
+        inner = _const_bool(expr.operand)
+        return None if inner is None else (not inner)
+    if isinstance(expr, BinaryOp) and expr.op in ('&&', '||'):
+        left = _const_bool(expr.left)
+        if left is None:
+            return None
+        if expr.op == '&&':
+            return _const_bool(expr.right) if left else False
+        return True if left else _const_bool(expr.right)
+    return None
 
 
 # ---------------------------------------------------------------------------

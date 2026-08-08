@@ -1,0 +1,76 @@
+// Design 179: `#lend_var`, the constant a `borrows` body reads to see which
+// window flavor it is being compiled for.
+//
+// A `borrows` accessor has ONE body serving both flavors and cannot see which is
+// coming — but the compiler can, because every use site's flavor is static. So a
+// body that names `#lend_var` is emitted TWICE before the type checker runs: the
+// authored `&self` declaration folded with the constant FALSE (the gate is not
+// in the tree, so the copy is an honestly non-mutating `&self` body a `let` root
+// may call) and a `&var self` twin folded TRUE (the gate stays, and an exclusive
+// use site is retargeted at it).
+//
+// What that buys, and what this pins: a pure READ through a `let` root works and
+// runs no gate at all, while a WRITE runs it exactly once per window and needs a
+// `var` root like any other exclusive borrow.
+// EXPECT: success
+// EXPECT-OUTPUT:
+// shared read through a let root: 3
+// gates after that read: 0
+// second shared read: 4
+// gates still: 0
+// after a write: cell 99, gates 1
+// after a compound write: cell 7, gates 2
+// forwarded read: 7, gates 2
+// -- done
+
+struct Grid {
+    cells: [Int; 4],
+    gates: Int
+}
+
+extension Grid {
+    // The flavor-dependent work. It is `&var self`, so naming it at all is what
+    // would make the accessor's body a mutating one — which is exactly why the
+    // shared specialization must not contain this call rather than merely not
+    // reach it.
+    func run_gate(&var self) {
+        self.gates = self.gates + 1
+    }
+
+    public func [](&self, i: Int) borrows -> Int {
+        if i < 0 || i >= 4 {
+            panic("Grid.[]: index out of range")
+        }
+        if #lend_var {
+            self.run_gate()
+        }
+        lend self.cells[i]
+    }
+
+    public func gates_seen(&self) -> Int {
+        self.gates
+    }
+}
+
+// A `&Grid` parameter is the same shared receiver a `let` root is, so a read
+// through one selects the shared specialization too.
+func forwarded_read(g: &Grid) -> Int {
+    g[1]
+}
+
+func main() {
+    let frozen = Grid(cells: [1, 2, 3, 4], gates: 0)
+    print("shared read through a let root: {frozen[2]}")
+    print("gates after that read: {frozen.gates_seen()}")
+    print("second shared read: {frozen[3]}")
+    print("gates still: {frozen.gates_seen()}")
+
+    var live = Grid(cells: [1, 2, 3, 4], gates: 0)
+    live[0] = 99
+    print("after a write: cell {live[0]}, gates {live.gates_seen()}")
+    live[1] += 5
+    print("after a compound write: cell {live[1]}, gates {live.gates_seen()}")
+
+    print("forwarded read: {forwarded_read(&live)}, gates {live.gates_seen()}")
+    print("-- done")
+}

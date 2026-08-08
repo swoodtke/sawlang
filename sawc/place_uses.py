@@ -48,6 +48,15 @@ borrows accessor's receiver as storage rather than a copy. So `borrows` changes
 what `&self` means -- the one place in Saw where that spelling is not
 shared-only -- and everything else in the accessor's body stays ordinary `&self`
 code.
+
+**And the flavor may pick the METHOD** (design 179). An accessor whose body
+named `#lend_var` was emitted as two specializations by the declaration
+lowering, so an exclusive use site is retargeted at the `&var self` twin here
+and a shared one keeps the authored `&self` accessor. That works precisely
+because this pass sits BETWEEN two full type checks: the retarget is written
+after the first, and the second checks it as an ordinary call -- an immutable
+root reaching the twin gets the plain "cannot open an exclusive place window on
+immutable variable" diagnostic, with no new error text to author.
 """
 
 from ast_nodes import (
@@ -62,6 +71,7 @@ from ast_nodes import (
     SelfExpr, StringLiteral, TupleIndex, TypeKind, UnaryOp, structural_fields,
 )
 from errors import ErrorKind
+from place_transform import var_twin_name
 
 WINDOW_LOCAL = "__p"
 
@@ -597,7 +607,7 @@ class _PlaceUses:
                        else SawType(TypeKind.VOID))
         call = MethodCall(
             object=self._place_receiver(place),
-            method_name=place.place_method,
+            method_name=self._flavored_method(place, exclusive),
             arguments=args,
             type_args=[result_type],
             line=place.line, column=place.column)
@@ -648,6 +658,27 @@ class _PlaceUses:
             parameters=[], body=Block(statements=[], final_expr=body_expr,
                                       line=place.line, column=place.column),
             line=place.line, column=place.column)
+
+    def _flavored_method(self, place, exclusive: bool) -> str:
+        """The accessor this use site calls — the retarget of design 179.
+
+        An accessor whose body named `#lend_var` was emitted as TWO methods by
+        the declaration lowering: the authored `&self` one, folded shared, and a
+        `&var self` twin under a reserved name, folded exclusive. This pass is
+        the only thing that knows which flavor a use site opens, so it is the
+        one that picks, and it picks by NAME — which is why the mangler, the
+        docs and the diagnostics all keep working on the authored name.
+
+        An accessor that never named the constant has no twin and is reached
+        exactly as before, whichever flavor the use site opens.
+        """
+        method = place.place_method
+        if not exclusive:
+            return method
+        twin = var_twin_name(method)
+        if self.ns.lookup_method(place.place_struct, twin) is None:
+            return method
+        return twin
 
     def _place_receiver(self, place):
         return place.array_expr if isinstance(place, ArrayIndex) else place.object
