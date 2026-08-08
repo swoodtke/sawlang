@@ -837,15 +837,17 @@ shared until written.
   owner of a whole buffer that is the buffer's capacity. For shared storage, or
   a slice that starts partway in, the next write separates the bytes, so the
   answer is `len()`.
-- **Reads never separate.** `get(i) -> UInt8?`, `len()`, `is_empty()`, `pop()`,
-  `clear()` and `byte_ptr()` leave the storage shared. `pop` and `clear` only
-  narrow this window, so a sibling keeps every byte it could see.
-- **`d[i]` is a place with an exclusive receiver.** A `borrows` accessor cannot
-  see whether its window will be read or written (the flavor is the use site's
-  — see [Places](#places)), while copy-on-write has to separate shared storage
-  before lending a place that might be written. `Data.[]` therefore declares
-  `&var self` and takes the gate up front, which means `d[i]` needs a `var d`
-  and the first such use on shared storage copies. `get(i)` is the shared read.
+- **Reads never separate.** `d[i]`, `get(i) -> UInt8?`, `len()`, `is_empty()`,
+  `pop()`, `clear()` and `byte_ptr()` leave the storage shared. `pop` and
+  `clear` only narrow this window, so a sibling keeps every byte it could see.
+- **`d[i]` is a place, and reading one costs nothing.** The accessor is `&self`,
+  so a read works on a `let` binding, a `&Data` parameter, or a slice several
+  `Data`s share. A write opens an exclusive window, so it needs a `var` root and
+  the first one on shared bytes copies them. Both come out of one declaration:
+  the uniqueness gate is written under `#lend_var` (see
+  [Places](#places-borrows-and-lend)), which puts it in the exclusive
+  specialization only. `get(i)` is the `None`-returning twin of a panicking
+  `[]`, not a different kind of read.
 - **Iterating holds a retain.** `iter()` returns a `DataIterator` that owns a
   `Data`, so an iterator outliving the binding it came from still reads live
   bytes.
@@ -879,8 +881,9 @@ is the generic's own file/line, identical across every instantiation. In a
 caller-site `#file`-as-default-argument capture — Swift's other mode — in v1).
 Inside a **suspending function** body `#line`/`#function` report the ORIGINAL
 source line and the user function's name, not the transformed coroutine frame's.
-`#` introduces one of these three directives *only*; any other `#name` is a clean
-"unknown directive" lex error.
+`#` introduces these three and `#lend_var` (see
+[Places](#places-borrows-and-lend)) and nothing else; any other `#name` is a
+clean "unknown directive" lex error.
 
 ### Doc comments
 
@@ -2038,6 +2041,14 @@ inline `[T; N]` — in both the plain and the compound spelling, and it covers t
 ways to say what you meant: declare the method `&var self`, or lend the storage
 with a `borrows` accessor and let each use site pick the window's flavor.
 
+It also covers the whole-receiver mutation spelled as a **call**: `self.reset()`
+inside a `&self` body, where `reset` takes `&var self`, is the same error. A
+`&var self` method takes the entire receiver exclusively, which is the one thing
+`&self` says it will not do. Calling a `&var self` method on a *field* is a
+different question and is not covered — a struct holding an `Atomic` is received
+by pointer even at `&self`, so `self.n.fetch_add(1)` is the interior-mutability
+idiom rather than a mistake.
+
 Storage the receiver only *points at* is not covered, because a copy of the
 receiver shares it rather than duplicating it. A `Vector` field's elements live
 in its heap buffer, so `self.cells[i] = v` writes the caller's element and is
@@ -2718,6 +2729,79 @@ named as the root rather than as the window.
 >
 > `--emit-docs` reports such a receiver as `"self": "window"` rather than
 > `"borrows"`, for the same reason.
+
+#### `#lend_var`: a body that knows its flavor
+
+One body serving both flavors is the right default. Copy-on-write is where it
+runs out. A CoW container has to separate shared storage *before* lending a
+place that might be written, and must not separate for one that will only be
+read — so with no way to tell those apart, `Data.[]` once declared `&var self`
+and gated on every use, which made a pure read demand exclusivity and a `let`
+binding unusable.
+
+`#lend_var` is a compile-time constant, legal only inside a `borrows` body, that
+names the specialization being compiled: `false` for the shared window, `true`
+for the exclusive one.
+
+```saw
+extension Data {
+    public func [](&self, index: Int) unsafe borrows -> UInt8 {
+        if index < 0 || index >= self.length {
+            panic("Data.[]: index out of range")
+        }
+        if #lend_var {
+            if not self._make_ready(self.length) {   // the copy-on-write gate
+                panic("Data.[]: allocation failed")
+            }
+        }
+        let bytes = self.byte_ptr() as UnsafePointer<UInt8>
+        lend bytes[index]
+    }
+}
+```
+
+An accessor that names the constant compiles as **two specializations**. The
+authored declaration keeps its `&self` receiver and folds the constant false;
+what the constant gated is *removed from the body*, not skipped, so that copy is
+ordinary non-mutating `&self` code and an immutable root may call it. The
+compiler emits a `&var self` sibling that folds the constant true and keeps the
+gate, and sends every exclusive use site there. Nothing changes at the call —
+the use site already carries the flavor:
+
+```saw
+let frozen = load()
+print(frozen[0])       // shared: no gate, no separation, no `var` required
+var buf = frozen
+buf[0] = 90            // exclusive: separates first, so `frozen` keeps its bytes
+```
+
+The constant **prunes** where it is the condition of an `if` statement, which is
+the shape a gate takes; the branch not taken leaves no trace in the tree, so it
+is never checked. `not`, `&&` and `||` fold with it, so `if #lend_var &&
+self.shared` keeps a runtime condition in the specialization that has one.
+Anywhere else `#lend_var` is an ordinary compile-time `Bool`.
+
+Three rules bound it:
+
+- Outside a `borrows` body it is a compile error. Every legal occurrence is
+  folded away before type checking, so anything the checker sees is misplaced.
+- In a `&var self`-declared accessor it is a compile error naming the receiver
+  as the fix. That declaration is already the stricter one — every use site of
+  it is exclusive — so the constant would always be true while reading like a
+  decision.
+- An accessor that never names it compiles once, exactly as before. The
+  accessors that do not need this pay nothing for it.
+
+Two consequences worth knowing. The gate reads the true refcount: a `borrows`
+receiver travels by pointer, so the accessor sees the same `Arc` the caller
+holds rather than a retained copy, and `strong_count()` answers about the
+caller's sharing. And an accessor that *forwards* another accessor's place
+(`lend other[i]`) reaches the inner accessor exclusively whichever
+specialization is running, because `lend X` hands `X` over as `&var X`. That is
+sound — separating storage is never wrong — but a shared read of a nested
+copy-on-write buffer will copy.
+
+#### Window extent and nesting
 
 The **window's extent** is the smallest expression that turns the place back
 into a value: the chain suffix that follows it, the whole call when the place is

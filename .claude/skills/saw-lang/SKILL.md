@@ -36,7 +36,9 @@ print("{#file}:{#line} - msg")  // #file/#line/#function: definition-site consts
   a default value, or a `static` init (`#line`). In a generic they report the
   generic's own file/line identically across instantiations; inside a suspending
   body they report the ORIGINAL source line/name (not the coroutine frame's).
-  `#` takes only these three — any other `#name` is a lex error.
+  `#` takes only these three plus `#lend_var` (the `borrows`-body
+  specialization constant, design 179 — see Places) — any other `#name` is a
+  lex error.
 - Everything is an expression (if/match/while/blocks yield values;
   `break v` from an infinite `while {}` yields `T` directly;
   from a conditional while/for it yields `T?`).
@@ -143,10 +145,13 @@ works but is no longer required anywhere. Three things to know:
   `detached()`/`try_detached()` are the EAGER spelling, sized to `len()`, for
   when a small slice would otherwise pin a large buffer. (`try_copy` is gone —
   `try_detached` is it, under a name that says which one can run out of memory.)
-- **`d[i]` takes `&var self`**, so it needs a `var d` and the first use on
-  shared storage copies. A `borrows` accessor cannot see whether its window
-  will be read or written, and CoW must separate before lending a writable
-  place. `d.get(i)` is the shared read that never separates.
+- **`d[i]` READS free and WRITES with a gate** (design 179). The accessor is
+  `&self`, so a read works on a `let`, a `&Data` param, or a slice several
+  `Data`s share, and separates nothing; a write opens an exclusive window, so it
+  needs a `var` root and the first one on shared bytes copies. One declaration
+  does both because the uniqueness gate sits under `#lend_var` (see Places), so
+  it is IN the exclusive specialization and simply absent from the shared one.
+  `d.get(i)` is the `None`-returning twin of a panicking `[]`, nothing more.
 The gate itself is `Arc.with_unique(body:) -> R?` — runs `body` on a `&var`
 borrow of the payload when the handle is the only strong owner, `None` when
 shared (Arc's `&self` payload forwarding still refuses `&var self` methods).
@@ -344,13 +349,40 @@ var u = w.copy()       // explicit duplicate
   extent. The scrutinee must be storage reached through the receiver
   (`self.slot`, `self.slots[i]`, another place off `self`); matching a value the
   body just BUILT is a clean error, since that payload dies with the accessor.
+  **`#lend_var` (design 179) lets the BODY see the flavor** — a compile-time
+  constant, legal only in a `borrows` body, `false` in the shared
+  specialization and `true` in the exclusive one. It exists for copy-on-write,
+  which must separate shared storage before lending a writable place and must
+  not separate for a read:
+  ```saw
+  public func [](&self, index: Int) unsafe borrows -> UInt8 {
+      if index < 0 || index >= self.length { panic("Data.[]: index out of range") }
+      if #lend_var {                      // the exclusive copy only
+          if not self._make_ready(self.length) { panic("Data.[]: allocation failed") }
+      }
+      let bytes = self.byte_ptr() as UnsafePointer<UInt8>
+      lend bytes[index]
+  }
+  ```
+  The accessor compiles TWICE and the gated branch is REMOVED from the shared
+  copy, not skipped in it — which is why that copy is honest `&self` code a
+  `let` root may call. It PRUNES as the condition of an `if` STATEMENT (`not`,
+  `&&`, `||` fold with it); anywhere else it is a plain compile-time `Bool`.
+  Clean errors outside a `borrows` body and in a `&var self`-DECLARED accessor
+  (always true there — declare `&self` to get both). An accessor that never
+  names it compiles once, exactly as before. Gate placement is yours: in a
+  `borrows -> T?` the prologue runs on the ABSENT path too, so a gate above the
+  presence test separates on a MISS — put it below.
   v1 fences: a borrows body is `sync` (a window never spans a suspend —
   `with_ref`/`with_var_ref` stay the long-window spelling), no borrows function
   VALUES or existentials, no trait requirements, no way to declare an accessor
   SHARED-ONLY (the flavor is always the use site's — which is why `Set` gets no
   element accessor: a write would change an element's hash), and a borrows body
   cannot FORWARD another conditional place (`lend other.get(k)!` is not
-  expressible — split the search out and lend your own storage instead).
+  expressible — split the search out and lend your own storage instead). A body
+  that DOES forward an unconditional one (`lend other[i]`) reaches the inner
+  accessor EXCLUSIVELY whichever specialization is running, so a shared read of
+  a nested CoW buffer copies — sound, but worth knowing.
 - Deterministic LIFO destruction (`Deinit` trait); never call
   `deinit()` manually. You almost never WRITE one either (design 128): any
   struct/enum owning something gets a memberwise `deinit` synthesized — fields
@@ -1434,7 +1466,16 @@ construct in the owner and lend `&driver` down.
   field write there does not vanish, it LANDS, and a read through a shared
   window mutated a `let` root (DF-175a). An epilogue that genuinely counts
   reads declares the accessor `&var self`, which is STRICTER — every use site
-  then borrows the receiver exclusively, reads included.
+  then borrows the receiver exclusively, reads included. In a FLAVORED accessor
+  the third out is `#lend_var`: gate the mutation and only the exclusive
+  specialization runs it.
+  **A `&var self` METHOD CALL on `self` is the same error** (design 179,
+  DF-179b): `self.reset()` in a `&self` body takes the whole receiver
+  exclusively, which is the one thing `&self` promises not to do. It was
+  unchecked until now — the borrows-body form really did mutate a `let` root.
+  A `&var self` method on a FIELD is NOT covered and is not a mistake: a struct
+  holding an `Atomic` is received by pointer even at `&self`, so
+  `self.n.fetch_add(1)` stays the interior-mutability idiom.
 - **RAW-BACKED ENUMS are the wire idiom** (design 145 B2). A payload-free enum
   may declare an integer backing in the colon position; that PINS the width and
   the tag values, so it may be a field of an `UnsafeMemory`-viewed wire struct

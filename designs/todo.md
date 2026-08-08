@@ -596,6 +596,67 @@ accessors are already emitted per window result type
   of a nested CoW would separate). Fixable by propagating the enclosing
   copy's flavor into the lend's inner place; state as a v1 limit if deferred.
 
+## Design 179 findings (`#lend_var`, Aug 7 — IMPLEMENTED, six units)
+
+Brief: `designs/179-lend-var-implementation.md`; the SPEC is design 175's
+report. The report's architecture claim held in full — the duplication point in
+`place_transform` retargeted cleanly, `place_uses` picks the specialization by
+NAME, and mangling needed ZERO work (an accessor's symbol key is the window's
+result type `__R`, and the flavor was never in it).
+
+- **DF-179a — FIXED (unit 2). A mistake in the part two specializations SHARE
+  was reported once per specialization** — same text, same line, twice. A
+  flavored accessor is two methods over one piece of source, so this is
+  structural rather than incidental. `ErrorReporter.error` now drops an error
+  identical in kind, message, hint AND position to one already reported; the
+  warning path has deduplicated on the same grounds since design 150.
+
+- **DF-179b — FIXED (unit 2). A `&var self` METHOD CALL on `self` inside a
+  `&self` body was unchecked** — the second form DF-175a named, and the half
+  design 176 unit 13 did not close (it scoped itself to the direct write). In a
+  plain `&self` method the mutation lands in the by-value copy and vanishes; in
+  a `&self` BORROWS body the receiver travels by POINTER, so it LANDS — two pure
+  reads of a `let frozen` grid left its counter at 2, visible through a `&Grid`
+  parameter too. Verified on the pre-179 tree (9d5ce84) with no `#lend_var` in
+  the repro, so it was live on main and design 179 did not open it. The rule
+  closed here is the DECIDABLE half: the receiver must be `self` ITSELF, where a
+  `&var self` method takes the whole receiver exclusively and no design blesses
+  doing that through a shared borrow. IN-TREE MIGRATION TAIL: ZERO, measured by
+  landing the check as a bare error and building the whole corpus (suite,
+  blade-bootstrap, sos both arches, the irdet devtool). Tests:
+  `examples/errors/shared_self_var_method_call.saw`,
+  `examples/errors/lend_var_ungated_receiver_mutation.saw`. **DF-176b (the FIELD
+  receiver) is untouched and still wants its own ruling** — design 149 receives
+  a struct holding an `Atomic` by pointer even at `&self`, so interior
+  mutability through a field is an idiom, not a bug, and that carve-out is
+  exactly what makes the field form a separate question.
+
+- **DF-179c — FIXED (unit 4). A gate written as the LAST thing in a body was not
+  pruned.** A block's final expression statement is its `final_expr`, not a
+  member of its statement list, and the fold only pruned statements — so a
+  constant `if` in tail position kept both branches and the untaken one was
+  still CHECKED. That is exactly where an EPILOGUE gate goes, so the shape the
+  feature most wants was the one it got wrong. Pruning now handles the tail,
+  splicing the taken branch's statements out and adopting its own tail as the
+  block's value, which preserves the value and is therefore correct in
+  expression position too. Found by `examples/lend_var_epilogue_nesting.saw`.
+
+- **Forwarded inner accessors are always exclusive — STATED v1 LIMIT, not a
+  bug.** `lend other[i]` lowers to `__window(&var other[i])`, so a forwarded
+  inner accessor is reached exclusively whichever specialization of the OUTER
+  one is running: a shared read through a wrapper runs the inner gate, and a
+  shared read of a NESTED copy-on-write buffer would copy. Sound, only wasteful.
+  The design-175 report predicted it and named the fix — propagate the enclosing
+  copy's flavor into the lend's inner place, which `place_uses` has the
+  information for. Pinned with its cost printed in
+  `examples/lend_var_coro_and_forwarding.saw`.
+
+- **DF-175c stays OPEN** (`--emit-docs` cannot tell a `&var self` borrows
+  accessor from a plain `&var self` method). The synthesized twin needed no
+  suppression work — its reserved `__` name already falls under `docs_emit`'s
+  synthetic-declaration filter — so the flavor note was not the trivial change
+  the brief made it conditional on, and 175c is left as filed.
+
 ## std.Data findings (Aug 7, user-prompted archaeology) — CLOSED by design 165
 
 **DATA-1 and DATA-2 are both closed BY CONSTRUCTION** (design 165, Aug 7).
@@ -647,6 +708,18 @@ Findings raised while building it:
   read `a[i]` on `let` bindings and stopped compiling; switched to `get(i)!`
   (integration commit). One data point for the `_read`/`_modify` split when
   design 171's probe round runs.
+- **DF-165c — CLOSED (design 179). `#lend_var` is the answer**: a compile-time
+  constant, legal only in a `borrows` body, naming the specialization being
+  compiled, so a CoW type puts its uniqueness gate where only writes reach it.
+  `Data.[]` is `&self` again and the gate is ABSENT from the shared copy rather
+  than skipped in it (checked in the emitted IR: `Data_[]$1$UInt8` calls only
+  the panic seam, `Data___lend_var_[]$1$Void` calls `Data__make_ready`). The
+  three sites the strict choice broke are back to what their authors wrote —
+  devtools/irdet's `same_bytes` (`a[i] != b[i]`) and both serde169 encoders
+  (`self.out.push(bytes[i])`) — and `data_cow_*` stayed green throughout.
+  `get(i)` is unaffected: DF-146j's panic-vs-None pairing survives, and the
+  accidental "`get` is the only shared read" asymmetry is gone. Original
+  finding follows.
 - **DF-165c (LANGUAGE, filed): a `borrows` accessor cannot see its window's
   flavor, which forces a copy-on-write type to choose between a copying read
   and a write-through write.** Design 141 decided the use site picks shared vs

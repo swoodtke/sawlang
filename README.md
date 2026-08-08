@@ -806,13 +806,31 @@ Saw provides deterministic memory management without garbage collection:
   compile error — iterator invalidation is caught by the Law of Exclusivity
   rather than by a callback's scope. `Vector` and `Data` publish `v[i]` this
   way, which is what lets a move-only element be reached without copying it out.
-  `Data.[]` declares `&var self`, so indexing one needs a `var` binding: it is a
-  copy-on-write buffer, and it has to be able to separate shared bytes before
-  lending a place that might be written.
   Reading a place *out* as a value follows the copy-tier table above. One
   consequence to know: on a `borrows` method the receiver is borrowed with the
   window's flavor, so `&self` there does not mean shared-only (see
   [Places](LANGUAGE_SPEC.md#places-borrows-and-lend)).
+
+  A body can ask which flavor it is being compiled for. `#lend_var` is a
+  compile-time constant, legal only inside a `borrows` body, that is `false` in
+  the shared specialization and `true` in the exclusive one — so a copy-on-write
+  type puts its separate-if-shared gate where only writes reach it:
+
+  ```saw
+  public func [](&self, index: Int) unsafe borrows -> UInt8 {
+      if index < 0 || index >= self.length { panic("Data.[]: index out of range") }
+      if #lend_var {
+          if not self._make_ready(self.length) { panic("Data.[]: allocation failed") }
+      }
+      let bytes = self.byte_ptr() as UnsafePointer<UInt8>
+      lend bytes[index]
+  }
+  ```
+
+  The accessor compiles twice, and the gated branch is *removed* from the shared
+  copy rather than skipped in it. That is what lets `Data` keep value semantics
+  and still be read through a `let` binding: `print(d[0])` separates nothing,
+  while `d[0] = 90` separates first and needs a `var`.
 
   `Map` publishes one too. Its values sit inside a slot enum's payload, and an
   arm of a borrowing `match` can lend that payload, so the subscript reaches the
