@@ -404,9 +404,7 @@ func same_bytes(a: &Data, b: &Data) sync -> Bool {
     }
     var i = 0
     while i < n {
-        // `[]` is the exclusive accessor since design 165; `get` is the
-        // shared read, and `i < n` makes the unwrap total.
-        if a.get(i)! != b.get(i)! {
+        if a[i] != b[i] {
             return false
         }
         i = i + 1

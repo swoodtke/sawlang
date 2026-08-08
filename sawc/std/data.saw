@@ -192,22 +192,25 @@ extension Data {
     ///
     /// Panics if `index` is outside `0..<len()`, on the same terms as `set`.
     ///
-    /// The receiver is `&var self` because a `borrows` accessor cannot see
-    /// whether its window will be read or written (design 146: the flavor is
-    /// the use site's, and one body serves both), while copy-on-write has to
-    /// separate shared storage BEFORE lending a place that might be written.
-    /// So `[]` takes the uniqueness gate up front and every use of it — reads
-    /// included — borrows the receiver exclusively. Two consequences worth
-    /// knowing: `d[i]` needs a `var d`, and the first `d[i]` on a shared `Data`
-    /// copies the bytes (every one after it is free, since the copy made this
-    /// window the sole owner). Reading a shared `Data` without separating it is
-    /// what `get` is for.
-    public func [](&var self, index: Int) unsafe borrows -> UInt8 {
+    /// A READ costs nothing and works on a `let` binding, a `&Data` parameter
+    /// or a slice several `Data`s share. A WRITE separates shared storage first,
+    /// so it needs a `var` root and the first one on shared bytes copies them.
+    /// Both come out of this one declaration: `#lend_var` (design 179) is the
+    /// compile-time constant naming the specialization being compiled, so the
+    /// uniqueness gate is in the exclusive copy and simply is not in the shared
+    /// one. That is what copy-on-write needs and what design 146's single
+    /// use-site-decides-the-flavor rule could not express on its own.
+    ///
+    /// The shared copy may skip the gate safely: the bounds check above already
+    /// proved `length > 0`, so the storage it reads through exists.
+    public func [](&self, index: Int) unsafe borrows -> UInt8 {
         if index < 0 || index >= self.length {
             panic("Data.[]: index out of range")
         }
-        if not self._make_ready(self.length) {
-            panic("Data.[]: allocation failed")
+        if #lend_var {
+            if not self._make_ready(self.length) {
+                panic("Data.[]: allocation failed")
+            }
         }
         let bytes = self.byte_ptr() as UnsafePointer<UInt8>
         lend bytes[index]
@@ -215,8 +218,10 @@ extension Data {
 
     /// The byte at `index`, or `None` when it is out of range.
     ///
-    /// A shared read: this never separates the storage and never allocates, so
-    /// it is the way to look at bytes a slice or a sibling also holds.
+    /// The `None`-returning twin of `[]`, which panics — the design-146 pairing,
+    /// and the only difference between them now that a shared `d[i]` read
+    /// separates nothing either. Reach for `get` where an out-of-range index is
+    /// data rather than a bug.
     public func get(&self, index: Int) -> UInt8? {
         if index < 0 || index >= self.length {
             return None

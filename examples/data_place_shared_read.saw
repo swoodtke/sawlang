@@ -1,0 +1,87 @@
+// Design 179's pilot: `Data.[]` is `&self` again, gated on `#lend_var`.
+//
+// DF-165c was the cost of design 146's one-body rule meeting copy-on-write. A
+// CoW type must separate shared storage BEFORE lending a place that might be
+// written, and the accessor could not see whether the window would be written,
+// so `Data.[]` took the strict option — `&var self`, gate unconditionally — and
+// every pure READ through `d[i]` started demanding exclusivity. Three real read
+// sites broke in one afternoon, each written by an author reaching for the
+// natural spelling on a `let` binding.
+//
+// Under `#lend_var` the gate lives in the exclusive specialization only, so the
+// shared one is an ordinary `&self` accessor. What this pins is BOTH halves at
+// once, because either alone is easy: reads work on immutable roots AND value
+// semantics still hold on the write path. If a shared read ever separated
+// storage, or a write ever stopped separating it, one of these assertions goes
+// red.
+// EXPECT: success
+// EXPECT-OUTPUT:
+// ok
+import std.data.*
+
+// The `same_bytes` shape: two `&Data` parameters, indexed. This is
+// devtools/irdet's function, and it is the site DF-165c broke first.
+func same_bytes(a: &Data, b: &Data) sync -> Bool {
+    let n = a.len()
+    if n != b.len() {
+        return false
+    }
+    var i = 0
+    while i < n {
+        if a[i] != b[i] {
+            return false
+        }
+        i = i + 1
+    }
+    true
+}
+
+func build() -> Data {
+    var d = Data(capacity: 4)
+    d.push(10)
+    d.push(20)
+    d.push(30)
+    d
+}
+
+func main() {
+    // ---- a `let` root reads ----
+    let frozen = build()
+    assert(frozen[0] == 10, "frozen[0] {} not 10", frozen[0])
+    assert(frozen[2] == 30, "frozen[2] {} not 30", frozen[2])
+
+    // ---- and reading does not separate: a retain-sharing twin still shares.
+    // `capacity()` reports the whole buffer only while this Data is the sole
+    // owner, so a separation here would be visible as a capacity change.
+    let twin = frozen
+    let before = frozen.capacity()
+    assert(same_bytes(&frozen, &twin), "same_bytes on identical Data said false")
+    assert(frozen.capacity() == before,
+           "a shared read separated storage: capacity {} then {}",
+           before, frozen.capacity())
+
+    // ---- the write path still gates: a sibling never sees the write ----
+    var a = build()
+    let watcher = a
+    a[0] = 90
+    assert(a.get(0)! == 90, "a[0] {} not 90", a.get(0)!)
+    assert(watcher.get(0)! == 10, "the write reached a sibling: {} not 10",
+           watcher.get(0)!)
+
+    // ---- a slice shares storage; writing through it separates ----
+    var s = frozen.slice(0, 2)!
+    s[0] = 88
+    assert(s.get(0)! == 88, "s[0] {} not 88", s.get(0)!)
+    assert(frozen[0] == 10, "the slice's write reached its source: {} not 10",
+           frozen[0])
+
+    // ---- `get` is unaffected: the None-returning twin, same reads ----
+    assert(frozen.get(0)! == 10, "get disagreed with []")
+    var absent = true
+    if let _ = frozen.get(9) {
+        absent = false
+    }
+    assert(absent, "get(9) on a 3-byte Data was not None")
+
+    print("ok")
+}

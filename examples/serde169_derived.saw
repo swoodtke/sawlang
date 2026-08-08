@@ -108,7 +108,7 @@ extension MiniEncoder: Encoder {
         self.out.push(bytes.len() as UInt8)
         var i = 0
         while i < bytes.len() {
-            self.out.push(bytes.get(i)!)
+            self.out.push(bytes[i])
             i = i + 1
         }
         return
