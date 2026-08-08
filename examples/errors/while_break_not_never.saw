@@ -1,0 +1,19 @@
+// Design 177: divergence is the ABSENCE of a break. A conditionless loop that
+// something breaks out of falls out of its own exit edge like any other loop,
+// so it does not type `Never` and cannot stand as a `-> Never` body.
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: function `spin` should return `Never` but body has no value
+
+func spin() -> Never {
+    var n = 0
+    while {
+        n = n + 1
+        if n > 3 {
+            break
+        }
+    }
+}
+
+func main() {
+    spin()
+}
