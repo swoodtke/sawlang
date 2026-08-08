@@ -28,6 +28,12 @@ struct Guarded { head: [UInt8; GUARD], body: [UInt8; REGION_SIZE * 2] }
 
 static ARENA: [UInt8; REGION_SIZE] = [0; REGION_SIZE]
 
+// The fourth const-required position. One evaluator answers in all of them, so
+// a static that is a length is a static that can be asserted about — otherwise
+// the size and the claim about the size could drift apart in silence.
+static_assert(REGION_SIZE % 16 == 0, "the region must be 16-byte aligned")
+static_assert(sizeof<Region>() == REGION_SIZE, "Region is its bytes")
+
 func main() {
     var scratch: [UInt8; REGION_SIZE] = [0; REGION_SIZE]
     scratch[REGION_SIZE - 1] = 9

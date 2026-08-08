@@ -1,0 +1,14 @@
+// DF-172j: a `static_assert` over a module `static` is a real assertion — it
+// folds the same value the array length folds, so a claim that does not hold
+// fails the build with its own message rather than being quietly unevaluable.
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: the region must be page-aligned
+
+static REGION_SIZE: Int = 100
+
+static_assert(REGION_SIZE % 4096 == 0, "the region must be page-aligned")
+
+func main() {
+    var buf: [UInt8; REGION_SIZE] = [0; REGION_SIZE]
+    print(buf.len())
+}

@@ -902,8 +902,14 @@ class StatementsMixin:
         """Design 53: walk the condition so its expression annotations (e.g. the
         `Int.max` limit tag, `sizeof<T>` type args) are stamped for the codegen
         const evaluator, and surface any type error in it. The value itself is
-        evaluated at codegen (where target layout is authoritative)."""
+        evaluated at codegen (where target layout is authoritative).
+
+        DF-172j stamps the module statics the condition names in the same
+        breath, for the same reason: one evaluator answers in all four
+        const-required positions, so a `static REGION_SIZE` that is an array
+        length must also be assertable about."""
         cond_type = self._check_expression(stmt.condition)
+        self._stamp_const_statics(stmt.condition)
         if (cond_type is not None and cond_type.kind
                 not in (TypeKind.BOOL, TypeKind.INT)):
             self._error(
