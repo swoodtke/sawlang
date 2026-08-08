@@ -35,7 +35,20 @@ seam as an implementation detail). QUEUE: after the current wave
    Cancellation behavior across chunk boundaries preserved (a cancelled
    task wakes at the next chunk edge at worst — state the bound in the
    seam doc).
-5. **Docs**: spec (sleep + Duration section), skill (the sleep idiom
+5. **[ADDED, user Aug 7] The executor's idle park unifies onto the
+   reactor.** Today a pure-timer idle (sleepers, no I/O waiters) parks the
+   THREAD in `__saw_exec_sleep` → usleep — unpokeable by the design-102
+   self-wake pipe, so a cross-thread cancel or MT enqueue during a pure
+   sleep waits out the deadline. The park becomes a reactor poll with the
+   min-deadline timeout in EVERY case (fds, timers, or both — the
+   kevent-timespec/epoll-timeout mechanism already in the reactor);
+   usleep survives only as the no-reactor fallback. Explicitly NOT
+   EVFILT_TIMER/timerfd: a deadline heap + one poll timeout is the
+   single-reactor standard; per-timer kernel objects cost a syscall (and
+   an fd on Linux) per sleep for nothing at this scale. Pin the
+   improvement with a test: a cancel during a long pure sleep is observed
+   promptly (bounded by the poll wake, not the deadline).
+6. **Docs**: spec (sleep + Duration section), skill (the sleep idiom
    changes — `sleep(Duration.ms(200))`), README if it shows sleep.
    Tracker: DF-170a CLOSED by construction. Forward note: M2's Timer
    object and future net timeouts take Duration — this is the vocabulary
