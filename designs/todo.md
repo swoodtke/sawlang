@@ -474,6 +474,22 @@ verdict table: `designs/174-optional-generic-sweep.md`. 19 tests landed as
   Clean error rather than an ICE, but a wrong rejection. Test:
   `examples/optional_generic_infer_later_arg_xfail.saw`.
 
+## DECIDED — Aug 8 morning round (user, the 181 policy)
+
+- **File I/O: PROMPT-BY-POLICY, ratified.** std.file/std.directory stay
+  synchronous by contract (the Rust/Go stance); one honest documented
+  sentence about network filesystems/FIFOs lands in the docs. No offload,
+  no annotation — freestanding parity was the deciding argument.
+- **Channel.recv: the docs sentence** (deliberate blocking twin; never from
+  a cooperative task — use `receive`).
+- **Delivery shape: ONE design-182 batch** for all approved 181 remediation,
+  DF-181f (the seam-annotation contract fix) FIRST — it is a bug, not a
+  policy choice, and gates the rest.
+- **STILL OPEN by choice (user: discuss, not menu):** the Command.run/output
+  remediation shape and the DF-181d connect fix scope. 182's brief waits on
+  those two conversations; the xfail pin keeps Command's starvation cited
+  meanwhile.
+
 ## DECIDED — Aug 7 evening round (user)
 
 - **DF-176b DECIDED — LANDED Aug 8** (batch unit 1; see the FIXED entry under
