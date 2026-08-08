@@ -752,11 +752,19 @@ class _FrameBuilder:
     # ------------------------------------------------------------------ #
     def _hoist_suspending_conditions(self):
         """Rewrite every `if let x = f() { ... }` / `guard let x = f() else { ... }`
-        whose condition is a PLAIN suspending free-function call into a preceding
+        whose condition is a PLAIN suspending call into a preceding
         `let __hoistN = f()` (the already-supported nested-suspending-call-in-let)
         plus the binding over the temp. ONLY the plain-call form is hoisted — a
         `move` or other rejected condition shape is left untouched (do not
-        accidentally legalize what design 52 Part 0 rejects)."""
+        accidentally legalize what design 52 Part 0 rejects).
+
+        A suspending METHOD call counts (DF-182a). The condition is evaluated
+        unconditionally, so lifting it above the binding preserves order exactly —
+        which is why the design-96 match-scrutinee hoist and the design-92 try
+        hoist have taken methods all along. This one had not, so
+        `guard let out = cmd.output()` — the idiomatic way to consume an optional
+        result — was the one unconditional expression position where a suspending
+        method was rejected instead of driven."""
         self._hoist_ctr = 0
         self._hoist_block(self.func.body)
 
@@ -811,9 +819,10 @@ class _FrameBuilder:
         return [let_stmt, s]
 
     def _hoist_cond(self, cond):
-        # Only the plain suspending free-function call form is hoistable.
-        if (isinstance(cond, FunctionCall) and cond.name in self._suspends
-                and not getattr(cond, 'type_args', None)):
+        # Only the plain suspending call form is hoistable — a free function or a
+        # method on a concrete receiver (`_call_suspends_expr`, shared with the
+        # match and try hoists).
+        if self._call_suspends_expr(cond):
             tmp = f"__hoist{self._hoist_ctr}"
             self._hoist_ctr += 1
             let_stmt = LetStatement(name=tmp, type_annotation=None, value=cond,
@@ -2384,7 +2393,7 @@ class _FrameBuilder:
         # STATEMENT (its value is discarded → its inner blocks are non-tail).
         for s in block.statements:
             ctrl = s.expression if isinstance(s, ExpressionStatement) else s
-            if isinstance(ctrl, (IfExpr, WhileExpr, MatchExpr, ForLoop)) \
+            if isinstance(ctrl, (IfExpr, WhileExpr, MatchExpr, ForLoop, IfLetExpr)) \
                     and self._spans_suspension(ctrl):
                 self._norm_ctrl(ctrl, tail=False)
         fe = block.final_expr
@@ -2398,6 +2407,17 @@ class _FrameBuilder:
             if not spanning and not force:
                 return
             if isinstance(fe, IfExpr) and fe.else_branch is not None:
+                block.final_expr = None
+                self._norm_block(fe.then_branch, tail=True, force=True)
+                self._norm_block(fe.else_branch, tail=True, force=True)
+                block.statements.append(ExpressionStatement(expression=fe))
+            elif isinstance(fe, IfLetExpr) and fe.else_branch is not None:
+                # DF-182b: a trailing `if let … { v } else { w }` in VALUE
+                # position. Same shape as the `if`/`else` above — push the result
+                # flow into both branches so every leaf returns, then leave the
+                # binding as a statement for design 104 item 1 to CFG-split. An
+                # `if let` tail with no `else` produces no value and falls to the
+                # `return <expr>` case below, as it did before.
                 block.final_expr = None
                 self._norm_block(fe.then_branch, tail=True, force=True)
                 self._norm_block(fe.else_branch, tail=True, force=True)
@@ -2423,7 +2443,7 @@ class _FrameBuilder:
 
     def _norm_ctrl(self, node, tail):
         """Recurse into a control-flow expression's constituent blocks."""
-        if isinstance(node, IfExpr):
+        if isinstance(node, (IfExpr, IfLetExpr)):
             self._norm_block(node.then_branch, tail)
             if node.else_branch is not None:
                 self._norm_block(node.else_branch, tail)
@@ -3037,13 +3057,12 @@ class _FrameBuilder:
             if fe is not None:
                 forgets = []
                 val = self._rewrite_expr(fe, forgets)
-                if forgets:
-                    raise CoroTransformError(
-                        f"coroutine transform: `move` of a frame-resident local of "
-                        f"`{self.name}` in tail-expression position is not "
-                        f"supported; move it in a `return` statement",
-                        func.line, func.column)
-                self._done(val)
+                # DF-182d: a tail `move local`. The tail expression IS the return
+                # value, so the drop-flag clears it owes belong in the done
+                # sequence, which is exactly where a `return move local` puts
+                # them — `_done` has taken them all along, and this position used
+                # to refuse instead of passing them on.
+                self._done(val, forgets)
             else:
                 self._done(None)
 
@@ -3409,6 +3428,13 @@ class _FrameBuilder:
         forgets = []
         scrut = self._rewrite_expr(e.optional_expr, forgets)
         if forgets:
+            # DF-182c (OPEN): the dispatch has nowhere to put the drop-flag clear
+            # a `move` scrutinee owes. Putting it in both dispatch branches is the
+            # right ORDER, but the value path also has to move the unwrapped
+            # payload into its frame field, and the synthesized store is a copy —
+            # which a NoCopy payload refuses, and an ExplicitCopy one would
+            # double-drop. Refusing is still the honest answer until the store
+            # itself is a move.
             raise CoroTransformError(
                 f"coroutine transform: `move` of the scrutinee of a "
                 f"suspension-spanning `if let` in `{self.name}` is not supported",
@@ -3433,7 +3459,7 @@ class _FrameBuilder:
         forgets = []
         scrut = self._rewrite_expr(s.optional_expr, forgets)
         if forgets:
-            raise CoroTransformError(
+            raise CoroTransformError(          # DF-182c — see `_split_if_let`
                 f"coroutine transform: `move` of the scrutinee of a "
                 f"suspension-spanning `guard let` in `{self.name}` is not supported",
                 s.line, s.column)

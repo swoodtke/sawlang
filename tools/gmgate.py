@@ -105,6 +105,11 @@ GATE = [
     # the hand-off is exactly the over-release this lane exists to see. Its live
     # count proves nothing leaks; only Guard Malloc proves nothing is freed twice.
     "examples/coro_spawn_and_embed_owning.saw",
+    # A frame local handed out through a TAIL `move` rather than a `return`
+    # (DF-182d). The drop-flag clear that keeps the frame from dropping it again
+    # now rides the done sequence; put it in the wrong place and the value is
+    # freed twice while still reading correctly, which is this lane's whole brief.
+    "examples/coro_tail_move_local.saw",
     # Data's copy-on-write separation plus the offset-aware eager fill. Since
     # design 165 the count is Arc's rather than hand-rolled, which is exactly
     # why these stay: the release now runs through Arc's two-phase drop into

@@ -1,0 +1,55 @@
+// DF-182b: a trailing `if let … { v } else { w }` in VALUE position, whose branches
+// suspend.
+//
+// Tail normalization pushed a function's result flow into the branches of a trailing
+// `if`/`match` so every leaf returns, and left an `if let` tail alone — it became
+// `return <the whole binding>`, so the suspension inside a branch reached the CFG
+// walk buried in an expression and was rejected ("appears in a nested/expression
+// position"). An `if let` with an `else` produces a value exactly the way an
+// `if`/`else` does, so it takes the same treatment; the binding then splits under
+// design 104 item 1 like any other spanning one.
+//
+// EXPECT: success
+// EXPECT-OUTPUT:
+// both: 12
+// second missing: 1
+// first missing: -1
+// -- done
+
+import std.task.*
+
+/// Suspends, then answers `id` for a positive id and nothing for anything else.
+func maybe(id: Int) -> Int? {
+    yield_now()
+    if id > 0 {
+        return id
+    }
+    None
+}
+
+// The function's VALUE is the trailing `if let`, and its then-branch suspends.
+func pair_ids(a: Int, b: Int) -> Int {
+    if let x = maybe(a) {
+        if let y = maybe(b) {
+            x * 10 + y
+        } else {
+            x
+        }
+    } else {
+        -1
+    }
+}
+
+func main() {
+    var group = TaskGroup()
+    let both = group.spawn(pair_ids(1, 2))
+    print("both: {both.join()}")
+
+    let partial = group.spawn(pair_ids(1, 0))
+    print("second missing: {partial.join()}")
+
+    let neither = group.spawn(pair_ids(0, 5))
+    print("first missing: {neither.join()}")
+
+    print("-- done")
+}
