@@ -426,11 +426,11 @@ verdict table: `designs/174-optional-generic-sweep.md`. 19 tests landed as
 
 ## DECIDED — Aug 7 evening round (user)
 
-- **DF-176b DECIDED: ban a `&var self` method call on a field of a `&self`
-  receiver, with the INTERIOR-MUTABILITY EXEMPTION** — fields of type
+- **DF-176b DECIDED — LANDED Aug 8** (batch unit 1; see the FIXED entry under
+  "Design 176 findings"). Ban a `&var self` method call on a field of a `&self`
+  receiver, with the INTERIOR-MUTABILITY EXEMPTION — fields of type
   Atomic / SpinLock / UnsafeMemory (the by-pointer-at-`&self` family) stay
-  callable; everything else is the same error class as 176 unit 13. Joins
-  the next typechecker batch (after 179 integrates — shared surface).
+  callable; everything else is the same error class as 176 unit 13.
 - **DF-174c DECIDED: implement the `Int??` postfix sugar** (type-position
   `??` nesting; `Optional<Int?>` remains the generic spelling). Flips the
   suite's last cited xfail. Same batch.
@@ -498,6 +498,51 @@ tracker edits plus 24 in-tree ones.
   which is what every other language does here) or make it a clean exclusivity
   error naming the two windows and pointing at `*=`. Probes:
   `.build/scratch/p176_scale{,2,4,5}.saw`.
+- **DF-176c (COMPILER, soundness, filed Aug 8 by DF-176b's migration sweep;
+  PRE-EXISTING): the same lost mutation through a PLACE WINDOW rather than a
+  method call.** `self.grid[0] += 100` in a plain `&self` method, where `grid`
+  is an inline field of a type with a `borrows` accessor, is a SILENT NO-OP
+  (`.build/scratch/p176b_placewrite.saw` prints `first 1`, not `101`); the same
+  write in a `&self` BORROWS body LANDS on a `let` root
+  (`p176b_placewrite2.saw` — two pure reads of a `let` leave its counter at 2).
+  Exactly DF-175a's two consequences, reached through the fourth spelling.
+  DF-176b's rule does not cover it and deliberately does not try: the window
+  call is SYNTHESIZED by `place_uses._window_call` (marked `place_lowered`), so
+  judging it by the `&var self`-method rule would name a method the source never
+  mentions — and would reject `lend self.inner[i]`, design 175's legitimate
+  forwarding case, which is sound precisely because a borrows body's receiver
+  travels by pointer. Wants its own ruling, and it is a real one: the plain-body
+  half is unambiguously the vanishing-write bug, but the borrows-body half
+  interacts with `#lend_var` (an exclusive specialization may legitimately want
+  a place write in its prologue) and with the composition pessimization design
+  175 already documented. Fix site is the place lowering, not
+  `_reject_var_self_call_on_shared_self`.
+- **DF-176b — FIXED (Aug 8, DF-176b/174c batch unit 1). The FIELD receiver
+  form, with the interior-mutability exemption the user ruled.**
+  `self.cells.push(9)` in a `&self` method is now the same error class as unit
+  13's direct write, in both body kinds. One function answers all three forms
+  DF-175a named: `_reject_var_self_call_on_shared_self` tests the RECEIVER —
+  `self` itself (DF-179b, no carve-out possible) or storage inside it, which is
+  `_writes_into_self_storage`'s question asked of a receiver instead of a write
+  target. Factoring that walk into `_self_storage_type` is the whole mechanism:
+  the same TYPE-tracking walk that lets `self.cancel_ptr[0] = true` through lets
+  `self.rows[0].push(9)` through, because a heap element is shared by the copy
+  rather than duplicated by it. THE EXEMPTION is by TYPE NAME — `Atomic`,
+  `SpinLock`, `UnsafeMemory` — not codegen's recursive "contains an `Atomic`"
+  test: that question is where the bytes travel, this one is whether the type's
+  CONTRACT is mutation through a shared borrow. So a struct WRAPPING an `Atomic`
+  is not exempt (its `&var self` methods take the whole wrapper, sibling fields
+  included), which is a deliberate narrowing of the user's wording, stated in
+  the spec. IN-TREE MIGRATION TAIL: ONE break, and it was not a user idiom —
+  `examples/lend_var_coro_and_forwarding.saw`'s `lend self.inner[i]`, whose
+  lowered `__lend_var_[]` call the rule reported by a name the source never
+  writes. Skipping `place_lowered` calls fixed it and opened DF-176c above.
+  Nothing in std, blade, libs, devtools or sos relied on the hole. Tests:
+  `examples/errors/shared_self_field_var_method_call.saw` (the vanishing push),
+  `examples/errors/shared_self_borrows_field_var_method_call.saw` (the
+  `let`-root mutation), `examples/shared_self_field_call_exemption.saw` (the
+  exemption, the indirection carve-out, and the `&var self` fix).
+  Original finding follows.
 - **DF-176b (COMPILER, soundness, filed Aug 7 by unit 13's probing): calling a
   `&var self` METHOD on a field of a plain `&self` receiver is unchecked.**
   The third form DF-175a named. `self.cells.push(9)` in a `func peek(&self)`

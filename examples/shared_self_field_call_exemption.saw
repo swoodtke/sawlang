@@ -1,0 +1,75 @@
+// The other side of DF-176b: what a `&self` method may still call on a field.
+//
+// The ban asks where the bytes live. Storage INSIDE the receiver is refused
+// (`examples/errors/shared_self_field_var_method_call.saw`); everything here
+// either lives elsewhere or belongs to the by-pointer-at-`&self` family, whose
+// whole contract is mutation through a shared borrow.
+// EXPECT: success
+// EXPECT-OUTPUT: counter 2
+// EXPECT-OUTPUT: spinlock held false, sum 4
+// EXPECT-OUTPUT: row width 3
+// EXPECT-OUTPUT: bag size 3
+import std.spinlock.*
+
+// 1. INTERIOR MUTABILITY. A receiver carrying an `Atomic` arrives by pointer
+//    even at `&self` (design 149), so the cell it bumps is the caller's.
+struct Counter { n: Atomic<Int> }
+
+extension Counter {
+    func bump(&self) { let _old = self.n.fetch_add(1) }
+    func read(&self) -> Int { self.n.load() }
+}
+
+// 2. The exemption proper: a `&var self` method ON one of the exempt types,
+//    called on a field of a `&self` receiver.
+extension SpinLock<T> {
+    func touch(&var self) -> Bool { self.is_locked() }
+}
+
+struct Shared { cell: SpinLock<Int> }
+
+extension Shared: NoCopy {}
+
+extension Shared {
+    func probe(&self) -> Bool { self.cell.touch() }
+    func add(&self, v: Int) -> Int { self.cell.lock({ n in n = n + v  n }) }
+}
+
+// 3. INDIRECTION. A `Vector` field's heap elements are shared by the copy, not
+//    duplicated by it, so reaching one through a place window is untouched.
+struct Rows { rows: Vector<Vector<Int>> }
+
+extension Rows: NoCopy {}
+
+extension Rows {
+    func widen(&self) { self.rows[0].push(9) }
+    func width(&self) -> Int { self.rows[0].len() }
+}
+
+// 4. The fix the diagnostic names: declare the method `&var self`.
+struct Bag { cells: Vector<Int> }
+
+extension Bag: NoCopy {}
+
+extension Bag {
+    func fill(&var self) { self.cells.push(9) }
+    func size(&self) -> Int { self.cells.len() }
+}
+
+func main() {
+    let c = Counter(n: Atomic(0))
+    c.bump()
+    c.bump()
+    print("counter {c.read()}")
+
+    let s = Shared(cell: SpinLock<Int>(value: 0))
+    print("spinlock held {s.probe()}, sum {s.add(4)}")
+
+    var r = Rows(rows: [[1, 2]])
+    r.widen()
+    print("row width {r.width()}")
+
+    var b = Bag(cells: [1, 2])
+    b.fill()
+    print("bag size {b.size()}")
+}

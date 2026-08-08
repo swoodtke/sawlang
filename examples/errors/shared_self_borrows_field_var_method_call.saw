@@ -1,0 +1,33 @@
+// DF-176b in a BORROWS body, where it is not a lost write but a lost
+// guarantee: an accessor's receiver travels BY POINTER, so the `&var self`
+// call on the field LANDS. Two pure reads of a `let` root left its gate at 2.
+//
+// The prologue of a `borrows` accessor is ordinary `&self` code (design 146),
+// so the field form is the same hard error here as in a plain method. The hint
+// names `#lend_var` because in an accessor it is usually the answer.
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: cannot call `&var self` method `run` on storage reached through a `&self` receiver
+
+struct Gate { n: Int }
+
+extension Gate {
+    func run(&var self) { self.n = self.n + 1 }
+}
+
+struct Grid { cells: [Int; 4], gate: Gate }
+
+extension Grid {
+    public func [](&self, i: Int) borrows -> Int {
+        if i < 0 || i >= 4 { panic("Grid.[]: index out of range") }
+        self.gate.run()
+        lend self.cells[i]
+    }
+
+    public func gates(&self) -> Int { self.gate.n }
+}
+
+func main() {
+    let frozen = Grid(cells: [1, 2, 3, 4], gate: Gate(n: 0))
+    print("{frozen[0]} {frozen[1]}")
+    print("gates on a let root {frozen.gates()}")
+}

@@ -1,0 +1,30 @@
+// DF-176b: a `&var self` METHOD called on a FIELD of a plain `&self` receiver.
+//
+// The third form DF-175a named, and the one design 176 unit 13 (the direct
+// write) and design 179 unit 2 (the bare-`self` receiver) both left open. The
+// push runs against the receiver's COPY of the `Vector` header, so the caller
+// sees no new element and the callee's growth is lost — this file printed
+// `a 3` then `b 2` before the rule landed.
+//
+// Worse than the vanishing field write, because the copy and the original
+// share a buffer: a push that does NOT reallocate writes into storage the
+// caller owns while the caller's `length` stays behind.
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: cannot call `&var self` method `push` on storage reached through a `&self` receiver
+
+struct Bag { cells: Vector<Int> }
+
+extension Bag: NoCopy {}
+
+extension Bag {
+    public func peek(&self) -> Int {
+        self.cells.push(9)
+        self.cells.len()
+    }
+}
+
+func main() {
+    var b = Bag(cells: [1, 2])
+    print("a {b.peek()}")
+    print("b {b.cells.len()}")
+}

@@ -7,10 +7,12 @@
 // the caller sees nothing — the same vanishing write, through the door the
 // assignment walk does not cover.
 //
-// The receiver must be `self` ITSELF for this rule. A `&var self` method on a
-// FIELD (`self.n.fetch_add(1)`) is a different question with a real carve-out —
-// design 149 receives a struct holding an `Atomic` by pointer even at `&self` —
-// and stays filed as DF-176b.
+// The FIELD form is banned too (DF-176b,
+// `examples/errors/shared_self_field_var_method_call.saw`), but it carries a
+// carve-out this one does not need: design 149 receives a struct holding an
+// `Atomic` by pointer even at `&self`, so `self.n.fetch_add(1)` and the rest
+// of the interior-mutability family stay callable. A `self` receiver takes the
+// WHOLE receiver exclusively and nothing blesses that.
 // EXPECT: error
 // EXPECT-ERROR-CONTAINS: cannot call `&var self` method `bump` on a `&self` receiver
 

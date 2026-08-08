@@ -1482,13 +1482,23 @@ construct in the owner and lend `&driver` down.
   then borrows the receiver exclusively, reads included. In a FLAVORED accessor
   the third out is `#lend_var`: gate the mutation and only the exclusive
   specialization runs it.
-  **A `&var self` METHOD CALL on `self` is the same error** (design 179,
-  DF-179b): `self.reset()` in a `&self` body takes the whole receiver
-  exclusively, which is the one thing `&self` promises not to do. It was
-  unchecked until now — the borrows-body form really did mutate a `let` root.
-  A `&var self` method on a FIELD is NOT covered and is not a mistake: a struct
-  holding an `Atomic` is received by pointer even at `&self`, so
-  `self.n.fetch_add(1)` stays the interior-mutability idiom.
+  **A `&var self` METHOD CALL is the same error, on `self` OR on a FIELD of it**
+  (DF-179b, DF-176b). `self.reset()` takes the whole receiver exclusively, which
+  is the one thing `&self` promises not to do; `self.cells.push(9)` runs against
+  the copy's `Vector` header, so the caller sees no new element — and since the
+  copy and the original share a buffer, a push that does not reallocate writes
+  into storage the caller owns while the caller's `length` stays behind. Both
+  were unchecked until Aug 7-8, and the borrows-body forms really did mutate a
+  `let` root.
+  **The exemption is INTERIOR MUTABILITY**: a field of type `Atomic`,
+  `SpinLock` or `UnsafeMemory` stays callable, because mutation through a
+  shared borrow is what those types are for (a receiver carrying an `Atomic`
+  arrives by pointer even at `&self`; an `UnsafeMemory` is a one-word address).
+  So `self.n.fetch_add(1)` and `self.cell.lock({ ... })` are idioms. Those
+  three types only — a struct WRAPPING an `Atomic` is not exempt, since its own
+  `&var self` methods take the whole wrapper, sibling fields included. The
+  indirection carve-out is unchanged and independent: `self.rows[0].push(9)`
+  reaches a heap element the copy shares and is fine.
 - **RAW-BACKED ENUMS are the wire idiom** (design 145 B2). A payload-free enum
   may declare an integer backing in the colon position; that PINS the width and
   the tag values, so it may be a field of an `UnsafeMemory`-viewed wire struct

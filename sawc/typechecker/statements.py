@@ -1649,38 +1649,81 @@ class StatementsMixin:
         )
         return True
 
+    # The three types whose whole contract IS mutation through a shared borrow:
+    # `Atomic` and `SpinLock` reach the caller's cell because a receiver
+    # carrying one arrives BY POINTER even at `&self` (design 149,
+    # `_self_by_pointer_for`), and an `UnsafeMemory` is a one-word ADDRESS, so
+    # the copy and the original name the same device registers. A `&var self`
+    # method on a field of one of these mutates what the caller holds, which is
+    # the point of the type rather than a lost write. A user struct that merely
+    # CONTAINS one is not on the list: its own `&var self` methods take the
+    # whole wrapper — sibling fields included — and promise nothing about
+    # interior mutability.
+    _INTERIOR_MUTABLE_TYPES = frozenset({"Atomic", "SpinLock", "UnsafeMemory"})
+
     def _reject_var_self_call_on_shared_self(self, expr, method_info) -> bool:
-        """`self.mutate()` where `mutate` is `&var self` and we are `&self`.
+        """A `&var self` method called on `self` — or on a FIELD of it — from
+        a `&self` body.
 
-        The second form DF-175a named, and the half design 176 unit 13 did not
-        close: it scoped itself to the direct WRITE, so the whole-receiver
-        mutation spelled as a method call went through — in a plain `&self`
-        method as a silent no-op, and in a `&self` BORROWS body (where the
-        receiver travels by pointer) as a real mutation of a `let` root through
-        a window the use site opened SHARED. It reproduces on main with no
-        `#lend_var` anywhere; design 179's shared specialization is only as
-        trustworthy as this rule, which is why it is closed here.
+        The second and third forms DF-175a named, and the half design 176 unit
+        13 did not close: it scoped itself to the direct WRITE, so the mutation
+        spelled as a method call went through — in a plain `&self` method as a
+        silent no-op, and in a `&self` BORROWS body (where the receiver travels
+        by pointer) as a real mutation of a `let` root through a window the use
+        site opened SHARED. Both reproduce with no `#lend_var` anywhere; design
+        179's shared specialization is only as trustworthy as this rule.
 
-        The receiver must be `self` ITSELF. That is what makes the rule
-        decidable with no carve-out: a `&var self` method takes the WHOLE
-        receiver exclusively, and no design blesses doing that through a shared
-        borrow. The FIELD form (`self.counters.push(9)`, `self.n.fetch_add(1)`)
-        is a genuinely different question — design 149 receives a struct holding
-        an `Atomic` by pointer even at `&self`, so interior mutability through a
-        field is an idiom rather than a bug — and stays filed as DF-176b,
-        pending its own ruling. In-tree migration tail for the form closed here:
-        ZERO, measured across examples, std, blade, libs, devtools and sos.
+        TWO RECEIVER FORMS, one rule:
+
+        - `self.reset()` (DF-179b, design 179 unit 2) — the receiver is `self`
+          ITSELF, and a `&var self` method takes the WHOLE receiver
+          exclusively, which is the one thing `&self` promises not to do. No
+          carve-out is possible or wanted.
+        - `self.cells.push(9)` (DF-176b) — the receiver is storage INSIDE the
+          receiver's own value, so the push runs against the `&self` copy's
+          `Vector` header and the caller sees no new element. Worse than a
+          vanishing field write, because the copy and the original share a
+          buffer: a push that does not reallocate writes into storage the
+          caller owns while the caller's `length` stays behind.
+
+        Which storage is "inside" is `_writes_into_self_storage`'s question,
+        asked of the RECEIVER instead of a write target — so `self.cells[i]`
+        (a heap element the copy shares) and `self.cancel_ptr[0]` (a pointee)
+        answer alike for a call and for an assignment. On top of that walk the
+        field form takes the INTERIOR-MUTABILITY EXEMPTION
+        (`_INTERIOR_MUTABLE_TYPES`): `self.n.fetch_add(1)` on an `Atomic`
+        field, a `SpinLock` field's `lock`, and an `UnsafeMemory` driver field
+        all reach the caller's storage by design, so they stay callable.
         """
         from ast_nodes import SelfExpr as _SelfExpr
         if not getattr(method_info, "self_mutable", False):
             return False
         if getattr(method_info, "is_init", False):
             return False
-        if not isinstance(getattr(expr, 'object', None), _SelfExpr):
-            return False
         method = getattr(self, 'current_method', None)
         if method is None or getattr(method, 'self_mutable', False):
             return False
+        # A window call the PLACE lowering synthesized is not a call anyone
+        # wrote: `place_uses` picks the accessor and its flavor by the design
+        # 141/146 rules, and a `lend self.inner[i]` that forwards another
+        # accessor's place legitimately reaches the inner `&var self`
+        # specialization (design 175's composition case — the receiver of a
+        # borrows body travels by pointer, so nothing is lost). Judging those
+        # by the rule below would reject the forwarding shape by the NAME of a
+        # method the source never mentions. The place window has its own
+        # unclosed half of this bug — DF-176c — which wants its own ruling.
+        if getattr(expr, 'place_lowered', False):
+            return False
+        receiver = getattr(expr, 'object', None)
+        if isinstance(receiver, _SelfExpr):
+            what = "a `&self` receiver"
+        else:
+            field_type = self._self_storage_type(receiver)
+            if field_type is None:
+                return False
+            if self._is_interior_mutable_type(field_type):
+                return False
+            what = "storage reached through a `&self` receiver"
         if getattr(method, 'is_borrows', False) or getattr(
                 method, 'place_type', None) is not None:
             hint = ("declare the accessor `&var self` — every use site then "
@@ -1693,15 +1736,38 @@ class StatementsMixin:
                     "each use site choose the window's flavor")
         self._error(
             ErrorKind.IMMUTABLE_ASSIGNMENT,
-            f"cannot call `&var self` method `{expr.method_name}` on a `&self` "
-            f"receiver: `self` is borrowed SHARED here, so the mutation either "
+            f"cannot call `&var self` method `{expr.method_name}` on "
+            f"{what}: `self` is borrowed SHARED here, so the mutation either "
             f"lands in a copy that is discarded when the method returns or "
             f"mutates a value the caller holds immutably",
             expr.line, expr.column, hint=hint)
         return True
 
+    def _is_interior_mutable_type(self, saw_type) -> bool:
+        """Is this one of the by-pointer-at-`&self` types (design 149)?
+
+        Asked of a FIELD's declared type, by NAME — a monomorphized
+        `SpinLock$1$Int` answers for its template. Deliberately not the
+        recursive "contains an `Atomic` anywhere" test codegen uses to pick the
+        receiver ABI: that question is where the bytes travel, this one is
+        whether the TYPE's contract is mutation through a shared borrow.
+        """
+        if saw_type is None:
+            return False
+        saw_type = self._resolve_type_alias(saw_type)
+        if saw_type.kind != TypeKind.STRUCT or not saw_type.struct_name:
+            return False
+        return saw_type.struct_name.split('$')[0] in self._INTERIOR_MUTABLE_TYPES
+
     def _writes_into_self_storage(self, target) -> bool:
         """Does this lvalue name storage INSIDE the receiver's own value?
+
+        The predicate half of `_self_storage_type` — see there for the rule.
+        """
+        return self._self_storage_type(target) is not None
+
+    def _self_storage_type(self, target):
+        """The TYPE of storage inside the receiver's own value, or None.
 
         The distinction that matters for DF-175a is where the bytes live, not
         what the expression is rooted at. A struct FIELD, a nested field, a
@@ -1716,6 +1782,10 @@ class StatementsMixin:
         this walk tracks TYPES rather than reusing `_projects_from_self`'s
         purely syntactic one — an `ArrayIndex` continues the walk only when its
         container is an inline `[T; N]`.
+
+        Bare `self` yields the RECEIVER's own type: the walk took no hop, so
+        the storage in hand is the whole receiver. Callers that must tell that
+        case apart (DF-176b's field form does) test for `SelfExpr` first.
         """
         hops = []
         node = target
@@ -1735,15 +1805,15 @@ class StatementsMixin:
                 hops.append(node)
                 node = node.array_expr
             else:
-                return False
+                return None
 
         self_info = self.current_scope.lookup("self")
         current = self_info.type if self_info is not None else None
         for hop in reversed(hops):
             current = self._hop_type(current, hop)
             if current is None:
-                return False
-        return True
+                return None
+        return current
 
     def _hop_type(self, container, hop):
         """The type one lvalue hop yields, or None when the hop leaves the

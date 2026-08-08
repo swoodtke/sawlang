@@ -2041,18 +2041,41 @@ inline `[T; N]` — in both the plain and the compound spelling, and it covers t
 ways to say what you meant: declare the method `&var self`, or lend the storage
 with a `borrows` accessor and let each use site pick the window's flavor.
 
-It also covers the whole-receiver mutation spelled as a **call**: `self.reset()`
-inside a `&self` body, where `reset` takes `&var self`, is the same error. A
-`&var self` method takes the entire receiver exclusively, which is the one thing
-`&self` says it will not do. Calling a `&var self` method on a *field* is a
-different question and is not covered — a struct holding an `Atomic` is received
-by pointer even at `&self`, so `self.n.fetch_add(1)` is the interior-mutability
-idiom rather than a mistake.
+It also covers the mutation spelled as a **call**, in both receiver forms.
+`self.reset()` inside a `&self` body, where `reset` takes `&var self`, is the
+same error: a `&var self` method takes the entire receiver exclusively, which is
+the one thing `&self` says it will not do. So is the same call on a **field** —
+`self.cells.push(9)` runs against the copy's `Vector` header, so the caller sees
+no new element:
+
+```saw
+extension Bag {
+    func peek(&self) -> Int {
+        self.cells.push(9)      // error: cannot call `&var self` method `push`
+        self.cells.len()        //        on storage reached through a `&self`
+    }                           //        receiver
+}
+```
+
+The field form is worse than a vanishing field write, because the copy and the
+original share a buffer: a push that does not reallocate writes into storage the
+caller owns while the caller's `length` stays behind.
 
 Storage the receiver only *points at* is not covered, because a copy of the
 receiver shares it rather than duplicating it. A `Vector` field's elements live
 in its heap buffer, so `self.cells[i] = v` writes the caller's element and is
-allowed; the same goes for a write through an `UnsafePointer` field.
+allowed; the same goes for a write through an `UnsafePointer` field, and for a
+`&var self` method reached through either.
+
+**Interior mutability is exempt.** A field of type `Atomic`, `SpinLock` or
+`UnsafeMemory` stays callable from a `&self` method, because mutation through a
+shared borrow is what those types are *for*: a receiver carrying an `Atomic`
+arrives by pointer even at `&self` (see [`Atomic<Int>`](#atomicint)), and an
+`UnsafeMemory` is a one-word address the copy shares. So `self.n.fetch_add(1)` and `self.lock.lock({ ... })` are idioms,
+not mistakes. The exemption is those three types themselves, not anything
+containing one: a struct wrapping an `Atomic` has its own `&var self` methods,
+which take the whole wrapper — sibling fields included — and promise nothing
+about interior mutability.
 
 The rule holds inside a `borrows` body too, prologue and epilogue included. That
 is where it matters most: an accessor's receiver travels by pointer, so a field
@@ -5053,7 +5076,10 @@ A receiver carrying an `Atomic` cell — `Atomic<Int>` itself, or any
 struct holding one — arrives at a `&self` method as the caller's STORAGE
 rather than as a copy, which is what makes interior mutation through a
 shared borrow reach the real cell (design 149). Every other `&self`
-receiver is still passed by value.
+receiver is still passed by value. That is also why an `Atomic` field is
+exempt from the ban on calling a `&var self` method through a `&self`
+receiver (see [A `&self` method may not write its
+receiver](#a-self-method-may-not-write-its-receiver)).
 
 ### `SpinLock<T>`
 
