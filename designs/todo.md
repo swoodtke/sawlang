@@ -189,6 +189,38 @@ crashes the process.
   flagging rather than assuming: `duration_since` used to document a negative
   result as supported.
 
+## Design 183 — the offload story, made real (LANDED, Aug 8)
+
+DF-181e and DF-181f are both closed above; the offload now works on the seams
+and the signatures the design-181 audit needed. Four things worth a look at
+review, each a decision the brief left to the implementation:
+
+- **A contradicting `blocking` redeclaration is an ERROR, not an upgrade.**
+  DF-181f could have been fixed either way. Making the annotation win would give
+  a user the whole-program escape hatch of annotating a std seam — and would let
+  a downstream declaration turn a function another module calls into a suspension
+  source, landing errors inside code its author never wrote. The audit's escape
+  hatch does not need it: a user offloads their own distinctly-named wrapper, and
+  DF-181e is what makes that wrapper spellable. Relaxing this later is possible;
+  the reverse would not be.
+- **The thunk is COMPILER-synthesized, so the C shim never casts a function
+  pointer.** The alternative was an arity switch in `shim.c` casting `job->fn` to
+  `long(*)(long, long, ...)`, which is the usual trick and is undefined behavior
+  that happens to work on both integer-register ABIs. Emitting
+  `__saw_blk_thunk$<extern>` in IR instead means the real call is made with the
+  extern's real LLVM signature by the same lowering every other extern call uses.
+  `shim.c` lost a line rather than gaining a switch.
+- **Float is in the offloadable set**, because the brief's rule is "whatever
+  `@export` admits" and `@export` admits it. It costs nothing: the thunk moves a
+  `Float` through the job's integer word as bits, exactly. The brief's
+  parenthetical list omitted it; the governing sentence did not.
+- **The argument slots are copied into the JOB, not borrowed from the caller.**
+  The worker reads them at a time `start` cannot bound, so the alternative was to
+  make the call site's slot array outlive the park, which would have put it in
+  the coroutine frame and coupled the thunk to frame layout. `start` copies,
+  `take` frees after the join. The call site's array is an entry-block slot, so
+  an offload inside a driven loop does not grow the resume frame's stack.
+
 ## Design 186 — UnsafeMutableInterior (APPROVED + QUEUED, Aug 8)
 
 Brief in `designs/186-unsafe-mutable-interior.md`, fully ratified: interior
@@ -363,7 +395,8 @@ Headline: **169 externs across sawc/std/ + sawc/rt/, NOT ONE annotated
   `examples/process_run_starvation_xfail.saw`. Fix is a policy call:
   reactor-integrate the stdout pipe (cheap — std.net already has the
   machinery) and annotate the wait, which fits the design-103 whitelist
-  exactly — but see DF-181f, which currently blocks the annotation.
+  exactly — but see DF-181f, which blocked the annotation at the time (closed
+  by design 183 unit 1).
 - **DF-181b (P0-adjacent by reach, filed Aug 7): every std.file /
   std.directory seam is a naked blocking call.** **DOCUMENTED (design 182 unit 2,
   Aug 8):** the prompt-by-policy contract is now stated where a reader meets it —
@@ -416,8 +449,24 @@ Headline: **169 externs across sawc/std/ + sawc/rt/, NOT ONE annotated
   be designed offloaded or reactor-integrated from the start, never added as
   a naked seam.
 - **DF-181e (filed Aug 7): the design-103 offload whitelist `(Int) -> Int`
-  is too narrow to express the annotations the audit recommends.** Of the
-  naked calls, only `__saw_rt_proc_wait(job: Int) -> Int` fits.
+  is too narrow to express the annotations the audit recommends.**
+  **CLOSED (design 183 unit 2, Aug 8).** The offloadable set is now the C-ABI
+  set `@export` already admits — fixed-width integers, Int/UInt, Float,
+  UnsafePointer, Void/Never returns — with no limit on arity. The runtime's one
+  word is a pointer to the call's argument SLOTS, and `fn` is a thunk the
+  compiler synthesizes per offloaded extern (`__saw_blk_thunk$<name>`) that reads
+  the slots back at their declared types and makes the real call, so the C ABI is
+  the compiler's ordinary extern lowering and the runtime knows nothing about
+  arity. `__saw_rt_offload_start` gained `(fn, argp, argc)` and copies the slots
+  into storage the job owns; `take` frees them after the join.
+  The signature gate moved from the coroutine transform's call site to the
+  DECLARATION, beside @export's, with @export's message. Tests:
+  `examples/offload_multi_arg_pipe_read.saw` (three arguments, a pointer into
+  frame storage that the worker writes through),
+  `examples/offload_signature_shapes.saw` (narrow ints, zero arguments, a Void
+  return, Float), `examples/errors/offload_signature_reject.saw`. The escape
+  hatch DF-181b assumes now exists. Original finding follows.
+  Of the naked calls, only `__saw_rt_proc_wait(job: Int) -> Int` fits.
   `__saw_rt_proc_read_stdout` (3 args), every `__saw_rt_fs_*` I/O seam
   (3 args) and `__saw_rt_thread_join` (Void return) are all off-whitelist.
   This also removes the escape hatch the DF-181b policy assumes: a user who
@@ -426,7 +475,20 @@ Headline: **169 externs across sawc/std/ + sawc/rt/, NOT ONE annotated
   concrete demand for it.
 - **DF-181f (COMPILER, filed Aug 7): the `blocking` annotation is SILENTLY
   IGNORED on `__saw_rt_*` runtime seams — so "annotate the seams" does not
-  work today.** Design 103 promises an offload or "a clean anchored error,
+  work today.** **CLOSED (design 183 unit 1, Aug 8).** Cause: neither guess in
+  the original finding. `_register_extern_function` discards a redeclaration
+  whose parameter and return types match an existing one, and it discarded the
+  `blocking` flag along with it — nothing `__saw_rt_*`-specific, just that every
+  runtime seam std declares IS such a redeclaration. `blocking` is now part of
+  the signature the two declarations must agree on, and disagreement is a clean
+  error at the annotation. The annotation deliberately does not WIN instead:
+  extern symbols are global by name, so letting a downstream declaration upgrade
+  one would make a function another module calls a suspension source from a
+  distance. Whoever owns the declaration owns the claim. Both branches pinned —
+  `examples/offload_seam_first_tick.saw` (the audit's control probe as a test: an
+  annotated seam blocks 300 ms and the sibling's first tick lands under 150 ms)
+  and `examples/errors/blocking_extern_decl_conflict.saw`. Original finding
+  follows. Design 103 promises an offload or "a clean anchored error,
   never a silent miscompile"; on exactly the symbols this audit would
   annotate, neither happens. Demonstrated three ways: an off-whitelist
   `blocking func getpid() -> Int32` errors cleanly (in both `let` and

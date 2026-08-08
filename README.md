@@ -592,7 +592,10 @@ compiler charges every loop iteration of a task body against that budget, so a
 pure-compute loop cedes without an explicit `yield_now`. So an
 endless `accept`-loop server keeps serving live connections. Blocking FFI calls
 (`extern "C" { blocking func ... }`) run on a separate thread and park the task
-like any other I/O, so the remaining tasks stay responsive.
+like any other I/O, so the remaining tasks stay responsive. The signature can be
+any the C ABI carries, `read(fd, buf, n)` included; a pointer argument has to
+address the suspended frame or the heap, since the worker is still reading
+through it while the task is parked.
 
 ### Task Backtraces
 

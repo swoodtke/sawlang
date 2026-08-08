@@ -1070,9 +1070,34 @@ dump_tasks()                // every live task's logical backtrace (std.task)
   call inside a suspending body (driven / spawned / a suspending `main`) now RUNS —
   it is OFFLOADED to a worker thread (thread-per-call v1) and the task PARKS on the
   job's pipe like any socket read, so siblings keep running while it blocks and the
-  cooperative thread is never wedged. v1 restricts the extern to the C-ABI
-  `(Int) -> Int` whitelist (a single Int arg, Int result); a wider signature is a
-  clean anchored error (multi-arg + a real pool are future work). Since design 120
+  cooperative thread is never wedged. **THE OFFLOAD IDIOM (design 183): annotate
+  the real C signature and pass a buffer you own.**
+  ```saw
+  extern "C" {
+      blocking func read(fd: Int32, buf: UnsafePointer<Int8>, n: Int) -> Int
+  }
+  func drain(fd: Int32) unsafe -> Int {
+      var chunk: [Int8; 4096] = [0; 4096]        // frame-owned: survives the park
+      read(fd, (&chunk) as UnsafePointer<Int8>, 4096)
+  }
+  ```
+  Any signature the C-ABI whitelist admits offloads — fixed-width integers,
+  Int/UInt, Float, `UnsafePointer<T>`, `Void`/`Never` returns, ANY arity (the old
+  `(Int) -> Int` rule is RETIRED, and a thread per call still is the model).
+  Anything outside it is a clean error at the DECLARATION, in @export's words
+  (``parameter `s` has type `String`, which is not C-ABI-safe``) — pass an
+  aggregate as `UnsafePointer<S>`.
+  **THE POINTER RULE: a pointer argument must point into the suspended FRAME or
+  the HEAP.** The worker reads through it while the task is parked, and may still
+  be reading after a cancel; both of those storage classes outlive the park (a
+  suspending function's locals live in a heap-resident frame). A stack temporary
+  cannot reach an offload, since the function owning one would have to be `sync`
+  and a `sync` body may not suspend. If you `malloc` the buffer yourself, free it
+  after the call returns, never on a cancel path racing it.
+  `blocking` is part of an extern's CONTRACT: two declarations of one symbol that
+  disagree about it are an error, so you cannot annotate a seam std also declares
+  (`__saw_rt_fs_read`) — offload your own distinctly-named wrapper instead.
+  Since design 120
   a blocking-extern call BURIED in a larger expression offloads like any other
   suspension — `identity(slow(x))`, `return 1 + slow(x)`, `"slept {slow(x)}"` and
   `let r = 1 + slow(x)` all RUN (re-probed Aug 4); the pre-120 rule that you had to
