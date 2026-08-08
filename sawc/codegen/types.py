@@ -241,7 +241,36 @@ class TypesMixin:
                 # happened to run substitution first.
                 size, _ = saw_type._substituted_length(self.type_param_context)
             if size is None:
-                raise ValueError("Array type missing element type or size")
+                # A DECLARED length that never folded — `[UInt8; ARENA_BYTES]`
+                # naming a module `static`, say. This is the position design 148
+                # says owns the requirement ("a declared array length reaching
+                # codegen reports it"), and it is the author's mistake, not a
+                # compiler invariant: report it where the length is written,
+                # with the same wording the repeat-count position already uses.
+                # It raised a bare ValueError until design 172 part 2 hit it —
+                # so one spelling of one rule gave a clean, hint-carrying error
+                # and the other gave an internal compiler error (DF-172f).
+                from .core import CodegenUserError
+                from const_eval import const_eval, ConstEvalError
+                expr = saw_type.array_size_expr
+                what, line, column = "the length", 0, 0
+                if expr is not None:
+                    line = getattr(expr, 'line', 0) or 0
+                    column = getattr(expr, 'column', 0) or 0
+                    try:
+                        const_eval(expr, env=self._const_param_env(),
+                                   metric=self._const_type_metric,
+                                   width=self.int_width)
+                    except ConstEvalError as e:
+                        what = e.what
+                        line = e.line or line
+                        column = e.column or column
+                raise CodegenUserError(
+                    f"array length is not a compile-time constant: {what} is "
+                    f"not allowed here", line, column,
+                    hint="a length is fixed at compile time — use a literal, a "
+                         "const generic parameter, or arithmetic over them",
+                    source_file=getattr(expr, 'source_file', None))
             elem_type = self._get_llvm_type(saw_type.array_element_type)
             return ir.ArrayType(elem_type, size)
         elif saw_type.kind == TypeKind.FUNCTION:
