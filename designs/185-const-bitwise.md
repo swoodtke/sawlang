@@ -47,17 +47,19 @@ gap). Both hurt exactly the code Saw targets: wire-layout and register math
    break `from(raw:)`/exhaustiveness (design 145). Document it: an enum is a
    closed set of tags; a bitSET over those tags is the backing integer. That
    is Swift's OptionSet / Rust's bitflags boundary, stated once.
-4. **[USER DECISION, flagged in the brief — recommend, don't assume]:
-   runtime bitwise directly on raw-backed enum VALUES.** Today
-   `(a as UInt8) | (b as UInt8)` works at runtime; `a | b` on two
-   `Perm`-typed values does not. Option (a) [recommended]: leave it — the
-   explicit `as UInt8` names the tier crossing (enum → bitset) exactly like
-   145 made `e as UInt8` the explicit total projection, and it keeps "a
-   Perm value is always a valid case" true. Option (b): overload `| & ^ <<
-   >> ~` on raw-backed enums to yield the backing int implicitly — fewer
-   `as`, but the operators now silently leave the enum's value domain. This
-   brief implements (a); (b) is a one-paragraph follow-up if the user wants
-   it. Const-position folding (unit 3) is unaffected either way.
+4. **Runtime bitwise on enum VALUES stays EXPLICIT — RATIFIED (user, Aug 8:
+   "explicit is good — generally doing math on enums is a no-no").** A
+   bitwise operator applied to an enum-TYPED value (`a | b` on two `Perm`s)
+   is NOT added; the spelling is `(a as UInt8) | (b as UInt8)`, and the
+   typechecker's existing "operator not defined on enum" error stands (verify
+   it reads well — name the `as` fixit if the machinery allows). The `as`
+   names the enum→bitset crossing exactly as design 145 made `e as UInt8`
+   the explicit total projection, and it keeps the invariant "a raw-backed
+   enum value is always a declared case" TRUE. This is a stated language
+   principle now — doing arithmetic on an enum value is a no-op the language
+   declines to make silent. (Const-position folding in unit 3 is a separate
+   matter and unaffected: there the operands are CASE NAMES whose values are
+   compile-time constants, and the result is already the backing int.)
 5. **Docs + tests.** Spec (const-expression grammar list + the flag-enum
    boundary), skill (the wire-math idiom: `1 << BIT`, `A | B` flag consts).
    Tests: each operator folded in both positions, width-masking edges
