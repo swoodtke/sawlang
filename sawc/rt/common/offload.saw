@@ -1,4 +1,4 @@
-// Blocking-extern offload seams (design 103 / 113b), authored in Saw.
+// Blocking-extern offload seams (design 103 / 113b / 183), authored in Saw.
 //
 // A blocking FFI call inside a suspending task is offloaded to a thread-per-call
 // (v1) so the cooperative reactor thread never blocks; the task parks on the
@@ -8,6 +8,12 @@
 // thread fills it -> `take` joins the thread (a full happens-before barrier)
 // then reads/closes/frees. `done` is atomic (release-published by the thread,
 // acquire-observed here — Atomic<Int> is seq_cst, stronger and equivalent).
+//
+// Design 183: the word the thread passes `fn` is a pointer to the call's
+// ARGUMENT SLOTS, one per parameter, and `fn` is a compiler-synthesized thunk
+// that reads them back at their declared types. The slots are copied into a
+// heap block the job OWNS, because the worker reads them long after `start`
+// returned and the caller's copy may be a stack temporary.
 
 extern "C" {
     func malloc(size: Int) -> UnsafePointer<Int8>
@@ -24,11 +30,11 @@ extern "C" {
 }
 
 // MUST match `struct saw_offload_job` in shim.c (sizeof == 48). The layout is
-// declaration-order natural ABI: fn@0, arg@8, result@16, done@24, pipe_r@32,
+// declaration-order natural ABI: fn@0, args@8, result@16, done@24, pipe_r@32,
 // pipe_w@36, thread@40.
 struct Job {
     fn: Int
-    arg: Int
+    args: Int
     result: Int
     done: Atomic<Int>
     pipe_r: Int32
@@ -46,12 +52,30 @@ struct PipeFds {
 
 static_assert(sizeof<Job>() == 48, "offload Job layout must match shim.c")
 
+// Copy `argc` argument slots out of the caller's storage into a block the job
+// owns. The worker reads them on its own thread, at a time this call cannot
+// bound, so borrowing the caller's array would be a dangling read; `take` frees
+// the copy. Zero arguments allocate nothing and the thunk gets a null pointer.
+func copy_arg_slots(argp: Int, argc: Int) unsafe -> Int {
+    if argc <= 0 {
+        return 0
+    }
+    let src = argp as UnsafePointer<Int64>
+    let dst = malloc(argc * sizeof<Int64>()) as UnsafePointer<Int64>
+    var i = 0
+    while i < argc {
+        dst[i] = src[i]
+        i = i + 1
+    }
+    dst as Int
+}
+
 @export("__saw_rt_offload_start")
-func rt_offload_start(fn: Int, arg: Int) unsafe -> Int {
+func rt_offload_start(fn: Int, argp: Int, argc: Int) unsafe -> Int {
     let raw = malloc(sizeof<Job>())
     let p = raw as UnsafePointer<Job>
     p[0].fn = fn
-    p[0].arg = arg
+    p[0].args = copy_arg_slots(argp, argc)
     p[0].result = 0
     p[0].done.store(0)
     // pipe into a local pair, then copy the two fds into the job record.
@@ -82,10 +106,15 @@ func rt_offload_take(job: Int) unsafe -> Int {
     let raw = job as UnsafePointer<Int8>
     let p = job as UnsafePointer<Job>
     // Join (full barrier -> the thread's stores are visible) then read + free.
+    // The join is what makes freeing the argument slots safe: the worker is done
+    // reading them, cancelled caller or not.
     __saw_rt_thread_join(p[0].thread)
     let result = p[0].result
     close(p[0].pipe_r)
     close(p[0].pipe_w)
+    if p[0].args != 0 {
+        free(p[0].args as UnsafePointer<Int8>)
+    }
     free(raw)
     result
 }

@@ -132,20 +132,27 @@ long __saw_rt_set_nonblocking(long fd) {
 /* ---- DF-113b: the blocking-extern offload thread thunk ------------------
  * The offload seams `__saw_rt_offload_start/done/pipe_fd/take` are authored in
  * Saw (sawc/rt/common/offload.saw); this thunk is the ONE piece that must be C
- * — it CALLS a raw C function pointer (`job->fn`, a `long(long)` blocking
- * extern), which Saw cannot express (DF-113b). It touches ONLY its own job + the
- * pipe write end (the hazard discipline): run fn(arg), store the result,
- * PUBLISH `done` (atomic release) after the store, then write one byte to the
- * job's self-pipe. `__saw_offload_thread_ptr` hands the Saw `offload_start` the
- * thunk's address (Saw cannot name a C function pointer either), which it
- * forwards to __saw_rt_thread_spawn.
+ * — it CALLS a raw C function pointer (`job->fn`, a `long(long)` entry), which
+ * Saw cannot express (DF-113b). It touches ONLY its own job + the pipe write end
+ * (the hazard discipline): run fn(args), store the result, PUBLISH `done`
+ * (atomic release) after the store, then write one byte to the job's self-pipe.
+ * `__saw_offload_thread_ptr` hands the Saw `offload_start` the thunk's address
+ * (Saw cannot name a C function pointer either), which it forwards to
+ * __saw_rt_thread_spawn.
+ *
+ * design 183: `job->fn` is NOT the user's blocking extern — it is a thunk the
+ * COMPILER synthesized for that extern, and `job->args` points at the call's
+ * argument slots, which the thunk reads back at their declared types before
+ * making the real call. That keeps the C ABI in the compiler's ordinary extern
+ * lowering, so any signature the C-ABI whitelist admits offloads and this file
+ * needs no arity knowledge at all.
  *
  * The struct layout MUST match `struct Job` in offload.saw (sizeof == 48, guarded
- * by a static_assert there): { i64 fn, arg, result, done; i32 pipe_r, pipe_w;
+ * by a static_assert there): { i64 fn, args, result, done; i32 pipe_r, pipe_w;
  * i64 thread }. `done` is accessed atomically on both sides. */
 struct saw_offload_job {
     long fn;
-    long arg;
+    long args;
     long result;
     long done;      /* atomic */
     int  pipe_r;
@@ -156,7 +163,7 @@ struct saw_offload_job {
 static void *__saw_offload_thread(void *jobp) {
     struct saw_offload_job *job = (struct saw_offload_job *)jobp;
     long (*thunk)(long) = (long (*)(long))job->fn;
-    long res = thunk(job->arg);
+    long res = thunk(job->args);
     job->result = res;
     __atomic_store_n(&job->done, 1L, __ATOMIC_RELEASE);
     unsigned char one = 1;

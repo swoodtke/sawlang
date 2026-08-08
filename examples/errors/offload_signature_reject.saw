@@ -1,0 +1,17 @@
+// DF-181e (design 183 unit 2): the offloadable set is the C-ABI set `@export`
+// already admits, and a signature outside it is refused AT THE DECLARATION with
+// the same message shape @export gives — not at whichever call site the coroutine
+// transform reached first, and not only when the extern is actually called.
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: parameter `s` has type `String`, which is not C-ABI-safe
+// EXPECT-ERROR-CONTAINS: parameter `flag` has type `Bool`, which is not C-ABI-safe
+// EXPECT-ERROR-CONTAINS: return type an optional (`T?`) is not C-ABI-safe
+// EXPECT-ERROR-CONTAINS: an offloaded signature allows fixed-width integers
+
+extern "C" {
+    blocking func slow_named(s: String) -> Int
+    blocking func slow_flagged(flag: Bool) -> Int
+    blocking func slow_maybe(x: Int) -> Int?
+}
+
+func main() {}

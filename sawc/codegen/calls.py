@@ -190,6 +190,128 @@ class CallsMixin:
             return self._coerce_int_llvm(value, rt)
         return value
 
+    # ---------------------------------------------------------------- design 183
+    # Blocking-extern offload marshalling.
+    #
+    # The runtime hands a worker thread ONE machine word and calls a `word(word)`
+    # thunk with it (rt/ABI.md). Design 103 v1 made that word the extern's single
+    # `Int` argument, which is why the extern had to BE `(Int) -> Int`. Now the
+    # word is a pointer to a slot array and the thunk is COMPILER-SYNTHESIZED per
+    # extern: it reads the slots back at their declared types and makes the real
+    # call, so the C ABI is the compiler's ordinary extern-call lowering rather
+    # than a cast-a-function-pointer trick in the runtime's C shim. Any signature
+    # the C-ABI whitelist admits works, arity included.
+    #
+    # A slot is one i64. Widening and reading are exact inverses, so the value
+    # the extern receives is bit-for-bit the one the call site computed.
+    # ---------------------------------------------------------------- #
+    _BLK_SLOT = ir.IntType(64)
+
+    def _blk_slot_write(self, value):
+        """Widen one C-ABI value into its i64 slot."""
+        slot = self._BLK_SLOT
+        t = value.type
+        if isinstance(t, ir.IntType):
+            if t.width == slot.width:
+                return value
+            return self.builder.zext(value, slot, name="blkarg")
+        if isinstance(t, ir.PointerType):
+            return self.builder.ptrtoint(value, slot, name="blkarg")
+        if isinstance(t, ir.DoubleType):
+            return self.builder.bitcast(value, slot, name="blkarg")
+        if isinstance(t, ir.FloatType):
+            bits = self.builder.bitcast(value, ir.IntType(32), name="blkargf")
+            return self.builder.zext(bits, slot, name="blkarg")
+        raise NotImplementedError(
+            f"offload argument of LLVM type {t} is not C-ABI marshallable")
+
+    def _blk_slot_read(self, word, target):
+        """Narrow an i64 slot back to `target` — the inverse of the write."""
+        if isinstance(target, ir.IntType):
+            if target.width == self._BLK_SLOT.width:
+                return word
+            return self.builder.trunc(word, target, name="blkval")
+        if isinstance(target, ir.PointerType):
+            return self.builder.inttoptr(word, target, name="blkval")
+        if isinstance(target, ir.DoubleType):
+            return self.builder.bitcast(word, target, name="blkval")
+        if isinstance(target, ir.FloatType):
+            bits = self.builder.trunc(word, ir.IntType(32), name="blkvalb")
+            return self.builder.bitcast(bits, target, name="blkval")
+        raise NotImplementedError(
+            f"offload value of LLVM type {target} is not C-ABI marshallable")
+
+    def _blk_thunk(self, name):
+        """The worker-thread entry for blocking extern `name`, emitted once.
+
+        `i64 thunk(i64 slots)`: read each argument out of the slot array at its
+        declared type, call the extern, widen the result back into one word (0
+        for a Void/Never extern, whose caller takes nothing).
+        """
+        thunks = getattr(self, '_blk_thunks', None)
+        if thunks is None:
+            thunks = self._blk_thunks = {}
+        if name in thunks:
+            return thunks[name]
+
+        callee = self.functions[name]
+        slot = self._BLK_SLOT
+        i32 = ir.IntType(32)
+        fn = ir.Function(self.module, ir.FunctionType(slot, [slot]),
+                         name=f"__saw_blk_thunk${name}")
+        fn.linkage = "internal"
+        thunks[name] = fn
+
+        saved_builder = getattr(self, 'builder', None)
+        self.builder = ir.IRBuilder(fn.append_basic_block("entry"))
+        try:
+            base = self.builder.inttoptr(fn.args[0], slot.as_pointer(),
+                                         name="blkslots")
+            args = []
+            for i, pt in enumerate(callee.function_type.args):
+                p = self.builder.gep(base, [ir.Constant(i32, i)], name="blkslot")
+                args.append(self._blk_slot_read(
+                    self.builder.load(p, name="blkword"), pt))
+            ret = callee.function_type.return_type
+            if isinstance(ret, ir.VoidType):
+                self.builder.call(callee, args)
+                self.builder.ret(ir.Constant(slot, 0))
+            else:
+                self.builder.ret(self._blk_slot_write(
+                    self.builder.call(callee, args, name="blkcall")))
+        finally:
+            self.builder = saved_builder
+        return fn
+
+    def _gen_offload_start(self, inner: FunctionCall):
+        """`__saw_blk_start(slow(a, b))` — marshal the arguments and start the job.
+
+        The slot array is an ENTRY-BLOCK alloca: `start` copies it into the job
+        before spawning, so it need only outlive this call, and an offload inside
+        a driven loop must not grow the resume frame's stack per iteration.
+        """
+        callee = self.functions[inner.name]
+        argv = self._coerce_call_args(
+            callee, [self._gen_transfer_value(a.value) for a in inner.arguments])
+        slot = self._BLK_SLOT
+        i32 = ir.IntType(32)
+        if argv:
+            array = self._entry_alloca(ir.ArrayType(slot, len(argv)),
+                                       name="blkargs")
+            for i, v in enumerate(argv):
+                p = self.builder.gep(array,
+                                     [ir.Constant(i32, 0), ir.Constant(i32, i)],
+                                     name="blkargp")
+                self.builder.store(self._blk_slot_write(v), p)
+            slots = self.builder.ptrtoint(array, slot, name="blkargv")
+        else:
+            slots = ir.Constant(slot, 0)
+        fnptr = self.builder.ptrtoint(self._blk_thunk(inner.name), slot,
+                                      name="blkfn")
+        return self.builder.call(
+            self.functions["__saw_rt_offload_start"],
+            [fnptr, slots, ir.Constant(slot, len(argv))], name="blkjob")
+
     def _generate_function_call(self, expr: FunctionCall):
         """Generate code for a function call.
 
@@ -321,27 +443,31 @@ class CallsMixin:
             self.builder.call(self.functions["__saw_exec_io_unregister"],
                               [fd, direction])
             return None
-        # design 103 (A6): the blocking-extern offload intrinsics, emitted by the
-        # coro transform when it lowers a `let x = slow(arg)` blocking-extern call.
-        # `__saw_blk_start(slow(arg))` resolves the extern's ir.Function (a function
-        # address is not expressible in Saw), bitcasts it to an i64, evaluates the
-        # single Int arg, and hands both to the offload runtime — which spawns the
-        # worker thread. The other three are thin one-arg wrappers over the runtime
-        # shims (done-poll / pipe fd / join+take). All non-suspending: the SUSPENSION
-        # is the `io_wait` on the job's pipe the transform emits between start and take.
+        # design 103 (A6) + 183: the blocking-extern offload intrinsics, emitted by
+        # the coro transform when it lowers a `let x = slow(a, b)` blocking-extern
+        # call. `__saw_blk_start(slow(a, b))` marshals the arguments into a slot
+        # array and hands the runtime a THUNK plus that array; the other three are
+        # thin one-arg wrappers over the runtime shims (done-poll / pipe fd /
+        # join+take). All non-suspending: the SUSPENSION is the `io_wait` on the
+        # job's pipe the transform emits between start and take.
         if expr.name == "__saw_blk_start":
-            inner = expr.arguments[0].value          # FunctionCall to the blocking extern
-            fn = self.functions[inner.name]
-            fnptr = self.builder.ptrtoint(fn, self.int_type, name="blkfn")
-            argv = self._generate_expression(inner.arguments[0].value)
-            return self.builder.call(self.functions["__saw_rt_offload_start"],
-                                     [fnptr, argv], name="blkjob")
+            return self._gen_offload_start(expr.arguments[0].value)
         if expr.name in ("__saw_blk_done", "__saw_blk_pipe_fd", "__saw_blk_take"):
             shim = {"__saw_blk_done": "__saw_rt_offload_done",
                     "__saw_blk_pipe_fd": "__saw_rt_offload_pipe_fd",
                     "__saw_blk_take": "__saw_rt_offload_take"}[expr.name]
             job = self._generate_expression(expr.arguments[0].value)
-            return self.builder.call(self.functions[shim], [job], name="blkr")
+            word = self.builder.call(self.functions[shim], [job], name="blkr")
+            blk = getattr(expr, 'blk_extern', None)
+            if expr.name == "__saw_blk_take" and blk is not None:
+                # design 183 unit 2: the job carries one result WORD; narrow it
+                # back to the extern's declared return type (the inverse of what
+                # the thunk widened). A Void/Never extern has no result to take.
+                rt = self.functions[blk].function_type.return_type
+                if isinstance(rt, ir.VoidType):
+                    return None
+                return self._blk_slot_read(word, rt)
+            return word
         # The design-45 `sleep(ms)` primitive reached as a plain (non-suspending)
         # call — no executor to hand back to, so park the OS thread for real via the
         # timer seam. (design 118 stage 2: `__saw_exec_sleep_ns` is no longer an

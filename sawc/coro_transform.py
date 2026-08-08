@@ -2867,24 +2867,6 @@ class _FrameBuilder:
     def _is_blocking_extern(self, name):
         return self._blocking_extern_sym(name) is not None
 
-    def _check_blk_whitelist(self, fc):
-        """v1 offload thunk is the C ABI `i64(i64)` — enforce a single `Int`
-        parameter and an `Int` result (a subset of the design-58 extern whitelist).
-        A wider signature is a clean anchored error (multi-arg / non-Int is future
-        work), never a silent miscompile."""
-        sym = self._blocking_extern_sym(fc.name)
-        pts = list(getattr(sym, "param_types", []) or [])
-        rt = getattr(sym, "return_type", None)
-        ok = (len(pts) == 1 and pts[0] is not None and pts[0].kind == TypeKind.INT
-              and rt is not None and rt.kind == TypeKind.INT)
-        if not ok:
-            raise CoroTransformError(
-                f"coroutine transform: the blocking extern `{fc.name}` offloaded "
-                f"from `{self.name}` must have the v1 signature `(Int) -> Int` "
-                f"(the thread-per-call offload thunk is `i64(i64)`; multi-argument "
-                f"and non-Int blocking externs are future work)",
-                fc.line, fc.column, source_file=self.src_file)
-
     def _classify_blk(self, stmt):
         """design 103: if `stmt` is a top-level blocking-extern call boundary,
         return {call, target, ret}; else None. Supported forms mirror the nested
@@ -2908,7 +2890,10 @@ class _FrameBuilder:
             is_ret = True
         if fc is None or not self._is_blocking_extern(fc.name):
             return None
-        self._check_blk_whitelist(fc)
+        # design 183 unit 2: no signature gate here. The marshallable set is the
+        # C-ABI one, checked at the DECLARATION (typechecker), so an offloadable
+        # extern is offloadable from every call site and an unmarshallable one is
+        # refused before any call site is reached.
         return {'call': fc, 'target': target, 'ret': is_ret}
 
     def _method_call_suspends(self, mc):
@@ -3697,6 +3682,10 @@ class _FrameBuilder:
         self.cur = after
         take = FunctionCall(name="__saw_blk_take",
                             arguments=[Argument(name=None, value=_self_field(job))])
+        # design 183 unit 2: the result is the EXTERN's, not an Int. Name the
+        # extern on the intrinsic so the re-typecheck types `take` as its return
+        # type and codegen marshals the job's one result word back into it.
+        take.blk_extern = fc.name
         if bc['ret']:
             self._done(take)
         elif bc['target'] is not None:

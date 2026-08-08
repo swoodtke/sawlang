@@ -995,6 +995,12 @@ class RegistrationMixin:
             )
             return
 
+        # DF-181e (design 183 unit 2): the offload marshals the C ABI, so the
+        # signature must be one the C ABI can carry — the same set `@export`
+        # admits, checked at the declaration for the same reason.
+        if getattr(extern_func, 'is_blocking', False):
+            self._check_blocking_extern_signature(extern_func)
+
         existing = self.get_function_info(extern_func.name)
         if existing is not None:
             # Allow duplicate extern declarations with the same signature

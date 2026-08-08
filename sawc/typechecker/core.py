@@ -1185,6 +1185,48 @@ class TypeChecker(ExpressionsMixin, StatementsMixin, RegistrationMixin, TypeUtil
             return True
         return False
 
+    def _check_blocking_extern_signature(self, extern_func) -> None:
+        """design 183 unit 2: an `extern blocking func`'s signature must be one
+        the offload thunk can marshal.
+
+        That set is exactly the one `@export` already admits, for the same
+        reason: the offload hands the extern's arguments to a worker thread and
+        the thread makes a plain C call with them. Design 103 v1 allowed only
+        `(Int) -> Int` — one machine word in, one out — which could not express
+        a single annotation the design-181 audit recommended (a child wait's
+        three-argument pipe drain, a resolver's `(host, out, max)`). The check
+        runs at the DECLARATION, like `@export`'s, so an unmarshallable extern
+        is refused where it is written rather than at whichever call site the
+        transform happened to reach first.
+        """
+        for p in extern_func.parameters:
+            ptype = self._resolve_type(p.type)
+            if not self._export_fn_type_ok(ptype, is_return=False):
+                self._error(
+                    ErrorKind.TYPE_MISMATCH,
+                    f"`extern blocking func {extern_func.name}`: parameter "
+                    f"`{p.name}` has type "
+                    f"{self._describe_type_for_export(ptype)}, which is not "
+                    f"C-ABI-safe",
+                    extern_func.line, extern_func.column,
+                    hint="an offloaded signature allows fixed-width integers, "
+                         "Int/UInt, Float, and UnsafePointer<T>; pass an "
+                         "aggregate by `UnsafePointer<S>`, and keep what it "
+                         "points at in frame-owned or heap storage so it "
+                         "outlives the park",
+                    source_file=getattr(extern_func, 'source_file', None))
+        rtype = self._resolve_type(extern_func.return_type)
+        if not self._export_fn_type_ok(rtype, is_return=True):
+            self._error(
+                ErrorKind.TYPE_MISMATCH,
+                f"`extern blocking func {extern_func.name}`: return type "
+                f"{self._describe_type_for_export(rtype)} is not C-ABI-safe",
+                extern_func.line, extern_func.column,
+                hint="an offloaded return allows fixed-width integers, "
+                     "Int/UInt, Float, UnsafePointer<T>, Void, or Never "
+                     "(noreturn) — one value, marshalled back through the job",
+                source_file=getattr(extern_func, 'source_file', None))
+
     def _export_static_type_ok(self, t: SawType, _seen=None) -> bool:
         resolved = self._resolve_type_alias(t)
         k = resolved.kind

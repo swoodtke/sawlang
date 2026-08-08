@@ -531,17 +531,32 @@ function pointer).
 `pthread_cond_init(c, NULL)`. `pthread_cond_t` is 48 bytes on macOS/glibc; std
 reserves 64. (Full Thread traitification is design 118; these init seams stay.)
 
-## Blocking-extern offload (design 103)
+## Blocking-extern offload (design 103, widened by design 183)
 
 A blocking FFI call inside a suspending task is offloaded to a thread-per-call so
 the cooperative reactor thread never blocks; the task parks on the job's self-pipe
 like any socket read. A job is a heap record; single-owner discipline throughout.
 The offload thunk `fn` is a C-ABI `word(word)`.
 
-### `__saw_rt_offload_start(fn: word, arg: word) -> word  (job handle)`
-Allocate a job, spawn a thread that runs `fn(arg)`, stores the result, publishes
-`done` (atomic release), then writes one byte to the job pipe. Returns the job
-record's address as a handle.
+That one word is a pointer to the call's ARGUMENT SLOTS — one `word`-sized slot
+per parameter, in declaration order — and `fn` is a thunk the COMPILER synthesizes
+for each offloaded extern, which reads the slots back at their declared types and
+makes the real call. So the extern's own C ABI is the compiler's ordinary
+extern-call lowering, this seam family knows nothing about arity, and every
+signature the C-ABI whitelist admits (fixed-width integers, Int/UInt, Float,
+UnsafePointer, plus Void/Never returns) can be offloaded.
+
+**Lifetime rule for the runtime**: the worker reads the slots at a time `start`
+cannot bound, so `start` COPIES them into storage the job owns and `take` frees
+that storage after the join. What a pointer slot POINTS AT is the caller's
+obligation (LANGUAGE_SPEC, "Blocking externs and the offload"): it must live in
+the suspended frame or the heap, both of which outlive the park.
+
+### `__saw_rt_offload_start(fn: word, argp: ptr, argc: word) -> word  (job handle)`
+Copy `argc` argument slots from `argp` into the job, then spawn a thread that runs
+`fn(<the job's copy>)`, stores the result, publishes `done` (atomic release), and
+writes one byte to the job pipe. `argc == 0` copies nothing and passes a null
+pointer. Returns the job record's address as a handle.
 
 ### `__saw_rt_offload_done(job: word) -> word  (0/1)`
 Acquire-load the published `done` flag.
@@ -550,7 +565,10 @@ Acquire-load the published `done` flag.
 The job's readable pipe fd (the parked task registers this with the reactor).
 
 ### `__saw_rt_offload_take(job: word) -> word  (result)`
-Join the worker (full barrier), read the result, close the pipe, free the job.
+Join the worker (full barrier), read the result, close the pipe, free the argument
+slots and the job. One result word; a Void/Never extern's caller ignores it. The
+join is unconditional — a cancelled task still takes, which is what makes freeing
+the slots safe.
 
 ### `__saw_rt_blocking_sleep(ms: word) -> word  (ms)`
 The reference blocking primitive: a real thread-blocking sleep returning its
@@ -654,9 +672,12 @@ Emitted as Saw AST by `coro_transform.py` or as IR by `codegen/`:
 - **io park lowering** (inside `resume`, both the `io_wait` primitive and the
   design-103 offload park loop) — emits a direct
   `__saw_rt_reactor_register(fd, dir, self.__io_tok)` then suspends `IO_PARK_WAKE`.
-- **Offload lowering** — `let x = slow(arg)` (blocking extern) desugars to
+- **Offload lowering** — `let x = slow(a, b)` (blocking extern) desugars to
   `__saw_blk_start` + an `io_wait` park loop on the job pipe + `__saw_blk_take`;
-  codegen lowers `__saw_blk_*` to the `__saw_rt_offload_*` seams.
+  codegen lowers `__saw_blk_*` to the `__saw_rt_offload_*` seams. `start` also
+  emits `__saw_blk_thunk$<extern>` (internal, one per offloaded extern, design
+  183): `word(word)`, reads the argument slots back at their declared types and
+  makes the real C call.
 - **`spawn { } -> Task<T>` thread engine** (`codegen/calls.py::_generate_spawn`)
   — control block `{tid, env, result}`, a per-site `i8*(i8*)` trampoline, and a
   `__saw_rt_thread_spawn(tramp, cb)` launch (the SPAWN half stays codegen — the raw

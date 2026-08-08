@@ -936,6 +936,11 @@ class FunctionCall(Expression):
     spawn_result_type: Optional['SawType'] = annotation(None)
     # True once generic type arguments were INFERRED rather than written.
     type_args_inferred: bool = annotation(False)
+    # `__saw_blk_take(job)`: the blocking extern whose result this collects
+    # (design 183 unit 2). The job carries one result WORD; the extern's
+    # declared return type says what that word is, so both the re-typecheck and
+    # codegen read it from here rather than assuming `Int`.
+    blk_extern: Optional[str] = annotation(None)
 
 
 @dataclass

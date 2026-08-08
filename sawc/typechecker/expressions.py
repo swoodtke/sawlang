@@ -3050,11 +3050,19 @@ class ExpressionsMixin:
             return SawType(TypeKind.INT)
         if expr.name in ("__saw_blk_done", "__saw_blk_pipe_fd", "__saw_blk_take"):
             # design 103 (A6): the offload done-poll / pipe-fd / join+take intrinsics.
-            # Each takes the job handle (Int) and returns an Int (a flag, an fd, or —
-            # for `__saw_blk_take` — the v1 `(Int) -> Int` extern's result). None is a
-            # suspension source. Compiler-generated only.
+            # Each takes the job handle (Int); done/pipe_fd answer a flag and an fd.
+            # None is a suspension source. Compiler-generated only.
             if len(expr.arguments) == 1:
                 self._check_expression(expr.arguments[0].value)
+            # design 183 unit 2: `take` yields the EXTERN's result, whatever type
+            # the declaration gives it — the job carries one word and codegen
+            # marshals it back. Typing it `Int` unconditionally is what pinned the
+            # old offload to `(Int) -> Int`.
+            blk = getattr(expr, 'blk_extern', None)
+            if expr.name == "__saw_blk_take" and blk is not None:
+                sym = self.get_function_info(blk)
+                if sym is not None and sym.return_type is not None:
+                    return sym.return_type
             return SawType(TypeKind.INT)
         if expr.name == "sleep":
             # design 45 item 4 / design 180: cooperative timed wait — a

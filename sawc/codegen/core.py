@@ -1627,13 +1627,16 @@ class CodeGenerator(ResultsMixin, MatchMixin, StructsMixin, CollectionsMixin, Ca
                               name="__saw_rt_op_budget_tick")
         budreset = ir.Function(self.module, ir.FunctionType(void, []),
                                name="__saw_rt_op_budget_reset")
-        # design 103 (A6): the blocking-extern offload shims. `saw_offload_start(fn,
-        # arg)` spawns a thread-per-call that runs the extern and signals a self-pipe;
-        # `saw_offload_done`/`saw_offload_pipe_fd`/`saw_offload_take` poll / expose the
-        # readable fd / join+collect+free. `saw_blocking_sleep(ms)` is the reference
-        # blocking primitive (a real thread-blocking sleep returning its argument) the
-        # offload path and its tests exercise via a `blocking func` extern declaration.
-        offload_start = ir.Function(self.module, ir.FunctionType(i64, [i64, i64]),
+        # design 103 (A6) + 183: the blocking-extern offload shims.
+        # `saw_offload_start(fn, argp, argc)` copies the call's argument slots into
+        # the job and spawns a thread-per-call that runs `fn` over them and signals
+        # a self-pipe; `saw_offload_done`/`saw_offload_pipe_fd`/`saw_offload_take`
+        # poll / expose the readable fd / join+collect+free. `saw_blocking_sleep(ms)`
+        # is the reference blocking primitive (a real thread-blocking sleep returning
+        # its argument) the offload path and its tests exercise via a `blocking func`
+        # extern declaration.
+        offload_start = ir.Function(self.module,
+                                    ir.FunctionType(i64, [i64, i64, i64]),
                                     name="__saw_rt_offload_start")
         offload_done = ir.Function(self.module, ir.FunctionType(i64, [i64]),
                                    name="__saw_rt_offload_done")
