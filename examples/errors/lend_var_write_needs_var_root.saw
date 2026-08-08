@@ -1,0 +1,33 @@
+// Design 179, the semantics of the EXCLUSIVE specialization: it takes the
+// `&var self` receiver it always needed, so a write through the accessor
+// demands a mutable root exactly as any other exclusive borrow does.
+//
+// Worth pinning because the diagnostic is the one that already existed. The
+// retarget is written by the use-site lowering, which sits BETWEEN two full
+// type checks, so the second check judges the twin as an ordinary `&var self`
+// call and there was no new error text to author.
+//
+// The same root READS fine — see lend_var_two_specializations.saw. That is the
+// whole point of the feature: the flavor, not the declaration, decides.
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: cannot open an exclusive place window on immutable variable `frozen`
+
+struct Grid { cells: [Int; 4], gates: Int }
+
+extension Grid {
+    func run_gate(&var self) { self.gates = self.gates + 1 }
+
+    public func [](&self, i: Int) borrows -> Int {
+        if i < 0 || i >= 4 { panic("Grid.[]: index out of range") }
+        if #lend_var {
+            self.run_gate()
+        }
+        lend self.cells[i]
+    }
+}
+
+func main() {
+    let frozen = Grid(cells: [1, 2, 3, 4], gates: 0)
+    frozen[0] = 9
+    print("{frozen[0]}")
+}

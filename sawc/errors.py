@@ -108,6 +108,9 @@ class ErrorReporter:
         self.filename = filename
         self.errors: List[CompilerError] = []
         self.warnings: List[CompilerError] = []
+        # Every error already reported, keyed by everything a reader can see.
+        # See `error()`.
+        self._reported: set = set()
         # Track sources from multiple files (for imports)
         self.sources: Dict[str, List[str]] = {filename: self.source_lines}
 
@@ -132,11 +135,29 @@ class ErrorReporter:
 
     def error(self, kind: ErrorKind, message: str, line: int, column: int,
               hint: Optional[str] = None, source_file: Optional[str] = None):
-        """Report an error."""
+        """Report an error, unless this exact one was already reported.
+
+        Two diagnostics identical in kind, message, hint AND position are one
+        diagnostic to a reader — printing the second only makes the first look
+        like it happened twice. The warning path has deduplicated on the same
+        grounds since design 150, for the same underlying reason: a declaration
+        is checked again by every pass that re-enters the front half.
+
+        Design 179 (`#lend_var`) made that reason structural rather than
+        incidental. A flavored accessor is compiled as TWO methods over ONE
+        piece of source, so a mistake in the part both specializations share was
+        reported once per specialization, at the same line, with the same text
+        (DF-179a). Deduplicating here keeps that an implementation detail
+        instead of something an author has to know about.
+        """
         filename = source_file if source_file else self.filename
         loc = SourceLocation(line, column, filename)
         err = CompilerError(kind, self.humanize(message), loc,
                             self.humanize(hint), is_warning=False)
+        key = (kind, err.message, err.hint, filename, line, column)
+        if key in self._reported:
+            return
+        self._reported.add(key)
         self.errors.append(err)
 
     def warning(self, kind: ErrorKind, message: str, line: int, column: int,

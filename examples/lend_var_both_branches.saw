@@ -1,0 +1,63 @@
+// Design 179: each specialization gets its OWN body, so `#lend_var` takes an
+// `else` and both halves are real.
+//
+// The exclusive copy runs the gate; the shared copy runs the other branch and
+// does not contain the gate at all — which is the difference between "not
+// reached" and "not there", and is what lets the shared copy check as a
+// non-mutating `&self` body. The printed transcript is the proof: a read says
+// `shared path` and leaves `gates` alone, a write says nothing and bumps it.
+// EXPECT: success
+// EXPECT-OUTPUT:
+// shared path
+// read 3, gates 0
+// shared path
+// read through a ref 1, gates 0
+// wrote, gates 1
+// shared path
+// read back 42, gates 1
+// -- done
+
+struct Grid {
+    cells: [Int; 4],
+    gates: Int
+}
+
+extension Grid {
+    func run_gate(&var self) {
+        self.gates = self.gates + 1
+    }
+
+    func note_shared(&self) {
+        print("shared path")
+    }
+
+    public func [](&self, i: Int) borrows -> Int {
+        if i < 0 || i >= 4 {
+            panic("Grid.[]: index out of range")
+        }
+        if #lend_var {
+            self.run_gate()
+        } else {
+            self.note_shared()
+        }
+        lend self.cells[i]
+    }
+
+    public func gates_seen(&self) -> Int {
+        self.gates
+    }
+}
+
+func read_through_ref(g: &Grid) -> Int {
+    g[0]
+}
+
+func main() {
+    var g = Grid(cells: [1, 2, 3, 4], gates: 0)
+    print("read {g[2]}, gates {g.gates_seen()}")
+    print("read through a ref {read_through_ref(&g)}, gates {g.gates_seen()}")
+    g[2] = 42
+    print("wrote, gates {g.gates_seen()}")
+    print("read back {g[2]}, gates {g.gates_seen()}")
+    print("-- done")
+}

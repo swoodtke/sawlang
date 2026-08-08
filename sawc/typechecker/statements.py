@@ -1649,6 +1649,57 @@ class StatementsMixin:
         )
         return True
 
+    def _reject_var_self_call_on_shared_self(self, expr, method_info) -> bool:
+        """`self.mutate()` where `mutate` is `&var self` and we are `&self`.
+
+        The second form DF-175a named, and the half design 176 unit 13 did not
+        close: it scoped itself to the direct WRITE, so the whole-receiver
+        mutation spelled as a method call went through — in a plain `&self`
+        method as a silent no-op, and in a `&self` BORROWS body (where the
+        receiver travels by pointer) as a real mutation of a `let` root through
+        a window the use site opened SHARED. It reproduces on main with no
+        `#lend_var` anywhere; design 179's shared specialization is only as
+        trustworthy as this rule, which is why it is closed here.
+
+        The receiver must be `self` ITSELF. That is what makes the rule
+        decidable with no carve-out: a `&var self` method takes the WHOLE
+        receiver exclusively, and no design blesses doing that through a shared
+        borrow. The FIELD form (`self.counters.push(9)`, `self.n.fetch_add(1)`)
+        is a genuinely different question — design 149 receives a struct holding
+        an `Atomic` by pointer even at `&self`, so interior mutability through a
+        field is an idiom rather than a bug — and stays filed as DF-176b,
+        pending its own ruling. In-tree migration tail for the form closed here:
+        ZERO, measured across examples, std, blade, libs, devtools and sos.
+        """
+        from ast_nodes import SelfExpr as _SelfExpr
+        if not getattr(method_info, "self_mutable", False):
+            return False
+        if getattr(method_info, "is_init", False):
+            return False
+        if not isinstance(getattr(expr, 'object', None), _SelfExpr):
+            return False
+        method = getattr(self, 'current_method', None)
+        if method is None or getattr(method, 'self_mutable', False):
+            return False
+        if getattr(method, 'is_borrows', False) or getattr(
+                method, 'place_type', None) is not None:
+            hint = ("declare the accessor `&var self` — every use site then "
+                    "borrows the receiver exclusively, reads included — or "
+                    "gate the mutation on `#lend_var` so it runs only in the "
+                    "exclusive specialization")
+        else:
+            hint = ("declare the method `&var self` to mutate through the "
+                    "receiver, or `borrows -> T` to lend the place and let "
+                    "each use site choose the window's flavor")
+        self._error(
+            ErrorKind.IMMUTABLE_ASSIGNMENT,
+            f"cannot call `&var self` method `{expr.method_name}` on a `&self` "
+            f"receiver: `self` is borrowed SHARED here, so the mutation either "
+            f"lands in a copy that is discarded when the method returns or "
+            f"mutates a value the caller holds immutably",
+            expr.line, expr.column, hint=hint)
+        return True
+
     def _writes_into_self_storage(self, target) -> bool:
         """Does this lvalue name storage INSIDE the receiver's own value?
 

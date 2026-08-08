@@ -2650,6 +2650,7 @@ class ExpressionsMixin:
             param_types = [t.substitute(full_subst) if t is not None else t
                            for t in param_types]
         self._finish_overloaded_args(expr, param_types, arg_types, mapping)
+        self._reject_var_self_call_on_shared_self(expr, method_info)
         # `&var self` method may not be called on an immutable binding (L11).
         if getattr(method_info, "self_mutable", False) and not method_info.is_init:
             imm_root = self._assign_target_immutable_struct_root(expr.object)
@@ -7713,6 +7714,7 @@ class ExpressionsMixin:
         # and the use site picks. So `let v` plus `v[0].n = 1` is the same
         # immutable-binding error a `&var self` method would give.
         window_exclusive = getattr(expr, 'place_window_exclusive', False)
+        self._reject_var_self_call_on_shared_self(expr, method_info)
         if ((getattr(method_info, "self_mutable", False) or window_exclusive)
                 and not method_info.is_init):
             imm_root = self._assign_target_immutable_struct_root(expr.object)

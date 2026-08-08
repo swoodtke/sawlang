@@ -1,0 +1,33 @@
+// Design 179, the semantics of the SHARED specialization: it is checked as a
+// genuinely non-mutating `&self` body, and `#lend_var` buys no exemption from
+// that — it only decides which code is IN the body.
+//
+// The mutation here sits under `not #lend_var`, so it is pruned out of the
+// exclusive copy and KEPT in the shared one, which is where a receiver mutation
+// is a hard error. That is also the sharpest test of the fold: get the negation
+// wrong and this file compiles, and a pure read through a `let` root silently
+// mutates it (in a borrows body the receiver travels by pointer, so the write
+// lands rather than vanishing).
+//
+// The hint names `#lend_var` because in an accessor it is usually the answer.
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: cannot call `&var self` method `run_gate` on a `&self` receiver
+
+struct Grid { cells: [Int; 4], gates: Int }
+
+extension Grid {
+    func run_gate(&var self) { self.gates = self.gates + 1 }
+
+    public func [](&self, i: Int) borrows -> Int {
+        if i < 0 || i >= 4 { panic("Grid.[]: index out of range") }
+        if not #lend_var {
+            self.run_gate()
+        }
+        lend self.cells[i]
+    }
+}
+
+func main() {
+    let frozen = Grid(cells: [1, 2, 3, 4], gates: 0)
+    print("{frozen[0]}")
+}
