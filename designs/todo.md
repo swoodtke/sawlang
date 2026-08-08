@@ -329,6 +329,29 @@ verdict table: `designs/174-optional-generic-sweep.md`. 19 tests landed as
 
 ## Design 176 findings (places/optional plumbing batch, Aug 7)
 
+**DF-146 letter collision — RESOLVED (unit 12), in the opposite direction to the
+brief's wording, deliberately.** Two sets of entries shared `DF-146l/m/n/o`: the
+Aug 6 set that came out of design 146's own landing, and the Aug 7 set this batch
+fixed. The brief said to renumber the Aug 7 entries. By the time unit 12 ran that
+had become the expensive direction and the confusing one: the Aug 7 numbers are
+cited at **24 sites in the tree** (compiler comments and test headers) plus six
+of this batch's own commit messages, while the Aug 6 set — three of its four
+entries CLOSED — is cited **nowhere outside this file**. Renumbering it instead
+costs four tracker edits and leaves every in-tree citation and every commit
+message correct. So:
+
+| was (Aug 6) | is now | subject |
+|---|---|---|
+| DF-146l | **DF-146p** | exclusivity-in-a-window reported as a copy error (still OPEN) |
+| DF-146m | **DF-146q** | closure missed a capture used only in an interpolation |
+| DF-146n | **DF-146r** | place window's flavor read after the chain was rewritten |
+| DF-146o | **DF-146s** | struct field of enum type never dropped its payload |
+
+`DF-146l/m/n/o` now mean the Aug 7 entries only, everywhere. The three Aug 6
+commits (dbf4ab9, 125446f, d3bc5ed) name the retired letters in their messages;
+this table is the map. Flag if the other direction was wanted — it is four more
+tracker edits plus 24 in-tree ones.
+
 - **DF-176a (COMPILER, filed Aug 7 by unit 13's probing; PRE-EXISTING, verified
   against unmodified `main`): a place READ in the RHS of a place WRITE to the
   same root is a wrong error or an ICE.** `v[0] = v[0] * 4` on a local root
@@ -783,9 +806,9 @@ question.
 **DF-146d LANDED (Aug 6), half of it.** The enum-payload place and `Map.[]` are
 in; the Set half is blocked on a language gap (DF-146k). Three PRE-EXISTING bugs
 came out of the work and are fixed as their own commits — a closure that never
-captured a name used in a string interpolation (DF-146m), a place window whose
-flavor was always read as shared (DF-146n), and a struct field of enum type that
-never dropped its payload (DF-146o). One new P0 is OPEN and needs a decision:
+captured a name used in a string interpolation (DF-146q), a place window whose
+flavor was always read as shared (DF-146r), and a struct field of enum type that
+never dropped its payload (DF-146s). One new P0 is OPEN and needs a decision:
 `Map.get` over-releases a move-only value (DF-146j).
 
 - **Unit A DONE.** `_prepare_codegen` re-enters over the ASTs it already parsed
@@ -1084,7 +1107,7 @@ never dropped its payload (DF-146o). One new P0 is OPEN and needs a decision:
   Places chapter gains "Lending an enum payload" and its std-accessor section
   now documents the Map subscript (and why Set has none); skill + README updated.
   Three PRE-EXISTING bugs were found on the way and fixed as their own commits —
-  see DF-146m/n/o. Original finding follows:
+  see DF-146q/r/s. Original finding follows:
   **`Map` gets no subscript: a place cannot project into an
   ENUM PAYLOAD** (found by design 146 unit C, Aug 5). Design 141 lists
   `func [](key: K) borrows -> V?` on Map as v1 scope, and it is not expressible
@@ -1177,7 +1200,9 @@ never dropped its payload (DF-146o). One new P0 is OPEN and needs a decision:
   delegate to Map, and it is the reason a wrapper type cannot re-export a
   conditional place today.
 
-- **DF-146l — OPEN, diagnostic quality (Aug 6). An exclusivity violation INSIDE
+- **DF-146p — OPEN, diagnostic quality (Aug 6; RENUMBERED from DF-146l by
+  design 176 unit 12 — see the collision note at the head of the design-176
+  findings). An exclusivity violation INSIDE
   a place window is reported as a copy error against the container.** Writing
   `m["a"]!.n += grow(&var m)` (or the Vector form `v[0].n += grow(&var v)`) is
   correctly REJECTED — the window body captures the root the window is holding —
@@ -1188,7 +1213,8 @@ never dropped its payload (DF-146o). One new P0 is OPEN and needs a decision:
   behaves identically on main), low severity, wrong-signpost rather than
   unsound.
 
-- **DF-146m — FIXED (Aug 6, commit dbf4ab9). A closure did not capture a name
+- **DF-146q — FIXED (Aug 6, commit dbf4ab9; RENUMBERED from DF-146m by design
+  176 unit 12). A closure did not capture a name
   used only inside a string interpolation, a BLOCK match arm, or an arm guard.**
   `{ x in "n={n}" }` has never compiled — `internal compiler error: Undefined
   variable: n`. The capture scan was a hand-written walk over an open set of node
@@ -1197,7 +1223,8 @@ never dropped its payload (DF-146o). One new P0 is OPEN and needs a decision:
   cannot be incomplete. Test:
   `examples/closure_captures_block_match_arm.saw`.
 
-- **DF-146n — FIXED (Aug 6, commit 125446f). A place window's FLAVOR was read
+- **DF-146r — FIXED (Aug 6, commit 125446f; RENUMBERED from DF-146n by design
+  176 unit 12). A place window's FLAVOR was read
   after the chain had been rewritten, so a `&var self` method through a place
   opened a SHARED window.** `_chain_is_exclusive` was evaluated as an argument to
   `_window_call`, i.e. after `_replace_head` had swapped the chain's head for the
@@ -1208,7 +1235,8 @@ never dropped its payload (DF-146o). One new P0 is OPEN and needs a decision:
   shared borrow where an exclusive one happened. Test:
   `examples/errors/place_exclusive_window_immutable_root.saw`.
 
-- **DF-146o — FIXED (Aug 6, commit d3bc5ed). A struct FIELD of enum type never
+- **DF-146s — FIXED (Aug 6, commit d3bc5ed; RENUMBERED from DF-146o by design
+  176 unit 12). A struct FIELD of enum type never
   dropped its payload — a leak in every shape.** Every value-lifecycle dispatch
   in codegen keys on `kind`, and a struct field carries the raw parsed
   annotation, so an enum field arrives tagged STRUCT. `_needs_cleanup` re-tagged
