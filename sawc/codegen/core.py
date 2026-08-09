@@ -635,17 +635,25 @@ class CodeGenerator(ResultsMixin, MatchMixin, StructsMixin, CollectionsMixin, Ca
         ns_type = ir.IntType(64)
         saw_sleep_ns = ir.Function(self.module, ir.FunctionType(void, [ns_type]),
                                    name="__saw_rt_sleep_ns")
-        # design 57 (std.time): the monotonic + wall-clock seams. Both return
-        # i64. `saw_clock_monotonic_nanos` reads a monotonic clock as nanoseconds
+        # design 57 (std.time): the monotonic + wall-clock seams. Both return a
+        # TRUE i64 on every target — ABI.md says `Int64` and std declares
+        # `-> Int64` — not the platform word `i64` is bound to above.
+        # `saw_clock_monotonic_nanos` reads a monotonic clock as nanoseconds
         # since an arbitrary epoch (behind Instant.now()); `saw_unix_timestamp_secs`
         # reads the wall clock as seconds since the Unix epoch. Keeping the
         # struct-timespec layout and the macOS/Linux CLOCK_MONOTONIC constant
         # variance INSIDE the shim (like saw_sleep_ns) is what lets std.time stay
-        # pure Saw. Hosted-only (std.time is never imported freestanding).
+        # pure Saw. Hosted-only (std.time is never imported freestanding), but the
+        # DECLARATION is emitted on every target, and an `@export` of the same
+        # symbol UNIFIES with it — so a 32-bit word here made a runtime's
+        # `-> Int64` body emit `define i32` (DF-158c).
+        true_i64 = ir.IntType(64)
         saw_clock_monotonic_nanos = ir.Function(
-            self.module, ir.FunctionType(i64, []), name="__saw_rt_clock_monotonic_nanos")
+            self.module, ir.FunctionType(true_i64, []),
+            name="__saw_rt_clock_monotonic_nanos")
         saw_unix_timestamp_secs = ir.Function(
-            self.module, ir.FunctionType(i64, []), name="__saw_rt_unix_timestamp_secs")
+            self.module, ir.FunctionType(true_i64, []),
+            name="__saw_rt_unix_timestamp_secs")
 
         self.functions["__saw_rt_alloc"] = saw_alloc
         self.functions["__saw_rt_dealloc"] = saw_dealloc
@@ -1543,11 +1551,7 @@ class CodeGenerator(ResultsMixin, MatchMixin, StructsMixin, CollectionsMixin, Ca
         """
         i8 = ir.IntType(8)
         i8ptr = i8.as_pointer()
-        i16 = ir.IntType(16)
-        i32 = ir.IntType(32)
-        i64 = ir.IntType(64)
         void = ir.VoidType()
-        apple = self._is_apple_triple()
 
         # design 117: the reactor is INSTANCE-based. `reactor_create() -> ptr`
         # returns an opaque instance (kqueue/epoll fd + self-wake pipe + poll
@@ -1578,55 +1582,57 @@ class CodeGenerator(ResultsMixin, MatchMixin, StructsMixin, CollectionsMixin, Ca
                            name="__saw_rt_reactor_wake")
         destroy = ir.Function(self.module, ir.FunctionType(void, [word]),
                               name="__saw_rt_reactor_destroy")
-        setnb = ir.Function(self.module, ir.FunctionType(i64, [i64]),
+        setnb = ir.Function(self.module, ir.FunctionType(word, [word]),
                             name="__saw_rt_set_nonblocking")
         setfam = ir.Function(self.module, ir.FunctionType(void, [i8ptr]),
                              name="__saw_rt_sin_set_family")
         # design 117: the three errno ACCESSORS (errno / errno_would_block /
         # errno_connect_state) are gone. The host errno -> portable SysError tag
         # mapping is behind one seam; the OS ops carry their own status.
-        last_err = ir.Function(self.module, ir.FunctionType(i64, []),
+        last_err = ir.Function(self.module, ir.FunctionType(word, []),
                                name="__saw_rt_last_syserror")
         # design 117: status-carrying network ops (>= 0 success/count, -tag on
         # failure). Read/write take (fd, buf, len); the rest take Int args.
-        tcp_listen = ir.Function(self.module, ir.FunctionType(i64, [i64]),
+        tcp_listen = ir.Function(self.module, ir.FunctionType(word, [word]),
                                  name="__saw_rt_tcp_listen")
-        tcp_local_port = ir.Function(self.module, ir.FunctionType(i64, [i64]),
+        tcp_local_port = ir.Function(self.module, ir.FunctionType(word, [word]),
                                      name="__saw_rt_tcp_local_port")
-        tcp_accept = ir.Function(self.module, ir.FunctionType(i64, [i64]),
+        tcp_accept = ir.Function(self.module, ir.FunctionType(word, [word]),
                                  name="__saw_rt_tcp_accept")
         # design 184: both carry the ADDRESS now (network byte order, as it sits
         # in `sockaddr_in.sin_addr`) — they used to take only the port and dial a
         # hardcoded 127.0.0.1, which is what made `connect` ignore its host.
-        tcp_connect_start = ir.Function(self.module, ir.FunctionType(i64, [i64, i64]),
+        # Widths follow rt/ABI.md's vocabulary (design 187 unit 2 / DF-158c):
+        # the address is a be-u32 carried in a platform word.
+        tcp_connect_start = ir.Function(self.module, ir.FunctionType(word, [word, word]),
                                         name="__saw_rt_tcp_connect_start")
-        tcp_connect_check = ir.Function(self.module, ir.FunctionType(i64, [i64, i64, i64]),
+        tcp_connect_check = ir.Function(self.module, ir.FunctionType(word, [word, word, word]),
                                         name="__saw_rt_tcp_connect_check")
-        tcp_read = ir.Function(self.module, ir.FunctionType(i64, [i64, i8ptr, i64]),
+        tcp_read = ir.Function(self.module, ir.FunctionType(word, [word, i8ptr, word]),
                                name="__saw_rt_tcp_read")
-        tcp_write = ir.Function(self.module, ir.FunctionType(i64, [i64, i8ptr, i64]),
+        tcp_write = ir.Function(self.module, ir.FunctionType(word, [word, i8ptr, word]),
                                 name="__saw_rt_tcp_write")
         # design 117: status-carrying filesystem / environment ops (0 success,
         # -tag on failure). Path/name args are C strings.
-        fs_unlink = ir.Function(self.module, ir.FunctionType(i64, [i8ptr]),
+        fs_unlink = ir.Function(self.module, ir.FunctionType(word, [i8ptr]),
                                 name="__saw_rt_fs_unlink")
-        fs_rename = ir.Function(self.module, ir.FunctionType(i64, [i8ptr, i8ptr]),
+        fs_rename = ir.Function(self.module, ir.FunctionType(word, [i8ptr, i8ptr]),
                                 name="__saw_rt_fs_rename")
-        fs_mkdir = ir.Function(self.module, ir.FunctionType(i64, [i8ptr, i64]),
+        fs_mkdir = ir.Function(self.module, ir.FunctionType(word, [i8ptr, word]),
                                name="__saw_rt_fs_mkdir")
-        fs_rmdir = ir.Function(self.module, ir.FunctionType(i64, [i8ptr]),
+        fs_rmdir = ir.Function(self.module, ir.FunctionType(word, [i8ptr]),
                                name="__saw_rt_fs_rmdir")
-        fs_chdir = ir.Function(self.module, ir.FunctionType(i64, [i8ptr]),
+        fs_chdir = ir.Function(self.module, ir.FunctionType(word, [i8ptr]),
                                name="__saw_rt_fs_chdir")
-        env_set = ir.Function(self.module, ir.FunctionType(i64, [i8ptr, i8ptr, i64]),
+        env_set = ir.Function(self.module, ir.FunctionType(word, [i8ptr, i8ptr, word]),
                               name="__saw_rt_env_set")
-        env_unset = ir.Function(self.module, ir.FunctionType(i64, [i8ptr]),
+        env_unset = ir.Function(self.module, ir.FunctionType(word, [i8ptr]),
                                 name="__saw_rt_env_unset")
         # design 89-c: the cooperative op-count budget seam. `saw_op_budget_tick()`
         # decrements the process-global work budget and returns 1 (with a reset to
         # the default) when it is exhausted — the caller then force-yields — else 0.
         # `saw_op_budget_reset()` restores the default (called on a genuine park).
-        budtick = ir.Function(self.module, ir.FunctionType(i64, []),
+        budtick = ir.Function(self.module, ir.FunctionType(word, []),
                               name="__saw_rt_op_budget_tick")
         budreset = ir.Function(self.module, ir.FunctionType(void, []),
                                name="__saw_rt_op_budget_reset")
@@ -1639,15 +1645,15 @@ class CodeGenerator(ResultsMixin, MatchMixin, StructsMixin, CollectionsMixin, Ca
         # its argument) the offload path and its tests exercise via a `blocking func`
         # extern declaration.
         offload_start = ir.Function(self.module,
-                                    ir.FunctionType(i64, [i64, i64, i64]),
+                                    ir.FunctionType(word, [word, word, word]),
                                     name="__saw_rt_offload_start")
-        offload_done = ir.Function(self.module, ir.FunctionType(i64, [i64]),
+        offload_done = ir.Function(self.module, ir.FunctionType(word, [word]),
                                    name="__saw_rt_offload_done")
-        offload_fd = ir.Function(self.module, ir.FunctionType(i64, [i64]),
+        offload_fd = ir.Function(self.module, ir.FunctionType(word, [word]),
                                  name="__saw_rt_offload_pipe_fd")
-        offload_take = ir.Function(self.module, ir.FunctionType(i64, [i64]),
+        offload_take = ir.Function(self.module, ir.FunctionType(word, [word]),
                                    name="__saw_rt_offload_take")
-        blocking_sleep = ir.Function(self.module, ir.FunctionType(i64, [i64]),
+        blocking_sleep = ir.Function(self.module, ir.FunctionType(word, [word]),
                                      name="__saw_rt_blocking_sleep")
         io_fns = (create, reg, poll, wake, destroy, setnb, setfam, last_err,
                   tcp_listen, tcp_local_port, tcp_accept, tcp_connect_start,

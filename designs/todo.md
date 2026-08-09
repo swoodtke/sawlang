@@ -213,20 +213,19 @@ its tail, a `Void` one has nothing to store, so the tail should lower
 exactly as a statement would. PINNED:
 `examples/coro_tail_suspend_void_xfail.saw`.
 
-**DF-158c — an `@export`ed seam's return WIDTH is wrong on a 32-bit
-target.** `@export("__saw_rt_clock_monotonic_nanos") func f() -> Int64` emits
-`define i32` for riscv32 (and one declared `-> Int` emits `i64`) — the two
-are swapped, so the declared type and the emitted C ABI disagree. Invisible
-on the 64-bit hosts, where `Int` and `Int64` are the same machine width.
-`--runtime-provider`'s signature check does NOT catch it: it compares the
-SAW-declared types, which are correct, against ABI.md. Minimal repro is two
-`@export`ed seams and `--target riscv32-unknown-none-elf`; the symptom
-downstream is an LLVM parse failure where the executor's `Int64` clock
-arithmetic meets the i32 definition. Nothing in tree hits it today (sosrt
-exports only word/pointer-shaped seams), which is why it survived; it blocks
-the SOS live-task dump on riscv32, so that case is arm64-only with a comment
-pointing here. NO XFAIL: the failing spelling needs a 32-bit cross-compile,
-which the examples suite does not do.
+**DF-158c — CLOSED (design 187 unit 2).** An `@export`ed seam's return WIDTH
+was wrong on a 32-bit target: `-> Int64` emitted `define i32` for riscv32 and
+`-> Int` emitted `i64`, the two swapped. The cause was the compiler's OWN
+declarations, which an `@export` of the same symbol unifies with and inherits
+its type from — `_declare_io_runtime` hardcoded i64 for a family of seams
+rt/ABI.md calls `word`, and `_declare_seams` used the platform word for the
+two clock seams the document calls `Int64`. `--runtime-provider` could not
+see it: it compares the SAW-declared types, which were correct all along.
+Both directions now read their width off rt/ABI.md's vocabulary. Regression:
+`tools/test_ir_contract.py` checks EVERY declared and defined `__saw_rt_*`
+against `runtime_abi.abi_signatures()` at 64 and 32 bits — the same parse
+`--runtime-provider` uses, so one document governs both sides. The SOS
+`taskdump` case is no longer arm64-only.
 
 **DF-158e — CLOSED (design 187 unit 1).** A `-c` / freestanding compile did
 not EMBED a nested suspending callee. `object_only` decided `is_entry`, and

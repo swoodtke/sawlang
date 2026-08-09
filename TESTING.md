@@ -276,6 +276,18 @@ because at the default pipeline the whole-program build inlines a frame's resume
 method into its one caller and the symbol disappears, which says nothing about
 whether the frame was built.
 
+The suite does not CROSS-COMPILE either, and `word` (pointer-width) and `Int64`
+are the same machine type on every host it runs on. That hid DF-158c: a family
+of `__saw_rt_*` seams was declared at a hardcoded i64 where rt/ABI.md says
+`word`, and the two clock seams at the platform word where the document says
+`Int64` — the two wrong in opposite directions. An `@export`ed definition
+unifies with the compiler's declaration of the same symbol and inherits its
+type, so a runtime's correct `-> Int64` body emitted `define i32` on riscv32.
+The harness reads the declared and defined seam types out of the IR at 64 and 32
+bits and checks each against the signature parsed from rt/ABI.md — the same
+parse `--runtime-provider` checks Saw signatures against, so the compiler's
+declarations and a runtime's definitions are held to one document.
+
 **Add a program to `EMBED_CORPUS` whenever a new coroutine embedding shape
 lands.**
 

@@ -258,15 +258,14 @@ TEST_CASES = [
         # dump the PANIC PATH emits by itself. The nest is two frames deep since
         # design 187 closed DF-158e — a freestanding compile now embeds a nested
         # suspending callee exactly as a hosted one does, so the dump has a
-        # logical stack to reconstruct rather than a single frame.
-        #
-        # arm64 only — DF-158c (an `@export`ed `Int64`-returning seam is emitted
-        # `i32` on a 32-bit target) makes the executor's clock arithmetic
-        # unbuildable for riscv32. `taskdump_empty` covers riscv32 meanwhile.
+        # logical stack to reconstruct rather than a single frame. It also
+        # closed DF-158c, which had made this case arm64-only: an `@export`ed
+        # `Int64`-returning seam came out `i32` on a 32-bit target, so the clock
+        # stub and the executor's own `Int64` clock arithmetic disagreed and
+        # LLVM rejected the module. BOTH arches run it now.
         "name": "task_dump",
         "src": os.path.join(TESTS_DIR, "taskdump.saw"),
         "csrc": "taskdump_stubs.c",
-        "arches": ("arm64",),
         "expect_out": ["saw tasks: 2 live (unsynchronized snapshot)",
                        "at taskdump.saw:93 in knap",
                        "at taskdump.saw:98 in ksleeper",

@@ -85,8 +85,10 @@ abidoc:
 
 # Properties of the emitted IR the examples suite structurally cannot express
 # (design 187): a `-c` compile embeds the same coroutine frames a hosted one
-# does. The suite runs programs, so it never looks at an object file — which is
-# how DF-158e's miscompile stayed invisible.
+# does (the suite runs programs, so it never looks at an object file), and every
+# `__saw_rt_*` seam the compiler declares has the width rt/ABI.md gives it on a
+# 32-bit target as well as a 64-bit one (the suite does not cross-compile, and
+# `word` and `Int64` are the same type where it runs). Both were miscompiles.
 ircontract:
 	@python3 tools/test_ir_contract.py
 
@@ -138,7 +140,7 @@ help:
 	@echo "  make irdet-all       - IR determinism over the WHOLE corpus (final gate)"
 	@echo "  make gmgate          - Ownership oracles under Guard Malloc (macOS)"
 	@echo "  make abidoc          - rt/ABI.md describes exactly the frozen seam set"
-	@echo "  make ircontract      - a -c compile embeds what a hosted compile embeds"
+	@echo "  make ircontract      - -c embeds what hosted embeds; seam widths match rt/ABI.md"
 	@echo "  make bttable         - Task-backtrace table vs the frame layouts"
 	@echo "  make bttable-sizes   - What the always-linked backtrace table costs"
 	@echo "  make lldbtest        - saw tasks / saw bt under a real lldb"
