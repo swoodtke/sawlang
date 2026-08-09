@@ -269,7 +269,7 @@ TEST_CASES = [
         "expect_out": ["saw tasks: 2 live (unsynchronized snapshot)",
                        "at taskdump.saw:93 in knap",
                        "at taskdump.saw:98 in ksleeper",
-                       "panic at taskdump.saw:117: SOS task dump: deliberate panic",
+                       "panic at taskdump.saw:114: SOS task dump: deliberate panic",
                        "saw tasks: 1 live (as-of panic, unsynchronized)",
                        "at taskdump.saw:93 in knap",
                        "at taskdump.saw:98 in ksleeper"],

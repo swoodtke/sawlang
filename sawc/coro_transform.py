@@ -2427,6 +2427,18 @@ class _FrameBuilder:
         if fe is None:
             return
         spanning = self._spans_suspension(fe)
+        # DF-158b: a `Void` body has NO RESULT, so nothing in it is ever in tail
+        # position in the sense this branch means — there is no value to carry
+        # out. `func f() { yield_now() }` is the whole bug: the parser makes a
+        # block's last expression its tail, this turned that tail into
+        # `return yield_now()`, and a suspending call as a RETURN VALUE is a
+        # nested/expression position the state split cannot express — so the
+        # author got a message about a shape they did not write, and adding any
+        # statement after the call made it compile. A discarded tail lowers
+        # exactly as a statement would, which is what it is.
+        if tail and self.is_void:
+            tail = False
+            force = False
         if tail:
             # `force` propagates result-flow into EVERY branch of a spanning tail
             # `if`/`match` — a non-spanning sibling branch (`else { 0 }`) must
@@ -3067,7 +3079,9 @@ class _FrameBuilder:
         self._lower_stmts(func.body.statements, loop_ctx=None)
         if self.cur not in self._term:
             fe = func.body.final_expr
-            if fe is not None:
+            if fe is None:
+                self._done(None)
+            else:
                 forgets = []
                 val = self._rewrite_expr(fe, forgets)
                 # DF-182d: a tail `move local`. The tail expression IS the return
@@ -3076,8 +3090,6 @@ class _FrameBuilder:
                 # them — `_done` has taken them all along, and this position used
                 # to refuse instead of passing them on.
                 self._done(val, forgets)
-            else:
-                self._done(None)
 
         # The done marker is one past the last block id: no `if __state == k`
         # matches it, so a stray re-dispatch after Done is inert (Done already

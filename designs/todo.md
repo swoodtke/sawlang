@@ -201,16 +201,20 @@ a value `if` whose arm diverges — and emits the expression instead of a
 store, exactly as it already did for a `Void` body. Pin flipped and renamed:
 `examples/coro_panic_value_position.saw`, now covering all four spellings.
 
-**DF-158b — a suspending call in a `Void` body's TAIL position is
-rejected.** `func f() { yield_now() }` — the parser makes the block's only
-statement its tail expression, the transform lowers a tail through
-`_rewrite_expr`, which has no state to split into, and the call is rejected
-as "a nested/expression position": a message about a shape the author did
-not write. Any statement after it (`return`, another call) compiles. `Void`
-is the whole scope: a body returning a value has a result to compute from
-its tail, a `Void` one has nothing to store, so the tail should lower
-exactly as a statement would. PINNED:
-`examples/coro_tail_suspend_void_xfail.saw`.
+**DF-158b — CLOSED (design 187 unit 4).** A suspending call in a `Void`
+body's TAIL position was rejected: the tail normalization turned
+`func f() { yield_now() }` into `return yield_now()`, and a suspending call
+as a RETURN VALUE is a nested/expression position the state split cannot
+express — so the author got a message about a shape they did not write, and
+any statement after the call made it compile. A `Void` body HAS no result,
+so nothing in it is ever in tail position in that sense: the normalization
+now treats a Void body's tail as the discard it is and lowers it exactly as
+a statement. That also closes the audit's X23 (a bare `yield_now()` as a
+block's final statement read as expression position) and lets
+`sos/tests/taskdump.saw` drop the `return` it was carrying as a workaround.
+Pin flipped and renamed: `examples/coro_tail_suspend_void.saw`, grown to
+cover the bare intrinsic, a nested suspending call, and trailing
+`if`/`match` tails.
 
 **DF-158c — CLOSED (design 187 unit 2).** An `@export`ed seam's return WIDTH
 was wrong on a 32-bit target: `-> Int64` emitted `define i32` for riscv32 and
