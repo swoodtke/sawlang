@@ -571,6 +571,25 @@ function pointer).
 `pthread_cond_init(c, NULL)`. `pthread_cond_t` is 48 bytes on macOS/glibc; std
 reserves 64. (Full Thread traitification is design 118; these init seams stay.)
 
+### `__saw_rt_lock_acquire(state: word*) -> void`
+### `__saw_rt_lock_release(state: word*) -> void`
+**The one-word lock (design 186).** `state` addresses ONE platform word that
+`Mutex<T>` carries inline, and **ZERO MEANS UNLOCKED** — that is the contract, on
+every host, and it is what lets `static M: Mutex<T>` be declared with no
+initializer and land in .bss. A runtime may use as much of the word as it likes
+(both hosted implementations use its low four bytes, and both hosted targets are
+little-endian) but must accept all-zero as the initial unlocked state.
+
+`acquire` blocks the calling THREAD until the lock is held; `release` hands it
+on. Neither is recursive: acquiring a lock this thread already holds is a
+program bug, and a runtime may trap or deadlock. Both are `sync` — a seam never
+suspends a task, which is why `Mutex.lock` takes a `sync` closure.
+
+Host bodies: macOS is `os_unfair_lock_lock`/`_unlock` in Saw
+(`rt/host_macos/lock.saw`); Linux is a three-state futex in `rt/shim.c`, which
+stays C because a futex needs 32-bit atomics through a pointer and a variadic
+`syscall`, neither of which Saw can spell (DF-186c).
+
 ## Blocking-extern offload (design 103, widened by design 183)
 
 A blocking FFI call inside a suspending task is offloaded to a thread-per-call so

@@ -280,21 +280,31 @@ CELL_STATICS = [
     ("LIMIT", False, False),
 ]
 
+# The same question asked of the inline `Mutex` (design 186 unit 5): a mutex
+# declared with no initializer must be zerofill, because ZERO IS UNLOCKED is the
+# whole reason it can be a static at all.
+MUTEX_STATICS = [("REGISTRY", True, True), ("STATS", True, True)]
+
 _GLOBAL_RE = re.compile(
     r'^@"saw\.static\.(\w+)" = internal (constant|global) (.*)$', re.MULTILINE)
 
 
 def check_cell_static_placement(failures):
-    source = os.path.join(ROOT, "examples",
-                          "interior_cell_static_placement.saw")
+    _check_statics(failures, "interior_cell_static_placement.saw",
+                   "cell_static_placement", CELL_STATICS)
+    _check_statics(failures, "mutex_static_inline.saw",
+                   "mutex_static_placement", MUTEX_STATICS)
+
+
+def _check_statics(failures, filename, tag, expected):
+    source = os.path.join(ROOT, "examples", filename)
     if not os.path.exists(source):
-        failures.append("interior_cell_static_placement.saw: missing from "
-                        "examples/")
+        failures.append(f"{filename}: missing from examples/")
         return
-    text = _emit_ir(source, [], "cell_static_placement")
+    text = _emit_ir(source, [], tag)
     found = {name: (kind, body.strip())
              for name, kind, body in _GLOBAL_RE.findall(text)}
-    for name, wants_mutable, wants_zerofill in CELL_STATICS:
+    for name, wants_mutable, wants_zerofill in expected:
         if name not in found:
             failures.append(f"static `{name}`: no global in the emitted IR")
             continue
@@ -328,8 +338,8 @@ def main() -> int:
 
     print(f"IR contract: {len(EMBED_CORPUS)} programs embed identically with "
           f"and without -c; every documented seam matches rt/ABI.md at 64 and "
-          f"32 bits; {len(CELL_STATICS)} statics land in the segment the "
-          f"cell-carrying property picks")
+          f"32 bits; {len(CELL_STATICS) + len(MUTEX_STATICS)} statics land in "
+          f"the segment the cell-carrying property picks")
     return 0
 
 

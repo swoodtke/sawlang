@@ -1,0 +1,45 @@
+// design 186 unit 5: the inline `Mutex` under real contention, guarding a
+// STATIC that nothing constructed.
+//
+// Four worker threads, 250 increments each, through a mutex whose only initial
+// state is the zero pattern in .bss. If the lock word were not reaching the
+// static — if a `&self` receiver arrived as a copy, or the Arc-forwarded
+// payload were loaded by value — every thread would lock its own private word,
+// every increment would race, and the total would come out short. It is exactly
+// 1000 or the test fails.
+//
+// The counter itself is a second, harder check: it is a plain `Int` inside the
+// mutex, so nothing but mutual exclusion makes the read-modify-write safe.
+//
+// EXPECT: success
+// EXPECT-OUTPUT: 1000
+// EXPECT-OUTPUT: 4
+import std.mutex.{Mutex}
+
+static TOTAL: Mutex<Int>
+static FINISHED: Atomic<Int> = Atomic(0)
+
+func bump_many(times: Int) -> Bool {
+    var k = 0
+    while k < times {
+        TOTAL.lock({ &var c in c = c + 1 })
+        k = k + 1
+    }
+    let _done = FINISHED.fetch_add(1)
+    true
+}
+
+func main() {
+    var t0 = spawn { bump_many(250) }
+    var t1 = spawn { bump_many(250) }
+    var t2 = spawn { bump_many(250) }
+    var t3 = spawn { bump_many(250) }
+
+    let _a = t0.join()
+    let _b = t1.join()
+    let _c = t2.join()
+    let _d = t3.join()
+
+    print(TOTAL.get())
+    print(FINISHED.load())
+}

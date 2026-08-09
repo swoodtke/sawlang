@@ -1,0 +1,33 @@
+// The one-word lock seams (design 186 unit 5) — macOS.
+//
+// `os_unfair_lock` IS a single `uint32_t`, and `OS_UNFAIR_LOCK_INIT` is ZERO.
+// That is the whole reason `Mutex<T>` can be a `static` with no initializer:
+// the unlocked state is the zero pattern, so an idle mutex is bss and costs no
+// image bytes. A `pthread_mutex_t` could never give us that on Darwin — its
+// static initializer writes a nonzero signature word, which a Saw `static`
+// would have to carry as baked bytes in `__DATA`.
+//
+// The word std hands over is a platform `Int` (rt/ABI.md) and the lock uses its
+// low four bytes; the rest is padding std never reads. Both hosted targets are
+// little-endian, which is what lets ONE Saw field serve a 4-byte lock here and
+// a 4-byte futex word on Linux.
+//
+// `os_unfair_lock` parks the waiting THREAD, which is the blocking semantics
+// `Mutex.lock` has always had. It is unfair by design (no FIFO guarantee) and
+// NOT recursive: taking it twice on one thread traps in libplatform rather than
+// deadlocking, which is the better failure.
+
+extern "C" {
+    func os_unfair_lock_lock(l: UnsafePointer<Int>)
+    func os_unfair_lock_unlock(l: UnsafePointer<Int>)
+}
+
+@export("__saw_rt_lock_acquire")
+func rt_lock_acquire(word: UnsafePointer<Int>) unsafe {
+    os_unfair_lock_lock(word)
+}
+
+@export("__saw_rt_lock_release")
+func rt_lock_release(word: UnsafePointer<Int>) unsafe {
+    os_unfair_lock_unlock(word)
+}

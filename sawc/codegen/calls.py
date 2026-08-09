@@ -2155,14 +2155,35 @@ class CallsMixin:
         payload_llvm = self._get_llvm_type(payload_type)
         payload_ptr = self.builder.bitcast(
             payload_i8, ir.PointerType(payload_llvm), name="arc_payload_ptr")
-        self_val = self.builder.load(payload_ptr, name="arc_payload")
-
         mangled = self._forward_target_symbol(expr, payload_type)
         method_func = self.functions[mangled]
+        self_val = self._forward_self_arg(method_func, payload_ptr,
+                                          "arc_payload")
         args = [self_val]
         for arg in expr.arguments:
             args.append(self._gen_transfer_value(arg.value))
         return self.builder.call(method_func, args, name="arc_forward_call")
+
+    def _forward_self_arg(self, method_func, payload_ptr, name: str):
+        """The `self` argument a wrapper forward passes: the heap payload, by
+        value or by pointer, whichever the callee's signature says.
+
+        Both wrappers used to load unconditionally, which was right for every
+        payload whose `&self` arrives by value and WRONG the moment one arrives
+        by pointer — a cell-carrying payload (DF-186d). `Arc<SpinLock<Int>>`
+        already had that shape before design 186 and ICE'd on the arity
+        mismatch; the inline `Mutex` made it the common case. Loading would
+        have been worse than the ICE if it had type-checked: `lock` would have
+        taken a lock in a COPY of the payload and every thread would have
+        succeeded at once.
+
+        Reading the answer off the emitted signature rather than re-deciding it
+        keeps this in step with `_self_by_pointer_for` by construction.
+        """
+        wants = method_func.function_type.args[0]
+        if isinstance(wants, ir.PointerType):
+            return payload_ptr
+        return self.builder.load(payload_ptr, name=name)
 
     def _forward_target_symbol(self, expr: MethodCall, payload_type) -> str:
         """Mangled symbol for a wrapper payload-method forward (Arc / Box).
@@ -2201,10 +2222,10 @@ class CallsMixin:
         # Make sure the payload type's methods are monomorphized and present.
         if payload_type.kind == TypeKind.STRUCT and payload_type.type_args:
             self._ensure_monomorphized_struct(payload_type.struct_name, payload_type.type_args)
-        self_val = self.builder.load(payload_ptr, name="box_payload")
-
         mangled = self._forward_target_symbol(expr, payload_type)
         method_func = self.functions[mangled]
+        self_val = self._forward_self_arg(method_func, payload_ptr,
+                                          "box_payload")
         args = [self_val]
         for arg in expr.arguments:
             args.append(self._gen_transfer_value(arg.value))

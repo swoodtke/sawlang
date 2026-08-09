@@ -101,6 +101,10 @@ RUNTIME_ABI_SYMBOLS = frozenset({
     "__saw_rt_thread_join",
     "__saw_rt_pthread_mutex_init_default",
     "__saw_rt_pthread_cond_init_default",
+    # The one-word lock behind the inline `Mutex<T>` (design 186). Zero means
+    # unlocked on every host, which is what lets a `static M: Mutex<T>` be bss.
+    "__saw_rt_lock_acquire",
+    "__saw_rt_lock_release",
     # Blocking-extern offload (design 103)
     "__saw_rt_offload_start",
     "__saw_rt_offload_done",

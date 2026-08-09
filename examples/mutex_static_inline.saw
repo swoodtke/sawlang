@@ -1,0 +1,60 @@
+// design 186 unit 5: `static M: Mutex<T>` — the thing the heap block could
+// never be.
+//
+// A `Mutex` is one inline word beside its payload, and ZERO IS UNLOCKED on
+// every host (`os_unfair_lock` on Darwin, a futex on Linux). So a static holds
+// one with no initializer at all, the whole value is zerofill, and an idle
+// mutex costs no image bytes. `pthread_mutex_t` could not do this: its Darwin
+// static initializer writes a nonzero signature word.
+//
+// The placement half is checked in `tools/test_ir_contract.py`; what runs here
+// is that the zero pattern really is a working unlocked mutex.
+//
+// EXPECT: success
+// EXPECT-OUTPUT: 0
+// EXPECT-OUTPUT: 30
+// EXPECT-OUTPUT: 30
+// EXPECT-OUTPUT: 6
+// EXPECT-OUTPUT: 3
+import std.mutex.{Mutex}
+
+struct Counters {
+    hits: Int,
+    misses: Int
+}
+
+// No initializer: zero is an unlocked mutex over a zeroed payload.
+static REGISTRY: Mutex<Int>
+static STATS: Mutex<Counters>
+
+func record(n: Int) {
+    REGISTRY.lock({ &var total in total = total + n })
+}
+
+func note(hit: Bool) {
+    STATS.lock({ &var c in
+        if hit { c.hits = c.hits + 1 } else { c.misses = c.misses + 1 }
+    })
+}
+
+func main() {
+    print(REGISTRY.get())
+
+    record(10)
+    record(20)
+    print(REGISTRY.get())
+    // Reading it a second time proves the lock was RELEASED, not merely taken.
+    print(REGISTRY.lock({ &var total in total }))
+
+    note(true)
+    note(true)
+    note(false)
+    note(true)
+    note(true)
+    note(true)
+    note(true)
+    note(false)
+    note(false)
+    print(STATS.lock({ &var c in c.hits }))
+    print(STATS.lock({ &var c in c.misses }))
+}

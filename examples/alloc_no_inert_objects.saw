@@ -8,12 +8,18 @@
 //               force-unwrapping a None, receive() looping forever
 // All three constructors panic now, and each has a `try_make` twin that reports
 // the refusal instead. There is no inert state left to construct.
+//
+// `Mutex` LEFT THIS SET in design 186: it is one inline word beside an inline
+// payload now, so its constructor allocates nothing, cannot be refused, and has
+// no `try_make` twin to report a refusal with. The design-123 rule is intact —
+// a fallible tier exists exactly where an allocation does — and the mutex under
+// a denied allocator is checked here instead: it still locks.
 // EXPECT: success
 // EXPECT-OUTPUT:
 // 1
 // arc denied
 // 1
-// mutex denied
+// true
 // true
 // channel denied
 // 42
@@ -38,13 +44,14 @@ func main() {
     }
     print(a.strong_count())             // 1 — the live Arc is unaffected
 
+    // A mutex built and locked with the allocator refusing everything: it needs
+    // no block, so there is nothing to refuse.
     __saw_rt_alloc_deny_after(0)
-    let mutex_made = Mutex<Int>.try_make(7)
+    let denied = Mutex<Int>(value: 7)
+    let held = denied.lock { &var c in c == 7 }
     __saw_rt_alloc_deny_after(-1)
-    match mutex_made {
-        case Ok(made) -> print(made.get()),
-        case Err(_) -> print("mutex denied")
-    }
+    print(held)
+
     let m = Mutex<Int>(value: 1)
     print(m.lock { &var c in c > 0 })    // true — a real mutex still locks
 

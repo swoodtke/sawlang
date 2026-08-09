@@ -230,3 +230,66 @@ static void *__saw_offload_thread(void *jobp) {
 void *__saw_offload_thread_ptr(void) {
     return (void *)__saw_offload_thread;
 }
+
+/* ---- DF-186c: no 32-bit atomics, no variadic extern (design 186) --------
+ * `__saw_rt_lock_acquire` / `_release` — the one-word lock behind the inline
+ * `Mutex<T>` (rt/ABI.md). The MACOS body is Saw (sawc/rt/host_macos/lock.saw):
+ * it is two `os_unfair_lock` calls, which Saw can express. The LINUX body is a
+ * futex, and it is here because a futex needs two things Saw has not got:
+ *
+ *   - ATOMICS ON A 32-BIT WORD REACHED THROUGH A POINTER. A futex word is a
+ *     `uint32_t` the kernel compares, and `Atomic<T>` is `Atomic<Int>` in v1
+ *     with no spelling for "atomically operate on this pointee".
+ *   - a VARIADIC extern. glibc's is `long syscall(long, ...)`, and a Saw
+ *     extern declaration has no `...` — the same DF-113c gap `fcntl` sits in.
+ *
+ * Both shrink this body to Saw the day either feature lands.
+ *
+ * The word is the low four bytes of the platform `Int` std hands over (both
+ * hosted targets are little-endian, which is what lets one Saw field be a
+ * 4-byte lock on macOS and a 4-byte futex word here). Drepper's three-state
+ * protocol: 0 unlocked, 1 locked with nobody waiting, 2 locked with at least
+ * one waiter — so an UNCONTENDED acquire is one compare-exchange and an
+ * uncontended release is one store, and only a real collision enters the
+ * kernel. `FUTEX_*_PRIVATE` skips the shared-mapping bookkeeping, which is
+ * right for a lock inside one address space.
+ *
+ * Zero is unlocked, which is the property the whole unit turns on: a `static M:
+ * Mutex<T>` with no initializer is a valid unlocked mutex on both hosts.
+ */
+#ifdef __linux__
+#include <linux/futex.h>
+#include <sys/syscall.h>
+#include <limits.h>
+#include <stdint.h>
+
+static void saw_futex_wait(uint32_t *word, uint32_t expect) {
+    syscall(SYS_futex, word, FUTEX_WAIT_PRIVATE, expect, NULL, NULL, 0);
+}
+
+static void saw_futex_wake_one(uint32_t *word) {
+    syscall(SYS_futex, word, FUTEX_WAKE_PRIVATE, 1, NULL, NULL, 0);
+}
+
+void __saw_rt_lock_acquire(void *state) {
+    uint32_t *word = (uint32_t *)state;
+    uint32_t expected = 0;
+    if (__atomic_compare_exchange_n(word, &expected, 1u, 0,
+                                    __ATOMIC_ACQUIRE, __ATOMIC_RELAXED)) {
+        return;   /* uncontended: no syscall */
+    }
+    /* Contended. Claim the lock as CONTENDED before sleeping so the holder
+     * knows a wake is owed; re-reading through the swap is what closes the race
+     * where it released between our failed exchange and this point. */
+    while (__atomic_exchange_n(word, 2u, __ATOMIC_ACQUIRE) != 0u) {
+        saw_futex_wait(word, 2u);
+    }
+}
+
+void __saw_rt_lock_release(void *state) {
+    uint32_t *word = (uint32_t *)state;
+    if (__atomic_exchange_n(word, 0u, __ATOMIC_RELEASE) == 2u) {
+        saw_futex_wake_one(word);
+    }
+}
+#endif /* __linux__ */

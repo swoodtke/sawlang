@@ -1,74 +1,85 @@
-// Mutex<T> - mutual-exclusion wrapper for shared mutable state.
-// Part of the Saw standard library (design 21 item 4).
-//
-// NoCopy + Deinit. The hosted engine backs it with a pthread_mutex_t stored
-// inside a __saw_rt_alloc'd block laid out as { pthread_mutex_t, T payload }.
-//
-// pthread opaque-buffer size: pthread_mutex_t is 64 bytes on macOS (arm64 and
-// x86_64), 40 on glibc/x86_64, 48 on glibc/aarch64. We reserve a conservative
-// 64-byte slot (MUTEX_BUF below) and initialize within it via
-// pthread_mutex_init - never a hardcoded platform struct.
-//
-// lock(body) is NON-REENTRANT: locking a Mutex already held by the SAME task
-// self-deadlocks. There is no try_lock/timeout in v1. The closure is invoked
-// exactly once, synchronously, with &var access to the payload.
+//! Mutual exclusion for state several threads share.
+//!
+//! `Mutex<T>` is ONE INLINE WORD beside its payload. It allocates nothing,
+//! frees nothing, and needs no constructor to be valid — zero means unlocked,
+//! so a `static` holds one with no initializer at all:
+//!
+//! ```saw
+//! import std.mutex.*
+//!
+//! static REGISTRY: Mutex<Int>          // bss: an idle mutex costs no bytes
+//!
+//! func record(n: Int) {
+//!     REGISTRY.lock({ total in total = total + n })
+//! }
+//! ```
+//!
+//! Until design 186 it was a `pthread_mutex_t` in a heap block, which a static
+//! could not construct: `PTHREAD_MUTEX_INITIALIZER` writes a nonzero signature
+//! word on Darwin, so the zero pattern was not a valid mutex there and the type
+//! had to allocate. The lock is `os_unfair_lock` on macOS and a futex on Linux
+//! now, both of which ARE zero when unlocked (rt/ABI.md,
+//! `__saw_rt_lock_acquire`).
+//!
+//! MOVABILITY, which the heap block used to buy with an address-stability
+//! contract and which the Law of Exclusivity gives for free: a thread inside
+//! `lock()` holds a live `&self` borrow of the mutex for the whole critical
+//! section, and moving a value requires exclusive access to it. So a move
+//! cannot be spelled while any thread is inside the lock — not because the
+//! address is pinned, but because the borrow is. `Mutex` is therefore ordinary
+//! `NoCopy` and NOT `NoMove` (design 188): moving an IDLE mutex relocates one
+//! word and a payload, and nothing was pointing at either.
+//!
+//! `lock(body)` is NON-REENTRANT: locking a mutex this thread already holds is
+//! a program bug (macOS traps, Linux deadlocks). The closure runs exactly once,
+//! synchronously, with `&var` access to the payload, and is a `sync` function
+//! type — suspending inside a critical section is a compile error rather than a
+//! livelock.
+//!
+//! It blocks the calling THREAD, which is unchanged from the pthread version.
+//! Hold it briefly, and prefer a `Channel` where a task would otherwise wait.
 
 extern "C" {
-    // Thin wrapper (codegen) that calls pthread_mutex_init(m, NULL).
-    func __saw_rt_pthread_mutex_init_default(m: UnsafePointer<Int8>)
-    func pthread_mutex_lock(m: UnsafePointer<Int8>) -> Int
-    func pthread_mutex_unlock(m: UnsafePointer<Int8>) -> Int
-    func pthread_mutex_destroy(m: UnsafePointer<Int8>) -> Int
+    // rt/ABI.md: acquire/release ONE platform word, zero = unlocked. The whole
+    // lock protocol is the runtime's — os_unfair_lock on macOS, a futex on
+    // Linux — so std never has to know which host it is on.
+    func __saw_rt_lock_acquire(state: UnsafePointer<Int>)
+    func __saw_rt_lock_release(state: UnsafePointer<Int>)
 }
 
+/// A value guarded by a lock.
+///
+/// `lock` hands the payload to a closure under mutual exclusion and gives back
+/// whatever the closure returned. `NoCopy` — a copied mutex is two mutexes
+/// guarding two payloads.
+///
+/// `Sync` is DECLARED (design 186): a `Mutex` carries interior cells, so it
+/// derives none. Sharing one across threads is safe exactly when MOVING a `T`
+/// across is, because the lock serializes every access and no two threads ever
+/// hold the payload at once. `Send` needs no declaration — a cell moves fine,
+/// and both of this type's fields are cells.
 struct Mutex<T> {
-    // Control block: bytes [0, 64) hold the pthread_mutex_t; the payload T
-    // starts at byte 64. NOT optional (design 123): `init` panics rather than
-    // build a mutex that can never lock, so there is no inert state to check
-    // for and no dead branch that has to invent an answer.
-    block: UnsafePointer<Int8>
+    // The lock word. An interior CELL, which is what makes `lock` a `&self`
+    // method that reaches the CALLER's word rather than a copy of it: a
+    // cell-carrying receiver travels by pointer (design 186).
+    state: UnsafeMutableInterior<Int>,
+    // The guarded value, inline. No control block, no second allocation, and
+    // no fixed offset arithmetic — the payload is a field.
+    value: UnsafeMutableInterior<T>
 }
 
-// design 186: the control-block pointer blocks both derivations, and mutual
-// exclusion is what covers it. Sharing a mutex across threads is safe exactly
-// when MOVING a `T` across is — the lock serializes every access, so no two
-// threads ever hold the payload at once, and `T` never needs to be `Sync` in
-// its own right.
-extension Mutex<T: Send>: UnsafeSend {}
 extension Mutex<T: Send>: UnsafeSync {}
 
 extension Mutex<T> {
-    /// Takes ownership of `value` and wraps it behind a fresh mutex.
+    /// Takes ownership of `value` and wraps it behind a fresh unlocked mutex.
     ///
-    /// Panics if the allocator refuses the control block (design 123,
-    /// infallible tier). It used to build an INERT mutex whose `lock` returned
-    /// `false` without ever running the critical section. `try_make` reports
-    /// the failure instead.
+    /// Allocates nothing, so it cannot fail — the design-123 `try_make` twin is
+    /// gone with the allocation it reported. A `static` needs this even less:
+    /// declare it without an initializer and the zero pattern is already an
+    /// unlocked mutex over a zeroed payload.
     public init(value: T) unsafe -> Mutex<T> {
-        let size = 64 + sizeof<T>()
-        if let block = GlobalAllocator().alloc(size, 16) {
-            __saw_rt_pthread_mutex_init_default(block)
-            let payload_ptr = (block + 64) as UnsafePointer<T>
-            payload_ptr[0] = value
-            Mutex<T>(block: block)
-        } else {
-            panic("Mutex(value:): allocation failed")
-        }
-    }
-
-    /// Wraps `value` behind a fresh mutex, reporting allocator exhaustion as
-    /// `Err(AllocError)`.
-    ///
-    /// `value` is destroyed on the failure path rather than leaked.
-    public func try_make(value: T) unsafe -> Result<Mutex<T>, AllocError> {
-        let size = 64 + sizeof<T>()
-        if let block = GlobalAllocator().alloc(size, 16) {
-            __saw_rt_pthread_mutex_init_default(block)
-            let payload_ptr = (block + 64) as UnsafePointer<T>
-            payload_ptr[0] = value
-            return Mutex<T>(block: block)
-        }
-        return AllocError(size: size, align: 16)
+        Mutex<T>(state: UnsafeMutableInterior(0),
+                 value: UnsafeMutableInterior(value))
     }
 
     /// Acquires the lock, runs `body` with a `&var` borrow of the payload,
@@ -78,67 +89,55 @@ extension Mutex<T> {
     /// the lock and carried out of it:
     ///
     /// ```saw
-    /// let doubled = shared.lock { &var n in n * 2 }
-    /// shared.lock { &var n in n = n + 1 }     // R = Void; nothing to return
+    /// let doubled = shared.lock({ &var n in n * 2 })
+    /// shared.lock({ &var n in n = n + 1 })     // R = Void; nothing to return
     /// ```
     ///
     /// `lock` is on `&self` (interior mutability) so it composes with Arc's
     /// immutable-borrow forwarding.
     ///
-    /// NON-REENTRANT: locking a mutex already held by the same task
-    /// self-deadlocks. `body` is a `sync` function type (design 22), so
-    /// suspending inside the critical section is a compile error and calling
-    /// `body` does not make `lock` itself suspend.
+    /// NON-REENTRANT: locking a mutex this thread already holds is a program
+    /// bug. `body` is a `sync` function type (design 22), so suspending inside
+    /// the critical section is a compile error and calling `body` does not make
+    /// `lock` itself suspend.
     public func lock<R>(&self, body: (&var T) sync -> R) unsafe -> R {
-        let block = self.block
-        pthread_mutex_lock(block)
+        let word = self.state.ptr()
+        __saw_rt_lock_acquire(word)
         // The release rides a scope guard so `body` can stay in TAIL position:
-        // binding its result would need a local typed `R`, and `R` is `Void` for
-        // every critical section that computes nothing. `with_ref`/`with_var_ref`
-        // keep their `body` calls in tail position for the same reason. The guard
-        // deinits after the tail expression is evaluated, so the payload is still
-        // under the lock while `body` runs.
-        let held = LockRelease(block: block)
-        body((block + 64) as UnsafePointer<T>)
+        // binding its result would need a local typed `R`, and `R` is `Void`
+        // for every critical section that computes nothing. The guard deinits
+        // after the tail expression is evaluated, so the payload is still under
+        // the lock while `body` runs.
+        let held = LockRelease(word: word)
+        body(self.value.ptr())
     }
 }
 
-// Releases `block` when it goes out of scope. Private to std.mutex.
+// Releases `word` when it goes out of scope. Private to std.mutex.
 struct LockRelease {
-    block: UnsafePointer<Int8>
+    word: UnsafePointer<Int>
 }
 
 extension LockRelease: NoCopy {
     func deinit(&var self) unsafe {
-        pthread_mutex_unlock(self.block)
+        __saw_rt_lock_release(self.word)
     }
 }
 
-// Deinit is registered before NoCopy so the `NoCopy: Deinit` supertrait
-// requirement is already satisfied.
-extension Mutex<T>: NoCopy {
-    public func deinit(&var self) unsafe {
-        let block = self.block
-        let payload_ptr = (block + 64) as UnsafePointer<T>
-        __saw_deinit_in_place(payload_ptr)
-        pthread_mutex_destroy(block)
-        GlobalAllocator().dealloc(block, 64 + sizeof<T>(), 16)
-    }
-}
+// A copied mutex is two mutexes guarding two payloads, which is never what
+// anyone wants. There is no `deinit` any more: the lock owns no OS resource to
+// destroy and no block to free, and the payload's own drop is the memberwise
+// one the compiler synthesizes.
+extension Mutex<T>: NoCopy {}
 
 // Snapshot the payload under the lock. Requires `T: Copy` so the read
 // duplicates rather than moves the guarded value out.
 extension Mutex<T: Copy> {
     /// Returns a copy of the payload, read under the lock.
-    ///
-    /// Not optional (design 123): the `None` only ever meant "this mutex was
-    /// built by an allocation that failed", and construction panics now.
     public func get(&self) unsafe -> T {
-        let block = self.block
-        pthread_mutex_lock(block)
-        let payload_ptr = (block + 64) as UnsafePointer<T>
-        let result = payload_ptr[0].copy()
-        pthread_mutex_unlock(block)
-        result
+        let word = self.state.ptr()
+        __saw_rt_lock_acquire(word)
+        let held = LockRelease(word: word)
+        self.value.ptr()[0].copy()
     }
 }
