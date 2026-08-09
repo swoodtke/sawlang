@@ -1057,7 +1057,7 @@ class RegistrationMixin:
             is_blocking=getattr(extern_func, 'is_blocking', False)
         ))
 
-    def _gate_std_names_in_type(self, written, line, column, source_file=None,
+    def _gate_std_names_in_type(self, written, line, column,
                                 depth: int = 0) -> None:
         """Run the prelude gate over every name a WRITTEN type mentions.
 
@@ -1081,11 +1081,9 @@ class RegistrationMixin:
         if name and '.' not in name:
             self._std_name_gated(name, line, column)
         for child in (written.inner_type, written.array_element_type):
-            self._gate_std_names_in_type(child, line, column, source_file,
-                                         depth + 1)
+            self._gate_std_names_in_type(child, line, column, depth + 1)
         for child in ((written.type_args or []) + (written.element_types or [])):
-            self._gate_std_names_in_type(child, line, column, source_file,
-                                         depth + 1)
+            self._gate_std_names_in_type(child, line, column, depth + 1)
 
     def _register_static(self, static: StaticDecl):
         """Register and validate a module-level `static` declaration (design 41).
@@ -1120,8 +1118,7 @@ class RegistrationMixin:
         # codegen and died there ("Unknown generic struct: SpinLock") instead of
         # being told to import it. A static holding a lock is the headline use
         # of one, and its declaration is not an expression.
-        self._gate_std_names_in_type(static.type, static.line, static.column,
-                                     getattr(static, 'source_file', None))
+        self._gate_std_names_in_type(static.type, static.line, static.column)
 
         resolved_type = self._resolve_type(static.type)
 
