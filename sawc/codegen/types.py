@@ -127,6 +127,14 @@ class TypesMixin:
             if (saw_type.struct_name in ("ReadOnly", "WriteOnly")
                     and saw_type.type_args):
                 return self._get_llvm_type(saw_type.type_args[0])
+            # design 186: `UnsafeMutableInterior<T>` is LAYOUT-TRANSPARENT — it
+            # holds an INLINE `T` and occupies exactly a `T`, so a cell field
+            # costs no wrapper and `ptr()` is the address of the field itself.
+            # This is what lets `Atomic<T>` and `SpinLock<T>` carry a real cell
+            # with byte-identical layout to the versions that did not.
+            if (saw_type.struct_name.split('$')[0] == "UnsafeMutableInterior"
+                    and saw_type.type_args):
+                return self._get_llvm_type(saw_type.type_args[0])
             # Check if it's a type alias (use namespace)
             alias_sym = self.namespace.lookup_type_alias(saw_type.struct_name)
             if alias_sym and alias_sym.aliased_type:

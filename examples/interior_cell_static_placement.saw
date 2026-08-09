@@ -1,0 +1,48 @@
+// design 186 unit 2: where a cell-carrying `static` lands.
+//
+// Two rules meet here, and `tools/test_ir_contract.py` checks the IR this
+// emits because a segment is not something a running program can print:
+//
+//   * a cell-carrying static is WRITTEN IN PLACE, so it is never a
+//     `global_constant` — a read-only segment would fault on the first write.
+//     That holds for the zero-init form and the const-initialized one alike.
+//   * an ALL-ZERO static still costs no image bytes (design 149): dropping the
+//     constant flag is not the same as spending the bytes, so `ZEROED` below is
+//     `zeroinitializer` and lands in .bss.
+//
+// Neither static mentions an `Atomic`. The property is what puts them here.
+//
+// EXPECT: success
+// EXPECT-OUTPUT: 0
+// EXPECT-OUTPUT: 3
+// EXPECT-OUTPUT: 11
+// EXPECT-OUTPUT: 100
+
+struct Slot {
+    cell: UnsafeMutableInterior<Int>
+}
+
+extension Slot {
+    func _at(&self) unsafe -> UnsafePointer<Int> { self.cell.ptr() }
+    func get(&self) unsafe -> Int { self._at()[0] }
+    func set(&self, v: Int) unsafe { self._at()[0] = v }
+}
+
+// Zero-init: no initializer at all, so the whole value is zerofill.
+static ZEROED: Slot
+
+// Const-init: a memberwise struct literal over a constant. Still written in
+// place, so still not rodata.
+static SEEDED: Slot = Slot(cell: UnsafeMutableInterior(11))
+
+// A plain immutable static beside them, which IS rodata-eligible — the point
+// being that the property decides, not the `static` keyword.
+static LIMIT: Int = 100
+
+func main() {
+    print(ZEROED.get())
+    ZEROED.set(3)
+    print(ZEROED.get())
+    print(SEEDED.get())
+    print(LIMIT)
+}

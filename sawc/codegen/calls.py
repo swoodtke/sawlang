@@ -338,6 +338,11 @@ class CallsMixin:
             cell = ir.Constant(atomic_llvm, ir.Undefined)
             return self.builder.insert_value(cell, val, 0, name="atomic_new")
 
+        # Interior-cell construction (design 186): the cell IS its `T` (it is
+        # layout-transparent), so wrapping a value emits the value.
+        if getattr(expr, 'is_interior_cell_construct', False):
+            return self._generate_expression(expr.arguments[0].value)
+
         # UnsafeMemory construction (design 46): the value IS the address (i64).
         if getattr(expr, 'is_unsafe_mem_construct', False):
             return self._generate_expression(expr.arguments[0].value)
@@ -1308,6 +1313,17 @@ class CallsMixin:
                 and expr.method_name in ("load", "store", "fetch_add", "compare_exchange")):
             return self._generate_atomic_method(expr, recv_saw)
 
+        # design 186: `cell.ptr()` — the address of the cell's own storage. The
+        # cell is layout-transparent, so that address IS the receiver's, which
+        # is why this reuses the Atomic receiver walk (both need the CALLER's
+        # storage, never a spilled copy) and skips its final field GEP.
+        if getattr(expr, 'interior_cell_ptr', False):
+            result_saw = getattr(expr, 'resolved_type', None)
+            payload_llvm = (self._get_llvm_type(result_saw.inner_type)
+                            if result_saw is not None
+                            and result_saw.inner_type is not None else None)
+            return self._interior_cell_pointer(expr.object, payload_llvm)
+
         # UnsafeMemory accessors (design 46): read/write (volatile on Device) and
         # the Normal region accessors ptr/len/end. The typechecker tagged the node.
         if getattr(expr, 'um_method', None) is not None:
@@ -1799,19 +1815,44 @@ class CallsMixin:
             return None
         return mresult
 
+    def _interior_cell_pointer(self, obj_expr, want_pointee=None):
+        """`cell.ptr()` — the address of an interior cell's own storage (186).
+
+        The cell is layout-transparent, so its storage IS a `T` and the
+        receiver's address is the answer with no field GEP on top. Shares
+        `_receiver_storage_pointer` with the Atomic ops because both need the
+        same thing and for the same reason: interior mutability is mutation
+        through a SHARED borrow, so the address has to be the caller's storage
+        rather than a copy the callee spilled.
+        """
+        return self._receiver_storage_pointer(obj_expr, "cell", want_pointee)
+
     def _atomic_cell_pointer(self, obj_expr):
         """Return an `i64*` pointing at an Atomic receiver's cell (its `value`
         field), for in-place atomic ops. The receiver must be an lvalue — a
         static, a local/self binding, or a struct field — which is exactly how
         atomics are used; a temporary receiver is spilled to a slot (its atomicity
         is then vacuous, but the code stays total)."""
+        struct_ptr = self._receiver_storage_pointer(obj_expr, "atomic")
+        zero = ir.Constant(ir.IntType(32), 0)
+        return self.builder.gep(struct_ptr, [zero, zero], inbounds=True,
+                                name="atomic_cell")
+
+    def _receiver_storage_pointer(self, obj_expr, what: str, want_pointee=None):
+        """A pointer to the receiver's OWN storage, never to a copy of it.
+
+        `want_pointee` is the LLVM type the storage is known to hold. It matters
+        only for the `&var self` deref below: a cell over a POINTER payload
+        (`Once<UnsafePointer<UInt8>>`) is itself pointer-to-pointer storage, so
+        the shape test alone would strip a level that is part of the value.
+        """
         if isinstance(obj_expr, Identifier):
             if obj_expr.name in self.variables:
                 struct_ptr = self.variables[obj_expr.name]
             elif self._static_global(obj_expr) is not None:
                 struct_ptr = self._static_global(obj_expr)
             else:
-                raise ValueError(f"Undefined Atomic receiver: {obj_expr.name}")
+                raise ValueError(f"Undefined {what} receiver: {obj_expr.name}")
         elif isinstance(obj_expr, SelfExpr):
             struct_ptr = self.variables["self"]
         elif isinstance(obj_expr, MemberAccess):
@@ -1822,14 +1863,15 @@ class CallsMixin:
             struct_ptr = self._get_tuple_element_pointer(obj_expr)
         else:
             val = self._generate_expression(obj_expr)
-            struct_ptr = self._entry_alloca(val.type, name="atomic_tmp")
+            struct_ptr = self._entry_alloca(val.type, name=f"{what}_tmp")
             self.builder.store(val, struct_ptr)
         # self.variables may hold a pointer-to-pointer for a `&var self` receiver;
         # deref one level if the pointee is itself a pointer to the struct.
-        if isinstance(struct_ptr.type.pointee, ir.PointerType):
-            struct_ptr = self.builder.load(struct_ptr, name="atomic_self_deref")
-        zero = ir.Constant(ir.IntType(32), 0)
-        return self.builder.gep(struct_ptr, [zero, zero], inbounds=True, name="atomic_cell")
+        if (isinstance(struct_ptr.type.pointee, ir.PointerType)
+                and (want_pointee is None
+                     or struct_ptr.type.pointee != want_pointee)):
+            struct_ptr = self.builder.load(struct_ptr, name=f"{what}_self_deref")
+        return struct_ptr
 
     def _generate_atomic_method(self, expr: MethodCall, recv_saw):
         """Lower an Atomic<Int> method to a seq_cst LLVM atomic (design 41 item 4).

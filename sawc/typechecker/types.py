@@ -3383,6 +3383,19 @@ class TypeUtilsMixin:
                 literal.line, literal.column
             )
 
+    def _member_copy_type(self, field_type: SawType) -> SawType:
+        """The type a FIELD contributes to its container's copy policy.
+
+        The identity everywhere but on an interior-mutability cell (design 186),
+        which contributes its `T`. A cell is `NoCopy` as a value — copying one
+        makes a second cell — but it does not force `NoCopy` onto whatever holds
+        it: the container states its own policy, which is what keeps
+        `Atomic<Int>` bitwise-copyable and makes the wrapper idiom's
+        `extension Cell<T>: NoCopy {}` a line the reader can see rather than a
+        cascade they cannot.
+        """
+        return self.namespace.cell_payload(field_type) or field_type
+
     def _check_no_copy_containment(self):
         """Check that structs containing NoCopy fields also implement NoCopy."""
         for struct_name, struct_info in self.namespace.structs.items():
@@ -3403,7 +3416,7 @@ class TypeUtilsMixin:
                 # retaining the closure's env (handled like a String field below).
                 if field_type is not None and field_type.kind == TypeKind.FUNCTION:
                     continue
-                if self._is_no_copy_type(field_type):
+                if self._is_no_copy_type(self._member_copy_type(field_type)):
                     self._error(
                         ErrorKind.CANNOT_COPY,
                         f"struct `{struct_name}` contains NoCopy field `{field_name}` of type `{field_type}` but does not implement NoCopy",
@@ -3526,7 +3539,7 @@ class TypeUtilsMixin:
                 # releases it — exactly once at the last owner.)
                 if field_type is not None and field_type.kind == TypeKind.FUNCTION:
                     continue
-                if self._is_implicit_copy_type(field_type):
+                if self._is_implicit_copy_type(self._member_copy_type(field_type)):
                     self._error(
                         ErrorKind.CANNOT_COPY,
                         f"struct `{struct_name}` contains ImplicitCopy field `{field_name}` of type `{field_type}` but does not implement ImplicitCopy",
@@ -3559,7 +3572,7 @@ class TypeUtilsMixin:
 
             # Check each field
             for field_name, field_type in struct_info.fields.items():
-                if self._is_explicit_copy_type(field_type):
+                if self._is_explicit_copy_type(self._member_copy_type(field_type)):
                     self._error(
                         ErrorKind.CANNOT_COPY,
                         f"struct `{struct_name}` contains ExplicitCopy field `{field_name}` of type `{field_type}` but does not implement ExplicitCopy",

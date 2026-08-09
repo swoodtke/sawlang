@@ -1409,6 +1409,14 @@ class RegistrationMixin:
             return all(self._is_const_init(v) for _n, v in expr.field_inits)
         if isinstance(expr, FunctionCall) and getattr(expr, 'is_atomic_construct', False):
             return all(self._is_const_init(a.value) for a in expr.arguments)
+        # design 186: `UnsafeMutableInterior(<const>)` wraps a constant with no
+        # storage of its own (the cell is layout-transparent), so a cell is as
+        # const-initializable as the value it holds. This is what lets a
+        # cell-carrying static be written at a non-zero seed instead of only at
+        # the all-zero one.
+        if isinstance(expr, FunctionCall) and getattr(
+                expr, 'is_interior_cell_construct', False):
+            return all(self._is_const_init(a.value) for a in expr.arguments)
         # design 46: `UnsafeMemory(<int>)` is a const-init from an address literal.
         if isinstance(expr, FunctionCall) and getattr(expr, 'is_unsafe_mem_construct', False):
             return all(self._is_const_init(a.value) for a in expr.arguments)

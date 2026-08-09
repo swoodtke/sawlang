@@ -249,10 +249,6 @@ class CodeGenerator(ResultsMixin, MatchMixin, StructsMixin, CollectionsMixin, Ca
         # GlobalVariable. Reads of a static load through the matching global.
         self.static_globals: dict = {}
 
-        # design 149 (DF-149a): struct name -> "carries an Atomic cell", the
-        # receiver-ABI question `_self_by_pointer_for` asks once per method.
-        self._interior_mut_by_name: dict = {}
-
         # Struct types (name -> (LLVM type, field_order))
         self.struct_types: dict = {}
         # Reverse map for monomorphized generic structs: mangled name ->
@@ -1125,55 +1121,33 @@ class CodeGenerator(ResultsMixin, MatchMixin, StructsMixin, CollectionsMixin, Ca
         raise ValueError(f"Undefined variable: {name}")
 
     def _type_has_interior_mutability(self, saw_type) -> bool:
-        """Whether a static of `saw_type` must be a NON-constant global — i.e. it
-        contains an `Atomic` cell somewhere. Immutable POD statics are emitted as
-        `global_constant` (rodata-eligible); interior-mutable ones are not."""
-        if saw_type is None:
-            return False
-        if saw_type.kind == TypeKind.STRUCT:
-            if saw_type.struct_name == "Atomic":
-                return True
-            base = saw_type.struct_name
-            fields = self.namespace.get_struct_fields(base)
-            if fields:
-                return any(self._type_has_interior_mutability(ft)
-                           for ft in fields.values())
-            return False
-        if saw_type.kind == TypeKind.ARRAY:
-            return self._type_has_interior_mutability(saw_type.array_element_type)
-        return False
+        """Whether `saw_type` is CELL-CARRYING (design 186).
+
+        One question, asked on the namespace so the typechecker and codegen can
+        never disagree about it. Until design 186 this was the name `Atomic`
+        plus a walk over struct fields; it is now "does this value's own bytes
+        include an `UnsafeMutableInterior<T>`", which is the same answer for
+        `Atomic` (whose cell is now a real field) and an answer at all for a
+        type the compiler has never heard of.
+
+        Two consumers here: a static of a cell-carrying type must be a
+        NON-constant global (it is written in place, so rodata would fault),
+        and the receiver ABI below.
+        """
+        return self.namespace.is_cell_carrying(saw_type)
 
     def _struct_has_interior_mutability(self, struct_name) -> bool:
-        """Whether the struct named `struct_name` carries an `Atomic` cell.
-
-        Takes a NAME rather than a type because the receiver-ABI decision below
-        is made at method declaration time, where the name (possibly a
-        monomorphized `SpinLock$1$Int`) is what is in hand. A monomorphized name
-        whose fields are not registered falls back to its template, which is the
-        right answer whenever the cell is declared in the template itself —
-        every `SpinLock<T>` has one wherever `SpinLock` does.
-        """
-        if not struct_name:
-            return False
-        cached = self._interior_mut_by_name.get(struct_name)
-        if cached is not None:
-            return cached
-        result = self._type_has_interior_mutability(
-            SawType(TypeKind.STRUCT, struct_name=struct_name))
-        if not result and '$' in struct_name:
-            result = self._type_has_interior_mutability(
-                SawType(TypeKind.STRUCT, struct_name=struct_name.split('$')[0]))
-        self._interior_mut_by_name[struct_name] = result
-        return result
+        """Whether the struct named `struct_name` is cell-carrying (design 186)."""
+        return self.namespace.struct_is_cell_carrying(struct_name)
 
     def _self_by_pointer_for(self, struct_name, method) -> bool:
         """Does this method receive `self` as a POINTER? (design 149, DF-149a.)
 
         `ast_nodes.self_by_pointer` answers the two spellings that say so on the
         declaration — `&var self` and a `borrows` accessor. This adds the one the
-        TYPE says: a receiver carrying an `Atomic` cell arrives as storage even
-        for a plain `&self`, because interior mutability is mutation THROUGH a
-        shared borrow and the atomic has to reach the caller's cell.
+        TYPE says: a CELL-CARRYING receiver arrives as storage even for a plain
+        `&self`, because interior mutability is mutation THROUGH a shared borrow
+        and the write has to reach the caller's cell.
 
         Passed by value it did not. `struct Counter { n: Atomic<Int> }` with a
         `func bump(&self) { self.n.fetch_add(1) }` incremented the callee's copy
@@ -1183,6 +1157,13 @@ class CodeGenerator(ResultsMixin, MatchMixin, StructsMixin, CollectionsMixin, Ca
         rather than as methods on the type. Methods work now, which is what lets
         `SpinLock` put its word and its payload inline and still be locked
         through a shared borrow — the whole point of a lock.
+
+        Design 186 generalized the question from "contains an `Atomic`" to
+        "contains an `UnsafeMutableInterior`", so a futex mutex, a `Once` or a
+        user-written `Cell` gets the same guarantee without the compiler knowing
+        its name. That guarantee is what a cell's `ptr()` is worth: without it
+        the address would be the callee copy's, and every write through it would
+        be dropped at the return.
 
         Decided per (struct name, method) and read at BOTH the declaration and
         the body, so the two always agree; call sites read the convention off the
@@ -1243,9 +1224,17 @@ class CodeGenerator(ResultsMixin, MatchMixin, StructsMixin, CollectionsMixin, Ca
             elems = [self._const_from_expr(e, elem_saw) for e in expr.elements]
             return ir.Constant(llvm_type, elems)
         if isinstance(expr, FunctionCall) and getattr(expr, 'is_atomic_construct', False):
-            # Atomic<Int> is `{ i64 }`; initialize the value slot.
+            # Atomic<Int> is `{ i64 }`; initialize the value slot. (Its field is
+            # an interior cell since design 186, and a cell is layout-transparent,
+            # so the slot's type is unchanged.)
             val = self._const_from_expr(expr.arguments[0].value, SawType(TypeKind.INT))
             return ir.Constant(llvm_type, [val])
+        if isinstance(expr, FunctionCall) and getattr(
+                expr, 'is_interior_cell_construct', False):
+            # design 186: an interior cell IS its `T`, so the constant is the
+            # payload's, emitted at the payload's type.
+            payload = (saw_type.type_args or [None])[0]
+            return self._const_from_expr(expr.arguments[0].value, payload)
         if isinstance(expr, FunctionCall) and getattr(expr, 'is_unsafe_mem_construct', False):
             # design 46: UnsafeMemory<T, Use> is one word — the raw address. Its
             # LLVM type is i64 (`llvm_type` here), so the const is just the literal.
@@ -2336,6 +2325,18 @@ class CodeGenerator(ResultsMixin, MatchMixin, StructsMixin, CollectionsMixin, Ca
         the optimizer keep loads/stores through the reference in registers rather
         than reloading defensively. Immutable `&` params are intentionally NOT
         marked: multiple `&` readers of the same value may legitimately coexist.
+
+        design 186 audit — the cell-carrying property's third clause is that
+        codegen makes NO shared-borrow-immutability assumption across
+        cell-carrying storage, and it holds here BY CONSTRUCTION rather than by
+        a carve-out. This is the only place the backend states anything about a
+        borrow, and it states it about `&var` alone: no `readonly`, no
+        `readnone`, no `noalias` and no `!invariant.load` is ever attached to a
+        shared borrow or to the by-pointer `&self` receiver a cell-carrying type
+        gets. Rust needs its `Freeze` carve-out precisely because it DOES mark
+        `&T` readonly+noalias; we never did, so a cell behind a `&` is already
+        safe from the optimizer. Anything added here later must ask
+        `Namespace.is_cell_carrying` first.
 
         `saw_types` is the parameter SawTypes in LLVM-arg order; `arg_offset`
         skips leading synthetic args (e.g. a closure's env pointer at arg 0).

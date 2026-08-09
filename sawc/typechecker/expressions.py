@@ -2822,6 +2822,42 @@ class ExpressionsMixin:
             return SawType(TypeKind.STRUCT, struct_name="Atomic",
                            type_args=[SawType(TypeKind.INT)])
 
+        # Interior-cell construction (design 186): `UnsafeMutableInterior(v)`,
+        # positional like `Atomic`/`UnsafeMemory` and intercepted for the same
+        # reason — the general struct-init path wants named arguments, and the
+        # cell's `value` field is a representation nobody writes at the source
+        # level. `T` comes from the argument; the explicit
+        # `UnsafeMutableInterior<T>(v)` spelling is accepted too, which is what a
+        # generic body needs when the argument is itself a type parameter.
+        if expr.name == "UnsafeMutableInterior":
+            if len(expr.arguments) != 1 or expr.arguments[0].name is not None:
+                self._error(
+                    ErrorKind.WRONG_ARGUMENT_COUNT,
+                    "`UnsafeMutableInterior(...)` takes exactly one positional "
+                    "value — the `T` the cell holds",
+                    expr.line, expr.column
+                )
+                return None
+            arg_type = self._check_expression(expr.arguments[0].value)
+            declared = (expr.type_args or [None])[0]
+            if declared is not None:
+                declared = self._resolve_type(declared)
+                if arg_type is not None and not self._types_compatible(
+                        declared, arg_type):
+                    self._error(
+                        ErrorKind.TYPE_MISMATCH,
+                        f"`UnsafeMutableInterior<{declared}>(...)` was given a "
+                        f"`{arg_type}`",
+                        expr.line, expr.column
+                    )
+            cell_arg = declared if declared is not None else arg_type
+            if cell_arg is None:
+                return None
+            expr.is_interior_cell_construct = True
+            return SawType(TypeKind.STRUCT,
+                           struct_name="UnsafeMutableInterior",
+                           type_args=[cell_arg])
+
         # UnsafeMemory construction (design 46): `UnsafeMemory(<int>)` — a
         # compiler-known one-word wrapper over a fixed address. Like Atomic it is
         # positional, so intercept before the named struct-init path. The `T`/
@@ -4944,6 +4980,32 @@ class ExpressionsMixin:
         expr.um_projection = True
         return SawType(TypeKind.STRUCT, struct_name="UnsafeMemory",
                        type_args=[view.array_element_type, use])
+
+    def _check_interior_cell_method(self, expr: MethodCall,
+                                    payload: SawType) -> Optional[SawType]:
+        """Check the one accessor an interior-mutability cell has (design 186).
+
+        `ptr(&self) unsafe -> UnsafePointer<T>` and nothing else. Every other
+        name is a clean error rather than a member-lookup failure, because the
+        cell's surface being exactly one method is the reason a reviewer can
+        read a cell-carrying type and know where its mutation happens.
+        """
+        if expr.method_name != "ptr":
+            self._error(
+                ErrorKind.UNDEFINED_FUNCTION,
+                f"`UnsafeMutableInterior<{payload}>` has no method "
+                f"`{expr.method_name}`",
+                expr.line, expr.column,
+                hint="a cell has exactly one accessor, `ptr()` — reach the "
+                     "value through the pointer it returns")
+            return None
+        if expr.arguments:
+            self._error(
+                ErrorKind.WRONG_ARGUMENT_COUNT,
+                "`ptr()` takes no arguments", expr.line, expr.column)
+            return None
+        expr.interior_cell_ptr = True
+        return SawType(TypeKind.POINTER, inner_type=payload)
 
     def _check_um_method(self, expr: MethodCall, um_type: SawType) -> Optional[SawType]:
         """Check a `read`/`write`/`ptr`/`len`/`end` accessor on `UnsafeMemory`."""
@@ -7715,6 +7777,15 @@ class ExpressionsMixin:
         # accessors `ptr()`/`len()`/`end()`.
         if self._is_unsafe_memory(obj_type):
             return self._check_um_method(expr, obj_type)
+
+        # design 186: `ptr()` on an `UnsafeMutableInterior<T>` — the cell's ONE
+        # accessor, and its whole safety story. Compiler-known for the same
+        # reason `UnsafeMemory`'s accessors are: the cell is layout-transparent,
+        # so there is no `self.value` to project — the receiver's storage IS the
+        # `T`, and the address of that storage is what the caller asked for.
+        cell_payload = self.namespace.cell_payload(obj_type)
+        if cell_payload is not None:
+            return self._check_interior_cell_method(expr, cell_payload)
 
         # `.copy()` — the umbrella Copy operation. Handles auto-Copy of trivial
         # types and `.copy()` through a `T: Copy`-family bound. Types that carry

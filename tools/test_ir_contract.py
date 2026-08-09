@@ -267,10 +267,58 @@ def check_seam_widths(failures):
                         "reach the IR")
 
 
+# ------------------------------------------------- cell-carrying statics (186)
+
+# `(static name, must be a mutable global?, must be zerofill?)` for
+# `examples/interior_cell_static_placement.saw`. A cell-carrying static is
+# written IN PLACE, so a read-only segment would fault on the first write; an
+# all-zero one still costs no image bytes. Neither is visible to a program that
+# runs, which is why the assertion lives here.
+CELL_STATICS = [
+    ("ZEROED", True, True),
+    ("SEEDED", True, False),
+    ("LIMIT", False, False),
+]
+
+_GLOBAL_RE = re.compile(
+    r'^@"saw\.static\.(\w+)" = internal (constant|global) (.*)$', re.MULTILINE)
+
+
+def check_cell_static_placement(failures):
+    source = os.path.join(ROOT, "examples",
+                          "interior_cell_static_placement.saw")
+    if not os.path.exists(source):
+        failures.append("interior_cell_static_placement.saw: missing from "
+                        "examples/")
+        return
+    text = _emit_ir(source, [], "cell_static_placement")
+    found = {name: (kind, body.strip())
+             for name, kind, body in _GLOBAL_RE.findall(text)}
+    for name, wants_mutable, wants_zerofill in CELL_STATICS:
+        if name not in found:
+            failures.append(f"static `{name}`: no global in the emitted IR")
+            continue
+        kind, body = found[name]
+        is_mutable = (kind == "global")
+        if is_mutable != wants_mutable:
+            failures.append(
+                f"static `{name}`: emitted as `{kind}`, wanted "
+                f"`{'global' if wants_mutable else 'constant'}` — a "
+                f"cell-carrying static is written in place and must never be "
+                f"rodata-eligible (design 186), and one that carries no cell "
+                f"must stay shareable")
+        if wants_zerofill and "zeroinitializer" not in body:
+            failures.append(
+                f"static `{name}`: `{body}` is not `zeroinitializer` — an "
+                f"all-zero static costs no image bytes (design 149), and "
+                f"dropping the constant flag must not spend them")
+
+
 def main() -> int:
     failures = []
     check_embedding(failures)
     check_seam_widths(failures)
+    check_cell_static_placement(failures)
 
     if failures:
         print("IR contract violations:\n")
@@ -280,7 +328,8 @@ def main() -> int:
 
     print(f"IR contract: {len(EMBED_CORPUS)} programs embed identically with "
           f"and without -c; every documented seam matches rt/ABI.md at 64 and "
-          f"32 bits")
+          f"32 bits; {len(CELL_STATICS)} statics land in the segment the "
+          f"cell-carrying property picks")
     return 0
 
 

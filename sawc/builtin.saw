@@ -233,6 +233,50 @@ trait Sync {
 }
 
 // =============================================================================
+// UnsafeMutableInterior<T> — the interior-mutability cell (design 186)
+// =============================================================================
+
+// The one primitive that makes MUTATION THROUGH A SHARED BORROW expressible by
+// a type the compiler has never heard of. A cell holds an inline `T` and hands
+// out its ADDRESS:
+//
+//     unsafe struct UnsafeMutableInterior<T>       // holds a T, inline
+//     func ptr(&self) unsafe -> UnsafePointer<T>   // the only accessor
+//
+// That signature is the whole safety story. By design 130 every function
+// touching a cell is dragged into the declared-unsafe domain with no new effect
+// rules, and a safe public wrapper method takes on the all-safe-parameters
+// soundness obligation exactly where `SpinLock.lock` already does.
+//
+// Carrying one — transitively — makes a type CELL-CARRYING, which is what the
+// compiler consults instead of a list of names it knows: a cell-carrying
+// receiver always travels BY POINTER (so `&self` reaches the caller's storage
+// rather than a copy), a cell-carrying `static` never lands in a read-only
+// segment, and structural `Sync` derivation is BLOCKED (a cell-carrying type is
+// not `Sync` unless it declares `UnsafeSync`). `Send` stays structural: a cell
+// moves fine, it is SHARING that needs an argument.
+//
+// Construction is positional (`UnsafeMutableInterior(v)`) and the cell is
+// LAYOUT-TRANSPARENT — it occupies exactly its `T`, so a cell field costs no
+// wrapper. Construction and `ptr()` are both intercepted by the compiler; the
+// `value` field below is the representation and is never accessed at the source
+// level.
+//
+// `NoCopy`, because a copied cell is a SECOND cell: the copy has its own
+// storage, so a write through one is invisible through the other. A cell FIELD
+// contributes its `T`'s copy class to its container rather than forcing
+// `NoCopy` onto it — the container states its own policy, which is what keeps
+// `Atomic<Int>` the one bitwise-copyable word it has been since design 41 while
+// `let c = self.inner` on a cell stays refused. A wrapper that wants to be
+// move-only says so (`extension Cell<T>: NoCopy {}`), exactly as any other
+// wrapper does.
+unsafe struct UnsafeMutableInterior<T> {
+    value: T
+}
+
+extension UnsafeMutableInterior<T>: NoCopy {}
+
+// =============================================================================
 // Atomic<Int> — minimal interior-synchronized primitive (design 41 item 4)
 // =============================================================================
 
@@ -240,22 +284,29 @@ trait Sync {
 // It is the sanctioned way to mutate global state: `static N: Atomic<Int> =
 // Atomic(0)` then `N.fetch_add(1)`. Construction (`Atomic(<int>)`) and the four
 // methods below are lowered directly to seq_cst LLVM atomics by codegen; the
-// bodies here exist only so the methods type-check (they are never called —
-// every call site is intercepted). All methods take `&self` (an immutable
-// borrow): the mutation is interior, which is exactly what lets an immutable
-// static be updated. Being a struct of a Sync field (Int), Atomic<Int> is
-// itself Send+Sync by the ordinary structural derivation.
+// bodies here exist only so the methods type-check — they are never called,
+// every call site is intercepted, and a body that somehow ran would be a
+// compiler bug rather than a wrong answer, which is what the panics say. All
+// methods take `&self` (an immutable borrow): the mutation is interior, which
+// is exactly what lets an immutable static be updated.
+//
+// design 186: the interior mutability is a real CELL now rather than a name the
+// compiler checked for. `Atomic<T>` is cell-carrying because it HOLDS one, on
+// the same terms as any type a user writes; what stays compiler-known is the
+// ATOMICITY, which no library can express. The cell is layout-transparent, so
+// `Atomic<Int>` is still exactly one word. Its `Sync` is declared below rather
+// than derived, since a cell-carrying type is not `Sync` by derivation.
 struct Atomic<T> {
-    value: T
+    value: UnsafeMutableInterior<T>
 }
 
 extension Atomic<T> {
     // Atomic load (seq_cst). Returns the current value.
-    public func load(&self) -> T { self.value }
+    public func load(&self) -> T { panic("Atomic.load: not intercepted") }
     // Atomic store (seq_cst) of `v`.
     public func store(&self, v: T) { }
     // Atomic read-modify-write add (seq_cst). Returns the PREVIOUS value.
-    public func fetch_add(&self, v: T) -> T { self.value }
+    public func fetch_add(&self, v: T) -> T { panic("Atomic.fetch_add: not intercepted") }
     // Atomic compare-and-swap (seq_cst). Sets value to `desired` iff it currently
     // equals `expected`; returns whether the swap happened.
     public func compare_exchange(&self, expected: T, desired: T) -> Bool { true }

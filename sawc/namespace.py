@@ -332,6 +332,10 @@ class Namespace:
         # Type conformances: type_name -> {trait_name -> {assoc_type_name -> SawType}}
         self.conformances: Dict[str, Dict[str, Dict[str, SawType]]] = {}
 
+        # design 186: memo for `struct_is_cell_carrying`, asked once per method
+        # declaration and once per method body so the two always agree.
+        self._cell_carrying_by_name: Dict[str, bool] = {}
+
         # Generic AST storage for instantiation
         self.generic_functions: Dict[str, Function] = {}
         self.generic_structs: Dict[str, Struct] = {}
@@ -1084,7 +1088,10 @@ class Namespace:
             if struct_sym is None:
                 # Unknown / opaque type parameter: not known to be trivial.
                 return False
-            return all(self.is_trivially_copyable(ft) for ft in struct_sym.fields.values())
+            # design 186: a cell FIELD contributes its `T` — see
+            # `member_copy_tier` for why the cell's own `NoCopy` stops here.
+            return all(self.is_trivially_copyable(self.cell_payload(ft) or ft)
+                       for ft in struct_sym.fields.values())
         if kind == TypeKind.ENUM:
             # A PAYLOAD-FREE enum is a bare tag: it owns nothing, so a copy is
             # bitwise and there is no deinit to double-run. This branch used to
@@ -1219,6 +1226,151 @@ class Namespace:
                    for arg in (saw_type.type_args or [])
                    if arg is not None)
 
+    # The interior-mutability cell (design 186). Named once, here, because two
+    # questions have to agree about it: what a cell IS, and what a cell field
+    # contributes to the type holding one.
+    INTERIOR_CELL_NAME = "UnsafeMutableInterior"
+
+    def cell_payload(self, saw_type: SawType) -> Optional[SawType]:
+        """`T` when `saw_type` IS an `UnsafeMutableInterior<T>`, else None."""
+        if saw_type is None or saw_type.kind != TypeKind.STRUCT:
+            return None
+        name = saw_type.struct_name
+        if name is None:
+            return None
+        if name.split('$')[0] != self.INTERIOR_CELL_NAME:
+            return None
+        args = saw_type.type_args or []
+        return args[0] if args else None
+
+    def is_cell_carrying(self, saw_type: SawType, _visiting=None) -> bool:
+        """Does `saw_type` TRANSITIVELY contain an interior cell (design 186)?
+
+        Rust's internal `Freeze` analysis, inverted, and the one question that
+        replaced three lists of names the compiler used to keep. It drives four
+        behaviors, and every one of them is about the same fact — a value of
+        this type may be mutated through a SHARED borrow:
+
+          * a receiver or borrow of one always travels BY POINTER, so `&self`
+            reaches the caller's storage rather than a copy (`_self_by_pointer_for`);
+          * a `static` of one never lands in a read-only segment;
+          * codegen may assume nothing immutable about storage behind a shared
+            borrow of one;
+          * structural `Sync` derivation is BLOCKED — sharing needs an argument,
+            spelled `UnsafeSync`.
+
+        `Send` is deliberately NOT on that list: a cell moves fine.
+
+        The walk goes through struct fields, enum payloads, tuples, optionals
+        and fixed arrays — every place a cell's storage can be INLINE. It stops
+        at an indirection: a `Box<Cell>` or a `Vector<Cell>` holds a pointer, and
+        the cell it names is not part of this value's own bytes.
+        """
+        if saw_type is None:
+            return False
+        if _visiting is None:
+            _visiting = frozenset()
+        kind = saw_type.kind
+        if kind == TypeKind.ARRAY:
+            return self.is_cell_carrying(saw_type.array_element_type, _visiting)
+        if kind == TypeKind.OPTIONAL:
+            return self.is_cell_carrying(saw_type.inner_type, _visiting)
+        if kind == TypeKind.TUPLE:
+            return any(self.is_cell_carrying(e, _visiting)
+                       for e in (saw_type.element_types or []))
+        if kind == TypeKind.STRUCT:
+            name = saw_type.struct_name
+            if name is None:
+                return False
+            if self.cell_payload(saw_type) is not None:
+                return True
+            base = name.split('$')[0]
+            alias_sym = self._lookup_type_alias_deep(base)
+            if alias_sym and alias_sym.aliased_type:
+                return self.is_cell_carrying(alias_sym.aliased_type, _visiting)
+            if name in _visiting:
+                return False
+            _visiting = _visiting | {name}
+            sym = self._lookup_struct_deep(name) or self._lookup_struct_deep(base)
+            if sym is None:
+                enum_sym = self._lookup_enum_deep(name) or self._lookup_enum_deep(base)
+                if enum_sym is not None:
+                    return self._enum_is_cell_carrying(enum_sym, saw_type, _visiting)
+                return False
+            type_map = self._struct_type_arg_map(sym, saw_type)
+            for field_type in (sym.fields or {}).values():
+                if field_type is None:
+                    continue
+                if type_map:
+                    field_type = field_type.substitute(type_map)
+                if self.is_cell_carrying(field_type, _visiting):
+                    return True
+            return False
+        if kind == TypeKind.ENUM:
+            name = saw_type.enum_name
+            if name is None or name in _visiting:
+                return False
+            enum_sym = self._lookup_enum_deep(name)
+            if enum_sym is None:
+                return False
+            return self._enum_is_cell_carrying(enum_sym, saw_type,
+                                               _visiting | {name})
+        return False
+
+    def _enum_is_cell_carrying(self, enum_sym, saw_type: SawType,
+                               _visiting) -> bool:
+        """A cell inline in any payload makes the whole enum cell-carrying."""
+        type_map = self._enum_type_arg_map(enum_sym, saw_type)
+        for payload in enum_sym.variants.values():
+            for _fname, ptype in payload:
+                if ptype is None:
+                    continue
+                if type_map:
+                    ptype = ptype.substitute(type_map)
+                if self.is_cell_carrying(ptype, _visiting):
+                    return True
+        return False
+
+    def struct_is_cell_carrying(self, struct_name: str) -> bool:
+        """`is_cell_carrying` asked of a struct by NAME.
+
+        The receiver-ABI decision is made at method declaration time, where the
+        name — possibly a monomorphized `SpinLock$1$Int` — is what is in hand. A
+        monomorphized name whose fields are not registered falls back to its
+        template, which is the right answer whenever the cell is declared in the
+        template itself: every `SpinLock<T>` has one wherever `SpinLock` does.
+        """
+        if not struct_name:
+            return False
+        cached = self._cell_carrying_by_name.get(struct_name)
+        if cached is not None:
+            return cached
+        result = self.is_cell_carrying(
+            SawType(TypeKind.STRUCT, struct_name=struct_name))
+        if not result and '$' in struct_name:
+            result = self.is_cell_carrying(
+                SawType(TypeKind.STRUCT, struct_name=struct_name.split('$')[0]))
+        self._cell_carrying_by_name[struct_name] = result
+        return result
+
+    def member_copy_tier(self, saw_type: SawType, _visiting=None) -> str:
+        """The copy tier a MEMBER of `saw_type` contributes to its container.
+
+        Identical to `copy_tier` everywhere except on the interior-mutability
+        cell (design 186), which is `NoCopy` as a VALUE — a copied cell is a
+        second cell, so `let c = self.inner` must be refused — while a cell
+        FIELD contributes its `T`'s class instead of forcing `NoCopy` onto
+        whatever holds it. The container states its own policy: `Atomic<T>`
+        stays the one bitwise-copyable word design 41 made it, a `Once<T>` says
+        `NoCopy` because its payload owns something, and a user wrapper that
+        wants move-only says so in a line the reader can see. Without this the
+        cascade would silently re-tier `Atomic` and everything holding one.
+        """
+        payload = self.cell_payload(saw_type)
+        if payload is not None:
+            return self.copy_tier(payload, _visiting)
+        return self.copy_tier(saw_type, _visiting)
+
     def declared_copy_tier(self, type_name: str) -> str:
         """The tier a type NAME declares, or 'free' when it declares none."""
         if self.type_conforms_to(type_name, "NoCopy"):
@@ -1321,7 +1473,8 @@ class Namespace:
                 continue
             if type_map:
                 field_type = field_type.substitute(type_map)
-            tier = self._tier_join(tier, self.copy_tier(field_type, _visiting))
+            tier = self._tier_join(
+                tier, self.member_copy_tier(field_type, _visiting))
         return tier
 
     def _struct_type_arg_map(self, sym, saw_type: SawType):
@@ -1375,7 +1528,8 @@ class Namespace:
                     continue
                 if type_map:
                     field_type = field_type.substitute(type_map)
-                tier = self._tier_join(tier, self.copy_tier(field_type, _visiting))
+                tier = self._tier_join(
+                    tier, self.member_copy_tier(field_type, _visiting))
         return tier
 
     def _enum_type_arg_map(self, sym, saw_type: SawType):
