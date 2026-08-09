@@ -729,6 +729,25 @@ class ExpressionsMixin:
             )
             return None
 
+        # design 188 unit 4: a `NoMove` value moves exactly ONCE, from its
+        # constructor into its binding, and never again. Every other transfer
+        # position is funnelled through `move` by the NoCopy machinery, so
+        # refusing the funnel refuses them all — and this is the one place the
+        # funnel passes through.
+        if self._is_no_move_type(var_info.type):
+            self._error(
+                ErrorKind.CANNOT_COPY,
+                f"cannot `move` `{expr.variable}`: `{var_info.type}` is "
+                f"`NoMove`, so it lives where its constructor built it and may "
+                f"not be relocated." + self._no_move_scope_note(var_info.type),
+                expr.line, expr.column,
+                hint=f"pass `&var {expr.variable}` to lend it, or build the "
+                     f"value where it has to live. Replacing a referent whole "
+                     f"through a `&var` stays legal — that destroys and "
+                     f"constructs at one address rather than moving"
+            )
+            return None
+
         # Record the move against the binding's identity.
         self._mark_binding_moved(var_info, expr.variable, expr.line, expr.column)
 
@@ -5892,6 +5911,20 @@ class ExpressionsMixin:
                 expr.line, expr.column,
                 hint="consider using `var` instead of `let` to make it mutable",
             )
+        # design 188 unit 4: `take()` moves the payload OUT of the place, which
+        # is a relocation whatever the spelling.
+        payload = opt_type.inner_type if opt_type is not None else None
+        if self._is_no_move_type(payload):
+            self._error(
+                ErrorKind.CANNOT_COPY,
+                f"cannot `take()` a `{payload}` payload: it is `NoMove`, so it "
+                f"lives where its constructor built it and may not be moved out "
+                f"of the optional." + self._no_move_scope_note(payload),
+                expr.line, expr.column,
+                hint="reach the payload through a borrow (`o!.method()`), or "
+                     "keep the value in the binding it was built in"
+            )
+            return None
         # Mark for codegen and for the enclosing call's exclusivity sweep: a
         # by-value argument that TAKES is a mutable access to its receiver path.
         expr.optional_take = True

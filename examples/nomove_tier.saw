@@ -1,0 +1,77 @@
+// The ACCEPT side of design 188 unit 4 — everything `NoMove` deliberately
+// leaves alone, and the one escape hatch it points at.
+//
+// A NoMove value moves exactly once: from its constructor into its binding. So
+// building one, LENDING it as `&var`, mutating through the lend, and REPLACING
+// the referent whole all stay legal — the last of those because `a = fresh`
+// through a `&var` destroys and constructs at one address rather than
+// relocating anything (the old value's deinit runs first, which for a
+// `TaskGroup` is design 124's join).
+//
+// The containment cascade is DECLARED, so a struct that holds one says both
+// words itself. A type that wants a MOVABLE handle over pinned state does not
+// get a language mechanism for it — it composes: put the pinned value behind a
+// `Box` and the handle moves while the storage stays put.
+//
+// EXPECT: success
+// EXPECT-OUTPUT: bumped 2
+// EXPECT-OUTPUT: replaced 99
+// EXPECT-OUTPUT: nested 8
+// EXPECT-OUTPUT: relocated 5
+
+struct Anchor {
+    n: Int
+}
+
+extension Anchor: NoCopy {}
+extension Anchor: NoMove {}
+
+extension Anchor {
+    func get(&self) -> Int { self.n }
+    func bump(&var self) { self.n = self.n + 1 }
+}
+
+// The declared cascade: a struct holding a NoMove member states both properties
+// itself rather than inheriting either silently.
+struct Rig {
+    anchor: Anchor
+}
+
+extension Rig: NoCopy {}
+extension Rig: NoMove {}
+
+// The composition escape: a `Box` is an ordinary movable handle, and what it
+// points at never relocates — so `Crate` is move-only but not pinned.
+struct Crate {
+    pinned: Box<Anchor>
+}
+
+extension Crate: NoCopy {}
+
+func lend_it(a: &var Anchor) {
+    a.bump()
+}
+
+func replace_it(a: &var Anchor) {
+    a = Anchor(n: 99)
+}
+
+func consume(c: Crate) -> Int {
+    c.pinned.get()
+}
+
+func main() {
+    var a = Anchor(n: 1)
+    lend_it(&var a)
+    print("bumped {a.get()}")
+
+    replace_it(&var a)
+    print("replaced {a.get()}")
+
+    var rig = Rig(anchor: Anchor(n: 7))
+    rig.anchor.bump()
+    print("nested {rig.anchor.get()}")
+
+    let crate = Crate(pinned: Box<Anchor>.make(Anchor(n: 5)))
+    print("relocated {consume(move crate)}")
+}

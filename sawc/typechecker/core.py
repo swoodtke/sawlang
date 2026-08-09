@@ -1075,6 +1075,7 @@ class TypeChecker(ExpressionsMixin, StatementsMixin, RegistrationMixin, TypeUtil
 
         # Fifth-b pass: check resource management containment rules
         self._check_no_copy_containment()
+        self._check_no_move_declarations()
         self._check_implicit_copy_containment()
         self._check_explicit_copy_containment()
         self._check_enum_policy_declared()
@@ -1781,6 +1782,7 @@ class TypeChecker(ExpressionsMixin, StatementsMixin, RegistrationMixin, TypeUtil
 
         # Check resource containment rules
         self._check_no_copy_containment()
+        self._check_no_move_declarations()
         self._check_implicit_copy_containment()
         self._check_explicit_copy_containment()
         self._check_enum_policy_declared()

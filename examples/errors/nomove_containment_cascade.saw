@@ -1,0 +1,29 @@
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: contains NoMove member `group` of type `TaskGroup` but does not declare `NoMove`
+// EXPECT-ERROR-CONTAINS: behind a heap indirection
+//
+// Design 188 unit 4's containment rule, in the design-139 style: the cascade is
+// DECLARED, never inherited silently. A struct holding a value that cannot be
+// relocated cannot be relocated either, and it says so itself — `extension
+// Server: NoCopy {}` plus `extension Server: NoMove {}` — or it stops holding
+// one directly.
+//
+// The cost is real and the spec states it plainly, because the alternative
+// (silent inheritance) would make a type's movability change under it when a
+// field's did. The escape for a type that wants a MOVABLE handle over pinned
+// state is composition — a `Box` moves while what it points at stays put — and
+// that needs no language mechanism, which is why v1 ships none.
+
+import std.task.*
+
+struct Server {
+    group: TaskGroup,
+    port: Int
+}
+
+extension Server: NoCopy {}
+
+func main() {
+    var s = Server(group: TaskGroup(), port: 8080)
+    print("port {s.port}")
+}

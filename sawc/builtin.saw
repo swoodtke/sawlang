@@ -40,6 +40,27 @@ trait NoCopy: Deinit {
     // Marker trait - no additional methods
 }
 
+// NoMove trait (design 188) - marker for a type that is PINNED to the binding
+// its constructor built it in. DUPLICATION and RELOCATION are separate axes:
+// this one governs relocation only, and it does not imply NoCopy — it REQUIRES
+// it, so a type states both properties out loud (`extension T: NoCopy {}` plus
+// `extension T: NoMove {}`). Declaring it on anything but a declared-NoCopy
+// type is a compile error.
+//
+// A NoMove value moves exactly once, from its constructor into its binding, and
+// never again: `move x`, `Optional.take` of a NoMove payload and every other
+// transfer position are refused. Whole-referent replacement through `&var`
+// stays legal — that is destruction then construction at one address, not a
+// relocation. A struct or enum with a NoMove member must declare NoMove (and
+// NoCopy) itself; the cascade is DECLARED, never inherited silently.
+//
+// Not a generic bound, and there is no Pin/projection machinery: v1 is the
+// strict point, which `NoMove + ExplicitCopy` can be relaxed toward later with
+// no migration.
+trait NoMove {
+    // Marker trait - no additional methods
+}
+
 // =============================================================================
 // Equality (design 32)
 // =============================================================================

@@ -909,6 +909,15 @@ extension TaskGroup: NoCopy {
     }
 }
 
+// A group is a SCOPE (design 124): its Deinit structured-joins its children
+// where it was born, spawned frames hold its address, and the run queue is
+// reached through that address — so relocating one is meaningless, and it used
+// to be accepted and then abort inside the runtime. `NoMove` (design 188) is
+// the type system honouring what design 124 already decided. It REQUIRES the
+// NoCopy above rather than implying it: duplication and relocation are separate
+// properties and a group states both.
+extension TaskGroup: NoMove {}
+
 // TaskHandle<T> — the typed result access for one spawned child (design 52b
 // item 2). It owns NOTHING: three raw pointers into the group and into that
 // task's group-owned CELL. `result_ptr` addresses the cell's `T?` slot and

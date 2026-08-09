@@ -4,10 +4,10 @@
 // ABORTS inside the runtime (Vector.get: no place to lend, SIGABRT).
 // RULED (user, Aug 9): TaskGroup declares the new NoMove tier (alongside
 // its explicit NoCopy — NoMove requires, never implies), so the move below
-// becomes a compile error citing the scope rule.
-// XFAIL: DF-188d moving a TaskGroup that holds a live task aborts in the runtime
+// is a compile error citing the scope rule.
 // EXPECT: error
 // EXPECT-ERROR-CONTAINS: NoMove
+// EXPECT-ERROR-CONTAINS: A `TaskGroup` is a SCOPE (design 124)
 
 import std.task.*
 

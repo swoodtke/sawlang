@@ -907,6 +907,23 @@ class TypeUtilsMixin:
     def _validate_one_bound(self, tp, bound, line, column):
         if bound in self._STRUCTURAL_BOUNDS:
             return
+        # design 188 unit 4 fence: `NoMove` is a property of a CONCRETE type's
+        # storage, not a capability a generic body can use. A bound exists to
+        # let a body DO something with every instantiation; there is nothing a
+        # `T: NoMove` body could do that an unbounded one cannot, and admitting
+        # one would invite the projection/Pin machinery v1 deliberately has not
+        # got.
+        if bound.rsplit('.', 1)[-1] == "NoMove":
+            self._error(
+                ErrorKind.TYPE_MISMATCH,
+                f"`NoMove` is not a generic bound, so it cannot bound the type "
+                f"parameter `{tp.name}`",
+                line, column,
+                hint="`NoMove` is declared at the CONFORMANCE position "
+                     "(`extension T: NoMove {}`, beside the required "
+                     "`extension T: NoCopy {}`) and says where a value may "
+                     "live, not what a generic body may do with it")
+            return
         simple = bound.split('.')[-1]
         if self.get_trait_info(simple, qualified_path=bound) is not None:
             return
@@ -2211,6 +2228,57 @@ class TypeUtilsMixin:
         """
         return self.namespace.copy_tier(saw_type) == 'nocopy'
 
+    # ------------------------------------------------------- design 188 (unit 4)
+    # `NoMove`: the relocation axis.
+
+    def _is_no_move_type(self, saw_type: SawType, depth: int = 0) -> bool:
+        """Whether `saw_type` is PINNED — declared `NoMove`, or a wrapper of one.
+
+        Duplication and relocation are separate axes, so this is deliberately
+        not part of `copy_tier`: a NoMove type has a copy tier too (a declared
+        `NoCopy`, which the declaration check enforces). Wrappers follow design
+        139's rule — an `Optional<TaskGroup>`, a tuple holding one and a
+        `[TaskGroup; 4]` are each as unmovable as the group itself.
+        """
+        if saw_type is None or depth > 12:
+            return False
+        kind = saw_type.kind
+        if kind == TypeKind.OPTIONAL:
+            return self._is_no_move_type(saw_type.inner_type, depth + 1)
+        if kind == TypeKind.ARRAY:
+            return self._is_no_move_type(saw_type.array_element_type, depth + 1)
+        if kind == TypeKind.TUPLE:
+            return any(self._is_no_move_type(e, depth + 1)
+                       for e in (saw_type.element_types or []))
+        name = None
+        if kind == TypeKind.STRUCT:
+            name = saw_type.struct_name
+        elif kind == TypeKind.ENUM:
+            name = saw_type.enum_name
+        if name is None:
+            return False
+        return self.namespace.type_conforms_to(
+            self._canonical_type_name(name), "NoMove")
+
+    def _no_move_scope_note(self, saw_type: SawType) -> str:
+        """The extra sentence a refused move of a `TaskGroup` earns.
+
+        The rule is design 124's, not design 188's — a group is a scope, and its
+        `Deinit` structured-joins its children where the group was born — so the
+        diagnostic says so rather than leaving the reader to find out why a type
+        they did not declare is pinned.
+        """
+        name = (saw_type.struct_name if saw_type is not None
+                and saw_type.kind == TypeKind.STRUCT else None)
+        if name is None or self._canonical_type_name(name) != "TaskGroup":
+            return ""
+        return (" A `TaskGroup` is a SCOPE (design 124): its `Deinit` "
+                "structured-joins its children where the group was born, and "
+                "every spawned frame holds the group's address — so a group "
+                "that moved would join in one place and be driven from "
+                "another. Keep it in the frame that opened it and pass "
+                "`&var group` down, or spawn into a group the caller owns.")
+
     def _is_implicit_copy_type(self, saw_type: SawType) -> bool:
         """Check if a type implements ImplicitCopy."""
         if saw_type is None:
@@ -3177,6 +3245,88 @@ class TypeUtilsMixin:
                              f"its `deinit` is synthesized"
                     )
                     break  # Only report once per struct
+
+    # ------------------------------------------------------- design 188 (unit 4)
+
+    def _no_move_members(self, type_name: str):
+        """`(member name, member type)` pairs of `type_name` that are NoMove."""
+        struct_info = self.namespace.structs.get(type_name)
+        if struct_info is not None:
+            return [(n, t) for n, t in struct_info.fields.items()
+                    if self._is_no_move_type(t)]
+        enum_info = self.namespace.enums.get(type_name)
+        if enum_info is not None:
+            out = []
+            for payloads in enum_info.variants.values():
+                for pname, ptype in (payloads or []):
+                    if self._is_no_move_type(ptype):
+                        out.append((pname, ptype))
+            return out
+        return []
+
+    def _check_no_move_declarations(self):
+        """`NoMove` REQUIRES a declared `NoCopy`, and CONTAINMENT cascades.
+
+        Duplication and relocation are separate axes (design 188 unit 4), so
+        neither property is ever inferred from the other. Declaring `NoMove` on
+        a type whose copy tier is anything but a DECLARED `NoCopy` is an error:
+        both facts are stated out loud, which is also what keeps `NoMove +
+        ExplicitCopy` — the C++ re-register-on-copy shape — available later by
+        relaxing exactly this check and nothing else.
+
+        The containment rule is design 139's declared cascade, not silent
+        inheritance: a struct or enum with a NoMove member does not compile
+        until it says `NoMove` (and `NoCopy`) itself. The cost is real and the
+        spec states it; the escape for a type that wants a movable handle over
+        pinned state is composition — put the pinned part behind a heap
+        indirection, which needs no language mechanism.
+        """
+        for type_name in list(self.namespace.structs) + list(self.namespace.enums):
+            # A compiler-synthesized coroutine frame is constructed, resumed by
+            # `&var` and dropped in place — it is never relocated, so a
+            # frame-resident group needs no declaration (design 62 G1, the same
+            # exemption the NoCopy containment check makes).
+            if type_name.startswith("__Frame_"):
+                continue
+            declared = self.namespace.type_conforms_to(type_name, "NoMove")
+            info = (self.namespace.structs.get(type_name)
+                    or self.namespace.enums.get(type_name))
+            line = getattr(info, 'line', 0) or 0
+            column = getattr(info, 'column', 0) or 1
+
+            if declared and self.namespace.declared_copy_tier(type_name) != 'nocopy':
+                self._error(
+                    ErrorKind.CANNOT_COPY,
+                    f"`{type_name}` declares `NoMove` without declaring "
+                    f"`NoCopy`: relocation and duplication are separate "
+                    f"properties, and `NoMove` requires the other to be stated "
+                    f"rather than implying it",
+                    line, column,
+                    hint=f"add `extension {type_name}: NoCopy {{}}` beside the "
+                         f"`NoMove` conformance — a value that may not move and "
+                         f"may be freely duplicated is not a shape v1 supports"
+                )
+                continue
+
+            if declared:
+                continue
+            offenders = self._no_move_members(type_name)
+            if not offenders:
+                continue
+            member, member_type = offenders[0]
+            self._error(
+                ErrorKind.CANNOT_COPY,
+                f"`{type_name}` contains NoMove member `{member}` of type "
+                f"`{member_type}` but does not declare `NoMove`: a value that "
+                f"cannot be relocated cannot be relocated inside something else "
+                f"either",
+                line, column,
+                hint=f"declare the cascade — `extension {type_name}: NoCopy {{}}` "
+                     f"and `extension {type_name}: NoMove {{}}` — or hold the "
+                     f"pinned value behind a heap indirection (a `Box`), which "
+                     f"gives `{type_name}` a movable handle over storage that "
+                     f"stays put"
+            )
 
     def _check_implicit_copy_containment(self):
         """Check that structs containing ImplicitCopy fields also implement a copy policy."""
