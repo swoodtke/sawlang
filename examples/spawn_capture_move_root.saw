@@ -1,0 +1,29 @@
+// The caller MOVES the captured root away between spawn and join. Main
+// never suspends before the move, so `consume(move buf)` runs first and
+// drops the buffer; the join then drives the task, which reads the dead
+// slot and reallocs FROM FREED MEMORY — silently, exit 0, in the
+// declared-before-the-group ordering DF-188c rules legal. Design 189's
+// extent rule makes the move refuse: `buf` is borrowed by the task's
+// handle until the join.
+// XFAIL: DF-189c moving a captured root between spawn and join hands the task freed memory
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: borrow
+
+import std.task.*
+
+func run(f: () -> Int) -> Int {
+    yield_now()
+    f()
+}
+
+func consume(v: Vector<Int>) -> Int {
+    v.len()
+}
+
+func main() {
+    var buf: Vector<Int> = [1, 2, 3]
+    var group = TaskGroup()
+    let h = group.spawn(run({ [&var buf] in buf.push(9)  buf.len() }))
+    let taken = consume(move buf)
+    print("consumed len {taken}; task result {h.join()}")
+}

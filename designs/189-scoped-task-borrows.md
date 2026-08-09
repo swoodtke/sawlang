@@ -79,12 +79,14 @@ task's lifetime, and the task's HANDLE carries that borrow.**
    with one added sentence naming the task and the release point ("the
    task spawned at LINE holds `&var buf` until its join at LINE / its
    group's death"). No new error vocabulary.
-3. **Pins + accepts**: pin probes 1, 2 and 5 as examples (error-intended
-   XFAILs at authoring... flipped by unit 1 in this same brief — land
-   them WITH the fix, EXPECT: error from day one); accept-side tests for
-   the patterns that must SURVIVE: single capture + touch-after-join,
-   disjoint roots into two tasks, shared captures beside reads, the
-   spawn-join-use idiom. Regression-pin probe 4's existing MT rejection.
+3. **Pins + accepts**: probes 1, 2 and 5 are PRE-PINNED on main (user,
+   Aug 9) as `examples/spawn_capture_alias.saw` (DF-189a),
+   `examples/spawn_capture_caller_alias.saw` (DF-189b) and
+   `examples/spawn_capture_move_root.saw` (DF-189c) — unit 1 flips all
+   three XPASS. Add accept-side tests for the patterns that must
+   SURVIVE: single capture + touch-after-join, disjoint roots into two
+   tasks, shared captures beside reads, the spawn-join-use idiom.
+   Regression-pin probe 4's existing MT rejection.
 4. **Design-88 relaxation (OPTIONAL — separate ratification):** the same
    machinery blesses reference PARAMS at spawn roots (`group.spawn(f(&x))`)
    under the same declared-before + handle-extent rules, restoring

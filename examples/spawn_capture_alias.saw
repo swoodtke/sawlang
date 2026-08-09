@@ -1,0 +1,25 @@
+// Two tasks each capture [&var n] of the SAME root: two exclusive borrows
+// of one path co-live across suspensions, and both tasks mutate the one
+// root with no diagnostic — the Law of Exclusivity applied over a
+// task-length extent (design 189: the handle carries the borrow, join
+// releases it) refuses the second spawn.
+// XFAIL: DF-189a two exclusive spawn captures of one root co-live silently
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: exclusive access violation
+
+import std.task.*
+
+func run(f: () -> Int) -> Int {
+    yield_now()
+    f()
+}
+
+func main() {
+    var n = 0
+    var group = TaskGroup()
+    let a = group.spawn(run({ [&var n] in n = n + 1  n }))
+    let b = group.spawn(run({ [&var n] in n = n + 10  n }))
+    print("a saw {a.join()}")
+    print("b saw {b.join()}")
+    print("n is {n}")
+}

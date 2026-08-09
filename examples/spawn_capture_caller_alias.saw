@@ -1,0 +1,27 @@
+// The caller writes and reads `n` while a spawned task holds [&var n] —
+// writer aliases writer across the spawn/join window. Under design 189's
+// borrow-extent rule the task's handle carries an exclusive borrow of `n`
+// from the spawn to the join, so both caller touches below are refused
+// (an exclusive borrow excludes readers too — the standard XOR table over
+// a task-length window). After `h.join()` the root is free again.
+// XFAIL: DF-189b the caller aliases a root a task holds exclusively
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: exclusive access violation
+
+import std.task.*
+
+func run(f: () -> Int) -> Int {
+    yield_now()
+    f()
+}
+
+func main() {
+    var n = 0
+    var group = TaskGroup()
+    let h = group.spawn(run({ [&var n] in n = n + 100  n }))
+    n = 5
+    let seen = n
+    print("caller wrote 5, read {seen}")
+    print("task saw {h.join()}")
+    print("n is {n}")
+}

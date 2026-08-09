@@ -109,6 +109,23 @@ as an optional unit, ratified separately. RATIFIED Aug 9; queue slot:
 immediately after 188, before 186. Queue RESUMED same day:
 184 ∥ 187 dispatched, then 188 → 189 → 186 serial.
 
+The probe outcomes, filed as findings so the pins cite them (user, Aug 9:
+"pre-pin the 189 probes"):
+
+- **DF-189a (SOUNDNESS-CONTRACT, probe 1): two `[&var]` captures of one
+  root co-live silently** — both tasks mutate the one root, two exclusive
+  borrows across suspensions, no diagnostic. PIN:
+  `examples/spawn_capture_alias.saw`.
+- **DF-189b (SOUNDNESS-CONTRACT, probe 2): the caller writes and reads a
+  root while a task holds `[&var]` of it** — writer aliases writer across
+  the spawn/join window, no diagnostic. PIN:
+  `examples/spawn_capture_caller_alias.saw`.
+- **DF-189c (SOUNDNESS-UAF, probe 5): `move` of a captured root between
+  spawn and join hands the task freed memory** — the moved-to value drops,
+  the join then drives the task, which reads the dead slot and reallocs
+  from the freed buffer, silently, exit 0 — in the declared-before
+  ordering DF-188c rules legal. PIN: `examples/spawn_capture_move_root.saw`.
+
 ## Design 187 — coro fix batch + 182 completion (QUEUED, held)
 
 `designs/187-coro-fix-batch.md`, approved Aug 8. Ten units, one surface:
