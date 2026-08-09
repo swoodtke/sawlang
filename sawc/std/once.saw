@@ -1,0 +1,150 @@
+//! State that is computed once and read everywhere after.
+//!
+//! A `static` is image bytes: Saw has no life-before-main and no static
+//! constructors, so a global whose initial value has to be COMPUTED cannot be a
+//! static initializer in any form. `Once<T>` is the answer for the common half
+//! of that — state set once, at a moment the program picks, and read as a plain
+//! value from then on:
+//!
+//! ```saw
+//! import std.once.*
+//!
+//! struct Limits {
+//!     workers: Int,
+//!     queue: Int
+//! }
+//!
+//! static LIMITS: Once<Limits>          // zero is UNSET; bss, no image bytes
+//!
+//! func boot() {
+//!     LIMITS.set(Limits(workers: cpu_count(), queue: cpu_count() * 64))
+//! }
+//!
+//! func workers() -> Int {              // a SAFE function, no `unsafe` anywhere
+//!     LIMITS.get().workers
+//! }
+//! ```
+//!
+//! The other half — state MUTATED throughout the program's life — is still
+//! `unsafe static var` and the author's own serialization argument. `var` means
+//! what it says again: a `Once` is not mutable state, it is a value that has
+//! not arrived yet.
+//!
+//! WHAT IT IS: an `Atomic` state word beside an interior cell holding the `T`.
+//! Zero is UNSET, so a static needs no initializer and an unset `Once` costs no
+//! image bytes. The publish/read ordering lives INSIDE the type — the pairing a
+//! hand-rolled placeholder-then-assign gets silently wrong, because storing the
+//! payload and announcing it are two writes and nothing but a release/acquire
+//! pair keeps a reader from seeing the second without the first.
+//!
+//! THE TWO PANICS. A second `set` panics, and a `get` before any `set` panics.
+//! Both are the fault-not-status principle (design 180): a caller-checkable
+//! program bug is a panic, never a status a caller can ignore into a wrong
+//! answer. Two boot paths initializing one `Once` is a bug in the boot order,
+//! not a condition to branch on; reading a value that has not been computed is
+//! a bug in the call order. `try_get() -> T?` is the inspectable twin for code
+//! that genuinely does not know yet.
+//!
+//! It does NOT block. A `get` racing the `set` that will satisfy it takes the
+//! not-yet-initialized panic rather than waiting — a waiting `Once` is a
+//! different type with a different cost, and the panic is the honest v1 answer.
+//!
+//! A `Once` is DECLARED, not constructed: the unset state is the zero pattern,
+//! so a bare `static` is the only spelling it needs and there is no `init`.
+//! Design 149's immortality rule applies as it does to every static, so `T`
+//! must be trivially destructible — a static never runs deinit, and a `Once`
+//! holding a `String` would be a static that leaks one.
+
+// The three states of the word. Zero MUST be UNSET: that is what makes a bare
+// `static POOL: Once<T>` legal, on the same terms as SpinLock's zero-is-
+// unlocked. Named as an enum rather than as a family of Int statics because a
+// closed set of tags is what an enum is for; the Int projections below are the
+// one boundary that needs numbers, since `Atomic<Int>` is the v1 atomic.
+enum State: Int {
+    case Unset = 0,
+    case Setting = 1,
+    case Ready = 2
+}
+
+static UNSET: Int = 0
+static SETTING: Int = 1
+static READY: Int = 2
+
+static_assert((State.Unset as Int) == 0, "zero must mean UNSET")
+static_assert((State.Setting as Int) == 1, "the state words agree")
+static_assert((State.Ready as Int) == 2, "the state words agree")
+
+/// A value written once and read many times.
+///
+/// `NoCopy` — a copied `Once` is a second, independent slot, so the copy would
+/// silently accept its own `set` and the two would disagree forever.
+///
+/// `Sync` is DECLARED (design 186): a `Once` carries an interior cell, so it
+/// derives none. Sharing one is sound when `T` can cross a thread boundary
+/// (`get` hands a copy to whichever thread asked) AND when `T` can be shared
+/// (two readers copy the stored value CONCURRENTLY, which for a refcounted
+/// payload is two retains of one control block). `Send` needs no declaration —
+/// a cell moves fine, so it derives from `T`'s own.
+public struct Once<T> {
+    state: Atomic<Int>,
+    value: UnsafeMutableInterior<T>
+}
+
+extension Once<T>: NoCopy {}
+extension Once<T: Send + Sync>: UnsafeSync {}
+
+extension Once<T> {
+    /// Publishes `value`, once.
+    ///
+    /// PANICS if this `Once` already holds a value, or if another thread is
+    /// setting it at this instant. The compare-exchange is what makes racing
+    /// setters resolve rather than interleave: the first wins and publishes,
+    /// every loser panics.
+    public func set(&self, value: T) unsafe {
+        if not self.state.compare_exchange(UNSET, SETTING) {
+            panic("Once.set: already initialized (a Once is written once)")
+        }
+        self.value.ptr()[0] = value
+        // RELEASE-PUBLISH. Every atomic in Saw is seq_cst, so this store cannot
+        // be reordered ahead of the payload write above and no reader can see
+        // `Ready` without also seeing the bytes. Announcing first is exactly
+        // the bug a hand-rolled version ships.
+        self.state.store(READY)
+    }
+
+    /// Whether a value has been published.
+    ///
+    /// The answer can be stale before it is read, so branching on it to decide
+    /// whether to `set` is a race; `set` itself is what resolves that.
+    public func is_set(&self) -> Bool {
+        self.state.load() == READY
+    }
+}
+
+extension Once<T: Copy> {
+    /// The published value.
+    ///
+    /// PANICS if nothing has been published yet. Reading a value that has not
+    /// been computed is a bug in the call order, not a condition — `try_get` is
+    /// the spelling for code that genuinely does not know.
+    public func get(&self) unsafe -> T {
+        // ACQUIRE-READ, pairing with `set`'s release store: seeing `Ready` here
+        // means seeing the payload write that preceded it.
+        if self.state.load() != READY {
+            panic("Once.get: read before initialization")
+        }
+        self.value.ptr()[0].copy()
+    }
+
+    /// The published value, or `None` when nothing has been published yet.
+    ///
+    /// The inspectable twin of `get`. Reach for it where "not yet" is a real
+    /// state of the program rather than a mistake — a diagnostic dump, a
+    /// component that starts before the thing it reports on.
+    public func try_get(&self) unsafe -> T? {
+        if self.state.load() != READY {
+            return None
+        }
+        self.value.ptr()[0].copy()
+    }
+}

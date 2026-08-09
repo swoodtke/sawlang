@@ -6568,6 +6568,7 @@ need one of the three [import forms](#imports).
 | `std.task` | `yield_now`, `Task<T>` (the `spawn` handle) | no |
 | `std.channel` | `Channel<T>` | no |
 | `std.mutex` / `std.spinlock` | `Mutex<T>`, `SpinLock<T>` | no |
+| `std.once` | `Once<T>` | no |
 | `std.data` | `Data` | no |
 | `std.file` / `std.directory` / `std.path` | `File`, `Directory`, `Path` | no |
 | `std.net` | `TcpListener`, `TcpStream`, `IoError` | no |

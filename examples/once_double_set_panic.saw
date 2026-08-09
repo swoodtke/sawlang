@@ -1,0 +1,23 @@
+// design 186 unit 6: a SECOND `set` panics.
+//
+// Two boot paths initializing one `Once` is a bug in the boot order, not a
+// condition to branch on — the fault-not-status principle ratified in the
+// design 180 review. Returning a status here would let a caller ignore it into
+// a program running on the wrong configuration, which is the failure this type
+// exists to make impossible.
+//
+// The same compare-exchange resolves the RACING case: the first setter wins and
+// publishes, every loser takes this panic.
+// EXPECT: panic
+// EXPECT-PANIC-CONTAINS: Once.set: already initialized
+// EXPECT-PANIC-CONTAINS: once.saw:
+import std.once.*
+
+static PORT: Once<Int>
+
+func main() {
+    PORT.set(8080)
+    print(PORT.get())
+    PORT.set(9090)
+    print("unreachable")
+}

@@ -5007,7 +5007,10 @@ class ExpressionsMixin:
                 "`ptr()` takes no arguments", expr.line, expr.column)
             return None
         expr.interior_cell_ptr = True
-        return SawType(TypeKind.POINTER, inner_type=payload)
+        # MUTABLE: writing through it is the whole point of a cell. That the
+        # receiver is `&self` is exactly what interior mutability means.
+        return SawType(TypeKind.POINTER, inner_type=payload,
+                       pointer_mutable=True)
 
     def _check_um_method(self, expr: MethodCall, um_type: SawType) -> Optional[SawType]:
         """Check a `read`/`write`/`ptr`/`len`/`end` accessor on `UnsafeMemory`."""

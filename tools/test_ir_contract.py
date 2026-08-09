@@ -285,6 +285,10 @@ CELL_STATICS = [
 # whole reason it can be a static at all.
 MUTEX_STATICS = [("REGISTRY", True, True), ("STATS", True, True)]
 
+# And of `Once<T>` (design 186 unit 6): zero is UNSET, so a bare `static` is the
+# only spelling the type needs — which is only true if the zero really is bss.
+ONCE_STATICS = [("LIMITS", True, True), ("PAGE", True, True)]
+
 _GLOBAL_RE = re.compile(
     r'^@"saw\.static\.(\w+)" = internal (constant|global) (.*)$', re.MULTILINE)
 
@@ -294,6 +298,8 @@ def check_cell_static_placement(failures):
                    "cell_static_placement", CELL_STATICS)
     _check_statics(failures, "mutex_static_inline.saw",
                    "mutex_static_placement", MUTEX_STATICS)
+    _check_statics(failures, "once_static_set_get.saw",
+                   "once_static_placement", ONCE_STATICS)
 
 
 def _check_statics(failures, filename, tag, expected):
@@ -338,8 +344,9 @@ def main() -> int:
 
     print(f"IR contract: {len(EMBED_CORPUS)} programs embed identically with "
           f"and without -c; every documented seam matches rt/ABI.md at 64 and "
-          f"32 bits; {len(CELL_STATICS) + len(MUTEX_STATICS)} statics land in "
-          f"the segment the cell-carrying property picks")
+          f"32 bits; "
+          f"{len(CELL_STATICS) + len(MUTEX_STATICS) + len(ONCE_STATICS)} "
+          f"statics land in the segment the cell-carrying property picks")
     return 0
 
 

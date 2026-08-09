@@ -1,0 +1,23 @@
+// design 186 unit 6: `get` before any `set` panics, with `panic at FILE:LINE:`.
+//
+// Reading a value that has not been computed is a bug in the CALL ORDER, and
+// the fault-not-status principle says a caller-checkable bug is a panic. The
+// alternative — handing back a zeroed `T` — is the placeholder pattern this
+// type replaces, and it is the one that makes the bug show up somewhere else.
+//
+// `try_get()` is the spelling for code that genuinely does not know yet; it is
+// exercised in `once_static_set_get.saw`.
+// EXPECT: panic
+// EXPECT-PANIC-CONTAINS: panic at once.saw:
+// EXPECT-PANIC-CONTAINS: Once.get: read before initialization
+import std.once.*
+
+static TIMEOUT: Once<Int>
+
+func read_timeout() -> Int {
+    TIMEOUT.get()
+}
+
+func main() {
+    print(read_timeout())
+}

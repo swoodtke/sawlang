@@ -1,0 +1,61 @@
+// design 186 unit 6: publish on one thread, read on every other.
+//
+// This is what the release-publish / acquire-read pairing inside `Once` is for.
+// Storing the payload and announcing it are TWO writes; without the ordering, a
+// reader that saw `Ready` could still read the payload from before the store —
+// which is the failure a hand-rolled placeholder-then-assign ships, and the
+// failure that is worst on the machines it is hardest to reproduce on.
+//
+// One setter thread, three readers spinning until the value arrives. Each
+// reader asserts the WHOLE struct, not one field: a torn publish would show up
+// as a reader that sees the workers count without the queue size.
+//
+// EXPECT: success
+// EXPECT-OUTPUT: 3
+// EXPECT-OUTPUT: 8
+// EXPECT-OUTPUT: 512
+import std.once.*
+
+struct Limits {
+    workers: Int,
+    queue: Int
+}
+
+static LIMITS: Once<Limits>
+static AGREED: Atomic<Int> = Atomic(0)
+
+func publish() -> Bool {
+    LIMITS.set(Limits(workers: 8, queue: 512))
+    true
+}
+
+func consume() -> Bool {
+    // Spin until the publish lands. `try_get` is the read that may legitimately
+    // find nothing, which is exactly this loop's condition.
+    var seen = false
+    while not seen {
+        if let l = LIMITS.try_get() {
+            if l.workers == 8 && l.queue == 512 {
+                let _n = AGREED.fetch_add(1)
+            }
+            seen = true
+        }
+    }
+    true
+}
+
+func main() {
+    var r0 = spawn { consume() }
+    var r1 = spawn { consume() }
+    var r2 = spawn { consume() }
+    var w = spawn { publish() }
+
+    let _a = r0.join()
+    let _b = r1.join()
+    let _c = r2.join()
+    let _d = w.join()
+
+    print(AGREED.load())
+    print(LIMITS.get().workers)
+    print(LIMITS.get().queue)
+}

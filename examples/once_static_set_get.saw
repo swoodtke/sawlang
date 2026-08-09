@@ -1,0 +1,61 @@
+// design 186 unit 6: `Once<T>` — the set-once static, and the proof that its
+// READERS are safe functions.
+//
+// A `static` is image bytes, so a global whose initial value has to be computed
+// cannot be a static initializer in any form. The pre-186 spelling was
+// `unsafe static var` plus a placeholder plus an assignment plus a
+// hand-rolled flag — four things to get right, one of them (the publish
+// ordering) invisible when wrong. This is that pattern, with the unsafe domain
+// shrunk to the type's own internals.
+//
+// NOTHING BELOW SAYS `unsafe`. `Once.get`/`set` are unsafe-declared (they reach
+// through the cell's pointer), and design 130's rule is that calling one from
+// safe code needs no ceremony — the all-safe-parameters obligation is theirs.
+// That is the whole payoff of putting the cell behind a type.
+//
+// EXPECT: success
+// EXPECT-OUTPUT: false
+// EXPECT-OUTPUT: not yet
+// EXPECT-OUTPUT: true
+// EXPECT-OUTPUT: 8
+// EXPECT-OUTPUT: 512
+// EXPECT-OUTPUT: 8
+// EXPECT-OUTPUT: 4096
+import std.once.*
+
+struct Limits {
+    workers: Int,
+    queue: Int
+}
+
+// No initializer: zero is UNSET, and an unset `Once` costs no image bytes.
+static LIMITS: Once<Limits>
+static PAGE: Once<Int>
+
+func boot(cpus: Int) {
+    LIMITS.set(Limits(workers: cpus, queue: cpus * 64))
+    PAGE.set(1 << 12)
+}
+
+// The reader every consumer writes: a plain safe function returning a plain
+// value.
+func workers() -> Int {
+    LIMITS.get().workers
+}
+
+func main() {
+    print(LIMITS.is_set())
+    if let l = LIMITS.try_get() {
+        print("already {l.workers}")
+    } else {
+        print("not yet")
+    }
+
+    boot(8)
+
+    print(LIMITS.is_set())
+    print(workers())
+    print(LIMITS.get().queue)
+    if let l = LIMITS.try_get() { print(l.workers) }
+    print(PAGE.get())
+}
