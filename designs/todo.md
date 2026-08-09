@@ -89,7 +89,7 @@ absent path (audit row O10). The type error is still owed (187 unit 7,
 note updated there). Audit rows confirming fixed items: V17 (DF-146j),
 O10/O11 controls, the 26/26 trap table.
 
-## Design 189 — scoped task borrows (DRAFT brief, Aug 9; probe-CONFIRMED soundness)
+## Design 189 — scoped task borrows (APPROVED + QUEUED, Aug 9; probe-CONFIRMED soundness)
 
 `designs/189-scoped-task-borrows.md`, authored from the five-probe
 investigation the user directed ("first probe it and then write a brief
@@ -102,9 +102,12 @@ soundness, not hygiene. Also probed: two `&var` captures of one root
 co-live silently (Law violated); MT captures are ALREADY refused via
 Send on the closure param (nothing owed there but a regression pin).
 The rule: a capture borrows its root for the task's life, the HANDLE
-carries the borrow, join releases it. Design-88 param relaxation rides
-as an optional unit. NEEDS USER REVIEW of the handle-carries-borrow
-model; recommended queue slot: immediately after 188, before 186.
+carries the borrow, join releases it (group death is the fallback for a
+discarded handle); an exclusive capture excludes caller reads too —
+standard XOR over a task-length window. Design-88 param relaxation rides
+as an optional unit, ratified separately. RATIFIED Aug 9; queue slot:
+immediately after 188, before 186. Queue RESUMED same day:
+184 ∥ 187 dispatched, then 188 → 189 → 186 serial.
 
 ## Design 187 — coro fix batch + 182 completion (QUEUED, held)
 

@@ -1,13 +1,21 @@
 # Design 189 — scoped task borrows: the capture's extent is the task's life
 
-**Status: DRAFT (Aug 9) — probe-driven, per the user's direction ("first
-probe it and then write a brief depending on the probe outcome"). The
-probes CONFIRMED two silent use-after-frees reachable from safe code, so
-this is a SOUNDNESS brief, not ergonomics. Needs user review of the
-handle-carries-the-borrow model before it queues. Probes:
-`.build/scratch/probe_borrow_extent_*.saw`, `probe_capture_after_group_uaf.saw`,
-`probe_capture_mt_group.saw` (gitignored scratch — outcomes recorded here
-and pinned at landing).**
+**Status: APPROVED + QUEUED (user, Aug 9: "it is a legit hole that we
+need to fix … they seem consistent and understandable — let's brief it
+as discussed"). Probe-driven: the probes CONFIRMED two silent
+use-after-frees reachable from safe code, so this is a SOUNDNESS brief.
+Ratified clarifications from the review conversation: the borrow
+releases at the HANDLE's consuming join (or group death for a
+discarded/unjoined handle — the fallback, not the norm); an exclusive
+`[&var]` capture excludes caller READS too, the standard
+one-writer-XOR-many-readers table over a task-length window — a caller
+that wants to observe mid-task state uses `Arc<Mutex>`/`Channel`, where
+the synchronization is visible in the types. The user notes the refused
+patterns may be rare in practice; the rule is enforced for consistency
+and the hole, not for ergonomics. Queue slot: after 188, before 186.
+Probes: `.build/scratch/probe_borrow_extent_*.saw`,
+`probe_capture_after_group_uaf.saw`, `probe_capture_mt_group.saw`
+(gitignored scratch — outcomes recorded here and pinned at landing).**
 
 ## The probe record (Aug 9, all on main at 3f392ec)
 
