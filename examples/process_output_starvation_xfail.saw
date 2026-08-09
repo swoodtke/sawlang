@@ -8,20 +8,22 @@
 // spawned, so on a cooperative `output()` its first tick lands immediately; today it
 // lands at ~1000 ms.
 //
-// Making `output()` suspending is what fixes this, and DF-182e is why that could not
-// be done yet: a suspending `output()` turns every caller into a coroutine frame, and
-// a frame holding a `Data` or a `Vector` across a suspension cannot be spawned into a
-// multi-threaded TaskGroup while no std container is `Send`. `devtools/irdet` is
-// exactly that shape. When DF-182e is settled, `run()`'s park loop (std/process.saw)
-// drops straight into `output()` and this test flips to XPASS — remove the marker
-// then and rename the file.
+// Making `output()` suspending is what fixes this. DF-182e used to be the
+// blocker and is closed (design 187 unit 9): a frame holding a `Data` or a
+// `Vector` across a suspension reaches a multi-threaded TaskGroup now, which is
+// what `devtools/irdet` needs. Design 187 unit 11 built the rest — the drain as
+// a `blocking` extern the offload runs on a worker thread, the reap on `run()`'s
+// park loop as a shared method — and MEASURED this test flipping. It is still
+// xfail because irdet then stops compiling on DF-187b, a pre-existing transform
+// bug in a shape irdet happens to be written in; see that finding for what unit
+// 11 already knows.
 //
 // EXPECT: success
 // EXPECT-OUTPUT:
 // sibling: concurrent
 // captured: done
 // -- done
-// XFAIL: DF-181a output half - Command.output blocks the executor thread in read+waitpid (blocked on DF-182e)
+// XFAIL: DF-181a output half - Command.output blocks the executor thread in read+waitpid (unit 11 built, blocked on DF-187b)
 
 import std.process.*
 import std.task.*

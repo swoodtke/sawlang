@@ -131,16 +131,47 @@ The probe outcomes, filed as findings so the pins cite them (user, Aug 9:
   from the freed buffer, silently, exit 0 — in the declared-before
   ordering DF-188c rules legal. PIN: `examples/spawn_capture_move_root.saw`.
 
-## Design 187 — coro fix batch + 182 completion (QUEUED, held)
+## Design 187 — coro fix batch + 182 completion (UNITS 1-10 LANDED, Aug 9; unit 11 BLOCKED)
 
-`designs/187-coro-fix-batch.md`, approved Aug 8. Ten units, one surface:
-DF-158e (freestanding embedding MISCOMPILE, SOS-M2 blocker) + DF-158c
-(@export width swap on rv32) lead; then DF-158a/b/d (transform
-diagnostics + the yield_now no-op), DF-174g/h (nested-optional wrap/peel
-+ `??` depth), DF-182e's ruled Send additions, DF-182c's store-to-move
-surgery, and a cooperative `Command.output()` closing DF-181a whole.
-Five xfail pins flip. HELD: do not dispatch until the user resumes the
-queue (standing order: stop after 183 integrates).
+`designs/187-coro-fix-batch.md`. Units 1-10 landed, each its own commit with
+the full suite green: DF-158e, DF-158c, DF-158a, DF-158b, DF-158d, DF-188e,
+DF-174g, DF-174h, DF-182e, DF-182c — all ten CLOSED in their sections
+below. Four pins flipped and were renamed
+(`coro_panic_value_position`, `coro_tail_suspend_void`,
+`coro_ref_param_compound_assign`, `coro_move_scrutinee_span`); two new
+findings were filed with pins (DF-187a, DF-187b).
+
+**UNIT 11 IS BLOCKED on DF-187b, and stopped rather than worked around.**
+The cooperative `Command.output()` was built and measured: the drain became
+a `blocking` extern (design 103/183 offloads it to a worker thread and the
+task parks — the seam still blocks, but not on the executor thread), the
+reap moved onto `run()`'s park loop as a shared `Command.reap` METHOD, and
+`__saw_rt_proc_wait` drained to zero callers and came out of
+`RUNTIME_ABI_SYMBOLS`, rt/ABI.md and `rt/common/proc.saw`. With that in
+place the pin flipped and held: `sibling: concurrent`, ten repeats one
+outcome, and all ten `process_*` tests green.
+
+Three things a follow-up should know, none of them guesses:
+- **`reap` must be a METHOD.** As a std FREE function the transform cannot
+  embed it (design 84 embeds std METHODS; the closure walk over free
+  functions is entry-module only), so its `io_wait` ran outside a frame,
+  the wait became a busy poll, and `process_run_concurrent` /
+  `process_cancel_during_child` both regressed. Measured, not reasoned.
+- **`output()`'s own buffers had to stop being raw pointers.** A frame
+  holding an `UnsafePointer` across the offload park is not `Send`, so
+  `output()` itself became unspawnable into a multi-threaded group — the
+  very thing unit 9 unblocked for its callers. The chunk becomes a
+  frame-resident `[Int8; N]` (design 183's documented offload idiom) and
+  the accumulator a `Data` (Send since unit 9, and it does its own
+  growing), which deletes the hand-rolled realloc loop and its manual NUL
+  terminator from std.
+- **Then irdet stopped compiling** — DF-187b, above. Not a workaround
+  candidate: irdet is a gate, and editing the devtool to dodge a compiler
+  bug is exactly what the standing rule forbids.
+
+The brief's "two lines on run()'s park loop" underestimated it: the two
+callers' shapes differ enough that the reap has to be shared as a method
+and the drain has to give up its raw buffers.
 
 ## Design 185 — const bitwise + flag enums (LANDED, Aug 8)
 
@@ -276,6 +307,22 @@ the fix, nonzero after.
   FUNCTION path, not the rename machinery. Found while narrowing DF-158d,
   whose `{yield_now as cede}` spelling hits it; every std function does.
   PIN: `examples/import_std_function_rename.saw`.
+- **DF-187b (COMPILER, FILED Aug 9 by design 187 unit 11; PRE-EXISTING): a
+  STRUCT INIT in the tail of a nested suspension-spanning `if let` loses the
+  OUTER binding's frame rewrite.** Two nested split `if let`s, and a struct
+  literal in the inner branch's tail naming the outer binding: the transform
+  leaves the name a plain local, and the re-check reports ``undefined variable
+  `a` ``. The struct literal is the whole of it — the bare tail `a + b`, the
+  bare tail `"{a} vs {b}"`, a struct init one level down, and reading the outer
+  binding into a `let` before the literal all work, so it is not the nesting,
+  the tail position or interpolation. Reproduces with NO `move` anywhere, so it
+  is not DF-182c's surface. PIN:
+  `examples/coro_nested_iflet_struct_init.saw`.
+
+  **This is what blocks design 187 unit 11.** `devtools/irdet`'s `check_one` is
+  exactly this shape, and a suspending `Command.output()` turns it into a
+  coroutine — so the devtool stops compiling, and irdet is a gate. Everything
+  else unit 11 needs is built and measured; see the design-187 section above.
 
 ## Design 180 — sleep(Duration) (LANDED, Aug 8)
 

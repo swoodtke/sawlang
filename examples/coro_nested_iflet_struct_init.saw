@@ -1,0 +1,48 @@
+// A STRUCT INIT in the tail of a nested suspension-spanning `if let` may read
+// the OUTER binding.
+//
+// The outer binding is frame-resident (its scope spans the inner suspension), so
+// the transform has to rewrite it to a frame field wherever the body names it.
+// It does — except here: with two nested split `if let`s, a struct literal in
+// the inner branch's TAIL keeps the outer name as a plain local and the
+// re-check reports `undefined variable`.
+//
+// It is the struct literal specifically. Every neighbouring shape works: the
+// bare tail `a + b`, the bare tail `"{a} vs {b}"`, a struct init one level down
+// (`if let a = ... { Check(detail: a) }`), and reading the outer binding into a
+// `let` first and putting THAT in the literal. Found by design 187 unit 11,
+// which made `Command.output()` suspending — `devtools/irdet`'s `check_one` is
+// exactly this shape, so the devtool stopped compiling.
+// XFAIL: DF-187b a struct init in a nested if-let's tail loses the outer binding's frame rewrite
+// EXPECT: success
+// EXPECT-OUTPUT:
+// [6]
+
+import std.task.*
+
+struct Check {
+    detail: Int
+}
+
+func maybe(n: Int) -> Int? {
+    yield_now()
+    if n > 0 { return n }
+    None
+}
+
+func two(n: Int) -> Check {
+    if let a = maybe(n) {
+        if let b = maybe(n) {
+            Check(detail: a + b)
+        } else {
+            Check(detail: -1)
+        }
+    } else {
+        Check(detail: -2)
+    }
+}
+
+func main() {
+    var g = TaskGroup()
+    print("[{}]", g.spawn(two(3)).join().detail)
+}
