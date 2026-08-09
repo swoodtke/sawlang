@@ -81,7 +81,7 @@ class OptionalsMixin:
                 llvm_type.elements[0] == ir.IntType(1))
 
     def _fit_optional_slot(self, value, slot_type):
-        """`value`, wrapped once if that is what `slot_type` is asking for.
+        """`value`, wrapped as many times as `slot_type` is asking for.
 
         Every store into an optional slot used to ask "is the slot an optional
         and the value not one" — a SHAPE test, which cannot tell an already-fit
@@ -94,13 +94,28 @@ class OptionalsMixin:
         exactly, and the shape test is kept as the fallback so a value that
         merely needs a later coercion (a narrower integer, say) still wraps
         where it always did.
+
+        DF-174g: the payload comparison answers "one more layer", and a slot can
+        ask for two. Naming the type (`let a: Optional<Int?> = 5`) puts a bare
+        value TWO layers below its slot, where the containers — the only source
+        of a nested optional before — always put it one (their payload is
+        already a layer down). So the fit recurses into the slot's payload
+        first: whatever number of layers separates the two, each one is a real
+        `Some`, and the peel that reads them back finds a value at every depth
+        instead of `undef` under a present tag.
         """
         if value is None or not self._is_optional_type(slot_type):
             return value
         if value.type == slot_type:
             return value
-        if (value.type == slot_type.elements[1]
-                or not self._is_optional_type(value.type)):
+        payload = slot_type.elements[1]
+        if value.type == payload:
+            return self._wrap_in_optional(value)
+        if self._is_optional_type(payload):
+            inner = self._fit_optional_slot(value, payload)
+            if inner.type == payload:
+                return self._wrap_in_optional(inner)
+        if not self._is_optional_type(value.type):
             return self._wrap_in_optional(value)
         return value
 

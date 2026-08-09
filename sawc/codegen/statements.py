@@ -14,7 +14,7 @@ from ast_nodes import (
     Statement, LetStatement, AssignStatement, CompoundAssignStatement, ReturnStatement,
     GuardLetStatement, BreakStatement, ContinueStatement, ExpressionStatement,
     WhileExpr, ForLoop, Identifier, MemberAccess, ArrayIndex, SelfExpr,
-    TupleIndex, MoveExpr, SawType, TypeKind,
+    TupleIndex, MoveExpr, NoneLiteral, SawType, TypeKind,
     WildcardPattern, BindingPattern, TuplePattern,
 )
 
@@ -240,20 +240,29 @@ class StatementsMixin:
                                    isinstance(value.type.elements[0], ir.IntType) and
                                    value.type.elements[0].width == 1)
 
-            if is_already_optional:
-                # Value is optional, but check if it's a None literal with i64 placeholder
-                # that needs to be converted to match a different expected type
+            # A `None` LITERAL generated at the i64 placeholder payload, retagged
+            # into the slot's own optional type. There is no payload to carry —
+            # `None` is the flag and an undef — so rebuilding from the flag alone
+            # is exactly right HERE and nowhere else.
+            #
+            # DF-174g: it used to be a shape test with no reference to the AST,
+            # and a genuine `Int?` value bound for an `Int??` slot answers that
+            # test the same way a placeholder does — payload i64, target
+            # something else. So `let a: Optional<Int?> = 5` was rebuilt from its
+            # inner TAG with the payload dropped: the outer layer read present
+            # and the inner was garbage, so the first peel worked and the second
+            # crashed. Asking the value whether it IS a `None` literal is the
+            # question the shape test was trying to guess at.
+            if is_already_optional and isinstance(stmt.value, NoneLiteral):
                 current_inner_type = value.type.elements[1]
                 target_inner_type = self._get_llvm_type(resolved_annotation.inner_type)
 
-                # Only convert if current is i64 (None literal placeholder) and target is something else
                 needs_conversion = (isinstance(current_inner_type, ir.IntType) and
                                     current_inner_type.width == 64 and
                                     not (isinstance(target_inner_type, ir.IntType) and
                                          target_inner_type.width == 64))
 
                 if needs_conversion:
-                    # This is a None literal (i64 placeholder) being assigned to a different optional type
                     correct_optional_type = ir.LiteralStructType([ir.IntType(1), target_inner_type])
 
                     # Extract is_some flag (should be false for None)
@@ -265,6 +274,14 @@ class StatementsMixin:
                     # Don't set the value - it's undef for None anyway
 
                     value = new_optional
+
+            # DF-174g: and then FIT it, which the `let` path never did. The
+            # typechecker inserts one `OptionalWrap` however deep the slot is, so
+            # a value two layers below its annotation arrived one layer short and
+            # the alloca took the value's type rather than the slot's. The fit
+            # wraps as many layers as the annotation asks for.
+            value = self._fit_optional_slot(
+                value, self._get_llvm_type(resolved_annotation))
 
         # Rider (design 77 item 8 follow-up): NARROW a fixed-width integer LOCAL
         # to its annotated storage width. A bare-literal RHS (`let a: Int32 = 5`)

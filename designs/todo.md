@@ -704,25 +704,21 @@ Closed items: see todo_aug1-aug9.md.
   it is specifically `-> T?` plus a tail expression. Severity is the highest of
   this batch: a crash today, a soundness hole if the verifier ever stops
   looking. Test: `examples/optional_generic_return_tail_xfail.saw`.
-- **DF-174g (COMPILER, filed Aug 8 by the DF-174c sugar work; PRE-EXISTING,
-  verified in the `Optional<...>` spelling with no `??` token anywhere): a value
-  needing MORE THAN ONE wrap into a nested optional slot is mis-lowered.**
-  `_fit_optional_slot` wraps exactly ONCE, which was all any slot asked for
-  while the containers were the only source of a nested optional (their payload
-  is already one layer down). Naming the type puts a BARE value two layers below
-  its slot, and one wrap leaves an `Int?` in an `Int??` cell: the outer layer
-  reads present and the inner is garbage, so the FIRST peel works and the second
-  crashes (exit 133). At three layers it does not even compile — `internal
-  compiler error: 'IntType' object has no attribute 'gep'`. Probes:
-  `.build/scratch/p174c_min5.saw` (`let a: Optional<Int?> = 5`),
-  `p174c_min6.saw` (an `Int?` local into an `Int??`),
-  `p174_pre_three2.saw` (`Optional<Optional<String?>> = "x"`, the ICE);
-  `p174_pre_three.saw` shows a three-deep `= None` compiling fine, so it is the
-  WRAP depth that breaks, not the type depth. A one-line recursive fit was tried
-  and does NOT fix it (the crash survives), so the gap is in the wrap/peel pair
-  rather than the store — same family as DF-174b, which took design 176 unit 8.
-  Not reached by any container route: `let got: Int?? = v.get(0)` and passing it
-  to a `func f(o: Int??)` both work, which is what the DF-174c pin exercises.
+- **DF-174g — CLOSED (design 187 unit 7).** A value needing MORE THAN ONE wrap
+  into a nested optional slot was mis-lowered: `let a: Optional<Int?> = 5` left
+  the outer layer present with a garbage inner, so the first peel worked and the
+  second crashed (exit 133); three layers ICEd. Why the earlier one-line
+  recursive fit did not take: the `let` path never CALLED the fit. It leant
+  instead on a None-literal placeholder retag whose shape test ("payload is i64,
+  target is not") reads a genuine `Int?` exactly as it reads a placeholder — so
+  the value was rebuilt from its inner TAG alone, payload dropped, before any
+  fit could have run. Both halves landed: the retag now asks whether the value
+  IS a `None` literal, and the `let` path fits its value to the annotation like
+  every other slot does. `_fit_optional_slot` recurses into the slot's payload,
+  so a value any number of layers down gets a real `Some` at each. Boundary
+  observed, NOT a bug: a struct LITERAL still refuses a two-layer auto-wrap
+  (``field `slot` expects type `Int??` but got `Int```) — a clean error, not a
+  miscompile. Promoted from the probes: `examples/optional_nested_wrap_depth.saw`.
 - **DF-174h (COMPILER, filed Aug 8 by the DF-174c sugar work; PRE-EXISTING,
   same verification): `a ?? b` whose DEFAULT is one layer too deep is accepted
   by the typechecker and emits invalid LLVM IR.** `v.get(9) ?? v.get(0)` on a
