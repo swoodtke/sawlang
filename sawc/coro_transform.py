@@ -64,6 +64,37 @@ class CoroTransformError(Exception):
         self.source_file = source_file
 
 
+def _child_nodes(node):
+    """Every AST child of `node` reachable through a structural field — through
+    ANY nesting of lists and tuples, and through the `Argument` wrapper.
+
+    DF-187b: a dozen walks in this file used to hand-roll this recursion, and
+    the copies agreed on lists and `Argument`s but not on TUPLES. A tuple in a
+    list is exactly the shape of `StructInit.field_inits` (`[(name, value), …]`)
+    and `MapLiteral.entries`, so those walks never looked inside a struct
+    literal at all: the `if let` rename walked past `Check(detail: a)` and left
+    the outer binding naming a local that no longer existed, and the
+    suspending-call scans could not see a call written in a field position
+    either. One definition, so the next node type with a tuple-shaped field
+    cannot reopen it. Order is unchanged for the shapes that already worked —
+    a tuple's contents are yielded where the tuple itself sat.
+
+    Yields AST nodes only; `SawType` is not an `ASTNode`, so type annotations
+    and type arguments stay out of every walk exactly as before.
+    """
+    def expand(v):
+        if isinstance(v, (list, tuple)):
+            for x in v:
+                yield from expand(x)
+        elif isinstance(v, Argument):
+            yield from expand(v.value)
+        elif isinstance(v, ASTNode):
+            yield v
+
+    for f in structural_fields(node):
+        yield from expand(getattr(node, f.name))
+
+
 # --------------------------------------------------------------------------- #
 # small AST builders
 # --------------------------------------------------------------------------- #
@@ -278,13 +309,6 @@ def _instrument_loop_backedges(func, budget=LOOP_BUDGET_DEFAULT):
     """
     found = []
 
-    def visit_val(v):
-        if isinstance(v, list):
-            for item in v:
-                visit_val(item)
-        elif isinstance(v, ASTNode):
-            visit(v)
-
     def visit(node):
         if isinstance(node, ClosureExpr):
             return
@@ -294,8 +318,8 @@ def _instrument_loop_backedges(func, budget=LOOP_BUDGET_DEFAULT):
             found.append(node)
             node.body.statements[:0] = _budget_check_stmts(
                 budget, node.line, node.column)
-        for f in structural_fields(node):
-            visit_val(getattr(node, f.name))
+        for c in _child_nodes(node):
+            visit(c)
 
     visit(func.body)
     if not found:
@@ -2143,18 +2167,12 @@ class _FrameBuilder:
                         f"suspension-spanning `if let`/`guard let` body in "
                         f"`{self.name}` is not supported; rename the inner binding",
                         getattr(n, 'line', 0) or 0, 0, source_file=self.src_file)
-                for f in structural_fields(n):
-                    v = getattr(n, f.name)
-                    if isinstance(v, list):
-                        for x in v:
-                            if isinstance(x, Argument):
-                                walk(x.value)
-                            elif isinstance(x, ASTNode):
-                                walk(x)
-                    elif isinstance(v, Argument):
-                        walk(v.value)
-                    elif isinstance(v, ASTNode):
-                        walk(v)
+                # DF-187b: `_child_nodes` reaches a `StructInit`'s field values,
+                # which the hand-rolled descent this replaced walked straight
+                # past — so a struct literal naming the binding kept the OLD
+                # name, and the re-check reported an undefined variable.
+                for c in _child_nodes(n):
+                    walk(c)
 
         walk(node)
 
@@ -3059,18 +3077,8 @@ class _FrameBuilder:
             elif isinstance(n, MethodCall) and self._method_call_suspends(n):
                 found.append(("method", n))
             if isinstance(n, ASTNode):
-                for f in structural_fields(n):
-                    v = getattr(n, f.name)
-                    if isinstance(v, list):
-                        for x in v:
-                            if isinstance(x, Argument):
-                                scan(x.value)
-                            elif isinstance(x, ASTNode):
-                                scan(x)
-                    elif isinstance(v, Argument):
-                        scan(v.value)
-                    elif isinstance(v, ASTNode):
-                        scan(v)
+                for c in _child_nodes(n):
+                    scan(c)
 
         scan(stmt)
         if found:
@@ -5141,22 +5149,13 @@ def _rewrite_drive_sites(node, roots):
         node.arguments = [_ref_arg_to_ptr(a) for a in inner.arguments]
         return node
     if isinstance(node, ASTNode):
-        for f in structural_fields(node):
-            _rewrite_drive_fields(getattr(node, f.name), roots)
+        # A drive site is rewritten IN PLACE (the `FunctionCall` keeps its
+        # identity and swaps its name and arguments), so nothing needs writing
+        # back — which is what lets this share `_child_nodes` with the read-only
+        # walks and pick up their tuple reach (DF-187b).
+        for c in _child_nodes(node):
+            _rewrite_drive_sites(c, roots)
     return node
-
-
-def _rewrite_drive_fields(val, roots):
-    if isinstance(val, list):
-        for i, v in enumerate(val):
-            if isinstance(v, Argument):
-                v.value = _rewrite_drive_sites(v.value, roots)
-            elif isinstance(v, ASTNode):
-                _rewrite_drive_sites(v, roots)
-    elif isinstance(val, Argument):
-        val.value = _rewrite_drive_sites(val.value, roots)
-    elif isinstance(val, ASTNode):
-        _rewrite_drive_sites(val, roots)
 
 
 # --------------------------------------------------------------------------- #
@@ -5170,18 +5169,8 @@ def _iter_method_calls(node):
     if isinstance(node, MethodCall):
         yield node
     if isinstance(node, ASTNode):
-        for f in structural_fields(node):
-            v = getattr(node, f.name)
-            if isinstance(v, (list, tuple)):
-                for x in v:
-                    if isinstance(x, Argument):
-                        yield from _iter_method_calls(x.value)
-                    elif isinstance(x, ASTNode):
-                        yield from _iter_method_calls(x)
-            elif isinstance(v, Argument):
-                yield from _iter_method_calls(v.value)
-            elif isinstance(v, ASTNode):
-                yield from _iter_method_calls(v)
+        for c in _child_nodes(node):
+            yield from _iter_method_calls(c)
 
 
 def _iter_function_calls(node):
@@ -5194,18 +5183,8 @@ def _iter_function_calls(node):
     if isinstance(node, FunctionCall):
         yield node
     if isinstance(node, ASTNode):
-        for f in structural_fields(node):
-            v = getattr(node, f.name)
-            if isinstance(v, (list, tuple)):
-                for x in v:
-                    if isinstance(x, Argument):
-                        yield from _iter_function_calls(x.value)
-                    elif isinstance(x, ASTNode):
-                        yield from _iter_function_calls(x)
-            elif isinstance(v, Argument):
-                yield from _iter_function_calls(v.value)
-            elif isinstance(v, ASTNode):
-                yield from _iter_function_calls(v)
+        for c in _child_nodes(node):
+            yield from _iter_function_calls(c)
 
 
 def _inline_static_refs(val, const_statics):

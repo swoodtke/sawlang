@@ -326,7 +326,32 @@ the fix, nonzero after.
   FUNCTION path, not the rename machinery. Found while narrowing DF-158d,
   whose `{yield_now as cede}` spelling hits it; every std function does.
   PIN: `examples/import_std_function_rename.saw`.
-- **DF-187b (COMPILER, FILED Aug 9 by design 187 unit 11; PRE-EXISTING): a
+**DF-187b — CLOSED (Aug 9), and the cause was a TUPLE the walk could not see.**
+A suspension-spanning `if let` renames its binding to a unique frame field and
+rewrites the body's uses; the rename walk descended through lists and
+`Argument`s but not through TUPLES, and `StructInit.field_inits` is a list of
+`(name, value)` pairs — so it walked straight past every struct literal, the
+outer name survived unrenamed, and the re-check reported ``undefined variable
+`a` ``. Nothing to do with nesting, tails or interpolation: those shapes all
+worked because none of them puts a name inside a tuple-shaped field.
+
+  A dozen walks in `coro_transform.py` hand-rolled that same recursion and the
+  copies did not agree, so the fix is ONE `_child_nodes(node)` generator — every
+  AST child through any nesting of lists, tuples and `Argument`s — and the five
+  walks that were missing tuples now share it. Three of them had the same hole
+  in a position that MATTERS and nobody had hit yet: `_iter_method_calls` and
+  `_iter_function_calls` (a suspending method call written in a struct-literal
+  field would not have been discovered, so no frame, so a silent blocking call)
+  and `_reject_buried_suspend_call` (which would not have caught it either).
+  Order is unchanged for the shapes that already worked.
+
+  Pin flipped and widened: `examples/coro_nested_iflet_struct_init.saw` — the
+  original struct-literal tail, a `MapLiteral` tail (the other tuple-shaped
+  field), and nested struct literals two levels deep.
+
+  Original finding follows.
+
+- **DF-187b (COMPILER, filed Aug 9 by design 187 unit 11; PRE-EXISTING): a
   STRUCT INIT in the tail of a nested suspension-spanning `if let` loses the
   OUTER binding's frame rewrite.** Two nested split `if let`s, and a struct
   literal in the inner branch's tail naming the outer binding: the transform
@@ -338,7 +363,7 @@ the fix, nonzero after.
   is not DF-182c's surface. PIN:
   `examples/coro_nested_iflet_struct_init.saw`.
 
-  **This is what blocks design 187 unit 11.** `devtools/irdet`'s `check_one` is
+  **This is what blocked design 187 unit 11.** `devtools/irdet`'s `check_one` is
   exactly this shape, and a suspending `Command.output()` turns it into a
   coroutine — so the devtool stops compiling, and irdet is a gate. Everything
   else unit 11 needs is built and measured; see the design-187 section above.

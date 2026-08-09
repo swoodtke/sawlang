@@ -2,26 +2,33 @@
 // the OUTER binding.
 //
 // The outer binding is frame-resident (its scope spans the inner suspension), so
-// the transform has to rewrite it to a frame field wherever the body names it.
-// It does — except here: with two nested split `if let`s, a struct literal in
-// the inner branch's TAIL keeps the outer name as a plain local and the
-// re-check reports `undefined variable`.
+// the transform renames it to a unique frame field and rewrites the body's uses.
+// The rename walk descended through lists and `Argument`s but not through
+// TUPLES — and `StructInit.field_inits` is a list of `(name, value)` pairs, so
+// the walk went straight past every struct literal. The outer name survived
+// unrenamed and the re-check reported `undefined variable`.
 //
-// It is the struct literal specifically. Every neighbouring shape works: the
-// bare tail `a + b`, the bare tail `"{a} vs {b}"`, a struct init one level down
-// (`if let a = ... { Check(detail: a) }`), and reading the outer binding into a
-// `let` first and putting THAT in the literal. Found by design 187 unit 11,
-// which made `Command.output()` suspending — `devtools/irdet`'s `check_one` is
-// exactly this shape, so the devtool stopped compiling.
-// XFAIL: DF-187b a struct init in a nested if-let's tail loses the outer binding's frame rewrite
+// It was never about the nesting or the tail position: the bare tail `a + b`,
+// the interpolation tail, a struct init one level down and reading the binding
+// into a `let` first all worked, because none of them puts the name inside a
+// tuple-shaped field. `MapLiteral.entries` is the same shape and is pinned
+// beside it here. Found by design 187 unit 11, which made `Command.output()`
+// suspending — `devtools/irdet`'s `check_one` is exactly this shape, so the
+// devtool stopped compiling. DF-187b.
 // EXPECT: success
 // EXPECT-OUTPUT:
 // [6]
+// map: 6
+// deep: 6
 
 import std.task.*
 
 struct Check {
     detail: Int
+}
+
+struct Wrap {
+    inner: Check
 }
 
 func maybe(n: Int) -> Int? {
@@ -42,7 +49,37 @@ func two(n: Int) -> Check {
     }
 }
 
+// The other tuple-shaped field: a map literal's entries.
+func two_map(n: Int) -> Int {
+    if let a = maybe(n) {
+        if let b = maybe(n) {
+            let m = {"sum": a + b}
+            m["sum"] ?? -1
+        } else {
+            -1
+        }
+    } else {
+        -2
+    }
+}
+
+// Nested struct literals — the outer binding read through two levels of
+// tuple-shaped fields.
+func two_deep(n: Int) -> Wrap {
+    if let a = maybe(n) {
+        if let b = maybe(n) {
+            Wrap(inner: Check(detail: a + b))
+        } else {
+            Wrap(inner: Check(detail: -1))
+        }
+    } else {
+        Wrap(inner: Check(detail: -2))
+    }
+}
+
 func main() {
     var g = TaskGroup()
     print("[{}]", g.spawn(two(3)).join().detail)
+    print("map: {}", g.spawn(two_map(3)).join())
+    print("deep: {}", g.spawn(two_deep(3)).join().inner.detail)
 }
