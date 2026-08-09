@@ -1372,6 +1372,13 @@ class MethodCall(Expression):
     # this call opens — not the accessor's `&self` declaration — says whether
     # the root is borrowed shared or exclusively.
     place_window_exclusive: bool = annotation(False)
+    # DF-184a: this call resolved to a STATIC method (`Struct.make(...)`), and
+    # `static_receiver` is the name of the type that owns it. A static call has
+    # no receiver EXPRESSION, so `object.resolved_type` — the thing every
+    # instance-call path reads a struct name off — is absent; the coroutine
+    # transform keys a suspending static method's frame off these instead.
+    is_static_method_call: bool = annotation(False)
+    static_receiver: Optional[str] = annotation(None)
 
 
 @dataclass

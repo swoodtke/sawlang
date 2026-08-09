@@ -637,6 +637,42 @@ def _analyze_nesting(root_name, root_func, nodes):
 # per-function transform
 # --------------------------------------------------------------------------- #
 
+def _method_call_owner(mc):
+    """The name of the type whose method `mc` calls — the key half of a
+    suspending method's frame identity — or None when the call is not a shape
+    the transform can embed.
+
+    DF-184a: there are TWO shapes, and only one of them used to be read here. An
+    INSTANCE call carries its owner on the RECEIVER (`recv.m()`, so
+    `mc.object.resolved_type.struct_name`); a STATIC one has no receiver at all,
+    so the typechecker stamps the owner on the CALL. Keying off the receiver
+    alone meant a suspending static method was never discovered, never embedded,
+    and — for an entry-module one, whose original body IS stripped once the
+    closure walk reaches it through the effect edge — left a call to a method
+    that no longer existed.
+
+    A GENERIC receiver is excluded from both shapes: a value with type args
+    (`Holder<Int>`), or a type name written with them (`Vector<Int>.make()`).
+    The frame's `__recv` pointee / the callee's mangling would need the
+    instantiation, so the call site is rejected cleanly downstream instead.
+    """
+    rt = getattr(mc.object, 'resolved_type', None)
+    sn = getattr(rt, 'struct_name', None) if rt else None
+    if sn is not None:
+        return None if getattr(rt, 'type_args', None) else sn
+    if not getattr(mc, 'is_static_method_call', False):
+        return None
+    if getattr(mc.object, 'type_args', None):
+        return None
+    return getattr(mc, 'static_receiver', None)
+
+
+def _method_call_is_static(mc):
+    """DF-184a: True if `mc` is a STATIC method call — no receiver to embed, so
+    its frame carries no `__recv` and its body has no `self` to rewrite."""
+    return bool(getattr(mc, 'is_static_method_call', False))
+
+
 def _method_frame_key(struct_name, method_name, resolved_symbol=None):
     """Canonical frame key for a driven/embedded suspending METHOD (design 95).
 
@@ -730,6 +766,15 @@ class _FrameBuilder:
         self.src_file = getattr(func, 'source_file', None)
         self.is_method = struct_name is not None
         self.struct_name = struct_name
+        # DF-184a: a STATIC method owns a frame exactly like an instance one —
+        # same key, same display name, same embedding — but there is no receiver
+        # to point at, so it carries no `__recv` field, its driver takes no
+        # receiver argument, and there is no `self` in its body to rewrite.
+        # `is_method` says "this frame belongs to a type"; `has_recv` says "this
+        # frame reaches a receiver through a pointer", and those are no longer
+        # the same question.
+        self.is_static_method = bool(getattr(func, 'is_static', False))
+        self.has_recv = self.is_method and not self.is_static_method
         if self.is_method:
             # design 95: an overloaded suspending method's frame is keyed by its
             # resolved signature (the `mangled_symbol` the typechecker stamped on
@@ -743,9 +788,11 @@ class _FrameBuilder:
             # produces. A plain method's receiver has no type args.
             pointee = recv_saw_type if recv_saw_type is not None else \
                 SawType(TypeKind.STRUCT, struct_name=struct_name)
-            self.recv_type = SawType(TypeKind.POINTER, inner_type=pointee)
+            self.recv_type = (SawType(TypeKind.POINTER, inner_type=pointee)
+                              if self.has_recv else None)
         else:
             self.name = func.name
+            self.recv_type = None
         self.frame_name = f"__Frame_{self.name}"
         # design 158: the name a logical backtrace frame PRINTS. The frame key is
         # a mangled monomorphization symbol; a reader wants the source spelling,
@@ -2654,7 +2701,7 @@ class _FrameBuilder:
         # A method's `self` receiver is held as the `__recv` pointer, not a normal
         # param — drop it if the parser placed it in `parameters`.
         self.params = [p for p in func.parameters
-                       if not (self.is_method and p.name == "self")]
+                       if not (self.has_recv and p.name == "self")]
         # Nested suspending call sites (whole body, incl. control-flow bodies).
         # Each embeds a callee frame by value; `sub` names its field. Must run
         # before local collection (both consult `self._suspends`).
@@ -2677,7 +2724,7 @@ class _FrameBuilder:
         self.encmap = encmap
 
         fields = []
-        if self.is_method:
+        if self.has_recv:
             fields.append(StructField(name="__recv", type=self.recv_type))
         for p in self.params:
             fields.append(StructField(name=p.name,
@@ -2828,22 +2875,29 @@ class _FrameBuilder:
             mc = stmt.expression
         elif isinstance(stmt, ReturnStatement) and isinstance(stmt.value, MethodCall):
             mc = stmt.value
+            # DF-184c: the result is THIS frame's, exactly as for a free-function
+            # callee. `_classify_call` cannot have said so — its `return` branch
+            # only matches a FunctionCall, so a method tail arrived here with
+            # `is_ret` still False and was lowered as a bare DISCARD: the callee
+            # ran, the frame's `__result` was never written, and `return
+            # recv.m()` handed back a zeroed value.
+            is_ret = True
         if mc is None or getattr(mc, 'is_chan_recv', False):
             return None
         susp = getattr(self._tc, '_suspending_methods_set', None) if self._tc else None
         if not susp:
             return None
-        recv_type = getattr(mc.object, 'resolved_type', None)
-        sname = getattr(recv_type, 'struct_name', None) if recv_type else None
+        # DF-184a: `_method_call_owner` answers for a STATIC call too, whose
+        # `recv` is None — the sub-frame it embeds has no `__recv` to seed.
+        sname = _method_call_owner(mc)
         if sname is None or (sname, mc.method_name) not in susp:
             return None
-        if getattr(recv_type, 'type_args', None):
-            # A generic-struct receiver — not embedded here (rejected downstream).
-            return None
+        is_static = _method_call_is_static(mc)
         return {'callee': _method_frame_key(
                     sname, mc.method_name, getattr(mc, 'resolved_symbol', None)),
                 'args': list(mc.arguments), 'target': target, 'ret': is_ret,
-                'recv': mc.object, 'recv_struct': sname, 'is_method': True,
+                'recv': None if is_static else mc.object, 'recv_struct': sname,
+                'is_method': True, 'has_recv': not is_static,
                 'line': getattr(mc, 'line', 0) or 0}
 
     def _classify_recv(self, stmt):
@@ -2928,8 +2982,7 @@ class _FrameBuilder:
         susp = getattr(self._tc, '_suspending_methods_set', None) if self._tc else None
         if not susp:
             return False
-        recv_type = getattr(mc.object, 'resolved_type', None)
-        sname = getattr(recv_type, 'struct_name', None) if recv_type else None
+        sname = _method_call_owner(mc)
         return sname is not None and (sname, mc.method_name) in susp
 
     def _suspending_method_call(self, stmt):
@@ -2948,8 +3001,7 @@ class _FrameBuilder:
         susp = getattr(self._tc, '_suspending_methods_set', None) if self._tc else None
         if not susp:
             return None
-        recv_type = getattr(mc.object, 'resolved_type', None)
-        sname = getattr(recv_type, 'struct_name', None) if recv_type else None
+        sname = _method_call_owner(mc)
         if sname is not None and (sname, mc.method_name) in susp:
             return mc
         return None
@@ -2957,8 +3009,7 @@ class _FrameBuilder:
     def _reject_suspending_method_call(self, stmt):
         mc = self._suspending_method_call(stmt)
         if mc is not None:
-            recv_type = getattr(mc.object, 'resolved_type', None)
-            sname = getattr(recv_type, 'struct_name', None) if recv_type else "?"
+            sname = _method_call_owner(mc) or "?"
             raise CoroTransformError(
                 f"coroutine transform: a buried suspending method call "
                 f"`{sname}.{mc.method_name}(...)` inside driven `{self.name}` is not "
@@ -3025,8 +3076,7 @@ class _FrameBuilder:
         if found:
             kind, g = found[0]
             if kind == "method":
-                recv_type = getattr(g.object, 'resolved_type', None)
-                sname = getattr(recv_type, 'struct_name', None) if recv_type else "?"
+                sname = _method_call_owner(g) or "?"
                 raise CoroTransformError(
                     f"coroutine transform: a buried suspending method call "
                     f"`{sname}.{g.method_name}(...)` inside driven `{self.name}` "
@@ -3901,7 +3951,7 @@ class _FrameBuilder:
                                    target_type=_ref_ptr_type(callee_fb.params[i].type))
             arg_vals.append(val)
         recv_value = None
-        if info.get('is_method'):
+        if info.get('has_recv'):
             # design 84: the method frame's `__recv` is a pointer into the
             # receiver's storage. The receiver is a caller-frame local/param — after
             # rewrite it is `self.<field>` (POD) or `self.<field>!` (opt-encoded
@@ -3973,7 +4023,7 @@ class _FrameBuilder:
         if isinstance(node, ClosureExpr):
             self._materialize_closure_captures(node)
             return node
-        if self.is_method and isinstance(node, SelfExpr):
+        if self.has_recv and isinstance(node, SelfExpr):
             # The method's `self` -> the receiver through the frame pointer:
             # `self.__recv[0]` (here `self` is the frame — resume's receiver).
             return ArrayIndex(
@@ -4441,7 +4491,7 @@ def _build_frame_init(fb: _FrameBuilder, param_values, fbs, recv_value=None,
     and the cancel word in the frame's stead (design 134)."""
     from ast_nodes import StructInit
     field_inits = []
-    if fb.is_method:
+    if fb.has_recv:
         field_inits.append(("__recv", recv_value))
     for i, p in enumerate(fb.params):
         field_inits.append((p.name, param_values[i]))
@@ -4454,7 +4504,7 @@ def _build_frame_init(fb: _FrameBuilder, param_values, fbs, recv_value=None,
         # null pointer — the frame is rebuilt with the real receiver address when its
         # call site is reached, so this placeholder is never dereferenced.
         zrecv = (CastExpr(expr=_int(0), target_type=sub_fb.recv_type)
-                 if sub_fb.is_method else None)
+                 if sub_fb.has_recv else None)
         field_inits.append((c['sub'],
                             _build_frame_init(sub_fb, zvals, fbs, recv_value=zrecv)))
     for rc in getattr(fb, 'recv_calls', []):
@@ -4560,7 +4610,7 @@ def _make_driver(fb: _FrameBuilder, mode, fbs):
     params = fb.params
     # A method driver takes the receiver first, as an `UnsafePointer<Struct>`
     # (design 42's `&T`->pointer bridge is what the drive site supplies).
-    recv_value = Identifier(name="__recv") if fb.is_method else None
+    recv_value = Identifier(name="__recv") if fb.has_recv else None
     frame_init = _build_frame_init(
         fb, [_frame_param_arg(p) for p in params], fbs, recv_value=recv_value)
 
@@ -4642,7 +4692,7 @@ def _make_driver(fb: _FrameBuilder, mode, fbs):
                                type=(_ref_ptr_type(p.type)
                                      if fb.encmap.get(p.name) == "ref" else p.type))
                      for p in params]
-    if fb.is_method:
+    if fb.has_recv:
         driver_params = [Parameter(name="__recv", type=fb.recv_type)] + driver_params
     return Function(name=driver_name, parameters=driver_params, return_type=ret,
                     body=Block(statements=stmts, final_expr=final),
@@ -5057,6 +5107,15 @@ def _rewrite_drive_sites(node, roots):
             # UnsafePointer<Struct>, args)`. The receiver is passed as a raw
             # pointer into its own storage (design 42's &T->pointer bridge); the
             # frame mutates the caller's value through it (D6).
+            #
+            # DF-184a: a STATIC method's frame has no `__recv`, so its driver
+            # takes the arguments alone.
+            if _method_call_is_static(inner):
+                node.name = prefix + _method_frame_key(
+                    _method_call_owner(inner), inner.method_name,
+                    getattr(inner, 'resolved_symbol', None))
+                node.arguments = [_ref_arg_to_ptr(a) for a in inner.arguments]
+                return node
             recv_type = getattr(inner.object, 'resolved_type', None)
             struct_name = getattr(recv_type, 'struct_name', None)
             # design 74 (A5-rest, shape 2): preserve the receiver's type args so a
@@ -5481,9 +5540,13 @@ def transform_program(program, typechecker, imported_ast=None):
         for mc in _iter_method_calls(body):
             if getattr(mc, 'is_chan_recv', False):
                 continue
-            rt = getattr(mc.object, 'resolved_type', None)
-            sn = getattr(rt, 'struct_name', None) if rt else None
-            if sn is None or getattr(rt, 'type_args', None):
+            # DF-184a: a STATIC call is discovered here too. In std it is the ONLY
+            # way it is discovered — an imported method has no effect node in the
+            # entry typechecker — and a static call that went unfound compiled its
+            # callee untransformed, so a `blocking` extern inside it lowered to a
+            # NAKED call with no offload and no diagnostic.
+            sn = _method_call_owner(mc)
+            if sn is None:
                 continue
             if (sn, mc.method_name) in _susp_methods_set:
                 # design 95: resolve the exact overload's frame via its resolved

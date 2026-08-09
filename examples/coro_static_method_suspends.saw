@@ -1,15 +1,16 @@
-// XFAIL: DF-184a a suspending STATIC extension method cannot be called from a task body
+// A suspending STATIC extension method suspends exactly as an instance one does.
 //
-// A static (receiver-less) extension method that suspends is unreachable from a
-// driven or spawned body: the coroutine transform embeds suspending METHOD
-// callees by their receiver's type, and a static call has no receiver, so the
-// method is never embedded and the call site does not even resolve —
-// ``undefined variable `Napper` ``, which names the type as though it were a
-// value. An INSTANCE method with the identical body works.
+// The coroutine transform used to key a suspending method callee off its
+// RECEIVER's type, and a static call has no receiver — so the method was never
+// embedded as a sub-frame. Two faces, both closed by DF-184a: in the entry
+// module the call did not even resolve (the closure walk reached the method
+// through its effect edge and stripped the original body, leaving a call to
+// something that no longer existed — reported as ``undefined variable
+// `Napper` ``); in std the call resolved and the body compiled UNTRANSFORMED,
+// so every suspension in it ran out of frame.
 //
-// This is what stops design 184 from finishing: `TcpStream.connect` is std's one
-// suspending static method, so nothing inside it can be a suspension point —
-// including the offloaded hostname resolution the brief asks for. See DF-184a.
+// The two bodies here are identical but for the receiver, and both answers must
+// be 42 — one frame each, one `yield_now` each, neither blocking the executor.
 // EXPECT: success
 // EXPECT-OUTPUT:
 // instance: 42

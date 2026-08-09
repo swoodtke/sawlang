@@ -370,7 +370,7 @@ crashes the process.
   Rust does, so this is not urgent — but the rule as written rejects a
   program with no ambiguity in it, and a receiver-aware key looks small.
 
-## Design 184 — hostname resolution (PARTIAL, Aug 9) — one unit blocked on DF-184a
+## Design 184 — hostname resolution (PARTIAL, Aug 9) — unit 3's resolver half in flight
 
 Brief: `designs/184-hostname-resolution.md`. Units 1, 2 and 4 landed whole; unit
 3 landed its address half and STOPPED at a compiler gap. **`TcpStream.connect`
@@ -414,7 +414,39 @@ What landed:
   listener on 127.0.0.1:port and watches the all-ones broadcast address be
   refused beside it. The old code answered Ok to both.
 
-- **DF-184a (COMPILER, OPEN, filed Aug 9): a suspending STATIC extension method
+**DF-184a — CLOSED (Aug 9). A suspending STATIC method is now embedded exactly
+as an instance one is.** The transform asked the RECEIVER what type owned a
+method callee, and a static call has no receiver; a static call now carries the
+owner on the CALL instead (`is_static_method_call` / `static_receiver`, stamped
+by both static-call checkers), and one shared `_method_call_owner` answers for
+both shapes at the five places that used to read `mc.object.resolved_type`. The
+frame itself splits `is_method` (this frame belongs to a type — key, display
+name, embedding) from a new `has_recv` (this frame reaches a receiver through a
+pointer), and a static frame simply has neither the `__recv` field, the driver's
+receiver parameter, nor a `self` to rewrite. `__saw_drive(T.m(...))` follows the
+same split. Pin flipped: `examples/coro_static_method_suspends.saw`, both bodies
+identical but for the receiver.
+
+  Finding the fix cost one more bug, filed and fixed beside it (below): the pin's
+  own INSTANCE half was returning zero, and had been all along.
+
+- **DF-184c (COMPILER, CLOSED Aug 9 in DF-184a's landing; PRE-EXISTING): a
+  suspending METHOD call in TAIL position silently discarded its result.**
+  `_classify_call` sets `is_ret` in its `return <FunctionCall>` branch and then
+  hands a MethodCall to `_classify_method_call` with `is_ret` still False — so a
+  tail `recv.m()`, and the design-83-normalized bare tail that becomes one, was
+  classified as a bare DISCARD. The callee ran, the caller frame's `__result` was
+  never written, and the caller handed back a zeroed value: a spawned task joined
+  to 0 (or, for an opt-encoded result, panicked in `TaskHandle.join` on a force
+  unwrap of None), a driven one returned 0. At every copy tier, with no
+  diagnostic. The `let x = recv.m(); x` spelling was always fine, which is why
+  nothing in the corpus caught it. Pin:
+  `examples/coro_tail_method_call_result.saw` — the three tail spellings, the
+  static twin, and an owning `String` result.
+
+  Original DF-184a finding follows.
+
+- **DF-184a (COMPILER, filed Aug 9): a suspending STATIC extension method
   is unreachable from a task body, and in std it silently loses its offload.**
   The coroutine transform embeds a suspending METHOD callee by its RECEIVER's
   type (`_scan_method_callees` reads `mc.object.resolved_type.struct_name`), and

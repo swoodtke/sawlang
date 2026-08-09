@@ -1,0 +1,80 @@
+// A suspending METHOD call in TAIL position hands its result back.
+//
+// DF-184c: `_classify_call` sets `is_ret` only in its `return <FunctionCall>`
+// branch, then hands a MethodCall on to `_classify_method_call` with `is_ret`
+// still False — so a tail `recv.m()` (and the design-83-normalized bare tail
+// that becomes one) was lowered as a bare DISCARD. The callee ran, and the
+// caller frame's `__result` was never written: a spawned task joined to a
+// zeroed value, a driven one returned zero, silently and at every copy tier.
+//
+// Three spellings of the same thing, each through a frame, plus the static
+// twin (DF-184a) so the two fixes are pinned together.
+// EXPECT: success
+// EXPECT-OUTPUT:
+// tail:   42
+// return: 42
+// let:    42
+// static: 42
+// text:   forty-two
+
+import std.task.*
+
+struct Napper { n: Int }
+
+extension Napper {
+    func doubled(&self) -> Int {
+        yield_now()
+        self.n * 2
+    }
+
+    func doubling(n: Int) -> Int {
+        yield_now()
+        n * 2
+    }
+
+    func named(&self) -> String {
+        yield_now()
+        "forty-two"
+    }
+}
+
+func tail_form() -> Int {
+    let a = Napper(n: 21)
+    a.doubled()
+}
+
+func return_form() -> Int {
+    let a = Napper(n: 21)
+    return a.doubled()
+}
+
+func let_form() -> Int {
+    let a = Napper(n: 21)
+    let r = a.doubled()
+    r
+}
+
+func static_form() -> Int {
+    Napper.doubling(21)
+}
+
+// An owning result travels the same path — the sub-frame's slot is moved out,
+// not copied, so the string is released exactly once.
+func text_form() -> String {
+    let a = Napper(n: 21)
+    a.named()
+}
+
+func main() {
+    var g = TaskGroup()
+    let h1 = g.spawn(tail_form())
+    print("tail:   {h1.join()}")
+    let h2 = g.spawn(return_form())
+    print("return: {h2.join()}")
+    let h3 = g.spawn(let_form())
+    print("let:    {h3.join()}")
+    let h4 = g.spawn(static_form())
+    print("static: {h4.join()}")
+    let h5 = g.spawn(text_form())
+    print("text:   {h5.join()}")
+}

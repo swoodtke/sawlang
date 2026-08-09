@@ -3168,6 +3168,13 @@ class ExpressionsMixin:
                 # frame holding a `__recv` pointer into the receiver's storage.
                 recv_type = getattr(inner.object, 'resolved_type', None)
                 struct_name = getattr(recv_type, 'struct_name', None) if recv_type else None
+                # DF-184a: a STATIC method is driven by the same machinery — its
+                # frame simply has no receiver pointer. The owning type's name is
+                # stamped on the CALL, since there is no receiver expression to
+                # read it off.
+                if struct_name is None and getattr(
+                        inner, 'is_static_method_call', False):
+                    struct_name = getattr(inner, 'static_receiver', None)
                 if struct_name is None:
                     self._error(
                         ErrorKind.TYPE_MISMATCH,
@@ -7983,6 +7990,10 @@ class ExpressionsMixin:
             return None
         if method_info.mangled_name:
             expr.resolved_symbol = method_info.mangled_name
+        # DF-184a: same stamp the non-overloaded path makes — see
+        # `_check_static_method_call`.
+        expr.is_static_method_call = True
+        expr.static_receiver = struct_name
         self._stamp_overload_plan(expr, method_info.param_names, mapping)
         self._effect_call_method(
             method_info, f"`{struct_name}.{expr.method_name}`", expr.line)
@@ -8197,6 +8208,12 @@ class ExpressionsMixin:
         # are mangled against, so codegen must dispatch on it rather than on
         # the name written at the call site.
         expr.resolved_type_identity = self._sym_identity(struct_info, struct_name)
+        # DF-184a: record that this is a static call and which type owns the
+        # method. A static call carries no receiver expression, so the coroutine
+        # transform has nothing to read a struct name off — without this stamp a
+        # suspending static method is never embedded as a sub-frame.
+        expr.is_static_method_call = True
+        expr.static_receiver = struct_name
         # Member visibility (design 80): gate the static method cross-module.
         self._check_method_visible(struct_name, expr.method_name, method_info, expr)
         # design 24 item 3: record the suspend-graph edge to the static method.
