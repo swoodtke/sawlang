@@ -1,0 +1,63 @@
+// design 184 unit 1: the dotted-quad fast path. A literal address is parsed in
+// Saw — no libc, no resolver, no thread hop — so `TcpStream.connect` on one
+// never leaves the executor thread. The parser is STRICT: four octets, one to
+// three digits each, no leading zero, nothing else in the string. A near-miss
+// is `None`, which means "not a literal, go and resolve it" rather than a guess.
+// EXPECT: success
+// EXPECT-OUTPUT:
+// 0.0.0.0 -> 0
+// 127.0.0.1 -> 16777343
+// 1.2.3.4 -> 67305985
+// 12.34.56.78 -> 1312301580
+// 10.0.0.53 -> 889192458
+// 255.255.255.255 -> 4294967295
+// example.com -> not a literal
+// localhost -> not a literal
+// 127.0.0 -> not a literal
+// 127.0.0. -> not a literal
+// .1.2.3 -> not a literal
+// 1.2.3.4.5 -> not a literal
+// 127.00.0.1 -> not a literal
+// 256.0.0.1 -> not a literal
+// 1234.0.0.1 -> not a literal
+// 127.0.0.1x -> not a literal
+// 127.0.0.1  -> not a literal
+// 12 7.0.0.1 -> not a literal
+
+import std.net.{parse_ipv4_literal}
+
+func show(host: String) {
+    if let addr = parse_ipv4_literal(host) {
+        print("{host} -> {addr}")
+    } else {
+        print("{host} -> not a literal")
+    }
+}
+
+func main() {
+    // Literals, low to high, including both ends of the range.
+    show("0.0.0.0")
+    show("127.0.0.1")
+    show("1.2.3.4")
+    show("12.34.56.78")
+    show("10.0.0.53")
+    show("255.255.255.255")
+
+    // Names go to the resolver.
+    show("example.com")
+    show("localhost")
+
+    // Near-misses: too few octets, a trailing or leading dot, too many octets,
+    // a leading zero, an octet out of range, too many digits, trailing junk,
+    // and trailing or interior space.
+    show("127.0.0")
+    show("127.0.0.")
+    show(".1.2.3")
+    show("1.2.3.4.5")
+    show("127.00.0.1")
+    show("256.0.0.1")
+    show("1234.0.0.1")
+    show("127.0.0.1x")
+    show("127.0.0.1 ")
+    show("12 7.0.0.1")
+}

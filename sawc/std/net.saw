@@ -203,6 +203,85 @@ func tcp_socketpair() unsafe -> (Int, Int) {
     (NET_ERROR, NET_ERROR)
 }
 
+// =============================================================================
+// IPv4 literals (design 184 unit 1)
+// =============================================================================
+//
+// A dotted quad is an ADDRESS already — there is nothing to look up — so it is
+// parsed here, in Saw, and never reaches the platform resolver or leaves the
+// executor thread. Every `connect("127.0.0.1", port)` in the tree takes this
+// path.
+
+static ASCII_DOT: Int = 46
+static ASCII_ZERO: Int = 48
+static ASCII_NINE: Int = 57
+static IPV4_MIN_TEXT: Int = 7        // "0.0.0.0"
+static IPV4_MAX_TEXT: Int = 15       // "255.255.255.255"
+static IPV4_OCTETS: Int = 4
+static OCTET_MAX: Int = 255
+static OCTET_MAX_DIGITS: Int = 3
+
+// Four octets as the `sockaddr_in.sin_addr` word: the octets sit in memory in
+// the order they are written, so on a little-endian target — the only kind the
+// hosted runtime builds for, the same assumption `htons` states in
+// rt/common/os_ops.saw — the FIRST octet is the low byte.
+func ipv4_addr(a: UInt32, b: UInt32, c: UInt32, d: UInt32) -> UInt32 {
+    a | (b << 8) | (c << 16) | (d << 24)
+}
+
+// A dotted-quad IPv4 literal as its address word, or `None` when `host` is not
+// one (the caller then resolves it).
+//
+// STRICT on purpose: exactly four octets, one to three digits each, no leading
+// zero, no sign, no spaces, nothing before or after. A near-miss like
+// "127.00.0.1" is NOT guessed at here — it falls through to the platform
+// resolver, whose reading of it is the authoritative one. Guessing would mean
+// picking a side in the decades-old "is a leading zero octal?" ambiguity, which
+// is a source of address confusion, not a convenience.
+func parse_ipv4_literal(host: String) -> UInt32? {
+    let n = host.len()
+    if n < IPV4_MIN_TEXT || n > IPV4_MAX_TEXT {
+        return None
+    }
+    var octets: [UInt32; IPV4_OCTETS] = [0; IPV4_OCTETS]
+    var filled = 0        // octets already stored
+    var value = 0         // the octet being accumulated
+    var digits = 0        // digits seen in it
+    var i = 0
+    while i < n {
+        let b = host.byte_at(i) as Int
+        if b == ASCII_DOT {
+            if digits == 0 || filled == IPV4_OCTETS - 1 {
+                return None                      // empty octet, or a fifth one
+            }
+            octets[filled] = value as UInt32
+            filled = filled + 1
+            value = 0
+            digits = 0
+        } else if b < ASCII_ZERO || b > ASCII_NINE {
+            return None                          // not a digit and not a dot
+        } else {
+            if digits == OCTET_MAX_DIGITS {
+                return None
+            }
+            if digits == 1 && value == 0 {
+                return None                      // a leading zero
+            }
+            value = value * 10 + (b - ASCII_ZERO)
+            if value > OCTET_MAX {
+                return None
+            }
+            digits = digits + 1
+        }
+        i = i + 1
+    }
+    if filled != IPV4_OCTETS - 1 || digits == 0 {
+        return None                              // too few octets, or a trailing dot
+    }
+    octets[IPV4_OCTETS - 1] = value as UInt32
+    return ipv4_addr(octets[0], octets[1], octets[2], octets[3])
+}
+
 // A sentinel fd for a closed / never-opened socket handle. `tcp_close` on it is a
 // harmless no-op, so it is the safe placeholder inside the owning socket types.
 static INVALID_FD: Int32 = -1
