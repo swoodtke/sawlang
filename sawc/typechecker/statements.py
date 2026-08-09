@@ -885,17 +885,9 @@ class StatementsMixin:
             # declaration, and what types a diverging `match`/`if` arm block.
             result_type = SawType(TypeKind.NEVER)
 
-        # design 189: a group declared in THIS block dies here, and its `Deinit`
-        # joins its children — so every borrow it still carries is released, and
-        # a root declared here goes with it. Everything else that was live on
-        # the way in is restored, whether or not this block joined it.
-        self._release_task_borrows_at_scope_exit(self.current_scope)
-        live = {id(b) for b in self._task_borrows}
-        dead = {v.binding_id for v in self.current_scope.variables.values()}
-        self._task_borrows.extend(
-            b for b in entry_borrows
-            if id(b) not in live and b.group_id not in dead
-            and b.root_id not in dead)
+        # design 189: release what the groups declared here carried, and restore
+        # what was live on the way in but joined only inside this block.
+        self._close_task_borrow_scope(self.current_scope, entry_borrows)
 
         # Restore scope
         self.current_scope = old_scope

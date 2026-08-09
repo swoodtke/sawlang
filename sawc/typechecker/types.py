@@ -3133,26 +3133,36 @@ class TypeUtilsMixin:
             b.handle_name = name
         self._pending_task_borrows = []
 
-    def _release_task_borrows_at_scope_exit(self, scope) -> None:
-        """A group dies at the end of the scope that declared it, and its
-        `Deinit` joins its children there — so every borrow it still carries is
-        released. A borrow whose ROOT dies here goes with it (design 188 unit 5
-        already refuses the ordering where that root is the one being borrowed)."""
-        if not self._task_borrows:
+    def _close_task_borrow_scope(self, scope, entry_borrows) -> None:
+        """End-of-block bookkeeping for task-capture borrows (design 189).
+
+        A group dies at the end of the scope that declared it and its `Deinit`
+        joins its children there, so every borrow it still carries is released;
+        a borrow whose ROOT dies here goes with it (design 188 unit 5 already
+        refuses the ordering where that root is the one being borrowed).
+
+        A borrow that was live on the way IN but was joined inside this block
+        comes back. The join was on one path only — the other path never joined
+        — so the conservative answer is that it is still held.
+        """
+        if not self._task_borrows and not entry_borrows:
             return
-        local = {v.binding_id for v in scope.variables.values()}
-        if not local:
-            return
-        self._task_borrows = [b for b in self._task_borrows
-                              if b.group_id not in local and b.root_id not in local]
-        for b in self._task_borrows:
-            if b.handle_id in local:
+        dead = {v.binding_id for v in scope.variables.values()}
+        kept = [b for b in self._task_borrows
+                if b.group_id not in dead and b.root_id not in dead]
+        live = {id(b) for b in kept}
+        kept.extend(b for b in entry_borrows
+                    if id(b) not in live
+                    and b.group_id not in dead and b.root_id not in dead)
+        for b in kept:
+            if b.handle_id in dead:
                 # The HANDLE died unjoined. Its `Deinit` owns nothing and does
                 # not join (design 134 — the result stays in the group's cell),
                 # so the borrow survives; only its release point moves, to the
                 # group's death. Say so rather than naming a binding that is no
                 # longer in scope.
                 b.handle_id, b.handle_name = None, None
+        self._task_borrows = kept
 
     def _check_call_exclusivity(self, values, param_types=None,
                                 receiver: Optional[Expression] = None,
