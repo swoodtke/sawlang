@@ -4031,6 +4031,21 @@ class _FrameBuilder:
         if isinstance(node, ClosureExpr):
             self._materialize_closure_captures(node)
             return node
+        # DF-187c: a control-flow BODY reached through an EXPRESSION — a match
+        # arm's block or a value `if`'s branch, as in `let v = match f() { case
+        # Ok(x) -> x, case Err(_) -> { return None } }`. It is a statement list,
+        # so a `return` in it owes the frame's done sequence. The generic
+        # recursion below only rewrote its identifiers and left the `return`
+        # raw, which lowered to a bare `ret <value>` out of a resume method
+        # whose result type is `__Poll`: invalid IR, caught by llvmlite rather
+        # than by anything in the compiler. `_lower_inplace` handles the same
+        # blocks when the construct IS the statement; doing it here covers every
+        # expression position instead — a `let`'s value, an assignment's RHS, a
+        # call argument. A CLOSURE returned just above, so a closure's body —
+        # where `return` returns from the CLOSURE — never reaches this.
+        if isinstance(node, Block):
+            self._lower_block_in_place(node)
+            return node
         if self.has_recv and isinstance(node, SelfExpr):
             # The method's `self` -> the receiver through the frame pointer:
             # `self.__recv[0]` (here `self` is the frame — resume's receiver).

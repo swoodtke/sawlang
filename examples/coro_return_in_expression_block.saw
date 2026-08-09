@@ -1,0 +1,86 @@
+// A `return` inside a control-flow block reached through an EXPRESSION ends the
+// coroutine, like a `return` anywhere else.
+//
+// DF-187c: the transform lowered a `return` to the frame's done sequence only
+// where the construct holding it WAS the statement. Reached through an
+// expression — a `match` that is a `let`'s value, a value `if`'s branch, an
+// assignment's RHS — only the identifiers inside were rewritten and the
+// `return` stayed raw, so a resume method whose result type is `__Poll` emitted
+// `ret <the function's own value>`. Invalid IR, caught by llvmlite rather than
+// by anything in the compiler: `value doesn't match function result type 'i32'`.
+//
+// Found by design 187 unit 11, one layer under DF-187b: `devtools/irdet`'s
+// `emit_ir` reads a file through two `match … { case Err(_) -> { return None } }`
+// bindings, and a suspending `Command.output()` turns it into a frame.
+// EXPECT: success
+// EXPECT-OUTPUT:
+// let-match ok: 4
+// let-match err: none
+// value-if: none
+// assign-rhs: 11
+
+import std.task.*
+
+struct Fail {}
+
+extension Fail: Error {
+    func format(&self, into: &var StringBuilder) {
+        into.append("fail")
+    }
+}
+
+func pick(n: Int) -> Result<Int, Fail> {
+    if n > 0 {
+        return n
+    }
+    Fail()
+}
+
+// The match is the VALUE of a `let`, so `_lower_inplace` never sees it as a
+// statement.
+func via_let_match(n: Int) -> Int? {
+    yield_now()
+    let v = match pick(n) {
+        case Ok(x) -> x,
+        case Err(_) -> { return None }
+    }
+    v + 1
+}
+
+// The same shape through a value `if`'s branch.
+func via_value_if(n: Int) -> Int? {
+    yield_now()
+    let v = if n > 0 {
+        n
+    } else {
+        return None
+    }
+    v + 1
+}
+
+// And on the right-hand side of an assignment.
+func via_assign_rhs(n: Int) -> Int? {
+    yield_now()
+    var v = 0
+    v = match pick(n) {
+        case Ok(x) -> x + 10,
+        case Err(_) -> { return None }
+    }
+    v
+}
+
+func show(label: String, got: Int?) {
+    if let v = got {
+        print("{}: {}", label, v)
+    } else {
+        print("{}: none", label)
+    }
+}
+
+func main() {
+    var g = TaskGroup()
+    show("let-match ok", g.spawn(via_let_match(3)).join())
+    show("let-match err", g.spawn(via_let_match(0)).join())
+    show("value-if", g.spawn(via_value_if(0)).join())
+    show("assign-rhs", g.spawn(via_assign_rhs(1)).join())
+}

@@ -346,9 +346,12 @@ for a DESCRIPTOR — `wait_fd` — and parks it on the reactor with the ordinary
 read-interest registration. A runtime that cannot hand out a wait descriptor is
 still correct: `try_wait` alone is a poll, slower but never wedging anything.
 
-`__saw_rt_proc_wait` and `read_stdout` still block, and are documented as such
-below. They are the drain half of DF-181a, blocked on DF-182e rather than on
-anything in this contract.
+The DRAIN half followed in design 187 unit 11, and closes DF-181a. `read_stdout`
+still blocks — a pipe read has nothing else to be — but std declares it
+`blocking`, so every call is offloaded to a worker thread and the task parks:
+`Command.output` costs no executor thread either. With that, the v1 blocking
+reap `__saw_rt_proc_wait` reached zero callers and was REMOVED from this
+contract; a runtime no longer implements it.
 
 ### `__saw_rt_proc_spawn(path: i8*, argv: i8**, flags: word) -> word`
 Spawn `path` with the NULL-terminated `argv` array (`argv[0]` is the program
@@ -393,19 +396,17 @@ new image's environment from `environ`).
 
 ### `__saw_rt_proc_read_stdout(job: word, buf: i8*, len: word) -> word`
 Read up to `len` bytes of the child's captured stdout: the byte count (`0` =
-EOF, and `0` immediately for a job spawned without capture) or `-tag`. **BLOCKS**
-until the child writes or closes.
+EOF, and `0` immediately for a job spawned without capture) or `-tag`.
 
-### `__saw_rt_proc_wait(job: word) -> word`
-Reap the child, close the capture pipe, free the job, and return the **RAW POSIX
-wait status** (`>= 0`) or `-tag`. Raw, not an exit code: std decodes it, because
-the signal bits are what distinguish a crashed child from a clean exit 0 (design
-59 DF2). Retries on `Interrupted`. **BLOCKS** for the child's whole lifetime.
-
-The v1 reap, and the last blocking seam in the family. `Command.run` parks on
-`wait_fd` + `try_wait` instead; only `Command.output` still calls this, because
-its drain cannot become a suspension yet (DF-182e). A new runtime should treat it
-as deprecated and implement it as a `try_wait` loop around its own park.
+**BLOCKING — the second seam in this document to say so (design 187 unit 11).**
+The pipe is a blocking descriptor and a child may write nothing for as long as it
+likes, so this call is UNBOUNDED. std declares it `extern blocking`, so every
+call is offloaded to a worker thread by design 183's machinery and the calling
+task PARKS; a runtime implementing this seam may take as long as it needs, and
+what it may NOT do is assume a caller is willing to wait on the calling thread.
+`buf` obeys design 183's pointer rule — it addresses the parked task's frame or
+the heap, so the worker may write through it for the whole call, cancellation
+included.
 
 ### `__saw_rt_proc_wait_fd(job: word) -> word`
 A descriptor that becomes **readable once the child has exited**, or `-tag`.
@@ -649,14 +650,15 @@ Everything else (alloc/dealloc/write/panic, sleep, clocks, set_nonblocking,
 sin_set_family, op-budget, mutex/cond init, the offload family, get_argc/argv) is
 unchanged from v1.
 
-Additions since v2, each purely additive (no existing symbol changed):
+Changes since v2, additive but for the one removal noted:
 
-| design | added                                                          |
+| design | change                                                          |
 |--------|----------------------------------------------------------------|
 | 122    | `__saw_rt_fs_dirent_name`                                      |
 | 122    | `__saw_rt_proc_{spawn,read_stdout,wait}`                       |
 | 132    | `__saw_rt_fs_{open,read,write,lseek,opendir}`                  |
-| 182    | `__saw_rt_proc_{exit_fd,wait_fd,try_wait,release}` — the zero-thread child wait. `__saw_rt_proc_wait` stays, deprecated, for the one caller left |
+| 182    | `__saw_rt_proc_{exit_fd,wait_fd,try_wait,release}` — the zero-thread child wait |
+| 187    | `__saw_rt_proc_wait` **REMOVED**: its last caller (`Command.output`) went cooperative, so the v1 blocking reap has none. A runtime that still exports it is harmless; one that does not is complete |
 
 ## The compiler → executor entry-point boundary (design 118, stage 1: map + carve)
 

@@ -1,0 +1,56 @@
+// `Command.output()` captures a child's stdout without holding the executor
+// thread — the half of DF-181a design 182 could not land, closed by design 187
+// unit 11.
+//
+// Both blocking calls the design-181 audit found are exercised here: the child
+// writes NOTHING for a second, so the drain would sit in `read` on a blocking
+// pipe, and only then exits, so the reap would sit in `waitpid`. The drain is an
+// offloaded `blocking` seam now and the reap is `run()`'s park loop, so neither
+// costs a thread.
+//
+// Task B records when it first gets scheduled. It is runnable from the moment it
+// is spawned, so its first tick lands immediately; before the fix it landed at
+// ~1000 ms, which is what the threshold below separates.
+// EXPECT: success
+// EXPECT-OUTPUT:
+// sibling: concurrent
+// captured: done
+// -- done
+
+import std.process.*
+import std.task.*
+import std.time.*
+
+static STARVED_MS: UInt64 = 400
+
+func capture_child() -> String {
+    var c = Command(program: "/bin/sh")
+    c.arg("-c")
+    c.arg("sleep 1; echo done")
+    if let out = c.output() {
+        return out.stdout.trim()
+    }
+    "<no output>"
+}
+
+func first_tick(start: Instant) -> UInt64 {
+    start.elapsed().as_millis()
+}
+
+func main() {
+    let start = Instant.now()
+    var group = TaskGroup()
+    let child = group.spawn(capture_child())
+    let sibling = group.spawn(first_tick(start))
+
+    let when = sibling.join()
+    let text = child.join()
+
+    if when < STARVED_MS {
+        print("sibling: concurrent")
+    } else {
+        print("sibling: starved ({when} ms)")
+    }
+    print("captured: {text}")
+    print("-- done")
+}

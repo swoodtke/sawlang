@@ -6251,11 +6251,11 @@ Actually shipped today: `String`, `StringBuilder`, `Vector<T, A>`,
 run `/bin/sh -c` explicitly if a shell is what you want, design 122. `env(name:
 value:)` sets one environment variable for the child under the same rule, on top
 of the environment it inherits; `merge_stderr()` sends its standard error
-wherever its standard output goes. `run()` is COOPERATIVE: it parks on the child's
-exit through the reactor, so siblings run for the child's whole lifetime and no
-thread waits. Cancelling the task ends the WAIT — the child keeps running, and
-`ProcessError.cancelled()` tells that apart from a launch failure. `output()` is
-still synchronous and holds the calling thread until the child is finished),
+wherever its standard output goes. `run()` and `output()` are both COOPERATIVE:
+the wait parks on the child's exit through the reactor and the stdout drain runs
+on a worker thread, so siblings run for the child's whole lifetime and no thread
+waits. Cancelling the task ends the WAIT — the child keeps running, and
+`ProcessError.cancelled()` tells that apart from a launch failure),
 `std.net` (`TcpListener`/`TcpStream`),
 `std.duration` (`Duration`) and `std.time` (`Instant`), plus `Int`/`Float`
 numeric extensions and the

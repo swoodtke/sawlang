@@ -23,11 +23,11 @@
 // file is identical POSIX on both hosts, as is the errno->tag mapping behind
 // `__saw_rt_last_syserror`.
 //
-// `__saw_rt_proc_wait` (the blocking reap) and `read_stdout` (a blocking pipe)
-// are what remain of the v1 shape, and they still block the calling thread. They
-// are the half of DF-181a design 182 could not land: see DF-182e — the drain has
-// to be a suspension, and a suspending `Command.output()` cannot be spawned into
-// a multi-threaded TaskGroup while no std container is `Send`.
+// `read_stdout` is the one seam here that still blocks the calling thread, and
+// it has to: a pipe read has nothing else to be. std declares it `blocking`, so
+// design 183's machinery runs it on a worker thread while the task parks — which
+// is what closed the drain half of DF-181a (design 187 unit 11) and let the v1
+// blocking reap `__saw_rt_proc_wait` be deleted outright.
 //
 // A kernel/sos runtime authors its own bodies for these names.
 
@@ -297,8 +297,9 @@ func rt_proc_spawn_env(path: UnsafePointer<Int8>, argv: UnsafePointer<Int8>, env
 // (0 = EOF, and 0 immediately for a job spawned without capture) or -tag.
 //
 // BLOCKS the calling thread until the child writes or closes: the pipe is a
-// blocking descriptor. That is the unlanded half of DF-181a — see the file
-// header and DF-182e.
+// blocking descriptor, and a child may write nothing for as long as it likes. It
+// is std's second `blocking` seam, so the caller is never the executor thread —
+// see rt/ABI.md for the contract that puts on an implementer.
 @export("__saw_rt_proc_read_stdout")
 func rt_proc_read_stdout(job: Int, buf: UnsafePointer<Int8>, len: Int) unsafe -> Int {
     let p = job as UnsafePointer<ProcJob>
@@ -388,39 +389,9 @@ func rt_proc_release(job: Int) unsafe {
     free(job as UnsafePointer<Int8>)
 }
 
-// Reap the child and release the job, BLOCKING the calling thread until it
-// exits. Returns the RAW POSIX wait status (>= 0, decoded by std — the exit byte
-// and the signal bits both matter) or -tag.
-//
-// The v1 reap, and the last blocking one: `Command.run` parks on `wait_fd` +
-// `try_wait` instead, and only `Command.output` still calls this, because its
-// pipe drain cannot become a suspension yet (DF-182e).
-@export("__saw_rt_proc_wait")
-func rt_proc_wait(job: Int) unsafe -> Int {
-    let p = job as UnsafePointer<ProcJob>
-    proc_job_close(p)
-
-    var status: Int32 = 0
-    let sp = (&status) as UnsafePointer<Int32>
-    var tag = 0
-    var waiting = true
-    while waiting {
-        let r = waitpid(p[0].pid, sp, 0 as Int32)
-        if r >= (0 as Int32) {
-            waiting = false
-        } else {
-            tag = __saw_rt_last_syserror()
-            // A signal delivered to US must not lose the child's status.
-            if tag != SYS_INTERRUPTED {
-                waiting = false
-            } else {
-                tag = 0
-            }
-        }
-    }
-    free(job as UnsafePointer<Int8>)
-    if tag != 0 {
-        return 0 - tag
-    }
-    status as Int
-}
+// The v1 blocking reap `__saw_rt_proc_wait` lived here until design 187 unit 11.
+// It is GONE, not deprecated: `Command.run` parked on `wait_fd` + `try_wait`
+// from design 182, `Command.output` joined it once its drain became an offloaded
+// `blocking` seam, and a seam with no callers is a seam a new runtime should not
+// be asked to write. The blocking `waitpid(pid, &status, 0)` it wrapped is what
+// `try_wait` does with `WNOHANG` and a park.

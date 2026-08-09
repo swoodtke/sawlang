@@ -30,7 +30,8 @@ func over_long_name() -> String {
     b.build()
 }
 
-// Prints the whole error, so the host it names is part of the expectation.
+// The two hosts that DO reach a peer. An Err arm prints the whole error rather
+// than a bare "failed", so a regression here says which host and why.
 func attempt(host: String, port: Int) {
     match TcpStream.connect(host, port) {
         case Ok(_) -> print("{}: connected", host),

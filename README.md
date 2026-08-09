@@ -1214,10 +1214,10 @@ The standard library includes:
   `Task`.
 - **std.process** - `Command.run() -> Result<Int32, ProcessError>`, `.output()`,
   `.env(name:value:)` (one environment variable for the child, on top of the one
-  it inherits), `.merge_stderr()`. `run` is cooperative: it parks on the child's
-  exit, so sibling tasks keep running for as long as the child does and no thread
-  is spent waiting. Cancelling the task ends the wait, not the child. `output` is
-  still synchronous — it holds the calling thread until the child is finished.
+  it inherits), `.merge_stderr()`. Both `run` and `output` are cooperative: the
+  wait parks on the child's exit and the stdout drain runs on a worker thread, so
+  sibling tasks keep running for as long as the child does and no thread is spent
+  waiting. Cancelling the task ends the wait, not the child.
 - **Duration** - A span of time, UInt64 whole nanoseconds, in the prelude
   because `sleep` takes one. `Duration.ns` / `us` / `ms` / `secs` build one and
   `as_nanos` / `as_micros` / `as_millis` / `as_secs` read it back; it compares

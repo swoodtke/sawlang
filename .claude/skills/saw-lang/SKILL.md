@@ -1767,14 +1767,15 @@ construct in the owner and lend `&driver` down.
   death = 128+signum, never a bogus 0); Err = could not launch (spawn failed, or
   the child could not exec -> 127). `ProcessError: Error` names the program.
   `.output() -> CommandOutput?` captures stdout (stderr is inherited).
-  `run()` IS COOPERATIVE (design 182) — it parks on the child's exit, so a task
-  running a child no longer starves its siblings and no thread is spent waiting.
-  Consequence for callers: `run` SUSPENDS, so a `sync` function cannot call it.
-  Cancelling the task ends the WAIT, not the child (which keeps running,
-  unreaped); `ProcessError.cancelled()` distinguishes that Err from a launch
-  failure. `output()` is still SYNCHRONOUS and blocks the calling thread for the
-  child's whole lifetime — capture from a single-threaded group, or from a
-  `spawn`-ed `Task` whose own thread does the waiting (DF-181a/DF-182e).
+  `run()` AND `output()` ARE BOTH COOPERATIVE (designs 182 + 187) — `run` parks
+  on the child's exit, and `output` additionally drains the stdout pipe on a
+  worker thread (the seam is `blocking`, so design 183 offloads it), so a task
+  running or capturing a child no longer starves its siblings and no thread is
+  spent waiting. Consequence for callers: BOTH SUSPEND, so a `sync` function can
+  call neither. `output()` is spawnable into a `threads: N` group. Cancelling
+  the task ends the WAIT, not the child (which keeps running, unreaped);
+  `ProcessError.cancelled()` distinguishes that Err from a launch failure, and a
+  cancelled `output()` answers `None`.
   `env(name:value:)` (design 155) sets ONE environment variable for the child,
   under `arg`'s discipline — the name and the value are bytes the child receives
   verbatim, nothing parsed or expanded. The child INHERITS this process's

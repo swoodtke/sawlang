@@ -1,0 +1,35 @@
+// `Command.output()` is spawnable into a MULTI-THREADED group.
+//
+// Making it suspending is what put its frame under the Send gate: everything the
+// frame carries across the offload park has to cross an OS thread. The drain's
+// scratch is therefore a frame-resident `[Int8; N]` and the accumulator a `Data`
+// (Send since design 187 unit 9) — a hand-rolled realloc buffer would have left
+// a raw `UnsafePointer` in the frame, and `output()` would have been refused at
+// every `threads: N` spawn site instead. `devtools/irdet` is the caller that
+// needs this; this is the small version of it.
+//
+// Each handle joins its OWN task's result, so the two lines are deterministic
+// whatever order the workers ran in — no interleaving is asserted.
+// EXPECT: success
+// EXPECT-OUTPUT:
+// first: alpha
+// second: beta
+
+import std.process.*
+
+func capture(word: String) -> String {
+    var c = Command(program: "/bin/echo")
+    c.arg(word)
+    if let out = c.output() {
+        return out.stdout.trim()
+    }
+    "<no output>"
+}
+
+func main() {
+    var group = TaskGroup(threads: 2)
+    let a = group.spawn(capture("alpha"))
+    let b = group.spawn(capture("beta"))
+    print("first: {}", a.join())
+    print("second: {}", b.join())
+}

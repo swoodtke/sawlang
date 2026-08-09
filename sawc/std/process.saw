@@ -21,18 +21,21 @@ extern "C" {
     // environment with those names set. Only the runtime can reach the process
     // environment, which is why the merge is behind a seam and not done here.
     func __saw_rt_proc_spawn_env(path: UnsafePointer<Int8>, argv: UnsafePointer<Int8>, envp: UnsafePointer<Int8>, flags: Int) -> Int
-    func __saw_rt_proc_read_stdout(job: Int, buf: UnsafePointer<Int8>, len: Int) -> Int
 
-    // The v1 reap: BLOCKS the calling thread until the child exits. Only
-    // `output()` still uses it (DF-182e).
-    func __saw_rt_proc_wait(job: Int) -> Int
+    // The child's stdout pipe is a BLOCKING descriptor, and a child may write
+    // nothing for as long as it likes, so the drain is unbounded. `blocking`
+    // makes every call an offload (design 183): the read runs on a worker thread
+    // and the task parks on the job's pipe, so `output()` costs no executor
+    // thread. It is part of the symbol's contract, so no declaration of it can
+    // drop the annotation and get a naked drain back.
+    blocking func __saw_rt_proc_read_stdout(job: Int, buf: UnsafePointer<Int8>, len: Int) -> Int
 
-    // The zero-thread wait (design 182), which `run()` uses instead. `try_wait`
-    // reaps only a child that has already exited and answers `-WouldBlock`
-    // otherwise; `wait_fd` hands back a descriptor to PARK on, readable once the
-    // child exits. The job owns that descriptor — std registers it with the
-    // reactor and never closes it. `release` is the cancellation exit: drop the
-    // job, leave the child alone.
+    // The zero-thread wait (design 182), which BOTH `run()` and `output()` use.
+    // `try_wait` reaps only a child that has already exited and answers
+    // `-WouldBlock` otherwise; `wait_fd` hands back a descriptor to PARK on,
+    // readable once the child exits. The job owns that descriptor — std
+    // registers it with the reactor and never closes it. `release` is the
+    // cancellation exit: drop the job, leave the child alone.
     func __saw_rt_proc_wait_fd(job: Int) -> Int
     func __saw_rt_proc_try_wait(job: Int) -> Int
     func __saw_rt_proc_release(job: Int)
@@ -43,9 +46,9 @@ extern "C" {
     func __saw_rt_op_budget_tick() -> Int
     func __saw_rt_op_budget_reset()
 
-    // Memory
+    // Memory. Only the two `char**` arrays `execvp` wants are built by hand;
+    // the stdout capture is a `Data` and grows itself.
     func malloc(size: Int) -> UnsafePointer<Int8>?
-    func realloc(ptr: UnsafePointer<Int8>, size: Int) -> UnsafePointer<Int8>?
     func free(ptr: UnsafePointer<Int8>)
 
     // Refcounted String runtime (defined by the compiler, see codegen/core.py)
@@ -429,8 +432,38 @@ extension Command {
         if job <= 0 {
             return launch_failed(self.program)
         }
+        let w = self.reap(job)
+        if w.cancelled {
+            return wait_cancelled(self.program)
+        }
+        if w.raw < 0 {
+            return launch_failed(self.program)
+        }
+        let code = decode_wait_status(w.raw as Int32)
+        if code == EXEC_FAILED_CODE {
+            return launch_failed(self.program)
+        }
+        code
+    }
 
-        var raw = 0
+    // Wait for `job`'s child to exit and reap it, costing no thread.
+    //
+    // `raw` is the seam's own answer — the RAW POSIX wait status (>= 0) or a
+    // NEGATED SysError tag — because the two callers report a seam failure in
+    // different channels (`run` as a launch failure, `output` as `None`).
+    // `cancelled` is the other way a wait ends: the TASK was cancelled, and the
+    // child keeps running with nobody collecting its status (design 102 cancels
+    // the wait, not the process). `raw` is meaningless then.
+    //
+    // A METHOD, not a free function, and that is load-bearing rather than
+    // stylistic: the coroutine transform embeds a suspending std METHOD as a
+    // sub-frame and cannot reach a std free function, so the same loop written
+    // free would run its `io_wait` outside a frame — where the park degrades to
+    // an inline reactor poll that never cedes, which is a busy wait with the
+    // executor thread held. Measured, not reasoned: as a free function it
+    // regressed `process_run_concurrent` and `process_cancel_during_child`.
+    func reap(&self, job: Int) -> (raw: Int, cancelled: Bool) {
+        var status = 0
         var nap = WAIT_POLL_START_MS
         while {
             if cancelled() {
@@ -441,11 +474,11 @@ extension Command {
                     io_unwait(wfd, 0)
                 }
                 __saw_rt_proc_release(job)
-                return wait_cancelled(self.program)
+                return (raw: 0, cancelled: true)
             }
             let r = __saw_rt_proc_try_wait(job)
             if r != -SYS_WOULD_BLOCK {
-                raw = r                        // exited: the raw status, or -tag
+                status = r                     // exited: the raw status, or -tag
                 break
             }
             let wfd = __saw_rt_proc_wait_fd(job)
@@ -464,15 +497,7 @@ extension Command {
         if __saw_rt_op_budget_tick() != 0 {         // design 89-c: fairness backstop
             yield_now()
         }
-
-        if raw < 0 {
-            return launch_failed(self.program)
-        }
-        let code = decode_wait_status(raw as Int32)
-        if code == EXEC_FAILED_CODE {
-            return launch_failed(self.program)
-        }
-        code
+        (raw: status, cancelled: false)
     }
 
     // Run the command and capture its stdout.
@@ -483,109 +508,63 @@ extension Command {
     // unless `merge_stderr()` was called, which folds it into the captured
     // stdout instead.
     //
-    // SYNCHRONOUS, unlike `run()` — and that is a known gap, not a choice. Both
-    // the drain and the reap block the calling thread, so a task capturing a
-    // child's output holds its executor thread until the child is finished and
-    // every sibling task waits with it. Design 182 landed the cooperative wait for
-    // `run()` and could not land it here: making `output()` suspending makes its
-    // callers coroutine frames, and a frame that holds a `Data` or a `Vector`
-    // across a suspension cannot be spawned into a multi-threaded TaskGroup while
-    // no std container is `Send` (DF-182e). Until that is settled, capture a
-    // child's output from a single-threaded group, or from a `spawn`-ed `Task`
-    // whose own thread is the one that waits.
+    // COOPERATIVE, like `run()` (DF-181a, closed). Both halves used to hold the
+    // executor thread for the child's whole lifetime: the drain sat in a `read`
+    // on a blocking pipe and the reap in a `waitpid`, and a sibling task's first
+    // tick landed only once the child exited. Now the drain is an OFFLOADED
+    // `blocking` seam — the read runs on a worker thread and this task parks on
+    // the job's pipe — and the reap is the same `reap` park loop `run()` uses.
+    //
+    // Consequence for callers: `output()` suspends, so a `sync` function cannot
+    // call it. Cancelling the task ends the WAIT, not the child, and answers
+    // `None`; a child cancelled mid-drain keeps running, unreaped.
     public func output(&self) unsafe -> CommandOutput? {
         let job = self.spawn_job(true)
         if job <= 0 {
             return None
         }
 
-        // Drain the child's stdout pipe into a growing scratch buffer.
-        var output_buf: UnsafePointer<Int8>? = None
-        var output_len = 0
-        var output_cap = 0
-
-        // Design 123. This capture loop carried two of the failure modes the
-        // brief exists to remove. A refused `malloc(PROC_READ_CHUNK)` skipped
-        // the whole block, reaped the child anyway and returned
-        // `Some(CommandOutput(stdout: "", exit_code: <real code>))` — success
-        // with silently empty stdout. And a refused grow left `output_cap`
-        // short while the copy loop below wrote `out[output_len + i]` and the
-        // terminator past it: heap corruption. `output` is the infallible tier,
-        // so both panic now.
-        guard let read_buf = malloc(PROC_READ_CHUNK) else {
-            panic("Command.output: allocation failed")
-        }
-        var done = false
-        while not done {
-            let bytes_read = __saw_rt_proc_read_stdout(job, read_buf, PROC_READ_CHUNK)
-            if bytes_read > 0 {
-                // Ensure capacity
-                let needed = output_len + bytes_read + 1
-                if output_cap < needed {
-                    var new_cap = if output_cap == 0 { PROC_READ_CHUNK } else { output_cap * 2 }
-                    while new_cap < needed {
-                        new_cap = new_cap * 2
-                    }
-
-                    if let old = output_buf {
-                        guard let new_buf = realloc(old, new_cap) else {
-                            panic("Command.output: allocation failed")
-                        }
-                        output_buf = new_buf
-                        output_cap = new_cap
-                    } else {
-                        guard let new_buf = malloc(new_cap) else {
-                            panic("Command.output: allocation failed")
-                        }
-                        output_buf = new_buf
-                        output_cap = new_cap
-                    }
-                }
-
-                // Copy bytes. `output_cap >= needed` holds by the block above,
-                // so this cannot run past the end.
-                if let out = output_buf {
-                    var i = 0
-                    while i < bytes_read {
-                        out[output_len + i] = read_buf[i]
-                        i = i + 1
-                    }
-                    output_len = output_len + bytes_read
-                    out[output_len] = 0 as Int8  // null terminate
-                }
+        // Both buffers are FRAME-RESIDENT, which is design 183's pointer rule
+        // rather than a preference: the worker thread reads and writes through
+        // the chunk pointer while this task is parked, so the storage has to
+        // outlive the park, and a `[Int8; N]` local of a suspending body lives
+        // in the heap-resident frame. It is also what keeps `output()` itself
+        // spawnable into a multi-threaded group — a frame holding a raw
+        // `UnsafePointer` across the park is not `Send`, and the hand-rolled
+        // realloc buffer this replaced was exactly that. `Data` grows itself, so
+        // the old grow loop, its capacity arithmetic and its manual NUL
+        // terminator are gone with it.
+        var chunk: [Int8; PROC_READ_CHUNK] = [0; PROC_READ_CHUNK]
+        var collected = Data()
+        var draining = true
+        while draining {
+            let n = __saw_rt_proc_read_stdout(
+                job, (&chunk) as UnsafePointer<Int8>, PROC_READ_CHUNK)
+            if n > 0 {
+                collected.append_bytes((&chunk) as UnsafePointer<Int8>, n)
             } else {
                 // 0 = EOF (the child closed stdout / exited); < 0 = a read
                 // error. Either way there is nothing more to collect — the
                 // child is still reaped below so its status is not lost.
-                done = true
+                draining = false
             }
         }
-        free(read_buf)
 
-        // Reap the child. The seam returns the RAW wait status, decoded the same
-        // way run() does (DF2): a signal death is a nonzero failure, not exit 0.
-        // This is the BLOCKING reap `run()` no longer uses — see the note on this
-        // method and DF-182e.
-        let raw = __saw_rt_proc_wait(job)
-        if raw < 0 {
-            if let out = output_buf {
-                free(out)
-            }
+        // Reap the child. `raw` is the RAW wait status, decoded the same way
+        // run() does (DF2): a signal death is a nonzero failure, not exit 0.
+        let w = self.reap(job)
+        if w.cancelled || w.raw < 0 {
             return None
         }
-        let exit_code = decode_wait_status(raw as Int32)
+        let exit_code = decode_wait_status(w.raw as Int32)
 
-        // Convert output to an owned String. The read buffer has no String
-        // header (it's a bare realloc buffer), so copy its bytes into a
-        // proper refcounted String, then free the scratch buffer. This is
-        // what fixes the old use-after-free (`out as String` then `free(out)`
-        // returned a dangling pointer -> empty captured stdout).
-        let stdout_str = if let out = output_buf {
-            let s = __saw_string_from_bytes(out, output_len)
-            free(out)
-            s
-        } else {
+        // An owned refcounted String over the collected bytes. `Data` holds no
+        // String header, so this copies; an empty capture skips the seam, whose
+        // pointer would be null.
+        let stdout_str = if collected.len() == 0 {
             ""
+        } else {
+            __saw_string_from_bytes(collected.byte_ptr(), collected.len())
         }
 
         CommandOutput(stdout: stdout_str, exit_code: exit_code)

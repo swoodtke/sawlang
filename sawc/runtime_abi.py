@@ -74,13 +74,12 @@ RUNTIME_ABI_SYMBOLS = frozenset({
     "__saw_rt_proc_spawn",
     "__saw_rt_proc_spawn_env",
     "__saw_rt_proc_read_stdout",
-    "__saw_rt_proc_wait",
     # Design 182 made the CHILD WAIT zero-thread: `try_wait` polls (WNOHANG) and
-    # `wait_fd` hands back a descriptor to park on, so `Command.run` never sits in
-    # `waitpid`. `proc_exit_fd` is the one host-divergent piece (kqueue
-    # EVFILT_PROC vs pidfd_open); `proc_release` is the cancellation exit. The
-    # blocking `proc_wait` above stays for `Command.output`, whose pipe drain
-    # cannot become a suspension yet (DF-182e).
+    # `wait_fd` hands back a descriptor to park on, so neither `Command.run` nor
+    # `Command.output` ever sits in `waitpid`. `proc_exit_fd` is the one
+    # host-divergent piece (kqueue EVFILT_PROC vs pidfd_open); `proc_release` is
+    # the cancellation exit. The v1 blocking reap `__saw_rt_proc_wait` was
+    # REMOVED by design 187 unit 11, when its last caller went cooperative.
     "__saw_rt_proc_exit_fd",
     "__saw_rt_proc_wait_fd",
     "__saw_rt_proc_try_wait",

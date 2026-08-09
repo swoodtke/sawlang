@@ -150,47 +150,60 @@ hope that some call blocks. Both in-flight agents were stopped mid-run
 for the fix; their worktrees predate it, so their batteries must not run
 `--all` until rebased.
 
-## Design 187 — coro fix batch + 182 completion (UNITS 1-10 LANDED, Aug 9; unit 11 BLOCKED)
+## Design 187 — coro fix batch + 182 completion (LANDED, Aug 9)
 
-`designs/187-coro-fix-batch.md`. Units 1-10 landed, each its own commit with
-the full suite green: DF-158e, DF-158c, DF-158a, DF-158b, DF-158d, DF-188e,
-DF-174g, DF-174h, DF-182e, DF-182c — all ten CLOSED in their sections
-below. Four pins flipped and were renamed
+`designs/187-coro-fix-batch.md`. All eleven units landed, each its own commit
+with the full suite green: DF-158e, DF-158c, DF-158a, DF-158b, DF-158d, DF-188e,
+DF-174g, DF-174h, DF-182e, DF-182c, and unit 11's cooperative
+`Command.output()`. Five pins flipped and were renamed
 (`coro_panic_value_position`, `coro_tail_suspend_void`,
-`coro_ref_param_compound_assign`, `coro_move_scrutinee_span`); two new
-findings were filed with pins (DF-187a, DF-187b).
+`coro_ref_param_compound_assign`, `coro_move_scrutinee_span`,
+`process_output_concurrent`); three findings were filed along the way
+(DF-187a, still open; DF-187b and DF-187c, both closed).
 
-**UNIT 11 IS BLOCKED on DF-187b, and stopped rather than worked around.**
-The cooperative `Command.output()` was built and measured: the drain became
-a `blocking` extern (design 103/183 offloads it to a worker thread and the
-task parks — the seam still blocks, but not on the executor thread), the
-reap moved onto `run()`'s park loop as a shared `Command.reap` METHOD, and
-`__saw_rt_proc_wait` drained to zero callers and came out of
-`RUNTIME_ABI_SYMBOLS`, rt/ABI.md and `rt/common/proc.saw`. With that in
-place the pin flipped and held: `sibling: concurrent`, ten repeats one
-outcome, and all ten `process_*` tests green.
+**Unit 11: `Command.output()` is cooperative, and DF-181a CLOSES WHOLE.** The
+drain is a `blocking` extern, so design 183 runs the pipe read on a worker
+thread and the task parks — the seam still blocks, just never on the executor
+thread. The reap is a shared `Command.reap` METHOD, the same park loop `run()`
+has used since design 182. `__saw_rt_proc_wait` drained to zero callers and was
+REMOVED from `RUNTIME_ABI_SYMBOLS`, rt/ABI.md and `rt/common/proc.saw`: a seam
+with no callers is one a new runtime should not be asked to write.
 
-Three things a follow-up should know, none of them guesses:
-- **`reap` must be a METHOD.** As a std FREE function the transform cannot
-  embed it (design 84 embeds std METHODS; the closure walk over free
-  functions is entry-module only), so its `io_wait` ran outside a frame,
-  the wait became a busy poll, and `process_run_concurrent` /
-  `process_cancel_during_child` both regressed. Measured, not reasoned.
-- **`output()`'s own buffers had to stop being raw pointers.** A frame
-  holding an `UnsafePointer` across the offload park is not `Send`, so
-  `output()` itself became unspawnable into a multi-threaded group — the
-  very thing unit 9 unblocked for its callers. The chunk becomes a
-  frame-resident `[Int8; N]` (design 183's documented offload idiom) and
-  the accumulator a `Data` (Send since unit 9, and it does its own
-  growing), which deletes the hand-rolled realloc loop and its manual NUL
-  terminator from std.
-- **Then irdet stopped compiling** — DF-187b, above. Not a workaround
-  candidate: irdet is a gate, and editing the devtool to dodge a compiler
-  bug is exactly what the standing rule forbids.
+Three things the first attempt measured, and the landing confirms:
+- **`reap` must be a METHOD.** As a std FREE function the transform cannot embed
+  it (design 84 embeds std METHODS; the closure walk over free functions is
+  entry-module only), so its `io_wait` ran outside a frame, the wait became a
+  busy poll, and `process_run_concurrent` / `process_cancel_during_child` both
+  regressed. Measured, not reasoned.
+- **`output()`'s own buffers had to stop being raw pointers.** A frame holding
+  an `UnsafePointer` across the offload park is not `Send`, so `output()` itself
+  would have been unspawnable into a multi-threaded group — the very thing unit
+  9 unblocked for its callers. The chunk is a frame-resident `[Int8; N]` (design
+  183's documented offload idiom) and the accumulator a `Data` (Send since unit
+  9, and it grows itself), which deleted the hand-rolled realloc loop and its
+  manual NUL terminator from std. Pinned:
+  `examples/process_output_multithreaded.saw`.
+- **Then irdet stopped compiling** — DF-187b, which is fixed above, and DF-187c
+  one layer under it, which the fix then exposed. Both were pre-existing
+  transform bugs in shapes irdet happens to be written in.
 
-The brief's "two lines on run()'s park loop" underestimated it: the two
-callers' shapes differ enough that the reap has to be shared as a method
-and the drain has to give up its raw buffers.
+The brief's "two lines on run()'s park loop" underestimated it: the two callers'
+shapes differ enough that the reap has to be shared as a method and the drain
+has to give up its raw buffers.
+
+- **DF-187c (COMPILER, CLOSED Aug 9 in unit 11's landing; PRE-EXISTING): a
+  `return` inside a control-flow block reached through an EXPRESSION lowered
+  raw, emitting invalid IR.** The transform turned a `return` into the frame's
+  done sequence only where the construct holding it WAS the statement
+  (`_lower_inplace`'s if/while/match branches). Reached through an expression —
+  a `match` that is a `let`'s value, a value `if`'s branch, an assignment's RHS
+  — only the identifiers inside were rewritten, and the `return` stayed a
+  `return` out of a resume method whose result type is `__Poll`: llvmlite
+  rejected the module with ``value doesn't match function result type 'i32'``,
+  which is the only thing in the pipeline that noticed. `_rewrite_expr` now
+  treats a `Block` as a lowering boundary, which covers every expression
+  position at once; `ClosureExpr` returns before it, so a closure's own `return`
+  is untouched. PIN: `examples/coro_return_in_expression_block.saw`.
 
 ## Design 185 — const bitwise + flag enums (LANDED, Aug 8)
 
@@ -602,15 +615,17 @@ state); three-tier statics fence (zero / memberwise-const / never-runtime).
 Queue position: after the current wave and the net track — typechecker +
 codegen + builtin.saw + std surface, shares with everything, runs alone.
 
-## Design 182 — Command without threads (PARTIAL, Aug 8) — RULED, completion queued
+## Design 182 — Command without threads (COMPLETED by design 187, Aug 9)
 
 Closed items: see todo_aug1-aug9.md.
 
-**`Command.run()` is cooperative and spends no thread waiting. `Command.output()`
-is unchanged and still blocks, because it cannot be made suspending yet — see
-DF-182e, which is the ruling this section is asking for.**
+**`Command.run()` landed cooperative here (Aug 8) and `Command.output()` joined
+it in design 187 unit 11 (Aug 9): neither spends a thread waiting.** The four
+findings this section filed against the `output()` half are all closed — DF-182c
+and DF-182e in 187 units 10 and 9, the transform gaps under them in 187's unit
+11 (DF-187b, DF-187c). The record of why it did not land at the time follows.
 
-### Why `output()` did not land, and the four findings behind it
+### Why `output()` did not land in 182, and the four findings behind it
 
 Making `Command.output()` suspending is a two-line change to the same park loop
 `run()` uses. What stops it is its BLAST RADIUS: suspension is colorless, so every
@@ -700,11 +715,15 @@ Headline: **169 externs across sawc/std/ + sawc/rt/, NOT ONE annotated
 `blocking`.** The design-103 offload machinery works and is unused by std.
 
 - **DF-181a (P0-adjacent, filed Aug 7): `Command.run()` / `Command.output()`
-  starve every sibling task for the child's whole lifetime.** **HALF CLOSED
-  (design 182, Aug 8):** `run()` parks on the reactor and spends no thread;
-  `output()` is untouched and still blocks in both `read` and `waitpid`, pinned by
-  `examples/process_output_starvation_xfail.saw` and blocked on DF-182e. See the
-  design-182 section above. The original finding follows. Both reap via
+  starve every sibling task for the child's whole lifetime.** **CLOSED WHOLE
+  (design 182 + design 187 unit 11, Aug 9):** `run()` parks on the reactor and
+  spends no thread (182); `output()` joined it — its stdout drain is an offloaded
+  `blocking` seam and its reap is `run()`'s park loop, shared as
+  `Command.reap`. Neither holds the executor thread for any part of a child's
+  life. Pin: `examples/process_output_concurrent.saw` (renamed from
+  `_starvation_xfail` when it flipped). The v1 blocking reap
+  `__saw_rt_proc_wait` had no callers left and was removed from the frozen ABI.
+  The original finding follows. Both reap via
   the unannotated `__saw_rt_proc_wait` (waitpid) and `output()` first drains
   the child's stdout through the unannotated `__saw_rt_proc_read_stdout`
   (a blocking `read` on a blocking pipe). The cooperative executor thread
