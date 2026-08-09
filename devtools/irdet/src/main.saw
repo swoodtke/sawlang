@@ -535,37 +535,44 @@ func main() -> Int {
 
     let started = Instant.now()
 
-    // Files are independent, so the checks fan out; each task's work is two
-    // subprocesses, so the workers spend their time waiting rather than
-    // competing for the CPU.
+    // Files are independent, so the checks fan out — in WAVES of at most
+    // `opts.jobs`. The old spawn-everything loop relied on `Command.run()`
+    // BLOCKING its worker thread, which capped children at the worker count
+    // by accident; since design 182 `run()` parks instead, so an unbounded
+    // spawn launches every example's compile as a concurrent child process
+    // (DF-182f: the full corpus put the machine at loadavg >700). Joining
+    // each wave before spawning the next bounds the children in flight to
+    // the number the flag always promised.
     var group = TaskGroup(threads: opts.jobs)
-    var spawned = Vector<TaskHandle<Check>>()
-    var i = 0
-    while i < files.len() {
-        guard let rel = files.get(i) else {
-            break
-        }
-        let h = group.spawn(check_one(i, rel, opts.python))
-        spawned.push(move h)
-        i = i + 1
-    }
-
-    // Handles are move-only, so they come back out by popping. Draining into a
-    // second vector reverses the order once, and popping THAT walks the files in
-    // input order — which is what keeps the report, the JSONL stream and the
-    // exit status independent of which task happened to finish first.
-    var pending = Vector<TaskHandle<Check>>()
-    while spawned.len() > 0 {
-        if let h = spawned.pop() {
-            pending.push(move h)
-        }
-    }
-
     var checked = 0
     var skipped = 0
     var mismatched = 0
     var index = 0
-    while pending.len() > 0 {
+    while index < files.len() {
+        var wave = Vector<TaskHandle<Check>>()
+        var w = 0
+        while w < opts.jobs && index + w < files.len() {
+            guard let rel = files.get(index + w) else {
+                break
+            }
+            let h = group.spawn(check_one(index + w, rel, opts.python))
+            wave.push(move h)
+            w = w + 1
+        }
+
+        // Handles are move-only, so they come back out by popping. Draining
+        // into a second vector reverses the order once, and popping THAT
+        // walks the wave in input order — which is what keeps the report, the
+        // JSONL stream and the exit status independent of which task happened
+        // to finish first.
+        var pending = Vector<TaskHandle<Check>>()
+        while wave.len() > 0 {
+            if let h = wave.pop() {
+                pending.push(move h)
+            }
+        }
+
+        while pending.len() > 0 {
         guard let handle = pending.pop() else {
             break
         }
@@ -590,6 +597,7 @@ func main() -> Int {
             append_record(sink, rel, &result)
         }
         index = index + 1
+        }
     }
 
     let elapsed = started.elapsed().as_millis()

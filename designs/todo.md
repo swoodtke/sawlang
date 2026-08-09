@@ -131,6 +131,25 @@ The probe outcomes, filed as findings so the pins cite them (user, Aug 9:
   from the freed buffer, silently, exit 0 — in the declared-before
   ordering DF-188c rules legal. PIN: `examples/spawn_capture_move_root.saw`.
 
+## DF-182f — irdet's fan-out lost its accidental throttle (FOUND + FIXED Aug 9, live incident)
+
+Design 182's cooperative `Command.run()` removed a throttle nobody knew
+existed: irdet spawned check_one for EVERY corpus file into
+`TaskGroup(threads: jobs)` and relied on `run()` BLOCKING its worker
+thread to cap children at the worker count. Post-182 `run()` parks, the
+workers pick up the next task and launch its child too, and `--all`
+put ~1000 concurrent sawc processes on the machine — loadavg >700,
+observed live with two agent batteries running. Fixed in
+`devtools/irdet/src/main.saw`: the fan-out is now WAVES of at most
+`opts.jobs`, joined in input order before the next wave spawns — the
+bound the flag always promised, made explicit instead of accidental.
+LESSON for every driver of subprocess fleets (the test runner is safe —
+it has its own worker pool — but future Saw tools are not): a spawned
+task that runs a child process must be bounded by STRUCTURE, not by the
+hope that some call blocks. Both in-flight agents were stopped mid-run
+for the fix; their worktrees predate it, so their batteries must not run
+`--all` until rebased.
+
 ## Design 187 — coro fix batch + 182 completion (UNITS 1-10 LANDED, Aug 9; unit 11 BLOCKED)
 
 `designs/187-coro-fix-batch.md`. Units 1-10 landed, each its own commit with
