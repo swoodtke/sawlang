@@ -4,10 +4,12 @@
 // receiver to open the second access: on a free-copy receiver like this one
 // both writes land in copies and are silently lost (a=1 b=2 survives), and
 // on std Data the buffer corrupts. RULED (user, Aug 9): window roots join
-// the path-disjointness check, exclusivity diagnostic on every copy tier.
-// XFAIL: DF-188f place windows are not covered by the Law of Exclusivity; writes silently lost
+// the path-disjointness check, exclusivity diagnostic on every copy tier —
+// so this reports the Law, on a receiver that copies for free.
 // EXPECT: error
 // EXPECT-ERROR-CONTAINS: exclusive access violation
+// EXPECT-ERROR-CONTAINS: borrows `p` for the whole window
+// EXPECT-ERROR-CONTAINS: a place borrow charges its ROOT
 
 struct Pair {
     a: Int,

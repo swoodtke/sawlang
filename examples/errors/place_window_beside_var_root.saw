@@ -1,0 +1,48 @@
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: exclusive access violation
+// EXPECT-ERROR-CONTAINS: borrows `p` for the whole window
+//
+// The other half of DF-188f (audit rows X31/X38): not two windows, but ONE
+// window beside a `&var` of the same root in the same call. The window holds
+// `p` for the whole call — that is literally what the use-site lowering does,
+// nesting the call inside the window closure — so `reset`'s writes ran inside
+// a borrow that had already read the pre-reset value, and vanished (`a=8 b=2`
+// where `a=107 b=200` was the answer).
+//
+// A `&var` root written straight into the same argument list is the same
+// conflict said out loud; both spellings are refused here. Nesting the
+// reference inside another call is not a way past the Law once a window is
+// open, because the window's extent is the whole call.
+
+struct Pair {
+    a: Int,
+    b: Int
+}
+
+extension Pair {
+    func at(&self, i: Int) borrows -> Int {
+        if i == 0 { lend self.a } else { lend self.b }
+    }
+}
+
+func reset(p: &var Pair) -> Int {
+    p.a = 100
+    p.b = 200
+    7
+}
+
+func sink(x: &var Int, y: Int) {
+    x = x + y
+}
+
+func sink2(x: &var Int, p: &var Pair) {
+    x = 1
+    p.b = 2
+}
+
+func main() {
+    var p = Pair(a: 1, b: 2)
+    sink(&var p.at(0), reset(&var p))
+    sink2(&var p.at(0), &var p)
+    print("a={p.a} b={p.b}")
+}

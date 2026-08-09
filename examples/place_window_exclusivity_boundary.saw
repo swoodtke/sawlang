@@ -1,0 +1,110 @@
+// The ACCEPT side of design 188 unit 2 — the audit's correct-shapes table, kept
+// as a regression test. Folding place-window ROOTS into the Law of Exclusivity
+// must refuse exactly the trigger (two by-reference accesses to one root in one
+// call, at least one of them a window) and nothing else, because over-rejection
+// here is a failure, not a safety win. Every shape below is outside the trigger
+// and keeps compiling, with the answer written in the expected output:
+//
+//   * one window, alone in a call (X34/X41)
+//   * two windows in SEPARATE statements (X35)
+//   * a window beside a shared read of a DISJOINT path (X37, as ruled)
+//   * a plain fixed array (X32) — not a `borrows` accessor, so constant
+//     distinct indices stay disjoint and both may be written at once
+//   * a `&var` root with no window in the call (X39)
+//   * disjoint fields and tuple elements (X04/X09), two shared reads (X05)
+//   * NESTED windows in one statement (X17): `b[0][1].n += 1` is two windows on
+//     two different roots — the outer place's root is `cells`, the inner one's
+//     is the element the outer window lent — so nothing overlaps.
+//
+// EXPECT: success
+// EXPECT-OUTPUT: a=2
+// EXPECT-OUTPUT: a=3 b=3
+// EXPECT-OUTPUT: right b=4
+// EXPECT-OUTPUT: arr0=1 arr1=1
+// EXPECT-OUTPUT: a=4
+// EXPECT-OUTPUT: t0=2 t1=3
+// EXPECT-OUTPUT: shared=10
+// EXPECT-OUTPUT: nested=3
+// EXPECT-OUTPUT: d0=9 d1=2
+
+import std.data.*
+
+struct Pair {
+    a: Int,
+    b: Int
+}
+
+extension Pair {
+    func at(&self, i: Int) borrows -> Int {
+        if i == 0 { lend self.a } else { lend self.b }
+    }
+}
+
+struct Two {
+    left: Pair,
+    right: Pair
+}
+
+struct Cell {
+    n: Int
+}
+
+func bump(x: &var Int) {
+    x = x + 1
+}
+
+func take_both(x: &var Int, y: &var Int) {
+    x = x + 1
+    y = y + 1
+}
+
+func read_two(x: &Int, y: &Int) -> Int {
+    x + y
+}
+
+func with_root(x: &var Int, p: &Pair) -> Int {
+    x = x + 1
+    p.b
+}
+
+func main() {
+    var p = Pair(a: 1, b: 2)
+    bump(&var p.at(0))
+    print("a={p.a}")
+
+    bump(&var p.at(0))
+    bump(&var p.at(1))
+    print("a={p.a} b={p.b}")
+
+    var two = Two(left: Pair(a: 1, b: 2), right: Pair(a: 3, b: 4))
+    print("right b={with_root(&var two.left.at(0), &two.right)}")
+
+    var arr: [Int; 4] = [0; 4]
+    take_both(&var arr[0], &var arr[1])
+    print("arr0={arr[0]} arr1={arr[1]}")
+
+    bump(&var p.a)
+    print("a={p.a}")
+
+    take_both(&var p.a, &var p.b)
+    var t = (1, 2)
+    take_both(&var t.0, &var t.1)
+    print("t0={t.0} t1={t.1}")
+
+    let n = 5
+    print("shared={read_two(&n, &n)}")
+
+    var cells: Vector<Vector<Cell>> = []
+    var inner: Vector<Cell> = []
+    inner.push(Cell(n: 1))
+    inner.push(Cell(n: 2))
+    cells.push(move inner)
+    cells[0][1].n += 1
+    print("nested={cells[0][1].n}")
+
+    var d = Data()
+    d.push(1)
+    d.push(2)
+    d[0] = 9
+    print("d0={d[0]} d1={d[1]}")
+}

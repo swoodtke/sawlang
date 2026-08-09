@@ -1,0 +1,32 @@
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: exclusive access violation
+// EXPECT-ERROR-CONTAINS: borrows `d` for the whole window
+// EXPECT-ERROR-CONTAINS: `v.swap(i, j)`
+//
+// DF-188f reached through a std type (audit row X40) — the reason the finding
+// was the batch's headline. `Data` has been ImplicitCopy since design 165 and
+// publishes `d[i]`, so the swap idiom below compiled, copied the receiver to
+// open the second window, and CORRUPTED the buffer: it printed `d0=1 d1=1`
+// where `d0=2 d1=1` was the answer. No diagnostic anywhere — the copy-policy
+// error that caught this on a `Vector` receiver has nothing to trip on when the
+// receiver copies for free.
+//
+// The window is what makes it a conflict: a place borrow charges its ROOT, so
+// `d[0]` and `d[1]` are two exclusive borrows of `d`, not two disjoint bytes.
+// The swap belongs in separate statements, or in a method that does both.
+
+import std.data.*
+
+func swap2(x: &var UInt8, y: &var UInt8) {
+    let t = x
+    x = y
+    y = t
+}
+
+func main() {
+    var d = Data()
+    d.push(1)
+    d.push(2)
+    swap2(&var d[0], &var d[1])
+    print("d0={d[0]} d1={d[1]}")
+}

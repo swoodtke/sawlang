@@ -15,7 +15,7 @@ from ast_nodes import (
     SawType, TypeKind, Visibility,
     Expression, Identifier, MoveExpr, ReferenceExpr, IntLiteral, Block,
     MemberAccess, ArrayIndex, TupleIndex, SelfExpr, ClosureExpr,
-    BindOptional, OptionalEvalExpr, ForceUnwrap
+    BindOptional, OptionalEvalExpr, ForceUnwrap, MethodCall
 )
 from errors import ErrorKind
 from namespace import (
@@ -2743,6 +2743,25 @@ class TypeUtilsMixin:
     # Sentinel for an array index that is not a compile-time constant.
     _DYNAMIC_INDEX = object()
 
+    @staticmethod
+    def _place_use_receiver(node):
+        """The receiver a `borrows` place use borrows, or None (design 188 u2).
+
+        A place use is a node the checker resolved to a `borrows` accessor —
+        `v[i]`, `m[k]`, `p.at(0)`, `v.get(i)` — and it is NOT an ordinary
+        projection: the accessor call borrows the WHOLE receiver for the
+        window's extent, which is what "a place borrow charges its ROOT" has
+        said since design 146. (`place_uses.is_place` is the same test; it is
+        spelled out here so the checker keeps no dependency on the lowering.)
+        """
+        if getattr(node, 'place_struct', None) is None:
+            return None
+        if getattr(node, 'place_lowered', False):
+            return None
+        if isinstance(node, ArrayIndex):
+            return node.array_expr
+        return getattr(node, 'object', None)
+
     def _build_access_path(self, expr: Expression):
         """Build an access path (root, projections) from an lvalue expression.
 
@@ -2751,10 +2770,25 @@ class TypeUtilsMixin:
         Returns None for a non-path expression (call result, literal, etc.) --
         those cannot legally appear under `&`/`&var` (rejected earlier by the
         lvalue check in `_check_reference_expr`).
+
+        A PLACE USE is the one node that does not project (design 188 unit 2):
+        it charges its receiver whole. Two windows onto one root, or a window
+        beside a `&var root`, are therefore two overlapping accesses in one
+        call — which is exactly what they are at runtime, and what silently lost
+        writes until the roots joined this check (DF-188f).
         """
         projections = []
         node = expr
         while True:
+            place_receiver = self._place_use_receiver(node)
+            if place_receiver is not None:
+                # Whatever was projected out of the place sits INSIDE the
+                # window, and the window holds the whole receiver — so the
+                # projections below it say nothing about disjointness and the
+                # index arguments are not a path component at all.
+                projections = []
+                node = place_receiver
+                continue
             if isinstance(node, Identifier):
                 projections.reverse()
                 return (node.name, tuple(projections))
@@ -2827,6 +2861,11 @@ class TypeUtilsMixin:
             return f"{self._render_lvalue_path(expr.tuple_expr)}.{expr.index}"
         if isinstance(expr, ArrayIndex):
             return f"{self._render_lvalue_path(expr.array_expr)}[{self._render_index(expr.index)}]"
+        if isinstance(expr, MethodCall):
+            # A named place accessor (`p.at(0)`, `m.get(k)`) — a by-reference
+            # access since design 188 unit 2, so it has to render.
+            return (f"{self._render_lvalue_path(expr.object)}."
+                    f"{expr.method_name}(…)")
         return "<expr>"
 
     def _render_index(self, expr: Expression) -> str:
@@ -2874,6 +2913,39 @@ class TypeUtilsMixin:
                     value.line, value.column,
                     hint="call sites mirror the parameter's reference spelling"
                 )
+
+    @staticmethod
+    def _nested_reference_exprs(expr):
+        """Every `&`/`&var` written strictly BELOW `expr` (design 188 unit 2).
+
+        Used only where a place window is open across the whole call, so the
+        walk is deliberately narrow: it does not enter a CLOSURE (whose borrow
+        captures are collected from `capture_specs` instead, and whose body runs
+        where the callee decides) and it does not enter a nested type.
+        """
+        import dataclasses
+        from ast_nodes import structural_fields
+        found = []
+        stack = [expr]
+        seen = set()
+        while stack:
+            cur = stack.pop()
+            if cur is None or isinstance(cur, (SawType, str, bytes)):
+                continue
+            if isinstance(cur, (list, tuple)):
+                stack.extend(cur)
+                continue
+            if not dataclasses.is_dataclass(cur) or id(cur) in seen:
+                continue
+            seen.add(id(cur))
+            if isinstance(cur, ClosureExpr):
+                continue
+            if isinstance(cur, ReferenceExpr) and cur is not expr:
+                found.append(cur)
+                continue
+            for f in structural_fields(cur):
+                stack.append(getattr(cur, f.name, None))
+        return found
 
     def _check_call_exclusivity(self, values, param_types=None,
                                 receiver: Optional[Expression] = None,
@@ -2954,6 +3026,28 @@ class TypeUtilsMixin:
                     entries.append(('mut' if spec.mode == 'ref_var' else 'imm',
                                     path, name_expr, spec.line, spec.column))
 
+        # A PLACE window's extent is the whole call (design 141; the use-site
+        # lowering nests the call INSIDE the window closure), so a reference
+        # created by a NESTED call in this argument list is live while the
+        # window is open. `sink(&var p.at(0), reset(&var p))` reads the
+        # pre-reset value and drops `reset`'s writes — audit X31/X38, the
+        # window-beside-a-`&var`-root half of DF-188f.
+        #
+        # Deliberately conditional on a place being present: with no window in
+        # the call the nested reference is created and consumed before the
+        # enclosing call runs, and widening the Law to cover that ordering is a
+        # separate question (DF-188j).
+        if any(self._place_use_receiver(e[2]) is not None for e in entries):
+            for value in values:
+                if isinstance(value, ReferenceExpr):
+                    continue
+                for ref in self._nested_reference_exprs(value):
+                    path = self._build_access_path(ref.expr)
+                    if path is None:
+                        continue
+                    entries.append(('mut' if ref.mutable else 'imm', path,
+                                    ref.expr, ref.line, ref.column))
+
         n = len(entries)
         for i in range(n):
             ki, pi, ei, li, ci = entries[i]
@@ -2985,8 +3079,31 @@ class TypeUtilsMixin:
                 # At least one side is mutable and it overlaps another path.
                 if ki == 'mut':
                     m_expr, m_line, m_col = ei, li, ci
+                    other = ej
                 else:
                     m_expr, m_line, m_col = ej, lj, cj
+                    other = ei
+                # A place window is not an ordinary path, so it gets the
+                # diagnostic that says what it holds (design 188 unit 2).
+                place = next((e for e in (m_expr, other)
+                              if self._place_use_receiver(e) is not None), None)
+                if place is not None:
+                    root = self._render_lvalue_path(
+                        self._place_use_receiver(place))
+                    self._error(
+                        ErrorKind.EXCLUSIVITY_VIOLATION,
+                        f"exclusive access violation: the place "
+                        f"`{self._render_lvalue_path(place)}` borrows `{root}` "
+                        f"for the whole window, and `{root}` is accessed by "
+                        f"reference a second time in the same call",
+                        m_line, m_col,
+                        hint="a place borrow charges its ROOT, so two windows "
+                             "onto one receiver — or a window beside a `&var` "
+                             "of it — cannot both be open. Open them in "
+                             "SEPARATE statements, or reach for the method that "
+                             "does both at once (`v.swap(i, j)`)"
+                    )
+                    continue
                 self._error(
                     ErrorKind.EXCLUSIVITY_VIOLATION,
                     f"exclusive access violation: `{self._render_lvalue_path(m_expr)}` "
