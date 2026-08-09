@@ -78,6 +78,17 @@ class _FakeCall:
         self.column = column
 
 
+def _is_never_expr(expr) -> bool:
+    """Does this expression DIVERGE — `panic(...)`, a `-> Never` call, a
+    break-less `while {}` (design 177)?
+
+    The typechecker stamps `Never` on all three, and a diverging expression
+    produces no value: there is nothing to store into a frame's `__result`, and
+    trying to store it hands codegen a Python `None` (DF-158a)."""
+    t = getattr(expr, 'resolved_type', None)
+    return t is not None and t.kind == TypeKind.NEVER
+
+
 def _self_field(name, line=0, column=0):
     return MemberAccess(object=SelfExpr(line=line, column=column),
                         member=name, line=line, column=column)
@@ -4249,13 +4260,22 @@ class _FrameBuilder:
         loads the value first, so the following `__saw_forget` clears the source
         flag without disturbing the moved value."""
         seq = []
-        if value is not None and not self.is_void:
-            seq.append(AssignStatement(target=self._result_place(),
-                                       value=self._result_store_value(value)))
-        elif value is not None and self.is_void:
+        if value is not None and (self.is_void or _is_never_expr(value)):
             # A void `return foo()` (foo void) still runs its side effects; there
             # is no result slot to store into.
+            #
+            # DF-158a: neither does a DIVERGING result expression. `func boom()
+            # -> Int { sleep(...)  panic("x") }` has a result type but no result
+            # — `panic` is `Never`, and so is a `-> Never` call or a
+            # break-less `while {}` (design 177) — so the frame is dead at that
+            # point and there is nothing to store. Storing it anyway handed
+            # codegen a Python `None` and ICEd. The done sequence still follows,
+            # unreachable behind the noreturn call, so the state machine keeps
+            # exactly the shape a non-diverging tail gives it.
             seq.append(ExpressionStatement(expression=value))
+        elif value is not None:
+            seq.append(AssignStatement(target=self._result_place(),
+                                       value=self._result_store_value(value)))
         seq.extend(self._forgets(forgets))
         seq.append(self._release_call())
         done_lit = _int(0)  # patched to the done-state marker after CFG assembly

@@ -1,0 +1,58 @@
+// A DIVERGING result expression in a suspending body emits no result store —
+// the frame is dead at that point, so there is nothing to store (DF-158a).
+//
+// Storing it anyway handed codegen a Python `None`: `internal compiler error:
+// 'NoneType' object has no attribute 'type'`. The same body with a `Void`
+// return type compiled and ran, and so did the same `panic` tail in a SYNC
+// function, which localized it to the result store in a coroutine frame. Found
+// while writing design 158's panic-time task dump, whose natural test wanted
+// exactly this shape.
+//
+// All four spellings of "this result diverges" are here — a tail `panic`, an
+// explicit `return panic(...)`, a `-> Never` callee, and a value `if` whose
+// else diverges — each in a spawned body, so each is transformed. Only the
+// last one taken at run time actually panics.
+// EXPECT: panic
+// EXPECT-OUTPUT-CONTAINS: branch 5
+// EXPECT-OUTPUT-CONTAINS: guarded 1
+// EXPECT-OUTPUT-CONTAINS: alive 3
+// EXPECT-PANIC-CONTAINS: deliberate
+
+func halt(why: String) -> Never {
+    panic("{why}")
+}
+
+// A value `if` whose else arm diverges: the arm types Never, the if types Int.
+func branch(k: Int) -> Int {
+    sleep(Duration.ms(1))
+    if k > 0 { 5 } else { panic("unreachable else") }
+}
+
+// The explicit `return panic(...)` spelling, guarded so the run takes the
+// other exit.
+func guarded(k: Int) -> Int {
+    sleep(Duration.ms(1))
+    if k > 0 { return 1 }
+    return panic("unreachable return")
+}
+
+// A `-> Never` CALLEE in result position, likewise guarded.
+func via_never(k: Int) -> Int {
+    sleep(Duration.ms(1))
+    if k > 0 { return 3 }
+    halt("unreachable callee")
+}
+
+// The DF's own repro: a diverging tail with a value return type.
+func boom() -> Int {
+    sleep(Duration.ms(1))
+    panic("deliberate")
+}
+
+func main() {
+    var g = TaskGroup()
+    print("branch {}", g.spawn(branch(1)).join())
+    print("guarded {}", g.spawn(guarded(1)).join())
+    print("alive {}", g.spawn(via_never(1)).join())
+    print("b {}", g.spawn(boom()).join())
+}

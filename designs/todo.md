@@ -191,16 +191,15 @@ Five findings, ALL PRE-EXISTING (each reproduced on `main` before 158
 touched anything). Two carry XFAIL pins; three are recorded here because
 they have no user-facing spelling to pin.
 
-**DF-158a — a diverging `panic` in RESULT position of a suspending body is a
-codegen ICE.** `func boom() -> Int { sleep(...)  panic("x") }` spawned into a
-group: the transform stores the panic's (nonexistent) value into the frame's
-`__result` and codegen stores a Python `None` —
-`internal compiler error: 'NoneType' object has no attribute 'type'`. Both
-the tail and the explicit `return panic(...)` spelling. `panic` is `Never`,
-so no store should be emitted: the frame is dead at that point. A `Void`
-return type compiles and runs; so does the same `panic` tail in a SYNC
-function, which localizes it to the result-store in a coroutine frame.
-PINNED: `examples/coro_panic_value_position_xfail.saw`.
+**DF-158a — CLOSED (design 187 unit 3).** A diverging `panic` in RESULT
+position of a suspending body was a codegen ICE: the transform stored the
+panic's (nonexistent) value into the frame's `__result` and codegen stored a
+Python `None` (`'NoneType' object has no attribute 'type'`). The done
+sequence now asks whether the result expression is `Never` — which covers
+the tail `panic`, the explicit `return panic(...)`, a `-> Never` callee and
+a value `if` whose arm diverges — and emits the expression instead of a
+store, exactly as it already did for a `Void` body. Pin flipped and renamed:
+`examples/coro_panic_value_position.saw`, now covering all four spellings.
 
 **DF-158b — a suspending call in a `Void` body's TAIL position is
 rejected.** `func f() { yield_now() }` — the parser makes the block's only
