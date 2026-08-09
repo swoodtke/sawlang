@@ -1,0 +1,28 @@
+// A TaskGroup is a SCOPE (design 124): its Deinit structured-joins its
+// members where it was born, and spawned frames reference group-owned
+// state — so relocating one is meaningless, and today this legal program
+// ABORTS inside the runtime (Vector.get: no place to lend, SIGABRT).
+// RULED (user, Aug 9): TaskGroup declares the new NoMove tier (alongside
+// its explicit NoCopy — NoMove requires, never implies), so the move below
+// becomes a compile error citing the scope rule.
+// XFAIL: DF-188d moving a TaskGroup that holds a live task aborts in the runtime
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: NoMove
+
+import std.task.*
+
+func work(n: Int) -> Int {
+    yield_now()
+    n * 2
+}
+
+func make() -> TaskGroup {
+    var group = TaskGroup()
+    let _ = group.spawn(work(21))
+    move group
+}
+
+func main() {
+    var g = make()
+    print("group holds {g.count()}")
+}

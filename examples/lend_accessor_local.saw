@@ -1,0 +1,28 @@
+// A `borrows` accessor must lend storage reached THROUGH THE RECEIVER —
+// a lend of the accessor's own local (or parameter) hands out storage that
+// dies when the accessor resumes, so a read is sound but a write through
+// the window silently vanishes (this program prints n=1 today). The
+// match-arm rule already refuses a payload of "a value the body just
+// built"; the same rule applies to a plain lend. RULED (user, Aug 9): the
+// NARROW receiver-rooted rule — widening to outlives-based later stays
+// backward-compatible.
+// XFAIL: DF-188g a borrows accessor may lend its own local; writes through the window vanish
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: lend
+
+struct Counter {
+    n: Int
+}
+
+extension Counter {
+    func slot(&self) borrows -> Int {
+        var tmp = self.n + 1
+        lend tmp
+    }
+}
+
+func main() {
+    var c = Counter(n: 1)
+    c.slot() = 99
+    print("n={c.n}")
+}

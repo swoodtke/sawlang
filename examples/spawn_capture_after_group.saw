@@ -1,0 +1,26 @@
+// A task may borrow from its spawner — structured concurrency's promise,
+// sound because the group's Deinit joins before anything declared AHEAD
+// of the group dies. This program has the one broken ordering: `n` is
+// declared AFTER `group`, so at scope exit LIFO runs `n`'s deinit before
+// the group joins, and the task's `&var n` reaches a logically dead
+// binding. RULED (user, Aug 9, DF-188c case i): this ordering is a
+// compile error naming the LIFO order and the fix (declare `n` before
+// `group`); the declared-before form stays legal.
+// XFAIL: DF-188c a reference capture of a binding declared after its group escapes the LIFO order
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: declared after
+
+import std.task.*
+
+func run(f: () -> Int) -> Int {
+    yield_now()
+    f()
+}
+
+func main() {
+    var group = TaskGroup()
+    var n = 7
+    let h = group.spawn(run({ [&var n] in n = n + 1  n }))
+    print("task saw {h.join()}")
+    print("n is now {n}")
+}

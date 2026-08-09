@@ -1,0 +1,32 @@
+// Two by-reference accesses to one root in one call, at least one a
+// `borrows` place, must be an exclusivity error — the place borrow charges
+// its ROOT (spec, design 146). Today the compiler instead COPIES the
+// receiver to open the second access: on a free-copy receiver like this one
+// both writes land in copies and are silently lost (a=1 b=2 survives), and
+// on std Data the buffer corrupts. RULED (user, Aug 9): window roots join
+// the path-disjointness check, exclusivity diagnostic on every copy tier.
+// XFAIL: DF-188f place windows are not covered by the Law of Exclusivity; writes silently lost
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: exclusive access violation
+
+struct Pair {
+    a: Int,
+    b: Int
+}
+
+extension Pair {
+    func at(&self, i: Int) borrows -> Int {
+        if i == 0 { lend self.a } else { lend self.b }
+    }
+}
+
+func setboth(x: &var Int, y: &var Int) {
+    x = 50
+    y = 60
+}
+
+func main() {
+    var p = Pair(a: 1, b: 2)
+    setboth(&var p.at(0), &var p.at(1))
+    print("a={p.a} b={p.b}")
+}

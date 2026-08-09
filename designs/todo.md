@@ -7,13 +7,14 @@ items need a probe before being treated as real work.
 Historical/landed recaps: designs/todo_aug1-aug9.md (split Aug 9);
 older history is in this file's git log (pruned Jul 30).
 
-## Design 188 — safety-audit batch (findings filed Aug 9; brief drafted, rulings pending)
+## Design 188 — safety-audit batch (APPROVED + QUEUED, held; all rulings Aug 9)
 
 Source: the Aug-8 external review (`review.md`) + systematic audit
 (`safety_audit.md`, 247 rows, probes in `.build/scratch/safety/` —
 GITIGNORED, which is why the load-bearing repros are promoted to example
-pins below). Nine findings; four need a user ruling (being reviewed
-one-by-one), five are mechanical. D-numbers cite the audit's own sections.
+pins below). Nine findings. ALL FOUR RULINGS RATIFIED in the Aug-9
+one-by-one review — the brief's units 2-5 record each decision and the
+alternatives explored and declined. D-numbers cite the audit's sections.
 
 - **DF-188a (SOUNDNESS, audit D1): an enum case payload may be a
   reference.** Design 163d's NAMES walk covers fields/generics/returns/
@@ -27,44 +28,49 @@ one-by-one), five are mechanical. D-numbers cite the audit's own sections.
   position and `R(&x)` inhabits it. Fix: resolve aliases before the walk.
   Return position is only ACCIDENTALLY covered (fails on a type mismatch).
   PIN: `examples/typealias_ref_launder.saw`.
-- **DF-188c (NEEDS RULING, audit D3): a `[&var x]` borrow-capture reaches a
-  spawned frame while a reference PARAM at a spawn root is refused (design
-  88).** Same pointer into the same frame, one spelling checked. Audit
-  could not prove it unsound (group Deinit joins before the spawner frame
-  dies); the question is symmetry. Recommendation: refuse both, after a
-  usage grep.
-- **DF-188d (NEEDS RULING, audit D4): moving a `TaskGroup` holding a live
-  task aborts in the runtime** (`Vector.get: no place to lend` + SIGABRT
-  out of `make() -> TaskGroup`). Design 124 calls a group a SCOPE whose
-  Deinit joins where it was born. Recommendation: reject the move of a
-  live group at compile time. Pin lands with the ruling.
+- **DF-188c — RULED (Aug 9): spawn captures split by soundness, not
+  symmetry.** (i) a reference capture of a binding declared AFTER its
+  group is an ERROR (the LIFO order runs its deinit before the join —
+  the diagnostic names the order and the fix); (ii) reference captures
+  into `threads: N` groups refused pending a Sync-checked design (probe
+  current behavior first); (iii) single-threaded declared-before stays
+  LEGAL — structured concurrency's promise, sound by construction with
+  DF-188d's NoMove. Join-at-the-brace considered and declined (deadlocks
+  the drop-to-terminate idioms). Follow-up brief filed below: scoped
+  task borrows. PIN: `examples/spawn_capture_after_group.saw`. Full
+  record: brief unit 5.
+- **DF-188d — RULED (Aug 9): `NoMove`, a new declared relocation tier;
+  `TaskGroup` is its first conformer.** Duplication and relocation are
+  separate axes: `NoMove` REQUIRES an explicit `NoCopy` (never implies —
+  declaring it on a Copy-tier type is an error), a NoMove value moves
+  exactly once (constructor into binding), whole-referent replacement
+  stays legal, the containment contagion is a declared cascade and is
+  DOCUMENTED. Not a generic bound. `NoMove + ExplicitCopy` recorded as a
+  compatible later opening. Interior-heap pinning considered and
+  declined for TaskGroup. PIN: `examples/taskgroup_move_live.saw`. Full
+  record: brief unit 4.
 - **DF-188e (COMPILER, audit D5): `n += 1` on a `&var` param after a
   suspension ICEs** ("Unsupported container expression in compound
   assignment") — the transform's frame-field rewrite has no compound-assign
   case. `n = n + 1` works. ADDED TO DESIGN 187 (same surface). PIN:
   `examples/coro_ref_param_compound_assign.saw`.
-- **DF-188f (NEEDS RULING, audit D6 — THE HEADLINE): place windows are not
-  covered by the Law of Exclusivity.** Two by-reference accesses to one
-  root in one call, at least one a `borrows` place, silently lose writes:
-  `setboth(&var p.at(0), &var p.at(1))` leaves `p` untouched; on std
-  `Data`, `swap2(&var d[0], &var d[1])` corrupts the buffer; a `&var root`
-  beside a window loses the root's writes. What refuses ExplicitCopy/
-  NoCopy receivers is the COPY POLICY (the compiler copies the receiver to
-  open the second access and reports THAT), so free-copy receivers sail
-  through — the masking is why it survived. Same lost-write family as
-  DF-151j/DF-176b/DF-175a, and the WINDOW-vs-window half of the family
-  DF-176c already holds a seat for. Audit's boundary table: single window /
-  separate statements / window+shared-read / plain fixed arrays all
-  CORRECT. Fix shape: run the existing path-disjointness check over
-  place-window ROOTS ("a place borrow charges its root" is already the
-  spec's words) and emit an exclusivity diagnostic. Pin lands with the
-  ruling.
-- **DF-188g (NEEDS RULING, audit D7): a `borrows` accessor may lend its own
-  LOCAL or PARAMETER.** Reads are sound (frame alive for the window);
-  writes land in storage that dies on resume — `c.slot() = 99` is a silent
-  no-op. The match-arm neighbour rule ("a payload of a value the body just
-  built dies with the accessor") already exists; apply it to plain lends:
-  a lend must be rooted in the receiver. Pin lands with the ruling.
+- **DF-188f — RULED (Aug 9, "yes to D6" — THE HEADLINE): place windows
+  join the Law of Exclusivity.** Two by-reference accesses to one root in
+  one call, at least one a `borrows` place, silently lose writes (std
+  `Data` corrupts); the copy-policy error was masking it on the tiers
+  that would have caught it. Ruling: fold place-window ROOTS into the
+  existing path-disjointness check ("a place borrow charges its root" is
+  already the spec's words), exclusivity diagnostic on EVERY copy tier;
+  the audit's correct-shapes boundary table becomes the accept-side test
+  set. Re-examine DF-176c against the landing. PIN:
+  `examples/place_window_exclusivity.saw`. Full record: brief unit 2.
+- **DF-188g — RULED (Aug 9, "yes with the narrow receiver rule"): a lend
+  must be rooted in the receiver.** A `borrows` accessor lending its own
+  local or parameter is refused — reads were sound, writes vanished into
+  the dying frame (`c.slot() = 99` silent no-op). The NARROW form: even
+  outlives-the-window storage (an accessor's `&var` param) is refused;
+  widening later is compatible, the reverse is not. PIN:
+  `examples/lend_accessor_local.saw`. Full record: brief unit 3.
 - **DF-188h (SPEC/IMPL, audit D8): the `unsafe` effect is unchecked between
   a trait requirement and its conformer**, both directions. Not unsound
   (the boundary check that matters fires — an undeclared unsafe body via a
@@ -82,6 +88,15 @@ too-deep `??` default no longer emits invalid IR; it silently takes the
 absent path (audit row O10). The type error is still owed (187 unit 7,
 note updated there). Audit rows confirming fixed items: V17 (DF-146j),
 O10/O11 controls, the 26/26 trap table.
+
+**Follow-up brief to author (filed by the DF-188c ruling): scoped task
+borrows.** Extend the Law of Exclusivity with a borrow-extent rule — a
+`&var` capture into a spawn holds its root exclusively until the group's
+death (closing the two-tasks-alias-one-root gap case (iii) leaves open) —
+and evaluate relaxing design 88's spawn-root reference-PARAM refusal
+under the same declared-before-the-group rule, restoring param/capture
+symmetry in the permissive direction. Not part of 188; author when the
+queue has room.
 
 ## Design 187 — coro fix batch + 182 completion (QUEUED, held)
 
