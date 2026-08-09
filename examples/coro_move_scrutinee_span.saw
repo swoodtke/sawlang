@@ -1,0 +1,116 @@
+// An `if let` / `guard let` over a `move` SCRUTINEE whose continuation spans a
+// suspension (DF-182c).
+//
+// Reading an owning value out of an Optional needs `move` (design 131), so this
+// is the ordinary shape for consuming one — and inside a driven body it was a
+// clean rejection. What blocked it: the `move` owes a frame drop-flag clear, and
+// the split emits its value test as a synthesized `if let` dispatch that stores
+// the unwrapped payload into a frame field. Putting the clear in both dispatch
+// branches was always the right order; the STORE was the problem, being a copy
+// that a NoCopy payload has none of and an ExplicitCopy one would double-drop.
+// The store is a MOVE now — the binding owns the payload and dies at the end of
+// the dispatch arm, so the field taking ownership is exactly what it means —
+// and the clear has somewhere to go.
+//
+// The deinit count is the assertion that matters: the value is made once,
+// carried across a suspension, read, and dropped exactly once. The None path is
+// here for the other half — its scrutinee flag is cleared too, and nothing is
+// dropped at all.
+//
+// EXPECT: success
+// EXPECT-OUTPUT:
+// id: 7
+// guarded: 5
+// absent: -2
+// explicit: 12
+// implicit: 4
+// deinits=2
+
+import std.task.*
+
+static DEINITS: Atomic<Int> = Atomic(0)
+
+struct Res {
+    id: Int
+}
+
+extension Res: NoCopy {
+    func deinit(&var self) {
+        DEINITS.fetch_add(1)
+    }
+}
+
+func make(id: Int) -> Res? {
+    yield_now()
+    if id > 0 {
+        return Res(id: id)
+    }
+    None
+}
+
+func consume(id: Int) -> Int {
+    var held = make(id)
+    if let r = move held {
+        yield_now()               // the continuation spans a suspension
+        r.id
+    } else {
+        -1
+    }
+}
+
+// The `guard let` twin, which took the same rejection.
+func guarded(id: Int) -> Int {
+    var held = make(id)
+    guard let r = move held else {
+        return -1
+    }
+    yield_now()
+    r.id
+}
+
+// The NONE path: no payload to move, the scrutinee's flag still cleared, and
+// nothing dropped.
+func absent() -> Int {
+    var held = make(0)
+    if let r = move held {
+        yield_now()
+        r.id
+    } else {
+        yield_now()
+        -2
+    }
+}
+
+// An ExplicitCopy payload, which the copying store would have double-dropped.
+func explicit(n: Int) -> Int {
+    let base: Vector<Int> = [1, 2, n]
+    var held: Vector<Int>? = move base
+    if let v = move held {
+        yield_now()
+        v.len() + n
+    } else {
+        0
+    }
+}
+
+// An ImplicitCopy payload: the move costs it the retain/release pair the copy
+// used to take, and the balance has to come out the same.
+func implicit() -> Int {
+    var held: String? = "abcd"
+    if let s = move held {
+        yield_now()
+        s.len()
+    } else {
+        0
+    }
+}
+
+func main() {
+    var group = TaskGroup()
+    print("id: {}", group.spawn(consume(7)).join())
+    print("guarded: {}", group.spawn(guarded(5)).join())
+    print("absent: {}", group.spawn(absent()).join())
+    print("explicit: {}", group.spawn(explicit(9)).join())
+    print("implicit: {}", group.spawn(implicit()).join())
+    print("deinits={DEINITS.load()}")
+}

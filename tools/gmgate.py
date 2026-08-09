@@ -110,6 +110,13 @@ GATE = [
     # now rides the done sequence; put it in the wrong place and the value is
     # freed twice while still reading correctly, which is this lane's whole brief.
     "examples/coro_tail_move_local.saw",
+    # A `move` SCRUTINEE handed into a frame field by the optional-binding
+    # dispatch (DF-182c). The store became a move and the drop-flag clear went
+    # into both branches, which is two chances to release the same value twice —
+    # a copying store that still cleared the flag, or a clear on a branch that
+    # never took the payload. Its deinit count catches a leak; only Guard Malloc
+    # catches the surplus release, which reads correct until the block is reused.
+    "examples/coro_move_scrutinee_span.saw",
     # Data's copy-on-write separation plus the offset-aware eager fill. Since
     # design 165 the count is Arc's rather than hand-rolled, which is exactly
     # why these stay: the release now runs through Arc's two-phase drop into

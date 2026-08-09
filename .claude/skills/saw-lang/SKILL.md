@@ -1147,10 +1147,12 @@ dump_tasks()                // every live task's logical backtrace (std.task)
   condition is unconditional, so it is lifted to a temp ahead of the binding. A
   trailing `if let … { v } else { w }` in VALUE position takes one in either
   branch (DF-182b), and a body that suspends may hand a local out through a tail
-  `move r` rather than a `return` (DF-182d). STILL REJECTED: `if let x = move opt`
-  / `guard let x = move opt` whose continuation spans a suspension (DF-182c —
-  restructure so the `move` read happens after the last suspension, or drive the
-  producer directly). It also embeds in any EXPRESSION position (design 120): a chain head
+  `move r` rather than a `return` (DF-182d). A `move` SCRUTINEE works too
+  (DF-182c): `if let x = move opt` / `guard let x = move opt` whose continuation
+  spans a suspension consumes the optional, carries the payload in the frame and
+  drops it exactly once — the ordinary shape for reading an owning value out of
+  an Optional, at every copy tier. A `move` scrutinee of a suspension-spanning
+  `match` is still refused. It also embeds in any EXPRESSION position (design 120): a chain head
   or later hop, an argument, a receiver, an operand, a literal element, a string
   interpolation, a `return` value, a `try!` subject, a `?.` hop, a
   `Channel.receive()`. The compiler unchains the statement into evaluation-ordered

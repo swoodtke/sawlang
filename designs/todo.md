@@ -459,17 +459,21 @@ caller becomes a coroutine frame, and four separate limits turn up in real code
 that reads a child's output. Three are transform gaps (two fixed here, one pinned);
 the fourth is a language question only the user can answer.
 
-- **DF-182c (COMPILER, OPEN, filed Aug 8): an `if let` / `guard let` over a `move`
-  SCRUTINEE whose continuation spans a suspension is rejected.** Reading an owning
-  value out of an Optional needs `move` (design 131), so this is the ordinary
-  shape for consuming one, and `devtools/irdet` is written exactly this way. The
-  `move` owes a drop-flag clear; putting it in both branches of the synthesized
-  dispatch is the right ORDER (tried, and the ordering holds), but the dispatch's
-  value path also STORES the unwrapped payload into a frame field, and that store
-  is a copy — which a NoCopy payload refuses outright and an ExplicitCopy one
-  would double-drop. The store has to become a move before the clear has anywhere
-  to go, which is more surgery than this brief should do unreviewed. Pinned by
-  `examples/coro_move_scrutinee_span_xfail.saw`.
+- **DF-182c — CLOSED (design 187 unit 10).** An `if let` / `guard let` over a
+  `move` SCRUTINEE whose continuation spans a suspension was rejected. The
+  ordering was never the problem — the drop-flag clear belongs in both branches
+  of the synthesized dispatch, as recorded — the STORE was: the dispatch's value
+  path put the unwrapped payload into a frame field with a copy, which a NoCopy
+  payload has none of and an ExplicitCopy one would double-drop. The store is a
+  MOVE now: the binding owns the payload the unwrap produced and dies at the end
+  of the dispatch arm, so the field taking ownership is exactly what it means,
+  and an ImplicitCopy payload loses a retain/release pair it never needed. Pin
+  flipped and renamed: `examples/coro_move_scrutinee_span.saw`, grown to the
+  `guard let` twin, the None path, an ExplicitCopy payload and an ImplicitCopy
+  one, and added to the Guard Malloc ownership lane (`tools/gmgate.py`) because
+  a surplus release here reads correct natively. A `move` scrutinee of a
+  suspension-spanning `match` stays rejected — several bindings and several
+  arms, and not what this unit was scoped to.
 - **DF-182e — LANDED (design 187 unit 9), as ruled.** An OWNING container is
   `Send` iff its contents are: `Vector`, `Map` and `Set` inherit their type
   ARGUMENTS' answer (the allocator argument included — a policy type carries

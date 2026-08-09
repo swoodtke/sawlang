@@ -3457,22 +3457,40 @@ class _FrameBuilder:
                 self._goto(merge)
         self.cur = merge
 
-    def _optbind_dispatch(self, node, scrut, some_state, none_state):
+    def _optbind_dispatch(self, node, scrut, some_state, none_state,
+                          forgets=()):
         """design 104 item 1: emit the optional-binding dispatch as an ordinary
         `if let` whose branches ONLY set the resume state (codegen already lowers an
         `if let` over a `T?` correctly — this reuses that has-value test + unwrap
         instead of a synthesized Some/None match). On the value path the unwrapped
         binding is stored into its frame field so it survives the transition to the
-        (separately-dispatched) body state; both paths set `__state` and re-dispatch."""
+        (separately-dispatched) body state; both paths set `__state` and re-dispatch.
+
+        DF-182c: that store is a MOVE. The binding owns the payload the unwrap
+        just produced and dies at the end of the dispatch arm, so handing the
+        field a copy was wrong twice over — a NoCopy payload has no copy to give
+        and was refused outright, and an ExplicitCopy one would have been
+        dropped by both the field and the binding. Moving retires the binding
+        with the value, which is what the field taking ownership means, and
+        costs an ImplicitCopy payload one retain/release pair it never needed.
+
+        `forgets` are the drop-flag clears a `move` SCRUTINEE owes (`if let r =
+        move held`): the read has already happened by the time either branch
+        runs, so the source field's flag is cleared on BOTH — the value left it
+        either way."""
         bind = node.name
         some_body = []
         if bind in self.encmap:
             some_body.append(AssignStatement(
-                target=_self_field(bind), value=Identifier(name=bind)))
+                target=_self_field(bind),
+                value=MoveExpr(variable=bind, path=None,
+                               line=node.line, column=node.column)))
+        some_body.extend(self._forgets(forgets))
         some_body.append(AssignStatement(
             target=_self_field("__state"), value=_int(some_state)))
-        none_body = [AssignStatement(
-            target=_self_field("__state"), value=_int(none_state))]
+        none_body = list(self._forgets(forgets))
+        none_body.append(AssignStatement(
+            target=_self_field("__state"), value=_int(none_state)))
         dispatch = IfLetExpr(
             name=bind, optional_expr=scrut, mutable=node.mutable,
             then_branch=Block(statements=some_body, final_expr=None),
@@ -3483,25 +3501,17 @@ class _FrameBuilder:
         self._term.add(self.cur)
 
     def _split_if_let(self, e, loop_ctx):
+        # DF-182c: a `move` SCRUTINEE is supported now. `_rewrite_expr` records
+        # the drop-flag clears the move owes; the dispatch runs them on both
+        # branches and moves the unwrapped payload into its frame field.
         forgets = []
         scrut = self._rewrite_expr(e.optional_expr, forgets)
-        if forgets:
-            # DF-182c (OPEN): the dispatch has nowhere to put the drop-flag clear
-            # a `move` scrutinee owes. Putting it in both dispatch branches is the
-            # right ORDER, but the value path also has to move the unwrapped
-            # payload into its frame field, and the synthesized store is a copy —
-            # which a NoCopy payload refuses, and an ExplicitCopy one would
-            # double-drop. Refusing is still the honest answer until the store
-            # itself is a move.
-            raise CoroTransformError(
-                f"coroutine transform: `move` of the scrutinee of a "
-                f"suspension-spanning `if let` in `{self.name}` is not supported",
-                e.line, e.column)
         then_entry = self._new_block()
         else_entry = self._new_block() if e.else_branch is not None else None
         merge = self._new_block()
         self._optbind_dispatch(
-            e, scrut, then_entry, else_entry if else_entry is not None else merge)
+            e, scrut, then_entry, else_entry if else_entry is not None else merge,
+            forgets)
         self.cur = then_entry
         self._lower_block(e.then_branch, loop_ctx)
         if self.cur not in self._term:
@@ -3514,19 +3524,14 @@ class _FrameBuilder:
         self.cur = merge
 
     def _split_guard_let(self, s, loop_ctx):
-        forgets = []
+        forgets = []                           # DF-182c — see `_split_if_let`
         scrut = self._rewrite_expr(s.optional_expr, forgets)
-        if forgets:
-            raise CoroTransformError(          # DF-182c — see `_split_if_let`
-                f"coroutine transform: `move` of the scrutinee of a "
-                f"suspension-spanning `guard let` in `{self.name}` is not supported",
-                s.line, s.column)
         none_entry = self._new_block()
         after = self._new_block()
         # Value path -> `after` (the guard's continuation, which the enclosing
         # statement loop lowers into `after` next); None path -> the else-branch,
         # which must diverge (return/break/continue) per guard semantics.
-        self._optbind_dispatch(s, scrut, after, none_entry)
+        self._optbind_dispatch(s, scrut, after, none_entry, forgets)
         self.cur = none_entry
         self._lower_block(s.else_branch, loop_ctx)
         if self.cur not in self._term:
