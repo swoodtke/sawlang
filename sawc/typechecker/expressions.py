@@ -7988,6 +7988,31 @@ class ExpressionsMixin:
 
     def _check_module_function_call(self, expr: MethodCall, func_info) -> Optional[SawType]:
         """Check a module function call: ModuleName.function(args)"""
+        # DF-158d: `task.yield_now()` is the COOPERATIVE-YIELD INTRINSIC, not a
+        # call to a function that happens to contain one.
+        #
+        # Design 114 made `yield_now` a stdlib-internal intrinsic with a public
+        # std.task WRAPPER, and said the wrapper is transparent: a user call
+        # lowers to the intrinsic itself, with no extra frame. That holds for
+        # every spelling that puts the name in scope BARE (`import std.task.*`,
+        # `import std.task.{yield_now}`), which land in the intrinsic branch of
+        # `_check_function_call`. Design 150's QUALIFIER spelling arrived later
+        # and did not: it resolved to the wrapper as an ordinary cross-module
+        # free function, which the coroutine transform cannot embed, so the
+        # caller got no state split, the yield ran outside a frame, and the task
+        # never ceded — a silent no-op of the one escape hatch a pure-compute
+        # loop has. Route it to the intrinsic here and mark the node so the
+        # transform can lower it as one.
+        if (expr.method_name == "yield_now"
+                and getattr(func_info, 'def_module', ()) == ("<std>", "task")):
+            if len(expr.arguments) != 0:
+                self._error(
+                    ErrorKind.WRONG_ARGUMENT_COUNT,
+                    f"`yield_now` takes no arguments, but "
+                    f"{len(expr.arguments)} were given", expr.line, expr.column)
+            expr.is_yield_intrinsic = True
+            self._effect_direct_source("yield_now", expr.line)
+            return SawType(TypeKind.VOID)
         # design 24 item 3: record the suspend-graph edge for a module-qualified
         # call. In the whole-program (single-file) path the callee's node is
         # registered under its name and the edge connects; a cross-module callee

@@ -1,0 +1,22 @@
+// A RENAMED selective import of a std FUNCTION should call it under the new
+// name, exactly as a renamed import of a user module's function does.
+//
+// `import std.task.{dump_tasks as dt}` type-checks — the rename registers the
+// symbol under `dt` in the importing module's namespace — and then codegen looks
+// the CALL up by the name at the call site and finds nothing:
+// `internal compiler error: Undefined function: dt`. The same rename over a user
+// module (`import helper.{greet as hello}`) works, and so does a renamed std
+// TYPE (`import std.data.{Data as Bytes}`), which is what makes this a std
+// FUNCTION gap rather than a rename gap.
+// XFAIL: DF-187a a renamed selective import of a std function is a codegen ICE
+// EXPECT: success
+// EXPECT-OUTPUT:
+// saw tasks: none live
+// ok
+
+import std.task.{dump_tasks as dt}
+
+func main() {
+    dt()
+    print("ok")
+}

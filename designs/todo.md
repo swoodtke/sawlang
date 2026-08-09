@@ -244,17 +244,33 @@ is two frames deep as a result, which is the honest proof. Regression:
 IDENTICAL with and without `-c` over four coroutine shapes — an examples test
 cannot spawn under `-c`, so the check is at the IR level.
 
-**DF-158d — `yield_now()` in a nested callee does not make its caller
-suspend.** `func leaf() { yield_now() ... }` called from a spawned `middle`
-leaves `middle` with a single-state frame and no embedded child, so the
-yield is the outside-a-frame no-op and the task never cedes. The digest's
-documented escape hatch for a compute loop in a sync helper is "put a
-`yield_now` in the helper", which is exactly this shape. Seen on both the
-hosted and freestanding paths; likely the same effect-edge gap design 96
-closed for nested std METHOD calls, never closed for the std.task
-`yield_now` WRAPPER (design 114 made it a wrapper). NO XFAIL: writing one
-means asserting an interleaving, which the standing rule forbids — it wants
-a probe that counts cedes.
+**DF-158d — CLOSED (design 187 unit 5), and the culprit is the SPELLING.**
+`yield_now()` in a nested callee did not make its caller suspend — the
+callee got no frame, the yield ran outside one, and the task never ceded,
+silently killing the one documented escape hatch a compute loop in a helper
+has. Narrowing it found the bare spellings (`import std.task.*`,
+`import std.task.{yield_now}`) were always fine: they put the name in scope
+BARE, which lands in the intrinsic branch. Design 150's QUALIFIER spelling
+`task.yield_now()` arrived after design 114 and resolved to the std WRAPPER
+as an ordinary cross-module free function, which the transform cannot
+embed. The wrapper is transparent by design, so the qualified call now
+routes to the intrinsic too (marked at resolution, canonicalized to the bare
+`FunctionCall` by a transform pre-pass, so every downstream pass sees the
+one spelling it already handles). Test:
+`examples/coro_nested_yield_wrapper.saw` — the witness COUNTS its own turns
+taken while the worker is still running, no ordering asserted; zero before
+the fix, nonzero after.
+
+- **DF-187a (COMPILER, FILED Aug 9 by design 187 unit 5; PRE-EXISTING): a
+  RENAMED selective import of a std FUNCTION is a codegen ICE.**
+  `import std.task.{dump_tasks as dt}` type-checks (the rename registers the
+  symbol under `dt`), then codegen looks the call up by the name at the call
+  site: `internal compiler error: Undefined function: dt`. The same rename
+  over a USER module (`import helper.{greet as hello}`) works, and so does a
+  renamed std TYPE (`import std.data.{Data as Bytes}`) — so it is the std
+  FUNCTION path, not the rename machinery. Found while narrowing DF-158d,
+  whose `{yield_now as cede}` spelling hits it; every std function does.
+  PIN: `examples/import_std_function_rename.saw`.
 
 ## Design 180 — sleep(Duration) (LANDED, Aug 8)
 

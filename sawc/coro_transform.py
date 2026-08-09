@@ -4949,6 +4949,39 @@ def _make_spawn_trampoline(func, root_name):
                     source_file=getattr(func, 'source_file', ""))
 
 
+def _rewrite_yield_intrinsic_calls(node):
+    """Rewrite a QUALIFIED `task.yield_now()` into the bare intrinsic, in place,
+    everywhere (DF-158d).
+
+    The typechecker stamped `is_yield_intrinsic` on every call that resolves to
+    std.task's design-114 wrapper — the wrapper is transparent by design, and a
+    `MethodCall` node is the one spelling that could not say so on its own. One
+    canonical `FunctionCall(name="yield_now")` afterwards means the split-point
+    scan, the wake-reason table and the CFG walk all see the suspension they
+    already know how to lower, with no second spelling to teach them.
+    """
+    if isinstance(node, MethodCall) and getattr(node, 'is_yield_intrinsic', False):
+        return FunctionCall(name="yield_now", arguments=[],
+                            line=node.line, column=node.column)
+    if isinstance(node, ASTNode):
+        for f in structural_fields(node):
+            setattr(node, f.name, _rewrite_yield_val(getattr(node, f.name)))
+    return node
+
+
+def _rewrite_yield_val(val):
+    if isinstance(val, list):
+        return [_rewrite_yield_val(v) for v in val]
+    if isinstance(val, tuple):
+        return tuple(_rewrite_yield_val(v) for v in val)
+    if isinstance(val, Argument):
+        val.value = _rewrite_yield_intrinsic_calls(val.value)
+        return val
+    if isinstance(val, ASTNode):
+        return _rewrite_yield_intrinsic_calls(val)
+    return val
+
+
 def _rewrite_spawn_sites(node):
     """Rewrite `group.spawn(f(args))` -> `__spawn_f((&group) as
     UnsafePointer<TaskGroup>, args...)` in place, everywhere. The site was stamped
@@ -5344,6 +5377,20 @@ def transform_program(program, typechecker, imported_ast=None):
                      and "main" in funcs_by_name)
     if not roots and not method_roots and not spawn_roots and not main_suspends:
         return False
+
+    # DF-158d: canonicalize the design-114 yield WRAPPER to the intrinsic before
+    # anything looks at a body. The qualified spelling `task.yield_now()` is a
+    # `MethodCall`, which the split-point scan does not recognize as a
+    # suspension point — so a callee whose only yield was written that way got
+    # no frame, its caller embedded nothing, and the yield ran outside a frame
+    # as a no-op. The typechecker marks the node; this makes every downstream
+    # pass see the one spelling it already handles.
+    for f in program.functions:
+        f.body = _rewrite_yield_intrinsic_calls(f.body)
+    for ext in _all_exts:
+        for m in ext.methods:
+            if getattr(m, 'body', None) is not None:
+                m.body = _rewrite_yield_intrinsic_calls(m.body)
 
     # design 52b item 2: rewrite `group.spawn(f(args))` -> `__spawn_<f>(&group,
     # args)` FIRST, before any frame is built, so a spawner that is ITSELF
