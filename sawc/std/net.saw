@@ -525,12 +525,10 @@ extension TcpStream {
         // call that stops the executor for the whole lookup. Design 184's law is
         // that resolution never blocks the executor, so it waits for DF-184a.
         // `examples/net_connect_by_name.saw` is the pin.
-        var addr = 0
-        if let literal = parse_ipv4_literal(host) {
-            addr = literal as Int
-        } else {
+        guard let literal = parse_ipv4_literal(host) else {
             return unresolvable_host_error(host)
         }
+        let addr = literal as Int
         let fd = __saw_rt_tcp_connect_start(addr, port)
         if fd < 0 {
             return io_error("connect", -fd)
