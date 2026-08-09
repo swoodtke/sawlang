@@ -1,0 +1,48 @@
+// Design 189's two conservative edges: where the borrow is NOT released.
+//
+// `discarded` — the handle is thrown away, so nothing ever joins the task.
+// `TaskHandle`'s Deinit owns nothing and does not join (design 134 leaves the
+// result in the group's cell), so the task runs until the GROUP's Deinit
+// drains it at scope exit. The borrow lasts exactly that long, and the
+// diagnostic says so instead of naming a handle that does not exist. Same
+// answer for a handle that simply goes out of scope unjoined.
+//
+// `conditional` — the join is real but it is inside an `if`. The other path
+// never joined, so the borrow is live again below the branch. This over-
+// approximates on purpose: a borrow released on one path only is a borrow.
+// Hoist the join out of the branch to get the root back.
+//
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: torn down at the end of this scope (nothing joins its handle)
+// EXPECT-ERROR-CONTAINS: `n` cannot be read here
+// EXPECT-ERROR-CONTAINS: `m` cannot be written here
+// EXPECT-ERROR-CONTAINS: until `h.join()` releases it
+
+import std.task.*
+
+func run(f: () -> Int) -> Int {
+    yield_now()
+    f()
+}
+
+func discarded() {
+    var n = 0
+    var group = TaskGroup()
+    let _ = group.spawn(run({ [&var n] in n = n + 1  n }))
+    print("n is {n}")
+}
+
+func conditional(flag: Bool) {
+    var m = 0
+    var group = TaskGroup()
+    let h = group.spawn(run({ [&var m] in m = m + 1  m }))
+    if flag {
+        print("joined early: {h.join()}")
+    }
+    m = 5
+}
+
+func main() {
+    discarded()
+    conditional(true)
+}

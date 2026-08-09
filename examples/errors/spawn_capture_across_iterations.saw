@@ -1,0 +1,29 @@
+// One textual spawn, N live borrows. The loop body captures `&var total` and
+// never joins, so every iteration adds another task holding the one root
+// exclusively — the Law of Exclusivity violated by ITERATION rather than by a
+// second line, which is why design 189 asks the question at the end of a loop
+// body as well as at each access.
+//
+// The accept side is one line away and is pinned in
+// spawn_capture_join_releases.saw: join the handle inside the body and each
+// iteration's borrow is released before the next one opens.
+//
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: this task's `&var total` capture is still live when the loop body ends
+// EXPECT-ERROR-CONTAINS: the next iteration would open a second exclusive borrow of the same root
+
+import std.task.*
+
+func run(f: () -> Int) -> Int {
+    yield_now()
+    f()
+}
+
+func main() {
+    var total = 0
+    var group = TaskGroup()
+    for i in 0..4 {
+        let h = group.spawn(run({ [&var total] in total = total + i  total }))
+    }
+    print("total {total}")
+}

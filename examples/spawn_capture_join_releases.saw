@@ -1,0 +1,61 @@
+// Design 189's ACCEPT side: what the borrow extent must not cost. A capture
+// borrows its root for the task's life, so everything below turns on the
+// release point being the HANDLE's join — and on a shared capture composing
+// with other readers the way `&` composes everywhere else.
+//
+//   1. DISJOINT ROOTS. Two exclusive captures of two different bindings are
+//      two borrows that never overlap, live at the same time, and both write
+//      through to the root. Charging a capture's root is what makes this the
+//      easy case rather than a whole-frame lock.
+//   2. TWO SHARED CAPTURES OF ONE ROOT, both live, with the caller READING it
+//      between the spawns. Readers compose; only a writer excludes.
+//   3. SPAWN, JOIN, THEN LOOP. The join releases inside the body, so the next
+//      iteration's capture is the only live borrow of `log` — the shape the
+//      cross-iteration rule (errors/spawn_capture_across_iterations.saw) is
+//      careful NOT to refuse. `log` is a `Vector`, so its buffer is exactly
+//      the storage DF-189c handed a task after freeing.
+//
+// The single-capture spawn-join-use idiom is pinned next door in
+// spawn_capture_declared_before.saw (design 188's accept pin), which this
+// deliberately does not duplicate.
+//
+// EXPECT: success
+// EXPECT-OUTPUT: left 2 right 11
+// EXPECT-OUTPUT: roots after join: 2 11
+// EXPECT-OUTPUT: caller reads base while shared: 7
+// EXPECT-OUTPUT: doubled 14 tripled 21
+// EXPECT-OUTPUT: iteration 0 len 1
+// EXPECT-OUTPUT: iteration 1 len 2
+// EXPECT-OUTPUT: iteration 2 len 3
+// EXPECT-OUTPUT: log len 3
+
+import std.task.*
+
+func run(f: () -> Int) -> Int {
+    yield_now()
+    f()
+}
+
+func main() {
+    var left = 1
+    var right = 10
+    let base = 7
+    var log: Vector<Int> = []
+    var group = TaskGroup()
+
+    let a = group.spawn(run({ [&var left] in left = left + 1  left }))
+    let b = group.spawn(run({ [&var right] in right = right + 1  right }))
+    print("left {a.join()} right {b.join()}")
+    print("roots after join: {left} {right}")
+
+    let c = group.spawn(run({ [&base] in base * 2 }))
+    let d = group.spawn(run({ [&base] in base * 3 }))
+    print("caller reads base while shared: {base}")
+    print("doubled {c.join()} tripled {d.join()}")
+
+    for i in 0..3 {
+        let h = group.spawn(run({ [&var log] in log.push(i)  log.len() }))
+        print("iteration {i} len {h.join()}")
+    }
+    print("log len {log.len()}")
+}
