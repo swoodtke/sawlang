@@ -1,22 +1,56 @@
 // Design 88: a `&var` parameter spans a suspension and mutation is
-// caller-visible. That holds for `n = n + 1` after the suspension, but the
-// COMPOUND spelling ICEs: the transform rewrites `n` to a frame field and
-// the compound-assign path has no case for the resulting MemberAccess
-// container ("Unsupported container expression in compound assignment").
-// The intended behavior is the same result the expanded spelling gives.
-// XFAIL: DF-188e compound assignment through a &var param after a suspension is a codegen ICE
+// caller-visible. That held for `n = n + 1` after the suspension; the COMPOUND
+// spelling ICEd with "Unsupported container expression in compound assignment"
+// (DF-188e).
+//
+// The transform makes a reference param a frame-resident POINTER, so after the
+// suspension the target is `self.n[0]` — an ArrayIndex over a MemberAccess. The
+// plain assignment path had handled a non-Identifier container for a long
+// while; the compound path simply had no case for one, and raised instead. A
+// compound assignment means exactly its expansion, so it lowers the same way.
 // EXPECT: success
-// EXPECT-OUTPUT: 8
+// EXPECT-OUTPUT:
+// 3
+// 3.5
+// 6
 
 import std.task.*
 
+// The whole integer operator family, in order: 7 +1 = 8, -3 = 5, *4 = 20,
+// /2 = 10, %7 = 3.
 func bump(n: &var Int) {
     yield_now()
     n += 1
+    n -= 3
+    n *= 4
+    n /= 2
+    n %= 7
+}
+
+func scale(f: &var Float) {
+    yield_now()
+    f += 1.5
+}
+
+struct Holder { total: Int }
+
+// A FIELD of a `&var` referent, reached through the same frame-resident
+// pointer.
+func bump_field(h: &var Holder) {
+    yield_now()
+    h.total += 5
 }
 
 func main() {
     var n = 7
     bump(&var n)
     print("{n}")
+
+    var f = 2.0
+    scale(&var f)
+    print("{f}")
+
+    var h = Holder(total: 1)
+    bump_field(&var h)
+    print("{h.total}")
 }

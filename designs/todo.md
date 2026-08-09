@@ -49,11 +49,16 @@ alternatives explored and declined. D-numbers cite the audit's sections.
   compatible later opening. Interior-heap pinning considered and
   declined for TaskGroup. PIN: `examples/taskgroup_move_live.saw`. Full
   record: brief unit 4.
-- **DF-188e (COMPILER, audit D5): `n += 1` on a `&var` param after a
-  suspension ICEs** ("Unsupported container expression in compound
-  assignment") — the transform's frame-field rewrite has no compound-assign
-  case. `n = n + 1` works. ADDED TO DESIGN 187 (same surface). PIN:
-  `examples/coro_ref_param_compound_assign.saw`.
+- **DF-188e — CLOSED (design 187 unit 6).** `n += 1` on a `&var` param after
+  a suspension ICEd with "Unsupported container expression in compound
+  assignment" while `n = n + 1` worked. Not the transform: it makes a
+  reference param a frame-resident POINTER, so the target arrives as
+  `self.n[0]` — an ArrayIndex over a MemberAccess — and CODEGEN's compound
+  path had no case for a non-Identifier container, which the plain assignment
+  path had handled for a long while. The two are mirrored now, minus the
+  ownership bookkeeping a numeric target does not need. Pin flipped:
+  `examples/coro_ref_param_compound_assign.saw`, grown to the whole integer
+  operator family, a Float, and a field of a `&var` referent.
 - **DF-188f — RULED (Aug 9, "yes to D6" — THE HEADLINE): place windows
   join the Law of Exclusivity.** Two by-reference accesses to one root in
   one call, at least one a `borrows` place, silently lose writes (std

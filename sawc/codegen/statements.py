@@ -839,7 +839,41 @@ class StatementsMixin:
                 else:
                     raise ValueError(f"Cannot index into type: {container_val.type}")
             else:
-                raise ValueError(f"Unsupported container expression in compound assignment: {type(container_expr)}")
+                # DF-188e: a NON-IDENTIFIER container, which the plain assignment
+                # path has handled for a long while and this one simply had no
+                # case for — so `n += 1` on a `&var Int` param AFTER a suspension
+                # died with "Unsupported container expression in compound
+                # assignment" while `n = n + 1` compiled and ran. The coroutine
+                # transform makes a reference param a frame-resident pointer, so
+                # the target arrives as `self.n[0]`: an `ArrayIndex` over a
+                # `MemberAccess`. The two arms below mirror the assignment path
+                # exactly, minus its ownership bookkeeping — a compound-assign
+                # target is a number, so there is no old value to drop and no
+                # incoming value to retain.
+                container_saw = self._expr_type(container_expr)
+                if (container_saw is not None
+                        and container_saw.kind == TypeKind.ARRAY):
+                    # A fixed-array FIELD or nested element (`self.data[i] += 1`).
+                    container_ptr = self._get_lvalue_pointer(container_expr)
+                    pointee = container_ptr.type.pointee
+                    if not isinstance(pointee, ir.ArrayType):
+                        raise ValueError(
+                            f"compound-assignment target is not array storage: "
+                            f"{pointee}")
+                    self._emit_array_bounds_check(
+                        index_val, pointee.count, stmt.target.index)
+                    zero = ir.Constant(ir.IntType(64), 0)
+                    elem_ptr = self.builder.gep(
+                        container_ptr, [zero, index_val], name="elem_ptr")
+                else:
+                    container_val = self._generate_expression(container_expr)
+                    if isinstance(container_val.type, ir.PointerType):
+                        elem_ptr = self.builder.gep(
+                            container_val, [index_val], name="ptr_elem")
+                    else:
+                        raise ValueError(
+                            f"Unsupported container expression in compound "
+                            f"assignment: {type(container_expr)}")
 
             current_val = self.builder.load(elem_ptr, name="elem_val")
             rhs = self._generate_expression(stmt.value)
