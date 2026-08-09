@@ -89,14 +89,22 @@ absent path (audit row O10). The type error is still owed (187 unit 7,
 note updated there). Audit rows confirming fixed items: V17 (DF-146j),
 O10/O11 controls, the 26/26 trap table.
 
-**Follow-up brief to author (filed by the DF-188c ruling): scoped task
-borrows.** Extend the Law of Exclusivity with a borrow-extent rule — a
-`&var` capture into a spawn holds its root exclusively until the group's
-death (closing the two-tasks-alias-one-root gap case (iii) leaves open) —
-and evaluate relaxing design 88's spawn-root reference-PARAM refusal
-under the same declared-before-the-group rule, restoring param/capture
-symmetry in the permissive direction. Not part of 188; author when the
-queue has room.
+## Design 189 — scoped task borrows (DRAFT brief, Aug 9; probe-CONFIRMED soundness)
+
+`designs/189-scoped-task-borrows.md`, authored from the five-probe
+investigation the user directed ("first probe it and then write a brief
+depending on the probe outcome"). Probes CONFIRMED TWO SILENT UAFs in
+safe code: (a) a deinit-bearing root declared after its group is freed
+before the task's write (188's DF-188c(i), now labeled HOLE); (b) `move`
+of a captured root between spawn and join hands the task freed memory —
+in the ordering 188 calls legal, so extent tracking is REQUIRED for
+soundness, not hygiene. Also probed: two `&var` captures of one root
+co-live silently (Law violated); MT captures are ALREADY refused via
+Send on the closure param (nothing owed there but a regression pin).
+The rule: a capture borrows its root for the task's life, the HANDLE
+carries the borrow, join releases it. Design-88 param relaxation rides
+as an optional unit. NEEDS USER REVIEW of the handle-carries-borrow
+model; recommended queue slot: immediately after 188, before 186.
 
 ## Design 187 — coro fix batch + 182 completion (QUEUED, held)
 

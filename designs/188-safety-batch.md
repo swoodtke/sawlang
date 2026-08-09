@@ -102,23 +102,28 @@ known silent-wrong-answer-in-safe-code bug in the tree.**
    spawner is structured concurrency's core promise, not a hazard. Three
    cases:
    - **(i) A reference capture of a binding declared AFTER its group is an
-     ERROR.** The one broken ordering: LIFO deinit runs the binding before
-     the group joins its tasks, so the task's borrow reaches a dead value
-     (write-after-deinit; the unit's FIRST step is the probe that confirms
-     the UAF reproduces with a deinit-bearing captured type, so the
-     tracker records hole vs asymmetry). The diagnostic teaches the model:
-     name the binding, the group, the LIFO order, and the fix ("declare
-     `buf` before `group`"). PIN: `examples/spawn_capture_after_group.saw`.
-   - **(ii) Reference captures into a `threads: N` group are REFUSED for
-     now** — cross-thread an unsynchronized `&var` capture is a data race,
-     and the capture route plausibly bypasses the Send checking that
-     guards params/locals/results (PROBE first: if it already rejects,
-     nothing is owed; if it compiles, pin it and close it with design
-     88's Arc/Mutex/Channel message, which is honest for MT).
+     ERROR.** PROBE RESULT (Aug 9, instrumented): CONFIRMED silent UAF —
+     the task's pushes print after "scope ends", into a Vector whose
+     deinit already freed the buffer, exit 0. This case is a HOLE, filed
+     as such. The diagnostic teaches the model: name the binding, the
+     group, the LIFO order, and the fix ("declare `buf` before `group`").
+     PIN: `examples/spawn_capture_after_group.saw`.
+   - **(ii) Reference captures into a `threads: N` group — PROBED:
+     ALREADY REFUSED.** A closure is not `Send`, so the frame-param Send
+     check rejects every closure-carrying MT spawn with a good message.
+     This unit owes only a pinned regression test of the existing
+     rejection (design 189 unit 3 carries it).
    - **(iii) Single-threaded, declared-before-the-group captures STAY
-     LEGAL** — sound by construction: the group's Deinit joins before
-     anything declared ahead of it dies, and unit 4's NoMove ruling
-     closed the only route around that argument.
+     LEGAL — with the soundness caveat the probes exposed.** The
+     scope-exit argument holds (group joins before anything declared
+     ahead of it dies, NoMove closing the move-the-group route), but a
+     `move` OF THE CAPTURED ROOT before the join escapes it: probe 5
+     (`consume(move buf)` between spawn and join) reads-and-reallocs
+     from freed memory, silently, in the ordering this ruling calls
+     legal. That is DESIGN 189's charter (the borrow-extent rule, brief
+     authored Aug 9 from these probes); (iii) stands as ruled here, and
+     189 is the brief that makes it sound rather than
+     sound-in-the-common-shape.
    Considered and DECLINED: hoisting the group's join ahead of scope
    teardown ("the join belongs to the closing brace") — it blesses every
    ordering but INVERTS the dependency the drop-to-terminate idioms rely
