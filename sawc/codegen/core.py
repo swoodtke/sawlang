@@ -1595,9 +1595,12 @@ class CodeGenerator(ResultsMixin, MatchMixin, StructsMixin, CollectionsMixin, Ca
                                      name="__saw_rt_tcp_local_port")
         tcp_accept = ir.Function(self.module, ir.FunctionType(i64, [i64]),
                                  name="__saw_rt_tcp_accept")
-        tcp_connect_start = ir.Function(self.module, ir.FunctionType(i64, [i64]),
+        # design 184: both carry the ADDRESS now (network byte order, as it sits
+        # in `sockaddr_in.sin_addr`) — they used to take only the port and dial a
+        # hardcoded 127.0.0.1, which is what made `connect` ignore its host.
+        tcp_connect_start = ir.Function(self.module, ir.FunctionType(i64, [i64, i64]),
                                         name="__saw_rt_tcp_connect_start")
-        tcp_connect_check = ir.Function(self.module, ir.FunctionType(i64, [i64, i64]),
+        tcp_connect_check = ir.Function(self.module, ir.FunctionType(i64, [i64, i64, i64]),
                                         name="__saw_rt_tcp_connect_check")
         tcp_read = ir.Function(self.module, ir.FunctionType(i64, [i64, i8ptr, i64]),
                                name="__saw_rt_tcp_read")

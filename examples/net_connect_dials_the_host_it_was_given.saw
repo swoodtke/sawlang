@@ -1,0 +1,33 @@
+// DF-181d, pinned (design 184 unit 3): `TcpStream.connect` dials the host it was
+// given. It used to ignore `host` outright — the seam under it took only a port
+// and built a 127.0.0.1 sockaddr — so `connect("example.com", 80)` dialled
+// loopback and REPORTED SUCCESS. Silent wrong destination, the worst shape a
+// network bug takes.
+//
+// The pin needs a wrong address whose failure is local, immediate and certain,
+// because a wrong address that merely goes unanswered would hang rather than
+// fail. The all-ones broadcast address is that: a stream socket may not be
+// connected to a broadcast destination, so the kernel refuses before a packet
+// leaves (EACCES on macOS, ENETUNREACH on Linux) and no network is involved. A
+// LIVE listener sits on 127.0.0.1:port throughout, which is exactly what the old
+// code would have connected to — and answered Ok about.
+// EXPECT: success
+// EXPECT-OUTPUT:
+// 127.0.0.1 -> connected
+// 255.255.255.255 -> refused
+
+import std.net.{TcpListener, TcpStream}
+
+func report(label: String, r: Result<TcpStream, IoError>) {
+    match r {
+        case Ok(_) -> print("{label} -> connected"),
+        case Err(_) -> print("{label} -> refused")
+    }
+}
+
+func main() {
+    let listener = try! TcpListener.listen(0)     // binds 127.0.0.1:ephemeral
+    let port = listener.local_port()
+    report("127.0.0.1", TcpStream.connect("127.0.0.1", port))
+    report("255.255.255.255", TcpStream.connect("255.255.255.255", port))
+}

@@ -1,0 +1,49 @@
+// XFAIL: DF-184a a suspending STATIC extension method cannot be called from a task body
+//
+// A static (receiver-less) extension method that suspends is unreachable from a
+// driven or spawned body: the coroutine transform embeds suspending METHOD
+// callees by their receiver's type, and a static call has no receiver, so the
+// method is never embedded and the call site does not even resolve —
+// ``undefined variable `Napper` ``, which names the type as though it were a
+// value. An INSTANCE method with the identical body works.
+//
+// This is what stops design 184 from finishing: `TcpStream.connect` is std's one
+// suspending static method, so nothing inside it can be a suspension point —
+// including the offloaded hostname resolution the brief asks for. See DF-184a.
+// EXPECT: success
+// EXPECT-OUTPUT:
+// instance: 42
+// static: 42
+
+import std.task.*
+
+struct Napper { n: Int }
+
+extension Napper {
+    func doubled(&self) -> Int {
+        yield_now()
+        self.n * 2
+    }
+
+    func doubling(n: Int) -> Int {
+        yield_now()
+        n * 2
+    }
+}
+
+func via_instance() -> Int {
+    let a = Napper(n: 21)
+    a.doubled()
+}
+
+func via_static() -> Int {
+    Napper.doubling(21)
+}
+
+func main() {
+    var group = TaskGroup()
+    let hi = group.spawn(via_instance())
+    print("instance: {hi.join()}")
+    let hs = group.spawn(via_static())
+    print("static: {hs.join()}")
+}

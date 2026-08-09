@@ -1,0 +1,58 @@
+// XFAIL: DF-184a `TcpStream.connect` cannot host the offloaded resolver until a static method can suspend
+//
+// Design 184 unit 3's contract, written out so the fix validates itself. What
+// `connect` owes a NAME: resolve it on a worker thread (the seam is declared
+// `blocking`, so design 183's machinery offloads it), let siblings run while the
+// lookup is in flight, dial the first IPv4 answer, and answer an unresolvable
+// name with an `Err(IoError)` that names the host.
+//
+// None of it can happen inside `connect` today. `connect` is a suspending STATIC
+// method and the coroutine transform never embeds one as a frame (DF-184a), so
+// the offload would silently lower to a naked call that stops the executor for
+// the whole lookup — the one thing design 184's law forbids. Until then `connect`
+// refuses a name outright rather than blocking or, as it did before design 184,
+// dialling 127.0.0.1 and calling it success (DF-181d).
+//
+// The dialer is spawned FIRST and the sibling's line comes first anyway: that
+// interleave is the non-starvation half of the contract, and it is what a naked
+// resolve could not produce. The literal path is not pinned here — it works, and
+// `net_connect_dials_the_host_it_was_given` covers it.
+//
+// Network-free: `localhost` comes out of /etc/hosts, the listener never needs an
+// `accept` (the handshake completes into the backlog), and the empty host name is
+// refused by every resolver out of its own input validation.
+// EXPECT: success
+// EXPECT-OUTPUT:
+// sibling: ran while the resolve was in flight
+// localhost: connected
+// empty host: io error: resolve "" failed (not found)
+
+import std.net.{TcpListener, TcpStream}
+
+func dial_by_name(port: Int) -> Int {
+    match TcpStream.connect("localhost", port) {
+        case Ok(_) -> print("localhost: connected"),
+        case Err(e) -> print("localhost: {e}")
+    }
+    return 1
+}
+
+func sibling() -> Int {
+    print("sibling: ran while the resolve was in flight")
+    return 0
+}
+
+func main() {
+    let listener = try! TcpListener.listen(0)
+    let port = listener.local_port()
+    var group = TaskGroup()
+    let hd = group.spawn(dial_by_name(port))     // parks inside the offloaded resolve
+    let ht = group.spawn(sibling())              // runs while it is parked
+    let _ = ht.join()
+    let _ = hd.join()
+
+    match TcpStream.connect("", 80) {
+        case Ok(_) -> print("empty host: UNEXPECTED ok"),
+        case Err(e) -> print("empty host: {e}")
+    }
+}

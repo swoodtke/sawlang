@@ -1,0 +1,34 @@
+// design 184 unit 3: a host `connect` cannot turn into an address is an
+// `Err(IoError)` that NAMES THE HOST — never a silent dial of somewhere else.
+// Before design 184 every one of these connected to 127.0.0.1 and answered Ok
+// (DF-181d), which is the failure mode this test exists to keep closed.
+//
+// Names are refused rather than resolved for now: the offloaded resolver cannot
+// run inside `connect` until DF-184a lands (see `net_connect_by_name`, which
+// pins the finished contract). WHEN IT LANDS, the first two lines here become
+// resolutions — "localhost" connects and a name with no address reports
+// `(not found)` — and this test is updated with the fix.
+//
+// No network: nothing here leaves the machine.
+// EXPECT: success
+// EXPECT-OUTPUT:
+// localhost -> io error: resolve "localhost" (hostname resolution is not available yet — pass an IPv4 address) failed (invalid argument)
+// example.com -> io error: resolve "example.com" (hostname resolution is not available yet — pass an IPv4 address) failed (invalid argument)
+// 127.0.0.1 -> connected
+
+import std.net.{TcpListener, TcpStream}
+
+func attempt(host: String, port: Int) {
+    match TcpStream.connect(host, port) {
+        case Ok(_) -> print("{host} -> connected"),
+        case Err(e) -> print("{host} -> {e}")
+    }
+}
+
+func main() {
+    let listener = try! TcpListener.listen(0)
+    let port = listener.local_port()
+    attempt("localhost", port)      // a name: refused, and it says which one
+    attempt("example.com", port)    // ditto — and NOT a loopback dial
+    attempt("127.0.0.1", port)      // the literal path still works
+}

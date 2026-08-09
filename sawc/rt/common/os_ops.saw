@@ -108,9 +108,13 @@ func ntohs(net: UInt16) -> Int {
     ((v & 0xff) << 8) | ((v >> 8) & 0xff)
 }
 
-// A 127.0.0.1:port sockaddr with the OS-correct family prefix.
-func loopback_sockaddr(port: Int) unsafe -> SockAddrIn {
-    var sa = SockAddrIn(family: 0 as UInt16, port: htons(port), addr: LOOPBACK_BE, zero: 0 as UInt64)
+// An `addr`:`port` sockaddr with the OS-correct family prefix. `addr` is the
+// address as it sits in `sin_addr` — network byte order — which is what both
+// the dotted-quad parser and `__saw_rt_resolve_ipv4` produce (design 184; until
+// then this function was hardcoded to LOOPBACK_BE and `connect` silently dialled
+// 127.0.0.1 whatever host it was handed, DF-181d).
+func ipv4_sockaddr(addr: UInt32, port: Int) unsafe -> SockAddrIn {
+    var sa = SockAddrIn(family: 0 as UInt16, port: htons(port), addr: addr, zero: 0 as UInt64)
     __saw_rt_sin_set_family((&sa) as UnsafePointer<Int8>)
     sa
 }
@@ -125,7 +129,7 @@ func rt_tcp_listen(port: Int) unsafe -> Int {
         return -__saw_rt_last_syserror()
     }
     let _ = __saw_rt_set_nonblocking(fd as Int)
-    var sa = loopback_sockaddr(port)
+    var sa = ipv4_sockaddr(LOOPBACK_BE, port)
     let ap = (&sa) as UnsafePointer<Int8>
     if bind(fd, ap, SOCKADDR_IN_LEN) != (0 as Int32) {
         let e = __saw_rt_last_syserror()
@@ -167,16 +171,18 @@ func rt_tcp_accept(listen_fd: Int) unsafe -> Int {
     return 0 - __saw_rt_last_syserror()
 }
 
-// Start a nonblocking connect to 127.0.0.1:port. Returns a connecting fd (>= 0;
-// including the EINPROGRESS "wait for writable" case) or -tag on a real failure.
+// Start a nonblocking connect to `addr_be`:`port` (design 184 — the address is
+// the caller's now; it used to be a hardcoded 127.0.0.1). Returns a connecting
+// fd (>= 0; including the EINPROGRESS "wait for writable" case) or -tag on a
+// real failure.
 @export("__saw_rt_tcp_connect_start")
-func rt_tcp_connect_start(port: Int) unsafe -> Int {
+func rt_tcp_connect_start(addr_be: Int, port: Int) unsafe -> Int {
     let fd = socket(AF_INET, SOCK_STREAM, PROTO_DEFAULT)
     if fd < (0 as Int32) {
         return -__saw_rt_last_syserror()
     }
     let _ = __saw_rt_set_nonblocking(fd as Int)
-    var sa = loopback_sockaddr(port)
+    var sa = ipv4_sockaddr(addr_be as UInt32, port)
     let ap = (&sa) as UnsafePointer<Int8>
     let r = connect(fd, ap, SOCKADDR_IN_LEN)
     if r == (0 as Int32) {
@@ -191,11 +197,12 @@ func rt_tcp_connect_start(port: Int) unsafe -> Int {
 }
 
 // Re-issue the nonblocking connect() to learn the true completion state (design
-// 90). Returns 0 = connected, -SYS_IN_PROGRESS = still connecting (re-park), or
-// -tag = a real failure.
+// 90). The address must be the SAME one `connect_start` used — re-issuing
+// against a different peer is a different question. Returns 0 = connected,
+// -SYS_IN_PROGRESS = still connecting (re-park), or -tag = a real failure.
 @export("__saw_rt_tcp_connect_check")
-func rt_tcp_connect_check(fd: Int, port: Int) unsafe -> Int {
-    var sa = loopback_sockaddr(port)
+func rt_tcp_connect_check(fd: Int, addr_be: Int, port: Int) unsafe -> Int {
+    var sa = ipv4_sockaddr(addr_be as UInt32, port)
     let ap = (&sa) as UnsafePointer<Int8>
     let r = connect(fd as Int32, ap, SOCKADDR_IN_LEN)
     if r == (0 as Int32) {

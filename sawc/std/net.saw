@@ -40,8 +40,8 @@ extern "C" {
     func __saw_rt_tcp_listen(port: Int) -> Int
     func __saw_rt_tcp_local_port(fd: Int) -> Int
     func __saw_rt_tcp_accept(listen_fd: Int) -> Int
-    func __saw_rt_tcp_connect_start(port: Int) -> Int
-    func __saw_rt_tcp_connect_check(fd: Int, port: Int) -> Int
+    func __saw_rt_tcp_connect_start(addr_be: Int, port: Int) -> Int
+    func __saw_rt_tcp_connect_check(fd: Int, addr_be: Int, port: Int) -> Int
     func __saw_rt_tcp_read(fd: Int, buf: UnsafePointer<Int8>, len: Int) -> Int
     func __saw_rt_tcp_write(fd: Int, buf: UnsafePointer<Int8>, len: Int) -> Int
     // The host errno -> portable SysError tag mapper (rt/*/net_os.saw); backs
@@ -54,13 +54,22 @@ extern "C" {
     // OFFLOADED to a worker thread by design 183's machinery and the calling
     // task parks, exactly as it does on a socket read. `blocking` is part of the
     // symbol's contract, so no other declaration of it can drop the annotation:
-    // there is no way to spell a naked resolve.
+    // there is no way to spell a naked resolve, which is design 184's law and is
+    // what `examples/errors/resolve_seam_must_be_blocking.saw` pins.
     //
     // Writes up to `max` addresses (network byte order) to `out` and returns the
     // count, `0` when the name has no IPv4 address, or a NEGATED SysError tag.
     // Both pointers must address the parked frame or the heap (design 183's
     // pointer rule) — the worker reads and writes through them while the task is
     // away.
+    //
+    // NOT CALLED FROM HERE YET. `TcpStream.connect` is a suspending STATIC
+    // method, which the coroutine transform never embeds as a frame (DF-184a),
+    // so a call made there would lower to a naked one and stop the executor for
+    // the whole lookup — the exact thing the annotation exists to prevent. The
+    // declaration stays because it IS the contract: it is what makes a naked
+    // redeclaration an error, and it is what `connect` will call the day
+    // DF-184a lands. Pin: `examples/net_connect_by_name.saw`.
     blocking func __saw_rt_resolve_ipv4(host: UnsafePointer<Int8>,
                                         out: UnsafePointer<UInt32>,
                                         max: Int) -> Int
@@ -99,6 +108,7 @@ static NET_ERROR: Int = -1           // the `tcp_*` error sentinel
 static SYS_WOULD_BLOCK: Int = 1
 static SYS_IN_PROGRESS: Int = 2
 static SYS_INTERRUPTED: Int = 4
+static SYS_INVALID: Int = 14
 static SYS_OTHER: Int = 16
 
 // FdPair is the 8-byte `int[2]` socketpair fills.
@@ -167,18 +177,20 @@ func tcp_try_accept(listen_fd: Int) -> Int {
     net_sentinel(__saw_rt_tcp_accept(listen_fd))
 }
 
-// Start a nonblocking connect to 127.0.0.1:port. Returns a connecting fd (>= 0)
-// or -1. Then `io_wait(fd, 1)` until writable and `tcp_connect_check(fd)`.
-func tcp_connect_start(port: Int) -> Int {
-    let r = __saw_rt_tcp_connect_start(port)
+// Start a nonblocking connect to `addr_be`:`port`, the address in network byte
+// order (`ipv4_addr` / `parse_ipv4_literal` produce it). Returns a connecting fd
+// (>= 0) or -1. Then `io_wait(fd, 1)` until writable and `tcp_connect_check`.
+func tcp_connect_start(addr_be: Int, port: Int) -> Int {
+    let r = __saw_rt_tcp_connect_start(addr_be, port)
     if r < 0 { NET_ERROR } else { r }
 }
 
 // Re-issue the nonblocking connect() to learn the true completion state
-// (design 90). Returns 0 = connected, the would-block sentinel (-2) = still
-// connecting (re-park), or -1 = failed.
-func tcp_connect_check(fd: Int, port: Int) -> Int {
-    let r = __saw_rt_tcp_connect_check(fd, port)
+// (design 90); `addr_be` must be the address `tcp_connect_start` was given.
+// Returns 0 = connected, the would-block sentinel (-2) = still connecting
+// (re-park), or -1 = failed.
+func tcp_connect_check(fd: Int, addr_be: Int, port: Int) -> Int {
+    let r = __saw_rt_tcp_connect_check(fd, addr_be, port)
     if r == 0 {
         0
     } else if r == -SYS_IN_PROGRESS {
@@ -401,6 +413,19 @@ func io_error(syscall: String, tag: Int) -> IoError {
     IoError(syscall: syscall, code: tag)
 }
 
+// What `connect` answers for a host that is not a dotted quad, until DF-184a
+// lets the offloaded resolver run inside it. Refusing is the honest answer: the
+// alternative on today's compiler is a lookup that stops the executor thread,
+// and the alternative before design 184 was dialling 127.0.0.1 and calling it
+// success. The message says what to pass instead.
+func unresolvable_host_error(host: String) -> IoError {
+    var what = StringBuilder()
+    what.append("resolve \"")
+    what.append(host)
+    what.append("\" (hostname resolution is not available yet — pass an IPv4 address)")
+    io_error(what.build(), SYS_INVALID)
+}
+
 // =============================================================================
 // TcpListener — an owning listening socket (design 84)
 // =============================================================================
@@ -480,10 +505,33 @@ public struct TcpStream {
 }
 
 extension TcpStream {
-    // Connect to 127.0.0.1:port. COOPERATIVE: parks until the socket is writable
-    // (connected). Returns the owning stream or an IoError.
+    // Connect to `host`:`port`, where `host` is a dotted-quad IPv4 literal or a
+    // name to resolve. COOPERATIVE throughout: a name is resolved on a worker
+    // thread while siblings run, and the dial then parks until the socket is
+    // writable (connected). Returns the owning stream or an IoError — one that
+    // NAMES THE HOST when the name is the thing that failed.
+    //
+    // design 184: `host` used to be ignored outright, so `connect("example.com",
+    // 80)` dialled 127.0.0.1:80 and reported success (DF-181d).
     public func connect(host: String, port: Int) -> Result<TcpStream, IoError> {
-        let fd = __saw_rt_tcp_connect_start(port)
+        // design 184: the literal fast path. A dotted quad is an address
+        // already, so it is parsed here and dialled directly — no libc, no
+        // resolver, no thread hop.
+        //
+        // A NAME is refused, for now, rather than resolved: hooking the
+        // (offloaded) resolver up here needs `connect` to be a coroutine frame,
+        // and it is not one — a suspending STATIC method is never embedded by
+        // the transform (DF-184a), so the `blocking` seam would lower to a naked
+        // call that stops the executor for the whole lookup. Design 184's law is
+        // that resolution never blocks the executor, so it waits for DF-184a.
+        // `examples/net_connect_by_name.saw` is the pin.
+        var addr = 0
+        if let literal = parse_ipv4_literal(host) {
+            addr = literal as Int
+        } else {
+            return unresolvable_host_error(host)
+        }
+        let fd = __saw_rt_tcp_connect_start(addr, port)
         if fd < 0 {
             return io_error("connect", -fd)
         }
@@ -498,7 +546,7 @@ extension TcpStream {
                 tcp_close(fd)              // design 102: cancelled while connecting
                 return io_error("connect", SYS_INTERRUPTED)
             }
-            let check = __saw_rt_tcp_connect_check(fd, port)
+            let check = __saw_rt_tcp_connect_check(fd, addr, port)
             if check == -SYS_IN_PROGRESS {
                 io_wait(fd, 1)             // still connecting — park until writable
                 __saw_rt_op_budget_reset()      // design 89-c: parked, budget reset

@@ -213,13 +213,22 @@ the listen fd or `-tag`. errno is captured BEFORE the cleanup `close()`.
 Nonblocking accept → a nonblocking conn fd, or `-tag` (`-WouldBlock` when no
 client is waiting).
 
-### `__saw_rt_tcp_connect_start(port: word) -> word`
-Start a nonblocking connect to 127.0.0.1:`port` → the connecting fd (`>= 0`,
+### `__saw_rt_tcp_connect_start(addr_be: word, port: word) -> word`
+Start a nonblocking connect to `addr_be`:`port` → the connecting fd (`>= 0`,
 including the EINPROGRESS "wait for writable" case) or `-tag` on a real failure.
+`addr_be` is the IPv4 address as it sits in `sockaddr_in.sin_addr` — network
+byte order — which is what both std's dotted-quad parser and
+`__saw_rt_resolve_ipv4` produce.
 
-### `__saw_rt_tcp_connect_check(fd: word, port: word) -> word`
+It took only the port until design 184 and dialled a hardcoded 127.0.0.1, which
+is why `TcpStream.connect` ignored its `host` argument and reported success on
+the wrong peer (DF-181d).
+
+### `__saw_rt_tcp_connect_check(fd: word, addr_be: word, port: word) -> word`
 Re-issue the nonblocking connect to learn the true state (design 90). `0` =
 connected; `-InProgress` = still connecting (re-park); `-tag` = a real failure.
+`addr_be` must be the address `connect_start` was given — re-issuing against a
+different peer asks a different question.
 
 ### `__saw_rt_resolve_ipv4(host: i8*, out: u32*, max: word) -> word`
 **BLOCKING — the first seam in this document that says so, and it says so

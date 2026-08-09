@@ -8,7 +8,7 @@
 // 3
 // 1
 
-import std.net.{net_buffer, net_bytes_to_string, net_free_buffer, net_would_block, tcp_close, tcp_connect_check, tcp_connect_start, tcp_listen, tcp_local_port, tcp_try_accept, tcp_try_read, tcp_try_write}
+import std.net.{net_buffer, net_bytes_to_string, net_free_buffer, net_would_block, parse_ipv4_literal, tcp_close, tcp_connect_check, tcp_connect_start, tcp_listen, tcp_local_port, tcp_try_accept, tcp_try_read, tcp_try_write}
 func server(lfd: Int) unsafe -> Int {
     var cfd = 0 - 1
     var going = true
@@ -52,13 +52,16 @@ func server(lfd: Int) unsafe -> Int {
 }
 
 func client(port: Int) unsafe -> Int {
-    let fd = tcp_connect_start(port)
+    // design 184: the raw layer carries the address now (it used to dial a
+    // hardcoded 127.0.0.1). The literal parses here and never sees a resolver.
+    let addr = parse_ipv4_literal("127.0.0.1")! as Int
+    let fd = tcp_connect_start(addr, port)
     if fd < 0 {
         return 0 - 1
     }
     var connecting = true            // re-verify each wake (design 90): the
     while connecting {               // reactor's wake-all can rouse us early
-        let cs = tcp_connect_check(fd, port)
+        let cs = tcp_connect_check(fd, addr, port)
         if net_would_block(cs) {
             io_wait(fd, 1)           // still connecting — park until writable
         } else {
