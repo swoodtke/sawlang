@@ -336,6 +336,16 @@ class Namespace:
         # declaration and once per method body so the two always agree.
         self._cell_carrying_by_name: Dict[str, bool] = {}
 
+        # design 186: the DECLARED thread-safety assertions.
+        #   type name -> {"UnsafeSend" | "UnsafeSync" -> [[bound, ...], ...]}
+        # The inner list is positional over the type's own type parameters, so a
+        # conditional header (`extension Vector<T: Send, A: Send>: UnsafeSend`)
+        # is re-checked against each instantiation's arguments rather than taken
+        # on faith. Kept apart from `conformances` because these two are read by
+        # `_send_sync` on every query and must never be confused with an
+        # ordinary conformance lookup.
+        self.thread_assertions: Dict[str, Dict[str, list]] = {}
+
         # Generic AST storage for instantiation
         self.generic_functions: Dict[str, Function] = {}
         self.generic_structs: Dict[str, Struct] = {}
@@ -1949,6 +1959,148 @@ class Namespace:
     def is_sync(self, saw_type: SawType) -> bool:
         return self._send_sync(saw_type, want_sync=True, visiting=set())
 
+    # ------------------------------------------------------------- design 186
+    # The declared assertions, and the derivation they stand in for.
+
+    ASSERTION_FOR = {False: "UnsafeSend", True: "UnsafeSync"}
+
+    def _lookup_thread_assertion(self, type_name: str, trait_name: str,
+                                 _visiting=None):
+        """The bound lists a declared `UnsafeSend`/`UnsafeSync` carries, or None.
+
+        Looks through imported module namespaces exactly as `type_conforms_to`
+        does: a conformance is registered in the module that declares it and the
+        tables are only merged for codegen, so the query has to walk.
+        """
+        table = self.thread_assertions.get(type_name)
+        if table is not None and trait_name in table:
+            return table[trait_name]
+        if _visiting is None:
+            _visiting = set()
+        _visiting.add(id(self))
+        for module_sym in self.modules.values():
+            ns = getattr(module_sym, 'namespace', None)
+            if ns is not None and id(ns) not in _visiting:
+                found = ns._lookup_thread_assertion(type_name, trait_name,
+                                                    _visiting)
+                if found is not None:
+                    return found
+        return None
+
+    def _assertion_applies(self, name: str, saw_type: SawType,
+                           want_sync: bool, assume) -> bool:
+        """Does `name`'s declared assertion hold for THIS instantiation?
+
+        A conditional header (`extension Vector<T: Send, A: Send>: UnsafeSend`)
+        is a promise about the instantiations that satisfy its bounds and about
+        no others, so the bounds are re-checked here against the type arguments
+        rather than taken once at the declaration.
+        """
+        bounds = self._lookup_thread_assertion(name.split('$')[0],
+                                               self.ASSERTION_FOR[want_sync])
+        if bounds is None:
+            return False
+        args = saw_type.type_args or []
+        for index, param_bounds in enumerate(bounds):
+            if not param_bounds:
+                continue
+            if index >= len(args):
+                # An un-parameterized spelling of a generic type (an
+                # `UnsafeMemory` with no arguments written): nothing to check
+                # the bound against, so the conditional promise is not made.
+                return False
+            for bound in param_bounds:
+                if not self._satisfies_thread_bound(args[index], bound, assume):
+                    return False
+        return True
+
+    def _satisfies_thread_bound(self, arg: SawType, bound: str, assume) -> bool:
+        """One bound of a conditional assertion header, at one type argument."""
+        if bound == "Send":
+            return self._send_sync(arg, False, set(), assume)
+        if bound == "Sync":
+            return self._send_sync(arg, True, set(), assume)
+        return self.type_satisfies_bound(arg, bound)
+
+    @staticmethod
+    def _assumed(assume, want_sync: bool, name: str) -> bool:
+        """Is this type-parameter name ASSUMED thread-safe for this query?
+
+        Only the legality check passes an `assume`: it asks what the derivation
+        would say if the header's own bounds held, which is the only way to tell
+        a field that genuinely blocks from one the header already covers.
+        """
+        if not assume:
+            return False
+        return name in assume[1 if want_sync else 0]
+
+    def thread_safety_note(self, saw_type: SawType, want_sync: bool) -> str:
+        """Why this type is not Send/Sync, in one sentence, or "".
+
+        Appended to every diagnostic that refuses a type at a thread boundary.
+        A cell-carrying type is the case worth explaining: the derivation is
+        blocked ON PURPOSE and there IS a way to say otherwise, so the message
+        names the declaration to write AND the field that made it necessary —
+        without the field, "declare `UnsafeSync`" reads as a magic word.
+        """
+        if saw_type is None or not self.is_cell_carrying(saw_type):
+            return ""
+        name = (saw_type.struct_name if saw_type.kind == TypeKind.STRUCT
+                else saw_type.enum_name if saw_type.kind == TypeKind.ENUM
+                else None)
+        if name is None:
+            return ""
+        base = name.split('$')[0]
+        assertion = self.ASSERTION_FOR[want_sync]
+        derived = "Sync" if want_sync else "Send"
+        blockers = self.blocking_members(saw_type, want_sync)
+        if blockers:
+            fname, ftype = blockers[0]
+            which = f"field `{fname}` of type `{ftype}`"
+        else:
+            which = "its interior cell"
+        return (f" `{base}` carries an interior cell (design 186), so it "
+                f"derives no `{derived}`: {which} is mutable through a shared "
+                f"borrow, which the derivation cannot reason about. If the "
+                f"synchronization is real but invisible to the compiler, say "
+                f"so — `extension {base}: {assertion} {{}}`, beside the type, "
+                f"where it can be audited.")
+
+    def blocking_members(self, saw_type: SawType, want_sync: bool, assume=None):
+        """The members that keep `saw_type` from deriving Send/Sync.
+
+        The evidence behind design 186's legality rule and behind the error a
+        cell-carrying type earns when it crosses a thread boundary with no
+        declaration: naming the FIELD is what makes either message actionable.
+        """
+        out = []
+        name = (saw_type.struct_name if saw_type.kind == TypeKind.STRUCT
+                else saw_type.enum_name if saw_type.kind == TypeKind.ENUM
+                else None)
+        if name is None:
+            return out
+        sym = self._lookup_struct_deep(name)
+        if sym is not None:
+            subst = {}
+            for tp, arg in zip(sym.type_params, saw_type.type_args or []):
+                subst[tp.name] = arg
+            for fname, ftype in sym.fields.items():
+                resolved = ftype.substitute(subst) if subst else ftype
+                if not self._send_sync(resolved, want_sync, set(), assume):
+                    out.append((fname, resolved))
+            return out
+        enum_sym = self._lookup_enum_deep(name)
+        if enum_sym is not None:
+            subst = {}
+            for tp, arg in zip(enum_sym.type_params, saw_type.type_args or []):
+                subst[tp.name] = arg
+            for variant, payload in enum_sym.variants.items():
+                for fname, ftype in payload:
+                    resolved = ftype.substitute(subst) if subst else ftype
+                    if not self._send_sync(resolved, want_sync, set(), assume):
+                        out.append((f"{variant}.{fname}", resolved))
+        return out
+
     def _lookup_enum_deep(self, name: str) -> Optional[EnumSymbol]:
         result = self.lookup_enum(name)
         if result:
@@ -1960,7 +2112,8 @@ class Namespace:
                     return found
         return None
 
-    def _send_sync(self, saw_type: SawType, want_sync: bool, visiting: set) -> bool:
+    def _send_sync(self, saw_type: SawType, want_sync: bool, visiting: set,
+                   assume=None) -> bool:
         if saw_type is None:
             return False
         kind = saw_type.kind
@@ -1978,24 +2131,55 @@ class Namespace:
         if kind in (TypeKind.REFERENCE, TypeKind.FUNCTION):
             return False
         if kind == TypeKind.OPTIONAL:
-            return self._send_sync(saw_type.inner_type, want_sync, visiting)
+            return self._send_sync(saw_type.inner_type, want_sync, visiting,
+                                   assume)
         if kind == TypeKind.TUPLE:
-            return all(self._send_sync(e, want_sync, visiting)
+            return all(self._send_sync(e, want_sync, visiting, assume)
                        for e in (saw_type.element_types or []))
         if kind == TypeKind.ARRAY:
-            return self._send_sync(saw_type.array_element_type, want_sync, visiting)
+            return self._send_sync(saw_type.array_element_type, want_sync,
+                                   visiting, assume)
         if kind == TypeKind.STRUCT:
             name = saw_type.struct_name
             args = saw_type.type_args or []
             # Type alias flows to its underlying type.
             alias_sym = self._lookup_type_alias_deep(name)
             if alias_sym and alias_sym.aliased_type:
-                return self._send_sync(alias_sym.aliased_type, want_sync, visiting)
+                return self._send_sync(alias_sym.aliased_type, want_sync,
+                                       visiting, assume)
+            # design 186: a DECLARED `UnsafeSend`/`UnsafeSync` is the audited
+            # assertion, and it answers before any structural walk — that is
+            # what it is for. Its conditional bounds are re-checked here against
+            # this instantiation's arguments, so `extension Mutex<T: Send>:
+            # UnsafeSync {}` promises nothing about a `Mutex<File>`.
+            if self._assertion_applies(name, saw_type, want_sync, assume):
+                return True
+            # A type PARAMETER the legality check is assuming thread-safe (see
+            # `_assumed`): reached only while judging a conditional header.
+            if self._assumed(assume, want_sync, name):
+                return True
+            # design 186, the property's fourth clause: structural `Sync`
+            # derivation is BLOCKED by an interior cell. Sharing a value that
+            # can be mutated through a shared borrow is exactly the claim the
+            # derivation cannot make — the cell's field looks immutable and is
+            # not. `Send` is untouched: a cell MOVES fine, and it is SHARING
+            # that needs an argument.
+            #
+            # The block sits AT THE CELL rather than at every cell-carrying
+            # type, which is the difference between a rule and a tax. A type
+            # holding a cell directly must say `UnsafeSync` (that is `Atomic`,
+            # `SpinLock`, `Once`, a user `Cell`); a type holding one of THOSE
+            # derives normally, because the declaration it passes through is
+            # the argument. So `struct Stats { hits: Atomic<Int> }` is `Sync`
+            # with nothing written, exactly as it was, and a `static
+            # GLOBAL_STATS: Stats` keeps working.
+            if want_sync and self.cell_payload(saw_type) is not None:
+                return False
             # Concurrency-wrapper overrides (raw-pointer fields must not poison).
             if name == "Arc":
                 inner = args[0] if args else None
-                return (self._send_sync(inner, False, visiting) and
-                        self._send_sync(inner, True, visiting))
+                return (self._send_sync(inner, False, visiting, assume) and
+                        self._send_sync(inner, True, visiting, assume))
             if name in ("Mutex", "Channel", "Task", "SpinLock"):
                 inner = args[0] if args else None
                 # Send iff T: Send; Sync iff T: Send (the wrappers add the sync).
@@ -2006,7 +2190,7 @@ class Namespace:
                 # and its payload, but that would make `SpinLock<T>` Sync for a
                 # non-Send `T` — the wrapper is what adds the synchronization, so
                 # the wrapper is what has to state the rule.
-                return self._send_sync(inner, False, visiting)
+                return self._send_sync(inner, False, visiting, assume)
             # design 46: UnsafeMemory<T, Use> is Send + Sync BY FIAT (the Atomic
             # precedent). It is one word (a fixed address); statics of this type
             # are shared across every task, so it must be Sync regardless of the
@@ -2018,7 +2202,7 @@ class Namespace:
             # type's thread-safety (they add no storage of their own).
             if name in ("ReadOnly", "WriteOnly"):
                 inner = args[0] if args else None
-                return self._send_sync(inner, want_sync, visiting)
+                return self._send_sync(inner, want_sync, visiting, assume)
             # DF-182e (RULED by the user, Aug 8: "containers are Send if T is
             # Send"). An OWNING container inherits its CONTENTS' thread-safety.
             # Structurally it cannot: every one of these holds an
@@ -2037,7 +2221,8 @@ class Namespace:
             # list, and design 186's migration sweep replaces the whole list
             # with declared `UnsafeSend` conformances.
             if name in ("Vector", "Map", "Set") and args:
-                return all(self._send_sync(a, want_sync, visiting) for a in args)
+                return all(self._send_sync(a, want_sync, visiting, assume)
+                           for a in args)
             # `Data` and `StringBuilder` are unconditional, by exactly `String`'s
             # argument above: a `Data` is a copy-on-write window over an
             # `Arc`-owned buffer whose refcount is atomic and whose bytes are
@@ -2059,7 +2244,7 @@ class Namespace:
                 enum_sym = self._lookup_enum_deep(name)
                 if enum_sym is not None:
                     return self._enum_send_sync(enum_sym, name, args,
-                                                want_sync, visiting)
+                                                want_sync, visiting, assume)
                 # Opaque / unresolved type parameter: not structurally known.
                 # (Abstract `T: Send` bodies are handled at the call site via
                 # the parameter's declared bounds.)
@@ -2073,21 +2258,24 @@ class Namespace:
                 subst[tp.name] = arg
             for ft in struct_sym.fields.values():
                 resolved = ft.substitute(subst) if subst else ft
-                if not self._send_sync(resolved, want_sync, visiting):
+                if not self._send_sync(resolved, want_sync, visiting, assume):
                     return False
             return True
         if kind == TypeKind.ENUM:
             name = saw_type.enum_name
             args = saw_type.type_args or []
+            if self._assertion_applies(name, saw_type, want_sync, assume):
+                return True
             enum_sym = self._lookup_enum_deep(name)
             if enum_sym is None:
                 return False
-            return self._enum_send_sync(enum_sym, name, args, want_sync, visiting)
+            return self._enum_send_sync(enum_sym, name, args, want_sync,
+                                        visiting, assume)
         # TYPE_PARAM / SELF / MODULE and anything else: not structurally known.
         return False
 
     def _enum_send_sync(self, enum_sym, name: str, args, want_sync: bool,
-                        visiting: set) -> bool:
+                        visiting: set, assume=None) -> bool:
         """An enum is Send/Sync iff every payload it can hold is.
 
         Shared by both spellings that reach an enum — the ENUM kind, and the
@@ -2103,7 +2291,7 @@ class Namespace:
         for payload in enum_sym.variants.values():
             for _field_name, ptype in payload:
                 resolved = ptype.substitute(subst) if subst else ptype
-                if not self._send_sync(resolved, want_sync, visiting):
+                if not self._send_sync(resolved, want_sync, visiting, assume):
                     return False
         return True
 
@@ -2343,6 +2531,13 @@ class Namespace:
             for iface_name, assoc_types in iface_map.items():
                 if iface_name not in self.conformances[type_name]:
                     self.conformances[type_name][iface_name] = assoc_types
+        # design 186: the declared thread-safety assertions travel with the
+        # conformances they live beside — the orphan rule already pins each to
+        # one module, so first-wins can never drop a competing declaration.
+        for type_name, trait_map in other.thread_assertions.items():
+            dst = self.thread_assertions.setdefault(type_name, {})
+            for trait_name, bounds in trait_map.items():
+                dst.setdefault(trait_name, bounds)
         # Merge generic AST storage
         for name, ast in other.generic_functions.items():
             if name not in self.generic_functions:

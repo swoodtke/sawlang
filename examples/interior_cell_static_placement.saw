@@ -22,6 +22,11 @@ struct Slot {
     cell: UnsafeMutableInterior<Int>
 }
 
+// A cell-carrying type derives no `Sync`, so a static of one needs the
+// assertion (design 186 unit 3). This program is single-threaded; the
+// declaration is what says the author looked.
+extension Slot: UnsafeSync {}
+
 extension Slot {
     func _at(&self) unsafe -> UnsafePointer<Int> { self.cell.ptr() }
     func get(&self) unsafe -> Int { self._at()[0] }

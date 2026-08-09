@@ -1241,8 +1241,22 @@ class CodeGenerator(ResultsMixin, MatchMixin, StructsMixin, CollectionsMixin, Ca
             return self._const_from_expr(expr.arguments[0].value, SawType(TypeKind.INT))
         if isinstance(expr, StructInit):
             base = saw_type.struct_name
-            field_order = self.struct_types[base][1]
+            # A GENERIC struct's static literal (`static W: Wrap<Int> =
+            # Wrap<Int>(v: 3)`) reaches here under its TEMPLATE name, which
+            # `struct_types` has never heard of — the monomorphization is keyed
+            # by the mangled one. Asking for it here is what `_get_llvm_type`
+            # already did a line above; without it this was a bare `KeyError`
+            # surfacing as `internal compiler error: 'Wrap'` (DF-186b).
             fields = self.namespace.get_struct_fields(base) or {}
+            if saw_type.type_args and base not in self.struct_types:
+                sym = self.namespace.lookup_struct(base)
+                subst = {tp.name: ta for tp, ta
+                         in zip(getattr(sym, 'type_params', None) or [],
+                                saw_type.type_args)}
+                fields = {n: (t.substitute(subst) if t is not None else t)
+                          for n, t in fields.items()}
+                base = self._ensure_monomorphized_struct(base, saw_type.type_args)
+            field_order = self.struct_types[base][1]
             by_name = {n: v for n, v in expr.field_inits}
             elems = [self._const_from_expr(by_name[fn], fields[fn]) for fn in field_order]
             return ir.Constant(llvm_type, elems)

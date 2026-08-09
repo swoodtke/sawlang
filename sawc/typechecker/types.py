@@ -560,6 +560,19 @@ class TypeUtilsMixin:
                         f"cannot form `any {trait_name}`: {msg}", line, column,
                         hint=hint)
 
+        # design 186 fence (a), erasure half. Falls out of the marker rule
+        # below, but a reader who wrote `any UnsafeSync` was reaching for a
+        # thread-safety property and deserves to be told where it lives rather
+        # than being told the trait has no methods.
+        if trait.name in ("UnsafeSend", "UnsafeSync"):
+            fail(f"`{trait.name}` is a declared assertion, not an erasable "
+                 f"interface",
+                 hint=f"`{trait.name}` appears in exactly one position, the "
+                      f"conformance header. Neither `{trait.name}` nor "
+                      f"`{trait.name[6:]}` can be erased — a marker trait has "
+                      f"no methods to dispatch")
+            return
+
         # Marker / non-dispatchable.
         if trait.name in self._EXISTENTIAL_MARKER_TRAITS or len(trait.methods) == 0:
             fail(f"`{trait.name}` is a marker trait with no methods to dispatch",
@@ -923,6 +936,24 @@ class TypeUtilsMixin:
                      "(`extension T: NoMove {}`, beside the required "
                      "`extension T: NoCopy {}`) and says where a value may "
                      "live, not what a generic body may do with it")
+            return
+        # design 186 fence (a): the ASSERTION is not the property. `UnsafeSync`
+        # and `UnsafeSend` appear in exactly one position — the conformance
+        # header — because a generic body wants "this is safe to share", not
+        # "somebody said so"; a `T: Sync` bound is satisfied BY a declared
+        # `UnsafeSync` through the parent trait, so the vocabulary generic code
+        # writes never has to name the assertion at all.
+        if bound.rsplit('.', 1)[-1] in ("UnsafeSend", "UnsafeSync"):
+            simple = bound.rsplit('.', 1)[-1]
+            self._error(
+                ErrorKind.TYPE_MISMATCH,
+                f"`{simple}` is not a generic bound, so it cannot bound the "
+                f"type parameter `{tp.name}`",
+                line, column,
+                hint=f"bound on the PROPERTY instead — `{tp.name}: "
+                     f"{simple[6:]}` — which a type declaring `{simple}` "
+                     f"satisfies through it. The assertion is written once, at "
+                     f"the conformance header, where it can be audited")
             return
         simple = bound.split('.')[-1]
         if self.get_trait_info(simple, qualified_path=bound) is not None:

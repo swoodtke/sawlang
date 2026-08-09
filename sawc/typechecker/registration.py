@@ -1228,7 +1228,8 @@ class RegistrationMixin:
                 hint="use a Sync type — mutation of global state flows only "
                      "through interior-synchronized types like `Atomic<Int>` "
                      "and `SpinLock<T>`, or declare an `unsafe static var` and "
-                     "own the serialization argument"
+                     "own the serialization argument."
+                     + self.namespace.thread_safety_note(resolved_type, True)
             )
 
         # Immortal: statics never run deinit. v1 of design 149 keeps that true by
@@ -1860,6 +1861,134 @@ class RegistrationMixin:
     # stays out of their diagnostics.
     _STRUCTURAL_MARKER_TRAITS = frozenset({"Send", "Sync", "Deinit"})
 
+    # ---------------------------------------------------------- design 186
+    # `UnsafeSend` / `UnsafeSync`: the declared thread-safety assertion.
+
+    _THREAD_BOUND_NAMES = ("Send", "Sync")
+
+    def _register_thread_assertion(self, extension: Extension,
+                                   trait_name: str) -> None:
+        """Check and record one `extension T: UnsafeSend/UnsafeSync {}`.
+
+        The conformance header IS the audited assertion, so the legality rule
+        keeps it honest at exactly the line a reviewer reads: you may assert
+        only where the DERIVATION FAILED, and only past fields the unsafe domain
+        already owns. Asserting past a safe non-`Sync` field would be a claim
+        about someone else's invariants, which is the one thing the `Unsafe`
+        prefix does not license.
+
+        Conditional headers are supported and are half the point — the bounds
+        are recorded and re-checked per instantiation, so
+        `extension Mutex<T: Send>: UnsafeSync {}` promises nothing about a
+        `Mutex<File>`.
+        """
+        want_sync = (trait_name == "UnsafeSync")
+        derived_name = "Sync" if want_sync else "Send"
+        type_name = extension.struct_name
+        where = (extension.line, extension.column)
+        source_file = getattr(extension, 'source_file', None)
+
+        if self._get_specialization_key(extension):
+            self._error(
+                ErrorKind.TYPE_MISMATCH,
+                f"`{trait_name}` cannot be declared on one instantiation of "
+                f"`{type_name}`",
+                *where, source_file=source_file,
+                hint=f"write the conditional form instead — `extension "
+                     f"{type_name}<T: {derived_name}>: {trait_name} {{}}` "
+                     f"asserts it for exactly the instantiations that qualify")
+            return
+
+        sym = (self.namespace.lookup_struct(type_name)
+               or self.namespace.lookup_enum(type_name))
+        if sym is None:
+            self._error(
+                ErrorKind.UNDEFINED_VARIABLE,
+                f"unknown type `{type_name}`", *where, source_file=source_file)
+            return
+
+        params = list(getattr(sym, 'type_params', None) or [])
+        ext_params = list(extension.type_params or [])
+        # Positional over the TYPE's parameters: the extension names them in
+        # the same order, and a header may leave a parameter unbounded.
+        bounds_by_index = []
+        assume_send, assume_sync = set(), set()
+        for index, param in enumerate(params):
+            written = ext_params[index] if index < len(ext_params) else None
+            names = list(getattr(written, 'bounds', None) or [])
+            for bound in names:
+                simple = bound.rsplit('.', 1)[-1]
+                if simple in ("UnsafeSend", "UnsafeSync"):
+                    self._error(
+                        ErrorKind.TYPE_MISMATCH,
+                        f"`{simple}` is not usable as a bound",
+                        *where, source_file=source_file,
+                        hint=f"bound the parameter on the PROPERTY — "
+                             f"`{simple[6:]}` — which a declared `{simple}` "
+                             f"satisfies through it")
+                    return
+                if simple == "Send":
+                    assume_send.add(getattr(written, 'name', None))
+                elif simple == "Sync":
+                    assume_sync.add(getattr(written, 'name', None))
+            bounds_by_index.append([b.rsplit('.', 1)[-1] for b in names])
+
+        kind = (TypeKind.ENUM if self.namespace.lookup_enum(type_name)
+                and not self.namespace.lookup_struct(type_name)
+                else TypeKind.STRUCT)
+        self_args = [SawType(TypeKind.STRUCT, struct_name=p.name)
+                     for p in params]
+        self_type = (SawType(kind, enum_name=type_name, type_args=self_args)
+                     if kind == TypeKind.ENUM
+                     else SawType(kind, struct_name=type_name,
+                                  type_args=self_args))
+        assume = (assume_send, assume_sync)
+
+        if self.namespace._send_sync(self_type, want_sync, set(), assume):
+            self._error(
+                ErrorKind.TYPE_MISMATCH,
+                f"`{type_name}` already derives `{derived_name}`, so "
+                f"`{trait_name}` asserts nothing",
+                *where, source_file=source_file,
+                hint=f"delete the declaration — an assertion is only legal "
+                     f"where the structural derivation FAILED, and reading one "
+                     f"beside a type that derives cleanly would teach the next "
+                     f"reader the wrong thing")
+            return
+
+        blockers = self.namespace.blocking_members(self_type, want_sync, assume)
+        for field_name, field_type in blockers:
+            if self._type_tree_has_unsafe(field_type):
+                continue
+            self._error(
+                ErrorKind.TYPE_MISMATCH,
+                f"cannot declare `{trait_name}` for `{type_name}`: field "
+                f"`{field_name}` has type `{field_type}`, which is not "
+                f"`{derived_name}` and is not an unsafe type",
+                *where, source_file=source_file,
+                hint=f"an assertion may cover only what the unsafe domain "
+                     f"already owns — an interior cell, an `UnsafePointer`, an "
+                     f"`UnsafeMemory`. Asserting past a SAFE field is a claim "
+                     f"about someone else's invariants; bound the parameter "
+                     f"(`<T: {derived_name}>`) or hold the field behind a type "
+                     f"that carries the synchronization")
+            return
+
+        if not blockers:
+            # Nothing blocked and nothing derived: the type is opaque here
+            # rather than proven safe, so there is nothing to assert ABOUT.
+            self._error(
+                ErrorKind.TYPE_MISMATCH,
+                f"cannot declare `{trait_name}` for `{type_name}`: it has no "
+                f"member that blocks `{derived_name}`",
+                *where, source_file=source_file,
+                hint="an assertion names something the compiler could not see; "
+                     "with nothing blocking, there is nothing to assert")
+            return
+
+        table = self.namespace.thread_assertions.setdefault(type_name, {})
+        table[trait_name] = bounds_by_index
+
     def _check_conformance_coherence(self, extension: Extension) -> bool:
         """The ORPHAN RULE (design 142): `extension T: Trait` is declarable only
         in the module that defines `T` or the module that defines `Trait`.
@@ -2479,9 +2608,17 @@ class RegistrationMixin:
                     f"cannot explicitly implement `{trait_name}`: it is a marker trait "
                     f"derived structurally by the compiler",
                     extension.line, extension.column,
-                    hint=f"remove `: {trait_name}` - a type is {trait_name} automatically "
-                         f"iff all its fields are"
+                    hint=f"remove `: {trait_name}` - a type is {trait_name} "
+                         f"automatically iff all its fields are; to ASSERT it "
+                         f"where the derivation cannot see why it holds, "
+                         f"declare `Unsafe{trait_name}` (design 186)"
                 )
+                continue
+            # design 186: the declared thread-safety assertion. Legality is
+            # checked here, at the declaration, because that is the line a
+            # reviewer reads.
+            if trait_name in ("UnsafeSend", "UnsafeSync"):
+                self._register_thread_assertion(extension, trait_name)
                 continue
             # Handle module-qualified trait names (e.g., "lib.Describable")
             if '.' in trait_name:

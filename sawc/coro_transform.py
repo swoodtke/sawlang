@@ -4798,7 +4798,8 @@ def _check_spawn_frame_send(fb: _FrameBuilder, fbs, typechecker):
                     f"`TaskGroup(threads: ...)`: parameter `{p.name}` of type "
                     f"`{p.type}` is not `Send`, so the task frame cannot cross to a "
                     f"worker thread. Share thread-safe state via `Arc` (and `Mutex` "
-                    f"for mutation) or a `Channel` instead of moving it in.",
+                    f"for mutation) or a `Channel` instead of moving it in."
+                    + ns.thread_safety_note(p.type, False),
                     getattr(p, 'line', 0) or fbx.func.line,
                     getattr(p, 'column', 0) or fbx.func.column,
                     source_file=fbx.src_file)
@@ -4808,7 +4809,8 @@ def _check_spawn_frame_send(fb: _FrameBuilder, fbs, typechecker):
                     f"cannot spawn `{fbx.func.name}` into a multi-threaded "
                     f"`TaskGroup(threads: ...)`: local `{lname}` of type `{lt}` is "
                     f"held across a suspension but is not `Send`, so the task frame "
-                    f"cannot cross to a worker thread.",
+                    f"cannot cross to a worker thread."
+                    + ns.thread_safety_note(lt, False),
                     fbx.func.line, fbx.func.column, source_file=fbx.src_file)
         for c in fbx.calls:
             callee = fbs.get(c['callee'])

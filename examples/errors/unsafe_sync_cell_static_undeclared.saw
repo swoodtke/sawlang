@@ -1,0 +1,16 @@
+// design 186 units 3 + 7: a cell-carrying static needs its type's assertion,
+// and the refusal names BOTH the declaration to write and the field that made
+// it necessary. Without the field, "declare `UnsafeSync`" is a magic word.
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: has non-Sync type `Cell`
+// EXPECT-ERROR-CONTAINS: field `slot` of type `UnsafeMutableInterior<Int>`
+// EXPECT-ERROR-CONTAINS: extension Cell: UnsafeSync {}
+
+struct Cell {
+    slot: UnsafeMutableInterior<Int>
+}
+
+static SHARED: Cell
+
+func main() {
+}

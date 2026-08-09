@@ -232,6 +232,41 @@ trait Sync {
     // Marker trait - structurally derived, no methods
 }
 
+// UnsafeSync / UnsafeSend (design 186) — the THREAD-SAFETY ASSERTION.
+//
+// `Send`/`Sync` stay derivation-only. The assertion that a type is thread-safe
+// for reasons the compiler cannot see gets its own two names, and refining the
+// marker traits is what makes a declared conformance satisfy every `T: Send` /
+// `T: Sync` bound through the parent while generic code keeps its vocabulary.
+// The `Unsafe` prefix carries the claim per design 130's idiom: the conformance
+// header IS the audited, greppable assertion, and it replaced every "Sync by
+// fiat" comment the compiler used to keep as a list of names.
+//
+//     extension Mutex<T: Send>: UnsafeSync {}
+//
+// LEGALITY, checked at the declaration: one is declarable only where the
+// STRUCTURAL derivation failed, and only when every field that blocked it is
+// UNSAFE-TYPED (an interior cell, an `UnsafePointer`, an `UnsafeMemory`). You
+// may hand-assert exactly what the unsafe domain already owns — never past a
+// SAFE non-Sync field, which would be a claim about someone else's invariants.
+// Conditional headers are supported and are half the point.
+//
+// THREE FENCES. These appear in exactly one position, the conformance header:
+// `T: UnsafeSync` as a BOUND and `any UnsafeSync` as an EXISTENTIAL are both
+// clean errors pointing at `Sync`/`Send` (generic code asks for the property,
+// never for the assertion). They are two BUILTIN traits, not a user-definable
+// unsafe-trait feature — design 130's `Unsafe*` name enforcement is about
+// STRUCTS and does not extend to trait declarations. And the design-142 orphan
+// rule applies unchanged, so the assertion lives with the type or with the
+// trait, never in a third module that merely uses both.
+trait UnsafeSync: Sync {
+    // Marker trait - declared, never derived, no methods
+}
+
+trait UnsafeSend: Send {
+    // Marker trait - declared, never derived, no methods
+}
+
 // =============================================================================
 // UnsafeMutableInterior<T> — the interior-mutability cell (design 186)
 // =============================================================================
@@ -311,6 +346,12 @@ extension Atomic<T> {
     // equals `expected`; returns whether the swap happened.
     public func compare_exchange(&self, expected: T, desired: T) -> Bool { true }
 }
+
+// The assertion that used to be a comment. `Atomic<T>` is cell-carrying, so it
+// derives no `Sync`; what makes sharing one safe is that every operation on it
+// is a seq_cst instruction, which is a fact about the codegen and not about the
+// fields. `Send` still derives structurally — a cell moves fine.
+extension Atomic<T>: UnsafeSync {}
 
 // =============================================================================
 // UnsafeMemory<T, Use> — typed memory at a fixed address (design 46)

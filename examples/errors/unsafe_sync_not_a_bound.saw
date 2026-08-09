@@ -1,0 +1,12 @@
+// design 186 unit 3, fence (a): the ASSERTION is not the property. Generic code
+// asks for `Sync`, which a declared `UnsafeSync` satisfies through its parent —
+// so the assertion appears in exactly one position, the conformance header.
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: `UnsafeSync` is not a generic bound
+
+func share<T: UnsafeSync>(x: &T) -> Int {
+    1
+}
+
+func main() {
+}

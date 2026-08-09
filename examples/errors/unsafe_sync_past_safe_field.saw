@@ -1,0 +1,17 @@
+// design 186 unit 3 legality: an assertion may cover only what the unsafe
+// domain already owns. `raw` is an `UnsafePointer` and is fair game; `fn` is an
+// ordinary escaping closure, and asserting past it would be a claim about
+// somebody else's invariants rather than about this type's synchronization.
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: field `fn` has type `(Int) escaping -> Int`, which is not `Send` and is not an unsafe type
+
+struct Mixed {
+    raw: UnsafePointer<Int>,
+    fn: (Int) -> Int
+}
+
+extension Mixed: NoCopy {}
+extension Mixed: UnsafeSend {}
+
+func main() {
+}

@@ -1792,7 +1792,9 @@ class ExpressionsMixin:
                     f"`{cap_info.type}` is not `Send`",
                     closure.line, closure.column,
                     hint="only Send values may cross to another task; share via "
-                         "`Arc` (and `Mutex` for mutation)"
+                         "`Arc` (and `Mutex` for mutation)."
+                         + self.namespace.thread_safety_note(
+                             cap_info.type, False)
                 )
                 break
         expr.spawn_result_type = result_type
