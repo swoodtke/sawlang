@@ -1,0 +1,86 @@
+// The ACCEPT side of design 188 unit 3. "The lent place must be storage reached
+// through the receiver" has to keep every shape a `borrows` accessor is FOR, so
+// all four are exercised here:
+//
+//   * a field of the receiver (`lend self.a`)
+//   * an element of a container the receiver owns (`lend self.cells[i]`) — this
+//     is the ordinary accessor, and the one std's own types are written as
+//   * a MATCH-ARM payload of a receiver-rooted scrutinee (design 146, DF-146d),
+//     which is how a slot-enum container gets an accessor at all
+//   * an INDIRECTION out of the receiver. `Vector.[]` lends `buf[index]` where
+//     `buf` came out of `self.buffer`, and `Data.[]` lends through a pointer
+//     local cast from `self.byte_ptr()`. Neither place is `self.…` on its face
+//     and both are the receiver's own heap, which no more dies with the
+//     accessor than a field does — so the reads and writes below, which run
+//     through exactly those two accessors, are the carve-out's regression test.
+//
+// EXPECT: success
+// EXPECT-OUTPUT: field=8
+// EXPECT-OUTPUT: element=20
+// EXPECT-OUTPUT: payload=33
+// EXPECT-OUTPUT: vector=7
+// EXPECT-OUTPUT: data=9
+
+import std.data.*
+
+struct Cell {
+    n: Int
+}
+
+enum Slot {
+    case Filled(c: Cell),
+    case Empty
+}
+
+struct Board {
+    a: Cell,
+    cells: Vector<Cell>,
+    slots: Vector<Slot>
+}
+
+extension Board: NoCopy {}
+
+extension Board {
+    func head(&self) borrows -> Cell {
+        lend self.a
+    }
+
+    func cell(&self, i: Int) borrows -> Cell {
+        if i < 0 || i >= self.cells.len() { panic("Board.cell: out of range") }
+        lend self.cells[i]
+    }
+
+    func slot(&self, i: Int) borrows -> Cell? {
+        if i < 0 || i >= self.slots.len() { return None }
+        match self.slots[i] {
+            case Filled(c) -> { lend c },
+            case Empty -> { return None }
+        }
+    }
+}
+
+func main() {
+    var cells: Vector<Cell> = []
+    cells.push(Cell(n: 10))
+    var slots: Vector<Slot> = []
+    slots.push(Slot.Filled(c: Cell(n: 30)))
+    var b = Board(a: Cell(n: 1), cells: move cells, slots: move slots)
+
+    b.head().n += 7
+    print("field={b.head().n}")
+
+    b.cell(0).n += 10
+    print("element={b.cell(0).n}")
+
+    b.slot(0)!.n += 3
+    print("payload={b.slot(0)!.n}")
+
+    var v: Vector<Int> = [1, 2]
+    v[0] += 6
+    print("vector={v[0]}")
+
+    var d = Data()
+    d.push(1)
+    d[0] = 9
+    print("data={d[0]}")
+}

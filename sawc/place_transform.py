@@ -521,6 +521,9 @@ class _PlaceTransform:
         self._optional = place_optional
         self._lend_seen = False
         self._arms = []
+        self._is_method = not getattr(decl, 'is_static', False) and bool(
+            decl.parameters) and decl.parameters[0].name == "self"
+        self._through_self = _bindings_reached_through_self(decl.body)
         outcome = self._walk_block(decl.body, in_loop=False)
 
         # A more specific diagnostic (a branch that forgets to lend, a `lend`
@@ -586,6 +589,7 @@ class _PlaceTransform:
                 self._ok = False
             else:
                 self._claim_payload_lend(stmt)
+                self._check_rooted_in_receiver(stmt)
             self._lend_seen = True
             return _LEND
 
@@ -687,6 +691,71 @@ class _PlaceTransform:
                 lent.append(root)
             arm.lent_bindings = lent
             return
+
+    def _check_rooted_in_receiver(self, stmt: LendStatement) -> None:
+        """The lent place must be storage reached through the RECEIVER
+        (DF-188g, design 188 unit 3).
+
+        `lend` pauses the accessor with its frame alive, so a window over an
+        accessor-LOCAL addresses live storage and a READ through it is sound —
+        which is exactly what made this quiet. The WRITE has nowhere to land:
+        the slot dies when the accessor resumes, so `c.slot() = 99` compiled and
+        was a silent no-op. The rule the spec already states for a match arm ("a
+        payload of a value the body just BUILT dies with the accessor") is the
+        same rule; it just was not applied to a plain `lend <local>`.
+
+        RULED (user, Aug 9) in its NARROW form: an accessor's PARAMETER is
+        refused too, even where the storage would outlive the window (a `&var`
+        param). Widening later to an outlives-based rule stays compatible; the
+        reverse migration would not.
+
+        Two things are rooted in the receiver and are not `self.…` on their
+        face. A MATCH-ARM binding is one — `_claim_payload_lend` has already
+        proved that arm's scrutinee is receiver-rooted, and the payload is lent
+        where it sits. An INDIRECTION out of the receiver is the other: `if let
+        buf = self.buffer { lend buf[i] }` (std `Vector`) and `let bytes =
+        self.byte_ptr() as UnsafePointer<UInt8>  lend bytes[i]` (std `Data`)
+        both reach HEAP storage the receiver only points at, which no more dies
+        with the accessor than a field does. The binding must be derived from
+        the receiver AND the lend must project through it — `lend buf` on its
+        own would hand out the frame's copy of the pointer.
+        """
+        if _rooted_at_self(stmt.place):
+            return
+        root = _place_root(stmt.place)
+        if root is None:
+            return
+        for _ctrl_expr, arm in self._arms:
+            if root in (arm.bindings or []):
+                return                     # the payload lend, already judged
+        if root in self._through_self and not isinstance(stmt.place, Identifier):
+            return                         # an indirection out of the receiver
+        if not self._is_method:
+            # A free `borrows` function has no receiver to be rooted in, so
+            # there is nothing it could lend. Say that rather than describing a
+            # receiver the declaration does not have.
+            self._error(
+                stmt.place,
+                f"`lend {root}` names storage this function owns, and a window "
+                f"onto it would open on a frame that dies when the function "
+                f"resumes. A `borrows` declaration lends storage its RECEIVER "
+                f"already owns — declare it as a method (`func name(&self, ...) "
+                f"borrows -> T`) and lend a place reached through `self`")
+            self._ok = False
+            return
+        self._error(
+            stmt.place,
+            f"`lend {root}` is not rooted in the receiver: `{root}` is this "
+            f"accessor's own local or parameter, so the window would open onto "
+            f"storage that dies when the accessor resumes. A read through it "
+            f"would work and a WRITE would silently go nowhere. A `borrows` "
+            f"accessor lends storage the receiver already owns — lend a field, "
+            f"an element, or another place reached through `self` (an "
+            f"indirection the receiver holds counts: `if let buf = self.buffer "
+            f"{{ lend buf[i] }}` lends the heap storage `self` points at). To "
+            f"hand back a computed value, return it from an ordinary method "
+            f"instead")
+        self._ok = False
 
     def _walk_return(self, stmt: ReturnStatement) -> str:
         value = stmt.value
@@ -970,6 +1039,36 @@ def _place_root(expr):
         else:
             return None
     return None
+
+
+def _bindings_reached_through_self(body) -> set:
+    """Names bound, anywhere in `body`, from storage reached through `self`.
+
+    The INDIRECTION half of design 188 unit 3's rooting rule: `if let buf =
+    self.buffer` and `let bytes = self.byte_ptr() as UnsafePointer<UInt8>` both
+    name storage the receiver points at, so a lend that PROJECTS through one is
+    lending the receiver's own heap, not the accessor's frame. Collected over
+    the whole body rather than per scope: erring toward accepting is right here,
+    because the frame-storage cases this rule exists to catch (a computed local,
+    a parameter) are never bound from the receiver at all.
+    """
+    names = set()
+    for node in _walk(body):
+        if isinstance(node, LetStatement):
+            if _rooted_at_self(_through_casts(node.value)):
+                names.add(node.name)
+        elif isinstance(node, (IfLetExpr, GuardLetStatement)):
+            if _rooted_at_self(_through_casts(node.optional_expr)):
+                names.add(node.name)
+    return names
+
+
+def _through_casts(expr):
+    """`expr` with any `as` casts peeled — a cast keeps the same storage."""
+    from ast_nodes import CastExpr
+    while isinstance(expr, CastExpr):
+        expr = expr.expr
+    return expr
 
 
 def _rooted_at_self(expr) -> bool:

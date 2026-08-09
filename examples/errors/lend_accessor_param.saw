@@ -1,0 +1,37 @@
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: `lend fallback` is not rooted in the receiver
+// EXPECT-ERROR-CONTAINS: `lend other` is not rooted in the receiver
+//
+// DF-188g's parameter twin (audit row P16), and the NARROW form the ruling
+// picked. A by-value parameter dies with the accessor exactly as a local does,
+// so `c.pick(9) = 42` was the same silent no-op — that half needs no argument.
+//
+// The `&var` parameter is the deliberate part: its referent OUTLIVES the
+// window, so a write through the window would land, and the narrow rule refuses
+// it anyway. A `borrows` accessor lends storage its RECEIVER owns; lending
+// something a caller handed it is a second, larger promise (the window would
+// outlive the argument's own borrow), and there is no evidence yet for what it
+// should mean. Widening to an outlives-based rule stays backward-compatible
+// later; going the other way would not.
+
+struct Counter {
+    n: Int
+}
+
+extension Counter {
+    func pick(&self, fallback: Int) borrows -> Int {
+        lend fallback
+    }
+
+    func relay(&self, other: &var Int) borrows -> Int {
+        lend other
+    }
+}
+
+func main() {
+    var c = Counter(n: 1)
+    var side = 5
+    c.pick(9) = 42
+    c.relay(&var side) = 7
+    print("n={c.n} side={side}")
+}

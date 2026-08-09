@@ -6,9 +6,9 @@
 // built"; the same rule applies to a plain lend. RULED (user, Aug 9): the
 // NARROW receiver-rooted rule — widening to outlives-based later stays
 // backward-compatible.
-// XFAIL: DF-188g a borrows accessor may lend its own local; writes through the window vanish
 // EXPECT: error
-// EXPECT-ERROR-CONTAINS: lend
+// EXPECT-ERROR-CONTAINS: `lend tmp` is not rooted in the receiver
+// EXPECT-ERROR-CONTAINS: a WRITE would silently go nowhere
 
 struct Counter {
     n: Int
