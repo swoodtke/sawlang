@@ -1,6 +1,6 @@
 # Saw Language Makefile
 
-.PHONY: test test-verbose test-sequential clean help blade-bootstrap sos-test lexdiff astdiff irdet irdet-all gmgate abidoc bttable bttable-sizes lldbtest
+.PHONY: test test-verbose test-sequential clean help blade-bootstrap sos-test lexdiff astdiff irdet irdet-all gmgate abidoc bttable bttable-sizes lldbtest ircontract
 
 # Default target
 all: test
@@ -83,6 +83,13 @@ gmgate:
 abidoc:
 	@python3 tools/test_runtime_abi_doc.py
 
+# Properties of the emitted IR the examples suite structurally cannot express
+# (design 187): a `-c` compile embeds the same coroutine frames a hosted one
+# does. The suite runs programs, so it never looks at an object file — which is
+# how DF-158e's miscompile stayed invisible.
+ircontract:
+	@python3 tools/test_ir_contract.py
+
 # The logical-backtrace table (design 158 unit 1): cross-check every frame
 # record against the frame-layout report the same compile produced. A wrong
 # offset there reads a live frame at the wrong place and prints a confident lie,
@@ -131,6 +138,7 @@ help:
 	@echo "  make irdet-all       - IR determinism over the WHOLE corpus (final gate)"
 	@echo "  make gmgate          - Ownership oracles under Guard Malloc (macOS)"
 	@echo "  make abidoc          - rt/ABI.md describes exactly the frozen seam set"
+	@echo "  make ircontract      - a -c compile embeds what a hosted compile embeds"
 	@echo "  make bttable         - Task-backtrace table vs the frame layouts"
 	@echo "  make bttable-sizes   - What the always-linked backtrace table costs"
 	@echo "  make lldbtest        - saw tasks / saw bt under a real lldb"

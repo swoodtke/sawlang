@@ -255,7 +255,10 @@ TEST_CASES = [
         # reason the design exists, since a kernel has no debugger to attach and
         # no core to open. Both halves are asserted, in order: the explicit
         # `dump_tasks()` with its two-frame nest, then the panic line, then the
-        # dump the PANIC PATH emits by itself.
+        # dump the PANIC PATH emits by itself. The nest is two frames deep since
+        # design 187 closed DF-158e — a freestanding compile now embeds a nested
+        # suspending callee exactly as a hosted one does, so the dump has a
+        # logical stack to reconstruct rather than a single frame.
         #
         # arm64 only — DF-158c (an `@export`ed `Int64`-returning seam is emitted
         # `i32` on a 32-bit target) makes the executor's clock arithmetic
@@ -265,10 +268,12 @@ TEST_CASES = [
         "csrc": "taskdump_stubs.c",
         "arches": ("arm64",),
         "expect_out": ["saw tasks: 2 live (unsynchronized snapshot)",
-                       "at taskdump.saw:93 in ksleeper",
-                       "panic at taskdump.saw:112: SOS task dump: deliberate panic",
+                       "at taskdump.saw:93 in knap",
+                       "at taskdump.saw:98 in ksleeper",
+                       "panic at taskdump.saw:117: SOS task dump: deliberate panic",
                        "saw tasks: 1 live (as-of panic, unsynchronized)",
-                       "at taskdump.saw:93 in ksleeper"],
+                       "at taskdump.saw:93 in knap",
+                       "at taskdump.saw:98 in ksleeper"],
         "expect_clean_exit": False,
     },
     {

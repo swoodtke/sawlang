@@ -228,18 +228,19 @@ the SOS live-task dump on riscv32, so that case is arm64-only with a comment
 pointing here. NO XFAIL: the failing spelling needs a 32-bit cross-compile,
 which the examples suite does not do.
 
-**DF-158e — a `-c` / freestanding compile does not EMBED a nested suspending
-callee.** `object_only` decides `is_entry`, `is_entry` is what records a
-suspending `main` as a coroutine root, and without that the closure walk
-never reaches a spawn root's suspending callees: `fmiddle` gets a frame,
-`fleaf` does not, and the call lowers as a direct BLOCKING call. Verified by
-`grep -c __Frame_fleaf` on the IR — 21 occurrences without `-c`, zero with
-it. This is a miscompile, not a diagnostic: in a kernel the nested park runs
-inline instead of parking. It is also why `sos/tests/taskdump.saw` is one
-frame deep. `--emit-frame-layout` had the same root cause for its own
-reason (it reported no frames at all for the whole `async_main_*` family)
-and is FIXED in unit 1 — the flag follows `--emit-ir` now. The transform
-side is untouched. NO XFAIL: an examples test cannot spawn under `-c`.
+**DF-158e — CLOSED (design 187 unit 1).** A `-c` / freestanding compile did
+not EMBED a nested suspending callee. `object_only` decided `is_entry`, and
+`is_entry` gates the whole-program effect fixpoint, so under `-c` every
+callee's `suspends` bit stayed False and the closure walk never reached a
+spawn root's suspending callees: `fmiddle` got a frame, `fleaf` did not, and
+the call lowered as a direct BLOCKING call — in a kernel the nested park ran
+inline. The fix SPLITS the flag: `is_entry` now means "the last module of
+the compilation unit" (it always was, for an object too) and the new
+`require_main` carries the entry-point requirement. `sos/tests/taskdump.saw`
+is two frames deep as a result, which is the honest proof. Regression:
+`tools/test_ir_contract.py` (`make ircontract`) requires the frame set to be
+IDENTICAL with and without `-c` over four coroutine shapes — an examples test
+cannot spawn under `-c`, so the check is at the IR level.
 
 **DF-158d — `yield_now()` in a nested callee does not make its caller
 suspend.** `func leaf() { yield_now() ... }` called from a spawned `middle`

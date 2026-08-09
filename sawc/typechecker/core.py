@@ -1465,7 +1465,8 @@ class TypeChecker(ExpressionsMixin, StatementsMixin, RegistrationMixin, TypeUtil
         checked_modules: Dict[Tuple[str, ...], Tuple[Program, 'Namespace']],
         builtin_namespace: 'Namespace',
         parent_namespace: Optional['Namespace'] = None,
-        is_entry: bool = False
+        is_entry: bool = False,
+        require_main: Optional[bool] = None
     ) -> Optional['Namespace']:
         """
         Type check a single module with its own namespace.
@@ -1479,7 +1480,20 @@ class TypeChecker(ExpressionsMixin, StatementsMixin, RegistrationMixin, TypeUtil
             checked_modules: Dict of already type-checked modules (path -> (ast, namespace))
             builtin_namespace: Pre-populated namespace with builtins
             parent_namespace: Optional parent module's namespace for nested modules
-            is_entry: True if this is the entry module (should check for main)
+            is_entry: True if this is the LAST module of the compilation unit —
+                the one after which the whole-program work runs (design 70's
+                queued generic instantiations, then the design-22 effect
+                fixpoint). It is a fact about POSITION in the graph, not about
+                the output shape.
+            require_main: True if the program must define `main`. Defaults to
+                `is_entry`. DF-158e: these two were one flag, so `-c` /
+                `--freestanding` (which have no `main` to require) also skipped
+                the effect fixpoint — leaving every callee's `suspends` bit
+                False, so the coroutine transform's closure walk never reached a
+                spawn root's nested suspending callees and the call lowered as a
+                direct BLOCKING one. In a kernel the nested park then runs
+                inline. An object file is still a whole program's worth of
+                effect graph; only the entry-point requirement differs.
 
         Returns:
             The module's namespace if successful, None on error
@@ -1836,8 +1850,10 @@ class TypeChecker(ExpressionsMixin, StatementsMixin, RegistrationMixin, TypeUtil
         # in the same compilation unit is caught.
         self._check_attribute_semantics(module_ast)
 
-        # Check for main function (only for entry module)
-        if is_entry and not self.namespace.has_function("main"):
+        # Check for main function (only when the output needs an entry point)
+        if require_main is None:
+            require_main = is_entry
+        if require_main and not self.namespace.has_function("main"):
             self.reporter.error(
                 ErrorKind.UNDEFINED_FUNCTION,
                 "no `main` function found",

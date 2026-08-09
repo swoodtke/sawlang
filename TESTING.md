@@ -256,6 +256,29 @@ assert something about copies, retains, drops or refcounts. **Add a program to
 macOS only — Guard Malloc is a macOS facility, so on other platforms the tool
 reports `SKIPPED` and exits 0 rather than failing.
 
+## The IR Contract Gate
+
+```bash
+make ircontract                      # or: ./.venv/bin/python tools/test_ir_contract.py
+```
+
+What the examples suite structurally cannot see, in miscompiles rather than
+diagnostics.
+
+The suite RUNS programs, so it never looks at one compiled with `-c` — nothing
+spawns an object file. That blind spot hid DF-158e for as long as it existed: a
+`-c` or `--freestanding` compile skipped the whole-program effect fixpoint, so
+the coroutine transform never embedded a spawn root's nested suspending callees
+and the call lowered as a direct blocking one. In a kernel the nested park then
+ran inline, on the only stack there is. The harness compiles four coroutine
+shapes both ways at `-O0` and requires the frame sets to be identical. `-O0`
+because at the default pipeline the whole-program build inlines a frame's resume
+method into its one caller and the symbol disappears, which says nothing about
+whether the frame was built.
+
+**Add a program to `EMBED_CORPUS` whenever a new coroutine embedding shape
+lands.**
+
 ## Best Practices
 
 ### 1. Always Add Expected Output

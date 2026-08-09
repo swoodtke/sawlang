@@ -984,7 +984,11 @@ def _prepare_codegen(source_path: str, entry_ast, entry_source: str, verbose: bo
         checked_modules,
         builtin_ns,
         parent_namespace=None,
-        is_entry=not object_only  # Only require main() for executables
+        # DF-158e: this IS the last module either way, so the whole-program work
+        # (design 70's queued instantiations, then the design-22 effect
+        # fixpoint) runs for an object file too. Only `main` is conditional.
+        is_entry=True,
+        require_main=not object_only  # Only executables need an entry point
     )
 
     if entry_ns is None:
