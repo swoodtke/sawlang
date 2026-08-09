@@ -1057,6 +1057,36 @@ class RegistrationMixin:
             is_blocking=getattr(extern_func, 'is_blocking', False)
         ))
 
+    def _gate_std_names_in_type(self, written, line, column, source_file=None,
+                                depth: int = 0) -> None:
+        """Run the prelude gate over every name a WRITTEN type mentions.
+
+        The gate (design 82 Part B) fires in EXPRESSION positions — a call, a
+        struct literal, a static-method head. That covers a gated type in
+        practice, because a value of one has to be built or called somewhere;
+        the exception is a `static`, whose declaration is the only thing that
+        names the type and whose storage the compiler zero-fills without any
+        expression at all. Design 188 unit 7 hit that through `SpinLock`.
+
+        Only the written form is walked, so a qualified `spinlock.SpinLock`
+        (which the import brought in) is untouched.
+        """
+        if written is None or depth > 8:
+            return
+        name = None
+        if written.kind == TypeKind.STRUCT:
+            name = written.struct_name
+        elif written.kind == TypeKind.ENUM:
+            name = written.enum_name
+        if name and '.' not in name:
+            self._std_name_gated(name, line, column)
+        for child in (written.inner_type, written.array_element_type):
+            self._gate_std_names_in_type(child, line, column, source_file,
+                                         depth + 1)
+        for child in ((written.type_args or []) + (written.element_types or [])):
+            self._gate_std_names_in_type(child, line, column, source_file,
+                                         depth + 1)
+
     def _register_static(self, static: StaticDecl):
         """Register and validate a module-level `static` declaration (design 41).
 
@@ -1082,6 +1112,16 @@ class RegistrationMixin:
                 static.line, static.column, source_file=static.source_file
             )
             return
+
+        # design 188 unit 7: the prelude gate, at the DECLARATION — the same
+        # argument the `SpinLock` target check below makes, for the same type.
+        # A gated module is not compiled in at all, so a `static LOCK:
+        # SpinLock<Int>` that never names the type in an expression reached
+        # codegen and died there ("Unknown generic struct: SpinLock") instead of
+        # being told to import it. A static holding a lock is the headline use
+        # of one, and its declaration is not an expression.
+        self._gate_std_names_in_type(static.type, static.line, static.column,
+                                     getattr(static, 'source_file', None))
 
         resolved_type = self._resolve_type(static.type)
 

@@ -10,6 +10,10 @@
 // 800
 // gone 8
 
+// design 188 unit 7: `std.slab` is import-gated like every other non-prelude
+// std module.
+import std.slab.*
+
 trait Shape { func area(&self) -> Int }
 
 struct Res { id: Int }

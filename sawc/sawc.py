@@ -94,9 +94,16 @@ HOSTED_STD_MODULES = {"file", "process", "env", "directory", "time", "net"}
 # what decides whether a module is code-generated at all, so a prelude symbol
 # has to live in a non-import-required FILE — a per-symbol exception would make
 # the name visible and its methods absent.
+#
+# design 188 unit 7 (DF-188i): `spinlock` and `slab` join the list. The spec's
+# module table documented both as gated and this set listed neither, so
+# `SpinLock` and `SlabHead` resolved bare — the one place the prelude's
+# allowlist and its documentation disagreed. The drift cannot recur silently:
+# `tools/test_prelude_gate_doc.py` walks the spec's own table and asserts every
+# module it marks gated is in this set.
 IMPORT_REQUIRED_STD_MODULES = {
-    "file", "directory", "path", "data", "channel", "mutex", "time",
-    "net", "process", "env", "task", "fixedbuf", "cbor",
+    "file", "directory", "path", "data", "channel", "mutex", "spinlock",
+    "slab", "time", "net", "process", "env", "task", "fixedbuf", "cbor",
 }
 # Symbols carved out of an otherwise-prelude std file (the file stays prelude
 # for its other symbols; only these named ones require an import).

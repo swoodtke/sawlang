@@ -14,6 +14,10 @@
 // 999
 // 6
 
+// design 188 unit 7: `std.slab` is import-gated like every other non-prelude
+// std module.
+import std.slab.*
+
 struct Job { id: Int, priority: Int }
 extension Job {
     func tid(&self) -> Int { self.id }

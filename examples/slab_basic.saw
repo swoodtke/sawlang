@@ -11,6 +11,11 @@
 // 128
 // 0
 
+// design 188 unit 7: `std.slab` is import-gated like every other non-prelude
+// std module. It documented itself as gated and was not; now the list and the
+// spec agree.
+import std.slab.*
+
 static REGION: [Int8; 256]
 static HEAD: SlabHead = SlabHead(bump: Atomic(0), free: Atomic(0))
 

@@ -1,11 +1,12 @@
 // LANGUAGE_SPEC documents SpinLock as import-gated (`import std.spinlock`),
 // but IMPORT_REQUIRED_STD_MODULES lists neither `spinlock` nor `slab`, so
-// the bare name resolves with no import at all. The intended behavior is
-// the standard prelude-gate error naming the module — same as the tracked
-// std.slab finding.
-// XFAIL: DF-188i std.spinlock and std.slab are reachable bare with no import (spec says gated)
+// the bare name resolves with no import at all. Design 188 unit 7 adds both to
+// the list, and gives the STATIC's declaration the gate its expressions already
+// had — a static is the one position that names a type without ever writing an
+// expression, and this one used to reach codegen and ICE there.
 // EXPECT: error
-// EXPECT-ERROR-CONTAINS: must be imported
+// EXPECT-ERROR-CONTAINS: `SpinLock` is not in the prelude and must be imported
+// EXPECT-ERROR-CONTAINS: import std.spinlock
 
 static LOCK: SpinLock<Int>
 

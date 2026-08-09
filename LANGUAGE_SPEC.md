@@ -6280,7 +6280,7 @@ need one of the three [import forms](#imports).
 | `std.stringbuilder` | `StringBuilder` | yes |
 | `std.arc` / `std.box` | `Arc<T>`, `Box<T, A>` | yes |
 | `std.alloc` | `Allocator`, `GlobalAllocator`, `AllocError` | `Allocator`, `GlobalAllocator` |
-| `std.slab` | `SlabHead`, `slab_alloc`, `slab_dealloc` | bare today — see below |
+| `std.slab` | `SlabHead`, `slab_alloc`, `slab_dealloc` | no |
 | `std.numeric` | the `Int` / `Float` extensions | yes (methods on primitives) |
 | `std.taskgroup` | `TaskGroup`, `TaskHandle<T>`, `VoidTaskHandle` | yes |
 | `std.task` | `yield_now`, `Task<T>` (the `spawn` handle) | no |
@@ -6305,12 +6305,11 @@ cooperative one; see [§6 Concurrency](#6-concurrency) for the real API.
 and `Sync` are prelude traits declared in `builtin.saw`, not module contents.
 There is no `Deque`, no `RwLock`, and no `UdpSocket` yet.
 
-> **`std.slab` is the one loose end.** Its names resolve with no import, while
-> every other import-required module is gated — a bare `Data`, `Mutex` or
-> `FixedStringBuilder` is the "not in the prelude" error. The prelude list above
-> does not name `std.slab`, so the two disagree; the
-> [Slab allocators](#slab-allocators-the-kernel-idiom) example relies on the
-> current behavior. Which way it resolves is tracked as DF-138c.
+`std.slab` and `std.spinlock` were the two rows this table got wrong: both
+documented as gated, and neither listed in the compiler's set, so `SlabHead` and
+`SpinLock` resolved with no import at all. Both are gated now. The table above is
+checked against the compiler's list on every run of `make preludegate`, so a
+future row and the behaviour behind it cannot drift apart in silence.
 
 **`std.fixedbuf`** is **implemented** (`std/fixedbuf.saw`) and works in both
 profiles: it allocates nothing. `FixedBuf<N>` is `N` bytes of zeroed storage held
