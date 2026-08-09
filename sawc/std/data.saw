@@ -52,6 +52,16 @@ struct DataBuf {
     capacity: Int
 }
 
+// design 186: the assertion behind `Data`'s thread-safety, made where the
+// pointer actually is. The bytes are reachable exactly two ways — `&self` reads
+// through a live strong reference, and `Arc.with_unique`, which hands out
+// `&var DataBuf` only when nobody else holds the storage — so a buffer that two
+// threads can see is a buffer neither can write. `Data` itself needs no
+// declaration: it holds an `Arc<DataBuf>` and derives through this one and
+// `Arc`'s.
+extension DataBuf: UnsafeSend {}
+extension DataBuf: UnsafeSync {}
+
 extension DataBuf {
     // Allocate `capacity` bytes. `None` = the allocator refused.
     func make(capacity: Int) unsafe -> DataBuf? {

@@ -32,6 +32,22 @@ struct Vector<T, A: Allocator = GlobalAllocator> {
     capacity: Int
 }
 
+// DF-182e, RULED by the user Aug 8 ("containers are Send if T is Send") and
+// SAID OUT LOUD by design 186 — it was an entry in a compiler-side list of
+// names until now. An owning container inherits its contents' thread-safety.
+// Structurally it cannot: the buffer pointer poisons anything holding one, so
+// no std container was `Send` at all and a task carrying a `Vector` across a
+// suspension could not run in a multi-threaded group. That pointer is the
+// container's own bookkeeping, not state a thread can race on — `&var` access
+// goes through the Law of Exclusivity — so moving one is safe exactly when
+// moving its contents is, and sharing one exactly when sharing them is. The
+// allocator is checked with the rest; `GlobalAllocator` is empty.
+//
+// `Map` and `Set` need no declaration of their own: a `Map` holds a `Vector`
+// of slots and a `Set` holds a `Map`, so both DERIVE through this one.
+extension Vector<T: Send, A: Send>: UnsafeSend {}
+extension Vector<T: Sync, A: Sync>: UnsafeSync {}
+
 extension Vector<T, A: Allocator = GlobalAllocator> {
     // Create an empty vector
     public init() -> Vector<T, A> {

@@ -2000,14 +2000,24 @@ class Namespace:
                                                self.ASSERTION_FOR[want_sync])
         if bounds is None:
             return False
-        args = saw_type.type_args or []
+        args = list(saw_type.type_args or [])
+        if len(args) < len(bounds):
+            # A trailing argument left to its DEFAULT (design 37): `Vector<Int>`
+            # writes one argument and means two. The promise is about the type
+            # the reference denotes, so the default is what the bound is checked
+            # against — not a reason to withhold the assertion.
+            base = name.split('$')[0]
+            sym = self._lookup_struct_deep(base) or self._lookup_enum_deep(base)
+            params = list(getattr(sym, 'type_params', None) or []) if sym else []
+            while len(args) < len(bounds) and len(args) < len(params):
+                args.append(getattr(params[len(args)], 'default', None))
         for index, param_bounds in enumerate(bounds):
             if not param_bounds:
                 continue
-            if index >= len(args):
-                # An un-parameterized spelling of a generic type (an
-                # `UnsafeMemory` with no arguments written): nothing to check
-                # the bound against, so the conditional promise is not made.
+            if index >= len(args) or args[index] is None:
+                # An un-parameterized spelling with no default to fall back on:
+                # nothing to check the bound against, so the conditional promise
+                # is not made.
                 return False
             for bound in param_bounds:
                 if not self._satisfies_thread_bound(args[index], bound, assume):
@@ -2175,62 +2185,16 @@ class Namespace:
             # GLOBAL_STATS: Stats` keeps working.
             if want_sync and self.cell_payload(saw_type) is not None:
                 return False
-            # Concurrency-wrapper overrides (raw-pointer fields must not poison).
-            if name == "Arc":
-                inner = args[0] if args else None
-                return (self._send_sync(inner, False, visiting, assume) and
-                        self._send_sync(inner, True, visiting, assume))
-            if name in ("Mutex", "Channel", "Task", "SpinLock"):
-                inner = args[0] if args else None
-                # Send iff T: Send; Sync iff T: Send (the wrappers add the sync).
-                # `SpinLock` (design 149) is here for the same reason as `Mutex`:
-                # it hands out `&var T` under mutual exclusion, so sharing one
-                # across threads is safe exactly when MOVING a `T` across is.
-                # Structurally it would also derive Sync from its `Atomic` word
-                # and its payload, but that would make `SpinLock<T>` Sync for a
-                # non-Send `T` — the wrapper is what adds the synchronization, so
-                # the wrapper is what has to state the rule.
-                return self._send_sync(inner, False, visiting, assume)
-            # design 46: UnsafeMemory<T, Use> is Send + Sync BY FIAT (the Atomic
-            # precedent). It is one word (a fixed address); statics of this type
-            # are shared across every task, so it must be Sync regardless of the
-            # phantom `T` it views. Synchronization of the memory it names is the
-            # programmer's responsibility (the Unsafe-prefix house rule).
-            if name == "UnsafeMemory":
-                return True
-            # design 46: the layout-transparent field markers inherit their inner
-            # type's thread-safety (they add no storage of their own).
-            if name in ("ReadOnly", "WriteOnly"):
-                inner = args[0] if args else None
-                return self._send_sync(inner, want_sync, visiting, assume)
-            # DF-182e (RULED by the user, Aug 8: "containers are Send if T is
-            # Send"). An OWNING container inherits its CONTENTS' thread-safety.
-            # Structurally it cannot: every one of these holds an
-            # `UnsafePointer` to its buffer, and that poisons any struct
-            # containing one — so no std container was Send, and a task holding
-            # a `Vector` across a suspension could not run in a multi-threaded
-            # group at all. That pointer is the container's own bookkeeping, not
-            # state a thread can race on: `&var` access to any of them goes
-            # through the Law of Exclusivity, so moving one across a thread
-            # boundary is safe exactly when moving its contents is, and sharing
-            # one is safe exactly when sharing them is. The allocator argument
-            # is checked with the rest — a policy type carries whatever
-            # thread-safety it carries, and `GlobalAllocator` is empty.
-            #
-            # INTERIM, deliberately: this is an addition to the by-name override
-            # list, and design 186's migration sweep replaces the whole list
-            # with declared `UnsafeSend` conformances.
-            if name in ("Vector", "Map", "Set") and args:
-                return all(self._send_sync(a, want_sync, visiting, assume)
-                           for a in args)
-            # `Data` and `StringBuilder` are unconditional, by exactly `String`'s
-            # argument above: a `Data` is a copy-on-write window over an
-            # `Arc`-owned buffer whose refcount is atomic and whose bytes are
-            # immutable while shared, and a `StringBuilder` holds bytes nobody
-            # else can reach through a `&self`. Neither is parameterized, so
-            # there are no contents to be conditional on.
-            if name in ("Data", "StringBuilder"):
-                return True
+            # design 186: THE NAME LIST IS GONE. Every entry that used to sit
+            # here — `Arc`, `Mutex`, `Channel`, `Task`, `SpinLock`,
+            # `UnsafeMemory`, and DF-182e's `Vector`/`Map`/`Set`/`Data`/
+            # `StringBuilder` — is now a declared `UnsafeSend`/`UnsafeSync`
+            # conformance beside its own type, checked at the header and
+            # re-checked per instantiation by `_assertion_applies` above. Two
+            # of them turned out to need nothing at all: `UnsafeMemory` is a
+            # struct of one `Int` and DERIVES both, and the layout-transparent
+            # `ReadOnly`/`WriteOnly` markers derive from their inner type
+            # because that is literally their only field.
             struct_sym = self._lookup_struct_deep(name)
             if struct_sym is None:
                 # An ENUM reached through a struct-kind spelling (design 155,

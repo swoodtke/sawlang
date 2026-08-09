@@ -1693,18 +1693,6 @@ class StatementsMixin:
         )
         return True
 
-    # The three types whose whole contract IS mutation through a shared borrow:
-    # `Atomic` and `SpinLock` reach the caller's cell because a receiver
-    # carrying one arrives BY POINTER even at `&self` (design 149,
-    # `_self_by_pointer_for`), and an `UnsafeMemory` is a one-word ADDRESS, so
-    # the copy and the original name the same device registers. A `&var self`
-    # method on a field of one of these mutates what the caller holds, which is
-    # the point of the type rather than a lost write. A user struct that merely
-    # CONTAINS one is not on the list: its own `&var self` methods take the
-    # whole wrapper — sibling fields included — and promise nothing about
-    # interior mutability.
-    _INTERIOR_MUTABLE_TYPES = frozenset({"Atomic", "SpinLock", "UnsafeMemory"})
-
     def _reject_var_self_call_on_shared_self(self, expr, method_info) -> bool:
         """A `&var self` method called on `self` — or on a FIELD of it — from
         a `&self` body.
@@ -1733,11 +1721,12 @@ class StatementsMixin:
         Which storage is "inside" is `_writes_into_self_storage`'s question,
         asked of the RECEIVER instead of a write target — so `self.cells[i]`
         (a heap element the copy shares) and `self.cancel_ptr[0]` (a pointee)
-        answer alike for a call and for an assignment. On top of that walk the
-        field form takes the INTERIOR-MUTABILITY EXEMPTION
-        (`_INTERIOR_MUTABLE_TYPES`): `self.n.fetch_add(1)` on an `Atomic`
-        field, a `SpinLock` field's `lock`, and an `UnsafeMemory` driver field
-        all reach the caller's storage by design, so they stay callable.
+        answer alike for a call and for an assignment.
+
+        There is no interior-mutability exemption on top of that walk any more;
+        see the note below `_is_interior_mutable_type`'s former home. The calls
+        it existed for — `self.n.fetch_add(1)`, a `SpinLock` field's `lock` —
+        are `&self` methods and were never refused by this rule to begin with.
         """
         from ast_nodes import SelfExpr as _SelfExpr
         if not getattr(method_info, "self_mutable", False):
@@ -1765,8 +1754,6 @@ class StatementsMixin:
             field_type = self._self_storage_type(receiver)
             if field_type is None:
                 return False
-            if self._is_interior_mutable_type(field_type):
-                return False
             what = "storage reached through a `&self` receiver"
         if getattr(method, 'is_borrows', False) or getattr(
                 method, 'place_type', None) is not None:
@@ -1787,21 +1774,28 @@ class StatementsMixin:
             expr.line, expr.column, hint=hint)
         return True
 
-    def _is_interior_mutable_type(self, saw_type) -> bool:
-        """Is this one of the by-pointer-at-`&self` types (design 149)?
-
-        Asked of a FIELD's declared type, by NAME — a monomorphized
-        `SpinLock$1$Int` answers for its template. Deliberately not the
-        recursive "contains an `Atomic` anywhere" test codegen uses to pick the
-        receiver ABI: that question is where the bytes travel, this one is
-        whether the TYPE's contract is mutation through a shared borrow.
-        """
-        if saw_type is None:
-            return False
-        saw_type = self._resolve_type_alias(saw_type)
-        if saw_type.kind != TypeKind.STRUCT or not saw_type.struct_name:
-            return False
-        return saw_type.struct_name.split('$')[0] in self._INTERIOR_MUTABLE_TYPES
+    # DESIGN 186: the interior-mutability EXEMPTION is gone, list and all.
+    #
+    # `_INTERIOR_MUTABLE_TYPES = {Atomic, SpinLock, UnsafeMemory}` used to let a
+    # `&var self` method on a field of one of those be called from a `&self`
+    # body. Re-derived against the property, it turned out to protect nothing:
+    # every blessed call in std, blade, libs and the kernel is a `&self` method
+    # — `fetch_add`, `load`, `lock`, `try_lock`, and `UnsafeMemory`'s intercepted
+    # accessors, which never reach method resolution at all — so the rule below
+    # never fired for any of them, then or now.
+    #
+    # Widening it to the cell-carrying property was the tempting move and is the
+    # one design 186 rules OUT. A `&var self` method takes the WHOLE receiver
+    # exclusively, sibling fields included, which is the one thing `&self`
+    # promises not to do; that a cell-carrying receiver arrives by pointer means
+    # the write LANDS, not that the exclusivity claim is honest. The refusal is
+    # about the second half of its own message — "mutates a value the caller
+    # holds immutably" — and it is right for `SpinLock` exactly as it is right
+    # for a user wrapper.
+    #
+    # What a cell-carrying type gets instead is the thing it actually needs:
+    # `&self` methods that WRITE, which is what the cell is for. Pinned by
+    # `examples/errors/interior_cell_wrapper_var_self.saw`.
 
     def _writes_into_self_storage(self, target) -> bool:
         """Does this lvalue name storage INSIDE the receiver's own value?

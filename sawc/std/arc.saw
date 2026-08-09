@@ -30,6 +30,16 @@ struct Arc<T> {
     ptr: UnsafePointer<Int8>?
 }
 
+// The thread-safety `Arc` has always had, said out loud (design 186 — it used
+// to be an entry in a list of names the compiler kept). The control block's
+// pointer is what blocks the derivation, and it is exactly what the unsafe
+// domain owns here: the strong/weak counts are updated with atomic
+// read-modify-writes, so handing a second handle to another thread is safe when
+// the PAYLOAD is safe to move there and safe to share there. Both halves are
+// required — an `Arc` shares its payload by construction.
+extension Arc<T: Send + Sync>: UnsafeSend {}
+extension Arc<T: Send + Sync>: UnsafeSync {}
+
 extension Arc<T> {
     /// Constructs a fresh `Arc` owning `value` (strong = 1, weak = 1).
     ///

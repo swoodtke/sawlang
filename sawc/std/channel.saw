@@ -51,6 +51,13 @@ struct Channel<T: Send> {
     block: UnsafePointer<Int8>?
 }
 
+// design 186: a `Channel` handle is an Arc-like pointer at a shared block whose
+// queue is guarded by the block's own lock, so the pointer field is the whole
+// of what the assertion covers. Both directions hold when the MESSAGES may
+// cross — which is what the channel exists to do.
+extension Channel<T: Send>: UnsafeSend {}
+extension Channel<T: Send>: UnsafeSync {}
+
 extension Channel<T: Send> {
     /// Creates a fresh empty channel.
     ///

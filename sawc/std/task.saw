@@ -79,6 +79,13 @@ struct Task<T> {
     joined: Bool
 }
 
+// design 186: the control-block pointer blocks both derivations. A handle is
+// one owner of a block the thread engine already synchronizes, and the only
+// value that crosses is the RESULT — so both directions hold exactly when `T`
+// may travel.
+extension Task<T: Send>: UnsafeSend {}
+extension Task<T: Send>: UnsafeSync {}
+
 /// Taking a task's result.
 extension Task<T> {
     /// Waits for the task to finish and returns its result.

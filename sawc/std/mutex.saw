@@ -29,6 +29,14 @@ struct Mutex<T> {
     block: UnsafePointer<Int8>
 }
 
+// design 186: the control-block pointer blocks both derivations, and mutual
+// exclusion is what covers it. Sharing a mutex across threads is safe exactly
+// when MOVING a `T` across is — the lock serializes every access, so no two
+// threads ever hold the payload at once, and `T` never needs to be `Sync` in
+// its own right.
+extension Mutex<T: Send>: UnsafeSend {}
+extension Mutex<T: Send>: UnsafeSync {}
+
 extension Mutex<T> {
     /// Takes ownership of `value` and wraps it behind a fresh mutex.
     ///

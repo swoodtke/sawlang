@@ -46,6 +46,15 @@ struct StringBuilder {
     truncated: Bool
 }
 
+// design 186: the buffer pointer blocks the derivation, and a `StringBuilder`
+// owns those bytes outright — nobody else can reach them, since every mutation
+// is a `&var self` method and the Law of Exclusivity gates those. So moving one
+// between threads is sound, and sharing one hands out reads of storage no
+// `&self` method writes. In FIXED mode the buffer is caller storage, which the
+// caller's own borrow already pins.
+extension StringBuilder: UnsafeSend {}
+extension StringBuilder: UnsafeSync {}
+
 extension StringBuilder {
     // Create an empty string builder
     public init() -> StringBuilder {

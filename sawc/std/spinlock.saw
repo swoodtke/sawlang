@@ -58,16 +58,26 @@ static HELD: Int = 1
 /// — naming a `SpinLock` is a compile error naming `--target-features +a`.
 public struct SpinLock<T> {
     state: Atomic<Int>,
-    value: T
+    value: UnsafeMutableInterior<T>
 }
+
+// The `Sync` this type has always had, said out loud (design 186). A `SpinLock`
+// carries an interior cell, so it derives none: handing out a `&var T` from
+// behind a `&self` is exactly the mutation-through-a-shared-borrow the
+// derivation cannot reason about. What makes it sound is the compare-and-swap
+// above the payload, which is code rather than a field. Sharing one is safe
+// exactly when MOVING a `T` between threads is, which is what the bound says.
+// `Send` needs no declaration — a cell moves fine, so it derives.
+extension SpinLock<T: Send>: UnsafeSync {}
 
 extension SpinLock<T> {
     /// Creates an unlocked lock owning `value`.
     ///
     /// A `static` does not need this: declare it without an initializer and the
     /// zero pattern is already an unlocked lock over a zeroed payload.
-    public init(value: T) -> SpinLock<T> {
-        SpinLock<T>(state: Atomic(UNLOCKED), value: value)
+    public init(value: T) unsafe -> SpinLock<T> {
+        SpinLock<T>(state: Atomic(UNLOCKED),
+                    value: UnsafeMutableInterior(value))
     }
 
     /// Acquires the lock, runs `body` on the payload, releases, and returns what
@@ -108,11 +118,15 @@ extension SpinLock<T> {
     // The address of the guarded value. Sound only while the caller holds the
     // lock, which is why it is private and why both callers take it first.
     //
-    // Taking the address inside a `&self` method works because a receiver
-    // carrying an `Atomic` cell arrives as the caller's storage rather than as a
-    // copy. On an ordinary type this would address the callee's copy.
+    // The payload lives in an interior CELL, and handing out its address is the
+    // cell's one accessor (design 186). What makes that address the caller's
+    // rather than a copy's is the cell-carrying property: a receiver carrying
+    // one arrives as storage even at `&self`. The old spelling took the address
+    // of a plain field with `(&self.value) as UnsafePointer<T>`, which was the
+    // same bytes and none of the argument — it worked because `state` happened
+    // to be an `Atomic`.
     func _payload(&self) unsafe -> UnsafePointer<T> {
-        (&self.value) as UnsafePointer<T>
+        self.value.ptr()
     }
 
     func _acquire(&self) {

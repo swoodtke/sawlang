@@ -2,8 +2,14 @@
 //
 // The ban asks where the bytes live. Storage INSIDE the receiver is refused
 // (`examples/errors/shared_self_field_var_method_call.saw`); everything here
-// either lives elsewhere or belongs to the by-pointer-at-`&self` family, whose
-// whole contract is mutation through a shared borrow.
+// either lives elsewhere or is an interior-mutable field's own `&self` method,
+// which writes the caller's storage because the receiver travels by pointer.
+//
+// Design 186 dissolved the by-NAME exemption this file was written around and
+// found it protected nothing: every blessed call is a `&self` method, and this
+// rule only ever refused `&var self` ones. What is NOT exempt — a wrapper's
+// `&var self` method reached through `&self` storage — is pinned by
+// `examples/errors/interior_cell_wrapper_var_self.saw`.
 // EXPECT: success
 // EXPECT-OUTPUT: counter 2
 // EXPECT-OUTPUT: spinlock held false, sum 4
@@ -11,8 +17,9 @@
 // EXPECT-OUTPUT: bag size 3
 import std.spinlock.*
 
-// 1. INTERIOR MUTABILITY. A receiver carrying an `Atomic` arrives by pointer
-//    even at `&self` (design 149), so the cell it bumps is the caller's.
+// 1. INTERIOR MUTABILITY. A receiver carrying a cell arrives by pointer even at
+//    `&self` (design 149, generalized by 186), so the cell it bumps is the
+//    caller's.
 struct Counter { n: Atomic<Int> }
 
 extension Counter {
@@ -20,18 +27,15 @@ extension Counter {
     func read(&self) -> Int { self.n.load() }
 }
 
-// 2. The exemption proper: a `&var self` method ON one of the exempt types,
-//    called on a field of a `&self` receiver.
-extension SpinLock<T> {
-    func touch(&var self) -> Bool { self.is_locked() }
-}
-
+// 2. The same thing one level up: a `&self` method on an interior-mutable
+//    FIELD, called from a `&self` body. `is_locked` and `lock` both write or
+//    read the caller's lock rather than a copy's.
 struct Shared { cell: SpinLock<Int> }
 
 extension Shared: NoCopy {}
 
 extension Shared {
-    func probe(&self) -> Bool { self.cell.touch() }
+    func probe(&self) -> Bool { self.cell.is_locked() }
     func add(&self, v: Int) -> Int { self.cell.lock({ n in n = n + v  n }) }
 }
 
