@@ -5906,6 +5906,28 @@ class ExpressionsMixin:
                 and self._resolve_type_alias(opt_type.inner_type).is_optional()):
             self._propagate_optional_type(expr.default, opt_type.inner_type)
             default_type = opt_type.inner_type
+        # DF-174h: `??` PEELS one optional layer, so the default owes the PEELED
+        # type. The compatibility check below reads the other way round — it asks
+        # whether the payload could flow into the DEFAULT — and `T` flowing into
+        # `T?` is exactly the auto-wrap rule, so a default one layer too deep
+        # sailed through it. `v.get(9) ?? v.get(0)` on a `Vector<Int?>` has two
+        # `Int??` operands and should be a clean error; instead the mis-typed
+        # default reached codegen, where it silently took the absent path (and,
+        # in the peeled-twice spelling, could not be indexed at all). Depth is
+        # the one part the wrap rule must not paper over.
+        if (opt_type.inner_type is not None and default_type is not None
+                and not default_type.is_none_literal()
+                and self._optional_depth(default_type)
+                > self._optional_depth(opt_type.inner_type)):
+            self._error(
+                ErrorKind.TYPE_MISMATCH,
+                f"`??` peels one optional layer, so the default owes "
+                f"`{opt_type.inner_type}`, but this default is `{default_type}`",
+                expr.default.line, expr.default.column,
+                hint="peel the default too, or bind the outer layer with "
+                     "`if let` before coalescing"
+            )
+            return opt_type.inner_type
         if opt_type.inner_type and not self._types_compatible(opt_type.inner_type, default_type):
             self._error(
                 ErrorKind.TYPE_MISMATCH,

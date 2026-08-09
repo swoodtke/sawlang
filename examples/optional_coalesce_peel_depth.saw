@@ -1,0 +1,40 @@
+// `??` peels exactly one optional layer, and the default is checked against
+// what is left (DF-174h's accept side).
+//
+// The depth rule only ever refuses a default DEEPER than the payload. Everything
+// a correct `??` does is here: the ordinary one-layer coalesce, a bare `None`
+// against a nested left operand (which adopts the payload type), a properly
+// peeled default against a nested left operand, and the two chained so the
+// result is a plain value.
+// EXPECT: success
+// EXPECT-OUTPUT:
+// plain 1
+// plain-miss 0
+// nested-none absent
+// nested-some 1
+// peeled 2
+// chained 7
+
+func describe(o: Int?) -> String {
+    if let n = o { return "{n}" }
+    "absent"
+}
+
+func main() {
+    let plain: Vector<Int> = [1]
+    print("plain {}", plain.get(0) ?? 0)
+    print("plain-miss {}", plain.get(9) ?? 0)
+
+    let v: Vector<Int?> = [1, None, 2]
+
+    // A bare `None` against an `Int??` adopts the PAYLOAD type, `Int?`.
+    print("nested-none {}", describe(v.get(9) ?? None))
+    print("nested-some {}", describe(v.get(0) ?? None))
+
+    // A default that is already peeled: `v.get(2)!` is the `Int?` element.
+    print("peeled {}", describe(v.get(9) ?? v.get(2)!))
+
+    // Both layers coalesced, left to right.
+    let x: Int = (v.get(9) ?? None) ?? 7
+    print("chained {}", x)
+}

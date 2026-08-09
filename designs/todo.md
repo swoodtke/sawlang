@@ -719,16 +719,19 @@ Closed items: see todo_aug1-aug9.md.
   observed, NOT a bug: a struct LITERAL still refuses a two-layer auto-wrap
   (``field `slot` expects type `Int??` but got `Int```) — a clean error, not a
   miscompile. Promoted from the probes: `examples/optional_nested_wrap_depth.saw`.
-- **DF-174h (COMPILER, filed Aug 8 by the DF-174c sugar work; PRE-EXISTING,
-  same verification): `a ?? b` whose DEFAULT is one layer too deep is accepted
-  by the typechecker and emits invalid LLVM IR.** `v.get(9) ?? v.get(0)` on a
-  `Vector<Int?>` — both operands `Int??` — should be a clean type error (`??`
-  peels one layer, so the default owes an `Int?`), and instead reaches codegen,
-  which builds a phi with `{i1, i64}` on one edge and `{i1, {i1, i64}}` on the
-  other: `LLVM IR parsing error ... defined with type ... but expected ...`, a
-  compiler crash rather than a diagnostic. Probe:
-  `.build/scratch/p174_pre_coalesce.saw`. The fix is a typechecker one (check
-  the default against the PEELED type); the IR error is the symptom.
+- **DF-174h — CLOSED (design 187 unit 8).** `a ?? b` whose DEFAULT is one layer
+  too deep was accepted. `v.get(9) ?? v.get(0)` on a `Vector<Int?>` — both
+  operands `Int??` — is now the clean type error it always owed, naming both
+  types. Why it slipped: the compatibility check reads "could the payload flow
+  into the DEFAULT", and `Int?` flowing into `Int??` is exactly the auto-wrap
+  rule, so depth was the one thing it could not see. A depth comparison runs
+  ahead of it and refuses only a default DEEPER than the payload, leaving every
+  ordinary one-layer coalesce untouched. (Symptom history, for the record: an
+  invalid-IR crash when filed; by the Aug-9 audit a silent absent path; in the
+  peeled-twice spelling an `Can't index at [0] in i64` ICE. All three were the
+  same accepted mis-type.) Tests:
+  `examples/errors/optional_coalesce_default_too_deep.saw` and
+  `examples/optional_coalesce_peel_depth.saw` (the accept side).
 
 ## DECIDED — Aug 8 morning round (user, the 181 policy)
 

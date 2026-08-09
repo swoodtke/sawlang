@@ -1401,6 +1401,14 @@ target of an `as` cast *is* followed by an expression continuation, so there the
 operator wins and `x as Int? ?? y` is a cast to `Int?` and then a coalesce.
 Types nested inside a cast target (`x as Vector<Int??>`) are unaffected.
 
+**`??` peels exactly one layer, and its default owes what is left.** On a
+`Vector<Int?>`, `v.get(9)` is an `Int??` and `v.get(9) ?? v.get(0)` is a type
+error: the default is another `Int??` where an `Int?` is owed. The error names
+both types. A bare `None` on the right adopts the payload type, so
+`v.get(9) ?? None` is the usual spelling; otherwise peel the default yourself.
+The rule refuses only a default DEEPER than the payload — everything the
+ordinary one-layer coalesce does is untouched.
+
 **Optional chaining** (`designs/111`) is **implemented** in full (Swift-style).
 `e?.field` and `e?.method(args)` are legal where `e: T?`: `None` short-circuits,
 `Some(v)` projects the field / calls the method on the payload. Chains are

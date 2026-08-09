@@ -548,12 +548,14 @@ if err.is<IoErr>() { if let io = err.take<IoErr>() { retry(io) } }  // downcast
   counts two layers, expression position stays the operator. They never collide
   — a type is otherwise followed by `=`, `,`, `)`, `>`, `{` or a newline —
   EXCEPT in an `as` cast target, where the operator wins (`x as Int? ?? y` is a
-  cast then a coalesce). GOTCHA: the nested-optional VALUE plumbing has two open
-  gaps (DF-174g/h) — a bare value written into a two-layer slot
-  (`let a: Int?? = 5`) is mis-lowered, and `a ?? b` with a default one layer too
-  deep crashes the compiler instead of erroring. Reach a nested optional through
-  the containers (`let got: Int?? = v.get(0)`, `func f(o: Int??)`), which is the
-  route that works. `None`, force `!` (panics), `??`, call-site auto-wrap
+  cast then a coalesce). A bare value written into a two-layer slot
+  (`let a: Int?? = 5`) lands intact at whatever depth the slot names, so naming
+  the type and reaching one through a container (`let got: Int?? = v.get(0)`)
+  are the same thing now. **`??` PEELS ONE LAYER, so its default owes the PEELED
+  type**: on a `Vector<Int?>`, `v.get(9) ?? v.get(0)` is a clean error naming
+  both types (the default is `Int??` where an `Int?` is owed). Write
+  `v.get(9) ?? None` — a bare `None` adopts the payload type — or peel the
+  default yourself. `None`, force `!` (panics), `??`, call-site auto-wrap
   (`f(5)` matches `f(x: Int?)` — and, since design 176, a generic parameter
   INSTANTIATED to an optional too, so `m.insert("y", 7)` on a
   `Map<String, Int?>` and `v.push(3)` on a `Vector<Int?>` both wrap),

@@ -1662,6 +1662,23 @@ class TypeUtilsMixin:
                        column=getattr(value_expr, 'column', 0))
         return value_expr
 
+    def _optional_depth(self, t: Optional[SawType]) -> int:
+        """How many optional layers `t` names, resolving aliases as it peels.
+
+        `Int??` is 2, `Optional<Int?>` is the same 2 under the other spelling,
+        and anything else is 0. Used where the WRAP rule must not be allowed to
+        paper over a depth difference (DF-174h) — `_types_compatible` admits
+        `T` into `T?` by design, which is right at a slot and wrong at a `??`
+        default, where the peel has already been counted."""
+        depth = 0
+        while t is not None and depth < 64:
+            t = self._resolve_type_alias(t)
+            if t is None or not t.is_optional():
+                break
+            depth += 1
+            t = t.inner_type
+        return depth
+
     def _unresolved_qualified_name(self, t: Optional[SawType]):
         """The module-qualified type name in `t` that did not resolve, or None.
 
