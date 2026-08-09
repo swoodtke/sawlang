@@ -221,6 +221,36 @@ including the EINPROGRESS "wait for writable" case) or `-tag` on a real failure.
 Re-issue the nonblocking connect to learn the true state (design 90). `0` =
 connected; `-InProgress` = still connecting (re-park); `-tag` = a real failure.
 
+### `__saw_rt_resolve_ipv4(host: i8*, out: u32*, max: word) -> word`
+**BLOCKING — the first seam in this document that says so, and it says so
+because it is (design 184).** Resolve the NUL-terminated hostname at `host` to
+IPv4 addresses, writing at most `max` of them to `out` in NETWORK byte order,
+ready to drop into `sockaddr_in.sin_addr`. Returns the COUNT written (`0` = the
+resolver succeeded and offered no IPv4 address, which is not a failure) or
+`-tag`. `max <= 0` is `-Invalid`.
+
+**The blocking contract.** This call is UNBOUNDED. The hosted body is
+`getaddrinfo(3)` with `AF_INET`/`SOCK_STREAM` hints, which may read
+`/etc/hosts`, ask mDNS, query LDAP or wait out a DNS timeout — microseconds to
+tens of seconds, decided by configuration this process does not control. It is
+therefore the one seam std declares `extern blocking`: every call is OFFLOADED
+to a worker thread by design 183's machinery and the calling task PARKS, so a
+resolution in flight never stops a sibling and never wedges the cooperative
+executor. A runtime implementing this seam may take as long as it needs; what it
+may NOT do is assume a caller is willing to wait on the calling thread.
+
+Two consequences for an implementer. The body itself is ORDINARY SYNC CODE — the
+offload happens on the std side, so `--runtime-build`'s sync-only discipline
+applies here exactly as to every other seam. And both pointers obey design 183's
+rule: they address the parked task's frame or the heap, so the worker thread may
+still be reading and writing through them for the whole call, cancellation
+included (`take` joins the worker before the task takes its cancel path).
+
+`EAI_SYSTEM` is reported through errno, so the hosted body maps it with
+`__saw_rt_last_syserror()`; `EAI_AGAIN` — a TEMPORARY resolver failure — maps to
+`WouldBlock`, the tag whose errno (`EAGAIN`) means the same thing. A name with no
+address is `-NotFound`.
+
 ### `__saw_rt_tcp_read(fd: word, buf: i8*, len: word) -> word`
 Nonblocking read → byte count (0 = EOF) or `-tag` (`-WouldBlock` on would-block).
 

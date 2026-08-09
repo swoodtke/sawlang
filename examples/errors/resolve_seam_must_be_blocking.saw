@@ -1,0 +1,32 @@
+// design 184's design law, enforced: resolution must NEVER exist as a naked
+// seam. std.net declares `__saw_rt_resolve_ipv4` `blocking`, and `blocking` is
+// part of an extern's contract (design 183 unit 1), so a program that declares
+// the same symbol without the annotation — the one way to reach an unoffloaded
+// resolve — is refused at its own declaration. Whoever wants a resolver that
+// blocks the executor has to write their own, under their own name.
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: is declared without `blocking` here
+// EXPECT-ERROR-CONTAINS: every declaration of one symbol must agree
+
+import std.net.{TcpStream}
+
+extern "C" {
+    func __saw_rt_resolve_ipv4(host: UnsafePointer<Int8>,
+                               out: UnsafePointer<UInt32>,
+                               max: Int) -> Int
+}
+
+func peer_fd_is_open(s: &TcpStream) -> Bool {
+    true
+}
+
+func naked() unsafe -> Int {
+    let host = "localhost"
+    var found: [UInt32; 1] = [0; 1]
+    __saw_rt_resolve_ipv4(host as UnsafePointer<Int8>,
+                          (&found) as UnsafePointer<UInt32>, 1)
+}
+
+func main() {
+    print(naked())
+}

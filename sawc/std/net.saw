@@ -48,6 +48,23 @@ extern "C" {
     // IoError.from_errno for the file/directory/env modules (design 117).
     func __saw_rt_last_syserror() -> Int
 
+    // design 184: hostname resolution, and the ONLY seam in std that is
+    // `blocking`. `getaddrinfo` is unbounded — it may consult /etc/hosts, mDNS,
+    // LDAP or the network and wait out a DNS timeout — so every call is
+    // OFFLOADED to a worker thread by design 183's machinery and the calling
+    // task parks, exactly as it does on a socket read. `blocking` is part of the
+    // symbol's contract, so no other declaration of it can drop the annotation:
+    // there is no way to spell a naked resolve.
+    //
+    // Writes up to `max` addresses (network byte order) to `out` and returns the
+    // count, `0` when the name has no IPv4 address, or a NEGATED SysError tag.
+    // Both pointers must address the parked frame or the heap (design 183's
+    // pointer rule) — the worker reads and writes through them while the task is
+    // away.
+    blocking func __saw_rt_resolve_ipv4(host: UnsafePointer<Int8>,
+                                        out: UnsafePointer<UInt32>,
+                                        max: Int) -> Int
+
     // design 118 stage 3: the `io_wait` intrinsic lowering now emits the Saw
     // executor entry point `__saw_exec_io_register` (std/taskgroup.saw), which arms
     // the reactor through the `Reactor` trait — so net no longer declares the raw

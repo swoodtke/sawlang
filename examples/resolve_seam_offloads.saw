@@ -1,0 +1,62 @@
+// design 184 unit 2: the resolver seam is offloaded, so a resolution in flight
+// never stops a sibling. `getaddrinfo` is the worst blocking call in a network
+// library — its answer can take a DNS timeout — so `__saw_rt_resolve_ipv4` is
+// declared `extern blocking` and design 183's machinery runs it on a worker
+// thread while the calling task parks on the job's pipe.
+//
+// The proof is the INTERLEAVE, not a stopwatch: one cooperative thread, the
+// resolver spawned FIRST, and the sibling's line printed first anyway. That can
+// only happen if the resolver ceded the thread, which a naked seam could not do.
+// Network-free — `localhost` comes out of /etc/hosts.
+// EXPECT: success
+// EXPECT-OUTPUT:
+// sibling: ran while the resolve was in flight
+// resolver: localhost -> 127.0.0.1 (1 address)
+
+static MAX_ADDRS: Int = 4
+
+extern "C" {
+    blocking func __saw_rt_resolve_ipv4(host: UnsafePointer<Int8>,
+                                        out: UnsafePointer<UInt32>,
+                                        max: Int) -> Int
+}
+
+// The sockaddr_in address word back as text: the first octet is the low byte.
+func dotted(addr: UInt32) -> String {
+    let a = (addr & 255) as Int
+    let b = ((addr >> 8) & 255) as Int
+    let c = ((addr >> 16) & 255) as Int
+    let d = ((addr >> 24) & 255) as Int
+    "{a}.{b}.{c}.{d}"
+}
+
+func resolver() unsafe -> Int {
+    // Frame-owned storage on both sides of the call: `host`'s bytes and `found`
+    // both live in the heap-resident frame, so the worker thread is still
+    // addressing them while this task is parked (design 183's pointer rule).
+    let host = "localhost"
+    var found: [UInt32; MAX_ADDRS] = [0; MAX_ADDRS]
+    let n = __saw_rt_resolve_ipv4(host as UnsafePointer<Int8>,
+                                  (&found) as UnsafePointer<UInt32>,
+                                  MAX_ADDRS)
+    if n < 1 {
+        print("resolver: {host} did not resolve ({n})")
+        return n
+    }
+    let text = dotted(found[0])
+    print("resolver: {host} -> {text} ({n} address)")
+    return n
+}
+
+func sibling() -> Int {
+    print("sibling: ran while the resolve was in flight")
+    return 0
+}
+
+func main() {
+    var group = TaskGroup()
+    let hr = group.spawn(resolver())     // parks inside the offloaded resolve
+    let hs = group.spawn(sibling())      // runs while it is parked
+    let _ = hs.join()
+    let _ = hr.join()
+}

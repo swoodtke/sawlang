@@ -33,6 +33,17 @@ extern "C" {
     func chdir(path: UnsafePointer<Int8>) -> Int32
     func setenv(name: UnsafePointer<Int8>, value: UnsafePointer<Int8>, overwrite: Int32) -> Int32
     func unsetenv(name: UnsafePointer<Int8>) -> Int32
+    // hostname resolution (design 184). `getaddrinfo` is the platform resolver
+    // and is UNBOUNDED — std declares this seam `extern blocking` and the call
+    // runs on a worker thread (design 183); the body here is ordinary sync code.
+    func getaddrinfo(node: UnsafePointer<Int8>, service: UnsafePointer<Int8>,
+                     hints: UnsafePointer<Int8>, res: UnsafePointer<Int8>) -> Int32
+    func freeaddrinfo(res: UnsafePointer<Int8>)
+    // shim.c: the three `struct addrinfo` / `EAI_*` facts only C can spell (the
+    // field ORDER and the failure codes both diverge by host).
+    func __saw_ai_next(entry: UnsafePointer<Int8>) -> UnsafePointer<Int8>?
+    func __saw_ai_ipv4(entry: UnsafePointer<Int8>, out: UnsafePointer<UInt32>) -> Int
+    func __saw_gai_tag(code: Int) -> Int
     // host seams: the nonblocking-socket helper (shim.c), the sockaddr prefix
     // stamp, and the errno -> portable SysError tag mapper (net_os.saw).
     // The portable open mode -> this host's O_* flag word (shim.c, design 155:
@@ -48,6 +59,7 @@ static SYS_WOULD_BLOCK: Int = 1
 static SYS_IN_PROGRESS: Int = 2
 static SYS_IS_CONNECTED: Int = 3
 static SYS_INVALID: Int = 14
+static SYS_OTHER: Int = 16
 
 static AF_INET: Int32 = 2
 static SOCK_STREAM: Int32 = 1
@@ -63,6 +75,27 @@ struct SockAddrIn {
     addr: UInt32
     zero: UInt64
 }
+
+// A typed stack stand-in for the HINTS argument of `getaddrinfo` (design 184).
+// The first five fields of `struct addrinfo` are identical on macOS and Linux;
+// the two pointers after them are `ai_canonname` and `ai_addr` in one order on
+// macOS and the other on Linux, which is why the WALK asks shim.c for the
+// fields it needs by name. A hints record sets only the prefix and requires the
+// rest to be zero, so the divergence never reaches this declaration.
+struct AddrInfoHints {
+    flags: Int32
+    family: Int32
+    socktype: Int32
+    protocol: Int32
+    addrlen: UInt32
+    hole: UInt32        // the LP64 alignment hole ahead of the first pointer
+    ptr0: UInt64        // ai_canonname / ai_addr, host order of declaration
+    ptr1: UInt64        // ai_addr / ai_canonname
+    next: UInt64        // ai_next
+}
+
+static_assert(sizeof<AddrInfoHints>() == 48,
+              "struct addrinfo is 48 bytes on every hosted (LP64) target")
 
 // host-order port -> network byte order (htons). Targets are little-endian.
 func htons(port: Int) -> UInt16 {
@@ -196,6 +229,60 @@ func rt_tcp_write(fd: Int, buf: UnsafePointer<Int8>, len: Int) unsafe -> Int {
         return n
     }
     return 0 - __saw_rt_last_syserror()
+}
+
+// Resolve `host` to IPv4 addresses, writing up to `max` of them (in network
+// byte order, ready for `sockaddr_in.sin_addr`) to `out`. Returns the COUNT
+// written — `0` when the resolver succeeded and offered no IPv4 address — or
+// `-tag` when it failed.
+//
+// UNBOUNDED: `getaddrinfo` may consult /etc/hosts, mDNS, LDAP and the network,
+// and answers in anything from microseconds to a DNS timeout. std declares this
+// seam `extern blocking`, so the call runs on a worker thread and the calling
+// task parks (design 183/184); the body itself is ordinary sync code, as every
+// seam body must be. `host` and `out` point into the parked task's frame or the
+// heap and stay valid for the whole call — design 183's pointer rule.
+@export("__saw_rt_resolve_ipv4")
+func rt_resolve_ipv4(host: UnsafePointer<Int8>, out: UnsafePointer<UInt32>, max: Int) unsafe -> Int {
+    if max <= 0 {
+        return 0 - SYS_INVALID
+    }
+    var hints = AddrInfoHints(flags: 0 as Int32, family: AF_INET,
+                              socktype: SOCK_STREAM, protocol: PROTO_DEFAULT,
+                              addrlen: 0 as UInt32, hole: 0 as UInt32,
+                              ptr0: 0 as UInt64, ptr1: 0 as UInt64,
+                              next: 0 as UInt64)
+    var head = 0 as UnsafePointer<Int8>
+    let rc = getaddrinfo(host, 0 as UnsafePointer<Int8>,
+                         (&hints) as UnsafePointer<Int8>,
+                         (&head) as UnsafePointer<Int8>)
+    if rc != (0 as Int32) {
+        // EAI_SYSTEM answers 0: its cause is in errno, read on the next line
+        // with nothing in between (the design-117 discipline).
+        var tag = __saw_gai_tag(rc as Int)
+        if tag == 0 {
+            tag = __saw_rt_last_syserror()
+        }
+        if tag == 0 {
+            tag = SYS_OTHER
+        }
+        return 0 - tag
+    }
+    // getaddrinfo answering 0 guarantees a non-empty list, so the head is a real
+    // entry; only `ai_next` can be absent.
+    var cur: UnsafePointer<Int8>? = head
+    var found = 0
+    while found < max {
+        guard let entry = cur else { break }
+        var one = 0 as UInt32
+        if __saw_ai_ipv4(entry, (&one) as UnsafePointer<UInt32>) != 0 {
+            out[found] = one
+            found = found + 1
+        }
+        cur = __saw_ai_next(entry)
+    }
+    freeaddrinfo(head)
+    found
 }
 
 // =============================================================================

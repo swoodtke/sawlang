@@ -65,6 +65,59 @@ long __saw_open_flags(long mode) {
     }
 }
 
+/* ---- DF-113a: no C macro, no per-host struct layout (design 184) --------
+ * `__saw_rt_resolve_ipv4` walks the `struct addrinfo` list getaddrinfo(3)
+ * returns. The walk, the hints, the lifetime (`freeaddrinfo`) and the error
+ * mapping are all Saw (sawc/rt/common/os_ops.saw); these three projections are
+ * C because they are header facts a Saw body cannot see:
+ *
+ *   - `struct addrinfo`'s FIELD ORDER diverges. glibc declares `ai_addr` ahead
+ *     of `ai_canonname`; macOS declares them the other way round, so `ai_addr`
+ *     sits at a different offset on each host. A hardcoded offset cannot be
+ *     right on both — exactly the design-122 `d_name` bug, which shipped.
+ *   - the `EAI_*` failure codes are per-host macros disagreeing in value AND in
+ *     sign (`EAI_NONAME` is 8 on macOS and -2 on glibc), the same reason the
+ *     `O_*` bits above are translated here rather than written out in std.
+ */
+#include <netdb.h>
+#include <netinet/in.h>
+#include <sys/socket.h>
+
+/* The next entry in the list, or NULL at its end. */
+const void *__saw_ai_next(const void *entry) {
+    return (const void *)((const struct addrinfo *)entry)->ai_next;
+}
+
+/* The entry's IPv4 address in network byte order, written to `out`. Returns 1
+ * when the entry is an AF_INET address (and `out` was written), 0 when it is
+ * not — a status rather than a sentinel, because 0.0.0.0 is representable. */
+long __saw_ai_ipv4(const void *entry, unsigned int *out) {
+    const struct addrinfo *ai = (const struct addrinfo *)entry;
+    if (ai->ai_family != AF_INET || ai->ai_addr == NULL) return 0;
+    *out = ((const struct sockaddr_in *)(const void *)ai->ai_addr)->sin_addr.s_addr;
+    return 1;
+}
+
+/* A getaddrinfo(3) failure code as a portable SysError tag (rt/ABI.md), or 0
+ * for EAI_SYSTEM — whose cause is in errno, which the Saw caller reads with
+ * `__saw_rt_last_syserror()` on the next line. `EAI_AGAIN` is a temporary
+ * resolver failure, which is what the WouldBlock tag (EAGAIN, "resource
+ * temporarily unavailable") means; the rest collapse into NotFound / Exhausted
+ * / Invalid / Other. */
+long __saw_gai_tag(long code) {
+    int rc = (int)code;
+    if (rc == EAI_SYSTEM) return 0;                          /* ask errno */
+    if (rc == EAI_NONAME) return 10;                         /* NotFound */
+#ifdef EAI_NODATA
+    if (rc == EAI_NODATA) return 10;                         /* NotFound */
+#endif
+    if (rc == EAI_AGAIN) return 1;                           /* WouldBlock */
+    if (rc == EAI_MEMORY) return 15;                         /* Exhausted */
+    if (rc == EAI_FAMILY || rc == EAI_SOCKTYPE
+        || rc == EAI_SERVICE || rc == EAI_BADFLAGS) return 14;  /* Invalid */
+    return 16;                                               /* Other */
+}
+
 /* ---- DF-113a: no extern C global (design 155) ---------------------------
  * The child of `__saw_rt_proc_spawn_env` gets its environment by having the
  * process-wide `environ` point at the merged array before `execvp` — which is

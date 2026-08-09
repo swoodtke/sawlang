@@ -44,6 +44,10 @@ RUNTIME_ABI_SYMBOLS = frozenset({
     "__saw_rt_tcp_connect_check",
     "__saw_rt_tcp_read",
     "__saw_rt_tcp_write",
+    # Hostname resolution (design 184). The ONE seam whose ABI.md entry states a
+    # blocking contract: it is unbounded by nature, so std declares it
+    # `extern blocking` and every call is offloaded to a worker thread.
+    "__saw_rt_resolve_ipv4",
     # Status-carrying filesystem / environment ops (design 117)
     "__saw_rt_fs_unlink",
     "__saw_rt_fs_rename",
