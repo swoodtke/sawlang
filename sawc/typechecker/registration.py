@@ -2490,6 +2490,40 @@ class RegistrationMixin:
                     extension.line, extension.column
                 )
 
+            # design 188 unit 6 (DF-188h): a conformer of an `unsafe`
+            # requirement must DECLARE the effect. The spec has said so since
+            # design 130 — "a conformer of an unsafe trait requirement needs to
+            # make [the promise]" — and nothing checked it, in either direction.
+            #
+            # This direction is the one that matters to a reader: the
+            # requirement is what a caller through the existential sees, so an
+            # impl that quietly drops the marker makes the vtable slot's
+            # contract and the body's declaration disagree. It is not unsound
+            # (an impl safer than its requirement is harmless, and the check
+            # that protects the boundary — an UNDECLARED unsafe body reached
+            # through a SAFE requirement — does fire), which is exactly why it
+            # went unnoticed.
+            #
+            # The reverse direction stays legal: an `unsafe`-declared impl of a
+            # safe requirement is rule 7's redundant declaration, allowed and
+            # meaningful only about the body.
+            if getattr(trait_method, 'is_unsafe', False) and not getattr(
+                    impl_method, 'is_unsafe', False):
+                self._error(
+                    ErrorKind.TYPE_MISMATCH,
+                    f"method `{method_name}` must declare `unsafe` to conform "
+                    f"to trait `{trait_info.name}`, whose requirement declares "
+                    f"it: a caller reaching this through the requirement is "
+                    f"promised an unsafe contract, so the implementation says "
+                    f"so too",
+                    extension.line, extension.column,
+                    hint=f"write the effect in the post-parameter slot — "
+                         f"`func {method_name}(&self) unsafe -> ...` (design "
+                         f"136). The reverse is fine: an `unsafe` implementation "
+                         f"of a SAFE requirement is allowed, and says something "
+                         f"about the body only"
+                )
+
             # Check parameter count (excluding self)
             trait_param_count = len(trait_method.param_types) - 1  # Exclude self placeholder
             impl_param_count = len(impl_method.param_types) - 1    # Exclude self

@@ -3,10 +3,10 @@
 // does not exist: a safe-declared body satisfies an unsafe-declared
 // requirement silently. Harmless direction-wise (the impl promises MORE
 // than required), but the documented rule should hold — the conformance
-// below is the intended rejection site.
-// XFAIL: DF-188h the unsafe effect is unchecked between a trait requirement and its conformer
+// below is the rejection site design 188 unit 6 gave it.
 // EXPECT: error
-// EXPECT-ERROR-CONTAINS: unsafe
+// EXPECT-ERROR-CONTAINS: must declare `unsafe` to conform to trait `Raw`
+// EXPECT-ERROR-CONTAINS: post-parameter slot
 
 trait Raw {
     func peek(&self) unsafe -> Int
