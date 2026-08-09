@@ -971,6 +971,17 @@ dump_tasks()                // every live task's logical backtrace (std.task)
   let (a, b) = TcpStream.pair()                // connected pair, tests/IPC (no port)
   let s = try! TcpStream.connect("127.0.0.1", port)  // Result; suspends until connected
   ```
+  **`connect` TAKES A DOTTED-QUAD IPv4 ADDRESS, and a NAME is an `Err` (design
+  184).** The literal is parsed in Saw and dialled directly — strictly: four
+  octets, 1-3 digits each, no leading zero, nothing else in the string. Anything
+  else answers `io error: resolve "example.com" (hostname resolution is not
+  available yet — pass an IPv4 address) failed (invalid argument)`. Until design
+  184 the host argument was IGNORED OUTRIGHT and every `connect` dialled
+  127.0.0.1 and reported success (DF-181d), so a pre-184 build is the one where
+  `connect("example.com", 80)` appears to work. The resolver seam exists and
+  offloads (`__saw_rt_resolve_ipv4`, std's only `blocking` extern, over
+  `getaddrinfo`); what is missing is reaching it from `connect`, which is a
+  static method and so never a coroutine frame (DF-184a). Pass the address.
   DESIGN 92 — failable net calls RETURN the failure, never swallow it: `read`
   gives `Result<Data, IoError>` where an EMPTY Ok is EOF and an `Err` is a genuine
   error (DISTINCT — an empty Data no longer means both); `write(bytes: Data)`

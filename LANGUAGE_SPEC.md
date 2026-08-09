@@ -5026,6 +5026,32 @@ The design-76 raw layer (`tcp_*` / `net_*` free functions + `io_wait(fd, dir)`, 
 as the PRIVATE implementation std.net's methods drive — it is not part of the public
 surface.
 
+**The host argument of `connect` is a dotted-quad IPv4 address.** `TcpStream.connect`
+parses it (four octets, one to three digits each, no leading zero, nothing else in
+the string) and dials that address. A host that is not a dotted quad is an
+`Err(IoError)` naming it:
+
+```saw
+match TcpStream.connect("example.com", 80) {
+    case Ok(_) -> print("connected"),
+    // prints: io error: resolve "example.com" (hostname resolution is not
+    //         available yet — pass an IPv4 address) failed (invalid argument)
+    case Err(e) -> print("{e}")
+}
+```
+
+Hostname resolution is designed and half-built. The runtime seam is
+`__saw_rt_resolve_ipv4` over `getaddrinfo`, and it is the only seam in std declared
+`blocking`: a name lookup can take anything from a `/etc/hosts` read to a DNS
+timeout, so every call to it is offloaded to a worker thread and the calling task
+parks, the same way a socket read does. That contract is enforced rather than
+documented — because `blocking` is part of an extern's contract, a second
+declaration of the symbol without it is a compile error, so the resolver cannot be
+reached by a call that would stop the executor. What is missing is the last hop:
+`connect` is a static method, and a static method is never a coroutine frame today,
+so the offload cannot happen inside it. Until that changes `connect` refuses a name
+rather than blocking on one.
+
 Bounded local IO stays synchronous (regular-file read/write) — the never-block
 invariant is about latency-UNBOUNDED waits, not IO in general.
 

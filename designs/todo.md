@@ -280,6 +280,101 @@ crashes the process.
   Rust does, so this is not urgent — but the rule as written rejects a
   program with no ambiguity in it, and a receiver-aware key looks small.
 
+## Design 184 — hostname resolution (PARTIAL, Aug 9) — one unit blocked on DF-184a
+
+Brief: `designs/184-hostname-resolution.md`. Units 1, 2 and 4 landed whole; unit
+3 landed its address half and STOPPED at a compiler gap. **`TcpStream.connect`
+now dials the host it is given**, which closes the silent-wrong-destination half
+of DF-181d for every caller that passes an address. **It does not resolve names
+yet** — the resolver exists, is annotated, and offloads correctly everywhere the
+transform can lower it; the one place it cannot be lowered is inside `connect`.
+
+What landed:
+
+- **The literal fast path** (`parse_ipv4_literal`, std.net). A dotted quad is an
+  address, so it is parsed in Saw — no libc, no thread hop — and dialled
+  directly. Strict: four octets, 1-3 digits, no leading zero, nothing else in
+  the string; a near-miss like `127.00.0.1` answers `None` rather than picking a
+  side in the "is a leading zero octal?" ambiguity. Test:
+  `examples/net_ipv4_literal_parse.saw`.
+- **The seam.** `__saw_rt_resolve_ipv4(host, out, max) -> count | -tag` is in
+  the frozen ABI, and its ABI.md entry is the FIRST to state a blocking contract
+  explicitly (the 181 audit's documentation standard). Body in Saw
+  (rt/common/os_ops.saw): AF_INET/SOCK_STREAM hints as a typed struct pinned by
+  `static_assert`, `getaddrinfo`, the walk, `freeaddrinfo`, the EAI mapping.
+  Three projections are C in `shim.c` beside `__saw_open_flags`, for the same
+  reason: glibc declares `ai_addr` before `ai_canonname` and macOS the other way
+  round (a hardcoded offset cannot be right on both — the design-122 `d_name`
+  bug, which shipped), and the `EAI_*` codes disagree in value AND sign.
+- **The design law is ENFORCED, not just written down.** Because `blocking` is
+  part of an extern's contract (design 183 unit 1), a program that redeclares
+  `__saw_rt_resolve_ipv4` without the annotation is refused at its own
+  declaration: there is no way to spell a naked resolve.
+  `examples/errors/resolve_seam_must_be_blocking.saw`.
+- **The seam offloads**, proven by INTERLEAVE rather than by stopwatch — one
+  cooperative thread, the resolver spawned first, the sibling's line printed
+  first anyway (`examples/resolve_seam_offloads.saw`). Network-free throughout:
+  `localhost` comes out of /etc/hosts and no test in the suite leaves the
+  machine.
+- **The address travels the whole way down.** `__saw_rt_tcp_connect_start` takes
+  `(addr_be, port)` and `_connect_check` takes `(fd, addr_be, port)` — it must
+  re-issue against the same peer or it is asking a different question —
+  `loopback_sockaddr` is gone. Pin:
+  `examples/net_connect_dials_the_host_it_was_given.saw`, which keeps a live
+  listener on 127.0.0.1:port and watches the all-ones broadcast address be
+  refused beside it. The old code answered Ok to both.
+
+- **DF-184a (COMPILER, OPEN, filed Aug 9): a suspending STATIC extension method
+  is unreachable from a task body, and in std it silently loses its offload.**
+  The coroutine transform embeds a suspending METHOD callee by its RECEIVER's
+  type (`_scan_method_callees` reads `mc.object.resolved_type.struct_name`), and
+  a static call has no receiver, so the method is never embedded. Two faces:
+  - In the ENTRY module the call does not even resolve. A static method with a
+    `yield_now` in it, called from a spawned task, reports ``undefined variable
+    `Napper` `` — it names the TYPE as though it were a value. An instance
+    method with the identical body works. Pin:
+    `examples/coro_static_method_suspends.saw`.
+  - In std the call resolves and the body is then compiled UNTRANSFORMED, so
+    every suspension in it runs out of frame and a `blocking` extern in it
+    lowers to a NAKED direct call — no offload, no diagnostic, the executor
+    thread stopped for the duration. Verified on the IR: with the resolve inside
+    `TcpStream.connect` the module contains zero `__saw_rt_offload_start` and one
+    direct `call @__saw_rt_resolve_ipv4`; moved into `TcpListener.accept` (an
+    instance method) the same call offloads. That is why unit 3 stopped: design
+    184's whole point is that resolution never blocks the executor, and shipping
+    it inside `connect` today would do exactly that, invisibly.
+
+  `TcpStream.connect` is std's only suspending static method, so it is the only
+  place this bites in the tree. The fix is coro-transform work (resolve a static
+  call's owning struct and build a receiver-less frame) and is left to whoever
+  owns that surface. Unit 3's finished contract is written out as an xfail:
+  `examples/net_connect_by_name.saw`, interleave included, so the fix validates
+  itself. Until then `connect` REFUSES a name — `io error: resolve "example.com"
+  (hostname resolution is not available yet — pass an IPv4 address) failed
+  (invalid argument)` — which is the honest middle between blocking the executor
+  and dialling 127.0.0.1 and calling it success.
+
+- **DF-184b (OPEN, filed Aug 9, found by 184's investigation): `TcpStream.connect`
+  parks OUT OF FRAME, so a slow connect starves every sibling.** Same root cause
+  as DF-184a and worth stating on its own because it is live TODAY, with no
+  resolution involved: `connect` is not a coroutine frame, so its `io_wait` is
+  the outside-frame blocking kind — the one `taskgroup.saw` documents as "a sync
+  connect wait" that polls the reactor inline. The scheduler is not pumped and
+  no sibling runs while it waits. Loopback hides it (a local connect completes in
+  microseconds); a real peer that does not answer does not. The design-181 audit
+  did not catch this one because it inventoried EXTERNS, and this is a park.
+  DF-184a's fix closes it.
+
+- **Future work (out of scope by the brief, recorded so it is not re-derived):**
+  IPv6 and happy-eyeballs, which need the dual-stack design first — the seam is
+  named `_ipv4` and returns a `u32` array precisely so a v6 seam is an ADDITION
+  rather than a reinterpretation; resolver CACHING (a TTL-aware cache is a
+  policy question — whose TTL, whose eviction, and does a long-lived server want
+  its own?); and `Command`-env-style HOSTS INJECTION for tests, which is what
+  would let a starvation test drive a deliberately slow lookup instead of
+  relying on the interleave proof this brief used. A connect TIMEOUT is a
+  separate net design over design 180's `Duration`.
+
 ## Design 183 — the offload story, made real (LANDED, Aug 8)
 
 DF-181e and DF-181f are both closed above; the offload now works on the seams
@@ -467,7 +562,13 @@ Headline: **169 externs across sawc/std/ + sawc/rt/, NOT ONE annotated
   cooperative twin `receive` is a drop-in. Cheap fix: document it loudly;
   better: make `recv` inside a suspending body a compile error.
 - **DF-181d (filed Aug 7): `TcpStream.connect` silently IGNORES its `host`
-  argument.** `connect(host: String, port: Int)` never reads `host` —
+  argument.** **HALF CLOSED (design 184, Aug 9):** the silent wrong destination
+  is gone — the seam carries the address and `connect` dials the host it is
+  given, so a caller that passes an address reaches it and a caller that passes
+  a name gets an `Err` naming it instead of a loopback connection reported as
+  success. The RESOLUTION half is not built: see the design-184 section above
+  and DF-184a, the compiler gap that stopped it. Original finding follows.
+  `connect(host: String, port: Int)` never reads `host` —
   `net.saw:389-390` calls `__saw_rt_tcp_connect_start(port)`, whose body
   builds a `loopback_sockaddr`. So `connect("example.com", 80)` dials
   127.0.0.1:80 and reports success. Silent wrong-destination: violates both
