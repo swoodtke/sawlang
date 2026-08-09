@@ -1,0 +1,19 @@
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: may not be a reference
+// EXPECT-ERROR-CONTAINS: A `type` alias is not a way past that rule
+// EXPECT-ERROR-CONTAINS: declare a `borrows` accessor
+//
+// DF-188b, audit row R41: the generic-argument half of the alias bypass. A
+// `Vector<&Int>` is refused at the argument (DF-163d), because the container
+// fills through an ordinary call argument and then outlives it — and `Vector<R>`
+// is the same container under a name the written-form walk could not resolve.
+// Design 188 unit 1 resolves the alias before the walk, so a binding annotation
+// is judged on what the type IS rather than on how it is spelled.
+
+type R = &Int
+
+func main() {
+    var x = 7
+    let v: Vector<R> = []
+    print("len {v.len()}")
+}

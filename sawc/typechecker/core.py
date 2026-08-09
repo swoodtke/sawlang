@@ -1056,6 +1056,12 @@ class TypeChecker(ExpressionsMixin, StatementsMixin, RegistrationMixin, TypeUtil
         # after traits are registered so object safety is decidable.
         self._validate_existentials_in_program(program)
 
+        # Same pass, same positions (design 188 unit 1): the design-163 no-escape
+        # walk re-run with type ALIASES RESOLVED. The written-form checks live in
+        # the parser, where no alias can be looked up yet, so `type R = &Int` was
+        # a bypass for every position they guard.
+        self._validate_no_ref_laundering_in_program(program)
+
         # Same position, same reason (design 148): every type-parameter BOUND
         # names a trait. Traits are registered by now, so a forward reference
         # resolves and a non-trait is diagnosable at the declaration.
@@ -1770,6 +1776,8 @@ class TypeChecker(ExpressionsMixin, StatementsMixin, RegistrationMixin, TypeUtil
         self._validate_existentials_in_program(module_ast)
         self._validate_type_param_bounds_in_program(module_ast)
         self._validate_fn_effects_in_program(module_ast)
+        # design 188 unit 1: the no-escape walk again, with aliases resolved.
+        self._validate_no_ref_laundering_in_program(module_ast)
 
         # Check resource containment rules
         self._check_no_copy_containment()

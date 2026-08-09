@@ -3,10 +3,11 @@
 // (struct fields, generic arguments, returns, closures). The enum payload
 // position was missed, so a one-case enum launders a reference into Vector
 // storage that outlives the call (reading it back is DF-188a's ICE pair).
-// The intended behavior is the same diagnostic the field position gives.
-// XFAIL: DF-188a an enum case payload of reference type is accepted and escapes into storage
+// Design 188 unit 1 runs the walk over payload types too, with the field
+// position's own diagnostic.
 // EXPECT: error
 // EXPECT-ERROR-CONTAINS: may not be a reference
+// EXPECT-ERROR-CONTAINS: An enum value is storage that outlives every call
 
 enum Slot {
     case Held(r: &Int),

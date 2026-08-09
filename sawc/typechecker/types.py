@@ -653,6 +653,115 @@ class TypeUtilsMixin:
         self._validate_existential_type(
             getattr(fn, 'return_type', None), line, column)
 
+    # --------------------------------------------------- design 188 (unit 1)
+    # The no-escape walk, with type ALIASES RESOLVED (DF-188b).
+    #
+    # Design 163a/d refuse a reference wherever a declaration NAMES one — a
+    # return type, a struct field, a generic argument, an enum payload. Every
+    # one of those checks reads the type AS WRITTEN, in the parser, which is
+    # where the position is known and where no alias can be resolved yet. So a
+    # `type R = &Int` was a general bypass: the guarded positions see a plain
+    # named type, and the alias's own back-conversion `R(&x)` inhabits it.
+    #
+    # This pass is the same walk over the same positions, run once the aliases
+    # ARE known. It resolves at every step, so `Vector<R>`, `R?` and `[R; 4]`
+    # are all caught, and it stops at a nested function TYPE exactly as the
+    # written-form walk does — a function type's parameters take references
+    # legitimately.
+
+    def _first_laundered_reference(self, t, depth: int = 0):
+        """The first reference reachable from `t` once aliases are resolved."""
+        if t is None or depth > 12:
+            return None
+        if t.kind == TypeKind.STRUCT and t.struct_name is not None:
+            alias = self.get_type_alias_info(t.struct_name)
+            if alias is not None and alias.aliased_type is not None:
+                return self._first_laundered_reference(alias.aliased_type,
+                                                       depth + 1)
+        if t.kind == TypeKind.REFERENCE:
+            return t
+        if t.kind == TypeKind.FUNCTION:
+            return None
+        parts = []
+        if t.kind == TypeKind.OPTIONAL:
+            parts.append(t.inner_type)
+        if t.kind == TypeKind.ARRAY:
+            parts.append(t.array_element_type)
+        parts.extend(t.element_types or [])
+        parts.extend(t.type_args or [])
+        for p in parts:
+            hit = self._first_laundered_reference(p, depth + 1)
+            if hit is not None:
+                return hit
+        return None
+
+    def _reject_laundered_reference(self, t, what: str, line, column) -> None:
+        """Report a reference that only an alias kept out of sight."""
+        found = self._first_laundered_reference(t)
+        if found is None:
+            return
+        value = found.inner_type if found.inner_type is not None else "T"
+        self._error(
+            ErrorKind.TYPE_MISMATCH,
+            f"{what} may not be a reference: `{t}` resolves to a type that "
+            f"names a reference (`{found}`), and references in Saw are "
+            f"PARAMETERS ONLY — a reference borrows storage for the duration of "
+            f"one call and may not escape it (designs 88/106). A `type` alias "
+            f"is not a way past that rule: the walk resolves it",
+            line, column,
+            hint=f"use the value type (`{value}`), or — to hand out storage a "
+                 f"type already owns — declare a `borrows` accessor "
+                 f"(`... borrows -> {value}` with `lend`, design 141)")
+
+    def _validate_no_ref_laundering_in_program(self, program):
+        """Signature-level pass: no declared position NAMES a reference once
+        aliases are resolved (DF-188b).
+
+        The same positions the written-form walk guards, and no others — a
+        PARAMETER is where a reference belongs, so an alias in one stays legal.
+        """
+        for struct in getattr(program, 'structs', []):
+            for field in struct.fields:
+                self._reject_laundered_reference(
+                    field.type, f"field `{field.name}` of `{struct.name}`",
+                    getattr(field, 'line', struct.line),
+                    getattr(field, 'column', struct.column))
+        for enum in getattr(program, 'enums', []):
+            for variant in enum.variants:
+                for payload in (variant.associated_types or []):
+                    name, pt = ((payload[0], payload[1])
+                                if isinstance(payload, tuple)
+                                else (variant.name, payload))
+                    self._reject_laundered_reference(
+                        pt,
+                        f"payload `{name}` of case `{variant.name}` in enum "
+                        f"`{enum.name}`", enum.line, enum.column)
+        for func in getattr(program, 'functions', []):
+            self._reject_laundered_reference(
+                getattr(func, 'return_type', None),
+                f"the return type of `{func.name}`",
+                getattr(func, 'line', 0), getattr(func, 'column', 0))
+        for ext in getattr(program, 'extensions', []):
+            for method in ext.methods:
+                self._reject_laundered_reference(
+                    getattr(method, 'return_type', None),
+                    f"the return type of `{method.name}`",
+                    getattr(method, 'line', ext.line),
+                    getattr(method, 'column', ext.column))
+        for trait in getattr(program, 'traits', []):
+            for tm in trait.methods:
+                self._reject_laundered_reference(
+                    getattr(tm, 'return_type', None),
+                    f"the return type of `{trait.name}.{tm.name}`",
+                    getattr(tm, 'line', trait.line),
+                    getattr(tm, 'column', trait.column))
+        for block in getattr(program, 'extern_blocks', []):
+            for fn in getattr(block, 'functions', []):
+                self._reject_laundered_reference(
+                    getattr(fn, 'return_type', None),
+                    f"the return type of extern `{fn.name}`",
+                    getattr(fn, 'line', 0), getattr(fn, 'column', 0))
+
     # ------------------------------------------------------- design 148 (unit A)
 
     # Bounds the compiler knows structurally. Every one of these is also declared

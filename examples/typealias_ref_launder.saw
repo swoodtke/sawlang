@@ -1,11 +1,12 @@
 // The reference no-escape walk reads types AS WRITTEN and does not resolve
 // a `type` alias, so `type R = &Int` bypasses every position the rule
 // guards — a struct field here, and the alias's back-conversion `R(&x)`
-// genuinely inhabits it. The intended behavior is alias resolution ahead
-// of the NAMES walk, giving the field position's own diagnostic.
-// XFAIL: DF-188b a type alias launders a reference past the no-escape walk
+// genuinely inhabits it. Design 188 unit 1 resolves aliases ahead of the walk,
+// so the field position reports it — and the back-conversion that would have
+// filled the field is refused where it is written.
 // EXPECT: error
 // EXPECT-ERROR-CONTAINS: may not be a reference
+// EXPECT-ERROR-CONTAINS: A `type` alias is not a way past that rule
 
 type R = &Int
 

@@ -1395,6 +1395,12 @@ class StatementsMixin:
             # binding annotation (design 51): a bare `let x: any Shape` is
             # rejected; `let b: Box<any Shape>` is fine.
             self._validate_existential_type(resolved_type, stmt.line, stmt.column)
+            # design 188 unit 1: and the no-escape walk with aliases resolved —
+            # `let v: Vector<R>` for a `type R = &Int` is the generic-argument
+            # rule reached through a binding annotation (DF-188b, audit R41).
+            self._reject_laundered_reference(
+                stmt.type_annotation, f"the annotation of `{stmt.name}`",
+                stmt.line, stmt.column)
             # allow_literal_to_distinct=True because let/var initialization allows primitives to
             # initialize distinct types (e.g., `let x: MyInt = 21`)
             if not self._types_compatible(value_type, resolved_type, allow_literal_to_distinct=True):

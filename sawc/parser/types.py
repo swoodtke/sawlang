@@ -157,6 +157,39 @@ class TypeParsingMixin:
             f"names. {fix}, or — to hand out storage this type already owns — "
             f"{self._lend_out(value)}")
 
+    def reject_reference_payload(self, payload_name: str, variant_name: str,
+                                 enum_name: str, payload_type: SawType,
+                                 anchor) -> None:
+        """An enum CASE PAYLOAD may not name a reference (DF-188a).
+
+        A payload is storage on exactly the terms a struct field is — it lives in
+        the enum value, which outlives every call that could have created the
+        reference — and design 163d enumerated every position but this one. So a
+        one-case enum was a general bypass: `case Held(r: &Int)` is accepted,
+        `Slot.Held(r: &x)` inhabits it from an ordinary `&` parameter, and the
+        value goes straight into `Vector` storage that outlives the call. The
+        diagnostic is the field position's, because the position is the same one.
+        """
+        found = self._first_reference_in(payload_type)
+        if found is None:
+            return
+        value = found.inner_type if found.inner_type is not None else "T"
+        if found is payload_type:
+            names_it = "is a reference"
+            fix = f"Store the value instead (`{payload_name}: {value}`)"
+        else:
+            names_it = f"names a reference (`{found}`)"
+            fix = (f"Store the value instead (drop the `&`: `{found}` becomes "
+                   f"`{value}`)")
+        self.error_at(
+            anchor,
+            f"payload `{payload_name}` of case `{variant_name}` in enum "
+            f"`{enum_name}` may not be a reference: its type `{payload_type}` "
+            f"{names_it}, and {self.PARAMETERS_ONLY}. An enum value is storage "
+            f"that outlives every call that could have created the reference, "
+            f"so the pointer it holds outlives what it names. {fix}, or — to "
+            f"hand out storage this type already owns — {self._lend_out(value)}")
+
     def reject_reference_type_arg(self, arg: SawType, anchor) -> None:
         """A generic ARGUMENT may not name a reference (DF-163d).
 

@@ -223,12 +223,22 @@ class DeclarationsMixin:
             associated_types = []
             if self.match(TokenType.LPAREN):
                 self.advance()
+
+                def _parse_payload():
+                    # A payload is storage on the same terms a struct field is,
+                    # so it may not name a reference either (DF-188a).
+                    p_name = self.expect(TokenType.IDENT,
+                                         "Expected parameter name").value
+                    self.expect(TokenType.COLON,
+                                "Expected ':' after parameter name")
+                    p_anchor = self.current()
+                    p_type = self.parse_type()
+                    self.reject_reference_payload(p_name, variant_name, name,
+                                                  p_type, p_anchor)
+                    associated_types.append((p_name, p_type))
+
                 if not self.match(TokenType.RPAREN):
-                    # Parse first parameter
-                    param_name = self.expect(TokenType.IDENT, "Expected parameter name").value
-                    self.expect(TokenType.COLON, "Expected ':' after parameter name")
-                    param_type = self.parse_type()
-                    associated_types.append((param_name, param_type))
+                    _parse_payload()
 
                     # Parse additional parameters
                     while self.match(TokenType.COMMA):
@@ -236,10 +246,7 @@ class DeclarationsMixin:
                         # Trailing comma (design 129).
                         if self.match(TokenType.RPAREN):
                             break
-                        param_name = self.expect(TokenType.IDENT, "Expected parameter name").value
-                        self.expect(TokenType.COLON, "Expected ':' after parameter name")
-                        param_type = self.parse_type()
-                        associated_types.append((param_name, param_type))
+                        _parse_payload()
 
                 self.expect(TokenType.RPAREN)
 

@@ -142,6 +142,15 @@ class ExpressionsMixin:
 
         alias_type = SawType(TypeKind.STRUCT, struct_name=expr.name)
         underlying = self._resolve_type_alias(alias_type)
+        # design 188 unit 1 (DF-188b, audit R50): the back-conversion is what
+        # INHABITS an alias, so an alias over a reference is refused here too —
+        # the value it builds is a reference living outside the parameter
+        # position that created it, which is the whole no-escape rule.
+        if self._first_laundered_reference(alias_type) is not None:
+            self._reject_laundered_reference(
+                alias_type, f"a value of type `{expr.name}`",
+                expr.line, expr.column)
+            return None
         self._apply_literal_expected_type(arg.value, underlying)
         arg_type = self._check_expression(arg.value)
         if arg_type is None:

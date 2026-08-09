@@ -1,0 +1,59 @@
+// The ACCEPT side of design 188 unit 1. Closing the enum-payload position and
+// resolving aliases before the no-escape walk must not cost the shapes that
+// were always legal, so each one is exercised here:
+//
+//   * a `type` alias over a VALUE type is untouched in every guarded position
+//     — a struct field, a generic argument, a return type, and its own
+//     back-conversion. Only an alias that resolves to a reference is refused;
+//     the walk asks what the type IS, not how it is spelled.
+//   * an enum case payload holding a FUNCTION TYPE whose parameters name
+//     references stays legal. The walk stops at a function type on purpose: a
+//     `(&Int) sync -> Int` parameter takes its reference for the duration of
+//     one call, which is exactly where a reference belongs.
+//
+// EXPECT: success
+// EXPECT-OUTPUT: handle 7
+// EXPECT-OUTPUT: applied 21
+// EXPECT-OUTPUT: total 21
+
+type Handle = Int
+
+struct Registry {
+    slot: Handle,
+    ids: Vector<Handle>
+}
+
+enum Step {
+    case Scale(f: (&Int) sync -> Int),
+    case Done
+}
+
+extension Registry: NoCopy {}
+
+extension Registry {
+    func first(&self) -> Handle {
+        self.slot
+    }
+}
+
+func apply(step: &Step, to: &Int) -> Int {
+    match step {
+        case Scale(f) -> f(&to),
+        case Done -> 0
+    }
+}
+
+func main() {
+    var reg = Registry(slot: Handle(7), ids: [])
+    reg.ids.push(Handle(3))
+    print("handle {reg.first() as Int}")
+
+    let tripled = Step.Scale(f: { n: &Int in n * 3 })
+    var seven = 7
+    let scaled = apply(&tripled, &seven)
+    print("applied {scaled}")
+
+    var total = 0
+    total = total + scaled
+    print("total {total}")
+}
