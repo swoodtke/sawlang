@@ -5041,31 +5041,36 @@ The design-76 raw layer (`tcp_*` / `net_*` free functions + `io_wait(fd, dir)`, 
 as the PRIVATE implementation std.net's methods drive — it is not part of the public
 surface.
 
-**The host argument of `connect` is a dotted-quad IPv4 address.** `TcpStream.connect`
-parses it (four octets, one to three digits each, no leading zero, nothing else in
-the string) and dials that address. A host that is not a dotted quad is an
-`Err(IoError)` naming it:
+**The host argument of `connect` is an IPv4 address or a name.** A dotted quad
+(four octets, one to three digits each, no leading zero, nothing else in the
+string) is an address already, so it is parsed in Saw and dialled directly:
+nothing about a literal caller touches the resolver. Anything else is a name,
+and `connect` resolves it before dialling the first IPv4 answer.
+
+Resolution never stops the executor. The runtime seam is `__saw_rt_resolve_ipv4`
+over `getaddrinfo`, and it is the only seam in std declared `blocking`: a lookup
+can take anything from an `/etc/hosts` read to a DNS timeout, so the call is
+offloaded to a worker thread and the calling task parks, the same way a socket
+read does. Sibling tasks run while a resolution is in flight. That contract is
+enforced rather than documented — `blocking` is part of an extern's contract, so
+a second declaration of the symbol without it is a compile error and the
+resolver cannot be reached by a call that would hold the executor thread.
+
+A name that does not resolve, and a name whose answers contain no IPv4 address,
+are both an `Err(IoError)` naming the host:
 
 ```saw
-match TcpStream.connect("example.com", 80) {
-    case Ok(_) -> print("connected"),
-    // prints: io error: resolve "example.com" (hostname resolution is not
-    //         available yet — pass an IPv4 address) failed (invalid argument)
+match TcpStream.connect("db.internal", 5432) {
+    case Ok(stream) -> serve(move stream),
+    // prints: io error: resolve "db.internal" failed (not found)
     case Err(e) -> print("{e}")
 }
 ```
 
-Hostname resolution is designed and half-built. The runtime seam is
-`__saw_rt_resolve_ipv4` over `getaddrinfo`, and it is the only seam in std declared
-`blocking`: a name lookup can take anything from a `/etc/hosts` read to a DNS
-timeout, so every call to it is offloaded to a worker thread and the calling task
-parks, the same way a socket read does. That contract is enforced rather than
-documented — because `blocking` is part of an extern's contract, a second
-declaration of the symbol without it is a compile error, so the resolver cannot be
-reached by a call that would stop the executor. What is missing is the last hop:
-`connect` is a static method, and a static method is never a coroutine frame today,
-so the offload cannot happen inside it. Until that changes `connect` refuses a name
-rather than blocking on one.
+IPv6 is not resolved. The seam is named `_ipv4` and answers a `u32` array so
+that a v6 seam is an addition rather than a reinterpretation; happy-eyeballs
+needs the dual-stack design first. There is no resolver cache, and no connect
+timeout beyond the operating system resolver's own.
 
 Bounded local IO stays synchronous (regular-file read/write) — the never-block
 invariant is about latency-UNBOUNDED waits, not IO in general.

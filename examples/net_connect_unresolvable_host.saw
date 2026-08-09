@@ -3,32 +3,55 @@
 // Before design 184 every one of these connected to 127.0.0.1 and answered Ok
 // (DF-181d), which is the failure mode this test exists to keep closed.
 //
-// Names are refused rather than resolved for now: the offloaded resolver cannot
-// run inside `connect` until DF-184a lands (see `net_connect_by_name`, which
-// pins the finished contract). WHEN IT LANDS, the first two lines here become
-// resolutions — "localhost" connects and a name with no address reports
-// `(not found)` — and this test is updated with the fix.
-//
-// No network: nothing here leaves the machine.
+// Both refusals are answered by the resolver's own input validation, with no
+// query and no network: an empty host, and a name past the 255-octet limit
+// every `getaddrinfo` enforces before it looks anything up. A name that merely
+// does not EXIST is deliberately not tested here — whether it fails, and how
+// fast, is a property of the machine's DNS, and the suite never leaves the
+// machine.
 // EXPECT: success
 // EXPECT-OUTPUT:
-// localhost -> io error: resolve "localhost" (hostname resolution is not available yet — pass an IPv4 address) failed (invalid argument)
-// example.com -> io error: resolve "example.com" (hostname resolution is not available yet — pass an IPv4 address) failed (invalid argument)
-// 127.0.0.1 -> connected
+// empty: io error: resolve "" failed (not found)
+// over-long: refused
+// localhost: connected
+// 127.0.0.1: connected
 
 import std.net.{TcpListener, TcpStream}
 
+// Over 255 octets — no resolver will look this up.
+func over_long_name() -> String {
+    var b = StringBuilder()
+    var i = 0
+    while i < 50 {
+        b.append("label.")
+        i = i + 1
+    }
+    b.append("example")
+    b.build()
+}
+
+// Prints the whole error, so the host it names is part of the expectation.
 func attempt(host: String, port: Int) {
     match TcpStream.connect(host, port) {
-        case Ok(_) -> print("{host} -> connected"),
-        case Err(e) -> print("{host} -> {e}")
+        case Ok(_) -> print("{}: connected", host),
+        case Err(e) -> print("{}: {}", host, e)
     }
 }
 
 func main() {
     let listener = try! TcpListener.listen(0)
     let port = listener.local_port()
-    attempt("localhost", port)      // a name: refused, and it says which one
-    attempt("example.com", port)    // ditto — and NOT a loopback dial
-    attempt("127.0.0.1", port)      // the literal path still works
+
+    // Named in full, so the "the error says WHICH host" half is pinned.
+    match TcpStream.connect("", port) {
+        case Ok(_) -> print("empty: UNEXPECTED ok"),
+        case Err(e) -> print("empty: {e}")
+    }
+    // Too long to print; that it is refused at all is the point.
+    match TcpStream.connect(over_long_name(), port) {
+        case Ok(_) -> print("over-long: UNEXPECTED ok"),
+        case Err(_) -> print("over-long: refused")
+    }
+    attempt("localhost", port)      // the RESOLVED path — /etc/hosts, no network
+    attempt("127.0.0.1", port)      // the LITERAL path — never reaches the resolver
 }

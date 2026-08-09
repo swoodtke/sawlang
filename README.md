@@ -649,12 +649,12 @@ func serve(port: Int) {
 }
 ```
 
-`TcpStream.connect` takes a dotted-quad IPv4 address, which it parses and dials
-directly. A hostname comes back as an `Err(IoError)` naming it: resolution goes
-through `getaddrinfo`, which can take anything from a `/etc/hosts` read to a DNS
-timeout, and wiring it into `connect` without stopping the whole cooperative
-executor needs a compiler change that has not landed. See the
-[std.net section of the spec](LANGUAGE_SPEC.md) for the state of it.
+`TcpStream.connect` takes a dotted-quad IPv4 address or a hostname. An address
+is parsed in Saw and dialled directly. A name goes through `getaddrinfo`, which
+can take anything from a `/etc/hosts` read to a DNS timeout, so the lookup runs
+on a worker thread and the task parks: sibling tasks keep running while it is in
+flight. A name that does not resolve is an `Err(IoError)` naming it. IPv6 is not
+resolved yet. See the [std.net section of the spec](LANGUAGE_SPEC.md).
 
 ### The Copy Trait Family
 

@@ -395,16 +395,52 @@ crashes the process.
   Rust does, so this is not urgent — but the rule as written rejects a
   program with no ambiguity in it, and a receiver-aware key looks small.
 
-## Design 184 — hostname resolution (PARTIAL, Aug 9) — unit 3's resolver half in flight
+## Design 184 — hostname resolution (LANDED, Aug 9)
 
-Brief: `designs/184-hostname-resolution.md`. Units 1, 2 and 4 landed whole; unit
-3 landed its address half and STOPPED at a compiler gap. **`TcpStream.connect`
-now dials the host it is given**, which closes the silent-wrong-destination half
-of DF-181d for every caller that passes an address. **It does not resolve names
-yet** — the resolver exists, is annotated, and offloads correctly everywhere the
-transform can lower it; the one place it cannot be lowered is inside `connect`.
+Brief: `designs/184-hostname-resolution.md`. All four units landed; **DF-181d is
+CLOSED WHOLE**. `TcpStream.connect` dials the host it is given, and a NAME is
+resolved on a worker thread while siblings run.
 
-What landed:
+Unit 3's resolver half landed on top of DF-184a's fix, and it is three methods
+where it was one:
+
+- `connect` chooses. A dotted quad is dialled directly (no libc, no thread hop,
+  no way for a literal caller to pay for the resolver's existence); anything
+  else is resolved and the first IPv4 answer dialled. A resolution failure, and
+  a resolver that succeeds with no IPv4 address, are both an `Err(IoError)`
+  naming the host: `io error: resolve "db.internal" failed (not found)`.
+- `TcpStream.resolve_first` is a static METHOD, and that is the load-bearing
+  part: the transform embeds a suspending std method as a sub-frame and cannot
+  reach a std FREE function, so the same code written as a free helper would run
+  its `blocking` seam outside a frame — a naked call holding the executor thread
+  for the whole lookup, which is exactly what design 184 exists to prevent. It
+  is `unsafe` so the pointer work is confined (design 130) and `connect` keeps a
+  safe signature. Its `found` buffer is a frame local, satisfying design 183's
+  pointer rule.
+- `TcpStream.dial` is the shared tail, so a name and a literal reach their peer
+  through identical code.
+
+Pins: `examples/net_connect_by_name.saw` (XPASS flipped — the dialer is spawned
+FIRST and the sibling still prints first, which is the offload proof) and
+`examples/net_connect_unresolvable_host.saw`, rewritten because its old
+expectation WAS the refusal. Its unresolvable hosts are now the two the resolver
+rejects out of its own input validation — an empty host and a name past the
+255-octet limit — so it stays network-free; a name that merely does not exist is
+deliberately not tested, since whether and how fast it fails is a property of
+the machine's DNS.
+
+**DF-184b — CLOSED, verified on the IR.** With `connect` embedded, its park is
+in-frame: at `-O0` the reactor arm sits in `__Frame_TcpStream_dial_resume` with
+a real wake token, and the offload start in
+`__Frame_TcpStream_resolve_first_resume`. The out-of-frame form (`io_register(…,
+0)` + `__saw_exec_park(-1)`) survives only in the untransformed std bodies the
+transform leaves behind as dead code, which is how every embedded std method
+already looked. A call from a NON-suspending `main` still reaches those bodies
+and still blocks that thread — but `main` is not a task, nothing is scheduled
+behind it, and that is the general rule for a suspending method called from
+non-suspending code rather than anything specific to `connect`.
+
+What landed earlier:
 
 - **The literal fast path** (`parse_ipv4_literal`, std.net). A dotted quad is an
   address, so it is parsed in Saw — no libc, no thread hop — and dialled
@@ -501,7 +537,7 @@ identical but for the receiver.
   (invalid argument)` — which is the honest middle between blocking the executor
   and dialling 127.0.0.1 and calling it success.
 
-- **DF-184b (OPEN, filed Aug 9, found by 184's investigation): `TcpStream.connect`
+- **DF-184b (filed Aug 9, found by 184's investigation): `TcpStream.connect`
   parks OUT OF FRAME, so a slow connect starves every sibling.** Same root cause
   as DF-184a and worth stating on its own because it is live TODAY, with no
   resolution involved: `connect` is not a coroutine frame, so its `io_wait` is
@@ -723,12 +759,11 @@ Headline: **169 externs across sawc/std/ + sawc/rt/, NOT ONE annotated
   cooperative twin `receive` is a drop-in. Cheap fix: document it loudly;
   better: make `recv` inside a suspending body a compile error.
 - **DF-181d (filed Aug 7): `TcpStream.connect` silently IGNORES its `host`
-  argument.** **HALF CLOSED (design 184, Aug 9):** the silent wrong destination
-  is gone — the seam carries the address and `connect` dials the host it is
-  given, so a caller that passes an address reaches it and a caller that passes
-  a name gets an `Err` naming it instead of a loopback connection reported as
-  success. The RESOLUTION half is not built: see the design-184 section above
-  and DF-184a, the compiler gap that stopped it. Original finding follows.
+  argument.** **CLOSED WHOLE (design 184, Aug 9):** the seam carries the address
+  and `connect` dials the host it is given; a NAME is resolved through
+  `getaddrinfo` on a worker thread while siblings run, and an unresolvable one
+  is an `Err` naming it. See the design-184 section above. Original finding
+  follows.
   `connect(host: String, port: Int)` never reads `host` —
   `net.saw:389-390` calls `__saw_rt_tcp_connect_start(port)`, whose body
   builds a `loopback_sockaddr`. So `connect("example.com", 80)` dials
@@ -874,8 +909,9 @@ Closed items: see todo_aug1-aug9.md.
 
 Closed items: see todo_aug1-aug9.md.
 
-- **STILL OPEN by choice:** the DF-181d connect fix scope (IPv4-literals-now
-  vs full resolution). 182 briefs once it's ruled.
+- **RULED and BUILT:** the DF-181d connect fix scope (IPv4-literals-now vs full
+  resolution) became design 184, which shipped both — a literal is parsed in Saw
+  and dialled directly, a name is resolved through an offloaded seam.
 
 ## DECIDED — Aug 7 evening round (user)
 

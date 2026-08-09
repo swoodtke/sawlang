@@ -1,17 +1,15 @@
-// XFAIL: DF-184a `TcpStream.connect` cannot host the offloaded resolver until a static method can suspend
+// Design 184 unit 3: `TcpStream.connect` resolves a NAME. It resolves it on a
+// worker thread (the seam is declared `blocking`, so design 183's machinery
+// offloads it), lets siblings run while the lookup is in flight, dials the first
+// IPv4 answer, and answers an unresolvable name with an `Err(IoError)` naming
+// the host.
 //
-// Design 184 unit 3's contract, written out so the fix validates itself. What
-// `connect` owes a NAME: resolve it on a worker thread (the seam is declared
-// `blocking`, so design 183's machinery offloads it), let siblings run while the
-// lookup is in flight, dial the first IPv4 answer, and answer an unresolvable
-// name with an `Err(IoError)` that names the host.
-//
-// None of it can happen inside `connect` today. `connect` is a suspending STATIC
-// method and the coroutine transform never embeds one as a frame (DF-184a), so
-// the offload would silently lower to a naked call that stops the executor for
-// the whole lookup — the one thing design 184's law forbids. Until then `connect`
-// refuses a name outright rather than blocking or, as it did before design 184,
-// dialling 127.0.0.1 and calling it success (DF-181d).
+// It lives inside `connect`, which is a suspending STATIC method — the shape the
+// transform could not embed until DF-184a, and the reason this test was an xfail:
+// the offload would have lowered to a naked call that stopped the executor for
+// the whole lookup, the one thing design 184's law forbids. Before design 184 it
+// was worse still — the host argument was ignored and every connect dialled
+// 127.0.0.1 and reported success (DF-181d).
 //
 // The dialer is spawned FIRST and the sibling's line comes first anyway: that
 // interleave is the non-starvation half of the contract, and it is what a naked

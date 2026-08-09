@@ -63,13 +63,11 @@ extern "C" {
     // pointer rule) — the worker reads and writes through them while the task is
     // away.
     //
-    // NOT CALLED FROM HERE YET. `TcpStream.connect` is a suspending STATIC
-    // method, which the coroutine transform never embeds as a frame (DF-184a),
-    // so a call made there would lower to a naked one and stop the executor for
-    // the whole lookup — the exact thing the annotation exists to prevent. The
-    // declaration stays because it IS the contract: it is what makes a naked
-    // redeclaration an error, and it is what `connect` will call the day
-    // DF-184a lands. Pin: `examples/net_connect_by_name.saw`.
+    // Called from `TcpStream.resolve_first`, which is a static METHOD for
+    // exactly one reason: the transform embeds a suspending std method as a
+    // sub-frame and cannot reach a std free function, so a resolve written as a
+    // free helper would lower to a naked call and stop the executor for the
+    // whole lookup. Pin: `examples/net_connect_by_name.saw`.
     blocking func __saw_rt_resolve_ipv4(host: UnsafePointer<Int8>,
                                         out: UnsafePointer<UInt32>,
                                         max: Int) -> Int
@@ -108,8 +106,14 @@ static NET_ERROR: Int = -1           // the `tcp_*` error sentinel
 static SYS_WOULD_BLOCK: Int = 1
 static SYS_IN_PROGRESS: Int = 2
 static SYS_INTERRUPTED: Int = 4
-static SYS_INVALID: Int = 14
+static SYS_NOT_FOUND: Int = 10
 static SYS_OTHER: Int = 16
+
+// How many addresses a resolution asks for. `connect` dials the FIRST answer,
+// so one is all it needs; asking for more would copy words nothing reads.
+// (Happy-eyeballs, which is what would want the rest, needs the dual-stack
+// design first — see the tracker's design-184 future-work note.)
+static RESOLVE_MAX: Int = 1
 
 // FdPair is the 8-byte `int[2]` socketpair fills.
 struct FdPair {
@@ -413,17 +417,16 @@ func io_error(syscall: String, tag: Int) -> IoError {
     IoError(syscall: syscall, code: tag)
 }
 
-// What `connect` answers for a host that is not a dotted quad, until DF-184a
-// lets the offloaded resolver run inside it. Refusing is the honest answer: the
-// alternative on today's compiler is a lookup that stops the executor thread,
-// and the alternative before design 184 was dialling 127.0.0.1 and calling it
-// success. The message says what to pass instead.
-func unresolvable_host_error(host: String) -> IoError {
+// A failed resolution, NAMING THE HOST. The host IS the failure here — an error
+// that does not say which name could not be resolved is unactionable — so it
+// goes in the syscall slot and prints as `io error: resolve "db.internal"
+// failed (not found)`.
+func resolve_error(host: String, tag: Int) -> IoError {
     var what = StringBuilder()
     what.append("resolve \"")
     what.append(host)
-    what.append("\" (hostname resolution is not available yet — pass an IPv4 address)")
-    io_error(what.build(), SYS_INVALID)
+    what.append("\"")
+    io_error(what.build(), tag)
 }
 
 // =============================================================================
@@ -514,21 +517,59 @@ extension TcpStream {
     // design 184: `host` used to be ignored outright, so `connect("example.com",
     // 80)` dialled 127.0.0.1:80 and reported success (DF-181d).
     public func connect(host: String, port: Int) -> Result<TcpStream, IoError> {
-        // design 184: the literal fast path. A dotted quad is an address
-        // already, so it is parsed here and dialled directly — no libc, no
-        // resolver, no thread hop.
-        //
-        // A NAME is refused, for now, rather than resolved: hooking the
-        // (offloaded) resolver up here needs `connect` to be a coroutine frame,
-        // and it is not one — a suspending STATIC method is never embedded by
-        // the transform (DF-184a), so the `blocking` seam would lower to a naked
-        // call that stops the executor for the whole lookup. Design 184's law is
-        // that resolution never blocks the executor, so it waits for DF-184a.
-        // `examples/net_connect_by_name.saw` is the pin.
-        guard let literal = parse_ipv4_literal(host) else {
-            return unresolvable_host_error(host)
+        // The literal fast path (design 184 unit 1). A dotted quad is an address
+        // already, so it is parsed here, in Saw, and dialled directly — no libc,
+        // no resolver, no thread hop, and no way for a literal caller to pay for
+        // the resolver's existence.
+        if let literal = parse_ipv4_literal(host) {
+            return TcpStream.dial(literal as Int, port)
         }
-        let addr = literal as Int
+        // A NAME. `getaddrinfo` is unbounded, so the lookup runs on a worker
+        // thread and this task PARKS while siblings run (design 183's offload
+        // over design 184's `blocking` seam). Design 184's law: resolution never
+        // stops the executor. `examples/net_connect_by_name.saw` pins the
+        // interleave that proves it.
+        let first = TcpStream.resolve_first(host)
+        if first < 0 {
+            return resolve_error(host, -first)
+        }
+        return TcpStream.dial(first, port)
+    }
+
+    // The FIRST IPv4 address `host` resolves to, as the address word the dial
+    // seam takes, or a NEGATED SysError tag — std.net's house convention for a
+    // raw op, and collision-free here because every address word is >= 0. A
+    // resolver that succeeds and offers no IPv4 address answers `-NotFound`:
+    // "nowhere to dial" is a failure to the one caller this has.
+    //
+    // A static METHOD, and deliberately: the transform embeds a suspending std
+    // method as a sub-frame and cannot reach a std FREE function, so the same
+    // code written as a free helper would run its `blocking` seam outside a
+    // frame — a naked call holding the executor thread for the whole lookup.
+    // `unsafe` confines the pointer work (design 130) so `connect` keeps a safe
+    // signature.
+    //
+    // `found` is a frame local, so it is heap-resident for the whole park and
+    // the worker may write through the pointer while this task is away — design
+    // 183's pointer rule, which is why the buffer is not a stack temporary.
+    func resolve_first(host: String) unsafe -> Int {
+        var found: [UInt32; RESOLVE_MAX] = [0; RESOLVE_MAX]
+        let n = __saw_rt_resolve_ipv4(host as UnsafePointer<Int8>,
+                                      (&found) as UnsafePointer<UInt32>,
+                                      RESOLVE_MAX)
+        if n < 0 {
+            return n
+        }
+        if n == 0 {
+            return 0 - SYS_NOT_FOUND
+        }
+        return found[0] as Int
+    }
+
+    // Dial `addr`:`port` (the address in network byte order) and park until the
+    // socket is writable. Shared by both `connect` paths, so a name and a
+    // literal reach their peer through exactly the same code.
+    func dial(addr: Int, port: Int) -> Result<TcpStream, IoError> {
         let fd = __saw_rt_tcp_connect_start(addr, port)
         if fd < 0 {
             return io_error("connect", -fd)
