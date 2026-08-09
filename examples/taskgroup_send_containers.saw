@@ -1,0 +1,94 @@
+// An OWNING std container is `Send` iff its contents are (DF-182e, ruled Aug 8).
+//
+// Send is derived structurally and every one of these holds an `UnsafePointer`,
+// which poisons any struct containing one — so no std container was Send and a
+// task holding one across a suspension could not run in a multi-threaded group.
+// That pointer is the container's own bookkeeping, not something a thread can
+// race on: `&var` access to any of them goes through the Law of Exclusivity, so
+// moving one across a thread boundary is safe exactly when moving its contents
+// is. `Data` and `StringBuilder` are unconditional by `String`'s argument.
+//
+// Each worker HOLDS its container across a `yield_now`, which is what puts it in
+// the frame the Send check reads. Counts and sums only — never an interleaving.
+// EXPECT: success
+// EXPECT-OUTPUT:
+// vector 6
+// map 3
+// set 3
+// data 4
+// builder 5
+// nested 6
+
+import std.task.*
+import std.data.{Data}
+
+func sum_vector(v: Vector<Int>) -> Int {
+    yield_now()
+    var total = 0
+    for x in v.iter() {
+        total = total + x
+    }
+    total
+}
+
+func count_map(m: Map<String, Int>) -> Int {
+    yield_now()
+    m.len()
+}
+
+func count_set(s: Set<Int>) -> Int {
+    yield_now()
+    s.len()
+}
+
+func count_data(d: Data) -> Int {
+    yield_now()
+    d.len()
+}
+
+func count_builder(b: StringBuilder) -> Int {
+    yield_now()
+    b.len()
+}
+
+// A container of containers: Send composes through the contents.
+func sum_nested(rows: Vector<Vector<Int>>) -> Int {
+    yield_now()
+    var total = 0
+    var i = 0
+    while i < rows.len() {
+        total = total + rows[i].len()
+        i = i + 1
+    }
+    total
+}
+
+func main() {
+    var g = TaskGroup(threads: 2)
+
+    let v: Vector<Int> = [1, 2, 3]
+    let m: Map<String, Int> = {"a": 1, "b": 2, "c": 3}
+    let s: Set<Int> = {7, 8, 9}
+    var d = Data()
+    d.push(1)
+    d.push(2)
+    d.push(3)
+    d.push(4)
+    var b = StringBuilder()
+    b.append("hello")
+    let rows: Vector<Vector<Int>> = [[1, 2], [3, 4], [5, 6]]
+
+    let hv = g.spawn(sum_vector(move v))
+    let hm = g.spawn(count_map(move m))
+    let hs = g.spawn(count_set(move s))
+    let hd = g.spawn(count_data(move d))
+    let hb = g.spawn(count_builder(move b))
+    let hn = g.spawn(sum_nested(move rows))
+
+    print("vector {}", hv.join())
+    print("map {}", hm.join())
+    print("set {}", hs.join())
+    print("data {}", hd.join())
+    print("builder {}", hb.join())
+    print("nested {}", hn.join())
+}

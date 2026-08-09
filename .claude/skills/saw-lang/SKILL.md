@@ -950,7 +950,10 @@ dump_tasks()                // every live task's logical backtrace (std.task)
   (byte-identical, deterministic interleaving). Into a multi-threaded group,
   every value a spawned frame carries across a suspension — params, across-suspend
   locals, AND the result type — must be `Send` (else a clean compile error naming
-  it; share via `Arc`/`Mutex`/`Channel`, not by moving a `Vector` etc. in). Test MT
+  it). An OWNING CONTAINER is Send iff its CONTENTS are, so moving a
+  `Vector<Int>`, a `Map`, a `Set`, a `Data` or a `StringBuilder` in is fine and a
+  `Vector` of closures is refused, naming the element. Share genuinely shared
+  state via `Arc`/`Mutex`/`Channel`. Test MT
   code on counts/sums, NEVER on interleaving. Cross-task cancel:
   `handle.cancel_addr() -> Int` (a Send address a canceller task sets).
 - Thread engine (`spawn`/`Task`/`Channel.recv`) is separate from the

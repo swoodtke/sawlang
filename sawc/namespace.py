@@ -1865,6 +1865,33 @@ class Namespace:
             if name in ("ReadOnly", "WriteOnly"):
                 inner = args[0] if args else None
                 return self._send_sync(inner, want_sync, visiting)
+            # DF-182e (RULED by the user, Aug 8: "containers are Send if T is
+            # Send"). An OWNING container inherits its CONTENTS' thread-safety.
+            # Structurally it cannot: every one of these holds an
+            # `UnsafePointer` to its buffer, and that poisons any struct
+            # containing one — so no std container was Send, and a task holding
+            # a `Vector` across a suspension could not run in a multi-threaded
+            # group at all. That pointer is the container's own bookkeeping, not
+            # state a thread can race on: `&var` access to any of them goes
+            # through the Law of Exclusivity, so moving one across a thread
+            # boundary is safe exactly when moving its contents is, and sharing
+            # one is safe exactly when sharing them is. The allocator argument
+            # is checked with the rest — a policy type carries whatever
+            # thread-safety it carries, and `GlobalAllocator` is empty.
+            #
+            # INTERIM, deliberately: this is an addition to the by-name override
+            # list, and design 186's migration sweep replaces the whole list
+            # with declared `UnsafeSend` conformances.
+            if name in ("Vector", "Map", "Set") and args:
+                return all(self._send_sync(a, want_sync, visiting) for a in args)
+            # `Data` and `StringBuilder` are unconditional, by exactly `String`'s
+            # argument above: a `Data` is a copy-on-write window over an
+            # `Arc`-owned buffer whose refcount is atomic and whose bytes are
+            # immutable while shared, and a `StringBuilder` holds bytes nobody
+            # else can reach through a `&self`. Neither is parameterized, so
+            # there are no contents to be conditional on.
+            if name in ("Data", "StringBuilder"):
+                return True
             struct_sym = self._lookup_struct_deep(name)
             if struct_sym is None:
                 # An ENUM reached through a struct-kind spelling (design 155,

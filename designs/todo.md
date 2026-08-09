@@ -470,15 +470,25 @@ the fourth is a language question only the user can answer.
   would double-drop. The store has to become a move before the clear has anywhere
   to go, which is more surgery than this brief should do unreviewed. Pinned by
   `examples/coro_move_scrutinee_span_xfail.saw`.
-- **DF-182e — RULED (user, Aug 8: "containers are Send if T is Send and
-  UnsafeSend where the compiler needs to be told a type is Send").** The
-  semantics: an OWNING container is `Send` iff its contents are —
-  `Vector<T: Send>`, `Map<K: Send, V: Send>`, `Set<T: Send>` conditional;
-  `Data`/`StringBuilder` unconditional by the same argument as `String`'s
-  carve-out. Mechanism NOW: additions to the by-name override list
-  (`namespace.py:_send_sync`) in the 182-COMPLETION unit below; mechanism
-  LATER: design 186's declared `UnsafeSend` conformances replace the whole
-  fiat list in its migration unit. **The 182-completion unit** (queued
+- **DF-182e — LANDED (design 187 unit 9), as ruled.** An OWNING container is
+  `Send` iff its contents are: `Vector`, `Map` and `Set` inherit their type
+  ARGUMENTS' answer (the allocator argument included — a policy type carries
+  what it carries, and `GlobalAllocator` is empty), and `Data`/`StringBuilder`
+  are unconditional by `String`'s argument. Sync follows the same inheritance
+  rather than being pinned False: `&var` access to any of them goes through the
+  Law of Exclusivity, so sharing one is safe exactly when sharing its contents
+  is. Landed where the ruling said — the by-name override list in
+  `namespace.py:_send_sync` — and INTERIM by construction: design 186's
+  migration sweep replaces the whole list with declared `UnsafeSend`
+  conformances. Tests: `examples/taskgroup_send_containers.saw` (each container
+  held across a suspend in `TaskGroup(threads: 2)`, plus a
+  `Vector<Vector<Int>>`; counts and sums only, ten repeats one outcome) and
+  `examples/errors/taskgroup_threads_nonsend_reject.saw`, rewritten so the
+  ELEMENT is what refuses it — a `Vector` of closures, closures not being Send.
+  Original ruling text follows. Mechanism NOW: additions to the by-name
+  override list (`namespace.py:_send_sync`) in the 182-COMPLETION unit below;
+  mechanism LATER: design 186's declared `UnsafeSend` conformances replace the
+  whole fiat list in its migration unit. **The 182-completion unit** (queued
   BEHIND 158 + 183 — both hold the coro_transform/codegen surface): the
   Send additions, the DF-182c store-becomes-move fix, `output()` goes
   suspending on `run()`'s park loop, and both pins flip

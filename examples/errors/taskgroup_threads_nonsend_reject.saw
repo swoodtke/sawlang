@@ -1,23 +1,28 @@
 // design 75 (A2): the Send-on-frames gate. Spawning into a multi-threaded
 // `TaskGroup(threads: N)` requires every value the frame carries across a
 // suspension to be Send — the frame is handed between worker threads between
-// suspensions. `Vector<Int>` contains a raw pointer (not Send), so moving one in
-// as a parameter is rejected, naming the value and its type (design 74 A8 anchor).
-// A single-threaded `TaskGroup()` would skip the gate.
+// suspensions. A single-threaded `TaskGroup()` would skip the gate.
+//
+// The ELEMENT is what decides now (DF-182e): a `Vector<T>` is Send iff `T` is,
+// and a closure is not Send, so a `Vector` of them is refused — naming the
+// value and its type (design 74 A8 anchor). `Vector<Int>` is the accept side
+// and lives in `examples/taskgroup_send_containers.saw`.
 // EXPECT: error
 // EXPECT-ERROR-CONTAINS: cannot spawn `work` into a multi-threaded
-// EXPECT-ERROR-CONTAINS: parameter `data`
+// EXPECT-ERROR-CONTAINS: parameter `jobs`
 // EXPECT-ERROR-CONTAINS: is not `Send`
 
 import std.task.*
-func work(data: Vector<Int>) -> Int {
+
+func work(jobs: Vector<() sync -> Int>) -> Int {
     yield_now()
-    data.len()
+    jobs.len()
 }
 
 func main() {
     var group = TaskGroup(threads: 2)
-    let v = Vector<Int>()
+    var v = Vector<() sync -> Int>()
+    v.push({ 1 })
     let a = group.spawn(work(move v))
     print(a.join())
 }

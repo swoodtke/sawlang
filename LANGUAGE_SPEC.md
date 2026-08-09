@@ -4277,7 +4277,13 @@ multiple threads (design 75) — carrying the coroutine transform, suspending
   iff all its fields/payloads are; `UnsafePointer<T>` is neither and poisons its
   containers structurally. The wrappers override the structural rule so their raw
   pointers do not poison them: `Arc<T>` is `Send + Sync` iff `T: Send + Sync`;
-  `Mutex<T>`/`Channel<T>`/`Task<T>` are `Send`/`Sync` iff `T: Send`. Explicit
+  `Mutex<T>`/`Channel<T>`/`Task<T>` are `Send`/`Sync` iff `T: Send`; and an
+  OWNING CONTAINER inherits its contents' answer — `Vector<T>`, `Map<K, V>` and
+  `Set<T>` are `Send`/`Sync` iff their elements are, with `Data` and
+  `StringBuilder` unconditional on `String`'s argument (design 187, closing
+  DF-182e). A container's buffer pointer is its own bookkeeping, and `&var`
+  access to it goes through the Law of Exclusivity, so moving one across a
+  thread boundary is safe exactly when moving its contents is. Explicit
   conformance (`extension X: Send`) is rejected — derivation only, no
   unsafe-impl story in v1.
 - **`Arc<T>`** — atomic reference-counted shared ownership (`ImplicitCopy +
@@ -4889,8 +4895,9 @@ func parallel() -> Int {
     let b = group.spawn(square(5))
     return a.join() + b.join()            // 9 + 25 = 34 (order not observable)
 }
-//   group.spawn(needsVector(move v))    // COMPILE ERROR: `Vector<Int>` is not Send
-//                                        // (share via Arc/Mutex/Channel instead)
+//   group.spawn(needsVector(move v))    // fine: `Vector<Int>` is Send, because
+//                                        // `Int` is. A `Vector` of closures is
+//                                        // not — the ELEMENT decides.
 
 // if-let / guard-let over a suspending call (design 62 G2):
 func maybe_step(n: Int) -> Int? {
@@ -5195,7 +5202,9 @@ reference across tasks") are compiler-derived STRUCTURALLY — explicit
 conformance is rejected. `spawn` audits every capture for Send;
 `Channel<T>` requires `T: Send`. `String` is Send+Sync (immutable,
 atomic refcount); `UnsafePointer` is neither and poisons containing
-types.
+types — except in the wrappers and the owning containers, which override
+the structural answer with their contents' (`Vector`/`Map`/`Set` by
+element, `Data`/`StringBuilder` unconditionally).
 
 ### Module-level statics
 
