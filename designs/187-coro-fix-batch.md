@@ -5,8 +5,10 @@ DO NOT DISPATCH until the user resumes the queue — the standing order is
 STOP after design 183 integrates. One agent, one brief: every unit below
 shares the coro_transform / optional-lowering / std.process surface, which
 is exactly why the pile accumulated instead of landing piecemeal. Units 1-2
-are SOS-M2 blockers and lead. All findings are FILED with repros; four
-carry xfail pins whose XPASS flips are the acceptance tests.**
+are SOS-M2 blockers and lead. All findings are FILED with repros; five
+carry xfail pins whose XPASS flips are the acceptance tests. (Amended
+Aug 9: DF-188e joined as unit 6 from the safety audit — same surface —
+and DF-174h's symptom note updated per audit row O10.)**
 
 ## Unit order
 
@@ -41,17 +43,29 @@ carry xfail pins whose XPASS flips are the acceptance tests.**
    closed for the design-114 wrapper. Fix so a callee reaching the yield
    intrinsic embeds; test with a probe that COUNTS cedes (no interleaving
    assertions — the standing rule).
-6. **DF-174g — multi-wrap into a nested optional slot.** One `_fit_optional_slot`
+6. **DF-188e — compound assignment through a `&var` param after a
+   suspension ICEs** (added Aug 9 from the safety audit's D5; same
+   transform surface as units 3-5). The frame-field rewrite of a reference
+   param has no compound-assign case, so `n += 1` after a `yield_now()`
+   dies with "Unsupported container expression in compound assignment"
+   while `n = n + 1` works. Lower the compound spelling exactly as its
+   expansion. Flips `coro_ref_param_compound_assign.saw`. (Adjacent,
+   diagnose-only: a bare `yield_now()` as a block's final statement is
+   mis-treated as expression position — audit X23; fix if it falls out of
+   unit 4's tail work, else file a DF.)
+7. **DF-174g — multi-wrap into a nested optional slot.** One `_fit_optional_slot`
    wrap leaves an `Int?` in an `Int??` cell (first peel works, second
    crashes exit 133; three layers ICE). The gap is the wrap/peel PAIR, not
    the store — a recursive fit alone was tried and does not fix it (probes
    under `.build/scratch/p174*`). Promote the probes to examples when
    fixed.
-7. **DF-174h — `??` default one layer too deep is accepted.** On
+8. **DF-174h — `??` default one layer too deep is accepted.** On
    `Vector<Int?>`, `v.get(9) ?? v.get(0)` should be a clean type error
-   (the default owes the PEELED type, `Int?`) and instead emits invalid
-   IR. Typechecker fix; the IR error is only the symptom.
-8. **DF-182e — the ruled `Send` additions.** Per the Aug-8 ruling: owning
+   (the default owes the PEELED type, `Int?`). SYMPTOM UPDATE (Aug 9,
+   audit row O10): the invalid-IR crash is gone — the mis-typed default
+   now silently takes the absent path. The type error is still owed;
+   check the default against the peeled type in the typechecker.
+9. **DF-182e — the ruled `Send` additions.** Per the Aug-8 ruling: owning
    containers are `Send` iff contents are — `Vector<T: Send>`,
    `Map<K: Send, V: Send>`, `Set<T: Send>` conditional; `Data` and
    `StringBuilder` unconditional by `String`'s argument — as additions to
@@ -60,15 +74,15 @@ carry xfail pins whose XPASS flips are the acceptance tests.**
    conformances. Positive tests (each container held across a suspend in
    `TaskGroup(threads: 2)`) and the negative (a non-Send element type
    still refuses).
-9. **DF-182c — the dispatch's payload store becomes a MOVE.** An
+10. **DF-182c — the dispatch's payload store becomes a MOVE.** An
    `if let`/`guard let` over a `move` scrutinee spanning a suspension:
    the drop-flag-clear ordering is already known to hold (tried and
    recorded); what remains is the store of the unwrapped payload into the
    frame field, which is a copy a NoCopy payload refuses and an
    ExplicitCopy one would double-drop. This is the reviewed surgery slot.
    Flips `coro_move_scrutinee_span_xfail`.
-10. **`Command.output()` goes cooperative — DF-181a fully closes.** Two
-    lines on `run()`'s park loop once units 8-9 hold (irdet's shape needs
+11. **`Command.output()` goes cooperative — DF-181a fully closes.** Two
+    lines on `run()`'s park loop once units 9-10 hold (irdet's shape needs
     both). Flips `process_output_starvation_xfail`; the deprecated
     `__saw_rt_proc_wait` drains to zero callers and is REMOVED (rt/ABI.md
     updated — the drain note already promises this). The design-182

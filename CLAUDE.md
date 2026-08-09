@@ -104,6 +104,9 @@ objects are built + cached under `.build/rt/` and auto-linked (delete
   flip validates the fix). The bar: zero UNCITED xfails, and a brief
   never xfails breakage IT introduced. Stale markers (XPASS) break
   the build — remove the marker in the landing that fixes the bug.
+  Name a pin file for the BEHAVIOR it pins, never with an `_xfail`
+  suffix (user, Aug 9) — the marker is the transient part, and the file
+  outlives it as the regression test.
 - Never run two suite invocations at once.
 - Tests support a `// COMPILE-FLAGS:` directive (`{TESTDIR}`
   placeholder), and — for warnings, which are reported on the SUCCESS

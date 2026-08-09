@@ -5,6 +5,82 @@ Open items ONLY. Landed work lives in `designs/NN-*.md` + git history
 landed recaps). Conventions: cite source designs in [brackets]; VERIFY
 items need a probe before being treated as real work.
 
+## Design 188 — safety-audit batch (findings filed Aug 9; brief drafted, rulings pending)
+
+Source: the Aug-8 external review (`review.md`) + systematic audit
+(`safety_audit.md`, 247 rows, probes in `.build/scratch/safety/` —
+GITIGNORED, which is why the load-bearing repros are promoted to example
+pins below). Nine findings; four need a user ruling (being reviewed
+one-by-one), five are mechanical. D-numbers cite the audit's own sections.
+
+- **DF-188a (SOUNDNESS, audit D1): an enum case payload may be a
+  reference.** Design 163d's NAMES walk covers fields/generics/returns/
+  closures but not enum payloads, so `case Held(r: &Int)` is accepted,
+  constructible, and escapes into `Vector` storage outliving the call;
+  reading it back ICEs two ways instead of UAF-ing. Fix: the same walk +
+  the field position's diagnostic over payload types. PIN:
+  `examples/enum_ref_payload_escape.saw`.
+- **DF-188b (SOUNDNESS, audit D2): a `type` alias launders a reference.**
+  The walk reads types AS WRITTEN; `type R = &Int` bypasses every guarded
+  position and `R(&x)` inhabits it. Fix: resolve aliases before the walk.
+  Return position is only ACCIDENTALLY covered (fails on a type mismatch).
+  PIN: `examples/typealias_ref_launder.saw`.
+- **DF-188c (NEEDS RULING, audit D3): a `[&var x]` borrow-capture reaches a
+  spawned frame while a reference PARAM at a spawn root is refused (design
+  88).** Same pointer into the same frame, one spelling checked. Audit
+  could not prove it unsound (group Deinit joins before the spawner frame
+  dies); the question is symmetry. Recommendation: refuse both, after a
+  usage grep.
+- **DF-188d (NEEDS RULING, audit D4): moving a `TaskGroup` holding a live
+  task aborts in the runtime** (`Vector.get: no place to lend` + SIGABRT
+  out of `make() -> TaskGroup`). Design 124 calls a group a SCOPE whose
+  Deinit joins where it was born. Recommendation: reject the move of a
+  live group at compile time. Pin lands with the ruling.
+- **DF-188e (COMPILER, audit D5): `n += 1` on a `&var` param after a
+  suspension ICEs** ("Unsupported container expression in compound
+  assignment") — the transform's frame-field rewrite has no compound-assign
+  case. `n = n + 1` works. ADDED TO DESIGN 187 (same surface). PIN:
+  `examples/coro_ref_param_compound_assign.saw`.
+- **DF-188f (NEEDS RULING, audit D6 — THE HEADLINE): place windows are not
+  covered by the Law of Exclusivity.** Two by-reference accesses to one
+  root in one call, at least one a `borrows` place, silently lose writes:
+  `setboth(&var p.at(0), &var p.at(1))` leaves `p` untouched; on std
+  `Data`, `swap2(&var d[0], &var d[1])` corrupts the buffer; a `&var root`
+  beside a window loses the root's writes. What refuses ExplicitCopy/
+  NoCopy receivers is the COPY POLICY (the compiler copies the receiver to
+  open the second access and reports THAT), so free-copy receivers sail
+  through — the masking is why it survived. Same lost-write family as
+  DF-151j/DF-176b/DF-175a, and the WINDOW-vs-window half of the family
+  DF-176c already holds a seat for. Audit's boundary table: single window /
+  separate statements / window+shared-read / plain fixed arrays all
+  CORRECT. Fix shape: run the existing path-disjointness check over
+  place-window ROOTS ("a place borrow charges its root" is already the
+  spec's words) and emit an exclusivity diagnostic. Pin lands with the
+  ruling.
+- **DF-188g (NEEDS RULING, audit D7): a `borrows` accessor may lend its own
+  LOCAL or PARAMETER.** Reads are sound (frame alive for the window);
+  writes land in storage that dies on resume — `c.slot() = 99` is a silent
+  no-op. The match-arm neighbour rule ("a payload of a value the body just
+  built dies with the accessor") already exists; apply it to plain lends:
+  a lend must be rooted in the receiver. Pin lands with the ruling.
+- **DF-188h (SPEC/IMPL, audit D8): the `unsafe` effect is unchecked between
+  a trait requirement and its conformer**, both directions. Not unsound
+  (the boundary check that matters fires — an undeclared unsafe body via a
+  safe requirement is rejected); the documented direction (conformer must
+  declare what the requirement declares) should be enforced. PIN:
+  `examples/unsafe_trait_requirement_effect.saw`.
+- **DF-188i (SPEC/IMPL, audit W01): `std.spinlock` and `std.slab` are
+  reachable BARE** — `IMPORT_REQUIRED_STD_MODULES` (sawc.py) lists neither,
+  spec says gated. Fix: add both + a test that walks the spec's own
+  gated-module table so the list cannot drift again. PIN:
+  `examples/spinlock_import_gate.saw`.
+
+Also from the audit, for the record: DF-174h's failure mode CHANGED — the
+too-deep `??` default no longer emits invalid IR; it silently takes the
+absent path (audit row O10). The type error is still owed (187 unit 7,
+note updated there). Audit rows confirming fixed items: V17 (DF-146j),
+O10/O11 controls, the 26/26 trap table.
+
 ## Design 187 — coro fix batch + 182 completion (QUEUED, held)
 
 `designs/187-coro-fix-batch.md`, approved Aug 8. Ten units, one surface:

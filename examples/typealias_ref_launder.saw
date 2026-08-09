@@ -1,0 +1,20 @@
+// The reference no-escape walk reads types AS WRITTEN and does not resolve
+// a `type` alias, so `type R = &Int` bypasses every position the rule
+// guards — a struct field here, and the alias's back-conversion `R(&x)`
+// genuinely inhabits it. The intended behavior is alias resolution ahead
+// of the NAMES walk, giving the field position's own diagnostic.
+// XFAIL: DF-188b a type alias launders a reference past the no-escape walk
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: may not be a reference
+
+type R = &Int
+
+struct Holder {
+    r: R
+}
+
+func main() {
+    var x = 7
+    let h = Holder(r: R(&x))
+    print("held")
+}

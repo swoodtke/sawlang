@@ -1,0 +1,14 @@
+// LANGUAGE_SPEC documents SpinLock as import-gated (`import std.spinlock`),
+// but IMPORT_REQUIRED_STD_MODULES lists neither `spinlock` nor `slab`, so
+// the bare name resolves with no import at all. The intended behavior is
+// the standard prelude-gate error naming the module — same as the tracked
+// std.slab finding.
+// XFAIL: DF-188i std.spinlock and std.slab are reachable bare with no import (spec says gated)
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: must be imported
+
+static LOCK: SpinLock<Int>
+
+func main() {
+    print(LOCK.lock({ c in c = c + 1  c }))
+}

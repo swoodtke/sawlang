@@ -1,0 +1,22 @@
+// Design 88: a `&var` parameter spans a suspension and mutation is
+// caller-visible. That holds for `n = n + 1` after the suspension, but the
+// COMPOUND spelling ICEs: the transform rewrites `n` to a frame field and
+// the compound-assign path has no case for the resulting MemberAccess
+// container ("Unsupported container expression in compound assignment").
+// The intended behavior is the same result the expanded spelling gives.
+// XFAIL: DF-188e compound assignment through a &var param after a suspension is a codegen ICE
+// EXPECT: success
+// EXPECT-OUTPUT: 8
+
+import std.task.*
+
+func bump(n: &var Int) {
+    yield_now()
+    n += 1
+}
+
+func main() {
+    var n = 7
+    bump(&var n)
+    print("{n}")
+}
