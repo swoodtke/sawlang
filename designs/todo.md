@@ -15,7 +15,7 @@ GITIGNORED, which is why the load-bearing repros are promoted to example
 pins below). Nine findings, all closed. All four rulings were ratified in the
 Aug-9 one-by-one review — the brief's units 2-5 record each decision and the
 alternatives explored and declined. D-numbers cite the audit's sections. Eight
-per-unit commits, the full suite green at each; six pins flipped
+per-unit commits, the full suite green at each; eight pins flipped
 (`enum_ref_payload_escape`, `typealias_ref_launder`, `place_window_exclusivity`,
 `lend_accessor_local`, `taskgroup_move_live`, `spawn_capture_after_group`,
 `unsafe_trait_requirement_effect`, `spinlock_import_gate`). Two follow-on
