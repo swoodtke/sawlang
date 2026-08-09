@@ -7084,6 +7084,7 @@ class ExpressionsMixin:
             spawn_name = self._effect_queue_fn_mono(spawn_name, resolved_args)
             inner.name = spawn_name
             inner.type_args = None
+        self._check_spawn_capture_order(expr, inner)
         self._effect_record_spawn(spawn_name, result_type)
         # design 75 (A2): if the receiver group was built multi-threaded
         # (`TaskGroup(threads: N)`), record this spawn root so the coroutine
@@ -7106,6 +7107,85 @@ class ExpressionsMixin:
         # `let h = group.spawn(...)` binding frame-resident and must type it).
         expr.resolved_type = handle_type
         return handle_type
+
+    def _check_spawn_capture_order(self, spawn_expr, inner) -> None:
+        """A reference capture of a binding declared AFTER its group is an error
+        (DF-188c case i, design 188 unit 5).
+
+        A task borrowing from its spawner is structured concurrency's core
+        promise, not a hazard, and the blanket refusal was considered and
+        REJECTED. The soundness argument is the ORDER: the group's `Deinit`
+        joins its children at scope exit, and LIFO destruction runs it before
+        anything declared AHEAD of the group dies — so a capture of an earlier
+        binding is sound by construction.
+
+        Declared AFTER the group, that argument inverts. LIFO runs the later
+        binding's deinit FIRST, while the group has not joined yet, so the task
+        writes into a `Vector` whose buffer is already freed. Probed Aug 9 with
+        an instrumented build: the task's pushes print after "scope ends", into
+        freed storage, exit 0. A silent use-after-free in safe code.
+
+        The rule is the same invariant said in SOURCE: the group opens the scope
+        it governs, so it is declared at the top of it. Hoisting the join to the
+        closing brace instead was considered and declined — it deadlocks the
+        drop-to-terminate idioms, whose whole point is a guard declared after
+        the group whose deinit is what lets the tasks finish.
+        """
+        if not isinstance(spawn_expr.object, Identifier):
+            # A group reached through a field or a parameter has no declaration
+            # order to compare against in this scope, and the capture cannot
+            # outlive it by the LIFO argument anyway.
+            return
+        group_info = self.current_scope.lookup(spawn_expr.object.name)
+        if group_info is None:
+            return
+        group_name = spawn_expr.object.name
+        for closure in self._closures_in(inner):
+            for spec in (getattr(closure, 'capture_specs', None) or []):
+                if spec.mode not in ('ref', 'ref_var'):
+                    continue
+                info = self.current_scope.lookup(spec.name)
+                if info is None or info.binding_id <= group_info.binding_id:
+                    continue
+                sigil = "&var" if spec.mode == 'ref_var' else "&"
+                self._error(
+                    ErrorKind.EXCLUSIVITY_VIOLATION,
+                    f"cannot capture `{sigil} {spec.name}` into a task: "
+                    f"`{spec.name}` is declared AFTER the group `{group_name}` "
+                    f"it is spawned into (line {info.line} against line "
+                    f"{group_info.line}), and destruction is LIFO — "
+                    f"`{spec.name}` is torn down BEFORE `{group_name}` joins "
+                    f"its children, so the task would reach it after it is gone",
+                    spec.line or spawn_expr.line, spec.column or spawn_expr.column,
+                    hint=f"declare `{spec.name}` BEFORE `{group_name}` — the "
+                         f"group opens the scope it governs, so everything the "
+                         f"tasks borrow outlives the join. Or pass the value in "
+                         f"by value / through an `Arc` instead of borrowing it"
+                )
+
+    @staticmethod
+    def _closures_in(node):
+        """Every closure literal reachable from `node`, itself included."""
+        import dataclasses
+        from ast_nodes import structural_fields
+        out = []
+        stack = [node]
+        seen = set()
+        while stack:
+            cur = stack.pop()
+            if cur is None or isinstance(cur, (SawType, str, bytes)):
+                continue
+            if isinstance(cur, (list, tuple)):
+                stack.extend(cur)
+                continue
+            if not dataclasses.is_dataclass(cur) or id(cur) in seen:
+                continue
+            seen.add(id(cur))
+            if isinstance(cur, ClosureExpr):
+                out.append(cur)
+            for f in structural_fields(cur):
+                stack.append(getattr(cur, f.name, None))
+        return out
 
     def _erasure_compatible(self, at, pt):
         """Whether `&concrete` (or an already-erased `&any T`) fits a `&any T`

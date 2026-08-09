@@ -1,0 +1,29 @@
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: multi-threaded `TaskGroup(threads: ...)`
+// EXPECT-ERROR-CONTAINS: is not `Send`
+//
+// DF-188c case (ii), pinned as a REGRESSION rather than fixed: reference
+// captures into a `threads: N` group were probed (Aug 9) and are ALREADY
+// refused, so design 188 owes nothing here but this test.
+//
+// The refusal comes from a rule that was never about captures. A closure is not
+// `Send`, so the frame-parameter Send check rejects every closure-carrying MT
+// spawn — a borrow capture reaches the worker thread only by riding a closure
+// into the frame, and the closure is what is refused. That is a good message
+// and the right answer, and it is worth pinning precisely because it holds for
+// a reason one indirection away from the thing it protects: a future
+// Send-carrying closure would need this case reconsidered on its own terms.
+
+import std.task.*
+
+func run(f: () -> Int) -> Int {
+    yield_now()
+    f()
+}
+
+func main() {
+    var n = 7
+    var group = TaskGroup(threads: 2)
+    let h = group.spawn(run({ [&var n] in n = n + 1  n }))
+    print("task saw {h.join()}")
+}

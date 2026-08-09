@@ -6,9 +6,10 @@
 // binding. RULED (user, Aug 9, DF-188c case i): this ordering is a
 // compile error naming the LIFO order and the fix (declare `n` before
 // `group`); the declared-before form stays legal.
-// XFAIL: DF-188c a reference capture of a binding declared after its group escapes the LIFO order
 // EXPECT: error
-// EXPECT-ERROR-CONTAINS: declared after
+// EXPECT-ERROR-CONTAINS: is declared AFTER the group `group`
+// EXPECT-ERROR-CONTAINS: destruction is LIFO
+// EXPECT-ERROR-CONTAINS: declare `n` BEFORE `group`
 
 import std.task.*
 

@@ -1,0 +1,39 @@
+// DF-188c case (iii), the ACCEPT side of design 188 unit 5: a task borrowing
+// from its spawner is structured concurrency's core promise, not a hazard. The
+// blanket refusal was considered and REJECTED; what is refused is one ORDER.
+//
+// Here `n` and `log` are declared BEFORE the group, so the soundness argument
+// holds: destruction is LIFO, the group's `Deinit` structured-joins its
+// children at scope exit, and everything declared ahead of the group is still
+// alive when that join runs. `NoMove` (unit 4) closes the other way out —
+// the group cannot be moved somewhere its borrows do not reach.
+//
+// A shared `[&x]` capture and an exclusive `[&var x]` capture are both here,
+// each read back after `join()` so the write is observed at the root.
+//
+// EXPECT: success
+// EXPECT-OUTPUT: task saw 8
+// EXPECT-OUTPUT: n is now 8
+// EXPECT-OUTPUT: doubled 24
+// EXPECT-OUTPUT: base still 12
+
+import std.task.*
+
+func run(f: () -> Int) -> Int {
+    yield_now()
+    f()
+}
+
+func main() {
+    var n = 7
+    let base = 12
+    var group = TaskGroup()
+
+    let h = group.spawn(run({ [&var n] in n = n + 1  n }))
+    print("task saw {h.join()}")
+    print("n is now {n}")
+
+    let d = group.spawn(run({ [&base] in base * 2 }))
+    print("doubled {d.join()}")
+    print("base still {base}")
+}
