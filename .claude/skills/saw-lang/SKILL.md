@@ -132,6 +132,16 @@ Copy tiers: trivial/POD = implicit bitwise copy; `ImplicitCopy`
 StringBuilder, TcpListener/TcpStream, Command, TaskGroup, SpinLock — and
 currently Map/Set: their `ExplicitCopy` is future work, `.copy()` on them is a
 compile error) = `move` only.
+**`NoMove` is a SEPARATE AXIS (design 188)** — relocation, not duplication. A
+`NoMove` value moves exactly once (constructor into binding): `move x` and
+`Optional.take` of one are compile errors, whole-referent replacement through
+`&var` stays legal, and it REQUIRES a declared `NoCopy` beside it (`extension
+TaskGroup: NoCopy {}` + `extension TaskGroup: NoMove {}`; declaring it on a
+Copy-tier type is an error). Containment is a DECLARED cascade — a struct
+holding one says both words itself, or holds it behind a `Box` for a movable
+handle over pinned storage. Not a generic bound. `TaskGroup` is the only
+conformer: a group is a SCOPE (design 124) whose Deinit joins where it was born,
+so `move group` used to compile and abort in the runtime.
 **`Data` MOVED OFF the NoCopy list (design 165)** and is now the COPY-ON-WRITE
 member of the ImplicitCopy tier: a `Data` is a window (offset + length) onto
 `Arc`-owned storage, `let b = a` and `a.copy()` are retains, and the bytes
@@ -240,10 +250,13 @@ var u = w.copy()       // explicit duplicate
   of a dead frame. Two ways to write what you meant — return the VALUE, or lend
   the STORAGE with a `borrows` accessor (Places, below), the sanctioned way to
   hand out a place. Reference PARAMETERS are untouched.
-  **THREE MORE POSITIONS REFUSE ONE (DF-163d)**, each where it is written, all on
-  the same NAMES walk and with the same two outs: a struct FIELD
+  **FOUR MORE POSITIONS REFUSE ONE (DF-163d + design 188)**, each where it is
+  written, all on the same NAMES walk and with the same two outs: a struct FIELD
   (`struct Holder { r: &Int }` — refused at the field, which closes
-  `Holder(r: &x)` with it, since a struct literal is not a call argument); a
+  `Holder(r: &x)` with it, since a struct literal is not a call argument); an
+  ENUM CASE PAYLOAD (`case Held(r: &Int)` — storage on a field's terms, and the
+  hole a one-case enum used to route the whole rule around, straight into
+  `Vector` storage); a
   GENERIC ARGUMENT in either spelling (`let v: Vector<&Int>`, `idn<&Int>(&x)` —
   refused at the argument, because `v.push(&x)` into it IS a genuine call
   argument); and a closure's INFERRED return (`{ &x }` typed `() -> &Int` — a
@@ -252,6 +265,10 @@ var u = w.copy()       // explicit duplicate
   is fine: reading a reference binding yields the VALUE, so it returns `T`.
   A bare `&` anywhere else that is not a call argument — bound to a `let`/`var`,
   an operand, a literal element — is refused too.
+  **A `type` ALIAS IS NOT A WAY PAST ANY OF IT (design 188)** — the walk resolves
+  aliases first, so `type R = &Int` is refused in a field, a payload, a generic
+  argument (`Vector<R>`) and a return, and so is the back-conversion `R(&x)` that
+  would have inhabited them. A PARAMETER stays legal: the walk never ran there.
   **ONE CROSSING (DF-163f): `(&x) as UnsafePointer<T>`** (and the const twin) is
   legal in ANY expression position — argument, local binding, return expression,
   and the chained `(&self) as UnsafePointer<TaskGroup> as Int` token idiom. It is
@@ -318,6 +335,22 @@ var u = w.copy()       // explicit duplicate
   ROOT, so `v.push(x)` inside a window is a compile error (invalidation-proof
   by the Law of Exclusivity, not by a closure scope) and so is swapping two
   elements through two windows (`v.swap(i, j)` is the method for that).
+  **TWO BY-REFERENCE ACCESSES TO ONE ROOT IN ONE CALL, at least one a place,
+  are an EXCLUSIVITY ERROR on every copy tier (design 188)** — two windows
+  (`setboth(&var p.at(0), &var p.at(1))`) or a window beside a `&var` of its
+  root, including one created by a NESTED call in the same argument list
+  (`sink(&var p.at(0), reset(&var p))`), because a window's extent is the whole
+  call. Until 188 this compiled on a free-copy receiver and BOTH WRITES WERE
+  LOST (std `Data` corrupted); what refused it on Vector was the copy policy,
+  not the Law. Separate statements are the fix. Untouched: one window, windows
+  in separate statements, a window beside a shared read of a DISJOINT path,
+  nested windows, and plain fixed-array `a[0]`/`a[1]` (not an accessor).
+  **THE LENT PLACE IS ROOTED IN THE RECEIVER (design 188)** — `lend <local>` /
+  `lend <param>` is a compile error (reads were sound, writes vanished:
+  `c.slot() = 99` was a silent no-op), `&var` params included. A match-arm
+  payload of a receiver-rooted scrutinee counts, and so does an INDIRECTION out
+  of the receiver (`if let buf = self.buffer { lend buf[i] }` — the receiver's
+  own heap, which is how std Vector/Data are written); `lend buf` whole does not.
   **FOUR SPELLINGS WRITE THROUGH A PLACE** (design 176), all meaning "replace or
   mutate the storage the container already holds, where it sits": `v[i] = fresh`
   (unconditional lend), `m[k]! = fresh` (forced conditional lend — panics on
@@ -1207,6 +1240,15 @@ dump_tasks()                // every live task's logical backtrace (std.task)
   (design 96 — appends the chunk into a caller buffer through a `&var` held across
   the internal park, so a reader ACCUMULATES successive chunks into ONE growing
   buffer with no per-chunk allocation; returns the byte count, 0 = EOF).
+- **A SPAWN CAPTURE MUST BE DECLARED BEFORE ITS GROUP (design 188).** A borrow
+  capture into `group.spawn(...)` is the sanctioned way for a task to reach the
+  spawner (`let h = group.spawn(run({ [&var n] in n = n + 1  n }))` — legal, and
+  the write is visible at the root after `join()`), and it is sound because
+  destruction is LIFO: the group's Deinit joins before anything declared AHEAD
+  of it dies. Declared AFTER the group, that inverts — the binding is torn down
+  while the tasks are still live — so it is a compile error naming both
+  declaration lines and the fix. Declare the group at the TOP of the scope it
+  governs. (An MT group refuses the capture anyway: a closure is not `Send`.)
 
 ## Modules & packages
 ```saw
@@ -1321,7 +1363,10 @@ import mymodule as mm       // aliasing; `module`/`public`/`package`/`parent`
   `FixedBuf`/`FixedStringBuilder` (std.fixedbuf — design 148),
   `CborEncoder`/`CborDecoder` (std.cbor — design 169; `std.serde`'s
   `Serialize`/`Deserialize`/`Encoder`/`Decoder` stay PRELUDE, only the format is
-  gated). A bare non-prelude name is a clean
+  gated), and — since design 188 closed the two the gate list had missed —
+  `SpinLock` (std.spinlock) and `SlabHead`/`slab_alloc`/`slab_dealloc`
+  (std.slab), both of which used to resolve bare against a spec that said
+  otherwise. A bare non-prelude name is a clean
   error ("`X` is not in the prelude and must be imported") whose hint names all
   three forms — so reach it BARE with `import std.X.*` or `import std.X.{Name}`,
   and `import std.X` alone gives you `X.Name` instead (design 150; the module
@@ -1497,6 +1542,11 @@ question. Checked on the type AS WRITTEN, so a generic `(&T) sync -> R` slot is
 judged against `T` and never re-judged for a `T = UnsafePointer<Int8>`
 instantiation. A DECLARATION may still carry a redundant `unsafe` (it promises
 something about its BODY); taking it as a value yields the plain type.
+**A CONFORMER OF AN `unsafe` REQUIREMENT MUST DECLARE IT (design 188)** — a
+safe-declared body satisfying `func peek(&self) unsafe -> Int` is a clean error
+at the conformance, since a caller reaching it through the requirement is
+promised the unsafe contract. The reverse stays legal: an `unsafe`-declared impl
+of a SAFE requirement is the redundant form above.
 **Closures: judged on their SIGNATURE, and they INHERIT the enclosing domain.**
 `v.with_ref(0) { e in e + 1 }` sees only `&T` and stays safe even though
 `with_ref` is unsafe. A closure whose signature names an unsafe type carries

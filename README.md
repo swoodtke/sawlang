@@ -843,6 +843,17 @@ Saw provides deterministic memory management without garbage collection:
   bump that leaves both bindings live. Declaring the stricter `NoCopy` on such a
   type is legal, and is how you make something move-only that could have been
   copied for free.
+- **`NoMove` is a separate axis: relocation, not duplication.** A `NoMove` type
+  moves exactly once, from its constructor into its binding, and never again —
+  `move x` is a compile error, and so is `Optional.take` of one. Replacing a
+  referent whole through a `&var` stays legal, because that destroys and
+  constructs at one address. `NoMove` does not imply `NoCopy`; it requires it,
+  so a type states both (`extension TaskGroup: NoCopy {}` beside
+  `extension TaskGroup: NoMove {}`). A struct holding a `NoMove` member declares
+  the same pair itself, or holds the value behind a `Box` for a movable handle
+  over pinned storage. `TaskGroup` is the conformer that motivated it: a group's
+  `Deinit` joins its children where the group was born, so a group that moved
+  would join in one place and be driven from another.
 - **Wrappers carry the tier of what they wrap.** Every type has exactly one
   transfer class, and a type built out of others is never weaker than its parts:
   an `Optional<T>`, a tuple, a fixed array, an enum payload and a `Result<T, E>`
@@ -890,7 +901,12 @@ Saw provides deterministic memory management without garbage collection:
 
   While a window is open its root is borrowed, so `v.push(x)` inside one is a
   compile error — iterator invalidation is caught by the Law of Exclusivity
-  rather than by a callback's scope. `Vector` and `Data` publish `v[i]` this
+  rather than by a callback's scope. Two windows onto one root in one call, or a
+  window beside a `&var` of it, are the same violation: `swap2(&var d[0], &var
+  d[1])` is refused rather than silently swapping copies. The lent place must be
+  storage the receiver already owns, so an accessor cannot lend its own local or
+  parameter — a write through such a window had nowhere to land. `Vector` and
+  `Data` publish `v[i]` this
   way, which is what lets a move-only element be reached without copying it out.
   Reading a place *out* as a value follows the copy-tier table above. One
   consequence to know: on a `borrows` method the receiver is borrowed with the

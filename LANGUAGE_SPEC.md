@@ -2509,14 +2509,19 @@ instead of letting a pointer out (see *Places* below). Until this was enforced,
 `func dangle() -> &Int { let local = 99  return &local }` compiled and ran,
 printing out of a frame that had already died.
 
-**A field, a generic argument and a closure's return may not name one either.**
-Three more positions carry a reference past the call that created it without
-ever writing a `&` in a signature, and each is refused where it is written:
+**A field, an enum payload, a generic argument and a closure's return may not
+name one either.** Four more positions carry a reference past the call that
+created it without ever writing a `&` in a signature, and each is refused where
+it is written:
 
 - **A struct field.** `struct Holder { r: &Int }` is rejected at the field
   declaration. That closes the construction with it: no field has a reference
   type, so `Holder(r: &x)` has nothing to fill. A struct literal is not a call
   argument, which is why the field is the position that has to say no.
+- **An enum case payload.** `enum Slot { case Held(r: &Int) }` is storage on
+  exactly a field's terms, and it was the position that made the whole rule
+  routable around: wrap the reference in a one-case enum and it went into
+  `Vector` storage that outlived the call.
 - **A generic argument**, in a type position (`let v: Vector<&Int>`) and at an
   explicit instantiation (`idn<&Int>(&x)`) alike. A generic holds its argument
   as storage, and `v.push(&x)` into a `Vector<&Int>` is a genuine call argument
@@ -2528,10 +2533,18 @@ ever writing a `&` in a signature, and each is refused where it is written:
   tail expression. Reading a reference *binding* yields the value, so the
   `with_ref` identity closure `{ e in e }` returns a `T` and is untouched.
 
-All three read what the type *names*, on the same walk as the return rule, and
+All four read what the type *names*, on the same walk as the return rule, and
 each diagnostic states the rule and the same two ways out. A reference written
 anywhere else that is not a call argument — bound to a `let`/`var`, used as an
 operand, placed in a literal — is refused on the same terms.
+
+**A `type` alias is not a way past any of it.** The walk resolves aliases before
+it reads a type, so `type R = &Int` is refused in every position above — a
+field, a payload, a generic argument (`let v: Vector<R>`), a return type — and
+so is the alias's own back-conversion, `R(&x)`, which is what would have
+inhabited them. The alias used to hide a reference from all four checks, because
+each reads the type as WRITTEN. A PARAMETER is untouched: the walk has never run
+there, and a parameter is where a reference belongs.
 
 **The one crossing: a cast to a pointer.** `(&x) as UnsafePointer<T>` and its
 const twin are legal in **any** expression position — a call argument, a local
@@ -2748,6 +2761,41 @@ The lowering is a scoped-borrow callback, which is what a place window already
 was before it had syntax: the accessor becomes an ordinary method taking a
 window closure, the use site becomes a call passing one. No coroutine machinery,
 no allocation, one direct call for the common case.
+
+#### The lent place is rooted in the receiver
+
+An accessor lends storage its **receiver** already owns. `lend` on the
+accessor's own local or parameter is a compile error:
+
+```saw
+extension Counter {
+    func slot(&self) borrows -> Int {
+        var tmp = self.n + 1
+        lend tmp          // error: `lend tmp` is not rooted in the receiver
+    }
+}
+```
+
+Reads through such a window were sound — the frame is alive for the window's
+whole extent — which is why the hole was quiet. Writes had nowhere to land:
+`c.slot() = 99` compiled, wrote into `tmp`, and the value died when the accessor
+resumed. The rule is the one the spec already applied to a `match` arm (an arm
+may not lend the payload of a value the body just built), stated for a plain
+`lend`.
+
+A parameter is refused on the same terms, `&var` included, even though its
+referent outlives the window: lending what a caller handed you is a larger
+promise than lending your own storage, and there is no shape yet that needs it.
+Widening the rule later stays compatible.
+
+Two things count as the receiver's own storage without being written `self.…`. A
+`match` arm's payload binding is one, when the scrutinee is receiver-rooted (see
+[Conditional lends](#conditional-lends-borrows--t)). An INDIRECTION out of the
+receiver is the other: `Vector.[]` lends `buf[index]` for a `buf` read out of
+`self.buffer`, and `Data.[]` lends through a pointer cast from
+`self.byte_ptr()`. That storage is the receiver's own heap and no more dies with
+the accessor than a field does. Lending such a binding whole (`lend buf`) is
+still refused — that would hand out the frame's copy of the pointer.
 
 #### The window's flavor comes from the use site
 
@@ -3031,6 +3079,32 @@ That is also what makes a window invalidation-proof. While a window is open its
 root is borrowed, so `v.push(x)` inside the window is a compile error — the same
 guarantee `with_ref` gets from its closure scope, obtained here from the law.
 
+**Two by-reference accesses to one root in one call, at least one of them a
+place, are an exclusivity error on every copy tier.** Two windows
+(`setboth(&var p.at(0), &var p.at(1))`), or a window beside a `&var` of its own
+root, name overlapping storage, and the diagnostic says so:
+
+```saw
+setboth(&var p.at(0), &var p.at(1))
+// error: exclusive access violation: the place `p.at(…)` borrows `p` for the
+//        whole window, and `p` is accessed by reference a second time in the
+//        same call
+```
+
+The window's extent is the whole call, so a reference created by a NESTED call
+in the same argument list is inside it too — `sink(&var p.at(0), reset(&var p))`
+is the same violation. Until design 188 none of this was checked: what refused
+the shape on an `ExplicitCopy` or `NoCopy` receiver was the COPY POLICY, because
+the compiler copied the receiver to open the second access and reported that
+copy. A receiver that copies for free had nothing to trip on, so the program
+compiled and both writes went into copies. Reading a `Data` back after a
+two-window swap gave `d0=1 d1=1` for a buffer holding `1, 2`.
+
+Everything outside that trigger is unaffected: a single window, two windows in
+separate statements, a window beside a shared read of a disjoint path, nested
+windows (`b[0][1].n += 1` — two windows on two roots), and plain fixed-array
+indexing (`a[0]` is not an accessor, so constant distinct indices stay disjoint).
+
 Three fences hold in this version:
 
 - A `borrows` body is `sync`. A place window may not span a suspension: the root
@@ -3295,6 +3369,72 @@ use(f)           // Error: f was moved
 // h.deinit() called at scope exit, file closed
 ```
 
+#### The `NoMove` Interface (Pinned Types)
+
+**Status: implemented (design 188).** Duplication and relocation are separate
+axes. The four tiers above answer "may this value be duplicated, and at what
+cost"; `NoMove` answers a different question — "may this value live anywhere
+other than where it was built" — and a type states both:
+
+```saw
+extension TaskGroup: NoCopy {}
+extension TaskGroup: NoMove {}
+```
+
+`NoMove` does not imply `NoCopy`; it **requires** it. Declaring `NoMove` on a
+type whose copy tier is anything but a declared `NoCopy` is an error, so neither
+property is ever inferred from the other. That strictness is also where the
+model grows: `NoMove` beside `ExplicitCopy` (a pinned type with a hand-written
+`copy()` that re-registers the duplicate) opens by relaxing exactly that check.
+
+A `NoMove` value moves **once**, from its constructor into its binding, and
+never again:
+
+```saw
+func make() -> TaskGroup {
+    var group = TaskGroup()
+    let _ = group.spawn(work(21))
+    move group
+    // error: cannot `move` `group`: `TaskGroup` is `NoMove`, so it lives where
+    //        its constructor built it and may not be relocated.
+}
+```
+
+`move x` is refused, and with it every other transfer position — the `NoCopy`
+rules funnel each one through `move`. So is `Optional.take` of a `NoMove`
+payload, which relocates the payload out of the optional. What stays legal is
+whole-referent replacement through a `&var`:
+
+```saw
+func reset(g: &var TaskGroup) {
+    g = TaskGroup()        // legal: destroy, then construct, at one address
+}
+```
+
+That is not a relocation. The old value's `deinit` runs first — for a group,
+that is the structured join — and the new value is built where the old one was.
+
+Containment is a **declared cascade**, in the style of the copy tiers: a struct
+or enum with a `NoMove` member does not compile until it declares `NoMove` (and
+`NoCopy`) itself.
+
+```saw
+struct Server { group: TaskGroup, port: Int }
+extension Server: NoCopy {}
+// error: `Server` contains NoMove member `group` of type `TaskGroup` but does
+//        not declare `NoMove`
+```
+
+Nothing is inherited silently, which means a field's movability can never change
+a type's behind the author's back. For a type that wants a movable HANDLE over
+pinned state, the answer is composition rather than a language mechanism: a
+`Box` moves freely and what it points at stays put.
+
+`NoMove` is not a generic bound. A bound licenses a generic body to do
+something with every instantiation, and this one licenses nothing — `T: NoMove`
+is a clean error pointing at the conformance position. There is no `Pin` type,
+no projection machinery, and no blessing for self-referential values.
+
 #### Summary of Type Behaviors
 
 | Kind | Transfer (`let b = a`) | `.copy()` | Cleanup |
@@ -3305,7 +3445,8 @@ use(f)           // Error: f was moved
 | `NoCopy` | **error** — needs `move` | no | `deinit()` |
 
 The `deinit()` in the Cleanup column is synthesized from the type's fields
-unless you write one.
+unless you write one. `NoMove` is orthogonal to every row: it does not change
+how a value transfers, it removes the one transfer `NoCopy` still allows.
 
 #### Containment Rules
 
@@ -3331,6 +3472,8 @@ The containment rules are:
 - **NoCopy containment**: If any field is `NoCopy`, the struct must be `NoCopy`
 - **ExplicitCopy containment**: If any field is `ExplicitCopy`, the struct must declare `ExplicitCopy` (or `NoCopy`)
 - **ImplicitCopy containment**: If any field is `ImplicitCopy` (and none are `NoCopy`/`ExplicitCopy`), the struct must be `ImplicitCopy`
+- **NoMove containment**: If any field is `NoMove`, the struct must declare
+  `NoMove` (and therefore `NoCopy`)
 
 There is no Deinit containment rule. Destruction is never something a type opts
 into.
@@ -4922,6 +5065,62 @@ func job() -> Int {
 }
 // let h = group.spawn(job());  h.cancel();  print(h.join())
 ```
+
+#### A group is a scope, and cannot be moved
+
+`TaskGroup` is `NoCopy` and, since design 188, `NoMove` (see
+[The `NoMove` Interface](#the-nomove-interface-pinned-types)). A group's
+`Deinit` structured-joins its children where the group was born, and every
+spawned frame reaches its group through that address, so a group that moved
+would join in one place and be driven from another:
+
+```saw
+func make() -> TaskGroup {
+    var group = TaskGroup()
+    let _ = group.spawn(work(21))
+    move group
+    // error: cannot `move` `group`: `TaskGroup` is `NoMove` … A `TaskGroup` is
+    //        a SCOPE (design 124): its `Deinit` structured-joins its children
+    //        where the group was born …
+}
+```
+
+The move used to be accepted and the runtime then aborted (`Vector.get: no place
+to lend`). Keep the group in the frame that opened it and pass `&var group` down,
+or spawn into a group the caller owns. A struct holding a group must declare
+`NoCopy` and `NoMove` itself; to hand out a movable handle over one, put it
+behind a `Box`.
+
+#### A task may borrow from the frame that spawned it
+
+A reference capture into a spawned task is sound when the captured binding is
+declared **before** its group. Destruction is LIFO and the group's `Deinit`
+joins at scope exit, so everything declared ahead of the group is still alive
+when the join runs:
+
+```saw
+var n = 7
+var group = TaskGroup()
+let h = group.spawn(run({ [&var n] in n = n + 1  n }))
+print(h.join())        // 8
+print(n)               // 8 — the task's write is visible at the root
+```
+
+Declared **after** the group, that argument inverts: LIFO tears the binding down
+first, while the group has not joined, and the task reaches freed storage. It is
+a compile error naming the order:
+
+```saw
+var group = TaskGroup()
+var n = 7
+let h = group.spawn(run({ [&var n] in n = n + 1  n }))
+// error: cannot capture `&var n` into a task: `n` is declared AFTER the group
+//        `group` it is spawned into …, and destruction is LIFO
+```
+
+The group opens the scope it governs, so it is declared at the top of it. A
+reference capture into a `threads: N` group is refused separately: a closure is
+not `Send`, so the frame cannot cross to a worker thread.
 
 ### Task backtraces (design 158)
 
@@ -6669,7 +6868,22 @@ what the reviewed wrapper exists for.
 
 Declaring `unsafe` where the rule would not require it is allowed. The marker is
 a promise about the contract, and a conformer of an `unsafe` trait requirement
-needs to make it.
+must make it — checked since design 188:
+
+```saw
+trait Raw { func peek(&self) unsafe -> Int }
+
+extension Plain: Raw {
+    func peek(&self) -> Int { self.n }
+    // error: method `peek` must declare `unsafe` to conform to trait `Raw`,
+    //        whose requirement declares it
+}
+```
+
+A caller reaching the method through the requirement is promised an unsafe
+contract, so the implementation says so too. The other direction stays open: an
+`unsafe`-declared implementation of a SAFE requirement is the redundant
+declaration above, allowed and meaningful only about the body.
 
 #### Spelling
 

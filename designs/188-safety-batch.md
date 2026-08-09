@@ -1,6 +1,9 @@
 # Design 188 — the safety-audit batch
 
-**Status: APPROVED + QUEUED, held (Aug 9). Source: the Aug-8 external
+**Status: LANDED (Aug 9), all eight units — see the landing report at the
+bottom. The record below is the brief as ratified.**
+
+**Status when written: APPROVED + QUEUED, held (Aug 9). Source: the Aug-8 external
 review (`review.md`) + audit (`safety_audit.md`, 247 rows — the probes
 live in gitignored scratch, which is why every landed finding here
 carries an examples/ pin). Findings filed as DF-188a-i in the tracker.
@@ -183,3 +186,42 @@ the interior-mutability exemption (design 186 owns that surface); the
 scoped-task-borrows design (unit 5's follow-up: borrow-extent exclusivity
 for captures + the design-88 param relaxation — its own brief);
 `NoMove + ExplicitCopy` (unit 4 records the opening; no conformer yet).
+
+## Landing report (Aug 9)
+
+Eight units, eight commits, the full suite green at each. Suite went
+1542 passed / 19 xfailed to 1565 passed / 11 xfailed: eight pins flipped and
+fifteen tests added, of which six are accept-side boundary tests — the audit's
+correct-shapes tables, landed wherever a unit touched their machinery, because
+over-rejection was the stated failure mode here. Nothing in the corpus was
+over-rejected by any unit.
+
+What each unit's cause turned out to be is recorded per-finding in the tracker
+(DF-188a-i, all closed). Three notes worth keeping with the brief:
+
+- **Unit 1's alias half could not go where the rest of the walk lives.** Every
+  written-form no-escape check runs in the PARSER, which is the pass that knows
+  the position and cannot resolve a name. So the walk runs a second time in the
+  typechecker with aliases resolved, over the same declared positions plus
+  binding annotations, and the alias's back-conversion `R(&x)` is refused where
+  it is written — that construction is what inhabits every position the walk
+  guards, so refusing it is what makes the other refusals total.
+- **Unit 2 needed one thing the brief did not name.** A window's extent is the
+  whole call, which the use-site lowering makes literal by nesting the call
+  inside the window closure. Audit row X31 (`sink(&var p.at(0), reset(&var p))`)
+  puts the second reference inside a NESTED call, so folding window roots into
+  the per-call check was not enough on its own; with a window open, references
+  from nested calls in the same argument list join the access set. Deliberately
+  conditional on a window: the same shape with no place in it is a question
+  about when an argument's borrow starts, which is filed as DF-188j rather than
+  answered here.
+- **Unit 7 found a second half behind its own pin.** A gated module is not
+  compiled in at all, so `static LOCK: SpinLock<Int>` — the pin's exact shape,
+  and a declaration that never names the type in an expression — reached codegen
+  and ICEd instead of being told to import it. The gate now runs at a static's
+  declaration, on the argument design 149 already makes two lines away for the
+  atomics check. Type ANNOTATIONS in general are still ungated (DF-188k).
+
+DF-176c was re-examined against unit 2 as the brief asked and NARROWED rather
+than closed: it is the receiver-COPY half, which a rule about how many accesses
+one call makes does not touch.

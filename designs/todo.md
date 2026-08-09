@@ -7,48 +7,59 @@ items need a probe before being treated as real work.
 Historical/landed recaps: designs/todo_aug1-aug9.md (split Aug 9);
 older history is in this file's git log (pruned Jul 30).
 
-## Design 188 — safety-audit batch (APPROVED + QUEUED, held; all rulings Aug 9)
+## Design 188 — safety-audit batch (ALL EIGHT UNITS LANDED, Aug 9)
 
 Source: the Aug-8 external review (`review.md`) + systematic audit
 (`safety_audit.md`, 247 rows, probes in `.build/scratch/safety/` —
 GITIGNORED, which is why the load-bearing repros are promoted to example
-pins below). Nine findings. ALL FOUR RULINGS RATIFIED in the Aug-9
-one-by-one review — the brief's units 2-5 record each decision and the
-alternatives explored and declined. D-numbers cite the audit's sections.
+pins below). Nine findings, all closed. All four rulings were ratified in the
+Aug-9 one-by-one review — the brief's units 2-5 record each decision and the
+alternatives explored and declined. D-numbers cite the audit's sections. Eight
+per-unit commits, the full suite green at each; six pins flipped
+(`enum_ref_payload_escape`, `typealias_ref_launder`, `place_window_exclusivity`,
+`lend_accessor_local`, `taskgroup_move_live`, `spawn_capture_after_group`,
+`unsafe_trait_requirement_effect`, `spinlock_import_gate`). Two follow-on
+findings filed below (DF-188j, DF-188k).
 
-- **DF-188a (SOUNDNESS, audit D1): an enum case payload may be a
-  reference.** Design 163d's NAMES walk covers fields/generics/returns/
-  closures but not enum payloads, so `case Held(r: &Int)` is accepted,
-  constructible, and escapes into `Vector` storage outliving the call;
-  reading it back ICEs two ways instead of UAF-ing. Fix: the same walk +
-  the field position's diagnostic over payload types. PIN:
-  `examples/enum_ref_payload_escape.saw`.
-- **DF-188b (SOUNDNESS, audit D2): a `type` alias launders a reference.**
-  The walk reads types AS WRITTEN; `type R = &Int` bypasses every guarded
-  position and `R(&x)` inhabits it. Fix: resolve aliases before the walk.
-  Return position is only ACCIDENTALLY covered (fails on a type mismatch).
-  PIN: `examples/typealias_ref_launder.saw`.
-- **DF-188c — RULED (Aug 9): spawn captures split by soundness, not
-  symmetry.** (i) a reference capture of a binding declared AFTER its
-  group is an ERROR (the LIFO order runs its deinit before the join —
-  the diagnostic names the order and the fix); (ii) reference captures
-  into `threads: N` groups refused pending a Sync-checked design (probe
-  current behavior first); (iii) single-threaded declared-before stays
-  LEGAL — structured concurrency's promise, sound by construction with
-  DF-188d's NoMove. Join-at-the-brace considered and declined (deadlocks
-  the drop-to-terminate idioms). Follow-up brief filed below: scoped
-  task borrows. PIN: `examples/spawn_capture_after_group.saw`. Full
-  record: brief unit 5.
-- **DF-188d — RULED (Aug 9): `NoMove`, a new declared relocation tier;
-  `TaskGroup` is its first conformer.** Duplication and relocation are
-  separate axes: `NoMove` REQUIRES an explicit `NoCopy` (never implies —
-  declaring it on a Copy-tier type is an error), a NoMove value moves
-  exactly once (constructor into binding), whole-referent replacement
-  stays legal, the containment contagion is a declared cascade and is
-  DOCUMENTED. Not a generic bound. `NoMove + ExplicitCopy` recorded as a
-  compatible later opening. Interior-heap pinning considered and
-  declined for TaskGroup. PIN: `examples/taskgroup_move_live.saw`. Full
-  record: brief unit 4.
+- **DF-188a — CLOSED (unit 1).** An enum case payload could be a reference.
+  Design 163d enumerated the positions that carry a reference past its call and
+  enum payloads were not among them, so a one-case enum was a general bypass:
+  `case Held(r: &Int)` accepted, `Slot.Held(r: &x)` filled from an ordinary `&`
+  parameter, the value into `Vector` storage outliving the call. Cause: the
+  NAMES walk simply had no call at the payload position — `parse_enum` never
+  invoked it. Fixed with the field position's own walk and diagnostic. Pin
+  flipped: `examples/enum_ref_payload_escape.saw`.
+- **DF-188b — CLOSED (unit 1).** A `type` alias laundered a reference into every
+  guarded position. Cause: all four written-form checks live in the PARSER,
+  which is where the position is known and where no alias can be resolved yet,
+  so `type R = &Int` read as a plain named type. Fixed by re-running the walk in
+  the typechecker with aliases RESOLVED at every step, over the same declared
+  positions plus binding annotations, and by refusing the back-conversion
+  `R(&x)` that inhabits them. A PARAMETER stays legal — the walk never ran
+  there. Pin flipped: `examples/typealias_ref_launder.saw`; the audit's other
+  two alias positions are `examples/errors/typealias_ref_{generic_argument,
+  construction}.saw` and the boundary is `examples/ref_no_escape_alias_boundary.saw`.
+- **DF-188c — CLOSED (unit 5).** Case (i), the probe-confirmed silent UAF: a
+  reference capture of a binding declared AFTER its group. Cause: nothing
+  related a capture to its group's declaration order, and the soundness argument
+  for captures is entirely that order — LIFO runs the later binding's deinit
+  before the group joins. Now an error naming the binding, the group, both
+  lines, the LIFO order and the fix. Case (ii) probed ALREADY REFUSED (a closure
+  is not `Send`), pinned as `examples/errors/spawn_capture_mt_send.saw`. Case
+  (iii) untouched and pinned as legal:
+  `examples/spawn_capture_declared_before.saw`. Join-at-the-brace was declined
+  (it deadlocks the drop-to-terminate idioms). Pin flipped:
+  `examples/spawn_capture_after_group.saw`. Design 189 owns the extent rule.
+- **DF-188d — CLOSED (unit 4).** `move group` with a live task was accepted and
+  the runtime aborted. Cause: design 124 defines a group as a scope and the type
+  system had no way to say so — every relocation rule the language had was about
+  DUPLICATION. `NoMove` is the missing axis: a declarable empty marker that
+  REQUIRES a declared `NoCopy` (never implies it), permits exactly one move
+  (constructor into binding), leaves whole-referent replacement through `&var`
+  legal, cascades by DECLARATION into containing types, and is not a generic
+  bound. `TaskGroup` conforms and the refused-move diagnostic cites design 124.
+  `NoMove + ExplicitCopy` opens later by relaxing one check. Pin flipped:
+  `examples/taskgroup_move_live.saw`.
 - **DF-188e — CLOSED (design 187 unit 6).** `n += 1` on a `&var` param after
   a suspension ICEd with "Unsupported container expression in compound
   assignment" while `n = n + 1` worked. Not the transform: it makes a
@@ -59,34 +70,68 @@ alternatives explored and declined. D-numbers cite the audit's sections.
   ownership bookkeeping a numeric target does not need. Pin flipped:
   `examples/coro_ref_param_compound_assign.saw`, grown to the whole integer
   operator family, a Float, and a field of a `&var` referent.
-- **DF-188f — RULED (Aug 9, "yes to D6" — THE HEADLINE): place windows
-  join the Law of Exclusivity.** Two by-reference accesses to one root in
-  one call, at least one a `borrows` place, silently lose writes (std
-  `Data` corrupts); the copy-policy error was masking it on the tiers
-  that would have caught it. Ruling: fold place-window ROOTS into the
-  existing path-disjointness check ("a place borrow charges its root" is
-  already the spec's words), exclusivity diagnostic on EVERY copy tier;
-  the audit's correct-shapes boundary table becomes the accept-side test
-  set. Re-examine DF-176c against the landing. PIN:
-  `examples/place_window_exclusivity.saw`. Full record: brief unit 2.
-- **DF-188g — RULED (Aug 9, "yes with the narrow receiver rule"): a lend
-  must be rooted in the receiver.** A `borrows` accessor lending its own
-  local or parameter is refused — reads were sound, writes vanished into
-  the dying frame (`c.slot() = 99` silent no-op). The NARROW form: even
-  outlives-the-window storage (an accessor's `&var` param) is refused;
-  widening later is compatible, the reverse is not. PIN:
-  `examples/lend_accessor_local.saw`. Full record: brief unit 3.
-- **DF-188h (SPEC/IMPL, audit D8): the `unsafe` effect is unchecked between
-  a trait requirement and its conformer**, both directions. Not unsound
-  (the boundary check that matters fires — an undeclared unsafe body via a
-  safe requirement is rejected); the documented direction (conformer must
-  declare what the requirement declares) should be enforced. PIN:
-  `examples/unsafe_trait_requirement_effect.saw`.
-- **DF-188i (SPEC/IMPL, audit W01): `std.spinlock` and `std.slab` are
-  reachable BARE** — `IMPORT_REQUIRED_STD_MODULES` (sawc.py) lists neither,
-  spec says gated. Fix: add both + a test that walks the spec's own
-  gated-module table so the list cannot drift again. PIN:
-  `examples/spinlock_import_gate.saw`.
+- **DF-188f — CLOSED (unit 2), the headline.** Two by-reference accesses to one
+  root in one call, at least one a place, silently lost writes; std `Data`
+  corrupted. Cause: `_build_access_path` treated a place use as an ordinary
+  projection or as nothing at all, so window roots never entered the
+  path-disjointness check — and what refused the shape on ExplicitCopy/NoCopy
+  receivers was the COPY POLICY (the compiler copied the receiver to open the
+  second access and reported that copy), which is why a free-copy receiver sailed
+  through. Fixed by charging a place use's RECEIVER whole, giving the exclusivity
+  diagnostic on every tier, and — since a window's extent is the whole call —
+  collecting references created by NESTED calls in the same argument list when a
+  window is open (audit X31). Pin flipped: `examples/place_window_exclusivity.saw`;
+  twins at `examples/errors/place_window_{data_corruption,beside_var_root}.saw`;
+  the audit's correct-shapes table is `examples/place_window_exclusivity_boundary.saw`.
+- **DF-188g — CLOSED (unit 3).** A `borrows` accessor could lend its own local or
+  parameter; reads were sound (the frame is alive for the window) and writes
+  vanished. Cause: the rule existed for a match-arm payload ("a value the body
+  just BUILT dies with the accessor") and was never applied to a plain `lend`.
+  Fixed in the NARROW ruled form — an accessor's parameter is refused too, `&var`
+  included. Two things stay rooted without being written `self.…`: a match-arm
+  payload of a receiver-rooted scrutinee, and an INDIRECTION out of the receiver
+  (`lend buf[i]` for a `buf` bound from `self.buffer`), which is how std
+  Vector/Data are written. Pin flipped: `examples/lend_accessor_local.saw`;
+  parameter twin at `examples/errors/lend_accessor_param.saw`; accept side at
+  `examples/lend_rooted_in_receiver.saw`.
+- **DF-188h — CLOSED (unit 6).** The documented direction is enforced: a
+  conformer of an `unsafe` trait requirement must declare the effect. Cause: the
+  conformance check compared receiver mutability, return type and parameter
+  count, and had never been given the effect. The reverse direction stays legal
+  as rule 7's redundant declaration. Pin flipped:
+  `examples/unsafe_trait_requirement_effect.saw`; accept side at
+  `examples/unsafe_conformance_effects.saw` (audit row U26 is deliberately
+  superseded — it was an accept row only because the rule was unenforced).
+- **DF-188i — CLOSED (unit 7).** `spinlock` and `slab` joined
+  `IMPORT_REQUIRED_STD_MODULES`. Cause: the allowlist and the spec's module table
+  were two independent lists, so a module documented as gated and never added
+  stayed bare. `tools/test_prelude_gate_doc.py` (`make preludegate`) walks the
+  table and asserts the two agree in both directions. Flipping the pin surfaced a
+  second half: a gated module is not compiled in at all, so `static LOCK:
+  SpinLock<Int>` — which never names the type in an expression — reached codegen
+  and ICEd there; the gate now runs at a static's declaration too. Pin flipped:
+  `examples/spinlock_import_gate.saw`. DF-138c closed with it.
+- **DF-188j (SOUNDNESS-CONTRACT, filed Aug 9 by unit 2): the Law of Exclusivity
+  does not see a reference created by a NESTED call.** `sink(&var p.a,
+  reset(&var p))` compiles with no place involved anywhere, and the answer
+  depends on argument evaluation order (probed: `a=107 b=200`). Unit 2 closed the
+  half where a window is open, because a window's extent is provably the whole
+  call; the general case is a question about when an argument's borrow starts,
+  which the Law has never had to answer and which no current spelling forces.
+  Widening it would reject `f(&var x, g(&y))` shapes that are legal today, so it
+  wants a ruling rather than a patch. Repro: `.build/scratch/p_nested_ref.saw`
+  (three statements; the shape is in this entry).
+- **DF-188k (SPEC/IMPL, filed Aug 9 by unit 7): the prelude gate does not run on
+  type ANNOTATIONS.** `func take(d: &Data) -> Int { d.len() }` compiles with no
+  `import std.data` — the gate fires in EXPRESSION positions (a call, a struct
+  literal, a static-method head), and a parameter annotation is none of those. In
+  practice a value of a gated type usually has to be built or called somewhere,
+  which is why this has held up; a function that only RECEIVES one and calls
+  methods on it never trips the gate. Unit 7 fixed the one position where the
+  consequence was an ICE (a `static`'s annotation). The general fix is to run the
+  gate wherever a written type name is resolved in user source, which needs care
+  about the many internal callers that resolve std-derived types while checking a
+  user body — an over-rejection hazard, hence a finding rather than a change.
 
 Also from the audit, for the record: DF-174h's failure mode CHANGED — the
 too-deep `??` default no longer emits invalid IR; it silently takes the
@@ -113,6 +158,14 @@ standard XOR over a task-length window. Design-88 param relaxation rides
 as an optional unit, ratified separately. RATIFIED Aug 9; queue slot:
 immediately after 188, before 186. Queue RESUMED same day:
 184 ∥ 187 dispatched, then 188 → 189 → 186 serial.
+
+Standing after design 188 landed (Aug 9): (a) is CLOSED — DF-188c(i) is a
+compile error naming the LIFO order, and its pin flipped. The `move`-the-group
+route (b) depended on is closed too, by DF-188d's `NoMove`. What 189 still owns
+is the borrow EXTENT: DF-189a/b/c below are unchanged and still pinned xfail,
+and the declared-before ordering 188 rules legal (`examples/
+spawn_capture_declared_before.saw` is its accept pin) is exactly the ordering
+DF-189c makes unsound without extent tracking.
 
 The probe outcomes, filed as findings so the pins cite them (user, Aug 9:
 "pre-pin the 189 probes"):
@@ -1079,6 +1132,19 @@ Closed items: see todo_aug1-aug9.md.
   a place write in its prologue) and with the composition pessimization design
   175 already documented. Fix site is the place lowering, not
   `_reject_var_self_call_on_shared_self`.
+  **RE-EXAMINED against design 188 unit 2 (Aug 9) and NARROWED, not closed.**
+  Re-probed on the landing: `self.grid[0] += 100` in a plain `&self` method
+  still prints `first 1` (`.build/scratch/p176c.saw`). Unit 2 folded place
+  window ROOTS into the Law of Exclusivity, which is about how many accesses one
+  CALL makes; 176c is about how the receiver reached the window in the first
+  place, and a single write through a single window makes exactly one access. So
+  the two do not overlap and unit 2 changes nothing here. What the landing does
+  settle is the family framing in this entry: the "same lost mutation" cases
+  where TWO accesses were involved are now exclusivity errors on every tier, and
+  what remains under 176c is exactly the receiver-COPY half — a `&self` method
+  writing through a place window on an INLINE field (vanishes), and the borrows
+  body writing one on a `let` root (lands). Both halves still want the ruling
+  described above.
 
 ## Design 175 findings (`#lend_var` investigation, Aug 7 — PROBE-ONLY, no compiler changes)
 
@@ -1389,29 +1455,17 @@ Closed items: see todo_aug1-aug9.md.
 
 Closed items: see todo_aug1-aug9.md.
 
-### DF-138c — `std.slab` is not gated by the prelude rule
+### DF-138c — CLOSED (design 188 unit 7): `std.slab` is gated
 
-**OPEN, needs a DECISION (not a guess).** Every import-required std module is
-gated: a bare `Data`, `Mutex` or `FixedStringBuilder` is the clean
-"`X` is not in the prelude and must be imported" error. `std.slab` is not.
-`SlabHead`, `slab_alloc` and `slab_dealloc` all resolve with no import
-(`.build/scratch/s06_slab.saw`, `s09_slabfn.saw` — the latter builds a working
-`Vector<Int, JobSlab>` over a static region without naming `std.slab` once).
-
-The prelude list in design 82 does not include them, so the rule and the
-implementation disagree. Two readings, and the brief's own instruction was to
-record rather than guess:
-
-- **slab is deliberately prelude** — it is part of the freestanding toolkit, and
-  a kernel writing an allocator arguably should not need the import. Then the
-  prelude list gains `std.slab` and the docs are the bug.
-- **the gate has a hole** — std/slab.saw's names leak the way std did before
-  design 82. Then `sawc` is the bug and the kernel idiom needs
-  `import std.slab.*` added to it.
-
-The spec's Slab-allocators example relies on the current behavior, so it is
-correct either way today; §9's module table carries a note pointing here rather
-than asserting a prelude status the tree does not have.
+Resolved the second way it was filed: the gate had a hole, `sawc` was the bug,
+and the three slab examples gained `import std.slab.*`. `std.spinlock` turned
+out to be the same omission (DF-188i / audit W01) and both are in
+`IMPORT_REQUIRED_STD_MODULES` now. The decision needed no ruling in the end —
+the spec's own module table already said gated, and the reason it stayed open
+was that nothing tied the table to the list. `tools/test_prelude_gate_doc.py`
+(`make preludegate`) ties them: every module the table marks gated must be in
+the set, and every module in the set must have a row that does not claim
+otherwise.
 
 **TWIN (Aug 7, from the user's repo review): `std.spinlock` has the same
 hole.** LANGUAGE_SPEC says it is import-gated (`import std.spinlock`), but
