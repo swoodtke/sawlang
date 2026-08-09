@@ -878,7 +878,7 @@ Closed items: see todo_aug1-aug9.md.
   now performs the wrap (and stamps a bare `None` tail) and nothing else, so
   mismatches stay deferred. The `return x` spelling and the generic METHOD path
   never consulted decidability and were always right; the free-function tail was
-  the one path that did. Tests: `examples/optional_generic_return_tail_xfail.saw`
+  the one path that did. Tests: `examples/optional_generic_return_tail.saw`
   (the pin, flipped) and `examples/generic_optional_tail_return.saw` (the shapes
   that share the path — already-optional tail, `None` tail, diverging tail, value
   `if` arms, generic method, and the `T = Int?` instantiation).
@@ -894,7 +894,7 @@ Closed items: see todo_aug1-aug9.md.
   function is correct, and so is the non-generic `func w(x: Int) -> Int? { x }`;
   it is specifically `-> T?` plus a tail expression. Severity is the highest of
   this batch: a crash today, a soundness hole if the verifier ever stops
-  looking. Test: `examples/optional_generic_return_tail_xfail.saw`.
+  looking. Test: `examples/optional_generic_return_tail.saw`.
 - **DF-174g — CLOSED (design 187 unit 7).** A value needing MORE THAN ONE wrap
   into a nested optional slot was mis-lowered: `let a: Optional<Int?> = 5` left
   the outer layer present with a garbage inner, so the first peel worked and the
