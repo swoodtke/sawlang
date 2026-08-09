@@ -3015,6 +3015,145 @@ class TypeUtilsMixin:
                 stack.append(getattr(cur, f.name, None))
         return found
 
+    # ------------------------------------------------------------------
+    # design 189: scoped task borrows — the capture's extent is the task's life.
+    #
+    # Every rule below is the Law of Exclusivity already in this file, read over
+    # a longer window. A `[&var x]` capture into `group.spawn(...)` opens an
+    # EXCLUSIVE borrow of `x`'s root and a `[&x]` capture a SHARED one; the
+    # borrow lives until the task's HANDLE is joined, or — for a handle that is
+    # discarded, stored, or simply never joined — until the group's `Deinit`
+    # joins its children at scope exit. Nothing here is a new checker: the
+    # access sites feed the same overlap question the per-call check asks, from
+    # a set that outlives the statement that opened it.
+    #
+    # Probed Aug 9 (design 189's record): without the extent, `move buf` between
+    # a spawn and its join hands the task freed memory, silently, exit 0.
+    # ------------------------------------------------------------------
+
+    _TASK_HANDLE_TYPES = ("TaskHandle", "VoidTaskHandle")
+
+    def _task_borrow_for(self, var_info, writes: bool):
+        """The first live task borrow an access to `var_info` collides with.
+
+        An EXCLUSIVE `[&var x]` capture excludes every other touch of the root,
+        reads included — the standard one-writer-XOR-many-readers table over a
+        task-length window (ratified Aug 9). A caller that wants to observe
+        mid-task state reaches for `Arc<Mutex<T>>` or a `Channel`, where the
+        synchronization is visible in the types. A SHARED `[&x]` capture
+        composes with other readers and collides only with a write or a move.
+        """
+        if not self._task_borrows or var_info is None:
+            return None
+        for b in self._task_borrows:
+            if b.root_id == var_info.binding_id and (b.mutable or writes):
+                return b
+        return None
+
+    def _task_borrow_for_name(self, root_name, writes: bool):
+        """`_task_borrow_for` starting from an access path's root name."""
+        if not self._task_borrows or root_name is None:
+            return None
+        return self._task_borrow_for(self.current_scope.lookup(root_name), writes)
+
+    def _task_borrow_extent(self, b) -> str:
+        """The sentence naming the task and where its borrow is released."""
+        sigil = "&var" if b.mutable else "&"
+        if b.handle_name is not None:
+            release = f"`{b.handle_name}.join()` releases it"
+        elif b.group_name is not None:
+            release = (f"its group `{b.group_name}` is torn down at the end of "
+                       f"this scope (nothing joins its handle)")
+        else:
+            release = "its group is torn down at the end of this scope"
+        return (f"the task spawned at line {b.spawn_line} holds "
+                f"`{sigil} {b.root_name}` until {release}")
+
+    def _report_task_borrow(self, b, what: str, line: int, column: int,
+                            root: Optional[str] = None):
+        """Report an access that collides with a live task-capture borrow.
+
+        `what` is the existing exclusivity/move vocabulary for the access —
+        design 189 adds one sentence (the extent), not a new error family.
+        """
+        if line in b.reported:
+            # One statement reaches a root several times on the way down (the
+            # receiver of `buf.push(9)` is checked as an expression and again as
+            # an access-set entry); one diagnostic is the useful number.
+            return
+        b.reported.add(line)
+        name = root or b.root_name
+        if what == 'move':
+            message = (f"cannot `move` `{name}` while a spawned task borrows "
+                       f"it: {self._task_borrow_extent(b)}")
+        else:
+            phrase = {
+                'read': f"`{name}` cannot be read here",
+                'write': f"`{name}` cannot be written here",
+                'capture': f"`{name}` cannot be captured into another task here",
+                'access': f"`{name}` cannot be accessed by reference here",
+            }[what]
+            message = (f"exclusive access violation: {phrase} — "
+                       f"{self._task_borrow_extent(b)}")
+        join_hint = (f"`{b.handle_name}.join()`" if b.handle_name
+                     else "joining the task's handle")
+        self._error(
+            ErrorKind.EXCLUSIVITY_VIOLATION, message, line, column,
+            hint=f"join the task first — {join_hint} ends the borrow, and the "
+                 f"spawn-join-use order stays legal. To watch the value WHILE "
+                 f"the task runs, share it through an `Arc<Mutex<T>>` or a "
+                 f"`Channel`, where the synchronization is visible in the types"
+        )
+
+    def _release_task_borrows_for_handle(self, handle_name: str) -> None:
+        """`h.join()` — a consuming, statically known release point."""
+        if not self._task_borrows:
+            return
+        info = self.current_scope.lookup(handle_name)
+        if info is None or info.type is None:
+            return
+        if (info.type.kind != TypeKind.STRUCT
+                or info.type.struct_name not in self._TASK_HANDLE_TYPES):
+            return
+        self._task_borrows = [b for b in self._task_borrows
+                              if b.handle_id != info.binding_id]
+
+    def _bind_task_borrow_handle(self, var_info, name: str) -> None:
+        """Hand the borrows a spawn just opened to the binding that took its
+        handle. A handle that is never bound (`group.spawn(f())` as a statement,
+        `let _ = ...`) keeps `handle_id = None` and releases at group death."""
+        pending = self._pending_task_borrows
+        if not pending or var_info is None or var_info.type is None:
+            return
+        if (var_info.type.kind != TypeKind.STRUCT
+                or var_info.type.struct_name not in self._TASK_HANDLE_TYPES):
+            return
+        for b in pending:
+            b.handle_id = var_info.binding_id
+            b.handle_name = name
+        self._pending_task_borrows = []
+
+    def _release_task_borrows_at_scope_exit(self, scope) -> None:
+        """A group dies at the end of the scope that declared it, and its
+        `Deinit` joins its children there — so every borrow it still carries is
+        released. A borrow whose ROOT dies here goes with it (design 188 unit 5
+        already refuses the ordering where that root is the one being borrowed)."""
+        if not self._task_borrows:
+            return
+        local = {v.binding_id for v in scope.variables.values()}
+        if not local:
+            return
+        self._task_borrows = [b for b in self._task_borrows
+                              if b.group_id not in local and b.root_id not in local]
+        for b in self._task_borrows:
+            if b.handle_id in local:
+                # The HANDLE died unjoined. Its `Deinit` owns nothing and does
+                # not join (design 134 — the result stays in the group's cell),
+                # so the borrow survives; only its release point moves, to the
+                # group's death. Say so rather than naming a binding that is no
+                # longer in scope.
+                b.handle_id, b.handle_name = None, None
+
     def _check_call_exclusivity(self, values, param_types=None,
                                 receiver: Optional[Expression] = None,
                                 receiver_mutable: bool = False,
@@ -3038,6 +3177,10 @@ class TypeUtilsMixin:
         # Each entry: (kind, path, name_expr, line, column) where kind is one of
         # 'mut', 'imm', 'moved'. name_expr renders the offending path.
         entries = []
+        # The entries that came from a closure's CAPTURE list, so design 189's
+        # cross-check can say "captured into another task" rather than the
+        # generic by-reference phrasing.
+        capture_entries = set()
 
         # A method receiver is always a borrow (`&self`/`&var self` -- the parser
         # requires it; static/init calls pass receiver=None). Collect it either
@@ -3091,6 +3234,7 @@ class TypeUtilsMixin:
                     path = self._build_access_path(name_expr)
                     if path is None:
                         continue
+                    capture_entries.add(id(name_expr))
                     entries.append(('mut' if spec.mode == 'ref_var' else 'imm',
                                     path, name_expr, spec.line, spec.column))
 
@@ -3115,6 +3259,20 @@ class TypeUtilsMixin:
                         continue
                     entries.append(('mut' if ref.mutable else 'imm', path,
                                     ref.expr, ref.line, ref.column))
+
+        # design 189: a live task-capture borrow is an access that OUTLIVES this
+        # statement, so every by-reference access this call makes is checked
+        # against it before the pairwise pass looks within the call. This is the
+        # one hook the spawn-capture case needs: a second `[&var n]` capture is
+        # an ordinary capture entry, and it collides with the first task's
+        # borrow exactly the way two captures in one call collide.
+        if self._task_borrows:
+            for kind, path, e, ln, col in entries:
+                b = self._task_borrow_for_name(path[0], kind != 'imm')
+                if b is not None:
+                    self._report_task_borrow(
+                        b, 'capture' if id(e) in capture_entries else 'access',
+                        ln, col, root=path[0])
 
         n = len(entries)
         for i in range(n):

@@ -661,6 +661,18 @@ class ExpressionsMixin:
             )
             return None
 
+        # design 189: reading a root a task holds EXCLUSIVELY. A `[&var]`
+        # capture excludes readers as well as writers — one writer XOR many
+        # readers, over a window as long as the task. (A `[&x]` capture is a
+        # reader itself and composes with this one silently.) A ref-captured
+        # name inside the closure body resolves to the capture's own shadowing
+        # binding, so a task reading what it borrowed never lands here.
+        if self._task_borrows:
+            borrow = self._task_borrow_for(var_info, writes=False)
+            if borrow is not None:
+                self._report_task_borrow(borrow, 'read', expr.line, expr.column,
+                                         root=expr.name)
+
         # Auto-dereference reference types
         if var_info.type.kind == TypeKind.REFERENCE:
             return var_info.type.inner_type
@@ -747,6 +759,16 @@ class ExpressionsMixin:
                      f"constructs at one address rather than moving"
             )
             return None
+
+        # design 189: the move-while-borrowed refusal, now that the borrow is
+        # VISIBLE. This is probe 5, the confirmed silent use-after-free: main
+        # never suspends before the move, so the moved-to value drops the
+        # buffer, and the join then drives a task that reads the dead slot.
+        if self._task_borrows:
+            borrow = self._task_borrow_for(var_info, writes=True)
+            if borrow is not None:
+                self._report_task_borrow(borrow, 'move', expr.line, expr.column,
+                                         root=expr.variable)
 
         # Record the move against the binding's identity.
         self._mark_binding_moved(var_info, expr.variable, expr.line, expr.column)
@@ -7084,7 +7106,8 @@ class ExpressionsMixin:
             spawn_name = self._effect_queue_fn_mono(spawn_name, resolved_args)
             inner.name = spawn_name
             inner.type_args = None
-        self._check_spawn_capture_order(expr, inner)
+        refused = self._check_spawn_capture_order(expr, inner)
+        self._register_task_capture_borrows(expr, inner, refused)
         self._effect_record_spawn(spawn_name, result_type)
         # design 75 (A2): if the receiver group was built multi-threaded
         # (`TaskGroup(threads: N)`), record this spawn root so the coroutine
@@ -7130,15 +7153,20 @@ class ExpressionsMixin:
         closing brace instead was considered and declined — it deadlocks the
         drop-to-terminate idioms, whose whole point is a guard declared after
         the group whose deinit is what lets the tasks finish.
+
+        Returns the capture specs this refused, so design 189's extent
+        registration skips them: a capture that cannot be written at all owes no
+        borrow, and the LIFO-teaching error is the one worth reading.
         """
+        refused = set()
         if not isinstance(spawn_expr.object, Identifier):
             # A group reached through a field or a parameter has no declaration
             # order to compare against in this scope, and the capture cannot
             # outlive it by the LIFO argument anyway.
-            return
+            return refused
         group_info = self.current_scope.lookup(spawn_expr.object.name)
         if group_info is None:
-            return
+            return refused
         group_name = spawn_expr.object.name
         for closure in self._closures_in(inner):
             for spec in (getattr(closure, 'capture_specs', None) or []):
@@ -7147,6 +7175,7 @@ class ExpressionsMixin:
                 info = self.current_scope.lookup(spec.name)
                 if info is None or info.binding_id <= group_info.binding_id:
                     continue
+                refused.add(id(spec))
                 sigil = "&var" if spec.mode == 'ref_var' else "&"
                 self._error(
                     ErrorKind.EXCLUSIVITY_VIOLATION,
@@ -7162,6 +7191,45 @@ class ExpressionsMixin:
                          f"tasks borrow outlives the join. Or pass the value in "
                          f"by value / through an `Arc` instead of borrowing it"
                 )
+        return refused
+
+    def _register_task_capture_borrows(self, spawn_expr, inner, refused) -> None:
+        """Open a borrow of each captured ROOT for the spawned task's life
+        (design 189 unit 1).
+
+        The conflict this capture may ALREADY be in was reported on the way
+        down: a capture list is part of the spawned call's access set, so
+        `_check_call_exclusivity` has just checked it against every live borrow
+        (that is how a second `[&var n]` of one root is refused). What is left
+        is to record the new borrow, and to leave it PENDING until the `let h =`
+        binding that will carry it — a handle that never appears releases at the
+        group's death instead, which is the fallback, not the norm.
+        """
+        from .core import TaskCaptureBorrow
+        group_info = None
+        group_name = None
+        if isinstance(spawn_expr.object, Identifier):
+            group_name = spawn_expr.object.name
+            group_info = self.current_scope.lookup(group_name)
+        opened = []
+        for closure in self._closures_in(inner):
+            for spec in (getattr(closure, 'capture_specs', None) or []):
+                if spec.mode not in ('ref', 'ref_var') or id(spec) in refused:
+                    continue
+                info = self.current_scope.lookup(spec.name)
+                if info is None:
+                    continue
+                opened.append(TaskCaptureBorrow(
+                    root_id=info.binding_id,
+                    root_name=spec.name,
+                    mutable=(spec.mode == 'ref_var'),
+                    spawn_line=spec.line or spawn_expr.line,
+                    spawn_column=spec.column or spawn_expr.column,
+                    group_id=(group_info.binding_id if group_info else None),
+                    group_name=group_name,
+                ))
+        self._task_borrows.extend(opened)
+        self._pending_task_borrows = opened
 
     @staticmethod
     def _closures_in(node):
@@ -7413,6 +7481,15 @@ class ExpressionsMixin:
 
     def _check_method_call(self, expr: MethodCall) -> Optional[SawType]:
         """Check a method call, static method call, enum initialization, or module function call."""
+        # design 189: `h.join()` is the release point for every capture borrow
+        # the handle carries. Join is consuming (it takes the result out of the
+        # cell exactly once), so the point is statically known — which is what
+        # keeps the spawn-join-use order legal without any annotation. A handle
+        # reached through a field or an element is not this shape and keeps its
+        # borrow to group death, the conservative edge design 189 chose.
+        if (expr.method_name == "join" and self._task_borrows
+                and isinstance(expr.object, Identifier)):
+            self._release_task_borrows_for_handle(expr.object.name)
         # design 51: erased-direct `Box<any Trait>.make(v)` — intercept before the
         # normal generic Box static-factory path (which would substitute the
         # unsized `any Trait` for `T` and reject the concrete argument).

@@ -1,12 +1,17 @@
 // The caller writes and reads `n` while a spawned task holds [&var n] —
-// writer aliases writer across the spawn/join window. Under design 189's
-// borrow-extent rule the task's handle carries an exclusive borrow of `n`
-// from the spawn to the join, so both caller touches below are refused
-// (an exclusive borrow excludes readers too — the standard XOR table over
-// a task-length window). After `h.join()` the root is free again.
-// XFAIL: DF-189b the caller aliases a root a task holds exclusively
+// writer aliases writer across the spawn/join window, silently before design
+// 189 (probe 2, DF-189b). The handle carries an exclusive borrow of `n` from
+// the spawn to the join, so BOTH caller touches below are refused: an
+// exclusive borrow excludes readers too, the standard one-writer-XOR-many-
+// readers table over a task-length window. A caller that wants to watch
+// mid-task state uses `Arc<Mutex>`/`Channel`, where the synchronization is
+// visible in the types. After `h.join()` the root is free again — line 26
+// reads it with no complaint, which is what keeps spawn-join-use legal.
 // EXPECT: error
 // EXPECT-ERROR-CONTAINS: exclusive access violation
+// EXPECT-ERROR-CONTAINS: `n` cannot be written here
+// EXPECT-ERROR-CONTAINS: `n` cannot be read here
+// EXPECT-ERROR-CONTAINS: holds `&var n` until `h.join()` releases it
 
 import std.task.*
 

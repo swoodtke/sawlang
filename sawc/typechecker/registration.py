@@ -197,6 +197,7 @@ class RegistrationMixin:
         state is reset to the pre-loop state, since the loop may run zero times.
         """
         entry_moves = self._snapshot_moves()
+        entry_borrows = {id(b) for b in self._task_borrows}
         outer_ids = set()
         scope = outer_scope
         while scope is not None:
@@ -220,6 +221,29 @@ class RegistrationMixin:
                     hint="a binding moved inside a loop is moved-from on the next "
                          "iteration; reassign it before the loop body ends, or move a fresh value"
                 )
+
+        # design 189, the same question for borrows: a spawn inside the body
+        # whose handle is not joined before the body ends opens a SECOND
+        # exclusive borrow of the same root on the next iteration. One textual
+        # spawn, N live borrows — the Law violated by iteration rather than by
+        # a second line. Spawn-and-join-in-the-body is untouched (the join
+        # released it), and so is a shared `[&x]` capture, which composes.
+        for b in self._task_borrows:
+            if id(b) in entry_borrows or not b.mutable:
+                continue
+            if b.root_id not in outer_ids:
+                continue   # the root is born and dies inside one iteration
+            self._error(
+                ErrorKind.EXCLUSIVITY_VIOLATION,
+                f"exclusive access violation: this task's `&var {b.root_name}` "
+                f"capture is still live when the loop body ends, so the next "
+                f"iteration would open a second exclusive borrow of the same "
+                f"root: {self._task_borrow_extent(b)}",
+                b.spawn_line, b.spawn_column,
+                hint="join this task's handle before the body ends (spawn, "
+                     "join, then loop), or give each iteration its own root. "
+                     "To fan out over ONE piece of shared state, share it "
+                     "through an `Arc<Mutex<T>>` or a `Channel`")
 
         # The loop may execute zero times, so after it we are back to the
         # pre-loop state (any real cross-iteration move was flagged above).

@@ -191,6 +191,10 @@ class StatementsMixin:
         # Move state is function-local (design 15): fresh per method body.
         saved_moves = self.moved_bindings
         self.moved_bindings = {}
+        # So are task-capture borrows (design 189): a group is a scope, and a
+        # method body is checked with none of its caller's open.
+        saved_borrows, saved_pending = self._task_borrows, self._pending_task_borrows
+        self._task_borrows, self._pending_task_borrows = [], []
 
         # Create new scope for method
         self.current_scope = Scope()
@@ -384,6 +388,7 @@ class StatementsMixin:
         self._effect_exit()
         self.current_method = None
         self.moved_bindings = saved_moves
+        self._task_borrows, self._pending_task_borrows = saved_borrows, saved_pending
         self.current_type_params = prev_method_type_params
         self.current_const_param_types = prev_method_const_params
         self._exit_unsafe_scope(
@@ -728,6 +733,9 @@ class StatementsMixin:
         # restored on exit so a nested check (e.g. an inline module) can't leak.
         saved_moves = self.moved_bindings
         self.moved_bindings = {}
+        # Task-capture borrows are function-local for the same reason (189).
+        saved_borrows, saved_pending = self._task_borrows, self._pending_task_borrows
+        self._task_borrows, self._pending_task_borrows = [], []
 
         # Track type parameters as opaque for the duration of this body. Their
         # bounds are recorded so future bound-aware method/trait lookups can use
@@ -845,6 +853,7 @@ class StatementsMixin:
         self._effect_exit()
         self.current_function = None
         self.moved_bindings = saved_moves
+        self._task_borrows, self._pending_task_borrows = saved_borrows, saved_pending
         self._exit_unsafe_scope(func, saved_unsafe_contact, "function", func.name)
         self.namespace.allow_all_access = _saved_aaa
         self._checking_builtins = _saved_cb
@@ -855,6 +864,10 @@ class StatementsMixin:
         # Create new scope for block
         old_scope = self.current_scope
         self.current_scope = Scope(parent=old_scope)
+        # design 189: the borrows live on the way IN. A join that happens only
+        # inside this block does not release for the code AFTER it — the other
+        # path never joined — so anything that was live here comes back below.
+        entry_borrows = list(self._task_borrows)
 
         for stmt in block.statements:
             self._check_statement(stmt)
@@ -872,6 +885,18 @@ class StatementsMixin:
             # declaration, and what types a diverging `match`/`if` arm block.
             result_type = SawType(TypeKind.NEVER)
 
+        # design 189: a group declared in THIS block dies here, and its `Deinit`
+        # joins its children — so every borrow it still carries is released, and
+        # a root declared here goes with it. Everything else that was live on
+        # the way in is restored, whether or not this block joined it.
+        self._release_task_borrows_at_scope_exit(self.current_scope)
+        live = {id(b) for b in self._task_borrows}
+        dead = {v.binding_id for v in self.current_scope.variables.values()}
+        self._task_borrows.extend(
+            b for b in entry_borrows
+            if id(b) not in live and b.group_id not in dead
+            and b.root_id not in dead)
+
         # Restore scope
         self.current_scope = old_scope
 
@@ -879,6 +904,11 @@ class StatementsMixin:
 
     def _check_statement(self, stmt: Statement):
         """Check a statement."""
+        # design 189: only the statement that CONTAINS a spawn may claim the
+        # borrows it opened, so the pending list never survives a statement
+        # boundary. A `group.spawn(f())` written as a statement of its own
+        # leaves them unclaimed, which is what "releases at group death" means.
+        self._pending_task_borrows = []
         # Handle dual-purpose nodes (Expressions used as Statements)
         if isinstance(stmt, WhileExpr):
             self._check_while_expr(stmt)
@@ -1448,6 +1478,10 @@ class StatementsMixin:
             # present). The fresh VariableInfo carries a new identity, so the new
             # binding starts with clean move state (`moved_bindings` keys by id).
             self.current_scope.variables[stmt.name] = info
+            # design 189: `let h = group.spawn(...)` — this binding is the
+            # handle that carries the borrows the spawn just opened, and
+            # `h.join()` is where they are released.
+            self._bind_task_borrow_handle(info, stmt.name)
 
     def _is_multithreaded_taskgroup_init(self, value) -> bool:
         """True if `value` is a `TaskGroup(threads: ...)` construction (design 75).
@@ -2048,6 +2082,24 @@ class StatementsMixin:
                  f"`Arc<Mutex<T>>`")
         return True
 
+    def _check_task_borrow_write(self, target, line: int, column: int) -> None:
+        """Refuse a write whose root a spawned task is borrowing (design 189).
+
+        The root is what a capture charges, so `p.field = v` and `v[i] = x`
+        collide with a borrow of `p`/`v` exactly as a whole-binding write does —
+        the same "a place borrow charges its ROOT" rule design 146 wrote for
+        windows, read over the task's extent.
+        """
+        if not self._task_borrows:
+            return
+        path = self._build_access_path(target)
+        if path is None:
+            return
+        borrow = self._task_borrow_for_name(path[0], writes=True)
+        if borrow is not None:
+            self._report_task_borrow(borrow, 'write', line, column,
+                                     root=path[0])
+
     def _check_assign_statement(self, stmt: AssignStatement):
         """Check an assignment statement."""
         # An immutable static rejects any write whose root is it — whole
@@ -2083,6 +2135,12 @@ class StatementsMixin:
         # A write through a `&self` receiver is discarded, or worse (DF-175a).
         if self._reject_shared_self_write(stmt.target, stmt.line, stmt.column):
             return
+
+        # design 189: writing a root a spawned task borrows — shared or
+        # exclusive, since a writer excludes both. Asked before the target's
+        # subexpressions are checked so the diagnostic names the WRITE rather
+        # than the read of the path it happens to walk through.
+        self._check_task_borrow_write(stmt.target, stmt.line, stmt.column)
 
         # Handle both simple variable assignment and field assignment
         if isinstance(stmt.target, Identifier):
@@ -2599,6 +2657,9 @@ class StatementsMixin:
         if self._reject_shared_self_write(stmt.target, stmt.line, stmt.column,
                                           compound=True):
             return
+
+        # design 189: `n += 1` is a write of `n` like any other.
+        self._check_task_borrow_write(stmt.target, stmt.line, stmt.column)
 
         # Get target type
         target_type = self._check_expression(stmt.target)

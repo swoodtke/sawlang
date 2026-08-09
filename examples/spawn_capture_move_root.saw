@@ -2,12 +2,13 @@
 // never suspends before the move, so `consume(move buf)` runs first and
 // drops the buffer; the join then drives the task, which reads the dead
 // slot and reallocs FROM FREED MEMORY — silently, exit 0, in the
-// declared-before-the-group ordering DF-188c rules legal. Design 189's
-// extent rule makes the move refuse: `buf` is borrowed by the task's
-// handle until the join.
-// XFAIL: DF-189c moving a captured root between spawn and join hands the task freed memory
+// declared-before-the-group ordering DF-188c rules legal (probe 5, DF-189c).
+// Design 189's extent rule makes the move refuse: the existing
+// move-while-borrowed rule, firing at last because the borrow is VISIBLE —
+// `buf` belongs to the task's handle until the join.
 // EXPECT: error
-// EXPECT-ERROR-CONTAINS: borrow
+// EXPECT-ERROR-CONTAINS: cannot `move` `buf` while a spawned task borrows it
+// EXPECT-ERROR-CONTAINS: holds `&var buf` until `h.join()` releases it
 
 import std.task.*
 

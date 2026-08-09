@@ -59,6 +59,31 @@ class VariableInfo:
     binding_id: int = field(default_factory=lambda: next(_BINDING_ID_COUNTER))
 
 
+@dataclass
+class TaskCaptureBorrow:
+    """One reference capture registered at a `group.spawn(...)` (design 189).
+
+    A capture into a spawned task borrows its ROOT for the task's life, and the
+    task's HANDLE carries that borrow: joining the handle releases it, and a
+    handle that is discarded or never joined releases at the GROUP's death.
+    The record is what makes that extent visible to the Law of Exclusivity —
+    it is a new extent, not a new checker.
+    """
+    root_id: int                       # VariableInfo.binding_id of the root
+    root_name: str
+    mutable: bool                      # `[&var x]` exclusive vs `[&x]` shared
+    spawn_line: int
+    spawn_column: int
+    group_id: Optional[int] = None     # the group binding the task was spawned into
+    group_name: Optional[str] = None
+    handle_id: Optional[int] = None    # the binding the `TaskHandle` landed in
+    handle_name: Optional[str] = None
+    # Lines this borrow has already been reported against, so one statement
+    # that both reads and writes a root yields one diagnostic rather than a
+    # pile (the receiver of `buf.push(9)` is checked twice on the way down).
+    reported: set = field(default_factory=set)
+
+
 class Scope:
     """A lexical scope containing variable bindings."""
 
@@ -169,6 +194,15 @@ class TypeChecker(ExpressionsMixin, StatementsMixin, RegistrationMixin, TypeUtil
         # shadow gets fresh state.
         # value = (var_info, name, move_line, move_column)
         self.moved_bindings: Dict[int, Tuple['VariableInfo', str, int, int]] = {}
+        # design 189: the reference captures spawned tasks are holding RIGHT
+        # HERE. Function-local like the move state above, and conservative at
+        # every join point — a borrow released on only one branch comes back at
+        # the end of the branch, because the other path never joined.
+        self._task_borrows: List['TaskCaptureBorrow'] = []
+        # The borrows the spawn in the statement being checked just opened,
+        # waiting for the `let h = ...` binding that will carry them. Cleared at
+        # every statement boundary, so nothing else can claim them.
+        self._pending_task_borrows: List['TaskCaptureBorrow'] = []
         # Structs whose copy() is compiler-derived (memberwise), checked for
         # NoCopy fields after all conformances are registered.
         self._derived_copy_structs: set[str] = set()

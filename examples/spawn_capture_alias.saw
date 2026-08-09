@@ -1,11 +1,13 @@
-// Two tasks each capture [&var n] of the SAME root: two exclusive borrows
-// of one path co-live across suspensions, and both tasks mutate the one
-// root with no diagnostic — the Law of Exclusivity applied over a
-// task-length extent (design 189: the handle carries the borrow, join
-// releases it) refuses the second spawn.
-// XFAIL: DF-189a two exclusive spawn captures of one root co-live silently
+// Two tasks each capture [&var n] of the SAME root. Before design 189 this
+// compiled: two exclusive borrows of one path co-lived across suspensions and
+// both tasks mutated the one root, with no diagnostic (probe 1, DF-189a). The
+// borrow's extent is the task's life and the HANDLE carries it, so the first
+// capture is still live at the second spawn and the second is refused — the
+// Law of Exclusivity, read over a task-length window.
 // EXPECT: error
 // EXPECT-ERROR-CONTAINS: exclusive access violation
+// EXPECT-ERROR-CONTAINS: cannot be captured into another task here
+// EXPECT-ERROR-CONTAINS: holds `&var n` until `a.join()` releases it
 
 import std.task.*
 
