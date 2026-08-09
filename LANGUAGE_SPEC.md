@@ -2671,12 +2671,11 @@ g(&x, &x)             // ok when both parameters are immutable `&` (shared reads
 ```
 
 This check is **fully static** and needs no lifetimes or runtime flags.
-Because references cannot escape in Saw (they are only parameters — never
-returned or stored in fields; closures capture by value, and the
-`[&x]`/`[&var x]` borrow-captures are confined to non-escaping closures),
-every live reference was created at some call expression on the stack.
-Two references can therefore only alias if they were passed in the same call
-chain, and forwarding is covered by applying the same rule at *every* call
+References cannot escape in Saw: they are only parameters, never returned or
+stored in fields, and closures capture by value except for the `[&x]`/`[&var x]`
+borrow-captures, which are confined to non-escaping closures. Every live
+reference therefore has a statically known extent, and two of them can alias
+only within it. Forwarding is covered by applying the same rule at *every* call
 site: inside a callee its `var` parameters are distinct storage, and the only
 way they could alias is if the caller aliased them — which the caller's own
 call-site check rejects.
@@ -2688,11 +2687,32 @@ indices are disjoint; different roots are always disjoint. A non-constant
 rejected even when `i != j` at runtime (the checked `Vector.swap(i, j)` method
 is the intended escape hatch; landed in design 40).
 
-> **Invariant (for future features):** the fully-static guarantee rests on the
-> no-escape property. If closures capturing by reference, returned/stored
-> references, or globally-reachable mutable variables are ever added, they must
-> either preserve no-escape or be folded into the call-site disjointness check;
-> otherwise this law weakens from *sound* to *advisory*.
+**Extents longer than one call.** Two constructs hold a reference past the call
+that created it, and each is folded into the same disjointness check rather than
+getting a checker of its own — only the *window* over which paths are compared
+changes.
+
+- A **place window** (`borrows` / `lend`, below) borrows its root for the extent
+  of the expression that opened it, which is the whole enclosing call.
+- A **task capture** borrows its root for the life of the spawned task: `[&var
+  x]` exclusively, `[&x]` shared, released at the task handle's `join()` or at
+  the group's death. The concurrency chapter states the release rules; the point
+  here is that a spawn does not create a reference the law cannot see.
+
+```saw
+let h = group.spawn(run({ [&var n] in n = n + 1  n }))
+let seen = n
+// error: exclusive access violation: `n` cannot be read here — the task spawned
+//        at line 1 holds `&var n` until `h.join()` releases it
+```
+
+> **Invariant (for future features):** the fully-static guarantee rests on every
+> live reference having a statically known extent. A call argument's extent is
+> the call, a place window's is the enclosing expression, a task capture's is the
+> handle's join or its group's death. Returned/stored references or
+> globally-reachable mutable variables would have none, so they must either be
+> given one or be kept out; otherwise this law weakens from *sound* to
+> *advisory*.
 
 ### Places (`borrows` and `lend`)
 
@@ -5121,6 +5141,69 @@ let h = group.spawn(run({ [&var n] in n = n + 1  n }))
 The group opens the scope it governs, so it is declared at the top of it. A
 reference capture into a `threads: N` group is refused separately: a closure is
 not `Send`, so the frame cannot cross to a worker thread.
+
+#### The capture's extent is the task's life
+
+The capture borrows its root for as long as the task can reach it, and the
+task's **handle carries that borrow**. `[&var x]` opens an exclusive borrow of
+`x`'s root and `[&x]` a shared one, judged by the Law of Exclusivity over that
+whole window rather than over the spawning call.
+
+Joining releases. `join()` takes the task's result out of its cell exactly once,
+so the release point is statically known and the spawn-join-use order above
+stays legal with nothing written to say so. Between the spawn and the join the
+root belongs to the task:
+
+```saw
+var n = 0
+var group = TaskGroup()
+let h = group.spawn(run({ [&var n] in n = n + 100  n }))
+n = 5
+// error: exclusive access violation: `n` cannot be written here — the task
+//        spawned at line 3 holds `&var n` until `h.join()` releases it
+print(h.join())
+print(n)               // fine: the borrow ended at the join
+```
+
+An exclusive capture excludes reads too, not only writes. That is the ordinary
+one-writer-XOR-many-readers table applied over a window as long as the task, and
+it is what makes the write the task performs unobservable in progress. To watch
+a value while a task is still running, share it through an `Arc<Mutex<T>>` or a
+`Channel`, where the synchronization is in the types. Shared captures compose:
+two `[&x]` captures may be live at once, and the caller may read `x` beside
+them.
+
+A `move` of a borrowed root is the same violation under the move vocabulary,
+and it is the case that made this a soundness rule rather than a consistency
+one. Before the extent existed, `consume(move buf)` between a spawn and its
+join dropped the buffer and the join then drove a task that read the freed
+slot — silently, exit 0.
+
+```saw
+var buf: Vector<Int> = [1, 2, 3]
+var group = TaskGroup()
+let h = group.spawn(run({ [&var buf] in buf.push(9)  buf.len() }))
+let taken = consume(move buf)
+// error: cannot `move` `buf` while a spawned task borrows it: the task spawned
+//        at line 3 holds `&var buf` until `h.join()` releases it
+```
+
+Three cases release later than the join, each conservatively:
+
+- A handle that is **discarded or never joined** holds its borrow until the
+  group's death. Nothing joins it earlier: `TaskHandle`'s `Deinit` owns nothing
+  and leaves the result in the group's cell, so it is the group's `Deinit` that
+  drains the task. A handle stored in a field or an element is the same case,
+  since there is no binding to recognize a join on.
+- A **join inside a branch** releases only on that path, so the borrow is live
+  again below the branch. Hoist the join out of the branch to get the root back.
+- A capture still live when a **loop body** ends is refused outright: one
+  textual spawn would open a second exclusive borrow of the same root on the
+  next iteration. Join inside the body and each iteration's borrow is released
+  before the next opens.
+
+`cancel()` does not release. A cancelled task still runs its cancel path, and
+the reference is live until it finishes.
 
 ### Task backtraces (design 158)
 

@@ -1249,6 +1249,43 @@ dump_tasks()                // every live task's logical backtrace (std.task)
   while the tasks are still live — so it is a compile error naming both
   declaration lines and the fix. Declare the group at the TOP of the scope it
   governs. (An MT group refuses the capture anyway: a closure is not `Send`.)
+- **THE CAPTURE'S EXTENT IS THE TASK'S LIFE, AND THE HANDLE CARRIES IT
+  (design 189).** `[&var x]` borrows `x`'s root EXCLUSIVELY and `[&x]` shares
+  it, for as long as the task can reach it — so the Law of Exclusivity now sees
+  a spawn capture, over a window as long as the task rather than as long as the
+  spawning call. **`join()` releases** (it consumes the result exactly once, so
+  the point is statically known), which is what keeps SPAWN-JOIN-USE legal with
+  nothing extra written:
+  ```saw
+  var n = 0
+  var group = TaskGroup()
+  let h = group.spawn(run({ [&var n] in n = n + 100  n }))
+  n = 5                    // error: `n` cannot be written here — the task
+                           //   spawned at line 3 holds `&var n` until
+                           //   `h.join()` releases it
+  print(h.join())
+  print(n)                 // fine: the borrow ended at the join
+  ```
+  **An exclusive capture excludes READS too** (one writer XOR many readers, over
+  a task-length window), so `let seen = n` between the spawn and the join is the
+  same error. To watch a value while the task runs, share it through an
+  `Arc<Mutex<T>>` or a `Channel` — where the synchronization is in the types.
+  Shared `[&x]` captures COMPOSE: two of them live at once, with caller reads
+  beside them, are fine. A `move` of a borrowed root is the same violation under
+  the move vocabulary, and it is the one that made this a SOUNDNESS rule:
+  `consume(move buf)` between a spawn and its join used to drop the buffer and
+  hand the task freed memory, silently, exit 0.
+  RELEASES LATER THAN THE JOIN, all conservative: a DISCARDED or never-joined
+  handle holds its borrow to the GROUP's death (a `TaskHandle`'s Deinit owns
+  nothing and does not join), and so does one stored in a field or an element; a
+  join inside an `if` releases on that path only, so the borrow is live again
+  below the branch (hoist the join out); a capture still live when a LOOP BODY
+  ends is refused outright, since the next iteration would open a second
+  exclusive borrow of one root (join inside the body — that shape is fine).
+  `cancel()` does NOT release: the cancelled task still runs its cancel path.
+  **IDIOM**: declare the group first, spawn, join, then touch the root. If the
+  caller genuinely needs the value mid-task, that is an `Arc<Mutex<T>>` or a
+  `Channel`, not a capture.
 
 ## Modules & packages
 ```saw

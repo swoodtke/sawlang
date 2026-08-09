@@ -1,5 +1,37 @@
 # Design 189 — scoped task borrows: the capture's extent is the task's life
 
+**LANDED Aug 9 (units 1-3; unit 4 NOT built — see below). Three commits, the
+full suite green at each (1578 passed, 4 pre-existing xfails at the last).
+Units 1 and 2 landed as ONE commit: the diagnostics ARE what the checks emit,
+and there was no separable second change. All three pins flipped XPASS —
+`spawn_capture_alias`, `spawn_capture_caller_alias`, `spawn_capture_move_root`
+— and their EXPECT directives now pin the chosen wording. Design 188's pins are
+untouched: a program that breaks the LIFO ordering still gets exactly 188's
+error, because `_check_spawn_capture_order` returns the specs it refused and the
+extent registration skips them.**
+
+**Diagnostic wording chosen** (the brief asked for the existing vocabulary plus
+one sentence naming the task and the release point):
+
+```
+error: exclusive access violation: `n` cannot be written here — the task
+       spawned at line 21 holds `&var n` until `h.join()` releases it
+error: cannot `move` `buf` while a spawned task borrows it: the task spawned at
+       line 26 holds `&var buf` until `h.join()` releases it
+```
+
+The access clause varies over read / written / captured into another task /
+accessed by reference; the extent clause is one sentence with two forms, the
+second being ``its group `group` is torn down at the end of this scope (nothing
+joins its handle)``. The hint names the join and then `Arc<Mutex<T>>`/`Channel`.
+
+**One rule beyond the brief's letter, in its spirit: the LOOP case.** A capture
+still live when a loop body ends would open a second exclusive borrow of the
+same root on the next iteration — one textual spawn, N live borrows, the Law
+violated by iteration rather than by a second line. It is refused at the spawn,
+beside the cross-iteration MOVE rule that already lives in `_check_loop_body`.
+Spawn-and-join-inside-the-body is untouched and pinned as an accept.
+
 **Status: APPROVED + QUEUED (user, Aug 9: "it is a legit hole that we
 need to fix … they seem consistent and understandable — let's brief it
 as discussed"). Probe-driven: the probes CONFIRMED two silent
@@ -72,27 +104,49 @@ task's lifetime, and the task's HANDLE carries that borrow.**
 
 ## Units
 
-1. **The extent machinery**: register capture borrows at spawn sites,
-   release at handle-join / group death; wire into the existing
-   path-disjointness and move checkers. Flips the three new pins (below).
-2. **Diagnostics**: the errors are the EXISTING exclusivity/move errors
-   with one added sentence naming the task and the release point ("the
-   task spawned at LINE holds `&var buf` until its join at LINE / its
-   group's death"). No new error vocabulary.
-3. **Pins + accepts**: probes 1, 2 and 5 are PRE-PINNED on main (user,
-   Aug 9) as `examples/spawn_capture_alias.saw` (DF-189a),
-   `examples/spawn_capture_caller_alias.saw` (DF-189b) and
-   `examples/spawn_capture_move_root.saw` (DF-189c) — unit 1 flips all
-   three XPASS. Add accept-side tests for the patterns that must
-   SURVIVE: single capture + touch-after-join, disjoint roots into two
-   tasks, shared captures beside reads, the spawn-join-use idiom.
-   Regression-pin probe 4's existing MT rejection.
-4. **Design-88 relaxation (OPTIONAL — separate ratification):** the same
-   machinery blesses reference PARAMS at spawn roots (`group.spawn(f(&x))`)
-   under the same declared-before + handle-extent rules, restoring
-   param/capture symmetry in the permissive direction and retiring the
-   Arc/Mutex tax on scoped sharing. Recommend ratifying only after unit
-   1 proves the extent model in the capture position.
+1. **The extent machinery** — LANDED. `TaskCaptureBorrow` records live in
+   function-local checker state beside the move state (`core.py`), registered at
+   `_check_taskgroup_spawn` and released at `h.join()` / group death. Five
+   existing access sites consult them: `_check_call_exclusivity` (which is where
+   a second `[&var n]` capture is refused — a capture list is already part of a
+   call's access set, so DF-189a needed no new site), `_check_identifier`
+   (reads), `_check_move_expr`, the assign/compound-assign statements (writes,
+   charging the access path's ROOT), and `_check_loop_body`. Conservative at
+   every join point: `_check_block` restores what was live on entry, so a join
+   inside a branch does not release for the code after it.
+2. **Diagnostics** — LANDED WITH UNIT 1 (see the wording above). The errors are
+   the existing exclusivity/move vocabulary plus one sentence; no new error
+   family, no new `ErrorKind`.
+3. **Pins + accepts** — LANDED. The three pre-pinned probes flipped.
+   `examples/spawn_capture_join_releases.saw` is the accept side as one running
+   program: disjoint roots into two concurrently-live tasks, two shared
+   `[&base]` captures live at once with a caller read between the spawns, and
+   spawn-join-in-a-loop-body over a `Vector` root (the storage DF-189c handed a
+   task after freeing). Two new error pins cover the conservative edges:
+   `errors/spawn_capture_unjoined_handle.saw` (discarded handle, and a join
+   inside an `if`) and `errors/spawn_capture_across_iterations.saw` (the loop
+   rule). Probe 4's MT rejection needed nothing: design 188 unit 5 already
+   pinned it at `errors/spawn_capture_mt_send.saw`, and 189 leaves it untouched.
+   The single-capture spawn-join-use idiom is 188's `spawn_capture_declared_
+   before.saw` and was deliberately not duplicated.
+4. **Design-88 relaxation (OPTIONAL — separate ratification): NOT BUILT, and
+   still owed a ruling.** The same machinery would bless reference PARAMS at
+   spawn roots (`group.spawn(f(&x))`) under the same declared-before +
+   handle-extent rules, restoring param/capture symmetry in the permissive
+   direction and retiring the Arc/Mutex tax on scoped sharing. Unit 1 has now
+   proved the extent model in the capture position, which was the precondition
+   this unit was waiting on; it remains future work until ratified.
+
+## What landed against what the brief asked
+
+Everything in units 1-3, plus the loop rule described in the status block. The
+release points are exactly as ratified: the handle carries the borrow, `join()`
+releases, group death is the fallback for a discarded or unjoined handle, an
+exclusive capture excludes caller reads, and `cancel` does not release. A handle
+that escapes its scope or is stored keeps its borrow to group death — reached
+here by not recognizing a join on anything but an identifier receiver, and by
+clearing the handle name (not the borrow) when the handle binding dies unjoined,
+so the diagnostic stops naming a binding that is out of scope.
 
 ## Sequencing
 

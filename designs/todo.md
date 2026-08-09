@@ -139,7 +139,7 @@ absent path (audit row O10). The type error is still owed (187 unit 7,
 note updated there). Audit rows confirming fixed items: V17 (DF-146j),
 O10/O11 controls, the 26/26 trap table.
 
-## Design 189 — scoped task borrows (APPROVED + QUEUED, Aug 9; probe-CONFIRMED soundness)
+## Design 189 — scoped task borrows (UNITS 1-3 LANDED, Aug 9; unit 4 NOT built)
 
 `designs/189-scoped-task-borrows.md`, authored from the five-probe
 investigation the user directed ("first probe it and then write a brief
@@ -161,28 +161,46 @@ immediately after 188, before 186. Queue RESUMED same day:
 
 Standing after design 188 landed (Aug 9): (a) is CLOSED — DF-188c(i) is a
 compile error naming the LIFO order, and its pin flipped. The `move`-the-group
-route (b) depended on is closed too, by DF-188d's `NoMove`. What 189 still owns
-is the borrow EXTENT: DF-189a/b/c below are unchanged and still pinned xfail,
-and the declared-before ordering 188 rules legal (`examples/
-spawn_capture_declared_before.saw` is its accept pin) is exactly the ordering
-DF-189c makes unsound without extent tracking.
+route (b) depended on is closed too, by DF-188d's `NoMove`.
 
-The probe outcomes, filed as findings so the pins cite them (user, Aug 9:
-"pre-pin the 189 probes"):
+Units 1-3 LANDED Aug 9 in three commits, full suite green at each. A reference
+capture into `group.spawn(...)` now borrows its ROOT for the task's life, the
+HANDLE carries the borrow, `join()` releases it, and a discarded or unjoined
+handle releases at the group's death. Not a new checker — a new EXTENT: the
+records live beside the move state and five existing access sites consult them.
+Diagnostics are the existing exclusivity/move errors plus one sentence naming
+the task and its release point. All three pins flipped; two error pins and one
+accept pin were added for the edges (see the brief). Unit 4 (the design-88
+reference-PARAM relaxation) is NOT built and still needs its own ratification —
+its precondition, the extent model proved in the capture position, is now met.
 
-- **DF-189a (SOUNDNESS-CONTRACT, probe 1): two `[&var]` captures of one
-  root co-live silently** — both tasks mutate the one root, two exclusive
-  borrows across suspensions, no diagnostic. PIN:
+- **DF-189a — CLOSED (unit 1).** Two `[&var]` captures of one root co-lived
+  silently: both tasks mutated the one root, two exclusive borrows across
+  suspensions, no diagnostic. Cause: a capture's borrow ended with the spawning
+  call, so nothing was live at the second spawn to collide with. Fixed by the
+  extent — and with no new site, because a capture list is already part of a
+  call's access set, so the second capture collides with the first task's
+  borrow exactly the way two captures in ONE call collide. Pin flipped:
   `examples/spawn_capture_alias.saw`.
-- **DF-189b (SOUNDNESS-CONTRACT, probe 2): the caller writes and reads a
-  root while a task holds `[&var]` of it** — writer aliases writer across
-  the spawn/join window, no diagnostic. PIN:
+- **DF-189b — CLOSED (unit 1).** The caller wrote and read a root while a task
+  held `[&var]` of it. Both are refused now: an exclusive capture excludes
+  readers as well as writers, which is the ratified one-writer-XOR-many-readers
+  table over a task-length window. Pin flipped:
   `examples/spawn_capture_caller_alias.saw`.
-- **DF-189c (SOUNDNESS-UAF, probe 5): `move` of a captured root between
-  spawn and join hands the task freed memory** — the moved-to value drops,
-  the join then drives the task, which reads the dead slot and reallocs
-  from the freed buffer, silently, exit 0 — in the declared-before
-  ordering DF-188c rules legal. PIN: `examples/spawn_capture_move_root.saw`.
+- **DF-189c — CLOSED (unit 1), the headline.** `move` of a captured root
+  between spawn and join handed the task freed memory: the moved-to value
+  dropped, the join then drove the task, which read the dead slot and realloc'd
+  from the freed buffer, silently, exit 0 — in the declared-before ordering
+  DF-188c rules legal. The move-while-borrowed refusal already existed; what it
+  lacked was a visible borrow. Pin flipped:
+  `examples/spawn_capture_move_root.saw`.
+- **DF-189d (filed and CLOSED in the same landing, unit 1): a capture still
+  live when a LOOP BODY ends.** One textual spawn, N live borrows — the Law
+  violated by iteration rather than by a second line, and outside the letter of
+  the brief's probe record. Refused at the spawn, beside the cross-iteration
+  MOVE rule already in `_check_loop_body`. Spawn-and-join-inside-the-body stays
+  legal. Pin: `examples/errors/spawn_capture_across_iterations.saw`; accept side
+  in `examples/spawn_capture_join_releases.saw`.
 
 ## DF-182f — irdet's fan-out lost its accidental throttle (FOUND + FIXED Aug 9, live incident)
 
