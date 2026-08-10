@@ -44,6 +44,60 @@ refused, an inconsistency with no principle behind it.**
 Per-unit commits, tracked battery each; irdet --all (typechecker-only,
 byte-identity expected). The sweep list is the review surface.
 
+## Consumer sweep — the record (unit 2, obligation 2)
+
+Run Aug 10, BEFORE the flip. This rule refuses code that compiles today,
+so the sweep is the review surface and it is recorded here rather than
+only in a commit message.
+
+**Method — two passes, because a grep cannot see nesting.** The first is
+a parse-only AST scan of every tracked `.saw` file (`git ls-files
+'*.saw'`, 1890 files, ZERO parse failures outside the `examples/`
+parse-error fixtures): for each call it collects the by-reference
+accesses the new access set holds — the receiver, the direct `&`/`&var`
+arguments, and every `&`/`&var` written strictly BELOW an argument — and
+flags the call when two of them share a ROOT and at least one is
+mutable. Root granularity, so it deliberately OVER-reports against the
+real path test. The second pass is the compiler itself, with the unit-3
+check in the working tree, over every corpus that compiles Saw.
+
+**Population.** 262 argument lists in the tree create a reference inside
+a nested call at all. Almost all are one shared `&` under an `assert`
+comparison (`assert(kind(&a, 16) == TokenKind.CaretAssign, "^=")` in
+`selfhost/lexer/tests/`), which is a single access and cannot conflict
+with anything.
+
+**Plausible conflicts: 7, and every one is a test of this rule or its
+neighbours.** Nothing in `sawc/std`, `blade/` (incl. `blade/tests`),
+`libs/` (incl. `libs/*/tests`), `devtools/`, `sos/` or `selfhost/`.
+
+| Site | Disposition |
+|------|-------------|
+| `examples/conformance/X41_nested_call_ref_overlaps_sibling.saw:32` | this brief's reject row |
+| `examples/conformance/X44_nested_call_ref_overlaps_receiver.saw:32` | this brief's reject row |
+| `examples/conformance/X45_two_nested_calls_one_root.saw:29` (two accesses) | this brief's reject row |
+| `examples/conformance/X43_nested_ref_disjoint_from_every_sibling.saw:39` | this brief's ACCEPT row — `scale(&var r.b, bump(&var r.a))`, over-reported by root granularity and correctly accepted by the path test |
+| `examples/conformance/Z03_replace_container_during_window.saw:17` | already an error row (design 188 unit 2's place-window half) |
+| `examples/errors/df151j_tuple_element_exclusivity.saw:20` | already an error row (DF-151j) |
+
+**Compile pass, with the check in.** `suite` (1696 tests), `bootstrap`
+(sawc builds blade, blade builds and tests blade, then `blade test` in
+`libs/toml` and `libs/semver` — which is what typechecks those test
+trees), `sos` (32 tests, riscv32 + arm64), `irdet --all`, `bench`,
+`lexdiff`, `astdiff`, `astgraft`, `ircontract`, `preludegate`, `abidoc`,
+`bttable`, `fuzz`, `gmgate`, `icebreadcrumb`: all GREEN. The only
+failures anywhere were the three XPASS the brief's own unit-1 pins
+expect.
+
+**Offenders fixed: none — there were none.** No hoisted `let` is owed
+anywhere in the tree. The rule's blast radius on existing code is empty,
+which is the answer the ruling was betting on and the reason it could be
+made without a grandfathering clause.
+
+`Vector.fold`'s `acc = combine(move acc, e)` is untouched as the brief
+predicted: a `move` is not a borrow, and the scan classifies it as
+neither of the two by-reference kinds.
+
 ## Explicitly out
 
 Borrow lifetimes/regions in general (the Law stays per-statement); the
