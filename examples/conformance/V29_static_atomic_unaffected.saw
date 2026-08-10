@@ -1,0 +1,25 @@
+// Conformance row V29 — a `static` of a move-only `Atomic` still works
+//
+// The control that made design 202's census safe to act on: a NoCopy `static`
+// is legal (the `SpinLock` statics have proved it since design 149), and every
+// operation on an atomic takes `&self`, so the whole global-counter idiom is
+// untouched by the tier change. Nothing here copies the atomic — the static IS
+// the storage, and a `&` parameter borrows it.
+//
+// EXPECT: success
+// EXPECT-OUTPUT: prev 0
+// EXPECT-OUTPUT: now 5
+// EXPECT-OUTPUT: lent 5
+// EXPECT-OUTPUT: swapped true 7
+
+static COUNTER: Atomic<Int> = Atomic(0)
+
+func read(a: &Atomic<Int>) -> Int { a.load() }
+
+func main() {
+    print("prev {COUNTER.fetch_add(5)}")
+    print("now {COUNTER.load()}")
+    print("lent {read(&COUNTER)}")
+    let ok = COUNTER.compare_exchange(5, 7)
+    print("swapped {ok} {COUNTER.load()}")
+}

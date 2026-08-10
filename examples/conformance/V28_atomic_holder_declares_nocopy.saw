@@ -1,0 +1,36 @@
+// Conformance row V28 — the accept side of V27: the declared-NoCopy holder
+//
+// One line of policy is the whole migration design 202 asks of a holder. With
+// it the struct builds, its atomic field mutates through a `&self` method (the
+// cell-carrying receiver travels by pointer), and it is lendable and movable
+// like any other move-only value.
+//
+// EXPECT: success
+// EXPECT-OUTPUT: live 2
+// EXPECT-OUTPUT: lent 2
+// EXPECT-OUTPUT: moved 3
+
+struct Holder {
+    n: Atomic<Int>
+}
+
+extension Holder: NoCopy {}
+
+extension Holder {
+    func bump(&self) { let _old = self.n.fetch_add(1) }
+    func get(&self) -> Int { self.n.load() }
+}
+
+func observe(h: &Holder) -> Int { h.get() }
+
+func main() {
+    let h = Holder(n: Atomic(0))
+    h.bump()
+    h.bump()
+    print("live {h.get()}")
+    print("lent {observe(&h)}")
+
+    let moved = move h
+    moved.bump()
+    print("moved {moved.get()}")
+}

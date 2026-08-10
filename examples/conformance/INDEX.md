@@ -6,9 +6,10 @@ either a file in this directory or an existing `examples/` test that already
 asserts the same rule at the same position — this table is the record of which,
 and the dedup decisions are meant to be audited from it.
 
-**81 rows carry a file here; 194 are covered elsewhere.** (The audit's 247 plus
+**86 rows carry a file here; 194 are covered elsewhere.** (The audit's 247 plus
 the rows later briefs added: W02-W05, design 194 unit 4; W06-W19, design 195
-unit 1; X41-X45, design 199 unit 1; M31-M35, design 200 unit 1.)
+unit 1; X41-X45, design 199 unit 1; M31-M35, design 200 unit 1; V26-V30,
+design 202 unit 1.)
 
 ## How to read it
 
@@ -169,7 +170,7 @@ Claim source: spec 4 *Reference Types* + *Places*; designs 34, 106, 141, 188 u2,
 
 ## Moves and use-after-move
 
-Claim source: spec 4 *The Copy Trait Family* + *Move-Only Types*; designs 34, 131, 139, 159
+Claim source: spec 4 *The Copy Trait Family* + *Move-Only Types*; designs 34, 131, 139, 159, 202
 
 | Row | Checks | Covered by | Ruling |
 |-----|--------|------------|--------|
@@ -198,6 +199,11 @@ Claim source: spec 4 *The Copy Trait Family* + *Move-Only Types*; designs 34, 13
 | V23 | declaring `extension T: Deinit {}` by hand (design 131) | `errors/deinit_needs_copy_policy.saw` |  |
 | V24 | calling `deinit()` manually | `errors/manual_deinit.saw` |  |
 | V25 | deinit-once through an auto-ImplicitCopy struct copy (design 159 retain) | `V25_implicitcopy_deinit_once.saw` |  |
+| V26 | `let b = a` on an `Atomic<Int>` local | `V26_copy_atomic_local.saw` | 202 — DF-186a: copying an atomic forked the counter silently, and had since design 41; move-only now |
+| V27 | a struct holding an `Atomic` field with no declared policy | `V27_atomic_field_no_policy.saw` | 202 — an `Atomic` field contributes `NoCopy`, so the containment cascade names the field like any other |
+| V28 | control: the declared-NoCopy holder builds, mutates and moves | `V28_atomic_holder_declares_nocopy.saw` | 202 — the accept side; one line of policy is the whole migration |
+| V29 | control: a `static Atomic<Int>` mutated in place and lent by `&` | `V29_static_atomic_unaffected.saw` | 202 — statics are unaffected: a NoCopy static is legal and every atomic op takes `&self` |
+| V30 | `move` of an `Atomic` local, into a binding, a call and a struct | `V30_move_atomic_local.saw` | 202 — `NoCopy` and deliberately not `NoMove`: nothing pins an atomic's address |
 
 ## Places (`borrows` / `lend`) — window discipline
 
@@ -479,7 +485,11 @@ rows (R24, X15, X16, X20, U24, U25). The seventh is the suite's one open gap:
 
 Obligation 3 asks a safety-surface brief for its rows FIRST, so a row that
 states a ruling the compiler has not been taught yet lands as a cited XFAIL and
-the unit that teaches it removes the marker. None are open.
+the unit that teaches it removes the marker.
+
+Open: **V26, V27** — XFAIL citing DF-186a (`Atomic` is bitwise-copyable, so a
+`let b = a` forks the counter and a struct holding one owes no policy). Design
+202 unit 2 declares `NoCopy` on `Atomic` and removes both markers.
 
 Closed: **M31** — written under an XFAIL citing DF-176c (a `&self` method
 writing through a place window on INLINE storage was a silent no-op into the

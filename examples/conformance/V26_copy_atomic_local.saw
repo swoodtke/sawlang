@@ -1,0 +1,22 @@
+// Conformance row V26 — `let b = a` on an `Atomic<Int>` local
+//
+// Design 202: `Atomic` is move-only. A copied atomic is a SECOND counter with
+// its own storage, so a `fetch_add` through one is invisible through the other
+// — the fork is silent and every count after it is a wrong answer. The refusal
+// is the ordinary NoCopy transfer error, and `move` is the way to hand one on
+// (row V30).
+//
+// XFAIL: DF-186a `Atomic` is still bitwise-copyable — the design-186 cell clause
+// lets an `Atomic<Int>` be duplicated by a plain `let`, forking the counter
+// silently. Design 202 unit 2 declares `NoCopy` on `Atomic` and flips this.
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: cannot copy value of type `Atomic<Int>` which implements NoCopy
+
+func main() {
+    let a = Atomic(0)
+    let b = a
+    let _old = a.fetch_add(1)
+    // Two counters where the program named one: without the refusal this prints
+    // `1 0`.
+    print("{a.load()} {b.load()}")
+}

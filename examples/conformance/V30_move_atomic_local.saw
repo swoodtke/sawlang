@@ -1,0 +1,38 @@
+// Conformance row V30 — `move` of an `Atomic` local
+//
+// Move-only means move-ABLE: design 202 gives `Atomic` `NoCopy` and not
+// `NoMove`, because nothing pins an atomic's address (the futex word the
+// runtime waits on is reached through a static, never through a local). So the
+// one counter travels — into another binding, into a call, into a struct — and
+// the binding it left is retired.
+//
+// EXPECT: success
+// EXPECT-OUTPUT: moved 4
+// EXPECT-OUTPUT: consumed 9
+// EXPECT-OUTPUT: in a holder 2
+
+struct Holder {
+    n: Atomic<Int>
+}
+
+extension Holder: NoCopy {}
+
+func consume(a: Atomic<Int>) -> Int {
+    let _old = a.fetch_add(1)
+    a.load()
+}
+
+func main() {
+    let a = Atomic(3)
+    let b = move a
+    let _old = b.fetch_add(1)
+    print("moved {b.load()}")
+
+    let c = Atomic(8)
+    print("consumed {consume(move c)}")
+
+    let d = Atomic(1)
+    let h = Holder(n: move d)
+    let _bumped = h.n.fetch_add(1)
+    print("in a holder {h.n.load()}")
+}

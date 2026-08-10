@@ -1,0 +1,22 @@
+// Conformance row V27 — a struct holding an `Atomic` field declares a policy
+//
+// The containment cascade, on the terms every other NoCopy member already gets
+// (row V19 for a `Vector` field, V20 for an enum payload): an `Atomic` field
+// makes its container move-only, so the container states that itself. The
+// diagnostic names the FIELD, because that is what the author has to look at to
+// decide between `NoCopy` and holding the atomic behind an indirection.
+//
+// XFAIL: DF-186a an `Atomic` field contributes its `T`'s copy class, so this
+// struct compiles and copies bitwise today. Design 202 unit 2 moves `Atomic`
+// itself to the NoCopy tier and flips this.
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: struct `Holder` contains NoCopy field `n` of type `Atomic<Int>` but does not implement NoCopy
+
+struct Holder {
+    n: Atomic<Int>
+}
+
+func main() {
+    let h = Holder(n: Atomic(0))
+    print(h.n.load())
+}
