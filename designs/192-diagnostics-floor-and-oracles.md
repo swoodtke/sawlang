@@ -1,5 +1,41 @@
 # Design 192 — the diagnostics floor, the fuzzer, and the guarded lane
 
+**LANDED Aug 10** in five commits, one per unit, the full suite green at each.
+All five units built as written. What it produced beyond the units:
+
+- **Unit 1's flush is exactly one node type: `ErasedErrWrap` (DF-192a).** The
+  checker builds one, writes it back into the AST, and re-walks it on the
+  design-146 second pass, where it fell through the dispatch. Its three
+  siblings all carry the re-check visitor; this one never got it. Fixed with
+  the sibling body. Emission byte-identical across all 14 erased-error corpus
+  programs.
+- **SIX findings filed, two fixed.** DF-192a (fixed) and DF-192e (fixed:
+  `FixedBuf<0x10>()` was DF-185a at the second hand-rolled `int()` site,
+  which design 185 never reached). DF-192b/c (erased-Result ICEs, found while
+  probing unit 1's flush), DF-192d (a duplicate enum `match` arm is an LLVM
+  `duplicate case value in switch` — and OWES A LANGUAGE RULING, since the
+  duplicate LITERAL arm one position over compiles and takes the first),
+  DF-192f (nothing checks integer width agreement), and DF-192g — the
+  SOUNDNESS one: `if a > 0 { 11 } else { 7i16 }` compiles and `f(-3)` prints
+  `11`, a wrong answer with exit 0. All four pinned with cited XFAILs.
+- **Unit 2 grew two entry points the brief did not name**, both found by grep
+  and by the fuzzer: `TypeChecker.check` on the builtins (an internal failure
+  while checking std still printed a traceback), and the llvmlite stage
+  (`emit_ir` / `compile_to_object` run AFTER `run_codegen` returns, so a
+  refused IR module was a raw traceback). `tools/test_ice_breadcrumb.py`
+  (`make icebreadcrumb`) is the oracle for the whole floor, because an ICE is
+  a path no corpus program takes — delete a breadcrumb stamp and every test
+  still passes.
+- **Unit 3's acceptance replay passed**: the fuzzer, seeded over the
+  pre-design-185 compiler (materialized out of git into scratch), rediscovered
+  DF-185a in 43 seconds — `literal-rewrite: 3 -> 0o3` on
+  `examples/enum145_raw_backed.saw`, minimized to two lines. Its first sweep
+  of the CURRENT tree then produced DF-192d/e/f/g.
+- **Unit 5 created `tools/battery.sh`** as the canonical tracked battery
+  (lead's decision), replacing the untracked scratch script.
+
+Original brief follows.
+
 **Status: AUTHORED from design 190's analysis (Aug 9), awaiting user
 approval to queue. Payoff (matrix evidence): 9 of the week's findings
 wore an ICE face and would surface within HOURS under a corpus fuzzer

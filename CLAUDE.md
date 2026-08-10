@@ -137,6 +137,27 @@ objects are built + cached under `.build/rt/` and auto-linked (delete
   orders that had sat in the tree unnoticed until two unrelated new
   examples reshuffled the sample onto one of them. Two machines:
   `./.venv/bin/python tools/irdet_remote.py --all --remote HOST:PORT`.
+- **THE GATE BATTERY is `tools/battery.sh`** (design 192 unit 5) — tracked,
+  so a lane cannot quietly go missing the way it did while the battery was
+  an untracked scratch file each session rewrote from this prose:
+  ```bash
+  SAW_PYTHON=/path/to/main/.venv/bin/python tools/battery.sh   # from a worktree
+  tools/battery.sh --quick        # skips irdet/gmgate/bootstrap/sos
+  tools/battery.sh suite fuzz     # named stages
+  tools/battery.sh --list
+  ```
+  Stages: `suite`, `icebreadcrumb`, `lexdiff`, `astdiff`, `ircontract`,
+  `preludegate`, `abidoc`, `bttable`, `fuzz` (`sawfuzz --quick`), then the
+  slow four `irdet` (`--all`, whole corpus), `gmgate` (both lanes),
+  `bootstrap`, `sos`. Every stage RUNS even after one fails; the exit code
+  is the number of failing stages. Adding a lane means editing `STAGES`.
+- Fuzzing (design 192): `tools/sawfuzz.py` mutates the examples/ corpus and
+  asserts ONE oracle — the compiler succeeds or exits with a clean
+  diagnostic; a traceback, an `internal compiler error`, a signal or a hang
+  is a finding, minimized into `.build/fuzz-findings/` with its seed.
+  Deterministic per `(seed, index)`, wave-bounded fan-out. A finding becomes
+  a DF + a cited XFAIL pin + a `tools/sawfuzz_known.txt` entry, all three
+  removed together by the fix. `--soak` runs it unbounded. See TESTING.md.
 - Pyright diagnostics on sawc/ are NOISE (mixin `self.X` false
   positives) — ignore unless a real behavior test fails.
 

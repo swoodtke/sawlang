@@ -28,6 +28,20 @@ deleted. Three soundness holes closed (DF-190d, DF-193b, the unchecked `spawn`
 result); four findings filed (DF-193a/b/c-in-193b/d). Two census diagnoses were
 wrong and are corrected in place below.
 
+**192 LANDED Aug 10** (all five units; see
+`designs/192-diagnostics-floor-and-oracles.md`). The compiler no longer has an
+unwrapped stage: both typechecker dispatch fallthroughs RAISE, four dispatch
+chokepoints stamp a `_current_node` breadcrumb, and every internal failure —
+typechecker, codegen, or llvmlite — reports one line,
+`internal compiler error at FILE:LINE:COL (<NodeType>): <message>`, with
+`SAW_DEBUG=1` keeping the traceback. `tools/sawfuzz.py` fuzzes the corpus by
+mutation against one oracle (succeed or diagnose cleanly), deterministic per
+`(seed, index)` and wave-bounded; `tools/sawfuzz_known.txt` is its XFAIL
+ledger. gmgate gained a 15-program `concurrency` lane beside the ownership one.
+`tools/battery.sh` is now the tracked battery. SIX findings: DF-192a and
+DF-192e fixed, DF-192b/c/d/f/g pinned. **DF-192d owes a language ruling and
+DF-192g is a confirmed wrong answer** — both below.
+
 - **DF-190a — FIXED (pulled forward of the queue, landed Aug 9/10).**
   The typechecker now mirrors codegen's consume gate in
   `_check_match_expr`: a plain local scrutinee of an owning-tier

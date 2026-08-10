@@ -268,10 +268,38 @@ Three rules follow from that, and they bind anything touching this directory:
 Per design 190's third process rule, a brief that touches a safety guarantee
 adds or updates its conformance rows as its FIRST unit.
 
-## Ownership Gate Under Guard Malloc
+## The Gate Battery
+
+```bash
+tools/battery.sh                     # everything
+tools/battery.sh --quick             # skip the slow lanes (irdet, gmgate, bootstrap, sos)
+tools/battery.sh suite fuzz          # named stages only
+tools/battery.sh --list              # what the stages are
+```
+
+Everything a design brief runs before it is called landed, in one tracked
+script. Every stage runs even after one fails — "the suite is red" and "the
+suite is red and so is irdet" are different situations — and the exit code is
+the number of failing stages.
+
+The interpreter comes from `$SAW_PYTHON`, else `./.venv/bin/python`, else
+`python3`. A worktree has no venv of its own, so point it at the main
+checkout's:
+
+```bash
+SAW_PYTHON=/path/to/main/.venv/bin/python tools/battery.sh
+```
+
+Adding a lane means editing `STAGES` in the script. That is the point of it
+being tracked: it used to be an untracked scratch file each session rewrote
+from prose, and a gate list nobody can diff is a gate list that quietly loses
+an entry.
+
+## Ownership and Concurrency Gates Under Guard Malloc
 
 ```bash
 make gmgate                          # or: ./.venv/bin/python tools/gmgate.py
+./.venv/bin/python tools/gmgate.py --lane concurrency -v
 ./.venv/bin/python tools/gmgate.py -n 30 -v   # more runs, per-program detail
 ```
 
@@ -288,14 +316,90 @@ Guard Malloc (`/usr/lib/libgmalloc.dylib`) puts every allocation on its own page
 and unmaps it on free, which turns a latent over-release into a fault at the
 instruction that made it — 100% reproducible instead of 15-35% per run.
 
-`tools/gmgate.py` runs a small curated set of ownership oracles under it. The
-lane is deliberately short: Guard Malloc costs a page per allocation and is far
-too slow for the whole suite, and what it needs to cover is the tests that
-assert something about copies, retains, drops or refcounts. **Add a program to
-`GATE` in `tools/gmgate.py` whenever you write such a test.**
+`tools/gmgate.py` runs two small curated lanes under it. Both are deliberately
+short: Guard Malloc costs a page per allocation and is far too slow for the
+whole suite, so each covers only the tests that are ownership ORACLES.
+
+- **`ownership`** (10 runs each) is about VALUES — copies, retains, drops,
+  refcounts, containers, `Data`'s copy-on-write.
+- **`concurrency`** (5 runs each) is the same failure where the value lives in
+  a heap-resident coroutine FRAME or crosses a task boundary: a frame handoff,
+  a capture a task holds while its spawner runs on, a group teardown, a channel
+  send. Design 190's audit found two confirmed silent use-after-frees in that
+  surface and the suite saw neither. Fewer repeats because these have a
+  scheduler under them — a repeat buys interleaving variety, not the same trace
+  again.
+
+The lane faults on what it is for, measured rather than assumed: a probe that
+returns a pointer into heap storage a suspending frame released prints a
+plausible byte and exits 0 natively, and takes SIGSEGV under this harness.
+
+**Add a program to `OWNERSHIP_GATE` or `CONCURRENCY_GATE` in
+`tools/gmgate.py` whenever you write such a test.**
 
 macOS only — Guard Malloc is a macOS facility, so on other platforms the tool
 reports `SKIPPED` and exits 0 rather than failing.
+
+## The Corpus-Mutation Fuzzer
+
+```bash
+./.venv/bin/python tools/sawfuzz.py --quick        # ~1 minute, the battery mode
+./.venv/bin/python tools/sawfuzz.py --quick 500    # explicit mutant count
+./.venv/bin/python tools/sawfuzz.py --soak         # until you stop it
+./.venv/bin/python tools/sawfuzz.py --seed 12345 --quick 200
+./.venv/bin/python tools/sawfuzz.py --seed 1 --replay-index 91   # ONE mutant
+./.venv/bin/python tools/sawfuzz.py --corpus-filter enum_raw     # narrow it
+```
+
+`tools/sawfuzz.py` takes a program out of `examples/`, applies one cheap
+syntactic mutation, and compiles it. **One oracle: the compiler either succeeds
+or exits with a clean diagnostic.** A Python traceback, an
+`internal compiler error`, a crash by signal or a hang is a finding — whatever
+the mutant looked like. Nonsense a user can type still deserves an error
+message with a location, and design 190's census counted nine of one week's
+findings wearing exactly that face.
+
+Six mutations, each aimed at a class of path: token substitution out of the
+language's own vocabulary (a keyword where a name belongs), literal rewrites
+between the notations design 50 says are interchangeable, operator swaps inside
+a family, delete-a-token (which is how parser RECOVERY gets exercised),
+duplicate-a-line, swap-two-statements.
+
+Mutation is the right shape here because the corpus is 1200+ programs that
+already reach deep into the compiler. A one-token edit of a program that
+reaches the coroutine transform still reaches the coroutine transform; a
+generated program mostly does not get past the parser.
+
+Every choice comes from `(seed, index)` and nothing else — no wall-clock, no
+PID, no `os.urandom`, no set or dict iteration order, corpus order sorted — so
+a finding replays. Subprocesses run in waves of `--jobs`, every wave reaped
+before the next starts (DF-182f was a fork bomb; there is no path here that
+spawns without counting).
+
+### When it finds something
+
+A finding is written to `.build/fuzz-findings/` as three files: the mutant
+`.saw`, a delta-minimized `.min.saw`, and a `.txt` with the seed, the index,
+the parent program, the mutation, the exact command and the compiler's output.
+Findings are deduplicated by failure signature, so one bug hit thirty times
+reports once. A mutant that fails is re-checked against its unmutated parent
+first — if the parent fails the same way, the mutation found nothing.
+
+Then it is an ordinary finding:
+
+1. File it as a DF in `designs/todo.md`.
+2. Pin the `.min.saw` in `examples/` under a name that says what BEHAVIOR it
+   pins — never an `_xfail` suffix, since the marker is the transient part.
+3. Mark it `// XFAIL:` citing the DF, with EXPECT directives stating the
+   INTENDED behavior, so the XPASS flip validates the fix.
+4. Add its signature to `tools/sawfuzz_known.txt` — the fuzzer's own XFAIL
+   ledger. A listed signature is still reported, with its DF number, but does
+   not fail the run. Without that, one filed-and-unfixed bug paints the battery
+   red on every future commit, and a gate everyone has learned to ignore is
+   worse than no gate.
+5. In the landing that FIXES it: delete the XFAIL marker and the ledger entry
+   together. A ledger entry that no longer fires is stale exactly as an XPASS
+   marker is; `--ignore-known` re-reports everything, which is how you check.
 
 ## The IR Contract Gate
 
