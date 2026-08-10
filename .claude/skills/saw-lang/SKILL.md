@@ -1549,7 +1549,16 @@ import mymodule as mm       // aliasing; `module`/`public`/`package`/`parent`
   `wire.Header`). A bare use with two in scope is an ambiguity error naming
   both modules, at the USE site. Nothing about how you WRITE a type changed;
   names print short everywhere (`--emit-docs` adds a `module` field where two
-  would read alike).
+  would read alike). **std is under the rule too (design 204):** each std FILE
+  is its own module, so the types a std file keeps to itself — `State`,
+  `MapSlot`, `LockState`, `OpenMode`, `SeekWhence`, `DataBuf`, `SetMark`,
+  `FdPair`, `LockRelease`, the `Cbor*` internals, the iterators — reserve
+  NOTHING, and your own type may carry the name. A std module's surface is what
+  it declares `public`, and nothing else is reachable through any import form
+  (``error: `OpenMode` is not defined in `std.file` `` + ``hint: available:
+  File``). std's PUBLIC types are untouched: `Vector`/`File`/`Data` are still
+  one declaration each, and redeclaring one is still ``struct `Vector` is
+  defined multiple times``.
 - **Prelude (design 82) — what's bare vs what needs `import std.X`.** Bare
   (prelude): primitives, `Vector`/`Map`/`Set`, `Optional`/`Result`/`Box`/`Arc`/
   `Allocator`/`GlobalAllocator`, the Copy family + `Deinit`/`Iterator`/

@@ -1,5 +1,9 @@
 # Design 204 — a private std type reserves nothing
 
+**LANDED Aug 10**, all four units, tracked battery green. DF-153b and
+DF-153a closed; DF-204a and DF-204b filed. The decisions the units
+needed beyond the brief's text are recorded at the bottom.
+
 **Status: RULED + AUTHORED Aug 10 (check-in), dispatch beside 196.
 Closes DF-153b (probe-confirmed severe: a user `enum State` is REFUSED
 on main today, reserved by std/once.saw's PRIVATE `State` since Aug 9)
@@ -62,3 +66,53 @@ Any change to PUBLIC std type exposure (prelude and import gate stay
 exactly as designs 82/150/194 left them); the net.saw SYS_* conversion
 itself (mech follow-up); user-module identity (144 landed it; this
 brief only extends its key to std file-modules).
+
+## What the units decided (Aug 10)
+
+1. **"Private" had to become a DECLARED fact.** The brief's key is
+   `(defining module, name)` for a std type that is private, and std had
+   no way to say which those were: the parser defaults a top-level type
+   to `Visibility.PRIVATE` and std ignored the answer, so `Vector` and
+   `MapSlot` were equally "private" and equally exposed. A census over
+   all 101 std type declarations (bucket A: 76 named outside std or in
+   the docs; bucket B: 0; bucket C: 25 strictly file-private) sorted
+   them, and 40 `public` markers now say what std publishes. That is the
+   design-80/82 gate finishing the job for types, and it is why `--emit-docs`
+   on std reads `public struct Vector` from here on.
+
+2. **`builtin.saw` is exempt wholesale.** It declares the compiler's own
+   vocabulary, holds no private type, and every name in it is either
+   published or reached by string from `sawc/`. Qualifying anything there
+   would be pure churn.
+
+3. **Four internals stay `public` because the compiler spells them.**
+   `__TaskCell`/`__ResultCell`/`__VoidCell` and `RangeInclusive` are
+   selected by string in `coro_transform.py` and `codegen/loops.py`. They
+   keep the plain identity, with a comment saying why. Filed as DF-204a:
+   the ruling holds for 24 of 28 genuinely internal types, and closing the
+   last four means teaching those sites to resolve through the identity
+   map.
+
+4. **The lookup needed a MODULE, and it is one funnel.**
+   `Namespace.module_type_names` is `module_statics` (DF-140h) for types;
+   `TypeChecker._type_lookup_module` is the single decision procedure for
+   "whose private names are in scope", and its docstring names its five
+   entry points (`_canonical_type_name` plus the four `get_*_info`).
+   `_canonicalize_module_types` became PER FILE and now runs in `check()`
+   too, which is what lets the whole-program passes read a signature with
+   no file in hand.
+
+5. **Two design-144-era bugs were in the way**, both invisible until std
+   qualified: `name.split('$')[0]` at seven sites read a module qualifier
+   as a monomorphization suffix (the symptom was `Data` losing its
+   `Send`ness and 27 net/process tests failing), and a coroutine frame
+   struct must never be qualified because it is named by string.
+   `type_identity.declaration_base` and `Struct.is_synthesized` are the
+   two fixes.
+
+6. **The IR shift, measured** (`examples/alloc_data_tiers.saw`, pre-fix
+   compiler vs this one): 120 top-level symbols before and after, 25
+   renamed one-to-one, every rename a std-internal family
+   (`DataBuf_*` -> `DataBuf$m$std_data_*`). Eleven further differences are
+   not renames — closure symbols carrying the source LINE they were
+   written on, moved by a three-line comment. Filed as DF-204b.

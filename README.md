@@ -832,7 +832,10 @@ private `struct Header` reserves nothing in your program — you get your own
 `Header`s coexist as well; import at least one under an alias
 (`import wire.{Header as WireHeader}`), since one file cannot refer to both by
 the bare name. Using the bare name when two are in scope is a compile error
-naming both modules.
+naming both modules. The standard library is under the rule too: each std file
+is its own module, so the types a std file keeps to itself (`State`, `MapSlot`,
+`OpenMode`, and the rest of its internals) reserve nothing, and your own type
+may carry the name. What std publishes is unchanged.
 
 **Prelude discipline**: a curated core is available bare (primitives,
 `Vector`/`Map`/`Set`, `Optional`/`Result`/`Box`/`Arc`, the trait vocabulary,

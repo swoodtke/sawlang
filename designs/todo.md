@@ -67,6 +67,21 @@ disjoint surfaces parallel):
 8. **197 declaration-position names** (DF-194a + rule-7 parse_type
    bypasses) — last; UX debt, feeds the parser port.
 
+~~**204 std type identity**~~ — **LANDED Aug 10** (dispatched beside 196, in a
+worktree), all four units, tracked battery green. DF-153b and DF-153a close
+together: design 144's `(defining module, name)` reaches std, where each FILE
+is a module, so a std type declared without `public` is that file's alone. What
+it cost: std's public type surface is now DECLARED (40 `public` markers over a
+census of all 101 std type declarations), which is the design-80/82 gate
+finishing the job for types. Two design-144-era bugs surfaced on the way and
+are fixed: `name.split('$')[0]` at seven sites read a MODULE QUALIFIER as a
+monomorphization suffix (one helper, `type_identity.declaration_base`, replaces
+all seven), and a coroutine FRAME struct must never be qualified since the
+compiler names it by string (`Struct.is_synthesized`). Two findings filed:
+DF-204a (four std internals the compiler spells by string still reserve their
+names) and DF-204b (a closure's symbol carries its source LINE). See
+`designs/204-*.md`.
+
 Also ratified Aug 10 with no work owed: design 183's two
 implementation decisions (blocking-conflict = error not upgrade; Float
 in the offload set) stand as landed.
@@ -79,7 +94,15 @@ matrix; conformance rows first; consumer sweep owed.
 
 ## Design 153 findings — the magic-values→backed-enums sweep (Aug 10)
 
-- **DF-153a — two std FILES cannot declare the same type name.** Design 82
+- ~~**DF-153a — two std FILES cannot declare the same type name.**~~ **CLOSED
+  by design 204** (Aug 10). Each std file's PRIVATE types are that file's:
+  identity `State$m$std_once`, name bound only in its own module view. The
+  vehicle is `tools/test_std_private_type_names.py` (conformance row B10, the
+  battery's `stdtypes` stage) — it drops a second private `State` into the std
+  tree, rebuilds the builtins, and asserts two identities, two layouts and two
+  method symbol families. Original text:
+
+  **DF-153a — two std FILES cannot declare the same type name.** Design 82
   makes each std file its own module and design 144 makes type identity
   `(defining module, name)`, but the std sources are type-checked as ONE
   `builtins` unit, so a second declaration of a name collides:
@@ -94,7 +117,22 @@ matrix; conformance rows first; consumer sweep owed.
   around it by naming SpinLock's enum `LockState`, which is the spelling
   the skill's STYLE bullet uses for exactly these two constants anyway.
 
-- **DF-153b — a private std TYPE reserves its simple name for every
+- ~~**DF-153b — a private std TYPE reserves its simple name for every
+  program.**~~ **CLOSED by design 204** (Aug 10). A std type declared `public`
+  keeps its exposure exactly; one declared without `public` is FILE-private —
+  qualified identity, bound only in its own file's view, reachable through no
+  import form. 24 std-internal type names are free for user programs now, and
+  a std module's surface is a thing it SAYS rather than a thing that happens.
+  Both pins flipped (`examples/user_enum_name_vs_private_std_enum.saw`,
+  conformance row B09); row B12 is the fence that a PRELUDE name is still
+  reserved. **The sweep's blocked item is UNBLOCKED**: `std.net`'s five `SYS_*`
+  and `std.process`'s `SYS_WOULD_BLOCK` can take the `SysError` name rt/ABI.md
+  gives them, since a private std enum no longer collides with the
+  `enum145_*` tests' own `SysError`. Mech follow-up, alongside blade's
+  `ElfSegFlag` naming decision below; design 204 deliberately did not do the
+  conversion. Original text:
+
+  **DF-153b — a private std TYPE reserves its simple name for every
   program.** USER-FACING, and the reason the sweep's `std.net` known-debt
   item did NOT land. Pin:
   `examples/user_enum_name_vs_private_std_enum.saw`.
@@ -143,9 +181,14 @@ CONVERTED: SpinLock `UNLOCKED`/`HELD`; std.file `SEEK_*`; the rt-side
 both sides of the seam; sosrt's two abort codes.
 
 NOT CONVERTED, by reason:
-- **Blocked by DF-153b** (a std enum reserves its name program-wide):
+- ~~**Blocked by DF-153b**~~ **UNBLOCKED Aug 10 by design 204** — ready for a
+  mech follow-up, not done there:
   `std.net`'s five `SYS_*` and `std.process`'s `SYS_WOULD_BLOCK` — both
-  are the `SysError` vocabulary, and the name is taken by user programs.
+  are the `SysError` vocabulary, and the name used to be taken by user
+  programs. A private std enum reserves nothing now, so `enum SysError: UInt8`
+  in `std/net.saw` no longer breaks `enum145_methods` / `enum145_raw_backed` /
+  `enum145_traits`, each of which declares its own `SysError`. DF-153c's
+  two-cast cost at the word-wide seams is the thing to re-read before doing it.
 - **Host C constant families, not sets this code owns**: the ~20 `E*`
   errno numbers in each `net_os.saw` (an OPEN set — we name the ones we
   map, of hundreds); `EPOLL_CTL_*`, the kqueue `EV_*`/`NOTE_*`, the
@@ -182,6 +225,34 @@ NOT CONVERTED, by reason:
   the form the ruling KEEPS; the ruling itself was already in the skill.
 - **devtools/** was outside the brief's scope; `irdet`'s `EXIT_*` trio is
   the one family there.
+
+## Design 204 findings — std type identity (Aug 10)
+
+- **DF-204a — four std internals still reserve their names, because the
+  compiler spells them.** `__TaskCell`, `__ResultCell` and `__VoidCell`
+  (`std/taskgroup.saw`) are selected by NAME in `coro_transform.py` when it
+  lowers a spawn, and `RangeInclusive` (`builtin.saw`) by
+  `codegen/loops.py:226`. Design 204 marks all four `public` with a comment
+  saying why: a qualified identity would rename the declaration out from under
+  the Python string that builds the reference. So the ruling ("a private std
+  type reserves nothing") holds for 24 of 28 genuinely internal types and not
+  for these four. Not user-facing in practice (three are `__`-prefixed and
+  `RangeInclusive` is a real language type), and a non-regression — they were
+  reserved before too. The fix is for the four sites to resolve through the
+  namespace's identity map instead of a literal, at which point the `public`
+  markers come off; it wants its own small brief because "codegen names a std
+  type by string" is a pattern worth counting before changing.
+
+- **DF-204b — a closure's codegen symbol carries the LINE it was written on,
+  so an unrelated edit above it renames the symbol.** Adding a three-line
+  comment to `std/taskgroup.saw` moved eleven `__closure$__saw_bt_dump$1775_39`
+  -style symbols by three. Harmless today (the names are internal and irdet
+  measures run-to-run stability, not edit-to-edit), but it means an IR diff
+  across two versions of the tree carries churn that has nothing to do with
+  the change under review — which is exactly the measurement design 204 unit 3
+  had to do by hand. Design 168 unit 3 already solved the analogous problem
+  for literals with `mangle.content_tag` (name the thing after WHAT IS IN IT);
+  the same treatment would fit a closure. Recorded, not proposed.
 
 ## Measured performance (Aug 10 — the warehouse benchmark)
 

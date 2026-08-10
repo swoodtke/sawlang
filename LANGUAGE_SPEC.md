@@ -6874,6 +6874,28 @@ Names are unchanged by any of this. A diagnostic, a `--emit-docs` page and an
 AST dump all show the name as written; where two types would print alike,
 `--emit-docs` carries the defining module in a `module` field beside the name.
 
+The standard library is under the same rule. Each std file is its own module
+(see *The prelude* below), so a type a std file keeps to itself belongs to that
+file. `std/once.saw` declares a private `State` and `std/map.saw` a private
+`MapSlot`; a program may declare either name, and its own declaration is what
+every use resolves to:
+
+```saw
+enum State: Int {
+    case Idle = 0,
+    case Busy = 1
+}
+
+func main() {
+    print("{State.Busy as Int}")   // prints: 1
+}
+```
+
+Two std files may each own one name for the same reason two packages may. What
+std PUBLISHES is unaffected: `Vector`, `File`, `Data` and the rest of the API
+keep the exposure the prelude and the import forms give them, and a second
+declaration of one of those names is the redefinition error it has always been.
+
 ### The prelude (design 82)
 
 Not all of std is auto-visible. The **prelude** — the names usable without an
@@ -6921,6 +6943,17 @@ wherever an import bound the qualifier — `func take(d: &data.Data)` under
 The prelude is independent of the import forms below: it needs no import, and
 `import std.vector` binds a `vector` qualifier over a module whose names were
 already bare.
+
+A std module's surface is the types it declares `public`. Everything else it
+declares is internal to its own file: not in the prelude, not reachable through
+any import form, and not a name a program has to avoid. Asking for one is a
+clean error naming what the module does have.
+
+```saw
+import std.file.{OpenMode}
+// error: `OpenMode` is not defined in `std.file`
+// hint: available: File
+```
 
 ### Imports
 
