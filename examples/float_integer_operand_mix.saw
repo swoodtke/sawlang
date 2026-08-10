@@ -15,7 +15,6 @@
 // rule 1's own carve-out is that a bare literal adopts. Whether an INTEGER
 // literal may adopt `Float` is a language question design 195 did not take, so
 // `f + 1` is refused for now with a hint naming `1.0`.
-// XFAIL: DF-195d a Float/integer operand mix is an internal compiler error — design 195 unit 2 makes it a clean one
 // EXPECT: error
 // EXPECT-ERROR-CONTAINS: requires both operands to have the same type
 // EXPECT-ERROR-CONTAINS: `Float`

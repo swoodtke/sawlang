@@ -3,6 +3,11 @@
 // compare, so `UInt.max > 1` was wrongly false. Mirrors the udiv split already
 // in place for `/` and `%`. (Discovered implementing design 119 Part A — the
 // lexer's literal magnitude check needs unsigned compares against UInt bounds.)
+//
+// The `UInt8.max` / `UInt32.max` bounds carry their OWN types, so comparing one
+// against a `UInt` needs the widening written (design 195 rule 1: all typed
+// operands of an operation have the same type). `as UInt` is that spelling, and
+// it is total in every case here — an unsigned bound always has a `UInt` value.
 // EXPECT: success
 // EXPECT-OUTPUT:
 // max_gt_one: true
@@ -26,9 +31,9 @@ func main() {
 
     let small: UInt = 200
     let over: UInt = 300
-    print("small_le_u8max: {small <= UInt8.max}")
-    print("over_u8_le_u8max: {over <= UInt8.max}")
+    print("small_le_u8max: {small <= UInt8.max as UInt}")
+    print("over_u8_le_u8max: {over <= UInt8.max as UInt}")
 
-    print("max_gt_u32max: {big > UInt32.max}")
-    print("max_ge_u32max: {big >= UInt32.max}")
+    print("max_gt_u32max: {big > UInt32.max as UInt}")
+    print("max_ge_u32max: {big >= UInt32.max as UInt}")
 }

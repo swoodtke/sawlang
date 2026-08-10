@@ -2724,6 +2724,211 @@ class TypeUtilsMixin:
             merged.update(st)
         return merged
 
+    # ------------------------------------------------------------------
+    # Operand agreement (design 195 rule 1).
+    # ------------------------------------------------------------------
+
+    # The integer kinds the operand-agreement rule quantifies over.
+    _AGREEMENT_INT_KINDS = frozenset({
+        TypeKind.INT, TypeKind.UINT,
+        TypeKind.INT8, TypeKind.INT16, TypeKind.INT32, TypeKind.INT64,
+        TypeKind.UINT8, TypeKind.UINT16, TypeKind.UINT32, TypeKind.UINT64,
+    })
+
+    # The `T` half of each design-170 conversion spelling, keyed by kind, for the
+    # hint. Platform `Int`/`UInt` are in here too: `x as UInt` is a written
+    # conversion exactly as `x as UInt8` is.
+    _AGREEMENT_TYPE_NAMES = {
+        TypeKind.INT: 'Int', TypeKind.UINT: 'UInt',
+        TypeKind.INT8: 'Int8', TypeKind.INT16: 'Int16',
+        TypeKind.INT32: 'Int32', TypeKind.INT64: 'Int64',
+        TypeKind.UINT8: 'UInt8', TypeKind.UINT16: 'UInt16',
+        TypeKind.UINT32: 'UInt32', TypeKind.UINT64: 'UInt64',
+    }
+
+    @staticmethod
+    def _bare_int_literal(expr) -> Optional[IntLiteral]:
+        """The BARE (unsuffixed) integer literal inside `expr`, or None.
+
+        Rule 1's one carve-out. A bare literal has no width of its own and adopts
+        whatever slot it lands in (design 87); a SUFFIXED literal is exact-typed
+        (design 53) and is a typed operand like any other.
+
+        A NEGATED bare literal is one too — the leading `-` is not a suffix, and
+        `_apply_literal_expected_type` has treated `-5` as an adopting literal at
+        every other slot since design 87. Missing that here is what made
+        `n * -2` on an `Int16 n` an internal compiler error while `n * 2` beside
+        it worked.
+        """
+        from ast_nodes import UnaryOp
+        inner = expr
+        if isinstance(inner, UnaryOp) and inner.op == '-':
+            inner = inner.operand
+        if isinstance(inner, IntLiteral) and getattr(inner, 'suffix', None) is None:
+            return inner
+        return None
+
+    def _check_operand_agreement(self, left_expr, right_expr,
+                                 left_type: Optional[SawType],
+                                 right_type: Optional[SawType],
+                                 subject: str, line: int, column: int,
+                                 left_label: str = "left",
+                                 right_label: str = "right") -> bool:
+        """THE operand-agreement funnel — design 195 rule 1.
+
+        ALL TYPED OPERANDS OF AN OPERATION HAVE THE SAME TYPE. Implicit promotion
+        happens from BARE integer literals and nowhere else: a literal adopts the
+        other operand's type, a suffixed literal is exact-typed, and a named value
+        carries the type it was declared with. There is no promotion ladder — an
+        operation has two peers, and picking a winner between them is policy Saw
+        does not adopt. Mixed WIDTH and mixed SIGNEDNESS are the same error, and
+        so is a `Float` beside an integer.
+
+        ENTRY POINTS — every position an operation takes two numeric peers:
+
+        - ``_check_binary_op``, arithmetic ``+ - * /`` and ``%``
+        - ``_check_binary_op``, the wrapping trio ``&+ &- &*``
+        - ``_check_binary_op``, the bitwise ``& | ^``
+        - ``_check_binary_op``, the comparisons ``== != < > <= >=``
+        - ``_check_compound_assign_statement``, ``+= -= *= /= %= &= |= ^=``
+        - ``_check_range_expr``, a range's two bounds
+
+        NOT an entry point, deliberately: the SHIFTS ``<< >>`` and their compound
+        forms. A shift's right operand is a COUNT, not a peer — it is range-checked
+        against the left operand's width at runtime and contributes nothing to the
+        result's type — so a count of a different width stays legal (design 195
+        matrix row 6, the documented exemption).
+
+        Returns True when the operands agree, one of them adopts, or the pair is
+        not two numeric peers; False when it reported.
+        """
+        if left_type is None or right_type is None:
+            return True
+        lu = self._get_underlying_type(left_type)
+        ru = self._get_underlying_type(right_type)
+        numeric = self._AGREEMENT_INT_KINDS | {TypeKind.FLOAT}
+        if lu.kind not in numeric or ru.kind not in numeric:
+            # Not two numeric peers (a String comparison, pointer arithmetic, a
+            # generic type parameter). The operator's own arm owns those.
+            return True
+        if lu.kind == ru.kind:
+            return True
+        # The carve-out is integer-only. A bare INTEGER literal beside a `Float`
+        # does not adopt: whether an integer literal may become a float one is a
+        # language question design 195 did not take (DF-195d), so the mix is
+        # refused with a hint naming the float spelling.
+        if (lu.kind != TypeKind.FLOAT and ru.kind != TypeKind.FLOAT
+                and (self._bare_int_literal(left_expr) is not None
+                     or self._bare_int_literal(right_expr) is not None)):
+            return True
+        self._error(
+            ErrorKind.TYPE_MISMATCH,
+            f"{subject} requires both operands to have the same type, but the "
+            f"{left_label} is `{left_type}` and the {right_label} is `{right_type}`",
+            line, column,
+            hint=self._operand_agreement_hint(left_expr, right_expr, lu, ru)
+        )
+        return False
+
+    def _operand_agreement_hint(self, left_expr, right_expr,
+                                lu: SawType, ru: SawType) -> str:
+        """The ways out of a refused operand pair, chosen by what was written.
+
+        Two outs in the general case (design 195's ruling): write the conversion,
+        or drop a suffix so the literal adopts. The second only exists when one
+        operand IS a suffixed literal, so it is offered only there — an author
+        with two named values has no suffix to drop and should not be sent looking
+        for one.
+        """
+        if lu.kind == TypeKind.FLOAT or ru.kind == TypeKind.FLOAT:
+            return ("`Float` and the integer types never convert implicitly — "
+                    "write a float literal (`1.0`), or convert the operand "
+                    "explicitly")
+        suffixed = None
+        other = None
+        for expr, other_kind in ((left_expr, ru.kind), (right_expr, lu.kind)):
+            if (isinstance(expr, IntLiteral)
+                    and getattr(expr, 'suffix', None) is not None):
+                suffixed = expr.suffix
+                other = self._AGREEMENT_TYPE_NAMES.get(other_kind)
+                break
+        target = self._AGREEMENT_TYPE_NAMES.get(lu.kind, 'the other type')
+        convert = (f"convert one operand — `x as {target}` panics out of range, "
+                   f"`{target}.from(x)` answers `None`, "
+                   f"`{target}.from(truncating: x)` keeps the low bits")
+        if suffixed is not None and other is not None:
+            return (f"drop the `{suffixed}` suffix so the literal adopts "
+                    f"`{other}`, or {convert}")
+        return convert
+
+    def _adopt_bare_literal_operand(self, expr, left_type: Optional[SawType],
+                                    right_type: Optional[SawType]) -> Optional[SawType]:
+        """Rule 1's carve-out, applied: a BARE integer literal operand adopts the
+        other operand's type, and the operation answers in that type.
+
+        The literal is stamped through `_apply_literal_expected_type`, the same
+        expected-type propagation every other slot uses (design 87), so it is
+        range-checked AT the literal, materialized at the adopted width, and — the
+        part the old fixed-width-only version missed — reached through a leading
+        `-`. Adoption covers PLATFORM types too, not just `Int8`..`UInt64`: a
+        literal beside a `UInt` is a `UInt`, which is what makes `1 / u` an
+        unsigned division rather than a signed one over unsigned bits.
+
+        Returns the adopted type, or None when neither operand is a bare literal
+        beside a typed integer (two bare literals included — neither has a type to
+        adopt from, so both stay platform `Int`).
+        """
+        if left_type is None or right_type is None:
+            return None
+        left_lit = self._bare_int_literal(expr.left) is not None
+        right_lit = self._bare_int_literal(expr.right) is not None
+        if left_lit and right_lit:
+            return None
+        if right_lit:
+            return self._adopt_bare_literal_into(expr.right, left_type)
+        if left_lit:
+            return self._adopt_bare_literal_into(expr.left, right_type)
+        return None
+
+    def _adopt_bare_literal_into(self, value_expr,
+                                 target: Optional[SawType]) -> Optional[SawType]:
+        """Make a BARE integer literal adopt `target`, and answer with `target`.
+
+        The one implementation of rule 1's carve-out. `_adopt_bare_literal_operand`
+        calls it for a `BinaryOp`'s two operands; `_check_nil_coalesce` calls it
+        for the `??` default beside its payload, which is the same two-peer
+        question written without a `BinaryOp`.
+
+        It stamps through `_apply_literal_expected_type` — the design-87 propagation
+        every other slot uses, so the literal is range-checked AT the literal,
+        materialized at the adopted width, and reached through a leading `-` — and
+        then pins `resolved_type` itself. That last step is not redundant:
+        `visit_IntLiteral` honors only a FIXED-width expectation, so a platform
+        `UInt` target would fall back to `Int` and leave the operation reading
+        unsigned bits through signed instructions.
+
+        Returns None when the rule does not apply: a non-literal, a non-integer
+        target, or a CONST position — where `const_eval` folds the whole
+        expression in the signed platform-`Int` domain whatever the operand types
+        say (design 185: `~0` is `-1` there, and `~Perm.Read` is `-2` even though
+        the flag reading types it `UInt8`), so pinning a literal to an operand's
+        width would range-check it against a width the fold does not use.
+        Agreement still runs in a const position — the funnel's carve-out admits a
+        bare literal on its own.
+        """
+        if value_expr is None or target is None:
+            return None
+        if self._in_const_position():
+            return None
+        rt = self._get_underlying_type(target)
+        if rt.kind not in self._AGREEMENT_INT_KINDS:
+            return None
+        if self._bare_int_literal(value_expr) is None:
+            return None
+        self._apply_literal_expected_type(value_expr, target)
+        value_expr.resolved_type = SawType(rt.kind)
+        return target
+
     def _check_value_transfer(self, expr: Optional[Expression], target_type: Optional[SawType],
                               context: str, line: int, column: int,
                               is_return: bool = False):

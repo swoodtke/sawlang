@@ -8,7 +8,6 @@
 //
 // PROBE (Aug 10, before the fix): an internal compiler error,
 // `(BinaryOp): Operands must be the same type, got (i64, i16)`.
-// XFAIL: DF-192f nothing checks that two integer operands agree on width — design 195 unit 2 lands the funnel
 // EXPECT: error
 // EXPECT-ERROR-CONTAINS: requires both operands to have the same type
 // EXPECT-ERROR-CONTAINS: `Int16`

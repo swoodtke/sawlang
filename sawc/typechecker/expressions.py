@@ -1441,16 +1441,21 @@ class ExpressionsMixin:
                         expr.line, expr.column
                     )
                     return None
-            elif left_underlying.kind in int_kinds and right_underlying.kind in int_kinds:
-                fw = self._fixed_width_binop_type(expr, left_type, right_type)
-                if fw is not None:
-                    return fw
-                if left_underlying.kind == right_underlying.kind:
-                    return left_type
-                return left_type
             elif left_underlying.kind in (int_kinds | {TypeKind.FLOAT}) and \
                  right_underlying.kind in (int_kinds | {TypeKind.FLOAT}):
-                return SawType(TypeKind.FLOAT)
+                # design 195 rule 1, entry 1: the two arithmetic peers must agree.
+                # This arm used to be two — an int/int one that returned the LEFT
+                # type whatever the right was, and a numeric one that answered
+                # `Float` for a mixed pair, promising a promotion the lowering
+                # does not implement (DF-195d).
+                if not self._check_operand_agreement(
+                        expr.left, expr.right, left_type, right_type,
+                        f"operator `{expr.op}`", expr.line, expr.column):
+                    return None
+                if left_underlying.kind == TypeKind.FLOAT:
+                    return SawType(TypeKind.FLOAT)
+                adopted = self._adopt_bare_literal_operand(expr, left_type, right_type)
+                return adopted if adopted is not None else left_type
             else:
                 self._error(
                     ErrorKind.TYPE_MISMATCH,
@@ -1460,10 +1465,13 @@ class ExpressionsMixin:
                 return None
         elif expr.op == '%':
             if left_underlying.kind in int_kinds and right_underlying.kind in int_kinds:
-                fw = self._fixed_width_binop_type(expr, left_type, right_type)
-                if fw is not None:
-                    return fw
-                return left_type
+                # design 195 rule 1, entry 1 (the modulo half).
+                if not self._check_operand_agreement(
+                        expr.left, expr.right, left_type, right_type,
+                        f"operator `{expr.op}`", expr.line, expr.column):
+                    return None
+                adopted = self._adopt_bare_literal_operand(expr, left_type, right_type)
+                return adopted if adopted is not None else left_type
             else:
                 self._error(
                     ErrorKind.TYPE_MISMATCH,
@@ -1476,7 +1484,15 @@ class ExpressionsMixin:
             # everything else, including pointers) is rejected -- wraparound is
             # only defined for two's-complement integers.
             if left_underlying.kind in int_kinds and right_underlying.kind in int_kinds:
-                return left_type
+                # design 195 rule 1, entry 2. `&+` states that overflow wraps; it
+                # states nothing about width, and the wrap is defined modulo the
+                # operand type's own 2^n, so two operand types are two wraps.
+                if not self._check_operand_agreement(
+                        expr.left, expr.right, left_type, right_type,
+                        f"operator `{expr.op}`", expr.line, expr.column):
+                    return None
+                adopted = self._adopt_bare_literal_operand(expr, left_type, right_type)
+                return adopted if adopted is not None else left_type
             else:
                 self._error(
                     ErrorKind.TYPE_MISMATCH,
@@ -1503,6 +1519,25 @@ class ExpressionsMixin:
             if backing is not None:
                 right_type = right_underlying = backing
             if left_underlying.kind in int_kinds and right_underlying.kind in int_kinds:
+                # design 195 rule 1, entry 3 — the bitwise trio ONLY. `&`, `|` and
+                # `^` are two peers: the result is a mask over both operands, so
+                # both describe the same bit positions and therefore the same
+                # width. Until this the right operand was brought to the left's
+                # width with a ZERO extension whatever its signedness, so a
+                # negative narrow operand masked against the wrong word.
+                #
+                # The SHIFTS fall through with no check — design 195 matrix row 6,
+                # the documented exemption: a shift's right operand is a COUNT
+                # rather than a peer.
+                if expr.op in ('&', '|', '^'):
+                    if not self._check_operand_agreement(
+                            expr.left, expr.right, left_type, right_type,
+                            f"operator `{expr.op}`", expr.line, expr.column):
+                        return None
+                    adopted = self._adopt_bare_literal_operand(
+                        expr, left_type, right_type)
+                    if adopted is not None:
+                        return adopted
                 return left_type
             else:
                 self._error(
@@ -1531,19 +1566,23 @@ class ExpressionsMixin:
                     expr.line, expr.column
                 )
                 return SawType(TypeKind.BOOL)
-            # design 77 item 9: a bare integer literal compared against a
-            # fixed-width operand adopts that operand's type (codegen already
-            # coerces it), so range-check it here — otherwise `fd < 200` for
-            # `fd: Int8` silently compared against the wrapped value -56. Extends
-            # the design-65 fixed-width-literal range check to comparison
-            # operands; a no-op unless one side is a bare literal and the other a
-            # fixed-width integer.
-            self._check_fixed_width_literal(expr.right, left_type,
-                                            getattr(expr.right, 'line', expr.line),
-                                            getattr(expr.right, 'column', expr.column))
-            self._check_fixed_width_literal(expr.left, right_type,
-                                            getattr(expr.left, 'line', expr.line),
-                                            getattr(expr.left, 'column', expr.column))
+            # design 195 rule 1, entry 4. A comparison is a two-peer operation
+            # exactly as arithmetic is, and it is the position where a silent mix
+            # is hardest to see: the operator yields a `Bool` either way, so a
+            # wrong reading of one operand shows up only as a branch taken on the
+            # wrong side. `i < u` has no answer right for both — read signed, a
+            # large `UInt` is negative; read unsigned, a negative `Int` is
+            # enormous — and it used to pick the LEFT operand's reading for both.
+            if not self._check_operand_agreement(
+                    expr.left, expr.right, left_type, right_type,
+                    f"operator `{expr.op}`", expr.line, expr.column):
+                return SawType(TypeKind.BOOL)
+            # design 77 item 9: a bare integer literal compared against a typed
+            # operand adopts that operand's type — otherwise `fd < 200` for
+            # `fd: Int8` silently compared against the wrapped value -56. Now the
+            # same adoption every other operator takes, so it also reaches the
+            # NEGATED spelling (`fd < -2`) and pins the comparison's signedness.
+            self._adopt_bare_literal_operand(expr, left_type, right_type)
             # Equatable gating (design 32): `==`/`!=` require the operand type to
             # conform to Equatable. Primitives and String conform builtin;
             # trivial (POD) structs and payload-free enums auto-conform;
@@ -5704,37 +5743,13 @@ class ExpressionsMixin:
             return (0, (1 << w) - 1)
         return None
 
-    def _fixed_width_binop_type(self, expr, left_type, right_type):
-        """Arithmetic (`+ - * / %`) mixing a BARE integer literal with a
-        fixed-width integer operand: the literal adopts the fixed-width type, so
-        the result is that type (not platform `Int`) and codegen materializes the
-        literal at that width (design 77 item 9 extended from comparison to
-        arithmetic position; the design-81-run rider). Range-checks the literal
-        (`b + 999` for `b: Int32` past the width is a clean error). Both operand
-        orders. Returns the fixed-width type, or None when the rule does not apply
-        (e.g. Int/Int, or two fixed-width operands — those keep the existing
-        behavior)."""
-        lu = self._get_underlying_type(left_type)
-        ru = self._get_underlying_type(right_type)
-        left_lit = (isinstance(expr.left, IntLiteral)
-                    and getattr(expr.left, 'suffix', None) is None)
-        right_lit = (isinstance(expr.right, IntLiteral)
-                     and getattr(expr.right, 'suffix', None) is None)
-        # A bare literal + a fixed-width operand -> the fixed-width type. If BOTH
-        # are bare literals neither is fixed-width, so this never fires there.
-        if right_lit and lu.kind in self._FIXED_INT_RANGES:
-            self._check_fixed_width_literal(
-                expr.right, left_type,
-                getattr(expr.right, 'line', expr.line),
-                getattr(expr.right, 'column', expr.column))
-            return left_type
-        if left_lit and ru.kind in self._FIXED_INT_RANGES:
-            self._check_fixed_width_literal(
-                expr.left, right_type,
-                getattr(expr.left, 'line', expr.line),
-                getattr(expr.left, 'column', expr.column))
-            return right_type
-        return None
+    # `_fixed_width_binop_type` lived here until design 195 unit 2. It was the
+    # bare-literal adoption rule in a second copy — fixed widths only, plain
+    # literals only, arithmetic only — beside the design-87 propagation every
+    # other slot uses. `_check_operand_agreement`'s companion
+    # `_adopt_bare_literal_operand` is the one implementation now, and its three
+    # gaps (a platform `UInt` operand, a NEGATED literal, comparison position)
+    # went with the duplicate.
 
     def _check_fixed_width_literal(self, value_expr, expected_type, line, column):
         """Reject a bare integer literal that does not fit a fixed-width integer
@@ -6127,6 +6142,18 @@ class ExpressionsMixin:
                 expr.line, expr.column
             )
             return opt_type
+        # design 195 rule 1's carve-out, at the `??` default: a BARE integer
+        # literal adopts the PAYLOAD's type, exactly as an operator's literal
+        # operand adopts the other operand's. `??` merges two positions into one
+        # value, so its two operands are peers in the same sense.
+        #
+        # Without it the whole expression took the LITERAL's platform `Int`:
+        # `elf.u8_at(off) ?? 0` on a `UInt?` typed `Int`, so a comparison one
+        # line down met an `Int` and a `UInt` and the agreement rule refused a
+        # program whose author had written nothing mixed (blade's ELF reader).
+        adopted = self._adopt_bare_literal_into(expr.default, opt_type.inner_type)
+        if adopted is not None:
+            default_type = adopted
         # DF-146l site 2: a bare `None` on the RHS is a `None` of the LHS's
         # PAYLOAD type. `m["x"] ?? None` on a `Map<String, Int?>` has an `Int??`
         # left operand, so the default is an `Int?` — the one shape where the

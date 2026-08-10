@@ -9,7 +9,6 @@
 // PROBE (Aug 10, before the fix): already a rejection, but through the
 // range-specific check — `range end must be Int, got `Int16`` — which names one
 // type, offers no conversion, and says nothing about the operands disagreeing.
-// XFAIL: DF-192f the range-bound position of the same finding — design 195 unit 2 routes it through the funnel
 // EXPECT: error
 // EXPECT-ERROR-CONTAINS: same type
 // EXPECT-ERROR-CONTAINS: `Int16`

@@ -2772,12 +2772,23 @@ class StatementsMixin:
             TypeKind.UINT8, TypeKind.UINT16, TypeKind.UINT32, TypeKind.UINT64
         }
 
+        # design 195 rule 1, entry 5: `a op= b` is `a = a op b`, so its two
+        # operands are the same two peers the binary operator has and the
+        # agreement rule reaches it for the same reason — `a += b` for an
+        # `Int a` and an `Int16 b` was a codegen ICE. `<<=` / `>>=` are
+        # EXCLUDED with the shifts: a count is not a peer (matrix row 6).
+        def _agree() -> bool:
+            return self._check_operand_agreement(
+                stmt.target, stmt.value, target_type, value_type,
+                f"operator `{stmt.op}=`", stmt.line, stmt.column,
+                left_label="target", right_label="value")
+
         if stmt.op in ['+', '-', '*', '/']:
             # These work on integers and floats
             if target_underlying.kind in int_kinds and value_underlying.kind in int_kinds:
-                pass  # OK
+                _agree()
             elif target_underlying.kind == TypeKind.FLOAT and value_underlying.kind in (int_kinds | {TypeKind.FLOAT}):
-                pass  # OK
+                _agree()
             else:
                 self._error(
                     ErrorKind.TYPE_MISMATCH,
@@ -2787,7 +2798,7 @@ class StatementsMixin:
         elif stmt.op == '%':
             # Modulo only works on integers
             if target_underlying.kind in int_kinds and value_underlying.kind in int_kinds:
-                pass  # OK
+                _agree()
             else:
                 self._error(
                     ErrorKind.TYPE_MISMATCH,
@@ -2797,7 +2808,8 @@ class StatementsMixin:
         elif stmt.op in ['&', '|', '^', '<<', '>>']:
             # Bitwise compound assignments (design 50): integer operands only.
             if target_underlying.kind in int_kinds and value_underlying.kind in int_kinds:
-                pass  # OK
+                if stmt.op in ('&', '|', '^'):
+                    _agree()
             else:
                 self._error(
                     ErrorKind.TYPE_MISMATCH,
@@ -3229,6 +3241,17 @@ class StatementsMixin:
 
         if start_type is None or end_type is None:
             return None
+
+        # design 195 rule 1, entry 6: the two bounds describe ONE interval, so
+        # they describe it in one type. Reported here rather than as two separate
+        # "must be Int" facts about the ends, which named one type and offered no
+        # way out. Returns early on a disagreement so the reader gets one
+        # diagnostic instead of three.
+        if not self._check_operand_agreement(
+                expr.start, expr.end, start_type, end_type,
+                "a range", expr.line, expr.column,
+                left_label="start", right_label="end"):
+            return SawType(TypeKind.VOID)
 
         # Both start and end must be Int
         if start_type.kind != TypeKind.INT:

@@ -10,7 +10,6 @@
 // PROBE (Aug 10, before the fix): `i + u` COMPILED and `-1 + 3` printed 2;
 // `i / u` compiled and printed 0, because the lowering picked SIGNED division
 // off the left operand while the right was unsigned. Nothing warned.
-// XFAIL: DF-192f the signedness face — `i + u` compiles silently; design 195 unit 2 lands the funnel
 // EXPECT: error
 // EXPECT-ERROR-CONTAINS: requires both operands to have the same type
 // EXPECT-ERROR-CONTAINS: `Int`

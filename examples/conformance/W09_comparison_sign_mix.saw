@@ -9,7 +9,6 @@
 // PROBE (Aug 10, before the fix): `i < u` COMPILED, and `-1 < 3` answered
 // `less` off a SIGNED compare — the left operand's interpretation applied to
 // both. No warning, no diagnostic.
-// XFAIL: DF-192f the signedness face — `i < u` compiles silently; design 195 unit 2 lands the funnel
 // EXPECT: error
 // EXPECT-ERROR-CONTAINS: requires both operands to have the same type
 // EXPECT-ERROR-CONTAINS: `Int`

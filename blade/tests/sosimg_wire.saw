@@ -259,7 +259,7 @@ func check_conversion_64() {
 /// question actually is — whether THIS machine can address it, not whether the
 /// format can carry it.
 func check_high_addresses_round_trip() {
-    let high = 0x1_0000_0040
+    let high: UInt = 0x1_0000_0040
     let elf = minimal_elf64(high)
     let img = match elf_to_sosimg(&elf, TEST_PRIO_MAP, SosimgArch.Arm64) {
         case Ok(bytes) -> move bytes,

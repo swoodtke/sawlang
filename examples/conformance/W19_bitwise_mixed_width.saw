@@ -11,7 +11,6 @@
 // `a & b` for a negative `Int16 b` masked against `0x000000000000FFFF` instead
 // of an all-ones word — a silently wrong mask, and the only rule-1 position
 // whose old behavior was neither a crash nor a right answer.
-// XFAIL: DF-192f the bitwise position of the same finding — design 195 unit 2 lands the funnel
 // EXPECT: error
 // EXPECT-ERROR-CONTAINS: requires both operands to have the same type
 // EXPECT-ERROR-CONTAINS: `Int16`
