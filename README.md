@@ -643,9 +643,13 @@ end-of-stream is represented as a distinct value from an error:
 import std.net.{TcpListener, TcpStream}
 
 func handle(stream: TcpStream) {
-    let chunk = try! stream.read()      // Result<Data, IoError>; an empty Ok is EOF
-    print(chunk.len())
-    try! stream.write("hello")          // writes every byte, or surfaces the error
+    try {
+        let chunk = try stream.read()   // Result<Data, IoError>; an empty Ok is EOF
+        print(chunk.len())
+        try stream.write("hello")       // writes every byte, or surfaces the error
+    } catch {
+        print("connection failed: {error}")
+    }
 }                                       // `stream` deinits here: the fd closes when
                                         // the handler returns
 
@@ -658,6 +662,12 @@ func serve(port: Int) {
     }
 }
 ```
+
+The error handling in `handle` is ordinary Saw: a `try { } catch { }` block whose
+try body suspends twice, inside a spawned task. A propagating `try` returns the
+error from a suspending function the same way it does from a sync one, and an
+erased `Result<T, Box<any Error>>` crosses a suspension too — the task body is
+not a reduced dialect.
 
 `TcpStream.connect` takes a dotted-quad IPv4 address or a hostname. An address
 is parsed in Saw and dialled directly. A name goes through `getaddrinfo`, which
@@ -1458,8 +1468,9 @@ Saw is in active development. Implemented so far:
   (`borrows` accessors that lend storage rather than a value), whole-referent
   replacement through `&var`, and a `Result` that cannot be dropped by accident.
 - **Concurrency** — colorless, with a cooperative scheduler over a precise I/O
-  reactor, multi-threaded task groups, blocking-FFI offload, and suspending
-  calls in any expression position.
+  reactor, multi-threaded task groups, blocking-FFI offload, suspending calls in
+  any expression position, and the whole error surface (`try`, `try { } catch
+  { }`, erased errors) inside a task body.
 - **Modules** — three import forms, member visibility over a curated prelude,
   import-scoped extensions under an orphan rule for conformances, per-module
   type identity, and earned shadowing.

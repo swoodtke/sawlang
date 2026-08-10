@@ -3923,6 +3923,14 @@ try {
 deduplication), `error` is that concrete, nameable type — no union is formed —
 so its fields are accessible directly (e.g. `error.code`).
 
+**In a suspending body the union is the one fence.** A `try { } catch { }` block
+that spans a suspension becomes states of its own (see *Coroutines*), and the
+caught error travels between them in a frame field of one declared type, so such
+a block may propagate only ONE error type. Two is a clean error naming both,
+with the two spellings that work: one block per error type, or an inline
+`try <call> catch { … }` per call. A block in a sync body keeps the union
+unchanged.
+
 ### Explicit Result Handling
 
 You can always handle `Result` explicitly with `match`:
@@ -4977,6 +4985,42 @@ Observable rules:
   to its own statement, which is that same branch shape, so the operand the LHS
   decides against still never runs. A blocking `extern` call (below) rides the
   same rewrite, including when it is buried in a larger expression.
+- **Error handling across a suspension (design 196).** Every spelling of the
+  error surface works in a body that suspends, at the same tiers it works in a
+  sync one.
+  - A propagating **`try`** returns the error from the function. In a state
+    machine that means storing the `Result` into the frame's slot and finishing,
+    so `let chunk = try stream.read()` in a task body reports the failure to the
+    caller instead of panicking (`try!`) or losing the cause (`try?`).
+  - A **`try { … } catch { … }` block** may suspend anywhere inside it. The catch
+    arm becomes a resume target of its own, reachable from every state the try
+    body lowers into, so a statement after a `try` runs only if the earlier one
+    succeeded and the caught error survives the transition in a frame field. The
+    block works in statement position and in value position (`let r = try { … }
+    catch { … }`, or as the body's tail expression), in a driven and a spawned
+    body alike, nested in another block, and inside a loop whose `break` and
+    `continue` still reach the enclosing loop.
+  - An **erased `Result<T, Box<any Error>>`** returns and propagates across a
+    suspension, boxing a concrete error at the return edge or re-boxing one at
+    the propagation edge, and a function returning one is spawnable.
+  ```saw
+  func fetch(stream: &var TcpStream) -> Result<Data, IoError> {
+      let head = try stream.read()      // suspends; a failure returns Err here
+      try stream.write("ok")
+      return move head
+  }
+
+  func serve(stream: &var TcpStream) -> Int {
+      var served = 0
+      try {
+          let body = try fetch(&var stream)   // the catch arm is a resume target
+          served = body.len()
+      } catch {
+          print("dropping connection: {error}")
+      }
+      served
+  }
+  ```
 - **Not yet supported** (rejected with a diagnostic anchored at the user's source
   line, not miscompiled): a
   suspension-spanning `if let`/`guard let` with a *tuple pattern*; a **nested** generic call
@@ -4985,9 +5029,12 @@ Observable rules:
   effect node is not built; drive it directly with `__saw_drive`/`spawn` instead — a
   same-module limit, orthogonal to the module boundary); a suspension inside a `for`
   over a non-range iterable; a value-producing `break` out of a suspension-spanning
-  loop; and a chained assignment through MORE THAN ONE optional hop whose RHS
+  loop; a chained assignment through MORE THAN ONE optional hop whose RHS
   suspends (`a?.b?.c = stream.read()` — the single-hop form works; bind the inner
-  optional with `if let` first).
+  optional with `if let` first); and a suspending `try { … } catch { … }` block
+  whose try body raises TWO OR MORE distinct error types, where the catch would
+  bind a union the split lowering cannot build (write one block per error type,
+  or handle each call with an inline `try <call> catch { … }`).
 
 **Suspending `main` and the cooperative executor (design 45 items 1 & 4).** The
 real cooperative primitives are `yield_now()` (suspend and become immediately

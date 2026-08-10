@@ -1303,7 +1303,9 @@ dump_tasks()                // every live task's logical backtrace (std.task)
   each all transform now (the whole short-circuit is lifted to its own statement
   first), and the RHS still runs only when the LHS does not decide. Still a clean,
   user-anchored compile error (NOT a silent block): a suspension-spanning `if let`/
-  `guard let` with a TUPLE pattern; and a NESTED generic call whose template suspends
+  `guard let` with a TUPLE pattern; a suspending `try { } catch { }` block whose try
+  body raises TWO OR MORE distinct error types (below); and a NESTED generic call
+  whose template suspends
   UNCONDITIONALLY without calling a type-param method (`func g<T>(x: T) -> T {
   yield_now(); x }` called nested) — its instantiation's effect node is not built,
   so drive it directly with `__saw_drive`/`spawn` instead (this is a same-module limit,
@@ -1317,11 +1319,51 @@ dump_tasks()                // every live task's logical backtrace (std.task)
   from a param. The frame carries one field per BINDING, not per name. This was
   keyed by name until Aug 6 and read the wrong slot silently, so treat a
   same-named pair across a suspension as fine now but suspect in older builds.
+- **THE ERROR SURFACE WORKS IN A TASK BODY (design 196).** All of it, at the same
+  tiers sync code gets. A propagating `try` returns the error from the function
+  (`let chunk = try stream.read()` in a task reports the failure instead of
+  panicking with `try!` or losing the cause with `try?`); a `try { } catch { }`
+  BLOCK may suspend anywhere inside it, in statement or value position, driven or
+  spawned, nested, and inside a loop whose `break`/`continue` still reach the
+  enclosing loop; an erased `Result<T, Box<any Error>>` returns and propagates
+  across a suspension and its function is spawnable. Each of these was a compile
+  error or a compiler crash until Aug 10, so treat them as working now and
+  SUSPECT in older builds — a pre-196 task body had to use `try!`.
+  ```saw
+  func serve(stream: &var TcpStream) -> Int {
+      var served = 0
+      try {
+          let body = try fetch(&var stream)   // the catch is a resume target
+          served = body.len()
+      } catch {
+          print("dropping connection: {error}")
+      }
+      served
+  }
+  ```
+  ONE FENCE: a suspending try/catch BLOCK may raise only ONE error type. Two
+  callees with different error types in one try body is a clean error naming both
+  — write one block per error type, or handle each call with an inline
+  `try <call> catch { … }`. An inline catch has no such limit.
 - A CLOSURE created in a driven body works (design 77 DF-C1): call it after a
   suspend, hold it across one (its env deinits exactly once at frame death), or
   own it in a spawned TaskGroup frame — captured frame locals are moved into the
   closure by value. A tuple local and `let (a, b) = f()` destructuring also
-  survive a suspension (design 77): their bindings are frame-resident.
+  survive a suspension (design 77): their bindings are frame-resident. A closure
+  literal passed STRAIGHT to a call in a task body captures frame locals in every
+  position the call can sit in — the body's tail, a `return`, a `let`, an
+  assignment, a condition, a scrutinee, a nested call's argument — which is what
+  makes the shared-counter idiom writable:
+  ```saw
+  func add(shared: Arc<Mutex<Int>>, n: Int) -> Int {
+      shared.lock({ &var c in c = c + n  c })   // captures `n`, the parameter
+  }
+  // group.spawn(add(shared.copy(), 1))
+  ```
+  Two positions still refuse a capture, cleanly: a bare (non-block) `match` arm
+  expression, which cannot host the materialization at all, and a `while`
+  CONDITION, where it would run once ahead of a condition that runs every
+  iteration. Bind the closure to a `let` first where the parameter is not `sync`.
 - **References may span a suspension (design 88, D6).** A `&T`/`&var T` param or
   a `&var self` receiver of a suspending function stays valid across a suspend —
   it becomes a frame-resident pointer into the referent, so a read after resume

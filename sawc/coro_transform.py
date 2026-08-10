@@ -4452,13 +4452,16 @@ class _FrameBuilder:
             `_split_if_let` / `_split_guard_let` — the condition, range bounds or
             scrutinee of a CFG-split construct, emitted into the block the branch
             terminates.
-          * `_build_sub_frame` — the arguments (and receiver) of a nested
-            suspending call.
+          * `_build_sub_frame` — the ARGUMENTS of a nested suspending call. Its
+            receiver does not need one: a receiver is a frame local or param
+            read, never a closure literal.
           * `_emit_blk_call` — the arguments of an offloaded blocking extern.
 
-        The one position that genuinely cannot host a statement is a bare
-        (non-block) `match` arm expression, which keeps the clean refusal it has
-        always had, beside the same refusal for a `move` there."""
+        Two positions keep a clean refusal, on purpose. A bare (non-block)
+        `match` arm expression cannot host a statement at all, so it refuses a
+        capture exactly as it refuses a `move`. A `while` CONDITION could host
+        one, but the materialization would run ONCE ahead of a condition that
+        runs every iteration, which is not what the closure means."""
         saved, self._cap_lets = self._cap_lets, []
         try:
             value = self._rewrite_expr(expr, forgets)

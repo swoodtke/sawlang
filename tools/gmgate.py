@@ -244,6 +244,43 @@ CONCURRENCY_GATE = [
     # is copy-on-write over Arc-owned storage since design 165, so a container
     # crossing into a frame is the COW question and the Send question at once.
     "examples/taskgroup_send_containers.saw",
+
+    # --- Errors and captures inside a frame (design 196) ---------------------
+    # Each of these was a compiler refusal or an ICE until design 196, so none
+    # of them had ever RUN — and every one puts an owning value somewhere the
+    # frame owns it: exactly the storage this lane exists to police.
+    #
+    # A BOXED error built into the frame's own result slot across a suspension.
+    # The box is heap storage the frame owns until `join` (or teardown) takes
+    # it, and its payload is destroyed through the vtable's destructor slot,
+    # not through a static type — so a drop counted twice never shows in a
+    # refcount, only here.
+    "examples/erased_error_across_suspension.saw",
+    # The same box travelling through a SPAWNED task's result cell, one nesting
+    # level deeper (a `Vector` Ok payload), with a downcast beside it —
+    # `take<T>()` CONSUMES the box and moves the payload out on a hit, drops it
+    # on a miss, and both paths run here.
+    "examples/erased_error_spawned_container_result.saw",
+    # A split `try { } catch { }`: the caught error lands in a FRAME FIELD in
+    # one state and is read in another, and the error owns a String. Beside it,
+    # an owning `Vector` Ok payload moved out of a `try` in the try arm, the
+    # whole shape inside a spawned task, and thirteen positions' worth of
+    # states to drop it in exactly once.
+    "examples/coro_try_block_positions.saw",
+    # `try` PROPAGATION out of a frame: the error is wrapped into the result
+    # slot and the frame finishes, including the design-56 RE-BOX of a concrete
+    # error into an erased return — a fresh allocation on the failing path of a
+    # function that is also handing back an owning Ok payload on the other.
+    "examples/coro_try_propagate_suspending.saw",
+    # Reassigning an owning frame local: the field's OLD payload has to be
+    # dropped exactly once by the store that replaces it. A String, a String
+    # derived from the old one, and a `Vector` moved in from a sibling local.
+    "examples/coro_reassign_owning_local.saw",
+    # The canonical shared-counter idiom, which had no legal spelling at all
+    # until design 196 unit 4: four MT tasks each carrying their own `Arc`
+    # copy into a frame, mutating the shared payload under the lock, and
+    # releasing on whichever worker thread finishes them.
+    "examples/conformance/K13_mt_sum_under_mutex.saw",
 ]
 
 LANES = {
