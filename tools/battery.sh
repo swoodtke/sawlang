@@ -56,6 +56,7 @@ STAGES=(
     "abidoc|no|rt/ABI.md describes exactly the frozen seam set|$PY tools/test_runtime_abi_doc.py"
     "bttable|no|the task-backtrace table against the frame layouts|$PY tools/test_bt_table.py"
     "fuzz|no|corpus-mutation fuzzing, one oracle: no ICE, no traceback|$PY tools/sawfuzz.py --quick"
+    "bench|no|warehouse benchmark: checksums gate, timing reports|__BENCH__"
     "irdet|yes|IR determinism over the WHOLE corpus (not a sample)|__IRDET__"
     "gmgate|yes|ownership + concurrency oracles under Guard Malloc (macOS)|$PY tools/gmgate.py"
     "bootstrap|yes|Blade builds and tests Blade, stage0 through stage2|$PY tools/blade_bootstrap.py"
@@ -101,6 +102,17 @@ run_irdet() {
     ./.build/irdetbin --all
 }
 
+# The bench harness is Saw too (the third devtool). Its CHECKSUMS gate — the
+# benchmark is a behavioral pin — but its TIMING is report-only by design:
+# battery numbers are trend-watching, and a slow machine is not a regression.
+# See devtools/bench/warehouse/README.md and the tracker's "Measured
+# performance" entry (Aug 10).
+run_bench() {
+    "$PY" sawc/sawc.py devtools/bench/warehouse/warehouse.saw -o .build/benchbin_warehouse || return 1
+    "$PY" sawc/sawc.py devtools/bench/src/main.saw -o .build/benchdriver || return 1
+    ./.build/benchdriver
+}
+
 echo "battery: $REPO"
 echo "battery: python $PY"
 started=$(date +%s)
@@ -122,6 +134,8 @@ for entry in "${STAGES[@]}"; do
     stage_start=$(date +%s)
     if [ "$cmd" = "__IRDET__" ]; then
         run_irdet
+    elif [ "$cmd" = "__BENCH__" ]; then
+        run_bench
     else
         $cmd
     fi

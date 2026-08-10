@@ -1,0 +1,58 @@
+//! bench — driver for the battery's non-gating performance stage.
+//!
+//! Runs the prebuilt warehouse benchmark RUNS times from the repo root.
+//! CHECKSUMS GATE: the benchmark's stdout must equal EXPECTED.txt exactly —
+//! the benchmark doubles as a behavioral pin, and a changed checksum is a
+//! regression whatever the clock says. TIMING IS REPORT-ONLY: the printed
+//! min is for trend-watching across battery runs, and no time is ever a
+//! failure. The battery's bench stage compiles the benchmark and this
+//! driver first (see tools/battery.sh); this binary only runs and judges.
+
+import std.process.{Command}
+import std.time.{Instant}
+import std.file.{File}
+import std.path.{Path}
+
+static RUNS: Int = 5
+
+// String statics are refused (immortal, never deinit) — the paths live here.
+func bench_bin() -> String { "./.build/benchbin_warehouse" }
+
+func expected_output() -> String {
+    var f = try! File.open(Path(s: "devtools/bench/warehouse/EXPECTED.txt"))
+    let data = try! f.read()
+    let text = try! String.fromBytes(data: &data)
+    return text.trim()
+}
+
+// One timed run; panics (a loud stage failure) on a checksum mismatch.
+func run_once(expected: &String) -> Int {
+    var c = Command(program: bench_bin())
+    let t0 = Instant.now()
+    let out = c.output()
+    let ms = t0.elapsed().as_millis() as Int
+    if let o = out {
+        let got = o.stdout.trim()
+        if got != expected {
+            print("bench warehouse: CHECKSUM MISMATCH")
+            print("--- expected ---")
+            print("{expected}")
+            print("--- got ---")
+            print("{got}")
+            panic("warehouse benchmark output diverged from EXPECTED.txt")
+        }
+        return ms
+    }
+    panic("warehouse benchmark failed to run: {bench_bin()}")
+}
+
+func main() {
+    let expected = expected_output()
+    var best = 1000000000
+    for i in 0..RUNS {
+        let ms = run_once(&expected)
+        print("bench warehouse run {i}: {ms} ms")
+        if ms < best { best = ms }
+    }
+    print("bench warehouse min: {best} ms (report-only; checksums gate)")
+}

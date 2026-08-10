@@ -148,10 +148,11 @@ objects are built + cached under `.build/rt/` and auto-linked (delete
   ```
   Stages: `suite`, `icebreadcrumb`, `lexdiff`, `astdiff`, `astgraft`,
   `ircontract`, `preludegate`, `abidoc`, `bttable`, `fuzz`
-  (`sawfuzz --quick`), then the slow four `irdet` (`--all`, whole corpus),
-  `gmgate` (both lanes), `bootstrap`, `sos`. Every stage RUNS even after one
-  fails; the exit code is the number of failing stages. Adding a lane means
-  editing `STAGES`.
+  (`sawfuzz --quick`), `bench` (the warehouse benchmark — checksums GATE,
+  timing report-only; devtools/bench/ + TESTING.md), then the slow four
+  `irdet` (`--all`, whole corpus), `gmgate` (both lanes), `bootstrap`,
+  `sos`. Every stage RUNS even after one fails; the exit code is the
+  number of failing stages. Adding a lane means editing `STAGES`.
 - The AST contract (design 126, gated by design 194): every attribute a pass
   stamps on an AST node is a DECLARED `annotation(...)` field on the node
   class, never a runtime graft — `tools/test_ast_graft.py` (the `astgraft`

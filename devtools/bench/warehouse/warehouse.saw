@@ -1,0 +1,197 @@
+// Warehouse robot simulation — the Saw half of the Saw-vs-Swift comparison.
+// A dispatcher coordinates robots over a grid: orders arrive, the dispatcher
+// assigns each to the nearest idle robot, robots run a mission state machine
+// (idle -> to-pickup -> to-dropoff, with battery drain and corner charging).
+// Deterministic: seeded LCG, fixed traversal order, checksums printed at the
+// end must match the Swift program exactly.
+
+static W: Int = 64
+static ROBOTS: Int = 100
+static TICKS: Int = 200000
+static ORDER_EVERY: Int = 1
+static PENDING_CAP: Int = 500
+static BATTERY_CAP: Int = 1200
+static BATTERY_LOW: Int = 150
+static CHARGE_RATE: Int = 25
+
+struct Rng {
+    state: UInt64
+}
+
+extension Rng {
+    func next(&var self) -> UInt64 {
+        self.state = self.state &* 6364136223846793005u64 &+ 1442695040888963407u64
+        return self.state >> 33
+    }
+    func below(&var self, n: Int) -> Int {
+        return (self.next() % (n as UInt64)) as Int
+    }
+}
+
+enum Mission {
+    case Idle,
+    case ToPickup(o: Int),
+    case ToDropoff(o: Int),
+    case Charging
+}
+
+struct Order {
+    px: Int,
+    py: Int,
+    dx: Int,
+    dy: Int
+}
+
+struct Robot {
+    x: Int,
+    y: Int,
+    battery: Int,
+    delivered: Int,
+    mission: Mission
+}
+
+func dist(ax: Int, ay: Int, bx: Int, by: Int) -> Int {
+    let dx = if ax > bx { ax - bx } else { bx - ax }
+    let dy = if ay > by { ay - by } else { by - ay }
+    return dx + dy
+}
+
+struct Sim {
+    robots: Vector<Robot>,
+    orders: Vector<Order>,
+    pending: Vector<Int>,
+    pending_head: Int,
+    rng: Rng,
+    delivered: Int,
+    steps: Int
+}
+
+extension Sim: NoCopy {}
+
+extension Sim {
+    func robot_idle(&self, r: Int) -> Bool {
+        match self.robots[r].mission {
+            case Idle -> true,
+            case _ -> false
+        }
+    }
+
+    // Moves robot i one step toward (tx, ty); reports whether it now stands there.
+    func move_robot(&var self, i: Int, tx: Int, ty: Int) -> Bool {
+        if self.robots[i].x == tx && self.robots[i].y == ty {
+            return true
+        }
+        if self.robots[i].x != tx {
+            if self.robots[i].x < tx { self.robots[i].x += 1 } else { self.robots[i].x -= 1 }
+        } else {
+            if self.robots[i].y < ty { self.robots[i].y += 1 } else { self.robots[i].y -= 1 }
+        }
+        self.robots[i].battery -= 1
+        self.steps += 1
+        return self.robots[i].x == tx && self.robots[i].y == ty
+    }
+
+    func assign_pending(&var self) {
+        while self.pending_head < self.pending.len() {
+            let oidx = self.pending[self.pending_head]
+            var best = -1
+            var bestd = 1000000
+            for r in 0..ROBOTS {
+                if self.robot_idle(r) {
+                    let d = dist(ax: self.robots[r].x, ay: self.robots[r].y,
+                                 bx: self.orders[oidx].px, by: self.orders[oidx].py)
+                    if d < bestd {
+                        bestd = d
+                        best = r
+                    }
+                }
+            }
+            if best < 0 { return }
+            self.robots[best].mission = Mission.ToPickup(o: oidx)
+            self.pending_head += 1
+        }
+    }
+
+    func step_robot(&var self, i: Int) {
+        let m = self.robots[i].mission
+        match m {
+            case Idle -> {
+                if self.robots[i].battery < BATTERY_LOW {
+                    self.robots[i].mission = Mission.Charging
+                }
+            },
+            case ToPickup(o) -> {
+                let tx = self.orders[o].px
+                let ty = self.orders[o].py
+                if self.move_robot(i, tx: tx, ty: ty) {
+                    self.robots[i].mission = Mission.ToDropoff(o: o)
+                }
+            },
+            case ToDropoff(o) -> {
+                let tx = self.orders[o].dx
+                let ty = self.orders[o].dy
+                if self.move_robot(i, tx: tx, ty: ty) {
+                    self.robots[i].mission = Mission.Idle
+                    self.robots[i].delivered += 1
+                    self.delivered += 1
+                }
+            },
+            case Charging -> {
+                let sx = if self.robots[i].x < 32 { 0 } else { 63 }
+                let sy = if self.robots[i].y < 32 { 0 } else { 63 }
+                if self.move_robot(i, tx: sx, ty: sy) {
+                    self.robots[i].battery += CHARGE_RATE
+                    if self.robots[i].battery >= BATTERY_CAP {
+                        self.robots[i].battery = BATTERY_CAP
+                        self.robots[i].mission = Mission.Idle
+                    }
+                }
+            }
+        }
+    }
+
+    func tick(&var self, t: Int) {
+        if t % ORDER_EVERY == 0 && self.pending.len() - self.pending_head < PENDING_CAP {
+            let px = self.rng.below(W)
+            let py = self.rng.below(W)
+            let dx = self.rng.below(W)
+            let dy = self.rng.below(W)
+            self.orders.push(Order(px: px, py: py, dx: dx, dy: dy))
+            self.pending.push(self.orders.len() - 1)
+        }
+        self.assign_pending()
+        for i in 0..ROBOTS {
+            self.step_robot(i)
+        }
+    }
+}
+
+func main() {
+    var rng = Rng(state: 42u64)
+    var robots = Vector<Robot>()
+    for i in 0..ROBOTS {
+        let x = rng.below(W)
+        let y = rng.below(W)
+        robots.push(Robot(x: x, y: y, battery: BATTERY_CAP, delivered: 0,
+                          mission: Mission.Idle))
+    }
+    var sim = Sim(robots: move robots, orders: Vector<Order>(),
+                  pending: Vector<Int>(), pending_head: 0, rng: rng,
+                  delivered: 0, steps: 0)
+
+    for t in 0..TICKS {
+        sim.tick(t)
+    }
+
+    var pos_hash = 0
+    var battery_sum = 0
+    for i in 0..ROBOTS {
+        pos_hash = pos_hash &* 31 &+ (sim.robots[i].x * 64 + sim.robots[i].y)
+        battery_sum += sim.robots[i].battery
+    }
+    print("created {sim.orders.len()}")
+    print("delivered {sim.delivered}")
+    print("steps {sim.steps}")
+    print("pos {pos_hash}")
+    print("battery {battery_sum}")
+}

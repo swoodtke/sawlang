@@ -295,6 +295,19 @@ being tracked: it used to be an untracked scratch file each session rewrote
 from prose, and a gate list nobody can diff is a gate list that quietly loses
 an entry.
 
+### The bench stage
+
+`bench` compiles and runs `devtools/bench/warehouse/` (driver:
+`devtools/bench/src/main.saw`, the third Saw-authored devtool). Two rules,
+deliberately split: the benchmark's **checksums gate** — it is a
+deterministic simulation and a changed checksum is a behavioral regression,
+whatever the clock says — while its **timing only reports** (a min-of-5
+line in the battery output, for trend-watching across runs; a slow machine
+is not a failure). Battery numbers are contended by whatever else the run
+does; quote headline numbers only from a quiet machine, per the bench
+README. The Swift and Rust files beside the benchmark are manual reference
+baselines and are never built by the battery.
+
 ## Ownership and Concurrency Gates Under Guard Malloc
 
 ```bash

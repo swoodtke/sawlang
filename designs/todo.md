@@ -40,6 +40,51 @@ ladder); value-branch arms are TRANSFERS through the existing
 checkpoint (lossless widening legal, like `return`). 12-row position
 matrix; conformance rows first; consumer sweep owed.
 
+## Measured performance (Aug 10 — the warehouse benchmark)
+
+The first profiling-backed performance entry (per the ruling: optimization
+enters the tracker only with measurement behind it). The workload:
+`devtools/bench/warehouse/` — a deterministic dispatcher/robots/orders
+simulation, 200k ticks × 100 robots, implemented four ways with
+checksum-identical output. Wall times on this host (contended by an agent
+run; deltas consistent across alternating runs):
+
+| impl | time | vs Rust |
+|---|---|---|
+| Rust `-C opt-level=3` | 0.22s | 1.0× |
+| Swift structs `-O` | 0.45s | ~2.1× |
+| Saw (default pipeline) | ~1.05s | ~4.9× |
+| Saw IR → external `clang -O3` | ~1.08s | ~4.9× |
+| Swift classes `-O` | ~1.37s | ~6.3× |
+
+**The finding: the gap is LOWERING SHAPE, not the pass pipeline.** External
+O3 on sawc's IR changes nothing, because every `v[i]` place access is
+lowered as the full design-141 window protocol — the call site builds a
+`{fn_ptr, env, dtor}` closure for the window body, calls the outlined
+`Vector.[]` accessor, which reaches the body by an INDIRECT call at the
+`lend` — and LLVM does not collapse the chain. ~3 calls + a closure build
+per element access, tens of millions of times in the hot loop.
+
+**Fix direction (brief AFTER the 195-202 queue drains):** a place-lowering
+fast path — for a direct-storage accessor (Vector/Data `[]`), emit
+bounds-check + GEP inline; the general protocol stays for accessors that
+need it (epilogues, `#lend_var`, conditional lends). Acceptance: the
+warehouse benchmark reaches Swift-structs territory (~0.45s) with every
+check still on, checksums unchanged.
+
+**The standing rule this entry sets** (answers "will optimizing the Python
+compiler hurt the port?"): improve the SHAPES codegen emits — lowering is
+design, and a ported compiler inherits it — but build NO Python-side
+optimizer machinery (custom passes, analysis frameworks, an inliner); LLVM
+is the optimizer on both sides of any port. Pass-pipeline TUNING (an
+O2-style llvmlite config) ports trivially and may ride any perf brief,
+though the O3 null result says it buys little here.
+
+Non-gating tracking: the `bench` battery stage times the Saw benchmark on
+every battery run (checksums GATE — they are a behavioral pin; timing only
+reports). Swift/Rust sources sit beside it as manual baselines so the
+battery takes no swiftc/rustc dependency.
+
 ## The quality program — designs 190-194 (ALL LANDED Aug 9-10)
 
 `designs/190-quality-program.md` is the analysis (findings-vs-proposals

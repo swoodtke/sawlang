@@ -1,0 +1,5 @@
+created 200000
+delivered 199947
+steps 10764274
+pos 7395078473025406981
+battery 69734
