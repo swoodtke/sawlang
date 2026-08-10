@@ -988,8 +988,10 @@ Saw provides deterministic memory management without garbage collection:
 - **The Law of Exclusivity**: a `&var` (mutable) reference must not overlap any
   other reference reaching the same value for as long as it is live. It is fully
   static, with no lifetimes to write. A call argument's reference is live for the
-  call; a `borrows` accessor's window lasts the enclosing expression; a `[&var
-  x]` capture into a spawned task lasts until the task's handle is joined.
+  whole call expression, nested calls included, so `sink(&var p.x, reset(&var
+  p))` is refused where `add(&var x, bump(&var y))` compiles; a `borrows`
+  accessor's window lasts the enclosing expression; a `[&var x]` capture into a
+  spawned task lasts until the task's handle is joined.
 - **References compose**: a `&T` or `&var T` you receive can be passed on to
   another function as a re-borrow. A reference is never made more permissive than
   the one it came from, and references stay valid across suspension points.

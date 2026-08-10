@@ -341,6 +341,24 @@ var u = w.copy()       // explicit duplicate
   `acc = combine(move acc, e)` (a `move`, not a borrow — the assignment revives
   the binding) both compile. The `p?.x = ...` chain spelling has always been
   refused; the plain one now agrees.
+  **A NESTED CALL'S REFERENCES JOIN THE OUTER CALL'S ACCESS SET (design 199)** —
+  an argument's borrow extends over the whole call EXPRESSION, so a `&`/`&var`
+  written inside a call in an argument list meets the same disjointness test as
+  the arguments beside it:
+  ```saw
+  sink(&var p.a, reset(&var p))          // error: both reach `p`
+  p.total(reset(&var p))                 // error: the receiver is in the set
+  combine(bump(&var n), scale(&var n))   // error: neither ref is at the top level
+  add(&var x, bump(&var y))              // ok: distinct roots
+  scale(&var p.b, bump(&var p.a))        // ok: disjoint PATHS, as ever
+  ```
+  The receiver one is the sharpest: a `&self` receiver arrives BY VALUE, so
+  whether its copy is taken before or after `reset` writes was argument
+  evaluation order (it printed the pre-reset total). Hoist the nested call into
+  its own `let` and the two borrows are in separate statements. Only the access
+  SET widened — the path test is untouched, so nothing disjoint changed. This
+  compiled on every tier unless a place window happened to be open (188 covered
+  that half), so treat the shape as caught now and SUSPECT in older builds.
 - Forwarding (design 106): a received reference param (or `&var self`) may
   itself be the operand of `&`/`&var` — pass it onward as a re-borrow:
   `func relay(r: &var T) { g(&var r) }`, `g(&var self.field)`, `g(&var self)`.
@@ -387,7 +405,10 @@ var u = w.copy()       // explicit duplicate
   (`setboth(&var p.at(0), &var p.at(1))`) or a window beside a `&var` of its
   root, including one created by a NESTED call in the same argument list
   (`sink(&var p.at(0), reset(&var p))`), because a window's extent is the whole
-  call. Until 188 this compiled on a free-copy receiver and BOTH WRITES WERE
+  call. (Design 199 dropped the place precondition from that last clause — a
+  nested call's references join the access set with or without a window; see the
+  Law of Exclusivity entry.) Until 188 this compiled on a free-copy receiver
+  and BOTH WRITES WERE
   LOST (std `Data` corrupted); what refused it on Vector was the copy policy,
   not the Law. Separate statements are the fix. Untouched: one window, windows
   in separate statements, a window beside a shared read of a DISJOINT path,

@@ -2773,6 +2773,39 @@ change the dispatch, not the aliasing. A generic body is checked once, before
 any instantiation, so `s.pair(&var p, &var p)` under `<T: Pairer>` is refused
 where it is written rather than at some later instantiation.
 
+**Nested calls.** An argument's borrow extends over the whole call *expression*,
+nested calls included. A `&` or `&var` written inside a call that sits in an
+argument list joins the outer call's access set and meets the same
+path-disjointness test as the arguments written beside it.
+
+```saw
+var p = Point(x: 1, y: 2)
+sink(&var p.x, reset(&var p))
+// error: exclusive access violation: `p` is borrowed by a nested call in this
+//        argument list while `p.x` is also accessed by reference in the same
+//        call — both reach `p`
+
+add(&var x, bump(&var y))         // ok: distinct roots
+scale(&var p.y, bump(&var p.x))   // ok: disjoint fields, as everywhere else
+```
+
+The receiver is an ordinary member of that set, so `p.total(reset(&var p))` is
+refused as well. A `&self` receiver arrives by value, and whether its copy is
+taken before or after `reset` writes is argument evaluation order. Two nested
+calls reaching one root are refused on the same terms, with neither reference
+written at the outer level:
+
+```saw
+combine(bump(&var n), scale(&var n))   // error: both reach `n`
+```
+
+The fix is a hoisted binding, which puts the two borrows in separate statements:
+
+```saw
+let extra = reset(&var p)
+sink(&var p.x, extra)
+```
+
 **Assignment.** An assignment writes its target, and its right-hand side is
 evaluated first, so the RHS may not borrow a path overlapping the written root:
 everything the callee wrote through that borrow would be overwritten by the
@@ -2808,7 +2841,7 @@ let seen = n
 
 > **Invariant (for future features):** the fully-static guarantee rests on every
 > live reference having a statically known extent. A call argument's extent is
-> the call, a place window's is the enclosing expression, a task capture's is the
+> the call expression, a place window's is the enclosing expression, a task capture's is the
 > handle's join or its group's death. Returned/stored references or
 > globally-reachable mutable variables would have none, so they must either be
 > given one or be kept out; otherwise this law weakens from *sound* to

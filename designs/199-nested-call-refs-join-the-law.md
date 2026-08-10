@@ -1,6 +1,16 @@
 # Design 199 — nested-call references join the Law of Exclusivity
 
-**Status: RULED + AUTHORED Aug 10 (morning review), ready to queue.
+**Status: LANDED Aug 10 — all four units, tracked battery green, DF-188j
+closed. Two things the units settled beyond the written text: the
+receiver-position variant is NOT already caught by the receiver borrow
+(`p.total(reset(&var p))` compiled and printed the pre-reset total, so it
+is a reject row and not an already-covered one), and the "disjoint roots"
+of the ruling is PATH disjointness in the implementation — the widening
+is to the access set alone, so `scale(&var r.b, bump(&var r.a))` stays
+legal exactly as row X04's `f(&var p.x, &p.y)` does. The consumer sweep
+found zero offenders in the tree; no findings were filed.**
+
+**Status at authoring: RULED + AUTHORED Aug 10 (morning review), ready to queue.
 Closes DF-188j with the ruling: a by-reference argument created by a
 NESTED call in the same argument list joins the OUTER call's access
 set, so overlapping roots are an exclusivity error on every copy tier —

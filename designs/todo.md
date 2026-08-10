@@ -31,7 +31,16 @@ disjoint surfaces parallel):
    over an all-payload-free enum is a codegen ICE — the general pattern path
    reads a tag out of a shape that enum does not have). Two spellings the
    brief expected to behave otherwise are recorded in `designs/198-*.md`.
-3. **199 nested-call refs join the Law** (DF-188j; sweep-first) — solo.
+3. ~~**199 nested-call refs join the Law**~~ — **LANDED Aug 10**, all four
+   units, tracked battery green. DF-188j closed: a nested call's `&`/`&var`
+   arguments join the outer call's access set and meet the unchanged path
+   test, so overlapping paths error on every tier and disjoint ones are
+   untouched. Two answers the units produced: the receiver-position variant
+   was NOT already caught (`p.total(reset(&var p))` compiled and read the
+   receiver at its pre-reset value), and the consumer sweep over all 1890
+   tracked `.saw` files found ZERO offenders — the rule landed without
+   changing any existing program. No findings filed. Sweep record in
+   `designs/199-*.md`.
 4. **200 receiver-copy place write** (DF-176c) ∥ **153 statics→enums
    sweep** (place lowering vs std .saw — disjoint).
 5. **196 coro × erased errors + captures** (DF-193a, DF-192b/c,
