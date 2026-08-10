@@ -1,6 +1,6 @@
 # Saw Language Makefile
 
-.PHONY: test test-verbose test-sequential clean help blade-bootstrap sos-test lexdiff astdiff irdet irdet-all gmgate abidoc bttable bttable-sizes lldbtest ircontract preludegate icebreadcrumb
+.PHONY: test test-verbose test-sequential clean help blade-bootstrap sos-test lexdiff astdiff astgraft irdet irdet-all gmgate abidoc bttable bttable-sizes lldbtest ircontract preludegate icebreadcrumb
 
 # Default target
 all: test
@@ -43,6 +43,13 @@ lexdiff:
 # falls through a dispatcher) and byte-stable across runs.
 astdiff:
 	@python3 tools/astdiff.py
+
+# Design 126's "zero grafted AST writes" exit criterion, mechanized (design 194
+# unit 1). 126 checked it once by hand and eleven grafts crept back. A grafted
+# field is invisible to `dataclasses.fields()` — which is what the monomorphizer
+# walks — so it survives substitution un-rewritten, the RC-2 bug all over again.
+astgraft:
+	@python3 tools/test_ast_graft.py
 
 # Compiler output determinism (design 126 R2): compile a corpus sample twice,
 # in fresh processes under differing PYTHONHASHSEED, and require byte-identical
@@ -159,6 +166,7 @@ help:
 	@echo "  make sos-test        - Build + boot the SOS kernel + root server under QEMU (riscv32 AND arm64)"
 	@echo "  make lexdiff         - Diff the Saw lexer against sawc's over the corpus"
 	@echo "  make astdiff         - Dump every tracked .saw file and require stability"
+	@echo "  make astgraft        - No pass stamps an AST attribute no class declares"
 	@echo "  make irdet           - IR determinism over a 40-example sample (per commit)"
 	@echo "  make irdet-all       - IR determinism over the WHOLE corpus (final gate)"
 	@echo "  make gmgate          - Ownership + concurrency oracles under Guard Malloc (macOS)"

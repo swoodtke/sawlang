@@ -50,6 +50,7 @@ STAGES=(
     "icebreadcrumb|no|an internal compiler error reports one located line|$PY tools/test_ice_breadcrumb.py"
     "lexdiff|no|the Saw lexer against sawc's, over every tracked .saw|$PY tools/lexdiff.py"
     "astdiff|no|every .saw dumps completely and byte-stably|$PY tools/astdiff.py"
+    "astgraft|no|no pass stamps an AST attribute no class declares|$PY tools/test_ast_graft.py"
     "ircontract|no|-c embeds what hosted embeds; seam widths match rt/ABI.md|$PY tools/test_ir_contract.py"
     "preludegate|no|the import gate matches LANGUAGE_SPEC's module table|$PY tools/test_prelude_gate_doc.py"
     "abidoc|no|rt/ABI.md describes exactly the frozen seam set|$PY tools/test_runtime_abi_doc.py"

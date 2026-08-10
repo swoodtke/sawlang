@@ -737,6 +737,21 @@ class Expression(ASTNode):
     #                           against its tables, where two modules' `Color`s
     #                           both live.
     resolved_type_identity: Optional[str] = annotation(None)
+    #   place_value_read     -- design 141/146: this node is the read that turns
+    #                           a lent PLACE back into a value, inside the window
+    #                           body the place lowering synthesized. Codegen owes
+    #                           it the container-slot duplication rule -- the
+    #                           element stays in the container, so an owning one
+    #                           is retained here.
+    #   place_abstract_read  -- DF-146e: that read sits in a GENERIC body, where
+    #                           the element's copy tier is not known yet. The tier
+    #                           is a property of the INSTANTIATION, so the copy is
+    #                           emitted there, in the same phase that emits the
+    #                           drop. Stamped first on the PLACE (`v[i]`, a
+    #                           `borrows` call) by the bounds check, then carried
+    #                           onto the read the lowering builds from it.
+    place_value_read: bool = annotation(False)
+    place_abstract_read: bool = annotation(False)
 
 
 @dataclass
@@ -819,6 +834,13 @@ class Identifier(Expression):
     # namespace of its own.
     const_static_value: Optional[int] = annotation(None)
     const_static_reject: Optional[str] = annotation(None)
+    # DF-140f: this name resolved to a module `static`, and this is the CODEGEN
+    # symbol it resolved to. Resolution happens in the typechecker, against the
+    # importing module's own namespace, which is the only place that knows which
+    # of two same-named module-private statics was meant; codegen works from one
+    # merged namespace and could not tell them apart. Also stamped on the TARGET
+    # of an assignment to a static, by the same rule.
+    resolved_static_symbol: Optional[str] = annotation(None)
 
 
 @dataclass
@@ -928,6 +950,15 @@ class FunctionCall(Expression):
     # Builtin construction forms the typechecker recognizes by name.
     is_atomic_construct: bool = annotation(False)
     is_unsafe_mem_construct: bool = annotation(False)
+    # design 186: `UnsafeMutableInterior(v)`. The cell is layout-transparent —
+    # it IS its `T` — so codegen emits the payload and nothing else, and a cell
+    # is as const-initializable as the value it holds.
+    is_interior_cell_construct: bool = annotation(False)
+    # The callee name and type arguments AS THE AUTHOR WROTE THEM, saved the
+    # first time driving or spawning a generic rewrote this call in place. See
+    # `_restore_authored_callee`: the rewrite is not idempotent and the front
+    # half runs more than once over the same AST.
+    authored_callee: Optional[tuple] = annotation(None)
     # `UserId(42)`: the distinct `type` alias this call constructs (design 63).
     # An alias IS its underlying representationally, so codegen compiles the one
     # operand and emits no conversion.
@@ -1379,6 +1410,21 @@ class MethodCall(Expression):
     # transform keys a suspending static method's frame off these instead.
     is_static_method_call: bool = annotation(False)
     static_receiver: Optional[str] = annotation(None)
+    # design 186: `cell.ptr()` on an `UnsafeMutableInterior`. The cell is
+    # layout-transparent, so the address of its storage IS the receiver's —
+    # codegen takes the caller's storage and skips the final field GEP.
+    interior_cell_ptr: bool = annotation(False)
+    # design 145 unit B2: `E.from(raw: u)` on a raw-backed enum, holding `E`.
+    # The typechecker resolved this to the synthesized lookup, so there is no
+    # symbol to call — codegen lowers it inline as a tag lookup.
+    enum_from_raw: Optional[str] = annotation(None)
+    # design 114 / DF-127b: this `yield_now()` resolved to `std.task.yield_now`,
+    # so the coroutine transform lowers it as the cooperative-yield INTRINSIC
+    # rather than as a cross-module call it cannot embed.
+    is_yield_intrinsic: bool = annotation(False)
+    # See FunctionCall.authored_callee -- same meaning here (the saved name is
+    # `method_name`).
+    authored_callee: Optional[tuple] = annotation(None)
 
 
 @dataclass
@@ -1759,6 +1805,12 @@ class Struct(ASTNode):
     # the AST dump render that — while codegen keys its layout, its
     # monomorphizations and its method symbols off the identity.
     type_identity: str = ""
+    # design 163 (measurement): on a coroutine FRAME struct, the state-machine
+    # facts the `--emit-frame-layout` report needs — the state count, and for
+    # each embedded sub-frame field the single state in which it is live. Set by
+    # the coroutine transform, read only by the report; no code generation
+    # consults it.
+    coro_frame_info: Optional[Dict[str, Any]] = annotation(None)
 
 
 @dataclass
@@ -1937,6 +1989,10 @@ class Method(ASTNode):
     # registration once overloads are numbered; None means "use `name`"
     # (design 126 R1).
     mangled_symbol: Optional[str] = annotation(None)
+    # design 70 (A5): this method is a SYNTHESIZED instantiation of a generic
+    # template, cloned and substituted for per-instantiation effect re-inference
+    # rather than written by an author. See Function.is_mono_instance.
+    is_mono_instance: bool = annotation(False)
 
 
 @dataclass
@@ -2025,6 +2081,13 @@ class Function(ASTNode):
     doc: Optional[str] = None
     # See Method.mangled_symbol (design 126 R1).
     mangled_symbol: Optional[str] = annotation(None)
+    # design 70 (A5): this function is a SYNTHESIZED instantiation of a generic
+    # template — the effect pass cloned the pristine snapshot, substituted the
+    # type arguments and re-checked the body with errors suppressed, to harvest
+    # per-instantiation effect edges. The passes that walk module declarations
+    # read it to skip re-registering, re-snapshotting or re-checking a clone as
+    # if it were something the author wrote.
+    is_mono_instance: bool = annotation(False)
 
 
 @dataclass
@@ -2114,3 +2177,9 @@ class Program(ASTNode):
     # Module doc comment (design 121): the `//!` block(s) at the top of the file,
     # markers stripped and lines joined with "\n". None when undocumented.
     module_doc: Optional[str] = None
+    # design 121: on a MERGED program (the std tree, or a multi-file module), the
+    # per-file `//!` docs, keyed by source path. Merging flattens the files into
+    # one Program, so each file's own `module_doc` would otherwise be lost; the
+    # docs emitter reads this to attribute a module doc back to its file. Survives
+    # the codegen filter, which drops declarations but not documentation.
+    file_module_docs: Optional[Dict[str, str]] = annotation(None)

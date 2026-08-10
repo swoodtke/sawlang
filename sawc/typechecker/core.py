@@ -57,6 +57,11 @@ class VariableInfo:
     # binding; an explicit counter removes both the address dependence and that
     # keep-alive obligation.
     binding_id: int = field(default_factory=lambda: next(_BINDING_ID_COUNTER))
+    # design 75 (A2): this binding was initialized as a MULTI-THREADED group
+    # (`TaskGroup(threads: N)`), so a later `group.spawn(...)` into it turns on
+    # the Send-on-frames gate. The default `TaskGroup()` — and every other
+    # construction — leaves it False and the gate skipped.
+    is_mt_group: bool = False
 
 
 @dataclass
@@ -262,6 +267,20 @@ class TypeChecker(ExpressionsMixin, StatementsMixin, RegistrationMixin, TypeUtil
         # injects nothing. Empty in the single-file compilation path, where every
         # declaration shares the `()` module.
         self.current_direct_imports: Set[Tuple[str, ...]] = set()
+
+        # --- wired in from outside, declared here (design 194 unit 1) --------
+        # These two are handed over by the driver rather than built here, and
+        # were runtime grafts until the graft gate went in. Declaring them is
+        # what makes the reader sites' `getattr(self, ..., {})` a fact about the
+        # PHASE (not yet wired) instead of a fact about the object's shape.
+        #
+        # design 82/150: std symbol -> the std FILE that defines it, filled by
+        # `sawc.py` once the builtin namespace has been built. The import gate
+        # asks it whether a bare std name needs an import.
+        self._std_symbol_file: Dict[str, str] = {}
+        # design 45: the suspending METHODS the effect fixpoint settled on,
+        # handed back by the coroutine transform for its own second pass.
+        self._suspending_methods_set: Optional[set] = None
 
         # Register built-in functions
         self._register_builtins()

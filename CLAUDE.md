@@ -146,11 +146,19 @@ objects are built + cached under `.build/rt/` and auto-linked (delete
   tools/battery.sh suite fuzz     # named stages
   tools/battery.sh --list
   ```
-  Stages: `suite`, `icebreadcrumb`, `lexdiff`, `astdiff`, `ircontract`,
-  `preludegate`, `abidoc`, `bttable`, `fuzz` (`sawfuzz --quick`), then the
-  slow four `irdet` (`--all`, whole corpus), `gmgate` (both lanes),
-  `bootstrap`, `sos`. Every stage RUNS even after one fails; the exit code
-  is the number of failing stages. Adding a lane means editing `STAGES`.
+  Stages: `suite`, `icebreadcrumb`, `lexdiff`, `astdiff`, `astgraft`,
+  `ircontract`, `preludegate`, `abidoc`, `bttable`, `fuzz`
+  (`sawfuzz --quick`), then the slow four `irdet` (`--all`, whole corpus),
+  `gmgate` (both lanes), `bootstrap`, `sos`. Every stage RUNS even after one
+  fails; the exit code is the number of failing stages. Adding a lane means
+  editing `STAGES`.
+- The AST contract (design 126, gated by design 194): every attribute a pass
+  stamps on an AST node is a DECLARED `annotation(...)` field on the node
+  class, never a runtime graft — `tools/test_ast_graft.py` (the `astgraft`
+  lane) fails on any attribute assignment in `sawc/` that no class declares.
+  A graft is invisible to `dataclasses.fields()`, which is what
+  `substitute_ast_types` walks, so a grafted `SawType` survives
+  monomorphization un-substituted.
 - Fuzzing (design 192): `tools/sawfuzz.py` mutates the examples/ corpus and
   asserts ONE oracle — the compiler succeeds or exits with a clean
   diagnostic; a traceback, an `internal compiler error`, a signal or a hang

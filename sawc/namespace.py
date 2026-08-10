@@ -366,6 +366,21 @@ class Namespace:
         # label is supplied; used to name both sides of an ambiguity.
         self._provenance: Dict[str, str] = {}
 
+        # --- the import gate's tables, wired in from outside (design 194 u1) --
+        # Filled by `sawc.py` on the BUILTIN namespace once std has been parsed,
+        # and read from there by the gate. They live on the namespace because
+        # that is the object every checker already has in hand; they were runtime
+        # grafts until the graft gate went in.
+        #
+        # design 82: std FILE leaf -> the symbols that file defines (the set the
+        # glob form `import std.data.*` exposes bare), and its inverse.
+        self._std_file_symbols: Dict[str, Set[str]] = {}
+        self._std_symbol_file: Dict[str, str] = {}
+        # design 150: the std modules and symbols that REQUIRE an import — the
+        # non-prelude surface. Constants from `sawc.py`, not per-namespace state.
+        self._import_required_modules: Set[str] = set()
+        self._import_required_symbols: Set[str] = set()
+
     # =========================================================================
     # Unified Resolution
     # =========================================================================

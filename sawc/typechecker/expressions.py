@@ -1694,10 +1694,10 @@ class ExpressionsMixin:
         So the authored form is recorded the first time and restored on every
         later pass, which then re-derives exactly the same symbol.
         """
-        saved = getattr(node, '_authored_callee', None)
+        saved = node.authored_callee
         if saved is None:
-            node._authored_callee = (getattr(node, attr),
-                                     getattr(node, 'type_args', None))
+            node.authored_callee = (getattr(node, attr),
+                                    getattr(node, 'type_args', None))
         else:
             setattr(node, attr, saved[0])
             node.type_args = saved[1]
