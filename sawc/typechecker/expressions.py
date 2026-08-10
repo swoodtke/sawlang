@@ -71,6 +71,17 @@ class ExpressionsMixin:
         (``visit_ResultOkWrap`` and below) carry the re-check visitor and it did
         not (DF-192a).
         """
+        # design 192 unit 2: the breadcrumb. The typechecker was ENTIRELY
+        # unwrapped until this brief — every internal failure in it printed a
+        # raw Python traceback — and this is what its new wrapper
+        # (`sawc.run_typecheck`) reads to anchor the report. Two dispatches stamp
+        # it, here and `_check_statement`; see `sawc._ice_location`. Restored
+        # only on the SUCCESS path, deliberately: an exception leaves the
+        # INNERMOST node being checked stamped, which is the one the report
+        # wants to name, while a finished sub-expression hands the slot back.
+        old_node = getattr(self, '_current_node', None)
+        self._current_node = expr
+
         method_name = f'visit_{expr.__class__.__name__}'
         visitor = getattr(self, method_name, None)
         if visitor is None:
@@ -91,6 +102,7 @@ class ExpressionsMixin:
             # is one boolean test.
             if not self._atomics_native:
                 self._check_spinlock_target(result, expr)
+        self._current_node = old_node
         return result
 
     # ===== Expression Visitor Methods =====

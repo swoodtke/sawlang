@@ -2601,6 +2601,17 @@ class CodeGenerator(ResultsMixin, MatchMixin, StructsMixin, CollectionsMixin, Ca
         old_need_result = getattr(self, '_need_result', True)
         self._need_result = need_result
 
+        # design 192 unit 2: the breadcrumb. Every raise below this point — the
+        # ~94 bare `raise ValueError` sites in codegen included — is reported by
+        # sawc.py's catch-all, which reads this to say WHERE the compiler broke
+        # and on what. Two dispatches stamp it (this one and
+        # `_generate_statement`); see `sawc._ice_location`. Restored only on the
+        # SUCCESS path, deliberately: an exception leaves the INNERMOST node
+        # being lowered stamped, which is the one the report wants to name,
+        # while a completed sub-expression hands the slot back to its parent.
+        old_node = getattr(self, '_current_node', None)
+        self._current_node = expr
+
         method_name = f'visit_{expr.__class__.__name__}'
         visitor = getattr(self, method_name, None)
         if visitor is None:
@@ -2608,6 +2619,7 @@ class CodeGenerator(ResultsMixin, MatchMixin, StructsMixin, CollectionsMixin, Ca
         result = visitor(expr)
 
         self._need_result = old_need_result
+        self._current_node = old_node
         return result
 
     # ===== Expression Visitor Methods =====

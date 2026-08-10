@@ -109,6 +109,8 @@ class MethodsMixin:
         self._di_begin_function(llvm_func, f"{struct_name}.{method.name}",
                                 getattr(method, 'source_file', ''),
                                 getattr(method, 'line', 0))
+        # design 192 unit 2: breadcrumb — see `_generate_function` below.
+        self._current_decl = method
 
         # Clear variables and cleanup stack for this method
         self.variables = {}
@@ -277,10 +279,14 @@ class MethodsMixin:
                     # `copy()`; failing to find the symbol would silently emit a
                     # bitwise alias of an owning field, and both copies would
                     # then free the same storage. Refuse instead.
-                    raise RuntimeError(
-                        f"internal compiler error: no `copy` symbol for field "
-                        f"`{field_name}` of type `{field_type}` while deriving "
-                        f"copy() for `{struct_name}`")
+                    # design 192 unit 2: ValueError is codegen's one
+                    # internal-failure convention, and the wrapper supplies the
+                    # "internal compiler error" prefix — so the message says
+                    # only what happened.
+                    raise ValueError(
+                        f"no `copy` symbol for field `{field_name}` of type "
+                        f"`{field_type}` while deriving copy() for "
+                        f"`{struct_name}`")
                 field_val = self.builder.call(copy_fn, [field_val],
                                               name=f"{field_name}_copy")
 
@@ -376,6 +382,8 @@ class MethodsMixin:
         self._di_begin_function(llvm_func, f"{struct_name}.{method.name}",
                                 getattr(method, 'source_file', ''),
                                 getattr(method, 'line', 0))
+        # design 192 unit 2: breadcrumb — see `_generate_function` below.
+        self._current_decl = method
 
         # Clear variables and cleanup stack for this method
         self.variables = {}
@@ -432,6 +440,8 @@ class MethodsMixin:
         self._di_begin_function(llvm_func, f"{struct_name}.{method.name}",
                                 getattr(method, 'source_file', ''),
                                 getattr(method, 'line', 0))
+        # design 192 unit 2: breadcrumb — see `_generate_function` below.
+        self._current_decl = method
 
         # Clear variables and cleanup stack for this method
         self.variables = {}
@@ -494,6 +504,14 @@ class MethodsMixin:
         self._di_begin_function(llvm_func, func.name,
                                 getattr(func, 'source_file', ''),
                                 getattr(func, 'line', 0))
+
+        # design 192 unit 2: the FILE half of the breadcrumb. Only declarations
+        # carry `source_file` (design 121), so an expression node alone can
+        # anchor an internal compiler error to a line and not to a file — which
+        # in a multi-module build names nothing. Saved and restored because a
+        # closure body is generated in the middle of its enclosing function.
+        old_decl = getattr(self, '_current_decl', None)
+        self._current_decl = func
 
         # Clear variables and cleanup stack for this function
         self.variables = {}
@@ -584,6 +602,7 @@ class MethodsMixin:
 
         # Restore previous return type
         self.current_return_type = old_return_type
+        self._current_decl = old_decl
 
     def _generate_block(self, block: Block, manage_cleanup: bool = True):
         """Generate code for a block.

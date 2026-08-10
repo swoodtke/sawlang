@@ -922,12 +922,23 @@ class StatementsMixin:
         # boundary. A `group.spawn(f())` written as a statement of its own
         # leaves them unclaimed, which is what "releases at group death" means.
         self._pending_task_borrows = []
+
+        # design 192 unit 2: the breadcrumb — the statement half of the pair
+        # `sawc.run_typecheck` reads to anchor an internal compiler error. See
+        # `ExpressionsMixin._check_expression` and `sawc._ice_location`.
+        # Restored on the SUCCESS path only, so a raise leaves the innermost
+        # node stamped.
+        old_node = getattr(self, '_current_node', None)
+        self._current_node = stmt
+
         # Handle dual-purpose nodes (Expressions used as Statements)
         if isinstance(stmt, WhileExpr):
             self._check_while_expr(stmt)
+            self._current_node = old_node
             return
         if isinstance(stmt, ForLoop):
             self._check_for_loop(stmt)
+            self._current_node = old_node
             return
 
         # Visitor dispatch for all other statements
@@ -936,6 +947,7 @@ class StatementsMixin:
         if visitor is None:
             raise ValueError(f"Unknown statement type: {type(stmt)}")
         visitor(stmt)
+        self._current_node = old_node
 
     # ===== Statement Visitor Methods =====
 

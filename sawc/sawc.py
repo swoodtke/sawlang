@@ -328,7 +328,9 @@ def build_builtin_namespace(verbose: bool = False, freestanding: bool = False,
     # (std reaches every std symbol by construction; allow_all_access is an
     # unreliable signal because a fresh Namespace defaults it True).
     builtin_tc._checking_builtins = True
-    if not builtin_tc.check(builtin_ast, require_main=False):
+    if not run_typecheck(builtin_tc,
+                         lambda: builtin_tc.check(builtin_ast,
+                                                  require_main=False)):
         # A builtin that fails to type-check is a compiler bug, not user error.
         print("\033[1;31merror\033[0m: internal compiler error: builtins failed "
               "to type-check", file=sys.stderr)
@@ -568,15 +570,96 @@ def _filter_std_ast(builtin_ast, excluded_leaves):
     return filtered
 
 
+def _ice_location(pass_obj):
+    """Format the breadcrumb a pass left behind, or None if it left none.
+
+    Design 192 unit 2. Both halves of the compiler dispatch every expression and
+    every statement through one chokepoint each — codegen's
+    ``_generate_expression`` / ``_generate_statement`` and the typechecker's
+    ``_check_expression`` / ``_check_statement`` — and each stamps
+    ``_current_node`` on its way in. So when any of the ~94 bare
+    ``raise ValueError`` sites below them fires, the node the compiler was
+    working on is still there to name, and an internal compiler error can say
+    WHERE it happened and on WHAT instead of printing a bare message with no
+    location (the census's finding).
+
+    Every node carries line/column (design 126 R1) but only DECLARATIONS carry
+    ``source_file``, so the file comes from the enclosing declaration codegen
+    stamps as ``_current_decl`` / the typechecker already tracks as
+    ``_get_current_source_file``. With no file the form degrades to
+    ``line N:C``, matching how ``CodegenUserError`` anchors itself.
+    """
+    node = getattr(pass_obj, '_current_node', None)
+    if node is None:
+        return None
+    kind = node.__class__.__name__
+    line = getattr(node, 'line', 0) or 0
+    column = getattr(node, 'column', 0) or 0
+    src = getattr(node, 'source_file', None)
+    if not src:
+        decl = getattr(pass_obj, '_current_decl', None)
+        src = getattr(decl, 'source_file', None)
+    if not src:
+        getter = getattr(pass_obj, '_get_current_source_file', None)
+        if getter is not None:
+            src = getter()
+    where = f"{src}:{line}" if src else f"line {line}"
+    return f"{where}:{column} ({kind})"
+
+
+def _report_ice(exc, pass_obj):
+    """Print one internal compiler error, breadcrumb and all, then exit 1.
+
+    ``SAW_DEBUG=1`` prints the full Python traceback first — the breadcrumb says
+    which node broke the compiler, the traceback says which line of the compiler
+    broke on it, and a real diagnosis usually wants both.
+    """
+    if os.environ.get("SAW_DEBUG"):
+        import traceback
+        traceback.print_exc()
+    where = _ice_location(pass_obj)
+    at = f" at {where}" if where else ""
+    print(f"\033[1;31merror\033[0m: internal compiler error{at}: {exc}",
+          file=sys.stderr)
+    sys.exit(1)
+
+
+def run_typecheck(typechecker, thunk):
+    """Run one type-checking pass, surfacing an internal failure cleanly.
+
+    Design 192 unit 2. The typechecker was the last unwrapped stage: codegen has
+    had ``run_codegen`` since design 122 and the parser reports through the
+    error reporter, but a `KeyError`/`AttributeError` anywhere in the checker
+    printed a raw Python traceback at the user. It now reports exactly as
+    codegen does, anchored on the node the dispatch was checking.
+
+    `thunk` is the call to make. THE ENTRY POINTS, all of them: ``check_module``
+    (three call sites — each imported module in dependency order, each external
+    module declaration, then the entry module), ``finalize_effects`` (the
+    whole-program effect fixpoint, under ``--runtime-build`` / ``--emit-docs``),
+    and ``TypeChecker.check`` on the builtins in ``build_builtin_namespace``.
+    A new way into the checker belongs here too, or it reports raw tracebacks
+    again.
+    """
+    try:
+        return thunk()
+    except SystemExit:
+        raise
+    except Exception as e:
+        _report_ice(e, typechecker)
+
+
 def run_codegen(codegen, ast):
     """Run code generation for `ast` (the single codegen call site).
 
-    Codegen has ~76 bare `raise ValueError` sites (plus llvmlite failures such
+    Codegen has ~94 bare `raise ValueError` sites (plus llvmlite failures such
     as DuplicatedNameError) that were never wrapped — unlike parser calls — so
     an internal failure printed a raw Python traceback. This single wrapper
     surfaces any such failure as a clean `internal compiler error: <message>`
     diagnostic with the standard exit code, mirroring how parse errors are
-    reported. Individual raise-site message quality is out of scope.
+    reported. Individual raise-site message quality is out of scope; design 192
+    unit 2 gave the wrapper a LOCATION instead, which is what those 94 messages
+    were missing and what rewording each of them would only have approximated.
     """
     from codegen.core import StaticAssertError, CodegenUserError
     try:
@@ -596,12 +679,7 @@ def run_codegen(codegen, ast):
     except SystemExit:
         raise
     except Exception as e:
-        if os.environ.get("SAW_DEBUG"):
-            import traceback
-            traceback.print_exc()
-        print(f"\033[1;31merror\033[0m: internal compiler error: {e}",
-              file=sys.stderr)
-        sys.exit(1)
+        _report_ice(e, codegen)
 
 
 def _reject_freestanding_macho(target_triple: str = None):
@@ -943,14 +1021,14 @@ def _prepare_codegen(source_path: str, entry_ast, entry_source: str, verbose: bo
         if verbose:
             print(f"      Checking module: {'.'.join(mod_path)}")
 
-        mod_ns = typechecker.check_module(
+        mod_ns = run_typecheck(typechecker, lambda: typechecker.check_module(
             mod_ast,
             mod_path,
             checked_modules,
             builtin_ns,
             parent_namespace=None,
             is_entry=False
-        )
+        ))
 
         if mod_ns is None:
             reporter.print_all()
@@ -967,14 +1045,15 @@ def _prepare_codegen(source_path: str, entry_ast, entry_source: str, verbose: bo
                 if verbose:
                     print(f"      Checking module: {mod_decl.name}")
 
-                mod_ns = typechecker.check_module(
-                    mod_ast,
-                    mod_path,
-                    checked_modules,
-                    builtin_ns,
-                    parent_namespace=None,
-                    is_entry=False
-                )
+                mod_ns = run_typecheck(
+                    typechecker, lambda: typechecker.check_module(
+                        mod_ast,
+                        mod_path,
+                        checked_modules,
+                        builtin_ns,
+                        parent_namespace=None,
+                        is_entry=False
+                    ))
 
                 if mod_ns is None:
                     reporter.print_all()
@@ -986,7 +1065,7 @@ def _prepare_codegen(source_path: str, entry_ast, entry_source: str, verbose: bo
     if verbose:
         print("      Checking entry module")
 
-    entry_ns = typechecker.check_module(
+    entry_ns = run_typecheck(typechecker, lambda: typechecker.check_module(
         entry_ast,
         (),  # Entry module has empty path
         checked_modules,
@@ -997,7 +1076,7 @@ def _prepare_codegen(source_path: str, entry_ast, entry_source: str, verbose: bo
         # fixpoint) runs for an object file too. Only `main` is conditional.
         is_entry=True,
         require_main=not object_only  # Only executables need an entry point
-    )
+    ))
 
     if entry_ns is None:
         reporter.print_all()
@@ -1021,7 +1100,7 @@ def _prepare_codegen(source_path: str, entry_ast, entry_source: str, verbose: bo
     # False, and the docs emitter reported `"effect": "sync"` for every
     # suspending USER function (only a hardcoded std name list said otherwise).
     if runtime_build or docs_out is not None:
-        typechecker.finalize_effects()
+        run_typecheck(typechecker, typechecker.finalize_effects)
         if reporter.has_errors():
             reporter.print_all()
             sys.exit(1)

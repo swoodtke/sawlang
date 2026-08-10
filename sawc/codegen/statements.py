@@ -43,12 +43,20 @@ class StatementsMixin:
         # before lowering it (a line-0 synthesized node inherits the prior line).
         self._di_set_line(getattr(stmt, 'line', 0), getattr(stmt, 'column', 0))
 
+        # design 192 unit 2: the breadcrumb — the statement half of the pair
+        # sawc.py's catch-all reads to anchor an internal compiler error. See
+        # `CodeGenerator._generate_expression` and `sawc._ice_location`.
+        old_node = getattr(self, '_current_node', None)
+        self._current_node = stmt
+
         # Handle dual-purpose nodes (Expressions used as Statements)
         if isinstance(stmt, WhileExpr):
             self._generate_while_expr(stmt)
+            self._current_node = old_node
             return
         if isinstance(stmt, ForLoop):
             self._generate_for_loop(stmt)
+            self._current_node = old_node
             return
 
         # Visitor dispatch for all other statements
@@ -70,6 +78,10 @@ class StatementsMixin:
                     self._emit_drop_at(slot, saw_type)
         finally:
             self.statement_temps = saved_temps
+        # Restored only on the SUCCESS path, deliberately: an exception on the
+        # way through leaves the INNERMOST node that was being lowered stamped,
+        # which is the one the report wants to name.
+        self._current_node = old_node
 
     # ===== Statement Visitor Methods =====
 

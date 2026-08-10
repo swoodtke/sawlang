@@ -222,7 +222,9 @@ class CallsMixin:
         if isinstance(t, ir.FloatType):
             bits = self.builder.bitcast(value, ir.IntType(32), name="blkargf")
             return self.builder.zext(bits, slot, name="blkarg")
-        raise NotImplementedError(
+        # design 192 unit 2: ValueError is codegen's one internal-failure
+        # convention, so sawc.py's catch-all reports every site the same way.
+        raise ValueError(
             f"offload argument of LLVM type {t} is not C-ABI marshallable")
 
     def _blk_slot_read(self, word, target):
@@ -238,7 +240,8 @@ class CallsMixin:
         if isinstance(target, ir.FloatType):
             bits = self.builder.trunc(word, ir.IntType(32), name="blkvalb")
             return self.builder.bitcast(bits, target, name="blkval")
-        raise NotImplementedError(
+        # design 192 unit 2: see `_blk_slot_write` — one raise convention.
+        raise ValueError(
             f"offload value of LLVM type {target} is not C-ABI marshallable")
 
     def _blk_thunk(self, name):

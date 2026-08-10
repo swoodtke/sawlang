@@ -1,6 +1,6 @@
 # Saw Language Makefile
 
-.PHONY: test test-verbose test-sequential clean help blade-bootstrap sos-test lexdiff astdiff irdet irdet-all gmgate abidoc bttable bttable-sizes lldbtest ircontract preludegate
+.PHONY: test test-verbose test-sequential clean help blade-bootstrap sos-test lexdiff astdiff irdet irdet-all gmgate abidoc bttable bttable-sizes lldbtest ircontract preludegate icebreadcrumb
 
 # Default target
 all: test
@@ -101,6 +101,15 @@ ircontract:
 preludegate:
 	@python3 tools/test_prelude_gate_doc.py
 
+# The internal-compiler-error report (design 192 unit 2). An ICE is a path no
+# corpus program takes, so nothing else exercises the machinery: delete the
+# breadcrumb stamp from a dispatch and the whole suite still passes. This
+# injects a failure into the typechecker and into codegen and reads the report
+# back — one line, a FILE:LINE:COL anchor, the AST node's name, and the full
+# traceback under SAW_DEBUG=1.
+icebreadcrumb:
+	@python3 tools/test_ice_breadcrumb.py
+
 # The logical-backtrace table (design 158 unit 1): cross-check every frame
 # record against the frame-layout report the same compile produced. A wrong
 # offset there reads a live frame at the wrong place and prints a confident lie,
@@ -151,6 +160,7 @@ help:
 	@echo "  make abidoc          - rt/ABI.md describes exactly the frozen seam set"
 	@echo "  make ircontract      - -c embeds what hosted embeds; seam widths match rt/ABI.md"
 	@echo "  make preludegate     - The import gate matches LANGUAGE_SPEC's module table"
+	@echo "  make icebreadcrumb   - An internal compiler error reports one located line"
 	@echo "  make bttable         - Task-backtrace table vs the frame layouts"
 	@echo "  make bttable-sizes   - What the always-linked backtrace table costs"
 	@echo "  make lldbtest        - saw tasks / saw bt under a real lldb"
