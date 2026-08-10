@@ -265,6 +265,12 @@ var u = w.copy()       // explicit duplicate
   is fine: reading a reference binding yields the VALUE, so it returns `T`.
   A bare `&` anywhere else that is not a call argument — bound to a `let`/`var`,
   an operand, a literal element — is refused too.
+  **THREE MORE, from the position matrix (design 193)**: a `static`
+  (`static SLOT: &Int` — the longest-lived storage there is), an
+  ASSOCIATED-TYPE assignment (`type Item = &Int`, which is what every use of
+  `Item` resolves to), and a generic parameter's DEFAULT
+  (`struct Holder<T = &Int>` — substituted before mangling, so it fills every
+  `T`-typed field with no argument position ever written).
   **A `type` ALIAS IS NOT A WAY PAST ANY OF IT (design 188)** — the walk resolves
   aliases first, so `type R = &Int` is refused in a field, a payload, a generic
   argument (`Vector<R>`) and a return, and so is the back-conversion `R(&x)` that
@@ -293,7 +299,16 @@ var u = w.copy()       // explicit duplicate
   `T`). A bare trait name behind a ref (`&Shape`/`&var Shape`) is unsized — write
   `&any Shape`/`&var any Shape`.
 - Law of Exclusivity: one `&var` XOR many `&` to overlapping paths,
-  statically checked.
+  statically checked. The receiver's SPELLING does not matter — a call through
+  an `&any Trait` existential or an opaque `&T` under a bound is checked exactly
+  as a concrete one is, in the generic body, before any instantiation.
+  **AN ASSIGNMENT IS A WRITE OF ITS TARGET (design 193)**, and its RHS runs
+  first, so the RHS may not borrow an overlapping path: `p.x = bump(&var p)` is
+  refused (whatever `bump` wrote through the borrow would be overwritten),
+  while `p.x = shift(&var p.y)` (disjoint) and the accumulator idiom
+  `acc = combine(move acc, e)` (a `move`, not a borrow — the assignment revives
+  the binding) both compile. The `p?.x = ...` chain spelling has always been
+  refused; the plain one now agrees.
 - Forwarding (design 106): a received reference param (or `&var self`) may
   itself be the operand of `&`/`&var` — pass it onward as a re-borrow:
   `func relay(r: &var T) { g(&var r) }`, `g(&var self.field)`, `g(&var self)`.
@@ -515,6 +530,12 @@ if let (a, b) = optPair { }          // tuple over Optional tuple
   use-after-move error, exactly like a second `move s`. Matching
   through a `&`/`&var` binding or a place stays a borrow (no consume);
   keep an ExplicitCopy value with `match s.copy()`.
+  An **ImplicitCopy-tier enum is a BORROW instead**: each binding takes a retain
+  of the payload and releases it at the arm's end, the scrutinee keeps its own
+  reference and drops at ITS scope end, and matching one twice is fine. So an
+  `Arc` payload's `strong_count()` reads one HIGHER inside the arm than outside
+  it, and a value the arm hands out (`case Full(a) -> a`) is retained again on
+  the way out, as every value read out of storage somebody else owns is.
 
 ## Errors
 ```saw
@@ -994,6 +1015,12 @@ dump_tasks()                // every live task's logical backtrace (std.task)
   state via `Arc`/`Mutex`/`Channel`. Test MT
   code on counts/sums, NEVER on interleaving. Cross-task cancel:
   `handle.cancel_addr() -> Int` (a Send address a canceller task sets).
+- `spawn { … } -> Task<T>` checks BOTH directions of the thread crossing
+  (design 193): every capture must be `Send` on the way in, and `T` must be
+  `Send` on the way back, since the task computes the result on its own thread
+  and `join()` hands it over. A borrow capture (`[&var n]`) is refused before
+  either question — an escaping closure cannot hold a pointer into the frame
+  that spawned it.
 - Thread engine (`spawn`/`Task`/`Channel.recv`) is separate from the
   cooperative TaskGroup engine — don't mix per task. `Channel.recv` from a task is
   the worst version of mixing them: the block is unbounded and the thread it stops
@@ -1637,6 +1664,10 @@ then REQUIRES the name to start with `Unsafe` (`unsafe struct MmioReg` errors,
 RECEIVES or RETURNS a value of an unsafe type — a reference to one
 (`&UnsafePointer<T>`) counts, and so does merely reading a pointer field to test
 it (`self.buffer != None`). Not declaring it is a clean error naming the type.
+BINDS includes a binding nothing reads — a `match` arm naming an unsafe payload
+(`case Filled(t) -> 1`) has the value in scope either way — and a DEFAULT
+parameter value counts as signature contact even when the parameter's own type
+is safe (`func f(a: Int = raw.value())`, design 193).
 Spelling (design 136): `unsafe` is an EFFECT and rides the post-parameter slot
 beside `sync`, canonical order `unsafe sync` — `public func push(&var self, ...)
 unsafe`, `init(at: Int) unsafe -> UnsafeMmioReg`, `func read(&self) unsafe sync

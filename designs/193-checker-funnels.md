@@ -1,5 +1,19 @@
 # Design 193 — checker funnels: close the position gaps, fix two confirmed holes
 
+**LANDED Aug 10 (all eight units, one commit each, full battery green at every
+one). Three soundness holes closed, two of them found by the work rather than
+by the census: DF-190d (the tier-blind match consume), DF-193b (a `move` inside
+a struct literal invisible to the borrowing-match check — a probe-confirmed
+double free), and the unchecked `spawn` result crossing. Two of the census's
+diagnoses were WRONG and are corrected in the tracker: DF-190b is a labeled-call
+canonicalization bug, not a try/catch one (the try/catch half is real and is now
+DF-193a), and the `spawn` capture-MODE gap is masked by design 16/29's
+escaping-borrow rule rather than by "closures are never Send". Unit 7's std-gate
+half STOPPED per the gates below and filed DF-193d with the diagnosis: the
+written spelling of an annotation is destroyed by canonicalization and by the
+design-68 signature write-back before any check can read it, so closing DF-188k
+needs a provenance bit that belongs with 194's typed-AST work.**
+
 **Status: AUTHORED from design 190's analysis (Aug 9), awaiting user
 approval to queue. This is the LARGEST of the four and the highest
 soundness value: it closes one CONFIRMED double-free (DF-190a) and one

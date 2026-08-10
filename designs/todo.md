@@ -18,6 +18,16 @@ typechecker internals). The process rules (position funnel-or-matrix;
 contract-flip consumer sweep; safety-surface conformance-rows-first)
 LANDED with 190 into CLAUDE.md.
 
+**193 LANDED Aug 10** (all eight units; see `designs/193-checker-funnels.md`).
+Four shared funnels exist now and each names its entry points in its docstring:
+`Namespace.read_policy` (design 131's read table over design 139's tiers),
+`ast_walk` (`child_nodes` / `map_nodes` / `control_blocks` + `CONTAINER_KINDS`),
+`noescape.first_reference_in` (+ the `NO_ESCAPE_POSITIONS` matrix, three new
+rows), and `Namespace.send_check` (+ `SEND_POSITIONS`). `sawc/visitor.py` is
+deleted. Three soundness holes closed (DF-190d, DF-193b, the unchecked `spawn`
+result); four findings filed (DF-193a/b/c-in-193b/d). Two census diagnoses were
+wrong and are corrected in place below.
+
 - **DF-190a — FIXED (pulled forward of the queue, landed Aug 9/10).**
   The typechecker now mirrors codegen's consume gate in
   `_check_match_expr`: a plain local scrutinee of an owning-tier
@@ -69,6 +79,19 @@ LANDED with 190 into CLAUDE.md.
   `ast_walk.child_nodes` now. PINS:
   `examples/place_match_arm_move_in_literal.saw`,
   `examples/chain_assign_exclusivity_in_literal.saw`.
+- **DF-193c — FIXED by the unit that found it (193 u6): `spawn { … }`'s RESULT
+  type was never `Send`-checked.** The captures were audited from the start;
+  the result travels the other way (computed on the task's thread, handed back
+  by `join()`) and nothing asked. `extension Task<T: Send>: UnsafeSend` was
+  doing the only guarding, and it guards the wrong crossing — it stops the
+  HANDLE from crossing a second boundary and says nothing about the one every
+  task makes. `spawn { make_raw(&var n) }` returning a struct with an
+  `UnsafePointer` field compiled and ran. Now refused at the `spawn`, with a
+  type mentioning a type PARAMETER left to its instantiation. The census's
+  other masked gap, capture MODE, is genuinely masked — by design 16/29 (an
+  escaping closure may not borrow-capture), not by "closures are never Send" —
+  and `examples/errors/capture_borrow_escaping.saw` already pins it. PIN:
+  `examples/errors/spawn_result_not_send.saw`.
 - **DF-193d (SPEC/IMPL, filed Aug 10 by 193 u7 — supersedes DF-188k's "general
   fix" line with a diagnosis): the prelude gate cannot run on type ANNOTATIONS
   until a written-form PROVENANCE bit exists.** Building the funnel and running

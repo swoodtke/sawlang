@@ -1222,6 +1222,24 @@ match s {
 match s { ... }   // error: use of moved variable `s`
 ```
 
+An ImplicitCopy-tier enum is matched as a borrow instead. Each binding takes a
+retain of the payload and releases it when the arm ends; the scrutinee keeps
+its own reference and drops at the end of its own scope. Matching one twice is
+allowed, and reading `strong_count()` inside an arm shows both owners.
+
+```saw
+enum Holder {
+    case Full(a: Arc<Res>),
+    case Nothing
+}
+@synthesize extension Holder: ImplicitCopy {}
+
+let h = Holder.Full(a: Arc<Res>(value: Res(id: 9)))
+match h { case Full(a) -> first(a), case Nothing -> () }
+match h { case Full(a) -> second(a), case Nothing -> () }
+// the payload is released once, when `h`'s scope ends
+```
+
 #### Methods on enums
 
 An enum carries methods on the same terms as a struct: write an `extension`.
@@ -2543,9 +2561,9 @@ instead of letting a pointer out (see *Places* below). Until this was enforced,
 printing out of a frame that had already died.
 
 **A field, an enum payload, a generic argument and a closure's return may not
-name one either.** Four more positions carry a reference past the call that
-created it without ever writing a `&` in a signature, and each is refused where
-it is written:
+name one either.** These positions carry a reference past the call that created
+it without ever writing a `&` in a signature, and each is refused where it is
+written:
 
 - **A struct field.** `struct Holder { r: &Int }` is rejected at the field
   declaration. That closes the construction with it: no field has a reference
@@ -2566,10 +2584,22 @@ it is written:
   tail expression. Reading a reference *binding* yields the value, so the
   `with_ref` identity closure `{ e in e }` returns a `T` and is untouched.
 
-All four read what the type *names*, on the same walk as the return rule, and
-each diagnostic states the rule and the same two ways out. A reference written
-anywhere else that is not a call argument — bound to a `let`/`var`, used as an
-operand, placed in a literal — is refused on the same terms.
+Three further declarations name a type without writing a `&` in any signature,
+and each is refused too:
+
+- **A `static`.** `static SLOT: &Int` declares the longest-lived storage in the
+  language: it outlives every call in the program.
+- **An associated-type assignment.** `type Item = &Int` in an extension names
+  the type every use of `Item` resolves to — a field's type, a return type, a
+  generic argument — so one reference there reaches all of them.
+- **A generic parameter's default.** `struct Holder<T = &Int>` substitutes
+  `&Int` for an omitted argument before mangling, which fills every field typed
+  `T` without the argument position ever being written.
+
+All of them read what the type *names*, on one walk, and each diagnostic states
+the rule and the same two ways out. A reference written anywhere else that is
+not a call argument — bound to a `let`/`var`, used as an operand, placed in a
+literal — is refused on the same terms.
 
 **A `type` alias is not a way past any of it.** The walk resolves aliases before
 it reads a type, so `type R = &Int` is refused in every position above — a
@@ -2719,6 +2749,27 @@ indices are disjoint; different roots are always disjoint. A non-constant
 (dynamic) array index is treated conservatively — `swap(&var a[i], &a[j])` is
 rejected even when `i != j` at runtime (the checked `Vector.swap(i, j)` method
 is the intended escape hatch; landed in design 40).
+
+The rule holds however the callee is reached. A method call through an `&any
+Trait` existential or through an opaque `&T` under a trait bound is checked at
+the call site exactly as a call on the concrete type is: erasure and genericity
+change the dispatch, not the aliasing. A generic body is checked once, before
+any instantiation, so `s.pair(&var p, &var p)` under `<T: Pairer>` is refused
+where it is written rather than at some later instantiation.
+
+**Assignment.** An assignment writes its target, and its right-hand side is
+evaluated first, so the RHS may not borrow a path overlapping the written root:
+everything the callee wrote through that borrow would be overwritten by the
+assignment that follows.
+
+```saw
+var p = Point(x: 1, y: 2)
+p.x = bump(&var p)      // error: `p` is written by this assignment while also
+                        //        being accessed in the right-hand side
+p.x = shift(&var p.y)   // ok: disjoint paths
+acc = combine(move acc, e)   // ok: `move` hands ownership over and the
+                             //     assignment revives the binding
+```
 
 **Extents longer than one call.** Two constructs hold a reference past the call
 that created it, and each is folded into the same disjointness check rather than
@@ -4588,7 +4639,9 @@ multiple threads (design 75) — carrying the coroutine transform, suspending
 - **`spawn` / `Task<T>`** — `spawn { ... } -> Task<T>` launches the closure on a
   fresh task (hosted pthread-per-task engine; thread identity is never exposed).
   The Send capture-audit walks the closure's captures and rejects the first
-  whose type is not `Send`, naming the capture. `Task<T>` is `NoCopy + Deinit`:
+  whose type is not `Send`, naming the capture. The RESULT type is checked the
+  same way: it is computed on the task's thread and handed back by `join()`, so
+  a non-`Send` result is refused at the `spawn`. `Task<T>` is `NoCopy + Deinit`:
   `join` blocks for the result; dropping an unjoined `Task` **joins** it
   (structured concurrency — a task's lifetime is a value's lifetime).
 - **`Channel<T: Send>`** — an `ImplicitCopy` handle onto a shared, internally
@@ -7198,6 +7251,12 @@ contact, and the marker is simply true there. The rule is deliberately broader
 than "performs a deref": `Vector.iter()` only reads `self.buffer` and hands it to
 an iterator struct, and that narrow reading is what hid two use-after-free bugs
 under the previous model.
+
+**Binds** covers a binding that is never read: a `match` arm that names an
+unsafe payload (`case Filled(t) -> 1`) has the value in scope whether or not it
+touches it. A **default parameter value** is part of the signature and counts
+the same way, so `func f(a: Int = raw.value())` is contact even though the
+parameter's own type is safe.
 
 It fires on one thing that is not a type: **naming an `unsafe static var`**
 (design 149). A mutable static's type is usually an ordinary safe one —
