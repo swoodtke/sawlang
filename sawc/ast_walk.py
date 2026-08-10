@@ -30,12 +30,14 @@ a checker's back-reference and judge it twice.
 """
 
 from ast_nodes import (
-    ASTNode, Argument, Block, ExpressionStatement, ForLoop, GuardLetStatement,
-    IfExpr, IfLetExpr, MatchExpr, TryCatchExpr, TryExpr, WhileExpr,
+    ASTNode, Argument, BindingPattern, Block, EnumPattern, ExpressionStatement,
+    ForLoop, GuardLetStatement, IfExpr, IfLetExpr, MatchExpr, TryCatchExpr,
+    TryExpr, TuplePattern, WhileExpr,
     structural_fields,
 )
 
-__all__ = ["child_nodes", "map_nodes", "control_blocks", "structural_fields"]
+__all__ = ["child_nodes", "map_nodes", "control_blocks", "structural_fields",
+           "pattern_binding_sites", "pattern_binding_names"]
 
 
 # --------------------------------------------------------------------------- #
@@ -160,3 +162,65 @@ def control_blocks(stmt):
     elif isinstance(ctrl, TryExpr) and ctrl.catch_block is not None:
         out.append(ctrl.catch_block)
     return [b for b in out if isinstance(b, Block)]
+
+
+# --------------------------------------------------------------------------- #
+# the bindings a pattern introduces
+# --------------------------------------------------------------------------- #
+
+def pattern_binding_sites(pattern):
+    """Every binding `pattern` introduces, as `(name, line, column)`, in source
+    order. A wildcard, a literal and a range bind nothing.
+
+    THE definition (design 194 unit 3). It existed three times and the copies
+    had drifted in the way duplicated recursions do — over the case nobody's own
+    caller reached. The typechecker's walked nested `subpatterns` generically,
+    the coroutine transform's named `EnumPattern` explicitly, and codegen's
+    covered `BindingPattern` and `TuplePattern` and nothing else: a `TuplePattern`
+    holding an `EnumPattern` would have gone under-counted there, which for its
+    callers means an `if let` shadow-restore list missing a name.
+
+    That case is unreachable today — the typechecker refuses a variant pattern in
+    both irrefutable positions ("refutable pattern in `let`/`var`", "`if let`/
+    `guard let` tuple pattern must be irrefutable") before codegen sees it — so
+    the gap was guarded from upstream rather than covered. One definition makes
+    the guard's absence stop mattering.
+
+    ENTRY POINTS (obligation 1 — a funnel names its entries):
+      * typechecker/statements.py `_pattern_binding_names` — design-100 shadow
+        checking for `let`, `if let` and `guard let` bindings.
+      * codegen/statements.py `_pattern_binding_names` — the `if let`
+        shadow-save/restore list and the bound-name set of a destructuring bind.
+      * coro_transform.py `_pattern_binding_names` — the frame fields a
+        suspension-spanning `match` arm or `if let` binding needs.
+    """
+    out = []
+    _collect_binding_sites(pattern, out)
+    return out
+
+
+def _collect_binding_sites(pattern, out):
+    if pattern is None:
+        return
+    if isinstance(pattern, BindingPattern):
+        out.append((pattern.name, pattern.line, pattern.column))
+        return
+    if isinstance(pattern, TuplePattern):
+        subs = pattern.elements
+    elif isinstance(pattern, EnumPattern):
+        subs = pattern.subpatterns
+    else:
+        # Any future composite pattern that spells its children the same way.
+        # Asking structurally keeps a new node type from silently binding
+        # nothing here, which is exactly how the three copies drifted.
+        subs = getattr(pattern, 'subpatterns', None) or getattr(
+            pattern, 'elements', None)
+    for sub in subs or ():
+        _collect_binding_sites(sub, out)
+
+
+def pattern_binding_names(pattern):
+    """`pattern_binding_sites` without the positions — for the passes that only
+    need the names."""
+    return [name for name, _line, _col in pattern_binding_sites(pattern)]
+

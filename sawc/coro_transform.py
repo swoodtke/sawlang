@@ -47,7 +47,8 @@ from ast_nodes import (
     OptionalEvalExpr, OptionalChainAssign, OptionalWrap,
     structural_fields,
 )
-from ast_walk import child_nodes, control_blocks, map_nodes
+from ast_walk import (child_nodes, control_blocks, map_nodes,
+                      pattern_binding_names)
 
 
 class CoroTransformError(Exception):
@@ -2199,27 +2200,11 @@ class _FrameBuilder:
         return out
 
     def _pattern_binding_names(self, pattern):
-        """Every binding name introduced by a design-63 `MatchArm.pattern` — a bare
-        `case n` (BindingPattern), a tuple pattern's leaves, or a nested enum
-        pattern's subpatterns. Literal/range/wildcard patterns bind nothing.
-        Used so a suspension-spanning `match` carries these bindings into frame
+        """Every binding name a design-63 `MatchArm.pattern` introduces — see
+        `ast_walk.pattern_binding_names`, the one definition of this walk. Used
+        so a suspension-spanning `match` carries these bindings into frame
         fields exactly like the classic enum `arm.bindings` (design 101)."""
-        if pattern is None:
-            return []
-        out = []
-
-        def walk(pat):
-            if isinstance(pat, BindingPattern):
-                out.append(pat.name)
-            elif isinstance(pat, TuplePattern):
-                for sub in pat.elements:
-                    walk(sub)
-            elif isinstance(pat, EnumPattern):
-                for sub in pat.subpatterns:
-                    walk(sub)
-
-        walk(pattern)
-        return out
+        return pattern_binding_names(pattern)
 
     def _destructure_assigns(self, pattern, base_expr, out, line, col):
         """Append `self.<leaf> = <base>.<i>...` assignments for each binding leaf

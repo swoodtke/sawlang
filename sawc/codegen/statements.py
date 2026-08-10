@@ -17,6 +17,7 @@ from ast_nodes import (
     TupleIndex, MoveExpr, NoneLiteral, SawType, TypeKind,
     WildcardPattern, BindingPattern, TuplePattern,
 )
+from ast_walk import pattern_binding_names
 
 
 class StatementsMixin:
@@ -110,15 +111,12 @@ class StatementsMixin:
                                stmt.mutable, is_copy_source)
 
     def _pattern_binding_names(self, pattern):
-        """All binding names introduced by an irrefutable pattern (skips `_`)."""
-        if isinstance(pattern, BindingPattern):
-            return [pattern.name]
-        if isinstance(pattern, TuplePattern):
-            names = []
-            for e in pattern.elements:
-                names += self._pattern_binding_names(e)
-            return names
-        return []
+        """All binding names a pattern introduces (skips `_`) — see
+        `ast_walk.pattern_binding_names`, the one definition of this walk. This
+        copy used to stop at `BindingPattern`/`TuplePattern`, so a variant
+        pattern nested in a tuple would have gone under-counted; the shared walk
+        descends it."""
+        return pattern_binding_names(pattern)
 
     def _destructure_bind(self, pattern, value, saw_type, mutable, copy):
         """Recursively bind an irrefutable tuple pattern's leaves."""

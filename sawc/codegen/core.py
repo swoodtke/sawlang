@@ -540,22 +540,17 @@ class CodeGenerator(ResultsMixin, MatchMixin, StructsMixin, CollectionsMixin, Ca
 
     @staticmethod
     def _pointer_size_bits(data_layout: str) -> int:
-        """Extract the address-space-0 pointer size (bits) from an LLVM data
-        layout string — this is the platform `Int`/`UInt` width (design 47).
+        """The platform `Int`/`UInt` width (design 47) — see
+        `target_info.pointer_size_bits`.
 
-        The layout is `-`-separated specs; a pointer spec is
-        `p[<addrspace>]:<size>:<abi>[:<pref>]`. Address space 0 is written `p:`
-        or `p0:` (e.g. riscv32's `p:32:32`); other address spaces (x86's
-        `p270:32:32` segment selectors) are ignored. LLVM's default when no
-        as-0 pointer spec is present is 64, which is what every 64-bit hosted
-        triple relies on (they only override the exotic address spaces).
+        This body used to be a second copy whose docstring said it was "kept
+        identical on purpose". Two copies of a must-agree rule is the shape
+        design 194 exists to remove: the front end range-checks a literal
+        against its answer and codegen emits against its own, so a drift
+        between them is a literal the checker accepted and the backend wrapped.
         """
-        import re
-        for spec in data_layout.split('-'):
-            m = re.match(r'^p(\d*):(\d+)', spec)
-            if m and m.group(1) in ('', '0'):
-                return int(m.group(2))
-        return 64
+        from target_info import pointer_size_bits
+        return pointer_size_bits(data_layout)
 
     def _saw_string_header_ptrs(self, builder, p):
         """Return (block_start_i8ptr, refcount_ptr, len_ptr) for a String bytes

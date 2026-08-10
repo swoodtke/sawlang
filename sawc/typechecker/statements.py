@@ -23,6 +23,7 @@ from ast_nodes import (
     ResultOkWrap, ResultErrWrap, OptionalWrap,
     WildcardPattern, BindingPattern, TuplePattern,
 )
+from ast_walk import pattern_binding_sites
 from errors import ErrorKind
 
 
@@ -1022,20 +1023,9 @@ class StatementsMixin:
         self._define_irrefutable_bindings(stmt.pattern, value_type, stmt.mutable)
 
     def _pattern_binding_names(self, pattern):
-        """Flatten an irrefutable/tuple/enum pattern to its (name, line, column)
-        bindings (design 100). Wildcards bind nothing."""
-        out = []
-        if isinstance(pattern, BindingPattern):
-            out.append((pattern.name, pattern.line, pattern.column))
-        elif isinstance(pattern, TuplePattern):
-            for e in pattern.elements:
-                out.extend(self._pattern_binding_names(e))
-        else:
-            subs = getattr(pattern, 'subpatterns', None)
-            if subs:
-                for e in subs:
-                    out.extend(self._pattern_binding_names(e))
-        return out
+        """The (name, line, column) bindings of a pattern (design 100) — see
+        `ast_walk.pattern_binding_sites`, the one definition of this walk."""
+        return pattern_binding_sites(pattern)
 
     def _define_irrefutable_bindings(self, pattern, expected_type, mutable):
         """Define the bindings of an irrefutable pattern in the current scope."""

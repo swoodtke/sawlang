@@ -6,10 +6,12 @@ one. The literal range check therefore has to know the EFFECTIVE triple, which
 until now only codegen did — so `let x: Int = 0x80000000` compiled clean for
 riscv32 and silently wrapped to a negative number.
 
-Codegen derives the width from its module's LLVM data layout
-(`CodeGenerator._pointer_size_bits`). The typechecker runs before any module
-exists, so it asks LLVM for the triple's data layout directly. Results are
-cached: creating a target machine is not free, and one compile asks repeatedly.
+Codegen derives the width from its module's LLVM data layout; the typechecker
+runs before any module exists, so it asks LLVM for the triple's data layout
+directly. Both then read the SAME `pointer_size_bits` below (design 194 unit 3
+— it used to be two copies whose docstrings promised each other they were
+identical). Results are cached: creating a target machine is not free, and one
+compile asks repeatedly.
 """
 
 import re
@@ -18,17 +20,18 @@ from typing import Dict, Optional
 _WIDTH_CACHE: Dict[str, int] = {}
 
 
-def _pointer_size_bits(data_layout: str) -> int:
+def pointer_size_bits(data_layout: str) -> int:
     """The address-space-0 pointer size (bits) named by an LLVM data layout.
+
+    THE one definition of the platform `Int`/`UInt` width: the typechecker
+    range-checks bare literals against it and codegen emits against it, so a
+    drift between two copies is a literal the checker accepted and the backend
+    silently wrapped.
 
     A pointer spec is `p[<addrspace>]:<size>:<abi>[:<pref>]`; address space 0 is
     written `p:` or `p0:` (riscv32 uses `p:32:32`). Other address spaces (x86's
     `p270:32:32` segment selectors) are ignored. LLVM defaults to 64 when no
     as-0 spec is present, which is what every 64-bit hosted triple relies on.
-
-    Kept identical to `CodeGenerator._pointer_size_bits` on purpose: the front
-    end and the back end must agree about what platform `Int` is, or a literal
-    the checker accepted would still wrap.
     """
     for spec in data_layout.split('-'):
         m = re.match(r'^p(\d*):(\d+)', spec)
@@ -148,7 +151,7 @@ def platform_int_width(target_triple: Optional[str] = None) -> int:
         triple = target_triple or binding.get_default_triple()
         target = binding.Target.from_triple(triple)
         machine = target.create_target_machine()
-        width = _pointer_size_bits(str(machine.target_data))
+        width = pointer_size_bits(str(machine.target_data))
     except Exception:
         width = 64
 
