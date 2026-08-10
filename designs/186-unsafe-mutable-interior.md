@@ -1,12 +1,25 @@
 # Design 186 — `UnsafeMutableInterior<T>`: interior mutability without the name list
 
-**Status: APPROVED + QUEUED, not yet dispatched (user, Aug 8 — direction +
-name in the morning round, D1/D2 ratified in the afternoon round). D1 =
-the `UnsafeSync`/`UnsafeSend` declared markers with all three fences. D2 =
-the three statics tiers, with the set-once half split out to `Once<T>` —
-PROMOTED into this brief as unit 6 by the same round. Sequencing: after the
-current wave (158/182/185) and the net track; touches typechecker + codegen
-+ builtin.saw + std, so nothing else on those surfaces runs beside it.**
+**LANDED Aug 9 — all eight units. Seven commits, the full suite green at each
+(1600 passed, 3 pre-existing xfails at the last). Units 1 and 2 landed as ONE
+commit: the property has to be TRUE for `Atomic` in the same commit that starts
+consulting it, so `Atomic`'s field migration (unit 4's first sentence) came with
+it. One pin flipped and was renamed (`static_const_expr_init`, DF-185b, which
+tier (b) absorbs as planned). Four findings filed: DF-186a (a deferred
+`Atomic`-copy-tier question, the one place the ruling could not be taken
+literally without re-tiering every struct holding an `Atomic` — see the tracker),
+DF-186b and DF-186d (both PRE-EXISTING, found and fixed here), DF-186c (the two
+language gaps that keep the Linux futex in `rt/shim.c`; the macOS half is Saw).**
+
+**Two of the migration's list entries needed no replacement at all, which is
+what a name list can never tell you: `UnsafeMemory` is a struct of one `Int` and
+DERIVES both markers, and `ReadOnly`/`WriteOnly` derive from the inner type that
+is their only field. The interior-mutability EXEMPTION dissolved to nothing, as
+the brief predicted. Original status: APPROVED + QUEUED (user, Aug 8 — direction
++ name in the morning round, D1/D2 ratified in the afternoon round). D1 = the
+`UnsafeSync`/`UnsafeSend` declared markers with all three fences. D2 = the three
+statics tiers, with the set-once half split out to `Once<T>` — PROMOTED into
+this brief as unit 6 by the same round.**
 
 ## The gap
 
