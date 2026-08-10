@@ -70,9 +70,20 @@ enum OpenMode: UInt8 {
 }
 
 static MODE_RW_R_R: Int = 420             // 0644
-static SEEK_SET: Int = 0
-static SEEK_CUR: Int = 1
-static SEEK_END: Int = 2
+
+// Where an lseek(2) offset is measured from. A closed set of modes, so it is a
+// backed enum rather than a family of statics (design 153) — the same shape
+// `OpenMode` above has, and the same `(w as UInt8) as Int` projection where it
+// crosses the seam. The values are POSIX's `SEEK_SET`/`SEEK_CUR`/`SEEK_END`,
+// which the seam hands to lseek(2) unchanged.
+enum SeekWhence: UInt8 {
+    /// From the beginning of the file.
+    case Start = 0
+    /// From the current position.
+    case Current = 1
+    /// From the end of the file.
+    case End = 2
+}
 
 // =============================================================================
 // File - A file handle with automatic cleanup
@@ -133,17 +144,17 @@ extension File {
 
         // If size <= 0, determine what is left from here to the end.
         if bytes_to_read <= 0 {
-            let current_pos = __saw_rt_fs_lseek(self.fd as Int, 0, SEEK_CUR)
+            let current_pos = __saw_rt_fs_lseek(self.fd as Int, 0, (SeekWhence.Current as UInt8) as Int)
             if current_pos < 0 {
                 return IoError.of("lseek", 0 - current_pos)
             }
-            let end_pos = __saw_rt_fs_lseek(self.fd as Int, 0, SEEK_END)
+            let end_pos = __saw_rt_fs_lseek(self.fd as Int, 0, (SeekWhence.End as UInt8) as Int)
             if end_pos < 0 {
                 return IoError.of("lseek", 0 - end_pos)
             }
             bytes_to_read = end_pos - current_pos
             // Seek back to where we started.
-            let restored = __saw_rt_fs_lseek(self.fd as Int, current_pos, SEEK_SET)
+            let restored = __saw_rt_fs_lseek(self.fd as Int, current_pos, (SeekWhence.Start as UInt8) as Int)
             if restored < 0 {
                 return IoError.of("lseek", 0 - restored)
             }
@@ -219,23 +230,23 @@ extension File {
     // failing lseek(2) (design 92 — `None` said only "it did not work").
 
     public func seek_start(&self, offset: Int) unsafe -> Result<Int, IoError> {
-        File._seek(self.fd, offset, SEEK_SET)
+        File._seek(self.fd, offset, SeekWhence.Start)
     }
 
     public func seek_current(&self, offset: Int) unsafe -> Result<Int, IoError> {
-        File._seek(self.fd, offset, SEEK_CUR)
+        File._seek(self.fd, offset, SeekWhence.Current)
     }
 
     public func seek_end(&self, offset: Int) unsafe -> Result<Int, IoError> {
-        File._seek(self.fd, offset, SEEK_END)
+        File._seek(self.fd, offset, SeekWhence.End)
     }
 
     public func position(&self) unsafe -> Result<Int, IoError> {
-        File._seek(self.fd, 0, SEEK_CUR)
+        File._seek(self.fd, 0, SeekWhence.Current)
     }
 
-    func _seek(fd: Int32, offset: Int, whence: Int) unsafe -> Result<Int, IoError> {
-        let result = __saw_rt_fs_lseek(fd as Int, offset, whence)
+    func _seek(fd: Int32, offset: Int, whence: SeekWhence) unsafe -> Result<Int, IoError> {
+        let result = __saw_rt_fs_lseek(fd as Int, offset, (whence as UInt8) as Int)
         if result < 0 {
             return IoError.of("lseek", 0 - result)
         }
