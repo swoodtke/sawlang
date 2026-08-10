@@ -41,8 +41,20 @@ disjoint surfaces parallel):
    tracked `.saw` files found ZERO offenders — the rule landed without
    changing any existing program. No findings filed. Sweep record in
    `designs/199-*.md`.
-4. **200 receiver-copy place write** (DF-176c) ∥ **153 statics→enums
-   sweep** (place lowering vs std .saw — disjoint).
+4. ~~**200 receiver-copy place write**~~ — **LANDED Aug 10**, all three
+   units, tracked battery green. DF-176c closes: the fourth vanishing-write
+   spelling (an EXCLUSIVE place window on storage inside a `&self` receiver)
+   is the design-176 error, judged in the place lowering; the borrows-body
+   half is ratified as intended. Telling the refusal from the carve-out needed
+   a new fact — WHERE an accessor lends from — so `place_transform` records
+   each lending path's shape and `place_uses` walks it against the receiver's
+   real type, which extends design 176's inline-vs-indirect walk by the one
+   hop it could not take. The consumer sweep found ZERO exclusive windows on
+   inline fields in `&self` methods across std, blade, libs, sos and devtools
+   (fifteen grep hits over the write and call forms, none of them a place).
+   One finding filed: DF-200a. Sweep record and the two answers the units
+   produced in `designs/200-*.md`.
+   ∥ **153 statics→enums sweep** (place lowering vs std .saw — disjoint).
 5. **196 coro × erased errors + captures** (DF-193a, DF-192b/c,
    DF-191a) — solo (coro_transform + result cells).
 6. **201 spawn reference parameters** (design-88 relaxation, 189 u4,
@@ -1832,6 +1844,19 @@ Closed items: see todo_aug1-aug9.md.
   fields keep the carve-out); the borrows-body half is RATIFIED as
   intended behavior (by-pointer receiver; `#lend_var` gates the shared
   specialization).
+  **CLOSED by design 200 (Aug 10).** Both probe shapes reproduced exactly as
+  filed before the fix — the plain body printed `first 1`, and the borrows body
+  left a `let` root's counter at 2 after two pure reads — and each is a
+  conformance row now (M31 row 1, M33). The refusal needed a fact the compiler
+  did not have: WHERE an accessor lends from. `place_transform` records each
+  lending path's shape (`(('member', 'cells'), ('index',))` for
+  `lend self.cells[i]`; nothing for a lend through an indirection the receiver
+  points at), and `place_uses` walks it against the receiver's real type, so
+  design 176's inline-vs-indirect walk gains the one hop it could not take and
+  composes through nesting. `lend self.inner[i]` keeps working: the forwarding
+  accessor records an `index` hop into a `Vector`, which is not inline, so the
+  outer accessor lends nothing inline either. PINS: `examples/conformance/`
+  M31 (the seven-row position matrix), M32, M33, M34, M35.
 
 ## Design 175 findings (`#lend_var` investigation, Aug 7 — PROBE-ONLY, no compiler changes)
 

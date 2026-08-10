@@ -2167,6 +2167,24 @@ The field form is worse than a vanishing field write, because the copy and the
 original share a buffer: a push that does not reallocate writes into storage the
 caller owns while the caller's `length` stays behind.
 
+The fourth spelling is a **place window**. Where a field's type publishes a
+`borrows` accessor, a write through it opens an exclusive window on the copy:
+
+```saw
+extension Board {
+    func bump(&self) {
+        self.grid[0] += 100     // error: cannot write through a place window on
+    }                           //        storage reached through a `&self` receiver
+}
+```
+
+Only an *exclusive* window is refused. A read (`self.grid[0]`) opens a shared
+one, which lends the element read-only, so nothing is written and nothing is
+lost. What decides the rest is where the accessor lends from: `Grid` above lends
+an element of its own inline `[Cell; 9]`, while `Vector.[]` lends out of the
+heap buffer `self.buffer` points at — so `self.rows[0][0] += 100` reaches the
+caller's element and is allowed, on the same terms as the direct write below.
+
 Storage the receiver only *points at* is not covered, because a copy of the
 receiver shares it rather than duplicating it. A `Vector` field's elements live
 in its heap buffer, so `self.cells[i] = v` writes the caller's element and is
@@ -2194,6 +2212,13 @@ The rule holds inside a `borrows` body too, prologue and epilogue included. That
 is where it matters most: an accessor's receiver travels by pointer, so a field
 write there does not vanish, it *lands* — a read through a shared window would
 mutate a `let` root.
+
+The place-window spelling is the one exception, and it is intended. A window
+write in an accessor's prologue or epilogue reaches the caller's storage for the
+same by-pointer reason, which is what an accessor that must touch its receiver
+before lending needs. It runs for a shared window as well as an exclusive one,
+so an accessor that means to count only writes gates the mutation on
+`#lend_var` (see [Places](#places-borrows-and-lend)).
 
 ---
 

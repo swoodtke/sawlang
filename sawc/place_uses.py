@@ -1058,7 +1058,12 @@ class _PlaceUses:
         return saw_type
 
     def _chain_down(self, node):
-        """One step toward the root of a postfix chain, or None at the root."""
+        """One step toward the root of a postfix chain, or None at the root.
+
+        The one description of what a postfix chain is made of, shared by
+        `_chain_head` (which stops at the first place) and the diagnostic
+        suppression below (which marks the whole chain).
+        """
         if isinstance(node, (MemberAccess, MethodCall)):
             return node.object
         if isinstance(node, ArrayIndex):
@@ -1122,18 +1127,7 @@ class _PlaceUses:
         while node is not None:
             if is_place(node):
                 return node
-            if isinstance(node, MemberAccess):
-                node = node.object
-            elif isinstance(node, MethodCall):
-                node = node.object
-            elif isinstance(node, ArrayIndex):
-                node = node.array_expr
-            elif isinstance(node, TupleIndex):
-                node = node.tuple_expr
-            elif isinstance(node, ForceUnwrap):
-                node = node.expr
-            else:
-                return None
+            node = self._chain_down(node)
         return None
 
     def _replace_head(self, expr, place, name):

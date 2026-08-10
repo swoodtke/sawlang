@@ -2161,6 +2161,10 @@ class Function(ASTNode):
     is_borrows: bool = False
     place_type: Optional[SawType] = annotation(None)
     place_optional: bool = annotation(False)
+    # See Method.place_lend_paths (design 200). Always empty here: a free
+    # `borrows` function has no receiver, so it can lend nothing that outlives
+    # its frame — `_check_rooted_in_receiver` refuses every such body.
+    place_lend_paths: tuple = annotation(())
     # Declaration attributes (design 58): `@export` / `@section(...)` lines.
     attributes: List['Attribute'] = field(default_factory=list)
     # Compiler-synthesized (design 80): coroutine-transform-generated functions

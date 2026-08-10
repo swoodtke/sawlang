@@ -1852,6 +1852,13 @@ construct in the owner and lend `&driver` down.
   the copy shares it: `self.cells[i] = v` on a `Vector` field writes the
   caller's element and is fine, and so is a write through an `UnsafePointer`
   field (std's `TaskHandle.cancel`).
+  **A PLACE WINDOW is the fourth spelling** (design 200, DF-176c): where the
+  field's type publishes a `borrows` accessor, `self.grid[0] += 100` opens an
+  EXCLUSIVE window on the copy and is the same error — a silent no-op until
+  Aug 10. Reads are untouched (a shared window lends read-only), and what
+  decides the rest is where the accessor lends FROM, so the carve-out holds
+  through a window too: `Vector.[]` lends out of the heap buffer, so
+  `self.rows[0][0] += 100` reaches the caller's element and compiles.
   **It holds in a `borrows` body, prologue and epilogue included — and that is
   where it bites hardest**: an accessor's receiver travels by POINTER, so a
   field write there does not vanish, it LANDS, and a read through a shared
@@ -1859,7 +1866,10 @@ construct in the owner and lend `&driver` down.
   reads declares the accessor `&var self`, which is STRICTER — every use site
   then borrows the receiver exclusively, reads included. In a FLAVORED accessor
   the third out is `#lend_var`: gate the mutation and only the exclusive
-  specialization runs it.
+  specialization runs it. The place-window spelling is the ONE exception there
+  and is intended (design 200 ratified it): a window write in a prologue or
+  epilogue lands for the same by-pointer reason, and `#lend_var` is how you
+  keep it out of the shared specialization.
   **A `&var self` METHOD CALL is the same error, on `self` OR on a FIELD of it**
   (DF-179b, DF-176b). `self.reset()` takes the whole receiver exclusively, which
   is the one thing `&self` promises not to do; `self.cells.push(9)` runs against
