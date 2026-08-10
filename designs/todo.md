@@ -7,17 +7,38 @@ items need a probe before being treated as real work.
 Historical/landed recaps: designs/todo_aug1-aug9.md (split Aug 9);
 older history is in this file's git log (pruned Jul 30).
 
-## Design 195 — integer width agreement (RULED + AUTHORED Aug 10, ready to queue)
+## The next queue — designs 195-202 + 153 (ALL RULED Aug 10, awaiting dispatch)
 
-`designs/195-integer-width-agreement.md`. User ruling from the Aug-10
-morning discussion: all typed operands of an operation must be the SAME
+Every open ruling from the overnight run plus the parked backlog was
+settled in the Aug-10 morning review; each has an authored brief.
+Order (soundness → capability → consistency; typechecker briefs serial,
+disjoint surfaces parallel):
+
+1. **195 integer width agreement** (DF-192g wrong answer + DF-192f +
+   the silent `Int + UInt` probe) — solo first.
+2. **198 duplicate match arms are errors** (DF-192d) — small, same
+   match-checking neighborhood, straight after 195.
+3. **199 nested-call refs join the Law** (DF-188j; sweep-first) — solo.
+4. **200 receiver-copy place write** (DF-176c) ∥ **153 statics→enums
+   sweep** (place lowering vs std .saw — disjoint).
+5. **196 coro × erased errors + captures** (DF-193a, DF-192b/c,
+   DF-191a) — solo (coro_transform + result cells).
+6. **201 spawn reference parameters** (design-88 relaxation, 189 u4,
+   ratified) — after 196 (both touch spawn/coro surface).
+7. **202 Atomic move-only** (DF-186a, ruled GO by census) — after 153
+   (both touch std .saw).
+8. **197 declaration-position names** (DF-194a + rule-7 parse_type
+   bypasses) — last; UX debt, feeds the parser port.
+
+Also ratified Aug 10 with no work owed: design 183's two
+implementation decisions (blocking-conflict = error not upgrade; Float
+in the offload set) stand as landed.
+
+Design 195 detail: all typed operands of an operation must be the SAME
 type (implicit promotion from bare literals only — no promotion
-ladder); value-branch arms are TRANSFERS through the existing checkpoint
-(lossless widening legal, like `return`). Fixes DF-192g (wrong answer),
-DF-192f (ICE), and the silent `Int + UInt` binop the ruling probe
-found. 12-row position matrix; conformance rows first; consumer sweep
-owed (rows flip legal-today code to errors). Typechecker internals —
-serial with anything else touching them.
+ladder); value-branch arms are TRANSFERS through the existing
+checkpoint (lossless widening legal, like `return`). 12-row position
+matrix; conformance rows first; consumer sweep owed.
 
 ## The quality program — designs 190-194 (ALL LANDED Aug 9-10)
 
@@ -242,7 +263,13 @@ DF-192g is a confirmed wrong answer** — both below.
   unreachable code and BOTH should be a clean error, which fits Saw's
   no-silent-anything grain better. Not a call this brief takes. PIN:
   `examples/match_duplicate_enum_arm.saw` (XFAIL, cited; holds both
-  spellings so they cannot drift apart again). Its discovery also closed a
+  spellings so they cannot drift apart again).
+  **RULED Aug 10, owned by design 198:** an EXACT duplicate arm — enum
+  variant or literal — is a clean error naming both arms; ranges/guards
+  keep first-match-wins (overlap there is legitimate and documented).
+  The deciding fact: a switch has no arm order, so first-wins was never
+  the enum spelling's semantics — there is nothing to be consistent
+  with, only a crash to replace. The pin re-authors to EXPECT: error. Its discovery also closed a
   unit-2 gap: `emit_ir` / `compile_to_object` run AFTER `run_codegen`
   returns and were outside every wrapper, so an IR module llvmlite refuses
   printed a raw traceback — `_run_llvm` now wraps both.
@@ -380,7 +407,14 @@ declarations on `Vector`, `Vector` and `DataBuf`+`Arc` respectively. The
 interior-mutability EXEMPTION dissolved to nothing: every call it existed for is
 a `&self` method the 176b rule never refused.
 
-- **DF-186a — OPEN, a deferred language question, NOT a bug.** Should
+- **DF-186a — RULED Aug 10, owned by design 202: `Atomic` becomes
+  move-only.** Decided by census, not gut feel: outside examples exactly
+  TWO holder structs lack a policy (SlabHead, rt Job), three example
+  counter structs, zero non-static Atomic locals, statics unaffected —
+  low churn, so the Rust-agreeing answer wins (a copied atomic silently
+  forks the counter). The design-186 cell clause survives for user
+  wrappers; only Atomic itself moves tier. Original entry follows.
+  Should
   `Atomic<T>` be move-only? The cell is `NoCopy` as ruled, and a cell FIELD
   contributes its `T`'s copy class rather than cascading `NoCopy` onto its
   container (stated once in `Namespace.member_copy_tier`). Without that clause
@@ -534,6 +568,11 @@ findings filed below (DF-188j, DF-188k).
   Widening it would reject `f(&var x, g(&y))` shapes that are legal today, so it
   wants a ruling rather than a patch. Repro: `.build/scratch/p_nested_ref.saw`
   (three statements; the shape is in this entry).
+  **RULED Aug 10, owned by design 199:** a nested call's by-ref
+  arguments JOIN the outer call's access set — OVERLAPPING roots error
+  on every tier (mirroring the landed place rule), disjoint roots stay
+  legal (`f(&var x, g(&y))` compiles; the earlier "would reject" framing
+  conflated the two). Consumer sweep before the flip, per rule 2.
 - **DF-188k (SPEC/IMPL, filed Aug 9 by unit 7): the prelude gate does not run on
   type ANNOTATIONS.** `func take(d: &Data) -> Int { d.len() }` compiles with no
   `import std.data` — the gate fires in EXPRESSION positions (a call, a struct
@@ -574,7 +613,9 @@ The rule: a capture borrows its root for the task's life, the HANDLE
 carries the borrow, join releases it (group death is the fallback for a
 discarded handle); an exclusive capture excludes caller reads too —
 standard XOR over a task-length window. Design-88 param relaxation rides
-as an optional unit, ratified separately. RATIFIED Aug 9; queue slot:
+as an optional unit, ratified separately — **RATIFIED Aug 10, now its
+own brief: design 201** (spawn reference parameters on the extent
+model; unit 4 here is superseded by it). RATIFIED Aug 9; queue slot:
 immediately after 188, before 186. Queue RESUMED same day:
 184 ∥ 187 dispatched, then 188 → 189 → 186 serial.
 
@@ -1054,7 +1095,11 @@ identical but for the receiver.
 
 DF-181e and DF-181f are both closed above; the offload now works on the seams
 and the signatures the design-181 audit needed. Four things worth a look at
-review, each a decision the brief left to the implementation:
+review, each a decision the brief left to the implementation.
+**The two open ones — the blocking-conflict ERROR and Float in the
+offload set — were RATIFIED as-is by the user Aug 10** (error is
+relaxable later, the upgrade would not be; Float rides the governing
+"whatever @export admits" rule at zero cost). Nothing further owed:
 
 - **A contradicting `blocking` redeclaration is an ERROR, not an upgrade.**
   DF-181f could have been fixed either way. Making the annotation win would give
@@ -1569,8 +1614,13 @@ Closed items: see todo_aug1-aug9.md.
   where TWO accesses were involved are now exclusivity errors on every tier, and
   what remains under 176c is exactly the receiver-COPY half — a `&self` method
   writing through a place window on an INLINE field (vanishes), and the borrows
-  body writing one on a `let` root (lands). Both halves still want the ruling
-  described above.
+  body writing one on a `let` root (lands).
+  **RULED Aug 10, owned by design 200:** the plain-body half is the
+  design-176 receiver-write ERROR extended to the synthesized window
+  call (fix in the place lowering, exclusive windows only, heap-reaching
+  fields keep the carve-out); the borrows-body half is RATIFIED as
+  intended behavior (by-pointer receiver; `#lend_var` gates the shared
+  specialization).
 
 ## Design 175 findings (`#lend_var` investigation, Aug 7 — PROBE-ONLY, no compiler changes)
 
