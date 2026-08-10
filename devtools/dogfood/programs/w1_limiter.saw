@@ -1,0 +1,109 @@
+// w1-limiter — bounded-concurrency executor.
+//
+// Runs 40 small jobs through a reusable semaphore-like limiter built on a
+// Channel<Int> token bucket, proving that never more than R = 5 jobs are
+// between entry and exit at once.
+
+import std.task.*
+import std.channel.{Channel}
+import std.mutex.{Mutex}
+
+struct Stats {
+    in_flight: Int
+    max_seen: Int
+}
+
+// A reusable semaphore-like limiter: a Channel<Int> token bucket. Acquire =
+// receive a token (suspends the task, never busy-spins, while none is
+// available); release = send one back. NOTE (see w1-limiter dogfood report):
+// wrapping acquire/release as methods on `Limiter` and calling
+// `limiter.acquire()`/`limiter.release()` from a spawned task body hangs the
+// whole program — a suspected compiler bug in how `Channel.receive()`'s
+// special inline lowering (LANGUAGE_SPEC "design 62 G3") interacts with a
+// call one level removed from the task's own frame, even though the
+// language docs say a suspending call embeds "at any nesting depth". Calling
+// `.tokens.receive()`/`.tokens.send()` directly against the field, inline in
+// the spawned function's own body, is the workaround used below.
+struct Limiter {
+    tokens: Channel<Int>
+}
+
+@synthesize
+extension Limiter: ImplicitCopy {}
+
+extension Limiter {
+    init(permits: Int) -> Limiter {
+        var ch = Channel<Int>()
+        var i = 0
+        while i < permits {
+            ch.send(1)
+            i = i + 1
+        }
+        Limiter(tokens: ch)
+    }
+}
+
+func job(
+    k: Int,
+    limiter: Limiter,
+    stats: Arc<Mutex<Stats>>,
+    sum_cell: Arc<Mutex<Int>>,
+    order: Arc<Mutex<Vector<Int>>>,
+) {
+    let _ = limiter.tokens.receive()
+
+    stats.lock({ s in
+        s.in_flight = s.in_flight + 1
+        if s.in_flight > s.max_seen {
+            s.max_seen = s.in_flight
+        }
+    })
+    order.lock({ o in
+        o.push(k)
+    })
+
+    yield_now()
+    yield_now()
+
+    let result = k * k + 7
+
+    stats.lock({ s in
+        s.in_flight = s.in_flight - 1
+    })
+    limiter.tokens.send(1)
+
+    sum_cell.lock({ s in
+        s = s + result
+    })
+}
+
+func run_jobs(
+    limiter: Limiter,
+    stats: Arc<Mutex<Stats>>,
+    sum_cell: Arc<Mutex<Int>>,
+    order: Arc<Mutex<Vector<Int>>>,
+) {
+    var group = TaskGroup()
+    var k = 0
+    while k < 40 {
+        let _ = group.spawn(job(k, limiter, stats, sum_cell, order))
+        k = k + 1
+    }
+}   // group deinits here: drives every spawned job to completion
+
+func main() {
+    let limiter = Limiter(permits: 5)
+    let stats = Arc<Mutex<Stats>>(value: Mutex<Stats>(value: Stats(in_flight: 0, max_seen: 0)))
+    let sum_cell = Arc<Mutex<Int>>(value: Mutex<Int>(value: 0))
+    let order = Arc<Mutex<Vector<Int>>>(value: Mutex<Vector<Int>>(value: Vector<Int>()))
+
+    run_jobs(limiter, stats, sum_cell, order)
+
+    let max_m = stats.lock({ s in s.max_seen })
+    let total = sum_cell.lock({ s in s })
+
+    print("jobs 40")
+    print("max in flight {}", max_m)
+    print("results sum {}", total)
+    print("done")
+}

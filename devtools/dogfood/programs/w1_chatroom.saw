@@ -1,0 +1,137 @@
+// Spec w1-chatroom — loopback broadcast chat server + 4 clients, one program.
+
+import std.net.{TcpListener, TcpStream}
+import std.channel.{Channel}
+
+// Broadcasts every line a client sends to all 4 clients (sender included),
+// formatted as "<client-id>: <line>". Returns the number of broadcast lines
+// this handler wrote to its own client's stream (should be 20: 4 senders x
+// 5 messages each).
+func handle_client(
+    id: Int,
+    stream: TcpStream,
+    ch0: Channel<String>,
+    ch1: Channel<String>,
+    ch2: Channel<String>,
+    ch3: Channel<String>,
+) -> Int {
+    var s = move stream
+    var line = StringBuilder()
+    var received = 0
+    while received < 5 {
+        let chunk = try! s.read()
+        if chunk.len() == 0 {
+            break
+        }
+        let text = try! chunk.to_string()
+        for c in text.chars() {
+            if c == 10 {
+                let msg = "{id}: {line.as_str()}"
+                ch0.send(msg)
+                ch1.send(msg)
+                ch2.send(msg)
+                ch3.send(msg)
+                received = received + 1
+                line.clear()
+            } else {
+                let _ = line.append_scalar(c)
+            }
+        }
+    }
+
+    var written = 0
+    while written < 20 {
+        let msg = match id {
+            case 0 -> ch0.receive(),
+            case 1 -> ch1.receive(),
+            case 2 -> ch2.receive(),
+            case 3 -> ch3.receive(),
+            case _ -> ch0.receive()
+        }
+        try! s.write("{msg}\n")
+        written = written + 1
+    }
+    return written
+}
+
+// Connects, sends 5 messages one at a time, then reads broadcasts until it
+// has received 20. Returns the number of broadcast lines received.
+func run_client(id: Int, port: Int) -> Int {
+    let stream = try! TcpStream.connect("127.0.0.1", port)
+    var s = move stream
+
+    var j = 0
+    while j < 5 {
+        try! s.write("msg {j}\n")
+        j = j + 1
+    }
+
+    var line = StringBuilder()
+    var received = 0
+    while received < 20 {
+        let chunk = try! s.read()
+        if chunk.len() == 0 {
+            break
+        }
+        let text = try! chunk.to_string()
+        for c in text.chars() {
+            if c == 10 {
+                received = received + 1
+                line.clear()
+            } else {
+                let _ = line.append_scalar(c)
+            }
+        }
+    }
+    return received
+}
+
+func main() {
+    var group = TaskGroup()
+    let listener = try! TcpListener.listen(0)
+    let port = listener.local_port()
+
+    let ch0 = Channel<String>()
+    let ch1 = Channel<String>()
+    let ch2 = Channel<String>()
+    let ch3 = Channel<String>()
+
+    let c0 = group.spawn(run_client(0, port))
+    let c1 = group.spawn(run_client(1, port))
+    let c2 = group.spawn(run_client(2, port))
+    let c3 = group.spawn(run_client(3, port))
+
+    // WORKAROUND for a suspected scheduler bug (see dogfood report): calling
+    // a reactor-parking op (listener.accept()) as the very first suspension
+    // after spawning tasks never drains the run queue, so freshly spawned
+    // tasks never get their first turn and the program hangs forever. A
+    // timer-based suspend (sleep) does drain it, so we take one here before
+    // the first accept() to let the client tasks reach their own suspends.
+    sleep(Duration.ms(10))
+
+    let s0 = try! listener.accept()
+    let h0 = group.spawn(handle_client(0, move s0, ch0, ch1, ch2, ch3))
+    let s1 = try! listener.accept()
+    let h1 = group.spawn(handle_client(1, move s1, ch0, ch1, ch2, ch3))
+    let s2 = try! listener.accept()
+    let h2 = group.spawn(handle_client(2, move s2, ch0, ch1, ch2, ch3))
+    let s3 = try! listener.accept()
+    let h3 = group.spawn(handle_client(3, move s3, ch0, ch1, ch2, ch3))
+
+    let r0 = c0.join()
+    let r1 = c1.join()
+    let r2 = c2.join()
+    let r3 = c3.join()
+
+    let n0 = h0.join()
+    let n1 = h1.join()
+    let n2 = h2.join()
+    let n3 = h3.join()
+
+    print("client 0 received {r0}")
+    print("client 1 received {r1}")
+    print("client 2 received {r2}")
+    print("client 3 received {r3}")
+    print("server broadcast {n0 + n1 + n2 + n3} lines")
+    print("done")
+}

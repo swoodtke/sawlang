@@ -1,0 +1,104 @@
+// w1-mapreduce: multi-threaded map-reduce over an LCG-generated dataset
+//
+// Spec: devtools/dogfood/specs/w1-mapreduce.md
+
+struct ChunkResult {
+    evens: Int
+    sum: Int
+}
+
+func gen_values() -> Vector<Int> {
+    var values: Vector<Int> = Vector<Int>()
+    var x: UInt64 = 42
+    var i = 0
+    while i < 800000 {
+        x = (x &* 6364136223846793005) &+ 1442695040888963407
+        let v = (x >> 33) as Int
+        values.push(v)
+        i += 1
+    }
+    move values
+}
+
+func slice_chunk(values: &Vector<Int>, start: Int, end: Int) -> Vector<Int> {
+    var chunk: Vector<Int> = Vector<Int>()
+    var i = start
+    while i < end {
+        chunk.push(values.get(i)!)
+        i += 1
+    }
+    move chunk
+}
+
+func map_chunk(chunk: Vector<Int>) -> ChunkResult {
+    var evens = 0
+    var sum = 0
+    var i = 0
+    let n = chunk.len()
+    while i < n {
+        let v = chunk.get(i)!
+        if v % 2 == 0 {
+            evens += 1
+        }
+        sum = (sum + v) % 1000000007
+        i += 1
+    }
+    ChunkResult(evens: evens, sum: sum)
+}
+
+func main() {
+    let values = gen_values()
+    let chunk_size = 800000 / 8
+
+    let c0 = slice_chunk(&values, 0 * chunk_size, 1 * chunk_size)
+    let c1 = slice_chunk(&values, 1 * chunk_size, 2 * chunk_size)
+    let c2 = slice_chunk(&values, 2 * chunk_size, 3 * chunk_size)
+    let c3 = slice_chunk(&values, 3 * chunk_size, 4 * chunk_size)
+    let c4 = slice_chunk(&values, 4 * chunk_size, 5 * chunk_size)
+    let c5 = slice_chunk(&values, 5 * chunk_size, 6 * chunk_size)
+    let c6 = slice_chunk(&values, 6 * chunk_size, 7 * chunk_size)
+    let c7 = slice_chunk(&values, 7 * chunk_size, 8 * chunk_size)
+
+    var group = TaskGroup(threads: 4)
+
+    let h0 = group.spawn(map_chunk(move c0))
+    let h1 = group.spawn(map_chunk(move c1))
+    let h2 = group.spawn(map_chunk(move c2))
+    let h3 = group.spawn(map_chunk(move c3))
+    let h4 = group.spawn(map_chunk(move c4))
+    let h5 = group.spawn(map_chunk(move c5))
+    let h6 = group.spawn(map_chunk(move c6))
+    let h7 = group.spawn(map_chunk(move c7))
+
+    let r0 = h0.join()
+    let r1 = h1.join()
+    let r2 = h2.join()
+    let r3 = h3.join()
+    let r4 = h4.join()
+    let r5 = h5.join()
+    let r6 = h6.join()
+    let r7 = h7.join()
+
+    print("chunk 0: evens {} sum {}", r0.evens, r0.sum)
+    print("chunk 1: evens {} sum {}", r1.evens, r1.sum)
+    print("chunk 2: evens {} sum {}", r2.evens, r2.sum)
+    print("chunk 3: evens {} sum {}", r3.evens, r3.sum)
+    print("chunk 4: evens {} sum {}", r4.evens, r4.sum)
+    print("chunk 5: evens {} sum {}", r5.evens, r5.sum)
+    print("chunk 6: evens {} sum {}", r6.evens, r6.sum)
+    print("chunk 7: evens {} sum {}", r7.evens, r7.sum)
+
+    var total_evens = r0.evens + r1.evens + r2.evens + r3.evens + r4.evens + r5.evens + r6.evens + r7.evens
+    var total_sum = 0
+    total_sum = (total_sum + r0.sum) % 1000000007
+    total_sum = (total_sum + r1.sum) % 1000000007
+    total_sum = (total_sum + r2.sum) % 1000000007
+    total_sum = (total_sum + r3.sum) % 1000000007
+    total_sum = (total_sum + r4.sum) % 1000000007
+    total_sum = (total_sum + r5.sum) % 1000000007
+    total_sum = (total_sum + r6.sum) % 1000000007
+    total_sum = (total_sum + r7.sum) % 1000000007
+
+    print("total evens {}", total_evens)
+    print("total sum {}", total_sum)
+}

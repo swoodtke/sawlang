@@ -1,0 +1,136 @@
+import std.file.*
+import std.directory.*
+import std.path.*
+import std.data.*
+
+func filename(i: Int) -> String {
+    if i < 10 {
+        "f0{i}.txt"
+    } else {
+        "f{i}.txt"
+    }
+}
+
+func tag_for(i: Int, j: Int) -> Int {
+    (i * 7 + j * 13) % 50
+}
+
+func file_content(i: Int) -> String {
+    var sb = StringBuilder()
+    var j = 1
+    while j <= 200 {
+        sb.append("line ")
+        sb.append(j)
+        sb.append(" tag")
+        sb.append(tag_for(i, j))
+        sb.append("\n")
+        j = j + 1
+    }
+    sb.build()
+}
+
+func to_data(s: String) -> Data {
+    var d = Data(capacity: s.len())
+    for b in s.bytes() {
+        d.push(UInt8.from(truncating: b))
+    }
+    d
+}
+
+func write_files(dir: Path) {
+    var i = 0
+    while i < 12 {
+        let fp = dir.join(filename(i))
+        var f = try! File.create(fp)
+        let _ = try! f.write(to_data(file_content(i)))
+        i = i + 1
+    }
+}
+
+func count_needle_in_file(dir: Path, i: Int, needle: String) -> Int {
+    let fp = dir.join(filename(i))
+    var f = try! File.open(fp)
+    let data = try! f.read()
+    let text = try! String.fromBytes(data: &data)
+    var count = 0
+    for line in text.split("\n").iter() {
+        if line.contains(needle) {
+            count = count + 1
+        }
+    }
+    count
+}
+
+func search_unit(dir: Path, indices: Vector<Int>, needle: String) -> Vector<(Int, Int)> {
+    var results: Vector<(Int, Int)> = []
+    for i in indices.iter() {
+        let c = count_needle_in_file(dir, i, needle)
+        results.push((i, c))
+    }
+    move results
+}
+
+func main() {
+    let dir = Path(s: "./.w1_filesearch_tmp")
+    try! Directory.create(dir)
+
+    write_files(dir)
+
+    let needle = "tag17"
+
+    var idx0: Vector<Int> = []
+    var idx1: Vector<Int> = []
+    var idx2: Vector<Int> = []
+    var idx3: Vector<Int> = []
+    var idx = 0
+    while idx < 12 {
+        let bucket = idx % 4
+        if bucket == 0 {
+            idx0.push(idx)
+        } else if bucket == 1 {
+            idx1.push(idx)
+        } else if bucket == 2 {
+            idx2.push(idx)
+        } else {
+            idx3.push(idx)
+        }
+        idx = idx + 1
+    }
+
+    var group = TaskGroup(threads: 4)
+    let h0 = group.spawn(search_unit(dir, move idx0, needle))
+    let h1 = group.spawn(search_unit(dir, move idx1, needle))
+    let h2 = group.spawn(search_unit(dir, move idx2, needle))
+    let h3 = group.spawn(search_unit(dir, move idx3, needle))
+
+    let r0 = h0.join()
+    let r1 = h1.join()
+    let r2 = h2.join()
+    let r3 = h3.join()
+
+    var counts: [Int; 12] = [0; 12]
+    for pair in r0.iter() { counts[pair.0] = pair.1 }
+    for pair in r1.iter() { counts[pair.0] = pair.1 }
+    for pair in r2.iter() { counts[pair.0] = pair.1 }
+    for pair in r3.iter() { counts[pair.0] = pair.1 }
+
+    var total = 0
+    var i = 0
+    while i < 12 {
+        let n = counts[i]
+        print("{filename(i)} {n}")
+        total = total + n
+        i = i + 1
+    }
+    print("total {total}")
+
+    var i2 = 0
+    while i2 < 12 {
+        let fp = dir.join(filename(i2))
+        try! File.remove(fp)
+        i2 = i2 + 1
+    }
+    try! Directory.remove(dir)
+
+    print("done")
+}

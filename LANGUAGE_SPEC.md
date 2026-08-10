@@ -773,6 +773,10 @@ language with no `move` discipline — `greet(s)` does not consume `s`.
   cannot leak. The closure returns `Void`; a result is produced by
   borrow-capturing an enclosing variable
   (`s.withCString { [&var n] ptr in n = strlen(ptr) }`).
+- **Splitting**: `split(separator: String) -> Vector<String>` divides on every
+  occurrence of `separator` (content comparison, same as literal patterns);
+  adjacent separators yield empty pieces, and a string with no separator is a
+  one-element vector. The README has always named it; this is its signature.
 - **Number parsing** (`designs/57`, `designs/119`). Optional-returning methods
   parse the **whole** string (no trimming — the caller trims with `trim`;
   empty → `None`; any trailing/leading junk → `None`). Parse failure is *data*,
@@ -7170,7 +7174,8 @@ cooperative one; see [§6 Concurrency](#6-concurrency) for the real API.
 
 `Iterator`, `Equatable`, `Comparable`, `Hashable`, `Printable`, `Error`, `Send`
 and `Sync` are prelude traits declared in `builtin.saw`, not module contents.
-There is no `Deque`, no `RwLock`, and no `UdpSocket` yet.
+`Atomic<Int>` is likewise a builtin, not a module: prelude-bare, nothing to
+import. There is no `Deque`, no `RwLock`, and no `UdpSocket` yet.
 
 `std.slab` and `std.spinlock` were the two rows this table got wrong: both
 documented as gated, and neither listed in the compiler's set, so `SlabHead` and

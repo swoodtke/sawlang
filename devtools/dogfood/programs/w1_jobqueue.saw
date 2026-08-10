@@ -1,0 +1,83 @@
+import std.task.*
+
+static NEXT_JOB: Atomic<Int> = Atomic(0)
+static CANCEL_FLAG: Atomic<Int> = Atomic(0)
+
+struct WorkerResult {
+    completed: Int
+    cancelled: Int
+    checksum: Int
+}
+
+func worker_run() -> WorkerResult {
+    var completed = 0
+    var cancelled = 0
+    var checksum = 0
+    while true {
+        let idx = NEXT_JOB.fetch_add(1)
+        let job = idx + 1
+        if job > 60 {
+            break
+        }
+        let is_cancellable = job >= 41
+        if is_cancellable && CANCEL_FLAG.load() == 1 {
+            cancelled += 1
+            continue
+        }
+        let cap = (job * 97) % 1000
+        var total = 0
+        var i = 1
+        let mid = cap / 2
+        while i <= cap {
+            total += i
+            if i == mid {
+                yield_now()
+            }
+            i += 1
+        }
+        if is_cancellable && CANCEL_FLAG.load() == 1 {
+            cancelled += 1
+        } else {
+            completed += 1
+            checksum += total
+        }
+    }
+    WorkerResult(completed: completed, cancelled: cancelled, checksum: checksum)
+}
+
+func main() {
+    var group = TaskGroup()
+    let h1 = group.spawn(worker_run())
+    let h2 = group.spawn(worker_run())
+    let h3 = group.spawn(worker_run())
+    let h4 = group.spawn(worker_run())
+    let h5 = group.spawn(worker_run())
+    let h6 = group.spawn(worker_run())
+
+    while NEXT_JOB.load() < 45 {
+        yield_now()
+    }
+    CANCEL_FLAG.store(1)
+
+    let r1 = h1.join()
+    let r2 = h2.join()
+    let r3 = h3.join()
+    let r4 = h4.join()
+    let r5 = h5.join()
+    let r6 = h6.join()
+
+    print("worker 1: completed {}", r1.completed)
+    print("worker 2: completed {}", r2.completed)
+    print("worker 3: completed {}", r3.completed)
+    print("worker 4: completed {}", r4.completed)
+    print("worker 5: completed {}", r5.completed)
+    print("worker 6: completed {}", r6.completed)
+
+    let total_completed = r1.completed + r2.completed + r3.completed + r4.completed + r5.completed + r6.completed
+    let total_cancelled = r1.cancelled + r2.cancelled + r3.cancelled + r4.cancelled + r5.cancelled + r6.cancelled
+    let checksum = r1.checksum + r2.checksum + r3.checksum + r4.checksum + r5.checksum + r6.checksum
+
+    print("total completed {}", total_completed)
+    print("total cancelled {}", total_cancelled)
+    print("checksum {}", checksum)
+}

@@ -269,6 +269,19 @@ var u = w.copy()       // explicit duplicate
 ```
 - `move` works on ANY type and retires the binding; a moved `var`
   revives on reassignment.
+- **Returning an owned container is `move v` — in `return` position AND
+  as a bare tail expression.** The single most common function shape:
+  ```saw
+  func collect() -> Vector<Int> {
+      var v = Vector<Int>()
+      v.push(1)
+      return move v      // or `move v` as the tail — same rule
+  }
+  ```
+  A bare `v` there is the ExplicitCopy/NoCopy read error ("use .copy()
+  ... or `move`") — and note the error anchors at the function
+  declaration line today, not the tail expression (a known diagnostic
+  wart, dogfood wave 1).
 - NO partial moves (`move p.x` is an error) — move whole bindings.
 - References `&T`/`&var T` are PARAMETER-ONLY, cannot escape/be
   stored. **A RETURN TYPE MAY NOT NAME ONE** — `-> &T` is a compile error at the
@@ -851,7 +864,12 @@ v.map<String>({ $0.to_string() })   // the closure's return; explicit still wins
   existential carries a vtable beside the value and a primitive has no boxed
   form — and that is one clean error naming the two outs: the generic bound, or
   a wrapper struct you own.
-- **Generic type-arg inference (design 93 + 105):** a generic free function or
+- **Generic type-arg inference (design 93 + 105) covers FUNCTIONS and METHODS
+  only — CONSTRUCTORS do not infer yet.** `Arc(value: r)` / `Mutex(value: 0)`
+  are errors demanding `Arc<Res>(value: r)` / `Mutex<Int>(value: 0)`; spell
+  every layer in nested construction. (Ruled to change Aug 10 — design 207
+  routes constructors through the same solver; until it lands, write the
+  arguments.) For functions and methods: a generic free function or
   method may omit its `<...>` — argument types (and a closure's inferred RETURN
   type) solve them (`wrap(5)`, `first(7,"hi")`, `v.map({...})`, `v.fold(0){...}`).
   Explicit `<...>` always allowed + wins; a partial explicit prefix pins the
@@ -1176,7 +1194,20 @@ dump_tasks()                // every live task's logical backtrace (std.task)
   Handles are `(slot, generation)` pairs, so a handle to a task that has come and
   gone can never reach whatever occupies its slot next: joining an already-joined
   `TaskHandle` panics, joining a finished `VoidTaskHandle` returns, and `cancel`
-  is a no-op on both. `cancel_addr()` pins its slot (a raw address must stay
+  is a no-op on both. **A DYNAMIC number of tasks works through a
+  `Vector<TaskHandle<T>>`** (probe-verified Aug 10 — a dogfood reader
+  feared the NoCopy handle wouldn't compose with the vector; it does):
+  ```saw
+  var handles = Vector<TaskHandle<Int>>()
+  for i in 0..5 {
+      handles.push(group.spawn(work(i)))
+  }
+  var total = 0
+  while handles.len() > 0 {
+      let h = handles.pop()!     // pop moves the handle out — yours to join
+      total += h.join()
+  }
+  ``` `cancel_addr()` pins its slot (a raw address must stay
   valid), giving up reuse for that one slot. Suspending calls yield
   IMPLICITLY when they park (a task doing I/O never needs `yield_now`); `yield_now`
   (design 114: `import std.task.*` — no longer prelude) is now needed only where the
@@ -1528,6 +1559,9 @@ import mymodule as mm       // aliasing; `module`/`public`/`package`/`parent`
   `print`/`panic`/`assert`/`sizeof`/`alignof`/`static_assert`, `TaskGroup`/
   `sleep`/`spawn`/`cancelled`, `StringBuilder`, `Duration` (std.duration —
   design 180; `sleep` takes one, so gating it would gate `sleep`).
+  `Atomic<Int>` is prelude-bare too — a `builtin.saw` primitive, not a
+  module, so there is nothing to import (it sat in NEITHER list until a
+  design-203 dogfood reader had to guess; it belongs here).
   IMPORT-REQUIRED:
   `File`/`Directory`/`Path` (std.file/directory/path), `Data` (std.data),
   `Channel` (std.channel), `Mutex` (std.mutex), `Once` (std.once — design 186),
