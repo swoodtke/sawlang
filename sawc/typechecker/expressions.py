@@ -31,6 +31,7 @@ from ast_nodes import (
     Argument, ASTNode, MatchArm, structural_fields,
 )
 from ast_walk import child_nodes
+from noescape import first_reference_in
 from errors import ErrorKind
 from const_eval import const_eval, ConstEvalError, CONST_LENGTH_HINT
 from namespace import Visibility, EnumSymbol
@@ -9365,32 +9366,14 @@ class ExpressionsMixin:
         return self._reconcile_match_arm_types(expr, arm_types)
 
     def _first_reference_in_type(self, t: Optional[SawType]) -> Optional[SawType]:
-        """The first reference reachable from `t` without entering a function
-        type, or None — the typechecker's copy of the design-163a walk.
+        """The first reference reachable from an INFERRED type (a closure's
+        return), aliases resolved.
 
-        A nested function type is where references belong (`(&T) sync -> R` is
-        the `with_ref` callback), so the walk stops there; everything else a type
-        can be built out of is searched, since `(Int, &Int)` and `&Int?` escape
-        the pointer exactly as well as a bare `&Int`.
+        The third entry to the one no-escape walk (`noescape.py`). It resolves
+        aliases like the signature-level pass does — a closure body whose tail
+        has an alias type is the same escape as one whose tail is written `&T`.
         """
-        if t is None:
-            return None
-        if t.kind == TypeKind.REFERENCE:
-            return t
-        if t.kind == TypeKind.FUNCTION:
-            return None
-        parts = []
-        if t.kind == TypeKind.OPTIONAL:
-            parts.append(t.inner_type)
-        if t.kind == TypeKind.ARRAY:
-            parts.append(t.array_element_type)
-        parts.extend(t.element_types or [])
-        parts.extend(t.type_args or [])
-        for p in parts:
-            hit = self._first_reference_in_type(p)
-            if hit is not None:
-                return hit
-        return None
+        return first_reference_in(t, self._alias_target)
 
     def _reject_reference_closure_return(self, expr: ClosureExpr,
                                          return_type: SawType) -> SawType:

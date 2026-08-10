@@ -1,0 +1,18 @@
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: static `SLOT` may not be a reference
+// EXPECT-ERROR-CONTAINS: `&Int` is a reference
+// EXPECT-ERROR-CONTAINS: references in Saw are PARAMETERS ONLY
+// EXPECT-ERROR-CONTAINS: declare a `borrows` accessor
+//
+// The no-escape position matrix, row "static declaration" (design 193 unit 5).
+// A static is the longest-lived storage in the language — it outlives every
+// call in the program — so it is the position the rule most obviously covers,
+// and it was the one nothing checked. Before this it fell out as two errors
+// about OTHER things (an initializer type mismatch, and a Sync complaint about
+// `&Int`), neither of which says what is actually wrong with the declaration.
+
+static SLOT: &Int = 0
+
+func main() {
+    print("unreachable")
+}

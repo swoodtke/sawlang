@@ -1,0 +1,32 @@
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: associated type `Item` of `Cell` may not be a reference
+// EXPECT-ERROR-CONTAINS: `&Int` is a reference
+// EXPECT-ERROR-CONTAINS: references in Saw are PARAMETERS ONLY
+//
+// The no-escape position matrix, row "associated-type assignment" (design 193
+// unit 5). The RHS of a `type Item = ...` names the type every use of that
+// associated name resolves to — a field's type, a return type, a generic
+// argument — so one reference here reaches all of them at once, past checks
+// that only ever looked at the positions as written. This compiled silently.
+
+trait Holder {
+    type Item
+    func get(&self) -> Int
+}
+
+struct Cell {
+    n: Int
+}
+
+extension Cell: Holder {
+    type Item = &Int
+
+    func get(&self) -> Int {
+        self.n
+    }
+}
+
+func main() {
+    let c = Cell(n: 1)
+    print("{c.get()}")
+}

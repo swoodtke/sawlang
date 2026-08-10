@@ -18,6 +18,7 @@ from ast_nodes import (
     BindOptional, OptionalEvalExpr, ForceUnwrap, MethodCall
 )
 from errors import ErrorKind
+from noescape import first_reference_in
 from namespace import (
     SymbolKind, StructSymbol, EnumSymbol, FunctionSymbol, TraitSymbol, TypeAliasSymbol
 )
@@ -682,98 +683,155 @@ class TypeUtilsMixin:
     # written-form walk does — a function type's parameters take references
     # legitimately.
 
+    def _alias_target(self, t):
+        """What a named type ALIASES, or None when it names no alias — the
+        resolver the shared no-escape walk takes."""
+        if t.struct_name is None:
+            return None
+        alias = self.get_type_alias_info(t.struct_name)
+        return alias.aliased_type if alias is not None else None
+
     def _first_laundered_reference(self, t, depth: int = 0):
-        """The first reference reachable from `t` once aliases are resolved."""
-        if t is None or depth > 12:
-            return None
-        if t.kind == TypeKind.STRUCT and t.struct_name is not None:
-            alias = self.get_type_alias_info(t.struct_name)
-            if alias is not None and alias.aliased_type is not None:
-                return self._first_laundered_reference(alias.aliased_type,
-                                                       depth + 1)
-        if t.kind == TypeKind.REFERENCE:
-            return t
-        if t.kind == TypeKind.FUNCTION:
-            return None
-        parts = []
-        if t.kind == TypeKind.OPTIONAL:
-            parts.append(t.inner_type)
-        if t.kind == TypeKind.ARRAY:
-            parts.append(t.array_element_type)
-        parts.extend(t.element_types or [])
-        parts.extend(t.type_args or [])
-        for p in parts:
-            hit = self._first_laundered_reference(p, depth + 1)
-            if hit is not None:
-                return hit
-        return None
+        """The first reference reachable from `t` once aliases are resolved.
+
+        The typechecker's entry to the one no-escape walk (`noescape.py`)."""
+        return first_reference_in(t, self._alias_target, depth)
 
     def _reject_laundered_reference(self, t, what: str, line, column) -> None:
-        """Report a reference that only an alias kept out of sight."""
+        """Report a reference at a declared position, aliases resolved.
+
+        Reads for BOTH audiences, because three of the matrix's rows (a static,
+        an associated-type assignment, a generic-parameter default) have no
+        parser-side check at all and reach the user only here: a directly
+        written `&T` gets the plain sentence, and a type that names one only
+        after resolution gets the extra line saying an alias is not a way past
+        the rule.
+        """
         found = self._first_laundered_reference(t)
         if found is None:
             return
         value = found.inner_type if found.inner_type is not None else "T"
+        if found is t:
+            names_it = "is a reference"
+        else:
+            names_it = f"names a reference (`{found}`)"
+        # Nothing in the WRITTEN type says `&`, so an alias is what hid it.
+        via_alias = "" if "&" in str(t) else (
+            ". A `type` alias is not a way past that rule: the walk resolves it")
         self._error(
             ErrorKind.TYPE_MISMATCH,
-            f"{what} may not be a reference: `{t}` resolves to a type that "
-            f"names a reference (`{found}`), and references in Saw are "
-            f"PARAMETERS ONLY — a reference borrows storage for the duration of "
-            f"one call and may not escape it (designs 88/106). A `type` alias "
-            f"is not a way past that rule: the walk resolves it",
+            f"{what} may not be a reference: `{t}` {names_it}, and references "
+            f"in Saw are PARAMETERS ONLY — a reference borrows storage for the "
+            f"duration of one call and may not escape it (designs 88/106)"
+            f"{via_alias}",
             line, column,
             hint=f"use the value type (`{value}`), or — to hand out storage a "
                  f"type already owns — declare a `borrows` accessor "
                  f"(`... borrows -> {value}` with `lend`, design 141)")
 
-    def _validate_no_ref_laundering_in_program(self, program):
-        """Signature-level pass: no declared position NAMES a reference once
-        aliases are resolved (DF-188b).
+    # THE POSITION MATRIX for the no-escape rule (design 193 unit 5 — the
+    # process rule applied to its own worst offender). One row per place a
+    # DECLARATION names a type that is not a parameter, each with the test that
+    # covers it; `_no_escape_positions` yields exactly these rows, in order, and
+    # nothing else.
+    #
+    # A PARAMETER is deliberately absent: that is where a reference belongs.
+    # A LOCAL is absent too — a `let r = &x` is refused as an expression, by
+    # the bare-`&` rule, not by a type walk. A closure's INFERRED return is not
+    # a declared position and is checked at inference instead
+    # (`_reject_reference_closure_return`, examples/errors/
+    # ref_closure_return_inferred.saw).
+    NO_ESCAPE_POSITIONS = (
+        # row                            examples/errors/…
+        ("struct field",                 "ref_field_type"),
+        ("enum case payload",            "enum_ref_payload_escape"),
+        ("function return",              "ref_return_dangles"),
+        ("extension method return",      "ref_return_method"),
+        ("trait method return",          "ref_return_trait_method"),
+        ("extern function return",       "ref_return_extern"),
+        ("static declaration",           "ref_static_declaration"),          # 193 u5
+        ("associated-type assignment",   "ref_associated_type_assignment"),  # 193 u5
+        ("generic-parameter default",    "ref_generic_param_default"),       # 193 u5
+    )
 
-        The same positions the written-form walk guards, and no others — a
-        PARAMETER is where a reference belongs, so an alias in one stays legal.
-        """
+    def _no_escape_positions(self, program):
+        """Yield `(type, what, line, column)` for every position in
+        `NO_ESCAPE_POSITIONS`, in that order."""
         for struct in getattr(program, 'structs', []):
             for field in struct.fields:
-                self._reject_laundered_reference(
-                    field.type, f"field `{field.name}` of `{struct.name}`",
-                    getattr(field, 'line', struct.line),
-                    getattr(field, 'column', struct.column))
+                yield (field.type, f"field `{field.name}` of `{struct.name}`",
+                       getattr(field, 'line', struct.line),
+                       getattr(field, 'column', struct.column))
         for enum in getattr(program, 'enums', []):
             for variant in enum.variants:
                 for payload in (variant.associated_types or []):
                     name, pt = ((payload[0], payload[1])
                                 if isinstance(payload, tuple)
                                 else (variant.name, payload))
-                    self._reject_laundered_reference(
-                        pt,
-                        f"payload `{name}` of case `{variant.name}` in enum "
-                        f"`{enum.name}`", enum.line, enum.column)
+                    yield (pt,
+                           f"payload `{name}` of case `{variant.name}` in enum "
+                           f"`{enum.name}`", enum.line, enum.column)
         for func in getattr(program, 'functions', []):
-            self._reject_laundered_reference(
-                getattr(func, 'return_type', None),
-                f"the return type of `{func.name}`",
-                getattr(func, 'line', 0), getattr(func, 'column', 0))
+            yield (getattr(func, 'return_type', None),
+                   f"the return type of `{func.name}`",
+                   getattr(func, 'line', 0), getattr(func, 'column', 0))
         for ext in getattr(program, 'extensions', []):
             for method in ext.methods:
-                self._reject_laundered_reference(
-                    getattr(method, 'return_type', None),
-                    f"the return type of `{method.name}`",
-                    getattr(method, 'line', ext.line),
-                    getattr(method, 'column', ext.column))
+                yield (getattr(method, 'return_type', None),
+                       f"the return type of `{method.name}`",
+                       getattr(method, 'line', ext.line),
+                       getattr(method, 'column', ext.column))
         for trait in getattr(program, 'traits', []):
             for tm in trait.methods:
-                self._reject_laundered_reference(
-                    getattr(tm, 'return_type', None),
-                    f"the return type of `{trait.name}.{tm.name}`",
-                    getattr(tm, 'line', trait.line),
-                    getattr(tm, 'column', trait.column))
+                yield (getattr(tm, 'return_type', None),
+                       f"the return type of `{trait.name}.{tm.name}`",
+                       getattr(tm, 'line', trait.line),
+                       getattr(tm, 'column', trait.column))
         for block in getattr(program, 'extern_blocks', []):
             for fn in getattr(block, 'functions', []):
-                self._reject_laundered_reference(
-                    getattr(fn, 'return_type', None),
-                    f"the return type of extern `{fn.name}`",
-                    getattr(fn, 'line', 0), getattr(fn, 'column', 0))
+                yield (getattr(fn, 'return_type', None),
+                       f"the return type of extern `{fn.name}`",
+                       getattr(fn, 'line', 0), getattr(fn, 'column', 0))
+        # A STATIC is storage that outlives the whole program — the longest-lived
+        # position there is, and the one the matrix was missing.
+        for static in getattr(program, 'statics', []):
+            yield (getattr(static, 'type', None),
+                   f"static `{static.name}`",
+                   getattr(static, 'line', 0), getattr(static, 'column', 0))
+        # An ASSOCIATED-TYPE assignment names the type every use of that
+        # associated name resolves to — a field's type, a return type, a
+        # generic argument — so a reference here reaches all of them at once.
+        for ext in getattr(program, 'extensions', []):
+            for assign in (getattr(ext, 'type_assignments', None) or []):
+                yield (getattr(assign, 'assigned_type', None),
+                       f"associated type `{assign.name}` of "
+                       f"`{getattr(ext, 'struct_name', '?')}`",
+                       getattr(assign, 'line', ext.line),
+                       getattr(assign, 'column', ext.column))
+        # A generic parameter's DEFAULT is substituted before mangling, so
+        # `struct Holder<T = &Int>` writes `&Int` into every field typed `T`
+        # without any use site naming it — the DF-163d shape by another route.
+        for decl in self._declarations_with_type_params(program):
+            for tp in (getattr(decl, 'type_params', None) or []):
+                if getattr(tp, 'is_const', False):
+                    continue
+                yield (getattr(tp, 'default', None),
+                       f"the default of type parameter `{tp.name}`",
+                       getattr(tp, 'line', 0) or getattr(decl, 'line', 0),
+                       getattr(tp, 'column', 0) or getattr(decl, 'column', 0))
+
+    def _validate_no_ref_laundering_in_program(self, program):
+        """Signature-level pass: no declared position NAMES a reference once
+        aliases are resolved (DF-188b).
+
+        Drives `_no_escape_positions` — see `NO_ESCAPE_POSITIONS` above for the
+        matrix itself. Three of its rows are checked ONLY here (a static, an
+        associated-type assignment and a generic-parameter default are not
+        positions the parser's written-form walk ever visited), so this pass is
+        the whole rule for them and the alias half for the rest.
+        """
+        for t, what, line, column in self._no_escape_positions(program):
+            self._reject_laundered_reference(t, what, line, column)
 
     # ------------------------------------------------------- design 148 (unit A)
 

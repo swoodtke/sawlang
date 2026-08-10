@@ -1,0 +1,21 @@
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: the default of type parameter `T` may not be a reference
+// EXPECT-ERROR-CONTAINS: `&Int` is a reference
+// EXPECT-ERROR-CONTAINS: references in Saw are PARAMETERS ONLY
+//
+// The no-escape position matrix, row "generic-parameter default" (design 193
+// unit 5) — the DF-163d shape by another route. A default is substituted for
+// an omitted argument BEFORE mangling, so `struct Holder<T = &Int>` writes
+// `&Int` into every field typed `T` without any use site naming it: the
+// argument position that design 163d guards is never written at all. `Holder()`
+// then holds a reference in storage that outlives the call which made it.
+
+struct Holder<T = &Int> {
+    item: T
+}
+
+func main() {
+    let x = 7
+    let h = Holder(item: &x)
+    print("{h.item}")
+}

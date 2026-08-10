@@ -13,6 +13,7 @@ Usage:
 from typing import List
 from lexer import TokenType
 from ast_nodes import SawType, TypeKind
+from noescape import first_reference_in
 
 
 class CommittedGenericError(SyntaxError):
@@ -222,26 +223,13 @@ class TypeParsingMixin:
             f"— {self._lend_out(value)}")
 
     def _first_reference_in(self, t: SawType):
-        """The first reference type reachable from `t` without entering a
-        function type, or None. Pre-order, so an outer `&T` names itself."""
-        if t is None:
-            return None
-        if t.kind == TypeKind.REFERENCE:
-            return t
-        if t.kind == TypeKind.FUNCTION:
-            return None
-        parts = []
-        if t.kind == TypeKind.OPTIONAL:
-            parts.append(t.inner_type)
-        if t.kind == TypeKind.ARRAY:
-            parts.append(t.array_element_type)
-        parts.extend(t.element_types or [])
-        parts.extend(t.type_args or [])
-        for p in parts:
-            hit = self._first_reference_in(p)
-            if hit is not None:
-                return hit
-        return None
+        """The first reference type reachable from `t`, as WRITTEN.
+
+        The parser's entry to the one no-escape walk (`noescape.py`). No
+        resolver: an alias is just a name here, and resolving one is the
+        typechecker's pass over the same positions (DF-188b).
+        """
+        return first_reference_in(t)
 
     def parse_type(self, allow_nested_optional: bool = True) -> SawType:
         """Parse a type annotation, including optional suffixes.
