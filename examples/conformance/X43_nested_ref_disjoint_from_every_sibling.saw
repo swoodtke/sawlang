@@ -1,0 +1,41 @@
+// Conformance row X43 — a nested reference disjoint from EVERY sibling access
+//
+// Design 199 joins a nested call's references to the outer call's access set;
+// what they then meet is the ordinary overlap test, unchanged. So a nested
+// reference stays legal beside several sibling borrows as long as it overlaps
+// none of them — both when it names an entirely different root (`q` beside
+// `p.a` and `p.b`) and when it names a disjoint FIELD of the same root, which
+// is row X04 one level down.
+// EXPECT: success
+// EXPECT-OUTPUT:
+// 12 2 9
+// 9 27
+
+struct Pair {
+    a: Int,
+    b: Int
+}
+
+func bump(n: &var Int) -> Int {
+    n = n + 5
+    n
+}
+
+func mix(a: &var Int, b: &Int, c: Int) {
+    a = a + b + c
+}
+
+func scale(a: &var Int, c: Int) {
+    a = a * c
+}
+
+func main() {
+    var p = Pair(a: 1, b: 2)
+    var q = 4
+    mix(&var p.a, &p.b, bump(&var q))
+    print("{p.a} {p.b} {q}")
+
+    var r = Pair(a: 4, b: 3)
+    scale(&var r.b, bump(&var r.a))
+    print("{r.a} {r.b}")
+}

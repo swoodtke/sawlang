@@ -1,0 +1,33 @@
+// Conformance row X44 — a nested call's `&var` overlapping the RECEIVER
+//
+// The receiver-position variant of X41. Probed Aug 10 before design 199: it
+// COMPILED and printed 10, i.e. the `&self` receiver had already been read at
+// its pre-reset value when the nested `&var` rewrote the same storage — the
+// same order dependence as X41, reached through the one by-reference access
+// that is not written in the argument list. The receiver borrow does not catch
+// it on its own; the receiver is an ordinary entry in the access set, and it
+// is the nested reference joining that set which makes the two meet.
+// XFAIL: DF-188j the Law of Exclusivity does not see a reference created by a nested call, so `p.total(reset(&var p))` compiles and reads the receiver at its pre-reset value
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: exclusive access violation
+// EXPECT-ERROR-CONTAINS: `p` is borrowed by a nested call in this argument list while `p` is also accessed by reference in the same call
+
+struct Pair {
+    a: Int,
+    b: Int
+}
+
+extension Pair {
+    func total(&self, extra: Int) -> Int { self.a + self.b + extra }
+}
+
+func reset(p: &var Pair) -> Int {
+    p.a = 100
+    p.b = 200
+    7
+}
+
+func main() {
+    var p = Pair(a: 1, b: 2)
+    print(p.total(reset(&var p)))
+}

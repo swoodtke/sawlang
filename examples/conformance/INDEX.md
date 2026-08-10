@@ -6,9 +6,9 @@ either a file in this directory or an existing `examples/` test that already
 asserts the same rule at the same position — this table is the record of which,
 and the dedup decisions are meant to be audited from it.
 
-**71 rows carry a file here; 194 are covered elsewhere.** (The audit's 247 plus
+**76 rows carry a file here; 194 are covered elsewhere.** (The audit's 247 plus
 the rows later briefs added: W02-W05, design 194 unit 4; W06-W19, design 195
-unit 1.)
+unit 1; X41-X45, design 199 unit 1.)
 
 ## How to read it
 
@@ -128,7 +128,7 @@ Claim source: spec 4 *Reference Types*; designs 88, 106, 163d, 188 u1, 193 u5
 
 ## The Law of Exclusivity — one writer XOR many readers
 
-Claim source: spec 4 *Reference Types* + *Places*; designs 34, 106, 141, 188 u2, 193 u4
+Claim source: spec 4 *Reference Types* + *Places*; designs 34, 106, 141, 188 u2, 193 u4, 199
 
 | Row | Checks | Covered by | Ruling |
 |-----|--------|------------|--------|
@@ -156,6 +156,11 @@ Claim source: spec 4 *Reference Types* + *Places*; designs 34, 106, 141, 188 u2,
 | X31 | a window on a trivial struct beside a `&var` of the same root | `errors/place_window_beside_var_root.saw` | 188 u2 — was a DEVIATION (accepted, the `&var` argument's writes lost); refused now |
 | X33 | two exclusive windows on an AUTO-ImplicitCopy struct (String member) | `X33_two_windows_implicitcopy_struct.saw` | 188 u2 — was a DEVIATION (accepted on the auto-ImplicitCopy tier); refused now |
 | X40 | std `Data` (ImplicitCopy, has `d[i]`) — two windows in one call | `errors/place_window_data_corruption.saw` | 188 u2 — was a DEVIATION (std `Data` corrupted: `d0=1 d1=1`); refused now |
+| X41 | `sink(&var p.a, reset(&var p))` — a nested call's `&var` overlapping a sibling, no place involved | `X41_nested_call_ref_overlaps_sibling.saw` | 199 — the DF-188j shape; was a DEVIATION (accepted, `a=107 b=200` by evaluation order); refused now |
+| X42 | `f(&var x, g(&y))` — a nested reference onto a disjoint root | `X42_nested_call_ref_disjoint_roots.saw` | 199 — the accept side of the ruling |
+| X43 | a nested reference disjoint from every sibling (different root, and a disjoint field of one root) | `X43_nested_ref_disjoint_from_every_sibling.saw` | 199 — the overlap test is unchanged, only the access set widened |
+| X44 | `p.m(reset(&var p))` — a nested call's `&var` overlapping the RECEIVER | `X44_nested_call_ref_overlaps_receiver.saw` | 199 — probed: the receiver borrow did NOT catch it (printed the pre-reset total); refused now |
+| X45 | `f(g(&var n), h(&var n))` — two nested calls borrowing one root | `X45_two_nested_calls_one_root.saw` | 199 — was a DEVIATION (accepted, answered by evaluation order); refused now |
 
 ## Moves and use-after-move
 
@@ -464,3 +469,13 @@ rows (R24, X15, X16, X20, U24, U25). The seventh is the suite's one open gap:
   into a shared `Arc<Mutex<Int>>` is refused by the coroutine transform when
   the lock body captures the driven function's own parameter, and the
   diagnostic's suggested workaround trips `Mutex.lock`'s `sync` requirement.
+
+## Rows written ahead of their fix
+
+Obligation 3 asks a safety-surface brief for its rows FIRST, so a row that
+states a ruling the compiler has not been taught yet lands as a cited XFAIL and
+the unit that teaches it removes the marker. Open ones:
+
+- **X41, X44, X45** — XFAIL citing DF-188j: a by-reference argument created by
+  a NESTED call does not join the outer call's access set, so all three shapes
+  compile and answer by argument evaluation order. Design 199 unit 3 flips them.

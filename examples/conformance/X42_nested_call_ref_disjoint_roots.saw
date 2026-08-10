@@ -1,0 +1,27 @@
+// Conformance row X42 — a nested call's reference onto a DISJOINT root is legal
+//
+// The accept side of design 199's ruling, and the shape the ruling was written
+// to protect: `f(&var x, g(&y))` names two roots, so joining the nested
+// reference to the outer call's access set changes nothing. Over-rejection is
+// the failure mode a widened access set has, and this row is what catches it.
+// EXPECT: success
+// EXPECT-OUTPUT:
+// 12
+// 7
+
+func bump(n: &var Int) -> Int {
+    n = n + 5
+    n
+}
+
+func add(a: &var Int, b: Int) {
+    a = a + b
+}
+
+func main() {
+    var x = 5
+    var y = 2
+    add(&var x, bump(&var y))
+    print(x)
+    print(y)
+}

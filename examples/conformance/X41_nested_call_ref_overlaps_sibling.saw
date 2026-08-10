@@ -1,0 +1,34 @@
+// Conformance row X41 — a nested call's `&var` overlapping a sibling argument
+//
+// The DF-188j shape, with no place anywhere in sight: `sink(&var p.a,
+// reset(&var p))`. Two by-reference accesses of one root are live over one
+// call expression, and which one wins is argument evaluation order — probed
+// Aug 10 at `a=107 b=200`, memory-safe and order-dependent, which is exactly
+// what the Law of Exclusivity exists to prevent. Design 199's ruling: a
+// by-reference argument created by a NESTED call joins the outer call's
+// access set, so overlapping paths are an error on every copy tier.
+// XFAIL: DF-188j the Law of Exclusivity does not see a reference created by a nested call, so `sink(&var p.a, reset(&var p))` compiles and the answer depends on argument evaluation order
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: exclusive access violation
+// EXPECT-ERROR-CONTAINS: `p` is borrowed by a nested call in this argument list while `p.a` is also accessed by reference in the same call
+
+struct Pair {
+    a: Int,
+    b: Int
+}
+
+func reset(p: &var Pair) -> Int {
+    p.a = 100
+    p.b = 200
+    7
+}
+
+func sink(x: &var Int, y: Int) {
+    x = x + y
+}
+
+func main() {
+    var p = Pair(a: 1, b: 2)
+    sink(&var p.a, reset(&var p))
+    print("a={p.a} b={p.b}")
+}
