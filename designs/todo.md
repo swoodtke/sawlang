@@ -7,16 +7,30 @@ items need a probe before being treated as real work.
 Historical/landed recaps: designs/todo_aug1-aug9.md (split Aug 9);
 older history is in this file's git log (pruned Jul 30).
 
-## The quality program — designs 190-194 (AUTHORED Aug 9, awaiting approval)
+## Design 195 — integer width agreement (RULED + AUTHORED Aug 10, ready to queue)
+
+`designs/195-integer-width-agreement.md`. User ruling from the Aug-10
+morning discussion: all typed operands of an operation must be the SAME
+type (implicit promotion from bare literals only — no promotion
+ladder); value-branch arms are TRANSFERS through the existing checkpoint
+(lossless widening legal, like `return`). Fixes DF-192g (wrong answer),
+DF-192f (ICE), and the silent `Int + UInt` binop the ruling probe
+found. 12-row position matrix; conformance rows first; consumer sweep
+owed (rows flip legal-today code to errors). Typechecker internals —
+serial with anything else touching them.
+
+## The quality program — designs 190-194 (ALL LANDED Aug 9-10)
 
 `designs/190-quality-program.md` is the analysis (findings-vs-proposals
 matrix + three code censuses); 191-194 are the briefs it produced.
-USER-APPROVED Aug 9 ("kick that off when the handoff is reloaded");
-queue dispatching in order: 193 first (fixes confirmed soundness
-holes), then 191 ∥ 192, then 194; keep 193/194 serial (both touch
-typechecker internals). The process rules (position funnel-or-matrix;
-contract-flip consumer sweep; safety-surface conformance-rows-first)
-LANDED with 190 into CLAUDE.md.
+User-approved Aug 9, executed overnight Aug 9-10 in order (DF-190a
+direct fix, then 193, 191 ∥ 192, 194), each ff-merged battery-green.
+The process rules (position funnel-or-matrix; contract-flip consumer
+sweep; safety-surface conformance-rows-first) live in CLAUDE.md.
+NOTE for future census citations: several of 190's diagnoses were
+corrected by the builds — DF-190b's cause, the spawn capture-MODE mask,
+and the graft-straggler list (3 false, 5 missed) — the corrections are
+recorded in the finding entries below and in 193/194's landed briefs.
 
 **193 LANDED Aug 10** (all eight units; see `designs/193-checker-funnels.md`).
 Four shared funnels exist now and each names its entry points in its docstring:
@@ -260,6 +274,12 @@ DF-192g is a confirmed wrong answer** — both below.
   implicit integer conversion (design 170), so this is a plain type
   disagreement the checker should name. PIN:
   `examples/binop_mixed_width_operands.saw` (XFAIL, cited).
+  **RULED Aug 10, owned by design 195 unit 2** (all typed operands of an
+  operation must be the same type; only bare literals promote). The
+  ruling discussion's probe also found the SIGNEDNESS face: `i + u`
+  (`Int` + `UInt`, same width) COMPILES SILENTLY today — fine for `+`,
+  wrong for comparisons/division — and joins the same funnel as matrix
+  row 2 of the brief.
 - **DF-192g (SOUNDNESS — CONFIRMED WRONG ANSWER, filed Aug 10 by 192 u3): a
   value `if` whose arms have different integer widths returns the WRONG
   ARM'S VALUE.** `func f(a: Int) -> Int { if a > 0 { 11 } else { 7i16 } }`
@@ -269,6 +289,11 @@ DF-192g is a confirmed wrong answer** — both below.
   width agreement) and the more serious face of it: the binop shape is loud,
   this one is silent. Reached by minimizing a fuzzer ICE. PIN:
   `examples/if_value_mismatched_width_arms.saw` (XFAIL, cited).
+  **RULED Aug 10, owned by design 195 unit 3** (value-branch arms are
+  TRANSFERS — each arm routes through the transfer checkpoint against
+  the reconciled type, so a same-sign widenable arm is LEGAL and the
+  pin re-authors to EXPECT: success printing 11 then 7, the flip its
+  own comment names).
 - **DF-190c (VERIFY / latent must-agree, filed Aug 9, CLOSED Aug 10 by 194 u2):
   `_make_specialization_key` had DIVERGED** — codegen handled design-148
   const-value type args, the typechecker dropped them to an empty key.
