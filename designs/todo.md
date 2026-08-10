@@ -164,7 +164,12 @@ NOT CONVERTED, by reason:
   bit means different things at different levels), and a raw-backed enum
   rejects duplicate values. Two names for one number is what a static is
   still for.
-- **No derivable name**: blade's ELF `PF_X`/`PF_W`/`PF_R` program flags
+- **Naming default set Aug 10 (check-in delegated reasonable decisions):
+  `ElfSegFlag: UInt32` — the ELF spec's own noun (segment permission
+  flags, p_flags), disambiguated from sosimg's `SegFlags` by the format
+  prefix. Mech follow-up alongside the unblocked net.saw SYS_* once
+  design 204 lands.** Original note:
+  blade's ELF `PF_X`/`PF_W`/`PF_R` program flags
   (a genuine closed flag set — `PF_` is an abbreviation, and the nearby
   `SegFlag` names the OTHER format's flags, which these map into). Left
   rather than invented; a one-line ruling on the noun lands it.
@@ -501,6 +506,12 @@ DF-192e fixed, DF-192b/c/d/f/g pinned (DF-192d fixed since, by design 198).
   wants a ruling rather than a drive-by. The write shapes are pinned either way
   by `examples/conformance/M32_shared_self_place_window_heap_field.saw`, whose
   header names this finding.
+  **RULED Aug 10 (check-in): ALIGN — the projection rule adopts the same
+  type-walking inline test (heap-reaching paths accepted, their
+  assignment twin already legal; parameter-only refs can't escape the
+  call), inline paths keep the refusal with a CORRECTED message (the
+  current one claims "the write would be lost", false for heap paths).
+  Small fix; ride the next typechecker fix batch, not its own brief.**
 - **DF-192e — FIXED by the unit that found it (192 u3): a hex const generic
   argument was an uncaught parser crash.** `FixedBuf<0x10>()` died in
   `parse_const_expr`'s primary with `ValueError: invalid literal for int()
@@ -612,6 +623,10 @@ DF-192e fixed, DF-192b/c/d/f/g pinned (DF-192d fixed since, by design 198).
   it is a behavioral flip owing its own consumer sweep, and it belongs with
   design 170's rules. PIN:
   `examples/int_narrowing_transfer_through_platform_int.saw` (XFAIL, cited).
+  **RULED Aug 10 (check-in): both axes become ERRORS naming design 170's
+  three conversion spellings — the transfer-position twin of 195's
+  operand rule. Own brief (205, to author) with its consumer sweep;
+  bare-literal adoption stays untouched.**
 - **DF-195c (SOUNDNESS + a RULING OWED, filed Aug 10 by 195 u1's probes): a
   same-width SIGN-FLIPPING transfer through the platform pair reinterprets
   silently.** `let u: UInt = UInt.max` followed by `let i: Int = u` prints
@@ -634,6 +649,10 @@ DF-192e fixed, DF-192b/c/d/f/g pinned (DF-192d fixed since, by design 198).
   spellings are refused for now and the error hints at `1.0`. PIN:
   `examples/float_integer_operand_mix.saw` (XFAIL until 195 u2, then a
   passing error test).
+  **RULED Aug 10 (check-in): NO adoption — an integer literal does not
+  adopt `Float` (Saw has no integer→float conversion anywhere else;
+  `1.0` is the spelling). The landed error + hint IS the ruled
+  behavior; DF-195d CLOSES with no further work.**
 - **DF-190c (VERIFY / latent must-agree, filed Aug 9, CLOSED Aug 10 by 194 u2):
   `_make_specialization_key` had DIVERGED** — codegen handled design-148
   const-value type args, the typechecker dropped them to an empty key.
