@@ -4695,25 +4695,25 @@ def _check_spawn_frame_send(fb: _FrameBuilder, fbs, typechecker):
             return
         seen.add(fbx.name)
         for p in fbx.params:
-            if not ns.is_send(p.type):
+            note = ns.send_check(p.type, "task frame parameter")
+            if note is not None:
                 raise CoroTransformError(
                     f"cannot spawn `{fbx.func.name}` into a multi-threaded "
                     f"`TaskGroup(threads: ...)`: parameter `{p.name}` of type "
                     f"`{p.type}` is not `Send`, so the task frame cannot cross to a "
                     f"worker thread. Share thread-safe state via `Arc` (and `Mutex` "
-                    f"for mutation) or a `Channel` instead of moving it in."
-                    + ns.thread_safety_note(p.type, False),
+                    f"for mutation) or a `Channel` instead of moving it in." + note,
                     getattr(p, 'line', 0) or fbx.func.line,
                     getattr(p, 'column', 0) or fbx.func.column,
                     source_file=fbx.src_file)
         for (lname, lt) in fbx.frame_locals:
-            if not ns.is_send(lt):
+            note = ns.send_check(lt, "task frame local")
+            if note is not None:
                 raise CoroTransformError(
                     f"cannot spawn `{fbx.func.name}` into a multi-threaded "
                     f"`TaskGroup(threads: ...)`: local `{lname}` of type `{lt}` is "
                     f"held across a suspension but is not `Send`, so the task frame "
-                    f"cannot cross to a worker thread."
-                    + ns.thread_safety_note(lt, False),
+                    f"cannot cross to a worker thread." + note,
                     fbx.func.line, fbx.func.column, source_file=fbx.src_file)
         for c in fbx.calls:
             callee = fbs.get(c['callee'])
@@ -4723,11 +4723,13 @@ def _check_spawn_frame_send(fb: _FrameBuilder, fbs, typechecker):
     _check(fb)
     # The ROOT's result travels worker -> main across the `join()` barrier, so it
     # too must be Send (a callee sub-frame's result stays on one thread — not checked).
-    if not fb.is_void and not ns.is_send(fb.ret):
+    ret_note = None if fb.is_void else ns.send_check(fb.ret, "task frame result")
+    if ret_note is not None:
         raise CoroTransformError(
             f"cannot spawn `{fb.func.name}` into a multi-threaded "
             f"`TaskGroup(threads: ...)`: its result type `{fb.ret}` is not `Send`, so "
-            f"the value cannot travel back from the worker thread to `join()`.",
+            f"the value cannot travel back from the worker thread to `join()`."
+            + ret_note,
             fb.func.line, fb.func.column, source_file=fb.src_file)
 
 

@@ -1803,20 +1803,57 @@ class ExpressionsMixin:
             cap_info = self.current_scope.lookup(cap_name)
             if cap_info is None:
                 continue
-            if not self.namespace.is_send(cap_info.type):
+            note = self.namespace.send_check(cap_info.type, "spawn capture")
+            if note is not None:
                 self._error(
                     ErrorKind.TYPE_MISMATCH,
                     f"cannot `spawn`: captured `{cap_name}` of type "
                     f"`{cap_info.type}` is not `Send`",
                     closure.line, closure.column,
                     hint="only Send values may cross to another task; share via "
-                         "`Arc` (and `Mutex` for mutation)."
-                         + self.namespace.thread_safety_note(
-                             cap_info.type, False)
+                         "`Arc` (and `Mutex` for mutation)." + note
                 )
                 break
+        # The RESULT crosses too, in the other direction: the task computes it
+        # on its own thread and `join()` hands it back to this one. The captures
+        # were audited from the start and the result never was — `Task<T: Send>`
+        # made the HANDLE non-Send for a non-Send `T`, which stops the handle
+        # from crossing a second boundary but says nothing about the crossing
+        # every task makes. `spawn { make_raw(&var n) }` returning a struct with
+        # an `UnsafePointer` field compiled (design 193 unit 6).
+        result_note = self.namespace.send_check(result_type, "spawn result")
+        if result_note is not None and not self._names_type_param(result_type):
+            self._error(
+                ErrorKind.TYPE_MISMATCH,
+                f"cannot `spawn`: the closure's result type `{result_type}` is "
+                f"not `Send`, so it cannot travel back from the task's thread "
+                f"to `join()`",
+                closure.line, closure.column,
+                hint="return a Send value; share thread-unsafe state through "
+                     "`Arc` (and `Mutex` for mutation) or a `Channel` instead of "
+                     "handing it back." + result_note
+            )
         expr.spawn_result_type = result_type
         return SawType(TypeKind.STRUCT, struct_name="Task", type_args=[result_type])
+
+    def _names_type_param(self, t: Optional[SawType]) -> bool:
+        """Does `t` mention a type PARAMETER of the body being checked?
+
+        Thread-safety is a property of the INSTANTIATION, and an opaque `T` has
+        none of its own: `spawn { produce<T>() }` inside a generic body must not
+        be refused on the strength of a name. The concrete instantiation is
+        judged where it is made.
+        """
+        if t is None:
+            return False
+        if (t.kind == TypeKind.STRUCT
+                and t.struct_name in getattr(self, 'current_type_params', {})):
+            return True
+        parts = [t.inner_type, t.array_element_type, t.func_return_type]
+        parts.extend(t.type_args or [])
+        parts.extend(t.element_types or [])
+        parts.extend(t.param_types or [])
+        return any(self._names_type_param(p) for p in parts if p is not None)
 
     # ======================================================================
     # Overload resolution (design 55)

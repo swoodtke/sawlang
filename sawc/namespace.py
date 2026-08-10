@@ -1998,6 +1998,37 @@ class Namespace:
     def is_sync(self, saw_type: SawType) -> bool:
         return self._send_sync(saw_type, want_sync=True, visiting=set())
 
+    # THE THREAD-CROSSING POSITIONS (design 193 unit 6). Every value that
+    # crosses from one thread to another does so at one of these, and each one
+    # asks `send_check` rather than pairing `is_send` with a
+    # `thread_safety_note` of its own — which is how the last row on this list
+    # came to be missing one.
+    #
+    #   spawn capture          `spawn { … }`'s captured values     [typechecker]
+    #   spawn result           `spawn { … }`'s result, via join    [typechecker]
+    #   task frame parameter   a `TaskGroup(threads:)` root's params  [transform]
+    #   task frame local       … its across-suspension locals         [transform]
+    #   task frame result      … its result, via join                 [transform]
+    SEND_POSITIONS = (
+        "spawn capture", "spawn result",
+        "task frame parameter", "task frame local", "task frame result",
+    )
+
+    def send_check(self, saw_type: SawType, position: str):
+        """None when `saw_type` may cross a thread boundary at `position`;
+        otherwise the explanatory note to append to the caller's message.
+
+        The caller owns the sentence naming what it is refusing (a capture, a
+        parameter, a result) and its own reporting idiom — the typechecker
+        reports, the coroutine transform raises. What this owns is the QUESTION,
+        the thread-safety note that must ride with every refusal, and the list
+        of positions above.
+        """
+        assert position in self.SEND_POSITIONS, position
+        if self.is_send(saw_type):
+            return None
+        return self.thread_safety_note(saw_type, False)
+
     # ------------------------------------------------------------- design 186
     # The declared assertions, and the derivation they stand in for.
 
