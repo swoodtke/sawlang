@@ -23,8 +23,14 @@ disjoint surfaces parallel):
    integer literal adopt `Float`?), DF-195e (two widening positions with no
    source type threaded to them). See `designs/195-*.md` for the four
    decisions the units needed beyond the brief's text.
-2. **198 duplicate match arms are errors** (DF-192d) — small, same
-   match-checking neighborhood, straight after 195.
+2. ~~**198 duplicate match arms are errors**~~ — **LANDED Aug 10**, all three
+   units, tracked battery green. DF-192d closed: one chokepoint judges an
+   exact duplicate arm, both lowerings behind it, ranges and guards exempt.
+   The corpus sweep found ZERO duplicate arms outside the pin itself (1882
+   .saw files). One finding filed: DF-198a (a guarded or tuple-nested match
+   over an all-payload-free enum is a codegen ICE — the general pattern path
+   reads a tag out of a shape that enum does not have). Two spellings the
+   brief expected to behave otherwise are recorded in `designs/198-*.md`.
 3. **199 nested-call refs join the Law** (DF-188j; sweep-first) — solo.
 4. **200 receiver-copy place write** (DF-176c) ∥ **153 statics→enums
    sweep** (place lowering vs std .saw — disjoint).
@@ -126,8 +132,8 @@ mutation against one oracle (succeed or diagnose cleanly), deterministic per
 `(seed, index)` and wave-bounded; `tools/sawfuzz_known.txt` is its XFAIL
 ledger. gmgate gained a 15-program `concurrency` lane beside the ownership one.
 `tools/battery.sh` is now the tracked battery. SIX findings: DF-192a and
-DF-192e fixed, DF-192b/c/d/f/g pinned. **DF-192d owes a language ruling and
-DF-192g is a confirmed wrong answer** — both below.
+DF-192e fixed, DF-192b/c/d/f/g pinned (DF-192d fixed since, by design 198).
+**DF-192g is a confirmed wrong answer** — below.
 
 - **DF-190a — FIXED (pulled forward of the queue, landed Aug 9/10).**
   The typechecker now mirrors codegen's consume gate in
@@ -303,28 +309,44 @@ DF-192g is a confirmed wrong answer** — both below.
   the sync erased version and the suspending CONCRETE version compile and
   run. Pre-dates design 192 (probe-confirmed against e4761ef). PIN:
   `examples/erased_error_across_suspension.saw` (XFAIL, cited).
-- **DF-192d (ICE + a LANGUAGE RULING OWED, filed Aug 10 by 192 u3's first
-  fuzz run): a `match` with two arms for one enum case is an LLVM-level
-  internal compiler error.** It lowers to a `switch` carrying the same case
-  value twice and llvmlite refuses the module (`duplicate case value in
-  switch`). The ruling: the SIBLING spelling — a duplicated LITERAL arm,
-  `case 1 -> "one", case 1 -> "one again"` — compiles today and the FIRST
-  arm wins (that lowering is a compare chain), so the two spellings
-  disagree and one of them has to move. Consistent-with-today is first-wins
-  for the enum too; the other reading is that a duplicate arm is
-  unreachable code and BOTH should be a clean error, which fits Saw's
-  no-silent-anything grain better. Not a call this brief takes. PIN:
-  `examples/match_duplicate_enum_arm.saw` (XFAIL, cited; holds both
-  spellings so they cannot drift apart again).
-  **RULED Aug 10, owned by design 198:** an EXACT duplicate arm — enum
-  variant or literal — is a clean error naming both arms; ranges/guards
-  keep first-match-wins (overlap there is legitimate and documented).
-  The deciding fact: a switch has no arm order, so first-wins was never
-  the enum spelling's semantics — there is nothing to be consistent
-  with, only a crash to replace. The pin re-authors to EXPECT: error. Its discovery also closed a
+- **DF-192d — FIXED (design 198 unit 1).** A `match` with two arms for one
+  enum case was an LLVM-level internal compiler error: it lowered to a
+  `switch` carrying the same case value twice and llvmlite refused the
+  module (`duplicate case value in switch`), while the SIBLING spelling —
+  a duplicated LITERAL arm — compiled and silently took the first, because
+  that lowering is a compare chain. RULED Aug 10: an EXACT duplicate arm —
+  enum variant or literal — is a clean error naming both arms, and
+  ranges/guards keep first-match-wins (overlap there is legitimate and
+  documented). The deciding fact: a switch has no arm order, so first-wins
+  was never the enum spelling's semantics — there was nothing to be
+  consistent with, only a crash to replace. One chokepoint,
+  `_check_duplicate_match_arms`, called before `_check_match_expr` picks a
+  lowering, so both arm-checking entry points are covered by one rule.
+  PINS: `examples/match_duplicate_enum_arm.saw` (flipped to a passing error
+  test, still holding both spellings so they cannot drift apart again),
+  `examples/match_duplicate_arm_spellings.saw` (the eight-row reject
+  matrix), `examples/match_arm_overlap_legal.saw` (the accept side).
+  The ledger entry left `tools/sawfuzz_known.txt` in the same landing.
+  Its discovery also closed a
   unit-2 gap: `emit_ir` / `compile_to_object` run AFTER `run_codegen`
   returns and were outside every wrapper, so an IR module llvmlite refuses
   printed a raw traceback — `_run_llvm` now wraps both.
+- **DF-198a (ICE, filed Aug 10 by 198 u1's probes): a guarded match over an
+  enum whose cases ALL carry no payload is a codegen ICE.** A guard routes the
+  match to the general pattern path, whose `_match_enum_pattern`
+  (codegen/match.py) reads the tag with `extract_value(value, 0)` — the
+  `{tag, payload}` shape. An all-payload-free enum lowers to a bare `i32`, so
+  the read dies with `internal compiler error at FILE:L:C (MatchExpr): Can't
+  index at [0] in i32`. A TUPLE scrutinee reaches the same line
+  (`match (c, n) { case (Red, 0) -> ... }`), and adding a payload to any case
+  of the enum makes both spellings work — which is why
+  `examples/match_enum_guard.saw` (a `Slot` with a payload variant) never
+  caught it. The classic switch path reads the tag correctly, so this is the
+  general path missing the shape its sibling handles: design 190's duplication
+  family again. Confirmed pre-existing (probed against the pre-198 compiler).
+  Out of design 198's subject (duplicate arms), which is why it is filed
+  rather than fixed. PIN:
+  `examples/match_guard_on_payload_free_enum.saw` (XFAIL, cited).
 - **DF-192e — FIXED by the unit that found it (192 u3): a hex const generic
   argument was an uncaught parser crash.** `FixedBuf<0x10>()` died in
   `parse_const_expr`'s primary with `ValueError: invalid literal for int()

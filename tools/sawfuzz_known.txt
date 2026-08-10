@@ -13,10 +13,11 @@
 #
 # Format: DF-NUMBER <TAB> signature   (the signature sawfuzz prints for it)
 
-# A `match` with two arms for one enum case lowers to an LLVM switch with the
-# same case value twice. Pin: examples/match_duplicate_enum_arm.saw
-DF-192d	internal-compiler-error: error: internal compiler error: LLVM IR parsing error | <string>:N:N: error: duplicate case value in switch
-
+# DF-192d's signature was deleted here by design 198: an exact duplicate match
+# arm is a clean compile error now, reported at the second arm and naming the
+# first's line, so the enum spelling never reaches the LLVM switch that used to
+# carry the same case value twice. Its pin is a passing test.
+#
 # DF-192f's two signatures were deleted here by design 195 (units 2 and 3): the
 # operand-agreement funnel makes a mixed-width binary operator a clean type
 # error, and value-branch arms merge before codegen sees them, so neither

@@ -1,0 +1,33 @@
+// A guard on a match over an enum whose cases ALL carry no payload should
+// compile and run — the guard just routes the match to the general pattern
+// path, and the arms are ordinary variant patterns.
+//
+// It is an internal compiler error instead: the general path reads a variant's
+// tag with `extract_value(value, 0)` (codegen/match.py `_match_enum_pattern`),
+// which assumes the `{tag, payload}` shape. An all-payload-free enum lowers to
+// a bare `i32`, so the read dies with `Can't index at [0] in i32`. A tuple
+// scrutinee reaches the same place (`match (c, n) { case (Red, 0) -> ... }`),
+// and adding a payload to ANY case of the enum makes both spellings work —
+// which is why examples/match_enum_guard.saw never caught it.
+// XFAIL: DF-198a a guarded (or tuple-nested) match over an enum with no payload cases is a codegen ICE — the general pattern path reads the tag out of a `{tag, payload}` aggregate the enum does not have
+// EXPECT: success
+// EXPECT-OUTPUT:
+// warm
+// cool
+// other
+
+enum Color { case Red, case Green, case Blue }
+
+func feel(c: Color, bright: Bool) -> String {
+    match c {
+        case Red if bright -> "warm",
+        case Green -> "cool",
+        case _ -> "other"
+    }
+}
+
+func main() {
+    print(feel(Color.Red, true))
+    print(feel(Color.Green, true))
+    print(feel(Color.Blue, true))
+}

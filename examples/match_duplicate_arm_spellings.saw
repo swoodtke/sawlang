@@ -1,0 +1,101 @@
+// Design 198: every spelling of an exact duplicate arm, one row each. The rule
+// is TEXTUAL pattern equality after literal normalization, judged at one
+// chokepoint, so this file is the matrix that chokepoint is measured against.
+//
+// The accept side — overlapping ranges, guards, and a literal sub-pattern
+// refining a bound one — is match_arm_overlap_legal.saw.
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: duplicate match arm: `"build"` is already matched by the arm at line 20
+// EXPECT-ERROR-CONTAINS: duplicate match arm: `10` is already matched by the arm at line 30
+// EXPECT-ERROR-CONTAINS: duplicate match arm: `-3` is already matched by the arm at line 40
+// EXPECT-ERROR-CONTAINS: duplicate match arm: `true` is already matched by the arm at line 48
+// EXPECT-ERROR-CONTAINS: duplicate match arm: this tuple pattern is already matched by the arm at line 57
+// EXPECT-ERROR-CONTAINS: duplicate match arm: this catch-all pattern is already matched by the arm at line 66
+// EXPECT-ERROR-CONTAINS: duplicate match arm: this catch-all pattern is already matched by the arm at line 74
+// EXPECT-ERROR-CONTAINS: duplicate match arm: `Move` is already matched by the arm at line 86
+
+// A string literal compares by content.
+func verb(s: String) -> Int {
+    match s {
+        case "build" -> 1,
+        case "build" -> 2,
+        case _ -> 3
+    }
+}
+
+// Literal NORMALIZATION: an arm's literal adopts the scrutinee's type, so the
+// base and any width suffix are spellings of one value.
+func decimal(n: Int) -> Int {
+    match n {
+        case 10 -> 1,
+        case 0x0A -> 2,
+        case _ -> 3
+    }
+}
+
+// A negative literal arrives as a unary minus over the literal; it normalizes
+// the same way.
+func below(n: Int) -> Int {
+    match n {
+        case -3 -> 1,
+        case -0x03 -> 2,
+        case _ -> 3
+    }
+}
+
+func flag(b: Bool) -> Int {
+    match b {
+        case true -> 1,
+        case true -> 2,
+        case false -> 3
+    }
+}
+
+// A tuple of literals is one pattern, element by element.
+func corner(p: (Int, Int)) -> Int {
+    match p {
+        case (0, 1) -> 1,
+        case (0, 1) -> 2,
+        case _ -> 3
+    }
+}
+
+// Two wildcards. This one used to COMPILE and take the first arm.
+func twice_wild(n: Int) -> Int {
+    match n {
+        case _ -> 1,
+        case _ -> 2
+    }
+}
+
+// A wildcard and a bare binding are one catch-all under two spellings.
+func wild_then_bound(n: Int) -> Int {
+    match n {
+        case _ -> 1,
+        case rest -> rest
+    }
+}
+
+// The variant spelling, with DIFFERENT binding names — the shape that crashed.
+// A binding name is not a refinement: both arms match every `Move`, so the
+// second can never run whatever it calls its payload.
+enum Msg { case Quit, case Move(x: Int, y: Int) }
+
+func delta(m: Msg) -> Int {
+    match m {
+        case Move(x, y) -> x + y,
+        case Move(a, b) -> a - b,
+        case Quit -> 0
+    }
+}
+
+func main() {
+    print(verb("build"))
+    print(decimal(10))
+    print(below(-3))
+    print(flag(true))
+    print(corner((0, 1)))
+    print(twice_wild(1))
+    print(wild_then_bound(1))
+    print(delta(Msg.Quit))
+}

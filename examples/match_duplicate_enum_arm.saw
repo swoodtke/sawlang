@@ -1,28 +1,20 @@
-// A `match` with two arms for one enum case should not be an internal compiler
-// error.
+// Design 198: an EXACT duplicate match arm is a clean compile error naming both
+// arms — the enum spelling and the literal spelling alike.
 //
-// It lowers to an LLVM `switch` with the same case value twice, which llvmlite
-// refuses to parse: `internal compiler error: LLVM IR parsing error /
-// duplicate case value in switch`. No location in the program, nothing naming
-// the arm.
+// The enum arm used to lower to an LLVM `switch` carrying the same case value
+// twice, which llvmlite refused to parse: `internal compiler error: LLVM IR
+// parsing error / duplicate case value in switch`, no location in the program
+// and nothing naming the arm (DF-192d). The literal arm one position over
+// compiled and silently took the first, so the two spellings disagreed.
 //
-// The behavior this pins is the one the language ALREADY has one position
-// over: a duplicated LITERAL arm (`case 1 -> "one", case 1 -> "one again"`)
-// compiles today and the FIRST arm wins — that lowering is a compare chain,
-// not a switch. So the enum spelling is inconsistent with its own sibling, and
-// the consistent reading is first-wins here too.
-//
-// THE OTHER RULING IS OPEN and is the lead's: a duplicate arm is unreachable
-// code, and making BOTH spellings a clean compile error would fit Saw's
-// no-silent-anything grain better than making both silent. That is a language
-// decision this brief did not take, so the expectation below states the
-// consistent-with-today behavior; if the ruling goes the other way, this pin
-// becomes an EXPECT: error naming the duplicated case.
-// XFAIL: DF-192d a duplicate enum arm in a `match` is an LLVM-level internal compiler error, while the duplicate LITERAL arm one position over compiles and takes the first
-// EXPECT: success
-// EXPECT-OUTPUT:
-// green
-// one
+// The ruling closed both at once. A switch HAS no arm order, so "first wins"
+// was never the enum path's semantics — there was nothing to stay consistent
+// with, only a crash to replace — and a duplicate arm is dead code either way.
+// Overlapping ranges and guarded arms are NOT duplicates and stay legal; they
+// are pinned by match_arm_overlap_legal.saw.
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: duplicate match arm: `Green` is already matched by the arm at line 24
+// EXPECT-ERROR-CONTAINS: duplicate match arm: `1` is already matched by the arm at line 34
 
 enum Color { case Red, case Green, case Blue }
 
@@ -35,8 +27,8 @@ func name(c: Color) -> String {
     }
 }
 
-// The sibling spelling, which compiles today and takes the first arm. It is in
-// this program so the two can never drift apart again unnoticed.
+// The sibling spelling, in this program so the two can never drift apart again
+// unnoticed: one rule, one chokepoint, both arms reported.
 func literal_name(n: Int) -> String {
     match n {
         case 1 -> "one",
