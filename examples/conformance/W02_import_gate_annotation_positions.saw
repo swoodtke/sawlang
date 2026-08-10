@@ -1,0 +1,51 @@
+// Conformance row W02 — the prelude gate runs on TYPE ANNOTATIONS, not only on
+// expressions (design 194 unit 4, closing DF-188k)
+//
+// Every position a user WRITES a non-prelude std type in, with no import
+// anywhere: a struct field, an enum payload, a `type` alias, a parameter, a
+// return, a generic argument, a tuple element, a function type's parameter, an
+// array element, a `static`'s type, and a `let` annotation. Eleven written
+// positions, one per line of the matrix design 194 unit 4 covers — every one
+// refused with the same diagnostic naming the same three import spellings.
+//
+// The gate reads `SawType.written_name`, the parser's record of what the author
+// typed, so what is checked here is the SPELLING and not the resolved type. The
+// control for that is W03 (the qualified spelling compiles) and W04 (the two
+// bare-import spellings compile).
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: `Path` is not in the prelude and must be imported
+// EXPECT-ERROR-CONTAINS: `import std.path.{Path}` selects it
+
+struct FieldHolder {
+    p: Path
+}
+
+enum PayloadHolder {
+    case One(p: Path),
+    case Two
+}
+
+type PathAlias = Path
+
+static SLOT: Path
+
+func param_pos(p: &Path) -> Int { 1 }
+
+func return_pos() -> Path? { None }
+
+func generic_arg_pos(v: &Vector<Path>) -> Int { v.len() }
+
+func tuple_pos(t: (Int, Path)) -> Int { t.0 }
+
+func fn_type_pos(f: (Path) -> Int) -> Int { 2 }
+
+func array_pos(a: [Path; 2]) -> Int { 3 }
+
+func let_pos() {
+    let x: Path? = None
+    if let _ = x { print("some") }
+}
+
+func main() {
+    let_pos()
+}

@@ -106,9 +106,29 @@ DF-192g is a confirmed wrong answer** — both below.
   escaping closure may not borrow-capture), not by "closures are never Send" —
   and `examples/errors/capture_borrow_escaping.saw` already pins it. PIN:
   `examples/errors/spawn_result_not_send.saw`.
+- **DF-194a (SPEC/IMPL, filed Aug 10 by 194 u4): a MODULE-QUALIFIED type name
+  does not resolve in the three annotation slots stored RAW.** `struct Holder {
+  p: dep.Point }`, `case Full(p: dep.Point)` and `type Alias = dep.Point` each
+  keep the dotted spelling into type comparison, so `field `p` expects type
+  `dep.Point` but got `Point``. Those three slots are read straight off the AST
+  and never reach `_resolve_type`, the one place that walks a module qualifier —
+  the same three unit 4 had to wire the prelude gate into by hand, which is how
+  this surfaced. `_canonical_type_name` returns a dotted name unchanged ON
+  PURPOSE ("for `_resolve_type`'s module-walk branch to handle") and for these
+  slots that branch never runs. A fourth face: a constructor's generic ARGUMENT
+  (`Vector<data.Data>()` binds a local whose element type keeps the dot).
+  Pre-existing — reproduced identically on the unit-3 tree — and true for a USER
+  module as well as for std. Design 150 claims outright that "a qualifier works
+  in EVERY position a name appears", so this is a deviation from the spec, not a
+  gap in it. It MATTERS MORE after unit 4: the gate's hint offers `import
+  std.data` + `data.Data` as one of three ways to satisfy it, and that one does
+  not work in a field. NOT fixed here — the fix is about what a dotted name
+  canonicalizes to in a slot nothing resolves, which is a design-144 identity
+  question and wants a ruling rather than a patch mid-brief. PIN:
+  `examples/qualified_type_in_declaration_slot.saw` (XFAIL, cited).
 - **DF-193d (SPEC/IMPL, filed Aug 10 by 193 u7 — supersedes DF-188k's "general
-  fix" line with a diagnosis): the prelude gate cannot run on type ANNOTATIONS
-  until a written-form PROVENANCE bit exists.** Building the funnel and running
+  fix" line with a diagnosis; CLOSED Aug 10 by 194 u4): the prelude gate cannot
+  run on type ANNOTATIONS until a written-form PROVENANCE bit exists.** Building the funnel and running
   it over signature annotations refuses `func one() -> data.Data` under
   `import std.data` — the legal qualified spelling — because by the time any
   check can read the annotation, BOTH `_canonicalize_module_types` and
@@ -126,6 +146,20 @@ DF-192g is a confirmed wrong answer** — both below.
   A `static`'s annotation, the one slot nothing rewrites, stays gated (design
   188 unit 7, now through the shared `_gate_written_type`). PIN:
   `examples/std_import_gate_signature_position.saw` (XFAIL, cited).
+  **CLOSED by 194 unit 4.** The bit is `SawType.written_name` (+ file/line/
+  column), stamped by the parser at the one place a named type is built and
+  never touched by either rewrite; the gate reads it in `_resolve_type` plus the
+  three raw declaration slots, and it is exempt wherever the spelling is not a
+  user's (no provenance = compiler-built; a dotted name = reached through a
+  qualifier an import bound; a std source FILE = std extends itself by design).
+  Design 188 unit 7's separate `static` mini-walk is retired — the funnel covers
+  that position and keeping both printed the diagnostic twice. The XFAIL is
+  gone; conformance rows W02-W05 carry the matrix and its two controls. Consumer
+  sweep (recorded in the landing): exactly TWO offenders in the whole tree, both
+  in `examples/` — `cbor169_vectors.saw` and
+  `net_connect_dials_the_host_it_was_given.saw`, each naming `IoError` in a
+  return type with no import, both fixed in the same landing. blade, libs,
+  devtools and sos were clean.
 - **DF-193a (CAPABILITY, filed Aug 10 by 193 u2): a suspension inside a
   `try { … } catch { … }` BLOCK in a driven body is refused.** The
   census's DF-190b claim, minus the misattribution: the coro spine walks
@@ -472,6 +506,9 @@ findings filed below (DF-188j, DF-188k).
   **Design 193 unit 7 built it and BACKED IT OUT** — the hazard is real and its
   cause is now known: see DF-193d above (the written spelling is destroyed
   before any check can read it, so a legal qualified annotation is refused).
+  **CLOSED Aug 10 by design 194 unit 4**, through the written-form provenance
+  bit DF-193d specified. Eleven annotation positions are gated; see DF-193d for
+  the mechanism, the exemptions and the consumer sweep.
 
 Also from the audit, for the record: DF-174h's failure mode CHANGED — the
 too-deep `??` default no longer emits invalid IR; it silently takes the

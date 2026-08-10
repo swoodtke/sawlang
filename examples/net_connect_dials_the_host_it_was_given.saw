@@ -16,7 +16,7 @@
 // 127.0.0.1 -> connected
 // 255.255.255.255 -> refused
 
-import std.net.{TcpListener, TcpStream}
+import std.net.{TcpListener, TcpStream, IoError}
 
 func report(label: String, r: Result<TcpStream, IoError>) {
     match r {

@@ -477,7 +477,11 @@ class TypeParsingMixin:
                     self.advance()
                     part = self.expect(TokenType.IDENT, "Expected identifier after '.' in trait name")
                     trait_name = f"{trait_name}.{part.value}"
-                return SawType(TypeKind.EXISTENTIAL, existential_trait=trait_name)
+                return SawType(TypeKind.EXISTENTIAL, existential_trait=trait_name,
+                               written_name=trait_name,
+                               written_file=self.source_file,
+                               written_line=trait_tok.line,
+                               written_column=trait_tok.column)
 
             # Check for built-in types (Int, String, Bool, etc.)
             if name in self.BUILTIN_TYPES:
@@ -511,8 +515,17 @@ class TypeParsingMixin:
                 type_args = self._parse_type_args()
 
             # For now, parse as STRUCT - type checker will determine if it's
-            # actually a type parameter or enum
-            return SawType(TypeKind.STRUCT, struct_name=name, type_args=type_args)
+            # actually a type parameter or enum.
+            #
+            # `written_name` records the spelling (design 194 unit 4): the
+            # typechecker rewrites `struct_name` to the design-144 identity in
+            # place, so this is the only surviving record of what the author
+            # actually typed here, and the prelude gate needs exactly that —
+            # a bare `Data` must be imported, a qualified `data.Data` reached
+            # the module through an import already.
+            return SawType(TypeKind.STRUCT, struct_name=name, type_args=type_args,
+                           written_name=name, written_file=self.source_file,
+                           written_line=token.line, written_column=token.column)
         else:
             self.error(f"Expected type, got {token.type.name}")
 

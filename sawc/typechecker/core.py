@@ -282,6 +282,12 @@ class TypeChecker(ExpressionsMixin, StatementsMixin, RegistrationMixin, TypeUtil
         # handed back by the coroutine transform for its own second pass.
         self._suspending_methods_set: Optional[set] = None
 
+        # design 194 unit 4: the prelude-gate reports already made, keyed by
+        # (module, name, line, column). The front half re-enters the same AST
+        # (place lowering, the coroutine transform's re-check), so a rule that
+        # fires per resolution would print each diagnostic more than once.
+        self._gate_reported: set = set()
+
         # Register built-in functions
         self._register_builtins()
 
@@ -988,46 +994,111 @@ class TypeChecker(ExpressionsMixin, StatementsMixin, RegistrationMixin, TypeUtil
         )
         return True
 
-    # The prelude gate over a WRITTEN type annotation. `_std_name_gated` fires
-    # in EXPRESSION positions — a call, a struct literal, a static-method head —
-    # which reaches a gated type only where a value of it is BUILT; a `static`'s
-    # annotation builds nothing, so design 188 unit 7 gave that one position a
-    # walk of its own, and this is that walk, shared (design 193 unit 7).
+    # THE PRELUDE GATE OVER A WRITTEN TYPE — the funnel (design 194 unit 4,
+    # closing DF-188k and DF-193d).
     #
-    # It is NOT yet the funnel DF-188k needs. Extending it to signature and
-    # binding annotations — the rest of the "every position a user writes a
-    # type" matrix — needs a durable PROVENANCE bit that does not exist today:
-    # by the time any check can run, `_canonicalize_module_types` and
-    # `_register_function`'s write-back have both replaced the author's spelling
-    # with the resolved identity, so a legal qualified `data.Data` is
-    # indistinguishable from a bare unimported `Data` and gets refused. See
-    # DF-193d; a `static`'s annotation is the one slot nothing rewrites, which
-    # is why this position works.
-    def _gate_written_type(self, written, line, column, depth: int = 0) -> None:
-        """Run the prelude gate over every bare name a WRITTEN type mentions."""
+    # `_std_name_gated` fires in EXPRESSION positions — a call, a struct
+    # literal, a static-method head — which reaches a gated type only where a
+    # VALUE of it is built. A signature that merely RECEIVES one builds nothing,
+    # so `func take(d: &Data) -> Int` compiled with no `import std.data`
+    # (DF-188k). Design 188 unit 7 hand-walked the one position where the
+    # consequence was an ICE (a `static`'s annotation); design 193 unit 7 tried
+    # to generalize it and BACKED OUT, because the author's spelling is gone by
+    # the time any check runs — `_canonicalize_module_types` rewrites
+    # `struct_name` to the design-144 identity and `_register_function`'s
+    # design-68 write-back replaces the annotation object, after which a legal
+    # qualified `data.Data` reads exactly like a bare unimported `Data`.
+    #
+    # `SawType.written_name` is that missing record, stamped by the parser at
+    # the one place a named type is built. So the rule is: gate what the AUTHOR
+    # WROTE, never what the compiler resolved it to.
+    #
+    # ENTRY POINTS (obligation 1 — a funnel names its entries). One decision
+    # procedure, `_gate_resolved_type`, reached from FOUR places:
+    #   * `_resolve_type` (typechecker/types.py) — the funnel proper. Every
+    #     annotation that is RESOLVED passes through it: a parameter, a return
+    #     type, a `let x: T`, a `static`'s type, a type argument, a referent, an
+    #     array element, a tuple element, a function type's parts, an `any
+    #     Trait` erasure.
+    #   * `_register_struct` — a struct FIELD's type is stored raw and read
+    #     straight off the AST by the field checks and by codegen, so it never
+    #     reaches resolution as a unit.
+    #   * `_register_enum` — an enum PAYLOAD's type, for the same reason.
+    #   * `_register_type_alias` — a `type R = T` right-hand side, likewise.
+    # The last three are declaration slots the compiler deliberately does not
+    # resolve eagerly (a generic struct's `T`-typed field has nothing to resolve
+    # against yet); they call the same walk with the same rule, so there is one
+    # answer to "is this name gated", not four.
+    #
+    # Design 188 unit 7's separate `static` mini-walk is RETIRED here: the
+    # funnel covers that position now, and keeping both printed the diagnostic
+    # twice — once at the declaration, once at the annotation.
+    #
+    # FIVE EXEMPTIONS, each an over-rejection the census warned about:
+    #   * no `written_name` -- the compiler built this type. Every internal
+    #     caller that resolves a std-derived type while checking a user body is
+    #     covered by this one, which is the whole point of provenance.
+    #   * a qualified spelling (`data.Data`) -- the qualifier only exists
+    #     because an import bound it; gating it would refuse the legal form.
+    #   * `_checking_builtins` -- std's own bodies name std types by
+    #     construction.
+    #   * `post_transform` -- the re-check after the coroutine transform reads
+    #     an AST whose synthesized frames hold std types in fields.
+    #   * `_in_synthesized_context` -- compiler-generated declarations.
+    def _gate_written_type(self, written, depth: int = 0) -> None:
+        """Run the prelude gate over every node of a WRITTEN type.
+
+        The walk is needed because `_resolve_type` does not recurse into every
+        composite it accepts — `UnsafePointer<T>` has no resolution arm at all —
+        so a per-node check at the funnel's head would miss what the funnel
+        itself never visits.
+        """
         if written is None or depth > 8:
             return
-        # std's own bodies and the coroutine transform's output name std types
-        # by construction, and the post-transform pass re-checks a program whose
-        # synthesized frames hold them in fields. All three are exempt exactly
-        # as they are for `_std_name_gated`'s expression positions.
-        if (getattr(self, '_checking_builtins', False)
-                or getattr(self, 'post_transform', False)
-                or self._in_synthesized_context()):
+        if self._gate_exempt():
             return
-        name = None
-        if written.kind == TypeKind.STRUCT:
-            name = written.struct_name
-        elif written.kind == TypeKind.ENUM:
-            name = written.enum_name
-        if name and '.' not in name:
-            self._std_name_gated(name, line, column)
+        self._gate_resolved_type(written)
         for child in (written.inner_type, written.array_element_type,
                       written.func_return_type):
-            self._gate_written_type(child, line, column, depth + 1)
+            self._gate_written_type(child, depth + 1)
         for child in ((written.type_args or []) + (written.element_types or [])
                       + (written.param_types or [])):
-            self._gate_written_type(child, line, column, depth + 1)
+            self._gate_written_type(child, depth + 1)
+
+    def _gate_exempt(self) -> bool:
+        """The three whole-pass exemptions the prelude gate honours."""
+        return bool(getattr(self, '_checking_builtins', False)
+                    or getattr(self, 'post_transform', False)
+                    or self._in_synthesized_context())
+
+    def _gate_resolved_type(self, saw_type) -> None:
+        """Gate a type ARRIVING AT RESOLUTION, on its own written provenance.
+
+        Anchors each report where the author wrote the NAME rather than at the
+        enclosing declaration, and reports a given name-at-a-position once: the
+        front half re-enters the same AST several times (the place lowering, the
+        coroutine transform's re-check), and a rule that fires per resolution
+        would print the same diagnostic three times.
+        """
+        name = saw_type.written_name
+        if not name or '.' in name:
+            return
+        if self._gate_exempt():
+            return
+        # std's own declarations are REGISTERED inside a user compile — an
+        # `import std.file.*` carries std.file's signatures along, and those name
+        # `Path` bare because std files extend each other by design (design 82).
+        # The gate is about what a USER wrote, so it reads the file the spelling
+        # came from, exactly as `_decl_is_std_sourced` does for member access.
+        if self._vis_module_for_source(saw_type.written_file)[:1] == ("<std>",):
+            return
+        key = (saw_type.written_file, name,
+               saw_type.written_line, saw_type.written_column)
+        if key in self._gate_reported:
+            return
+        self._gate_reported.add(key)
+        self._std_name_gated(name, saw_type.written_line,
+                             saw_type.written_column)
 
     def _vis_word(self, visibility: Visibility) -> str:
         return {

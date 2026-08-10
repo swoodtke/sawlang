@@ -1,16 +1,24 @@
 // The prelude gate (design 82 Part B / design 150) says a non-prelude std type
-// must be imported before user source may name it. It fires in EXPRESSION
-// positions — a call, a struct literal, a static-method head — which reaches a
-// gated type only where a VALUE of it is built. A signature that merely
-// RECEIVES one builds nothing, so this file names `Data` and `IoError` in
-// three annotation positions with no `import std.data` anywhere and compiles.
+// must be imported before user source may name it. Until design 194 unit 4 it
+// fired only in EXPRESSION positions — a call, a struct literal, a static-method
+// head — which reaches a gated type only where a VALUE of it is built. A
+// signature that merely RECEIVES one builds nothing, so this file named `Data`
+// in three annotation positions with no `import std.data` anywhere and compiled
+// (DF-188k).
 //
-// Intended: each annotation is refused with the ordinary "is not in the prelude
-// and must be imported" diagnostic naming the three import spellings.
+// What made it hard to close was not the check but the EVIDENCE (DF-193d): by
+// the time anything could look, `_canonicalize_module_types` and
+// `_register_function`'s design-68 write-back had both replaced the author's
+// spelling with the resolved identity, so a legal qualified `data.Data` read
+// exactly like a bare unimported `Data`. `SawType.written_name` is the record
+// that survives both, and the gate judges that.
 //
-// XFAIL: DF-193d the prelude gate does not run on type ANNOTATIONS; closing it needs a written-form provenance bit, since canonicalization and the signature write-back both replace the author's spelling before any check can read it
+// The control lives beside this file: `conformance/W03_import_gate_qualified_
+// annotation.saw` writes the same signatures through a qualifier and compiles.
+//
 // EXPECT: error
 // EXPECT-ERROR-CONTAINS: `Data` is not in the prelude and must be imported
+// EXPECT-ERROR-CONTAINS: `import std.data.{Data}` selects it
 
 struct Holder {
     d: Data

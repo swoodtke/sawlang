@@ -6655,6 +6655,23 @@ the three import forms that supply it. Because a non-imported std module is not
 even compiled into the program, a user is free to define its OWN
 `IoError`/`File`/etc. with no clash.
 
+The gate covers **every position a type is written**, not only the positions
+that build a value of it. A signature that merely receives a gated type needs
+the import as much as one that constructs it:
+
+```saw
+func take(d: &Data) -> Int { d.len() }
+// error: `Data` is not in the prelude and must be imported
+```
+
+The full set: a parameter, a return type, a `let`/`var` annotation, a struct
+field, an enum case payload, a `type` alias right-hand side, a `static`'s type,
+a generic argument, a tuple element, an array element, a function type's
+parameter or return, and the trait of an `any Trait` existential. What is
+checked is the name **as written**, so the qualified spelling is accepted
+wherever an import bound the qualifier — `func take(d: &data.Data)` under
+`import std.data` is fine.
+
 The prelude is independent of the import forms below: it needs no import, and
 `import std.vector` binds a `vector` qualifier over a module whose names were
 already bare.

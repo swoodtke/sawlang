@@ -832,6 +832,21 @@ Everything else
 import of its module, which also means your own type named `File` or
 `IoError` never collides with the standard library's.
 
+The rule covers every position a type is written, not only the ones that build
+a value of it — a parameter, a return type, a field, a `let` annotation, a
+generic argument:
+
+```saw
+func take(d: &Data) -> Int { d.len() }
+// error: `Data` is not in the prelude and must be imported
+// hint: `import std.data.{Data}` selects it, `import std.data.*` takes the
+//       module's whole vocabulary bare, and `import std.data` lets you write
+//       `data.Data`
+```
+
+What is checked is the name as you wrote it, so the qualified spelling passes
+wherever an import bound the qualifier.
+
 ## Memory Management
 
 Saw provides deterministic memory management without garbage collection:

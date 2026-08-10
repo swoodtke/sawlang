@@ -6,7 +6,8 @@ either a file in this directory or an existing `examples/` test that already
 asserts the same rule at the same position — this table is the record of which,
 and the dedup decisions are meant to be audited from it.
 
-**54 rows carry a file here; 193 are covered elsewhere.**
+**57 rows carry a file here; 194 are covered elsewhere.** (The audit's 247 plus
+the rows later briefs added: W02-W05, design 194 unit 4.)
 
 ## How to read it
 
@@ -330,6 +331,10 @@ Claim source: spec 8 *Visibility* + *The prelude*; designs 80, 82, 142, 188 u7
 | B07 | control: the public surface IS reachable cross-module | `vis80_public_members_ok.saw` |  |
 | B08 | control: importing `deep` DIRECTLY makes its extension visible | `B08_direct_import_extension_visible.saw` |  |
 | W01 | review item 4: is `SpinLock` reachable BARE, without importing std.spinlock? | `spinlock_import_gate.saw` | 188 u7 — was a DEVIATION (`SpinLock` resolved bare against a spec that said otherwise); gated now |
+| W02 | the gate runs on TYPE ANNOTATIONS — eleven written positions, no import | `W02_import_gate_annotation_positions.saw` | 194 u4 — was a DEVIATION (DF-188k: the gate fired only where a VALUE was built, so a signature that merely RECEIVED a gated type compiled); gated now |
+| W03 | control: the QUALIFIED spelling is legal in an annotation | `W03_import_gate_qualified_annotation.saw` | 194 u4 — the over-rejection DF-193d named; the gate judges the author's spelling, not the resolved type |
+| W04 | control: both BARE import forms make the same annotation legal | `W04_import_gate_bare_import_forms.saw` |  |
+| W05 | a signature naming a gated std type with no import (the DF-188k repro) | `std_import_gate_signature_position.saw` | 194 u4 — XFAIL flipped |
 
 ## Shadowing
 

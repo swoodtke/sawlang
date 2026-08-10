@@ -1444,6 +1444,21 @@ import mymodule as mm       // aliasing; `module`/`public`/`package`/`parent`
   non-imported std module isn't compiled in, you may define your OWN `IoError`/
   `File`/etc. with no clash. The prelude itself is untouched by all of this:
   `import std.vector` just binds a harmless `vector` qualifier.
+  **THE GATE RUNS ON ANNOTATIONS, not only where a VALUE is built (design 194).**
+  A signature that merely RECEIVES a gated type needs the import too —
+  `func take(d: &Data) -> Int` with no `import std.data` is now the ordinary
+  "not in the prelude" error, where it used to compile. Every written position
+  is covered: parameter, return, `let x: T`, struct field, enum case payload,
+  `type` alias RHS, `static`, generic argument, tuple element, array element, a
+  function type's parts, and `any Trait`. What is checked is the name AS
+  WRITTEN, so the qualified spelling passes everywhere an import bound the
+  qualifier (`func take(d: &data.Data)` under `import std.data`). Pre-194 code
+  that named a gated type only in a signature now needs the import it always
+  should have had; the usual face is `Result<T, IoError>` in a return type.
+  GOTCHA (DF-194a): the qualified spelling does NOT yet work in a struct field,
+  an enum payload or a `type` alias — those three annotations keep the dot into
+  type comparison (``field `p` expects type `data.Data` but got `Data```). Use
+  `import std.data.{Data}` in those positions.
 - Visibility: `public`, `public(package)`, `public(parent)`, private
   default. Package layout: `src/lib.saw` ← `import <pkgname>` (Blade
   `--module-path`); `src/main.saw` for binaries.

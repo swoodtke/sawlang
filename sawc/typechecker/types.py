@@ -1230,7 +1230,16 @@ class TypeUtilsMixin:
         NOTE: Does NOT resolve type aliases because `type X = Y` creates a distinct type
         in Saw, not a transparent alias. Use _resolve_type_alias() when you need to
         check the underlying type structure (e.g., to check if something is Optional).
+
+        THE PRELUDE GATE'S ONE ENTRY POINT (design 194 unit 4, DF-188k/DF-193d).
+        Every written annotation reaches resolution, so gating here covers every
+        position a user can write a type in — and the gate judges
+        `SawType.written_name`, the parser's record of the author's own
+        spelling, so a compiler-built type is never judged and a qualified
+        `data.Data` is never mistaken for a bare `Data`. See
+        `TypeChecker._gate_resolved_type`.
         """
+        self._gate_written_type(saw_type)
         if saw_type.kind == TypeKind.STRUCT and saw_type.struct_name:
             struct_name = self._canonical_type_name(saw_type.struct_name)
 

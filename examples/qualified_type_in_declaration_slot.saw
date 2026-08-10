@@ -1,0 +1,44 @@
+// A MODULE-QUALIFIED type name (`dep.Point`, `data.Data`) must resolve in every
+// position a type is written — design 150 says so outright: "a qualifier works
+// in EVERY position a name appears".
+//
+// It does not, in three of them, and they are the same three the design-194
+// unit-4 prelude gate had to be wired into by hand: a struct FIELD, an enum
+// PAYLOAD, and a `type` alias right-hand side. Those annotations are stored RAW
+// and read straight off the AST, so they never reach `_resolve_type` — the one
+// place that walks a module qualifier — and the dotted spelling survives into
+// type comparison, where `dep.Point` and `Point` are two different types:
+//
+//     error: field `p` expects type `dep.Point` but got `Point`
+//
+// `_canonical_type_name` returns a dotted name unchanged on purpose ("for
+// `_resolve_type`'s module-walk branch to handle"), and for these three slots
+// that branch never runs. A fourth face is a constructor's generic ARGUMENT:
+// `Vector<data.Data>()` binds a local whose element type keeps the dot.
+//
+// This file uses `std.data` rather than a helper module because the shape is
+// identical for both and the std spelling is the one design 194 unit 4 makes
+// people reach for: the gate's own hint offers `import std.data` +
+// `data.Data` as one of three ways to satisfy it, and in a struct field that
+// advice does not work.
+//
+// XFAIL: DF-194a a module-qualified type name does not resolve in a struct field, an enum payload or a `type` alias — the three annotation slots stored raw, which never reach `_resolve_type`
+// EXPECT: success
+// EXPECT-OUTPUT:
+// 2
+
+import std.data
+
+struct Holder {
+    d: data.Data
+}
+
+extension Holder: NoCopy {}
+
+func main() {
+    var d = data.Data()
+    d.push(65)
+    d.push(66)
+    let h = Holder(d: move d)
+    print(h.d.len())
+}

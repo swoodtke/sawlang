@@ -1,0 +1,45 @@
+// Conformance row W03 — control: the QUALIFIED spelling of a gated std type is
+// legal in an annotation (design 150 + 194 unit 4)
+//
+// This is the case that made DF-193d a finding rather than a patch. Running the
+// gate over annotations refuses `-> Data` and must NOT refuse `-> data.Data`,
+// and by the time any check can look, both have been rewritten to the same
+// resolved identity — canonicalization and the design-68 signature write-back
+// each destroy the author's spelling. The gate therefore judges
+// `SawType.written_name`, which the parser stamps and neither rewrite touches.
+//
+// `import std.data` binds only the QUALIFIER: nothing is bare here, so every
+// annotation below is the dotted form and every one of them compiles.
+//
+// The positions a qualifier does NOT survive today — a struct field, an enum
+// payload, a `type` alias right-hand side — are DF-194a, pinned separately in
+// `examples/qualified_type_in_declaration_slot.saw`. They are not gate
+// behaviour: the gate accepts the spelling in all of them, and what fails
+// afterwards is the resolution of the dotted name.
+// EXPECT: success
+// EXPECT-OUTPUT:
+// 3
+// none
+// 2
+
+import std.data
+
+func takes(d: &data.Data) -> Int { d.len() }
+
+func gives(n: Int) -> data.Data? { None }
+
+func let_pos() -> Int {
+    let d: data.Data? = None
+    if let _ = d { return 1 }
+    return 2
+}
+
+func main() {
+    var d = data.Data()
+    d.push(65)
+    d.push(66)
+    d.push(67)
+    print(takes(&d))
+    if let _ = gives(1) { print("some") } else { print("none") }
+    print(let_pos())
+}

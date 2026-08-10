@@ -22,6 +22,7 @@ import std.data.{Data}
 import std.file.{File}
 import std.directory.{Directory}
 import std.path.{Path}
+import std.net.{IoError}
 
 func blob_path(kind: String, name: String) -> Path {
     Path(s: "tests/cbor_vectors/{kind}/{name}.cbor")

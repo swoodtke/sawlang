@@ -269,6 +269,32 @@ class SawType:
     existential_trait: Optional[str] = None
     # Direct reference to type symbol (StructSymbol, EnumSymbol, etc.)
     symbol: Optional[Any] = None
+    # WRITTEN-FORM PROVENANCE (design 194 unit 4, DF-193d). The name the AUTHOR
+    # wrote at this position, exactly as written — bare (`Data`) or qualified
+    # (`data.Data`) — plus where they wrote it. `None` means the compiler built
+    # this type, and every rule that judges what a USER SPELLED reads that as
+    # "not mine to judge".
+    #
+    # It exists because the spelling is DESTROYED before any check can see it:
+    # `_canonicalize_module_types` rewrites `struct_name` to the design-144
+    # identity in place, and `_register_function`'s design-68 write-back
+    # replaces the annotation object outright. After either one a legal
+    # qualified `data.Data` and a bare unimported `Data` are the same string, so
+    # the prelude gate could not tell them apart and 193 unit 7 backed out of
+    # running it on annotations at all.
+    #
+    # `written_file` is the fourth part of the position, and it is load-bearing
+    # rather than cosmetic: a rule about USER source has to tell a user's file
+    # from std's, and std's own declarations are registered inside a user
+    # compile (an `import std.file.*` brings std.file's signatures with it),
+    # where they legitimately name std types the importing file never imported.
+    #
+    # `compare=False` on all four: two types that differ only in where they were
+    # written are the SAME type, and `SawType.__eq__` has to keep saying so.
+    written_name: Optional[str] = field(default=None, compare=False)
+    written_file: str = field(default="", compare=False)
+    written_line: int = field(default=0, compare=False)
+    written_column: int = field(default=0, compare=False)
 
     def __repr__(self):
         # Design 144: a named type's slot holds its module-qualified IDENTITY

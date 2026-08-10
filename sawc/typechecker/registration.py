@@ -271,6 +271,12 @@ class RegistrationMixin:
             )
             return
 
+        # The prelude gate (design 194 unit 4): an alias's right-hand side goes
+        # through `_resolve_type_alias`, not `_resolve_type`, so it is the third
+        # declaration slot the funnel does not cover on its own. Design 188
+        # established that an alias is not a way past a type rule.
+        self._gate_written_type(type_def.defined_type)
+
         # Resolve the defined type (it might reference other type aliases)
         resolved_type = self._resolve_type_alias(type_def.defined_type)
         self.namespace.register_type_alias(type_def.name, TypeAliasSymbol(
@@ -321,6 +327,11 @@ class RegistrationMixin:
                 )
             else:
                 seen_fields.add(field.name)
+                # The prelude gate (design 194 unit 4): a field's type is stored
+                # RAW and read straight off the AST, so it never reaches
+                # `_resolve_type` as a unit — one of the three declaration slots
+                # the funnel cannot cover on its own.
+                self._gate_written_type(field.type)
                 # A closure-typed field is escaping (design 16/29): the struct
                 # value can outlive any call, so a stored closure must be safe to
                 # store. Stamp the bit; writing `escaping` here is redundant.
@@ -384,8 +395,12 @@ class RegistrationMixin:
             else:
                 seen_variants.add(variant.name)
                 # Enum payloads are escaping roles (design 16/29), like fields.
+                # And, like fields, they are stored RAW — so the prelude gate's
+                # funnel never sees them and this is one of its three declared
+                # extra entry points (design 194 unit 4).
                 for _payload in (variant.associated_types or []):
                     _pt = _payload[1] if isinstance(_payload, tuple) else _payload
+                    self._gate_written_type(_pt)
                     self._stamp_escaping_roles(
                         _pt, is_param=False, report_at=(enum.line, enum.column))
                 variants[variant.name] = variant.associated_types
@@ -1107,18 +1122,14 @@ class RegistrationMixin:
             )
             return
 
-        # design 188 unit 7: the prelude gate, at the DECLARATION — the same
-        # argument the `SpinLock` target check below makes, for the same type.
-        # A gated module is not compiled in at all, so a `static LOCK:
-        # SpinLock<Int>` that never names the type in an expression reached
+        # The prelude gate used to be hand-called here (design 188 unit 7): a
+        # gated module is not compiled in at all, so a `static LOCK:
+        # SpinLock<Int>` that never names the type in an EXPRESSION reached
         # codegen and died there ("Unknown generic struct: SpinLock") instead of
-        # being told to import it. A static holding a lock is the headline use
-        # of one, and its declaration is not an expression.
-        # The prelude gate on the WRITTEN annotation (design 188 unit 7, now the
-        # shared `_gate_written_type` — design 193 unit 7 retired the mini-walk
-        # this position used to carry alone).
-        self._gate_written_type(static.type, static.line, static.column)
-
+        # being told to import it. Design 194 unit 4 routed the gate through
+        # `_resolve_type`, which the next line calls — so this position is
+        # covered by the funnel now, anchored at the annotation rather than at
+        # the declaration, and the hand-call is gone.
         resolved_type = self._resolve_type(static.type)
 
         # design 149 unit d: a `SpinLock` static on a target with no atomic

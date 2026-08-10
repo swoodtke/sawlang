@@ -1,0 +1,34 @@
+// Conformance row W04 — control: the two BARE import forms make an annotation
+// legal (design 150 + 194 unit 4)
+//
+// The gate's diagnostic offers three spellings; W03 checks the qualifier and
+// this checks the other two. `import std.path.{Path}` selects one name bare,
+// `import std.data.*` takes a module's whole vocabulary bare — and after either,
+// the same annotation the gate refuses in W02 compiles.
+// EXPECT: success
+// EXPECT-OUTPUT:
+// /tmp
+// 2
+
+import std.path.{Path}
+import std.data.*
+
+struct Holder {
+    p: Path,
+    d: Data
+}
+
+extension Holder: NoCopy {}
+
+func takes(h: &Holder) -> Path { h.p }
+
+func size(d: &Data) -> Int { d.len() }
+
+func main() {
+    var d = Data()
+    d.push(65)
+    d.push(66)
+    let h = Holder(p: Path(s: "/tmp"), d: move d)
+    print(takes(&h).as_str())
+    print(size(&h.d))
+}
