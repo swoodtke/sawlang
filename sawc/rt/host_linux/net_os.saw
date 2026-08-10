@@ -12,22 +12,28 @@ extern "C" {
 }
 
 // The portable SysError tag space (ABI.md). A failing op returns the NEGATED tag.
-static SYS_WOULD_BLOCK: Int = 1
-static SYS_IN_PROGRESS: Int = 2
-static SYS_IS_CONNECTED: Int = 3
-static SYS_INTERRUPTED: Int = 4
-static SYS_CONN_RESET: Int = 5
-static SYS_CONN_REFUSED: Int = 6
-static SYS_CONN_ABORTED: Int = 7
-static SYS_BROKEN_PIPE: Int = 8
-static SYS_NOT_CONNECTED: Int = 9
-static SYS_NOT_FOUND: Int = 10
-static SYS_PERMISSION_DENIED: Int = 11
-static SYS_EXISTS: Int = 12
-static SYS_ADDR_IN_USE: Int = 13
-static SYS_INVALID: Int = 14
-static SYS_EXHAUSTED: Int = 15
-static SYS_OTHER: Int = 16
+// A closed named set with frozen numbers is a backed enum, not a family of
+// statics (design 153); the fixed-width backing is what pins the values, and the
+// tag reaches the seam's `word` return through one `as` at the boundary.
+enum SysError: UInt8 {
+    case Ok = 0,
+    case WouldBlock = 1,
+    case InProgress = 2,
+    case IsConnected = 3,
+    case Interrupted = 4,
+    case ConnReset = 5,
+    case ConnRefused = 6,
+    case ConnAborted = 7,
+    case BrokenPipe = 8,
+    case NotConnected = 9,
+    case NotFound = 10,
+    case PermissionDenied = 11,
+    case Exists = 12,
+    case AddrInUse = 13,
+    case Invalid = 14,
+    case Exhausted = 15,
+    case Other = 16
+}
 
 // Linux errno numbers.
 static EPERM: Int = 1
@@ -63,39 +69,40 @@ func errno_value() unsafe -> Int {
 @export("__saw_rt_last_syserror")
 func rt_last_syserror() -> Int {
     let e = errno_value()
-    if e == EAGAIN {
-        SYS_WOULD_BLOCK
+    let tag = if e == EAGAIN {
+        SysError.WouldBlock
     } else if e == EINPROGRESS || e == EALREADY {
-        SYS_IN_PROGRESS
+        SysError.InProgress
     } else if e == EISCONN {
-        SYS_IS_CONNECTED
+        SysError.IsConnected
     } else if e == EINTR {
-        SYS_INTERRUPTED
+        SysError.Interrupted
     } else if e == ECONNRESET {
-        SYS_CONN_RESET
+        SysError.ConnReset
     } else if e == ECONNREFUSED {
-        SYS_CONN_REFUSED
+        SysError.ConnRefused
     } else if e == ECONNABORTED {
-        SYS_CONN_ABORTED
+        SysError.ConnAborted
     } else if e == EPIPE {
-        SYS_BROKEN_PIPE
+        SysError.BrokenPipe
     } else if e == ENOTCONN {
-        SYS_NOT_CONNECTED
+        SysError.NotConnected
     } else if e == ENOENT {
-        SYS_NOT_FOUND
+        SysError.NotFound
     } else if e == EACCES || e == EPERM {
-        SYS_PERMISSION_DENIED
+        SysError.PermissionDenied
     } else if e == EEXIST {
-        SYS_EXISTS
+        SysError.Exists
     } else if e == EADDRINUSE {
-        SYS_ADDR_IN_USE
+        SysError.AddrInUse
     } else if e == EINVAL {
-        SYS_INVALID
+        SysError.Invalid
     } else if e == EMFILE || e == ENFILE || e == ENOMEM || e == ENOSPC {
-        SYS_EXHAUSTED
+        SysError.Exhausted
     } else {
-        SYS_OTHER
+        SysError.Other
     }
+    (tag as UInt8) as Int
 }
 
 // Stamp the Linux sockaddr_in prefix: u16 sin_family = AF_INET (little-endian).

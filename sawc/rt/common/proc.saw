@@ -54,10 +54,29 @@ extern "C" {
     func __saw_environ_set(env: UnsafePointer<UnsafePointer<Int8>>)
 }
 
-// SysError tags this file branches on (the full space is in ABI.md).
-static SYS_WOULD_BLOCK: Int = 1
-static SYS_INTERRUPTED: Int = 4
-static SYS_EXHAUSTED: Int = 15
+// The portable SysError tag space (ABI.md). A failing op returns the NEGATED tag.
+// A closed named set with frozen numbers is a backed enum, not a family of
+// statics (design 153); the whole space is declared here rather than the subset
+// this file branches on, so the enum says what the document says.
+enum SysError: UInt8 {
+    case Ok = 0,
+    case WouldBlock = 1,
+    case InProgress = 2,
+    case IsConnected = 3,
+    case Interrupted = 4,
+    case ConnReset = 5,
+    case ConnRefused = 6,
+    case ConnAborted = 7,
+    case BrokenPipe = 8,
+    case NotConnected = 9,
+    case NotFound = 10,
+    case PermissionDenied = 11,
+    case Exists = 12,
+    case AddrInUse = 13,
+    case Invalid = 14,
+    case Exhausted = 15,
+    case Other = 16
+}
 
 // waitpid(2)'s "do not block" option — 1 on both hosts.
 static WNOHANG: Int32 = 1
@@ -78,8 +97,14 @@ static NO_FD: Int32 = -1
 
 // The spawn `flags` word, one bit per redirection (ABI.md). `1` alone is what
 // the capture flag has always meant, so nothing that predates the bits changes.
-static FLAG_CAPTURE_STDOUT: Int = 1
-static FLAG_MERGE_STDERR: Int = 2
+// The bits are a closed named set, so they are a backed enum (design 153/185);
+// a bit SET is the backing integer they are tags for, which is what `flags`
+// stays — the enum is the single source of the values, projected with `as`
+// where the mask is taken.
+enum RedirectFlag: UInt8 {
+    case CaptureStdout = 1,
+    case MergeStderr = 2
+}
 
 // pipe() writes fds[0]=read, fds[1]=write into two adjacent Int32s.
 struct PipeFds {
@@ -208,8 +233,8 @@ func merge_environ(overrides: UnsafePointer<UnsafePointer<Int8>>) unsafe -> Int 
 // it just before `execvp`, which is what a portable `execvpe` does and the only
 // way to choose the environment without giving up the PATH search.
 func proc_spawn_impl(path: UnsafePointer<Int8>, argv: UnsafePointer<Int8>, envp: Int, flags: Int) unsafe -> Int {
-    let capture = flags & FLAG_CAPTURE_STDOUT
-    let merge_stderr = flags & FLAG_MERGE_STDERR
+    let capture = flags & ((RedirectFlag.CaptureStdout as UInt8) as Int)
+    let merge_stderr = flags & ((RedirectFlag.MergeStderr as UInt8) as Int)
 
     var fds = PipeFds(r: NO_FD, w: NO_FD)
     if capture != 0 {
@@ -284,7 +309,7 @@ func rt_proc_spawn(path: UnsafePointer<Int8>, argv: UnsafePointer<Int8>, flags: 
 func rt_proc_spawn_env(path: UnsafePointer<Int8>, argv: UnsafePointer<Int8>, envp: UnsafePointer<Int8>, flags: Int) unsafe -> Int {
     let merged = merge_environ(envp as UnsafePointer<UnsafePointer<Int8>>)
     if merged == NULL_ENVP {
-        return 0 - SYS_EXHAUSTED
+        return 0 - ((SysError.Exhausted as UInt8) as Int)
     }
     let job = proc_spawn_impl(path, argv, merged, flags)
     // The child has its own copy of the array (fork copies the address space),
@@ -358,7 +383,7 @@ func rt_proc_try_wait(job: Int) unsafe -> Int {
         } else {
             tag = __saw_rt_last_syserror()
             // A signal delivered to US must not lose the child's status.
-            if tag != SYS_INTERRUPTED {
+            if tag != ((SysError.Interrupted as UInt8) as Int) {
                 waiting = false
             } else {
                 tag = 0
@@ -366,7 +391,7 @@ func rt_proc_try_wait(job: Int) unsafe -> Int {
         }
     }
     if running {
-        return 0 - SYS_WOULD_BLOCK
+        return 0 - ((SysError.WouldBlock as UInt8) as Int)
     }
     proc_job_close(p)
     free(job as UnsafePointer<Int8>)

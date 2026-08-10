@@ -54,12 +54,29 @@ extern "C" {
     func __saw_rt_last_syserror() -> Int
 }
 
-// SysError tags this file branches on (the full space is documented in ABI.md).
-static SYS_WOULD_BLOCK: Int = 1
-static SYS_IN_PROGRESS: Int = 2
-static SYS_IS_CONNECTED: Int = 3
-static SYS_INVALID: Int = 14
-static SYS_OTHER: Int = 16
+// The portable SysError tag space (ABI.md). A failing op returns the NEGATED tag.
+// A closed named set with frozen numbers is a backed enum, not a family of
+// statics (design 153); the whole space is declared here rather than the subset
+// this file branches on, so the enum says what the document says.
+enum SysError: UInt8 {
+    case Ok = 0,
+    case WouldBlock = 1,
+    case InProgress = 2,
+    case IsConnected = 3,
+    case Interrupted = 4,
+    case ConnReset = 5,
+    case ConnRefused = 6,
+    case ConnAborted = 7,
+    case BrokenPipe = 8,
+    case NotConnected = 9,
+    case NotFound = 10,
+    case PermissionDenied = 11,
+    case Exists = 12,
+    case AddrInUse = 13,
+    case Invalid = 14,
+    case Exhausted = 15,
+    case Other = 16
+}
 
 static AF_INET: Int32 = 2
 static SOCK_STREAM: Int32 = 1
@@ -189,7 +206,7 @@ func rt_tcp_connect_start(addr_be: Int, port: Int) unsafe -> Int {
         return fd as Int
     }
     let e = __saw_rt_last_syserror()
-    if e == SYS_WOULD_BLOCK || e == SYS_IN_PROGRESS {
+    if e == ((SysError.WouldBlock as UInt8) as Int) || e == ((SysError.InProgress as UInt8) as Int) {
         return fd as Int
     }
     let _ = close(fd)
@@ -209,11 +226,11 @@ func rt_tcp_connect_check(fd: Int, addr_be: Int, port: Int) unsafe -> Int {
         return 0
     }
     let e = __saw_rt_last_syserror()
-    if e == SYS_IS_CONNECTED {
+    if e == ((SysError.IsConnected as UInt8) as Int) {
         return 0
     }
-    if e == SYS_IN_PROGRESS || e == SYS_WOULD_BLOCK {
-        return -SYS_IN_PROGRESS
+    if e == ((SysError.InProgress as UInt8) as Int) || e == ((SysError.WouldBlock as UInt8) as Int) {
+        return 0 - ((SysError.InProgress as UInt8) as Int)
     }
     return 0 - e
 }
@@ -252,7 +269,7 @@ func rt_tcp_write(fd: Int, buf: UnsafePointer<Int8>, len: Int) unsafe -> Int {
 @export("__saw_rt_resolve_ipv4")
 func rt_resolve_ipv4(host: UnsafePointer<Int8>, out: UnsafePointer<UInt32>, max: Int) unsafe -> Int {
     if max <= 0 {
-        return 0 - SYS_INVALID
+        return 0 - ((SysError.Invalid as UInt8) as Int)
     }
     var hints = AddrInfoHints(flags: 0 as Int32, family: AF_INET,
                               socktype: SOCK_STREAM, protocol: PROTO_DEFAULT,
@@ -271,7 +288,7 @@ func rt_resolve_ipv4(host: UnsafePointer<Int8>, out: UnsafePointer<UInt32>, max:
             tag = __saw_rt_last_syserror()
         }
         if tag == 0 {
-            tag = SYS_OTHER
+            tag = (SysError.Other as UInt8) as Int
         }
         return 0 - tag
     }
@@ -311,7 +328,7 @@ func rt_resolve_ipv4(host: UnsafePointer<Int8>, out: UnsafePointer<UInt32>, max:
 func rt_fs_open(path: UnsafePointer<Int8>, mode: Int, perm: Int) unsafe -> Int {
     let flags = __saw_open_flags(mode)
     if flags < 0 {
-        return 0 - SYS_INVALID
+        return 0 - ((SysError.Invalid as UInt8) as Int)
     }
     let fd = open(path, flags as Int32, perm)
     if fd >= (0 as Int32) {
