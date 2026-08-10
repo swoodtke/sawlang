@@ -91,6 +91,32 @@ matrix; conformance rows first; consumer sweep owed.
   around it by naming SpinLock's enum `LockState`, which is the spelling
   the skill's STYLE bullet uses for exactly these two constants anyway.
 
+- **DF-153b — a private std TYPE reserves its simple name for every
+  program.** USER-FACING, and the reason the sweep's `std.net` known-debt
+  item did NOT land. Pin:
+  `examples/user_enum_name_vs_private_std_enum.saw`.
+  ```saw
+  enum OpenMode: UInt8 { case Read = 0, case Write = 1 }   // a user program
+  func main() { print("{OpenMode.Write as UInt8}") }
+  → error: enum `OpenMode` has no variant `Write`
+  ```
+  std.file's private `enum OpenMode` wins, and the diagnostic names a
+  declaration the author cannot see, import or find. This is exactly
+  DF-140h — a private std `static` used to reserve its name the same way —
+  fixed for statics and never for TYPES. A struct/enum name is what a user
+  is most likely to pick, and std's private types are invisible, so the
+  reserved set is unknowable.
+  **What it cost this brief.** Giving `std.net`'s SysError tags the name
+  rt/ABI.md gives them (`SysError`) broke three EXISTING tests
+  (`enum145_methods`, `enum145_raw_backed`, `enum145_traits` — each
+  declares its own `enum SysError`), so converting a std statics family
+  into a std enum is not behavior-preserving until this is fixed: it
+  widens the set of names std silently reserves. `std.net` and
+  `std.process`'s SYS_WOULD_BLOCK are therefore left as statics, and the
+  two std enums that DID land (`LockState`, `SeekWhence`) reserve two more
+  names in the meantime. The fix is DF-140f/h's module-local identity
+  applied to type declarations.
+
 ## Measured performance (Aug 10 — the warehouse benchmark)
 
 The first profiling-backed performance entry (per the ruling: optimization
