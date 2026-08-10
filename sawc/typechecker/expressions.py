@@ -642,6 +642,22 @@ class ExpressionsMixin:
                 if getattr(static_sym, 'is_var', False):
                     self._note_unsafe_static_contact(expr.name, expr)
                 return static_sym.type
+            # design 186 unit 7: a static initializer naming a static declared
+            # BELOW it. "undefined variable" is technically true — nothing is
+            # registered yet — and reads as a lie two lines above the
+            # declaration. Static initializers fold in declaration order, so say
+            # that instead.
+            later = ((getattr(self, '_const_static_decls', None) or {})
+                     .get((self._accessor_vis_module(), expr.name)))
+            if later is not None:
+                self._error(
+                    ErrorKind.UNDEFINED_VARIABLE,
+                    f"static `{expr.name}` is declared after this point",
+                    expr.line, expr.column,
+                    hint="static initializers fold in DECLARATION ORDER, so one "
+                         "may name only the statics above it — which is also "
+                         "what makes a cycle impossible. Move the declaration up")
+                return None
             self._error(
                 ErrorKind.UNDEFINED_VARIABLE,
                 f"undefined variable `{expr.name}`",

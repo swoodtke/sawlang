@@ -1260,7 +1260,15 @@ class CodeGenerator(ResultsMixin, MatchMixin, StructsMixin, CollectionsMixin, Ca
             by_name = {n: v for n, v in expr.field_inits}
             elems = [self._const_from_expr(by_name[fn], fields[fn]) for fn in field_order]
             return ir.Constant(llvm_type, elems)
-        raise ValueError(f"non-constant static initializer: {type(expr).__name__}")
+        # The CONSTANT-EXPRESSION tier (design 186 unit 7): the typechecker
+        # admitted this initializer because the one evaluator folds it, so what
+        # lands in the image is the FOLDED VALUE, not the expression as written.
+        # Reached only for a scalar destination — every aggregate shape is
+        # handled above, and none of them is something `const_eval` returns.
+        folded = const_eval(expr, env=self._const_param_env(),
+                            metric=self._const_type_metric,
+                            width=self.int_width)
+        return ir.Constant(llvm_type, int(folded))
 
     def _emit_llvm_used(self):
         """design 58: emit `@llvm.used` listing every `@export`ed function and

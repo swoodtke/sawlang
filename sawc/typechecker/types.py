@@ -1380,20 +1380,49 @@ class TypeUtilsMixin:
         Runs before registration, so the answer is computed from the type AS
         WRITTEN — which is also the only moment it can be, since registration
         overwrites `static.type` with the resolved one.
+
+        IN DECLARATION ORDER (design 186 unit 7). Design 172j read a literal off
+        each initializer independently; the const-foldable tier means an
+        initializer may NAME an earlier static (`static MASK: Int = PAGE - 1`),
+        so each one is evaluated against the table built so far and its answer
+        goes in before the next is read. Forward and self references therefore
+        fold to nothing and say so — that IS the cycle rule, and it falls out of
+        the order rather than needing a graph.
         """
         table = getattr(self, '_const_static_decls', None)
         if table is None:
             table = {}
             self._const_static_decls = table
+        # A raw-backed enum's case values, read off the AST: registration has
+        # not run, so `Perm.Read` has no symbol to resolve against yet, and a
+        # flag-enum static (`static RW: UInt8 = Perm.Read | Perm.Write`) needs
+        # the numbers HERE. Declaration order does not apply between enums and
+        # statics: an enum's cases are pinned by its own declaration.
+        raws = self._ast_enum_raw_values(program)
         for static in getattr(program, 'statics', []) or []:
             module = self._vis_module_for_source(
                 getattr(static, 'source_file', None))
+            key = (module, static.name)
             # A duplicate is an error at registration; the FIRST declaration is
             # the one that survives it, so it is the one indexed here.
-            table.setdefault((module, static.name),
-                             self._static_const_binding(static))
+            if key in table:
+                continue
+            table[key] = self._static_const_binding(static, module, raws)
 
-    def _static_const_binding(self, static):
+    def _ast_enum_raw_values(self, program):
+        """`{(enum name, case name): value}` for every raw-BACKED enum in this
+        AST, read straight off the declarations."""
+        out = {}
+        for enum in getattr(program, 'enums', []) or []:
+            if getattr(enum, 'raw_type', None) is None:
+                continue
+            for variant in getattr(enum, 'variants', []) or []:
+                value = getattr(variant, 'raw_value', None)
+                if value is not None:
+                    out[(enum.name, variant.name)] = int(value)
+        return out
+
+    def _static_const_binding(self, static, module=(), raws=None):
         """`(value, reason)` — the integer this `static` denotes in a constant
         position, or the reason it denotes none.
 
@@ -1402,7 +1431,6 @@ class TypeUtilsMixin:
         written here now, so a refusal has to say which static and why rather
         than reading as "no static may".
         """
-        from ast_nodes import IntLiteral, UnaryOp
         name = static.name
         if getattr(static, 'is_var', False):
             # An `unsafe static var` is mutable, so its value is a fact about
@@ -1416,12 +1444,51 @@ class TypeUtilsMixin:
         init = getattr(static, 'initializer', None)
         if init is None:
             return None, f"the uninitialized static `{name}`"
-        if isinstance(init, IntLiteral):
-            return int(init.value), None
-        if isinstance(init, UnaryOp) and init.op == '-' and \
-                isinstance(init.operand, IntLiteral):
-            return -int(init.operand.value), None
-        return None, f"the computed static `{name}`"
+        value = self._fold_static_decl(init, module, raws or {})
+        if value is None:
+            return None, f"the computed static `{name}`"
+        return value, None
+
+    def _fold_static_decl(self, expr, module, raws):
+        """Fold a static's initializer against the declarations seen SO FAR.
+
+        A pre-registration evaluation, so it resolves its own two kinds of name
+        off the AST rather than off the symbol table: an earlier static of this
+        module (the declaration-order rule) and a raw-backed enum case. A name
+        it cannot resolve — a forward reference, a self reference, anything
+        else — simply fails to fold, and the caller reports the static as
+        computed.
+        """
+        from const_eval import const_eval, ConstEvalError
+        from ast_nodes import Identifier, UnaryOp, BinaryOp, CastExpr, MemberAccess
+        table = getattr(self, '_const_static_decls', None) or {}
+
+        def stamp(node):
+            if isinstance(node, UnaryOp):
+                stamp(node.operand)
+            elif isinstance(node, BinaryOp):
+                stamp(node.left)
+                stamp(node.right)
+            elif isinstance(node, CastExpr):
+                stamp(node.expr)
+            elif isinstance(node, Identifier):
+                earlier = table.get((module, node.name))
+                if earlier is not None and earlier[0] is not None:
+                    node.const_static_value = earlier[0]
+            elif isinstance(node, MemberAccess):
+                owner = getattr(node.object, 'name', None)
+                raw = raws.get((owner, node.member))
+                if raw is not None:
+                    node.enum_raw_value = raw
+
+        stamp(expr)
+        try:
+            value = const_eval(expr, width=self.platform_int_width)
+        except ConstEvalError:
+            return None
+        if isinstance(value, bool) or not isinstance(value, int):
+            return None
+        return value
 
     def _const_static_lookup(self, name: str):
         """`(value, reason)` for `name` read as a module static from here, or

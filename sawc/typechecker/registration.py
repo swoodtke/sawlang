@@ -1187,7 +1187,14 @@ class RegistrationMixin:
             # spelling of it was a clean error, and (with DF-137d) a riscv32
             # `static BASE: Int = 0x80000000` wrapped negative in silence.
             self._apply_literal_expected_type(static.initializer, resolved_type)
-            init_type = self._check_expression(static.initializer)
+            # design 186 unit 7: a static initializer IS a const position. That
+            # is what lets `static RW: UInt8 = Perm.Read | Perm.Write` read its
+            # operands as the compile-time tags they are (design 185 unit 3)
+            # instead of as enum-typed values, which is the second of the two
+            # refusals DF-185b was pinned on.
+            with self._const_position():
+                init_type = self._check_expression(static.initializer)
+            self._stamp_static_init_names(static.initializer)
             self.current_scope = saved_scope
             if init_type is not None and not self._types_compatible(resolved_type, init_type):
                 self._error(
@@ -1202,10 +1209,16 @@ class RegistrationMixin:
                     f"static `{static.name}` must be initialized by a compile-time "
                     f"constant",
                     static.line, static.column, source_file=static.source_file,
-                    hint="statics allow only literals, POD struct literals with "
-                         "constant fields, constant fixed-array literals, and "
-                         "`Atomic(<int>)`; function calls, String, and heap types "
-                         "are not const-initializable"
+                    hint="a static initializer is a CONSTANT EXPRESSION plus "
+                         "memberwise aggregation: literals, arithmetic and "
+                         "bitwise over them, `sizeof`/`alignof`, the integer "
+                         "limits, a raw-backed enum case, an earlier module "
+                         "`static`, and struct / fixed-array literals built out "
+                         "of those. A user `init` BODY never runs at compile "
+                         "time, and neither does a function call, a String or "
+                         "any heap type — state that has to be COMPUTED wants "
+                         "`static X: Once<T>` (set once) or `unsafe static var` "
+                         "(mutated throughout)"
                 )
 
         # Sync-only: an immutable static is reachable from every task, so its
@@ -1386,10 +1399,25 @@ class RegistrationMixin:
                    for ft in fields.values())
 
     def _is_const_init(self, expr) -> bool:
-        """Whether `expr` is a compile-time constant static initializer
-        (design 41 item 2): literals, a negated numeric literal, POD struct
-        literals with constant fields, constant fixed-array literals, and the
-        compiler-known `Atomic(<int>)` construction."""
+        """Whether `expr` is a compile-time constant static initializer.
+
+        TWO TIERS, and the line between them is the whole rule (design 186
+        unit 7, absorbing DF-185b):
+
+          * a CONSTANT EXPRESSION — whatever `const_eval` folds. Design 41's
+            list was literals-only and lived apart from the evaluator, so
+            `static SIZE: Int = 4 * 1024` was refused while the same expression
+            folded in every position that CONSUMES a constant. One evaluator now
+            answers in all of them.
+          * MEMBERWISE AGGREGATION over those — a struct literal, a fixed-array
+            literal, an interior cell, `Atomic(<int>)`, `UnsafeMemory(<int>)`.
+
+        A user `init` BODY never runs at compile time, even where it visibly
+        would fold: folding bodies is const-fn, and this is deliberately not
+        the design that backs into it. A memberwise `Wrap<Int>(v: 3)` is a
+        `StructInit` and lands in the second tier; `Wrap<Int>(3)` resolving to a
+        hand-written `init` is a call, and falls off the end here.
+        """
         if isinstance(expr, (IntLiteral, FloatLiteral, BoolLiteral)):
             return True
         # A resolved `#line` literal (design 98) is an Int compile-time constant
@@ -1407,6 +1435,16 @@ class RegistrationMixin:
             # array. `static BUF: [Int8; 4096] = [0; 4096]` is the point.
             return all(self._is_const_init(e) for e in expr.elements)
         if isinstance(expr, StructInit):
+            # MEMBERWISE only. The parser gives `Region(bytes: 1, pages: 2)` and
+            # `Region(pages: 2)` the same node shape, and the second reaches a
+            # hand-written `init` — whose BODY would have to run to produce the
+            # missing fields. Naming every field is what tells them apart, and
+            # it is exactly the tier line: aggregation folds, bodies do not.
+            fields = self.namespace.get_struct_fields(
+                (expr.struct_name or "").split('$')[0]) or {}
+            written = {n for n, _v in expr.field_inits}
+            if not fields or written != set(fields.keys()):
+                return False
             return all(self._is_const_init(v) for _n, v in expr.field_inits)
         if isinstance(expr, FunctionCall) and getattr(expr, 'is_atomic_construct', False):
             return all(self._is_const_init(a.value) for a in expr.arguments)
@@ -1421,7 +1459,50 @@ class RegistrationMixin:
         # design 46: `UnsafeMemory(<int>)` is a const-init from an address literal.
         if isinstance(expr, FunctionCall) and getattr(expr, 'is_unsafe_mem_construct', False):
             return all(self._is_const_init(a.value) for a in expr.arguments)
-        return False
+        # The CONSTANT-EXPRESSION tier: anything the one evaluator folds. Asked
+        # last so the aggregate arms above keep their own (cheaper, structural)
+        # answers, and asked by TRYING rather than by re-listing the grammar —
+        # re-listing is what let design 41's rule drift away from the evaluator
+        # in the first place.
+        return self._folds_as_constant(expr)
+
+    def _stamp_static_init_names(self, expr) -> None:
+        """Resolve the constants a static initializer names, onto its own nodes.
+
+        `_stamp_const_names` walks an EXPRESSION; a static initializer is an
+        expression OR an aggregate built out of them, and the names live at the
+        leaves (`static ONE: Region = Region(bytes: PAGE_SIZE, pages: 1)`). This
+        recurses through the aggregate shapes `_is_const_init` accepts and
+        stamps each leaf, so the evaluator sees numbers where the source wrote
+        names — the same trick DF-172j plays for an array length, applied one
+        level down.
+        """
+        from ast_nodes import ArrayLiteral, StructInit, FunctionCall
+        if isinstance(expr, ArrayLiteral):
+            for element in expr.elements:
+                self._stamp_static_init_names(element)
+            if expr.repeat_count is not None:
+                self._stamp_static_init_names(expr.repeat_count)
+            return
+        if isinstance(expr, StructInit):
+            for _name, value in expr.field_inits:
+                self._stamp_static_init_names(value)
+            return
+        if isinstance(expr, FunctionCall):
+            for arg in expr.arguments:
+                self._stamp_static_init_names(arg.value)
+            return
+        self._stamp_const_names(expr)
+
+    def _folds_as_constant(self, expr) -> bool:
+        """Does the one const evaluator fold `expr` to a number here?"""
+        from const_eval import const_eval, ConstEvalError
+        try:
+            const_eval(expr, env=self._const_param_env(),
+                       width=self.platform_int_width)
+        except ConstEvalError:
+            return False
+        return True
 
     # Built-in type names that indicate specialization when used in extension type params
     BUILTIN_TYPE_NAMES = {

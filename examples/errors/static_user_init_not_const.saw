@@ -1,0 +1,37 @@
+// design 186 unit 7, the line between tier (b) and tier (c): FIELD AGGREGATION
+// folds, a user `init` BODY never runs at compile time.
+//
+// `Region(bytes: 4096, pages: 1)` — the memberwise literal — is a constant
+// initializer. `Region(pages: 1)`, which reaches a hand-written `init`, is not,
+// even though that body visibly would fold: folding bodies is const-fn, and
+// this is deliberately not the design that backs into it.
+//
+// Runtime-computed initial state is never a static initializer in any form.
+// Set-once state wants `static X: Once<T>`; state mutated throughout keeps
+// `unsafe static var`.
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: static `COMPUTED` must be initialized by a compile-time constant
+// EXPECT-ERROR-CONTAINS: A user `init` BODY never runs at compile time
+
+static PAGE_SIZE: Int = 4096
+
+struct Region {
+    bytes: Int,
+    pages: Int
+}
+
+extension Region {
+    init(pages: Int) -> Region {
+        Region(bytes: pages * PAGE_SIZE, pages: pages)
+    }
+}
+
+// Memberwise: constant, and accepted.
+static ONE: Region = Region(bytes: PAGE_SIZE, pages: 1)
+
+// Through the hand-written `init`: refused.
+static COMPUTED: Region = Region(pages: 1)
+
+func main() {
+    print(ONE.bytes)
+}
