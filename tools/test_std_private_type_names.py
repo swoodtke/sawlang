@@ -121,6 +121,29 @@ def main():
                   "the probe file's `MapSlot` has the wrong layout: %r"
                   % (rslot.field_order,))
 
+        # Design 204 unit 3: codegen FOLLOWS the identity. Two same-named
+        # private std types must mangle apart, or their layouts, their
+        # monomorphizations and their method symbol families would collide in
+        # the LLVM symbol table before anything called either.
+        from ast_nodes import SawType, TypeKind
+        from codegen.mangle import mangle_method, mangle_type
+
+        left_t = SawType(TypeKind.ENUM, enum_name="State$m$std_once")
+        right_t = SawType(TypeKind.ENUM, enum_name="State$m$std_%s" % LEAF)
+        check(mangle_type(left_t) != mangle_type(right_t),
+              "the two `State` enums mangle alike: %r" % mangle_type(left_t))
+        check(mangle_method("State$m$std_once", "describe")
+              != mangle_method("State$m$std_%s" % LEAF, "describe"),
+              "the two `State` enums share a method symbol family")
+        # A PUBLIC std type's mangling is untouched — the spelling every
+        # program's IR has always carried.
+        check(mangle_type(SawType(TypeKind.STRUCT, struct_name="Data")) == "Data",
+              "a public std type's mangling changed: %r"
+              % mangle_type(SawType(TypeKind.STRUCT, struct_name="Data")))
+        check(mangle_method("Vector", "push") == "Vector_push",
+              "a public std type's method symbol changed: %r"
+              % mangle_method("Vector", "push"))
+
         # And NEITHER name leaks into the shared view a user program resolves
         # through — that is the DF-153b half of the same rule.
         check("State" not in ns.type_names,
