@@ -117,6 +117,64 @@ matrix; conformance rows first; consumer sweep owed.
   names in the meantime. The fix is DF-140f/h's module-local identity
   applied to type declarations.
 
+- **DF-153c — a fixed-width backed enum costs two casts at a word-wide
+  seam.** Not a bug; the datum the brief asked the sweep to produce.
+  `SysError` is `UInt8` because its numbers are ABI (design 47), but every
+  seam that carries one types it `word`, so the use site reads
+  ```saw
+  if r == 0 - ((SysError.WouldBlock as UInt8) as Int) { ... }
+  ```
+  against the old `if r == -SYS_WOULD_BLOCK`. std.file's `OpenMode` already
+  paid this (`(mode as UInt8) as Int`) at one site; the rt net ops pay it at
+  a dozen. The same shape appears at every `Atomic<Int>` state machine —
+  `LockState`/`Once.State` project with `as Int` per touch — which is what a
+  hypothetical enum-typed `Atomic<E>` would remove. Two candidate answers if
+  it is ever worth a design: a widening projection that reads the enum
+  straight to the wider integer (one `as`), or `Atomic<E>` over a raw-backed
+  enum. Recorded, not proposed.
+
+### The sweep's census (what converted, and why the rest did not)
+
+CONVERTED: SpinLock `UNLOCKED`/`HELD`; std.file `SEEK_*`; the rt-side
+`SYS_*` tag space in all four rt modules; the spawn redirection bits on
+both sides of the seam; sosrt's two abort codes.
+
+NOT CONVERTED, by reason:
+- **Blocked by DF-153b** (a std enum reserves its name program-wide):
+  `std.net`'s five `SYS_*` and `std.process`'s `SYS_WOULD_BLOCK` — both
+  are the `SysError` vocabulary, and the name is taken by user programs.
+- **Host C constant families, not sets this code owns**: the ~20 `E*`
+  errno numbers in each `net_os.saw` (an OPEN set — we name the ones we
+  map, of hundreds); `EPOLL_CTL_*`, the kqueue `EV_*`/`NOTE_*`, the
+  `CLOCK_*` ids, `AF_INET`/`SOCK_STREAM`/`PROTO_DEFAULT`, `WNOHANG`,
+  `STDOUT_FILENO`/`STDERR_FILENO`. Each is one argument at one C call
+  with no branch, no match and no `from(raw:)`, so the `as` ceremony
+  swamps the gain (the brief's judgment clause).
+- **Quantities, which is what a static is for**: every `*_OFF`/`*_LEN`/
+  `*_SIZE`/`*_MAX`/`*_SHIFT`/`*_MASK` family — std.cbor's UTF-8 bounds,
+  taskgroup's `BT_*` backtrace-table offsets, blade's ELF field offsets,
+  the sos HAL's page/PMP/MAIR arithmetic, `Duration`'s scale factors.
+- **Open sets**: `selfhost/lexer`'s 60 `B_*` byte codes (character
+  values, not tags — the lexer compares against a sample of ASCII).
+- **Refused by the language, correctly**: the arm64 HAL's `DESC_*`
+  descriptor bits — `DESC_TABLE` and `DESC_PAGE` are both `0x2` (the same
+  bit means different things at different levels), and a raw-backed enum
+  rejects duplicate values. Two names for one number is what a static is
+  still for.
+- **No derivable name**: blade's ELF `PF_X`/`PF_W`/`PF_R` program flags
+  (a genuine closed flag set — `PF_` is an abbreviation, and the nearby
+  `SegFlag` names the OTHER format's flags, which these map into). Left
+  rather than invented; a one-line ruling on the noun lands it.
+- **examples/**: no incidental family. Every statics family there is the
+  SUBJECT of its own test (const-init, `df140f`/`df140h` collisions,
+  atomics counters) — the one exception, `serde169_hand_written`'s two
+  wire tags, is scratch inside a hand-written-serde demo.
+- **Docs**: no spec/README example models the pattern. Every statics
+  example in either document is a size or a derived quantity, which is
+  the form the ruling KEEPS; the ruling itself was already in the skill.
+- **devtools/** was outside the brief's scope; `irdet`'s `EXIT_*` trio is
+  the one family there.
+
 ## Measured performance (Aug 10 — the warehouse benchmark)
 
 The first profiling-backed performance entry (per the ruling: optimization
