@@ -58,7 +58,7 @@ extern "C" {
 /// across is, because the lock serializes every access and no two threads ever
 /// hold the payload at once. `Send` needs no declaration — a cell moves fine,
 /// and both of this type's fields are cells.
-struct Mutex<T> {
+public struct Mutex<T> {
     // The lock word. An interior CELL, which is what makes `lock` a `&self`
     // method that reaches the CALLER's word rather than a copy of it: a
     // cell-carrying receiver travels by pointer (design 186).

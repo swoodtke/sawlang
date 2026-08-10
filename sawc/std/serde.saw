@@ -19,7 +19,7 @@
 // =============================================================================
 
 // What stopped a value from being written out.
-enum EncodeFault: UInt8 {
+public enum EncodeFault: UInt8 {
     case BufferFull = 1,
     case TooDeep = 2,
     case CountMismatch = 3,
@@ -39,7 +39,7 @@ extension EncodeFault {
 }
 
 /// A failure raised while encoding.
-struct EncodeError {
+public struct EncodeError {
     public fault: EncodeFault
 }
 
@@ -53,7 +53,7 @@ extension EncodeError: Printable {
 extension EncodeError: Error {}
 
 // What stopped a value from being read back.
-enum DecodeFault: UInt8 {
+public enum DecodeFault: UInt8 {
     case Truncated = 1,
     case Malformed = 2,
     case TypeMismatch = 3,
@@ -93,7 +93,7 @@ extension DecodeFault {
 /// `offset` counts bytes from the start of the input, so a rejected blob can be
 /// examined at the position that stopped it. Malformed input always arrives
 /// here; a decoder never panics on it.
-struct DecodeError {
+public struct DecodeError {
     public offset: Int
     public fault: DecodeFault
 }
@@ -120,7 +120,7 @@ extension DecodeError: Error {}
 /// followed by exactly that many items; a byte string is opened with
 /// `begin_bytes` and followed by exactly that many `write_byte` calls.
 /// Miscounting is `CountMismatch`, never a silently short item.
-trait Encoder {
+public trait Encoder {
     /// Writes an unsigned integer.
     func write_uint(&var self, v: UInt) sync -> Result<Void, EncodeError>
 
@@ -153,7 +153,7 @@ trait Encoder {
 ///
 /// Every method reports malformed input as `Err(DecodeError)` carrying the byte
 /// offset it stopped at, so a decoder may be pointed at bytes from anywhere.
-trait Decoder {
+public trait Decoder {
     /// Reads an unsigned integer.
     func read_uint(&var self) sync -> Result<UInt, DecodeError>
 
@@ -242,7 +242,7 @@ trait Decoder {
 /// @synthesize
 /// extension Endpoint: Serialize {}
 /// ```
-trait Serialize {
+public trait Serialize {
     /// Writes `self` into `to`.
     func serialize(&self, to: &var any Encoder) sync -> Result<Void, EncodeError>
 }
@@ -258,7 +258,7 @@ trait Serialize {
 ///
 /// Returning `Self` by value keeps `Deserialize` out of `any` — it is a generic
 /// bound, never an existential, the same rule the Copy family lives under.
-trait Deserialize {
+public trait Deserialize {
     /// Reads a value of this type out of `from`.
     func deserialize(from: &var any Decoder) sync -> Result<Self, DecodeError>
 }

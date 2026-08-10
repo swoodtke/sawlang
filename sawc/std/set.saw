@@ -15,11 +15,12 @@
 // (the same bound as a Map key). Set is NoCopy — transfer with `move`, no
 // implicit `.copy()`.
 
-// The Map value type for a Set: a zero-field unit (trivially Copy). Named
-// distinctly so it never collides with a user type.
+// The Map value type for a Set: a zero-field unit (trivially Copy). Private to
+// this file, so under design 204 the name is this file's alone and a user type
+// may carry it too.
 struct SetMark {}
 
-struct Set<T, A: Allocator = GlobalAllocator> {
+public struct Set<T, A: Allocator = GlobalAllocator> {
     map: Map<T, SetMark, A>
 }
 

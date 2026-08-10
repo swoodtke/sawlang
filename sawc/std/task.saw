@@ -72,7 +72,7 @@ extension PosixThread: Thread {
 /// `spawn { ... }` returns one. Take the result with `join`; a handle that goes
 /// out of scope unjoined joins the task itself and drops the result. The handle
 /// cannot be copied, so exactly one place owns the task.
-struct Task<T> {
+public struct Task<T> {
     // Points at the task control block (`None` only on the inert OOM path).
     handle: UnsafePointer<Int8>?
     // Set once the task has been joined, so `deinit` does not double-join/free.

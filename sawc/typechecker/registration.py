@@ -263,7 +263,9 @@ class RegistrationMixin:
 
     def _register_type_definition(self, type_def: TypeDefinition):
         """Register a type definition (type alias)."""
-        if self.get_type_alias_info(type_def.name):
+        # Design 144/204: keyed by IDENTITY — see `_register_struct`.
+        identity = self._stamp_type_identity(type_def)
+        if self.get_type_alias_info(identity):
             self._error(
                 ErrorKind.DUPLICATE_FUNCTION,
                 f"type `{type_def.name}` is defined multiple times",
@@ -283,14 +285,19 @@ class RegistrationMixin:
             aliased_type=resolved_type,
             immediate_type=type_def.defined_type,
             visibility=getattr(type_def, 'visibility', Visibility.PRIVATE),
-            type_identity=self._stamp_type_identity(type_def),
+            type_identity=identity,
             def_module=self._vis_module_for_source(
                 getattr(type_def, 'source_file', None))
         ))
 
     def _register_struct(self, struct: Struct):
         """Register a struct definition."""
-        if self.namespace.has_struct(struct.name) and not self._shadows_hidden_std(struct.name):
+        # Design 144/204: the redefinition question is asked of the IDENTITY,
+        # not the spelling. Two declarations in ONE file share an identity and
+        # are still a duplicate; a std file's private `State` and another's are
+        # two types and never meet.
+        identity = self._stamp_type_identity(struct)
+        if self.namespace.has_struct(identity) and not self._shadows_hidden_std(struct.name):
             self._error(
                 ErrorKind.DUPLICATE_FUNCTION,  # We can reuse this error kind
                 f"struct `{struct.name}` is defined multiple times",
@@ -355,7 +362,7 @@ class RegistrationMixin:
             visibility=getattr(struct, 'visibility', Visibility.PRIVATE),
             field_visibility=field_visibility,
             def_module=def_module,
-            type_identity=self._stamp_type_identity(struct),
+            type_identity=identity,
             is_unsafe=getattr(struct, 'is_unsafe', False),
             line=struct.line,
             column=struct.column,
@@ -364,7 +371,13 @@ class RegistrationMixin:
 
     def _register_enum(self, enum: Enum):
         """Register an enum definition."""
-        if self.namespace.has_enum(enum.name):
+        # Design 144/204: keyed by IDENTITY — see `_register_struct`. The
+        # hidden-std allowance joins it here too (DF-153b): design 82 gave it
+        # to structs and never to enums, so a user `enum OpenMode` lost to
+        # std.file's private one where a user `struct File` did not.
+        identity = self._stamp_type_identity(enum)
+        if (self.namespace.has_enum(identity)
+                and not self._shadows_hidden_std(enum.name)):
             self._error(
                 ErrorKind.DUPLICATE_FUNCTION,  # Reuse this error kind
                 f"enum `{enum.name}` is defined multiple times",
@@ -372,7 +385,7 @@ class RegistrationMixin:
             )
             return
 
-        if self.namespace.has_struct(enum.name):
+        if self.namespace.has_struct(identity):
             self._error(
                 ErrorKind.DUPLICATE_FUNCTION,
                 f"enum `{enum.name}` conflicts with existing struct name",
@@ -417,7 +430,7 @@ class RegistrationMixin:
             visibility=getattr(enum, 'visibility', Visibility.PRIVATE),
             def_module=self._vis_module_for_source(
                 getattr(enum, 'source_file', None)),
-            type_identity=self._stamp_type_identity(enum),
+            type_identity=identity,
             ast_node=enum if enum.type_params else None,
             raw_type=raw_type,
             raw_values=raw_values
@@ -550,7 +563,9 @@ class RegistrationMixin:
 
     def _register_trait(self, trait: Trait):
         """Register a trait definition with inheritance support."""
-        if self.namespace.has_trait(trait.name):
+        # Design 144/204: keyed by IDENTITY — see `_register_struct`.
+        identity = self._stamp_type_identity(trait)
+        if self.namespace.has_trait(identity):
             self._error(
                 ErrorKind.DUPLICATE_FUNCTION,
                 f"trait `{trait.name}` is defined multiple times",
@@ -627,7 +642,7 @@ class RegistrationMixin:
             visibility=getattr(trait, 'visibility', Visibility.PRIVATE),
             def_module=self._vis_module_for_source(
                 getattr(trait, 'source_file', None)),
-            type_identity=self._stamp_type_identity(trait)
+            type_identity=identity
         ))
 
     def _register_function(self, func: Function):
@@ -816,13 +831,27 @@ class RegistrationMixin:
 
         Idempotent: the front half re-enters on the same AST (place lowering,
         the coroutine transform), and re-qualifying an identity would produce
-        `Header$m$dep$m$dep`. Same shape as DF-146a's `_derivation_slot`."""
+        `Header$m$dep$m$dep`. Same shape as DF-146a's `_derivation_slot`.
+
+        Design 204: a std file's declaration qualifies iff it is PRIVATE, which
+        is what makes `State` in `std/once.saw` that file's own type while
+        `Vector` stays the one every program names. Outside std the visibility
+        is irrelevant — design 144 qualifies a user module's types either way.
+        """
         from type_identity import type_identity
         existing = getattr(decl, 'type_identity', "")
         if existing:
             return existing
+        if getattr(decl, 'is_synthesized', False):
+            # A compiler-synthesized type (a coroutine frame) is named by
+            # string where it is built and at every reference to it, so it
+            # keeps the plain name it was given.
+            decl.type_identity = decl.name
+            return decl.name
         module = self._vis_module_for_source(getattr(decl, 'source_file', None))
-        identity = type_identity(decl.name, module)
+        private = (getattr(decl, 'visibility', Visibility.PRIVATE)
+                   == Visibility.PRIVATE)
+        identity = type_identity(decl.name, module, private=private)
         decl.type_identity = identity
         return identity
 
@@ -1426,8 +1455,9 @@ class RegistrationMixin:
             # hand-written `init` — whose BODY would have to run to produce the
             # missing fields. Naming every field is what tells them apart, and
             # it is exactly the tier line: aggregation folds, bodies do not.
+            from type_identity import declaration_base
             fields = self.namespace.get_struct_fields(
-                (expr.struct_name or "").split('$')[0]) or {}
+                declaration_base(expr.struct_name or "")) or {}
             written = {n for n, _v in expr.field_inits}
             if not fields or written != set(fields.keys()):
                 return False

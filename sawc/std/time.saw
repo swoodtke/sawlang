@@ -43,7 +43,7 @@ extern "C" {
 /// The stored value counts nanoseconds from an unspecified epoch, so a single
 /// instant means nothing on its own. Compare two of them through `elapsed` or
 /// `duration_since`.
-struct Instant {
+public struct Instant {
     nanos: Int64
 }
 

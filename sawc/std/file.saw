@@ -89,7 +89,7 @@ enum SeekWhence: UInt8 {
 // File - A file handle with automatic cleanup
 // =============================================================================
 
-struct File {
+public struct File {
     fd: Int32
 }
 

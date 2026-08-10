@@ -126,7 +126,7 @@ extension DataBuf: NoCopy {
 // Data — a copy-on-write window onto shared storage
 // =============================================================================
 
-struct Data {
+public struct Data {
     // `None` is the empty Data: no storage, and none allocated until the first
     // byte arrives. `offset`/`length` are then both 0.
     storage: Arc<DataBuf>?
@@ -651,7 +651,7 @@ extension Data: ImplicitCopy {}
 // DataIterator — iteration that holds its storage
 // =============================================================================
 
-struct DataIterator {
+public struct DataIterator {
     source: Data
     index: Int
 }

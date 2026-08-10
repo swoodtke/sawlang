@@ -286,13 +286,16 @@ static __saw_bt_dumping: Atomic<Int> = Atomic(0)
 // result slot has to survive its task (until `join` takes the value, or until
 // group teardown drops it exactly once), while a `Void` task's cell holds
 // nothing joinable, so its slot is reclaimable the moment the task completes.
-trait __TaskCell {
+// `public` for the design-204 reason, not because a program should name it: the
+// coroutine transform picks these three by NAME when it lowers a spawn, so their
+// identities must stay the plain spellings `sawc/coro_transform.py` writes.
+public trait __TaskCell {
     func __carries_result(&self) sync -> Bool
 }
 
 // The cell for a task whose body returns a value. `__result` is the slot
 // `TaskHandle<T>.result_ptr` addresses and `join` empties with `Optional.take`.
-struct __ResultCell<T> {
+public struct __ResultCell<T> {
     __result: T?
     __cancel: Bool
 }
@@ -305,7 +308,7 @@ extension __ResultCell<T>: __TaskCell {
 
 // The cell for a `Void` task (design 102 item 1) and for the ambient scheduler's
 // root frame: a cancel word and nothing else, so no value outlives the task.
-struct __VoidCell {
+public struct __VoidCell {
     __cancel: Bool
 }
 
@@ -313,7 +316,7 @@ extension __VoidCell: __TaskCell {
     func __carries_result(&self) sync -> Bool { false }
 }
 
-struct TaskGroup {
+public struct TaskGroup {
     tasks: Vector<Box<any Resumable>?>
     // design 134: the per-task cells, parallel to `tasks`. A slot's cell outlives
     // its frame — it holds the result until `join` takes it (or until teardown)
@@ -926,7 +929,7 @@ extension TaskGroup: NoMove {}
 // completes and its frame box is released. Dropping an unjoined handle is fine
 // (no-op Deinit): the result stays in the cell and is dropped once at group
 // teardown — exactly-once either way.
-struct TaskHandle<T> {
+public struct TaskHandle<T> {
     result_ptr: UnsafePointer<T?>
     cancel_ptr: UnsafePointer<Bool>
     group_ptr: UnsafePointer<TaskGroup>
@@ -1015,7 +1018,7 @@ extension TaskHandle<T>: NoCopy {
 // completion and returns. Cancellation and drop-if-unjoined behave exactly like
 // `TaskHandle<T>`. Distinct type (not `TaskHandle<Void>`) so the generic handle
 // never has to encode a zero-size `T?` result pointer.
-struct VoidTaskHandle {
+public struct VoidTaskHandle {
     cancel_ptr: UnsafePointer<Bool>
     group_ptr: UnsafePointer<TaskGroup>
     slot: Int

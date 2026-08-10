@@ -26,7 +26,7 @@ extern "C" {
 // Vector<T, A> - A dynamically-sized array over allocator `A`
 // =============================================================================
 
-struct Vector<T, A: Allocator = GlobalAllocator> {
+public struct Vector<T, A: Allocator = GlobalAllocator> {
     buffer: UnsafePointer<T>?
     length: Int
     capacity: Int

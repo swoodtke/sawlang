@@ -39,7 +39,7 @@
 //            free-head address in its own first 8 bytes, so no side table exists.
 // Both fields are `Atomic<Int>`, so `SlabHead` is Sync and const-initializable
 // as a static (`SlabHead(bump: Atomic(0), free: Atomic(0))`).
-struct SlabHead {
+public struct SlabHead {
     public bump: Atomic<Int>
     public free: Atomic<Int>
 }

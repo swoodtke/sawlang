@@ -973,6 +973,7 @@ class Parser(ExpressionsMixin, StatementsMixin, DeclarationsMixin, TypeParsingMi
             message=msg_tok.value,
             line=start.line,
             column=start.column,
+            source_file=self.source_file,
         )
 
     def parse_export(self) -> ExportDecl:

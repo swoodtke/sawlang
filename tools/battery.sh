@@ -53,6 +53,7 @@ STAGES=(
     "astgraft|no|no pass stamps an AST attribute no class declares|$PY tools/test_ast_graft.py"
     "ircontract|no|-c embeds what hosted embeds; seam widths match rt/ABI.md|$PY tools/test_ir_contract.py"
     "preludegate|no|the import gate matches LANGUAGE_SPEC's module table|$PY tools/test_prelude_gate_doc.py"
+    "stdtypes|no|two std files may each own one private type name (design 204)|$PY tools/test_std_private_type_names.py"
     "abidoc|no|rt/ABI.md describes exactly the frozen seam set|$PY tools/test_runtime_abi_doc.py"
     "bttable|no|the task-backtrace table against the frame layouts|$PY tools/test_bt_table.py"
     "fuzz|no|corpus-mutation fuzzing, one oracle: no ICE, no traceback|$PY tools/sawfuzz.py --quick"

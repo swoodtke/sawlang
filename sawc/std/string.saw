@@ -1009,7 +1009,7 @@ extension Vector<String> {
 // Returned by `String.fromBytes` when the input is not valid UTF-8. `offset` is
 // the byte index at which the first malformed sequence begins (the bytes before
 // it decode cleanly — Rust's `Utf8Error::valid_up_to()` semantics).
-struct Utf8Error {
+public struct Utf8Error {
     public offset: Int
 }
 

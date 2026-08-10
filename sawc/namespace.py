@@ -7,6 +7,7 @@ from dataclasses import dataclass, field
 from typing import Dict, List, Optional, Any, Tuple, Set, Union
 from enum import Enum, auto
 from ast_nodes import SawType, TypeKind, Function, Struct, Enum as SawEnum, Extension, TypeParameter, Visibility
+from type_identity import declaration_base
 
 
 class SymbolKind(Enum):
@@ -307,6 +308,16 @@ class Namespace:
         # (design 53 aliasing is a pure local rename, so the identity it maps
         # to is unchanged). Root-module and std types map a name to itself.
         self.type_names: Dict[str, str] = {}
+        # Design 204: the same view for the type names only ONE module may
+        # write — a std file's FILE-PRIVATE types, keyed by that file's module
+        # then by the name as written. A private std type is unnameable from
+        # outside its file, so it must not occupy the shared slot above: doing
+        # so made every internal type in std (`State`, `OpenMode`, `MapSlot`,
+        # `DataBuf`, ...) a reserved word for every program in the language,
+        # and made two std files unable to own one name between them. This is
+        # `module_statics` (DF-140h) for TYPES, and it is read through the same
+        # accessor-module-first rule.
+        self.module_type_names: Dict[Tuple[str, ...], Dict[str, str]] = {}
         # Source label (module path string) each type name was first bound
         # from, and the names bound to two DIFFERENT identities. A bare
         # reference to an ambiguous name is the design-142 use-site error; the
@@ -376,6 +387,15 @@ class Namespace:
         # glob form `import std.data.*` exposes bare), and its inverse.
         self._std_file_symbols: Dict[str, Set[str]] = {}
         self._std_symbol_file: Dict[str, str] = {}
+        # design 204: the same two, over EVERY top-level declaration rather
+        # than the module's surface — a std file's private types are excluded
+        # from the pair above so nothing user-facing can reach them, and the
+        # design-82 codegen exclusion still has to account for them.
+        # `_std_file_keys` carries each declaration's codegen KEY (its
+        # design-144 identity) beside its name, because that is what the
+        # namespace tables are keyed by.
+        self._std_file_all_names: Dict[str, Set[str]] = {}
+        self._std_file_keys: Dict[str, Set[str]] = {}
         # design 150: the std modules and symbols that REQUIRE an import — the
         # non-prelude surface. Constants from `sawc.py`, not per-namespace state.
         self._import_required_modules: Set[str] = set()
@@ -595,15 +615,35 @@ class Namespace:
         belongs to a qualifying module."""
         return getattr(symbol, 'type_identity', "") or name
 
+    @staticmethod
+    def _type_is_module_local(symbol, identity: str) -> Optional[Tuple[str, ...]]:
+        """The module whose PRIVATE name view `identity` belongs in, or None.
+
+        Design 204, mirroring `_static_is_module_local`: a std file's private
+        type is nameable only from that file, so its binding lives in the
+        per-module overlay rather than the shared simple-name slot."""
+        from type_identity import is_module_local
+        module = tuple(getattr(symbol, 'def_module', ()) or ())
+        return module if is_module_local(identity, module) else None
+
     def bind_type_name(self, local: str, identity: str, category: str = "type",
-                       source_label: Optional[str] = None):
+                       source_label: Optional[str] = None,
+                       module_local: Optional[Tuple[str, ...]] = None):
         """Bind the source-visible name `local` to `identity` here.
 
         First-wins, matching every other binding in this namespace. A second
         binding to a DIFFERENT identity is recorded in `ambiguous_types` rather
         than dropped silently: the name is genuinely ambiguous at any bare use,
         which is the design-142 use-site error, raised once where it is written.
+
+        `module_local` (design 204) diverts the binding into that module's own
+        view: two std files may then each bind `State`, and neither binding is
+        visible to a user program or to the other file.
         """
+        if module_local:
+            self.module_type_names.setdefault(
+                tuple(module_local), {}).setdefault(local, identity)
+            return
         prev = self.type_names.get(local)
         if prev is None:
             self.type_names[local] = identity
@@ -623,28 +663,32 @@ class Namespace:
         """Register a struct symbol under its identity, bound to `name`."""
         identity = self._identity_of(name, symbol)
         self.structs[identity] = symbol
-        self.bind_type_name(name, identity, "struct", source_label)
+        self.bind_type_name(name, identity, "struct", source_label,
+                            self._type_is_module_local(symbol, identity))
 
     def register_enum(self, name: str, symbol: EnumSymbol,
                       source_label: Optional[str] = None):
         """Register an enum symbol under its identity, bound to `name`."""
         identity = self._identity_of(name, symbol)
         self.enums[identity] = symbol
-        self.bind_type_name(name, identity, "enum", source_label)
+        self.bind_type_name(name, identity, "enum", source_label,
+                            self._type_is_module_local(symbol, identity))
 
     def register_trait(self, name: str, symbol: TraitSymbol,
                        source_label: Optional[str] = None):
         """Register a trait symbol under its identity, bound to `name`."""
         identity = self._identity_of(name, symbol)
         self.traits[identity] = symbol
-        self.bind_type_name(name, identity, "trait", source_label)
+        self.bind_type_name(name, identity, "trait", source_label,
+                            self._type_is_module_local(symbol, identity))
 
     def register_type_alias(self, name: str, symbol: TypeAliasSymbol,
                             source_label: Optional[str] = None):
         """Register a type alias symbol under its identity, bound to `name`."""
         identity = self._identity_of(name, symbol)
         self.type_aliases[identity] = symbol
-        self.bind_type_name(name, identity, "type alias", source_label)
+        self.bind_type_name(name, identity, "type alias", source_label,
+                            self._type_is_module_local(symbol, identity))
 
     def _iter_types(self, table: Dict[str, Any]):
         """`(source name, identity, symbol)` for every type nameable here.
@@ -667,13 +711,24 @@ class Namespace:
     def iter_traits(self):
         return self._iter_types(self.traits)
 
-    def resolve_type_identity(self, name: str) -> str:
+    def resolve_type_identity(self, name: str,
+                              module: Optional[Tuple[str, ...]] = None) -> str:
         """The identity a bare `name` refers to here, or `name` itself.
 
         Total by design: an unknown name resolves to itself, so every caller
-        that only wants to canonicalize can call this unconditionally."""
+        that only wants to canonicalize can call this unconditionally.
+
+        `module` is the module doing the looking (design 204). Its OWN private
+        type names win over the shared view, so `std/once.saw` keeps reading
+        its own `State` even when `std/spinlock.saw` declares one and the
+        program being compiled declares a third — the same precedence
+        `get_static` gives a module-private static."""
         if not name:
             return name
+        if module:
+            own = self.module_type_names.get(tuple(module))
+            if own is not None and name in own:
+                return own[name]
         return self.type_names.get(name, name)
 
     def register_module(self, alias: str, symbol: ModuleSymbol):
@@ -876,35 +931,41 @@ class Namespace:
         """Look up a function by name."""
         return self.functions.get(name)
 
-    def _lookup_type(self, table: Dict[str, Any], name: str):
+    def _lookup_type(self, table: Dict[str, Any], name: str,
+                     module: Optional[Tuple[str, ...]] = None):
         """Look a type up in `table` by IDENTITY or by source name (design 144).
 
         The identity hit comes first: everything downstream of type checking
         (codegen keys, monomorphization, mangling) holds identities, and for an
-        unqualified type the two spellings coincide anyway."""
+        unqualified type the two spellings coincide anyway. `module` is the
+        looking module, whose own file-private names win (design 204)."""
         sym = table.get(name)
         if sym is not None:
             return sym
-        identity = self.type_names.get(name)
-        if identity is not None and identity != name:
+        identity = self.resolve_type_identity(name, module)
+        if identity != name:
             return table.get(identity)
         return None
 
-    def lookup_struct(self, name: str) -> Optional[StructSymbol]:
+    def lookup_struct(self, name: str,
+                      module: Optional[Tuple[str, ...]] = None) -> Optional[StructSymbol]:
         """Look up a struct by identity or source name."""
-        return self._lookup_type(self.structs, name)
+        return self._lookup_type(self.structs, name, module)
 
-    def lookup_enum(self, name: str) -> Optional[EnumSymbol]:
+    def lookup_enum(self, name: str,
+                    module: Optional[Tuple[str, ...]] = None) -> Optional[EnumSymbol]:
         """Look up an enum by identity or source name."""
-        return self._lookup_type(self.enums, name)
+        return self._lookup_type(self.enums, name, module)
 
-    def lookup_trait(self, name: str) -> Optional[TraitSymbol]:
+    def lookup_trait(self, name: str,
+                     module: Optional[Tuple[str, ...]] = None) -> Optional[TraitSymbol]:
         """Look up a trait by identity or source name."""
-        return self._lookup_type(self.traits, name)
+        return self._lookup_type(self.traits, name, module)
 
-    def lookup_type_alias(self, name: str) -> Optional[TypeAliasSymbol]:
+    def lookup_type_alias(self, name: str,
+                          module: Optional[Tuple[str, ...]] = None) -> Optional[TypeAliasSymbol]:
         """Look up a type alias by identity or source name."""
-        return self._lookup_type(self.type_aliases, name)
+        return self._lookup_type(self.type_aliases, name, module)
 
     def lookup_method(self, struct_name: str, method_name: str) -> Optional[FunctionSymbol]:
         """Look up a method on a struct or enum (design 145)."""
@@ -1263,7 +1324,7 @@ class Namespace:
         name = saw_type.struct_name
         if name is None:
             return None
-        if name.split('$')[0] != self.INTERIOR_CELL_NAME:
+        if declaration_base(name) != self.INTERIOR_CELL_NAME:
             return None
         args = saw_type.type_args or []
         return args[0] if args else None
@@ -1309,7 +1370,7 @@ class Namespace:
                 return False
             if self.cell_payload(saw_type) is not None:
                 return True
-            base = name.split('$')[0]
+            base = declaration_base(name)
             alias_sym = self._lookup_type_alias_deep(base)
             if alias_sym and alias_sym.aliased_type:
                 return self.is_cell_carrying(alias_sym.aliased_type, _visiting)
@@ -1372,9 +1433,10 @@ class Namespace:
             return cached
         result = self.is_cell_carrying(
             SawType(TypeKind.STRUCT, struct_name=struct_name))
-        if not result and '$' in struct_name:
+        base = declaration_base(struct_name)
+        if not result and base != struct_name:
             result = self.is_cell_carrying(
-                SawType(TypeKind.STRUCT, struct_name=struct_name.split('$')[0]))
+                SawType(TypeKind.STRUCT, struct_name=base))
         self._cell_carrying_by_name[struct_name] = result
         return result
 
@@ -2090,7 +2152,7 @@ class Namespace:
         no others, so the bounds are re-checked here against the type arguments
         rather than taken once at the declaration.
         """
-        bounds = self._lookup_thread_assertion(name.split('$')[0],
+        bounds = self._lookup_thread_assertion(declaration_base(name),
                                                self.ASSERTION_FOR[want_sync])
         if bounds is None:
             return False
@@ -2100,7 +2162,7 @@ class Namespace:
             # writes one argument and means two. The promise is about the type
             # the reference denotes, so the default is what the bound is checked
             # against — not a reason to withhold the assertion.
-            base = name.split('$')[0]
+            base = declaration_base(name)
             sym = self._lookup_struct_deep(base) or self._lookup_enum_deep(base)
             params = list(getattr(sym, 'type_params', None) or []) if sym else []
             while len(args) < len(bounds) and len(args) < len(params):
@@ -2154,7 +2216,7 @@ class Namespace:
                 else None)
         if name is None:
             return ""
-        base = name.split('$')[0]
+        base = declaration_base(name)
         assertion = self.ASSERTION_FOR[want_sync]
         derived = "Sync" if want_sync else "Send"
         blockers = self.blocking_members(saw_type, want_sync)
@@ -2577,6 +2639,14 @@ class Namespace:
         # ambiguous rather than silently picking the first.
         for _n, _ident in other.type_names.items():
             self.bind_type_name(_n, _ident, "type", source_label)
+        # Design 204: the per-module private name views travel too, keyed by
+        # defining module, so a std file's private types stay reachable from
+        # that file's own bodies after the merge and from nowhere else. Two
+        # modules' views can never collide — the module path is part of the key.
+        for _mod, _tbl in other.module_type_names.items():
+            _dst = self.module_type_names.setdefault(_mod, {})
+            for _n, _ident in _tbl.items():
+                _dst.setdefault(_n, _ident)
         for _n, _amb in other.ambiguous_types.items():
             self.ambiguous_types.setdefault(_n, _amb)
         for name, sym in other.modules.items():

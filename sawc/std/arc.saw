@@ -21,7 +21,7 @@ extern "C" {
     func __saw_atomic_fence_acquire()
 }
 
-struct Arc<T> {
+public struct Arc<T> {
     // Points at the control block's byte 0 (the strong count). Always live in a
     // constructed Arc — `init` panics rather than build an inert one (design
     // 123). The field keeps its optional TYPE because codegen's payload-method

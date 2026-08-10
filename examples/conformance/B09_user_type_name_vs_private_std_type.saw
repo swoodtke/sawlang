@@ -1,7 +1,5 @@
 // Conformance row B09 — a PRIVATE std type reserves nothing in a user program.
 //
-// XFAIL: DF-153b a private std TYPE reserves its simple name for every program
-//
 // Design 144 makes type identity `(defining module, name)` and design 82 makes
 // each std FILE its own module, so a std file's private type is that file's and
 // nobody else's. The names below are all taken by std internals a user cannot

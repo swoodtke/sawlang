@@ -51,16 +51,22 @@ class TypeUtilsMixin:
     # Namespace Lookup Helpers
     # =========================================================================
 
-    def _canonical_type_name(self, name: str) -> str:
+    def _canonical_type_name(self, name: str, module=None) -> str:
         """`name` as the module-qualified type IDENTITY it denotes here.
 
         Total (design 144): a name that denotes no type — a type parameter, a
         forward reference, an already-canonical identity — comes back
-        unchanged, so callers canonicalize unconditionally."""
+        unchanged, so callers canonicalize unconditionally.
+
+        "Here" is `_type_lookup_module()` unless a caller names the module
+        (design 204): a std file's private type names are that file's, so the
+        answer depends on who is asking."""
         ns = getattr(self, 'namespace', None)
         if ns is None or not name or '.' in name:
             return name
-        return ns.resolve_type_identity(name)
+        if module is None:
+            module = self._type_lookup_module()
+        return ns.resolve_type_identity(name, module)
 
     def _canonical_trait_name(self, name: str) -> str:
         """A trait REFERENCE as its identity, resolving a module qualifier.
@@ -111,13 +117,21 @@ class TypeUtilsMixin:
         Runs per module, after that module's own types are registered (so its
         `type_names` view is complete) and before anything reads a signature.
         Idempotent: `resolve_type_identity` maps an identity to itself.
+
+        PER FILE, not per module (design 204). The builtins are ONE AST built
+        from thirty files, each its own module, and a std file's private type
+        names are visible only inside it — so the walk carries the module of
+        the source file it is inside, taken from a declaration's `source_file`
+        and, more precisely, from a written type's own `written_file` (the
+        provenance design 194 stamped). Outside std every file of a module
+        answers the same, so this is inert for user code.
         """
         import dataclasses
         from ast_nodes import SawType as _SawType
 
         seen = set()
 
-        def visit(obj):
+        def visit(obj, mod=None):
             if obj is None or isinstance(obj, (str, int, float, bool)):
                 return
             key = id(obj)
@@ -125,28 +139,35 @@ class TypeUtilsMixin:
                 return
             if isinstance(obj, _SawType):
                 seen.add(key)
+                here = (self._vis_module_for_source(obj.written_file)
+                        if obj.written_file else mod)
                 if obj.struct_name:
-                    obj.struct_name = self._canonical_type_name(obj.struct_name)
+                    obj.struct_name = self._canonical_type_name(
+                        obj.struct_name, here)
                 if obj.enum_name:
-                    obj.enum_name = self._canonical_type_name(obj.enum_name)
+                    obj.enum_name = self._canonical_type_name(
+                        obj.enum_name, here)
                 if obj.existential_trait:
                     obj.existential_trait = self._canonical_type_name(
-                        obj.existential_trait)
+                        obj.existential_trait, here)
                 for child in (obj.element_types, obj.inner_type, obj.type_args,
                               obj.array_element_type, obj.param_types,
                               obj.func_return_type):
-                    visit(child)
+                    visit(child, mod)
                 return
             if isinstance(obj, (list, tuple, set)):
                 for item in obj:
-                    visit(item)
+                    visit(item, mod)
                 return
             if isinstance(obj, dict):
                 for item in obj.values():
-                    visit(item)
+                    visit(item, mod)
                 return
             if dataclasses.is_dataclass(obj):
                 seen.add(key)
+                own_file = getattr(obj, 'source_file', None)
+                if own_file:
+                    mod = self._vis_module_for_source(own_file)
                 # A TRAIT reference spelled as a bare string, not a `SawType`:
                 # a type-parameter bound (`<T: Seed>`), a trait's parents, a
                 # declared conformance list. A trait carries an identity like
@@ -160,14 +181,19 @@ class TypeUtilsMixin:
                         # DF-150b: a bound or parent may be module-qualified;
                         # `conformances` keeps the spelling, which the orphan-rule
                         # check in registration resolves itself.
-                        canon = (self._canonical_type_name
-                                 if _slot == "conformances"
-                                 else self._canonical_trait_name)
-                        setattr(obj, _slot, [canon(n) for n in names])
+                        if _slot == "conformances":
+                            setattr(obj, _slot,
+                                    [self._canonical_type_name(n, mod)
+                                     for n in names])
+                        else:
+                            with self._declaring(obj):
+                                setattr(obj, _slot,
+                                        [self._canonical_trait_name(n)
+                                         for n in names])
                 for f in dataclasses.fields(obj):
                     if f.name in self._CANON_SKIP_FIELDS:
                         continue
-                    visit(getattr(obj, f.name, None))
+                    visit(getattr(obj, f.name, None), mod)
                 return
 
         visit(module_ast)
@@ -175,10 +201,14 @@ class TypeUtilsMixin:
         # (aliases are registered first) can hold a rebuilt `SawType` that is
         # not in the AST, so it needs the walk explicitly.
         for type_def in getattr(module_ast, 'type_definitions', []):
-            alias = self.namespace.lookup_type_alias(type_def.name)
+            with self._declaring(type_def):
+                alias = self.namespace.lookup_type_alias(
+                    self._canonical_type_name(type_def.name))
             if alias is not None:
-                visit(alias.aliased_type)
-                visit(alias.immediate_type)
+                mod = self._vis_module_for_source(
+                    getattr(type_def, 'source_file', None))
+                visit(alias.aliased_type, mod)
+                visit(alias.immediate_type, mod)
 
     @staticmethod
     def _type_key(t) -> str:
@@ -254,8 +284,8 @@ class TypeUtilsMixin:
             symbol = self.namespace.resolve(qualified_path, check_access=False)
             if symbol and symbol.kind == SymbolKind.STRUCT:
                 return symbol
-        # Local lookup
-        result = self.namespace.lookup_struct(name)
+        # Local lookup (design 204: through the asking module's own view first)
+        result = self.namespace.lookup_struct(name, self._type_lookup_module())
         if result:
             self._report_type_ambiguity('struct', name)
             return result
@@ -287,8 +317,8 @@ class TypeUtilsMixin:
             symbol = self.namespace.resolve(qualified_path, check_access=False)
             if symbol and symbol.kind == SymbolKind.ENUM:
                 return symbol
-        # Local lookup
-        result = self.namespace.lookup_enum(name)
+        # Local lookup (design 204: through the asking module's own view first)
+        result = self.namespace.lookup_enum(name, self._type_lookup_module())
         if result:
             self._report_type_ambiguity('enum', name)
             return result
@@ -372,7 +402,7 @@ class TypeUtilsMixin:
             symbol = self.namespace.resolve(qualified_path, check_access=False)
             if symbol and symbol.kind == SymbolKind.TRAIT:
                 return symbol
-        result = self.namespace.lookup_trait(name)
+        result = self.namespace.lookup_trait(name, self._type_lookup_module())
         if result is not None:
             return result
         # DF-150b: the same visibility-honoring cross-module fallback
@@ -400,7 +430,7 @@ class TypeUtilsMixin:
             symbol = self.namespace.resolve(qualified_path, check_access=False)
             if symbol and symbol.kind == SymbolKind.TYPE_ALIAS:
                 return symbol
-        local = self.namespace.lookup_type_alias(name)
+        local = self.namespace.lookup_type_alias(name, self._type_lookup_module())
         if local is not None:
             return local
         # An IMPORTED alias is still an alias. Without this the name resolves as

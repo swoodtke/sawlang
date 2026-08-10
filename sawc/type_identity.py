@@ -35,21 +35,36 @@ could write, and `display_name` is a total, exact inverse.
 
 WHICH MODULES QUALIFY
 ---------------------
-`qualifies()` below: every non-root module EXCEPT std. Two consequences worth
-stating:
+`qualifies()` below: every non-root module, plus — since design 204 — the
+FILE-PRIVATE types of a std file. Three consequences worth stating:
 
 * The root module is `()` — the entry file, and the whole single-file
   compilation path. Nothing there is qualified, so every single-file program in
   the corpus emits byte-identical IR (the design-126 irdet property).
-* std is exempt. std is one shared prelude compiled into every program, and its
-  type names are compiler-known in hundreds of places (`Vector`, `String`,
-  `Result`, `Box`). Qualifying them would rename every symbol in every program
-  to no purpose: a name clash INSIDE std is a std bug we want reported, not
-  silently split into two types. Design 82 already gives each std file its own
-  module identity for VISIBILITY; that is a separate axis and stays.
+* std's PUBLIC types are exempt. std is one shared prelude compiled into every
+  program, and its published type names are compiler-known in hundreds of
+  places (`Vector`, `String`, `Result`, `Box`). Qualifying them would rename
+  every symbol in every program to no purpose, and design 204 explicitly keeps
+  the public surface's exposure exactly as designs 82/150/194 left it.
+* std's PRIVATE types are NOT exempt (design 204). Design 82 makes each std
+  FILE its own module, so a type that file keeps to itself is that file's:
+  `State` in `std/once.saw` is `State$m$std_once`, it reserves nothing in a
+  user program, and a second std file may own the name too. This is DF-140h's
+  module-local identity — landed for a private std `static`, never for a type
+  — finally applied to type declarations.
+
+`builtin.saw` is exempt WHOLESALE: it declares the compiler's own vocabulary
+(the copy family, `Ordering`, `Atomic`, `Range`, `__Poll`), every name of which
+the compiler either publishes or reaches by string. It holds no private type,
+so there is nothing there for the rule to free.
 """
 
 from typing import Optional, Tuple
+
+# The std file whose declarations are the compiler's own vocabulary. Nothing in
+# it is file-private, and every name in it is either published or reached by
+# string from `sawc/`, so it never qualifies (design 204).
+STD_VOCABULARY_LEAF = "builtin"
 
 # Design 142's delimiter (`registration._module_private_symbol`). One scheme,
 # two users: a private function's codegen symbol and a type's identity.
@@ -66,18 +81,29 @@ def module_tag(module: Tuple[str, ...]) -> str:
     return "".join(c if (c.isalnum() or c == "_") else "_" for c in raw)
 
 
-def qualifies(module: Optional[Tuple[str, ...]]) -> bool:
-    """Whether types defined in `module` carry a module-qualified identity.
+def is_std_module(module: Optional[Tuple[str, ...]]) -> bool:
+    """Whether `module` is a std FILE's module (`("<std>", "once")`)."""
+    return bool(module) and module[:1] == ("<std>",)
 
-    See the module docstring for why root and std are exempt."""
+
+def qualifies(module: Optional[Tuple[str, ...]], private: bool = False) -> bool:
+    """Whether a type defined in `module` carries a module-qualified identity.
+
+    `private` is the declaration's own visibility, and it only matters inside
+    std: a user module's types qualify either way (design 144), while a std
+    file qualifies exactly what it keeps to itself (design 204). See the module
+    docstring for why root and std's published surface are exempt."""
     if not module:
         return False
-    if module[:1] == ("<std>",):
-        return False
+    if is_std_module(module):
+        if not private:
+            return False
+        return module[1:2] != (STD_VOCABULARY_LEAF,)
     return True
 
 
-def type_identity(name: str, module: Optional[Tuple[str, ...]]) -> str:
+def type_identity(name: str, module: Optional[Tuple[str, ...]],
+                  private: bool = False) -> str:
     """The identity of type `name` defined in `module`.
 
     Idempotent: an already-qualified name is returned unchanged. Registration
@@ -87,9 +113,48 @@ def type_identity(name: str, module: Optional[Tuple[str, ...]]) -> str:
     """
     if not name or QUALIFIER in name:
         return name
-    if not qualifies(module):
+    if not qualifies(module, private):
         return name
     return f"{name}{QUALIFIER}{module_tag(module)}"
+
+
+def declaration_base(name: Optional[str]) -> Optional[str]:
+    """The DECLARATION this (possibly monomorphized) type name instantiates,
+    with its module qualifier INTACT.
+
+    `Vector$1$Int` -> `Vector`; `State$m$std_once` -> `State$m$std_once`;
+    `Box$m$dep$1$Int` -> `Box$m$dep`. The naive `name.split('$')[0]` predates
+    design 144 and reads a qualifier as an instantiation suffix, which silently
+    answers a question about `State$m$std_once` with whatever a bare `State`
+    says — a wrong-type answer, not a missing one. That was invisible while
+    only user modules qualified (design 144 landed no in-tree case); design 204
+    qualifies std's own internals, and the first symptom was `Data` losing its
+    `Send`ness because its `DataBuf` field's assertion was filed under the
+    identity and looked up under the bare name.
+
+    `codegen.mangle`'s grammar is what makes this decidable: a monomorphized
+    name is `Base$<arity>$<args>` and `$m$<tag>` is part of the Name itself.
+    """
+    if not name or QUALIFIER not in name and '$' not in name:
+        return name
+    parts = name.split('$')
+    out = [parts[0]]
+    i = 1
+    while i + 1 < len(parts) and parts[i] == 'm':
+        out.extend(('m', parts[i + 1]))
+        i += 2
+    return '$'.join(out)
+
+
+def is_module_local(identity: Optional[str],
+                    module: Optional[Tuple[str, ...]]) -> bool:
+    """Whether a type's NAME is nameable only from inside `module` itself.
+
+    True for exactly the std file-private types design 204 introduced. A user
+    module's qualified types stay nameable from an importer (that is what
+    design 144's public same-name coexistence rests on), so they are not
+    module-local and keep their binding in the shared name view."""
+    return is_std_module(module) and is_qualified(identity)
 
 
 def display_name(identity: Optional[str]) -> Optional[str]:

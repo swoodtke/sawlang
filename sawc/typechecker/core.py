@@ -4,6 +4,7 @@ Performs type checking and semantic analysis on the AST.
 """
 
 import itertools
+from contextlib import contextmanager
 from typing import Dict, List, Optional, Set, Tuple
 from dataclasses import dataclass, field
 from ast_nodes import (
@@ -282,6 +283,12 @@ class TypeChecker(ExpressionsMixin, StatementsMixin, RegistrationMixin, TypeUtil
         # handed back by the coroutine transform for its own second pass.
         self._suspending_methods_set: Optional[set] = None
 
+        # design 204: the source file of the declaration currently being
+        # REGISTERED, for `_type_lookup_module`. Registration resolves a
+        # signature before any body is entered, so the current-function path
+        # cannot answer there; `_declaring` maintains this.
+        self._decl_source_file: Optional[str] = None
+
         # design 194 unit 4: the prelude-gate reports already made, keyed by
         # (module, name, line, column). The front half re-enters the same AST
         # (place lowering, the coroutine transform's re-check), so a rule that
@@ -338,6 +345,52 @@ class TypeChecker(ExpressionsMixin, StatementsMixin, RegistrationMixin, TypeUtil
         """The defining module of the code currently being type-checked (the
         accessor), for the member-visibility gate."""
         return self._vis_module_for_source(self._get_current_source_file())
+
+    # ------------------------------------------------------------------ #
+    # THE PRIVATE-TYPE-NAME LOOKUP MODULE — the funnel (design 204,
+    # obligation 1).
+    #
+    # A std file's PRIVATE type name lives in that file's own view
+    # (`Namespace.module_type_names`) and nowhere else, so a lookup by bare
+    # name has to say WHO is looking. One decision procedure, this one, and it
+    # answers with the module of the source file the name was written in.
+    #
+    # ENTRY POINTS — every place a bare type name is turned into a symbol or an
+    # identity:
+    #   * `_canonical_type_name` (typechecker/types.py) — the name -> identity
+    #     canonicalizer, itself the chokepoint `_resolve_type`, extension
+    #     registration and `_canonicalize_module_types` go through.
+    #   * `get_struct_info` / `get_enum_info` / `get_trait_info` /
+    #     `get_type_alias_info` (typechecker/types.py) — the four symbol
+    #     lookups; an expression-position name (`State.Unset`,
+    #     `MapSlot.Occupied(...)`) reaches a private std type only here.
+    # Codegen is deliberately NOT an entry point: everything downstream of type
+    # checking holds identities (design 144's central invariant), so it looks
+    # its types up by key and never asks this question.
+    #
+    # WHERE THE ANSWER COMES FROM, in order:
+    #   1. `_decl_source_file` — the declaration being REGISTERED. Registration
+    #      resolves signatures and alias right-hand sides before any body is
+    #      entered, so `current_function`/`current_method` are still empty.
+    #   2. the current function/method's source file — every body check.
+    #   3. `current_module_path` — the fallback `_vis_module_for_source` gives
+    #      a file it cannot place, which is the user-module answer.
+    # ------------------------------------------------------------------ #
+    def _type_lookup_module(self) -> Tuple[str, ...]:
+        """The module whose FILE-PRIVATE type names are in scope right now."""
+        src = self._decl_source_file or self._get_current_source_file()
+        return self._vis_module_for_source(src)
+
+    @contextmanager
+    def _declaring(self, decl):
+        """Register/check `decl` with its own source file in force, so a bare
+        name in its signature resolves against ITS module's private types."""
+        saved = self._decl_source_file
+        self._decl_source_file = getattr(decl, 'source_file', None) or saved
+        try:
+            yield
+        finally:
+            self._decl_source_file = saved
 
     def _in_synthesized_context(self) -> bool:
         """Whether the code currently being checked is compiler-synthesized
@@ -1180,19 +1233,23 @@ class TypeChecker(ExpressionsMixin, StatementsMixin, RegistrationMixin, TypeUtil
 
         # First pass: register type definitions (aliases)
         for type_def in program.type_definitions:
-            self._register_type_definition(type_def)
+            with self._declaring(type_def):
+                self._register_type_definition(type_def)
 
         # Second pass: collect struct definitions
         for struct in program.structs:
-            self._register_struct(struct)
+            with self._declaring(struct):
+                self._register_struct(struct)
 
         # Third pass: collect enum definitions
         for enum in program.enums:
-            self._register_enum(enum)
+            with self._declaring(enum):
+                self._register_enum(enum)
 
         # Fourth pass: collect trait definitions
         for trait in program.traits:
-            self._register_trait(trait)
+            with self._declaring(trait):
+                self._register_trait(trait)
 
         # DF-172j second half: a bare-name const generic ARGUMENT that is a
         # `static` (`FixedBuf<CAP>`). Needs the referenced type's parameter list
@@ -1209,12 +1266,23 @@ class TypeChecker(ExpressionsMixin, StatementsMixin, RegistrationMixin, TypeUtil
         # struct symbols hold, so a FIELD written that way lands too.
         self._fold_const_lengths_in_program(program)
 
+        # Design 144: this unit's types are all registered now, so the
+        # name -> identity view is complete. Rewrite every type REFERENCE to
+        # the identity it denotes, before extension registration or any body
+        # check reads one. `check_module` does the same at the same seam; this
+        # is the single-file path AND the builtins, where design 204 makes the
+        # rewrite load-bearing (a std file's private type name means something
+        # different in each file, and the whole-program passes below read
+        # signatures with no file in hand).
+        self._canonicalize_module_types(program)
+
         # Fifth pass: register extensions and their methods. The structural
         # `deinit` (design 128) is synthesized first, as a whole-program
         # pre-pass, so registration sees it like any hand-written one.
         self._synthesize_implicit_deinits(program)
         for extension in program.extensions:
-            self._register_extension(extension)
+            with self._declaring(extension):
+                self._register_extension(extension)
 
         # Fifth-a.5 pass: validate `any Trait` existentials in all declared
         # signatures/fields (design 51 object safety + unsized discipline). Runs
@@ -1260,16 +1328,19 @@ class TypeChecker(ExpressionsMixin, StatementsMixin, RegistrationMixin, TypeUtil
         # Register extern functions (FFI)
         for extern_block in program.extern_blocks:
             for extern_func in extern_block.functions:
-                self._register_extern_function(extern_func)
+                with self._declaring(extern_func):
+                    self._register_extern_function(extern_func)
 
         # Sixth pass: collect function signatures
         for func in program.functions:
-            self._register_function(func)
+            with self._declaring(func):
+                self._register_function(func)
 
         # Sixth-b pass: register module-level statics (design 41). After
         # structs/enums/functions so a const initializer may reference them.
         for static in getattr(program, 'statics', []):
-            self._register_static(static)
+            with self._declaring(static):
+                self._register_static(static)
 
         # Overloading (design 55): now that every function/method signature is
         # registered, assign each member of a 2+ overload set its type-signature
@@ -1299,7 +1370,8 @@ class TypeChecker(ExpressionsMixin, StatementsMixin, RegistrationMixin, TypeUtil
         # design 53: type-check top-level static_assert conditions (stamps the
         # annotations the codegen const evaluator consumes; surfaces type errors).
         for sa in getattr(program, 'static_asserts', []):
-            self._check_static_assert(sa)
+            with self._declaring(sa):
+                self._check_static_assert(sa)
 
         # Ninth pass: whole-program `sync` effect analysis (design 22).
         self.finalize_effects()
@@ -1899,22 +1971,26 @@ class TypeChecker(ExpressionsMixin, StatementsMixin, RegistrationMixin, TypeUtil
 
         # Register type definitions
         for type_def in module_ast.type_definitions:
-            self._register_type_definition(type_def)
+            with self._declaring(type_def):
+                self._register_type_definition(type_def)
             ns.make_accessible(type_def.name)
 
         # Register structs
         for struct in module_ast.structs:
-            self._register_struct(struct)
+            with self._declaring(struct):
+                self._register_struct(struct)
             ns.make_accessible(struct.name)
 
         # Register enums
         for enum in module_ast.enums:
-            self._register_enum(enum)
+            with self._declaring(enum):
+                self._register_enum(enum)
             ns.make_accessible(enum.name)
 
         # Register traits
         for trait in module_ast.traits:
-            self._register_trait(trait)
+            with self._declaring(trait):
+                self._register_trait(trait)
             ns.make_accessible(trait.name)
 
         # DF-172j second half: a bare-name const generic ARGUMENT that is a
@@ -1934,7 +2010,8 @@ class TypeChecker(ExpressionsMixin, StatementsMixin, RegistrationMixin, TypeUtil
         # Register extensions (structural `deinit` synthesized first, design 128)
         self._synthesize_implicit_deinits(module_ast)
         for extension in module_ast.extensions:
-            self._register_extension(extension)
+            with self._declaring(extension):
+                self._register_extension(extension)
 
         # Validate `any Trait` existentials in declared signatures (design 51),
         # type-parameter bounds (design 148), and the `unsafe` effect on written
@@ -1967,18 +2044,21 @@ class TypeChecker(ExpressionsMixin, StatementsMixin, RegistrationMixin, TypeUtil
         # Register extern functions
         for extern_block in module_ast.extern_blocks:
             for extern_func in extern_block.functions:
-                self._register_extern_function(extern_func)
+                with self._declaring(extern_func):
+                    self._register_extern_function(extern_func)
                 ns.make_accessible(extern_func.name)
 
         # Register functions
         for func in module_ast.functions:
-            self._register_function(func)
+            with self._declaring(func):
+                self._register_function(func)
             ns.make_accessible(func.name)
 
         # Register module-level statics (design 41). Accessible module-locally;
         # a `public` static is additionally visible to importers.
         for static in getattr(module_ast, 'statics', []):
-            self._register_static(static)
+            with self._declaring(static):
+                self._register_static(static)
             ns.make_accessible(static.name)
 
         # Handle inline module declarations BEFORE type-checking function bodies
@@ -2117,7 +2197,8 @@ class TypeChecker(ExpressionsMixin, StatementsMixin, RegistrationMixin, TypeUtil
         # design 53: walk top-level static_assert conditions so their annotations
         # (Int.max limit tag, sizeof type args) are stamped for codegen.
         for sa in getattr(module_ast, 'static_asserts', []):
-            self._check_static_assert(sa)
+            with self._declaring(sa):
+                self._check_static_assert(sa)
 
         # Restore old state
         self.namespace = old_namespace

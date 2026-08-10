@@ -18,7 +18,7 @@ extern "C" {
 // Path - A file system path
 // =============================================================================
 
-struct Path {
+public struct Path {
     value: String
 }
 

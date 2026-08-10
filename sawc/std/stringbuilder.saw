@@ -34,7 +34,7 @@ static MARKER_BYTE_2: Int = 166
 // terminator plus one byte of text. Below this there is nothing to say.
 static MIN_FIXED_CAPACITY: Int = 5
 
-struct StringBuilder {
+public struct StringBuilder {
     buffer: UnsafePointer<Int8>?
     length: Int
     capacity: Int

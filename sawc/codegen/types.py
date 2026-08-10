@@ -11,6 +11,7 @@ Usage:
 
 from llvmlite import ir
 from ast_nodes import SawType, TypeKind
+from type_identity import declaration_base
 
 
 class TypesMixin:
@@ -132,7 +133,7 @@ class TypesMixin:
             # costs no wrapper and `ptr()` is the address of the field itself.
             # This is what lets `Atomic<T>` and `SpinLock<T>` carry a real cell
             # with byte-identical layout to the versions that did not.
-            if (saw_type.struct_name.split('$')[0] == "UnsafeMutableInterior"
+            if (declaration_base(saw_type.struct_name) == "UnsafeMutableInterior"
                     and saw_type.type_args):
                 return self._get_llvm_type(saw_type.type_args[0])
             # Check if it's a type alias (use namespace)

@@ -22,7 +22,7 @@
 // (infallible tier), `try_make` returns `Err` (fallible tier). A memberwise
 // `Box(ptr:)` still exists (used internally) but is a raw wrapper, not the API.
 
-struct Box<T, A: Allocator = GlobalAllocator> {
+public struct Box<T, A: Allocator = GlobalAllocator> {
     // Points directly at the heap `T`. Always valid in a live Box: `make` panics
     // rather than construct a null Box, and `try_make` returns `Err` without
     // constructing one, so no inert/None state exists.

@@ -348,8 +348,21 @@ def build_builtin_namespace(verbose: bool = False, freestanding: bool = False,
         b = os.path.basename(source_file)
         return b[:-4] if b.endswith('.saw') else b
 
-    std_file_symbols = {}      # leaf -> set(names)
+    from type_identity import is_qualified
+
+    # Design 204: a std file's PRIVATE type is not part of its module's
+    # surface. It stays registered (compiler-known, and its own file's bodies
+    # name it) but it is not what `import std.<leaf>[.*|.{...}]` exposes, not
+    # what the qualifier view carries, and not a name the "did you mean
+    # import" hint can offer — so it reserves nothing in a user program. The
+    # tell is the design-144 identity: only a private std type carries one.
+    std_file_symbols = {}      # leaf -> set(names) — the module's SURFACE
     std_symbol_file = {}       # name -> leaf (first owner wins)
+    # The same map over EVERY top-level declaration, plus each one's codegen
+    # key. The design-82 codegen exclusion is about what a program COMPILES,
+    # not about what it may name, so it works from these.
+    std_file_all_names = {}    # leaf -> set(names)
+    std_file_keys = {}         # leaf -> set(names + identities)
     for decls in (getattr(builtin_ast, 'structs', []),
                   getattr(builtin_ast, 'enums', []),
                   getattr(builtin_ast, 'functions', []),
@@ -359,8 +372,17 @@ def build_builtin_namespace(verbose: bool = False, freestanding: bool = False,
             leaf = _leaf_of(getattr(d, 'source_file', None))
             if leaf is None:
                 continue
+            identity = getattr(d, 'type_identity', "") or d.name
+            std_file_all_names.setdefault(leaf, set()).add(d.name)
+            std_file_keys.setdefault(leaf, set()).update((d.name, identity))
+            if is_qualified(identity):
+                continue
             std_file_symbols.setdefault(leaf, set()).add(d.name)
             std_symbol_file.setdefault(d.name, leaf)
+    # A file whose every declaration is private still has a module (an empty
+    # surface is a surface): `import std.<leaf>` must stay a known module.
+    for leaf in std_file_all_names:
+        std_file_symbols.setdefault(leaf, set())
 
     def _is_prelude(name):
         """Whether a builtin/std symbol is in the auto-visible prelude."""
@@ -377,10 +399,17 @@ def build_builtin_namespace(verbose: bool = False, freestanding: bool = False,
     for table in (builtin_ns.structs, builtin_ns.enums, builtin_ns.functions,
                   builtin_ns.traits, builtin_ns.type_aliases):
         for name in table:
+            # Design 204: a qualified key is a std file's private type. It has
+            # no source spelling a user program could write, so there is
+            # nothing to make accessible.
+            if is_qualified(name):
+                continue
             if _is_prelude(name):
                 builtin_ns.make_accessible(name)
 
     builtin_ns._std_file_symbols = std_file_symbols
+    builtin_ns._std_file_all_names = std_file_all_names
+    builtin_ns._std_file_keys = std_file_keys
     builtin_ns._std_symbol_file = std_symbol_file
     builtin_ns._import_required_modules = IMPORT_REQUIRED_STD_MODULES
     builtin_ns._import_required_symbols = IMPORT_REQUIRED_STD_SYMBOLS
@@ -471,7 +500,10 @@ def compute_std_codegen_exclusions(builtin_ns, import_asts):
     and the top-level symbol names they own.
     """
     import re
-    file_symbols = getattr(builtin_ns, '_std_file_symbols', {}) or {}
+    # design 204: EVERY declaration, not just the module's surface — a private
+    # type of an excluded leaf still has to be left out of codegen.
+    file_symbols = getattr(builtin_ns, '_std_file_all_names', {}) or {}
+    file_keys = getattr(builtin_ns, '_std_file_keys', {}) or {}
     all_leaves = set(file_symbols)
 
     # Read the std sources (comment-stripped) once for the reference scan.
@@ -525,7 +557,7 @@ def compute_std_codegen_exclusions(builtin_ns, import_asts):
     excluded_leaves = all_leaves - compiled
     excluded_symbols = set()
     for leaf in excluded_leaves:
-        excluded_symbols |= file_symbols.get(leaf, set())
+        excluded_symbols |= file_keys.get(leaf, file_symbols.get(leaf, set()))
     return excluded_leaves, excluded_symbols
 
 

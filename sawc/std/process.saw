@@ -183,7 +183,7 @@ func wait_cancelled(program: String) -> ProcessError {
 // CommandOutput - Result of running a command with output capture
 // =============================================================================
 
-struct CommandOutput {
+public struct CommandOutput {
     public stdout: String
     public exit_code: Int32
 }
@@ -199,7 +199,7 @@ extension CommandOutput {
 // Command - Builder for spawning processes
 // =============================================================================
 
-struct Command {
+public struct Command {
     program: String
     // One element per argument, kept SEPARATE all the way to `execvp`. The old
     // representation was a single space-joined byte buffer handed to `system()`,

@@ -2835,7 +2835,8 @@ class _FrameBuilder:
                                           type=_field_type(self.ret, self.result_enc)))
         self.frame_struct = Struct(name=self.frame_name, fields=fields,
                                    line=func.line, column=func.column,
-                                   source_file=getattr(func, 'source_file', ""))
+                                   source_file=getattr(func, 'source_file', ""),
+                                   is_synthesized=True)
         return self.frame_struct
 
     # ------------------------------------------------------- design 134 places

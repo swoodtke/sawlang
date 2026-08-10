@@ -32,7 +32,7 @@ enum MapSlot<K, V> {
 // `Map<K, V, A>` allocates through the SAME allocator. `cap` is the number
 // of slots (a power of two, 0 before the first insert); `count` is the number
 // of live (Occupied) entries.
-struct Map<K, V, A: Allocator = GlobalAllocator> {
+public struct Map<K, V, A: Allocator = GlobalAllocator> {
     slots: Vector<MapSlot<K, V>, A>
     count: Int
     cap: Int

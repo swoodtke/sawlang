@@ -658,6 +658,12 @@ class StaticAssert:
     message: str
     line: int = 0
     column: int = 0
+    # The file this assertion was written in (design 204). A top-level
+    # `static_assert` is checked in a whole-program pass with no declaration in
+    # hand, and its condition may name a FILE-PRIVATE type
+    # (`static_assert((State.Unset as Int) == 0, ...)` in `std/once.saw`), so
+    # the name lookup needs the file the same way every other declaration's does.
+    source_file: str = ""
 
 
 @dataclass
@@ -1887,6 +1893,14 @@ class Struct(ASTNode):
     # the AST dump render that — while codegen keys its layout, its
     # monomorphizations and its method symbols off the identity.
     type_identity: str = ""
+    # design 204: this struct was SYNTHESIZED by the compiler (a coroutine
+    # frame), not written by an author. The compiler names such a type by
+    # string at its declaration and at every reference, so it never carries a
+    # module-qualified identity — the qualifier would rename the declaration
+    # out from under the string that builds the reference. Matches
+    # `Function.is_synthesized`, which the visibility and unsafe rules already
+    # read for the same reason.
+    is_synthesized: bool = False
     # design 163 (measurement): on a coroutine FRAME struct, the state-machine
     # facts the `--emit-frame-layout` report needs — the state count, and for
     # each embedded sub-frame field the single state in which it is live. Set by

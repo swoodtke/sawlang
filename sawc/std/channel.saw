@@ -43,7 +43,7 @@ extern "C" {
     func pthread_cond_destroy(c: UnsafePointer<Int8>) -> Int
 }
 
-struct Channel<T: Send> {
+public struct Channel<T: Send> {
     // Shared block pointer. Always live in a constructed Channel — `init`
     // panics rather than build an inert one (design 123). The field keeps its
     // optional TYPE because the block is also reached through the refcounted

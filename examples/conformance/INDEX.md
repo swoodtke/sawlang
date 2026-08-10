@@ -495,11 +495,14 @@ Obligation 3 asks a safety-surface brief for its rows FIRST, so a row that
 states a ruling the compiler has not been taught yet lands as a cited XFAIL and
 the unit that teaches it removes the marker.
 
-Open: **B09** — XFAIL citing DF-153b (a private std type reserves its simple
-name for every program in the language, and the reserved set is unknowable
-because std's private types are invisible). **B10** states the same rule from
-inside std (DF-153a); its vehicle is a compiler-level test rather than a `.saw`
-row, so it lands with the fix it pins instead of ahead of it.
+None are open.
+
+Closed: **B09** — written under an XFAIL citing DF-153b (a private std type
+reserved its simple name for every program in the language, and the reserved
+set was unknowable because std's private types are invisible), flipped by
+design 204 unit 2. **B10** states the same rule from inside std (DF-153a); its
+vehicle is a compiler-level test rather than a `.saw` row, so it landed with
+the fix it pins instead of ahead of it.
 
 Closed: **V26, V27** — written under an XFAIL citing DF-186a (`Atomic` was
 bitwise-copyable, so a `let b = a` forked the counter silently and a struct

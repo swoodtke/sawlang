@@ -11,7 +11,7 @@
 /// different types and neither can be passed where the other is expected. The
 /// bytes live wherever the buffer does: a local puts them on the stack, a field
 /// puts them in the enclosing value, a `static` puts them in `.bss`.
-struct FixedBuf<const N: Int> {
+public struct FixedBuf<const N: Int> {
     data: [Int8; N]
 }
 
@@ -82,7 +82,7 @@ extension FixedBuf<N> {
 /// out.append(42)
 /// print(out.as_string())
 /// ```
-struct FixedStringBuilder<const N: Int> {
+public struct FixedStringBuilder<const N: Int> {
     storage: FixedBuf<N>
     builder: StringBuilder
 }

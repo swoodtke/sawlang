@@ -1,23 +1,19 @@
-// XFAIL: DF-153b a private std TYPE reserves its simple name for every program —
-// the half of DF-140h that only covered statics
+// A user `enum OpenMode` beside std.file's private one (DF-153b, closed by
+// design 204).
 //
 // DF-140h gave a module-private `static` inside a std file a module-local
 // identity, so a user program may declare its own `ASCII_ZERO` and std still
-// reads its own. A module-private TYPE never got that identity: std.file
-// declares a private `enum OpenMode` (design 155), so a program declaring its
-// own `OpenMode` silently loses to std's — the user's cases are not there, and
-// the error names a declaration the author cannot see, import or find:
+// reads its own. A module-private TYPE did not get that identity until design
+// 204: std.file declares a private `enum OpenMode` (design 155), so a program
+// declaring its own used to lose to std's — the user's cases were not there,
+// and the error named a declaration the author cannot see, import or find:
 //
 //     error: enum `OpenMode` has no variant `Write`
 //
 // A struct or enum name is the shape a user is most likely to pick, and std's
-// private types are invisible, so the reserved set is unknowable. Design 82
+// private types are invisible, so the reserved set was unknowable. Design 82
 // makes each std FILE its own module and design 144 makes type identity
-// `(defining module, name)`; this is that rule not reaching std types.
-//
-// The same failure blocks the reverse direction inside std: two std files
-// cannot declare one name either (DF-153a), which is why design 153's sweep
-// could not give std.net's SysError tags the name rt/ABI.md gives them.
+// `(defining module, name)`; design 204 is that rule reaching std types.
 //
 // EXPECT: success
 // EXPECT-OUTPUT: 1
