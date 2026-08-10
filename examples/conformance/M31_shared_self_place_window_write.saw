@@ -1,20 +1,31 @@
-// Conformance row M31 — a `&self` method writing through a place window on an
-// INLINE field (DF-176c)
+// Conformance row M31 — a `&self` method writing through a place window on
+// INLINE storage (DF-176c)
 //
 // The fourth spelling of the vanishing write, and the last one still open: the
 // three the family started with (a direct field write, a `&var self.field`
 // projection, a `&var self` method call on self or on a field) all became
 // compile errors in designs 176 and 188. This one reaches the same storage
-// through a synthesized place window. `grid` is an INLINE field, so it travels
-// with the `&self` copy — the window opens on the copy, the write lands there,
-// and the copy is discarded when the method returns.
+// through a synthesized place window. The field travels with the `&self` copy,
+// so the window opens on the copy, the write lands there, and the copy is
+// discarded when the method returns. Probed Aug 10 before design 200: the first
+// case compiled and printed `first 1`, not `first 101`.
 //
-// Probed Aug 10 before design 200: it compiled and printed `first 1`, not
-// `first 101`. The accept side is row M32 — a field the copy reaches through
-// heap indirection, where the same window write is sound.
-// XFAIL: DF-176c a `&self` method writing through a place window on an inline field is a silent no-op into the receiver copy
+// The rows below are the POSITION MATRIX for "storage inside the receiver" —
+// the same set design 176 walks for a direct write, plus the two hops only a
+// window can take: the accessor whose place is an inline `[T; N]` element, and
+// the accessor that lends an enum PAYLOAD out of a `match` arm.
+//
+// The accept side is row M32, where the accessor lends through heap
+// indirection the copy shares.
 // EXPECT: error
 // EXPECT-ERROR-CONTAINS: cannot write through a place window on storage reached through a `&self` receiver
+// EXPECT-ERROR-CONTAINS: `self.grid[…]` opens its window on the callee's copy
+// EXPECT-ERROR-CONTAINS: `self.inner.grid[…]` opens its window on the callee's copy
+// EXPECT-ERROR-CONTAINS: `self.pair.0[…]` opens its window on the callee's copy
+// EXPECT-ERROR-CONTAINS: `self.maybe![…]` opens its window on the callee's copy
+// EXPECT-ERROR-CONTAINS: `self.grids[…][…]` opens its window on the callee's copy
+// EXPECT-ERROR-CONTAINS: `self.slot.at(…)` opens its window on the callee's copy
+// EXPECT-ERROR-CONTAINS: `self.cells[…]` opens its window on the callee's copy
 
 struct Grid { cells: [Int; 4] }
 
@@ -25,15 +36,70 @@ extension Grid {
     }
 }
 
-struct Board { grid: Grid }
+enum Slot { case Filled(n: Int), case Empty }
+
+extension Slot {
+    func at(&self) borrows -> Int? {
+        match self {
+            case Filled(n) -> { lend n },
+            case Empty -> { return None }
+        }
+    }
+}
+
+struct Cell { n: Int }
+
+extension Cell {
+    func bump(&var self) { self.n = self.n + 1 }
+}
+
+struct CellGrid { slots: [Cell; 2] }
+
+extension CellGrid {
+    func [](&self, i: Int) borrows -> Cell {
+        if i < 0 || i >= 2 { panic("CellGrid.[]: index out of range") }
+        lend self.slots[i]
+    }
+}
+
+struct Inner { grid: Grid }
+
+struct Board {
+    grid: Grid,
+    inner: Inner,
+    pair: (Grid, Int),
+    maybe: Grid?,
+    grids: [Grid; 2],
+    slot: Slot,
+    cells: CellGrid
+}
 
 extension Board {
-    func bump(&self) { self.grid[0] += 100 }
+    func field(&self) { self.grid[0] += 100 }
+    func nested(&self) { self.inner.grid[0] += 100 }
+    func tuple_element(&self) { self.pair.0[0] += 100 }
+    func optional_payload(&self) { self.maybe![0] += 100 }
+    func array_element(&self) { self.grids[0][0] += 100 }
+    func enum_payload(&self) { self.slot.at()! += 100 }
+
+    // Not an assignment: a `&var self` method on the lent element makes the
+    // window exclusive too, and enters the lowering by its other door.
+    func method_through_window(&self) { self.cells[0].bump() }
+
+    // The control: a shared window reads inline storage off the copy honestly.
     func first(&self) -> Int { self.grid[0] }
 }
 
 func main() {
-    var b = Board(grid: Grid(cells: [1, 2, 3, 4]))
-    b.bump()
+    var b = Board(
+        grid: Grid(cells: [1, 2, 3, 4]),
+        inner: Inner(grid: Grid(cells: [0; 4])),
+        pair: (Grid(cells: [0; 4]), 0),
+        maybe: Grid(cells: [0; 4]),
+        grids: [Grid(cells: [0; 4]); 2],
+        slot: Slot.Filled(n: 1),
+        cells: CellGrid(slots: [Cell(n: 0); 2])
+    )
+    b.field()
     print("first {b.first()}")
 }

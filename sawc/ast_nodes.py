@@ -2055,6 +2055,15 @@ class Method(ASTNode):
     # original.
     place_lend_var: bool = annotation(False)
     place_var_twin: bool = annotation(False)
+    # design 200: WHERE this accessor lends from, as hop chains rooted at the
+    # receiver — `(('member', 'cells'), ('index',))` for `lend self.cells[i]`.
+    # One entry per lending path; a path that reaches through an INDIRECTION the
+    # receiver merely points at (std `Vector`'s `if let buf = self.buffer { lend
+    # buf[i] }`) contributes NOTHING, because that storage is not inside the
+    # receiver's own bytes. Empty therefore means "this accessor never lends
+    # receiver-inline storage", which is what tells `place_uses` that a window
+    # write in a `&self` body reaches the caller rather than the copy.
+    place_lend_paths: tuple = annotation(())
     # Method-level generic type params (brief 36): the `U` in `func map<U>(...)`,
     # distinct from and in addition to the enclosing extension's own type params.
     type_params: List['TypeParameter'] = field(default_factory=list)

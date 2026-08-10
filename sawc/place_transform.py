@@ -307,6 +307,7 @@ class _PlaceTransform:
         decl.is_sync = True
         decl.place_type = inner
         decl.place_optional = place_optional
+        decl.place_lend_paths = tuple(self._lend_paths)
         # The receiver travels as a POINTER from here on, whichever flavor the
         # author spelled (design 146, DF-146b): the place this body lends is
         # storage inside the receiver, and an exclusive window has to reach the
@@ -521,6 +522,7 @@ class _PlaceTransform:
         self._optional = place_optional
         self._lend_seen = False
         self._arms = []
+        self._lend_paths = []
         self._is_method = not getattr(decl, 'is_static', False) and bool(
             decl.parameters) and decl.parameters[0].name == "self"
         self._through_self = _bindings_reached_through_self(decl.body)
@@ -590,6 +592,9 @@ class _PlaceTransform:
             else:
                 self._claim_payload_lend(stmt)
                 self._check_rooted_in_receiver(stmt)
+                path = self._lend_inline_path(stmt)
+                if path is not None:
+                    self._lend_paths.append(path)
             self._lend_seen = True
             return _LEND
 
@@ -756,6 +761,48 @@ class _PlaceTransform:
             f"hand back a computed value, return it from an ordinary method "
             f"instead")
         self._ok = False
+
+    def _lend_inline_path(self, stmt: LendStatement):
+        """The hop chain from `self` to this lend's storage, or None when the
+        storage is NOT inside the receiver's own bytes (design 200).
+
+        `_check_rooted_in_receiver` above asks whether the lent place outlives
+        the accessor; this asks the finer question its two accepting branches
+        already distinguish, and hands the answer forward for `place_uses` to
+        use at every USE SITE of the accessor:
+
+        - `lend self.cells[i]` is INSIDE the receiver — a `&self` copy takes
+          those bytes with it, so a window write in a plain `&self` body lands
+          in the copy and vanishes. Path: `(('member', 'cells'), ('index',))`.
+        - `if let buf = self.buffer { lend buf[i] }` (std `Vector`, `Data`) is
+          the receiver's HEAP, which the copy SHARES — the write reaches the
+          caller's storage, which is the carve-out design 176 already draws for
+          a direct write. No path.
+        - a MATCH-ARM payload lend is inside whatever the scrutinee is, so its
+          path is the scrutinee's plus one `payload` hop.
+
+        Only the SHAPE is recorded, never a type: this pass runs before type
+        checking, and whether a hop stays inline (`[T; N]` yes, another
+        accessor's `[]` only if IT lends inline) is a question about types.
+        `place_uses` walks the chain against the receiver's real type and
+        answers it there.
+        """
+        hops, root = _hop_chain(stmt.place)
+        if isinstance(root, SelfExpr):
+            return tuple(hops)
+        if not isinstance(root, Identifier):
+            return None
+        if root.name in self._through_self:
+            # An indirection the receiver holds: heap the copy shares.
+            return None
+        for ctrl, arm in reversed(self._arms):
+            if root.name not in (arm.bindings or []):
+                continue
+            outer, outer_root = _hop_chain(ctrl.matched_expr)
+            if not isinstance(outer_root, SelfExpr):
+                return None
+            return tuple(outer + [('payload',)] + hops)
+        return None
 
     def _walk_return(self, stmt: ReturnStatement) -> str:
         value = stmt.value
@@ -1039,6 +1086,35 @@ def _place_root(expr):
         else:
             return None
     return None
+
+
+def _hop_chain(expr):
+    """`(hops from the root outward, the root node)` for an lvalue chain.
+
+    The same four hops `_place_root` walks, kept rather than discarded — a hop
+    is `('member', name)`, `('tuple', index)`, `('unwrap',)` or `('index',)`.
+    A MethodCall is NOT a hop: `_is_place_expr` never admits one in a `lend`,
+    and a scrutinee that reaches through one stops the chain here, which reads
+    as "not provably inline" and accepts.
+    """
+    hops = []
+    node = expr
+    while True:
+        if isinstance(node, MemberAccess):
+            hops.append(('member', node.member))
+            node = node.object
+        elif isinstance(node, TupleIndex):
+            hops.append(('tuple', node.index))
+            node = node.tuple_expr
+        elif isinstance(node, ForceUnwrap):
+            hops.append(('unwrap',))
+            node = node.expr
+        elif isinstance(node, ArrayIndex):
+            hops.append(('index',))
+            node = node.array_expr
+        else:
+            hops.reverse()
+            return hops, node
 
 
 def _bindings_reached_through_self(body) -> set:

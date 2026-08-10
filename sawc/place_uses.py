@@ -76,6 +76,11 @@ from place_transform import var_twin_name
 
 WINDOW_LOCAL = "__p"
 
+# "Inside the receiver, at a type this walk cannot name" — an enum payload,
+# whose case decides its type but not where it lives. Storage, so the rule
+# fires; opaque, so no further hop is taken through it.
+_INLINE_OPAQUE = object()
+
 
 def is_place(node) -> bool:
     """Did the checker resolve this node to a `borrows` accessor?"""
@@ -155,6 +160,11 @@ class _PlaceUses:
         self._counter = 0
         self._file = ""
         self._bounds = {}
+        # design 200: the receiver's type while lowering a PLAIN `&self` method
+        # body, else None. Set per declaration by `_decl`.
+        self._shared_self_type = None
+        self._reported_windows = set()
+        self._inline_cache = {}
 
     # -- traversal ---------------------------------------------------------
 
@@ -178,6 +188,7 @@ class _PlaceUses:
         # accessor implemented over another accessor) are ordinary uses.
         self._file = getattr(decl, 'source_file', None) or ""
         self._bounds = self._collect_bounds(decl, ext)
+        self._shared_self_type = self._plain_shared_receiver(decl, ext)
         self._block(body)
 
     def _collect_bounds(self, decl, ext):
@@ -581,7 +592,17 @@ class _PlaceUses:
 
     def _window_call(self, place, param_name, body, result_type, exclusive,
                      absent):
-        """The accessor call that opens one window."""
+        """The accessor call that opens one window.
+
+        THE ONE CHOKEPOINT every window goes through, which is why design 200's
+        receiver-copy check sits here rather than at each shape. Entry points:
+        `_assignment` (a write), `_chain_window` (a read or a chain, and the
+        nesting wrap this method makes of its own result), `_span_call` (a
+        `&`/`&var` argument), `_chain_assign_window` (`m[k]?.f = v`),
+        `_presence_condition` (`if let _ = …`) and `_borrow_match`.
+        """
+        if exclusive:
+            self._reject_shared_self_window_write(place)
         closure = ClosureExpr(
             parameters=[ClosureParam(name=param_name, line=place.line,
                                      column=place.column,
@@ -705,14 +726,11 @@ class _PlaceUses:
         if self.ns.read_policy(elem) in ('trivial', 'retain'):
             return True
         rendered = f"{self._render(self._place_receiver(place))}"
-        if isinstance(place, ArrayIndex):
-            spelling = f"{rendered}[…]"
-            borrow = f"`{spelling}.method()`"
-        else:
-            spelling = f"{rendered}.{place.place_method}(…)"
-            borrow = (f"`{spelling}!.method()`"
-                      if getattr(place, 'place_optional', False)
-                      else f"`{spelling}.method()`")
+        spelling = self._place_spelling(place)
+        borrow = (f"`{spelling}!.method()`"
+                  if getattr(place, 'place_optional', False)
+                  and not isinstance(place, ArrayIndex)
+                  else f"`{spelling}.method()`")
         # Only name an escape hatch the receiver's type actually has. Vector
         # publishes both; a user type with a `[]` accessor may publish neither,
         # and pointing at a method that does not exist is worse than silence.
@@ -746,11 +764,7 @@ class _PlaceUses:
         if not unproven:
             place.place_abstract_read = True
             return True
-        rendered = self._render(self._place_receiver(place))
-        if isinstance(place, ArrayIndex):
-            spelling = f"{rendered}[…]"
-        else:
-            spelling = f"{rendered}.{place.place_method}(…)"
+        spelling = self._place_spelling(place)
         names = ", ".join(f"`{n}`" for n in unproven)
         one = unproven[0]
         self.reporter.error(
@@ -785,6 +799,282 @@ class _PlaceUses:
         for child in _type_children(saw_type):
             out |= self._unproven_params(child, seen)
         return out
+
+    # -- the receiver-copy write (design 200, DF-176c) ---------------------
+    #
+    # A plain `&self` receiver arrives BY VALUE. Design 176 refuses the three
+    # spellings that write into such a copy — a direct field write, a `&var
+    # self.field` projection, a `&var self` method call on `self` or on a field
+    # of it — and this is the fourth: an EXCLUSIVE place window opened on
+    # storage inside the receiver. `self.grid[0] += 100` opened its window on
+    # the copy's `grid` and threw the write away when the method returned.
+    #
+    # The rule is judged HERE and not by `_reject_var_self_call_on_shared_self`
+    # deliberately. The window call is synthesized: this pass picks the accessor
+    # and its flavor, so the method rule would name a method the source never
+    # wrote, and would refuse `lend self.inner[i]` — design 175's legitimate
+    # forwarding, which is sound precisely because a borrows body's receiver
+    # travels by pointer.
+    #
+    # Three things narrow it, and each is a row of design 200's conformance
+    # family:
+    #
+    # - EXCLUSIVE windows only (M35's second half). A shared window lends the
+    #   element read-only, so a read off a `&self` copy is honest.
+    # - PLAIN method bodies only (M33, M34). Inside a `borrows` body the
+    #   receiver travels by pointer, so the same write LANDS — the ratified half
+    #   of DF-176c, with `#lend_var` there to keep it out of the shared
+    #   specialization.
+    # - INLINE storage only (M32). Where the accessor lends out of heap the
+    #   receiver merely points at, the copy SHARES that storage and the write
+    #   reaches the caller — the same carve-out design 176 draws for
+    #   `self.rows[0].push(9)`.
+
+    def _reject_shared_self_window_write(self, place) -> None:
+        """An exclusive window on receiver-inline storage, in a `&self` body."""
+        if self._shared_self_type is None:
+            return
+        if id(place) in self._reported_windows:
+            return
+        if self._self_inline_type(place) is None:
+            return
+        spelling = self._place_spelling(place)
+        self.reporter.error(
+            ErrorKind.IMMUTABLE_ASSIGNMENT,
+            f"cannot write through a place window on storage reached through a "
+            f"`&self` receiver: `self` is borrowed SHARED here, so "
+            f"`{spelling}` opens its window on the callee's copy and the write "
+            f"is discarded when the method returns",
+            place.line, place.column or 1,
+            "declare the method `&var self` to mutate through the receiver, or "
+            "`borrows -> T` to lend the place and let each use site choose the "
+            "window's flavor",
+            self._file)
+        # Windows NEST, and a nested write makes every containing window
+        # exclusive too — so the enclosing ones would each report the same write
+        # one hop out. One diagnostic per write: mark the chain this place hangs
+        # off as spoken for.
+        node = self._place_receiver(place)
+        while node is not None:
+            self._reported_windows.add(id(node))
+            node = self._chain_down(node)
+
+    def _plain_shared_receiver(self, decl, ext):
+        """The receiver type of a PLAIN `&self` method — the one body shape
+        where a window write reaches a copy — or None for anything else.
+
+        `&var self` and a `borrows` body (the `#lend_var` twin included, which
+        carries `self_mutable`) both borrow the receiver in a way that makes the
+        write land, so neither is this rule's business.
+        """
+        if ext is None or decl is None:
+            return None
+        if getattr(decl, 'is_static', False) or getattr(decl, 'is_init', False):
+            return None
+        if getattr(decl, 'self_mutable', False) or getattr(
+                decl, 'is_borrows', False):
+            return None
+        if not getattr(decl, 'self_is_reference', False):
+            return None
+        name = getattr(ext, 'struct_name', None)
+        if name is None:
+            return None
+        args = list(getattr(ext, 'type_args', None) or [])
+        if not args:
+            # A generic extension: the parameters stand for themselves, so field
+            # types keep the form the author wrote and the walk below reads them
+            # exactly as it reads a concrete one. An `[T; N]` element is inline
+            # whatever `T` is.
+            args = [SawType(TypeKind.TYPE_PARAM, type_param_name=tp.name)
+                    for tp in (getattr(ext, 'type_params', None) or [])]
+        if self.ns.lookup_struct(name) is not None:
+            return SawType(TypeKind.STRUCT, struct_name=name, type_args=args)
+        if self.ns.lookup_enum(name) is not None:
+            # An enum receiver has no fields, but it has a PAYLOAD — and an
+            # accessor that lends one (`case Filled(r) -> lend r`) lends storage
+            # inside the enum's own bytes exactly as a field would.
+            return SawType(TypeKind.ENUM, enum_name=name, type_args=args)
+        return None
+
+    def _self_inline_type(self, expr):
+        """The type of the storage `expr` names when it lives INSIDE the `&self`
+        receiver's own value; None when it does not.
+
+        The design-176 walk (`_self_storage_type`), reaching one hop it could
+        not: a PLACE. An accessor continues the walk exactly when it lends
+        receiver-inline storage itself, which is what makes the rule compose —
+        `self.rows[0][0]` stops at the `Vector`, and a hand-written accessor
+        over an `[T; N]` does not.
+        """
+        if expr is None:
+            return None
+        if isinstance(expr, SelfExpr):
+            return self._shared_self_type
+        if is_place(expr):
+            receiver = self._self_inline_type(self._place_receiver(expr))
+            if receiver is None or not self._lends_inline(
+                    expr.place_struct, expr.place_method, receiver):
+                return None
+            return getattr(expr, 'place_elem_type', None) or _INLINE_OPAQUE
+        if isinstance(expr, MemberAccess):
+            return self._inline_hop(self._self_inline_type(expr.object),
+                                    ('member', expr.member))
+        if isinstance(expr, TupleIndex):
+            return self._inline_hop(self._self_inline_type(expr.tuple_expr),
+                                    ('tuple', expr.index))
+        if isinstance(expr, ForceUnwrap):
+            return self._inline_hop(self._self_inline_type(expr.expr),
+                                    ('unwrap',))
+        if isinstance(expr, ArrayIndex):
+            return self._inline_hop(self._self_inline_type(expr.array_expr),
+                                    ('index',))
+        return None
+
+    def _lends_inline(self, struct_name, method_name, receiver_type) -> bool:
+        """Does this accessor lend storage inside its receiver's own bytes?
+
+        `place_transform` recorded the SHAPE of each lending path; the types are
+        this pass's to supply. One inline path is enough — a body that lends
+        inline storage on any path can lose a write on that path.
+        """
+        if struct_name is None or method_name is None:
+            return False
+        key = (struct_name, method_name, str(receiver_type))
+        cached = self._inline_cache.get(key)
+        if cached is not None:
+            return cached
+        # A cycle can only arise through a type that reaches itself, which no
+        # inline layout can; answering False breaks it without a special case.
+        self._inline_cache[key] = False
+        info = self.ns.lookup_method(struct_name, method_name)
+        node = getattr(info, 'ast_node', None) if info is not None else None
+        answer = False
+        for path in (getattr(node, 'place_lend_paths', None) or ()):
+            current = receiver_type
+            for hop in path:
+                current = self._inline_hop(current, hop)
+                if current is None:
+                    break
+            else:
+                answer = True
+                break
+        self._inline_cache[key] = answer
+        return answer
+
+    def _inline_hop(self, container, hop):
+        """The type one hop yields, or None when the hop leaves the receiver's
+        own storage — the type half of the shapes `place_transform` records."""
+        if container is None or container is _INLINE_OPAQUE:
+            return None
+        container = self._resolve_alias(container)
+        if container.kind == TypeKind.REFERENCE and container.inner_type:
+            container = self._resolve_alias(container.inner_type)
+        kind = hop[0]
+        if kind == 'unwrap':
+            return (container.inner_type
+                    if container.kind == TypeKind.OPTIONAL else None)
+        if kind == 'payload':
+            # An enum's payload sits inside the enum's own bytes. Which case it
+            # is decides its TYPE and not where it lives, so the walk stops here
+            # rather than guessing one.
+            return (_INLINE_OPAQUE
+                    if container.kind == TypeKind.ENUM else None)
+        if kind == 'tuple':
+            if container.kind != TypeKind.TUPLE:
+                return None
+            elements = container.element_types or []
+            index = hop[1]
+            return (elements[index] if 0 <= index < len(elements) else None)
+        if kind == 'member':
+            return self._inline_field(container, hop[1])
+        if kind == 'index':
+            if container.kind == TypeKind.ARRAY:
+                return container.array_element_type
+            # Another accessor. It keeps the walk inside the receiver exactly
+            # when IT lends inline — which is what makes std's containers the
+            # carve-out and a hand-written array wrapper the refusal.
+            if container.kind != TypeKind.STRUCT or not container.struct_name:
+                return None
+            if not self._lends_inline(container.struct_name, "[]", container):
+                return None
+            info = self.ns.lookup_method(container.struct_name, "[]")
+            node = getattr(info, 'ast_node', None) if info is not None else None
+            elem = getattr(node, 'place_type', None)
+            return self._substituted(elem, container) or _INLINE_OPAQUE
+        return None
+
+    def _inline_field(self, container, name):
+        """The declared type of one field, substituted for the instantiation."""
+        if container.kind == TypeKind.TUPLE:
+            names = container.tuple_field_names or []
+            elements = container.element_types or []
+            if name in names and len(names) == len(elements):
+                return elements[names.index(name)]
+            return None
+        if container.kind != TypeKind.STRUCT or not container.struct_name:
+            return None
+        sym = self.ns.lookup_struct(container.struct_name)
+        if sym is None or name not in (sym.fields or {}):
+            return None
+        return self._substituted(sym.fields[name], container)
+
+    def _substituted(self, saw_type, container):
+        """`saw_type` with the container's type arguments filled in."""
+        if saw_type is None:
+            return None
+        name = container.struct_name or container.enum_name
+        sym = (self.ns.lookup_struct(name) or self.ns.lookup_enum(name)
+               if name else None)
+        params = getattr(sym, 'type_params', None) if sym is not None else None
+        args = container.type_args or []
+        if not params or not args:
+            return saw_type
+        mapping = {tp.name: arg for tp, arg in zip(params, args)}
+        return saw_type.substitute(mapping) if mapping else saw_type
+
+    def _resolve_alias(self, saw_type):
+        """`type R = Grid` names the same storage — resolve before judging it.
+
+        Also normalizes the STRUCT-kinded spelling of an ENUM: a field's
+        declared type reaches this pass as the parser left it, and an unknown
+        capitalized name defaults to STRUCT, so an enum FIELD would answer "not
+        an enum" to the payload hop.
+        """
+        seen = 0
+        while (saw_type is not None and saw_type.kind == TypeKind.STRUCT
+               and saw_type.struct_name and seen < 16):
+            alias = self.ns.lookup_type_alias(saw_type.struct_name)
+            target = getattr(alias, 'aliased_type', None) if alias else None
+            if target is None:
+                break
+            saw_type = target
+            seen += 1
+        if (saw_type is not None and saw_type.kind == TypeKind.STRUCT
+                and saw_type.struct_name
+                and self.ns.lookup_struct(saw_type.struct_name) is None
+                and self.ns.lookup_enum(saw_type.struct_name) is not None):
+            return SawType(TypeKind.ENUM, enum_name=saw_type.struct_name,
+                           type_args=saw_type.type_args)
+        return saw_type
+
+    def _chain_down(self, node):
+        """One step toward the root of a postfix chain, or None at the root."""
+        if isinstance(node, (MemberAccess, MethodCall)):
+            return node.object
+        if isinstance(node, ArrayIndex):
+            return node.array_expr
+        if isinstance(node, TupleIndex):
+            return node.tuple_expr
+        if isinstance(node, ForceUnwrap):
+            return node.expr
+        return None
+
+    def _place_spelling(self, place) -> str:
+        """How a diagnostic writes this place: `v[…]` or `d.at(…)`."""
+        rendered = self._render(self._place_receiver(place))
+        if isinstance(place, ArrayIndex):
+            return f"{rendered}[…]"
+        return f"{rendered}.{place.place_method}(…)"
 
     def _chain_is_exclusive(self, expr, place) -> bool:
         """Does this chain need an exclusive window? (Design 141 decision 3:
@@ -949,6 +1239,8 @@ class _PlaceUses:
             return f"{self._render(expr.object)}.{expr.method_name}(…)"
         if isinstance(expr, ArrayIndex):
             return f"{self._render(expr.array_expr)}[…]"
+        if isinstance(expr, TupleIndex):
+            return f"{self._render(expr.tuple_expr)}.{expr.index}"
         if isinstance(expr, ForceUnwrap):
             return f"{self._render(expr.expr)}!"
         return "<expr>"
