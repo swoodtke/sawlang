@@ -2,10 +2,8 @@
 //
 // The name is a CONSEQUENCE of `unsafe struct`, never a cause: a plain struct
 // called `UnsafeDefaults` is an ordinary safe type and touching it declares
-// nothing.
-// EXPECT: success
-// EXPECT-OUTPUT:
-// 1
+// nothing. Acceptance is the whole claim — the value it prints is incidental.
+// EXPECT: compiles
 
 struct UnsafeDefaults { n: Int }
 func main() {

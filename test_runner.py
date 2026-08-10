@@ -7,6 +7,19 @@ Test expectations are specified via comments in the source files:
 
     // EXPECT: success        - Should compile and run without error
     // EXPECT: error          - Should fail to compile
+    // EXPECT: compiles       - Should compile; do NOT run it. For a test whose
+                                whole claim is that the compiler ACCEPTS a
+                                shape — the accept side of a rule, where the
+                                program has nothing to say at runtime. Prefer
+                                `success` whenever the run asserts something
+                                real (a write landed, a value came back); this
+                                is for the rows that would otherwise have to
+                                invent output to satisfy the shape check.
+                                Takes no output assertion and rejects one, so a
+                                test that means to check behavior cannot
+                                silently stop checking it. Warning directives
+                                still apply (warnings are a success-path
+                                report).
     // EXPECT: panic          - Should compile but panic at runtime
     // EXPECT: object         - Should compile to an object file; do NOT run it
                                 (for --freestanding / -c compiles). Inspect the
@@ -74,6 +87,7 @@ import threading
 class ExpectType(Enum):
     SUCCESS = "success"
     ERROR = "error"
+    COMPILES = "compiles"  # Compiles, and that is the whole assertion; do not run
     PANIC = "panic"  # Runtime panic (compiles but aborts at runtime)
     OBJECT = "object"  # Compile to a .o and inspect symbols; do not run
     DOCS = "docs"  # Compare the compiler's --emit-docs JSON; do not run
@@ -192,6 +206,8 @@ def parse_test_metadata(file_path: Path) -> Optional[TestCase]:
                     expect_type = ExpectType.SUCCESS
                 elif directive == 'error':
                     expect_type = ExpectType.ERROR
+                elif directive == 'compiles':
+                    expect_type = ExpectType.COMPILES
                 elif directive == 'panic':
                     expect_type = ExpectType.PANIC
                 elif directive == 'object':
@@ -822,6 +838,15 @@ def directive_shape_error(test: TestCase) -> Optional[str]:
                 "output, or at least one '// EXPECT-OUTPUT-CONTAINS:'")
     if test.expect_type == ExpectType.ERROR and not test.expected_error_contains:
         return "Error test must have at least one '// EXPECT-ERROR-CONTAINS:' directive"
+    if test.expect_type == ExpectType.COMPILES and (
+            test.expected_output or test.expected_output_contains
+            or test.expected_panic_contains or test.expected_error_contains):
+        # A `compiles` test never runs, so an output/panic assertion on one
+        # would be quietly ignored — which is how a behavior test stops
+        # checking behavior without anyone noticing. Say so instead.
+        return ("'// EXPECT: compiles' asserts only that the compiler accepts "
+                "the file, so it takes no output, panic or error assertion. "
+                "Use '// EXPECT: success' if the run is part of the claim.")
     if test.expect_type == ExpectType.PANIC and not test.expected_panic_contains:
         return "Panic test must have at least one '// EXPECT-PANIC-CONTAINS:' directive"
     if (test.expect_type == ExpectType.OBJECT
@@ -891,6 +916,18 @@ def compile_test(test: TestCase, compile_fn=None) -> CompileOutcome:
                                       f"Error message should contain '{expected_text}'\nGot: {combined_output[:300]}")
 
         return CompileOutcome(True, True, "Failed as expected")
+
+    elif test.expect_type == ExpectType.COMPILES:
+        # The accept side of a rule: acceptance IS the assertion, so the
+        # verdict settles here and no binary is queued.
+        if not compile_success:
+            return CompileOutcome(True, False, (
+                f"Expected the file to compile, but it did not:\n"
+                f"{compile_stderr[:500]}"))
+        warn_outcome = _check_warnings(test, compile_stdout + compile_stderr)
+        if warn_outcome is not None:
+            return warn_outcome
+        return CompileOutcome(True, True, "Compiled as expected")
 
     elif test.expect_type == ExpectType.PANIC:
         # Should compile successfully but panic at runtime: the execution
