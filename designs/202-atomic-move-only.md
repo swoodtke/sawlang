@@ -1,6 +1,24 @@
 # Design 202 — `Atomic` is move-only
 
-**Status: RULED + AUTHORED Aug 10 (morning review). DF-186a decided by
+**Status: LANDED Aug 10.** The census held exactly: the flush list is five
+holders (`SlabHead`, rt `Job`, and `Counter`/`Pair`/`Tagged<T>`, `Counter`,
+`Stats` across the three example files) and nothing else in 1723 tests — zero
+call sites needed a `move` or a `.copy()`, zero tests changed their expected
+output. The cell clause needed no code: `member_copy_tier` fires on the CELL
+ITSELF and reaches `copy_tier`, which consults `declared_copy_tier` before any
+structural join, so a declared policy on the field's own type already won. Two
+notes on the landing:
+
+- **Units 2 and 3 landed SWAPPED.** `extension Atomic<T>: NoCopy {}` alone
+  fails `SlabHead` inside BUILTINS, so every program in the tree stops
+  compiling; the tier-change commit cannot be green without its cascade, and
+  xfailing breakage the brief introduces is against policy. The declarations
+  landed first (legal today — declaring the stricter policy on a free-tier type
+  is the API-discipline escape hatch), then the flip.
+- **The flush list was measured before it was fixed**, by applying the flip to
+  a scratch tree and running the suite; it is recorded in the unit-3 commit.
+
+**Original ruling: RULED + AUTHORED Aug 10 (morning review). DF-186a decided by
 census: copying an `Atomic` silently forks the counter and has been
 footgun-shaped since design 41; Rust agrees (`AtomicUsize` is `!Copy`);
 and the migration is SMALL — the Aug-10 census found, outside examples,

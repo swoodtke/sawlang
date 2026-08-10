@@ -161,9 +161,9 @@ Copy tiers: trivial/POD = implicit bitwise copy; `ImplicitCopy`
 (String, Arc, Data, escaping closures) = free refcount bump; `ExplicitCopy`
 (Vector — the ONLY ExplicitCopy std type — and a conformance bounded `T: Copy`)
 = must `move v` or `v.copy()` at every transfer; `NoCopy` (File, Mutex, Box,
-StringBuilder, TcpListener/TcpStream, Command, TaskGroup, SpinLock — and
-currently Map/Set: their `ExplicitCopy` is future work, `.copy()` on them is a
-compile error) = `move` only.
+StringBuilder, TcpListener/TcpStream, Command, TaskGroup, SpinLock, Once,
+Atomic — and currently Map/Set: their `ExplicitCopy` is future work, `.copy()`
+on them is a compile error) = `move` only.
 **`NoMove` is a SEPARATE AXIS (design 188)** — relocation, not duplication. A
 `NoMove` value moves exactly once (constructor into binding): `move x` and
 `Optional.take` of one are compile errors, whole-referent replacement through
@@ -1590,6 +1590,14 @@ slab in std/slab.saw; `UnsafeMemory<T, Device|Normal>` for MMIO
   Pick by the SHAPE of the state, not by convenience:
   - **`Atomic<Int>`** — single-word state several tasks update
     independently. Still the recommendation everywhere it fits.
+    **NoCopy** (design 202), on `SpinLock`'s terms and for the same
+    reason: a copied atomic is a SECOND counter with its own word, so a
+    `fetch_add` through one is invisible through the other. SHARE one —
+    a `static`, or a `&Atomic<Int>` param — never `let b = a`. A struct
+    with an `Atomic` field declares its own policy
+    (`extension Stats: NoCopy {}`), the error naming the field.
+    Statics are unaffected and `move` still works: `NoCopy`, not
+    `NoMove`, since nothing pins an atomic's address.
   - **`SpinLock<T>`** (`import std.spinlock.*`) — state several THREADS or
     cores genuinely share where there is no OS: one word + the payload, no
     allocation, so it works FREESTANDING. `static LOCK: SpinLock<Counters>`
@@ -1678,7 +1686,10 @@ slab in std/slab.saw; `UnsafeMemory<T, Device|Normal>` for MMIO
   the refusal names the missing declaration AND the blocking field. `Send`
   still derives (a cell moves fine). A cell is NoCopy as a VALUE, but a
   cell FIELD contributes its `T`'s copy class — say `extension Counter:
-  NoCopy {}` yourself if a copy would be a bug.
+  NoCopy {}` yourself if a copy would be a bug, which is exactly what
+  `Atomic` says (design 202). A DECLARED policy on the field's own type
+  wins over the clause, so an `Atomic` field cascades `NoCopy` upward
+  while an `UnsafeMutableInterior<Int>` field does not.
 - **`UnsafeSync` / `UnsafeSend` are the DECLARED thread-safety assertion**
   (design 186). `Send`/`Sync` stay derivation-only (`extension X: Sync` is
   still rejected); these two REFINE them, so a declared conformance

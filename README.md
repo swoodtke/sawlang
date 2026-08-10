@@ -1104,7 +1104,9 @@ Saw is freestanding: the same language targets bare metal.
   the two combine; the SOS kernel builds under both, which is what keeps its log
   lines off the heap.
 - **Global state, five ways, none of them silent**: `Atomic<Int>` for a word
-  several tasks update independently; `SpinLock<T>` for state threads or cores
+  several tasks update independently — move-only, because a copied atomic is a
+  second counter and the fork would be silent, so you share one through a
+  `static` or a `&` parameter; `SpinLock<T>` for state threads or cores
   genuinely share where there is no OS — one word plus the payload, no
   allocator, so `static TABLE: SpinLock<HandleTable>` is a declaration a kernel
   can write; `Mutex<T>` for the same shape hosted, where a waiter should sleep

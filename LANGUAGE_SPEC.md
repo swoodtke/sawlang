@@ -2258,8 +2258,10 @@ claim: the cost of every transfer is now readable at the use site.
   conformance is bounded `T: Copy`).
   Enforcement is the value-transfer checkpoint (the same machinery that backs
   `NoCopy`).
-- **`NoCopy`** — never duplicable, on purpose (`File`, `Mutex`, `Box`; currently
-  also `Map`/`Set` — their `ExplicitCopy` conformance is future work). Move-only.
+- **`NoCopy`** — never duplicable, on purpose (`File`, `Mutex`, `Box`,
+  `SpinLock`, `Once`, [`Atomic`](#atomicint) — a copy of any of those is a
+  second, independent piece of state; currently also `Map`/`Set`, whose
+  `ExplicitCopy` conformance is future work). Move-only.
 - **Every declared policy trait extends `Deinit`**: `ImplicitCopy`,
   `ExplicitCopy`, and `NoCopy` are declared as `trait ImplicitCopy: Deinit` etc.
   in the builtin prelude. A type opts into a policy because it manages a
@@ -6041,8 +6043,9 @@ four questions at once:
 The block sits at the cell, not at everything holding one. A type holding a
 cell DIRECTLY says [`UnsafeSync`](#unsafesync--unsafesend); a type holding one
 of THOSE derives normally, because the declaration it passes through is the
-argument. So `struct Stats { hits: Atomic<Int> }` is `Sync` with nothing
-written.
+argument. So `struct Stats { hits: Atomic<Int> }` gets its `Sync` derived, with
+no thread-safety assertion of its own to write. (It does owe a COPY policy —
+`Atomic` is `NoCopy`, and that cascade is a separate question from this one.)
 
 **The wrapper idiom** is a cell field, `&self` methods, one small `unsafe`
 helper, and a declared `UnsafeSync`:
@@ -6074,10 +6077,10 @@ compiler-known about `Atomic` is its ATOMICITY, which no library can express.
 
 A cell is `NoCopy` as a value — copying one makes a second, independent cell —
 but a cell FIELD contributes its `T`'s copy class to whatever holds it, rather
-than cascading `NoCopy` onto it. The container states its own policy, which is
-why `Atomic<Int>` is still one bitwise-copyable word and why a wrapper that
-wants to be move-only says `extension Counter: NoCopy {}` in a line the reader
-can see.
+than cascading `NoCopy` onto it. The container states its own policy, so a
+wrapper that wants to be move-only says `extension Counter: NoCopy {}` in a line
+the reader can see. `Atomic<Int>` is one such wrapper and does say it (below);
+a `Counter` over a cell of a plain word does not have to.
 
 ### `Atomic<Int>`
 
@@ -6108,6 +6111,47 @@ struct holding one — arrives at a `&self` method as the caller's STORAGE
 rather than as a copy, which is what makes interior mutation through a
 shared borrow reach the real cell. That is the cell-carrying property
 above, and it is not special to `Atomic`.
+
+`Atomic` is **move-only**: it declares `NoCopy`, so `let b = a` on one is a
+compile error and `move a` is how it travels.
+
+```saw
+let local = Atomic(0)
+let alias = local
+// error: cannot copy value of type `Atomic<Int>` which implements NoCopy
+```
+
+A copied atomic would be a second counter with its own word, and a `fetch_add`
+through one would be invisible through the other, so the program that meant to
+count once counts twice and has nothing to show for it. Share an atomic instead
+of duplicating it: reach one through a `static`, or lend it as a
+`&Atomic<Int>` parameter.
+
+```saw
+static COUNTER: Atomic<Int> = Atomic(0)
+
+func observed(a: &Atomic<Int>) -> Int { a.load() }
+
+func main() {
+    let _prev = COUNTER.fetch_add(1)
+    print(observed(&COUNTER))        // prints: 1
+}
+```
+
+A struct with an `Atomic` field declares its own copy policy, on the terms any
+NoCopy member gets ([The Copy trait family](#the-copy-trait-family)):
+
+```saw
+struct Stats { hits: Atomic<Int> }
+// error: struct `Stats` contains NoCopy field `hits` of type `Atomic<Int>`
+//        but does not implement NoCopy
+
+extension Stats: NoCopy {}       // the fix the diagnostic names
+```
+
+`NoCopy` and not `NoMove`: nothing pins an atomic's address, so one moves
+freely into another binding, a call, or a struct. Statics are unaffected — a
+NoCopy static is legal, and every atomic operation takes `&self`.
 
 ### `SpinLock<T>`
 
@@ -7987,9 +8031,10 @@ On the `try_make` failure path the value is cleanly `deinit`'d at scope exit
 **Status: implemented (design 42).** A slab is a per-type fixed-chunk allocator
 over a caller-owned `static` region — freestanding-compatible (no libc, just
 `Atomic<Int>` CAS). `std/slab.saw` provides `SlabHead` (a slab's mutable
-bookkeeping: a bump counter + a LIFO free-list head, both `Atomic<Int>`) and the
-`slab_alloc` / `slab_dealloc` free functions. A user allocator is a zero-field
-unit struct wiring its own statics in ~10 lines:
+bookkeeping: a bump counter + a LIFO free-list head, both `Atomic<Int>`, so the
+head is `NoCopy` — a copy would be a second set of bookkeeping over the same
+region) and the `slab_alloc` / `slab_dealloc` free functions. A user allocator
+is a zero-field unit struct wiring its own statics in ~10 lines:
 
 ```saw
 static JOB_REGION: [Int8; 64]                                  // 4 chunks × 16B, .bss

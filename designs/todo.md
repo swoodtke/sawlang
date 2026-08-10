@@ -59,8 +59,11 @@ disjoint surfaces parallel):
    DF-191a) — solo (coro_transform + result cells).
 6. **201 spawn reference parameters** (design-88 relaxation, 189 u4,
    ratified) — after 196 (both touch spawn/coro surface).
-7. **202 Atomic move-only** (DF-186a, ruled GO by census) — after 153
-   (both touch std .saw).
+7. ~~**202 Atomic move-only** (DF-186a, ruled GO by census) — after 153
+   (both touch std .saw).~~ LANDED Aug 10. The census held: five holders
+   flushed, nothing else. Units 2 and 3 landed SWAPPED — a tier flip
+   without its cascade fails builtins for every program, so the
+   declarations had to go first.
 8. **197 declaration-position names** (DF-194a + rule-7 parse_type
    bypasses) — last; UX debt, feeds the parser port.
 
@@ -717,13 +720,24 @@ declarations on `Vector`, `Vector` and `DataBuf`+`Arc` respectively. The
 interior-mutability EXEMPTION dissolved to nothing: every call it existed for is
 a `&self` method the 176b rule never refused.
 
-- **DF-186a — RULED Aug 10, owned by design 202: `Atomic` becomes
-  move-only.** Decided by census, not gut feel: outside examples exactly
-  TWO holder structs lack a policy (SlabHead, rt Job), three example
-  counter structs, zero non-static Atomic locals, statics unaffected —
-  low churn, so the Rust-agreeing answer wins (a copied atomic silently
-  forks the counter). The design-186 cell clause survives for user
-  wrappers; only Atomic itself moves tier. Original entry follows.
+- **DF-186a — CLOSED by design 202: `Atomic` is move-only.**
+  `extension Atomic<T>: NoCopy {}` in builtin.saw, on the spelling
+  `SpinLock`/`Once`/`Mutex` already use. `NoCopy` and deliberately not
+  `NoMove` — nothing pins an atomic's address, and statics are
+  unaffected either way. The design-186 cell clause is UNTOUCHED and
+  needed no code: `member_copy_tier` fires on the CELL ITSELF, and it
+  reaches `copy_tier`, which consults `declared_copy_tier` before any
+  structural join — so a declared policy on the field's own type wins,
+  and `Atomic<Int>` cascades `NoCopy` upward while an undeclared
+  `struct C { cell: UnsafeMutableInterior<Int> }` stays free-tier. Both
+  directions pinned by `examples/atomic_nocopy_cell_clause.saw`; the
+  refusals by conformance rows V26/V27, the three controls by V28-V30.
+  THE FLUSH LIST matched the census exactly — five holders, nothing
+  else in 1723 tests: `SlabHead` (std/slab.saw), `Job`
+  (rt/common/offload.saw), and `Counter`/`Pair`/`Tagged<T>`,
+  `Counter`, `Stats` in the three example files. Zero call sites needed
+  a `move` or a `.copy()`; zero tests changed their expected output.
+  Original entry follows.
   Should
   `Atomic<T>` be move-only? The cell is `NoCopy` as ruled, and a cell FIELD
   contributes its `T`'s copy class rather than cascading `NoCopy` onto its
