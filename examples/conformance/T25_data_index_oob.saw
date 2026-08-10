@@ -1,0 +1,14 @@
+// Conformance row T25 — `Data` index out of range
+//
+// `Data` is a safe type, so its subscript is checked like `Vector`'s. The
+// existing pin is `Data.set`.
+// EXPECT: panic
+// EXPECT-PANIC-CONTAINS: Data.[]: index out of range
+
+import std.data.*
+func main() {
+    var d = Data()
+    d.push(1)
+    var i = 9
+    print(d[i])
+}

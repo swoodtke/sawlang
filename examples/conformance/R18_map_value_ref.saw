@@ -1,0 +1,11 @@
+// Conformance row R18 — Map with a reference value type
+//
+// `Map`'s VALUE type argument, the position a container fills through an
+// ordinary call and then outlives.
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: a generic argument may not be a reference
+
+func main() {
+    let m: Map<Int, &Int> = {:}
+    print(m.len())
+}

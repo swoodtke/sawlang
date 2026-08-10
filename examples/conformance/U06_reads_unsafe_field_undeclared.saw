@@ -1,0 +1,13 @@
+// Conformance row U06 — merely reading an unsafe-typed field (the contact rule)
+//
+// Merely READING an unsafe-typed field is contact — the rule is about naming
+// the value, not about dereferencing it.
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: is not declared `unsafe`, but its body names a value of unsafe type
+
+struct Holder { p: UnsafePointer<Int> }
+func f(h: &Holder) -> Int {
+    let q = h.p
+    1
+}
+func main() { print(1) }

@@ -1,0 +1,17 @@
+// Dependency module for the visibility probes.
+public struct Thing {
+    public name: String,
+    secret: Int
+}
+
+public extension Thing {
+    public init(named: String, code: Int) -> Thing {
+        Thing(name: named, secret: code)
+    }
+    public func describe(&self) -> String { self.name }
+    func hidden(&self) -> Int { self.secret }
+}
+
+public trait DepTrait {
+    func dep_op(&self) -> Int
+}

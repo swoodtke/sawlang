@@ -1,0 +1,15 @@
+// Conformance row U22 — a safe value derived inside an unsafe function is safe onward
+//
+// Unsafety does not propagate along DERIVATION: a plain `Int` computed inside
+// an unsafe function is an ordinary value, and its caller declares nothing.
+// EXPECT: success
+// EXPECT-OUTPUT:
+// 6
+
+func peek() unsafe -> Int {
+    var n = 5
+    let p = (&var n) as UnsafePointer<Int>
+    p[0]
+}
+func caller() -> Int { peek() + 1 }
+func main() { print(caller()) }

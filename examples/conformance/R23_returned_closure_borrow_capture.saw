@@ -1,0 +1,18 @@
+// Conformance row R23 — borrow-capture in a closure returned from a function
+//
+// A borrow capture in a closure that is RETURNED. The existing pin binds the
+// escaping closure to a `let`; escaping by return is the other door.
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: borrow capture `&var x` is legal only in a closure passed directly
+
+func make() -> () sync -> Int {
+    var x = 1
+    { [&var x] in
+        x = x + 1
+        x
+    }
+}
+func main() {
+    let f = make()
+    print(f())
+}

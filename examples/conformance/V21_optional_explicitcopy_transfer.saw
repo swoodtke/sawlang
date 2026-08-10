@@ -1,0 +1,14 @@
+// Conformance row V21 — `Vector<Int>?` transferred without move/copy (design 139)
+//
+// Design 139: a wrapper carries the tier it wraps, so `Vector<Int>?` is
+// ExplicitCopy and a transfer of it needs `move` — the optional layer is not
+// a way past the tier.
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: cannot copy value of type `Vector<Int, GlobalAllocator>?` which implements ExplicitCopy
+
+func take(o: Vector<Int>?) -> Int { 1 }
+func main() {
+    var t: Vector<Int> = [1]
+    var o: Vector<Int>? = move t
+    print(take(o))
+}

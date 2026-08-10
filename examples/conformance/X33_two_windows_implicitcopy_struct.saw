@@ -1,0 +1,29 @@
+// Conformance row X33 — two exclusive windows on an AUTO-ImplicitCopy struct (String member)
+//
+// The AUTOMATIC ImplicitCopy tier, which is what hid DF-188f: a receiver
+// that copies for free had nothing for the copy-policy error to trip on, so
+// two windows in one call compiled and both writes went into copies. The
+// refusal is an exclusivity diagnostic on every tier now.
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: exclusive access violation: the place `r.at(…)` borrows `r` for the whole window
+
+struct Rec { tag: String, a: Int, b: Int }
+extension Rec {
+    func at(&self, i: Int) borrows -> Int {
+        if i == 0 {
+            lend self.a
+        } else {
+            lend self.b
+        }
+    }
+}
+func swap2(x: &var Int, y: &var Int) {
+    let t = x
+    x = y
+    y = t
+}
+func main() {
+    var r = Rec(tag: "t", a: 1, b: 2)
+    swap2(&var r.at(0), &var r.at(1))
+    print("a={r.a} b={r.b}")
+}

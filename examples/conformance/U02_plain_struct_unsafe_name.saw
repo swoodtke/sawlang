@@ -1,0 +1,14 @@
+// Conformance row U02 — a plain `struct UnsafeDefaults` gets no unsafe semantics
+//
+// The name is a CONSEQUENCE of `unsafe struct`, never a cause: a plain struct
+// called `UnsafeDefaults` is an ordinary safe type and touching it declares
+// nothing.
+// EXPECT: success
+// EXPECT-OUTPUT:
+// 1
+
+struct UnsafeDefaults { n: Int }
+func main() {
+    let d = UnsafeDefaults(n: 1)
+    print(d.n)
+}

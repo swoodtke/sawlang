@@ -1,0 +1,12 @@
+// Conformance row V18 — `let _ = <NoCopy binding>` without `move`
+//
+// `let _ =` is an explicit DISCARD, not an explicit copy: it still reads the
+// binding, so a move-only value needs `move` to reach it.
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: cannot copy value of type `Box<Int, GlobalAllocator>` which implements NoCopy
+
+func main() {
+    let b = Box<Int>.make(1)
+    let _ = b
+    print(1)
+}

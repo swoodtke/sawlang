@@ -1,0 +1,15 @@
+// Conformance row M26 — `&var self` method on a `let` of an auto-ImplicitCopy struct
+//
+// The AUTOMATIC ImplicitCopy tier (design 139/159) is where a mutability hole
+// would hide: the receiver copies for free, so nothing else would object.
+// The `let` rule still fires.
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: cannot call `&var self` method `rename` on immutable variable `t`
+
+struct T { name: String, n: Int }
+extension T { func rename(&var self, s: String) { self.name = s } }
+func main() {
+    let t = T(name: "a", n: 1)
+    t.rename("b")
+    print(t.name)
+}

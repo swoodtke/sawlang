@@ -1,0 +1,35 @@
+// Conformance row K13 — MT group accumulating into an `Arc<Mutex<Int>>`
+//
+// The data-race smoke row: an MT group accumulating a PER-TASK amount into a
+// shared `Arc<Mutex<Int>>`, which is the sanctioned way to share mutable
+// state across worker threads.
+//
+// The lock body captures the driven function's own parameter, and the
+// coroutine transform refuses that (DF-191a). The identical shape with
+// nothing captured compiles and runs, and the diagnostic's suggested way out
+// — binding the closure to a `let` — is unreachable here, because
+// `Mutex.lock` takes a `sync` closure LITERAL.
+// EXPECT: success
+// EXPECT-OUTPUT:
+// spawned
+// XFAIL: DF-191a the coroutine transform refuses a `Mutex.lock` body that captures a frame-resident local of the driven function, and its suggested workaround does not typecheck
+
+import std.mutex.*
+
+func add(shared: Arc<Mutex<Int>>, n: Int) -> Int {
+    shared.lock({ &var c in
+        c = c + n
+        c
+    })
+}
+
+func main() {
+    let shared = Arc<Mutex<Int>>(value: Mutex<Int>(value: 0))
+    var group = TaskGroup(threads: 2)
+    var i = 0
+    while i < 4 {
+        let _ = group.spawn(add(shared.copy(), 1))
+        i = i + 1
+    }
+    print("spawned")
+}

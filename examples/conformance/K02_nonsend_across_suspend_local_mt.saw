@@ -1,0 +1,26 @@
+// Conformance row K02 — a non-Send across-suspend local in an MT group
+//
+// A frame crosses between worker threads at every suspension, so a non-Send
+// LOCAL held across one is refused as firmly as a non-Send parameter.
+//
+// Re-authored against design 186: the audit used `Vector<Int>`, which IS `Send`
+// now — the container ruling makes `Vector<T>` Send exactly when `T` is. A
+// closure is never `Send`, so a `Vector` of them is the non-Send local.
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: cannot spawn `work` into a multi-threaded
+// EXPECT-ERROR-CONTAINS: local `v` of type `Vector<() sync -> Int, GlobalAllocator>` is held across a suspension but is not `Send`
+
+import std.task.*
+
+func work(n: Int) -> Int {
+    var v = Vector<() sync -> Int>()
+    v.push({ 1 })
+    yield_now()
+    v.len() + n
+}
+
+func main() {
+    var group = TaskGroup(threads: 2)
+    let h = group.spawn(work(1))
+    print(h.join())
+}

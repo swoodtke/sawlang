@@ -1,0 +1,14 @@
+// Conformance row U27 — reaching an unsafe body through a safe trait call site
+//
+// The check that actually protects the boundary: an undeclared unsafe body
+// reached through a SAFE trait requirement is refused at the body, so the
+// existential's callers are told the truth.
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: is not declared `unsafe`, but its body names a value of unsafe type
+
+trait Peek { func peek(&self) -> Int }
+struct S { p: UnsafePointer<Int> }
+extension S: Peek {
+    func peek(&self) -> Int { self.p[0] }
+}
+func main() { print(1) }

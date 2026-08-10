@@ -1,0 +1,12 @@
+// Conformance row M19 — assigning to a by-value parameter
+//
+// A by-value parameter is an immutable binding. There is no `var`
+// parameter spelling — a callee that wants a mutable local makes one.
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: cannot assign to immutable variable `n`
+
+func f(n: Int) -> Int {
+    n = 5
+    n
+}
+func main() { print(f(1)) }

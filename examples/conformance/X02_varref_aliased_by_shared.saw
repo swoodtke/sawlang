@@ -1,0 +1,13 @@
+// Conformance row X02 — `f(&var x, &x)` — a writer aliased by a reader
+//
+// One writer XOR many readers: a `&var` argument aliased by a plain `&`
+// argument in the same call. The existing pin aliases two WRITERS.
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: exclusive access violation: `x` is passed as `&var`
+
+func mix(a: &var Int, b: &Int) { a += b }
+func main() {
+    var x = 1
+    mix(&var x, &x)
+    print(x)
+}

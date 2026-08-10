@@ -1,0 +1,16 @@
+// Conformance row B05 — orphan conformance: a foreign type to a foreign trait
+//
+// The orphan rule across a real module boundary: this module defines neither
+// `Thing` nor `Printable`, so it may not join them.
+// COMPILE-FLAGS: --module-path dep={TESTDIR}/modules/dep
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: cannot be conformed to `Printable` here: this module defines neither the type nor the trait
+
+import dep.{Thing}
+extension Thing: Printable {
+    func format(&self, into: &var StringBuilder) { into.append("thing") }
+}
+func main() {
+    let t = Thing(named: "a", code: 5)
+    print(t.describe())
+}

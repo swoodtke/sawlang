@@ -1,0 +1,11 @@
+// Conformance row T18 — `m[k]!` on an absent key
+//
+// `m[k]!` promises the key is there. When it is not, the force-unwrap traps
+// at the place rather than lending a slot that does not exist.
+// EXPECT: panic
+// EXPECT-PANIC-CONTAINS: Map.[]: no place to lend
+
+func main() {
+    var m = {"a": 1}
+    print(m["zz"]!)
+}

@@ -1,0 +1,13 @@
+// Conformance row T10 — Vector index out of range
+//
+// `v[i]` is a direct accessor on a safe type, so it PANICS out of range —
+// no clamp, no silent no-op. The existing bounds pins are fixed arrays and
+// `Vector.set`/`swap`; the subscript itself had none.
+// EXPECT: panic
+// EXPECT-PANIC-CONTAINS: Vector.[]: index out of range
+
+func main() {
+    var v: Vector<Int> = [1, 2, 3]
+    var i = 5
+    print(v[i])
+}

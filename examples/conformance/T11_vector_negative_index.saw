@@ -1,0 +1,12 @@
+// Conformance row T11 — negative Vector index
+//
+// A negative index is out of range like any other: the check is one unsigned
+// comparison, not two signed ones.
+// EXPECT: panic
+// EXPECT-PANIC-CONTAINS: Vector.[]: index out of range
+
+func main() {
+    var v: Vector<Int> = [1, 2, 3]
+    var i = -1
+    print(v[i])
+}

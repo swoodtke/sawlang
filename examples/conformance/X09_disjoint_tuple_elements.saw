@@ -1,0 +1,15 @@
+// Conformance row X09 — `f(&var t.0, &t.1)` — disjoint tuple elements
+//
+// The accept side of the tuple-element position: distinct constant indices
+// are disjoint paths, so two by-reference accesses to one tuple are fine.
+// Over-rejection is the failure mode a disjointness rule has.
+// EXPECT: success
+// EXPECT-OUTPUT:
+// 3
+
+func mix(a: &var Int, b: &Int) { a += b }
+func main() {
+    var t = (1, 2)
+    mix(&var t.0, &t.1)
+    print(t.0)
+}

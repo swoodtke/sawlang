@@ -1,0 +1,18 @@
+// Conformance row P08 — a `borrows` body that suspends (v1 fence: bodies are sync)
+//
+// The v1 fence: a `borrows` body is `sync`. `lend` suspends the accessor and
+// the caller resumes it at window close, which a coroutine frame cannot also
+// be doing.
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: cannot suspend in `sync func` method
+// EXPECT-ERROR-CONTAINS: `C.slot` suspends
+
+import std.task.*
+struct C { n: Int }
+extension C {
+    func slot(&self) borrows -> Int {
+        yield_now()
+        lend self.n
+    }
+}
+func main() { print(1) }

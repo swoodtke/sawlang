@@ -1,0 +1,14 @@
+// Conformance row B06 — an extension method from a TRANSITIVE dep is invisible (design 142)
+//
+// Design 142: extensions are IMPORT-SCOPED. `mid` imports `deep`, but an
+// importer of `mid` inherits nothing from `deep` — a transitive dependency
+// contributes no extension methods.
+// COMPILE-FLAGS: --module-path deep={TESTDIR}/modules/deep --module-path mid={TESTDIR}/modules/mid
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: type `Int` has no method `deep_op` in scope here
+
+import mid.*
+func main() {
+    let n = mid_seed()
+    print(n.deep_op())
+}

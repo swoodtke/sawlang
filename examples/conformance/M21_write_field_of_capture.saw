@@ -1,0 +1,14 @@
+// Conformance row M21 — writing a field of a by-value struct capture
+//
+// The FIELD spelling of a write to a by-value capture. The existing pins
+// (errors/capture_assign_*.saw) write the captured binding itself; a field
+// of a captured struct reaches the same per-call copy by another path.
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: cannot assign to `s`: it is captured by value
+
+struct S { n: Int }
+func main() {
+    var s = S(n: 0)
+    let f = { s.n = 1  s.n }
+    print(f())
+}

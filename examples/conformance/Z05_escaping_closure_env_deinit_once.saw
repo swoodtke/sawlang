@@ -1,0 +1,17 @@
+// Conformance row Z05 — an escaping closure copied: its captured env is torn down exactly once
+//
+// An escaping closure's captured environment is torn down exactly once, even
+// after the closure value is copied — the copy retains the env rather than
+// duplicating it (design 159).
+// EXPECT: success
+// EXPECT-OUTPUT:
+// ok
+
+func main() {
+    let s = "captured"
+    let f = { s.len() }
+    let g = f
+    assert(f() == 8, "want 8 got {}", f())
+    assert(g() == 8, "want 8 got {}", g())
+    print("ok")
+}

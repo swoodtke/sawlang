@@ -1,0 +1,16 @@
+// Conformance row N05 — `--freestanding` rejects a hosted-only std module
+//
+// The freestanding profile drops the hosted std modules rather than letting
+// them link to seams that do not exist.
+//
+// The audit's flags stopped one step short: `--freestanding` alone rejects the
+// host's Mach-O triple first, so the row proved nothing. The bare-metal target
+// is what puts the profile in play.
+// COMPILE-FLAGS: --freestanding --target riscv32-unknown-none-elf
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: module `std.file` is hosted-only and cannot be imported in the freestanding profile
+
+import std.file.*
+func main() {
+    let _ = File.open("/tmp/x")
+}

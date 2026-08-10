@@ -1,0 +1,12 @@
+// Conformance row U05 — a function whose RETURN is unsafe-typed, undeclared
+//
+// The signature half on the RETURN side: handing an unsafe-typed value back
+// is contact too.
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: is not declared `unsafe`, but its signature returns a value of unsafe type
+
+func f() -> UnsafePointer<Int> {
+    var n = 5
+    (&var n) as UnsafePointer<Int>
+}
+func main() { print(1) }

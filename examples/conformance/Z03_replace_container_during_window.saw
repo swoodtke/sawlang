@@ -1,0 +1,19 @@
+// Conformance row Z03 — replacing the whole container while a place window on it is open
+//
+// The dangling-place shape: replacing the WHOLE container while a window on
+// one of its elements is open. The window holds a pointer into the buffer the
+// replacement frees, so the root is charged for the window's whole extent.
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: exclusive access violation: the place `v[0]` borrows `v` for the whole window
+
+func clobber(v: &var Vector<Int>) -> Int {
+    var fresh: Vector<Int> = [7, 7, 7, 7, 7, 7, 7, 7]
+    v = move fresh
+    1
+}
+func sink(x: &var Int, y: Int) { x += y }
+func main() {
+    var v: Vector<Int> = [1, 2, 3]
+    sink(&var v[0], clobber(&var v))
+    print("v0={v[0]} len={v.len()}")
+}

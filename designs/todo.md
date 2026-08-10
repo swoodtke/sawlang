@@ -134,6 +134,42 @@ wrong and are corrected in place below.
   it ever key through the typechecker copy?) before the fix. Owned by
   design 194 unit 2.
 
+**191 LANDED Aug 10** (all five units; see `designs/191-conformance-suite.md`).
+The Aug-8 audit's 247 rows are a standing suite: `examples/conformance/`, one
+file per row that needed one, `examples/conformance/INDEX.md` naming the
+covering test for every row that did not, and `-f conformance/` as the subset
+switch. 54 rows ported, 193 deduped to existing pins — a higher dedup rate
+than the census predicted, because designs 188/189/193 landed fifteen pins
+straight out of this audit between the census and the port. Twelve rows were
+re-authored to a RULING rather than to the audit's guess (listed in the INDEX's
+"re-authored" column); one finding filed.
+
+- **DF-191a (CAPABILITY, filed Aug 10 by 191 u1): a `Mutex.lock` body that
+  CAPTURES a frame-resident local of the DRIVEN function is refused, and the
+  diagnostic's suggested workaround does not typecheck.** Conformance row K13 —
+  an MT group accumulating a per-task amount into a shared `Arc<Mutex<Int>>`,
+  which is the documented way to share mutable state across worker threads:
+  ```saw
+  func add(shared: Arc<Mutex<Int>>, n: Int) -> Int {
+      shared.lock({ &var c in c = c + n  c })   // captures `n`
+  }
+  // group.spawn(add(shared.copy(), 1))
+  // error: coroutine transform: a closure capturing a frame-resident local in
+  //   this position of driven `add` is not supported; bind the closure to a
+  //   `let` in straight-line body code
+  ```
+  The identical body with NOTHING captured (`c = c + 1`) compiles and runs, and
+  so does the whole-body-in-`main` shape `examples/mutex_counter.saw` pins — so
+  what the transform cannot do is specifically a capturing closure in an
+  argument position of a driven body. The hint is unreachable here on top of
+  that: binding the closure to a `let` first trips `Mutex.lock`'s `sync`
+  requirement (``pass a `sync`-typed function value or a closure literal that is
+  checked suspension-free``), so the two rules leave no spelling. Either the
+  transform learns this position or the hint has to name a shape that works.
+  Not a soundness issue — a clean compile error — but it blocks the canonical
+  shared-counter idiom from a spawned task. PIN:
+  `examples/conformance/K13_mt_sum_under_mutex.saw` (XFAIL, cited).
+
 ## Design 186 — `UnsafeMutableInterior` (ALL EIGHT UNITS LANDED, Aug 9)
 
 `designs/186-unsafe-mutable-interior.md`. Interior mutability is a PROPERTY

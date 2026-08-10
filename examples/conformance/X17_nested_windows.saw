@@ -1,0 +1,17 @@
+// Conformance row X17 — nested windows `b[0][1].n += 1`
+//
+// Nested windows on one path are LIFO and legal: `b[0][1].n += 1` opens the
+// outer window, then the inner one inside it, and the write lands.
+// EXPECT: success
+// EXPECT-OUTPUT:
+// ok
+
+struct Cell { n: Int }
+func main() {
+    var b: Vector<Vector<Cell>> = []
+    var row: Vector<Cell> = [Cell(n: 0), Cell(n: 5)]
+    b.push(move row)
+    b[0][1].n += 1
+    assert(b[0][1].n == 6, "want 6 got {}", b[0][1].n)
+    print("ok")
+}

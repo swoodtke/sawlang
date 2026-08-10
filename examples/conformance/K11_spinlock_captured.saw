@@ -1,0 +1,13 @@
+// Conformance row K11 — a `SpinLock` captured into a closure (NoCopy)
+//
+// A `SpinLock` is NoCopy, so a closure cannot capture one by value — a copy
+// of a lock is two locks, and neither excludes the other.
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: cannot copy value of type `SpinLock<Int>` which implements NoCopy
+
+import std.spinlock.*
+func main() {
+    let lock = SpinLock<Int>(value: 0)
+    let f = { lock.lock({ c in c }) }
+    print(f())
+}

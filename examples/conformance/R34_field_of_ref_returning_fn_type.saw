@@ -1,0 +1,9 @@
+// Conformance row R34 — struct field whose type is a ref-returning function type
+//
+// A struct field whose type is a ref-returning FUNCTION type: the field rule
+// and the function-type rule meet, and the function-type rule fires.
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: a function TYPE may not return a reference
+
+struct S { f: (Int) sync -> &Int }
+func main() { print(1) }

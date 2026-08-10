@@ -1,0 +1,21 @@
+// Conformance row M22 — place write through a `borrows` accessor on a `let` root
+//
+// A write through a user-declared `borrows` accessor opens an EXCLUSIVE
+// window, which borrows the root mutably — so a `let` root refuses it.
+// The existing pins reach the window through `Vector`/`Map`/an enum method;
+// this is the hand-written accessor.
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: cannot open an exclusive place window on immutable variable `g`
+
+struct Grid { cells: [Int; 4] }
+extension Grid {
+    func [](&self, i: Int) borrows -> Int {
+        if i < 0 || i >= 4 { panic("Grid.[]: out of range") }
+        lend self.cells[i]
+    }
+}
+func main() {
+    let g = Grid(cells: [0; 4])
+    g[1] = 5
+    print(g[1])
+}

@@ -1,0 +1,10 @@
+// Conformance row R33 — `borrows -> &Int` (a place whose type is a reference)
+//
+// A `borrows` accessor lends a PLACE, and the arrow names the place's type.
+// Naming a reference there would hand a pointer out of the window.
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: may not return a reference
+
+struct C { n: Int }
+extension C { func slot(&self) borrows -> &Int { lend self.n } }
+func main() { print(1) }

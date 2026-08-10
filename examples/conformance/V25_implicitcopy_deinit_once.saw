@@ -1,0 +1,15 @@
+// Conformance row V25 — deinit-once through an auto-ImplicitCopy struct copy (design 159 retain)
+//
+// Design 159's retain: copying an AUTOMATIC ImplicitCopy struct retains each
+// owning member, so the shared String is torn down exactly once. Without the
+// retain this double-freed.
+// EXPECT: success
+// EXPECT-OUTPUT:
+// x x
+
+struct T { name: String }
+func main() {
+    let a = T(name: "x")
+    let b = a
+    print("{a.name} {b.name}")
+}

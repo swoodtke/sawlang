@@ -1,0 +1,16 @@
+// Conformance row M12 — `&var self` method through a `&T` parameter
+//
+// The third spelling of a write through a shared `&T` parameter: a `&var self`
+// method call on the referent. It is refused at the call site, naming the
+// parameter, exactly as a `let` receiver is.
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: cannot call `&var self` method `bump` on immutable variable `c`
+
+struct C { n: Int }
+extension C { func bump(&var self) { self.n += 1 } }
+func f(c: &C) { c.bump() }
+func main() {
+    var c = C(n: 0)
+    f(&c)
+    print(c.n)
+}

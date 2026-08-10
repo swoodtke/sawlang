@@ -1,0 +1,16 @@
+// Conformance row V12 — moving a by-value capture out of a closure body
+//
+// A closure's captured environment is an env of VALUES, so moving a capture
+// OUT of the body would move out of that copy. The transfer is refused where
+// the copy would have to happen.
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: cannot copy value of type `Vector<Int, GlobalAllocator>` which implements ExplicitCopy
+
+func main() {
+    var v: Vector<Int> = [1]
+    let f = {
+        let w = move v
+        w.len()
+    }
+    print(f())
+}
