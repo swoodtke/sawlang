@@ -52,6 +52,35 @@ class ExistentialsMixin:
     _FNV64_PRIME = 1099511628211
     _FNV64_MASK = (1 << 64) - 1
 
+    def _erased_identity(self, concrete_saw):
+        """THE ONE canonical spelling a concrete type takes when it is ERASED.
+
+        Four identities are derived from an erased type's mangled name — the
+        vtable global, the destructor it points at, the impl symbol each method
+        thunk calls, and the `type_id` a downcast compares — so all four have to
+        spell the same type the same way. `_canonicalize_type_kind` is that
+        spelling (design 68): it fills omitted trailing default type args at
+        every nesting level and normalizes an erased `Box<any Trait, Global>`
+        back down to codegen's native arity-1 form, which is what
+        `_ensure_monomorphized_struct` registers the type and its methods under.
+
+        THE FUNNEL, and its entry points (design 190 obligation 1):
+        `_get_or_emit_vtable` — which covers everything `_fill_vtable` then
+        derives, i.e. `_get_vtable_dtor`, `_get_vtable_thunk` and the
+        size/align header — and `_type_id_for`, which is called from BOTH sides
+        of a downcast (the id the vtable bakes in, and the id `is<T>()` /
+        `take<T>()` compare against it). Any new way to reach a vtable belongs
+        here too, or it mangles a second name for one type.
+
+        DF-192b is what a bypass costs: spawning a function that returns an
+        erased `Result<T, Box<any Error>>` monomorphized its result cell as
+        `__ResultCell<Result<Int, Box<any Error>>>` and then asked for a vtable
+        over the arity-2 `Box<any Error, GlobalAllocator>` spelling of the same
+        type, so the thunk's impl lookup missed by a name and the compiler died
+        with a bare `KeyError`.
+        """
+        return self._canonicalize_type_kind(concrete_saw)
+
     def _type_id_for(self, concrete_saw):
         """A STABLE, deterministic type-id: the FNV-1a hash of the mangled type
         name (design 87 §2, replacing design-72's per-compilation MONOTONIC
@@ -69,7 +98,7 @@ class ExistentialsMixin:
         (unlike the old counter, which reserved it). A hypothetical collision
         would let one type's `is<T>()` spuriously accept another — acceptable for
         a v1 downcast until a wider/perfect scheme is warranted."""
-        cm = mangle_type(concrete_saw)
+        cm = mangle_type(self._erased_identity(concrete_saw))
         tid = self._type_ids.get(cm)
         if tid is None:
             h = self._FNV64_OFFSET_BASIS
@@ -129,7 +158,12 @@ class ExistentialsMixin:
         Emitted on first use like a monomorphization: the global is created now
         (so its address is available to build fat pointers), and its initializer
         + destructor/thunk bodies are filled during the end-of-module drain, when
-        the builder context is clean and all impl functions are declared."""
+        the builder context is clean and all impl functions are declared.
+
+        The concrete type is canonicalized here, once, so the queued
+        `concrete_saw` every downstream slot reads is already the erased
+        identity — see `_erased_identity`."""
+        concrete_saw = self._erased_identity(concrete_saw)
         cm = mangle_type(concrete_saw)
         key = (cm, trait_name)
         existing = self._vtable_globals.get(key)

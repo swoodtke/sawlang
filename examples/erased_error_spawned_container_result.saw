@@ -1,0 +1,64 @@
+// The erased-error spawn, one nesting level deeper — and the downcast beside it.
+//
+// `erased_error_spawned_task.saw` pins the minimal shape (DF-192b). This is the
+// same shape with type arguments that have DEFAULTS at both nesting levels: the
+// task result is `Result<Vector<Int>, Box<any Error>>`, so the cell the group
+// erases is `__ResultCell<Result<Vector<Int, GlobalAllocator>, Box<any Error,
+// GlobalAllocator>>>` — three chances for the vtable's spelling of the concrete
+// type to drift from the one the monomorphized methods were registered under.
+// The `is<T>()` / `take<T>()` pair rides the same funnel (both sides of a
+// downcast compare a type id derived from that name), so it is checked here too.
+// EXPECT: success
+// EXPECT-OUTPUT:
+// ok 4
+// err MyErr(-4)
+// downcast -7
+
+import std.task.*
+
+struct MyErr { code: Int }
+
+extension MyErr: Printable {
+    func format(&self, into: &var StringBuilder) {
+        into.append("MyErr(")
+        into.append(self.code)
+        into.append(")")
+    }
+}
+
+extension MyErr: Error {}
+
+func gather(n: Int) -> Result<Vector<Int>, Box<any Error>> {
+    yield_now()
+    if n < 0 { return MyErr(code: n) }
+    var v: Vector<Int> = [1, 2, 3]
+    v.push(n)
+    return move v
+}
+
+func code_of(n: Int) -> Int {
+    match gather(n) {
+        case Ok(v) -> v.len(),
+        case Err(e) -> {
+            if e.is<MyErr>() {
+                if let m = e.take<MyErr>() { return m.code }
+            }
+            0
+        }
+    }
+}
+
+func main() {
+    var group = TaskGroup()
+    let a = group.spawn(gather(9))
+    match a.join() {
+        case Ok(v) -> print("ok {v.len()}"),
+        case Err(e) -> print("err {e}")
+    }
+    let b = group.spawn(gather(-4))
+    match b.join() {
+        case Ok(v) -> print("ok {v.len()}"),
+        case Err(e) -> print("err {e}")
+    }
+    print("downcast {code_of(-7)}")
+}

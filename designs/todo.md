@@ -428,19 +428,25 @@ DF-192e fixed, DF-192b/c/d/f/g pinned (DF-192d fixed since, by design 198).
   Emission is byte-identical across all 14 erased-error corpus programs.
   No new pin: every erased-Result example in the corpus is one, since the
   fallthrough now raises rather than skipping.
-- **DF-192b (ICE, CONFIRMED at baseline, filed Aug 10 by 192 u1):
-  spawning a function that returns an erased `Result<T, Box<any Error>>`
-  is a codegen ICE.** `group.spawn(fail(7))` where `fail -> Result<Int,
-  Box<any Error>>` dies filling the result cell's vtable —
-  `_get_vtable_thunk` looks up
+- **DF-192b — FIXED (design 196 unit 2): spawning a function that returns
+  an erased `Result<T, Box<any Error>>` was a codegen ICE.**
+  `group.spawn(fail(7))` where `fail -> Result<Int, Box<any Error>>` died
+  filling the result cell's vtable — `_get_vtable_thunk` looked up
   `__ResultCell$1$Result$2$Int$Box$2$$Any$Error$GlobalAllocator___carries_result`
-  and the body was never emitted (`KeyError`, printed as a bare
-  `internal compiler error:` with the mangled name and nothing else).
-  Nothing about the body suspends; calling the same function directly
-  works, and the CONCRETE `Result<Int, MyErr>` spawns and joins fine —
-  so it is the erasure in the spawned result type. Pre-dates design 192
-  (probe-confirmed against e4761ef). PIN:
-  `examples/erased_error_spawned_task.saw` (XFAIL, cited).
+  and the body was never emitted, because the cell had monomorphized under
+  the arity-1 `Box$1$$Any$Error` spelling `_canonicalize_type_kind` gives
+  an erased box. Two names for one type, and the vtable path was the one
+  that had never been canonicalized. THE FIX IS A FUNNEL, not a patch of
+  that lookup: `_erased_identity` is now the single canonical spelling an
+  erasure derives every identity from, and its docstring names its two
+  entry points — `_get_or_emit_vtable` (which covers the dtor, the thunks
+  and the size/align header it fills) and `_type_id_for` (BOTH sides of a
+  downcast). The downcast side had the same latent split: `e.is<Vector<Int>>()`
+  hashed the as-written name while the vtable baked in the defaulted one.
+  Pre-dated design 192 (probe-confirmed against e4761ef). PIN FLIPPED:
+  `examples/erased_error_spawned_task.saw`; second row added,
+  `examples/erased_error_spawned_container_result.saw` (a defaulted type
+  arg at both nesting levels, plus the downcast).
 - **DF-192c — FIXED (design 196 unit 1): an erased-error return in a
   SUSPENDING body was a codegen ICE.** `yield_now()` ahead of `return
   MyErr(...)` in an erased-Result function makes the body a state machine,

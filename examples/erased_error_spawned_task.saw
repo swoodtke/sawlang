@@ -1,15 +1,15 @@
-// A task that returns an ERASED Result should join like any other task.
+// A task that returns an ERASED Result joins like any other task.
 //
-// `group.spawn(fail(7))` on a `Result<Int, Box<any Error>>`-returning function
-// is a codegen ICE — nothing about the body suspends, and the same function
-// called directly compiles and runs. The task's result travels through a
-// `__ResultCell` whose `_carries_result` method codegen never emits a body for,
-// so filling the cell's vtable looks the method up and finds nothing:
-// `internal compiler error: '__ResultCell$1$Result$2$Int$Box$2$$Any$Error$
-// GlobalAllocator___carries_result'`. A CONCRETE error type in the same
-// position (`Result<Int, MyErr>`) spawns and joins fine, which is what makes
-// this the erasure that breaks it rather than spawning a Result.
-// XFAIL: DF-192b spawning a function that returns an erased `Result<T, Box<any Error>>` is a codegen ICE in the result cell's vtable
+// The task's result travels through a `__ResultCell<T>`, which the group holds
+// ERASED — so spawning one asks for a vtable over the cell type. At `T =
+// Result<Int, Box<any Error>>` the two sides used to spell that type
+// differently: the cell monomorphized under codegen's native arity-1
+// `Box<any Error>` and the vtable asked for the arity-2 `Box<any Error,
+// GlobalAllocator>`, so the thunk's impl lookup missed by a name and the
+// compiler died with a bare `KeyError` (DF-192b). A CONCRETE error type in the
+// same position spawns and joins fine, which is what made it the erasure rather
+// than spawning a Result. Design 196 unit 2 routes every erased identity
+// through one canonicalizer.
 // EXPECT: success
 // EXPECT-OUTPUT:
 // err MyErr(7)
