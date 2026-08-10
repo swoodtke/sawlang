@@ -333,7 +333,7 @@ class CallsMixin:
 
         # Atomic construction (design 41 item 4): `Atomic(<int>)` builds the
         # `{ i64 }` cell value. The typechecker tagged this call.
-        if getattr(expr, 'is_atomic_construct', False):
+        if expr.is_atomic_construct:
             atomic_saw = SawType(TypeKind.STRUCT, struct_name="Atomic",
                                  type_args=[SawType(TypeKind.INT)])
             atomic_llvm = self._get_llvm_type(atomic_saw)
@@ -343,11 +343,11 @@ class CallsMixin:
 
         # Interior-cell construction (design 186): the cell IS its `T` (it is
         # layout-transparent), so wrapping a value emits the value.
-        if getattr(expr, 'is_interior_cell_construct', False):
+        if expr.is_interior_cell_construct:
             return self._generate_expression(expr.arguments[0].value)
 
         # UnsafeMemory construction (design 46): the value IS the address (i64).
-        if getattr(expr, 'is_unsafe_mem_construct', False):
+        if expr.is_unsafe_mem_construct:
             return self._generate_expression(expr.arguments[0].value)
 
         # Distinct alias construction (design 63): `UserId(42)`. An alias IS its
@@ -355,7 +355,7 @@ class CallsMixin:
         # no conversion to emit, only the operand. The width coercion is the
         # same one a call argument gets: a bare literal arrives as the platform
         # word and an alias over a fixed-width underlying needs it narrowed.
-        alias_name = getattr(expr, 'alias_construction', None)
+        alias_name = expr.alias_construction
         if alias_name is not None:
             value = self._generate_expression(expr.arguments[0].value)
             target = self._get_llvm_type(
@@ -466,7 +466,7 @@ class CallsMixin:
                     "__saw_blk_take": "__saw_rt_offload_take"}[expr.name]
             job = self._generate_expression(expr.arguments[0].value)
             word = self.builder.call(self.functions[shim], [job], name="blkr")
-            blk = getattr(expr, 'blk_extern', None)
+            blk = expr.blk_extern
             if expr.name == "__saw_blk_take" and blk is not None:
                 # design 183 unit 2: the job carries one result WORD; narrow it
                 # back to the extern's declared return type (the inverse of what
@@ -536,10 +536,10 @@ class CallsMixin:
         # and stamped its exact codegen symbol. Call that definition directly,
         # ahead of the struct-init / generic-instantiation routing (which keys on
         # the plain name and would otherwise mis-route an overloaded name).
-        resolved_symbol = getattr(expr, 'resolved_symbol', None)
+        resolved_symbol = expr.resolved_symbol
         if resolved_symbol is not None and resolved_symbol in self.functions:
             func = self.functions[resolved_symbol]
-            if getattr(expr, 'arg_plan', None) is not None:
+            if expr.arg_plan is not None:
                 args = self._planned_arg_values(
                     expr, self.func_defaults.get(resolved_symbol) or [])
             else:
@@ -581,13 +581,13 @@ class CallsMixin:
 
         # Check if this is actually a struct init (parser treats empty parens as function call)
         # Design 144: prefer the identity the typechecker resolved this name to.
-        _sid = getattr(expr, 'resolved_type_identity', None) or expr.name
+        _sid = expr.resolved_type_identity or expr.name
         if _sid in self.generic_structs or _sid in self.struct_types:
             # Convert to struct init and generate that instead. Prefer the
             # typechecker's augmented field-init list (design 53: it includes any
             # init parameters filled from their defaults), falling back to the
             # raw named arguments.
-            field_inits = getattr(expr, 'resolved_field_inits', None)
+            field_inits = expr.resolved_field_inits
             if field_inits is None:
                 field_inits = [(arg.name, arg.value) for arg in expr.arguments if arg.name]
             struct_init = StructInit(
@@ -606,7 +606,7 @@ class CallsMixin:
         # prefer it so the RIGHT template is instantiated (the plain name may map
         # to a sibling generic overload) and its instantiations stay collision-free.
         gen_name = expr.name
-        rs = getattr(expr, 'resolved_symbol', None)
+        rs = expr.resolved_symbol
         if rs is not None and rs in self.generic_functions:
             gen_name = rs
         if gen_name in self.generic_functions:
@@ -641,7 +641,7 @@ class CallsMixin:
             defaults_key = expr.name
 
         # Arguments are now Argument objects with .value
-        if getattr(expr, 'arg_plan', None) is not None:
+        if expr.arg_plan is not None:
             # Design 66: labeled/mid-skip call — emit args by the binding plan,
             # interleaving default-filled parameter slots.
             args = self._planned_arg_values(
@@ -772,7 +772,7 @@ class CallsMixin:
         word = self.int_type
         i8 = ir.IntType(8)
 
-        saw_type = getattr(arg_expr, 'resolved_type', None)
+        saw_type = arg_expr.resolved_type
         if saw_type is not None and self.type_param_context:
             saw_type = saw_type.substitute(self.type_param_context)
         if saw_type is not None:
@@ -896,8 +896,8 @@ class CallsMixin:
         call = MethodCall(
             object=arg_expr, method_name="format",
             arguments=[Argument(name="into", value=PreparedValue(sb_ptr))],
-            line=getattr(arg_expr, 'line', 0),
-            column=getattr(arg_expr, 'column', 0))
+            line=arg_expr.line,
+            column=arg_expr.column)
         self._generate_expression(call)
 
         length = self.builder.load(field("length"), name="fmt_sb_len")
@@ -947,7 +947,7 @@ class CallsMixin:
         # module-qualified expression can reach codegen without a resolved_type
         # (the pre-existing L6 gap), and print of such a value must keep working
         # via its LLVM value type below — not ICE.
-        arg_saw = getattr(arg.value, 'resolved_type', None)
+        arg_saw = arg.value.resolved_type
         if arg_saw is not None and self.type_param_context:
             arg_saw = arg_saw.substitute(self.type_param_context)
         if arg_saw is not None:
@@ -1129,7 +1129,7 @@ class CallsMixin:
         (the value is NEVER; nothing consumes it).
         """
         prefix_ptr, prefix_len = self._raw_bytes_ptr(
-            self._panic_location_prefix(getattr(expr, 'line', 0)))
+            self._panic_location_prefix(expr.line))
         if len(expr.arguments) > 1:
             # design 137: `panic("out of {}", what)`.
             segments = self._format_segments(expr.arguments[0].value,
@@ -1159,7 +1159,7 @@ class CallsMixin:
 
         self.builder.position_at_end(fail_bb)
         prefix_ptr, prefix_len = self._raw_bytes_ptr(
-            self._panic_location_prefix(getattr(expr, 'line', 0)) + "assertion failed: ")
+            self._panic_location_prefix(expr.line) + "assertion failed: ")
         if len(expr.arguments) > 2:
             # design 137: `assert(ok, "want {} got {}", a, b)`. The arguments are
             # rendered on THIS branch only, so a passing assert costs nothing.
@@ -1263,23 +1263,23 @@ class CallsMixin:
         # design 51: erased-direct `Box<any Trait>.make(v)` construction, and
         # dynamic dispatch through a `&any Trait` / `Box<any Trait>` receiver. Both
         # are tagged by the typechecker.
-        if getattr(expr, 'erased_box_make', None) is not None:
+        if expr.erased_box_make is not None:
             return self._generate_erased_box_make(expr)
-        if getattr(expr, 'existential_dispatch', None) is not None:
+        if expr.existential_dispatch is not None:
             return self._generate_existential_method_call(expr, expr.existential_dispatch)
 
         # Fixed-array builtins (design 72 L12/M1): the typechecker tagged the node.
-        if getattr(expr, 'array_builtin', None) is not None:
+        if expr.array_builtin is not None:
             return self._generate_array_builtin(expr)
 
         # `o.take()` (design 131): the consuming payload read.
-        if getattr(expr, 'optional_take', False):
+        if expr.optional_take:
             return self._generate_optional_take(expr)
 
         # Erased-box downcasting `b.is<T>()` / `b.take<T>()` (design 72). `take`
         # consumes the box: clear the receiver binding's drop flag (like a move)
         # so scope-exit teardown does not double-free the shell take already freed.
-        if getattr(expr, 'erased_downcast', None) is not None:
+        if expr.erased_downcast is not None:
             if (expr.erased_downcast['op'] == "take"
                     and isinstance(expr.object, Identifier)):
                 name = expr.object.name
@@ -1292,25 +1292,25 @@ class CallsMixin:
         # Arc payload-method forwarding (design 21b E2): the typechecker resolved
         # this as an immutable `&self` method on Arc's payload; forward through a
         # borrow of the control block's payload slot.
-        if getattr(expr, 'arc_forward_payload_type', None) is not None:
+        if expr.arc_forward_payload_type is not None:
             return self._generate_arc_forward_call(expr)
 
         # Box payload-method forwarding (design 42 item 1): the typechecker
         # resolved this as an immutable `&self` method on Box's payload; forward
         # through a borrow of the heap payload at `ptr[0]`.
-        if getattr(expr, 'box_forward_payload_type', None) is not None:
+        if expr.box_forward_payload_type is not None:
             return self._generate_box_forward_call(expr)
 
         # A call through a function-typed struct field (design 24 item 3): the
         # typechecker resolved `obj.field(args)` as an indirect closure call.
-        if getattr(expr, 'is_field_call', False):
+        if expr.is_field_call:
             return self._generate_field_call(expr)
 
         # Atomic<Int> methods (design 41 item 4): lowered directly to seq_cst
         # LLVM atomics on the cell, bypassing the (dead) stub method bodies.
         # Interior mutability is the sanctioned mutation path — this fires on a
         # METHOD call, never touching the item-2 no-assignment rule.
-        recv_saw = getattr(expr.object, 'resolved_type', None)
+        recv_saw = expr.object.resolved_type
         if (recv_saw is not None and recv_saw.kind == TypeKind.STRUCT
                 and recv_saw.struct_name == "Atomic"
                 and expr.method_name in ("load", "store", "fetch_add", "compare_exchange")):
@@ -1320,8 +1320,8 @@ class CallsMixin:
         # cell is layout-transparent, so that address IS the receiver's, which
         # is why this reuses the Atomic receiver walk (both need the CALLER's
         # storage, never a spilled copy) and skips its final field GEP.
-        if getattr(expr, 'interior_cell_ptr', False):
-            result_saw = getattr(expr, 'resolved_type', None)
+        if expr.interior_cell_ptr:
+            result_saw = expr.resolved_type
             payload_llvm = (self._get_llvm_type(result_saw.inner_type)
                             if result_saw is not None
                             and result_saw.inner_type is not None else None)
@@ -1329,7 +1329,7 @@ class CallsMixin:
 
         # UnsafeMemory accessors (design 46): read/write (volatile on Device) and
         # the Normal region accessors ptr/len/end. The typechecker tagged the node.
-        if getattr(expr, 'um_method', None) is not None:
+        if expr.um_method is not None:
             return self._generate_um_method(expr)
 
         # Check if this is a nested module function call: Parent.Child.symbol(args)
@@ -1374,14 +1374,14 @@ class CallsMixin:
         # Design 145 unit B2: `E.from(raw: u)` on a raw-backed enum. The
         # typechecker stamped the enum when it resolved this as the synthesized
         # lookup, so there is no symbol to call — it lowers inline.
-        from_raw_enum = getattr(expr, 'enum_from_raw', None)
+        from_raw_enum = expr.enum_from_raw
         if from_raw_enum is not None:
             return self._generate_enum_from_raw(expr, from_raw_enum)
 
         # Design 170: `UInt8.from(x)` / `UInt8.from(truncating: x)`. An integer
         # type name is not a struct, so there is no symbol to call — the
         # typechecker's plan is the whole lowering.
-        int_from = getattr(expr, 'int_from', None)
+        int_from = expr.int_from
         if int_from is not None:
             return self._generate_int_from(expr, int_from)
 
@@ -1390,7 +1390,7 @@ class CallsMixin:
         # resolved the receiver name to — the method symbols are mangled
         # against it, and two modules may each declare a `Manifest`.
         if isinstance(expr.object, Identifier):
-            struct_name = (getattr(expr, 'resolved_type_identity', None)
+            struct_name = (expr.resolved_type_identity
                            or expr.object.name)
             if self.namespace.is_static_method(struct_name, expr.method_name):
                 return self._generate_static_method_call(expr, struct_name)
@@ -1403,7 +1403,7 @@ class CallsMixin:
         # Check both concrete enums and generic enums
         if isinstance(expr.object, Identifier):
             # Design 144: the identity the typechecker resolved, not the spelling.
-            _eid = (getattr(expr, 'resolved_type_identity', None)
+            _eid = (expr.resolved_type_identity
                     or expr.object.name)
             is_enum = _eid in self.enum_types
             is_generic_enum = _eid in self.generic_enums
@@ -1566,7 +1566,7 @@ class CallsMixin:
         # derefed to its value LLVM type, so a `&K`/`&String` reference receiver
         # (e.g. HashMap's `key: &K`) is handled uniformly.
         if expr.method_name == "hash" and len(expr.arguments) == 1:
-            recv_type = getattr(expr.object, 'resolved_type', None)
+            recv_type = expr.object.resolved_type
             if recv_type is not None and self.type_param_context:
                 recv_type = recv_type.substitute(self.type_param_context)
             hash_val = obj_val
@@ -1648,7 +1648,7 @@ class CallsMixin:
 
         # Get mangled method name. Overloading (design 55): the typechecker
         # resolved the overload and stamped the exact codegen symbol; use it.
-        resolved_symbol = getattr(expr, 'resolved_symbol', None)
+        resolved_symbol = expr.resolved_symbol
         if resolved_symbol is not None:
             mangled_name = resolved_symbol
         else:
@@ -1766,8 +1766,8 @@ class CallsMixin:
                 # / `acc.push(...)` across a park was silently lost (design 86).
                 self_arg = self._generate_reference_expr(
                     ReferenceExpr(expr=expr.object, mutable=True,
-                                  line=getattr(expr.object, 'line', 0),
-                                  column=getattr(expr.object, 'column', 0)))
+                                  line=expr.object.line,
+                                  column=expr.object.column))
             elif receiver_temp_slot is not None:
                 # An owned-temporary receiver already spilled to a slot for
                 # statement-scoped cleanup: mutate through that same slot so the
@@ -1791,7 +1791,7 @@ class CallsMixin:
             self_arg = self.builder.load(self_arg, name="ref_recv_deref")
 
         args = [self_arg]  # self is first argument
-        if getattr(expr, 'arg_plan', None) is not None:
+        if expr.arg_plan is not None:
             # Design 66: labeled/mid-skip call — build the non-self args by the
             # binding plan. `method_defaults` includes self at index 0, so the
             # logical (self-stripped) default list is `defaults[1:]`.
@@ -1912,7 +1912,7 @@ class CallsMixin:
 
     def _um_view_type(self, um_expr):
         """The viewed type `T` of a `UnsafeMemory<T, Use>`-typed expression."""
-        t = getattr(um_expr, 'resolved_type', None)
+        t = um_expr.resolved_type
         if t is not None and t.type_args:
             return t.type_args[0]
         return None
@@ -1960,7 +1960,7 @@ class CallsMixin:
                                     name="um_elem")
         return self.builder.ptrtoint(elem_ptr, self.int_type, name="um_elem_addr")
 
-    def _generate_um_method(self, expr):
+    def _generate_um_method(self, expr: MethodCall):
         """Lower a `UnsafeMemory` accessor (design 46).
 
         Device `read()`/`write()` emit VOLATILE loads/stores (the volatile flag
@@ -1969,7 +1969,7 @@ class CallsMixin:
         """
         method = expr.um_method
         base_addr = self._generate_expression(expr.object)  # i64 address
-        volatile = bool(getattr(expr, 'um_volatile', False))
+        volatile = expr.um_volatile
         i8ptr = ir.IntType(8).as_pointer()
 
         if method in ("read", "write"):
@@ -2026,7 +2026,7 @@ class CallsMixin:
         i64 = ir.IntType(64)
 
         closure_expr = expr.arguments[0].value
-        result_saw = getattr(expr, 'spawn_result_type', None) or SawType(TypeKind.VOID)
+        result_saw = expr.spawn_result_type or SawType(TypeKind.VOID)
         result_llvm = self._get_llvm_type(result_saw)
         # A Void spawn body has no value to carry back: LLVM forbids a `void`
         # field in the control-block struct, so the result slot becomes a 1-byte
@@ -2049,7 +2049,7 @@ class CallsMixin:
         # and panics rather than storing through the NULL a refused allocation
         # returns (design 123).
         raw = self._alloc_or_panic(cb_size, 16, "spawn",
-                                   line=getattr(expr, 'line', 0))
+                                   line=expr.line)
         cb = self.builder.bitcast(raw, ir.PointerType(cb_ty), name="task_cb")
         # Store the env pointer at slot 1.
         env_slot = self.builder.gep(
@@ -2250,7 +2250,7 @@ class CallsMixin:
         # `{ i1 is_some, closure }`; the closure is at element 1. (No None check —
         # a live coroutine state always assigned it before calling, mirroring the
         # `self.f!` force-unwrap the typechecker resolved.)
-        if getattr(expr, 'field_call_unwrap', False):
+        if expr.field_call_unwrap:
             closure_val = self.builder.extract_value(closure_val, 1, name="field_closure_opt")
         fn_ptr = self.builder.extract_value(closure_val, 0, name="field_fn_ptr")
         env_ptr = self.builder.extract_value(closure_val, 1, name="field_env_ptr")
@@ -2283,7 +2283,7 @@ class CallsMixin:
 
         # Overloading (design 55): the typechecker resolved the static overload
         # and stamped its exact codegen symbol.
-        resolved_symbol = getattr(expr, 'resolved_symbol', None)
+        resolved_symbol = expr.resolved_symbol
         if resolved_symbol is not None:
             mangled_name = resolved_symbol
         else:
@@ -2295,7 +2295,7 @@ class CallsMixin:
         method_func = self.functions[mangled_name]
 
         # Generate provided arguments
-        if getattr(expr, 'arg_plan', None) is not None:
+        if expr.arg_plan is not None:
             # Design 66: static methods have no self, so method_defaults is the
             # logical (self-stripped) default list directly.
             logical_defs = self.method_defaults.get(mangled_name) or []
@@ -2343,7 +2343,7 @@ class CallsMixin:
         """
         # Overloading (design 55): the typechecker resolved the module overload
         # and stamped its exact (merged-module) codegen symbol.
-        func_name = getattr(expr, 'resolved_symbol', None) or expr.method_name
+        func_name = expr.resolved_symbol or expr.method_name
 
         if func_name not in self.functions:
             raise ValueError(f"Undefined function in module: {expr.object.name}.{expr.method_name}")
@@ -2351,7 +2351,7 @@ class CallsMixin:
         func = self.functions[func_name]
 
         # Generate arguments
-        if getattr(expr, 'arg_plan', None) is not None:
+        if expr.arg_plan is not None:
             # Design 66: labeled module call. Module functions carry no separate
             # default table here; the plan's slots are all argument-bound.
             args = self._planned_arg_values(
@@ -2373,7 +2373,7 @@ class CallsMixin:
         """
         # Design 144: the typechecker resolved this name through the module's
         # namespace and stamped the identity; codegen never re-resolves it.
-        struct_name = (getattr(expr, 'resolved_type_identity', None)
+        struct_name = (expr.resolved_type_identity
                        or expr.method_name)
 
         # Convert MethodCall to StructInit
@@ -2447,8 +2447,8 @@ class CallsMixin:
             # `p.field = v` across a suspend lost the write).
             return self._generate_reference_expr(
                 ReferenceExpr(expr=expr, mutable=True,
-                              line=getattr(expr, 'line', 0),
-                              column=getattr(expr, 'column', 0)))
+                              line=expr.line,
+                              column=expr.column))
         # Fallback: materialize a temporary (won't propagate changes back).
         base_val = self._generate_expression(expr)
         base_ptr = self._entry_alloca(base_val.type, name="lvalue_temp")
@@ -2564,7 +2564,7 @@ class CallsMixin:
         # below, which would either fail outright (a tuple is an anonymous
         # literal struct, so it has no entry) or — worse — string-match a user
         # struct of identical layout and GEP by ITS field order (DF-151j).
-        tuple_idx = getattr(expr, 'tuple_field_index', None)
+        tuple_idx = expr.tuple_field_index
         if tuple_idx is not None:
             return self._tuple_slot_pointer(
                 expr.object, tuple_idx, name=f"{expr.member}_ptr")
