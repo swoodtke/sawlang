@@ -54,6 +54,21 @@ LANDED with 190 into CLAUDE.md.
   message showing the very call it was given). PINS:
   `examples/coro_try_catch_suspending.saw` (flipped),
   `examples/coro_labeled_call_positions.saw` (new, three positions).
+- **DF-193b (SOUNDNESS, CONFIRMED double-free, found + FIXED by 193 u3): a
+  `move` written inside a STRUCT LITERAL was invisible to the
+  borrowing-match check, so a `match v[i]` arm destructured the element in
+  place.** `_arm_moves_binding` decides whether an arm reads the place or
+  destructures it, and its walk stopped at tuples —
+  `StructInit.field_inits` being a list of `(name, value)` tuples, an arm
+  body `Held(r: move r)` looked move-free. The match then lowered into a
+  borrow window and the payload moved OUT of storage the vector still owned:
+  probe printed `deinit 1` twice, exit 0. Now the ordinary value-read error
+  naming `with_ref`/`swap_out`. The same tuple hole in the chain-assign
+  exclusivity walk let `w?.c = Cell(v: refill(&var w))` past the Law while
+  the shallower spelling was refused. Both walks are on the shared
+  `ast_walk.child_nodes` now. PINS:
+  `examples/place_match_arm_move_in_literal.saw`,
+  `examples/chain_assign_exclusivity_in_literal.saw`.
 - **DF-193a (CAPABILITY, filed Aug 10 by 193 u2): a suspension inside a
   `try { … } catch { … }` BLOCK in a driven body is refused.** The
   census's DF-190b claim, minus the misattribution: the coro spine walks

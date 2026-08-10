@@ -1,0 +1,47 @@
+// A borrowing `match` over a PLACE lends the element where it sits, and an arm
+// that MOVES one of its own bindings is destructuring the element rather than
+// reading it — which a borrow cannot serve, so that arm keeps the ordinary
+// value-read path and gets the value-read error (design 146). The move is
+// found wherever it is WRITTEN, including inside a struct literal's field.
+//
+// The walk that answers "does this arm move a binding" used to stop at TUPLES,
+// and `StructInit.field_inits` is a list of `(name, value)` tuples — so
+// `Held(r: move r)` was invisible to it (the DF-187b traversal-drift family,
+// closed by design 193 unit 3). This program then COMPILED, and the payload
+// moved out of storage the vector still owned: `deinit 1` printed TWICE.
+//
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: lends a place of type `Slot`, which is move-only
+
+struct Res {
+    id: Int
+}
+
+extension Res: NoCopy {
+    func deinit(&var self) {
+        print("deinit {self.id}")
+    }
+}
+
+enum Slot {
+    case Filled(r: Res),
+    case Empty
+}
+
+extension Slot: NoCopy {}
+
+struct Held {
+    r: Res
+}
+
+extension Held: NoCopy {}
+
+func main() {
+    var v: Vector<Slot> = []
+    v.push(Slot.Filled(r: Res(id: 1)))
+    let h = match v[0] {
+        case Filled(r) -> Held(r: move r),
+        case Empty -> Held(r: Res(id: 0))
+    }
+    print("held {h.r.id}")
+}

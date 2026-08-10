@@ -47,6 +47,7 @@ from ast_nodes import (
     OptionalEvalExpr, OptionalChainAssign, OptionalWrap,
     structural_fields,
 )
+from ast_walk import child_nodes, control_blocks, map_nodes
 
 
 class CoroTransformError(Exception):
@@ -64,35 +65,11 @@ class CoroTransformError(Exception):
         self.source_file = source_file
 
 
-def _child_nodes(node):
-    """Every AST child of `node` reachable through a structural field — through
-    ANY nesting of lists and tuples, and through the `Argument` wrapper.
-
-    DF-187b: a dozen walks in this file used to hand-roll this recursion, and
-    the copies agreed on lists and `Argument`s but not on TUPLES. A tuple in a
-    list is exactly the shape of `StructInit.field_inits` (`[(name, value), …]`)
-    and `MapLiteral.entries`, so those walks never looked inside a struct
-    literal at all: the `if let` rename walked past `Check(detail: a)` and left
-    the outer binding naming a local that no longer existed, and the
-    suspending-call scans could not see a call written in a field position
-    either. One definition, so the next node type with a tuple-shaped field
-    cannot reopen it. Order is unchanged for the shapes that already worked —
-    a tuple's contents are yielded where the tuple itself sat.
-
-    Yields AST nodes only; `SawType` is not an `ASTNode`, so type annotations
-    and type arguments stay out of every walk exactly as before.
-    """
-    def expand(v):
-        if isinstance(v, (list, tuple)):
-            for x in v:
-                yield from expand(x)
-        elif isinstance(v, Argument):
-            yield from expand(v.value)
-        elif isinstance(v, ASTNode):
-            yield v
-
-    for f in structural_fields(node):
-        yield from expand(getattr(node, f.name))
+# DF-187b's one definition of "the children of a node" now lives in
+# `ast_walk` — this file was where it was first written, and design 193 unit 3
+# promoted it so the checker's walks share it. `_child_nodes` stays as the
+# local name every call site below already uses.
+_child_nodes = child_nodes
 
 
 # --------------------------------------------------------------------------- #
@@ -875,25 +852,11 @@ class _FrameBuilder:
             self._hoist_recurse(s)
 
     def _hoist_recurse(self, s):
-        ctrl = s.expression if isinstance(s, ExpressionStatement) else s
-        if isinstance(ctrl, IfExpr):
-            self._hoist_block(ctrl.then_branch)
-            if ctrl.else_branch is not None:
-                self._hoist_block(ctrl.else_branch)
-        elif isinstance(ctrl, IfLetExpr):
-            self._hoist_block(ctrl.then_branch)
-            if ctrl.else_branch is not None:
-                self._hoist_block(ctrl.else_branch)
-        elif isinstance(ctrl, WhileExpr):
-            self._hoist_block(ctrl.body)
-        elif isinstance(ctrl, MatchExpr):
-            for arm in ctrl.arms:
-                if isinstance(arm.body, Block):
-                    self._hoist_block(arm.body)
-        elif isinstance(s, ForLoop):
-            self._hoist_block(s.body)
-        elif isinstance(s, GuardLetStatement):
-            self._hoist_block(s.else_branch)
+        # Every container kind, from the one enumeration (`ast_walk`): a hoist
+        # is a plain descent — it rewrites a statement into two within the
+        # block it already sits in — so there is no container it should stop at.
+        for block in control_blocks(s):
+            self._hoist_block(block)
 
     def _maybe_hoist(self, s):
         """Return the replacement statement list for `s` (either `[s]` unchanged or
@@ -959,25 +922,8 @@ class _FrameBuilder:
     def _hoist_try_recurse(self, s):
         """Descend into control-flow bodies with the TRY hoister (mirrors
         `_hoist_recurse`, which drives the condition hoister)."""
-        ctrl = s.expression if isinstance(s, ExpressionStatement) else s
-        if isinstance(ctrl, IfExpr):
-            self._hoist_try_block(ctrl.then_branch)
-            if ctrl.else_branch is not None:
-                self._hoist_try_block(ctrl.else_branch)
-        elif isinstance(ctrl, IfLetExpr):
-            self._hoist_try_block(ctrl.then_branch)
-            if ctrl.else_branch is not None:
-                self._hoist_try_block(ctrl.else_branch)
-        elif isinstance(ctrl, WhileExpr):
-            self._hoist_try_block(ctrl.body)
-        elif isinstance(ctrl, MatchExpr):
-            for arm in ctrl.arms:
-                if isinstance(arm.body, Block):
-                    self._hoist_try_block(arm.body)
-        elif isinstance(s, ForLoop):
-            self._hoist_try_block(s.body)
-        elif isinstance(s, GuardLetStatement):
-            self._hoist_try_block(s.else_branch)
+        for block in control_blocks(s):
+            self._hoist_try_block(block)
 
     def _call_suspends_expr(self, e):
         """True if `e` is a suspending call — a free function in `_suspends` or a
@@ -1042,25 +988,8 @@ class _FrameBuilder:
             self._hoist_match_recurse(s)
 
     def _hoist_match_recurse(self, s):
-        ctrl = s.expression if isinstance(s, ExpressionStatement) else s
-        if isinstance(ctrl, IfExpr):
-            self._hoist_match_block(ctrl.then_branch)
-            if ctrl.else_branch is not None:
-                self._hoist_match_block(ctrl.else_branch)
-        elif isinstance(ctrl, IfLetExpr):
-            self._hoist_match_block(ctrl.then_branch)
-            if ctrl.else_branch is not None:
-                self._hoist_match_block(ctrl.else_branch)
-        elif isinstance(ctrl, WhileExpr):
-            self._hoist_match_block(ctrl.body)
-        elif isinstance(ctrl, MatchExpr):
-            for arm in ctrl.arms:
-                if isinstance(arm.body, Block):
-                    self._hoist_match_block(arm.body)
-        elif isinstance(s, ForLoop):
-            self._hoist_match_block(s.body)
-        elif isinstance(s, GuardLetStatement):
-            self._hoist_match_block(s.else_branch)
+        for block in control_blocks(s):
+            self._hoist_match_block(block)
 
     def _maybe_hoist_match(self, s):
         m = None
@@ -1125,25 +1054,8 @@ class _FrameBuilder:
     def _anf_recurse(self, s):
         """Descend into control-flow bodies so a buried suspend inside a branch is
         hoisted within that branch's statement list (mirrors `_collect_calls`)."""
-        ctrl = s.expression if isinstance(s, ExpressionStatement) else s
-        if isinstance(ctrl, IfExpr):
-            self._anf_block(ctrl.then_branch)
-            if ctrl.else_branch is not None:
-                self._anf_block(ctrl.else_branch)
-        elif isinstance(ctrl, IfLetExpr):
-            self._anf_block(ctrl.then_branch)
-            if ctrl.else_branch is not None:
-                self._anf_block(ctrl.else_branch)
-        elif isinstance(ctrl, WhileExpr):
-            self._anf_block(ctrl.body)
-        elif isinstance(ctrl, MatchExpr):
-            for arm in ctrl.arms:
-                if isinstance(arm.body, Block):
-                    self._anf_block(arm.body)
-        elif isinstance(s, ForLoop):
-            self._anf_block(s.body)
-        elif isinstance(s, GuardLetStatement):
-            self._anf_block(s.else_branch)
+        for block in control_blocks(s):
+            self._anf_block(block)
 
     def _anf_stmt(self, s):
         """Hoist buried suspending calls out of a leaf statement's value
@@ -1510,25 +1422,8 @@ class _FrameBuilder:
             self._vc_recurse(s)
 
     def _vc_recurse(self, s):
-        ctrl = s.expression if isinstance(s, ExpressionStatement) else s
-        if isinstance(ctrl, IfExpr):
-            self._vc_block(ctrl.then_branch)
-            if ctrl.else_branch is not None:
-                self._vc_block(ctrl.else_branch)
-        elif isinstance(ctrl, IfLetExpr):
-            self._vc_block(ctrl.then_branch)
-            if ctrl.else_branch is not None:
-                self._vc_block(ctrl.else_branch)
-        elif isinstance(ctrl, WhileExpr):
-            self._vc_block(ctrl.body)
-        elif isinstance(ctrl, MatchExpr):
-            for arm in ctrl.arms:
-                if isinstance(arm.body, Block):
-                    self._vc_block(arm.body)
-        elif isinstance(s, ForLoop):
-            self._vc_block(s.body)
-        elif isinstance(s, GuardLetStatement):
-            self._vc_block(s.else_branch)
+        for block in control_blocks(s):
+            self._vc_block(block)
 
     # The sub-expression each value-conditional evaluates UNCONDITIONALLY before it
     # branches — the one position where a suspension is NOT skippable.
@@ -2607,6 +2502,14 @@ class _FrameBuilder:
             # driven body — reject cleanly (anchored, naming the workaround) rather
             # than lower it in place and trip a confusing sync-violation later.
             self._reject_suspending_method_call(s)
+            # PER-CONTAINER semantics, so this one keeps its own dispatch rather
+            # than `ast_walk.control_blocks`: an `if let`/`guard let` is
+            # descended only when design 104 marked it `_coro_split`, and every
+            # container NOT listed here (a `try { … } catch { … }` block, today)
+            # falls through to the rejection below on purpose — the state
+            # machine cannot split one, so a suspension inside it is refused
+            # rather than silently blocked (DF-193a). See `ast_walk`'s
+            # `CONTAINER_KINDS` for the full list this is choosing from.
             ctrl = s.expression if isinstance(s, ExpressionStatement) else s
             if isinstance(ctrl, IfExpr):
                 visit_block(ctrl.then_branch)
@@ -5034,34 +4937,14 @@ def _make_spawn_trampoline(func, root_name):
 #
 # Each pass below normalizes ONE alternate spelling into the single form the
 # rest of the transform knows, so no downstream walk has to learn a second one.
-# They share `_rewrite_nodes`, the WRITE-side twin of `_child_nodes`: same
+# They share `ast_walk.map_nodes`, the WRITE-side twin of `child_nodes`: same
 # coverage (every structural field, through any nesting of lists and tuples and
 # through the `Argument` wrapper), with each visited node replaced in its parent
 # slot. Three hand-rolled copies of this recursion is exactly the shape DF-187b
 # found disagreeing about tuples.
 # --------------------------------------------------------------------------- #
 
-def _rewrite_nodes(node, rewrite):
-    """Apply `rewrite` to every AST node under `node` (and to `node` itself),
-    replacing each in its parent slot. Returns the (possibly new) root."""
-    node = rewrite(node)
-    if isinstance(node, ASTNode):
-        for f in structural_fields(node):
-            setattr(node, f.name, _rewrite_val(getattr(node, f.name), rewrite))
-    return node
-
-
-def _rewrite_val(val, rewrite):
-    if isinstance(val, list):
-        return [_rewrite_val(v, rewrite) for v in val]
-    if isinstance(val, tuple):
-        return tuple(_rewrite_val(v, rewrite) for v in val)
-    if isinstance(val, Argument):
-        val.value = _rewrite_nodes(val.value, rewrite)
-        return val
-    if isinstance(val, ASTNode):
-        return _rewrite_nodes(val, rewrite)
-    return val
+_rewrite_nodes = map_nodes
 
 
 def _rewrite_yield_intrinsic_calls(node):
@@ -5393,25 +5276,8 @@ def _promote_nested_generic_calls(program, funcs_by_name, seed_names, typechecke
             if promoted is not None:
                 out.append(promoted)
                 continue
-            ctrl = s.expression if isinstance(s, ExpressionStatement) else s
-            if isinstance(ctrl, IfExpr):
-                scan_block(ctrl.then_branch, out)
-                if ctrl.else_branch is not None:
-                    scan_block(ctrl.else_branch, out)
-            elif isinstance(ctrl, IfLetExpr):
-                scan_block(ctrl.then_branch, out)
-                if ctrl.else_branch is not None:
-                    scan_block(ctrl.else_branch, out)
-            elif isinstance(ctrl, WhileExpr):
-                scan_block(ctrl.body, out)
-            elif isinstance(ctrl, MatchExpr):
-                for arm in ctrl.arms:
-                    if isinstance(arm.body, Block):
-                        scan_block(arm.body, out)
-            elif isinstance(s, ForLoop):
-                scan_block(s.body, out)
-            elif isinstance(s, GuardLetStatement):
-                scan_block(s.else_branch, out)
+            for inner in control_blocks(s):
+                scan_block(inner, out)
 
     worklist = list(seed_names)
     scanned = set()

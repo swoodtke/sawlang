@@ -1,0 +1,34 @@
+// An optional-chain assignment WRITES its root, so the Law of Exclusivity
+// refuses a right-hand side that also borrows or moves an overlapping path —
+// wherever that borrow is written, including inside a struct literal's field.
+//
+// The RHS walk used to descend a list's direct node items but step over
+// TUPLES, and `StructInit.field_inits` is a list of `(name, value)` tuples, so
+// `Cell(v: refill(&var w))` hid its `&var w` from the check (the DF-187b
+// traversal-drift family, closed by design 193 unit 3). The same borrow
+// written one level shallower — `w?.c = refill2(&var w)` — was refused all
+// along, which is what made the hole a spelling difference rather than a rule.
+//
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: exclusive access violation: `w` is written by this optional-chain assignment
+
+struct Cell {
+    v: Vector<Int>
+}
+
+struct Wrap {
+    c: Cell
+}
+
+extension Cell: NoCopy {}
+extension Wrap: NoCopy {}
+
+func refill(target: &var Wrap?) -> Vector<Int> {
+    [9]
+}
+
+func main() {
+    var w: Wrap? = Wrap(c: Cell(v: [1, 2]))
+    w?.c = Cell(v: refill(&var w))
+    print("done")
+}

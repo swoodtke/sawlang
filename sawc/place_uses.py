@@ -70,6 +70,7 @@ from ast_nodes import (
     ReferenceExpr, ResultErrWrap, ResultOkWrap, ReturnStatement, SawType,
     SelfExpr, StringLiteral, TupleIndex, TypeKind, UnaryOp, structural_fields,
 )
+from ast_walk import child_nodes, map_nodes
 from errors import ErrorKind
 from place_transform import var_twin_name
 
@@ -117,37 +118,25 @@ def transform_place_uses(programs, namespace, reporter) -> bool:
 
 
 def uncheck(node) -> None:
-    """Strip the first check's own rewrites from `node`, in place."""
-    if node is None or isinstance(node, SawType):
-        return
-    if isinstance(node, Block):
-        node.statements = [_unchecked(s) for s in node.statements]
-        node.final_expr = _unchecked(node.final_expr)
-        return
-    if not isinstance(node, (ASTNode, Argument, MatchArm)):
-        return
-    if isinstance(node, Expression) and not getattr(node, 'place_lowered', False):
-        node.resolved_type = None
-    for f in structural_fields(node):
-        value = getattr(node, f.name, None)
-        if isinstance(value, list):
-            for i, item in enumerate(value):
-                if _is_expr(item):
-                    value[i] = _unchecked(item)
-                else:
-                    uncheck(item)
-        elif _is_expr(value):
-            setattr(node, f.name, _unchecked(value))
-        else:
-            uncheck(value)
+    """Strip the first check's own rewrites from `node`, in place.
+
+    One walk (`ast_walk.map_nodes`, design 193 unit 3), where this used to
+    hand-roll its own recursion and stop at TUPLES — so a struct literal's
+    `field_inits` kept both the checker's `resolved_type` stamps and its
+    inserted wraps through the second check.
+    """
+    map_nodes(node, _uncheck_node)
 
 
-def _unchecked(node):
-    """`uncheck`, plus the unwrapping only an expression slot can do."""
+def _uncheck_node(node):
+    """The per-node rule: peel the checker's inserted wraps, then drop the
+    per-pass `resolved_type`. Nodes the LOWERING stamped (`place_lowered`) are
+    its own output, not the checker's leftovers, and are left alone."""
     while (isinstance(node, _CHECKER_WRAPS)
            and not getattr(node, 'place_lowered', False)):
         node = node.value
-    uncheck(node)
+    if isinstance(node, Expression) and not getattr(node, 'place_lowered', False):
+        node.resolved_type = None
     return node
 
 
@@ -1032,23 +1021,16 @@ def _arm_moves_binding(arm) -> bool:
 
 
 def _mentions_move(node, names) -> bool:
-    if node is None or isinstance(node, SawType):
-        return False
+    """Does anything under `node` `move` one of `names`?
+
+    On `ast_walk.child_nodes` (design 193 unit 3) — the hand-rolled version this
+    replaced stopped at TUPLES, so `f(&var v[i], Wrap(inner: move v))` hid its
+    move inside the struct literal's `field_inits` and the window took the
+    move-free path.
+    """
     if isinstance(node, MoveExpr) and getattr(node, 'variable', None) in names:
         return True
-    if isinstance(node, Block):
-        return (any(_mentions_move(s, names) for s in node.statements)
-                or _mentions_move(node.final_expr, names))
-    if not isinstance(node, (ASTNode, Argument, MatchArm)):
-        return False
-    for f in structural_fields(node):
-        value = getattr(node, f.name, None)
-        if isinstance(value, list):
-            if any(_mentions_move(item, names) for item in value):
-                return True
-        elif _mentions_move(value, names):
-            return True
-    return False
+    return any(_mentions_move(child, names) for child in child_nodes(node))
 
 
 def _escapes_control_flow(node) -> bool:
@@ -1057,28 +1039,18 @@ def _escapes_control_flow(node) -> bool:
     A window body is a closure, so a `return`/`break`/`continue` inside one
     would leave the WINDOW rather than the function that wrote it. Such a body
     stays on the ordinary path.
+
+    On `ast_walk.child_nodes` (design 193 unit 3); the hand-rolled version
+    stopped at TUPLES, so a jump written inside a struct-literal field was
+    invisible.
     """
-    if node is None or isinstance(node, SawType):
-        return False
     if isinstance(node, (ReturnStatement, BreakStatement, ContinueStatement,
                          GuardLetStatement)):
         return True
-    if isinstance(node, Block):
-        return (any(_escapes_control_flow(s) for s in node.statements)
-                or _escapes_control_flow(node.final_expr))
     if isinstance(node, ClosureExpr):
         # A nested closure's own jumps belong to it, not to us.
         return False
-    if not isinstance(node, (ASTNode, Argument, MatchArm)):
-        return False
-    for f in structural_fields(node):
-        value = getattr(node, f.name, None)
-        if isinstance(value, list):
-            if any(_escapes_control_flow(item) for item in value):
-                return True
-        elif _escapes_control_flow(value):
-            return True
-    return False
+    return any(_escapes_control_flow(child) for child in child_nodes(node))
 
 
 def _type_children(saw_type):

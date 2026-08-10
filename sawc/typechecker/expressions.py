@@ -30,6 +30,7 @@ from ast_nodes import (
     RangePattern, TuplePattern, EnumPattern,
     Argument, ASTNode, MatchArm, structural_fields,
 )
+from ast_walk import child_nodes
 from errors import ErrorKind
 from const_eval import const_eval, ConstEvalError, CONST_LENGTH_HINT
 from namespace import Visibility, EnumSymbol
@@ -6330,10 +6331,20 @@ class ExpressionsMixin:
     def _check_chain_assign_exclusivity(self, root_path, value, expr) -> None:
         """Law of Exclusivity on the written root path: the chain assignment is a
         write of the root, so the RHS may not also borrow (`&`/`&var`) or `move`
-        an overlapping path."""
+        an overlapping path.
+
+        On `ast_walk.child_nodes` (design 193 unit 3). The hand-rolled walk this
+        replaced descended a list's direct node items but stepped over TUPLES,
+        which is the shape of `StructInit.field_inits` — so
+        `p?.f = Foo(a: move x)` was invisible to the Law while the plain-assign
+        spelling of the same statement was not. It also walked
+        `dataclasses.fields`, i.e. the cross-pass ANNOTATIONS as well as the
+        tree; `structural_fields` (which `child_nodes` uses) leaves those out,
+        so the check can no longer reach a node through a checker back-reference
+        and judge the same borrow twice.
+        """
         if root_path is None:
             return
-        import dataclasses
         stack = [value]
         # `id()` is correct here and is NOT the identity design 126 R2 removed:
         # this is a within-one-traversal cycle guard over physical objects, it
@@ -6360,17 +6371,7 @@ class ExpressionsMixin:
                     f"the right-hand side",
                     expr.line, expr.column)
                 return
-            if dataclasses.is_dataclass(cur) and not isinstance(cur, type):
-                for f in dataclasses.fields(cur):
-                    v = getattr(cur, f.name, None)
-                    if dataclasses.is_dataclass(v) and not isinstance(v, type):
-                        stack.append(v)
-                    elif isinstance(v, (list, tuple)):
-                        for it in v:
-                            if isinstance(it, Argument):
-                                stack.append(it.value)
-                            elif dataclasses.is_dataclass(it) and not isinstance(it, type):
-                                stack.append(it)
+            stack.extend(child_nodes(cur))
 
     def _make_specialization_key(self, type_args: List[SawType]) -> tuple:
         """Convert type arguments to a specialization key tuple."""
