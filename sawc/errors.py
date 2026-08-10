@@ -24,6 +24,8 @@ class ErrorKind(Enum):
     DUPLICATE_FUNCTION = auto()
     # Design 150: two imports in one file claiming the same module qualifier.
     DUPLICATE_IMPORT = auto()
+    # Design 198: two arms of one `match` with the same pattern.
+    DUPLICATE_MATCH_ARM = auto()
     WRONG_ARGUMENT_COUNT = auto()
     IMMUTABLE_ASSIGNMENT = auto()
     INVALID_BREAK_CONTINUE = auto()

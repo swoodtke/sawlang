@@ -8891,6 +8891,7 @@ class ExpressionsMixin:
     def _check_match_expr(self, expr: MatchExpr) -> Optional[SawType]:
         """Check match expression."""
         from .core import VariableInfo, Scope
+        self._check_duplicate_match_arms(expr)
         matched_type = self._check_expression(expr.matched_expr)
         if matched_type is None:
             return None
@@ -9260,6 +9261,132 @@ class ExpressionsMixin:
         TypeKind.INT8, TypeKind.INT16, TypeKind.INT32, TypeKind.INT64,
         TypeKind.UINT8, TypeKind.UINT16, TypeKind.UINT32, TypeKind.UINT64,
     }
+
+    def _check_duplicate_match_arms(self, expr: MatchExpr) -> None:
+        """An EXACT duplicate arm is a compile error naming both arms (design 198).
+
+        THE ONE PLACE this rule is judged. Arm checking has two entry points —
+        `_check_match_expr` (the classic enum-variant switch) and
+        `_check_match_general` (literals, ranges, tuples, guards) — and both are
+        reached from `_check_match_expr`, which calls this before it picks
+        between them. So the rule cannot grow a second copy that drifts, which
+        is how the two spellings came to disagree in the first place: the general
+        path's if-chain took the first arm silently while the switch path emitted
+        a duplicate case value and died inside LLVM with no source location
+        (DF-192d).
+
+        The test is TEXTUAL pattern equality after literal normalization, never
+        overlap analysis. Two arms are exempt by the ruling:
+
+        * a GUARDED arm — a guard can fail, so a later arm with the same pattern
+          is genuinely reachable (`case n if n < 0` beside `case n`);
+        * a RANGE — overlapping ranges are how first-match-wins is written
+          (`case 1..=9` ahead of `case 5` stays legal), and so is any pattern
+          containing one.
+
+        Everything else that repeats a pattern is dead code. Reported at the
+        SECOND arm, naming the first's line.
+        """
+        seen: Dict[tuple, int] = {}
+        for arm in expr.arms:
+            if arm.guard is not None:
+                continue
+            if arm.pattern is not None:
+                key = self._arm_pattern_key(arm.pattern)
+            elif arm.variant_name == '_':
+                # A SYNTHESIZED arm: the coroutine transform builds MatchExprs
+                # from the legacy variant_name/bindings fields with no pattern.
+                key = ('any',)
+            else:
+                key = ('variant', arm.variant_name,
+                       tuple(('any',) for _ in arm.bindings))
+            if key is None:
+                continue
+            first = seen.get(key)
+            if first is None:
+                seen[key] = arm.line
+                continue
+            self._error(
+                ErrorKind.DUPLICATE_MATCH_ARM,
+                f"duplicate match arm: {self._arm_key_description(key)} is "
+                f"already matched by the arm at line {first}",
+                arm.line, arm.column,
+                hint="the first matching arm wins, so this one can never run — "
+                     "delete it. Overlapping RANGES and GUARDED arms are not "
+                     "duplicates and stay legal")
+
+    @classmethod
+    def _arm_pattern_key(cls, pattern) -> Optional[tuple]:
+        """A comparable key for an arm's pattern, or None when the pattern is
+        EXEMPT from the duplicate rule (design 198).
+
+        Literal normalization means the VALUE decides, not the spelling: `case
+        0x0A`, `case 10` and `case 10i8` are one pattern (an arm's literal adopts
+        the scrutinee's type, so a width suffix is a spelling).
+
+        Every irrefutable HOLE keys the same whether it is written `_` or a
+        binding name, so `case Move(x, y)` and `case Move(a, b)` are one arm
+        under two spellings and the second can never run. That is also the
+        spelling that CRASHED: the enum lowering is a switch, and a second arm
+        for one variant emitted a duplicate case value whatever it named its
+        bindings.
+
+        A RANGE returns None, and so does any pattern holding one — a range is
+        the one pattern the ruling leaves to first-match-wins.
+        """
+        if isinstance(pattern, (WildcardPattern, BindingPattern)):
+            return ('any',)
+        if isinstance(pattern, LiteralPattern):
+            return cls._literal_pattern_key(pattern.value)
+        if isinstance(pattern, TuplePattern):
+            subs = [cls._arm_pattern_key(e) for e in pattern.elements]
+            if any(s is None for s in subs):
+                return None
+            return ('tuple', tuple(subs))
+        if isinstance(pattern, EnumPattern):
+            subs = [cls._arm_pattern_key(s) for s in pattern.subpatterns]
+            if any(s is None for s in subs):
+                return None
+            return ('variant', pattern.variant_name, tuple(subs))
+        # RangePattern, and anything a later brief adds that this rule has not
+        # been taught to compare, is exempt rather than guessed at.
+        return None
+
+    @staticmethod
+    def _literal_pattern_key(value) -> Optional[tuple]:
+        """Normalize a literal pattern to `(kind, value)`, or None when it is not
+        one this rule compares. `_check_pattern` accepts integer, Bool and String
+        literals; a negative integer arrives as `UnaryOp('-', IntLiteral)`."""
+        negated = False
+        if isinstance(value, UnaryOp) and value.op == '-':
+            negated = True
+            value = value.operand
+        if isinstance(value, IntLiteral):
+            return ('int', -value.value if negated else value.value)
+        if negated:
+            return None
+        if isinstance(value, BoolLiteral):
+            return ('bool', value.value)
+        if isinstance(value, StringLiteral):
+            return ('string', value.value)
+        return None
+
+    @staticmethod
+    def _arm_key_description(key: tuple) -> str:
+        """Name a duplicate arm's pattern for its diagnostic (design 198)."""
+        if key[0] == 'any':
+            return "this catch-all pattern"
+        if key[0] == 'int':
+            return f"`{key[1]}`"
+        if key[0] == 'bool':
+            return "`true`" if key[1] else "`false`"
+        if key[0] == 'string':
+            return f'`"{key[1]}"`'
+        if key[0] == 'variant':
+            return f"`{key[1]}`"
+        if key[0] == 'tuple':
+            return "this tuple pattern"
+        return "this pattern"
 
     def _match_needs_general(self, expr: MatchExpr, matched_type: SawType) -> bool:
         """True when a match must use the general pattern checker rather than the
