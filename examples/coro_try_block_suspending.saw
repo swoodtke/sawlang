@@ -1,17 +1,15 @@
 // A suspension inside a `try { ... } catch { ... }` BLOCK in a task body.
 // The inline-catch spelling (`try f() catch { … }`, coro_try_catch_suspending)
-// drives fine, because the try hoist lifts the tried call to a preceding temp
-// and what remains is ordinary sync error handling. The BLOCK form cannot be
+// drives because the try hoist lifts the tried call to a preceding temp and
+// what is left is ordinary sync error handling. The BLOCK form cannot be
 // lifted that way — a statement after a `try` inside the block runs only if
-// the earlier one succeeded, so the suspension is conditional and belongs to
-// the state machine, and the coroutine spine walks do not descend a
-// `TryCatchExpr` at all. Today `_collect_calls` reaches the call through its
-// full-tree scan and rejects it honestly (never a silent block), so this is a
-// capability gap and not a soundness one.
+// the earlier one succeeded, so the suspension is conditional and the catch
+// arm is a resume target reachable from every state the try body lowers into.
+// Design 196 unit 3 makes the catch a STATE (DF-193a); the full position
+// matrix is `examples/coro_try_block_positions.saw`.
 //
-// Intended: it compiles and prints 41 — 40 from the successful call, then the
-// catch adds 1 for the failing one.
-// XFAIL: DF-193a a suspension inside a `try { } catch { }` BLOCK in a driven body is refused; the state machine cannot split a try block across states
+// Prints 41 — 40 from the successful call, then the catch adds 1 for the
+// failing one.
 // EXPECT: success
 // EXPECT-OUTPUT-CONTAINS: worker 41
 

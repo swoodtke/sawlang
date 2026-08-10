@@ -1,0 +1,273 @@
+// The POSITION MATRIX for a suspending `try { } catch { }` block (design 196
+// unit 3, obligation 1). "A suspension inside a try/catch block" quantifies
+// over every position one can be written in, so the rule carries its matrix
+// rather than one example: each row below is one position, and each is checked
+// by its printed value.
+//
+//   1  error read in the catch, over an OWNING error type              caught
+//   2  the suspension is in the CATCH arm, not the try body            100
+//   3  a `try` inside a nested `if` that itself spans a suspension     2 / 7
+//   4  try/catch inside a spanning `while`, TWO blocks per iteration   1135
+//   5  `return` out of the try arm, and out of the catch arm           7 / -1
+//   6  nested try/catch, both spanning                                 8 / 55
+//   7  the block in a SPAWNED task rather than a driven one            3
+//   8  an OWNING Ok payload moved out of a `try` in the try arm        3 / 99
+//   9  `try?`/`try!` in the try arm — they need no error edge          8
+//  10  `break`/`continue` for the enclosing loop from the try arm      101
+//  11  the try arm suspends but raises nothing                         6
+//  12  VALUE position: the block is the function's tail                11 / -1
+//  13  VALUE position: the block is a `let` initializer                21 / -2
+// EXPECT: success
+// EXPECT-OUTPUT:
+// caught flaky boom/4
+// 100
+// 2
+// 7
+// 1135
+// 7
+// -1
+// 8
+// 55
+// 3
+// 3
+// 99
+// 8
+// 101
+// 6
+// 11
+// -1
+// 21
+// -2
+
+import std.task.*
+
+struct Flaky { n: Int, tag: String }
+
+extension Flaky: Printable {
+    func format(&self, into: &var StringBuilder) {
+        into.append("flaky ")
+        into.append(self.tag)
+        into.append("/")
+        into.append(self.n)
+    }
+}
+
+extension Flaky: Error {}
+
+func compute(ok: Bool, n: Int) -> Result<Int, Flaky> {
+    yield_now()
+    if ok { return n }
+    return Flaky(n: n, tag: "boom")
+}
+
+func compute_sync(n: Int) sync -> Result<Int, Flaky> {
+    if n > 0 { return n }
+    return Flaky(n: n, tag: "sync")
+}
+
+func words(ok: Bool) -> Result<Vector<Int>, Flaky> {
+    yield_now()
+    if not ok { return Flaky(n: 0, tag: "empty") }
+    var v: Vector<Int> = [1, 2, 3]
+    return move v
+}
+
+// 1 — the caught error is read in the catch, and it owns a String
+func read_error(n: Int) -> String {
+    var out = "none"
+    try {
+        let a = try compute(false, n)
+        out = "ok {a}"
+    } catch {
+        out = "caught {error}"
+    }
+    out
+}
+
+// 2 — only the CATCH arm suspends
+func suspend_in_catch(n: Int) -> Int {
+    var total = 0
+    try {
+        let a = try compute_sync(n)
+        total = total + a
+    } catch {
+        yield_now()
+        total = total + 100
+    }
+    total
+}
+
+// 3 — the `try` sits in a branch of a spanning `if`
+func nested_if(n: Int) -> Int {
+    var total = 0
+    try {
+        if n > 0 {
+            let a = try compute(true, n)
+            total = total + a
+        } else {
+            let b = try compute(false, n)
+            total = total + b
+        }
+    } catch {
+        total = total + 7
+    }
+    total
+}
+
+// 4 — inside a spanning loop, two blocks per iteration (two frame fields)
+func in_loop(rounds: Int) -> Int {
+    var total = 0
+    var i = 0
+    while i < rounds {
+        try {
+            let a = try compute(i != 1, i)
+            total = total + a
+        } catch {
+            total = total + 100
+        }
+        try {
+            let b = try compute(i != 2, 10)
+            total = total + b
+        } catch {
+            total = total + 1000
+        }
+        i = i + 1
+    }
+    total
+}
+
+// 5 — a `return` out of either arm
+func early_return(n: Int) -> Int {
+    try {
+        let a = try compute(n > 0, n)
+        return a + 1
+    } catch {
+        return -1
+    }
+}
+
+// 6 — nested blocks, both spanning
+func nested_try(n: Int) -> Int {
+    var total = 0
+    try {
+        try {
+            let a = try compute(false, n)
+            total = total + a
+        } catch {
+            total = total + 5
+        }
+        let b = try compute(n > 0, n)
+        total = total + b
+    } catch {
+        total = total + 50
+    }
+    total
+}
+
+// 7 — spawned, not driven in place
+func spawned(n: Int) -> Int {
+    var total = 0
+    try {
+        let a = try compute(false, n)
+        total = total + a
+    } catch {
+        total = total + 3
+    }
+    total
+}
+
+// 8 — the Ok payload is owning and moves out of the try
+func owning(ok: Bool) -> Int {
+    var total = -1
+    try {
+        let v = try words(ok)
+        total = v.len()
+    } catch {
+        total = 99
+    }
+    total
+}
+
+// 9 — `try?` handles its own error, so it opens no edge to the catch
+func no_landing(n: Int) -> Int {
+    var total = 0
+    try {
+        let a = try? compute(false, n)
+        total = total + (a ?? 5)
+        let b = try compute(true, n)
+        total = total + b
+    } catch {
+        total = total + 1000
+    }
+    total
+}
+
+// 10 — `break`/`continue` still reach the ENCLOSING loop
+func loop_ctrl(rounds: Int) -> Int {
+    var total = 0
+    var i = 0
+    while i < rounds {
+        i = i + 1
+        try {
+            if i == 2 { continue }
+            let a = try compute(i != 3, i)
+            total = total + a
+        } catch {
+            total = total + 100
+            break
+        }
+    }
+    total
+}
+
+// 11 — a suspending try arm that raises nothing at all
+func no_try(n: Int) -> Int {
+    var total = 0
+    try {
+        yield_now()
+        total = total + n
+    } catch {
+        total = total + 1
+    }
+    total
+}
+
+// 12 — value position: the block IS the body's tail
+func tail_value(n: Int) -> Int {
+    try {
+        let a = try compute(n > 0, n)
+        a + 10
+    } catch {
+        -1
+    }
+}
+
+// 13 — value position: the block initializes a `let`
+func let_value(n: Int) -> Int {
+    let r = try { let a = try compute(n > 0, n)  a + 20 } catch { -2 }
+    r
+}
+
+func main() {
+    print(read_error(4))
+    print(suspend_in_catch(-1))
+    print(nested_if(2))
+    print(nested_if(-2))
+    print(in_loop(4))
+    print(early_return(6))
+    print(early_return(-6))
+    print(nested_try(3))
+    print(nested_try(-3))
+    var group = TaskGroup()
+    let h = group.spawn(spawned(9))
+    print(h.join())
+    print(owning(true))
+    print(owning(false))
+    print(no_landing(3))
+    print(loop_ctrl(5))
+    print(no_try(6))
+    print(tail_value(1))
+    print(tail_value(0))
+    print(let_value(1))
+    print(let_value(0))
+}

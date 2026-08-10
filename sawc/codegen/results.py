@@ -240,14 +240,24 @@ class ResultsMixin:
             # Type mismatch - should have been caught by typechecker
             pass
 
-        self.builder.branch(merge_bb)
+        # A DIVERGING catch arm — `try f() catch { return fallback }`, or one
+        # ending in a `panic`/`break`/`continue` — already terminated its block,
+        # so it reaches no merge and contributes no incoming value. Branching
+        # anyway asserted inside llvmlite and surfaced as an internal compiler
+        # error with an EMPTY message (DF-196c). The block form of try/catch has
+        # guarded this since it was written; this one had not.
+        catch_diverged = self.builder.block.is_terminated
+        if not catch_diverged:
+            self.builder.branch(merge_bb)
         catch_end_bb = self.builder.block
 
         # Merge
         self.builder.position_at_end(merge_bb)
         phi = self.builder.phi(ok_value.type, name="try_catch_result")
         phi.add_incoming(ok_value, ok_end_bb)
-        if catch_result is not None:
+        if catch_diverged:
+            pass
+        elif catch_result is not None:
             phi.add_incoming(catch_result, catch_end_bb)
         else:
             # Catch didn't return a value, use placeholder
@@ -299,20 +309,25 @@ class ResultsMixin:
         # Generate catch block
         self.builder.position_at_end(catch_bb)
 
-        # Make error available as 'error' variable (if any try expression set it up)
+        # Make the caught error available under the binding's own NAME. Usually
+        # `error`; the coroutine transform renames it when two catch blocks in
+        # one body would otherwise share a frame field (design 196 unit 3), and
+        # the typechecker defines the same `error_binding or "error"` name in the
+        # catch scope — so reading it from the node is what keeps the two agreed.
+        error_name = expr.error_binding or "error"
         if err_alloca_ptr[0] is not None:
-            old_error = self.variables.get("error")
-            self.variables["error"] = err_alloca_ptr[0]
+            old_error = self.variables.get(error_name)
+            self.variables[error_name] = err_alloca_ptr[0]
 
             # Generate catch block code
             catch_result = self._generate_block(expr.catch_block)
             catch_end_bb = self.builder.block
 
-            # Restore old 'error' if any
+            # Restore old binding if any
             if old_error is not None:
-                self.variables["error"] = old_error
-            elif "error" in self.variables:
-                del self.variables["error"]
+                self.variables[error_name] = old_error
+            elif error_name in self.variables:
+                del self.variables[error_name]
         else:
             # No try expressions in the block (unusual) - just generate catch code
             catch_result = self._generate_block(expr.catch_block)

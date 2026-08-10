@@ -45,6 +45,7 @@ from ast_nodes import (
     StringInterpolation, ArrayLiteral, MapLiteral, SetLiteral, StructInit,
     TupleLiteral, NilCoalesce, OptionalChain, BindOptional,
     OptionalEvalExpr, OptionalChainAssign, OptionalWrap,
+    ResultErrWrap, ErasedErrWrap,
     structural_fields,
 )
 from ast_walk import (child_nodes, control_blocks, map_nodes,
@@ -1337,6 +1338,11 @@ class _FrameBuilder:
     def _is_value_conditional(self, e):
         if isinstance(e, (IfExpr, MatchExpr, NilCoalesce)):
             return True
+        # design 196 unit 3: a `try { } catch { }` in VALUE position. Two arms
+        # and one result, exactly like the value `if` above — the arm selection
+        # is an error edge rather than a condition, which changes nothing here.
+        if isinstance(e, TryCatchExpr):
+            return True
         if isinstance(e, BinaryOp) and e.op in ("&&", "||", "and", "or"):
             return True
         # A `?.` chain (design 111) whose hop suspends: lowered to an `if let` here
@@ -1679,6 +1685,13 @@ class _FrameBuilder:
                 else:
                     arm.body = Block(statements=[sink(arm.body)], final_expr=None)
             return ExpressionStatement(expression=cond)
+        if isinstance(cond, TryCatchExpr):
+            # design 196 unit 3: `let r = try { … } catch { … }` becomes the
+            # statement form with each arm's tail assigning the sink, which the
+            # CFG split then lowers exactly as it lowers a written statement.
+            self._attach_sink_block(cond.try_block, sink)
+            self._attach_sink_block(cond.catch_block, sink)
+            return ExpressionStatement(expression=cond)
         if isinstance(cond, NilCoalesce):
             # `a ?? b` -> `if let __vcN = a { sink(__vcN) } else { sink(b) }`; the
             # RHS `b` runs only on the None path, so its suspend/side-effects skip.
@@ -1925,10 +1938,18 @@ class _FrameBuilder:
             return
         if isinstance(node, TryCatchExpr):
             self._uniq_walk_block(node.try_block, scopes)
-            # The catch block binds `error` (or its explicit name) implicitly.
-            # Shield it so an outer binding this pass renamed cannot capture it.
-            err = node.error_binding or "error"
-            self._uniq_walk_block(node.catch_block, scopes + [{err: (err, False)}])
+            # The catch block binds `error` (or its explicit name) implicitly, so
+            # it goes through `_uniq_bind` like any other binding: a SPLIT
+            # try/catch carries the caught error in a frame FIELD named after
+            # this binding (design 196 unit 3), and two catch blocks in one body
+            # both spelling it `error` would then share one field. Binding it
+            # here renames the second (and any user local that got there first),
+            # and writing the result back into `error_binding` is what tells the
+            # re-typecheck and codegen which name the catch scope defines.
+            bound = {}
+            node.error_binding = self._uniq_bind(node.error_binding or "error",
+                                                 bound)
+            self._uniq_walk_block(node.catch_block, scopes + [bound])
             return
         if isinstance(node, TryExpr) and node.catch_block is not None:
             self._uniq_walk(node.expr, scopes)
@@ -2102,12 +2123,20 @@ class _FrameBuilder:
                 seen.add(name)
                 locals_.append((name, t))
 
-        def walk_block(block):
-            scope_spans = self._spans_suspension(block)
+        def walk_block(block, force=False):
+            # `force` is set inside a SPLIT `try { } catch { }` (design 196 unit
+            # 3). Every statement lowered there may be wrapped in its own
+            # one-statement try/catch landing pad, and a `let` inside that
+            # wrapper would be scoped to it — invisible to the statement after
+            # it. A frame FIELD has no such scope, so the whole subtree of a
+            # split try/catch is frame-resident by construction, exactly as if
+            # its blocks spanned a suspension (which, taken together, they do:
+            # the error edge is a state transition).
+            scope_spans = force or self._spans_suspension(block)
             for s in block.statements:
-                walk_stmt(s, scope_spans)
+                walk_stmt(s, scope_spans, force)
 
-        def walk_stmt(s, scope_spans):
+        def walk_stmt(s, scope_spans, force=False):
             if isinstance(s, LetStatement):
                 if scope_spans:
                     t = s.type_annotation or getattr(s.value, 'resolved_type', None)
@@ -2124,38 +2153,49 @@ class _FrameBuilder:
                 return
             ctrl = s.expression if isinstance(s, ExpressionStatement) else s
             if isinstance(ctrl, IfExpr):
-                walk_block(ctrl.then_branch)
+                walk_block(ctrl.then_branch, force)
                 if ctrl.else_branch is not None:
-                    walk_block(ctrl.else_branch)
+                    walk_block(ctrl.else_branch, force)
             elif isinstance(ctrl, IfLetExpr):
                 # design 104 item 1: a split `if let` binding survives the
                 # dispatch→then-branch state transition, so it is frame-resident.
                 if getattr(ctrl, '_coro_split', False):
                     add(ctrl.name, self._optional_binding_type(ctrl),
                         ctrl.line, ctrl.column)
-                walk_block(ctrl.then_branch)
+                walk_block(ctrl.then_branch, force)
                 if ctrl.else_branch is not None:
-                    walk_block(ctrl.else_branch)
+                    walk_block(ctrl.else_branch, force)
             elif isinstance(s, GuardLetStatement):
                 # design 104 item 1: a split `guard let` binding lives on into the
                 # rest of the enclosing block (which crosses the suspension).
                 if getattr(s, '_coro_split', False):
                     add(s.name, self._optional_binding_type(s), s.line, s.column)
-                walk_block(s.else_branch)
+                walk_block(s.else_branch, force)
             elif isinstance(ctrl, WhileExpr):
-                walk_block(ctrl.body)
+                walk_block(ctrl.body, force)
             elif isinstance(ctrl, MatchExpr):
                 if self._spans_suspension(ctrl):
                     for nm, t in self._match_binding_types(ctrl).items():
                         add(nm, t, ctrl.line, ctrl.column)
                 for arm in ctrl.arms:
                     if isinstance(arm.body, Block):
-                        walk_block(arm.body)
+                        walk_block(arm.body, force)
             elif isinstance(s, ForLoop):
                 if self._spans_suspension(s):
                     add(s.variable, SawType(TypeKind.INT), s.line, s.column)
                     add(f"__end_{s.variable}", SawType(TypeKind.INT), s.line, s.column)
-                walk_block(s.body)
+                walk_block(s.body, force)
+            elif isinstance(ctrl, TryCatchExpr):
+                # design 196 unit 3: a SPLIT try/catch carries the caught error
+                # from whichever state raised it into the catch's own state, so
+                # the binding is frame-resident exactly like a split `if let`'s
+                # — and everything under it is too (see `walk_block`'s `force`).
+                split = self._splits_try_catch(ctrl)
+                if split and ctrl.error_types:
+                    add(ctrl.error_binding or "error", ctrl.error_type,
+                        ctrl.line, ctrl.column)
+                walk_block(ctrl.try_block, force or split)
+                walk_block(ctrl.catch_block, force or split)
 
         walk_block(self.func.body)
         # design 120 stage 2: a value-position conditional lowered to branch form
@@ -2279,6 +2319,49 @@ class _FrameBuilder:
         scan(node)
         return found[0]
 
+    def _splits_try_catch(self, e):
+        """True when a `try { … } catch { … }` BLOCK has to become STATES rather
+        than lower in place (design 196 unit 3).
+
+        The catch arm is a resume target reachable from every `try` in the try
+        body, so the moment ANY of it spans a suspension the catch has to be a
+        state of its own: a suspension in the middle of the try body means the
+        error edge leaves one state and lands in another, which no arrangement
+        of basic blocks inside a single `if __state == N` region can express.
+        Either side spanning is enough — a suspending catch body needs its own
+        states just as much, and the try body's error edges then point at them.
+
+        A try/catch with no suspension anywhere lowers in place exactly as
+        before: one region, codegen's own catch context, nothing changed."""
+        return self._spans_suspension(e)
+
+    def _check_try_catch_splittable(self, e):
+        """Refuse — cleanly, at the user's `try` — a split try/catch whose caught
+        error the transform cannot carry in a frame field.
+
+        ONE shape is refused: a try body raising TWO OR MORE distinct error
+        types. The catch then binds the synthesized `_CatchError_<id>` UNION
+        enum, and each error edge has to wrap its concrete error into the right
+        variant on the way to the field. Codegen does that wrap for an in-place
+        try/catch (`_wrap_error_in_union`), and the split lowering has no way to
+        ask for it: it hands the error to the frame through an ordinary
+        assignment, which is a type error against the union. Refused rather than
+        guessed (design 196's STOP rule) — see DF-196b.
+
+        Everything else about a split try/catch is expressible, so nothing else
+        is refused here."""
+        types = e.error_types or []
+        if len(types) > 1:
+            names = ", ".join(f"`{t}`" for t in types)
+            raise CoroTransformError(
+                f"coroutine transform: a `try {{ }} catch {{ }}` block that spans "
+                f"a suspension in `{self.name}` may raise only ONE error type, "
+                f"and this one raises {len(types)} ({names}); the catch would "
+                f"bind a union the split lowering cannot build. Split it into one "
+                f"`try`/`catch` per error type, or handle each call with an inline "
+                f"`try <call> catch {{ ... }}`.",
+                e.line, e.column, source_file=self.src_file)
+
     def _has_loop_ctrl(self, node):
         """design 96 (DF6): True if `node` contains a `break`/`continue` that
         targets the ENCLOSING loop — one NOT nested inside a deeper `while`/`for`
@@ -2365,8 +2448,8 @@ class _FrameBuilder:
         # STATEMENT (its value is discarded → its inner blocks are non-tail).
         for s in block.statements:
             ctrl = s.expression if isinstance(s, ExpressionStatement) else s
-            if isinstance(ctrl, (IfExpr, WhileExpr, MatchExpr, ForLoop, IfLetExpr)) \
-                    and self._spans_suspension(ctrl):
+            if isinstance(ctrl, (IfExpr, WhileExpr, MatchExpr, ForLoop, IfLetExpr,
+                                 TryCatchExpr)) and self._spans_suspension(ctrl):
                 self._norm_ctrl(ctrl, tail=False)
         fe = block.final_expr
         if fe is None:
@@ -2412,6 +2495,18 @@ class _FrameBuilder:
                 for arm in fe.arms:
                     self._norm_block(arm.body, tail=True, force=True)
                 block.statements.append(ExpressionStatement(expression=fe))
+            elif isinstance(fe, TryCatchExpr):
+                # design 196 unit 3: a TRAILING `try { } catch { }` in value
+                # position. Same shape as the `if`/`else` above — push the result
+                # flow into both arms so every leaf returns, then leave it as a
+                # statement for the CFG split. Without this the tail became
+                # `return try { … } catch { … }` and the suspension inside it was
+                # a buried call the split could not reach, so the author got a
+                # rejection for a shape they had not written.
+                block.final_expr = None
+                self._norm_block(fe.try_block, tail=True, force=True)
+                self._norm_block(fe.catch_block, tail=True, force=True)
+                block.statements.append(ExpressionStatement(expression=fe))
             else:
                 block.final_expr = None
                 block.statements.append(ReturnStatement(
@@ -2439,6 +2534,9 @@ class _FrameBuilder:
             for arm in node.arms:
                 if isinstance(arm.body, Block):
                     self._norm_block(arm.body, tail)
+        elif isinstance(node, TryCatchExpr):
+            self._norm_block(node.try_block, tail)
+            self._norm_block(node.catch_block, tail)
 
     def _collect_calls(self):
         """Walk the whole body for nested suspending call sites (top-level OR
@@ -2489,11 +2587,11 @@ class _FrameBuilder:
             self._reject_suspending_method_call(s)
             # PER-CONTAINER semantics, so this one keeps its own dispatch rather
             # than `ast_walk.control_blocks`: an `if let`/`guard let` is
-            # descended only when design 104 marked it `_coro_split`, and every
-            # container NOT listed here (a `try { … } catch { … }` block, today)
-            # falls through to the rejection below on purpose — the state
-            # machine cannot split one, so a suspension inside it is refused
-            # rather than silently blocked (DF-193a). See `ast_walk`'s
+            # descended only when design 104 marked it `_coro_split`, and a
+            # `try { … } catch { … }` only when it is being split into states
+            # (design 196 unit 3). A container NOT listed here falls through to
+            # the rejection below on purpose — a suspension the state machine
+            # cannot express is refused, never silently blocked. See `ast_walk`'s
             # `CONTAINER_KINDS` for the full list this is choosing from.
             ctrl = s.expression if isinstance(s, ExpressionStatement) else s
             if isinstance(ctrl, IfExpr):
@@ -2518,6 +2616,10 @@ class _FrameBuilder:
                         visit_block(arm.body)
             elif isinstance(s, ForLoop):
                 visit_block(s.body)
+            elif isinstance(ctrl, TryCatchExpr) and self._splits_try_catch(ctrl):
+                self._check_try_catch_splittable(ctrl)
+                visit_block(ctrl.try_block)
+                visit_block(ctrl.catch_block)
             elif not _is_suspend_stmt(s):
                 # A bare suspension-point statement is a legal state boundary; any
                 # OTHER leaf holding a suspending call in an expression position is
@@ -3020,6 +3122,10 @@ class _FrameBuilder:
         self._cap_lets = None
         # design 77 item 10: fresh-temp counter for destructuring lowering.
         self._destr_ctr = 0
+        # design 196 unit 3: the enclosing split `try { } catch { }`, as
+        # (catch state, frame field the caught error travels in), or None.
+        self._try_ctx = None
+        self._tcland_ctr = 0
         self.cur = 0
 
         self._lower_stmts(func.body.statements, loop_ctx=None)
@@ -3375,6 +3481,21 @@ class _FrameBuilder:
                                             or needs_ctrl_split):
             self._split_match(ctrl, loop_ctx)
             return
+        if isinstance(ctrl, TryCatchExpr) and (self._splits_try_catch(ctrl)
+                                               or needs_ctrl_split):
+            self._split_try_catch(ctrl, loop_ctx)
+            return
+
+        # design 196 unit 3: a propagating `try` in a state-machine body. Its
+        # error edge leaves this state — for the enclosing split try/catch's
+        # catch state, or, with no enclosing catch, out of the coroutine
+        # altogether through the frame's own done sequence.
+        if self._has_propagating_try(s):
+            if self._try_ctx is not None:
+                self._emit_try_landing(s)
+            else:
+                self._emit_try_propagate(s)
+            return
 
         # Non-suspending statement (incl. non-spanning control flow): lower in
         # place — identifier→frame-field rewrites, drop-flag clears, returns→done.
@@ -3602,6 +3723,202 @@ class _FrameBuilder:
             if self.cur not in self._term:
                 self._goto(merge)
         self.cur = merge
+
+    # ------------------------------------------- design 196 unit 3: try/catch
+    def _split_try_catch(self, e, loop_ctx):
+        """CFG-split a `try { … } catch { … }` BLOCK into states.
+
+        The catch arm becomes a STATE of its own, reachable from every state the
+        try body lowers into. The try body lowers with `_try_ctx` naming that
+        state and the frame field the caught error travels in; each statement in
+        it that holds a propagating `try` gets a landing pad (`_emit_try_landing`)
+        whose job is exactly to fill that field and jump. Fall off the end of
+        either arm and control reaches `merge`, which is what makes this the same
+        diamond `_split_if` builds — the only new thing is that the second arm is
+        entered from an error edge instead of a condition.
+
+        `_try_ctx` is saved and restored around the TRY body only: a `try` written
+        in the CATCH block propagates outward (to an enclosing try/catch, or to
+        the caller), never back into this catch, so the catch lowers under the
+        enclosing context — which is exactly what nesting means here."""
+        catch_entry = self._new_block()
+        merge = self._new_block()
+        saved = self._try_ctx
+        self._try_ctx = (catch_entry, e.error_binding or "error")
+        self._lower_block(e.try_block, loop_ctx)
+        self._try_ctx = saved
+        if self.cur not in self._term:
+            self._goto(merge)
+        self.cur = catch_entry
+        self._lower_block(e.catch_block, loop_ctx)
+        if self.cur not in self._term:
+            self._goto(merge)
+        self.cur = merge
+
+    def _has_propagating_try(self, s):
+        """True if `s` holds a bare propagating `try` — one whose error leaves
+        the statement for the enclosing catch.
+
+        `try!` and `try?` handle their own error and never leave the statement,
+        and a `try` with an INLINE catch handles it on the spot; neither needs a
+        landing pad. Two subtrees are not descended: a nested `try { } catch { }`
+        block's TRY body (its errors belong to its own catch, and it lowers
+        itself) and a closure body (its `try` propagates out of the closure)."""
+        found = [False]
+
+        def scan(n):
+            if found[0]:
+                return
+            if isinstance(n, TryExpr):
+                if n.variant == "propagate" and n.catch_block is None:
+                    found[0] = True
+                    return
+            if isinstance(n, TryCatchExpr):
+                scan(n.catch_block)
+                return
+            if isinstance(n, ClosureExpr):
+                return
+            if isinstance(n, ASTNode):
+                for c in _child_nodes(n):
+                    scan(c)
+
+        scan(s)
+        return found[0]
+
+    def _emit_try_landing(self, s):
+        """Lower one statement of a split try body behind its own error landing.
+
+        The statement lowers in place exactly as it would anywhere else; what
+        wraps it is a synthesized one-statement `try { <it> } catch { … }` whose
+        catch does three things and nothing else — store the caught error into
+        the try/catch's frame field, set `__state` to the catch's state, and
+        `continue` the resume dispatch loop.
+
+        Wrapping rather than open-coding the Ok/Err test is what keeps this
+        honest about evaluation: codegen's own try lowering decides where the
+        error edge leaves (a `try` buried in an argument list, two `try`s in one
+        expression, a `try` inside a non-spanning `if` in the try body), and the
+        landing only says where it lands. `continue` reaches the dispatch loop
+        from inside the catch region, so the jump is a state transition and not a
+        branch inside the state — which is the whole difficulty DF-193a named.
+
+        The synthesized catch binds the raw error under its own `__tclandN` name
+        so it cannot collide with the user's binding, which by then names a frame
+        field."""
+        catch_entry, err_field = self._try_ctx
+        line = getattr(s, 'line', self.func.line)
+        col = getattr(s, 'column', 0)
+        raw = f"__tcland{self._tcland_ctr}"
+        self._tcland_ctr += 1
+        inner = self._lower_inplace(s)
+        landing = Block(statements=[
+            AssignStatement(target=_self_field(err_field, line, col),
+                            value=Identifier(name=raw, line=line, column=col),
+                            line=line, column=col),
+            AssignStatement(target=_self_field("__state", line, col),
+                            value=_int(catch_entry), line=line, column=col),
+            ContinueStatement(line=line, column=col),
+        ], final_expr=None, line=line, column=col)
+        self._emit([ExpressionStatement(expression=TryCatchExpr(
+            try_block=Block(statements=inner, final_expr=None,
+                            line=line, column=col),
+            catch_block=landing, error_binding=raw,
+            line=line, column=col), line=line, column=col)])
+
+    def _propagating_try_errors(self, s):
+        """The error type of every propagating `try` in `s`, deduplicated by
+        printed form (the same walk `_has_propagating_try` uses, so the two
+        always agree about which `try`s are propagating)."""
+        out = {}
+
+        def scan(n):
+            if isinstance(n, TryExpr):
+                if n.variant == "propagate" and n.catch_block is None:
+                    rt = getattr(n, 'result_enum_type', None)
+                    et = rt.unwrap_result_err() if (
+                        rt is not None and rt.is_result()) else None
+                    out.setdefault(str(et), et)
+            if isinstance(n, TryCatchExpr):
+                scan(n.catch_block)
+                return
+            if isinstance(n, ClosureExpr):
+                return
+            if isinstance(n, ASTNode):
+                for c in _child_nodes(n):
+                    scan(c)
+
+        scan(s)
+        return list(out.values())
+
+    def _propagated_err_value(self, s, raw, line, col):
+        """The `Result` this frame finishes with when a propagating `try` in `s`
+        fails — the error `raw` names, wrapped for THIS function's return type.
+
+        Two wraps, the same two the direct (non-coroutine) propagation path
+        builds: the concrete `ResultErrWrap` when the callee's error type IS the
+        one this function returns, and design 56's `ErasedErrWrap` when this
+        function returns an erased `Result<T, Box<any Trait>>` and the callee's
+        error is a concrete conformer (the re-box at the propagation edge).
+        Anything else — two different concrete error types reaching one edge —
+        is refused rather than guessed."""
+        ret = self.ret
+        if ret is None or not ret.is_result():
+            raise CoroTransformError(
+                f"coroutine transform: a propagating `try` in `{self.name}`, "
+                f"whose body suspends, needs `{self.name}` to return a `Result`",
+                line, col, source_file=self.src_file)
+        fn_err = ret.unwrap_result_err()
+        errs = self._propagating_try_errors(s)
+        read = Identifier(name=raw, line=line, column=col)
+        if len(errs) == 1 and errs[0] is not None and str(errs[0]) == str(fn_err):
+            return ResultErrWrap(value=read, result_type=ret, line=line,
+                                 column=col)
+        ns = getattr(self._tc, 'namespace', None) if self._tc else None
+        trait = ns._erased_trait_of(fn_err) if ns is not None else None
+        if trait is not None and len(errs) == 1 and errs[0] is not None:
+            return ErasedErrWrap(
+                value=read, result_type=ret, concrete_err=errs[0],
+                trait_name=trait,
+                allocator=SawType(TypeKind.STRUCT, struct_name="GlobalAllocator"),
+                line=line, column=col)
+        names = ", ".join(f"`{e}`" for e in errs) or "none"
+        raise CoroTransformError(
+            f"coroutine transform: a statement in `{self.name}` propagates "
+            f"{len(errs)} different error types with `try` ({names}) across a "
+            f"suspension, and the frame carries ONE error out; give each `try` "
+            f"its own statement, or handle them with `try <call> catch {{ ... }}`.",
+            line, col, source_file=self.src_file)
+
+    def _emit_try_propagate(self, s):
+        """Lower one statement whose propagating `try` leaves the COROUTINE.
+
+        With no enclosing `try { } catch { }`, a failing `try` returns the error
+        from the function — and in a state machine "returning" means storing the
+        Result into the frame's slot and answering `Done`, exactly as an explicit
+        `return` does. The landing is `_done_seq` over the wrapped error, under
+        the same one-statement `try { … } catch { … }` wrapper the in-block
+        landing uses, so codegen's own try lowering keeps deciding where the
+        error edge leaves and this only says where it goes.
+
+        Before design 196 unit 3 the `try` survived the transform untouched and
+        codegen tried to `ret` a Result out of a `resume` whose return type is
+        `__Poll` — which the typechecker caught as an error naming `__Poll`, a
+        type the author never wrote (DF-196d). So `try` was unusable in a task
+        body: `try!` panicked, `try?` dropped the cause, and design 92's whole
+        failable-returns-Result idiom had no concurrent spelling."""
+        line = getattr(s, 'line', self.func.line)
+        col = getattr(s, 'column', 0)
+        raw = f"__tcland{self._tcland_ctr}"
+        self._tcland_ctr += 1
+        wrap = self._propagated_err_value(s, raw, line, col)
+        inner = self._lower_inplace(s)
+        landing = Block(statements=self._done_seq(wrap, []), final_expr=None,
+                        line=line, column=col)
+        self._emit([ExpressionStatement(expression=TryCatchExpr(
+            try_block=Block(statements=inner, final_expr=None,
+                            line=line, column=col),
+            catch_block=landing, error_binding=raw,
+            line=line, column=col), line=line, column=col)])
 
     def _emit_blk_call(self, bc):
         """design 103 (A6): lower a blocking-extern call to the offload sequence,
@@ -3967,6 +4284,31 @@ class _FrameBuilder:
                         self._rewrite_expr_val(getattr(node, f.name), forgets))
         return node
 
+    def _rewrite_assign_target(self, target, forgets):
+        """The rewrite of an assignment's TARGET, which is a write and not a read.
+
+        Reassigning a WHOLE frame-resident binding of an owning type
+        (`var out = "none"` … `out = "ok"` across a suspension) writes the FIELD,
+        not the field's payload: the field is `T?` — the optional's tag is the
+        binding's drop flag (design 44) — so the store is the same
+        `self.out = <T>` an initializing `let` emits, which auto-wraps to `Some`
+        and drops whatever the field held. Reading `out` yields `self.out!`, and
+        rewriting the target the same way asked codegen to write THROUGH a
+        `ForceUnwrap`: a leak of the old payload before design 176 made `!` an
+        illegal assignment target, and since then a clean compile error on an
+        ordinary program (DF-196a, fixed by design 196 unit 3).
+
+        Only a bare whole-binding target changes. `out.field = v`, `out[i] = v`
+        and every other projection still reads the binding to reach the storage
+        under it, so they take the ordinary read rewrite — as does a `ref`-encoded
+        binding, whose write really does go through the frame's pointer."""
+        if isinstance(target, Identifier) and _enc_unwraps(
+                self.encmap.get(target.name)):
+            acc = _self_field(target.name, target.line, target.column)
+            acc.frame_place_read = True
+            return acc
+        return self._rewrite_expr(target, forgets)
+
     def _rewrite_expr_val(self, val, forgets):
         if isinstance(val, list):
             return [self._rewrite_expr_val(v, forgets) for v in val]
@@ -4123,8 +4465,10 @@ class _FrameBuilder:
         if isinstance(s, AssignStatement):
             forgets = []
             saved_cap, self._cap_lets = self._cap_lets, []
-            s.target = self._rewrite_expr(s.target, forgets)
+            # The VALUE first: `out = out + "!"` reads the old binding, and the
+            # target rewrite must not change what that read means.
             s.value = self._rewrite_expr(s.value, forgets)
+            s.target = self._rewrite_assign_target(s.target, forgets)
             cap_lets, self._cap_lets = self._cap_lets, saved_cap
             return cap_lets + [s] + self._forgets(forgets)
 

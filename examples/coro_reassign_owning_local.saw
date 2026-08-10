@@ -1,0 +1,58 @@
+// Reassigning an OWNING local across a suspension.
+//
+// A frame-resident local of a non-POD type is held as `T?` — the optional's tag
+// is the binding's drop flag — so a READ of it is `self.out!`. The transform
+// rewrote an assignment's TARGET the same way and asked codegen to write
+// THROUGH the `!`: a leak of the old payload until design 176 made `!` an
+// illegal assignment target, and after that a clean compile error on this
+// program (DF-196a, found and fixed by design 196 unit 3). A whole-binding
+// write is a write of the FIELD — the same store an initializing `let` emits,
+// which wraps to `Some` and drops what the field held.
+//
+// Three rows: a plain reassignment, one whose RHS READS the old value (the
+// read must still mean the old payload), and a projection write, which still
+// goes through the payload because that is where the storage is.
+// EXPECT: success
+// EXPECT-OUTPUT:
+// ok 4
+// ok 4 then more
+// 2 and 9
+
+import std.task.*
+
+func work(n: Int) -> String {
+    var out = "none"
+    yield_now()
+    out = "ok {n}"
+    yield_now()
+    out
+}
+
+func grow(n: Int) -> String {
+    var out = "none"
+    yield_now()
+    out = "ok {n}"
+    yield_now()
+    out = "{out} then more"
+    out
+}
+
+func fill(n: Int) -> String {
+    var v: Vector<Int> = [1]
+    yield_now()
+    var fresh: Vector<Int> = [7]
+    v = move fresh
+    yield_now()
+    v.push(n)
+    "{v.len()} and {v.get(1)!}"
+}
+
+func main() {
+    var group = TaskGroup()
+    let a = group.spawn(work(4))
+    print(a.join())
+    let b = group.spawn(grow(4))
+    print(b.join())
+    let c = group.spawn(fill(9))
+    print(c.join())
+}

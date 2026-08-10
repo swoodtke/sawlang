@@ -1,0 +1,61 @@
+// The one shape a suspending `try { } catch { }` block still refuses, and the
+// refusal is a clean error rather than a silent block (design 96's law).
+//
+// Two callees with DIFFERENT error types in one try body means the catch binds
+// the synthesized union enum, and every error edge has to wrap its concrete
+// error into the right variant on the way to the frame field the split
+// lowering carries it in. Codegen builds that wrap for an in-place try/catch;
+// the split lowering hands the error over through an ordinary assignment and
+// has no way to ask for it. Filed as DF-196b — the message names the two
+// spellings that work today.
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: may raise only ONE error type
+// EXPECT-ERROR-CONTAINS: `Flaky`
+// EXPECT-ERROR-CONTAINS: `Other`
+
+import std.task.*
+
+struct Flaky { n: Int }
+
+extension Flaky: Printable {
+    func format(&self, into: &var StringBuilder) { into.append("flaky") }
+}
+
+extension Flaky: Error {}
+
+struct Other { m: Int }
+
+extension Other: Printable {
+    func format(&self, into: &var StringBuilder) { into.append("other") }
+}
+
+extension Other: Error {}
+
+func one(ok: Bool) -> Result<Int, Flaky> {
+    yield_now()
+    if ok { return 1 }
+    return Flaky(n: 1)
+}
+
+func two(ok: Bool) -> Result<Int, Other> {
+    yield_now()
+    if ok { return 2 }
+    return Other(m: 2)
+}
+
+func mixed(n: Int) -> Int {
+    var total = 0
+    try {
+        let a = try one(n > 0)
+        total = total + a
+        let b = try two(n > 1)
+        total = total + b
+    } catch {
+        total = total + 9
+    }
+    total
+}
+
+func main() {
+    print(mixed(0))
+}

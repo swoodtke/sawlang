@@ -1,0 +1,113 @@
+// A propagating `try` in a body that SUSPENDS.
+//
+// With no enclosing catch, a failing `try` returns the error from the function
+// — and in a state machine "returning" means storing the Result into the
+// frame's slot and answering `Done`, exactly as a written `return` does. The
+// transform left the `try` untouched, so codegen tried to `ret` a Result out of
+// a `resume` whose return type is `__Poll`, and the author got an error naming
+// a type they never wrote (DF-196d, fixed by design 196 unit 3). Until then
+// `try` had no concurrent spelling at all: `try!` panics and `try?` drops the
+// cause, so design 92's failable-returns-Result idiom stopped at the first
+// `yield_now`.
+//
+// Five rows: a sync callee under a suspension, a SUSPENDING callee (whose call
+// the design-92 hoist lifts to a temp first), an ERASED return re-boxing a
+// concrete callee error at the propagation edge, a `try` in a branch with an
+// owning Ok payload, and the erased one again from a SPAWNED task.
+// EXPECT: success
+// EXPECT-OUTPUT:
+// ok 1
+// err MyErr(7)
+// ok 1
+// err MyErr(7)
+// ok 5
+// err MyErr(7)
+// ok 2
+// err MyErr(3)
+// err MyErr(9)
+
+import std.task.*
+
+struct MyErr { code: Int }
+
+extension MyErr: Printable {
+    func format(&self, into: &var StringBuilder) {
+        into.append("MyErr(")
+        into.append(self.code)
+        into.append(")")
+    }
+}
+
+extension MyErr: Error {}
+
+func inner(n: Int) sync -> Result<Int, MyErr> {
+    if n > 0 { return MyErr(code: n) }
+    return 0
+}
+
+func slow(n: Int) -> Result<Int, MyErr> {
+    yield_now()
+    if n > 0 { return MyErr(code: n) }
+    return n * 2
+}
+
+func words(ok: Bool) -> Result<Vector<Int>, MyErr> {
+    yield_now()
+    if not ok { return MyErr(code: 3) }
+    var v: Vector<Int> = [1, 2]
+    return move v
+}
+
+func concrete_sync_callee(n: Int) -> Result<Int, MyErr> {
+    yield_now()
+    let v = try inner(n)
+    return v + 1
+}
+
+func concrete_susp_callee(n: Int) -> Result<Int, MyErr> {
+    let v = try slow(n)
+    return v + 1
+}
+
+func erased(n: Int) -> Result<Int, Box<any Error>> {
+    yield_now()
+    let v = try inner(n)
+    return v + 5
+}
+
+func owning(ok: Bool) -> Result<Int, MyErr> {
+    if ok {
+        let v = try words(ok)
+        return v.len()
+    }
+    let w = try words(ok)
+    return w.len()
+}
+
+func show(r: Result<Int, MyErr>) {
+    match r {
+        case Ok(v) -> print("ok {v}"),
+        case Err(e) -> print("err {e}")
+    }
+}
+
+func show_erased(r: Result<Int, Box<any Error>>) {
+    match r {
+        case Ok(v) -> print("ok {v}"),
+        case Err(e) -> print("err {e}")
+    }
+}
+
+func main() {
+    show(concrete_sync_callee(0))
+    show(concrete_sync_callee(7))
+    show(concrete_susp_callee(0))
+    show(concrete_susp_callee(7))
+    show_erased(erased(0))
+    show_erased(erased(7))
+    show(owning(true))
+    show(owning(false))
+    var group = TaskGroup()
+    let h = group.spawn(erased(9))
+    show_erased(h.join())
+}

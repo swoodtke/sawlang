@@ -398,20 +398,87 @@ DF-192e fixed, DF-192b/c/d/f/g pinned (DF-192d fixed since, by design 198).
   `net_connect_dials_the_host_it_was_given.saw`, each naming `IoError` in a
   return type with no import, both fixed in the same landing. blade, libs,
   devtools and sos were clean.
-- **DF-193a (CAPABILITY, filed Aug 10 by 193 u2): a suspension inside a
-  `try { … } catch { … }` BLOCK in a driven body is refused.** The
-  census's DF-190b claim, minus the misattribution: the coro spine walks
-  do not descend `TryCatchExpr`, and more fundamentally the state machine
-  cannot split a try block across states — a statement after a `try`
-  inside the block runs only if the earlier one succeeded, so the
-  suspension is conditional and the error path would need states of its
-  own. `_collect_calls` reaches the call through its full-tree scan and
-  rejects it honestly ("appears in a nested/expression position"), so
-  this is a capability gap, never a silent block. The inline-catch
-  spelling (`try f() catch { … }`) drives fine — design 92's try hoist
-  lifts the tried call to a temp. Needs a design decision (error-path
-  states) before it is buildable. PIN:
-  `examples/coro_try_block_suspending.saw`.
+- **DF-193a — FIXED (design 196 unit 3): a suspension inside a
+  `try { … } catch { … }` BLOCK in a driven body.** The error path got its
+  own states, and the shape of the answer is smaller than the finding
+  feared. THE CATCH ARM IS A STATE. The try body lowers under a `_try_ctx`
+  naming that state plus the frame field the caught error travels in, and
+  every statement in it that holds a propagating `try` is wrapped in a
+  synthesized ONE-STATEMENT `try { <it> } catch { <field> = error;
+  __state = <catch>; continue }`. That wrapper is the whole trick: codegen's
+  own try lowering keeps deciding where the error edge LEAVES (a `try`
+  buried in an argument list, two in one expression, one inside a
+  non-spanning `if`), and the landing only says where it GOES — and
+  `continue` reaches the resume dispatch loop from inside a nested region,
+  so the jump is a state transition rather than a branch within the state.
+  Falling off either arm reaches a merge state, so the result is the same
+  diamond `_split_if` builds. Everything under a split try/catch is
+  frame-resident (a `let` inside the wrapper would otherwise be scoped to
+  it), and the catch's implicit `error` binding now goes through
+  `_uniquify_bindings` like any other name, so two catch blocks in one body
+  get two fields. Value position works too, through design 120's
+  value-conditional lowering (`let r = try { … } catch { … }`) and the
+  tail normalization. PIN FLIPPED: `examples/coro_try_block_suspending.saw`;
+  the 13-row position matrix is `examples/coro_try_block_positions.saw`.
+  Three findings came out of building it, all fixed in the same landing
+  (DF-196a/c/d) and one fence filed (DF-196b).
+
+- **DF-196a — FIXED (design 196 unit 3, found while building it):
+  reassigning an OWNING local across a suspension was a compile error.**
+  `var out = "none"` … `yield_now()` … `out = "ok"` in any driven body.
+  A frame-resident non-POD local is held as `T?` (the optional's tag is
+  the drop flag), so a READ is `self.out!` — and the transform rewrote the
+  assignment TARGET the same way, asking codegen to write THROUGH the `!`.
+  That leaked the old payload until design 176 made `!` an illegal
+  assignment target, and has been a clean error on an ordinary program
+  since. A whole-binding write is a write of the FIELD: the same store an
+  initializing `let` emits, which wraps to `Some` and drops what the field
+  held. Only a bare whole-binding target changed — `out.f = v`, `out[i] = v`
+  and a `ref`-encoded binding still reach their storage through the read.
+  PIN: `examples/coro_reassign_owning_local.saw` (passing).
+
+- **DF-196b (FENCE, filed + pinned by design 196 unit 3): a suspending
+  `try { } catch { }` block may raise only ONE error type.** Two callees
+  with different error types in one try body means the catch binds the
+  synthesized `_CatchError_<id>` union, and each error edge has to wrap its
+  concrete error into the right variant on the way to the frame field the
+  split carries it in. Codegen builds that wrap for an IN-PLACE try/catch
+  (`_wrap_error_in_union`); the split lowering hands the error over through
+  an ordinary assignment and cannot ask for it. Refused cleanly at the
+  user's `try`, naming both types and the two spellings that work (one
+  block per error type, or an inline `try <call> catch { … }`). Fixing it
+  means either synthesizing the union construction in the transform or
+  moving the wrap somewhere the transform can reach. PIN:
+  `examples/coro_try_block_two_error_types.saw` (a passing ERROR test — the
+  fence is the behavior, so it is pinned by its diagnostic, not by XFAIL).
+
+- **DF-196c — FIXED (design 196 unit 3, found while building it): an
+  inline `catch` arm that DIVERGES was an ICE with an empty message.**
+  `try f() catch { return E }` — the arm handles the error by leaving the
+  function, so it reaches no merge and contributes no value, and codegen
+  branched to the merge anyway. llvmlite asserted, and the wrapper printed
+  `internal compiler error:` with nothing after it. Sync code, nothing to
+  do with coroutines; the BLOCK form has guarded the same case since it was
+  written. PIN: `examples/try_inline_catch_diverging_arm.saw` (passing) —
+  four rows, incl. the same arm inside a suspending body and a `panic` arm.
+
+- **DF-196d — FIXED (design 196 unit 3, found while building it): a
+  propagating `try` in a body that SUSPENDS.** `let v = try inner(n)` after
+  a `yield_now()` was ``` `try` cannot propagate errors from a function
+  returning `__Poll` ``` — a type the author never wrote. The transform left
+  the `try` alone and codegen tried to `ret` a Result out of `resume`. So
+  design 92's failable-returns-Result idiom had NO concurrent spelling:
+  `try!` panics, `try?` drops the cause, and an inline catch is not
+  propagation. Same landing-pad shape as DF-193a's, with the landing being
+  the frame's own done sequence over the wrapped error — `ResultErrWrap`
+  when the callee's error type IS the function's, design 56's
+  `ErasedErrWrap` when the function returns an erased `Result<T, Box<any
+  Error>>` and the callee's error is a concrete conformer (the re-box at the
+  propagation edge). Two DIFFERENT concrete error types on one statement's
+  edge are refused cleanly (one error travels out of a frame; give each
+  `try` its own statement). PIN:
+  `examples/coro_try_propagate_suspending.saw` (passing) — five rows,
+  including the spawned erased one.
 - **DF-192a — FIXED by the unit that found it (192 u1): the checker's
   fourth wrap node had no re-check visitor.** Making
   `_check_expression`'s unknown-node fallthrough RAISE flushed exactly
