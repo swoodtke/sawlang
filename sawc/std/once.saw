@@ -58,21 +58,16 @@
 // The three states of the word. Zero MUST be UNSET: that is what makes a bare
 // `static POOL: Once<T>` legal, on the same terms as SpinLock's zero-is-
 // unlocked. Named as an enum rather than as a family of Int statics because a
-// closed set of tags is what an enum is for; the Int projections below are the
-// one boundary that needs numbers, since `Atomic<Int>` is the v1 atomic.
+// closed set of tags is what an enum is for; `Atomic<Int>` is the v1 atomic,
+// so each call site projects with `as Int` — the enum stays the single source
+// of the values.
 enum State: Int {
     case Unset = 0,
     case Setting = 1,
     case Ready = 2
 }
 
-static UNSET: Int = 0
-static SETTING: Int = 1
-static READY: Int = 2
-
 static_assert((State.Unset as Int) == 0, "zero must mean UNSET")
-static_assert((State.Setting as Int) == 1, "the state words agree")
-static_assert((State.Ready as Int) == 2, "the state words agree")
 
 /// A value written once and read many times.
 ///
@@ -101,7 +96,7 @@ extension Once<T> {
     /// setters resolve rather than interleave: the first wins and publishes,
     /// every loser panics.
     public func set(&self, value: T) unsafe {
-        if not self.state.compare_exchange(UNSET, SETTING) {
+        if not self.state.compare_exchange(State.Unset as Int, State.Setting as Int) {
             panic("Once.set: already initialized (a Once is written once)")
         }
         self.value.ptr()[0] = value
@@ -109,7 +104,7 @@ extension Once<T> {
         // be reordered ahead of the payload write above and no reader can see
         // `Ready` without also seeing the bytes. Announcing first is exactly
         // the bug a hand-rolled version ships.
-        self.state.store(READY)
+        self.state.store(State.Ready as Int)
     }
 
     /// Whether a value has been published.
@@ -117,7 +112,7 @@ extension Once<T> {
     /// The answer can be stale before it is read, so branching on it to decide
     /// whether to `set` is a race; `set` itself is what resolves that.
     public func is_set(&self) -> Bool {
-        self.state.load() == READY
+        self.state.load() == (State.Ready as Int)
     }
 }
 
@@ -130,7 +125,7 @@ extension Once<T: Copy> {
     public func get(&self) unsafe -> T {
         // ACQUIRE-READ, pairing with `set`'s release store: seeing `Ready` here
         // means seeing the payload write that preceded it.
-        if self.state.load() != READY {
+        if self.state.load() != (State.Ready as Int) {
             panic("Once.get: read before initialization")
         }
         self.value.ptr()[0].copy()
@@ -142,7 +137,7 @@ extension Once<T: Copy> {
     /// state of the program rather than a mistake — a diagnostic dump, a
     /// component that starts before the thing it reports on.
     public func try_get(&self) unsafe -> T? {
-        if self.state.load() != READY {
+        if self.state.load() != (State.Ready as Int) {
             return None
         }
         self.value.ptr()[0].copy()

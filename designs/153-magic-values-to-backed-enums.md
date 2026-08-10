@@ -49,6 +49,16 @@ rewrite an example whose point is the static form itself). Behavior
 change: none — every conversion is representation-identical (explicit
 values match the old constants).
 
+KNOWN POST-RULING DEBT the sweep must catch (Aug 10 idiom review —
+new families added by designs 184/187, after the ruling): `sawc/std/
+net.saw` `SYS_WOULD_BLOCK`/`SYS_IN_PROGRESS`/`SYS_INTERRUPTED`/
+`SYS_NOT_FOUND`/`SYS_OTHER` (closed status set mirroring the rt seam
+contract — fixed-width backing pins it) and `sawc/std/process.saw`
+`FLAG_CAPTURE_STDOUT`/`FLAG_MERGE_STDERR` (flag bits) +
+`SYS_WOULD_BLOCK`. `sawc/std/once.saw`'s UNSET/SETTING/READY family
+was already converted directly (Aug 10) and is the worked example in
+the skill.
+
 ## Docs
 
 The skill ruling is already in. Spec/README examples that model the

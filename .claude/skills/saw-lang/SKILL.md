@@ -2022,7 +2022,12 @@ construct in the owner and lend `&driver` down.
   genuine standalone QUANTITY — a size, an alignment, a budget, a lone
   constant like `static AF_INET: Int32 = 2`. A parallel family of Int statics
   (`UNLOCKED`/`HELD`, `TAG_A`/`TAG_B`) is the smell this ruling exists to
-  catch (design 153 sweeps the existing ones). A module-level `static` is for a
+  catch (design 153 sweeps the existing ones). The rule holds even when the
+  numbers feed an API that takes raw integers: an `Atomic<Int>` comparing
+  against a closed state set uses `State.Ready as Int` projections at the
+  call sites, never a static family mirroring the enum — the enum stays the
+  single source of the values, and no "the words agree" assert is owed
+  (std/once.saw is the worked example). A module-level `static` is for a
   genuine standalone QUANTITY; std-module statics are NOT visible cross-module
   yet.
 - **A SIZE GOES IN ONE PLACE, and that place is a `static` (DF-172j).** An

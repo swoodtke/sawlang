@@ -1618,7 +1618,7 @@ Closed items: see todo_aug1-aug9.md.
   compiles and runs, which is what `sawc/std/cbor.saw` does at its two map-key
   bookkeeping sites (`item_done`, `close_item`). An ICE with no anchor is the
   worst shape a rejection can take, so this is the first thing to fix in the
-  places batch. Pinned: `examples/place_write_self_rhs_ice_xfail.saw`.
+  places batch. Pinned: `examples/place_write_self_rhs.saw`.
 - **DF-169g — the automatic ImplicitCopy tier does not satisfy a `Copy` BOUND.**
   Design 159 put a struct whose owning members are all trivial/ImplicitCopy on
   the ImplicitCopy tier with no declaration owed, and the BINDING half works:
@@ -1645,7 +1645,7 @@ Closed items: see todo_aug1-aug9.md.
   five-String record is five retains rather than a borrow. Two of the four
   findings in this brief are one bug in the place lowering seen from two sides;
   fixing the capture would close both. Pinned:
-  `examples/place_nocopy_arg_in_window_xfail.saw`.
+  `examples/place_nocopy_arg_in_window.saw`.
 - **DF-169i — a std-module static as a DEFAULT PARAMETER VALUE breaks at the
   caller, with a bogus anchor.** `public func open(bytes: Data, max_depth: Int =
   DEFAULT_MAX_DEPTH)` in `sawc/std/cbor.saw` compiles, and so does a call from
