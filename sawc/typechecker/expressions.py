@@ -6329,15 +6329,29 @@ class ExpressionsMixin:
             hint="consider using `var` instead of `let` to make it mutable")
 
     def _check_chain_assign_exclusivity(self, root_path, value, expr) -> None:
-        """Law of Exclusivity on the written root path: the chain assignment is a
-        write of the root, so the RHS may not also borrow (`&`/`&var`) or `move`
-        an overlapping path.
+        """The Law on an optional-chain assignment's written root."""
+        self._check_write_rhs_exclusivity(root_path, value, expr,
+                                          "this optional-chain assignment")
+
+    def _check_write_rhs_exclusivity(self, root_path, value, expr,
+                                     what: str, moves: bool = True) -> None:
+        """Law of Exclusivity on a WRITTEN path: the statement writes the root,
+        so its right-hand side may not also borrow (`&`/`&var`) or `move` an
+        overlapping path.
+
+        THE funnel for the write-plus-borrow shape. Two entry points, both in
+        this file, and they used to be one — an optional-chain assignment
+        (`_check_chain_assign_exclusivity`, design 111) and a plain assignment
+        (`_check_assign_rhs_exclusivity`, design 193 unit 4). `p.x = f(&var p)`
+        compiled while `p?.x = f(&var p)` was refused, which made the rule a
+        property of the SPELLING rather than of the write: the callee's
+        mutations to `p` are made and then clobbered by the assignment that
+        follows, the same lost write design 188 refused between two windows.
 
         On `ast_walk.child_nodes` (design 193 unit 3). The hand-rolled walk this
         replaced descended a list's direct node items but stepped over TUPLES,
         which is the shape of `StructInit.field_inits` — so
-        `p?.f = Foo(a: move x)` was invisible to the Law while the plain-assign
-        spelling of the same statement was not. It also walked
+        `p?.f = Foo(a: move x)` was invisible to the Law. It also walked
         `dataclasses.fields`, i.e. the cross-pass ANNOTATIONS as well as the
         tree; `structural_fields` (which `child_nodes` uses) leaves those out,
         so the check can no longer reach a node through a checker back-reference
@@ -6361,17 +6375,39 @@ class ExpressionsMixin:
             other = None
             if isinstance(cur, ReferenceExpr):
                 other = self._build_access_path(cur.expr)
-            elif isinstance(cur, MoveExpr):
+            elif moves and isinstance(cur, MoveExpr):
                 other = (cur.variable, ())
             if other is not None and self._paths_overlap(root_path, other):
                 self._error(
                     ErrorKind.EXCLUSIVITY_VIOLATION,
                     f"exclusive access violation: `{root_path[0]}` is written by "
-                    f"this optional-chain assignment while also being accessed in "
-                    f"the right-hand side",
-                    expr.line, expr.column)
+                    f"{what} while also being accessed in the right-hand side",
+                    expr.line, expr.column,
+                    hint="the right-hand side is evaluated first, so its writes "
+                         "through that borrow are overwritten by this "
+                         "assignment. Bind the value in its own statement, or "
+                         "borrow a disjoint path")
                 return
             stack.extend(child_nodes(cur))
+
+    def _check_assign_rhs_exclusivity(self, stmt) -> None:
+        """The Law on a plain assignment's written path (design 193 unit 4).
+
+        One call, ahead of the target-shape dispatch, so every assignment form
+        (variable, field, tuple element, array element, replacement through a
+        `&var`) is covered by construction rather than form by form.
+
+        BORROWS only, not `move`s: an assignment REVIVES its target (design 15
+        rule 3), so `acc = combine(move acc, move elem)` — std `Vector.fold`,
+        and the accumulator idiom generally — hands ownership to the callee and
+        takes a fresh value back, with no aliasing anywhere in it. Moving a
+        root and then writing a FIELD of it is a different statement and is
+        already a use-after-move. A chain assignment writes THROUGH a payload it
+        does not revive, which is why that entry point keeps asking about moves.
+        """
+        self._check_write_rhs_exclusivity(
+            self._build_access_path(stmt.target), stmt.value, stmt,
+            "this assignment", moves=False)
 
     def _make_specialization_key(self, type_args: List[SawType]) -> tuple:
         """Convert type arguments to a specialization key tuple."""
@@ -6870,6 +6906,19 @@ class ExpressionsMixin:
                     self._check_closure(arg.value, None, as_call_argument=True)
                 else:
                     self._check_expression(arg.value)
+            # The Law of Exclusivity, through the same funnel every other call
+            # form uses (design 193 unit 4). Deep argument TYPING is deferred
+            # here — a trait signature may mention associated types — but
+            # aliasing is not a typing question: `s.pair(&var p, &var p)` is the
+            # same violation at every instantiation, and refusing it in the
+            # generic body is what keeps it out of post-monomorphization errors.
+            # `param_types[0]` is the `self` placeholder.
+            self._check_call_exclusivity(
+                [a.value for a in expr.arguments],
+                list(method_sym.param_types or [])[1:],
+                receiver=expr.object,
+                receiver_mutable=bool(getattr(method_sym, 'self_mutable', False)),
+                param_names=list(method_sym.param_names or []))
             # design 70 (A5): a method call on a type-PARAMETER receiver makes the
             # enclosing body effect-polymorphic — its suspendability depends on the
             # concrete `T`. A trait method contributes no edge here (abstract body),
@@ -7007,6 +7056,18 @@ class ExpressionsMixin:
                     arg.value.line, arg.value.column)
             self._check_value_transfer(arg.value, expected[i], "call argument",
                                        arg.value.line, arg.value.column)
+        # The Law of Exclusivity, through the same funnel every other call form
+        # uses (design 193 unit 4). Erasing a receiver erases nothing about
+        # ALIASING: `s.pair(&var p, &var p)` is the same violation whether `s`
+        # is a `Counter` or an `&any Pairer`, and this call form simply never
+        # joined an access set. The trait SIGNATURE supplies the parameter types
+        # (dispatch is by that signature), so the reference sigils are checked
+        # against it too.
+        self._check_call_exclusivity(
+            [a.value for a in expr.arguments], list(expected),
+            receiver=expr.object,
+            receiver_mutable=bool(getattr(tmethod, 'self_mutable', False)),
+            param_names=list(getattr(tmethod, 'param_names', None) or []))
         # Effect propagation: the call carries the TRAIT signature's effect.
         if not getattr(tmethod, 'is_sync', False):
             self._effect_direct_source(

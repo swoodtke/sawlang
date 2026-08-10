@@ -1,0 +1,47 @@
+// The Law of Exclusivity does not depend on how the RECEIVER is spelled.
+// `s.pair(&var p, &var p)` names one root twice by reference, which is the
+// violation whether `s` is a concrete `Counter`, an erased `&any Pairer`, or
+// an opaque `&T` under a `T: Pairer` bound — three call forms, one rule.
+//
+// The concrete form was refused all along; the other two never joined an
+// access set at all, because dispatch through a trait signature checked
+// argument TYPES and stopped there (design 193 unit 4). Erasing a receiver
+// erases nothing about aliasing, and refusing it in the generic BODY is what
+// keeps it out of post-monomorphization errors.
+//
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: exclusive access violation: `p` is passed as `&var` while also being accessed in the same call
+
+struct Counter {
+    n: Int
+}
+
+trait Pairer {
+    func pair(&self, a: &var Counter, b: &var Counter)
+}
+
+extension Counter: Pairer {
+    func pair(&self, a: &var Counter, b: &var Counter) {
+        a.n = a.n + 1
+        b.n = b.n + 1
+    }
+}
+
+func through_existential(s: &any Pairer, p: &var Counter) {
+    s.pair(&var p, &var p)
+}
+
+func through_type_param<T: Pairer>(s: &T, p: &var Counter) {
+    s.pair(&var p, &var p)
+}
+
+func direct(s: &Counter, p: &var Counter) {
+    s.pair(&var p, &var p)
+}
+
+func main() {
+    var c = Counter(n: 0)
+    var d = Counter(n: 0)
+    direct(&c, &var d)
+    print("{d.n}")
+}

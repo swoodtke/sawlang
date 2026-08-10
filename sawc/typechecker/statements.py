@@ -2128,6 +2128,12 @@ class StatementsMixin:
         # than the read of the path it happens to walk through.
         self._check_task_borrow_write(stmt.target, stmt.line, stmt.column)
 
+        # design 193 unit 4: the Law of Exclusivity between the written path and
+        # the right-hand side, asked ONCE here rather than in each of the target
+        # shapes below. The optional-chain spelling of the same statement has
+        # been asking it since design 111.
+        self._check_assign_rhs_exclusivity(stmt)
+
         # Handle both simple variable assignment and field assignment
         if isinstance(stmt.target, Identifier):
             # Simple variable assignment: x = value

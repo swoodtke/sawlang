@@ -1,0 +1,30 @@
+// An assignment WRITES its target, so its right-hand side may not borrow an
+// overlapping path: the RHS runs first, and everything the callee wrote
+// through that borrow is then overwritten by the assignment — the same lost
+// write design 188 refused between two place windows.
+//
+// The optional-chain spelling of this statement (`p?.x = bump(&var p)`) has
+// been refused since design 111. The plain spelling was not, so the rule was a
+// property of the punctuation rather than of the write (design 193 unit 4).
+// Disjoint paths are untouched (`p.x = shift(&var p.y)` compiles), and so is
+// the accumulator idiom `acc = combine(move acc, e)` — a `move` hands
+// ownership over and the assignment revives the binding, with nothing aliased.
+//
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: exclusive access violation: `p` is written by this assignment while also being accessed in the right-hand side
+
+struct Point {
+    x: Int,
+    y: Int
+}
+
+func bump(p: &var Point) -> Int {
+    p.y = p.y + 1
+    p.y
+}
+
+func main() {
+    var p = Point(x: 1, y: 2)
+    p.x = bump(&var p)
+    print("{p.x} {p.y}")
+}
