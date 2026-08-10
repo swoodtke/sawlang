@@ -28,6 +28,21 @@ in `sawc/`. "Declared" means one of
 assignment through anything else creates a field out of thin air, and that is
 what this rejects.
 
+The name rule alone has one hole, and design 194 unit 5 walked into it: an
+attribute whose name is declared on SOME class passes even when it is written on
+a DIFFERENT class that does not declare it. `StaticDecl.mangled_symbol` was
+exactly that — stamped by registration, read by codegen through
+`getattr(static, 'mangled_symbol', None)`, declared on `Function` and `Method`
+and on nothing else, so the read answered `None` forever and the mangled key it
+was supposed to install in `static_globals` was never installed.
+
+So there is a SECOND rule, and it is precise where it applies: when the receiver
+is a Name bound by a PARAMETER annotated with an `ast_nodes` class, the
+attribute must be declared ON THAT CLASS. `def _register_static(self, static:
+StaticDecl)` is the annotation that makes `static.mangled_symbol = ...` decidable.
+It covers only annotated parameters, which is most of the compiler's write sites
+and all of the ones that matter.
+
 Two escape hatches, both narrow and both requiring a diff to widen:
 
   * FOREIGN_ATTRS — attributes of objects sawc does not define (llvmlite's
@@ -136,6 +151,37 @@ def declared_in(tree):
     return out
 
 
+def node_class_fields():
+    """`class name -> set of declared field names`, for the ast_nodes dataclasses."""
+    import dataclasses
+    import importlib
+    sys.path.insert(0, os.path.join(REPO, "sawc"))
+    ast_nodes = importlib.import_module("ast_nodes")
+    out = {}
+    for name in dir(ast_nodes):
+        obj = getattr(ast_nodes, name)
+        if isinstance(obj, type) and dataclasses.is_dataclass(obj):
+            out[name] = {f.name for f in dataclasses.fields(obj)}
+    return out
+
+
+def annotated_params(tree, classes):
+    """Spans of `(start, end, {param name: class name})` for every function
+    whose parameters are annotated with an ast_nodes class."""
+    spans = []
+    for node in ast.walk(tree):
+        if not isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+            continue
+        env = {}
+        for arg in node.args.args:
+            ann = arg.annotation
+            if isinstance(ann, ast.Name) and ann.id in classes:
+                env[arg.arg] = ann.id
+        if env:
+            spans.append((node.lineno, node.end_lineno or node.lineno, env))
+    return spans
+
+
 def fields_loop_vars(tree):
     """Loop variables bound by `for <v> in ...fields(...)`, whose `.name` is a
     declared field by construction."""
@@ -167,13 +213,15 @@ def foreign_ok(name, rel):
 
 def main():
     files = py_files(SAWC)
+    classes = node_class_fields()
     schema = {}
     for path in files:
         with open(path) as f:
             tree = ast.parse(f.read(), path)
         rel = os.path.relpath(path, REPO)
-        for name, classes in declared_in(tree).items():
-            schema.setdefault(name, set()).update(f"{rel}:{c}" for c in classes)
+        for name, decl_classes in declared_in(tree).items():
+            schema.setdefault(name, set()).update(
+                f"{rel}:{c}" for c in decl_classes)
 
     grafts = []
     for path in files:
@@ -181,6 +229,17 @@ def main():
         with open(path) as f:
             tree = ast.parse(f.read(), path)
         field_vars = fields_loop_vars(tree)
+        spans = annotated_params(tree, classes)
+
+        def declared_class(lineno, name):
+            """The ast_nodes class an annotated parameter `name` is known to be
+            at `lineno`, or None."""
+            found = None
+            for start, end, env in spans:
+                if start <= lineno <= end and name in env:
+                    found = env[name]
+            return found
+
         for node in ast.walk(tree):
             targets = []
             if isinstance(node, ast.Assign):
@@ -192,6 +251,18 @@ def main():
                     continue
                 if isinstance(t.value, ast.Name) and t.value.id == "self":
                     continue
+                # The precise rule first: an annotated parameter's class is
+                # known, so the field must be declared on IT, not merely
+                # somewhere.
+                if isinstance(t.value, ast.Name):
+                    cls = declared_class(node.lineno, t.value.id)
+                    if cls is not None:
+                        if t.attr not in classes[cls]:
+                            grafts.append((
+                                rel, node.lineno, ast.unparse(t),
+                                f"`{cls}` does not declare this attribute "
+                                f"(the parameter's annotation says it is one)"))
+                        continue
                 if t.attr in schema or foreign_ok(t.attr, rel):
                     continue
                 grafts.append((rel, node.lineno, ast.unparse(t),

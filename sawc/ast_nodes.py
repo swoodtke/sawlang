@@ -2217,6 +2217,14 @@ class StaticDecl(ASTNode):
     attributes: List['Attribute'] = field(default_factory=list)
     source_file: str = ""
     doc: Optional[str] = None
+    # DF-140f: the LLVM global's name. A module-PRIVATE static outside the root
+    # module takes a module-local symbol, so two dependencies that both declare
+    # a private `PT_LOAD` stop colliding in the merged codegen namespace;
+    # registration stamps it and codegen keys `static_globals` by it. Same name
+    # and same job as Function/Method.mangled_symbol, and declared late (design
+    # 194 unit 5) because the graft gate's name rule accepted it as "declared
+    # somewhere" on the strength of those two.
+    mangled_symbol: Optional[str] = annotation(None)
 
 
 @dataclass

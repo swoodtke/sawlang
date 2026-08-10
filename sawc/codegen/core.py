@@ -419,7 +419,7 @@ class CodeGenerator(ResultsMixin, MatchMixin, StructsMixin, CollectionsMixin, Ca
             return spec_key
         padded = list(spec_key)
         for i in range(len(spec_key), len(params)):
-            default = getattr(params[i], 'default', None)
+            default = params[i].default
             if (default is None or default.kind != TypeKind.STRUCT
                     or default.struct_name is None):
                 break
@@ -1218,19 +1218,18 @@ class CodeGenerator(ResultsMixin, MatchMixin, StructsMixin, CollectionsMixin, Ca
                 return ir.Constant(llvm_type, [val] * count)
             elems = [self._const_from_expr(e, elem_saw) for e in expr.elements]
             return ir.Constant(llvm_type, elems)
-        if isinstance(expr, FunctionCall) and getattr(expr, 'is_atomic_construct', False):
+        if isinstance(expr, FunctionCall) and expr.is_atomic_construct:
             # Atomic<Int> is `{ i64 }`; initialize the value slot. (Its field is
             # an interior cell since design 186, and a cell is layout-transparent,
             # so the slot's type is unchanged.)
             val = self._const_from_expr(expr.arguments[0].value, SawType(TypeKind.INT))
             return ir.Constant(llvm_type, [val])
-        if isinstance(expr, FunctionCall) and getattr(
-                expr, 'is_interior_cell_construct', False):
+        if isinstance(expr, FunctionCall) and expr.is_interior_cell_construct:
             # design 186: an interior cell IS its `T`, so the constant is the
             # payload's, emitted at the payload's type.
             payload = (saw_type.type_args or [None])[0]
             return self._const_from_expr(expr.arguments[0].value, payload)
-        if isinstance(expr, FunctionCall) and getattr(expr, 'is_unsafe_mem_construct', False):
+        if isinstance(expr, FunctionCall) and expr.is_unsafe_mem_construct:
             # design 46: UnsafeMemory<T, Use> is one word — the raw address. Its
             # LLVM type is i64 (`llvm_type` here), so the const is just the literal.
             return self._const_from_expr(expr.arguments[0].value, SawType(TypeKind.INT))
@@ -1403,7 +1402,7 @@ class CodeGenerator(ResultsMixin, MatchMixin, StructsMixin, CollectionsMixin, Ca
         # module-qualified for a private static outside the root module. Two
         # dependencies may then each declare a private `PT_LOAD` without landing
         # on one LLVM global.
-        stamped = getattr(static, 'mangled_symbol', None)
+        stamped = static.mangled_symbol
         gname = c_symbol if c_symbol else (
             stamped or self._static_mangled_name(static.name))
         gv = ir.GlobalVariable(self.module, llvm_type, name=gname)
@@ -1436,7 +1435,7 @@ class CodeGenerator(ResultsMixin, MatchMixin, StructsMixin, CollectionsMixin, Ca
         # `unsafe static var`, regardless of this flag.
         gv.global_constant = (
             static.initializer is not None
-            and not getattr(static, 'is_var', False)
+            and not static.is_var
             and not self._type_has_interior_mutability(static.type)
             and not self._is_zero_constant(gv.initializer))
 
@@ -1453,8 +1452,7 @@ class CodeGenerator(ResultsMixin, MatchMixin, StructsMixin, CollectionsMixin, Ca
         # and by the simple name (the compatible path for every reference the
         # typechecker did not stamp — synthesized code, and the root module,
         # where the two keys coincide anyway).
-        self.static_globals[getattr(static, 'mangled_symbol', None)
-                            or static.name] = gv
+        self.static_globals[static.mangled_symbol or static.name] = gv
         self.static_globals.setdefault(static.name, gv)
 
     def _declare_pthread_runtime(self):
@@ -1699,7 +1697,7 @@ class CodeGenerator(ResultsMixin, MatchMixin, StructsMixin, CollectionsMixin, Ca
         default-argument expression inlined at two call sites in one body) and
         stays a function of source order.
         """
-        name = f"{prefix}_{getattr(expr, 'line', 0)}_{getattr(expr, 'column', 0)}"
+        name = f"{prefix}_{expr.line}_{expr.column}"
         if name not in self.variables:
             return name
         n = 2
@@ -1831,7 +1829,7 @@ class CodeGenerator(ResultsMixin, MatchMixin, StructsMixin, CollectionsMixin, Ca
                 # (its type params are unbound), so index it for the call-site
                 # specializer; the eager declare/generate passes skip it.
                 for m in extension.methods:
-                    if getattr(m, 'type_params', None) and not m.is_init:
+                    if m.type_params and not m.is_init:
                         self.plain_generic_methods.setdefault(
                             extension.struct_name, {})[m.name] = m
 
@@ -1853,12 +1851,12 @@ class CodeGenerator(ResultsMixin, MatchMixin, StructsMixin, CollectionsMixin, Ca
                 # base symbol (registration) so its template is stored/looked up
                 # under that base, not the collision-prone plain name.
                 self.generic_functions[
-                    getattr(func, 'mangled_symbol', None) or func.name] = func
+                    func.mangled_symbol or func.name] = func
             else:
                 # Overloading (design 55): a member of a 2+ overload set is
                 # emitted under its type-signature-suffixed symbol (stamped on
                 # the AST node by the typechecker); others keep the plain name.
-                self._declare_function(func, name_override=getattr(func, 'mangled_symbol', None))
+                self._declare_function(func, name_override=func.mangled_symbol)
 
         # Declare non-generic extension methods
         for extension in program.extensions:
@@ -1868,13 +1866,13 @@ class CodeGenerator(ResultsMixin, MatchMixin, StructsMixin, CollectionsMixin, Ca
         # Emit module-level static globals (design 41). Done after types/functions
         # are declared so const initializers can reference them; before function
         # bodies so reads resolve.
-        for static in getattr(program, 'statics', []):
+        for static in program.statics:
             self._emit_static_global(static)
 
         # Design 53: evaluate top-level `static_assert`s now that statics/types
         # exist (so sizeof/alignof and const-static references resolve). A false
         # assertion is a clean compile error; a true one emits nothing.
-        for sa in getattr(program, 'static_asserts', []):
+        for sa in program.static_asserts:
             self._eval_static_assert(sa)
 
         # design 158: the logical-backtrace table. Emitted HERE — after every
@@ -2075,7 +2073,7 @@ class CodeGenerator(ResultsMixin, MatchMixin, StructsMixin, CollectionsMixin, Ca
             raise ValueError(
                 f"const generic parameter `{expr.name}` has no value in this "
                 f"instantiation")
-        saw = getattr(expr, 'resolved_type', None) or SawType(TypeKind.INT)
+        saw = expr.resolved_type or SawType(TypeKind.INT)
         return ir.Constant(self._get_llvm_type(saw), env[expr.name])
 
     # ---------------------------------------------------------------------
@@ -2267,7 +2265,7 @@ class CodeGenerator(ResultsMixin, MatchMixin, StructsMixin, CollectionsMixin, Ca
             return
 
         self._register_concrete_enum(identity, enum.variants,
-                                     raw_type=getattr(enum, 'raw_type', None))
+                                     raw_type=enum.raw_type)
 
     def _register_concrete_enum(self, name: str, variants: List[EnumVariant],
                                 raw_type=None):
@@ -2284,7 +2282,7 @@ class CodeGenerator(ResultsMixin, MatchMixin, StructsMixin, CollectionsMixin, Ca
         max_payload_size = 0
 
         for i, variant in enumerate(variants):
-            declared = getattr(variant, 'raw_value', None)
+            declared = variant.raw_value
             variant_tags[variant.name] = (
                 declared if raw_type is not None and declared is not None else i)
             variant_info[variant.name] = variant.associated_types
@@ -2506,12 +2504,12 @@ class CodeGenerator(ResultsMixin, MatchMixin, StructsMixin, CollectionsMixin, Ca
             # Design 40 item 9 (C6): a generic method's signature can't be
             # declared until its type params are bound at the call site; skip it
             # here (it is indexed in plain_generic_methods and specialized then).
-            if getattr(method, 'type_params', None) and not method.is_init:
+            if method.type_params and not method.is_init:
                 continue
             # Create mangled name. Overloading (design 55): a member of a 2+
             # method overload set carries a type-signature symbol stamped on the
             # AST node; use it so the definition matches the resolved call site.
-            overload_symbol = getattr(method, 'mangled_symbol', None)
+            overload_symbol = method.mangled_symbol
             if overload_symbol is not None:
                 mangled_name = overload_symbol
             elif method.is_init:
@@ -2566,7 +2564,7 @@ class CodeGenerator(ResultsMixin, MatchMixin, StructsMixin, CollectionsMixin, Ca
             # mark it separately. Both are exclusivity-guaranteed non-aliasing.
             self._mark_noalias_params(llvm_func, [p.type for p in method.parameters])
             if (not method.is_init and not method.is_static
-                    and getattr(method, 'self_mutable', False)):
+                    and method.self_mutable):
                 llvm_func.args[0].add_attribute('noalias')
 
             # Store in functions table
@@ -2631,7 +2629,7 @@ class CodeGenerator(ResultsMixin, MatchMixin, StructsMixin, CollectionsMixin, Ca
         # fixed width. Its value was range-checked at lex time; emit the bit
         # pattern masked to the width (a high-bit signed literal like `255i8`
         # reads back as -1, matching the two's-complement interpretation).
-        suffix = getattr(expr, 'suffix', None)
+        suffix = expr.suffix
         if suffix is not None:
             width = {'i8': 8, 'i16': 16, 'i32': 32, 'i64': 64,
                      'u8': 8, 'u16': 16, 'u32': 32, 'u64': 64}[suffix]
@@ -2646,7 +2644,7 @@ class CodeGenerator(ResultsMixin, MatchMixin, StructsMixin, CollectionsMixin, Ca
             TypeKind.INT64: 64, TypeKind.UINT8: 8, TypeKind.UINT16: 16,
             TypeKind.UINT32: 32, TypeKind.UINT64: 64,
         }
-        resolved = getattr(expr, 'resolved_type', None)
+        resolved = expr.resolved_type
         if resolved is not None and resolved.kind in _FIXED_INT_WIDTHS:
             fw = _FIXED_INT_WIDTHS[resolved.kind]
             return ir.Constant(ir.IntType(fw), expr.value & ((1 << fw) - 1))
@@ -2678,7 +2676,7 @@ class CodeGenerator(ResultsMixin, MatchMixin, StructsMixin, CollectionsMixin, Ca
         froze it to a compile-time constant at its definition site, so this
         emits exactly a plain Int (platform-width) or String literal. Zero
         runtime cost."""
-        if getattr(expr, 'resolved_kind', None) == 'int':
+        if expr.resolved_kind == 'int':
             return ir.Constant(self.int_type, expr.resolved_int)
         # 'string': an immortal refcounted String literal, exactly like
         # visit_StringLiteral.
@@ -2958,7 +2956,7 @@ class CodeGenerator(ResultsMixin, MatchMixin, StructsMixin, CollectionsMixin, Ca
             # A const generic parameter (design 148) is a compile-time value
             # with no storage: this instantiation's argument becomes a literal
             # right here, which is what makes `N` free at runtime.
-            if getattr(expr, 'const_param_name', None) is not None:
+            if expr.const_param_name is not None:
                 return self._const_param_constant(expr)
             # A local whose type instantiated to `Void` has no storage to load
             # (design 132 unit C): it names no value, so reading it yields none.
