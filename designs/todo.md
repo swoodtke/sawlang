@@ -768,7 +768,46 @@ straight out of this audit between the census and the port. Twelve rows were
 re-authored to a RULING rather than to the audit's guess (listed in the INDEX's
 "re-authored" column); one finding filed.
 
-- **DF-191a (CAPABILITY, filed Aug 10 by 191 u1): a `Mutex.lock` body that
+- **DF-191a — FIXED (design 196 unit 4): a `Mutex.lock` body that CAPTURES a
+  frame-resident local of the DRIVEN function.** The rule was already right and
+  its POSITIONS were not. A closure literal in a driven body captures frame
+  locals through `let <name> = self.<name>.copy()` bindings the transform
+  materializes AHEAD of it, and only three positions installed the accumulator
+  that collects them (a `let`, an assignment, a bare expression statement).
+  Everywhere else `_cap_lets` was None and the closure was refused. Now
+  `_rewrite_hosting` is the ONE funnel, and its docstring names its entries: the
+  body's tail (K13's own shape), a `return`, a destructuring `let`, the
+  conditions/scrutinees of an in-place AND a CFG-split `if`/`match`/`if let`/
+  `guard let`, a nested block's tail, a `for`'s range bounds, a nested
+  suspending call's arguments, and an offloaded blocking extern's arguments. The
+  one position that genuinely cannot host a statement — a bare (non-block) match
+  arm expression — keeps its clean refusal, as does a `while` CONDITION (a
+  capture materialized there would run once, ahead of a condition that runs
+  every iteration). PIN FLIPPED: `examples/conformance/K13_mt_sum_under_mutex.saw`
+  (+ its INDEX row, and the row now asserts the SUM rather than only compiling);
+  the 12-row position matrix is `examples/coro_closure_capture_positions.saw`.
+  Two more findings came out of it, both fixed in the same landing:
+
+- **DF-196e — FIXED (design 196 unit 4, found while building it): two closures
+  in one block capturing the SAME frame local collided.** Each materialization
+  declared `let n = self.n.copy()` under the frame local's own name, so the
+  second was ``variable `n` is already defined in this scope`` — and the first
+  closure's `move` capture had consumed it anyway. The materialized local takes
+  a FRESH name per closure now (`__capN_<name>`), and the closure is renamed
+  onto it; a user-WRITTEN capture spec keeps its own name and its own meaning.
+  Covered by row 5 of the position matrix.
+
+- **DF-196f — FIXED (design 196 unit 4, found while building it): a
+  suspension-spanning `match` whose arm PATTERN binds the SCRUTINEE lost the
+  binding.** The frame fields for a spanning match came from the enum's variant
+  PAYLOAD types, so a design-63 pattern binding the scrutinee itself — the
+  catch-all `case v ->`, a tuple pattern over a tuple scrutinee, a catch-all
+  over an enum — got no field, and the arm body (a separate state) read
+  ``undefined variable `v``` on a legal program. `_scrutinee_binding_types` is
+  the complement, permissive about the literals and ranges an arm may hold
+  beside its bindings. PIN: `examples/coro_match_binds_scrutinee.saw` (passing).
+
+- **DF-191a (ORIGINAL REPORT, filed Aug 10 by 191 u1): a `Mutex.lock` body that
   CAPTURES a frame-resident local of the DRIVEN function is refused, and the
   diagnostic's suggested workaround does not typecheck.** Conformance row K13 —
   an MT group accumulating a per-task amount into a shared `Arc<Mutex<Int>>`,

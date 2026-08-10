@@ -473,13 +473,17 @@ expectation, and one more had a defective probe:
 - **N05** — the audit's flags could not enter the freestanding profile at all — `--freestanding` alone rejects this host's Mach-O triple first, so the row proved nothing. Retargeted at `riscv32-unknown-none-elf`
 
 All TWELVE of the audit's deviation rows (R10, R20, X18, X30, X31, X33, X40,
-P05, P14, P16, O09, W01) are closed by those rulings, and six of its seven note
-rows (R24, X15, X16, X20, U24, U25). The seventh is the suite's one open gap:
+P05, P14, P16, O09, W01) are closed by those rulings, and all seven of its note
+rows (R24, X15, X16, X20, U24, U25, K13). The last one closed:
 
-- **K13** — XFAIL citing DF-191a: an MT group accumulating a per-task amount
-  into a shared `Arc<Mutex<Int>>` is refused by the coroutine transform when
-  the lock body captures the driven function's own parameter, and the
-  diagnostic's suggested workaround trips `Mutex.lock`'s `sync` requirement.
+- **K13** — was an XFAIL citing DF-191a: an MT group accumulating a per-task
+  amount into a shared `Arc<Mutex<Int>>` was refused by the coroutine transform
+  because the lock body captures the driven function's own parameter, and the
+  diagnostic's suggested workaround tripped `Mutex.lock`'s `sync` requirement —
+  so the canonical shared-counter idiom had no legal spelling at all. Design 196
+  unit 4 routes every position that can host a materialized capture through one
+  funnel; the row asserts the SUM now (four tasks adding 1..4 total 10),
+  never an interleaving.
 
 ## Rows written ahead of their fix
 

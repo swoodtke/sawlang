@@ -1,0 +1,155 @@
+// The POSITION MATRIX for a closure that CAPTURES a frame-resident local of a
+// driven body (design 196 unit 4, obligation 1).
+//
+// A closure literal written in a task body captures frame locals through
+// `let <name> = self.<name>.copy()` bindings the transform materializes AHEAD
+// of it, so every position that can host a preceding statement has to install
+// the accumulator that collects them. Three positions did; everywhere else the
+// closure was refused, with a hint ("bind the closure to a `let`") that does
+// not typecheck for a `sync`-closure parameter like `Mutex.lock` — so the
+// canonical shared-counter idiom had NO legal spelling (DF-191a). One funnel
+// now, `_rewrite_hosting`, and these are its positions:
+//
+//   1  the body's TAIL expression — DF-191a's own shape                 7
+//   2  a `return` value                                                 9
+//   3  a `let` initializer (already worked)                             11
+//   4  an assignment's RHS (already worked)                             13
+//   5  a bare expression statement (already worked)                     15
+//   6  a nested block's tail expression                                 17
+//   7  the condition of an in-place `if`                                yes 19
+//   8  the scrutinee of an in-place `match`                             21
+//   9  an argument of a NESTED SUSPENDING call                          46
+//  10  the condition of a CFG-SPLIT `if` (spans a suspension)           25
+//  11  the scrutinee of a CFG-SPLIT `match`                             27
+//  12  a capture read AFTER a suspension, so the frame really is live   64
+// EXPECT: success
+// EXPECT-OUTPUT:
+// 7
+// 9
+// 11
+// 13
+// 15
+// 17
+// yes 19
+// 21
+// 46
+// 25
+// 27
+// 64
+
+import std.task.*
+
+func apply(f: (Int) sync -> Int) sync -> Int { f(1) }
+
+func twice(n: Int) -> Int {
+    yield_now()
+    n * 2
+}
+
+// 1 — the closure call IS the body's tail
+func tail(n: Int) -> Int {
+    apply({ x in x * 0 + n })
+}
+
+// 2 — a `return` value
+func returned(n: Int) -> Int {
+    return apply({ x in x * 0 + n })
+}
+
+// 3 — a `let` initializer
+func in_let(n: Int) -> Int {
+    let r = apply({ x in x * 0 + n })
+    r
+}
+
+// 4 — an assignment RHS
+func in_assign(n: Int) -> Int {
+    var r = 0
+    r = apply({ x in x * 0 + n })
+    r
+}
+
+// 5 — a bare expression statement, then read the effect through a second call
+func in_stmt(n: Int) -> Int {
+    var r = 0
+    apply({ x in x * 0 + n })
+    r = apply({ x in x * 0 + n })
+    r
+}
+
+// 6 — a nested block's tail expression
+func nested_tail(n: Int) -> Int {
+    if n > 0 {
+        apply({ x in x * 0 + n })
+    } else {
+        0
+    }
+}
+
+// 7 — the condition of an in-place `if`
+func in_cond(n: Int) -> String {
+    if apply({ x in x * 0 + n }) > 0 { "yes {n}" } else { "no" }
+}
+
+// 8 — the scrutinee of an in-place `match`
+func in_scrutinee(n: Int) -> Int {
+    match apply({ x in x * 0 + n }) {
+        case 0 -> -1,
+        case v -> v
+    }
+}
+
+// 9 — an argument of a nested SUSPENDING call
+func in_susp_arg(n: Int) -> Int {
+    let r = twice(apply({ x in x * 0 + n }))
+    r
+}
+
+// 10 — the condition of a CFG-split `if`
+func split_cond(n: Int) -> Int {
+    var out = 0
+    if apply({ x in x * 0 + n }) > 0 {
+        yield_now()
+        out = n
+    } else {
+        out = -1
+    }
+    out
+}
+
+// 11 — the scrutinee of a CFG-split `match`
+func split_scrutinee(n: Int) -> Int {
+    var out = 0
+    match apply({ x in x * 0 + n }) {
+        case 0 -> { out = -1 },
+        case _ -> {
+            yield_now()
+            out = n
+        }
+    }
+    out
+}
+
+// 12 — the capture is read AFTER a suspension, so the frame is genuinely live
+func after_suspend(n: Int) -> Int {
+    yield_now()
+    let r = apply({ x in x * 0 + n })
+    yield_now()
+    r * 2
+}
+
+func main() {
+    var group = TaskGroup()
+    print(group.spawn(tail(7)).join())
+    print(group.spawn(returned(9)).join())
+    print(group.spawn(in_let(11)).join())
+    print(group.spawn(in_assign(13)).join())
+    print(group.spawn(in_stmt(15)).join())
+    print(group.spawn(nested_tail(17)).join())
+    print(group.spawn(in_cond(19)).join())
+    print(group.spawn(in_scrutinee(21)).join())
+    print(group.spawn(in_susp_arg(23)).join())
+    print(group.spawn(split_cond(25)).join())
+    print(group.spawn(split_scrutinee(27)).join())
+    print(group.spawn(after_suspend(32)).join())
+}

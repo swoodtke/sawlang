@@ -2177,6 +2177,18 @@ class _FrameBuilder:
                 if self._spans_suspension(ctrl):
                     for nm, t in self._match_binding_types(ctrl).items():
                         add(nm, t, ctrl.line, ctrl.column)
+                    # DF-196f: a design-63 arm PATTERN that binds the SCRUTINEE
+                    # itself rather than an enum payload — the catch-all
+                    # `case v ->`, and a tuple pattern over a tuple scrutinee.
+                    # `_match_binding_types` reads the enum's variant payloads,
+                    # so it answers nothing for those, and the binding got no
+                    # frame field: the arm body is a separate state, so it read
+                    # a name that no longer existed ("undefined variable `v`").
+                    st = getattr(ctrl.matched_expr, 'resolved_type', None)
+                    for arm in ctrl.arms:
+                        for nm, bt in self._scrutinee_binding_types(
+                                arm.pattern, st):
+                            add(nm, bt, ctrl.line, ctrl.column)
                 for arm in ctrl.arms:
                     if isinstance(arm.body, Block):
                         walk_block(arm.body, force)
@@ -2235,6 +2247,34 @@ class _FrameBuilder:
             raise CoroTransformError(
                 f"coroutine transform: unsupported destructuring pattern in driven "
                 f"`{self.name}` across a suspension", self.func.line, 0)
+
+        walk(pattern, src_type)
+        return out
+
+    def _scrutinee_binding_types(self, pattern, src_type):
+        """`(name, type)` for each arm-pattern leaf that binds THE SCRUTINEE —
+        the catch-all `case v ->`, and a tuple pattern's leaves paired with the
+        scrutinee tuple's element types (DF-196f).
+
+        Complements `_match_binding_types`, which reads an enum's variant
+        PAYLOAD types and so answers nothing for these. Permissive by design,
+        unlike `_destructure_leaf_types`: a match arm may hold literals, ranges
+        and wildcards beside its bindings, and those bind nothing rather than
+        being an error."""
+        out = []
+
+        def walk(pat, t):
+            if isinstance(pat, BindingPattern):
+                if t is not None:
+                    out.append((pat.name, t))
+                return
+            if isinstance(pat, TuplePattern):
+                elems = (t.element_types
+                         if (t is not None and t.kind == TypeKind.TUPLE
+                             and t.element_types) else None)
+                for i, sub in enumerate(pat.elements):
+                    walk(sub, elems[i] if (elems is not None
+                                           and i < len(elems)) else None)
 
         walk(pattern, src_type)
         return out
@@ -3122,6 +3162,9 @@ class _FrameBuilder:
         self._cap_lets = None
         # design 77 item 10: fresh-temp counter for destructuring lowering.
         self._destr_ctr = 0
+        # design 196 unit 4: fresh-name counter for a materialized closure
+        # capture, so two closures in one block never declare one name twice.
+        self._cap_ctr = 0
         # design 196 unit 3: the enclosing split `try { } catch { }`, as
         # (catch state, frame field the caught error travels in), or None.
         self._try_ctx = None
@@ -3135,12 +3178,13 @@ class _FrameBuilder:
                 self._done(None)
             else:
                 forgets = []
-                val = self._rewrite_expr(fe, forgets)
+                cap_lets, val = self._rewrite_hosting(fe, forgets)
                 # DF-182d: a tail `move local`. The tail expression IS the return
                 # value, so the drop-flag clears it owes belong in the done
                 # sequence, which is exactly where a `return move local` puts
                 # them — `_done` has taken them all along, and this position used
                 # to refuse instead of passing them on.
+                self._emit(cap_lets)
                 self._done(val, forgets)
 
         # The done marker is one past the last block id: no `if __state == k`
@@ -3428,8 +3472,11 @@ class _FrameBuilder:
             return
         if isinstance(s, ReturnStatement):
             forgets = []
-            value = (self._rewrite_expr(s.value, forgets)
-                     if s.value is not None else None)
+            cap_lets = []
+            value = None
+            if s.value is not None:
+                cap_lets, value = self._rewrite_hosting(s.value, forgets)
+            self._emit(cap_lets)
             self._done(value, forgets)
             return
         if isinstance(s, BreakStatement):
@@ -3503,12 +3550,13 @@ class _FrameBuilder:
 
     def _split_if(self, e, loop_ctx):
         forgets = []
-        cond = self._rewrite_expr(e.condition, forgets)
+        cap_lets, cond = self._rewrite_hosting(e.condition, forgets)
         if forgets:
             raise CoroTransformError(
                 f"coroutine transform: `move` in the condition of a "
                 f"suspension-spanning `if` in `{self.name}` is not supported",
                 e.line, e.column)
+        self._emit(cap_lets)
         then_b = self._new_block()
         else_b = self._new_block() if e.else_branch is not None else None
         merge = self._new_block()
@@ -3572,7 +3620,8 @@ class _FrameBuilder:
         # the drop-flag clears the move owes; the dispatch runs them on both
         # branches and moves the unwrapped payload into its frame field.
         forgets = []
-        scrut = self._rewrite_expr(e.optional_expr, forgets)
+        cap_lets, scrut = self._rewrite_hosting(e.optional_expr, forgets)
+        self._emit(cap_lets)
         then_entry = self._new_block()
         else_entry = self._new_block() if e.else_branch is not None else None
         merge = self._new_block()
@@ -3592,7 +3641,8 @@ class _FrameBuilder:
 
     def _split_guard_let(self, s, loop_ctx):
         forgets = []                           # DF-182c — see `_split_if_let`
-        scrut = self._rewrite_expr(s.optional_expr, forgets)
+        cap_lets, scrut = self._rewrite_hosting(s.optional_expr, forgets)
+        self._emit(cap_lets)
         none_entry = self._new_block()
         after = self._new_block()
         # Value path -> `after` (the guard's continuation, which the enclosing
@@ -3613,12 +3663,13 @@ class _FrameBuilder:
             self._goto(header)
             self.cur = header
             forgets = []
-            cond = self._rewrite_expr(e.condition, forgets)
+            cap_lets, cond = self._rewrite_hosting(e.condition, forgets)
             if forgets:
                 raise CoroTransformError(
                     f"coroutine transform: `move` in the condition of a "
                     f"suspension-spanning `while` in `{self.name}` is not "
                     f"supported", e.line, e.column)
+            self._emit(cap_lets)
             self._branch(cond, body_b, exit_b)
             self.cur = body_b
             self._lower_block(e.body, loop_ctx=(header, exit_b))
@@ -3644,11 +3695,12 @@ class _FrameBuilder:
         var = s.variable
         end_name = f"__end_{var}"
         lo_forgets, hi_forgets = [], []
-        lo = self._rewrite_expr(s.iterable.start, lo_forgets)
-        hi = self._rewrite_expr(s.iterable.end, hi_forgets)
+        lo_caps, lo = self._rewrite_hosting(s.iterable.start, lo_forgets)
+        hi_caps, hi = self._rewrite_hosting(s.iterable.end, hi_forgets)
         init = [AssignStatement(target=_self_field(var), value=lo),
                 AssignStatement(target=_self_field(end_name), value=hi)]
-        self._emit(init + self._forgets(lo_forgets) + self._forgets(hi_forgets))
+        self._emit(lo_caps + hi_caps + init
+                   + self._forgets(lo_forgets) + self._forgets(hi_forgets))
         header = self._new_block()
         body_b = self._new_block()
         incr = self._new_block()
@@ -3671,12 +3723,13 @@ class _FrameBuilder:
 
     def _split_match(self, e, loop_ctx):
         forgets = []
-        scrut = self._rewrite_expr(e.matched_expr, forgets)
+        cap_lets, scrut = self._rewrite_hosting(e.matched_expr, forgets)
         if forgets:
             raise CoroTransformError(
                 f"coroutine transform: `move` of the scrutinee of a "
                 f"suspension-spanning `match` in `{self.name}` is not supported",
                 e.line, e.column)
+        self._emit(cap_lets)
         merge = self._new_block()
         arm_entries = []
         new_arms = []
@@ -3937,12 +3990,17 @@ class _FrameBuilder:
         fc = bc['call']
         self._cur_line = getattr(fc, 'line', 0) or self._cur_line   # design 158
         forgets = []
-        inner_args = [Argument(name=None, value=self._rewrite_expr(a.value, forgets))
-                      for a in fc.arguments]
+        blk_caps = []
+        inner_args = []
+        for a in fc.arguments:
+            caps, v = self._rewrite_hosting(a.value, forgets)
+            blk_caps.extend(caps)
+            inner_args.append(Argument(name=None, value=v))
         inner = FunctionCall(name=fc.name, arguments=inner_args,
                              line=fc.line, column=fc.column)
         start = FunctionCall(name="__saw_blk_start",
                              arguments=[Argument(name=None, value=inner)])
+        self._emit(blk_caps)
         self._emit(self._forgets(forgets))
         self._emit([AssignStatement(target=_self_field(job), value=start)])
         header = self._new_block()
@@ -4150,8 +4208,10 @@ class _FrameBuilder:
         callee_fb = fbs[info['callee']]
         forgets = []
         arg_vals = []
+        cap_lets = []
         for i, a in enumerate(info['args']):
-            val = self._rewrite_expr(a.value, forgets)
+            caps, val = self._rewrite_hosting(a.value, forgets)
+            cap_lets.extend(caps)
             # design 88 (D6): a reference argument to a nested suspending callee is
             # seeded into the callee sub-frame's `UnsafePointer<T>` field as a raw
             # pointer into THIS (caller) frame's storage — the referent lives in the
@@ -4177,7 +4237,8 @@ class _FrameBuilder:
                 expr=ReferenceExpr(expr=recv_rewritten, mutable=False),
                 target_type=callee_fb.recv_type)
         init = _build_frame_init(callee_fb, arg_vals, fbs, recv_value=recv_value)
-        out = [AssignStatement(target=_self_field(info['sub']), value=init)]
+        out = list(cap_lets)
+        out.append(AssignStatement(target=_self_field(info['sub']), value=init))
         out.extend(self._forgets(forgets))
         return out
 
@@ -4364,6 +4425,47 @@ class _FrameBuilder:
                 add(nm)
         return found
 
+    def _rewrite_hosting(self, expr, forgets):
+        """`_rewrite_expr` with a capture-let accumulator installed. Returns
+        `(cap_lets, rewritten)` — the `let`s go into the block AHEAD of whatever
+        the caller emits for the expression itself.
+
+        THE FUNNEL for design 77 item 4's closure-capture materialization, which
+        is a POSITION-QUANTIFIED rule: a closure literal written in a driven body
+        captures frame locals through `let <name> = self.<name>.copy()` bindings
+        that must PRECEDE it, so every position that can host a preceding
+        statement has to install the accumulator. `_lower_inplace` did it for a
+        `let`, an assignment and a bare expression statement; everywhere else
+        `_cap_lets` stayed None and the closure was refused with a hint naming a
+        workaround that does not typecheck for a `sync`-closure parameter
+        (DF-191a — no legal spelling at all for `shared.lock({ ... n ... })` in a
+        spawned body).
+
+        ENTRY POINTS (obligation 1 — a funnel names its entries):
+          * `build_resume` — the body's TAIL expression, which is DF-191a's own
+            shape: `func add(...) -> Int { shared.lock({ … }) }`.
+          * `_lower_inplace` — `return`, a destructuring `let`, and the
+            conditions/scrutinees of an in-place `if`/`while`/`match`/`if let`/
+            `guard let`.
+          * `_lower_block_in_place` — a nested block's tail expression.
+          * `_split_if` / `_split_while` / `_split_for` / `_split_match` /
+            `_split_if_let` / `_split_guard_let` — the condition, range bounds or
+            scrutinee of a CFG-split construct, emitted into the block the branch
+            terminates.
+          * `_build_sub_frame` — the arguments (and receiver) of a nested
+            suspending call.
+          * `_emit_blk_call` — the arguments of an offloaded blocking extern.
+
+        The one position that genuinely cannot host a statement is a bare
+        (non-block) `match` arm expression, which keeps the clean refusal it has
+        always had, beside the same refusal for a `move` there."""
+        saved, self._cap_lets = self._cap_lets, []
+        try:
+            value = self._rewrite_expr(expr, forgets)
+            return self._cap_lets, value
+        finally:
+            self._cap_lets = saved
+
     def _materialize_closure_captures(self, cexpr):
         """Append `let <name> = <frame read>` bindings for the closure's captured
         frame locals to the current statement's capture-let accumulator, so the
@@ -4380,7 +4482,6 @@ class _FrameBuilder:
                 f"the closure to a `let` in straight-line body code",
                 getattr(cexpr, 'line', self.func.line),
                 getattr(cexpr, 'column', 0))
-        already = {ls.name for ls in self._cap_lets}
         line = getattr(cexpr, 'line', 0)
         col = getattr(cexpr, 'column', 0)
         spec_names = {s.name for s in (cexpr.capture_specs or [])}
@@ -4392,10 +4493,24 @@ class _FrameBuilder:
             # suspensions. `move` consumes the materialized local so it is NOT
             # scope-cleaned; the env owns the sole copy and releases it once at
             # frame death.
-            if name not in spec_names:
+            #
+            # The materialized local gets a FRESH name per closure, and the
+            # closure is renamed onto it. Reusing the frame local's own name put
+            # two `let n = self.n.copy()` in one block whenever two closures in
+            # the same block captured `n` — "variable `n` is already defined in
+            # this scope", and the `move` capture had consumed the first one
+            # anyway (DF-196e). A user-WRITTEN capture spec (`[move n]`,
+            # `[&var n]`) keeps its own name and its own meaning; only the
+            # implicit capture the transform is adding here is renamed.
+            if name in spec_names:
+                local = name
+            else:
+                local = f"__cap{self._cap_ctr}_{name}"
+                self._cap_ctr += 1
+                _rename_in_closure(cexpr, name, local)
                 cexpr.capture_specs = list(cexpr.capture_specs or []) + [
-                    CaptureSpec(name=name, mode="move", line=line, column=col)]
-            if name in already:
+                    CaptureSpec(name=local, mode="move", line=line, column=col)]
+            if any(ls.name == local for ls in self._cap_lets):
                 continue
             # `.copy()` makes the materialized local an INDEPENDENT owner: the
             # frame still owns its field, so reading it out for the closure to
@@ -4409,7 +4524,7 @@ class _FrameBuilder:
                 object=_read_field(name, self.encmap[name], line, col),
                 method_name="copy", arguments=[], line=line, column=col)
             self._cap_lets.append(LetStatement(
-                name=name, type_annotation=None, value=read,
+                name=local, type_annotation=None, value=read,
                 mutable=False, line=line, column=col))
 
     def _lower_stmt_list(self, stmts):
@@ -4429,9 +4544,11 @@ class _FrameBuilder:
                 getattr(s, 'line', self.func.line), getattr(s, 'column', 0))
         if isinstance(s, ReturnStatement):
             forgets = []
-            value = (self._rewrite_expr(s.value, forgets)
-                     if s.value is not None else None)
-            return self._done_seq(value, forgets)
+            cap_lets = []
+            value = None
+            if s.value is not None:
+                cap_lets, value = self._rewrite_hosting(s.value, forgets)
+            return cap_lets + self._done_seq(value, forgets)
 
         if isinstance(s, DestructuringLet):
             # `let (a, b) = value` across a suspension (design 77 item 10): bind
@@ -4439,20 +4556,19 @@ class _FrameBuilder:
             # frame-resident leaf `self.<name> = __t.<i>` (the assignment
             # auto-wraps an opt-encoded field to Some). Wildcards bind nothing.
             forgets = []
-            value = self._rewrite_expr(s.value, forgets)
+            cap_lets, value = self._rewrite_hosting(s.value, forgets)
             tmp = f"__destr{self._destr_ctr}"
             self._destr_ctr += 1
-            out = [LetStatement(name=tmp, type_annotation=None, value=value,
-                                mutable=False, line=s.line, column=s.column)]
+            out = list(cap_lets)
+            out.append(LetStatement(name=tmp, type_annotation=None, value=value,
+                                    mutable=False, line=s.line, column=s.column))
             base = Identifier(name=tmp, line=s.line, column=s.column)
             self._destructure_assigns(s.pattern, base, out, s.line, s.column)
             return out + self._forgets(forgets)
 
         if isinstance(s, LetStatement):
             forgets = []
-            saved_cap, self._cap_lets = self._cap_lets, []
-            value = self._rewrite_expr(s.value, forgets)
-            cap_lets, self._cap_lets = self._cap_lets, saved_cap
+            cap_lets, value = self._rewrite_hosting(s.value, forgets)
             if s.name in self.encmap:
                 new = AssignStatement(
                     target=_self_field(s.name, s.line, s.column),
@@ -4464,12 +4580,10 @@ class _FrameBuilder:
 
         if isinstance(s, AssignStatement):
             forgets = []
-            saved_cap, self._cap_lets = self._cap_lets, []
             # The VALUE first: `out = out + "!"` reads the old binding, and the
             # target rewrite must not change what that read means.
-            s.value = self._rewrite_expr(s.value, forgets)
+            cap_lets, s.value = self._rewrite_hosting(s.value, forgets)
             s.target = self._rewrite_assign_target(s.target, forgets)
-            cap_lets, self._cap_lets = self._cap_lets, saved_cap
             return cap_lets + [s] + self._forgets(forgets)
 
         # A control-flow expression may appear as a bare statement (a user
@@ -4483,34 +4597,41 @@ class _FrameBuilder:
         # branch becomes the coroutine done-sequence (not a raw `return`).
         if isinstance(ctrl, IfLetExpr):
             forgets = []
-            ctrl.optional_expr = self._rewrite_expr(ctrl.optional_expr, forgets)
+            cap_lets, ctrl.optional_expr = self._rewrite_hosting(
+                ctrl.optional_expr, forgets)
             self._lower_block_in_place(ctrl.then_branch)
             if ctrl.else_branch is not None:
                 self._lower_block_in_place(ctrl.else_branch)
-            return [s] + self._forgets(forgets)
+            return cap_lets + [s] + self._forgets(forgets)
         if isinstance(s, GuardLetStatement):
             forgets = []
-            s.optional_expr = self._rewrite_expr(s.optional_expr, forgets)
+            cap_lets, s.optional_expr = self._rewrite_hosting(
+                s.optional_expr, forgets)
             self._lower_block_in_place(s.else_branch)
-            return [s] + self._forgets(forgets)
+            return cap_lets + [s] + self._forgets(forgets)
         if isinstance(ctrl, (IfExpr, WhileExpr, MatchExpr)):
             e = ctrl
             if isinstance(e, IfExpr):
                 forgets = []
-                e.condition = self._rewrite_expr(e.condition, forgets)
+                cap_lets, e.condition = self._rewrite_hosting(e.condition, forgets)
                 self._lower_block_in_place(e.then_branch)
                 if e.else_branch is not None:
                     self._lower_block_in_place(e.else_branch)
-                return [s] + self._forgets(forgets)
+                return cap_lets + [s] + self._forgets(forgets)
             if isinstance(e, WhileExpr):
                 forgets = []
+                cap_lets = []
                 if e.condition is not None:
+                    # A capture materialized here would run ONCE, ahead of the
+                    # loop, while the condition runs every iteration — so a
+                    # closure in a `while` condition keeps the clean refusal.
                     e.condition = self._rewrite_expr(e.condition, forgets)
                 self._lower_block_in_place(e.body)
-                return [s] + self._forgets(forgets)
+                return cap_lets + [s] + self._forgets(forgets)
             if isinstance(e, MatchExpr):
                 forgets = []
-                e.matched_expr = self._rewrite_expr(e.matched_expr, forgets)
+                cap_lets, e.matched_expr = self._rewrite_hosting(
+                    e.matched_expr, forgets)
                 for arm in e.arms:
                     if isinstance(arm.body, Block):
                         self._lower_block_in_place(arm.body)
@@ -4526,14 +4647,12 @@ class _FrameBuilder:
                                 f"a bare match-arm expression of driven "
                                 f"`{self.name}` is not supported; use a block arm",
                                 self.func.line, self.func.column)
-                return [s] + self._forgets(forgets)
+                return cap_lets + [s] + self._forgets(forgets)
 
         # Fallback: a plain expression statement (`foo()`), a break/continue with
         # a value, etc. — rewrite in place, hosting any drop-flag clears after.
         forgets = []
-        saved_cap, self._cap_lets = self._cap_lets, []
-        ns = self._rewrite_expr(s, forgets)
-        cap_lets, self._cap_lets = self._cap_lets, saved_cap
+        cap_lets, ns = self._rewrite_hosting(s, forgets)
         return cap_lets + [ns] + self._forgets(forgets)
 
     def _result_store_value(self, value):
@@ -4567,7 +4686,9 @@ class _FrameBuilder:
         block.statements = self._lower_stmt_list(block.statements)
         if block.final_expr is not None:
             fforgets = []
-            block.final_expr = self._rewrite_expr(block.final_expr, fforgets)
+            cap_lets, block.final_expr = self._rewrite_hosting(
+                block.final_expr, fforgets)
+            block.statements = block.statements + cap_lets
             if fforgets:
                 raise CoroTransformError(
                     f"coroutine transform: `move` of a frame local in a nested "
@@ -4694,6 +4815,34 @@ class _FrameBuilder:
                     target=_self_field(name),
                     value=FunctionCall(name="TaskGroup", arguments=[])))
         return seq
+
+
+def _rename_in_closure(cexpr, old, new):
+    """Rename every reference to the enclosing binding `old` inside a closure
+    literal to `new` — its body's identifier reads, a `move` of it, a call to it
+    when it is itself closure-valued, and the typechecker's capture bookkeeping.
+
+    Safe as a flat rename because `_uniquify_bindings` has already made every
+    binding in this body's tree unique by name, so no binding INSIDE the closure
+    can be spelled `old` and shadow it. Used only for the capture the transform
+    materializes for itself (design 196 unit 4)."""
+    def rule(node):
+        if isinstance(node, Identifier) and node.name == old:
+            node.name = new
+        elif isinstance(node, MoveExpr) and node.variable == old:
+            node.variable = new
+        elif isinstance(node, FunctionCall) and node.name == old:
+            node.name = new
+        return node
+
+    map_nodes(cexpr.body, rule)
+    for spec in (cexpr.capture_specs or []):
+        if getattr(spec, 'name', None) == old:
+            spec.name = new
+    if cexpr.captures:
+        cexpr.captures = [new if c == old else c for c in cexpr.captures]
+    if cexpr.capture_modes and old in cexpr.capture_modes:
+        cexpr.capture_modes[new] = cexpr.capture_modes.pop(old)
 
 
 def _zeroed_value(enc, saw_type):

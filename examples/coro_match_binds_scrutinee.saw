@@ -1,0 +1,76 @@
+// A suspension-spanning `match` whose arm PATTERN binds the scrutinee itself.
+//
+// The frame fields for a spanning match's bindings came from the enum's variant
+// payloads, so a design-63 pattern that binds the SCRUTINEE rather than a
+// payload — the catch-all `case v ->`, and a tuple pattern over a tuple
+// scrutinee — got no field at all. The arm body is a separate state, so it read
+// a name that no longer existed: `undefined variable `v`` on a legal program
+// (DF-196f, found and fixed by design 196 unit 4).
+//
+// Three rows: the catch-all over a plain `Int`, a tuple pattern over a tuple,
+// and a catch-all over an ENUM scrutinee (where the binding is the whole enum
+// value, not a payload).
+// EXPECT: success
+// EXPECT-OUTPUT:
+// 5
+// 30
+// alive 8
+
+import std.task.*
+
+enum WorkerMode { case Idle, case Busy(load: Int) }
+
+extension WorkerMode: Printable {
+    func format(&self, into: &var StringBuilder) {
+        match self {
+            case Idle -> into.append("idle"),
+            case Busy(load) -> {
+                into.append("alive ")
+                into.append(load)
+            }
+        }
+    }
+}
+
+func pick(n: Int) -> Int {
+    var out = 0
+    match n {
+        case 0 -> { out = -1 },
+        case v -> {
+            yield_now()
+            out = v
+        }
+    }
+    out
+}
+
+func pair(a: Int, b: Int) -> Int {
+    var out = 0
+    match (a, b) {
+        case (0, 0) -> { out = -1 },
+        case (x, y) -> {
+            yield_now()
+            out = x * y
+        }
+    }
+    out
+}
+
+func describe(s: WorkerMode) -> String {
+    var out = "none"
+    match s {
+        case Idle -> { out = "idle" },
+        case whole -> {
+            yield_now()
+            out = "{whole}"
+        }
+    }
+    out
+}
+
+func main() {
+    var group = TaskGroup()
+    print(group.spawn(pick(5)).join())
+    print(group.spawn(pair(5, 6)).join())
+    print(group.spawn(describe(WorkerMode.Busy(load: 8))).join())
+}

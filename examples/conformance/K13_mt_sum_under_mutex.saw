@@ -1,18 +1,19 @@
 // Conformance row K13 — MT group accumulating into an `Arc<Mutex<Int>>`
 //
 // The data-race smoke row: an MT group accumulating a PER-TASK amount into a
-// shared `Arc<Mutex<Int>>`, which is the sanctioned way to share mutable
-// state across worker threads.
+// shared `Arc<Mutex<Int>>`, which is the sanctioned way to share mutable state
+// across worker threads. The amount is the task's own parameter, so the lock
+// body CAPTURES a frame-resident local of the driven function — the shape the
+// coroutine transform used to refuse (DF-191a), leaving the canonical
+// shared-counter idiom with no legal spelling at all: the diagnostic's way out
+// was to bind the closure to a `let` first, and `Mutex.lock` takes a `sync`
+// closure LITERAL.
 //
-// The lock body captures the driven function's own parameter, and the
-// coroutine transform refuses that (DF-191a). The identical shape with
-// nothing captured compiles and runs, and the diagnostic's suggested way out
-// — binding the closure to a `let` — is unreachable here, because
-// `Mutex.lock` takes a `sync` closure LITERAL.
+// Asserted on the SUM, never on interleaving: four tasks add 1, 2, 3 and 4, so
+// the total is 10 whatever order the workers run in.
 // EXPECT: success
 // EXPECT-OUTPUT:
-// spawned
-// XFAIL: DF-191a the coroutine transform refuses a `Mutex.lock` body that captures a frame-resident local of the driven function, and its suggested workaround does not typecheck
+// total 10
 
 import std.mutex.*
 
@@ -26,10 +27,13 @@ func add(shared: Arc<Mutex<Int>>, n: Int) -> Int {
 func main() {
     let shared = Arc<Mutex<Int>>(value: Mutex<Int>(value: 0))
     var group = TaskGroup(threads: 2)
-    var i = 0
-    while i < 4 {
-        let _ = group.spawn(add(shared.copy(), 1))
-        i = i + 1
-    }
-    print("spawned")
+    let a = group.spawn(add(shared.copy(), 1))
+    let b = group.spawn(add(shared.copy(), 2))
+    let c = group.spawn(add(shared.copy(), 3))
+    let d = group.spawn(add(shared.copy(), 4))
+    let _ = a.join()
+    let _ = b.join()
+    let _ = c.join()
+    let _ = d.join()
+    print("total {shared.lock({ &var total in total })}")
 }
