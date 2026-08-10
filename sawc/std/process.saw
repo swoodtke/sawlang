@@ -66,12 +66,23 @@ static EQUALS_BYTE: Int8 = 61
 
 // The spawn seam's redirection bit set (rt/ABI.md). `output()` asks for the
 // stdout pipe; `merge_stderr()` adds the second bit.
-static FLAG_CAPTURE_STDOUT: Int = 1
-static FLAG_MERGE_STDERR: Int = 2
+//
+// The bits are a closed named set, so they are a backed enum (design 153/185)
+// rather than a family of statics; a bit SET is the backing integer they are
+// tags for, which is what the `flags` word stays, and the enum is the single
+// source of the values — projected with `as` where a bit joins the word.
+enum RedirectFlag: UInt8 {
+    case CaptureStdout = 1,
+    case MergeStderr = 2
+}
 
 // The portable SysError tag this module branches on (the space is in rt/ABI.md;
 // a failing seam returns the NEGATED tag). `-WouldBlock` from `try_wait` means
 // the child is still running.
+//
+// Design 153 leaves this one a static: it belongs to the `SysError` set, and
+// declaring that enum in a std file reserves the name `SysError` for every user
+// program (DF-153b). The rt side of the seam carries the enum already.
 static SYS_WOULD_BLOCK: Int = 1
 
 // The degraded wait, in milliseconds. Reached only when the host cannot hand out
@@ -384,9 +395,9 @@ extension Command {
     // the overwhelmingly common spawn costs exactly what it always did — no
     // envp array, no merge.
     func spawn_job(&self, capture: Bool) unsafe -> Int {
-        var flags = if capture { FLAG_CAPTURE_STDOUT } else { 0 }
+        var flags = if capture { (RedirectFlag.CaptureStdout as UInt8) as Int } else { 0 }
         if self.merged_stderr {
-            flags = flags + FLAG_MERGE_STDERR
+            flags = flags + ((RedirectFlag.MergeStderr as UInt8) as Int)
         }
 
         let argv = self.build_argv()
