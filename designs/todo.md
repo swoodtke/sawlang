@@ -7,6 +7,64 @@ items need a probe before being treated as real work.
 Historical/landed recaps: designs/todo_aug1-aug9.md (split Aug 9);
 older history is in this file's git log (pruned Jul 30).
 
+## Design 186 — `UnsafeMutableInterior` (ALL EIGHT UNITS LANDED, Aug 9)
+
+`designs/186-unsafe-mutable-interior.md`. Interior mutability is a PROPERTY
+now, not three names the compiler knows. Seven commits, the full suite green at
+each. **Both name lists dissolved**: `namespace.py:_send_sync`'s Send/Sync
+override list (`Arc`/`Mutex`/`Channel`/`Task`/`SpinLock`/`UnsafeMemory`/
+`ReadOnly`/`WriteOnly`/`Vector`/`Map`/`Set`/`Data`/`StringBuilder`) and
+`statements.py:_INTERIOR_MUTABLE_TYPES`. One pin flipped and was renamed
+(`static_const_expr_init`, DF-185b).
+
+Two of the migration's entries needed no replacement at all, which is the thing
+a name list can never tell you: `UnsafeMemory` is a struct of one `Int` and
+DERIVES both markers, and `ReadOnly`/`WriteOnly` derive from the inner type that
+is literally their only field. `Map`, `Set` and `Data` derive through the
+declarations on `Vector`, `Vector` and `DataBuf`+`Arc` respectively. The
+interior-mutability EXEMPTION dissolved to nothing: every call it existed for is
+a `&self` method the 176b rule never refused.
+
+- **DF-186a — OPEN, a deferred language question, NOT a bug.** Should
+  `Atomic<T>` be move-only? The cell is `NoCopy` as ruled, and a cell FIELD
+  contributes its `T`'s copy class rather than cascading `NoCopy` onto its
+  container (stated once in `Namespace.member_copy_tier`). Without that clause
+  `Atomic<Int>` would become `NoCopy`, and with it every struct holding one —
+  measured: std's `SlabHead` first, then the world. Rust agrees with the
+  cascade (`AtomicUsize` is `!Copy`), so the question is real; it is a separate
+  decision with its own migration and design 186 does not open it. What the
+  clause costs today: a user `Cell<T>` wrapper is bitwise-copyable unless its
+  author writes `extension Cell<T>: NoCopy {}`, which the wrapper idiom in the
+  skill and the spec both say to do. Copying an `Atomic` has been legal and
+  equally footgun-shaped since design 41.
+- **DF-186b — CLOSED (unit 3), PRE-EXISTING.** A `static` of a GENERIC struct
+  initialized by a const struct literal was `internal compiler error: 'Wrap'`.
+  `_const_from_expr` looked the layout up under the TEMPLATE name, which the
+  monomorphization table has never heard of, and the bare `KeyError` surfaced as
+  an ICE. The non-generic form always worked, which is why it went unnoticed:
+  design 41's const-init statics predate generic statics by a long way. Pin:
+  `examples/static_generic_struct_const_init.saw`.
+- **DF-186c — OPEN (two language gaps, one C body).** The Linux half of the
+  one-word lock (`__saw_rt_lock_acquire`/`_release`) is a futex, and it lives in
+  `rt/shim.c` rather than in `rt/host_linux/` because a futex needs two things
+  Saw has not got: ATOMICS ON A 32-BIT WORD REACHED THROUGH A POINTER
+  (`Atomic<T>` is `Atomic<Int>` in v1, and has no spelling for "atomically
+  operate on this pointee"), and a VARIADIC extern (glibc's is `long syscall(long,
+  ...)`, the same DF-113c gap `fcntl` sits in). Either feature shrinks the body
+  back to Saw. The macOS half IS Saw (`rt/host_macos/lock.saw`, two
+  `os_unfair_lock` calls). **The Linux half is UNEXECUTED**: this host is macOS,
+  so it is reviewed C, not tested C — the first Linux run of the suite is what
+  proves it, and `mutex_static_contention_mt` is the test that would catch it.
+- **DF-186d — CLOSED (unit 5), PRE-EXISTING.** `Arc`/`Box` payload-method
+  forwarding loaded the payload BY VALUE unconditionally, which is wrong the
+  moment a payload's `&self` arrives by pointer. `Arc<SpinLock<Int>>.lock(...)`
+  already had that shape before design 186 and ICE'd on the arity mismatch; the
+  inline `Mutex` made it the common case (`mutex_counter` is
+  `Arc<Mutex<Int>>`). Both forwards read the convention off the callee's emitted
+  signature now. Had it type-checked instead of ICE'ing it would have been far
+  worse than a crash: every thread would have locked its own copy of the mutex
+  and all of them would have succeeded at once.
+
 ## Design 188 — safety-audit batch (ALL EIGHT UNITS LANDED, Aug 9)
 
 Source: the Aug-8 external review (`review.md`) + systematic audit
@@ -280,33 +338,22 @@ has to give up its raw buffers.
 
 Closed items: see todo_aug1-aug9.md.
 
-- **DF-185b FILED (OPEN, pre-existing, surfaced by this brief's unit 3).
-  A `static` initializer is still literals-only, so a constant
-  EXPRESSION cannot initialize one.** `static SIZE: Int = 4 * 1024` and
-  the brief's own unit-3 example `static RW: UInt8 = Perm.Read |
-  Perm.Write` are both refused ("static `SIZE` must be initialized by a
-  compile-time constant"), even though those expressions now fold in
-  every position that CONSUMES a constant. The rule is design 41's
-  `_is_const_init` list (literals, POD struct literals, constant array
-  literals, `Atomic(<int>)`), unrelated to the const evaluator, and
-  widening it is its own decision with its own ordering questions:
-  - `_is_const_init` would accept anything `const_eval` folds, and
-    codegen would emit the folded value rather than the written
-    expression;
-  - DF-172j's `_collect_const_statics` runs BEFORE registration and
-    decides what a static means in a constant from its initializer AS
-    WRITTEN. To keep `static SIZE = 4 * 1024` foldable in `[UInt8;
-    SIZE]` it would have to evaluate there too — in declaration order,
-    with a cycle rule, and with no enum registered yet (so the
-    flag-enum half needs the pass reordered or enum raw values read off
-    the AST);
-  - cross-module: the symbol carries `const_value`, so an importer sees
-    whatever the declaring module decided — fine, but it has to be
-    decided once.
-  Pinned by `examples/static_const_expr_init_xfail.saw` (XFAIL,
-  intended behavior in the EXPECT directives, so the fix flips it to
-  XPASS). Everything else in unit 3 landed; this is the one sentence of
-  the brief that did not.
+- **DF-185b — CLOSED (design 186 unit 7).** A `static` initializer was
+  literals-only, so a constant EXPRESSION could not initialize one:
+  `static SIZE: Int = 4 * 1024` and this brief's own `static RW: UInt8 =
+  Perm.Read | Perm.Write` were both refused even though the same
+  expressions folded in every position that CONSUMES a constant. Design
+  41's `_is_const_init` was a hand-written list kept apart from the
+  evaluator; it ASKS the evaluator now (by trying it, not by re-listing
+  its grammar), codegen emits the folded value, and a static initializer
+  is a const position so the flag-enum half reads its operands as tags.
+  All three of the filed ordering questions were answered as the finding
+  predicted: `_collect_const_statics` evaluates in DECLARATION ORDER —
+  which is also the cycle rule, since a forward reference has nothing to
+  fold against — and reads raw-backed enum case values straight off the
+  AST, and the answer is decided once, on the symbol, so an importer sees
+  what the declaring module decided. Pin flipped and renamed:
+  `examples/static_const_expr_init.saw`.
 
 ## Design 158 — logical task backtraces (LANDED, Aug 8)
 

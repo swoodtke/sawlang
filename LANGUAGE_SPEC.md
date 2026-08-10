@@ -2113,15 +2113,22 @@ in its heap buffer, so `self.cells[i] = v` writes the caller's element and is
 allowed; the same goes for a write through an `UnsafePointer` field, and for a
 `&var self` method reached through either.
 
-**Interior mutability is exempt.** A field of type `Atomic`, `SpinLock` or
-`UnsafeMemory` stays callable from a `&self` method, because mutation through a
-shared borrow is what those types are *for*: a receiver carrying an `Atomic`
-arrives by pointer even at `&self` (see [`Atomic<Int>`](#atomicint)), and an
-`UnsafeMemory` is a one-word address the copy shares. So `self.n.fetch_add(1)` and `self.lock.lock({ ... })` are idioms,
-not mistakes. The exemption is those three types themselves, not anything
-containing one: a struct wrapping an `Atomic` has its own `&var self` methods,
-which take the whole wrapper — sibling fields included — and promise nothing
-about interior mutability.
+**Interior mutability writes through `&self`, and that is the point.**
+`self.n.fetch_add(1)` on an `Atomic` field, `self.lock.lock({ ... })` on a
+`SpinLock` one, and `self.cell.set(v)` on a wrapper you wrote yourself are all
+idioms rather than mistakes. None of them is an exception to the rule above:
+each is a `&self` METHOD, which this rule never refused, and what makes the
+write reach the caller's storage is that a
+[cell-carrying](#interior-mutability) receiver arrives by POINTER even at
+`&self`.
+
+A `&var self` method is a different claim and stays refused whatever the field
+holds. It takes the entire receiver exclusively — sibling fields included — and
+that is the one thing `&self` promises not to do; that a cell-carrying receiver
+arrives by pointer means the write would *land*, not that the exclusivity claim
+is honest. So a wrapper around a cell gets no exemption, and its author's
+recourse is the same as anyone's: `&self` methods, which the cell is what makes
+writable.
 
 The rule holds inside a `borrows` body too, prologue and epilogue included. That
 is where it matters most: an accessor's receiver travels by pointer, so a field
@@ -3226,10 +3233,11 @@ print(boxed.value())          // 42
 ### Synchronized Access
 
 **Status: `Mutex<T>` implemented (hosted); `RwLock` planned.** `Mutex<T>` is
-`NoCopy + Deinit`, backed by a `pthread_mutex_t` on the hosted engine. Rather
-than a returned lock guard, `lock` takes a non-escaping closure and runs it with
-`&var` access to the guarded payload under the lock — the lock is always
-released on the way out. `get()` snapshots the payload (`T: Copy`).
+ONE INLINE WORD beside its payload: `os_unfair_lock` on macOS, a futex on Linux,
+and zero means unlocked on both. It is `NoCopy`, allocates nothing and frees
+nothing. Rather than a returned lock guard, `lock` takes a non-escaping closure
+and runs it with `&var` access to the guarded payload under the lock — the lock
+is always released on the way out. `get()` snapshots the payload (`T: Copy`).
 
 ```saw
 // lock<R>(body: (&var T) sync -> R) -> R — the body's own result comes back out
@@ -3250,9 +3258,34 @@ gives a `Void` result. Naming the parameter `&var c` instead of `c` is also
 accepted, and means the same thing — the parameter type says `&var T` either
 way.
 
-`Mutex(value:)` panics if the allocator refuses its control block (design 123,
-see [Allocation failure](#allocation-failure)), so there is no inert mutex and
-`get` is not optional. `Mutex.try_make(value:)` is the fallible twin.
+**A `static` holds one with no initializer.** Zero is unlocked, so the whole
+value is zerofill and an idle mutex costs no image bytes:
+
+```saw
+import std.mutex.{Mutex}
+
+static REGISTRY: Mutex<Int>
+
+func record(n: Int) {
+    REGISTRY.lock({ &var total in total = total + n })
+}
+```
+
+`Mutex(value:)` allocates nothing and cannot fail, so it has no `try_` twin —
+the fallible tier exists exactly where an allocation does
+(see [Allocation failure](#allocation-failure)), and `get` is not optional.
+
+**Movability** comes from the Law of Exclusivity rather than from an
+address-stability contract: a thread inside `lock()` holds a live `&self`
+borrow for the whole critical section, and a move needs exclusive access, so a
+move cannot be spelled while any thread is inside the lock. Moving an IDLE
+mutex relocates one word and a payload, and nothing was pointing at either —
+which is why `Mutex` is ordinary `NoCopy` and deliberately not
+[`NoMove`](#nomove).
+
+`lock` blocks the calling THREAD on a contended lock, and is not reentrant:
+taking a mutex this thread already holds is a program bug (macOS traps, Linux
+deadlocks). Prefer a `Channel` where a task would otherwise wait.
 
 `RwLock` (multiple readers XOR single writer) is planned; it is not yet in the
 stdlib.
@@ -5485,13 +5518,53 @@ holding a lock is a compile error.
 ### Send and Sync
 
 `Send` ("may move to another task") and `Sync` ("may be shared by
-reference across tasks") are compiler-derived STRUCTURALLY — explicit
-conformance is rejected. `spawn` audits every capture for Send;
-`Channel<T>` requires `T: Send`. `String` is Send+Sync (immutable,
-atomic refcount); `UnsafePointer` is neither and poisons containing
-types — except in the wrappers and the owning containers, which override
-the structural answer with their contents' (`Vector`/`Map`/`Set` by
-element, `Data`/`StringBuilder` unconditionally).
+reference across tasks") are compiler-derived STRUCTURALLY — a struct or
+enum is `Send`/`Sync` iff every field or payload is, and **explicit
+`extension X: Send` is rejected**. `spawn` audits every capture for `Send`;
+`Channel<T>` requires `T: Send`. `String` is `Send`+`Sync` (immutable buffer,
+atomic refcount); `UnsafePointer` is neither and poisons anything holding one;
+an interior cell blocks `Sync` ([Interior mutability](#interior-mutability)).
+
+#### `UnsafeSync` / `UnsafeSend`
+
+**Status: implemented (design 186).** Some types are thread-safe for a reason
+the derivation cannot see — a `Vector`'s buffer pointer is bookkeeping the Law
+of Exclusivity already governs, an `Arc`'s refcount is updated with atomic
+read-modify-writes, a `Mutex` serializes every access to its payload. The
+assertion has its own two names:
+
+```saw
+trait UnsafeSync: Sync {}
+trait UnsafeSend: Send {}
+```
+
+They REFINE the marker traits, so a declared conformance satisfies every
+`T: Sync` / `T: Send` bound through the parent and generic code keeps its
+vocabulary. The `Unsafe` prefix carries the claim: the conformance header IS
+the audited, greppable assertion.
+
+```saw
+extension Mutex<T: Send>: UnsafeSync {}
+extension Vector<T: Send, A: Send>: UnsafeSend {}
+```
+
+Conditional headers are half the point, and their bounds are re-checked at
+every instantiation — the first line above promises nothing about a
+`Mutex<File>`.
+
+**Legality, checked at the header.** One is declarable only where the
+structural derivation FAILED, and only when every field that blocked it is
+UNSAFE-TYPED: an interior cell, an `UnsafePointer`, an `UnsafeMemory`. You may
+hand-assert exactly what the unsafe domain already owns. Asserting past a SAFE
+non-`Sync` field is refused naming the field, because it would be a claim about
+someone else's invariants; asserting where the derivation already succeeds is
+refused too, since it teaches the next reader that something was needed.
+
+**Three fences.** The assertion appears in exactly one position, the
+conformance header: `T: UnsafeSync` as a generic bound and `any UnsafeSync` as
+an existential are both clean errors pointing at the property. These are two
+builtin traits, not a user-definable unsafe-trait feature. The
+[orphan rule](#conformance-coherence-the-orphan-rule) applies unchanged.
 
 ### Module-level statics
 
@@ -5509,19 +5582,45 @@ public static VERSION: Int = 7        // exported; read as `mod.VERSION`
 
 Statics obey four rules, ratified in design 19 (Rust's model):
 
-- **Const-initialized only.** The initializer must be a compile-time
-  constant: literals, a negated numeric literal, POD struct literals with
-  constant fields, constant fixed-array literals (including a `[v; N]`
-  repeat literal), or `Atomic(<int>)`. Function calls, `String`, and heap
-  types are rejected. A static may be declared with NO initializer when
-  all-zero is a valid value of its type — every scalar, a struct of them,
-  a fixed array of them, an `Atomic<Int>`, a `SpinLock<T>` over any of
-  those. Copyability is irrelevant here: a static is never copied, so a
-  `NoCopy` type whose storage is scalar throughout still qualifies, which
-  is what makes `static LOCK: SpinLock<T>` a legal declaration.
+- **Const-initialized only.** A static is image bytes, so its initial value
+  is fixed at compile time. There are exactly THREE tiers, and the third one
+  is a refusal:
+
+  1. **Zero-init.** A bare declaration with no initializer, legal when
+     all-zero is a valid value of the type — every scalar, a struct of them,
+     a fixed array of them, an `Atomic<Int>`, a `SpinLock<T>`, a `Mutex<T>`,
+     a `Once<T>`. Copyability is irrelevant here: a static is never copied,
+     so a `NoCopy` type whose storage is scalar throughout still qualifies,
+     which is what makes `static LOCK: SpinLock<T>` a legal declaration.
+  2. **A constant expression, plus memberwise aggregation.** Whatever the
+     const evaluator folds — literals, arithmetic and the bitwise operators
+     over them, `sizeof`/`alignof`, the integer limits, a raw-backed enum
+     case, an earlier module `static` — and struct literals, fixed-array
+     literals (including a `[v; N]` repeat), `Atomic(<int>)` and
+     `UnsafeMemory(<int>)` built out of those. The initializer and every
+     other const position share ONE evaluator, so an expression that folds in
+     an array length folds here too.
+  3. **Runtime-computed state is never a static initializer, in any form.**
+     A user `init` BODY does not run at compile time — even one that visibly
+     would fold, because folding bodies is const-fn and Saw does not have it
+     — and neither does a function call, a `String`, or any heap type. State
+     that has to be computed has two spellings, and they are not
+     interchangeable: **set once** wants `static X: Once<T>`
+     ([`std.once`](#stdonce)), and **mutated throughout** wants
+     `unsafe static var` plus the author's own ordering argument. There is no
+     life-before-main and no static constructor.
+
+  Field aggregation folds; bodies do not. That is the whole line between (2)
+  and (3), and it is why `Region(bytes: PAGE_SIZE, pages: 1)` is a constant
+  and `Region(pages: 1)` — the same struct, reached through a hand-written
+  `init` — is not.
+
 - **Sync-only.** The static's type must be `Sync` (a static is reachable
   from every task). A non-Sync type is a compile error naming the type.
-  An `unsafe static var` is exempt — see below.
+  An `unsafe static var` is exempt — see below. A CELL-CARRYING type derives
+  no `Sync`, so a static of one needs its type's `UnsafeSync` declaration
+  ([Interior mutability](#interior-mutability)); the refusal names both the
+  declaration to write and the field that blocked the derivation.
 - **Immutable, unless declared `unsafe static var`.** Assigning to a
   static (whole, field, or element) or taking `&var STATIC` is a compile
   error; an `&STATIC` shared lend is fine. Mutation of global state flows
@@ -5537,32 +5636,47 @@ Reads elsewhere in the module (or `mod.NAME` from an importer of a
 `public` static) behave like an immutable binding.
 
 **A static is a constant where a constant is required.** An `Int` or
-`UInt` static whose initializer is a plain integer literal folds into
-every position the language fixes at compile time: an array length
-`[T; N]`, a repeat-literal count `[v; N]`, a const generic argument, and
-a `static_assert` condition. Constant arithmetic composes over it, so one
+`UInt` static whose initializer folds to a number folds into every position
+the language fixes at compile time: an array length `[T; N]`, a
+repeat-literal count `[v; N]`, a const generic argument, and a
+`static_assert` condition. Constant arithmetic composes over it, so one
 declaration can size a region and everything derived from it:
 
 ```saw
-static REGION_SIZE: Int = 65536
+static PAGE_SHIFT: Int = 12
+static PAGE_SIZE: Int = 1 << PAGE_SHIFT      // derived from the one above
+static PAGE_MASK: Int = PAGE_SIZE - 1
 
-static_assert(REGION_SIZE % 4096 == 0, "the region must be page-aligned")
+static_assert(PAGE_SIZE % 4096 == 0, "the region must be page-aligned")
 
-struct Region { bytes: [UInt8; REGION_SIZE] }
-static ARENA: [UInt8; REGION_SIZE] = [0; REGION_SIZE]
+struct Region { bytes: [UInt8; PAGE_SIZE] }
+static ARENA: [UInt8; PAGE_SIZE] = [0; PAGE_SIZE]
 
 func main() {
-    var half: [UInt8; REGION_SIZE / 2] = [0; REGION_SIZE / 2]
-    print(half.len())                  // prints: 32768
+    var half: [UInt8; PAGE_SIZE / 2] = [0; PAGE_SIZE / 2]
+    print(half.len())                  // prints: 2048
 }
 ```
 
-The foldable subset is narrow on purpose: the value has to already be a
-literal when the type is resolved. A mutable `unsafe static var`, a
-static of any other type, one declared without an initializer, and one
-whose initializer is anything but an integer literal are each refused,
-and the message names which static and why rather than reading as "a
-static may not be named here":
+Initializers fold in **declaration order**, so one may name the statics
+above it and no others. That is also the cycle rule: a forward reference has
+nothing to fold against, and a self reference is the degenerate forward one.
+Both are refused where the name is written.
+
+```saw
+static EARLY: Int = LATER * 2
+static LATER: Int = 64
+// error: static `LATER` is declared after this point
+//   hint: static initializers fold in DECLARATION ORDER, so one may name
+//         only the statics above it — which is also what makes a cycle
+//         impossible. Move the declaration up
+```
+
+What still does not fold is a value that is not a fact about the source. A
+mutable `unsafe static var`, a static of a non-integer type, and one
+declared without an initializer are each refused, and the message names
+which static and why rather than reading as "a static may not be named
+here":
 
 ```saw
 unsafe static var ARENA_BYTES: Int = 1024
@@ -5624,10 +5738,17 @@ func claim(owner: Int) unsafe -> Int {       // `unsafe`: it names TABLE
 This is not an `Atomic` replacement, and reaching for it where an
 `Atomic` fits is a mistake the diagnostics point out. Single-word state
 that several tasks update independently wants `Atomic`; state several
-threads genuinely share wants `SpinLock`. `unsafe static var` is for
-state whose consistency comes from a serialization argument the compiler
+threads genuinely share wants `SpinLock` or `Mutex`. `unsafe static var` is
+for state whose consistency comes from a serialization argument the compiler
 cannot see — interrupts off, a single core, boot-time only — and the
 `unsafe` declaration is what makes that argument somebody's job to state.
+
+**It is also not a `Once`.** State that is computed once at a moment the
+program picks, and read as a plain value from then on, is `static X: Once<T>`
+([`std.once`](#stdonce)): the publish ordering is inside the type, the
+readers are safe functions, and a second `set` is a panic rather than a
+silent overwrite. `unsafe static var` is for state genuinely MUTATED
+throughout the program's life, which is what `var` says.
 
 Four rules:
 
@@ -5649,13 +5770,92 @@ Four rules:
 and for the same reason: a static has no parameter list, so there is no
 effect slot for it to ride.
 
+### Interior mutability
+
+**Status: implemented (design 186).** Interior mutability is mutation through
+a SHARED borrow. One primitive expresses it, and everything the compiler does
+about it follows from a structural property rather than from a list of type
+names it knows.
+
+```saw
+unsafe struct UnsafeMutableInterior<T>       // holds a T, inline
+func ptr(&self) unsafe -> UnsafePointer<T>   // the only accessor
+```
+
+The signature is the whole safety story. Every function touching a cell is
+dragged into the declared-`unsafe` domain by the ordinary
+[trigger rule](#the-unsafe-surface), with no new effect rules; a safe public
+wrapper method takes on the all-safe-parameters obligation exactly where
+`SpinLock.lock` already does. The cell is layout-transparent — it occupies
+exactly its `T` — so a cell field costs no wrapper, and construction is
+positional (`UnsafeMutableInterior(v)`).
+
+A type that transitively contains a cell is **cell-carrying**, and that answers
+four questions at once:
+
+- **Receivers travel by pointer.** A `&self` method on a cell-carrying type
+  reaches the CALLER's storage rather than a copy of it. That is what lets
+  `ptr()` be worth anything: without it the address would be the callee copy's,
+  and every write through it would be dropped at the return. Every other
+  `&self` receiver is still passed by value.
+- **A `static` of one is never read-only.** It is written in place, so a
+  read-only segment would fault on the first write. An all-zero one still costs
+  no image bytes.
+- **Codegen assumes nothing.** No shared borrow of cell-carrying storage
+  carries `readonly`, `noalias` or an invariant-load marker.
+- **`Sync` derivation is blocked**, at the cell. Sharing a value that can be
+  mutated through a shared borrow is exactly the claim a structural derivation
+  cannot make — the fields all look immutable and are not. `Send` is untouched:
+  a cell MOVES fine, and it is sharing that needs an argument.
+
+The block sits at the cell, not at everything holding one. A type holding a
+cell DIRECTLY says [`UnsafeSync`](#unsafesync--unsafesend); a type holding one
+of THOSE derives normally, because the declaration it passes through is the
+argument. So `struct Stats { hits: Atomic<Int> }` is `Sync` with nothing
+written.
+
+**The wrapper idiom** is a cell field, `&self` methods, one small `unsafe`
+helper, and a declared `UnsafeSync`:
+
+```saw
+struct Counter {
+    cell: UnsafeMutableInterior<Int>
+}
+
+extension Counter: UnsafeSync {}
+
+extension Counter {
+    public init(start: Int) unsafe -> Counter {
+        Counter(cell: UnsafeMutableInterior(start))
+    }
+
+    // The one unsafe helper: confinement is a signature.
+    func _at(&self) unsafe -> UnsafePointer<Int> { self.cell.ptr() }
+
+    public func value(&self) unsafe -> Int { self._at()[0] }
+    public func bump(&self, by: Int) unsafe { self._at()[0] = self._at()[0] + by }
+}
+
+static HITS: Counter
+```
+
+`Atomic`, `SpinLock`, `Mutex` and `Once` are all written this way. What stays
+compiler-known about `Atomic` is its ATOMICITY, which no library can express.
+
+A cell is `NoCopy` as a value — copying one makes a second, independent cell —
+but a cell FIELD contributes its `T`'s copy class to whatever holds it, rather
+than cascading `NoCopy` onto it. The container states its own policy, which is
+why `Atomic<Int>` is still one bitwise-copyable word and why a wrapper that
+wants to be move-only says `extension Counter: NoCopy {}` in a line the reader
+can see.
+
 ### `Atomic<Int>`
 
 **Status: implemented (design 41).** `Atomic<Int>` is the minimal
 interior-synchronized primitive — the sanctioned way to mutate global
 state. It is const-initializable (`Atomic(0)`), usable as a `static` and
-as a struct field, and `Sync` by the ordinary structural derivation (a
-struct of a `Sync` field). Its methods take an immutable `&self` — the
+as a struct field, and holds an interior cell, so it declares `UnsafeSync`
+rather than deriving `Sync`. Its methods take an immutable `&self` — the
 mutation is interior, which is exactly what lets an immutable static be
 updated; the no-`static mut` rule keys on assignment, not on these
 method calls.
@@ -5676,19 +5876,15 @@ All four operations lower to sequentially-consistent LLVM atomics.
 A receiver carrying an `Atomic` cell — `Atomic<Int>` itself, or any
 struct holding one — arrives at a `&self` method as the caller's STORAGE
 rather than as a copy, which is what makes interior mutation through a
-shared borrow reach the real cell (design 149). Every other `&self`
-receiver is still passed by value. That is also why an `Atomic` field is
-exempt from the ban on calling a `&var self` method through a `&self`
-receiver (see [A `&self` method may not write its
-receiver](#a-self-method-may-not-write-its-receiver)).
+shared borrow reach the real cell. That is the cell-carrying property
+above, and it is not special to `Atomic`.
 
 ### `SpinLock<T>`
 
 **Status: implemented (design 149).** `import std.spinlock`. A value
-guarded by an atomic word: one word plus the payload, no allocation, no
-operating system, and const-initializable, so it can live in a `static`.
-`Mutex<T>` cannot — it holds a `pthread_mutex_t` in an allocated block —
-which left global state shared across threads with no safe spelling.
+guarded by an atomic word: one word plus the payload, no allocation, and no
+operating system, so it works in the freestanding profile where
+[`Mutex<T>`](#synchronized-access) — which needs a host lock — does not.
 
 ```saw
 import std.spinlock.*
@@ -5714,9 +5910,11 @@ if let n = STATS.try_lock({ c in c.hits }) { }  // None if held; never spins
 - `is_locked() -> Bool` is a debugging aid; the answer can be stale
   before it is read, so branch with `try_lock`, not with this.
 
-`NoCopy` (a copied lock is two locks guarding two payloads), and `Sync`
-when `T` is `Send`, on the same terms as `Mutex`. Locking is not
-reentrant: taking the lock while holding it spins forever.
+`NoCopy` (a copied lock is two locks guarding two payloads). It carries an
+interior cell, so its `Sync` is DECLARED — `extension SpinLock<T: Send>:
+UnsafeSync {}` — on the same terms as `Mutex`: handing out a `&var T` under
+mutual exclusion is safe to share exactly when moving a `T` between threads is.
+Locking is not reentrant: taking the lock while holding it spins forever.
 
 Two constraints are enforced, not documented:
 
@@ -5732,6 +5930,54 @@ Two constraints are enforced, not documented:
   runtime a freestanding target does not have.
 
 Hold it briefly. A waiter burns its core until the lock is free.
+
+### `std.once`
+
+**Status: implemented (design 186).** `import std.once`. `Once<T>` holds a value
+written once and read many times. A `static` is image bytes and there is no
+life-before-main, so a global whose initial value must be COMPUTED cannot be a
+static initializer in any form; this is the answer for the half of that which is
+set once.
+
+```saw
+import std.once.*
+
+struct Limits { workers: Int, queue: Int }
+
+static LIMITS: Once<Limits>          // zero is UNSET; .bss, no image bytes
+
+func boot(cpus: Int) {
+    LIMITS.set(Limits(workers: cpus, queue: cpus * 64))
+}
+
+func workers() -> Int {              // a safe function: no `unsafe` anywhere
+    LIMITS.get().workers
+}
+```
+
+- `set(value: T)` publishes, once. **Panics** if a value is already present, or
+  if another thread is publishing at that instant. Racing setters resolve
+  through a compare-exchange: the first wins, every loser panics.
+- `get() -> T` returns the published value (`T: Copy`). **Panics** if nothing
+  has been published yet.
+- `try_get() -> T?` is the inspectable twin — `None` while unset.
+- `is_set() -> Bool` is a debugging aid; the answer can be stale before it is
+  read.
+
+Both panics are the fault-not-status rule. Two boot paths initializing one
+`Once` is a bug in the boot order, and reading a value that has not been
+computed is a bug in the call order; a status either could ignore would let the
+program run on the wrong configuration instead.
+
+`Once` is `NoCopy` (a copy is a second, independent slot) and declares
+`UnsafeSync` at `T: Send + Sync` — `get` hands a COPY to whichever thread asked,
+and two readers copy the stored value concurrently. It is DECLARED rather than
+constructed: the unset state is the zero pattern, so a bare `static` is the only
+spelling it needs. Design 149's immortality rule applies as it does to every
+static, so `T` must be trivially destructible.
+
+It does not block. A `get` racing the `set` that would satisfy it takes the
+not-yet-initialized panic; spin on `try_get` if a wait is what you want.
 
 ---
 

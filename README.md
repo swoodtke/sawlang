@@ -469,10 +469,11 @@ struct Region { bytes: [UInt8; REGION_SIZE] }
 static ARENA: [UInt8; REGION_SIZE] = [0; REGION_SIZE]
 ```
 
-The static has to be an `Int`/`UInt` initialized by a plain integer literal —
-enough to be a literal already when the type is resolved. A mutable
-`unsafe static var` or a static of another type is a compile error that names
-which static and why.
+The static has to be an `Int`/`UInt` whose own initializer folds. Statics fold
+in declaration order, so one may derive from the ones above it —
+`static PAGE_MASK: Int = PAGE_SIZE - 1` — and a forward reference is a compile
+error naming the order. A mutable `unsafe static var` or a static of another
+type is a compile error that names which static and why.
 
 The bit operators fold too, which is what register and wire arithmetic is
 written in. `<<` wraps at the target's integer width, exactly as the emitted
@@ -1075,15 +1076,31 @@ Saw is freestanding: the same language targets bare metal.
   `--freestanding` (a kernel with a slab allocator may want real `String`s) and
   the two combine; the SOS kernel builds under both, which is what keeps its log
   lines off the heap.
-- **Global state, three ways, none of them silent**: `Atomic<Int>` for a word
+- **Global state, five ways, none of them silent**: `Atomic<Int>` for a word
   several tasks update independently; `SpinLock<T>` for state threads or cores
-  genuinely share — one word plus the payload, no allocator and no OS, so
-  `static TABLE: SpinLock<HandleTable>` is a declaration a kernel can write; and
-  `unsafe static var` for compound state whose consistency spans words and comes
-  from a serialization argument only the author knows (interrupts off, one core,
-  boot only). The last one is `unsafe` for a reason: naming it makes every
-  function that touches it declare `unsafe` too, so the argument is in front of
-  whoever reviews the code.
+  genuinely share where there is no OS — one word plus the payload, no
+  allocator, so `static TABLE: SpinLock<HandleTable>` is a declaration a kernel
+  can write; `Mutex<T>` for the same shape hosted, where a waiter should sleep
+  rather than spin (also one inline word, also declarable as a bare `static`);
+  `Once<T>` for state computed once at a moment the program picks and read as a
+  plain value after; and `unsafe static var` for compound state whose
+  consistency spans words and comes from a serialization argument only the
+  author knows (interrupts off, one core, boot only). The last one is `unsafe`
+  for a reason: naming it makes every function that touches it declare `unsafe`
+  too, so the argument is in front of whoever reviews the code.
+- **Interior mutability is a type you can write**: a `&self` method that writes
+  needs an `UnsafeMutableInterior<T>` field, and carrying one is what makes a
+  receiver arrive as the caller's storage rather than as a copy. The compiler
+  does not know your type's name — it asks whether the type carries a cell —
+  and the same answer decides that a `static` of it is writable and that it
+  derives no `Sync` until you say `extension Counter: UnsafeSync {}` beside it.
+  `Atomic`, `SpinLock`, `Mutex` and `Once` are written that way, with no
+  privileges a program cannot claim.
+- **Statics are image bytes, and say so**: an initializer is a constant
+  expression (`static PAGE_SIZE: Int = 1 << PAGE_SHIFT`, folding in declaration
+  order) plus memberwise aggregation. Nothing computed runs before `main`,
+  because nothing runs before `main` — a hand-written `init` body is refused,
+  and the error names the two spellings that do work.
 - **A critical section cannot suspend**: `SpinLock`'s body is a `sync` function
   type, so suspending while holding the lock is a compile error rather than a
   livelock. And the lock needs real atomics — on rv32i, where a
@@ -1224,7 +1241,14 @@ The standard library includes:
   channel has two receives, one per engine: `receive()` suspends the task and is
   what cooperative code wants; `recv()` blocks the calling thread and belongs to
   the `spawn`/`Task` engine. Calling `recv` from a task stops the executor
-  thread, and with it the task that would have sent the value.
+  thread, and with it the task that would have sent the value. `Mutex<T>` is one
+  inline word beside its payload — no allocation, no `deinit`, and zero means
+  unlocked, so `static REGISTRY: Mutex<Int>` needs no initializer.
+- **Once<T>** - A value written once and read many times. `static LIMITS:
+  Once<Limits>` is unset at zero; `set` publishes with the release/acquire
+  pairing inside the type, `get` returns the value, and both a second `set` and
+  a `get` before any `set` panic rather than returning a status the caller could
+  ignore. `try_get() -> T?` is the twin for code that does not know yet.
 - **std.net** - `TcpListener`/`TcpStream`: owning, cooperative, `Result`-honest
   (accept/connect/read/`read_into`/overloaded write).
 - **File**, **Directory**, **Path**, **Data**, **Env** - System I/O. Every

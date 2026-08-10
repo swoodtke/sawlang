@@ -1392,7 +1392,8 @@ import mymodule as mm       // aliasing; `module`/`public`/`package`/`parent`
   design 180; `sleep` takes one, so gating it would gate `sleep`).
   IMPORT-REQUIRED:
   `File`/`Directory`/`Path` (std.file/directory/path), `Data` (std.data),
-  `Channel` (std.channel), `Mutex` (std.mutex), `Instant` (std.time),
+  `Channel` (std.channel), `Mutex` (std.mutex), `Once` (std.once — design 186),
+  `Instant` (std.time),
   `IoError`/`TcpListener`/`TcpStream` (std.net), `Utf8Error` (std.string),
   `yield_now` (std.task — design 114; the wrapper over the stdlib-internal
   cooperative-yield intrinsic) and `dump_tasks` (std.task — design 158),
@@ -1474,38 +1475,112 @@ let n = shared.lock({ c in c = c + 5  c })   // shared: Arc<Mutex<Int>> -> n == 
 allocator type params `Vector<T, A: Allocator = GlobalAllocator>`, `Box<T, A>`,
 slab in std/slab.saw; `UnsafeMemory<T, Device|Normal>` for MMIO
 (volatile, RO/WO markers);
-- **GLOBAL MUTABLE STATE: three tools, not interchangeable (design 149).**
+- **GLOBAL STATE: five tools, not interchangeable (designs 149 + 186).**
   Pick by the SHAPE of the state, not by convenience:
   - **`Atomic<Int>`** — single-word state several tasks update
     independently. Still the recommendation everywhere it fits.
   - **`SpinLock<T>`** (`import std.spinlock.*`) — state several THREADS or
-    cores genuinely share. One word + the payload, no allocation, no OS,
-    const-initializable, so `static LOCK: SpinLock<Counters>` (NO
-    initializer — zero IS unlocked + zeroed payload) finally makes a
-    lockable static exist. `lock({ c in ... })` / `try_lock` hand out
-    `&var T` and return the body's own result; the body is `sync`
-    ENFORCED (suspending under a lock is a compile error, not a
-    livelock). NoCopy, so it cannot be captured into a closure — reach
-    one through a static or a `&` param, not a capture. Needs real target
-    atomics: on rv32i, naming one is a compile error pointing at
+    cores genuinely share where there is no OS: one word + the payload, no
+    allocation, so it works FREESTANDING. `static LOCK: SpinLock<Counters>`
+    (NO initializer — zero IS unlocked + zeroed payload). `lock({ c in
+    ... })` / `try_lock` hand out `&var T` and return the body's own
+    result; the body is `sync` ENFORCED (suspending under a lock is a
+    compile error, not a livelock). NoCopy, so it cannot be captured into
+    a closure — reach one through a static or a `&` param. Needs real
+    target atomics: on rv32i, naming one is a compile error pointing at
     `--target-features +a`. Short critical sections; a waiter burns its
     core.
-  - **`unsafe static var NAME: T = init`** — COMPOUND state whose
-    consistency spans words (a `[Slot; 64]` handle table, a bitmap+queue
-    pair, an arena region) and rests on a serialization argument the
-    compiler cannot see (interrupts off, single core, boot only).
-    Assignable by name, `&var`-lendable, exempt from Sync. NAMING one
-    triggers design 130's rule, so every touching function is declared
-    `unsafe` and reviewed. `var` and `unsafe` come as a pair — each half
-    alone is a clean error. Prefix position, like `unsafe struct`.
-    Trivially-destructible types only (v1).
+  - **`Mutex<T>`** (`import std.mutex.{Mutex}`, HOSTED) — the same shape
+    where a waiter should SLEEP rather than spin. Since design 186 it is
+    one inline word (`os_unfair_lock` / futex), allocates nothing, has no
+    `deinit` and no `try_make`, and zero is unlocked — so `static
+    REGISTRY: Mutex<Int>` works with no initializer exactly as `SpinLock`
+    does. Blocks the calling THREAD; not reentrant.
+  - **`Once<T>`** (`import std.once.*`) — state COMPUTED once at a moment
+    the program picks, then read as a plain value. `static LIMITS:
+    Once<Limits>` (zero is UNSET), `LIMITS.set(...)` once, `LIMITS.get()`
+    after. A second `set` PANICS, and so does a `get` before any `set`
+    (`try_get() -> T?` is the inspectable twin) — a caller-checkable bug
+    is a fault, not a status. Readers are SAFE functions.
+  - **`unsafe static var NAME: T = init`** — COMPOUND state genuinely
+    MUTATED throughout, whose consistency spans words (a `[Slot; 64]`
+    handle table, a bitmap+queue pair, an arena region) and rests on a
+    serialization argument the compiler cannot see (interrupts off, single
+    core, boot only). Assignable by name, `&var`-lendable, exempt from
+    Sync. NAMING one triggers design 130's rule, so every touching
+    function is declared `unsafe` and reviewed. `var` and `unsafe` come as
+    a pair — each half alone is a clean error. Prefix position, like
+    `unsafe struct`. Trivially-destructible types only (v1). **Reach for
+    `Once` first**: `var` should mean what it says.
 - **A ZERO static costs no image bytes** (design 149): a bare declaration
   or an all-zero initializer (`static ARENA: [UInt8; 65536] = [0; 65536]`)
   is zerofill in BOTH profiles. Declare the region at its real size.
-- **A struct holding an `Atomic` is received by POINTER even at `&self`**,
-  so `func bump(&self) { self.n.fetch_add(1) }` mutates the real cell on a
-  field or a static. Every other `&self` still arrives BY VALUE (the
-  `FixedBuf.ptr()` gotcha).
+- **A STATIC INITIALIZER IS A CONSTANT EXPRESSION (design 186).** Three
+  tiers and no others: (1) zero-init, the bare declaration; (2) whatever
+  the const evaluator folds — arithmetic, the bitwise operators,
+  `sizeof`/`alignof`, `Int.max`, a raw-backed enum case, an EARLIER module
+  static — plus memberwise aggregation over those; (3) anything COMPUTED
+  is refused, and the error names the two spellings that work (`Once<T>`
+  for set-once, `unsafe static var` for mutated-throughout). So
+  `static PAGE_MASK: Int = (1 << 12) - 1` compiles now — that was
+  DF-185b's refusal. Initializers fold in DECLARATION ORDER, so one may
+  name the statics above it and a forward reference is a clean error
+  naming the order. Write the size once and derive the rest:
+  ```saw
+  static PAGE_SHIFT: Int = 12
+  static PAGE_SIZE: Int = 1 << PAGE_SHIFT
+  static PAGE_MASK: Int = PAGE_SIZE - 1
+  ```
+  FIELD AGGREGATION FOLDS, USER `init` BODIES DO NOT: `Region(bytes:
+  PAGE_SIZE, pages: 1)` is a constant and `Region(pages: 1)` through a
+  hand-written `init` is not, even where the body visibly would fold.
+- **INTERIOR MUTABILITY: the wrapper idiom (design 186).** A `&self`
+  method that WRITES needs an `UnsafeMutableInterior<T>` field. That is
+  the one primitive; it holds an inline `T` (no wrapper cost, and
+  `sizeof<Counter>() == sizeof<Int>()` below), and its one accessor is
+  `ptr(&self) unsafe -> UnsafePointer<T>`. Carrying one makes a type
+  CELL-CARRYING, which is what buys the guarantee: **a cell-carrying
+  receiver arrives BY POINTER even at `&self`**, so the write reaches the
+  caller's storage instead of a copy. Every other `&self` still arrives BY
+  VALUE (the `FixedBuf.ptr()` gotcha). Four parts, and the third and
+  fourth are not optional:
+  ```saw
+  struct Counter { cell: UnsafeMutableInterior<Int> }
+
+  extension Counter: UnsafeSync {}          // cell-carrying derives no Sync
+
+  extension Counter {
+      public init(start: Int) unsafe -> Counter {
+          Counter(cell: UnsafeMutableInterior(start))
+      }
+      func _at(&self) unsafe -> UnsafePointer<Int> { self.cell.ptr() }  // ONE helper
+      public func value(&self) unsafe -> Int { self._at()[0] }
+      public func bump(&self, by: Int) unsafe { self._at()[0] = self._at()[0] + by }
+  }
+
+  static HITS: Counter
+  ```
+  Callers need no ceremony — an `unsafe` function is callable from safe
+  code — so `HITS.bump(by: 1)` sits in a safe body, which is the whole
+  payoff. `Atomic`, `SpinLock`, `Mutex` and `Once` are all written this
+  way. A cell-carrying `static` is never rodata, and it derives no `Sync`:
+  the refusal names the missing declaration AND the blocking field. `Send`
+  still derives (a cell moves fine). A cell is NoCopy as a VALUE, but a
+  cell FIELD contributes its `T`'s copy class — say `extension Counter:
+  NoCopy {}` yourself if a copy would be a bug.
+- **`UnsafeSync` / `UnsafeSend` are the DECLARED thread-safety assertion**
+  (design 186). `Send`/`Sync` stay derivation-only (`extension X: Sync` is
+  still rejected); these two REFINE them, so a declared conformance
+  satisfies a `T: Sync` bound through the parent and generic code never
+  names the assertion. Legal only where the derivation FAILED and every
+  blocking field is unsafe-typed (a cell, an `UnsafePointer`, an
+  `UnsafeMemory`) — asserting past a SAFE non-Sync field is refused naming
+  the field, and asserting where the derivation already succeeds is
+  refused too. Conditional headers work and their bounds are re-checked
+  per instantiation (`extension Mutex<T: Send>: UnsafeSync {}` promises
+  nothing about `Mutex<File>`). They appear in EXACTLY ONE position, the
+  conformance header: `T: UnsafeSync` as a bound and `any UnsafeSync` are
+  both clean errors pointing back at the property.
 - **`--freestanding` on aarch64 implies `--target-features -neon,-fp-armv8`**
   (design 172). An AArch64 core traps Advanced SIMD at EL1 out of reset
   (`CPACR_EL1.FPEN` = 0) and LLVM uses `q` registers to move a struct, so a
@@ -1678,15 +1753,16 @@ construct in the owner and lend `&driver` down.
   into storage the caller owns while the caller's `length` stays behind. Both
   were unchecked until Aug 7-8, and the borrows-body forms really did mutate a
   `let` root.
-  **The exemption is INTERIOR MUTABILITY**: a field of type `Atomic`,
-  `SpinLock` or `UnsafeMemory` stays callable, because mutation through a
-  shared borrow is what those types are for (a receiver carrying an `Atomic`
-  arrives by pointer even at `&self`; an `UnsafeMemory` is a one-word address).
-  So `self.n.fetch_add(1)` and `self.cell.lock({ ... })` are idioms. Those
-  three types only — a struct WRAPPING an `Atomic` is not exempt, since its own
-  `&var self` methods take the whole wrapper, sibling fields included. The
-  indirection carve-out is unchanged and independent: `self.rows[0].push(9)`
-  reaches a heap element the copy shares and is fine.
+  **THERE IS NO INTERIOR-MUTABILITY EXEMPTION** — design 186 dissolved the
+  `{Atomic, SpinLock, UnsafeMemory}` list it used to be, and found it protected
+  nothing. `self.n.fetch_add(1)`, `self.cell.lock({ ... })` and a user cell
+  wrapper's `self.hits.bump()` are all `&self` METHODS, which this rule never
+  refused; what makes them reach the caller's storage is the CELL-CARRYING
+  by-pointer receiver, not an exemption. A `&var self` method on a field stays
+  refused whatever the field holds — including a wrapper around a cell — since
+  it takes the whole wrapper, sibling fields included. The indirection
+  carve-out is unchanged and independent: `self.rows[0].push(9)` reaches a heap
+  element the copy shares and is fine.
 - **RAW-BACKED ENUMS are the wire idiom** (design 145 B2). A payload-free enum
   may declare an integer backing in the colon position; that PINS the width and
   the tag values, so it may be a field of an `UnsafeMemory`-viewed wire struct
@@ -1895,39 +1971,38 @@ construct in the owner and lend `&driver` down.
   genuine standalone QUANTITY — a size, an alignment, a budget, a lone
   constant like `static AF_INET: Int32 = 2`. A parallel family of Int statics
   (`UNLOCKED`/`HELD`, `TAG_A`/`TAG_B`) is the smell this ruling exists to
-  catch (design 153 sweeps the existing ones). Static inits accept only plain
-  literals (no casts/arithmetic) plus array literals — including a REPEAT
-  literal, so `static BUF: [Int8; 4096] = [0; 4096]` is the spelling for a large
-  zeroed region (design 148); std-module statics are NOT visible cross-module
+  catch (design 153 sweeps the existing ones). A module-level `static` is for a
+  genuine standalone QUANTITY; std-module statics are NOT visible cross-module
   yet.
 - **A SIZE GOES IN ONE PLACE, and that place is a `static` (DF-172j).** An
-  `Int`/`UInt` static initialized by a plain integer literal IS a compile-time
-  constant, so it may be an array length, a repeat count, a const generic
-  argument and a `static_assert` operand — with const arithmetic composing over
-  it. Write the size once and derive the rest; the named-array-type-plus-
-  `sizeof` workaround is retired.
+  `Int`/`UInt` static whose initializer FOLDS is a compile-time constant, so it
+  may be an array length, a repeat count, a const generic argument and a
+  `static_assert` operand — with const arithmetic composing over it. Write the
+  size once and derive the rest; the named-array-type-plus-`sizeof` workaround
+  is retired.
   ```saw
-  static REGION_SIZE: Int = 65536
+  static PAGE_SHIFT: Int = 12
+  static REGION_SIZE: Int = 1 << (PAGE_SHIFT + 4)      // derives, design 186
   static_assert(REGION_SIZE % 4096 == 0, "the region must be page-aligned")
   struct Region { bytes: [UInt8; REGION_SIZE] }
   static ARENA: [UInt8; REGION_SIZE] = [0; REGION_SIZE]
   var half: [UInt8; REGION_SIZE / 2] = [0; REGION_SIZE / 2]   // in a body
   ```
-  The foldable subset is exactly that: an `unsafe static var` (mutable), a
-  static of another type, one with no initializer, and one whose initializer is
-  not an integer literal are each a clean error NAMING which static and why
-  (``the mutable static `ARENA_BYTES` is not allowed here``). A local shadows a
-  static here as anywhere else, so a derived shadow is the runtime value it
-  looks like. Cross-module follows visibility: a `public` static reached by
-  `import dep.{REGION_SIZE}` folds, and so does the QUALIFIER spelling
-  (`[UInt8; dep.REGION_SIZE]`, design 185 — it was a parse error until then,
-  which is what DF-172l filed). A length that folds NEGATIVE is a clean error
-  too (it used to reach LLVM as `[-1 x i8]`).
-  **GOTCHA — the static's OWN initializer is still literals-only** (DF-185b):
-  `static MASK: Int = (1 << 12) - 1` is refused ("must be initialized by a
-  compile-time constant") even though that same expression folds in every
-  position that CONSUMES a constant. Write the number in the static, and the
-  arithmetic where it is used.
+  What does NOT fold: an `unsafe static var` (mutable), a static of a
+  non-integer type, and one with no initializer — each a clean error NAMING
+  which static and why (``the mutable static `ARENA_BYTES` is not allowed
+  here``). A local shadows a static here as anywhere else, so a derived shadow
+  is the runtime value it looks like. Cross-module follows visibility: a
+  `public` static reached by `import dep.{REGION_SIZE}` folds, and so does the
+  QUALIFIER spelling (`[UInt8; dep.REGION_SIZE]`, design 185 — it was a parse
+  error until then, which is what DF-172l filed). A length that folds NEGATIVE
+  is a clean error too (it used to reach LLVM as `[-1 x i8]`).
+  **DF-185b IS CLOSED (design 186)**: `static MASK: Int = (1 << 12) - 1` and
+  `static RW: UInt8 = Perm.Read | Perm.Write` both compile — a static
+  initializer is a constant EXPRESSION now, and a const position, so the
+  old advice to "write the number in the static and the arithmetic where it is
+  used" is retired. See the statics tiers above for the one thing that still
+  does not fold: a user `init` body.
 - For a KNOWN C struct, declare a typed Saw struct (declaration-order natural ABI,
   design 58) as a stack local + `(&sa) as UnsafePointer<...>` for the syscall —
   never a raw byte blob; alignment comes free from the widest field. Only
