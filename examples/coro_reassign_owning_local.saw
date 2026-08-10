@@ -9,9 +9,10 @@
 // write is a write of the FIELD — the same store an initializing `let` emits,
 // which wraps to `Some` and drops what the field held.
 //
-// Three rows: a plain reassignment, one whose RHS READS the old value (the
-// read must still mean the old payload), and a projection write, which still
-// goes through the payload because that is where the storage is.
+// Three rows: a plain reassignment; one whose RHS READS the old value, so the
+// read must still mean the old payload; and a `move` of a sibling local into a
+// move-only container binding, mutated afterwards through the field the store
+// replaced.
 // EXPECT: success
 // EXPECT-OUTPUT:
 // ok 4
