@@ -8745,6 +8745,36 @@ class ExpressionsMixin:
         if enum_info.type_params and matched_type.type_args:
             for type_param, type_arg in zip(enum_info.type_params, matched_type.type_args):
                 type_mapping[type_param.name] = type_arg
+        # DF-190a (design 193 u1, pulled forward): a match on an OWNED enum
+        # scrutinee CONSUMES it — codegen hands the payload to the arm bindings
+        # and suppresses the scrutinee's own drop (codegen/match.py, design 61
+        # L14/L15) — but nothing here recorded that transfer, so a second
+        # `match s` compiled silently and the payload deinit'd TWICE. Mirror
+        # codegen's consume gate and mark the binding moved: a plain local
+        # binding (matching through a `&T`/`&var T` binding stays a borrow; a
+        # temporary has no binding to mark), an enum whose tier is an OWNING
+        # one, carrying at least one payload the drop glue would touch. An
+        # ImplicitCopy-tier enum is NOT marked — its reads are retain-copies
+        # by policy, and the consume model's tier-blindness there is its own
+        # codegen bug (DF-190d, owned by 193 u1's oracle unification).
+        if isinstance(expr.matched_expr, Identifier):
+            scrut_info = self.current_scope.lookup(expr.matched_expr.name)
+            if (scrut_info is not None
+                    and scrut_info.type.kind != TypeKind.REFERENCE
+                    and self.namespace.copy_tier(matched_type) in ('nocopy', 'explicit')):
+                has_owning_payload = False
+                for variant_params_raw in enum_info.variants.values():
+                    for _, ftype in variant_params_raw:
+                        if type_mapping:
+                            ftype = ftype.substitute(type_mapping)
+                        if self.namespace.copy_tier(ftype) != 'free':
+                            has_owning_payload = True
+                            break
+                    if has_owning_payload:
+                        break
+                if has_owning_payload:
+                    self._mark_binding_moved(scrut_info, expr.matched_expr.name,
+                                             expr.line, expr.column)
         arm_types = []
         matched_variants = set()
         has_wildcard = False

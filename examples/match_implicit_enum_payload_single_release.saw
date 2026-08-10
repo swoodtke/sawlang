@@ -1,0 +1,46 @@
+// An ImplicitCopy-tier enum matched by a plain local scrutinee: the match
+// must NOT consume it. ImplicitCopy reads are retain-copies by policy, so
+// each arm binding retains the payload and the scrutinee keeps ownership —
+// the payload is released exactly ONCE, when the scrutinee's own scope ends
+// (after `done`). Today codegen's consume model is tier-blind (gated on
+// `enum_has_owning`, not the copy tier): the FIRST match hands the payload
+// to the arm binding, which releases it at arm end while `h` is still live
+// (`deinit 9` prints before `second`), and the second match walks the freed
+// payload — a silent use-after-free.
+// XFAIL: DF-190d codegen's match consume model is tier-blind; an ImplicitCopy-tier enum's payload is released at the first arm's end, not at scrutinee scope end
+// EXPECT: success
+// EXPECT-OUTPUT:
+// first
+// second
+// done
+// deinit 9
+
+struct Res {
+    id: Int
+}
+
+extension Res: NoCopy {
+    func deinit(&var self) {
+        print("deinit {self.id}")
+    }
+}
+
+enum Holder {
+    case Full(a: Arc<Res>),
+    case Nothing
+}
+
+@synthesize extension Holder: ImplicitCopy {}
+
+func main() {
+    let h = Holder.Full(a: Arc<Res>(value: Res(id: 9)))
+    match h {
+        case Full(a) -> { print("first") },
+        case Nothing -> { print("none") }
+    }
+    match h {
+        case Full(a) -> { print("second") },
+        case Nothing -> { print("none") }
+    }
+    print("done")
+}

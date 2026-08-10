@@ -11,21 +11,35 @@ older history is in this file's git log (pruned Jul 30).
 
 `designs/190-quality-program.md` is the analysis (findings-vs-proposals
 matrix + three code censuses); 191-194 are the briefs it produced.
-Awaiting user approval to queue. Recommended order: 193 first (fixes
-confirmed soundness holes), then 191 ∥ 192, then 194; keep 193/194
-serial (both touch typechecker internals). The process rules (position
-funnel-or-matrix; contract-flip consumer sweep; safety-surface
-conformance-rows-first) LANDED with 190 into CLAUDE.md.
+USER-APPROVED Aug 9 ("kick that off when the handoff is reloaded");
+queue dispatching in order: 193 first (fixes confirmed soundness
+holes), then 191 ∥ 192, then 194; keep 193/194 serial (both touch
+typechecker internals). The process rules (position funnel-or-matrix;
+contract-flip consumer sweep; safety-surface conformance-rows-first)
+LANDED with 190 into CLAUDE.md.
 
-- **DF-190a (SOUNDNESS, CONFIRMED, filed Aug 9): a match-arm payload
-  binding bypasses the transfer checkpoint — an owned NoCopy enum is
-  double-consumed.** Two sequential `match s` on one owned NoCopy enum
-  compile silently and the payload deinits TWICE (probe: `deinit 7`
-  twice, exit 0). Codegen marks the scrutinee moved
-  (`codegen/match.py`); the typechecker binds match payloads
-  (`expressions.py:8795-8814`) with no `_check_value_transfer` and no
-  move state. Double-free class, trivially reachable. Owned by design
-  193 unit 1. PIN: `examples/match_owned_enum_double_consume.saw`.
+- **DF-190a — FIXED (pulled forward of the queue, landed Aug 9/10).**
+  The typechecker now mirrors codegen's consume gate in
+  `_check_match_expr`: a plain local scrutinee of an owning-tier
+  (NoCopy/ExplicitCopy) enum with owning payload is marked moved, so a
+  second `match s` is a clean use-after-move error. PIN flipped to a
+  passing error test: `examples/match_owned_enum_double_consume.saw`.
+  RESIDUAL for 193 u1: the copy-tier oracle unification note stands,
+  and DF-190d (below) is the implicit-tier half of the same hole.
+- **DF-190d (SOUNDNESS, CONFIRMED, filed Aug 9/10): codegen's match
+  consume model is TIER-BLIND — an ImplicitCopy-tier enum's payload is
+  released at the first arm's end, not at scrutinee scope end.** The
+  consume gate is `enum_has_owning` (any payload needs cleanup),
+  tier-free, so `match h` on an undeclared/ImplicitCopy enum holding an
+  `Arc` hands the payload to the arm binding, which releases it while
+  `h` is still live; a second match (or any later use) walks freed
+  memory — probe: `deinit 9` prints between the matches, silent UAF,
+  exit 0. The right shape: ImplicitCopy-tier matches do NOT consume —
+  bindings retain at extraction, scrutinee keeps ownership (Map/Set
+  slot machinery matches moved-out temporaries/locals never reused, so
+  refcounts stay balanced either way — verify in the unit). Owned by
+  design 193 unit 1 (the oracle-unification work item). PIN:
+  `examples/match_implicit_enum_payload_single_release.saw`.
 - **DF-190b (CAPABILITY + DIAGNOSTIC, CONFIRMED, filed Aug 9): a
   suspending callee inside `try ... catch` in a task body is rejected
   with a nonsense error** (``undefined struct `compute` ``); the sync

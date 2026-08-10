@@ -1,13 +1,12 @@
 // Matching an OWNED enum consumes it — the payload binding takes ownership
-// (design skill: "match on an owned enum consumes it"). Codegen marks the
-// scrutinee moved, but the typechecker binds match payloads with no
-// transfer checkpoint and no move-marking, so a SECOND match on the same
-// owned NoCopy enum compiles silently and the payload deinits TWICE (a
-// double-free). The intended behavior is a use-after-move error at the
-// second match, exactly as a second `move s` would give.
-// XFAIL: DF-190a match-arm payload binding bypasses the move checkpoint; owned NoCopy enum double-consumed
+// (design skill: "match on an owned enum consumes it"). Codegen suppresses
+// the scrutinee's drop and hands the payload to the arm bindings, and the
+// typechecker records that consumption as a move (DF-190a), so a SECOND
+// match on the same owned NoCopy enum is a use-after-move error, exactly
+// as a second `move s` would give. Before the fix it compiled silently and
+// the payload deinit'd TWICE (a double-free).
 // EXPECT: error
-// EXPECT-ERROR-CONTAINS: after it was moved
+// EXPECT-ERROR-CONTAINS: use of moved variable `s`
 
 struct Res {
     id: Int

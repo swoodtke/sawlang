@@ -12,19 +12,25 @@ with 194 (both touch typechecker internals).**
 
 ## Units — ranked by the census's risk order; soundness first
 
-1. **DF-190a — match-arm payload bindings join the transfer checkpoint
-   (CONFIRMED double-free).** Two sequential `match s` on one owned
-   NoCopy enum compile silently and the payload deinits TWICE (probe:
-   `deinit 7` twice, exit 0) — codegen marks the scrutinee moved
-   (codegen/match.py), the typechecker binds payloads
-   (expressions.py:8795-8814) with no `_check_value_transfer`, no move
-   state. Route match-arm consumption through the checkpoint so the
-   scrutinee is move-marked and the second match is a clean
-   use-after-move error; a borrowing/place match (design 146) stays a
-   borrow, only an OWNING scrutinee consumes. PIN:
-   `examples/match_owned_enum_double_consume.saw`. Check the
-   copy-tier oracle unification here too (the census's three disagreeing
-   answers: `namespace.copy_tier`, `_payload_read_policy`,
+1. **Match-consume tier correctness (DF-190a residual + DF-190d,
+   CONFIRMED UAF).** The DF-190a checkpoint half LANDED ahead of this
+   brief (Aug 9/10, direct on main): `_check_match_expr` mirrors
+   codegen's consume gate and move-marks a plain local scrutinee of an
+   owning-tier (NoCopy/ExplicitCopy) enum with owning payload; its pin
+   is a passing error test. What remains here: **DF-190d** — codegen's
+   consume model is TIER-BLIND (`enum_has_owning`, not the copy tier),
+   so an ImplicitCopy-tier enum's payload is handed to the arm binding
+   and released at the first arm's end while the scrutinee is live; a
+   second match walks freed memory (probe: `deinit 9` between the
+   matches, silent UAF, exit 0). Fix: an ImplicitCopy-tier match does
+   NOT consume — bindings RETAIN at extraction, the scrutinee keeps
+   ownership and drops at its own scope end. Verify Map/Set slot
+   machinery stays balanced (their matched slots are moved-out
+   temporaries/locals never reused; the `_`-peek trick at
+   codegen/match.py:316-330 is nocopy-tier and unaffected — confirm).
+   PIN: `examples/match_implicit_enum_payload_single_release.saw`.
+   Do the copy-tier oracle unification here too (the census's three
+   disagreeing answers: `namespace.copy_tier`, `_payload_read_policy`,
    `place_uses._value_read_ok`).
 2. **DF-190b — TryCatchExpr in the coro spine walks (capability +
    nonsense diagnostic).** A suspending callee inside `try ... catch` in

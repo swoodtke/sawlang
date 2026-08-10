@@ -509,7 +509,12 @@ if let v = maybe { } / guard let v = maybe else { return }
 if let (a, b) = optPair { }          // tuple over Optional tuple
 ```
 - String literal patterns compare by content. `true`+`false` exhausts
-  Bool. Match on an OWNED enum consumes it (bindings own payloads).
+  Bool. Match on an OWNED enum consumes it (bindings own payloads):
+  for a NoCopy/ExplicitCopy enum with owning payload, the scrutinee is
+  moved-from afterwards — a second `match s` (or any later use) is a
+  use-after-move error, exactly like a second `move s`. Matching
+  through a `&`/`&var` binding or a place stays a borrow (no consume);
+  keep an ExplicitCopy value with `match s.copy()`.
 
 ## Errors
 ```saw

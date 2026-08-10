@@ -1196,6 +1196,32 @@ match msg1 {
 }
 ```
 
+#### Match consumes an owned enum
+
+A `match` on an owned NoCopy or ExplicitCopy enum with owning payload
+consumes the scrutinee: each arm binding owns its payload field, and the
+binding that held the enum is moved-from afterward. A later use, including a
+second `match`, is a use-after-move error, the same error a second `move s`
+gives. Matching through a `&`/`&var` parameter or a place borrows instead and
+consumes nothing; to keep an ExplicitCopy value past the match, write
+`match s.copy()`. Enums whose payloads are trivial or ImplicitCopy are not
+consumed.
+
+```saw
+enum Slot {
+    case Filled(r: Res),    // Res is NoCopy
+    case Empty
+}
+extension Slot: NoCopy {}
+
+let s = Slot.Filled(r: Res(id: 7))
+match s {
+    case Filled(r) -> use(move r),  // `r` owns the payload
+    case Empty -> ()
+}
+match s { ... }   // error: use of moved variable `s`
+```
+
 #### Methods on enums
 
 An enum carries methods on the same terms as a struct: write an `extension`.
