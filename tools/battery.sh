@@ -57,6 +57,7 @@ STAGES=(
     "bttable|no|the task-backtrace table against the frame layouts|$PY tools/test_bt_table.py"
     "fuzz|no|corpus-mutation fuzzing, one oracle: no ICE, no traceback|$PY tools/sawfuzz.py --quick"
     "bench|no|warehouse benchmark: checksums gate, timing reports|__BENCH__"
+    "selfhostlex|no|the selfhost lexer's own tests compile and pass|__SELFHOSTLEX__"
     "irdet|yes|IR determinism over the WHOLE corpus (not a sample)|__IRDET__"
     "gmgate|yes|ownership + concurrency oracles under Guard Malloc (macOS)|$PY tools/gmgate.py"
     "bootstrap|yes|Blade builds and tests Blade, stage0 through stage2|$PY tools/blade_bootstrap.py"
@@ -113,6 +114,31 @@ run_bench() {
     ./.build/benchdriver
 }
 
+# selfhost/lexer/tests was the one tree NO stage typechecked or ran (the
+# Aug-10 coverage sweep found it: lexdiff/astdiff only lex/parse it, and no
+# bootstrap-style runner exists for the package). Same exit-0-is-pass
+# contract as `blade test`. The lexdiff stage builds the package's src/
+# separately; this runs its TESTS.
+run_selfhostlex() {
+    local failed=0
+    mkdir -p .build/selfhostlex
+    for f in selfhost/lexer/tests/*.saw; do
+        local name
+        name="$(basename "$f" .saw)"
+        if ! "$PY" sawc/sawc.py "$f" -o ".build/selfhostlex/$name"; then
+            echo "selfhostlex: $name FAILED to compile"
+            failed=$((failed + 1))
+            continue
+        fi
+        if ! "./.build/selfhostlex/$name"; then
+            echo "selfhostlex: $name FAILED at run"
+            failed=$((failed + 1))
+        fi
+    done
+    echo "selfhostlex: $(ls selfhost/lexer/tests/*.saw | wc -l | tr -d ' ') test(s), $failed failing"
+    [ "$failed" -eq 0 ]
+}
+
 echo "battery: $REPO"
 echo "battery: python $PY"
 started=$(date +%s)
@@ -136,6 +162,8 @@ for entry in "${STAGES[@]}"; do
         run_irdet
     elif [ "$cmd" = "__BENCH__" ]; then
         run_bench
+    elif [ "$cmd" = "__SELFHOSTLEX__" ]; then
+        run_selfhostlex
     else
         $cmd
     fi

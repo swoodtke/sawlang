@@ -295,6 +295,15 @@ being tracked: it used to be an untracked scratch file each session rewrote
 from prose, and a gate list nobody can diff is a gate list that quietly loses
 an entry.
 
+### The selfhostlex stage
+
+The Aug-10 coverage sweep mapped which battery stage semantically checks
+each test tree: `blade/tests` and `libs/*/tests` run inside `bootstrap`
+(and ONLY there — `--quick` skips them), `sos/tests` inside `sos`, and
+`selfhost/lexer/tests` ran NOWHERE — nine passing tests no stage
+compiled. `selfhostlex` closes that: each `selfhost/lexer/tests/*.saw`
+is compiled and run, exit 0 = pass, same contract as `blade test`.
+
 ### The bench stage
 
 `bench` compiles and runs `devtools/bench/warehouse/` (driver:

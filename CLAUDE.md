@@ -149,10 +149,16 @@ objects are built + cached under `.build/rt/` and auto-linked (delete
   Stages: `suite`, `icebreadcrumb`, `lexdiff`, `astdiff`, `astgraft`,
   `ircontract`, `preludegate`, `abidoc`, `bttable`, `fuzz`
   (`sawfuzz --quick`), `bench` (the warehouse benchmark — checksums GATE,
-  timing report-only; devtools/bench/ + TESTING.md), then the slow four
+  timing report-only; devtools/bench/ + TESTING.md), `selfhostlex` (the
+  selfhost lexer's own tests — the one tree the Aug-10 coverage sweep
+  found NO stage ran), then the slow four
   `irdet` (`--all`, whole corpus), `gmgate` (both lanes), `bootstrap`,
   `sos`. Every stage RUNS even after one fails; the exit code is the
   number of failing stages. Adding a lane means editing `STAGES`.
+  Coverage map (Aug-10 sweep): blade/tests + libs/*/tests are
+  typechecked+run by `bootstrap` ONLY (so `--quick` skips them);
+  sos/tests by `sos` only; lexdiff/astdiff lex/parse EVERY tracked .saw
+  but check no semantics.
 - The AST contract (design 126, gated by design 194): every attribute a pass
   stamps on an AST node is a DECLARED `annotation(...)` field on the node
   class, never a runtime graft — `tools/test_ast_graft.py` (the `astgraft`
