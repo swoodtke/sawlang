@@ -141,7 +141,7 @@ class OptionalsMixin:
             # every slot reached only through that recursion — carries its
             # payload type here. The checker keeps returning the untyped form so
             # the literal still unifies with any `T?`.
-            expected = getattr(expr, 'expected_type', None)
+            expected = expr.expected_type
             if expected is not None and expected.is_optional():
                 inner_type = expected.inner_type
                 if inner_type and self.type_param_context:
@@ -161,7 +161,7 @@ class OptionalsMixin:
                 "cannot tell what this `None` is a `None` OF — no annotation, "
                 "parameter, field, return type or element type in scope fixes "
                 "its payload type",
-                expr.line, getattr(expr, 'column', 0) or 1,
+                expr.line, expr.column or 1,
                 hint="annotate the slot it flows into (`let absent: Int? = "
                      "None`), or give the call an explicit type argument",
                 source_file=self._di_current_basename())
@@ -219,7 +219,7 @@ class OptionalsMixin:
     def _retain_read_payload(self, node, payload):
         """design 131: honor a `payload_needs_copy` mark on a payload-extraction
         node by retaining the extracted value against the payload's own type."""
-        if not getattr(node, 'payload_needs_copy', False):
+        if not node.payload_needs_copy:
             return payload
         payload_type = self._payload_saw_type(node)
         if payload_type is None:

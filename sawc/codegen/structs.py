@@ -27,7 +27,7 @@ class StructsMixin:
         # Design 66: the typechecker reinterpreted this `name(label: ...)` node
         # as a fully-labeled FUNCTION call (the parser could not tell struct init
         # from a labeled call). Emit the call instead of a struct build.
-        as_call = getattr(expr, 'as_function_call', None)
+        as_call = expr.as_function_call
         if as_call is not None:
             return self._generate_function_call(as_call)
         # Handle generic struct instantiation
@@ -186,7 +186,7 @@ class StructsMixin:
         # Design 53: integer limits `Int.max`/`Int.min` (and every fixed-width
         # type). Platform `Int`/`UInt` use the target word width so a riscv32
         # build gets 32-bit bounds; fixed-width types use their own width.
-        limit = getattr(expr, 'int_limit', None)
+        limit = expr.int_limit
         if limit is not None:
             type_name, which = limit
             width, signed = self._INT_LIMIT_SPECS[type_name]
@@ -203,20 +203,20 @@ class StructsMixin:
 
         # Named-tuple field access (design 63): the typechecker stamped the
         # resolved position; extract that element from the tuple value.
-        tfi = getattr(expr, 'tuple_field_index', None)
+        tfi = expr.tuple_field_index
         if tfi is not None:
             obj_val = self._generate_expression(expr.object)
             return self.builder.extract_value(obj_val, tfi, name=f"tup_{expr.member}")
 
         # design 46: UnsafeMemory projection — `UM<Struct, Use>.field` computes
         # base + compile-time field offset WITHOUT loading the aggregate.
-        if getattr(expr, 'um_projection', False):
+        if expr.um_projection:
             return self._generate_um_member_projection(expr)
 
         # Module-qualified static read (design 41): `mod.NAME`. The typechecker
         # tagged the member; codegen resolves the static by simple name in the
         # merged module and loads through its global.
-        static_name = getattr(expr, 'resolved_static_name', None)
+        static_name = expr.resolved_static_name
         if static_name is not None and static_name in self.static_globals:
             gv = self.static_globals[static_name]
             return self.builder.load(gv, name=static_name)
@@ -224,7 +224,7 @@ class StructsMixin:
         # Design 144: the typechecker resolved this variant literal's enum and
         # stamped its identity. Take that over any name matching below — the
         # written `Color` may denote a different enum in a different module.
-        _eid = getattr(expr, 'resolved_type_identity', None)
+        _eid = expr.resolved_type_identity
         if _eid is not None and (_eid in self.enum_types
                                  or _eid in self.generic_enums):
             return self._generate_enum_init(EnumInit(

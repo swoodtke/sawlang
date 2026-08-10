@@ -119,7 +119,7 @@ class CollectionsMixin:
 
     def _generate_map_literal(self, expr: MapLiteral):
         """Lower a map literal `{k: v, ...}` / `{:}` (design 54)."""
-        ct = getattr(expr, 'resolved_type', None)
+        ct = expr.resolved_type
         # Map.insert returns the shadowed old value `V?`; a duplicate key inside
         # the literal discards it, so pass its type to be dropped (only owning V
         # actually needs it). V is the map's second type arg.
@@ -133,7 +133,7 @@ class CollectionsMixin:
 
     def _generate_set_literal(self, expr: SetLiteral):
         """Lower a set literal `{a, b, ...}` (design 54)."""
-        ct = getattr(expr, 'resolved_type', None)
+        ct = expr.resolved_type
         return self._build_collection_literal(
             ct, expr, "insert", [[e] for e in expr.elements])
 
@@ -142,7 +142,7 @@ class CollectionsMixin:
 
         Design 54 Part 4: when the typechecker stamped a `Vector<T, A>` expected
         type, build a Vector (per-element push) instead of a fixed-size array."""
-        vec_ct = getattr(expr, 'vector_container_type', None)
+        vec_ct = expr.vector_container_type
         if vec_ct is not None:
             return self._build_collection_literal(
                 vec_ct, expr, "push", [[e] for e in expr.elements])
@@ -185,7 +185,7 @@ class CollectionsMixin:
         evaluated EXACTLY ONCE either way, which is what makes the element's
         copy policy the typechecker's business rather than a surprise here.
         """
-        arr_saw = getattr(expr, 'resolved_type', None)
+        arr_saw = expr.resolved_type
         count = arr_saw.array_size if arr_saw is not None else None
         if count is None:
             # An abstract generic body stamped a length it could not evaluate;
@@ -278,7 +278,7 @@ class CollectionsMixin:
     def _generate_array_index(self, expr: ArrayIndex):
         """Generate code for array or tuple indexing with [index] syntax."""
         # design 46: UnsafeMemory region indexing projects to an element address.
-        if getattr(expr, 'um_projection', False):
+        if expr.um_projection:
             return self._generate_um_index_projection(expr)
 
         container_val = self._generate_expression(expr.array_expr)

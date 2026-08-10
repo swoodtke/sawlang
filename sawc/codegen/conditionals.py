@@ -185,7 +185,7 @@ class ConditionalsMixin:
         src = node.optional_expr
         return (isinstance(src, MoveExpr)
                 or self._is_owned_temporary(src)
-                or getattr(node, 'payload_needs_copy', False))
+                or node.payload_needs_copy)
 
     def _generate_if_let_expression(self, expr: IfLetExpr):
         """Generate code for if let/var optional binding.

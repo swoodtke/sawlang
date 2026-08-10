@@ -42,7 +42,7 @@ class ResultsMixin:
         # extract the Ok/Err payload as the wrong type (e.g. an Int read as a
         # String pointer -> crash). The name-based path keys off the actual type.
         result_enum_name = None
-        annotated = getattr(expr, 'result_enum_type', None)
+        annotated = expr.result_enum_type
         if annotated is not None and annotated.is_result():
             candidate = self._get_result_enum_name(annotated)
             if candidate in self.enum_types:
@@ -189,7 +189,7 @@ class ResultsMixin:
             # and this callee's error is concrete, erase it into a fresh box at
             # the propagation edge (re-box). A callee already returning the box
             # passes straight through (no re-box) — no erase_propagate is set.
-            erase = getattr(expr, 'erase_propagate', None)
+            erase = expr.erase_propagate
             if erase is not None:
                 err_value = self._erase_value_to_box(
                     err_value, erase['concrete'], erase['trait'], erase['allocator'])
@@ -267,7 +267,7 @@ class ResultsMixin:
         merge_bb = func.append_basic_block(name="try_catch_merge")
 
         # Get error type info from typechecker (set in _check_try_catch_expr)
-        error_type = getattr(expr, 'error_type', None)
+        error_type = expr.error_type
         error_types = getattr(expr, 'error_types', [])
         is_union = len(error_types) > 1
 
@@ -526,7 +526,7 @@ class ResultsMixin:
         """
         # design 92: a value-less Ok (bare `return` in a `Result<Void, E>`
         # function) has no inner expression to transfer — the Ok is the tag alone.
-        rtype = getattr(expr, 'result_type', None)
+        rtype = expr.result_type
         if expr.value is None:
             return self._create_result_ok_for_return(None, rtype)
         value = self._gen_transfer_value(expr.value)
@@ -542,7 +542,7 @@ class ResultsMixin:
         owned ImplicitCopy error value so scope cleanup does not free it early.
         """
         value = self._gen_transfer_value(expr.value)
-        return self._create_result_err_for_return(value, getattr(expr, 'result_type', None))
+        return self._create_result_err_for_return(value, expr.result_type)
 
     def visit_ErasedErrWrap(self, expr):
         """Generate code for ErasedErrWrap (design 56): erase a concrete `E`

@@ -41,7 +41,7 @@ class ClosuresMixin:
         param_names = []
         # Per-parameter Saw types (None if unknown); used to mark reference params.
         param_saw_types = []
-        resolved = getattr(expr, 'resolved_type', None)
+        resolved = expr.resolved_type
         resolved_params = resolved.param_types if (resolved and resolved.param_types) else None
 
         if expr.parameters:
@@ -88,7 +88,7 @@ class ClosuresMixin:
         # block, exactly once. The word only exists when there is a heap env
         # (escaping AND captures). A capture-less closure has a null env — no
         # refcount, trivially copyable (retain/drop are null-guarded no-ops).
-        escapes = getattr(expr, 'escapes', False)
+        escapes = expr.escapes
         has_heap_env = escapes and bool(captures)
         cap_off = 1 if has_heap_env else 0   # captures start after the refcount word
         # Per-capture mode (design 16/29): 'ref'/'ref_var' lower to an
@@ -132,7 +132,7 @@ class ClosuresMixin:
         # source closure inside `Vector<String>.map` are distinct by construction.
         owner = self.builder.function.name if self.builder is not None else "module"
         closure_name = self._synth_symbol(
-            f"__closure${owner}${getattr(expr, 'line', 0)}_{getattr(expr, 'column', 0)}")
+            f"__closure${owner}${expr.line}_{expr.column}")
 
         # Create closure function type: (env_ptr, params...) -> ret
         fn_param_types = [env_ptr_type] + param_types
@@ -274,7 +274,7 @@ class ClosuresMixin:
                 # literal has no signature to report an OOM through).
                 raw = self._alloc_or_panic(
                     env_size, 16, "closure environment",
-                    line=getattr(expr, 'line', 0))
+                    line=expr.line)
                 env_alloca = self.builder.bitcast(
                     raw, ir.PointerType(env_struct_type), name="env_heap")
                 # Seed the atomic refcount word (field 0) to 1 — this creation is

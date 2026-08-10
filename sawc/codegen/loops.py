@@ -76,7 +76,7 @@ class LoopsMixin:
         # `panic(...)` leaves behind, so every downstream `is_terminated` check
         # treats the rest of the block as the dead code it is (not emitted, no
         # scope cleanup, no fallthrough `ret`).
-        if getattr(stmt, 'diverges', False):
+        if stmt.diverges:
             self.builder.unreachable()
 
     def _generate_for_loop(self, stmt: ForLoop):
@@ -167,7 +167,7 @@ class LoopsMixin:
         # each iteration unless the body moved it out (design 65). Register it in
         # a per-iteration cleanup scope with a fresh drop flag (reset each pass),
         # then drop-if-unmoved before branching back to the condition.
-        elem_saw = getattr(stmt, 'element_type', None)
+        elem_saw = stmt.element_type
         # L18 fix (design 65 followup): the typechecker stamps `element_type` with
         # the loop variable's type as WRITTEN — inside a generic method that is the
         # unsubstituted param (`Vector<T>.iter()` yields `T`). Left as `T`,
@@ -222,7 +222,7 @@ class LoopsMixin:
         at `last` so `0..=Int.max` never increments past the end (design 53)."""
         start_val = self._generate_expression(range_expr.start)
         end_val = self._generate_expression(range_expr.end)
-        if getattr(range_expr, 'is_inclusive', False):
+        if range_expr.is_inclusive:
             range_type, _ = self.struct_types["RangeInclusive"]
             iter_alloca = self._entry_alloca(range_type, name="__range_inc")
             range_val = ir.Constant(range_type, ir.Undefined)
@@ -340,7 +340,7 @@ class LoopsMixin:
 
         # Release an owning loop variable per iteration unless moved (design 65),
         # mirroring the statement-context for-loop.
-        elem_saw = getattr(expr, 'element_type', None)
+        elem_saw = expr.element_type
         # L18 fix (design 65 followup): resolve a generic loop-variable type to the
         # active monomorphization so an owning loop variable is released (see the
         # statement-context for-loop for the full rationale).
@@ -448,7 +448,7 @@ class LoopsMixin:
 
         # Load and return result
         self.builder.position_at_end(end_block)
-        if getattr(expr, 'diverges', False):
+        if expr.diverges:
             # Design 177, expression position: the loop produced no value and
             # nothing reaches here. Same shape as `_generate_panic` — terminate
             # and hand back None, which every value site already has to tolerate

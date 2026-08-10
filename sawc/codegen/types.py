@@ -267,8 +267,8 @@ class TypesMixin:
                 expr = saw_type.array_size_expr
                 what, line, column = "the length", 0, 0
                 if expr is not None:
-                    line = getattr(expr, 'line', 0) or 0
-                    column = getattr(expr, 'column', 0) or 0
+                    line = expr.line or 0
+                    column = expr.column or 0
                     try:
                         const_eval(expr, env=self._const_param_env(),
                                    metric=self._const_type_metric,
@@ -294,8 +294,8 @@ class TypesMixin:
                 expr = saw_type.array_size_expr
                 raise CodegenUserError(
                     f"array length is negative (`{size}`)",
-                    getattr(expr, 'line', 0) or 0,
-                    getattr(expr, 'column', 0) or 0,
+                    expr.line or 0,
+                    expr.column or 0,
                     hint="an array length counts elements, so it starts at 0",
                     source_file=getattr(expr, 'source_file', None))
             elem_type = self._get_llvm_type(saw_type.array_element_type)

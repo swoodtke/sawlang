@@ -685,7 +685,7 @@ class GenericsMixin:
             # _mark_noalias_params / _declare_extension_methods.
             self._mark_noalias_params(llvm_func, [p.type for p in method.parameters])
             if (not method.is_init and not method.is_static
-                    and getattr(method, 'self_mutable', False)):
+                    and method.self_mutable):
                 llvm_func.args[0].add_attribute('noalias')
             # Design 108: register default parameter values under this mono's
             # mangled name (the non-generic _declare_method path does this, but a
@@ -823,8 +823,8 @@ class GenericsMixin:
         # design 69: attach the DISubprogram + prime the line location (mono body
         # maps to the ORIGINAL method's source lines).
         self._di_begin_function(llvm_func, f"{struct_name}.{method.name}",
-                                getattr(method, 'source_file', ''),
-                                getattr(method, 'line', 0))
+                                method.source_file,
+                                method.line)
 
         # Clear variables for this method. Isolate the cleanup state too:
         # drop-flag allocas (design 42) belong to THIS llvm function and must not
@@ -948,8 +948,8 @@ class GenericsMixin:
 
         # design 69: attach the DISubprogram + prime the line location.
         self._di_begin_function(llvm_func, f"{struct_name}.{method.name}",
-                                getattr(method, 'source_file', ''),
-                                getattr(method, 'line', 0))
+                                method.source_file,
+                                method.line)
 
         # Clear variables for this method
         self.variables = {}

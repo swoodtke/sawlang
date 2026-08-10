@@ -30,7 +30,7 @@ class MatchMixin:
         """Generate code for match expression."""
         # design 63 T1d: value/tuple/guarded matches use the general if-chain
         # lowering; classic enum matches keep the switch below.
-        if getattr(expr, 'use_general_match', False):
+        if expr.use_general_match:
             return self._generate_match_general(expr)
 
         # An arm may `lend` one of its payload bindings (design 146, DF-146d).
@@ -64,7 +64,7 @@ class MatchMixin:
             tag = self.builder.extract_value(matched_val, 0, name="match_tag")
 
         # Get enum name from typechecker annotation, or fall back to LLVM type matching
-        matched_enum_type = getattr(expr, 'matched_enum_type', None)
+        matched_enum_type = expr.matched_enum_type
         if matched_enum_type is not None:
             # Substitute the active monomorphization's type params first, so a
             # match on a generic enum inside a generic body (e.g.
@@ -490,7 +490,7 @@ class MatchMixin:
         are emitted in the test block and used in the dominated body block.
         """
         scrut = self._generate_expression(expr.matched_expr)
-        scrut_type = getattr(expr, 'matched_scrutinee_type', None)
+        scrut_type = expr.matched_scrutinee_type
         if scrut_type is not None and self.type_param_context:
             scrut_type = scrut_type.substitute(self.type_param_context)
 
