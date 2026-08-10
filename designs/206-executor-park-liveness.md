@@ -28,6 +28,69 @@ runner timeout on every suite run until fixed — urgency is structural.**
    caller is itself an embedded sub-frame. PIN:
    `examples/channel_receive_through_helper.saw`.
 
+## Unit 1 — the diagnosis (Aug 10, from the probes)
+
+**Both hangs are ONE bug, and it is neither of the two the brief guessed.**
+The park primitives are innocent; so is the design-62 G3 receive lowering.
+What is wrong is upstream of both: **the entry compile's effect graph has no
+node for any std METHOD, so "does this body suspend?" answers NO for a body
+whose only suspension is a std method call** — and every consumer of that
+answer then lowers the body as if it never suspended.
+
+`sawc.py:417-430` says so in as many words: *"The main compile typechecker
+never checks std bodies (they are pre-checked here), so it cannot infer these
+on its own"*. It therefore carries `_std_suspending_methods` (a set of
+`(struct, method)` name pairs) across for the coroutine transform. But
+`typechecker._suspend_nodes` — the graph the effect FIXPOINT walks — gets
+nothing. `_effect_call_method` records an edge to the callee's
+`Method.node_id`; that key names no node; `nodes.get(e.target)` is `None`; the
+edge propagates nothing.
+
+**Why the timer path looked like it "drained".** It never drains anything.
+`sleep(...)` is an INTRINSIC, not a std function — `expressions.py:3311`
+records it as a DIRECT source on the caller's own node — so `_main_suspends`
+(`effects.py:669-695`) is true, `main` is wrapped in the entry executor, and
+the suspension is an ordinary task park the ambient sweep already handles.
+`listener.accept()` is a std METHOD, so `_main_suspends` is false and `main`
+is never wrapped at all. Verified in the IR: the DF-203a repro emits
+`define i32 @main(...)` calling `TcpListener_accept` straight through — no
+frame, no `__saw_exec_run_root`. Insert one `yield_now()` into that same
+`main` and the whole program runs correctly (`worker connecting / worker done
+/ accepted / done`). The asymmetry is intrinsic-vs-method, not timer-vs-reactor.
+
+**DF-203a, precisely.** `main` is not a coroutine, so `accept`'s internal
+`io_wait` reaches the OUTSIDE-FRAME lowering (`codegen/calls.py:475-495`):
+`__saw_exec_io_register(fd, dir, 0)` then `__saw_exec_park(-1)`, i.e.
+`__saw_host_reactor().poll(-1)`. That call blocks the one thread the ambient
+scheduler runs on, forever, with a ready worker sitting in the run queue.
+
+**DF-203b, precisely — the same blind spot, one consumer further along.**
+`worker` is a spawn root, so it IS transformed; `acquire` is not. Design 96
+already found this exact gap and patched ONE consumer of it: the transform's
+`structurally_susp_fns` seed (`coro_transform.py:5966-6003`) marks a free
+function suspending when `_scan_method_callees` finds a suspending std method
+in its body. But `_scan_method_callees` SKIPS `is_chan_recv` calls
+(`coro_transform.py:5946`) — correctly, since a channel `receive()` is lowered
+inline and never becomes a method sub-frame — and `acquire`'s only suspension
+IS a channel `receive()`. So `acquire` joins no closure, gets no frame, and
+its `receive()` lowers as an ordinary call to the monomorphized
+`Channel$1$Int_receive` body. That body is
+`while not __done { if let v = try_receive() { return v } ; yield_now() }`
+and OUTSIDE a frame `yield_now()` codegens to NOTHING
+(`codegen/calls.py:473`). The emitted IR is a bare infinite spin over
+`try_receive` — worker 1 enters it with an empty channel and pins the thread
+at 100% forever, which is exactly `in 0` and then silence. std/channel.saw:199
+states the belief that fails here: *"it reaches `yield_now`, so it — and any
+caller — suspends"* — true in the builtin typechecker, false in the entry one.
+
+**So the fix is shared and it is at the root**, not at either symptom: give
+the entry graph the std methods' suspension facts, through ONE definition of
+"really suspends" used by both typecheckers. Everything downstream — the
+entry-executor gate, the driven closure, the sync-context check — then reads a
+graph that is simply correct, and neither park primitive nor the G3 lowering
+needs to change. Unit 2 does that; unit 3 closes the chan-recv hole in the
+design-96 structural seed as well, so closure discovery is not single-sourced.
+
 ## Units
 
 1. **Diagnose before fixing, and write the failure down.** For each
