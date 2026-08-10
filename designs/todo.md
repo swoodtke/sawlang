@@ -235,13 +235,20 @@ DF-192g is a confirmed wrong answer** — both below.
   width agreement) and the more serious face of it: the binop shape is loud,
   this one is silent. Reached by minimizing a fuzzer ICE. PIN:
   `examples/if_value_mismatched_width_arms.saw` (XFAIL, cited).
-- **DF-190c (VERIFY / latent must-agree, filed Aug 9):
-  `_make_specialization_key` has DIVERGED** — codegen handles design-148
-  const-value type args (`generics.py:566-571`), the typechecker drops
-  them to an empty key (`expressions.py:6409-6411`). A const-generic
-  specialization may key differently front vs back. Needs a probe (does
-  it ever key through the typechecker copy?) before the fix. Owned by
-  design 194 unit 2.
+- **DF-190c (VERIFY / latent must-agree, filed Aug 9, CLOSED Aug 10 by 194 u2):
+  `_make_specialization_key` had DIVERGED** — codegen handled design-148
+  const-value type args, the typechecker dropped them to an empty key.
+  PROBE ANSWER: no, a const-generic specialization never keys through the
+  typechecker copy — over the whole corpus it saw a `CONST_VALUE` argument
+  zero times in 219,689 calls, and codegen's 24 const keys matched no
+  registered entry either. The reason is upstream of both: a const-generic
+  SPECIALIZATION cannot be written at all (`extension Ring<4>` is the parse
+  error "Expected type parameter name"), so no const key is ever registered.
+  Latent, never live. Both copies now delegate to one
+  `ast_nodes.specialization_key`; PIN:
+  `examples/const_generic_specialized_extension_unsupported.saw` (an ordinary
+  expectation test — nothing is broken, and the pin flips the day the grammar
+  admits a const specialization).
 
 **191 LANDED Aug 10** (all five units; see `designs/191-conformance-suite.md`).
 The Aug-8 audit's 247 rows are a standing suite: `examples/conformance/`, one

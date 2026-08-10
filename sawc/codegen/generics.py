@@ -14,7 +14,8 @@ Usage:
 from typing import Optional, List
 from llvmlite import ir
 from ast_nodes import (
-    SawType, TypeKind, Extension, EnumVariant, Method, self_by_pointer
+    SawType, TypeKind, Extension, EnumVariant, Method, self_by_pointer,
+    specialization_key
 )
 from .mangle import mangle_function, mangle_named, mangle_method
 
@@ -532,47 +533,10 @@ class GenericsMixin:
         return True
 
     def _make_specialization_key(self, type_args: List[SawType]) -> tuple:
-        """Convert type arguments to a specialization key tuple."""
-        key_parts = []
-        for t in type_args:
-            if t.kind == TypeKind.STRING:
-                key_parts.append("String")
-            elif t.kind == TypeKind.INT:
-                key_parts.append("Int")
-            elif t.kind == TypeKind.UINT:
-                key_parts.append("UInt")
-            elif t.kind == TypeKind.FLOAT:
-                key_parts.append("Float")
-            elif t.kind == TypeKind.BOOL:
-                key_parts.append("Bool")
-            elif t.kind == TypeKind.INT8:
-                key_parts.append("Int8")
-            elif t.kind == TypeKind.INT16:
-                key_parts.append("Int16")
-            elif t.kind == TypeKind.INT32:
-                key_parts.append("Int32")
-            elif t.kind == TypeKind.INT64:
-                key_parts.append("Int64")
-            elif t.kind == TypeKind.UINT8:
-                key_parts.append("UInt8")
-            elif t.kind == TypeKind.UINT16:
-                key_parts.append("UInt16")
-            elif t.kind == TypeKind.UINT32:
-                key_parts.append("UInt32")
-            elif t.kind == TypeKind.UINT64:
-                key_parts.append("UInt64")
-            elif t.kind == TypeKind.STRUCT and t.struct_name:
-                key_parts.append(t.struct_name)
-            elif t.kind == TypeKind.CONST_VALUE and t.const_value is not None:
-                # A const generic VALUE argument (design 148). Tagged so a
-                # `FixedBuf<256>` specialization can never be confused with a
-                # type named `256`, which is unwritable but the tag costs
-                # nothing and keeps the key total.
-                key_parts.append(f"#{t.const_value}")
-            else:
-                # Can't create key for this type
-                return ()
-        return tuple(key_parts)
+        """The shared definition — see `ast_nodes.specialization_key`. Kept as a
+        method because both dispatch sites read as `self.` calls; the LOGIC has
+        exactly one home, which is the point of design 194 unit 2."""
+        return specialization_key(type_args)
 
     def _monomorphize_single_extension(self, generic_ext: Extension, type_args: List[SawType],
                                         mangled_struct_name: str, type_mapping: dict[str, SawType],

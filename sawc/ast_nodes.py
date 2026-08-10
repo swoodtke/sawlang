@@ -129,6 +129,62 @@ def const_expr_str(expr) -> str:
     return "?"
 
 
+_SPEC_KEY_PRIMITIVES = {
+    TypeKind.STRING: "String",
+    TypeKind.INT: "Int",
+    TypeKind.UINT: "UInt",
+    TypeKind.FLOAT: "Float",
+    TypeKind.BOOL: "Bool",
+    TypeKind.INT8: "Int8",
+    TypeKind.INT16: "Int16",
+    TypeKind.INT32: "Int32",
+    TypeKind.INT64: "Int64",
+    TypeKind.UINT8: "UInt8",
+    TypeKind.UINT16: "UInt16",
+    TypeKind.UINT32: "UInt32",
+    TypeKind.UINT64: "UInt64",
+}
+
+
+def specialization_key(type_args) -> tuple:
+    """The key a SPECIALIZED extension is registered and looked up under: one
+    string per type argument, or `()` for an argument this scheme cannot name.
+
+    ONE definition, because the typechecker and codegen must agree exactly
+    (design 194 unit 2, DF-190c). They did not: codegen learned design 148's
+    const-value arguments and the typechecker's copy kept dropping them to an
+    empty key. The probe that preceded this unification found the divergence
+    LATENT and, today, unreachable from either end — a const-generic
+    specialization cannot be WRITTEN (`extension Ring<4>` is a parse error,
+    "Expected type parameter name"), so no const key is ever registered, and
+    over the whole corpus the typechecker's copy saw a `CONST_VALUE` argument
+    zero times in 219,689 calls. The moment the grammar admits one the two
+    copies would have disagreed about which methods exist, which is the kind of
+    bug that reaches a user as a missing symbol rather than as a diagnostic.
+
+    `()` means "no specialization can match this", which is why an argument the
+    scheme cannot name (an enum, a nested generic, a type parameter) aborts the
+    whole key rather than contributing a placeholder: a partial key would match
+    a specialization written for something else.
+    """
+    key_parts = []
+    for t in type_args or ():
+        name = _SPEC_KEY_PRIMITIVES.get(t.kind)
+        if name is not None:
+            key_parts.append(name)
+        elif t.kind == TypeKind.STRUCT and t.struct_name:
+            key_parts.append(t.struct_name)
+        elif t.kind == TypeKind.CONST_VALUE and t.const_value is not None:
+            # A const generic VALUE argument (design 148). Tagged so a
+            # `FixedBuf<256>` specialization can never be confused with a type
+            # named `256`, which is unwritable but the tag costs nothing and
+            # keeps the key total.
+            key_parts.append(f"#{t.const_value}")
+        else:
+            return ()
+    return tuple(key_parts)
+
+
 @dataclass
 class SawType:
     kind: TypeKind

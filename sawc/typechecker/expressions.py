@@ -24,7 +24,7 @@ from ast_nodes import (
     TryExpr, TryCatchExpr,
     Block, LetStatement, AssignStatement, ReturnStatement, ExpressionStatement,
     CompoundAssignStatement, GuardLetStatement, BreakStatement,
-    SawType, TypeKind,
+    SawType, TypeKind, specialization_key,
     ResultOkWrap, ResultErrWrap, OptionalWrap,
     Pattern, WildcardPattern, BindingPattern, LiteralPattern,
     RangePattern, TuplePattern, EnumPattern,
@@ -6486,43 +6486,11 @@ class ExpressionsMixin:
             "this assignment", moves=False)
 
     def _make_specialization_key(self, type_args: List[SawType]) -> tuple:
-        """Convert type arguments to a specialization key tuple."""
-        if not type_args:
-            return ()
-        key_parts = []
-        for t in type_args:
-            if t.kind == TypeKind.STRING:
-                key_parts.append("String")
-            elif t.kind == TypeKind.INT:
-                key_parts.append("Int")
-            elif t.kind == TypeKind.UINT:
-                key_parts.append("UInt")
-            elif t.kind == TypeKind.FLOAT:
-                key_parts.append("Float")
-            elif t.kind == TypeKind.BOOL:
-                key_parts.append("Bool")
-            elif t.kind == TypeKind.INT8:
-                key_parts.append("Int8")
-            elif t.kind == TypeKind.INT16:
-                key_parts.append("Int16")
-            elif t.kind == TypeKind.INT32:
-                key_parts.append("Int32")
-            elif t.kind == TypeKind.INT64:
-                key_parts.append("Int64")
-            elif t.kind == TypeKind.UINT8:
-                key_parts.append("UInt8")
-            elif t.kind == TypeKind.UINT16:
-                key_parts.append("UInt16")
-            elif t.kind == TypeKind.UINT32:
-                key_parts.append("UInt32")
-            elif t.kind == TypeKind.UINT64:
-                key_parts.append("UInt64")
-            elif t.kind == TypeKind.STRUCT and t.struct_name:
-                key_parts.append(t.struct_name)
-            else:
-                # Unknown type, can't match specialization
-                return ()
-        return tuple(key_parts)
+        """The shared definition — see `ast_nodes.specialization_key`. This was
+        the diverged copy (DF-190c): it dropped a design-148 const-value
+        argument to an empty key while codegen tagged it, so front and back
+        would have disagreed about which specialized methods exist."""
+        return specialization_key(type_args)
 
     def _name_to_type(self, name: str) -> SawType:
         """Convert a type name string to a SawType."""
