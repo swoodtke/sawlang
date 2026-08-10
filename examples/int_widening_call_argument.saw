@@ -1,0 +1,34 @@
+// An implicit lossless widening must preserve the value at a CALL ARGUMENT and
+// at a fixed-array element store, the two positions DF-195a's fix did not reach.
+//
+// Design 195 unit 3 made the widening rule one funnel (`_widen_int_value`),
+// extending by the SOURCE's signedness — the only choice that preserves the
+// two's-complement value. Three positions pass it a source type and answer
+// correctly now (`let`, `return`, a struct field), and the value-branch arms
+// get it through the synthesized cast. These two hold LLVM values with no
+// source EXPRESSION threaded to them, so they still fall back to signed:
+//
+//   take(u)        // prints -294967296 for a UInt32 holding 4000000000
+//   slots[0] = u   // the same value, stored into an `[Int; 2]`
+//
+// Mechanical to close (thread the argument and element expressions through to
+// the funnel, which already takes the type); `_coerce_call_args` has nine call
+// sites, which is why it is a follow-up rather than part of design 195.
+// XFAIL: DF-195e a call argument and an array element store still widen by SIGNED, so an unsigned source sign-extends
+// EXPECT: success
+// EXPECT-OUTPUT:
+// 4000000000
+// 4000000000
+
+func take(n: Int) -> Int {
+    n
+}
+
+func main() {
+    let u: UInt32 = 4000000000u32
+    print(take(u))
+
+    var slots: [Int; 2] = [0; 2]
+    slots[0] = u
+    print(slots[0])
+}

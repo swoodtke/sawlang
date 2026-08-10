@@ -2929,6 +2929,145 @@ class TypeUtilsMixin:
         value_expr.resolved_type = SawType(rt.kind)
         return target
 
+    # ------------------------------------------------------------------
+    # Value-branch merging (design 195 rule 2).
+    # ------------------------------------------------------------------
+
+    _AGREEMENT_UNSIGNED_KINDS = frozenset({
+        TypeKind.UINT, TypeKind.UINT8, TypeKind.UINT16,
+        TypeKind.UINT32, TypeKind.UINT64,
+    })
+
+    _AGREEMENT_FIXED_WIDTHS = {
+        TypeKind.INT8: 8, TypeKind.INT16: 16,
+        TypeKind.INT32: 32, TypeKind.INT64: 64,
+        TypeKind.UINT8: 8, TypeKind.UINT16: 16,
+        TypeKind.UINT32: 32, TypeKind.UINT64: 64,
+    }
+
+    def _int_kind_width(self, kind) -> Optional[int]:
+        """The bit width of an integer kind at the EFFECTIVE target.
+
+        Platform `Int`/`UInt` are POINTER-WIDTH (design 47), so `Int64` widens
+        into `Int` on a 64-bit target and NARROWS into it on riscv32. Reading the
+        width off the target rather than assuming 64 is what keeps the merge below
+        answering per profile.
+        """
+        w = self._AGREEMENT_FIXED_WIDTHS.get(kind)
+        if w is not None:
+            return w
+        if kind in (TypeKind.INT, TypeKind.UINT):
+            return getattr(self, 'platform_int_width', 64)
+        return None
+
+    def _int_widens_losslessly(self, src, dst) -> bool:
+        """Whether every value of integer kind `src` has a `dst` value.
+
+        LANGUAGE_SPEC's conversion cost table exactly: the identity, same-sign
+        widening, and unsigned into STRICTLY wider signed. Everything else is a
+        narrowing or a sign change at or above the source width — a value the
+        target cannot represent, which is why design 170 makes those a WRITTEN
+        conversion.
+        """
+        if src == dst:
+            return True
+        sw = self._int_kind_width(src)
+        dw = self._int_kind_width(dst)
+        if sw is None or dw is None:
+            return False
+        s_unsigned = src in self._AGREEMENT_UNSIGNED_KINDS
+        d_unsigned = dst in self._AGREEMENT_UNSIGNED_KINDS
+        if s_unsigned == d_unsigned:
+            return sw <= dw
+        if s_unsigned:
+            return sw < dw
+        return False
+
+    def _merge_value_branch_types(self, arm_types, subject: str,
+                                  line: int, column: int) -> Optional[SawType]:
+        """THE value-branch merge — design 195 rule 2.
+
+        Each arm of a value `if`/`match`, and each operand of `??`, hands its
+        value to ONE merged home, so each is a TRANSFER and takes the rule a
+        `return` takes: a lossless widening is free, and anything else is the
+        ordinary transfer error. The merged type is the arm type every other arm
+        widens into losslessly.
+
+        ENTRY POINTS:
+
+        - ``_check_if_expr`` — the then and else branch values
+        - ``_reconcile_match_arm_types`` — every arm of a value `match`, on both
+          the enum-switch path and the general pattern path
+        - ``_check_nil_coalesce`` — the `??` payload beside its default
+
+        `arm_types` is the arms' types in ARM ORDER; an arm that yields no value
+        (a diverging `panic`, a block whose every path returned) is the caller's
+        to filter out. Returns None when the arms are not ALL integers — every
+        other merge in the language, and none of this rule's business — and ALSO
+        when they already agree, so a merge that has nothing to do leaves the
+        caller's own answer and its lowering byte-identical.
+
+        When two arm types each widen into the other (two same-width, same-sign
+        kinds, e.g. `Int` and `Int64` on a 64-bit target) the FIRST in arm order
+        wins, so the answer does not depend on which arm was written first
+        producing a different lowering on a re-run.
+        """
+        if not arm_types:
+            return None
+        kinds = []
+        for t in arm_types:
+            if t is None:
+                return None
+            rt = self._get_underlying_type(t)
+            if rt.kind not in self._AGREEMENT_INT_KINDS:
+                return None
+            kinds.append(rt.kind)
+        if len(set(kinds)) <= 1:
+            return None
+        for i, candidate in enumerate(kinds):
+            if all(self._int_widens_losslessly(k, candidate) for k in kinds):
+                return arm_types[i]
+        seen = []
+        for t in arm_types:
+            rendered = f"`{t}`"
+            if rendered not in seen:
+                seen.append(rendered)
+        self._error(
+            ErrorKind.TYPE_MISMATCH,
+            f"{subject} have no common type: {' and '.join(seen)} — neither "
+            f"widens into the other without losing a value",
+            line, column,
+            hint="a narrowing or a same-width sign change has to be written: "
+                 "`x as T` panics out of range, `T.from(x)` answers `None`, "
+                 "`T.from(truncating: x)` keeps the low bits"
+        )
+        return arm_types[0]
+
+    def _widened(self, value_expr, merged: Optional[SawType]):
+        """`value_expr` extended to `merged`, or unchanged (design 195 rule 2).
+
+        The widening is a SYNTHESIZED `as`. Design 170's cast lowering already
+        extends by the SOURCE's signedness — which is what preserves the value —
+        and stamps no runtime check on a total pair, so building the node the
+        author could have written keeps ONE integer-conversion lowering in the
+        compiler instead of a second one at each branch merge. It is also
+        idempotent: the wrapped arm types as `merged` on the design-146 second
+        pass, so the merge finds the arms already equal and wraps nothing more.
+        """
+        from ast_nodes import CastExpr
+        if value_expr is None or merged is None:
+            return value_expr
+        t = getattr(value_expr, 'resolved_type', None)
+        if t is None:
+            return value_expr
+        if self._get_underlying_type(t).kind == self._get_underlying_type(merged).kind:
+            return value_expr
+        cast = CastExpr(expr=value_expr, target_type=merged,
+                        line=getattr(value_expr, 'line', 0),
+                        column=getattr(value_expr, 'column', 0))
+        cast.resolved_type = merged
+        return cast
+
     def _check_value_transfer(self, expr: Optional[Expression], target_type: Optional[SawType],
                               context: str, line: int, column: int,
                               is_return: bool = False):

@@ -9,7 +9,6 @@
 // PROBE (Aug 10, before the fix): a CONSTANT default answered correctly by
 // accident (LLVM's textual `phi` gives an incoming constant no type of its
 // own), and a NON-CONSTANT one was an internal compiler error out of LLVM.
-// XFAIL: DF-192g the `??` position — a non-constant narrow operand is an ICE; design 195 unit 3 makes both sides transfers
 // EXPECT: success
 // EXPECT-OUTPUT:
 // 3

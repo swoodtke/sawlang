@@ -4110,6 +4110,24 @@ class ExpressionsMixin:
                             column=expr.else_branch.final_expr.column
                         )
                     return then_type
+            # design 195 rule 2: the two branches are TRANSFERS into one merged
+            # home, so an arm that widens losslessly is free and one that cannot
+            # is the ordinary transfer error. Skipped when the arms were already
+            # reported incompatible above — one diagnostic per disagreement.
+            #
+            # Until this, mismatched-width arms fell past the phi in codegen and
+            # the `if` handed back the THEN value on both paths (DF-192g, a
+            # confirmed wrong answer).
+            if self._types_compatible(then_type, else_type):
+                merged = self._merge_value_branch_types(
+                    [then_type, else_type],
+                    "the `if` and `else` branches", expr.line, expr.column)
+                if merged is not None:
+                    expr.then_branch.final_expr = self._widened(
+                        expr.then_branch.final_expr, merged)
+                    expr.else_branch.final_expr = self._widened(
+                        expr.else_branch.final_expr, merged)
+                    return merged
             return then_type or else_type
         else:
             return then_type
@@ -6202,6 +6220,21 @@ class ExpressionsMixin:
         self._check_value_transfer(expr.default, opt_type.inner_type,
                                    "the default operand of `??`",
                                    expr.default.line, expr.default.column)
+        # design 195 rule 2: the payload and the default merge into one value, so
+        # they take the same widening rule the `if` and `match` arms take. The
+        # DEFAULT is widened here with a synthesized `as`; the payload has no AST
+        # node of its own (it is an `extractvalue` out of the optional), so its
+        # half is `_generate_nil_coalesce`'s.
+        #
+        # This is also what fixes the RESULT type: the method used to answer with
+        # the default's type whatever the payload's was, so `o ?? -7i16` on an
+        # `Int?` typed `Int16` while codegen phi'd at the payload's width.
+        merged = self._merge_value_branch_types(
+            [opt_type.inner_type, default_type],
+            "the `??` payload and its default", expr.line, expr.column)
+        if merged is not None:
+            expr.default = self._widened(expr.default, merged)
+            return merged
         return default_type
 
     def _check_optional_chain(self, expr: OptionalChain) -> Optional[SawType]:
@@ -9143,6 +9176,28 @@ class ExpressionsMixin:
                     expr.line, expr.column
                 )
                 return None
+        # design 195 rule 2: every arm is a TRANSFER into one merged home, so a
+        # lossless widening arm is free and one that cannot widen is the ordinary
+        # transfer error. Reached only once every arm passed the compatibility
+        # loop above, so it reports at most one diagnostic per match.
+        #
+        # Codegen builds the phi at `arm_results[0]`'s type and adds every arm to
+        # it. LLVM's textual `phi` gives an incoming CONSTANT no type of its own,
+        # so a narrow constant arm was silently re-read at the phi's width and
+        # answered correctly by accident; a narrow VARIABLE arm was an internal
+        # compiler error. Widening the arms here means the phi meets one width.
+        valued = [at for at in arm_types if not self._arm_yields_no_value(at)]
+        merged = self._merge_value_branch_types(
+            valued, "the match arms", expr.line, expr.column)
+        if merged is not None and len(arm_types) == len(expr.arms):
+            for arm, at in zip(expr.arms, arm_types):
+                if self._arm_yields_no_value(at):
+                    continue
+                if isinstance(arm.body, Block):
+                    arm.body.final_expr = self._widened(arm.body.final_expr, merged)
+                else:
+                    arm.body = self._widened(arm.body, merged)
+            return merged
         return result_type
 
     def _reconcile_optional_arms(self, expr: MatchExpr, arm_types) -> Optional[SawType]:

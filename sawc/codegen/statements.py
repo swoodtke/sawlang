@@ -299,9 +299,14 @@ class StatementsMixin:
         # i64, so a later `-a` / overflow check runs at the wrong width and a
         # wire-format struct store reads too many bytes. The typechecker already
         # range-checked the literal against the annotation (design 65), so the
-        # truncation is value-preserving; a widen is sign/zero-extended by
-        # signedness. Suffixed/cast RHS values already carry the right width
-        # (no-op here). Only same-family integer annotations are coerced.
+        # truncation is value-preserving. Suffixed/cast RHS values already carry
+        # the right width (no-op here). Only same-family integer annotations are
+        # coerced.
+        #
+        # A WIDEN goes through the design-195 funnel, by the SOURCE's signedness:
+        # this arm used to read the TARGET's, so `let wide: Int = someUInt32`
+        # sign-extended and every unsigned value with its high bit set came back
+        # negative (DF-195a).
         _signed_ints = {TypeKind.INT, TypeKind.INT8, TypeKind.INT16,
                         TypeKind.INT32, TypeKind.INT64}
         _unsigned_ints = {TypeKind.UINT, TypeKind.UINT8, TypeKind.UINT16,
@@ -314,10 +319,10 @@ class StatementsMixin:
                     and target_llvm.width != value.type.width):
                 if target_llvm.width < value.type.width:
                     value = self.builder.trunc(value, target_llvm)
-                elif var_type.kind in _unsigned_ints:
-                    value = self.builder.zext(value, target_llvm)
                 else:
-                    value = self.builder.sext(value, target_llvm)
+                    value = self._widen_int_value(
+                        value, target_llvm,
+                        getattr(stmt.value, 'resolved_type', None))
 
         # Design 107: a DERIVED same-scope redefinition REPLACES the old binding.
         # The initializer above already consumed (`move`) or copied the old
@@ -994,7 +999,7 @@ class StatementsMixin:
                 # back — `ret void %val` is not an instruction.
                 self.builder.ret_void()
                 return
-            value = self._coerce_ret_value(value)
+            value = self._coerce_ret_value(value, stmt.value)
             self.builder.ret(value)
         else:
             # A valueless `return` in a Saw void function. main() is the one such

@@ -20,6 +20,7 @@ from ast_nodes import (
     NoneLiteral
 )
 from .mangle import content_tag, mangle_type
+from .operators import _UNSIGNED_INT_KINDS
 
 
 @dataclass
@@ -148,17 +149,59 @@ class CallsMixin:
                 vals.append(gen_default(logical_defaults[p]))
         return vals
 
-    def _coerce_int_llvm(self, value, target):
+    def _widen_int_value(self, value, to_llvm, from_type):
+        """Extend an integer value to a WIDER slot (design 195, closing DF-195a).
+
+        The rule, and it has one right answer: an implicit widening extends by the
+        SOURCE's signedness. That is what preserves the two's-complement VALUE —
+        a `UInt32` holding 4000000000 is 4000000000 in an `Int`, and
+        sign-extending it makes -294967296. LANGUAGE_SPEC's conversion cost table
+        has said "unsigned -> strictly wider signed | one `zext`" since design
+        170; the widening sites picked the extension off the TARGET (or off
+        nothing at all) and every unsigned source came back negative.
+
+        `from_type` is the source's Saw type. Absent (a synthesized value, a node
+        the pass has no expression for), the extension falls back to SIGNED, which
+        is `_int_is_signed`'s own convention for an unannotated operand.
+
+        POSITIONS an implicit widening happens, and where each gets its extension:
+
+        - a value `if` / `match` arm, and the `??` DEFAULT — through a synthesized
+          `as`, so design 170's own cast lowering (`_convert_int_width`) answers
+        - the `??` PAYLOAD — `_generate_nil_coalesce`, which passes the payload type
+        - a `let` with a wider annotation — `_generate_let_statement`
+        - a `return` — `_coerce_ret_value`, which passes the returned expression
+        - a struct FIELD initializer — `_coerce_field_int`, which has the field's
+          own value expression
+        - a call ARGUMENT and a fixed-array ELEMENT store — `_coerce_call_args` and
+          the element-assignment path, which hold LLVM values with no source
+          expression threaded to them and so still fall back to signed (DF-195e)
+        """
+        if value.type.width >= to_llvm.width:
+            return value
+        unsigned = False
+        if from_type is not None:
+            resolved = self._resolve_type_alias(from_type)
+            if self.type_param_context:
+                resolved = resolved.substitute(self.type_param_context)
+            unsigned = resolved.kind in _UNSIGNED_INT_KINDS
+        if unsigned:
+            return self.builder.zext(value, to_llvm, name="widen_zext")
+        return self.builder.sext(value, to_llvm, name="widen_sext")
+
+    def _coerce_int_llvm(self, value, target, from_type=None):
         """Coerce an integer `value` to the LLVM `target` IntType (design 65
         followup). A bare integer literal reaches a fixed-width slot as the
         platform word (i64); retype the constant to the target width (out-of-range
         constants are already rejected by the typechecker). A runtime integer is
-        truncated / sign-extended to fit."""
+        truncated, or WIDENED through `_widen_int_value` — pass `from_type` where
+        the caller has the source's Saw type, or the extension falls back to
+        signed (design 195 / DF-195a)."""
         if isinstance(value, ir.Constant):
             return ir.Constant(target, value.constant)
         if value.type.width > target.width:
             return self.builder.trunc(value, target, name="arg_trunc")
-        return self.builder.sext(value, target, name="arg_sext")
+        return self._widen_int_value(value, target, from_type)
 
     def _coerce_call_args(self, callee, args):
         """Coerce integer call arguments to the callee's exact parameter widths
@@ -181,17 +224,23 @@ class CallsMixin:
             out.append(a)
         return out
 
-    def _coerce_ret_value(self, value):
+    def _coerce_ret_value(self, value, value_expr=None):
         """Coerce an integer return value to the current function's declared
         return width (design 65 followup) — a bare literal tail/`return` in a
         fixed-width-returning function (`func g() -> Int8 { 5 }`) reaches here as
-        the platform word (i64) and would fail LLVM verification."""
+        the platform word (i64) and would fail LLVM verification.
+
+        `value_expr` is the returned EXPRESSION, whose Saw type decides a
+        widening's extension (design 195 / DF-195a: `return u` for a `UInt32 u`
+        from an `-> Int` function used to sign-extend and answer negative)."""
         if value is None:
             return value
         rt = self.builder.function.function_type.return_type
         if (isinstance(value.type, ir.IntType) and isinstance(rt, ir.IntType)
                 and value.type.width != rt.width):
-            return self._coerce_int_llvm(value, rt)
+            from_type = (getattr(value_expr, 'resolved_type', None)
+                         if value_expr is not None else None)
+            return self._coerce_int_llvm(value, rt, from_type)
         return value
 
     # ---------------------------------------------------------------- design 183

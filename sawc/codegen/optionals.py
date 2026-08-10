@@ -269,6 +269,20 @@ class OptionalsMixin:
         self.builder.position_at_start(some_bb)
         some_val = self.builder.extract_value(optional_val, 1, name="some_value")
         some_val = self._retain_read_payload(expr, some_val)
+        # design 195 rule 2: the payload's half of the merge. The DEFAULT was
+        # widened in the typechecker, which could wrap the expression it had; the
+        # payload is an `extractvalue` with no AST node to wrap, so it is extended
+        # here — by the PAYLOAD's own signedness, which is what preserves the
+        # value. Emitted in the some-block, before the branch, so it dominates the
+        # phi.
+        merged = getattr(expr, 'resolved_type', None)
+        if merged is not None and isinstance(some_val.type, ir.IntType):
+            merged_llvm = self._get_llvm_type(merged)
+            if (isinstance(merged_llvm, ir.IntType)
+                    and merged_llvm.width > some_val.type.width):
+                opt_saw = getattr(expr.expr, 'resolved_type', None)
+                payload = opt_saw.inner_type if opt_saw is not None else None
+                some_val = self._widen_int_value(some_val, merged_llvm, payload)
         self.builder.branch(merge_bb)
         some_bb = self.builder.block
 

@@ -11,7 +11,6 @@
 // PROBE (Aug 10, before the fix): all three COMPILED. The `if` printed 11 on
 // both paths — the same wrong answer DF-192g names, in the spelling that has no
 // correct reading at all; the `match` and the `??` reinterpreted the constant.
-// XFAIL: DF-192g value-branch arms are not checked for width or sign agreement — design 195 unit 3 makes them transfers
 // EXPECT: error
 // EXPECT-ERROR-CONTAINS: `Int`
 // EXPECT-ERROR-CONTAINS: `UInt64`

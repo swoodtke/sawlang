@@ -146,9 +146,11 @@ class StructsMixin:
         A bare integer literal (an i64 platform word on a hosted build) assigned
         to a narrower/wider fixed-width field is retyped to the field's width. A
         constant that does not fit the field is rejected with the standard range
-        error (never an ICE); a runtime integer is truncated / sign- or
-        zero-extended to fit. Non-integer fields and same-width values pass
-        through unchanged.
+        error (never an ICE); a runtime integer is truncated, or WIDENED through
+        the design-195 funnel — by the SOURCE's signedness, which is what
+        preserves the value. This arm read the FIELD's signedness until then, so
+        an unsigned value flowing into a wider signed field sign-extended
+        (DF-195a's field position).
         """
         resolved = self._resolve_type_alias(field_type) if field_type is not None else field_type
         if resolved is None or resolved.kind not in self._INT_KINDS:
@@ -172,9 +174,8 @@ class StructsMixin:
             return ir.Constant(field_llvm, v)
         if value.type.width > width:
             return self.builder.trunc(value, field_llvm, name="field_trunc")
-        if signed:
-            return self.builder.sext(value, field_llvm, name="field_sext")
-        return self.builder.zext(value, field_llvm, name="field_zext")
+        return self._widen_int_value(
+            value, field_llvm, getattr(value_expr, 'resolved_type', None))
 
     # Design 53 integer limits: (type name) -> (bit width or None for platform,
     # is_signed). Shared with the constant evaluator (design 148), so the value

@@ -11,7 +11,6 @@
 // NON-CONSTANT one was an internal compiler error out of LLVM
 // (`instruction forward referenced with type 'i64'`). Right answer by accident,
 // crash the moment the arm was a variable.
-// XFAIL: DF-192g the match-arm position — a non-constant narrow arm is an ICE; design 195 unit 3 makes arms transfers
 // EXPECT: success
 // EXPECT-OUTPUT:
 // 11

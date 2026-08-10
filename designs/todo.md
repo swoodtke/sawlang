@@ -14,8 +14,15 @@ settled in the Aug-10 morning review; each has an authored brief.
 Order (soundness → capability → consistency; typechecker briefs serial,
 disjoint surfaces parallel):
 
-1. **195 integer width agreement** (DF-192g wrong answer + DF-192f +
-   the silent `Int + UInt` probe) — solo first.
+1. ~~**195 integer width agreement**~~ — **LANDED Aug 10**, all five units,
+   tracked battery green. DF-192f and DF-192g closed; DF-195a (an implicit
+   widening extending by the TARGET's signedness — a second wrong answer,
+   found by unit 1's probes) closed with them. Four findings filed:
+   DF-195b/c (transfer-position narrowing and sign flip through the
+   platform pair — a CONVERSION question, owed a ruling), DF-195d (may an
+   integer literal adopt `Float`?), DF-195e (two widening positions with no
+   source type threaded to them). See `designs/195-*.md` for the four
+   decisions the units needed beyond the brief's text.
 2. **198 duplicate match arms are errors** (DF-192d) — small, same
    match-checking neighborhood, straight after 195.
 3. **199 nested-call refs join the Law** (DF-188j; sweep-first) — solo.
@@ -391,8 +398,28 @@ DF-192g is a confirmed wrong answer** — both below.
   unsigned one. Load-bearing for design 195 rule 2: a value-branch arm is a
   transfer whose lossless widening is legal, so the widening has to be
   correct before arms can ride it. PIN:
-  `examples/int_widening_transfer_preserves_unsigned.saw` (XFAIL, cited).
-  **Owned by design 195 unit 3** (the widening funnel the arm merges use).
+  `examples/int_widening_transfer_preserves_unsigned.saw`.
+  **FIXED by design 195 unit 3.** `_widen_int_value` is the one funnel now,
+  extending by the SOURCE's signedness, its docstring listing every position
+  an implicit widening happens. Fixed at `let`, `return` and a struct FIELD
+  (each has the source expression in hand) and at the value-branch arms
+  (through the synthesized cast rule 2 inserts). PIN flipped to a passing
+  test — re-authored on the way, because its third case asserted a `UInt8`
+  into an `Int16`, which design 53 refuses at a transfer whether or not the
+  pair is lossless. RESIDUAL: DF-195e.
+- **DF-195e (SOUNDNESS, residual of DF-195a, filed Aug 10 by 195 u3): two
+  implicit-widening positions still extend by SIGNED, because no source type
+  reaches them.** `_coerce_call_args` and the fixed-array element-assignment
+  path hold LLVM values with no source EXPRESSION threaded to them, so
+  `f(u32val)` into an `Int` parameter, and a store of an unsigned value into
+  a wider signed element, still sign-extend and answer negative. Same root
+  and same fix shape as DF-195a — thread the argument/element expression to
+  `_widen_int_value`, which already takes the type — and mechanical rather
+  than hard; left out of design 195 because `_coerce_call_args` has nine call
+  sites and the brief's own subject was operand agreement. The funnel's
+  docstring NAMES both positions, so the next reader of the rule finds them
+  without a census. PIN:
+  `examples/int_widening_call_argument.saw` (XFAIL, cited).
 - **DF-195b (SOUNDNESS + a RULING OWED, filed Aug 10 by 195 u1's probes): a
   NARROWING transfer through a platform `Int` truncates silently.**
   `let n: Int = 300` followed by `let b: Int8 = n` prints `44`. Design 170
