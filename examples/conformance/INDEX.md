@@ -6,9 +6,9 @@ either a file in this directory or an existing `examples/` test that already
 asserts the same rule at the same position — this table is the record of which,
 and the dedup decisions are meant to be audited from it.
 
-**76 rows carry a file here; 194 are covered elsewhere.** (The audit's 247 plus
+**81 rows carry a file here; 194 are covered elsewhere.** (The audit's 247 plus
 the rows later briefs added: W02-W05, design 194 unit 4; W06-W19, design 195
-unit 1; X41-X45, design 199 unit 1.)
+unit 1; X41-X45, design 199 unit 1; M31-M35, design 200 unit 1.)
 
 ## How to read it
 
@@ -84,6 +84,11 @@ Claim source: spec 2 *Variables and Mutability* + 4 *Reference Types*; designs 4
 | M28 | indirection carve-out: `self.rows[0].push` at `&self` | `shared_self_field_call_exemption.saw` |  |
 | M29 | `&var` parameter mutation is visible at the caller | `references_basic.saw` |  |
 | M30 | writing an immutable module `static` | `errors/static_assign_whole.saw` |  |
+| M31 | `&self` method writing through a place window on an INLINE field (DF-176c) | `M31_shared_self_place_window_write.saw` | 200 — the last surviving member of the vanishing-write family; the write landed in the receiver copy and printed `first 1` |
+| M32 | indirection carve-out through a place WINDOW: `self.rows[0][0] += 100` at `&self` | `M32_shared_self_place_window_heap_field.saw` | 200 — the accept side of the same ruling: the copy shares the buffer |
+| M33 | a place write in the PROLOGUE of a `&self` borrows body | `M33_borrows_body_prologue_place_write.saw` | 200 — RATIFIED as intended: an accessor's receiver travels by pointer, so the write lands |
+| M34 | a `#lend_var`-gated place write, exclusive specialization only | `M34_lend_var_gated_place_write.saw` | 200 — ratified with M33; the gate picks the flavor that pays |
+| M35 | the same inline-field window write declared `&var self` | `M35_var_self_place_window_write.saw` | 200 — the fix M31's diagnostic names |
 
 ## References are parameters only — they can never escape
 
@@ -475,6 +480,10 @@ rows (R24, X15, X16, X20, U24, U25). The seventh is the suite's one open gap:
 Obligation 3 asks a safety-surface brief for its rows FIRST, so a row that
 states a ruling the compiler has not been taught yet lands as a cited XFAIL and
 the unit that teaches it removes the marker. None are open.
+
+Open: **M31** — XFAIL citing DF-176c. A `&self` method writing through a place
+window on an INLINE field is a silent no-op into the receiver copy; design 200
+unit 2 teaches the refusal and removes the marker.
 
 Closed: **X41, X44, X45** — written under an XFAIL citing DF-188j (a
 by-reference argument created by a NESTED call did not join the outer call's

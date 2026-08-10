@@ -1,0 +1,45 @@
+// Conformance row M34 — a `#lend_var`-gated place write in a flavored accessor
+//
+// M33's prologue write, with the gate design 179 built for exactly this. The
+// accessor compiles TWICE and the gated branch is REMOVED from the shared copy,
+// so the write runs in the EXCLUSIVE specialization only: one read, one write
+// and one more read leave the counter at 1.
+//
+// This is the third out the DF-175a diagnostic names, and design 200 ratifies
+// it alongside the ungated form — the receiver of a borrows body travels by
+// pointer either way, so the gate is about WHICH window flavor pays for the
+// mutation, not about whether the write can land.
+// EXPECT: success
+// EXPECT-OUTPUT: read 8
+// EXPECT-OUTPUT: read 99
+// EXPECT-OUTPUT: writes 1
+
+struct Counters { hits: [Int; 2] }
+
+extension Counters {
+    func [](&self, i: Int) borrows -> Int {
+        if i < 0 || i >= 2 { panic("Counters.[]: index out of range") }
+        lend self.hits[i]
+    }
+}
+
+struct Log { counters: Counters, slots: [Int; 4] }
+
+extension Log {
+    func at(&self, i: Int) borrows -> Int {
+        if #lend_var {
+            self.counters[0] += 1
+        }
+        if i < 0 || i >= 4 { panic("Log.at: index out of range") }
+        lend self.slots[i]
+    }
+    func writes(&self) -> Int { self.counters[0] }
+}
+
+func main() {
+    var l = Log(counters: Counters(hits: [0, 0]), slots: [7, 8, 9, 10])
+    print("read {l.at(1)}")
+    l.at(2) = 99
+    print("read {l.at(2)}")
+    print("writes {l.writes()}")
+}

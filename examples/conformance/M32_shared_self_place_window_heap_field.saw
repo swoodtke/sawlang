@@ -1,0 +1,44 @@
+// Conformance row M32 — the indirection carve-out, reached through a place
+// window
+//
+// M28 pins the carve-out for a `&var self` METHOD call on a heap-reaching field
+// (`self.rows[0].push(9)`). This is the write shape design 200's refusal must
+// leave alone: a direct place WRITE through the element accessor, at one window
+// and at two nested ones. Both reach a `Vector`'s heap buffer, which the
+// `&self` copy SHARES rather than duplicates, so the write lands in the
+// caller's storage and the method is honest.
+//
+// The distinction the refusal draws is where the accessor lends FROM, not what
+// the use site does: `Vector.[]` lends out of the buffer `self.buffer` points
+// at, so nothing here is inside the receiver's own bytes.
+//
+// The `&var` ARGUMENT spelling of the same write (`f(&var self.rows[0][2])`) is
+// refused by design 176's projection rule, which reads the lvalue
+// syntactically rather than by where the bytes live — DF-200a.
+// EXPECT: success
+// EXPECT-OUTPUT: width 3
+// EXPECT-OUTPUT: head 101
+// EXPECT-OUTPUT: tail 55
+
+struct Rows { rows: Vector<Vector<Int>> }
+
+extension Rows: NoCopy {}
+
+extension Rows {
+    func widen(&self) { self.rows[0].push(9) }
+    func bump_head(&self) { self.rows[0][0] += 100 }
+    func stamp_tail(&self) { self.rows[0][2] = 55 }
+    func width(&self) -> Int { self.rows[0].len() }
+    func head(&self) -> Int { self.rows[0][0] }
+    func tail(&self) -> Int { self.rows[0][2] }
+}
+
+func main() {
+    var r = Rows(rows: [[1, 2]])
+    r.widen()
+    r.bump_head()
+    r.stamp_tail()
+    print("width {r.width()}")
+    print("head {r.head()}")
+    print("tail {r.tail()}")
+}

@@ -1,0 +1,43 @@
+// Conformance row M33 — a place write in the PROLOGUE of a `&self` borrows body
+//
+// The other half of DF-176c, and the half design 200 RATIFIES rather than
+// refuses. A borrows accessor's receiver travels by POINTER whichever flavor
+// the use site opens (`place_self_by_pointer`, design 146), so a place write in
+// the prologue reaches the caller's own storage instead of a copy — it LANDS,
+// which is what an accessor that has to touch its receiver before lending
+// needs.
+//
+// The cost is the one M24 names for a plain field write: the write runs for a
+// SHARED window too, so two pure reads of a `let` root leave the counter at 2.
+// An accessor that means to count only writes gates on `#lend_var` — row M34.
+// EXPECT: success
+// EXPECT-OUTPUT: slot 8
+// EXPECT-OUTPUT: slot 9
+// EXPECT-OUTPUT: reads 2
+
+struct Counters { hits: [Int; 2] }
+
+extension Counters {
+    func [](&self, i: Int) borrows -> Int {
+        if i < 0 || i >= 2 { panic("Counters.[]: index out of range") }
+        lend self.hits[i]
+    }
+}
+
+struct Log { counters: Counters, slots: [Int; 4] }
+
+extension Log {
+    func at(&self, i: Int) borrows -> Int {
+        self.counters[0] += 1
+        if i < 0 || i >= 4 { panic("Log.at: index out of range") }
+        lend self.slots[i]
+    }
+    func reads(&self) -> Int { self.counters[0] }
+}
+
+func main() {
+    let l = Log(counters: Counters(hits: [0, 0]), slots: [7, 8, 9, 10])
+    print("slot {l.at(1)}")
+    print("slot {l.at(2)}")
+    print("reads {l.reads()}")
+}

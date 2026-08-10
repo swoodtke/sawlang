@@ -1,0 +1,35 @@
+// Conformance row M35 — the same inline-field window write, declared `&var self`
+//
+// M31's body with the receiver design 176's diagnostic names as the fix. A
+// `&var self` receiver is borrowed exclusively and travels as a pointer, so the
+// window opens on the CALLER's `grid` and the write is visible after the call.
+// The control that keeps the refusal honest: what M31 refuses is the receiver's
+// sharing, not the window.
+//
+// The shared READ beside it is the second control — a `&self` method may still
+// open a shared window on the same inline field, which is what makes `first`
+// compile.
+// EXPECT: success
+// EXPECT-OUTPUT: first 101
+
+struct Grid { cells: [Int; 4] }
+
+extension Grid {
+    func [](&self, i: Int) borrows -> Int {
+        if i < 0 || i >= 4 { panic("Grid.[]: index out of range") }
+        lend self.cells[i]
+    }
+}
+
+struct Board { grid: Grid }
+
+extension Board {
+    func bump(&var self) { self.grid[0] += 100 }
+    func first(&self) -> Int { self.grid[0] }
+}
+
+func main() {
+    var b = Board(grid: Grid(cells: [1, 2, 3, 4]))
+    b.bump()
+    print("first {b.first()}")
+}

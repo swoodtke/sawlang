@@ -371,6 +371,20 @@ DF-192e fixed, DF-192b/c/d/f/g pinned (DF-192d fixed since, by design 198).
   Out of design 198's subject (duplicate arms), which is why it is filed
   rather than fixed. PIN:
   `examples/match_guard_on_payload_free_enum.saw` (XFAIL, cited).
+- **DF-200a (over-rejection, filed Aug 10 by design 200 unit 1's rows): the
+  `&var self.<field>` PROJECTION rule reads the lvalue SYNTACTICALLY, so it
+  refuses a heap-reaching path the assignment rule accepts.** In a `&self`
+  method, `self.rows[0][2] = 55` compiles and writes the caller's element (row
+  M32 — `_writes_into_self_storage` walks TYPES and stops at the `Vector`
+  indirection), while `f(&var self.rows[0][2])` is refused: the projection check
+  in `_check_reference_expr` uses `_projects_from_self`, a purely syntactic
+  walk that answers "inside the receiver" for anything rooted at `self`.
+  One storage, two answers — design 190's duplication family, one rule with two
+  implementations. Conservative (a refusal, never a silent write), which is why
+  it is filed rather than fixed: aligning them RELAXES a safety refusal, so it
+  wants a ruling rather than a drive-by. The write shapes are pinned either way
+  by `examples/conformance/M32_shared_self_place_window_heap_field.saw`, whose
+  header names this finding.
 - **DF-192e — FIXED by the unit that found it (192 u3): a hex const generic
   argument was an uncaught parser crash.** `FixedBuf<0x10>()` died in
   `parse_const_expr`'s primary with `ValueError: invalid literal for int()

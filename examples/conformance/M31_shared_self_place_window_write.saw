@@ -1,0 +1,39 @@
+// Conformance row M31 — a `&self` method writing through a place window on an
+// INLINE field (DF-176c)
+//
+// The fourth spelling of the vanishing write, and the last one still open: the
+// three the family started with (a direct field write, a `&var self.field`
+// projection, a `&var self` method call on self or on a field) all became
+// compile errors in designs 176 and 188. This one reaches the same storage
+// through a synthesized place window. `grid` is an INLINE field, so it travels
+// with the `&self` copy — the window opens on the copy, the write lands there,
+// and the copy is discarded when the method returns.
+//
+// Probed Aug 10 before design 200: it compiled and printed `first 1`, not
+// `first 101`. The accept side is row M32 — a field the copy reaches through
+// heap indirection, where the same window write is sound.
+// XFAIL: DF-176c a `&self` method writing through a place window on an inline field is a silent no-op into the receiver copy
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: cannot write through a place window on storage reached through a `&self` receiver
+
+struct Grid { cells: [Int; 4] }
+
+extension Grid {
+    func [](&self, i: Int) borrows -> Int {
+        if i < 0 || i >= 4 { panic("Grid.[]: index out of range") }
+        lend self.cells[i]
+    }
+}
+
+struct Board { grid: Grid }
+
+extension Board {
+    func bump(&self) { self.grid[0] += 100 }
+    func first(&self) -> Int { self.grid[0] }
+}
+
+func main() {
+    var b = Board(grid: Grid(cells: [1, 2, 3, 4]))
+    b.bump()
+    print("first {b.first()}")
+}
