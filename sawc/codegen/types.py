@@ -291,11 +291,15 @@ class TypesMixin:
                 # 148 ("repeat count is negative"); the type position had not,
                 # and DF-172j gives the fold one more way to arrive here.
                 from .core import CodegenUserError
+                # A folded length (design 148 / DF-172j) arrives with its
+                # expression; a length that was already a number when the type
+                # was built does not, so the anchor has to tolerate its absence
+                # rather than turn a clean diagnostic into a crash.
                 expr = saw_type.array_size_expr
                 raise CodegenUserError(
                     f"array length is negative (`{size}`)",
-                    expr.line or 0,
-                    expr.column or 0,
+                    (expr.line if expr is not None else 0) or 0,
+                    (expr.column if expr is not None else 0) or 0,
                     hint="an array length counts elements, so it starts at 0",
                     source_file=getattr(expr, 'source_file', None))
             elem_type = self._get_llvm_type(saw_type.array_element_type)
