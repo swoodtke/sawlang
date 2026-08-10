@@ -39,7 +39,23 @@ internals).**
    triple-returning helper with thin adapters, and codegen's
    missing-EnumPattern case checked against its callers (a latent gap
    in its own right).
-4. **Stage the getattr→field conversion.** Now that the schema fields
+4. **DF-193d — the written-form provenance bit + the std annotation gate
+   (inherited from 193 u7, Aug 10).** 193 built the std import gate for
+   annotation positions and STOPPED with the diagnosis: the author's
+   spelling of a type annotation is destroyed before any check can read
+   it — `_canonicalize_module_types` and `_register_function`'s design-68
+   signature write-back both replace it. Add a provenance bit ("the user
+   wrote this name here") as a declared annotation field under unit 1's
+   schema, then route the std gate through `_resolve_type` on that bit,
+   closing DF-188k across every annotation position. PIN to flip:
+   `examples/std_import_gate_signature_position.saw` (XFAIL, cited
+   DF-193d). **This is a behavioral-contract flip and owes the consumer
+   sweep** (CLAUDE.md brief-rule 2): legal-today code names ungated std
+   types in signatures — the sweep found `examples/cbor169_vectors.saw`
+   naming `IoError` in a return type with no import; sweep the whole
+   corpus + std + blade/libs before flipping, and fix the offenders in
+   the same landing.
+5. **Stage the getattr→field conversion.** Now that the schema fields
    carry defaults, `getattr(node, 'a', None)` ≡ `node.a`. Convert
    codegen's ~236 AST-node getattrs to direct typed reads in reviewable
    batches (by file, the census gives the per-file counts). This is the
@@ -53,16 +69,17 @@ internals).**
 
 Per-unit commits, full battery each. Unit 1's graft gate must pass on
 the tree it lands in (declaring the nine first). Unit 2's probe result
-is recorded before the unification. irdet --all matters for unit 4 (a
+is recorded before the unification. Unit 4's consumer sweep is recorded
+before its gate flips. irdet --all matters for unit 5 (a
 getattr-vs-field read must not change emission) — byte-identity across
 the corpus is the check. Pyright's codegen diagnostic count is reported
-before/after unit 4 as a secondary metric (the point is fewer false
+before/after unit 5 as a secondary metric (the point is fewer false
 positives, so real ones surface).
 
 ## Explicitly out
 
 A full typed-IR or MIR layer (this is the AST-node contract only); the
 parser port itself (this de-risks it, does not do it); converting the
-typechecker's own 617 getattrs (unit 4 is codegen-only — the reader
+typechecker's own 617 getattrs (unit 5 is codegen-only — the reader
 side of the contract; the writer side is units 1-2); the six duplicate
 qualified-name parsers (parse_type brief material, design 190 rule 7).
