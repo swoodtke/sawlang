@@ -1,19 +1,14 @@
-// Returning an erased error from a body that SUSPENDS should work exactly as
+// Returning an erased error from a body that SUSPENDS works exactly as
 // returning one from a sync body does.
 //
 // `return MyErr(code: n)` in a `Result<Int, Box<any Error>>` function is an
-// ErasedErrWrap the typechecker inserts into the AST. Once a `yield_now()`
-// ahead of it makes the body suspending, the coroutine transform lowers the
-// return into an ASSIGNMENT into the frame's result slot — and codegen's
-// `visit_ErasedErrWrap` builds the Err through
-// `_create_result_err_for_return`, which reads the ENCLOSING function's return
-// type and finds a state-machine step instead:
-// `internal compiler error: Cannot create Result.Err outside Result-returning
-// function`. Drop the `yield_now()` and the same program compiles and runs, so
-// it is the suspension, not the erasure, that moves the wrap out of return
-// position. A CONCRETE `Result<Int, MyErr>` across the same suspension is fine
-// (`ResultErrWrap` carries its own `result_type`; the erased wrap does not).
-// XFAIL: DF-192c an erased-error return in a SUSPENDING body is a codegen ICE — the wrap loses its return position to the state machine
+// ErasedErrWrap the typechecker inserts into the AST. A `yield_now()` ahead of
+// it makes the body suspending, so the coroutine transform lowers the return
+// into an ASSIGNMENT into the frame's result slot — and the Err has to be built
+// against the WRAP's own `result_type`, because the enclosing state-machine
+// step returns `__Poll`. Its concrete sibling `ResultErrWrap` always passed its
+// own type down; the erased wrap called the one-argument overload and was a
+// codegen ICE (DF-192c, fixed by design 196).
 // EXPECT: success
 // EXPECT-OUTPUT:
 // err MyErr(7)

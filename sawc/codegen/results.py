@@ -552,7 +552,14 @@ class ResultsMixin:
         alloc_saw = expr.allocator or SawType(TypeKind.STRUCT, struct_name="GlobalAllocator")
         fat = self._erase_value_to_box(value, expr.concrete_err,
                                        expr.trait_name, alloc_saw)
-        return self._create_result_err_for_return(fat)
+        # Pass the wrap's OWN `result_type`, exactly as `visit_ResultErrWrap`
+        # does. `current_return_type` still wins where it is a Result (the
+        # generic-monomorphization case), and the node's type is the authority
+        # where it is not — the coroutine transform rewrites `return <wrap>` into
+        # a store to the frame's result slot inside `resume`, whose return type
+        # is `__Poll`. Omitting it made an erased-error return in a SUSPENDING
+        # body an ICE (DF-192c) while its concrete sibling worked.
+        return self._create_result_err_for_return(fat, expr.result_type)
 
     def _get_result_enum_name(self, result_type: SawType) -> str:
         """Get the monomorphized enum name for a Result type."""

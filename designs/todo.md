@@ -441,19 +441,19 @@ DF-192e fixed, DF-192b/c/d/f/g pinned (DF-192d fixed since, by design 198).
   so it is the erasure in the spawned result type. Pre-dates design 192
   (probe-confirmed against e4761ef). PIN:
   `examples/erased_error_spawned_task.saw` (XFAIL, cited).
-- **DF-192c (ICE, CONFIRMED at baseline, filed Aug 10 by 192 u1): an
-  erased-error return in a SUSPENDING body is a codegen ICE.**
-  `yield_now()` ahead of `return MyErr(...)` in an erased-Result function
-  makes the body a state machine, so the coroutine transform lowers the
-  return into an ASSIGNMENT into the frame's result slot — and codegen's
-  `visit_ErasedErrWrap` finishes through `_create_result_err_for_return`,
-  which reads the ENCLOSING function's return type and raises `Cannot
-  create Result.Err outside Result-returning function`. `ResultErrWrap`
-  survives the same move because it carries its own `result_type` and
-  passes it down; the erased wrap calls the one-argument overload. Both
-  the sync erased version and the suspending CONCRETE version compile and
-  run. Pre-dates design 192 (probe-confirmed against e4761ef). PIN:
-  `examples/erased_error_across_suspension.saw` (XFAIL, cited).
+- **DF-192c — FIXED (design 196 unit 1): an erased-error return in a
+  SUSPENDING body was a codegen ICE.** `yield_now()` ahead of `return
+  MyErr(...)` in an erased-Result function makes the body a state machine,
+  so the coroutine transform lowers the return into an ASSIGNMENT into the
+  frame's result slot — and codegen's `visit_ErasedErrWrap` finished
+  through `_create_result_err_for_return`, which reads the ENCLOSING
+  function's return type and raised `Cannot create Result.Err outside
+  Result-returning function`. `ResultErrWrap` survives the same move
+  because it carries its own `result_type` and passes it down; the erased
+  wrap called the one-argument overload. The fix is the sibling's
+  argument — one line, and the two wraps now read identically. Pre-dated
+  design 192 (probe-confirmed against e4761ef). PIN FLIPPED:
+  `examples/erased_error_across_suspension.saw`.
 - **DF-192d — FIXED (design 198 unit 1).** A `match` with two arms for one
   enum case was an LLVM-level internal compiler error: it lowered to a
   `switch` carrying the same case value twice and llvmlite refused the
