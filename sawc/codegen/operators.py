@@ -138,7 +138,7 @@ class OperatorsMixin:
         use the fail-loud `_expr_type`: a missing annotation must not turn a
         signedness hint into a hard compile error.
         """
-        resolved = getattr(expr, 'resolved_type', None)
+        resolved = expr.resolved_type
         if resolved is None:
             return True
         if self.type_param_context:
@@ -305,7 +305,7 @@ class OperatorsMixin:
         self.builder.cbranch(oob, panic_bb, cont_bb)
         self.builder.position_at_end(panic_bb)
         self._emit_panic("index out of range",
-                         line=getattr(index_expr, 'line', 0))
+                         line=index_expr.line)
         self.builder.position_at_end(cont_bb)
 
     def _generate_binary_op(self, expr: BinaryOp):
@@ -333,9 +333,9 @@ class OperatorsMixin:
         if (isinstance(left.type, ir.IntType) and isinstance(right.type, ir.IntType)
                 and left.type.width != right.type.width):
             r_lit = (isinstance(expr.right, IntLiteral)
-                     and getattr(expr.right, 'suffix', None) is None)
+                     and expr.right.suffix is None)
             l_lit = (isinstance(expr.left, IntLiteral)
-                     and getattr(expr.left, 'suffix', None) is None)
+                     and expr.left.suffix is None)
             if r_lit:
                 right = self._reconcile_int_width(self.builder, right, left.type)
             elif l_lit:
@@ -362,7 +362,7 @@ class OperatorsMixin:
         elif expr.op in ('<<', '>>'):
             return self._emit_shift(expr.op, left, right,
                                     self._int_is_signed(expr.left),
-                                    line=getattr(expr, 'line', 0))
+                                    line=expr.line)
 
         if expr.op == '+':
             if isinstance(left.type, ir.PointerType):
@@ -372,7 +372,7 @@ class OperatorsMixin:
                 return self.builder.fadd(left, right, name="addtmp")
             # Integer add: overflow panics (design 31).
             return self._checked_arith('+', left, right, self._int_is_signed(expr.left),
-                                       line=getattr(expr, 'line', 0))
+                                       line=expr.line)
 
         elif expr.op == '-':
             if isinstance(left.type, ir.PointerType):
@@ -382,13 +382,13 @@ class OperatorsMixin:
             if is_float:
                 return self.builder.fsub(left, right, name="subtmp")
             return self._checked_arith('-', left, right, self._int_is_signed(expr.left),
-                                       line=getattr(expr, 'line', 0))
+                                       line=expr.line)
 
         elif expr.op == '*':
             if is_float:
                 return self.builder.fmul(left, right, name="multmp")
             return self._checked_arith('*', left, right, self._int_is_signed(expr.left),
-                                       line=getattr(expr, 'line', 0))
+                                       line=expr.line)
 
         elif expr.op == '/':
             if is_float:
@@ -400,9 +400,9 @@ class OperatorsMixin:
             # overflow and must use udiv (design 41 item 0 / design 40 L6 sidecar
             # -- an unsigned operand with the high bit set gives the wrong result
             # under sdiv).
-            self._check_divisor_nonzero(right, line=getattr(expr, 'line', 0))
+            self._check_divisor_nonzero(right, line=expr.line)
             if self._int_is_signed(expr.left):
-                self._check_div_no_overflow(left, right, line=getattr(expr, 'line', 0))
+                self._check_div_no_overflow(left, right, line=expr.line)
                 return self.builder.sdiv(left, right, name="divtmp")
             return self.builder.udiv(left, right, name="udivtmp")
 
@@ -410,9 +410,9 @@ class OperatorsMixin:
             # Modulo only works on integers; same zero-divisor panic as /, and
             # the same signed/unsigned split: srem (with the INT_MIN / -1 overflow
             # panic) for signed operands, urem for unsigned.
-            self._check_divisor_nonzero(right, line=getattr(expr, 'line', 0))
+            self._check_divisor_nonzero(right, line=expr.line)
             if self._int_is_signed(expr.left):
-                self._check_div_no_overflow(left, right, line=getattr(expr, 'line', 0))
+                self._check_div_no_overflow(left, right, line=expr.line)
                 return self.builder.srem(left, right, name="modtmp")
             return self.builder.urem(left, right, name="umodtmp")
 
@@ -470,9 +470,9 @@ class OperatorsMixin:
         """The Saw type an `==`/`!=` operand was checked at, substituted for the
         active monomorphization. Returns None for compiler-synthesized operands
         that carry no annotation (handled by the LLVM-type fallback)."""
-        st = getattr(expr.left, 'resolved_type', None)
+        st = expr.left.resolved_type
         if st is None:
-            st = getattr(expr.right, 'resolved_type', None)
+            st = expr.right.resolved_type
         if st is not None and self.type_param_context:
             st = st.substitute(self.type_param_context)
         return st
@@ -1156,7 +1156,7 @@ class OperatorsMixin:
             # a signed checked subtract is exactly right.
             zero = ir.Constant(operand.type, 0)
             return self._checked_arith('-', zero, operand, True,
-                                       line=getattr(expr, 'line', 0))
+                                       line=expr.line)
 
         elif expr.op == 'not':
             # Logical NOT: flip the boolean (XOR with 1)
@@ -1278,7 +1278,7 @@ class OperatorsMixin:
             self.builder.cbranch(is_some, ok_bb, panic_bb)
             self.builder.position_at_end(panic_bb)
             self._emit_panic("force unwrap of None",
-                             line=getattr(inner_expr, 'line', 0))
+                             line=inner_expr.line)
             self.builder.position_at_end(ok_bb)
             return self.builder.gep(opt_ptr,
                                     [ir.Constant(ir.IntType(32), 0),
@@ -1487,14 +1487,14 @@ class OperatorsMixin:
             # where a source value can fail to have a target representation and
             # the operand did not fold, so a widening cast and a provably
             # in-range one reach the conversion below untouched.
-            if getattr(expr, 'cast_check', False):
+            if expr.cast_check:
                 to_resolved = self._resolve_type_alias(to_type)
                 self._emit_cast_range_check(
                     value, to_llvm,
                     to_signed=to_resolved.kind in signed_kinds,
                     from_signed=from_signed,
                     to_name=str(to_type),
-                    line=getattr(expr, 'line', 0))
+                    line=expr.line)
 
             if to_bits > from_bits:
                 # Widening - use sign extension or zero extension based on source signedness
