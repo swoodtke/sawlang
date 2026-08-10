@@ -1,0 +1,39 @@
+// Conformance row W15 — `??`'s two operands are transfers and widen losslessly
+// (design 195 rule 2, matrix row 10)
+//
+// `a ?? b` yields one owned value out of two positions, so it is a branch
+// merge like an `if` with two arms and takes rule 2 unchanged: the result is
+// the wider of the payload and the default, and each side extends into it by
+// its own signedness.
+//
+// PROBE (Aug 10, before the fix): a CONSTANT default answered correctly by
+// accident (LLVM's textual `phi` gives an incoming constant no type of its
+// own), and a NON-CONSTANT one was an internal compiler error out of LLVM.
+// XFAIL: DF-192g the `??` position — a non-constant narrow operand is an ICE; design 195 unit 3 makes both sides transfers
+// EXPECT: success
+// EXPECT-OUTPUT:
+// 3
+// -7
+// -7
+// 11
+// -7
+
+func wide_payload(o: Int?) -> Int {
+    o ?? -7i16
+}
+
+func narrow_payload(o: Int16?) -> Int {
+    o ?? 11
+}
+
+func non_constant_default(o: Int?, n: Int16) -> Int {
+    o ?? n
+}
+
+func main() {
+    print(wide_payload(3))
+    print(wide_payload(None))
+    print(narrow_payload(-7i16))
+    print(narrow_payload(None))
+    print(non_constant_default(None, -7i16))
+}

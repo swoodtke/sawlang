@@ -366,6 +366,69 @@ DF-192g is a confirmed wrong answer** — both below.
   the reconciled type, so a same-sign widenable arm is LEGAL and the
   pin re-authors to EXPECT: success printing 11 then 7, the flip its
   own comment names).
+  **UNIT-1 PROBE ADDENDUM (design 195, Aug 10).** Probing the twelve matrix
+  rows found the finding reaches SIX positions the two entries above did not
+  name, all one root: comparison mixed-width (an LLVM-level ICE) and
+  comparison sign-mix (silent, signed compare on an unsigned operand);
+  `&+ &- &*` mixed (ICE); COMPOUND ASSIGNMENT `a += b16` (ICE) and the
+  BITWISE `& | ^` (silent — the right operand was ZERO-extended whatever its
+  signedness, so a negative narrow operand masked against the wrong word),
+  neither of which the brief's matrix carried; and the NEGATED bare literal
+  `n * -2`, which is an adoption spelling (row 12) that the width rule never
+  reached and which ICEd. Rows 9 and 10 (`match` arms, `??`) were RIGHT BY
+  ACCIDENT for a constant arm — LLVM's textual `phi` prints an incoming
+  constant with no type of its own, so an `i16` 7 was re-read as an `i64` 7 —
+  and an ICE the moment the arm was a variable. Range bounds (row 11) and a
+  narrowing `if` arm (row 8's first half) were already clean rejections. Rows
+  W06-W19 of `examples/conformance/INDEX.md` carry all of it.
+- **DF-195a (SOUNDNESS — WRONG ANSWER, filed Aug 10 by 195 u1's probes): an
+  implicit LOSSLESS widening at a transfer extends by the TARGET's
+  signedness, so an unsigned source SIGN-extends.** `let u: UInt32 =
+  4000000000u32` followed by `let wide: Int = u` prints `-294967296`, and the
+  same value through a `return` does too. LANGUAGE_SPEC's conversion cost
+  table says the pair emits "one `zext`"; the extension is picked off the
+  target instead, which is right for every signed source and wrong for every
+  unsigned one. Load-bearing for design 195 rule 2: a value-branch arm is a
+  transfer whose lossless widening is legal, so the widening has to be
+  correct before arms can ride it. PIN:
+  `examples/int_widening_transfer_preserves_unsigned.saw` (XFAIL, cited).
+  **Owned by design 195 unit 3** (the widening funnel the arm merges use).
+- **DF-195b (SOUNDNESS + a RULING OWED, filed Aug 10 by 195 u1's probes): a
+  NARROWING transfer through a platform `Int` truncates silently.**
+  `let n: Int = 300` followed by `let b: Int8 = n` prints `44`. Design 170
+  made every narrowing written (`as` panics, `from` answers `None`,
+  `from(truncating:)` wraps); `_types_compatible` admits a platform
+  `Int`/`UInt` into ANY integer type and bypasses all three. The permission
+  exists so a bare LITERAL can adopt a fixed-width slot, a job design 87's
+  expected-type propagation does properly now — so what it covers today is a
+  runtime value losing its high bits. Between two FIXED widths the same
+  transfer is already a clean error, so the hole is exactly the platform pair.
+  DELIBERATELY OUT of design 195 (operand agreement, not conversion): closing
+  it is a behavioral flip owing its own consumer sweep, and it belongs with
+  design 170's rules. PIN:
+  `examples/int_narrowing_transfer_through_platform_int.saw` (XFAIL, cited).
+- **DF-195c (SOUNDNESS + a RULING OWED, filed Aug 10 by 195 u1's probes): a
+  same-width SIGN-FLIPPING transfer through the platform pair reinterprets
+  silently.** `let u: UInt = UInt.max` followed by `let i: Int = u` prints
+  `-1`. The other axis of DF-195b, from the same `_types_compatible` arm, and
+  the one design 170 checks hardest at a written cast (`-1 as UInt8` panics).
+  Design 195 rule 1 closes the OPERATOR face (`i + u` is refused now); the
+  transfer face rides with DF-195b. PIN:
+  `examples/int_sign_flip_transfer_through_platform_int.saw` (XFAIL, cited).
+- **DF-195d (ICE + a RULING OWED, filed Aug 10 by 195 u1's probes): mixing a
+  `Float` and an integer operand is an internal compiler error.** The
+  arithmetic arm answers `Float` for a mixed pair, promising a promotion the
+  lowering does not implement: `a + f` dies with `Type of #2 arg mismatch:
+  i64 != double` and `f + 1` with `Operands must be the same type, got
+  (double, i64)`. Design 195 unit 2's funnel makes the first a clean error —
+  `Int` and `Float` are two types, which is rule 1 exactly. THE OPEN
+  QUESTION is the second: `f + 1` is a BARE literal beside a `Float`, and
+  rule 1's own carve-out is that a bare literal adopts. Whether an INTEGER
+  literal may adopt `Float` is a language question design 195 explicitly did
+  not take ("float/integer mixing" is in its Explicitly out list), so both
+  spellings are refused for now and the error hints at `1.0`. PIN:
+  `examples/float_integer_operand_mix.saw` (XFAIL until 195 u2, then a
+  passing error test).
 - **DF-190c (VERIFY / latent must-agree, filed Aug 9, CLOSED Aug 10 by 194 u2):
   `_make_specialization_key` had DIVERGED** — codegen handled design-148
   const-value type args, the typechecker dropped them to an empty key.

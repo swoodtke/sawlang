@@ -1,0 +1,30 @@
+// Conformance row W07 — an arithmetic operator over two TYPED integer operands
+// of the same width but different SIGNEDNESS is refused (design 195 rule 1,
+// matrix row 2)
+//
+// Rule 1 quantifies over the TYPE, not the width: `Int` and `UInt` are two
+// types, so `i + u` is the same disagreement `n * 2i16` is. Signedness is the
+// half that never announces itself — the operation silently picks one operand's
+// interpretation for both.
+//
+// PROBE (Aug 10, before the fix): `i + u` COMPILED and `-1 + 3` printed 2;
+// `i / u` compiled and printed 0, because the lowering picked SIGNED division
+// off the left operand while the right was unsigned. Nothing warned.
+// XFAIL: DF-192f the signedness face — `i + u` compiles silently; design 195 unit 2 lands the funnel
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: requires both operands to have the same type
+// EXPECT-ERROR-CONTAINS: `Int`
+// EXPECT-ERROR-CONTAINS: `UInt`
+
+func mix_add(i: Int, u: UInt) -> Int {
+    i + u
+}
+
+func mix_div(i: Int, u: UInt) -> Int {
+    i / u
+}
+
+func main() {
+    print(mix_add(-1, 3))
+    print(mix_div(-1, 3))
+}

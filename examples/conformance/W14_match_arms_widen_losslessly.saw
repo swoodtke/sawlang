@@ -1,0 +1,50 @@
+// Conformance row W14 — a value `match` whose arms widen losslessly answers
+// with the arm that ran (design 195 rule 2, matrix row 9)
+//
+// Same rule as W12, at the other branch construct, and in both arm orders — the
+// merged type is the wider of the arms whichever one is written first, so a
+// narrow FIRST arm does not decide the merge.
+//
+// PROBE (Aug 10, before the fix): a CONSTANT narrow arm happened to answer
+// correctly — LLVM's textual `phi` prints an incoming constant with no type of
+// its own, so an `i16` 7 was silently re-read as an `i64` 7 — while a
+// NON-CONSTANT one was an internal compiler error out of LLVM
+// (`instruction forward referenced with type 'i64'`). Right answer by accident,
+// crash the moment the arm was a variable.
+// XFAIL: DF-192g the match-arm position — a non-constant narrow arm is an ICE; design 195 unit 3 makes arms transfers
+// EXPECT: success
+// EXPECT-OUTPUT:
+// 11
+// -7
+// -7
+// 11
+// -7
+
+func wide_first(a: Int) -> Int {
+    match a {
+        case 0 -> 11,
+        case _ -> -7i16
+    }
+}
+
+func narrow_first(a: Int) -> Int {
+    match a {
+        case 0 -> -7i16,
+        case _ -> 11
+    }
+}
+
+func non_constant_arm(a: Int, n: Int16) -> Int {
+    match a {
+        case 0 -> 11,
+        case _ -> n
+    }
+}
+
+func main() {
+    print(wide_first(0))
+    print(wide_first(5))
+    print(narrow_first(0))
+    print(narrow_first(5))
+    print(non_constant_arm(5, -7i16))
+}

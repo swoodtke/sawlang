@@ -1,0 +1,38 @@
+// Conformance row W13 — a value-branch arm that cannot widen losslessly is the
+// ordinary transfer error, at EVERY branch position (design 195 rule 2, matrix
+// row 8; the reject half of rows 9 and 10)
+//
+// The other half of W12/W14/W15. Arms being transfers cuts both ways: a
+// same-width sign flip has no lossless direction (a large `UInt64` is a
+// negative `Int`, a negative `Int` is an enormous `UInt64`), so the arms have
+// no type to merge to and the disagreement is reported where it is written.
+// One rule, checked at the `if`, the `match` and the `??` alike.
+//
+// PROBE (Aug 10, before the fix): all three COMPILED. The `if` printed 11 on
+// both paths — the same wrong answer DF-192g names, in the spelling that has no
+// correct reading at all; the `match` and the `??` reinterpreted the constant.
+// XFAIL: DF-192g value-branch arms are not checked for width or sign agreement — design 195 unit 3 makes them transfers
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: `Int`
+// EXPECT-ERROR-CONTAINS: `UInt64`
+
+func if_sign_flip(a: Int) -> Int {
+    if a > 0 { 11 } else { 7u64 }
+}
+
+func match_sign_flip(a: Int) -> Int {
+    match a {
+        case 0 -> 11,
+        case _ -> 7u64
+    }
+}
+
+func coalesce_sign_flip(o: Int?) -> Int {
+    o ?? 7u64
+}
+
+func main() {
+    print(if_sign_flip(3))
+    print(match_sign_flip(0))
+    print(coalesce_sign_flip(None))
+}

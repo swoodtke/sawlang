@@ -6,8 +6,9 @@ either a file in this directory or an existing `examples/` test that already
 asserts the same rule at the same position — this table is the record of which,
 and the dedup decisions are meant to be audited from it.
 
-**57 rows carry a file here; 194 are covered elsewhere.** (The audit's 247 plus
-the rows later briefs added: W02-W05, design 194 unit 4.)
+**71 rows carry a file here; 194 are covered elsewhere.** (The audit's 247 plus
+the rows later briefs added: W02-W05, design 194 unit 4; W06-W19, design 195
+unit 1.)
 
 ## How to read it
 
@@ -335,6 +336,34 @@ Claim source: spec 8 *Visibility* + *The prelude*; designs 80, 82, 142, 188 u7
 | W03 | control: the QUALIFIED spelling is legal in an annotation | `W03_import_gate_qualified_annotation.saw` | 194 u4 — the over-rejection DF-193d named; the gate judges the author's spelling, not the resolved type |
 | W04 | control: both BARE import forms make the same annotation legal | `W04_import_gate_bare_import_forms.saw` |  |
 | W05 | a signature naming a gated std type with no import (the DF-188k repro) | `std_import_gate_signature_position.saw` | 194 u4 — XFAIL flipped |
+
+## Integer width agreement
+
+Claim source: spec 5 *Integer Conversions* + *Arithmetic* ; design 195
+
+Rule 1: all typed operands of an operation have the SAME type — implicit
+promotion happens from bare literals and nowhere else. Rule 2: value-branch
+arms are TRANSFERS, so a lossless widening arm is legal exactly as at a
+`return` and a lossy one is the ordinary transfer error. The rows are design
+195's position matrix, one per line; W11 and W17 are the two CONTROLS that pin
+what the rules do not touch.
+
+| Row | Checks | Covered by | Ruling |
+|-----|--------|------------|--------|
+| W06 | arithmetic over two typed operands of different WIDTH | `W06_binop_mixed_width_operands.saw` | 195 — was DF-192f, a codegen ICE |
+| W07 | arithmetic over a signed and an unsigned operand | `W07_binop_sign_mix_operands.saw` | 195 — compiled SILENTLY, signed division on an unsigned operand |
+| W08 | comparison over two typed operands of different WIDTH | `W08_comparison_mixed_width.saw` | 195 — was an LLVM-level ICE |
+| W09 | comparison over a signed and an unsigned operand | `W09_comparison_sign_mix.saw` | 195 — compiled SILENTLY, signed compare on an unsigned operand |
+| W10 | the wrapping operators `&+ &- &*` over different widths | `W10_wrapping_op_mixed_width.saw` | 195 — was a codegen ICE |
+| W11 | control: a SHIFT COUNT need not match the shiftee's width | `W11_shift_count_width_exempt.saw` | 195 — the documented exemption (matrix row 6) |
+| W12 | a value `if` whose arms widen losslessly answers with the arm that ran | `W12_if_arms_widen_losslessly.saw` | 195 — was DF-192g, a confirmed WRONG ANSWER |
+| W13 | a value-branch arm that cannot widen losslessly, at `if` / `match` / `??` | `W13_if_arms_lossy_refused.saw` | 195 — all three compiled silently |
+| W14 | a value `match` whose arms widen losslessly, in both arm orders | `W14_match_arms_widen_losslessly.saw` | 195 — right by accident for a constant arm, an ICE for a variable one |
+| W15 | `??`'s payload and default widen losslessly | `W15_coalesce_operands_widen.saw` | 195 — same two behaviors as W14 |
+| W16 | a range's two bounds must have the same type | `W16_range_bounds_mixed_types.saw` | 195 — was a rejection, through a message naming one type and no way out |
+| W17 | control: a BARE literal still adopts the other operand's type | `W17_bare_literal_adopts_operand_type.saw` | 195 — the NEGATED spelling `n * -2` was an ICE (matrix row 12) |
+| W18 | compound assignment over different widths | `W18_compound_assign_mixed_width.saw` | 195 — a position the matrix did not carry; was a codegen ICE |
+| W19 | the bitwise `& \| ^` over different widths | `W19_bitwise_mixed_width.saw` | 195 — a position the matrix did not carry; compiled, ZERO-extending a signed operand into a wrong mask |
 
 ## Shadowing
 

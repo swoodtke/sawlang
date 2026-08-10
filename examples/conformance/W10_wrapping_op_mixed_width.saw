@@ -1,0 +1,27 @@
+// Conformance row W10 — the WRAPPING operators `&+ &- &*` take rule 1 too
+// (design 195, matrix row 5)
+//
+// `&+` states that overflow wraps; it states nothing about width. The wrap is
+// defined modulo the operand type's own 2^n, so two operand types are two
+// different wraps and the operator has no way to choose — which is exactly why
+// the agreement rule is about the operator, not about the overflow check.
+//
+// PROBE (Aug 10, before the fix): an internal compiler error,
+// `(BinaryOp): Operands must be the same type, got (i64, i16)`.
+// XFAIL: DF-192f nothing checks that two integer operands agree on width — design 195 unit 2 lands the funnel
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: requires both operands to have the same type
+// EXPECT-ERROR-CONTAINS: `Int16`
+
+func wrap_add(n: Int, m: Int16) -> Int {
+    n &+ m
+}
+
+func wrap_mul(n: Int, m: Int16) -> Int {
+    n &* m
+}
+
+func main() {
+    print(wrap_add(5, 2i16))
+    print(wrap_mul(5, 2i16))
+}

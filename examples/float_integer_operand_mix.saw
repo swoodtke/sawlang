@@ -1,0 +1,29 @@
+// Mixing a `Float` and an integer operand is a clean error, not a crash.
+//
+// Saw has no implicit conversion between `Float` and the integer types, and the
+// operator checkpoint agrees for every pair EXCEPT this one: the arithmetic arm
+// answers `Float` for a mixed pair, promising a promotion the lowering does not
+// implement, so both spellings reach LLVM as an internal compiler error:
+//
+//   a + f      // (BinaryOp): Type of #2 arg mismatch: i64 != double
+//   f + 1      // (BinaryOp): Operands must be the same type, got (double, i64)
+//
+// Design 195 rule 1 — all typed operands of an operation have the same type —
+// covers the first line: `Int` and `Float` are two types.
+//
+// STILL OPEN (DF-195d): the SECOND line is a BARE literal beside a `Float`, and
+// rule 1's own carve-out is that a bare literal adopts. Whether an INTEGER
+// literal may adopt `Float` is a language question design 195 did not take, so
+// `f + 1` is refused for now with a hint naming `1.0`.
+// XFAIL: DF-195d a Float/integer operand mix is an internal compiler error — design 195 unit 2 makes it a clean one
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: requires both operands to have the same type
+// EXPECT-ERROR-CONTAINS: `Float`
+
+func mix(a: Int, f: Float) -> Float {
+    a + f
+}
+
+func main() {
+    print(mix(6, 1.5))
+}

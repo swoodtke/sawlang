@@ -1,0 +1,23 @@
+// Conformance row W16 — a RANGE's two bounds must have the same type
+// (design 195 rule 1, matrix row 11)
+//
+// `a..b` is a two-peer operation like any other: the bounds describe one
+// interval, so they describe it in one type. Reported at the range, naming both
+// bounds and the ways out, rather than as two separate "must be Int" facts
+// about the ends.
+//
+// PROBE (Aug 10, before the fix): already a rejection, but through the
+// range-specific check — `range end must be Int, got `Int16`` — which names one
+// type, offers no conversion, and says nothing about the operands disagreeing.
+// XFAIL: DF-192f the range-bound position of the same finding — design 195 unit 2 routes it through the funnel
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: same type
+// EXPECT-ERROR-CONTAINS: `Int16`
+
+func main() {
+    let a: Int = 0
+    let b: Int16 = 3i16
+    for i in a..b {
+        print(i)
+    }
+}

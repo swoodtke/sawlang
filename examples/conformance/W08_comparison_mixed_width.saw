@@ -1,0 +1,28 @@
+// Conformance row W08 — a COMPARISON over two typed integer operands of
+// different width is refused (design 195 rule 1, matrix row 3)
+//
+// A comparison is a two-peer operation exactly as arithmetic is, so it takes
+// the same rule. It is the position where a silent width mix is hardest to see:
+// the operator yields a `Bool` either way, so a wrong interpretation of one
+// operand shows up only as a branch taken on the wrong side.
+//
+// PROBE (Aug 10, before the fix): an internal compiler error out of LLVM,
+// `'%m.1' defined with type 'i16' but expected 'i64'` — the typechecker
+// admitted the mix and the icmp met two widths.
+// XFAIL: DF-192f nothing checks that two integer operands agree on width — design 195 unit 2 lands the funnel
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: requires both operands to have the same type
+// EXPECT-ERROR-CONTAINS: `Int16`
+
+func under(n: Int, m: Int16) -> Bool {
+    n < m
+}
+
+func same(n: Int, m: Int16) -> Bool {
+    n == m
+}
+
+func main() {
+    print(under(5, 7i16))
+    print(same(5, 7i16))
+}

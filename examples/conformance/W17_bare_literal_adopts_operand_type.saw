@@ -1,0 +1,48 @@
+// Conformance row W17 — a BARE literal still adopts the other operand's type,
+// in every row rules 1 and 2 tighten (design 195, matrix row 12 — the control)
+//
+// This is the row that says what rule 1 does NOT touch. Implicit promotion
+// happens from bare literals and nowhere else, so `n * 2` stays legal at every
+// width while `n * 2i16` does not. Without this control, tightening the
+// operator checkpoint would quietly cost the language its most-used ergonomic.
+// The negated spelling `-2` is a bare literal too — the leading `-` is not a
+// suffix and does not pin a width.
+//
+// PROBE (Aug 10): every line below worked EXCEPT the negated ones, which were
+// an internal compiler error (`Type of #2 arg mismatch: i16 != i64`) — the
+// adoption rule reached a plain literal and stopped at a negated one.
+// XFAIL: DF-192f the NEGATED bare literal is the one adoption spelling the width rule never reached — design 195 unit 2
+// EXPECT: success
+// EXPECT-OUTPUT:
+// 20
+// 20
+// -20
+// true
+// 13
+// 5
+// 8
+// 0
+// 1
+// 2
+// 4
+
+func main() {
+    let n: Int16 = 10i16
+    print(n * 2)
+    print(2 * n)
+    print(n * -2)
+    print(n < 20)
+    print(n &+ 3)
+
+    var acc: Int16 = 0i16
+    acc += 5
+    print(acc)
+
+    let u: UInt8 = 200u8
+    print(u & 0x0F)
+
+    for i in 0..3 { print(i) }
+
+    let p: UInt = 3
+    print(p + 1)
+}

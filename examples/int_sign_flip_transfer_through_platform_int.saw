@@ -1,0 +1,22 @@
+// A same-width SIGN FLIP at a transfer must not reinterpret in silence.
+//
+// The sibling of DF-195b, on the other axis. Design 170 checks a sign change at
+// or above the source width — `-1 as UInt8` panics — but a transfer between the
+// platform pair takes no check at all:
+//
+//   let u: UInt = 18446744073709551615u64 as UInt
+//   let i: Int = u           // prints -1
+//
+// `UInt.max` and `-1` are the same 64 bits and different numbers, which is the
+// whole reason the cast is checked. Design 195 rule 1 closes the OPERATOR face
+// of this (`i + u` is refused now); the transfer face is a conversion question
+// and stays open with DF-195b.
+// XFAIL: DF-195c a same-width sign-flipping transfer through the platform pair reinterprets silently
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: UInt
+
+func main() {
+    let u: UInt = 18446744073709551615u64 as UInt
+    let i: Int = u
+    print(i)
+}

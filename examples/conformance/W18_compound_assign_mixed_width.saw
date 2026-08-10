@@ -1,0 +1,21 @@
+// Conformance row W18 — COMPOUND ASSIGNMENT takes rule 1 (design 195; a row
+// the matrix did not carry, found by unit 1's probes)
+//
+// `a += b` is `a = a + b`, so its two operands are the same two peers the
+// binary operator has and the agreement rule reaches it for the same reason.
+// The `<<=` / `>>=` pair keeps row 6's exemption: a shift count is not a peer.
+//
+// PROBE (Aug 10, before the fix): an internal compiler error,
+// `(CompoundAssignStatement): Type of #2 arg mismatch: i64 != i16` — the same
+// root as matrix row 1, at a spelling the matrix did not name.
+// XFAIL: DF-192f the compound-assignment position of the same finding — design 195 unit 2 lands the funnel
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: requires both operands to have the same type
+// EXPECT-ERROR-CONTAINS: `Int16`
+
+func main() {
+    var a: Int = 6
+    let b: Int16 = 3i16
+    a += b
+    print(a)
+}

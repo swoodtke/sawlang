@@ -1,0 +1,42 @@
+// Conformance row W12 — a value `if` whose arms widen LOSSLESSLY answers with
+// the arm that ran (design 195 rule 2, matrix row 7 — DF-192g)
+//
+// An arm is a TRANSFER, so it takes the same rule a `return` takes: same-sign
+// widening and unsigned-into-strictly-wider-signed are lossless, need no
+// ceremony, and carry the value intact. The merged value is the WIDER type and
+// each arm extends into it by its OWN signedness.
+//
+// PROBE (Aug 10, before the fix): a CONFIRMED WRONG ANSWER. `f(-3)` printed 11
+// — the then-arm's value on the path that took the else arm — because the
+// lowering fell past the phi and handed back the then value on both paths. The
+// unsigned row (`7u32`) printed 11 twice for the same reason.
+// XFAIL: DF-192g a value `if` with mismatched-width integer arms returns the wrong arm's value — design 195 unit 3
+// EXPECT: success
+// EXPECT-OUTPUT:
+// 11
+// 7
+// 11
+// -7
+// 11
+// 4000000000
+
+func signed_widen(a: Int) -> Int {
+    if a > 0 { 11 } else { 7i16 }
+}
+
+func signed_widen_negative(a: Int) -> Int {
+    if a > 0 { 11 } else { -7i16 }
+}
+
+func unsigned_into_wider_signed(a: Int) -> Int {
+    if a > 0 { 11 } else { 4000000000u32 }
+}
+
+func main() {
+    print(signed_widen(3))
+    print(signed_widen(-3))
+    print(signed_widen_negative(3))
+    print(signed_widen_negative(-3))
+    print(unsigned_into_wider_signed(3))
+    print(unsigned_into_wider_signed(-3))
+}

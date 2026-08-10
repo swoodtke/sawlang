@@ -1,0 +1,25 @@
+// Conformance row W19 — the BITWISE operators `& | ^` take rule 1 (design 195;
+// a row the matrix did not carry, found by unit 1's probes)
+//
+// `&`, `|` and `^` are two-peer operations: the result is a mask over both
+// operands, so both operands describe the same bit positions and therefore the
+// same width. Only the SHIFTS keep row 6's exemption, because a shift's right
+// operand is a count rather than a peer.
+//
+// PROBE (Aug 10, before the fix): this COMPILED. The lowering brought the right
+// operand to the left's width with a ZERO extension whatever its signedness, so
+// `a & b` for a negative `Int16 b` masked against `0x000000000000FFFF` instead
+// of an all-ones word — a silently wrong mask, and the only rule-1 position
+// whose old behavior was neither a crash nor a right answer.
+// XFAIL: DF-192f the bitwise position of the same finding — design 195 unit 2 lands the funnel
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: requires both operands to have the same type
+// EXPECT-ERROR-CONTAINS: `Int16`
+
+func mask(a: Int, b: Int16) -> Int {
+    a & b
+}
+
+func main() {
+    print(mask(6, -1i16))
+}

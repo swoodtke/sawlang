@@ -1,0 +1,35 @@
+// Conformance row W06 — an arithmetic operator over two TYPED integer operands
+// of different WIDTH is refused (design 195 rule 1, matrix row 1)
+//
+// A suffixed literal is exact-typed (design 53), so `2i16` is an `Int16` and
+// nothing about `n * 2i16` on an `Int n` is a width the compiler gets to pick.
+// Rule 1: all typed operands of an operation must be the SAME type. Both ways
+// out are named — an explicit conversion, or dropping the suffix so the literal
+// adopts the other operand's type.
+//
+// PROBE (Aug 10, before the fix): an internal compiler error,
+// `(BinaryOp): Type of #2 arg mismatch: i64 != i16`. The platform-vs-fixed
+// spelling below (`b + i`) had the same shape at i8 vs i64.
+// XFAIL: DF-192f nothing checks that two integer operands agree on width — design 195 unit 2 lands the funnel
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: requires both operands to have the same type
+// EXPECT-ERROR-CONTAINS: `Int`
+// EXPECT-ERROR-CONTAINS: `Int16`
+
+func doubling(n: Int) -> Int {
+    n * 2i16
+}
+
+func platform_vs_fixed(b: UInt8, i: Int) -> UInt8 {
+    b + i
+}
+
+func modulo(n: Int, m: Int32) -> Int {
+    n % m
+}
+
+func main() {
+    print(doubling(21))
+    print(platform_vs_fixed(5u8, 3))
+    print(modulo(7, 3i32))
+}

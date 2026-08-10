@@ -1,0 +1,40 @@
+// An implicit LOSSLESS widening at a transfer must preserve the value.
+//
+// LANGUAGE_SPEC's conversion cost table says "Unsigned → strictly wider signed
+// (`UInt8` → `Int16`) | no check | one `zext`". The transfer sites pick their
+// extension off the TARGET's signedness instead of the SOURCE's, so a `UInt32`
+// flowing into an `Int` slot is SIGN-extended and every value with the high bit
+// set comes back negative:
+//
+//   let u: UInt32 = 4000000000u32
+//   let wide: Int = u          // prints -294967296
+//
+// No warning, no panic, exit 0. The signed rows answer correctly, which is why
+// this sat unnoticed: `let wide: Int = narrow16` is right and the unsigned twin
+// beside it is not.
+//
+// This matters beyond `let`: design 195 rule 2 makes a value-branch arm a
+// TRANSFER whose lossless widening is legal, so the widening has to be correct
+// before arms can ride it.
+// XFAIL: DF-195a an implicit lossless widening extends by the TARGET's signedness, so an unsigned source sign-extends
+// EXPECT: success
+// EXPECT-OUTPUT:
+// 4000000000
+// 4000000000
+// 250
+
+func returned() -> Int {
+    let u: UInt32 = 4000000000u32
+    return u
+}
+
+func main() {
+    let u: UInt32 = 4000000000u32
+    let wide: Int = u
+    print(wide)
+    print(returned())
+
+    let b: UInt8 = 250u8
+    let w: Int16 = b
+    print(w)
+}

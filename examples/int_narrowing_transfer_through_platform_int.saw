@@ -1,0 +1,28 @@
+// A NARROWING transfer must not truncate in silence.
+//
+// Design 170 made every narrowing conversion written: `x as UInt8` panics out
+// of range, `UInt8.from(x)` answers `None`, `UInt8.from(truncating: x)` is the
+// deliberate wrap. A transfer through a platform `Int` bypasses all three:
+//
+//   let n: Int = 300
+//   let b: Int8 = n          // prints 44
+//
+// `_types_compatible` admits a platform `Int`/`UInt` into any integer type, a
+// permission that exists so a bare LITERAL can adopt a fixed-width slot
+// (`let x: Int8 = 42`). Design 87's expected-type propagation does that job
+// properly now, so what the permission actually covers today is a runtime
+// value silently losing its high bits. Between two FIXED widths the same
+// transfer is already a clean error, so the hole is exactly the platform pair.
+//
+// Design 195 left this open deliberately: it is a behavioral flip with a
+// consumer sweep of its own, and it belongs with design 170's conversion rules
+// rather than with 195's operand-agreement rule.
+// XFAIL: DF-195b a narrowing transfer through a platform `Int` truncates silently instead of being written
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: Int8
+
+func main() {
+    let n: Int = 300
+    let b: Int8 = n
+    print(b)
+}
