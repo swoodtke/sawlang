@@ -1,0 +1,48 @@
+// `Channel.receive()` must drive correctly at ANY call depth below a spawned
+// root — the skill's own guarantee ("a suspending reactor method drives
+// correctly at ANY NESTING DEPTH", designs 96/104) — including through ONE
+// helper frame, which is the shape every reusable wrapper takes (a semaphore
+// type's `acquire()`, a protocol codec's `read_frame()`). Today the DIRECT
+// call works and the one-frame indirection hangs: with a 1-token channel and
+// two workers each doing acquire → yield → release, the program prints
+// `in 0` and stops — the first worker never resumes from its yield and the
+// second's parked receive never wakes. Found by the design-203 dogfood
+// limiter program (its natural spelling: a Limiter struct wrapping the
+// channel; a free-function wrapper reproduces it too, so it is the extra
+// frame, not `&self`); probe-confirmed on main Aug 10. Suspected root: the
+// design-62 G3 inline lowering of `receive()` not composing with the
+// embedded-sub-frame path one call down. Intended behavior below: all four
+// lines print and the program exits.
+// XFAIL: DF-203b Channel.receive() reached through one helper frame in a spawned task hangs; the inline receive lowering does not compose with an embedding callee frame
+// EXPECT: success
+// EXPECT-OUTPUT:
+// in 0
+// out 0
+// in 1
+// out 1
+
+import std.task.*
+import std.channel.{Channel}
+
+func acquire(ch: Channel<Int>) {
+    let _ = ch.receive()
+}
+
+func worker(id: Int, ch: Channel<Int>) {
+    acquire(ch)
+    print("in {}", id)
+    yield_now()
+    print("out {}", id)
+    ch.send(1)
+}
+
+func main() {
+    var ch = Channel<Int>()
+    ch.send(1)
+    var group = TaskGroup()
+    var k = 0
+    while k < 2 {
+        let _ = group.spawn(worker(k, ch))
+        k = k + 1
+    }
+}

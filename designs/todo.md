@@ -243,6 +243,44 @@ every battery run (checksums GATE — they are a behavioral pin; timing only
 reports). Swift/Rust sources sit beside it as manual baselines so the
 battery takes no swiftc/rustc dependency.
 
+## Design 203 dogfood wave 1 — findings (filed Aug 10, lead-triaged, both probe-confirmed)
+
+Six Sonnet naive-implementer programs (203 u1). All six produced correct,
+deterministic, spec-passing programs; the findings cluster in the
+scheduler's park paths, stdlib seams, and diagnostics. The two (d)s:
+
+- **DF-203a (LIVENESS — CONFIRMED HANG): a task spawned before main's
+  FIRST suspension never starts when that suspension is a REACTOR park.**
+  `group.spawn(worker())` then `listener.accept()` blocks the executor on
+  the OS reactor without draining the run queue, so a worker that would
+  CONNECT to that listener never runs — permanent hang. The timer path
+  (`sleep`) drains correctly (probe-isolated by the dogfood agent with
+  three controls; hang re-confirmed by the lead on main). Breaks design
+  89-b's "runs EAGERLY" promise on the reactor path; the chatroom
+  program's natural spelling (spawn clients, then accept). PIN:
+  `examples/spawned_task_runs_before_reactor_park.saw` (XFAIL, cited —
+  NOTE: costs the 30s runner timeout every suite run; fix soon).
+- **DF-203b (LIVENESS — CONFIRMED HANG): `Channel.receive()` through ONE
+  helper frame in a spawned task hangs.** Direct `ch.receive()` in the
+  task body works; the same operation behind `acquire(ch)` (free function
+  OR method — the extra FRAME is the trigger, isolated by a five-probe
+  ladder) prints the first entry and stops. Contradicts the documented
+  any-nesting-depth guarantee (96/104); suspected root is design 62 G3's
+  INLINE receive lowering not composing with an embedding callee frame.
+  The reusable-semaphore shape every library writes. PIN:
+  `examples/channel_receive_through_helper.saw` (XFAIL, cited — same
+  30s-per-run cost).
+
+Both belong to ONE subsystem (executor park/drive paths) — candidate
+small brief 206 alongside/ahead of 201, same surface discipline. The
+rest of the wave's triage (std ergonomics batch: String→Data, File.write
+overload, temp dirs, zero-pad; diagnostics batch: for-in .iter() hint +
+cascade, transfer-error anchor at the read site, generic-ctor cascade;
+skill/README edits: Atomic prelude line, build-and-return idiom, generic
+CONSTRUCTORS excluded from inference, String.split unconfirmed-in-spec;
+open probe: Vector<TaskHandle> dynamic-join spelling) lands with the
+wave summary.
+
 ## The quality program — designs 190-194 (ALL LANDED Aug 9-10)
 
 `designs/190-quality-program.md` is the analysis (findings-vs-proposals

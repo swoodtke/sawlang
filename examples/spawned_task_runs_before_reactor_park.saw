@@ -1,0 +1,41 @@
+// A task spawned before main's FIRST suspension must get its first turn even
+// when that suspension is a REACTOR park (design 89-b: "spawn enqueues a task
+// ... and it runs EAGERLY — whenever the executor runs, not only at join").
+// Today that promise holds for the timer path (a `sleep` runs the queued
+// tasks) but NOT the reactor path: `listener.accept()` as the first
+// suspension after `group.spawn(...)` blocks on the reactor without ever
+// starting the queued task — so a worker that would CONNECT to that very
+// listener never runs, and the program hangs forever. Found by the design-203
+// dogfood chatroom program (its natural spelling: spawn the clients, then
+// accept them); probe-confirmed on main Aug 10. The intended behavior is
+// below: the worker runs, connects, main accepts, and the program completes.
+// XFAIL: DF-203a a task spawned before a first-suspension reactor park never starts; accept() blocks the executor without draining the run queue
+// EXPECT: success
+// EXPECT-OUTPUT:
+// worker connecting
+// accepted
+// worker done
+// done
+
+import std.net.{TcpListener, TcpStream}
+import std.task.*
+
+func worker(port: Int) -> Int {
+    print("worker connecting")
+    let s = try! TcpStream.connect("127.0.0.1", port)
+    try! s.write("x")
+    print("worker done")
+    return 1
+}
+
+func main() {
+    var group = TaskGroup()
+    let listener = try! TcpListener.listen(0)
+    let port = listener.local_port()
+    let h = group.spawn(worker(port))
+    let s = try! listener.accept()
+    print("accepted")
+    let _ = try! s.read()
+    let _ = h.join()
+    print("done")
+}
