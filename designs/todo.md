@@ -74,6 +74,23 @@ ladder); value-branch arms are TRANSFERS through the existing
 checkpoint (lossless widening legal, like `return`). 12-row position
 matrix; conformance rows first; consumer sweep owed.
 
+## Design 153 findings — the magic-values→backed-enums sweep (Aug 10)
+
+- **DF-153a — two std FILES cannot declare the same type name.** Design 82
+  makes each std file its own module and design 144 makes type identity
+  `(defining module, name)`, but the std sources are type-checked as ONE
+  `builtins` unit, so a second declaration of a name collides:
+  ```
+  sawc/std/once.saw:64      enum State: Int { case Unset = 0, ... }
+  sawc/std/spinlock.saw     enum State: Int { case Unlocked = 0, case Held = 1 }
+  → error: enum `State` is defined multiple times  --> builtins:38:1
+  ```
+  A user program with the same two modules compiles (that is what design
+  144 landed). Not user-facing — only a std-authoring constraint — but it
+  is the rule not holding where it is written to hold. The sweep worked
+  around it by naming SpinLock's enum `LockState`, which is the spelling
+  the skill's STYLE bullet uses for exactly these two constants anyway.
+
 ## Measured performance (Aug 10 — the warehouse benchmark)
 
 The first profiling-backed performance entry (per the ruling: optimization

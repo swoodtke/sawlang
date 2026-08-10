@@ -30,8 +30,18 @@
 // site: which one means "held" is the whole invariant. UNLOCKED being ZERO is
 // what lets a `static SpinLock<T>` be declared with no initializer at all —
 // the whole value is zerofill storage, so an idle lock costs no image bytes.
-static UNLOCKED: Int = 0
-static HELD: Int = 1
+//
+// An enum rather than a family of Int statics because a closed set of states is
+// what an enum is for (design 153); `Atomic<Int>` is the v1 atomic, so each call
+// site projects with `as Int` and the enum stays the single source of the values
+// — the same shape std/once.saw's `State` has. (Named `LockState` rather than
+// `State` because a second std-module `State` collides today; see DF-153a.)
+enum LockState: Int {
+    case Unlocked = 0,
+    case Held = 1
+}
+
+static_assert((LockState.Unlocked as Int) == 0, "zero must mean UNLOCKED")
 
 /// A value guarded by an atomic word.
 ///
@@ -76,7 +86,7 @@ extension SpinLock<T> {
     /// A `static` does not need this: declare it without an initializer and the
     /// zero pattern is already an unlocked lock over a zeroed payload.
     public init(value: T) unsafe -> SpinLock<T> {
-        SpinLock<T>(state: Atomic(UNLOCKED),
+        SpinLock<T>(state: Atomic(LockState.Unlocked as Int),
                     value: UnsafeMutableInterior(value))
     }
 
@@ -99,7 +109,7 @@ extension SpinLock<T> {
     /// had the lock at that instant and says nothing about whether it still
     /// does.
     public func try_lock<R>(&self, body: (&var T) sync -> R) unsafe sync -> R? {
-        if not self.state.compare_exchange(UNLOCKED, HELD) {
+        if not self.state.compare_exchange(LockState.Unlocked as Int, LockState.Held as Int) {
             return None
         }
         let result = body(self._payload())
@@ -112,7 +122,7 @@ extension SpinLock<T> {
     /// A debugging and assertion aid. The answer can be stale before it is
     /// read, so branching on it is a race; use `try_lock` to act on the answer.
     public func is_locked(&self) -> Bool {
-        self.state.load() != UNLOCKED
+        self.state.load() != (LockState.Unlocked as Int)
     }
 
     // The address of the guarded value. Sound only while the caller holds the
@@ -130,12 +140,12 @@ extension SpinLock<T> {
     }
 
     func _acquire(&self) {
-        while not self.state.compare_exchange(UNLOCKED, HELD) {
+        while not self.state.compare_exchange(LockState.Unlocked as Int, LockState.Held as Int) {
         }
     }
 
     func _release(&self) {
-        self.state.store(UNLOCKED)
+        self.state.store(LockState.Unlocked as Int)
     }
 }
 
