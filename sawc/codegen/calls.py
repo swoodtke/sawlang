@@ -10,10 +10,11 @@ Usage:
         pass
 """
 
-from typing import List
+from dataclasses import dataclass
+from typing import Any, List
 from llvmlite import ir
 from ast_nodes import (
-    FunctionCall, StructInit, Argument, SawType, TypeKind,
+    Expression, FunctionCall, StructInit, Argument, SawType, TypeKind,
     MethodCall, MemberAccess, Identifier, SelfExpr, EnumInit, ArrayIndex,
     ForceUnwrap, ReferenceExpr, StringLiteral, StringInterpolation, TupleIndex,
     NoneLiteral
@@ -21,7 +22,8 @@ from ast_nodes import (
 from .mangle import content_tag, mangle_type
 
 
-class PreparedValue:
+@dataclass
+class PreparedValue(Expression):
     """A synthesized expression node carrying an already-generated LLVM value.
 
     Design 137. Codegen builds a `MethodCall` for `format(into:)` whose argument
@@ -29,13 +31,15 @@ class PreparedValue:
     an expression node lets the call go through the ORDINARY method dispatch —
     vtable slot for an erased `&any Printable` receiver included — rather than a
     second, divergent copy of it.
-    """
 
-    def __init__(self, value, saw_type=None):
-        self.value = value
-        self.resolved_type = saw_type
-        self.line = 0
-        self.column = 0
+    It is a REAL `Expression` (design 194 unit 5): it used to be a bare class
+    carrying four hand-set attributes, which meant every transfer-path read of a
+    base annotation — `needs_copy`, `closure_lend`, `place_value_read` — had to
+    be a `getattr` with a default, in case the thing it was handed was this. It
+    travels in argument position, so it owes the whole `Expression` contract or
+    the readers cannot be direct.
+    """
+    value: Any = None
 
 
 class _StampedSymbol:

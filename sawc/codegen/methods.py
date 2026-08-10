@@ -33,7 +33,7 @@ class MethodsMixin:
 
     def _defer_function_body(self, func: Function):
         """Register one non-generic free function's body (design 168 unit 2)."""
-        name_override = getattr(func, 'mangled_symbol', None)
+        name_override = func.mangled_symbol
         llvm_func = self.functions[name_override or func.name]
 
         def emit():
@@ -57,7 +57,7 @@ class MethodsMixin:
                                             [p.name for p in method.parameters])
         # Overloading (design 55): a member of a 2+ overload set is emitted under
         # the type-signature symbol the typechecker stamped on the AST node.
-        return (getattr(method, 'mangled_symbol', None)
+        return (method.mangled_symbol
                 or self._mangle_method_name(struct_name, method.name))
 
     def _defer_extension_method_bodies(self, extension: Extension):
@@ -69,7 +69,7 @@ class MethodsMixin:
         for method in extension.methods:
             # Design 40 item 9 (C6): generic methods are monomorphized on demand
             # per call-site method type args, not generated eagerly.
-            if getattr(method, 'type_params', None) and not method.is_init:
+            if method.type_params and not method.is_init:
                 continue
             self._defer_body(
                 self.functions[self._ext_method_symbol(extension.struct_name, method)],
@@ -97,7 +97,7 @@ class MethodsMixin:
     def _generate_method(self, struct_name: str, method: Method):
         """Generate code for a single instance method."""
         # Overloading (design 55): use the AST-stamped overload symbol if present.
-        mangled_name = (getattr(method, 'mangled_symbol', None)
+        mangled_name = (method.mangled_symbol
                         or self._mangle_method_name(struct_name, method.name))
         llvm_func = self.functions[mangled_name]
 
@@ -107,8 +107,8 @@ class MethodsMixin:
 
         # design 69: attach the DISubprogram + prime the line location.
         self._di_begin_function(llvm_func, f"{struct_name}.{method.name}",
-                                getattr(method, 'source_file', ''),
-                                getattr(method, 'line', 0))
+                                method.source_file,
+                                method.line)
         # design 192 unit 2: breadcrumb — see `_generate_function` below.
         self._current_decl = method
 
@@ -152,25 +152,25 @@ class MethodsMixin:
 
         # A compiler-derived memberwise copy() has no user body: synthesize one
         # here, where every field's copy tier is known from the namespace.
-        if getattr(method, 'is_derived_copy', False):
+        if method.is_derived_copy:
             self._generate_derived_copy_body(struct_name)
             self.current_return_type = old_return_type
             return
 
         # A compiler-derived memberwise equals() (design 32): compare self and
         # other field by field via the shared Equatable lowering.
-        if getattr(method, 'is_derived_equals', False):
+        if method.is_derived_equals:
             self._generate_derived_equals_body(struct_name)
             self.current_return_type = old_return_type
             return
 
         # A compiler-derived lexicographic compare() / field-streaming hash()
         # (design 48) have no user body either; emit them from the field layout.
-        if getattr(method, 'is_derived_compare', False):
+        if method.is_derived_compare:
             self._generate_derived_compare_body(struct_name)
             self.current_return_type = old_return_type
             return
-        if getattr(method, 'is_derived_hash', False):
+        if method.is_derived_hash:
             self._generate_derived_hash_body(struct_name)
             self.current_return_type = old_return_type
             return
@@ -380,8 +380,8 @@ class MethodsMixin:
 
         # design 69: attach the DISubprogram + prime the line location.
         self._di_begin_function(llvm_func, f"{struct_name}.{method.name}",
-                                getattr(method, 'source_file', ''),
-                                getattr(method, 'line', 0))
+                                method.source_file,
+                                method.line)
         # design 192 unit 2: breadcrumb — see `_generate_function` below.
         self._current_decl = method
 
@@ -428,7 +428,7 @@ class MethodsMixin:
     def _generate_static_method(self, struct_name: str, method: Method):
         """Generate code for a static method (no self parameter)."""
         # Overloading (design 55): use the AST-stamped overload symbol if present.
-        mangled_name = (getattr(method, 'mangled_symbol', None)
+        mangled_name = (method.mangled_symbol
                         or self._mangle_method_name(struct_name, method.name))
         llvm_func = self.functions[mangled_name]
 
@@ -438,8 +438,8 @@ class MethodsMixin:
 
         # design 69: attach the DISubprogram + prime the line location.
         self._di_begin_function(llvm_func, f"{struct_name}.{method.name}",
-                                getattr(method, 'source_file', ''),
-                                getattr(method, 'line', 0))
+                                method.source_file,
+                                method.line)
         # design 192 unit 2: breadcrumb — see `_generate_function` below.
         self._current_decl = method
 
@@ -502,8 +502,8 @@ class MethodsMixin:
 
         # design 69: attach the DISubprogram + prime the line location.
         self._di_begin_function(llvm_func, func.name,
-                                getattr(func, 'source_file', ''),
-                                getattr(func, 'line', 0))
+                                func.source_file,
+                                func.line)
 
         # design 192 unit 2: the FILE half of the breadcrumb. Only declarations
         # carry `source_file` (design 121), so an expression node alone can
@@ -657,8 +657,8 @@ class MethodsMixin:
             # design 69: point the line table at the tail expression (an
             # expression-oriented block's value — e.g. a bare `panic(...)` — is a
             # final_expr, not a statement, so it needs its own location set here).
-            self._di_set_line(getattr(block.final_expr, 'line', 0),
-                              getattr(block.final_expr, 'column', 0))
+            self._di_set_line(block.final_expr.line,
+                              block.final_expr.column)
             # Honor an ImplicitCopy `needs_copy` annotation on a tail-return final
             # expression (only the function/method body's final_expr is marked
             # by the value-transfer checkpoint, so other blocks are unaffected).

@@ -42,7 +42,7 @@ class StatementsMixin:
         """
         # design 69: point the DWARF line table at this statement's source line
         # before lowering it (a line-0 synthesized node inherits the prior line).
-        self._di_set_line(getattr(stmt, 'line', 0), getattr(stmt, 'column', 0))
+        self._di_set_line(stmt.line, stmt.column)
 
         # design 192 unit 2: the breadcrumb — the statement half of the pair
         # sawc.py's catch-all reads to anchor an internal compiler error. See
@@ -372,7 +372,7 @@ class StatementsMixin:
         """
         if isinstance(value_expr, ArrayIndex):
             base = getattr(value_expr, 'array_expr', None)
-            base_type = getattr(base, 'resolved_type', None) if base is not None else None
+            base_type = base.resolved_type if base is not None else None
             if base_type is not None and base_type.kind == TypeKind.POINTER:
                 return False
         return self._transfer_needs_copy(value_expr)
@@ -391,7 +391,7 @@ class StatementsMixin:
         silent ``None`` here is exactly what previously disabled cleanup
         registration and copy insertion and leaked resources.
         """
-        resolved = getattr(expr, 'resolved_type', None)
+        resolved = expr.resolved_type
         if resolved is None:
             node = type(expr).__name__
             line = getattr(expr, 'line', '?')
@@ -422,7 +422,7 @@ class StatementsMixin:
             is_static_target = stmt.target.name not in self.variables
             var_type = self.variable_types.get(stmt.target.name)
             if var_type is None:
-                var_type = getattr(stmt.target, 'resolved_type', None)
+                var_type = stmt.target.resolved_type
 
             # Design 110: whole-referent replacement through a `&var` reference
             # parameter. The variable holds a POINTER to the caller's value; load

@@ -309,7 +309,7 @@ class ResourcesMixin:
         # non-owning closure (no captures / borrow-only) is a safe no-op. A
         # non-escaping closure borrows the enclosing frame and owns nothing.
         if saw_type.kind == TypeKind.FUNCTION:
-            return bool(getattr(saw_type, 'func_is_escaping', False))
+            return bool(saw_type.func_is_escaping)
         if saw_type.kind == TypeKind.ENUM:
             return self._enum_needs_variant_cleanup(saw_type)
         if saw_type.kind == TypeKind.OPTIONAL:
@@ -1240,7 +1240,7 @@ class ResourcesMixin:
         # `saw_type` was already substituted through the monomorphization context
         # above, so a container element type carries it.)
         if (saw_type.kind == TypeKind.FUNCTION
-                and getattr(saw_type, 'func_is_escaping', False)):
+                and saw_type.func_is_escaping):
             if (isinstance(value.type, ir.LiteralStructType)
                     and len(value.type.elements) == 3):
                 env_ptr = self.builder.extract_value(value, 1, name="copy_env")
@@ -1611,7 +1611,7 @@ class ResourcesMixin:
                                TypeKind.OPTIONAL, TypeKind.TUPLE)):
             return True
         return (t.kind == TypeKind.FUNCTION
-                and bool(getattr(t, 'func_is_escaping', False)))
+                and bool(t.func_is_escaping))
 
     def _frame_owning_read_copy(self, value_expr) -> bool:
         """True when `value_expr` is a design-124-marked frame-field read whose
