@@ -1,13 +1,39 @@
 # Design 194 — the typechecker→codegen contract debt
 
-**Status: AUTHORED from design 190's analysis (Aug 9), awaiting user
-approval to queue. Payoff (matrix evidence): structurally forecloses the
-DF-187b class (twelve hand-walks disagreeing about a stamped-field
-shape), fixes one latent must-agree divergence (DF-190c), turns Pyright
-from policy-noise toward signal, and de-risks the parser port you are
-about to author. Cost (census-priced): mostly SMALL — design 126 already
-did 89% of the schema work. Keep serial with 193 (both touch typechecker
-internals).**
+**LANDED Aug 10** in ten commits (units 1-4 one each, unit 5 in six
+per-batch commits), the full suite green at each. All five units built as
+written. What it produced beyond them:
+
+- **The census's nine stragglers were six.** Three of the citations —
+  `sync_reason`, `poly_candidate`, `suspends` — are declared fields of
+  `SuspendNode`, a plain dataclass that is not an AST node; the census's
+  grep could not tell. Five the census MISSED were real
+  (`is_mono_instance`, `coro_frame_info`, `file_module_docs`,
+  `place_value_read`, `place_abstract_read`), which is the argument for
+  mechanizing the criterion rather than re-reading it.
+- **DF-190c is latent and, today, unreachable.** The probe: the
+  typechecker's copy saw a `CONST_VALUE` argument zero times in 219,689
+  calls over the corpus, because a const-generic SPECIALIZATION cannot be
+  written at all (`extension Ring<4>` is a parse error). Unified anyway;
+  pinned at the parse refusal that makes it unreachable.
+- **A twelfth graft, found by unit 5 and missed by unit 1's gate.**
+  `StaticDecl.mangled_symbol` is stamped by registration and read by
+  codegen, and the name is declared on `Function`/`Method` — so a
+  name-only rule accepted it while the read answered `None` forever. The
+  gate gained a second, precise rule (an annotated parameter's class must
+  declare the field) and the field is declared.
+- **DF-194a filed, not fixed**: a module-qualified type name does not
+  resolve in a struct field, an enum payload or a `type` alias — the same
+  three raw slots unit 4 had to wire the gate into by hand. Pre-existing,
+  true for user modules as well as std, and it wants a design-144 ruling.
+
+*(Original status: AUTHORED from design 190's analysis (Aug 9). Payoff
+(matrix evidence): structurally forecloses the DF-187b class (twelve
+hand-walks disagreeing about a stamped-field shape), fixes one latent
+must-agree divergence (DF-190c), turns Pyright from policy-noise toward
+signal, and de-risks the parser port you are about to author. Cost
+(census-priced): mostly SMALL — design 126 already did 89% of the schema
+work. Keep serial with 193 (both touch typechecker internals).)*
 
 ## Units
 

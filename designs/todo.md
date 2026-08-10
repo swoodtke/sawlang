@@ -284,6 +284,23 @@ DF-192g is a confirmed wrong answer** — both below.
   expectation test — nothing is broken, and the pin flips the day the grammar
   admits a const specialization).
 
+**194 LANDED Aug 10** (all five units; see `designs/194-contract-debt.md`). The
+AST contract is declared and GATED: `tools/test_ast_graft.py` (battery lane
+`astgraft`, `make astgraft`) fails on any attribute assignment in `sawc/` that
+no class declares, which is design 126's own exit criterion mechanized after
+five years of nobody checking it — twelve grafts had crept back, six of them
+past the census. Two must-agree helper pairs deduplicated
+(`ast_nodes.specialization_key`, `target_info.pointer_size_bits`) and a third
+triple (`ast_walk.pattern_binding_sites`). The prelude gate runs on ANNOTATIONS
+now, through one funnel over a parser-stamped written-form provenance bit
+(`SawType.written_name`), closing DF-188k and DF-193d. 162 of codegen's 209
+AST-field `getattr`s are direct typed reads; the 47 that remain are guards, each
+named in its batch's commit. ONE finding filed (DF-194a below); two bugs fixed
+on the way — the never-installed `static_globals` mangled key, and a
+negative-array-length diagnostic that would have crashed on the path where the
+length carries no expression, which is the first true positive Pyright could see
+once the reads stopped being `Any`.
+
 **191 LANDED Aug 10** (all five units; see `designs/191-conformance-suite.md`).
 The Aug-8 audit's 247 rows are a standing suite: `examples/conformance/`, one
 file per row that needed one, `examples/conformance/INDEX.md` naming the
