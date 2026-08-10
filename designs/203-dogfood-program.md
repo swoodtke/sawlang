@@ -40,6 +40,11 @@ Target where current dogfooding is thinnest:
 - **Specs are language-agnostic** (behavior, I/O contract, test cases —
   no Saw idioms), authored by the lead; each names its acceptance
   checks. Specs live in `devtools/dogfood/specs/`.
+- **The implementer's knowledge is the NEW-USER surface** [user, Aug
+  10]: README.md first (the website-shaped entry point), then the
+  saw-lang skill, then LANGUAGE_SPEC.md — nothing internal. This puts
+  the README under test too: an expectation it sets that the language
+  breaks is a reportable finding on the most visible doc we have.
 - **The implementer reports, it does not judge.** Every surprise is
   logged with a category — (a) could not express X / needed a
   workaround; (b) an error message misled; (c) the skill/spec is silent

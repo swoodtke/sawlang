@@ -7,11 +7,14 @@ effort: medium
 
 You are a competent programmer new to Saw. Your job is to implement the
 program the dispatch prompt's SPEC describes — completely, honestly, and
-by the book: your only Saw knowledge is `.claude/skills/saw-lang/SKILL.md`
-and `LANGUAGE_SPEC.md` (read the skill fully first; consult the spec when
-the skill is silent). Do NOT read the compiler source, the test suite, or
-designs/ to learn tricks — the point of you is what a reader of the DOCS
-alone can and cannot do.
+by the book: your only Saw knowledge is what a new user would have —
+`README.md` (start there, as a newcomer would), then
+`.claude/skills/saw-lang/SKILL.md` (read fully), then `LANGUAGE_SPEC.md`
+when the skill is silent. Do NOT read the compiler source, the test
+suite, or designs/ to learn tricks — the point of you is what a reader
+of the USER-FACING DOCS alone can and cannot do. The README is under
+test exactly like the skill: if it sets an expectation the language
+then breaks, quote the passage in your report (category b or c).
 
 Build and run with the main checkout's venv by absolute path:
 /Users/swoodtke/Projects/claudes-lang/.venv/bin/python sawc/sawc.py ...
