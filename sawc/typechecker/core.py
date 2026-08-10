@@ -969,6 +969,47 @@ class TypeChecker(ExpressionsMixin, StatementsMixin, RegistrationMixin, TypeUtil
         )
         return True
 
+    # The prelude gate over a WRITTEN type annotation. `_std_name_gated` fires
+    # in EXPRESSION positions — a call, a struct literal, a static-method head —
+    # which reaches a gated type only where a value of it is BUILT; a `static`'s
+    # annotation builds nothing, so design 188 unit 7 gave that one position a
+    # walk of its own, and this is that walk, shared (design 193 unit 7).
+    #
+    # It is NOT yet the funnel DF-188k needs. Extending it to signature and
+    # binding annotations — the rest of the "every position a user writes a
+    # type" matrix — needs a durable PROVENANCE bit that does not exist today:
+    # by the time any check can run, `_canonicalize_module_types` and
+    # `_register_function`'s write-back have both replaced the author's spelling
+    # with the resolved identity, so a legal qualified `data.Data` is
+    # indistinguishable from a bare unimported `Data` and gets refused. See
+    # DF-193d; a `static`'s annotation is the one slot nothing rewrites, which
+    # is why this position works.
+    def _gate_written_type(self, written, line, column, depth: int = 0) -> None:
+        """Run the prelude gate over every bare name a WRITTEN type mentions."""
+        if written is None or depth > 8:
+            return
+        # std's own bodies and the coroutine transform's output name std types
+        # by construction, and the post-transform pass re-checks a program whose
+        # synthesized frames hold them in fields. All three are exempt exactly
+        # as they are for `_std_name_gated`'s expression positions.
+        if (getattr(self, '_checking_builtins', False)
+                or getattr(self, 'post_transform', False)
+                or self._in_synthesized_context()):
+            return
+        name = None
+        if written.kind == TypeKind.STRUCT:
+            name = written.struct_name
+        elif written.kind == TypeKind.ENUM:
+            name = written.enum_name
+        if name and '.' not in name:
+            self._std_name_gated(name, line, column)
+        for child in (written.inner_type, written.array_element_type,
+                      written.func_return_type):
+            self._gate_written_type(child, line, column, depth + 1)
+        for child in ((written.type_args or []) + (written.element_types or [])
+                      + (written.param_types or [])):
+            self._gate_written_type(child, line, column, depth + 1)
+
     def _vis_word(self, visibility: Visibility) -> str:
         return {
             Visibility.PUBLIC: "public",

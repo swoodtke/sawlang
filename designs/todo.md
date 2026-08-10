@@ -69,6 +69,26 @@ LANDED with 190 into CLAUDE.md.
   `ast_walk.child_nodes` now. PINS:
   `examples/place_match_arm_move_in_literal.saw`,
   `examples/chain_assign_exclusivity_in_literal.saw`.
+- **DF-193d (SPEC/IMPL, filed Aug 10 by 193 u7 — supersedes DF-188k's "general
+  fix" line with a diagnosis): the prelude gate cannot run on type ANNOTATIONS
+  until a written-form PROVENANCE bit exists.** Building the funnel and running
+  it over signature annotations refuses `func one() -> data.Data` under
+  `import std.data` — the legal qualified spelling — because by the time any
+  check can read the annotation, BOTH `_canonicalize_module_types` and
+  `_register_function`'s design-68 write-back have replaced the author's
+  spelling with the resolved identity, and a qualified `data.Data` is then
+  indistinguishable from a bare unimported `Data`. (The front half also
+  re-enters the same AST for the place lowering and the coroutine transform, so
+  any hook must be idempotent against already-rewritten annotations.) The fix
+  is a durable bit — on the annotation slot or the `SawType` — set where the
+  qualifier is resolved; that is an AST-contract change and belongs with
+  design 194's typed-AST work, not here. Also worth knowing before it lands:
+  the corpus itself relies on the gap — `examples/cbor169_vectors.saw` names
+  `IoError` in a return type with no import, and closing the gate makes that
+  (and any user code like it) an error, so the landing owes a corpus sweep.
+  A `static`'s annotation, the one slot nothing rewrites, stays gated (design
+  188 unit 7, now through the shared `_gate_written_type`). PIN:
+  `examples/std_import_gate_signature_position.saw` (XFAIL, cited).
 - **DF-193a (CAPABILITY, filed Aug 10 by 193 u2): a suspension inside a
   `try { … } catch { … }` BLOCK in a driven body is refused.** The
   census's DF-190b claim, minus the misattribution: the coro spine walks
@@ -274,6 +294,9 @@ findings filed below (DF-188j, DF-188k).
   gate wherever a written type name is resolved in user source, which needs care
   about the many internal callers that resolve std-derived types while checking a
   user body — an over-rejection hazard, hence a finding rather than a change.
+  **Design 193 unit 7 built it and BACKED IT OUT** — the hazard is real and its
+  cause is now known: see DF-193d above (the written spelling is destroyed
+  before any check can read it, so a legal qualified annotation is refused).
 
 Also from the audit, for the record: DF-174h's failure mode CHANGED — the
 too-deep `??` default no longer emits invalid IR; it silently takes the

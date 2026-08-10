@@ -8944,6 +8944,11 @@ class ExpressionsMixin:
                 # compare) — shadowing an enclosing binding is a flat error.
                 self._check_shadowing(binding_name, None, arm.line, arm.column,
                                       site="pattern")
+                # design 130 rule 3, intake (design 193 unit 7) — the enum-switch
+                # twin of the `_check_pattern` line: binding an unsafe payload is
+                # contact even when the arm never reads it.
+                self._note_unsafe_contact(
+                    param_type, arm, "its body binds a value of unsafe type")
                 var_info = VariableInfo(
                     type=param_type,
                     mutable=False,
@@ -9256,6 +9261,15 @@ class ExpressionsMixin:
             # shadowing an enclosing binding is a flat error.
             self._check_shadowing(pattern.name, None, pattern.line,
                                   pattern.column, site="pattern")
+            # design 130 rule 3, intake (design 193 unit 7): BINDING an unsafe
+            # value is contact, whether or not the binding is ever read. The
+            # rest of the rule runs off expression types, and a bound-and-never-
+            # used pattern binding produces no expression to type — so
+            # `case Filled(t) -> 1` on an unsafe payload left the function
+            # undeclared with an unsafe value in scope.
+            self._note_unsafe_contact(
+                expected_type, pattern,
+                "its body binds a value of unsafe type")
             var_info = VariableInfo(type=expected_type, mutable=False,
                                     line=pattern.line, column=pattern.column)
             if not self.current_scope.define(pattern.name, var_info):

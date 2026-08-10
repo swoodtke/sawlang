@@ -748,7 +748,17 @@ class StatementsMixin:
 
         # Default parameter values (design 53): checked in isolation with this
         # function's suspend node active (so a suspending default taints callers).
+        #
+        # A default is part of the SIGNATURE, so unsafe contact inside one
+        # belongs to this function — but the defaults are checked out here,
+        # before `_enter_unsafe_scope` below clears the slot, so any contact
+        # they recorded was thrown away (design 193 unit 7). Hold it across the
+        # boundary rather than moving the check: a default is checked in the
+        # OUTER scope on purpose (it may not name a parameter).
+        outer_contact, self._unsafe_contact = self._unsafe_contact, None
         self._check_parameter_defaults(func.parameters, is_generic)
+        default_contact = self._unsafe_contact
+        self._unsafe_contact = outer_contact
 
         # Create new scope for function
         self.current_scope = Scope()
@@ -782,6 +792,8 @@ class StatementsMixin:
         saved_unsafe_contact = self._enter_unsafe_scope(
             func, [self._resolve_type(p.type) for p in func.parameters],
             resolved_return_type)
+        if self._unsafe_contact is None and default_contact is not None:
+            self._unsafe_contact = default_contact
 
         # design 54: a collection/array literal in return position (tail or a
         # top-level `return`) gets the return type as its expected type.

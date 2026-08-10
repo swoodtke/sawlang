@@ -1,0 +1,29 @@
+// The prelude gate (design 82 Part B / design 150) says a non-prelude std type
+// must be imported before user source may name it. It fires in EXPRESSION
+// positions — a call, a struct literal, a static-method head — which reaches a
+// gated type only where a VALUE of it is built. A signature that merely
+// RECEIVES one builds nothing, so this file names `Data` and `IoError` in
+// three annotation positions with no `import std.data` anywhere and compiles.
+//
+// Intended: each annotation is refused with the ordinary "is not in the prelude
+// and must be imported" diagnostic naming the three import spellings.
+//
+// XFAIL: DF-193d the prelude gate does not run on type ANNOTATIONS; closing it needs a written-form provenance bit, since canonicalization and the signature write-back both replace the author's spelling before any check can read it
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: `Data` is not in the prelude and must be imported
+
+struct Holder {
+    d: Data
+}
+
+func take(d: &Data) -> Int {
+    d.len()
+}
+
+func hand_back(n: Int) -> Data? {
+    None
+}
+
+func main() {
+    print("{hand_back(1)!.len()}")
+}
