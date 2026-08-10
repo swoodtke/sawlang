@@ -1,0 +1,45 @@
+// A suspending callee inside a `try ... catch` in a spawned task body
+// should drive like any other suspension (design 120's expression-position
+// hoist covers try subjects elsewhere). It does not: the coroutine spine
+// walks do not descend TryCatchExpr, so this is rejected with a nonsense
+// error naming the callee as an "undefined struct" — while the identical
+// SYNC shape compiles and runs. Intended: it compiles, the worker returns
+// 42, and the sibling gets a tick while the try-body is parked.
+// XFAIL: DF-190b a suspension inside try/catch in a task body is mis-rejected; coro spine walks skip TryCatchExpr
+// EXPECT: success
+// EXPECT-OUTPUT-CONTAINS: worker 42
+
+import std.task.*
+
+struct Flaky {
+    n: Int
+}
+
+extension Flaky: Printable {
+    func format(&self, into: &var StringBuilder) {
+        into.append("flaky ")
+        into.append(self.n)
+    }
+}
+
+extension Flaky: Error {}
+
+func compute(ok: Bool) -> Result<Int, Flaky> {
+    yield_now()
+    if ok {
+        return 40
+    }
+    return Flaky(n: 2)
+}
+
+func worker() -> Int {
+    let a = try compute(ok: true) catch { 0 }
+    let b = try compute(ok: false) catch { 2 }
+    a + b
+}
+
+func main() {
+    var group = TaskGroup()
+    let w = group.spawn(worker())
+    print("worker {w.join()}")
+}

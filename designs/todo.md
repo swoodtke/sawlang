@@ -7,6 +7,39 @@ items need a probe before being treated as real work.
 Historical/landed recaps: designs/todo_aug1-aug9.md (split Aug 9);
 older history is in this file's git log (pruned Jul 30).
 
+## The quality program — designs 190-194 (AUTHORED Aug 9, awaiting approval)
+
+`designs/190-quality-program.md` is the analysis (findings-vs-proposals
+matrix + three code censuses); 191-194 are the briefs it produced.
+Awaiting user approval to queue. Recommended order: 193 first (fixes
+confirmed soundness holes), then 191 ∥ 192, then 194; keep 193/194
+serial (both touch typechecker internals). The process rules (position
+funnel-or-matrix; contract-flip consumer sweep; safety-surface
+conformance-rows-first) LANDED with 190 into CLAUDE.md.
+
+- **DF-190a (SOUNDNESS, CONFIRMED, filed Aug 9): a match-arm payload
+  binding bypasses the transfer checkpoint — an owned NoCopy enum is
+  double-consumed.** Two sequential `match s` on one owned NoCopy enum
+  compile silently and the payload deinits TWICE (probe: `deinit 7`
+  twice, exit 0). Codegen marks the scrutinee moved
+  (`codegen/match.py`); the typechecker binds match payloads
+  (`expressions.py:8795-8814`) with no `_check_value_transfer` and no
+  move state. Double-free class, trivially reachable. Owned by design
+  193 unit 1. PIN: `examples/match_owned_enum_double_consume.saw`.
+- **DF-190b (CAPABILITY + DIAGNOSTIC, CONFIRMED, filed Aug 9): a
+  suspending callee inside `try ... catch` in a task body is rejected
+  with a nonsense error** (``undefined struct `compute` ``); the sync
+  shape compiles and runs. The 11 coro spine walks do not descend
+  `TryCatchExpr` (only `_uniq_walk` does). Owned by design 193 unit 2.
+  PIN: `examples/coro_try_catch_suspending.saw`.
+- **DF-190c (VERIFY / latent must-agree, filed Aug 9):
+  `_make_specialization_key` has DIVERGED** — codegen handles design-148
+  const-value type args (`generics.py:566-571`), the typechecker drops
+  them to an empty key (`expressions.py:6409-6411`). A const-generic
+  specialization may key differently front vs back. Needs a probe (does
+  it ever key through the typechecker copy?) before the fix. Owned by
+  design 194 unit 2.
+
 ## Design 186 — `UnsafeMutableInterior` (ALL EIGHT UNITS LANDED, Aug 9)
 
 `designs/186-unsafe-mutable-interior.md`. Interior mutability is a PROPERTY

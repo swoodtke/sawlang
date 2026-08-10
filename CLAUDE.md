@@ -171,6 +171,24 @@ follows the saw-docs skill. Standing policy: fix user-facing bugs
 on discovery unless genuinely ambiguous (then tracker + flag). Record
 language pain hit while writing Saw as DF-findings in the tracker.
 
+Three BRIEF OBLIGATIONS (design 190, from the Aug-9 quality analysis —
+each earned by a family of found bugs):
+1. **A position-quantified rule is a funnel or a matrix.** A brief that
+   introduces or touches a rule quantifying over "every position where X
+   appears" either routes it through ONE chokepoint whose docstring NAMES
+   its entry points, or carries an explicit position matrix its tests
+   cover row by row. (Scattered rules grew 2-3 duplicate copies and every
+   position gap of the week hid at a bypassed entry; funnels with named
+   entries did not.)
+2. **A behavioral-contract flip owes a consumer sweep.** A brief changing
+   a behavioral contract — blocking→cooperative, by-value→by-pointer,
+   eager→lazy, flag semantics — surveys "who relies on the old behavior"
+   (grep + one paragraph) before dispatch. (The DF-182f irdet fork-bomb:
+   cooperative `run()` deleted a throttle irdet relied on; loadavg >700.)
+3. **A safety-surface brief writes its conformance rows first.** Once
+   design 191 lands, a brief touching a safety guarantee adds/updates its
+   `examples/conformance/` rows as its FIRST unit.
+
 ## Language state (orientation digest — details in spec/skill)
 Landed through design 161 (Aug 6; 152-155, 157 and 158 are briefs, not yet
 built): full trait system (default bodies,
