@@ -16,6 +16,10 @@ static COUNTER: Atomic<Int> = Atomic(0)
 
 struct Stats { hits: Atomic<Int> }
 
+// An `Atomic` field is NoCopy (design 202), so the holder states its policy —
+// a copied `Stats` would be a second `hits` word, counting on its own.
+extension Stats: NoCopy {}
+
 // A static struct with an interior-mutable Atomic field: mutating the field
 // through the immutable static must hit the global, not a copy.
 static GLOBAL_STATS: Stats = Stats(hits: Atomic(10))

@@ -44,6 +44,12 @@ struct SlabHead {
     public free: Atomic<Int>
 }
 
+// Move-only, because `Atomic` is (design 202): a copied head is a second set of
+// bookkeeping over the SAME region, which would hand the same chunk out twice.
+// The head is meant to be reached where it lives — a `static`, lent as `&` —
+// and every function here takes it that way.
+extension SlabHead: NoCopy {}
+
 // Hand out one uninitialized chunk, or `None` when the slab is exhausted.
 //
 //   region      — start of the caller's byte region (`(&STATIC) as UnsafePointer<Int8>`)

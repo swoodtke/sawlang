@@ -12,9 +12,13 @@
 // generic: 5
 // dynamic: 6
 
+// design 202: an `Atomic` field is NoCopy, so every holder below declares its
+// own policy — including `Pair`, which reaches an atomic one level down.
 struct Counter {
     n: Atomic<Int>
 }
+
+extension Counter: NoCopy {}
 
 extension Counter {
     func bump(&self) { self.n.fetch_add(1) }
@@ -27,6 +31,8 @@ struct Pair {
     right: Counter
 }
 
+extension Pair: NoCopy {}
+
 extension Pair {
     func bump_left(&self) { self.left.n.fetch_add(1) }
     func left_count(&self) -> Int { self.left.n.load() }
@@ -37,6 +43,8 @@ struct Tagged<T> {
     tag: T,
     hits: Atomic<Int>
 }
+
+extension Tagged<T>: NoCopy {}
 
 extension Tagged<T> {
     func hit(&self) { self.hits.fetch_add(1) }

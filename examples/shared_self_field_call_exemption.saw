@@ -22,6 +22,8 @@ import std.spinlock.*
 //    caller's.
 struct Counter { n: Atomic<Int> }
 
+extension Counter: NoCopy {}
+
 extension Counter {
     func bump(&self) { let _old = self.n.fetch_add(1) }
     func read(&self) -> Int { self.n.load() }

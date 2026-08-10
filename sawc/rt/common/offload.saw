@@ -42,6 +42,12 @@ struct Job {
     thread: Int
 }
 
+// Move-only, because the `done` field is an `Atomic` (design 202). A job is
+// never held by value anywhere: `start` mallocs one and every seam below
+// reaches it through an `UnsafePointer<Job>`, which is the single-owner
+// discipline the header describes.
+extension Job: NoCopy {}
+
 static NANOS_PER_MILLI: UInt64 = 1000000
 
 // pipe() writes fds[0]=read, fds[1]=write into two adjacent Int32s.
