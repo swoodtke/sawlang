@@ -1,9 +1,40 @@
 # Design 195 — integer width agreement: operands match, transfers widen
 
-**Status: RULED + AUTHORED Aug 10, ready to queue. Fixes one confirmed
-WRONG ANSWER (DF-192g), one ICE (DF-192f), and the silent signedness
-mix the ruling discussion's probe found (`Int + UInt` compiles today).
-Typechecker internals — keep serial with anything else touching them.**
+**Status: LANDED Aug 10 (all five units, tracked battery green). Fixed one
+confirmed WRONG ANSWER (DF-192g), one ICE (DF-192f), the silent signedness
+mix the ruling discussion's probe found, and — found by unit 1's probes —
+one more wrong answer at every implicit widening (DF-195a). Four findings
+filed: DF-195b/c (transfer-position narrowing and sign flip, a conversion
+question left to design 170's neighborhood), DF-195d (whether an integer
+literal may adopt `Float`), DF-195e (two widening positions with no source
+type threaded to them).**
+
+## What the units needed beyond the written brief
+
+Four decisions the text did not carry, each recorded where it is
+implemented and repeated here so a reader of the brief finds them:
+
+1. **Two positions the matrix did not carry** took rule 1 as well, because
+   both are two-peer operations and both were broken: COMPOUND ASSIGNMENT
+   (`a += b16`, an ICE) and the BITWISE `& | ^` (which compiled and
+   ZERO-extended the right operand whatever its signedness, so a negative
+   narrow operand masked against the wrong word). Rows W18 and W19.
+2. **A CONST position adopts no literal width.** `const_eval` folds in the
+   signed platform-`Int` domain whatever the operand types say (design
+   185: `~Perm.Read` is `-2` even though the flag reading types it
+   `UInt8`), so pinning a literal to an operand's width there would
+   range-check it against a width the fold does not use. Agreement still
+   runs; only the width pin is skipped.
+3. **The `??` DEFAULT is a literal-adoption position.** `elf.u8_at(off) ?? 0`
+   on a `UInt?` typed the whole expression `Int` from its literal, and the
+   comparison one line down then met an `Int` and a `UInt` — a rule-1 error
+   in code whose author had written nothing mixed. Found by the sweep, in
+   blade's ELF reader.
+4. **Two distinct FIXED widths still do not merge.** Rule 2 says arms behave
+   "exactly as at a `return`", and design 53 refuses `Int16` into `Int64`
+   at every transfer, so an `Int16` arm beside an `Int64` one stays the type
+   error it always was. The merge decides only among types that already
+   convert.
 
 ## Decision [user, Aug 10]
 

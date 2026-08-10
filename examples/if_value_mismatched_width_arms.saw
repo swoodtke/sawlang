@@ -1,29 +1,34 @@
-// A value `if` whose arms have DIFFERENT integer widths must not silently
-// return the wrong arm.
+// A value `if` whose arms have DIFFERENT integer widths answers with the arm
+// that ran.
 //
-// `if a > 0 { 11 } else { 7i16 }` in an `Int`-returning function compiles
-// today, and `f(-3)` prints 11 — the THEN arm's value, on the path that took
-// the ELSE arm. The identical program with a bare `7` prints 7. Nothing warns,
-// nothing panics, the exit code is 0: a wrong ANSWER, which is the worst thing
-// a compiler can produce and the reason this is not merely a diagnostics bug.
+// `if a > 0 { 11 } else { 7i16 }` in an `Int`-returning function compiled, and
+// `f(-3)` printed 11 — the THEN arm's value, on the path that took the ELSE
+// arm. The identical program with a bare `7` printed 7. Nothing warned, nothing
+// panicked, the exit code was 0: a wrong ANSWER, which is the worst thing a
+// compiler can produce and the reason this was never merely a diagnostics bug.
 //
-// A suffixed literal is exact-typed (design 53) — the width-adopting rule is
-// for a BARE literal — and Saw has no implicit integer conversion (design 170
-// made every narrowing explicit and every widening a written `as`). So two
-// arms at two widths is a type disagreement and belongs in the same error as
-// any other arm-type mismatch, naming both types. That is the expectation
-// below. (If the ruling instead widens same-sign arms implicitly, this pin
-// becomes EXPECT: success printing 11 and 7 — but it can never stay as it is.)
+// RULED (design 195 rule 2): a value-branch arm is a TRANSFER, so it takes the
+// rule a `return` takes — a lossless widening is free. `7i16` is an `Int16` and
+// `Int16` widens into `Int` with no loss, so the arms merge at `Int` and the
+// else path answers 7. This file is the flip its own earlier text named: it
+// said "if the ruling instead widens same-sign arms implicitly, this pin
+// becomes EXPECT: success printing 11 and 7 — but it can never stay as it is."
 //
-// The loud sibling is DF-192f: `n * 2i16` on an `Int n` is a codegen ICE
-// rather than a wrong answer. One root — nothing checks that two integer
-// operands agree on width — and two faces.
+// What is NOT legal is an arm that cannot widen losslessly: a narrowing arm, or
+// a same-width sign flip like `7u64` beside an `Int`. Conformance row W13 holds
+// those; W12 holds the acceptance side at every arm order and signedness.
+//
+// The loud sibling was DF-192f: `n * 2i16` on an `Int n` was a codegen ICE
+// rather than a wrong answer. One root — nothing checked that two integer
+// operands agree — and design 195 answered both, differently, because an
+// OPERATOR has two peers and a BRANCH has one destination.
 //
 // Found by tools/sawfuzz.py (its literal-rewrite mutation suffixes a bare
 // literal); the ICE it reported minimized into this silent version.
-// XFAIL: DF-192g a value `if` with mismatched-width integer arms compiles and returns the wrong arm's value
-// EXPECT: error
-// EXPECT-ERROR-CONTAINS: Int16
+// EXPECT: success
+// EXPECT-OUTPUT:
+// 11
+// 7
 
 func f(a: Int) -> Int {
     if a > 0 { 11 } else { 7i16 }

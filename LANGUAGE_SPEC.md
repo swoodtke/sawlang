@@ -4075,6 +4075,83 @@ constant, which is where a wrong constant is a typo the compiler can catch.
 - **Pointer and address casts** are unaffected; see "Address casts".
 - **Float** conversions are unchanged.
 
+### Integer Width Agreement
+
+**Status: implemented (design 195).**
+
+Two rules cover every position where integers of different types meet.
+
+#### Operands agree; only literals promote
+
+All typed operands of an operation have the **same type**. A binary operator, a
+comparison, a compound assignment or a range whose two operands are integers of
+different width — or of the same width and different signedness — is a compile
+error naming both:
+
+```saw
+func doubling(n: Int) -> Int {
+    n * 2i16
+}
+// error: operator `*` requires both operands to have the same type, but the
+//        left is `Int` and the right is `Int16`
+// hint: drop the `i16` suffix so the literal adopts `Int`, or convert one
+//       operand — `x as Int` panics out of range, `Int.from(x)` answers
+//       `None`, `Int.from(truncating: x)` keeps the low bits
+```
+
+Implicit promotion happens from **bare integer literals** and nowhere else. A
+bare literal has no width of its own and adopts the other operand's type, so
+`n * 2` is legal at every integer type; the negated form `n * -2` is a bare
+literal too, and `big / 3` on a `UInt big` is an unsigned division, because the
+literal is a `UInt` there. A suffixed literal is exact-typed, and a named value
+carries the type it was declared with.
+
+There is no promotion ladder. An operation has two peers, and a rule picking a
+winner between them would decide, silently, which operand's reading the program
+runs under. `Int` beside `UInt` is the case that shows why: read as signed, a
+large `UInt` is negative; read as unsigned, a negative `Int` is enormous.
+
+The **shift count is exempt**. `<<` and `>>` do not take two peers — the right
+operand is a count, range-checked against the left operand's width at runtime
+and contributing nothing to the result's type — so `flags << shift` stays legal
+whatever the two types are. The compound forms `<<=` and `>>=` follow.
+
+`Float` and an integer are two types, so they do not mix either. There is no
+implicit conversion between them in any direction; write the float literal.
+
+#### Value-branch arms are transfers
+
+Each arm of a value `if` or `match`, and each operand of `??`, hands its value
+to one merged home. Each is a transfer, so each takes the rule a `return` takes:
+a lossless widening is free, and anything else is refused.
+
+```saw
+func f(a: Int) -> Int {
+    if a > 0 { 11 } else { 7i16 }
+}
+// f(3) is 11; f(-3) is 7 — the Int16 arm widens into the merged Int
+```
+
+The merged type is the arm type every other arm widens into losslessly: the
+identity, same-sign widening, and unsigned into strictly wider signed, which is
+the total half of the conversion table above. Each arm extends into it by its
+own signedness, so an unsigned arm zero-extends and keeps its value. Arms with
+no such common type are refused where they are written:
+
+```saw
+func g(a: Int) -> Int {
+    if a > 0 { 11 } else { 7u64 }
+}
+// error: the `if` and `else` branches have no common type: `Int` and `UInt64`
+//        — neither widens into the other without losing a value
+```
+
+Two distinct fixed widths still do not merge, because they do not convert
+implicitly anywhere (see "Integer Conversions"): an `Int16` arm beside an
+`Int64` one is the same type error it is at a `let`. Bare literals adopt in arm
+position exactly as they do in operand position, so the arms above in an
+`-> Int16` function are legal with nothing written.
+
 ### Bitwise and Shift Operators
 
 **Status: implemented (design 50).**

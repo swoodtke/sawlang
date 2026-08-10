@@ -57,7 +57,39 @@ print("{#file}:{#line} - msg")  // #file/#line/#function: definition-site consts
   if/match arm, compound-assign RHS, array/tuple/Map/Set element — and
   is range-checked at the literal (`let b: UInt8 = 256` is a clean
   error). With no fixed-width expectation it stays platform `Int`
-  (`let x = 5`); in a mixed binop it takes the other operand's width.
+  (`let x = 5`); in a mixed binop it takes the other operand's TYPE.
+- **INTEGER OPERANDS MUST AGREE, and only bare literals promote (design
+  195).** All typed operands of an operation have the SAME type: a binary
+  operator, a comparison, a compound assignment or a range over two
+  integers of different WIDTH — or the same width and different
+  SIGNEDNESS — is a clean error naming both types and the ways out.
+  ```saw
+  n * 2      // fine at every integer type: a bare literal adopts
+  n * -2     // also a bare literal — the `-` is not a suffix
+  n * 2i16   // error on an `Int n`: a suffixed literal is exact-typed
+  i + u      // error: `Int` and `UInt` are two types
+  i < u      // same — and this is the one that silently answered wrong
+  ```
+  No promotion ladder: an operation has two peers, and picking a winner
+  between them would silently decide whose reading the program runs
+  under. The SHIFT COUNT is exempt (`flags << shift` at any two types) —
+  a count is not a peer, and `<<=`/`>>=` follow. `Float` beside an
+  integer is refused too; write the float literal.
+- **VALUE-BRANCH ARMS ARE TRANSFERS (design 195).** Each arm of a value
+  `if`/`match`, and each operand of `??`, takes the rule a `return`
+  takes: a lossless widening is free (same-sign up, unsigned into
+  strictly wider signed), anything else is refused.
+  ```saw
+  func f(a: Int) -> Int { if a > 0 { 11 } else { 7i16 } }  // f(-3) is 7
+  func g(a: Int) -> Int { if a > 0 { 11 } else { 7u64 } }  // error: no
+                          // common type — neither widens into the other
+  ```
+  The merged type is the arm every other arm widens into, and each arm
+  extends by its OWN signedness. Two distinct FIXED widths still do not
+  merge (they convert nowhere implicitly), and bare literals adopt in
+  arm position, so the same arms at `-> Int16` need nothing written.
+  Treat a mismatched-width value `if` as correct now and SUSPECT in
+  older builds: it used to hand back the then-arm's value on both paths.
 - A FLOAT literal needs a digit on each side of the point (design 161):
   `1.5` yes, `7.` no (a parse error naming `7.0`). A `.` that no digit
   follows ends the number, so `7.to_string()` is a method call on the

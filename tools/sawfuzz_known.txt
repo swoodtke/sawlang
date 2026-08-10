@@ -17,10 +17,7 @@
 # same case value twice. Pin: examples/match_duplicate_enum_arm.saw
 DF-192d	internal-compiler-error: error: internal compiler error: LLVM IR parsing error | <string>:N:N: error: duplicate case value in switch
 
-# Nothing checks that two integer operands agree on WIDTH, so a suffixed
-# literal in a platform-`Int` context reaches llvmlite unmatched. Two faces of
-# one root, and a third that is silent rather than loud (DF-192g).
-# Pins: examples/binop_mixed_width_operands.saw,
-#       examples/if_value_mismatched_width_arms.saw
-DF-192f	internal-compiler-error: error: internal compiler error at <src>:N:N (BinaryOp): Type of #N arg mismatch: iN != iN
-DF-192f	internal-compiler-error: error: internal compiler error at <src>:N:N (AssignStatement): cannot store {iN, iN} to {iN, iN}*: mismatching types
+# DF-192f's two signatures were deleted here by design 195 (units 2 and 3): the
+# operand-agreement funnel makes a mixed-width binary operator a clean type
+# error, and value-branch arms merge before codegen sees them, so neither
+# spelling reaches llvmlite unmatched any more. Both pins are passing tests now.

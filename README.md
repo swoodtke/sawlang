@@ -1040,6 +1040,16 @@ Saw provides deterministic memory management without garbage collection:
   cast-shaped sibling of `&+`/`&-`/`&*`. Widening still emits one instruction
   and no check, and a constant that cannot fit its target is a compile error
   rather than a first-run abort.
+- **Integer operands agree, and only bare literals promote**: `n * 2` is legal
+  at every integer type because a bare literal has no width of its own and
+  adopts the other operand's, while `n * 2i16` on an `Int` and `i + u` on an
+  `Int`/`UInt` pair are compile errors naming both types. There is no promotion
+  ladder — an operation has two peers, and picking a winner would decide in
+  silence which operand's reading the program runs under. A shift COUNT is
+  exempt; it is not a peer. The arms of a value `if`/`match` and the two sides
+  of `??` are transfers, so an arm that widens losslessly is free
+  (`if a > 0 { 11 } else { 7i16 }` in an `-> Int` function answers 7 on the
+  else path) and one that would narrow or flip sign is refused.
 
 ```saw
 // Mutable reference parameter (the call site mirrors the parameter's sigil;

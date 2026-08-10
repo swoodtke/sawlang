@@ -353,12 +353,12 @@ DF-192g is a confirmed wrong answer** — both below.
   implicit integer conversion (design 170), so this is a plain type
   disagreement the checker should name. PIN:
   `examples/binop_mixed_width_operands.saw` (XFAIL, cited).
-  **RULED Aug 10, owned by design 195 unit 2** (all typed operands of an
-  operation must be the same type; only bare literals promote). The
-  ruling discussion's probe also found the SIGNEDNESS face: `i + u`
-  (`Int` + `UInt`, same width) COMPILES SILENTLY today — fine for `+`,
-  wrong for comparisons/division — and joins the same funnel as matrix
-  row 2 of the brief.
+  **FIXED by design 195 unit 2** (all typed operands of an operation must be
+  the same type; only bare literals promote). The ruling discussion's probe
+  also found the SIGNEDNESS face — `i + u` (`Int` + `UInt`, same width)
+  compiled SILENTLY and took SIGNED division — and it went through the same
+  funnel. PIN flipped to a passing error test; both DF-192f signatures
+  deleted from `tools/sawfuzz_known.txt`, which now holds one entry.
 - **DF-192g (SOUNDNESS — CONFIRMED WRONG ANSWER, filed Aug 10 by 192 u3): a
   value `if` whose arms have different integer widths returns the WRONG
   ARM'S VALUE.** `func f(a: Int) -> Int { if a > 0 { 11 } else { 7i16 } }`
@@ -368,11 +368,13 @@ DF-192g is a confirmed wrong answer** — both below.
   width agreement) and the more serious face of it: the binop shape is loud,
   this one is silent. Reached by minimizing a fuzzer ICE. PIN:
   `examples/if_value_mismatched_width_arms.saw` (XFAIL, cited).
-  **RULED Aug 10, owned by design 195 unit 3** (value-branch arms are
-  TRANSFERS — each arm routes through the transfer checkpoint against
-  the reconciled type, so a same-sign widenable arm is LEGAL and the
-  pin re-authors to EXPECT: success printing 11 then 7, the flip its
-  own comment names).
+  **FIXED by design 195 unit 3** (value-branch arms are TRANSFERS — each arm
+  merges against the reconciled type, so a same-sign widenable arm is LEGAL).
+  PIN re-authored to EXPECT: success printing 11 then 7, the flip its own
+  comment named. The finding reached two positions its entry did not name —
+  a `match` arm and a `??` operand, where a CONSTANT narrow arm answered
+  correctly BY ACCIDENT (LLVM's textual `phi` gives an incoming constant no
+  type of its own) and a VARIABLE one was an ICE — and those are closed too.
   **UNIT-1 PROBE ADDENDUM (design 195, Aug 10).** Probing the twelve matrix
   rows found the finding reaches SIX positions the two entries above did not
   name, all one root: comparison mixed-width (an LLVM-level ICE) and
