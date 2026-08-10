@@ -43,3 +43,4 @@ venv/
 .claude/*
 !.claude/settings.json
 !.claude/skills/
+!.claude/agents/
