@@ -907,7 +907,16 @@ class StatementsMixin:
         return result_type
 
     def _check_statement(self, stmt: Statement):
-        """Check a statement."""
+        """Check a statement.
+
+        The single chokepoint every statement goes through, and — since design
+        192 unit 1 — one that RAISES on a statement kind it has no visitor for,
+        the way codegen's twin dispatch (``CodeGenerator._generate_statement``)
+        always has. It used to skip silently, which meant a new statement node
+        wired into the parser and into codegen but not into the checker was
+        simply never type-checked: no error, no annotation, and whatever codegen
+        made of it. The suite flushed nothing here.
+        """
         # design 189: only the statement that CONTAINS a spawn may claim the
         # borrows it opened, so the pending list never survives a statement
         # boundary. A `group.spawn(f())` written as a statement of its own
@@ -924,8 +933,9 @@ class StatementsMixin:
         # Visitor dispatch for all other statements
         method_name = f'visit_{stmt.__class__.__name__}'
         visitor = getattr(self, method_name, None)
-        if visitor:
-            visitor(stmt)
+        if visitor is None:
+            raise ValueError(f"Unknown statement type: {type(stmt)}")
+        visitor(stmt)
 
     # ===== Statement Visitor Methods =====
 

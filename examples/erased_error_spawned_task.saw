@@ -1,0 +1,41 @@
+// A task that returns an ERASED Result should join like any other task.
+//
+// `group.spawn(fail(7))` on a `Result<Int, Box<any Error>>`-returning function
+// is a codegen ICE — nothing about the body suspends, and the same function
+// called directly compiles and runs. The task's result travels through a
+// `__ResultCell` whose `_carries_result` method codegen never emits a body for,
+// so filling the cell's vtable looks the method up and finds nothing:
+// `internal compiler error: '__ResultCell$1$Result$2$Int$Box$2$$Any$Error$
+// GlobalAllocator___carries_result'`. A CONCRETE error type in the same
+// position (`Result<Int, MyErr>`) spawns and joins fine, which is what makes
+// this the erasure that breaks it rather than spawning a Result.
+// XFAIL: DF-192b spawning a function that returns an erased `Result<T, Box<any Error>>` is a codegen ICE in the result cell's vtable
+// EXPECT: success
+// EXPECT-OUTPUT:
+// err MyErr(7)
+
+struct MyErr { code: Int }
+
+extension MyErr: Printable {
+    func format(&self, into: &var StringBuilder) {
+        into.append("MyErr(")
+        into.append(self.code)
+        into.append(")")
+    }
+}
+
+extension MyErr: Error {}
+
+func fail(n: Int) -> Result<Int, Box<any Error>> {
+    if n > 0 { return MyErr(code: n) }
+    return 0
+}
+
+func main() {
+    var group = TaskGroup()
+    let h = group.spawn(fail(7))
+    match h.join() {
+        case Ok(v) -> print("ok {v}"),
+        case Err(e) -> print("err {e}")
+    }
+}

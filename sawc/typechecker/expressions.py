@@ -60,11 +60,21 @@ class ExpressionsMixin:
         has already returned and stamped here, so their more-specific
         annotation overwrites the generic one stamped below. Never re-check a
         node after contextually annotating it, or the generic stamp would win.
+
+        An unknown node RAISES (design 192 unit 1), the way codegen's twin
+        dispatch (``CodeGenerator._generate_expression``) always has. It used to
+        ``return None``, so a node type nobody had taught the checker about went
+        unchecked and unannotated in silence and the damage surfaced far away —
+        in codegen, as a missing ``resolved_type`` — or not at all. What the
+        flush found: ``ErasedErrWrap``, which the checker INSERTS into the AST
+        and then re-visits on the design-146 second pass; its three siblings
+        (``visit_ResultOkWrap`` and below) carry the re-check visitor and it did
+        not (DF-192a).
         """
         method_name = f'visit_{expr.__class__.__name__}'
         visitor = getattr(self, method_name, None)
         if visitor is None:
-            return None
+            raise ValueError(f"Unknown expression type: {type(expr)}")
         result = visitor(expr)
         if result is not None:
             expr.resolved_type = result
@@ -509,6 +519,22 @@ class ExpressionsMixin:
 
     def visit_ResultErrWrap(self, expr) -> Optional[SawType]:
         """Re-check an already-inserted Err wrap — see visit_ResultOkWrap."""
+        if expr.value is not None:
+            self._check_expression(expr.value)
+        return getattr(expr, 'result_type', None)
+
+    def visit_ErasedErrWrap(self, expr) -> Optional[SawType]:
+        """Re-check an already-inserted erased Err wrap — see visit_ResultOkWrap.
+
+        DF-192a: the fourth sibling, and the only one that never got this
+        visitor. Design 192 unit 1 made the unknown-node fallthrough raise, and
+        this is what it flushed — the checker builds an ``ErasedErrWrap`` around
+        a concrete error on the way out of an erased-Result function, writes it
+        back into the AST (``func.body.final_expr`` / ``stmt.value``), and then
+        walks that same AST again on the design-146 second pass. Without the
+        visitor the wrap's inner value is never re-annotated after the coroutine
+        transform has rewritten the identifiers inside it.
+        """
         if expr.value is not None:
             self._check_expression(expr.value)
         return getattr(expr, 'result_type', None)

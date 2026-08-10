@@ -126,6 +126,48 @@ wrong and are corrected in place below.
   lifts the tried call to a temp. Needs a design decision (error-path
   states) before it is buildable. PIN:
   `examples/coro_try_block_suspending.saw`.
+- **DF-192a — FIXED by the unit that found it (192 u1): the checker's
+  fourth wrap node had no re-check visitor.** Making
+  `_check_expression`'s unknown-node fallthrough RAISE flushed exactly
+  one node type out of the whole corpus: `ErasedErrWrap`. The checker
+  BUILDS one (a concrete `E` on the way out of an erased-Result
+  function), writes it back into the AST (`func.body.final_expr`,
+  `stmt.value`), and then walks that same AST again on the design-146
+  second pass — where it fell straight through the dispatch and returned
+  `None`. Its three siblings (`visit_ResultOkWrap` /
+  `visit_ResultErrWrap` / `visit_OptionalWrap`) all carry the re-check
+  visitor for the documented reason (the coroutine transform rewrites
+  identifiers inside `expr.value` into frame-field accesses that carry no
+  `resolved_type`); this one never got it. Now it has the sibling body.
+  Emission is byte-identical across all 14 erased-error corpus programs.
+  No new pin: every erased-Result example in the corpus is one, since the
+  fallthrough now raises rather than skipping.
+- **DF-192b (ICE, CONFIRMED at baseline, filed Aug 10 by 192 u1):
+  spawning a function that returns an erased `Result<T, Box<any Error>>`
+  is a codegen ICE.** `group.spawn(fail(7))` where `fail -> Result<Int,
+  Box<any Error>>` dies filling the result cell's vtable —
+  `_get_vtable_thunk` looks up
+  `__ResultCell$1$Result$2$Int$Box$2$$Any$Error$GlobalAllocator___carries_result`
+  and the body was never emitted (`KeyError`, printed as a bare
+  `internal compiler error:` with the mangled name and nothing else).
+  Nothing about the body suspends; calling the same function directly
+  works, and the CONCRETE `Result<Int, MyErr>` spawns and joins fine —
+  so it is the erasure in the spawned result type. Pre-dates design 192
+  (probe-confirmed against e4761ef). PIN:
+  `examples/erased_error_spawned_task.saw` (XFAIL, cited).
+- **DF-192c (ICE, CONFIRMED at baseline, filed Aug 10 by 192 u1): an
+  erased-error return in a SUSPENDING body is a codegen ICE.**
+  `yield_now()` ahead of `return MyErr(...)` in an erased-Result function
+  makes the body a state machine, so the coroutine transform lowers the
+  return into an ASSIGNMENT into the frame's result slot — and codegen's
+  `visit_ErasedErrWrap` finishes through `_create_result_err_for_return`,
+  which reads the ENCLOSING function's return type and raises `Cannot
+  create Result.Err outside Result-returning function`. `ResultErrWrap`
+  survives the same move because it carries its own `result_type` and
+  passes it down; the erased wrap calls the one-argument overload. Both
+  the sync erased version and the suspending CONCRETE version compile and
+  run. Pre-dates design 192 (probe-confirmed against e4761ef). PIN:
+  `examples/erased_error_across_suspension.saw` (XFAIL, cited).
 - **DF-190c (VERIFY / latent must-agree, filed Aug 9):
   `_make_specialization_key` has DIVERGED** — codegen handles design-148
   const-value type args (`generics.py:566-571`), the typechecker drops
