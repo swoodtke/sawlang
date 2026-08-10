@@ -7,7 +7,6 @@
 // that is not written in the argument list. The receiver borrow does not catch
 // it on its own; the receiver is an ordinary entry in the access set, and it
 // is the nested reference joining that set which makes the two meet.
-// XFAIL: DF-188j the Law of Exclusivity does not see a reference created by a nested call, so `p.total(reset(&var p))` compiles and reads the receiver at its pre-reset value
 // EXPECT: error
 // EXPECT-ERROR-CONTAINS: exclusive access violation
 // EXPECT-ERROR-CONTAINS: `p` is borrowed by a nested call in this argument list while `p` is also accessed by reference in the same call

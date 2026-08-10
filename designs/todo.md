@@ -732,6 +732,20 @@ findings filed below (DF-188j, DF-188k).
   on every tier (mirroring the landed place rule), disjoint roots stay
   legal (`f(&var x, g(&y))` compiles; the earlier "would reject" framing
   conflated the two). Consumer sweep before the flip, per rule 2.
+  **CLOSED Aug 10 by design 199 unit 3.** The nested-reference collection
+  design 188 unit 2 had gated on a place being present is unconditional
+  now: every `&`/`&var` written strictly below an argument joins the
+  access set with its own path root and meets the SAME overlap test, so
+  disjoint paths are untouched and the widening is to the set alone. The
+  brief's units 1-2 answered the two open questions ahead of the change —
+  the receiver-position variant is NOT already caught (`p.total(reset(&var
+  p))` compiled and read the receiver at its pre-reset value), and the
+  consumer sweep over all 1890 tracked `.saw` files found ZERO offenders,
+  so the rule landed with no grandfathering and no existing program
+  changed. Pins: `examples/conformance/X41_nested_call_ref_overlaps_
+  sibling.saw` (the repro in this entry), `X44_…_receiver.saw`,
+  `X45_two_nested_calls_one_root.saw`; accept sides at
+  `X42_…_disjoint_roots.saw` and `X43_…_from_every_sibling.saw`.
 - **DF-188k (SPEC/IMPL, filed Aug 9 by unit 7): the prelude gate does not run on
   type ANNOTATIONS.** `func take(d: &Data) -> Int { d.len() }` compiles with no
   `import std.data` — the gate fires in EXPRESSION positions (a call, a struct

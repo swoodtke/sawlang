@@ -7,7 +7,6 @@
 // the other order equally available. Joining a nested call's references to the
 // outer access set catches the pair against each other, not only against a
 // sibling written at the top level.
-// XFAIL: DF-188j the Law of Exclusivity does not see a reference created by a nested call, so two nested calls may both borrow one root and the answer is argument evaluation order
 // EXPECT: error
 // EXPECT-ERROR-CONTAINS: exclusive access violation
 // EXPECT-ERROR-CONTAINS: `n` is borrowed by a nested call in this argument list while `n` is also accessed by reference in the same call

@@ -7,7 +7,6 @@
 // what the Law of Exclusivity exists to prevent. Design 199's ruling: a
 // by-reference argument created by a NESTED call joins the outer call's
 // access set, so overlapping paths are an error on every copy tier.
-// XFAIL: DF-188j the Law of Exclusivity does not see a reference created by a nested call, so `sink(&var p.a, reset(&var p))` compiles and the answer depends on argument evaluation order
 // EXPECT: error
 // EXPECT-ERROR-CONTAINS: exclusive access violation
 // EXPECT-ERROR-CONTAINS: `p` is borrowed by a nested call in this argument list while `p.a` is also accessed by reference in the same call

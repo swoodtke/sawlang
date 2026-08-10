@@ -17,6 +17,7 @@ from ast_nodes import (
     MemberAccess, ArrayIndex, TupleIndex, SelfExpr, ClosureExpr,
     BindOptional, OptionalEvalExpr, ForceUnwrap, MethodCall
 )
+from ast_walk import child_nodes
 from errors import ErrorKind
 from noescape import first_reference_in
 from namespace import (
@@ -3491,35 +3492,39 @@ class TypeUtilsMixin:
 
     @staticmethod
     def _nested_reference_exprs(expr):
-        """Every `&`/`&var` written strictly BELOW `expr` (design 188 unit 2).
+        """Every `&`/`&var` written strictly BELOW `expr`, in SOURCE order
+        (design 188 unit 2; unconditional since design 199).
 
-        Used only where a place window is open across the whole call, so the
-        walk is deliberately narrow: it does not enter a CLOSURE (whose borrow
-        captures are collected from `capture_specs` instead, and whose body runs
-        where the callee decides) and it does not enter a nested type.
+        The outermost reference of `expr` itself is not one of them — a
+        top-level `&var x` argument is collected by the caller — and a
+        reference found below one is not descended into further, because the
+        outer path already covers it.
+
+        Two things the walk deliberately does not enter: a CLOSURE (whose
+        borrow captures are collected from `capture_specs` instead, and whose
+        body runs where the callee decides) and a type (`SawType` is not an
+        AST node, so `child_nodes` never yields one).
+
+        Riding `ast_walk.child_nodes` is what makes the coverage the same
+        coverage every other walk has — design 193 unit 3's point being that a
+        hand-rolled recursion drifts over the shape nobody's own caller
+        reached, and this one is asked about `Wrap(inner: &var p)` and
+        `{"k": &var p}`, both of which are tuple-shaped fields.
         """
-        import dataclasses
-        from ast_nodes import structural_fields
         found = []
-        stack = [expr]
         seen = set()
-        while stack:
-            cur = stack.pop()
-            if cur is None or isinstance(cur, (SawType, str, bytes)):
-                continue
-            if isinstance(cur, (list, tuple)):
-                stack.extend(cur)
-                continue
-            if not dataclasses.is_dataclass(cur) or id(cur) in seen:
-                continue
-            seen.add(id(cur))
-            if isinstance(cur, ClosureExpr):
-                continue
-            if isinstance(cur, ReferenceExpr) and cur is not expr:
-                found.append(cur)
-                continue
-            for f in structural_fields(cur):
-                stack.append(getattr(cur, f.name, None))
+
+        def walk(node, is_root):
+            if id(node) in seen or isinstance(node, ClosureExpr):
+                return
+            seen.add(id(node))
+            if isinstance(node, ReferenceExpr) and not is_root:
+                found.append(node)
+                return
+            for child in child_nodes(node):
+                walk(child, False)
+
+        walk(expr, True)
         return found
 
     # ------------------------------------------------------------------
@@ -3688,6 +3693,32 @@ class TypeUtilsMixin:
         By-value arguments are NOT collected -- snapshot semantics (the copy
         happens at call setup), which is what makes a by-value argument that
         overlaps a `&var` well-defined.
+
+        THE ACCESS SET, in collection order: the receiver; each `&`/`&var`
+        argument; each `move` argument; each `o.take()` argument's receiver
+        (design 131 -- it writes `None` back during call setup); each borrow
+        CAPTURE of a closure argument (design 16/29); and each `&`/`&var` a
+        NESTED call in this argument list creates (design 199 -- an argument's
+        borrow extends over the whole call expression). Live task-capture
+        borrows are cross-checked against the whole set (design 189) before the
+        pairwise overlap pass runs within it.
+
+        ENTRY POINTS (obligation 1 -- a funnel names its entries). Every call
+        form in the language reaches the Law through here, and all fifteen live
+        in `typechecker/expressions.py`:
+          * `_check_function_call` (two sites: the plain call and the generic
+            instantiation), `_check_overloaded_function_call`
+          * `_check_method_call`, `_check_overloaded_method_call`,
+            `_check_field_call` (a call through a closure-typed field),
+            `_check_type_param_method_call`, `_check_existential_method_call`
+          * `_check_static_method_call`, `_check_overloaded_static_method_call`
+          * `_check_module_function_call`, `_check_overloaded_module_function_call`
+          * `_init_matches` and `_check_module_struct_init` -- a memberwise
+            struct literal, whose field values are argument positions
+          * `_check_optional_take` -- `o.take()` as a call in its own right
+            (receiver only, no arguments)
+        A new call form that does not route through this method is a hole in
+        the Law, not a missing feature: add the entry here and to this list.
         """
         # Validate that each reference argument's sigil matches its parameter.
         self._check_reference_sigils(values, param_types, param_names)
@@ -3755,27 +3786,29 @@ class TypeUtilsMixin:
                     entries.append(('mut' if spec.mode == 'ref_var' else 'imm',
                                     path, name_expr, spec.line, spec.column))
 
-        # A PLACE window's extent is the whole call (design 141; the use-site
-        # lowering nests the call INSIDE the window closure), so a reference
-        # created by a NESTED call in this argument list is live while the
-        # window is open. `sink(&var p.at(0), reset(&var p))` reads the
-        # pre-reset value and drops `reset`'s writes — audit X31/X38, the
-        # window-beside-a-`&var`-root half of DF-188f.
+        # An argument's borrow extends over the WHOLE call expression, nested
+        # calls included (design 199, closing DF-188j): a `&`/`&var` written
+        # inside a nested call in this argument list JOINS this call's access
+        # set and meets the same overlap test as everything else in it.
+        # `sink(&var p.a, reset(&var p))` is two by-reference accesses of one
+        # root live over one call, and which of them the program observes is
+        # argument evaluation order.
         #
-        # Deliberately conditional on a place being present: with no window in
-        # the call the nested reference is created and consumed before the
-        # enclosing call runs, and widening the Law to cover that ordering is a
-        # separate question (DF-188j).
-        if any(self._place_use_receiver(e[2]) is not None for e in entries):
-            for value in values:
-                if isinstance(value, ReferenceExpr):
+        # Design 188 unit 2 landed the half where a PLACE window is open,
+        # because a window's extent is provably the whole call; the ruling
+        # generalizes it — the same shape spelled through an accessor was
+        # already refused, and the inconsistency had no principle behind it.
+        # DISJOINT paths stay legal, so `f(&var x, g(&y))` compiles; the
+        # widening is to the access SET, never to the overlap test.
+        nested_entries = set()
+        for value in values:
+            for ref in self._nested_reference_exprs(value):
+                path = self._build_access_path(ref.expr)
+                if path is None:
                     continue
-                for ref in self._nested_reference_exprs(value):
-                    path = self._build_access_path(ref.expr)
-                    if path is None:
-                        continue
-                    entries.append(('mut' if ref.mutable else 'imm', path,
-                                    ref.expr, ref.line, ref.column))
+                nested_entries.add(id(ref.expr))
+                entries.append(('mut' if ref.mutable else 'imm', path,
+                                ref.expr, ref.line, ref.column))
 
         # design 189: a live task-capture borrow is an access that OUTLIVES this
         # statement, so every by-reference access this call makes is checked
@@ -3845,6 +3878,34 @@ class TypeUtilsMixin:
                              "of it — cannot both be open. Open them in "
                              "SEPARATE statements, or reach for the method that "
                              "does both at once (`v.swap(i, j)`)"
+                    )
+                    continue
+                # A reference a NESTED call created gets the diagnostic that
+                # says where it came from (design 199), because nothing at this
+                # call's top level names it: the fix is to hoist the nested
+                # call into its own `let`, not to change a sigil.
+                nested = next((e for e in (ej, ei) if id(e) in nested_entries),
+                              None)
+                if nested is not None:
+                    other = ei if nested is ej else ej
+                    root = pi[0]
+                    n_line = lj if nested is ej else li
+                    n_col = cj if nested is ej else ci
+                    self._error(
+                        ErrorKind.EXCLUSIVITY_VIOLATION,
+                        f"exclusive access violation: "
+                        f"`{self._render_lvalue_path(nested)}` is borrowed by a "
+                        f"nested call in this argument list while "
+                        f"`{self._render_lvalue_path(other)}` is also accessed "
+                        f"by reference in the same call — both reach `{root}`",
+                        n_line, n_col,
+                        hint="an argument's borrow extends over the whole call "
+                             "expression, nested calls included, so the two "
+                             "overlap and which one the program observes is "
+                             "argument evaluation order. Hoist the nested call "
+                             "into its own `let` so the borrows are in separate "
+                             "statements; disjoint paths need no change "
+                             "(`f(&var x, g(&y))` is fine)"
                     )
                     continue
                 self._error(

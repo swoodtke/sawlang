@@ -474,8 +474,9 @@ rows (R24, X15, X16, X20, U24, U25). The seventh is the suite's one open gap:
 
 Obligation 3 asks a safety-surface brief for its rows FIRST, so a row that
 states a ruling the compiler has not been taught yet lands as a cited XFAIL and
-the unit that teaches it removes the marker. Open ones:
+the unit that teaches it removes the marker. None are open.
 
-- **X41, X44, X45** — XFAIL citing DF-188j: a by-reference argument created by
-  a NESTED call does not join the outer call's access set, so all three shapes
-  compile and answer by argument evaluation order. Design 199 unit 3 flips them.
+Closed: **X41, X44, X45** — written under an XFAIL citing DF-188j (a
+by-reference argument created by a NESTED call did not join the outer call's
+access set, so all three shapes compiled and answered by argument evaluation
+order), flipped by design 199 unit 3.
