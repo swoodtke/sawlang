@@ -1,5 +1,30 @@
 # Design 190 — the quality program: analysis and the four-brief plan
 
+## CORRECTIONS (Aug 10 — read before citing this analysis)
+
+The 191-194 builds falsified three of this document's claims. The
+briefs still landed as designed because each agent probed before
+building, which is the pattern worth keeping: this analysis's
+PROBE-CONFIRMED claims all held, and all three failures were
+GREP-SHAPED claims — read from code without a probe. Probe before
+citing.
+
+1. **DF-190b's diagnosis was wrong.** Not the coro spine walks skipping
+   `TryCatchExpr`: a LABELED call (`compute(ok: true)`) parses as
+   `StructInit` and is invisible to the transform's
+   `isinstance(FunctionCall)` classifiers — the unlabeled shape inside
+   the same `try/catch` compiled all along. Fixed in 193 u2. The
+   try/catch-BLOCK half is a real, separate gap: DF-193a, ruling
+   pending.
+2. **The spawn capture-MODE gap is masked by design 16/29** (escaping
+   closures cannot borrow-capture), not by "closures are never Send"
+   (§ unit 6 below). Established by 193 u6's probe.
+3. **The graft-straggler census was wrong in both directions**: three
+   of the nine cited are declared fields of `SuspendNode` (a plain
+   dataclass, not an AST node — the grep could not tell), and five real
+   grafts were missed. Superseded by 194 u1's mechanized gate
+   (`tools/test_ast_graft.py`), which is now the authority.
+
 **Status: ANALYSIS COMPLETE (Aug 9), briefs 191-194 authored from it; the
 process half (brief-template obligations) lands with this document. Source
 data: the Aug-8 external review + safety audit, the findings ledger of
