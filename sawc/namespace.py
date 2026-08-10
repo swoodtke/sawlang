@@ -1385,11 +1385,20 @@ class Namespace:
         cell (design 186), which is `NoCopy` as a VALUE — a copied cell is a
         second cell, so `let c = self.inner` must be refused — while a cell
         FIELD contributes its `T`'s class instead of forcing `NoCopy` onto
-        whatever holds it. The container states its own policy: `Atomic<T>`
-        stays the one bitwise-copyable word design 41 made it, a `Once<T>` says
-        `NoCopy` because its payload owns something, and a user wrapper that
-        wants move-only says so in a line the reader can see. Without this the
-        cascade would silently re-tier `Atomic` and everything holding one.
+        whatever holds it. The container states its own policy in a line the
+        reader can see: `SpinLock<T>` and `Once<T>` say `NoCopy`, and so does
+        `Atomic<T>` since design 202 — a copied atomic is a second counter.
+
+        That declaration is why the clause is narrow rather than gone. It fires
+        on the CELL ITSELF and nothing else, so a DECLARED policy on the type
+        holding the cell still wins: this function reaches `copy_tier`, which
+        consults `declared_copy_tier` before any structural join, and only a
+        field whose written type IS an `UnsafeMutableInterior<T>` takes the
+        payload branch. `Atomic<Int>` is therefore `nocopy` here (its own
+        declaration) while an undeclared user wrapper `struct C { cell:
+        UnsafeMutableInterior<Int> }` is still `free` (its cell field
+        contributes `Int`). Both directions are pinned by
+        `examples/atomic_nocopy_cell_clause.saw`.
         """
         payload = self.cell_payload(saw_type)
         if payload is not None:

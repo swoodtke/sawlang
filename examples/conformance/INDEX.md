@@ -485,11 +485,11 @@ rows (R24, X15, X16, X20, U24, U25). The seventh is the suite's one open gap:
 
 Obligation 3 asks a safety-surface brief for its rows FIRST, so a row that
 states a ruling the compiler has not been taught yet lands as a cited XFAIL and
-the unit that teaches it removes the marker.
+the unit that teaches it removes the marker. None are open.
 
-Open: **V26, V27** — XFAIL citing DF-186a (`Atomic` is bitwise-copyable, so a
-`let b = a` forks the counter and a struct holding one owes no policy). Design
-202 unit 2 declares `NoCopy` on `Atomic` and removes both markers.
+Closed: **V26, V27** — written under an XFAIL citing DF-186a (`Atomic` was
+bitwise-copyable, so a `let b = a` forked the counter silently and a struct
+holding one owed no policy), flipped by design 202 unit 2.
 
 Closed: **M31** — written under an XFAIL citing DF-176c (a `&self` method
 writing through a place window on INLINE storage was a silent no-op into the

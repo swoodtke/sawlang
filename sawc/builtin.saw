@@ -300,11 +300,11 @@ trait UnsafeSend: Send {
 // `NoCopy`, because a copied cell is a SECOND cell: the copy has its own
 // storage, so a write through one is invisible through the other. A cell FIELD
 // contributes its `T`'s copy class to its container rather than forcing
-// `NoCopy` onto it — the container states its own policy, which is what keeps
-// `Atomic<Int>` the one bitwise-copyable word it has been since design 41 while
-// `let c = self.inner` on a cell stays refused. A wrapper that wants to be
-// move-only says so (`extension Cell<T>: NoCopy {}`), exactly as any other
-// wrapper does.
+// `NoCopy` onto it — the container states its own policy, so `let c =
+// self.inner` on a cell stays refused while a wrapper over a cell of a plain
+// word copies for free until its author says otherwise. A wrapper that wants to
+// be move-only says so (`extension Cell<T>: NoCopy {}`), exactly as any other
+// wrapper does — which is what `Atomic` does one section down (design 202).
 unsafe struct UnsafeMutableInterior<T> {
     value: T
 }
@@ -352,6 +352,21 @@ extension Atomic<T> {
 // is a seq_cst instruction, which is a fact about the codegen and not about the
 // fields. `Send` still derives structurally — a cell moves fine.
 extension Atomic<T>: UnsafeSync {}
+
+// MOVE-ONLY (design 202). A copied atomic is a SECOND counter: the copy has its
+// own word, so a `fetch_add` through one is invisible through the other and the
+// program that meant to count once counts twice, silently. Rust says the same
+// thing about `AtomicUsize`, and this is the declaration the cell clause above
+// leaves to each wrapper's author — `Atomic` is a wrapper over a cell, and it
+// wants to be move-only.
+//
+// `NoCopy` and deliberately NOT `NoMove`: nothing pins an atomic's address. The
+// one word the runtime waits on is reached through a `static`, and a static is
+// unaffected by either marker, so the global-counter idiom design 41 introduced
+// (`static N: Atomic<Int> = Atomic(0)`, then `N.fetch_add(1)`) is exactly as it
+// was. What changes is that `let b = a` and a struct holding an `Atomic` field
+// with no declared policy are now errors, the second naming the field.
+extension Atomic<T>: NoCopy {}
 
 // =============================================================================
 // UnsafeMemory<T, Use> — typed memory at a fixed address (design 46)

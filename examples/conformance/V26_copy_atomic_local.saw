@@ -6,9 +6,6 @@
 // is the ordinary NoCopy transfer error, and `move` is the way to hand one on
 // (row V30).
 //
-// XFAIL: DF-186a `Atomic` is still bitwise-copyable — the design-186 cell clause
-// lets an `Atomic<Int>` be duplicated by a plain `let`, forking the counter
-// silently. Design 202 unit 2 declares `NoCopy` on `Atomic` and flips this.
 // EXPECT: error
 // EXPECT-ERROR-CONTAINS: cannot copy value of type `Atomic<Int>` which implements NoCopy
 

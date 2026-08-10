@@ -6,9 +6,6 @@
 // diagnostic names the FIELD, because that is what the author has to look at to
 // decide between `NoCopy` and holding the atomic behind an indirection.
 //
-// XFAIL: DF-186a an `Atomic` field contributes its `T`'s copy class, so this
-// struct compiles and copies bitwise today. Design 202 unit 2 moves `Atomic`
-// itself to the NoCopy tier and flips this.
 // EXPECT: error
 // EXPECT-ERROR-CONTAINS: struct `Holder` contains NoCopy field `n` of type `Atomic<Int>` but does not implement NoCopy
 
