@@ -73,12 +73,19 @@ brief only extends its key to std file-modules).
    `(defining module, name)` for a std type that is private, and std had
    no way to say which those were: the parser defaults a top-level type
    to `Visibility.PRIVATE` and std ignored the answer, so `Vector` and
-   `MapSlot` were equally "private" and equally exposed. A census over
-   all 101 std type declarations (bucket A: 76 named outside std or in
-   the docs; bucket B: 0; bucket C: 25 strictly file-private) sorted
-   them, and 40 `public` markers now say what std publishes. That is the
-   design-80/82 gate finishing the job for types, and it is why `--emit-docs`
-   on std reads `public struct Vector` from here on.
+   `MapSlot` were equally "private" and equally exposed. The surface was
+   sorted BY HAND — read the std sources against the prelude gate and the
+   documented API, mark what a program may name — and 40 `public` markers
+   now say what std publishes. That is the design-80/82 gate finishing the
+   job for types, and it is why `--emit-docs` on std reads
+   `public struct Vector` from here on.
+
+   Counted from the compiler's own view after the fact: **101** type
+   declarations (29 in `builtin.saw`, 72 in `std/`), of which **48** are
+   declared public (40 markers this brief added, 8 already there) and
+   **24** are file-private. The classification itself rests on the suite
+   and the battery, not on a survey: a type wrongly marked private breaks
+   loudly, which is the failure mode this approach was chosen for.
 
 2. **`builtin.saw` is exempt wholesale.** It declares the compiler's own
    vocabulary, holds no private type, and every name in it is either

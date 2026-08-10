@@ -71,9 +71,11 @@ disjoint surfaces parallel):
 worktree), all four units, tracked battery green. DF-153b and DF-153a close
 together: design 144's `(defining module, name)` reaches std, where each FILE
 is a module, so a std type declared without `public` is that file's alone. What
-it cost: std's public type surface is now DECLARED (40 `public` markers over a
-census of all 101 std type declarations), which is the design-80/82 gate
-finishing the job for types. Two design-144-era bugs surfaced on the way and
+it cost: std's public type surface is now DECLARED — 40 `public` markers,
+sorted by hand against the prelude gate and the documented API, which is the
+design-80/82 gate finishing the job for types. Counted afterwards from the
+compiler's own view: 101 type declarations (29 in `builtin.saw`, 72 in `std/`),
+48 declared public, 24 file-private. Two design-144-era bugs surfaced on the way and
 are fixed: `name.split('$')[0]` at seven sites read a MODULE QUALIFIER as a
 monomorphization suffix (one helper, `type_identity.declaration_base`, replaces
 all seven), and a coroutine FRAME struct must never be qualified since the
