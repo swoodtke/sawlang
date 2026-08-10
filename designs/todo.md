@@ -94,6 +94,21 @@ need it (epilogues, `#lend_var`, conditional lends). Acceptance: the
 warehouse benchmark reaches Swift-structs territory (~0.45s) with every
 check still on, checksums unchanged.
 
+**Phase 2 (Aug 10 discussion, after the fast path lands + re-measure):
+exclusivity-derived LLVM attributes, NOT a hoisting pass.** Repeated
+access-chain hoisting with &var invalidation — the natural ask — is
+exactly what LLVM's GVN/LICM already perform WHEN GIVEN ALIASING FACTS;
+today every opaque call clobbers the world, so values reload. The Law of
+Exclusivity statically proves what `noalias` asserts (one `&var` XOR
+many `&`), and Saw's checked signatures license memory-effect attributes
+(`&self` vs `&var self`, `sync`, no-escape) — with the exclusion set
+ALREADY type-tracked: cell-carrying types, the `unsafe` effect,
+`UnsafeMemory<_, Device>` (volatile, exempt). Rust's `&mut`→`noalias`
+precedent. Emission is lowering-adjacent (ports with the design); LLVM
+does the dataflow; per-attribute audit = "states what the checker
+proved". A bespoke hoisting pass is REJECTED under the shapes-not-
+optimizer rule above, and would be redundant with this.
+
 **The standing rule this entry sets** (answers "will optimizing the Python
 compiler hurt the port?"): improve the SHAPES codegen emits — lowering is
 design, and a ported compiler inherits it — but build NO Python-side
