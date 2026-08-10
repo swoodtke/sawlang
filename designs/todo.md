@@ -26,26 +26,48 @@ LANDED with 190 into CLAUDE.md.
   passing error test: `examples/match_owned_enum_double_consume.saw`.
   RESIDUAL for 193 u1: the copy-tier oracle unification note stands,
   and DF-190d (below) is the implicit-tier half of the same hole.
-- **DF-190d (SOUNDNESS, CONFIRMED, filed Aug 9/10): codegen's match
-  consume model is TIER-BLIND — an ImplicitCopy-tier enum's payload is
-  released at the first arm's end, not at scrutinee scope end.** The
-  consume gate is `enum_has_owning` (any payload needs cleanup),
-  tier-free, so `match h` on an undeclared/ImplicitCopy enum holding an
-  `Arc` hands the payload to the arm binding, which releases it while
-  `h` is still live; a second match (or any later use) walks freed
-  memory — probe: `deinit 9` prints between the matches, silent UAF,
-  exit 0. The right shape: ImplicitCopy-tier matches do NOT consume —
-  bindings retain at extraction, scrutinee keeps ownership (Map/Set
-  slot machinery matches moved-out temporaries/locals never reused, so
-  refcounts stay balanced either way — verify in the unit). Owned by
-  design 193 unit 1 (the oracle-unification work item). PIN:
+- **DF-190d — FIXED (design 193 unit 1).** The consume gate was
+  `enum_has_owning` (any payload needs cleanup), which is not a transfer
+  class, so an ImplicitCopy-tier enum's payload was released at the first
+  arm's end while the scrutinee was still live. `_generate_match_expr`
+  now has two modes on the scrutinee's tier: CONSUME for the owning
+  tiers, RETAIN (bindings retain at extraction, scrutinee keeps
+  ownership) for ImplicitCopy. Only a named non-borrowed local can be in
+  retain mode — a temporary is owned by nobody and keeps consuming. The
+  oracle unification landed with it: `Namespace.read_policy` is the one
+  derivation of design 131's read table from design 139's tiers, named
+  entry points in its docstring. PIN flipped:
   `examples/match_implicit_enum_payload_single_release.saw`.
-- **DF-190b (CAPABILITY + DIAGNOSTIC, CONFIRMED, filed Aug 9): a
-  suspending callee inside `try ... catch` in a task body is rejected
-  with a nonsense error** (``undefined struct `compute` ``); the sync
-  shape compiles and runs. The 11 coro spine walks do not descend
-  `TryCatchExpr` (only `_uniq_walk` does). Owned by design 193 unit 2.
-  PIN: `examples/coro_try_catch_suspending.saw`.
+- **DF-190b — FIXED (design 193 unit 2), and the census's root cause was
+  WRONG.** The try/catch was a red herring: the failing spelling is the
+  LABELED call `compute(ok: true)`, which is syntactically a struct
+  literal (design 66), so it reaches the coroutine transform as a
+  `StructInit` while every suspending-call classifier there tests for a
+  `FunctionCall`. The call was never driven, and once the transform
+  replaced the callee with its frame the leftover struct-init spelling
+  had nothing to resolve against — hence ``undefined struct `compute` ``.
+  The identical UNLABELED shape inside the same `try … catch` compiled
+  and ran all along. Fixed by canonicalizing the spelling before any
+  classifier runs (`_rewrite_labeled_calls`, beside the DF-158d yield
+  rewrite) plus the sibling position at the SPAWN argument
+  (`group.spawn(worker(n: 20))` was refused by the typechecker with a
+  message showing the very call it was given). PINS:
+  `examples/coro_try_catch_suspending.saw` (flipped),
+  `examples/coro_labeled_call_positions.saw` (new, three positions).
+- **DF-193a (CAPABILITY, filed Aug 10 by 193 u2): a suspension inside a
+  `try { … } catch { … }` BLOCK in a driven body is refused.** The
+  census's DF-190b claim, minus the misattribution: the coro spine walks
+  do not descend `TryCatchExpr`, and more fundamentally the state machine
+  cannot split a try block across states — a statement after a `try`
+  inside the block runs only if the earlier one succeeded, so the
+  suspension is conditional and the error path would need states of its
+  own. `_collect_calls` reaches the call through its full-tree scan and
+  rejects it honestly ("appears in a nested/expression position"), so
+  this is a capability gap, never a silent block. The inline-catch
+  spelling (`try f() catch { … }`) drives fine — design 92's try hoist
+  lifts the tried call to a temp. Needs a design decision (error-path
+  states) before it is buildable. PIN:
+  `examples/coro_try_block_suspending.saw`.
 - **DF-190c (VERIFY / latent must-agree, filed Aug 9):
   `_make_specialization_key` has DIVERGED** — codegen handles design-148
   const-value type args (`generics.py:566-571`), the typechecker drops

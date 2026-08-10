@@ -1,0 +1,58 @@
+// A suspension inside a `try { ... } catch { ... }` BLOCK in a task body.
+// The inline-catch spelling (`try f() catch { … }`, coro_try_catch_suspending)
+// drives fine, because the try hoist lifts the tried call to a preceding temp
+// and what remains is ordinary sync error handling. The BLOCK form cannot be
+// lifted that way — a statement after a `try` inside the block runs only if
+// the earlier one succeeded, so the suspension is conditional and belongs to
+// the state machine, and the coroutine spine walks do not descend a
+// `TryCatchExpr` at all. Today `_collect_calls` reaches the call through its
+// full-tree scan and rejects it honestly (never a silent block), so this is a
+// capability gap and not a soundness one.
+//
+// Intended: it compiles and prints 41 — 40 from the successful call, then the
+// catch adds 1 for the failing one.
+// XFAIL: DF-193a a suspension inside a `try { } catch { }` BLOCK in a driven body is refused; the state machine cannot split a try block across states
+// EXPECT: success
+// EXPECT-OUTPUT-CONTAINS: worker 41
+
+import std.task.*
+
+struct Flaky {
+    n: Int
+}
+
+extension Flaky: Printable {
+    func format(&self, into: &var StringBuilder) {
+        into.append("flaky ")
+        into.append(self.n)
+    }
+}
+
+extension Flaky: Error {}
+
+func compute(ok: Bool) -> Result<Int, Flaky> {
+    yield_now()
+    if ok {
+        return 40
+    }
+    return Flaky(n: 2)
+}
+
+func worker() -> Int {
+    var total = 0
+    try {
+        let a = try compute(true)
+        total = total + a
+        let b = try compute(false)
+        total = total + b
+    } catch {
+        total = total + 1
+    }
+    total
+}
+
+func main() {
+    var group = TaskGroup()
+    let w = group.spawn(worker())
+    print("worker {w.join()}")
+}

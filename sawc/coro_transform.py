@@ -5029,6 +5029,41 @@ def _make_spawn_trampoline(func, root_name):
                     source_file=getattr(func, 'source_file', ""))
 
 
+# --------------------------------------------------------------------------- #
+# the canonicalization passes — one tree-rewriter, three rules
+#
+# Each pass below normalizes ONE alternate spelling into the single form the
+# rest of the transform knows, so no downstream walk has to learn a second one.
+# They share `_rewrite_nodes`, the WRITE-side twin of `_child_nodes`: same
+# coverage (every structural field, through any nesting of lists and tuples and
+# through the `Argument` wrapper), with each visited node replaced in its parent
+# slot. Three hand-rolled copies of this recursion is exactly the shape DF-187b
+# found disagreeing about tuples.
+# --------------------------------------------------------------------------- #
+
+def _rewrite_nodes(node, rewrite):
+    """Apply `rewrite` to every AST node under `node` (and to `node` itself),
+    replacing each in its parent slot. Returns the (possibly new) root."""
+    node = rewrite(node)
+    if isinstance(node, ASTNode):
+        for f in structural_fields(node):
+            setattr(node, f.name, _rewrite_val(getattr(node, f.name), rewrite))
+    return node
+
+
+def _rewrite_val(val, rewrite):
+    if isinstance(val, list):
+        return [_rewrite_val(v, rewrite) for v in val]
+    if isinstance(val, tuple):
+        return tuple(_rewrite_val(v, rewrite) for v in val)
+    if isinstance(val, Argument):
+        val.value = _rewrite_nodes(val.value, rewrite)
+        return val
+    if isinstance(val, ASTNode):
+        return _rewrite_nodes(val, rewrite)
+    return val
+
+
 def _rewrite_yield_intrinsic_calls(node):
     """Rewrite a QUALIFIED `task.yield_now()` into the bare intrinsic, in place,
     everywhere (DF-158d).
@@ -5040,32 +5075,54 @@ def _rewrite_yield_intrinsic_calls(node):
     scan, the wake-reason table and the CFG walk all see the suspension they
     already know how to lower, with no second spelling to teach them.
     """
+    return _rewrite_nodes(node, _yield_intrinsic_rule)
+
+
+def _yield_intrinsic_rule(node):
     if isinstance(node, MethodCall) and getattr(node, 'is_yield_intrinsic', False):
         return FunctionCall(name="yield_now", arguments=[],
                             line=node.line, column=node.column)
-    if isinstance(node, ASTNode):
-        for f in structural_fields(node):
-            setattr(node, f.name, _rewrite_yield_val(getattr(node, f.name)))
     return node
 
 
-def _rewrite_yield_val(val):
-    if isinstance(val, list):
-        return [_rewrite_yield_val(v) for v in val]
-    if isinstance(val, tuple):
-        return tuple(_rewrite_yield_val(v) for v in val)
-    if isinstance(val, Argument):
-        val.value = _rewrite_yield_intrinsic_calls(val.value)
-        return val
-    if isinstance(val, ASTNode):
-        return _rewrite_yield_intrinsic_calls(val)
-    return val
+def _rewrite_labeled_calls(node):
+    """Rewrite a FULLY-LABELED call back into a `FunctionCall`, everywhere.
+
+    `f(a: 1)` is syntactically a struct literal, so the parser builds a
+    `StructInit` and the typechecker reinterprets it as a call, recording the
+    equivalent `FunctionCall` in `as_function_call` (design 66). Every
+    suspending-call classifier in this file — the narrow hoists, the ANF hoist,
+    the split-point scan, the CFG walk — asks `isinstance(e, FunctionCall)`, so
+    a labeled call was invisible to ALL of them: `let a = compute(ok: true)` in
+    a task body was never driven, and once the transform replaced `compute`
+    with its frame the leftover struct-init spelling had nothing left to
+    resolve against — ``undefined struct `compute` `` at a line the user wrote
+    a call on (DF-190b). Canonicalizing here rather than teaching each
+    classifier a second spelling is the same trade the yield rewrite above
+    makes, and it runs FIRST so even the spawn rewrite below reads a uniform
+    call shape out of `group.spawn(worker(n: 1))`.
+    """
+    return _rewrite_nodes(node, _labeled_call_rule)
 
 
-def _rewrite_spawn_sites(node):
+def _labeled_call_rule(node):
+    if isinstance(node, StructInit):
+        as_call = getattr(node, 'as_function_call', None)
+        if as_call is not None:
+            # The reinterpretation is checked THROUGH the struct-init node, so
+            # the resolved type landed there and not on the call it delegated
+            # to. Frame-local typing and the driven-call classification both
+            # read it off the value expression, so carry it over.
+            if getattr(as_call, 'resolved_type', None) is None:
+                as_call.resolved_type = getattr(node, 'resolved_type', None)
+            return as_call
+    return node
+
+
+def _spawn_site_rule(node):
     """Rewrite `group.spawn(f(args))` -> `__spawn_f((&group) as
-    UnsafePointer<TaskGroup>, args...)` in place, everywhere. The site was stamped
-    with `spawn_root` by the typechecker."""
+    UnsafePointer<TaskGroup>, args...)`. The site was stamped with `spawn_root`
+    by the typechecker."""
     if (isinstance(node, MethodCall) and node.method_name == "spawn"
             and getattr(node, 'spawn_root', None)):
         root = node.spawn_root
@@ -5083,23 +5140,12 @@ def _rewrite_spawn_sites(node):
         # `let h = ...` binding (conservative-by-scope liveness reads it).
         call.resolved_type = getattr(node, 'resolved_type', None)
         return call
-    if isinstance(node, ASTNode):
-        for f in structural_fields(node):
-            setattr(node, f.name, _rewrite_spawn_val(getattr(node, f.name)))
     return node
 
 
-def _rewrite_spawn_val(val):
-    if isinstance(val, list):
-        return [_rewrite_spawn_val(v) for v in val]
-    if isinstance(val, tuple):
-        return tuple(_rewrite_spawn_val(v) for v in val)
-    if isinstance(val, Argument):
-        val.value = _rewrite_spawn_sites(val.value)
-        return val
-    if isinstance(val, ASTNode):
-        return _rewrite_spawn_sites(val)
-    return val
+def _rewrite_spawn_sites(node):
+    """Rewrite every `group.spawn(f(args))` under `node` (see `_spawn_site_rule`)."""
+    return _rewrite_nodes(node, _spawn_site_rule)
 
 
 # --------------------------------------------------------------------------- #
@@ -5437,6 +5483,19 @@ def transform_program(program, typechecker, imported_ast=None):
                      and "main" in funcs_by_name)
     if not roots and not method_roots and not spawn_roots and not main_suspends:
         return False
+
+    # DF-190b: canonicalize a FULLY-LABELED call (`f(a: 1)`, a `StructInit` by
+    # parse) back into the `FunctionCall` the typechecker already resolved it
+    # to, before anything looks at a body. Every classifier below tests for a
+    # `FunctionCall`, so this spelling was invisible to all of them — see
+    # `_rewrite_labeled_calls`. Runs FIRST: the yield and spawn rewrites below
+    # read call shapes too.
+    for f in program.functions:
+        f.body = _rewrite_labeled_calls(f.body)
+    for ext in _all_exts:
+        for m in ext.methods:
+            if getattr(m, 'body', None) is not None:
+                m.body = _rewrite_labeled_calls(m.body)
 
     # DF-158d: canonicalize the design-114 yield WRAPPER to the intrinsic before
     # anything looks at a body. The qualified spelling `task.yield_now()` is a

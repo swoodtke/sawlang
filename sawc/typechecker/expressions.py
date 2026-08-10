@@ -7153,6 +7153,19 @@ class ExpressionsMixin:
                 expr.line, expr.column)
             return None
         inner = expr.arguments[0].value
+        # A FULLY-LABELED call is a `StructInit` by parse (design 66), and the
+        # spawn argument is one of the positions that only ever asked for a
+        # `FunctionCall` — so `group.spawn(worker(n: 20))` was refused with a
+        # message showing the same call it was given (DF-190b's family).
+        # Reinterpret it here and REPLACE the argument, so everything
+        # downstream — the capture-order check, the effect record, and the coro
+        # transform's spawn rewrite — reads one call shape.
+        if isinstance(inner, StructInit) and self.get_struct_info(inner.struct_name) is None:
+            as_call = self._reinterpret_struct_init_as_call(inner)
+            if as_call is not None:
+                inner.as_function_call = as_call
+                expr.arguments[0].value = as_call
+                inner = as_call
         if not isinstance(inner, FunctionCall):
             self._error(
                 ErrorKind.TYPE_MISMATCH,

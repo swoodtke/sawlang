@@ -1,0 +1,53 @@
+// A LABELED call is a call wherever it is written, including the three
+// coroutine positions below. `f(a: 1)` is syntactically a struct literal, so
+// the parser builds a `StructInit` and the typechecker reinterprets it; every
+// suspending-call classifier in the coroutine transform tests for a
+// `FunctionCall`, so the labeled spelling used to be invisible to all of them
+// (DF-190b). Three positions, each broken its own way before design 193
+// unit 2:
+//
+//   * the spawn ARGUMENT — refused with "`group.spawn(...)` expects a direct
+//     call to a free function", showing the very call it was given;
+//   * a suspending call in a TASK body — never driven, then ``undefined struct
+//     `worker` `` once the transform replaced the callee with its frame;
+//   * a suspending call in a suspending `main` — the same.
+//
+// EXPECT: success
+// EXPECT-OUTPUT:
+// step first 1
+// step second 2
+// task 20
+// spawned 41
+// main 3
+
+import std.task.*
+
+func step(n: Int, label: String) -> Int {
+    yield_now()
+    print("step {label} {n}")
+    n + 1
+}
+
+func double(x: Int) -> Int {
+    x * 2
+}
+
+// A labeled SYNC call in a task body sits beside the labeled suspending one:
+// the canonicalization is unconditional, so both spellings reach codegen as
+// calls whether or not they suspend.
+func worker(n: Int) -> Int {
+    yield_now()
+    print("task {n}")
+    let d = double(x: n)
+    yield_now()
+    d + 1
+}
+
+func main() {
+    let a = step(n: 1, label: "first")
+    let b = step(n: a, label: "second")
+    var group = TaskGroup()
+    let w = group.spawn(worker(n: 20))
+    print("spawned {w.join()}")
+    print("main {b}")
+}
