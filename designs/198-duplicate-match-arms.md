@@ -1,6 +1,11 @@
 # Design 198 — an exact duplicate match arm is an error
 
-**Status: RULED + AUTHORED Aug 10 (morning review), ready to queue.
+**Status: LANDED Aug 10 — all three units, tracked battery green, DF-192d
+closed. Two of the brief's premises were wrong about today's compiler and
+the units corrected them; both are recorded under "What the units found"
+below. One finding filed: DF-198a.**
+
+**Originally: RULED + AUTHORED Aug 10 (morning review), ready to queue.
 Small. Closes DF-192d (duplicate enum arm = LLVM-level ICE today) with
 the ruling: an EXACT duplicate arm — enum variant or literal — is a
 clean compile error naming both arms; overlapping ranges and guarded
@@ -36,6 +41,36 @@ with, only a crash to replace.**
 ## Gates
 
 Tracked battery per unit; irdet unaffected in principle, run as usual.
+
+## What the units found
+
+Two premises in unit 1's text did not hold against the compiler, and the
+implementation follows the ruling rather than the premise.
+
+1. **Two wildcard arms did NOT already error.** They compiled, and the
+   first won. There was no separate check to fold in — there was no check.
+   `case _` twice is now the `('any',)` key, and a wildcard and a bare
+   binding key alike, since one catch-all under two spellings is still one
+   catch-all.
+2. **Binding names are NOT part of the key, so
+   "distinct-binding-name duplicates of the same variant are untouched"
+   could not stand.** `case Move(x, y)` beside `case Move(a, b)` is
+   EXACTLY the shape that crashed: the enum lowering is a switch keyed on
+   the tag, so the second arm emitted a duplicate case value whatever it
+   called its payload. A rule that read binding names would have left
+   DF-192d's ICE alive under its most natural spelling, which is the one
+   thing this brief exists to remove. Unit 1's own prescription — "the
+   matched-variant set, a re-add is the error" — is keyed by variant name
+   and says the same thing, so the two clauses disagreed and the operative
+   one won. Every irrefutable hole therefore keys the same, uniformly on
+   both paths, and REFINEMENT still distinguishes arms: `case Filled(0)`
+   ahead of `case Filled(n)` is two patterns, not one.
+
+The rule lives at one chokepoint, `_check_duplicate_match_arms`, called
+from `_check_match_expr` before it picks a lowering — so both entry points
+into arm checking are behind one call (obligation 1). The consumer sweep
+(obligation 2) parsed every .saw file in the tree, 1882 of them, and found
+zero duplicate arms outside the pin: the rule breaks no existing code.
 
 ## Explicitly out
 

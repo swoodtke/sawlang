@@ -494,6 +494,20 @@ match pair {
 // `true` + `false` arms exhaust Bool. A closed integer range-cover is not
 // computed (v1 — always add a fallback).
 
+// Duplicate arms: an arm that EXACTLY duplicates an earlier one is a compile
+// error, reported at the second and naming the first's line, because no input
+// can ever reach it. Equality is textual after literal normalization, so
+// `case 10` and `case 0x0A` are one pattern, and an irrefutable hole is one
+// pattern whether it is written `_` or given a name (`case Move(x, y)` and
+// `case Move(a, b)` are the same arm twice). Ranges and guards are exempt:
+// overlapping ranges and same-pattern guarded arms are how first-match-wins is
+// written, and both stay legal.
+match code {
+    case 1 -> "one",         // <- line 2 of this snippet
+    case 1 -> "one again",   // error: duplicate match arm: `1` is already
+    case _ -> "other"        //   matched by the arm at line 2
+}
+
 // For loops over ranges
 for i in 0..5 {
     print(i)        // 0 1 2 3 4 (exclusive)
@@ -1187,7 +1201,9 @@ let msg1 = Message.Move(x: 10, y: 20)
 let msg2 = Message.Color(r: 255, g: 128, b: 0)
 
 // Pattern matching on enums: `case <Variant>(bindings) -> <expr>`, bare variant
-// name (not `Message.Quit`), comma-separated, exhaustive.
+// name (not `Message.Quit`), comma-separated, exhaustive. Two arms for one
+// variant are a duplicate-arm error (see Control Flow), including when they
+// name their payload bindings differently.
 match msg1 {
     case Quit -> quit(),
     case Move(x, y) -> move_to(x, y),

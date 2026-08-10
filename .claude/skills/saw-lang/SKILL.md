@@ -555,6 +555,17 @@ match msg { case Move(x, y) -> ..., case Quit -> ... }  // enums exhaustive
 if let v = maybe { } / guard let v = maybe else { return }
 if let (a, b) = optPair { }          // tuple over Optional tuple
 ```
+- **An EXACT duplicate arm is a compile error**, reported at the second and
+  naming the first's line — no input reaches it. Equality is textual after
+  literal normalization (`case 10` and `case 0x0A` are one pattern), and an
+  irrefutable hole is one pattern however it is spelled, so two `case _` arms
+  and `case Move(x, y)` beside `case Move(a, b)` are both refused. RANGES and
+  GUARDS are exempt and stay first-match-wins: `case 1..=9` ahead of `case 5`,
+  or `case n if n < 0` ahead of `case n`, is the normal way to write overlap.
+  Refinement is not duplication — `case Filled(0)` before `case Filled(n)` is
+  two patterns. The enum spelling used to be an internal compiler error and
+  the literal spelling used to compile and silently take the first, so treat
+  a duplicate arm as caught now and suspect in older builds.
 - String literal patterns compare by content. `true`+`false` exhausts
   Bool. Match on an OWNED enum consumes it (bindings own payloads):
   for a NoCopy/ExplicitCopy enum with owning payload, the scrutinee is
