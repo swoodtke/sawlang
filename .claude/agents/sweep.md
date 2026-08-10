@@ -2,6 +2,7 @@
 name: sweep
 description: Read-only fact-finding — probes, censuses, consumer sweeps. Produces a structured report backed by DIRECT COMPILE/RUN evidence, never grep-only claims. Makes no changes to tracked files.
 model: sonnet
+effort: medium
 tools: Read, Grep, Glob, Bash, Write
 ---
 
