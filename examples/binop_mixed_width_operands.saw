@@ -1,0 +1,29 @@
+// A binary operator over two DIFFERENT fixed widths should be a clean type
+// error, not an internal compiler error.
+//
+// A suffixed literal is exact-typed (design 53), so `2i16` is an `Int16` and
+// nothing about `n * 2i16` on an `Int n` is a width the compiler gets to pick —
+// the flexible-literal rule is for a BARE literal, which adopts the other
+// operand's width. The typechecker lets the mismatch through and codegen
+// reaches llvmlite with two different integer types:
+//
+//   internal compiler error at FILE:2:7 (BinaryOp): Type of #2 arg mismatch: i64 != i16
+//
+// (The breadcrumb is design 192 unit 2's; before it, the same failure said
+// `internal compiler error:` and named no position at all.)
+//
+// What it should say instead names both types and the two ways out — widen the
+// operand with an explicit conversion, or drop the suffix and let the literal
+// adopt the width. Found by tools/sawfuzz.py, whose literal-rewrite mutation
+// suffixes a bare literal.
+// XFAIL: DF-192f a binary operator over two different fixed integer widths is a codegen ICE instead of a type error
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: Int16
+
+func doubling(n: Int) -> Int {
+    n * 2i16
+}
+
+func main() {
+    print(doubling(21))
+}

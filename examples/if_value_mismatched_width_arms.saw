@@ -1,0 +1,35 @@
+// A value `if` whose arms have DIFFERENT integer widths must not silently
+// return the wrong arm.
+//
+// `if a > 0 { 11 } else { 7i16 }` in an `Int`-returning function compiles
+// today, and `f(-3)` prints 11 — the THEN arm's value, on the path that took
+// the ELSE arm. The identical program with a bare `7` prints 7. Nothing warns,
+// nothing panics, the exit code is 0: a wrong ANSWER, which is the worst thing
+// a compiler can produce and the reason this is not merely a diagnostics bug.
+//
+// A suffixed literal is exact-typed (design 53) — the width-adopting rule is
+// for a BARE literal — and Saw has no implicit integer conversion (design 170
+// made every narrowing explicit and every widening a written `as`). So two
+// arms at two widths is a type disagreement and belongs in the same error as
+// any other arm-type mismatch, naming both types. That is the expectation
+// below. (If the ruling instead widens same-sign arms implicitly, this pin
+// becomes EXPECT: success printing 11 and 7 — but it can never stay as it is.)
+//
+// The loud sibling is DF-192f: `n * 2i16` on an `Int n` is a codegen ICE
+// rather than a wrong answer. One root — nothing checks that two integer
+// operands agree on width — and two faces.
+//
+// Found by tools/sawfuzz.py (its literal-rewrite mutation suffixes a bare
+// literal); the ICE it reported minimized into this silent version.
+// XFAIL: DF-192g a value `if` with mismatched-width integer arms compiles and returns the wrong arm's value
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: Int16
+
+func f(a: Int) -> Int {
+    if a > 0 { 11 } else { 7i16 }
+}
+
+func main() {
+    print(f(3))
+    print(f(-3))
+}

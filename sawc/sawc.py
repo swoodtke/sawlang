@@ -649,6 +649,26 @@ def run_typecheck(typechecker, thunk):
         _report_ice(e, typechecker)
 
 
+def _run_llvm(codegen, thunk):
+    """Run one llvmlite stage, surfacing a refusal as an internal error.
+
+    Design 192. `emit_ir` and `compile_to_object` run AFTER `run_codegen` has
+    returned, so neither was under a wrapper — and llvmlite refusing to parse
+    the module (`RuntimeError: LLVM IR parsing error`) is always a compiler
+    bug: the IR was emitted by us. It printed a raw traceback until the fuzzer
+    walked into one on its first run.
+
+    No node is in flight this late, so the report carries the message alone —
+    which for an IR parse failure already names the offending instruction.
+    """
+    try:
+        return thunk()
+    except SystemExit:
+        raise
+    except Exception as e:
+        _report_ice(e, codegen)
+
+
 def run_codegen(codegen, ast):
     """Run code generation for `ast` (the single codegen call site).
 
@@ -1255,8 +1275,17 @@ def _emit_object(codegen, source_path: str, output_path: str, verbose: bool,
                  object_only: bool, optimize: bool, freestanding: bool = False,
                  runtime_provider: bool = False):
     """Write the module's IR sidecar, compile to an object file, and (for
-    executables) link it. Shared output tail for the compile pipeline."""
-    llvm_ir = codegen.emit_ir(optimize=False)
+    executables) link it. Shared output tail for the compile pipeline.
+
+    The LLVM stage is under the same internal-error wrapper as codegen itself
+    (design 192 unit 2, extended in unit 3 by the fuzzer's very first finding).
+    It sits AFTER `run_codegen` returns, so it was outside the wrapper: an IR
+    module that llvmlite refused to parse — malformed IR is a compiler bug by
+    construction, and a duplicated `match` arm produced one on day one —
+    printed a raw Python traceback at the user, which is the exact failure
+    this brief exists to end.
+    """
+    llvm_ir = _run_llvm(codegen, lambda: codegen.emit_ir(optimize=False))
 
     # Write LLVM IR to a sidecar file (for debugging)
     ir_path = output_path + ".ll"
@@ -1271,7 +1300,8 @@ def _emit_object(codegen, source_path: str, output_path: str, verbose: bool,
     if object_only:
         # Output directly to the specified path (should end in .o)
         obj_path = output_path if output_path.endswith('.o') else output_path + '.o'
-        codegen.compile_to_object(obj_path, optimize=optimize)
+        _run_llvm(codegen,
+                  lambda: codegen.compile_to_object(obj_path, optimize=optimize))
 
         if verbose:
             print(f"  Output: {obj_path}")
@@ -1279,7 +1309,8 @@ def _emit_object(codegen, source_path: str, output_path: str, verbose: bool,
     else:
         # Compile to temp object file, then link
         obj_path = output_path + ".o"
-        codegen.compile_to_object(obj_path, optimize=optimize)
+        _run_llvm(codegen,
+                  lambda: codegen.compile_to_object(obj_path, optimize=optimize))
 
         # Link with system linker (clang handles libc linking automatically).
         # design 113b: a hosted executable also links the per-host Saw runtime

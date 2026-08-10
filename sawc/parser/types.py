@@ -572,8 +572,17 @@ class TypeParsingMixin:
         token = self.current()
         if token.type == TokenType.INT:
             self.advance()
-            return IntLiteral(value=int(token.value), line=token.line,
-                              column=token.column)
+            # DF-192e: through the shared decoder, not `int()`. This is DF-185a
+            # at the SECOND hand-rolled site — an INT token keeps its canonical
+            # text, prefix and all, so `FixedBuf<0x10>()` died here as an
+            # uncaught `invalid literal for int() with base 10: '0x10'`, a raw
+            # traceback with no location. Every other notation design 50 defines
+            # was equally dead. Found by the design-192 fuzzer on its first
+            # broad sweep, which is the same duplication family design 190
+            # counted: one rule, two implementations, and the fix to the first
+            # never reached the second.
+            return IntLiteral(value=self._decode_int_literal(token.value),
+                              line=token.line, column=token.column)
         if token.type == TokenType.LPAREN:
             self.advance()
             inner = self._const_additive(what)

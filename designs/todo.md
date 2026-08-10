@@ -168,6 +168,54 @@ wrong and are corrected in place below.
   the sync erased version and the suspending CONCRETE version compile and
   run. Pre-dates design 192 (probe-confirmed against e4761ef). PIN:
   `examples/erased_error_across_suspension.saw` (XFAIL, cited).
+- **DF-192d (ICE + a LANGUAGE RULING OWED, filed Aug 10 by 192 u3's first
+  fuzz run): a `match` with two arms for one enum case is an LLVM-level
+  internal compiler error.** It lowers to a `switch` carrying the same case
+  value twice and llvmlite refuses the module (`duplicate case value in
+  switch`). The ruling: the SIBLING spelling — a duplicated LITERAL arm,
+  `case 1 -> "one", case 1 -> "one again"` — compiles today and the FIRST
+  arm wins (that lowering is a compare chain), so the two spellings
+  disagree and one of them has to move. Consistent-with-today is first-wins
+  for the enum too; the other reading is that a duplicate arm is
+  unreachable code and BOTH should be a clean error, which fits Saw's
+  no-silent-anything grain better. Not a call this brief takes. PIN:
+  `examples/match_duplicate_enum_arm.saw` (XFAIL, cited; holds both
+  spellings so they cannot drift apart again). Its discovery also closed a
+  unit-2 gap: `emit_ir` / `compile_to_object` run AFTER `run_codegen`
+  returns and were outside every wrapper, so an IR module llvmlite refuses
+  printed a raw traceback — `_run_llvm` now wraps both.
+- **DF-192e — FIXED by the unit that found it (192 u3): a hex const generic
+  argument was an uncaught parser crash.** `FixedBuf<0x10>()` died in
+  `parse_const_expr`'s primary with `ValueError: invalid literal for int()
+  with base 10: '0x10'` — no location, no message, a raw Python traceback.
+  This is DF-185a at the SECOND hand-rolled site: design 185 routed the enum
+  raw value through the shared decoder and left the const-expression grammar
+  calling `int()` on an INT token's canonical text. Exactly design 190's
+  duplication family — one rule, two implementations, the fix to the first
+  never reaching the second — and, as with DF-185a, the notation that died is
+  the one the feature exists for (a buffer or mask size is written in hex).
+  Every notation design 50 defines works now, in the const-generic ARGUMENT
+  and the const-parameter DEFAULT, the two positions that grammar serves.
+  PIN: `examples/const_generic_arg_notations.saw`.
+- **DF-192f (ICE, filed Aug 10 by 192 u3): nothing checks that two integer
+  operands agree on WIDTH, so a suffixed literal in a platform-`Int` context
+  is a codegen ICE.** `n * 2i16` on an `Int n` is `internal compiler error at
+  FILE:L:C (BinaryOp): Type of #2 arg mismatch: i64 != i16`; the same
+  mismatch through an optional-binding value arm is `(AssignStatement):
+  cannot store {i64, i64} to {i16, i16}*`. A suffixed literal is exact-typed
+  (design 53 — the width-adopting rule is for a BARE literal) and Saw has no
+  implicit integer conversion (design 170), so this is a plain type
+  disagreement the checker should name. PIN:
+  `examples/binop_mixed_width_operands.saw` (XFAIL, cited).
+- **DF-192g (SOUNDNESS — CONFIRMED WRONG ANSWER, filed Aug 10 by 192 u3): a
+  value `if` whose arms have different integer widths returns the WRONG
+  ARM'S VALUE.** `func f(a: Int) -> Int { if a > 0 { 11 } else { 7i16 } }`
+  compiles clean and `f(-3)` prints `11` — the then-arm's value on the path
+  that took the else arm. The same program with a bare `7` prints `7`. No
+  warning, no panic, exit 0. Same root as DF-192f (nothing checks integer
+  width agreement) and the more serious face of it: the binop shape is loud,
+  this one is silent. Reached by minimizing a fuzzer ICE. PIN:
+  `examples/if_value_mismatched_width_arms.saw` (XFAIL, cited).
 - **DF-190c (VERIFY / latent must-agree, filed Aug 9):
   `_make_specialization_key` has DIVERGED** — codegen handles design-148
   const-value type args (`generics.py:566-571`), the typechecker drops

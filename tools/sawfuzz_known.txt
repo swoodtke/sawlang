@@ -1,0 +1,26 @@
+# sawfuzz's XFAIL ledger (design 192 unit 3).
+#
+# A signature listed here is a finding that has been FILED as a DF and PINNED
+# in examples/ with a cited XFAIL, and is not yet fixed. sawfuzz still reports
+# every hit — the count is on the summary line — but does not fail the run for
+# it, so the battery's fuzz lane stays a signal rather than a wall.
+#
+# The rules are the suite's XFAIL rules:
+#   - an entry MUST cite a DF number, and that DF MUST have a pin in examples/
+#   - an entry that no longer fires is STALE — delete it in the landing that
+#     fixes the bug, exactly as you delete the XFAIL marker
+#   - `--ignore-known` re-reports everything here, which is how you check
+#
+# Format: DF-NUMBER <TAB> signature   (the signature sawfuzz prints for it)
+
+# A `match` with two arms for one enum case lowers to an LLVM switch with the
+# same case value twice. Pin: examples/match_duplicate_enum_arm.saw
+DF-192d	internal-compiler-error: error: internal compiler error: LLVM IR parsing error | <string>:N:N: error: duplicate case value in switch
+
+# Nothing checks that two integer operands agree on WIDTH, so a suffixed
+# literal in a platform-`Int` context reaches llvmlite unmatched. Two faces of
+# one root, and a third that is silent rather than loud (DF-192g).
+# Pins: examples/binop_mixed_width_operands.saw,
+#       examples/if_value_mismatched_width_arms.saw
+DF-192f	internal-compiler-error: error: internal compiler error at <src>:N:N (BinaryOp): Type of #N arg mismatch: iN != iN
+DF-192f	internal-compiler-error: error: internal compiler error at <src>:N:N (AssignStatement): cannot store {iN, iN} to {iN, iN}*: mismatching types

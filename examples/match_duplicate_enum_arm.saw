@@ -1,0 +1,51 @@
+// A `match` with two arms for one enum case should not be an internal compiler
+// error.
+//
+// It lowers to an LLVM `switch` with the same case value twice, which llvmlite
+// refuses to parse: `internal compiler error: LLVM IR parsing error /
+// duplicate case value in switch`. No location in the program, nothing naming
+// the arm.
+//
+// The behavior this pins is the one the language ALREADY has one position
+// over: a duplicated LITERAL arm (`case 1 -> "one", case 1 -> "one again"`)
+// compiles today and the FIRST arm wins — that lowering is a compare chain,
+// not a switch. So the enum spelling is inconsistent with its own sibling, and
+// the consistent reading is first-wins here too.
+//
+// THE OTHER RULING IS OPEN and is the lead's: a duplicate arm is unreachable
+// code, and making BOTH spellings a clean compile error would fit Saw's
+// no-silent-anything grain better than making both silent. That is a language
+// decision this brief did not take, so the expectation below states the
+// consistent-with-today behavior; if the ruling goes the other way, this pin
+// becomes an EXPECT: error naming the duplicated case.
+// XFAIL: DF-192d a duplicate enum arm in a `match` is an LLVM-level internal compiler error, while the duplicate LITERAL arm one position over compiles and takes the first
+// EXPECT: success
+// EXPECT-OUTPUT:
+// green
+// one
+
+enum Color { case Red, case Green, case Blue }
+
+func name(c: Color) -> String {
+    match c {
+        case Red -> "red",
+        case Green -> "green",
+        case Green -> "green again",
+        case Blue -> "blue"
+    }
+}
+
+// The sibling spelling, which compiles today and takes the first arm. It is in
+// this program so the two can never drift apart again unnoticed.
+func literal_name(n: Int) -> String {
+    match n {
+        case 1 -> "one",
+        case 1 -> "one again",
+        case _ -> "other"
+    }
+}
+
+func main() {
+    print(name(Color.Green))
+    print(literal_name(1))
+}
