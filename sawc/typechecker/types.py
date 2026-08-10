@@ -2512,25 +2512,23 @@ class TypeUtilsMixin:
 
     def _payload_read_policy(self, payload_type: Optional[SawType]) -> str:
         """The copy tier a payload read must honor: one of
-        'trivial' / 'retain' / 'explicit' / 'nocopy'."""
+        'trivial' / 'retain' / 'explicit' / 'nocopy'.
+
+        One line, because the answer belongs to ONE oracle
+        (`Namespace.read_policy` over `copy_tier`, design 193 unit 1). This used
+        to re-derive the table out of three predicates and a type-parameter
+        carve-out of its own, and the three derivations did not agree — a
+        non-escaping closure payload was 'retain' here and 'free' there.
+        """
         if payload_type is None:
             return 'trivial'
-        # An opaque generic type parameter's tier is unknowable here, and each
-        # instantiation decides it for itself. Keep the pre-131 bitwise read
-        # rather than guess a retain that a `Vector` instantiation would turn
-        # into a silent deep copy.
+        # A type parameter in scope reads as an opaque STRUCT name; `copy_tier`
+        # calls that 'abstract', which the shared table maps to the same
+        # bitwise read this carve-out always gave it.
         if (payload_type.kind == TypeKind.STRUCT
                 and payload_type.struct_name in getattr(self, 'current_type_params', {})):
             return 'trivial'
-        if self._is_no_copy_type(payload_type):
-            return 'nocopy'
-        if self._is_explicit_copy_type(payload_type):
-            return 'explicit'
-        if self.namespace.is_trivially_copyable(payload_type):
-            return 'trivial'
-        # Everything left duplicates by RETAINING what it owns: an ImplicitCopy
-        # value, an owning enum/optional/tuple/struct, an escaping closure env.
-        return 'retain'
+        return self.namespace.read_policy(payload_type)
 
     def _check_payload_read(self, source: Optional[Expression],
                             payload_type: Optional[SawType],

@@ -8755,13 +8755,14 @@ class ExpressionsMixin:
         # temporary has no binding to mark), an enum whose tier is an OWNING
         # one, carrying at least one payload the drop glue would touch. An
         # ImplicitCopy-tier enum is NOT marked — its reads are retain-copies
-        # by policy, and the consume model's tier-blindness there is its own
-        # codegen bug (DF-190d, owned by 193 u1's oracle unification).
+        # by policy, and codegen agrees since design 193 unit 1: it BORROWS such
+        # a scrutinee and retains each arm binding (DF-190d). Both gates ask the
+        # one oracle, `Namespace.read_policy` over the copy tier.
         if isinstance(expr.matched_expr, Identifier):
             scrut_info = self.current_scope.lookup(expr.matched_expr.name)
             if (scrut_info is not None
                     and scrut_info.type.kind != TypeKind.REFERENCE
-                    and self.namespace.copy_tier(matched_type) in ('nocopy', 'explicit')):
+                    and self.namespace.read_policy(matched_type) in ('nocopy', 'explicit')):
                 has_owning_payload = False
                 for variant_params_raw in enum_info.variants.values():
                     for _, ftype in variant_params_raw:

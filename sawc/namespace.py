@@ -1495,6 +1495,45 @@ class Namespace:
             return {}
         return {p.name: a for p, a in zip(params, args) if a is not None}
 
+    # The read policy — the ONE mapping from a copy tier to what a VALUE READ
+    # out of storage somebody else owns costs. Entry points (design 193 unit 1,
+    # the process rule's "a funnel names its entries"):
+    #
+    #   * typechecker `_payload_read_policy` / `_check_payload_read` — design
+    #     131's optional-payload reads (`o!`, `??`'s left operand, an
+    #     `if let`/`guard let` binding);
+    #   * `place_uses._value_read_ok` — the point a `borrows` place becomes a
+    #     value (it consults `copy_tier` directly because 'abstract' there is
+    #     answered from the type parameter's BOUNDS, not by this table);
+    #   * `codegen/match.py` `_generate_match_expr` — which enums a match
+    #     consumes and which it borrows-with-retain (DF-190d).
+    #
+    # Three call sites used to hold three DIFFERENT answers to the same
+    # question: a policy built out of `_is_no_copy_type` / `_is_explicit_copy_type`
+    # / `is_trivially_copyable`, a bare `copy_tier` comparison, and codegen's
+    # `enum_has_owning` (which is not a tier at all). The last one is what made
+    # an ImplicitCopy enum's payload die at the first arm's end.
+    _READ_POLICY_BY_TIER = {
+        'free': 'trivial',
+        'implicit': 'retain',
+        'explicit': 'explicit',
+        'nocopy': 'nocopy',
+        # An opaque type parameter's tier is unknowable from the declaration and
+        # each instantiation decides it. Sites that emit code substitute first
+        # and never see this; sites that must answer NOW keep the pre-131
+        # bitwise read rather than guess a retain a `Vector` instantiation would
+        # turn into a silent deep copy.
+        'abstract': 'trivial',
+    }
+
+    def read_policy(self, saw_type: SawType) -> str:
+        """What a VALUE READ of `saw_type` out of storage its owner keeps costs:
+        'trivial' (bitwise), 'retain', 'explicit' or 'nocopy'.
+
+        The one derivation of design 131's table from design 139's tiers — see
+        `_READ_POLICY_BY_TIER` above for the entry points that ask it."""
+        return self._READ_POLICY_BY_TIER.get(self.copy_tier(saw_type), 'trivial')
+
     def is_structurally_implicit_copy(self, saw_type: SawType, _visiting=None) -> bool:
         """Is this composite ImplicitCopy WITHOUT declaring it (design 159)?
 

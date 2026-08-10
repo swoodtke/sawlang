@@ -3,12 +3,20 @@
 // alignment-padded payload ABI-size fix — and (2) account the refcount
 // exactly-once as the extracted value is bound and dropped — symptom 1.
 // Before the fix the Arc pointer was truncated (garbage strong_count) and the
-// consuming match then over/under-released.
+// match then over/under-released.
+//
+// `Msg` is ImplicitCopy-tier (its payload's declared policy joins through), so
+// since design 193 unit 1 (DF-190d) the match BORROWS rather than consumes:
+// `p` retains at extraction — the count rises to 3 inside the arm — and
+// releases at arm end, while `m` keeps its own reference to the very end of
+// `main`. Hence 2 (the caller's plus the enum's), 3 (plus the binding's), 2
+// (the binding released, `m` still live). The exactly-once property the test
+// was written for is unchanged; what moved is WHO holds the last reference.
 // EXPECT: success
 // EXPECT-OUTPUT:
 // 2
+// 3
 // 2
-// 1
 
 struct Payload { tag: Int, handle: Arc<Int> }
 extension Payload: ImplicitCopy {
@@ -24,11 +32,11 @@ func main() {
     let shared = Arc<Int>(value: 99)          // strong 1
     let m = Msg.Data(p: Payload(tag: 7, handle: shared.copy()))  // strong 2
     print(shared.strong_count())              // 2
-    match m {                                 // consumes m
+    match m {                                 // borrows m (ImplicitCopy tier)
         case Data(p) -> {
-            print(p.handle.strong_count())    // 2 — correct bytes, not garbage
-        },                                    // p (and its Arc) dropped at arm end
+            print(p.handle.strong_count())    // 3 — correct bytes, not garbage
+        },                                    // p's retain released at arm end
         case Done -> print(0)
     }
-    print(shared.strong_count())              // 1 — released exactly once
+    print(shared.strong_count())              // 2 — `m` still owns its copy
 }

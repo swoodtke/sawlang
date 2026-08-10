@@ -126,16 +126,54 @@ class MatchMixin:
             any(self._needs_cleanup(ft) for _, ft in flds)
             for flds in variant_cleanup_info.values()
         )
+        # The type the scrutinee's own drop glue is driven by, for the arms that
+        # claim nothing (below) and for the copy-tier gate. `matched_enum_type`
+        # is already substituted and canonicalized above, which is what
+        # `enum_name` was mangled from.
+        scrut_saw = matched_enum_type
+        if scrut_saw is None or scrut_saw.kind != TypeKind.ENUM:
+            scrut_saw = self._expr_type(expr.matched_expr)
+        # WHICH ENUMS CONSUME (DF-190d). Consuming is a COPY-TIER rule, not an
+        # "owns something" one, and this gate used to read `enum_has_owning`
+        # alone. An ImplicitCopy-tier enum (`enum Holder { case Full(a:
+        # Arc<Res>) }` + `@synthesize extension Holder: ImplicitCopy {}`) owns a
+        # refcounted payload and copies for FREE — so the typechecker does NOT
+        # mark its scrutinee moved (design 193 u1 / DF-190a) and a second
+        # `match h` is legal source. Codegen still handed the payload to the arm
+        # bindings and released it at the first arm's end while `h` was live:
+        # the second match walked freed memory, silently, exit 0.
+        #
+        # Two modes now, the scrutinee's tier picking between them:
+        #
+        # * CONSUME (owning tiers — NoCopy/ExplicitCopy, and anything whose tier
+        #   is not knowable here): ownership passes to the arm bindings and the
+        #   scrutinee's own drop is suppressed. Unchanged.
+        # * RETAIN (the ImplicitCopy tier): the match BORROWS. Each owning
+        #   binding is retained at extraction and released at arm end, and the
+        #   scrutinee keeps its own reference and drops at ITS scope end — one
+        #   allocation, one release, and matching twice is fine.
+        #
+        # Only a NAMED, non-borrowed local can be in retain mode: a TEMPORARY
+        # scrutinee (`match f() {...}`) is owned by nobody whatever its tier, so
+        # it keeps taking the consume path below, which is what releases it
+        # exactly once.
+        # `read_policy` is the shared derivation of design 131's table from
+        # design 139's tiers (namespace.py) — the same oracle the typechecker's
+        # payload reads and place_uses' value reads ask.
+        scrut_policy = self.namespace.read_policy(scrut_saw)
         # The scrutinee is consumable only when it is an OWNED binding in scope
         # (a `let`/param/if-let local). A field/temporary/borrow is left alone —
         # and a borrow is the case that hid: matching through a `&T`/`&var T`
         # binding took the consume path, so `case Occupied(_)` released a
         # payload the container still owned. That reached every `match` inside
         # a `with_ref` body and, since design 146, every match through a place.
+        scrut_is_local = (isinstance(expr.matched_expr, Identifier)
+                          and expr.matched_expr.name in self.variables
+                          and not self._is_borrowed_name(expr.matched_expr.name))
+        retain_mode = (enum_has_owning and scrut_is_local
+                       and scrut_policy == 'retain')
         consume_name = None
-        if (enum_has_owning and isinstance(expr.matched_expr, Identifier)
-                and expr.matched_expr.name in self.variables
-                and not self._is_borrowed_name(expr.matched_expr.name)):
+        if enum_has_owning and scrut_is_local and not retain_mode:
             consume_name = expr.matched_expr.name
         # DF-151d: a TEMPORARY scrutinee (`match f() { ... }`, `match E.A(x)`)
         # is owned by NOBODY. It is not a binding, so it was never registered
@@ -169,13 +207,6 @@ class MatchMixin:
             if flag is not None:
                 self.builder.store(ir.Constant(ir.IntType(1), 0), flag)
             self.moved_variables.add(consume_name)
-
-        # The type the scrutinee's own drop glue is driven by, for the arms that
-        # claim nothing (below). `matched_enum_type` is already substituted and
-        # canonicalized above, which is what `enum_name` was mangled from.
-        scrut_saw = matched_enum_type
-        if scrut_saw is None or scrut_saw.kind != TypeKind.ENUM:
-            scrut_saw = self._expr_type(expr.matched_expr)
 
         # Create basic blocks for each arm + merge block
         arm_blocks = []
@@ -279,7 +310,7 @@ class MatchMixin:
                                                   ir.PointerType(param_struct_type),
                                                   name="param_struct_ptr")
 
-                if consume_name is not None:
+                if consume_name is not None or retain_mode:
                     self.cleanup_stack.append([])
                     arm_scope_pushed = True
 
@@ -310,10 +341,20 @@ class MatchMixin:
                     if arm_scope_pushed and binding_name != "_" and i < len(variant_params):
                         btype = variant_params[i][1]
                         if self._needs_cleanup(btype):
+                            # RETAIN mode (DF-190d): the scrutinee keeps its own
+                            # reference, so the binding takes one of its OWN
+                            # before the cleanup registration below releases it
+                            # at arm end. This is design 131's value-read row
+                            # for the ImplicitCopy tier — the same retain
+                            # `let a = o!` takes out of an optional — applied at
+                            # the one point an enum payload becomes a binding.
+                            if retain_mode:
+                                self._emit_retain_at(var_alloca, btype)
                             self.variable_types[binding_name] = btype
                             self._register_cleanup(binding_name, btype)
                             owning_bindings.append(binding_name)
-                    elif (arm_scope_pushed and binding_name == "_"
+                    elif (arm_scope_pushed and consume_name is not None
+                          and binding_name == "_"
                           and i < len(variant_params)
                           and self._needs_cleanup(variant_params[i][1])):
                         # design 65 (L17): an owning payload field discarded with

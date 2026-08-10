@@ -35,6 +35,14 @@
 // while their drops still ran), the Arc's payload was destroyed BEFORE the
 // function that owned it finished, and `after` is a read of freed memory.
 //
+// The enum line's `during` counts ONE MORE retain since design 193 unit 1
+// (DF-190d): `match h2` on an ImplicitCopy-tier enum no longer consumes its
+// scrutinee, so the arm binding `t` takes a retain of its own and `h2` keeps
+// the reference it already had. `after == held` either way — the extra retain
+// is released at the arm's end — but the count DURING the arm now shows both
+// owners, which is what makes a second `match h2` (and any later use of it)
+// read live memory instead of a freed payload.
+//
 // EXPECT: success
 // EXPECT-OUTPUT:
 // local local-7 local-7 local-7
@@ -50,7 +58,7 @@
 // closure 5 5 5
 // balance-struct 1 3 6 3
 // deinit 1
-// balance-enum 1 2 4 2
+// balance-enum 1 2 5 2
 // deinit 2
 
 struct P { name: String }

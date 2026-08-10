@@ -2,12 +2,11 @@
 // must NOT consume it. ImplicitCopy reads are retain-copies by policy, so
 // each arm binding retains the payload and the scrutinee keeps ownership —
 // the payload is released exactly ONCE, when the scrutinee's own scope ends
-// (after `done`). Today codegen's consume model is tier-blind (gated on
-// `enum_has_owning`, not the copy tier): the FIRST match hands the payload
-// to the arm binding, which releases it at arm end while `h` is still live
-// (`deinit 9` prints before `second`), and the second match walks the freed
-// payload — a silent use-after-free.
-// XFAIL: DF-190d codegen's match consume model is tier-blind; an ImplicitCopy-tier enum's payload is released at the first arm's end, not at scrutinee scope end
+// (after `done`). Codegen's consume model used to be tier-blind (gated on
+// `enum_has_owning`, not the copy tier): the FIRST match handed the payload
+// to the arm binding, which released it at arm end while `h` was still live
+// (`deinit 9` printed before `second`), and the second match walked the freed
+// payload — a silent use-after-free (DF-190d, closed by design 193 unit 1).
 // EXPECT: success
 // EXPECT-OUTPUT:
 // first

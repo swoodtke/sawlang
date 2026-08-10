@@ -702,12 +702,18 @@ class _PlaceUses:
     _COPY_PROVING_BOUNDS = frozenset({"Copy", "ImplicitCopy", "ExplicitCopy"})
 
     def _value_read_ok(self, place) -> bool:
-        """design 131's table at the one point a place becomes a value."""
+        """design 131's table at the one point a place becomes a value.
+
+        Asks `copy_tier` — the same oracle `Namespace.read_policy` derives the
+        payload-read and match-consume answers from (design 193 unit 1) — and
+        not the derived policy, because 'abstract' is answered HERE from the
+        type parameter's bounds rather than by falling back to a bitwise read.
+        """
         elem = getattr(place, 'place_elem_type', None)
         tier = self.ns.copy_tier(elem) if elem is not None else 'free'
         if tier == 'abstract':
             return self._abstract_read_ok(place, elem)
-        if tier in ('free', 'implicit'):
+        if self.ns.read_policy(elem) in ('trivial', 'retain'):
             return True
         rendered = f"{self._render(self._place_receiver(place))}"
         if isinstance(place, ArrayIndex):
