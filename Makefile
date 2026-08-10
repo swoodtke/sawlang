@@ -72,8 +72,13 @@ irdet-all: $(IRDET_BIN)
 # not fail an ordinary run: the surplus release lands in a freed-but-mapped
 # block and the program exits 0, which is how DF-151b sat in a green tree from
 # design 73 onward. Guard Malloc unmaps freed blocks, so an over-release faults
-# at the instruction that made it. Small curated lane — the ownership oracles
+# at the instruction that made it. Small curated lanes — the ownership oracles
 # only, since a page per allocation is far too slow for the whole suite.
+#
+# TWO lanes since design 192 unit 4: `ownership` is about values (copies,
+# retains, drops, containers) and `concurrency` is the same failures where the
+# value lives in a heap-resident coroutine frame or crosses a task boundary.
+# `make gmgate` runs both; `--lane <name>` runs one.
 gmgate:
 	@python3 tools/gmgate.py
 
@@ -156,7 +161,7 @@ help:
 	@echo "  make astdiff         - Dump every tracked .saw file and require stability"
 	@echo "  make irdet           - IR determinism over a 40-example sample (per commit)"
 	@echo "  make irdet-all       - IR determinism over the WHOLE corpus (final gate)"
-	@echo "  make gmgate          - Ownership oracles under Guard Malloc (macOS)"
+	@echo "  make gmgate          - Ownership + concurrency oracles under Guard Malloc (macOS)"
 	@echo "  make abidoc          - rt/ABI.md describes exactly the frozen seam set"
 	@echo "  make ircontract      - -c embeds what hosted embeds; seam widths match rt/ABI.md"
 	@echo "  make preludegate     - The import gate matches LANGUAGE_SPEC's module table"

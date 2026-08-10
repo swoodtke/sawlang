@@ -20,8 +20,24 @@ ownership oracles, where a latent over-release is the failure mode that no
 other check can see. Add a program here when it exists to prove something about
 copies, retains, drops or refcounts.
 
+TWO LANES (design 192 unit 4). The original `ownership` lane is about VALUES —
+copies, retains, drops, refcounts, containers. The `concurrency` lane added
+beside it is about the same failures where the value lives in a HEAP-RESIDENT
+COROUTINE FRAME or crosses a task boundary: a frame handoff, a capture a task
+holds while its spawner runs on, a group teardown, a channel send. Design 190's
+audit found two CONFIRMED silent use-after-frees in that surface — both probes
+exited 0 with plausible output — and the ordinary suite could not see either.
+Under Guard Malloc they are instruction-level crashes. Measured on a probe that
+returns a pointer into heap storage a suspending frame released (the shape
+design 189 now refuses at compile time): NATIVE it prints a plausible byte and
+exits 0; under this harness it takes SIGSEGV at the load, rc=139.
+
+The concurrency lane runs FEWER repeats (5 vs 10) because it has a scheduler
+under it: its programs interleave, so repeats buy variety rather than the
+same trace again, and each one is slower.
+
 Usage:
-    python tools/gmgate.py [-n RUNS] [-v]
+    python tools/gmgate.py [-n RUNS] [--lane ownership|concurrency|all] [-v]
 
 `make gmgate` wires this up. macOS only — Guard Malloc is a macOS facility, so
 elsewhere this reports SKIPPED rather than failing (see TESTING.md).
@@ -36,9 +52,9 @@ SAWC = os.path.join(REPO, "sawc", "sawc.py")
 GMALLOC = "/usr/lib/libgmalloc.dylib"
 OUT_DIR = os.path.join(REPO, ".build", "gmgate")
 
-# The curated lane. Each entry is an example that asserts something about
+# The ownership lane. Each entry is an example that asserts something about
 # ownership; the comment says which shape it pins.
-GATE = [
+OWNERSHIP_GATE = [
     # The undeclared ImplicitCopy tier across every transfer class (design 159).
     "examples/df151b_implicit_tier_transfers.saw",
     # A closure env retained through struct copies (design 73). This one is the
@@ -145,6 +161,96 @@ GATE = [
     "examples/data_cow_self_append.saw",
 ]
 
+# The CONCURRENCY lane (design 192 unit 4). Same failure mode, different
+# storage: a suspending function's locals live in a heap-allocated frame, a
+# spawned task's values live in a frame the spawner's stack does not own, and a
+# group's teardown drops both. Every drop in here happens somewhere no stack
+# discipline polices, which is why design 190's audit found two silent
+# use-after-frees in this surface and the suite saw neither.
+#
+# Curated, not swept: a corpus sweep of every concurrency example takes 30-60
+# minutes under Guard Malloc and would be flaky-adjacent (real threads, real
+# timers). These are the OWNERSHIP oracles among them.
+CONCURRENCY_GATE = [
+    # --- Frame handoff: an owning value that lives across a suspension -------
+    # A Deinit local held across a suspend. The frame is heap-resident, so the
+    # local's storage outlives no stack frame and the drop happens at frame
+    # death — the plainest version of everything below it.
+    "examples/coro_deinit_across_suspend.saw",
+    # A moved Arc PARAMETER: the caller hands ownership into the frame, so the
+    # release belongs to the frame and the caller must not also make it. The
+    # refcount reads correct either way; only Guard Malloc sees the second one.
+    "examples/coro_moved_arc_param_deinit_once.saw",
+    # A CONDITIONAL move of a cleanup-needing frame local — the drop-flag
+    # shape. Two paths, one of which handed the value away, and a flag in the
+    # frame deciding whether the frame still owns it. Getting the flag wrong in
+    # either direction leaks or double-frees, and DF-182c/DF-182d were both
+    # exactly this in another spelling.
+    "examples/coro_conditional_move_across_suspend.saw",
+    # Tuple DESTRUCTURING across a suspension: two bindings out of one value,
+    # each its own frame field, each owning its element. A drop of the whole
+    # tuple beside the elements' drops is the failure.
+    "examples/coro_destructure_across_suspend.saw",
+    # The NEGATIVE of the rule: a reference frame field is non-owning and must
+    # never be dropped. A frame that drops one frees a value its CALLER still
+    # owns, and the caller's own drop then lands in freed storage.
+    "examples/coro_ref_param_deinit_once.saw",
+
+    # --- Captures: an env the frame owns, and a root a task borrows ----------
+    # A closure capturing a frame-resident Arc, held across a suspension. The
+    # env is refcounted heap storage owned by the frame; DF-C1 was it being
+    # released twice.
+    "examples/coro_closure_deinit_once.saw",
+    # A spawned TaskGroup child frame that OWNS closures — the env crosses into
+    # a task's frame and dies with it.
+    "examples/coro_closure_taskgroup.saw",
+    # The nearest STILL-LEGAL cousin of design 188's ex-UAF probe (a capture
+    # declared AFTER its group, now a compile error): declared BEFORE it, which
+    # is the accepted order and the one whose soundness rests on LIFO
+    # destruction actually holding at run time. If the group's Deinit ever
+    # stopped joining before the captured roots die, this is the program that
+    # crashes.
+    "examples/spawn_capture_declared_before.saw",
+    # The nearest still-legal cousin of design 189's ex-UAF probe (a `move` of
+    # a borrowed root between spawn and join, now a compile error): the same
+    # shapes with the borrow released where it should be. DF-189c handed a task
+    # a freed `Vector` buffer, and `log` here is that same Vector.
+    "examples/spawn_capture_join_releases.saw",
+
+    # --- Join and teardown: who drops what, and when -------------------------
+    # Design 124's eager teardown: a task's owned values deinit AT TASK
+    # COMPLETION, not at group death. The drop moved; anything that kept the
+    # old one too frees twice.
+    "examples/taskgroup_eager_teardown.saw",
+    # A result NOBODY joins. It outlives its frame in a group-owned cell and is
+    # dropped exactly once at group teardown — the path with no `join` to make
+    # the ownership transfer explicit.
+    "examples/taskgroup_result_unjoined_once.saw",
+    # The same question with real worker threads stealing: a frame result
+    # dropped exactly once when the completing thread and the joining thread
+    # are different.
+    "examples/taskgroup_threads_deinit_once.saw",
+    # Design 134's slot reuse: the frame ALLOCATION is released at completion
+    # and its run-queue slot returns to a free list, so a later task's frame
+    # lands where a finished one was. Guard Malloc unmaps the old page, which
+    # is what turns "a stale handle reads the new occupant" into a fault.
+    "examples/taskgroup_slot_reuse_o_live.saw",
+
+    # --- Values crossing a task boundary -------------------------------------
+    # Owning values moved through a cooperative channel: the sender gives up
+    # ownership, the receiver takes it, and exactly one of them drops.
+    "examples/channel_recv_producer_consumer.saw",
+    # An owning CONTAINER moved into a task — a Vector, a Map, a Data. `Data`
+    # is copy-on-write over Arc-owned storage since design 165, so a container
+    # crossing into a frame is the COW question and the Send question at once.
+    "examples/taskgroup_send_containers.saw",
+]
+
+LANES = {
+    "ownership": (OWNERSHIP_GATE, 10),
+    "concurrency": (CONCURRENCY_GATE, 5),
+}
+
 
 def build(rel: str, verbose: bool):
     """Compile one gate program. Returns its binary path, or None if absent."""
@@ -178,11 +284,38 @@ def run_under_gmalloc(binary: str, runs: int):
     return failures
 
 
+def run_lane(name, programs, runs, verbose):
+    """Build and run one lane. Returns `(checked, failed, missing)`."""
+    failed, checked, missing = [], 0, []
+    print(f"gmgate [{name}]: {len(programs)} program(s) x {runs} runs")
+    for rel in programs:
+        binary = build(rel, verbose)
+        if binary is None:
+            missing.append(rel)
+            continue
+        if binary is False:
+            print(f"  \033[1;31mBUILD FAIL\033[0m {rel}")
+            failed.append(rel)
+            continue
+        failures = run_under_gmalloc(binary, runs)
+        checked += 1
+        if failures:
+            codes = ", ".join(f"run {i} rc={rc}" for i, rc in failures[:5])
+            print(f"  FAIL {rel}: {len(failures)}/{runs} crashed ({codes})")
+            failed.append(rel)
+        elif verbose:
+            print(f"  ok   {rel}: {runs}/{runs} clean")
+    return checked, failed, missing
+
+
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__,
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument("-n", "--runs", type=int, default=10,
-                    help="runs per program under Guard Malloc (default 10)")
+    ap.add_argument("-n", "--runs", type=int, default=None,
+                    help="runs per program, OVERRIDING each lane's own default "
+                         "(ownership 10, concurrency 5)")
+    ap.add_argument("--lane", choices=sorted(LANES) + ["all"], default="all",
+                    help="which lane to run (default all)")
     ap.add_argument("-v", "--verbose", action="store_true")
     args = ap.parse_args()
 
@@ -191,30 +324,21 @@ def main() -> int:
               f"({GMALLOC} not present)")
         return 0
 
+    lanes = sorted(LANES) if args.lane == "all" else [args.lane]
     failed, checked, missing = [], 0, []
-    for rel in GATE:
-        binary = build(rel, args.verbose)
-        if binary is None:
-            missing.append(rel)
-            continue
-        if binary is False:
-            print(f"  [1;31mBUILD FAIL[0m {rel}")
-            failed.append(rel)
-            continue
-        failures = run_under_gmalloc(binary, args.runs)
-        checked += 1
-        if failures:
-            codes = ", ".join(f"run {i} rc={rc}" for i, rc in failures[:5])
-            print(f"  FAIL {rel}: {len(failures)}/{args.runs} crashed ({codes})")
-            failed.append(rel)
-        elif args.verbose:
-            print(f"  ok   {rel}: {args.runs}/{args.runs} clean")
+    for lane in lanes:
+        programs, default_runs = LANES[lane]
+        runs = args.runs if args.runs is not None else default_runs
+        c, f, m = run_lane(lane, programs, runs, args.verbose)
+        checked += c
+        failed.extend(f)
+        missing.extend(m)
 
     for rel in missing:
         print(f"  note: {rel} is not in the tree — gate entry skipped")
 
-    print(f"gmgate: {checked} program(s) x {args.runs} runs under Guard Malloc, "
-          f"{len(failed)} failing")
+    print(f"gmgate: {checked} program(s) under Guard Malloc across "
+          f"{len(lanes)} lane(s), {len(failed)} failing")
     if failed:
         print("\nA failure here is an OVER-RELEASE or a use-after-free, not a "
               "flake:\nGuard Malloc unmaps freed blocks, so the fault lands at "
