@@ -107,6 +107,13 @@ objects are built + cached under `.build/rt/` and auto-linked (delete
   Name a pin file for the BEHAVIOR it pins, never with an `_xfail`
   suffix (user, Aug 9) — the marker is the transient part, and the file
   outlives it as the regression test.
+- `examples/conformance/` (design 191) is the standing safety-guarantee
+  suite: one row per guarantee the language claims, with
+  `examples/conformance/INDEX.md` naming the covering test for every
+  row — including the rows an existing `examples/` test already covers,
+  which is what makes the ledger auditable. It runs inside the ordinary
+  battery; `-f conformance/` is the subset switch (~9s), and a brief
+  touching a safety guarantee updates its rows FIRST (obligation 3).
 - Never run two suite invocations at once.
 - Tests support a `// COMPILE-FLAGS:` directive (`{TESTDIR}`
   placeholder), and — for warnings, which are reported on the SUCCESS

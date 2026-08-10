@@ -85,6 +85,7 @@ One `EXPECT:` mode picks what a verdict means:
 |-----------|-------------|
 | `// EXPECT: success` | Test should compile and run successfully |
 | `// EXPECT: error` | Test should fail during compilation |
+| `// EXPECT: compiles` | Test should compile, and that is the whole assertion; it is never run. For the accept side of a rule, where the program has nothing to say at runtime — it takes no output/panic/error assertion and rejects one, so a behavior test cannot silently stop checking behavior. Prefer `success` whenever the run asserts something real |
 | `// EXPECT: panic` | Test should compile but panic at runtime |
 | `// EXPECT: object` | Compile to an object file; no run (freestanding, `-c`) |
 | `// EXPECT: docs` | Compile with `--emit-docs`; the JSON is the output checked |
@@ -220,12 +221,52 @@ examples/
 ├── math.saw
 ├── structs.saw
 ├── ...
-└── errors/                # Error test cases
-    ├── immutable.saw      # Assignment to let
-    ├── undefined_var.saw  # Undefined variable
-    ├── type_mismatch.saw  # Type errors
-    └── ...
+├── errors/                # Error test cases
+│   ├── immutable.saw      # Assignment to let
+│   ├── undefined_var.saw  # Undefined variable
+│   ├── type_mismatch.saw  # Type errors
+│   └── ...
+└── conformance/           # One row per claimed safety guarantee (design 191)
+    ├── INDEX.md           # The ledger — see below
+    ├── M22_place_write_let_root.saw
+    ├── ...
+    └── modules/           # Helper modules, excluded from discovery
 ```
+
+### The conformance suite and its INDEX
+
+`examples/conformance/` holds the standing check that every safety guarantee
+the language CLAIMS is a guarantee something actually asserts. It came out of
+the Aug-8 audit, which probed 247 claimed guarantees in one pass and found nine
+holes; the suite is that pass, run on every build.
+
+```bash
+./.venv/bin/python test_runner.py -f conformance/    # the subset alone (~9s)
+```
+
+**`examples/conformance/INDEX.md` is the convention that makes it a ledger
+rather than a pile of tests.** Every row of the audit is listed there with the
+file that covers it — a file in `conformance/` when the row needed one, an
+existing `examples/` test when one already asserts the same rule at the same
+position. A reader auditing coverage reads the INDEX, not the directory: the
+directory shows what was written, the INDEX shows what is CLAIMED and where
+each claim is checked, which is the only view in which a missing row is
+visible.
+
+Three rules follow from that, and they bind anything touching this directory:
+
+1. **A row's file names its row in its first comment line** (`// Conformance
+   row M22 — …`), so a failure report leads back to the INDEX.
+2. **Adding, moving or deduping a row updates the INDEX in the same commit.**
+   A row whose pointer goes stale is worse than a missing row, because the
+   table then reads as covered.
+3. **A regressing row is a red FAIL**, and the XFAIL policy applies unchanged:
+   a marker is legal only as the pin of a filed DF, cited in its reason. The
+   commit that fixes a conformance regression UPDATES the row — it never
+   deletes it.
+
+Per design 190's third process rule, a brief that touches a safety guarantee
+adds or updates its conformance rows as its FIRST unit.
 
 ## Ownership Gate Under Guard Malloc
 
