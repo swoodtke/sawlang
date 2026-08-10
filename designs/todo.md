@@ -209,7 +209,12 @@ DF-192g is a confirmed wrong answer** — both below.
   never reaching the second — and, as with DF-185a, the notation that died is
   the one the feature exists for (a buffer or mask size is written in hex).
   Every notation design 50 defines works now, in the const-generic ARGUMENT
-  and the const-parameter DEFAULT, the two positions that grammar serves.
+  and the const-parameter DEFAULT, the two positions that grammar serves. NO
+  SPEC CHANGE OWED: LANGUAGE_SPEC's const-evaluator section already lists
+  "integer and `Bool` literals, in every notation (`0xFF`, `0b1010`, `0o755`,
+  `1_000_000`)" for "everywhere a constant is required — … a const generic
+  argument", so this was documented-and-unimplemented the whole time, which
+  is the one thing neither the suite nor a reader could see.
   PIN: `examples/const_generic_arg_notations.saw`.
 - **DF-192f (ICE, filed Aug 10 by 192 u3): nothing checks that two integer
   operands agree on WIDTH, so a suffixed literal in a platform-`Int` context

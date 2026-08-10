@@ -222,7 +222,7 @@ def mut_literal_rewrite(toks, rng):
         value = int(was.replace("_", ""))
     except ValueError:
         return None
-    forms = [hex(value), bin(value), oct(value).replace("0o", "0o", 1),
+    forms = [hex(value), bin(value), oct(value),
              f"{value}{_pick(rng, INT_SUFFIXES)}", f"0x{value:X}"]
     if value >= 10:
         s = str(value)
@@ -364,7 +364,10 @@ def collect_corpus(corpus_dir, name_filter):
             m = FLAGS_RE.search(head)
             flags = []
             if m:
-                flags = m.group(1).replace("{TESTDIR}", corpus_dir).split()
+                # `{TESTDIR}` is the test FILE's directory, exactly as
+                # test_runner expands it — not the corpus root, which differs
+                # for anything under examples/<subdir>/.
+                flags = m.group(1).replace("{TESTDIR}", root).split()
             entries.append((path, src, flags))
     return entries
 
@@ -631,8 +634,12 @@ def fuzz(args):
                 skipped += 1
                 continue
             parent, flags, mutant_src, described = built
-            work = os.path.join(WORK_DIR, f"m{i}.saw")
-            out = os.path.join(WORK_DIR, f"m{i}.o")
+            # Named by WAVE SLOT, not by index: a soak runs indefinitely, and
+            # per-index names would fill the work directory forever. At most
+            # `--jobs` mutants are ever live, and a finding keeps its own copy.
+            slot = len(wave)
+            work = os.path.join(WORK_DIR, f"m{slot}.saw")
+            out = os.path.join(WORK_DIR, f"m{slot}.o")
             with open(work, "w", encoding="utf-8") as f:
                 f.write(mutant_src)
             wave.append({"index": i, "parent": parent, "flags": flags,
@@ -668,10 +675,12 @@ def fuzz(args):
                 # not fatal so the gate stays worth reading.
                 known_hits[sig] = known_hits.get(sig, 0) + 1
                 continue
+            # One scratch pair for minimization: it is strictly serial, and a
+            # soak must not accumulate a file per finding.
             minimized, spent = minimize(
                 runner, item["src"], item["flags"], kind,
-                os.path.join(WORK_DIR, f"min{item['index']}.saw"),
-                os.path.join(WORK_DIR, f"min{item['index']}.o"))
+                os.path.join(WORK_DIR, "minimize.saw"),
+                os.path.join(WORK_DIR, "minimize.o"))
             stem = f"seed{args.seed}-i{item['index']}"
             report = (
                 f"sawfuzz finding\n"

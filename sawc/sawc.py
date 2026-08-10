@@ -1778,7 +1778,11 @@ Examples:
             no_hidden_alloc=args.no_hidden_alloc,
             runtime_provider=args.runtime_provider)
         run_codegen(codegen, merged_ast)
-        llvm_ir = codegen.emit_ir(optimize=not args.no_optimize)
+        # design 192: `--emit-ir` runs the same llvmlite stage `_emit_object`
+        # does, so it takes the same wrapper — an IR module llvmlite refuses is
+        # a compiler bug wherever the request came from.
+        llvm_ir = _run_llvm(
+            codegen, lambda: codegen.emit_ir(optimize=not args.no_optimize))
 
         ir_output = output_path + ".ll"
         with open(ir_output, 'w') as f:
