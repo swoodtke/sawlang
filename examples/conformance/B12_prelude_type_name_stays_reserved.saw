@@ -1,0 +1,19 @@
+// Conformance row B12 — control: a PRELUDE std type name is still reserved.
+//
+// Design 204 frees the names std keeps to itself; it changes nothing about the
+// names std PUBLISHES. `Vector` is in the prelude, in scope in every program
+// with no import written, so a second declaration of it is the same
+// redefinition error it has always been — not a shadow, and not a second type.
+// This row is the fence: if it ever starts compiling, the private-type rule has
+// leaked into the public surface.
+//
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: struct `Vector` is defined multiple times
+
+struct Vector {
+    x: Int
+}
+
+func main() {
+    print("{Vector(x: 1).x}")
+}

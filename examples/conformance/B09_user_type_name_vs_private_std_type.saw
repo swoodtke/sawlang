@@ -1,0 +1,44 @@
+// Conformance row B09 — a PRIVATE std type reserves nothing in a user program.
+//
+// XFAIL: DF-153b a private std TYPE reserves its simple name for every program
+//
+// Design 144 makes type identity `(defining module, name)` and design 82 makes
+// each std FILE its own module, so a std file's private type is that file's and
+// nobody else's. The names below are all taken by std internals a user cannot
+// see, import or find: `State` by std/once.saw, `MapSlot` by std/map.saw,
+// `LockState` by std/spinlock.saw. None of the three is part of std's API, so
+// all three are free for a program to declare — and the program's own
+// declaration is the one every use resolves to.
+//
+// `MapSlot` is the shape design 82's hidden-std allowance never reached: it
+// lives in a PRELUDE file, so it was directly accessible and a user
+// redefinition was refused outright rather than shadowed.
+//
+// EXPECT: success
+// EXPECT-OUTPUT: 1 7 2
+
+enum State: Int {
+    case Idle = 0,
+    case Busy = 1
+}
+
+struct MapSlot {
+    weight: Int
+}
+
+enum LockState: UInt8 {
+    case Free = 0,
+    case Taken = 2
+}
+
+func describe(s: State) -> Int {
+    match s {
+        case Idle -> 0,
+        case Busy -> 1
+    }
+}
+
+func main() {
+    let slot = MapSlot(weight: 7)
+    print("{describe(State.Busy)} {slot.weight} {LockState.Taken as UInt8}")
+}

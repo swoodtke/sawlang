@@ -6,10 +6,10 @@ either a file in this directory or an existing `examples/` test that already
 asserts the same rule at the same position — this table is the record of which,
 and the dedup decisions are meant to be audited from it.
 
-**86 rows carry a file here; 194 are covered elsewhere.** (The audit's 247 plus
+**88 rows carry a file here; 196 are covered elsewhere.** (The audit's 247 plus
 the rows later briefs added: W02-W05, design 194 unit 4; W06-W19, design 195
 unit 1; X41-X45, design 199 unit 1; M31-M35, design 200 unit 1; V26-V30,
-design 202 unit 1.)
+design 202 unit 1; B09-B12, design 204 unit 1.)
 
 ## How to read it
 
@@ -335,7 +335,7 @@ Claim source: spec 6 *Send and Sync* + *Cooperative tasks*; designs 75, 88, 103,
 
 ## Visibility and module boundaries
 
-Claim source: spec 8 *Visibility* + *The prelude*; designs 80, 82, 142, 188 u7
+Claim source: spec 8 *Visibility* + *The prelude*; designs 80, 82, 142, 188 u7, 204
 
 | Row | Checks | Covered by | Ruling |
 |-----|--------|------------|--------|
@@ -352,6 +352,10 @@ Claim source: spec 8 *Visibility* + *The prelude*; designs 80, 82, 142, 188 u7
 | W03 | control: the QUALIFIED spelling is legal in an annotation | `W03_import_gate_qualified_annotation.saw` | 194 u4 — the over-rejection DF-193d named; the gate judges the author's spelling, not the resolved type |
 | W04 | control: both BARE import forms make the same annotation legal | `W04_import_gate_bare_import_forms.saw` |  |
 | W05 | a signature naming a gated std type with no import (the DF-188k repro) | `std_import_gate_signature_position.saw` | 194 u4 — XFAIL flipped |
+| B09 | a user type whose name a PRIVATE std type also owns (`State`, `MapSlot`, `LockState`) | `B09_user_type_name_vs_private_std_type.saw` | 204 — was a DEVIATION (DF-153b: std's declaration won, and the diagnostic named a declaration the author cannot see, import or find); the user's declaration is the only one in scope now |
+| B10 | two std FILES may each own one private type name (DF-153a) | `tools/test_std_private_type_names.py` | 204 — std-authoring-internal, so the vehicle is a compiler-level test, not a `.saw` row: it rebuilds the builtins over a std tree carrying a second private `State` and asserts both identities survive |
+| B11 | control: a user type named like a GATED std PUBLIC type (`IoError`, `File`) | `prelude_user_ioerror.saw` | 204 — the design-82 promise, already covered; listed here rather than copied |
+| B12 | control: a PRELUDE std type name stays reserved (`Vector`) | `B12_prelude_type_name_stays_reserved.saw` | 204 — the fence on the public surface: private-type freedom must not leak into it |
 
 ## Integer width agreement
 
@@ -489,7 +493,13 @@ rows (R24, X15, X16, X20, U24, U25, K13). The last one closed:
 
 Obligation 3 asks a safety-surface brief for its rows FIRST, so a row that
 states a ruling the compiler has not been taught yet lands as a cited XFAIL and
-the unit that teaches it removes the marker. None are open.
+the unit that teaches it removes the marker.
+
+Open: **B09** — XFAIL citing DF-153b (a private std type reserves its simple
+name for every program in the language, and the reserved set is unknowable
+because std's private types are invisible). **B10** states the same rule from
+inside std (DF-153a); its vehicle is a compiler-level test rather than a `.saw`
+row, so it lands with the fix it pins instead of ahead of it.
 
 Closed: **V26, V27** — written under an XFAIL citing DF-186a (`Atomic` was
 bitwise-copyable, so a `let b = a` forked the counter silently and a struct
