@@ -550,14 +550,20 @@ server that spawns 200,000 short handlers into one group holds four slots if fou
 are in flight. `group.count()` reports the slots held: live tasks, plus tasks
 whose result nobody has joined yet.
 
-A task may borrow from the frame that spawned it. `group.spawn(work({ [&var n]
-in ... }))` captures `n` by reference, and the Law of Exclusivity covers that
-capture for as long as the task can reach `n`: the task's handle carries the
-borrow, `join()` releases it, and a handle nobody joins holds it until the group
-is destroyed. So spawn, join, then use the value reads exactly as it looks, while
-writing, reading or moving `n` between the spawn and the join is a compile error
-naming the task and the join that would end its borrow. Sharing a value with a
-task that is still running is what `Arc<Mutex<T>>` and `Channel` are for.
+A task may borrow from the frame that spawned it, in either of the two spellings
+that reach it: a capture, `group.spawn(work({ [&var n] in ... }))`, or a
+reference argument, `group.spawn(fill(&var buf, 3))`. Both are one borrow, and
+the Law of Exclusivity covers it for as long as the task can reach the root: the
+task's handle carries the borrow, `join()` releases it, and a handle nobody joins
+holds it until the group is destroyed. So spawn, join, then use the value reads
+exactly as it looks, while writing, reading or moving the root between the spawn
+and the join is a compile error naming the task and the join that would end its
+borrow. A worker filling a caller's `Vector` writes through to it, and the
+elements it pushed are destroyed once, by the caller, at the caller's scope end.
+
+Into a `threads: N` group neither spelling compiles: a reference is not `Send`.
+Sharing a value with a task that is still running — or with one on another
+thread — is what `Arc<Mutex<T>>` and `Channel` are for.
 
 ```saw
 import std.task.*        // `yield_now` lives in std.task
@@ -1003,8 +1009,8 @@ Saw provides deterministic memory management without garbage collection:
   static, with no lifetimes to write. A call argument's reference is live for the
   whole call expression, nested calls included, so `sink(&var p.x, reset(&var
   p))` is refused where `add(&var x, bump(&var y))` compiles; a `borrows`
-  accessor's window lasts the enclosing expression; a `[&var x]` capture into a
-  spawned task lasts until the task's handle is joined.
+  accessor's window lasts the enclosing expression; a `&var` capture or argument
+  into a spawned task lasts until the task's handle is joined.
 - **References compose**: a `&T` or `&var T` you receive can be passed on to
   another function as a re-borrow. A reference is never made more permissive than
   the one it came from, and references stay valid across suspension points.

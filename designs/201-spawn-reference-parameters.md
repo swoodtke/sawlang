@@ -1,5 +1,35 @@
 # Design 201 — spawn reference parameters ride the extent model
 
+**LANDED Aug 10, all four units, one commit each, full suite green at every
+one (1725 → 1729 → 1733 passed; the ten pre-existing xfails are the ten this
+brief started with). The relaxation cost three edits to the lowering — a
+reference parameter has been a frame-resident pointer since design 88, and what
+a spawn root lacked was only the way IN.**
+
+**The declared-after-group probe (the brief's "verify, row either way"): it does
+NOT fall out of design 188's rule, and the shape is a silent use-after-free.**
+188's check walks a spawn's capture LISTS and never looks at its arguments, so
+with the confinement refusal lifted a root declared after its group compiled and
+the task pushed into it AFTER the enclosing scope ended, exit 0. Unit 2 extends
+the check rather than merely pinning it. Same for the `move`-while-borrowed
+route (design 189 probe 5, one position over): `consumed 0`, buffer dropped,
+three pushes into freed storage. Both are DF-201a, filed at unit 1 and closed by
+units 2-3.
+
+**Cancel paths: settled, nothing filed.** `cancel()` does not release the
+borrow (design 189's ratified edge) and the cancelled task reaches the referent
+through the same pointer on its cancel path — probed and pinned in
+`examples/spawn_ref_param_dual_role_and_cancel.saw`. Deinit is exactly-once on
+the referent: the frame owns nothing through the parameter, so a task's eager
+teardown (design 124) leaves a borrowed referent alone and the caller destroys
+it at its own scope end (`examples/spawn_ref_param_referent_deinit_once.saw`).
+
+**One regression the units introduced and fixed inside unit 3:** the DF-138a
+dual-role trampoline passed a reference parameter as a BARE NAME to the function
+it wraps, so the sub-frame builder cast the DEREF to a pointer and the callee
+frame's pointer field was seeded with the referent's value — a segfault on the
+first read through it. It forwards (`f(&var m)`) now.
+
 **Status: RATIFIED + AUTHORED Aug 10 (morning review; this is design
 189's unbuilt unit 4, ratified separately as 189 required). The
 relaxation: `group.spawn(f(&var buf))` becomes legal in a

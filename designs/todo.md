@@ -57,8 +57,13 @@ disjoint surfaces parallel):
    ∥ **153 statics→enums sweep** (place lowering vs std .saw — disjoint).
 5. **196 coro × erased errors + captures** (DF-193a, DF-192b/c,
    DF-191a) — solo (coro_transform + result cells).
-6. **201 spawn reference parameters** (design-88 relaxation, 189 u4,
-   ratified) — after 196 (both touch spawn/coro surface).
+6. ~~**201 spawn reference parameters** (design-88 relaxation, 189 u4,
+   ratified)~~ — **LANDED Aug 10** (in a worktree), all four units, tracked
+   battery green. DF-201a closes. Two answers: the declared-after-group case
+   does NOT fall out of design 188's rule (188 walks capture lists only, and
+   the argument shape was a silent use-after-free), and the DF-138a dual-role
+   trampoline had to forward a reference parameter rather than pass its name.
+   See `designs/201-*.md`.
 7. ~~**202 Atomic move-only** (DF-186a, ruled GO by census) — after 153
    (both touch std .saw).~~ LANDED Aug 10. The census held: five holders
    flushed, nothing else. Units 2 and 3 landed SWAPPED — a tier flip
@@ -1177,11 +1182,19 @@ absent path (audit row O10). The type error is still owed (187 unit 7,
 note updated there). Audit rows confirming fixed items: V17 (DF-146j),
 O10/O11 controls, the 26/26 trap table.
 
-## Design 201 — spawn reference parameters (IN FLIGHT, Aug 10)
+## Design 201 — spawn reference parameters (LANDED Aug 10)
 
 `designs/201-spawn-reference-parameters.md` — design 189's unbuilt unit 4,
-ratified as its own brief. `group.spawn(f(&var buf))` becomes legal in a
-SINGLE-THREADED group on exactly the extent machinery 189 built for captures.
+ratified as its own brief. `group.spawn(f(&var buf))` is legal in a
+SINGLE-THREADED group on exactly the extent machinery 189 built for captures:
+the argument borrows its ROOT for the task's life, the handle carries the
+borrow, `join()` releases it, a discarded handle holds to group death, and the
+loop-body liveness refusal applies. An MT group refuses on `Send`. All four
+units landed, tracked battery green; design 88's blanket refusal and its pin
+`examples/coro_spawn_ref_rejected.saw` are retired, and conformance rows R25 and
+K04 are re-authored to the ruling. Two answers the units produced are in the
+brief: the declared-after-group question (it does NOT fall out of 188's rule)
+and the dual-role trampoline regression the probes caught.
 
 - ~~**DF-201a — the ratified relaxation is not built, and the two holes it must
   close are only invisible because the shape cannot be written.**~~ **CLOSED by

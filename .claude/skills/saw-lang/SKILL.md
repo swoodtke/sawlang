@@ -1400,31 +1400,51 @@ dump_tasks()                // every live task's logical backtrace (std.task)
   it becomes a frame-resident pointer into the referent, so a read after resume
   and a `&var` mutation both address the SAME caller value (mutation is
   caller-visible). The reference doesn't own → never dropped by the frame (deinit
-  stays exactly-once). Held refs are for DRIVEN-in-place frames: a SPAWNED task
-  may NOT take a reference PARAM (it would point into the dead spawner stack — a
-  clean compile error, both group kinds; pass an owned value / `Arc` / `Channel`
-  instead), but a reference to a task-LOCAL inside the spawned body is fine. Net
+  stays exactly-once). A SPAWNED task may take one too (design 201) — the
+  argument borrows its ROOT for the task's life on the extent rule below, so
+  `group.spawn(fill(&var buf, 3))` compiles and the task's writes are at `buf`
+  after the join. EXCEPT into a `threads: N` group, where a reference is not
+  `Send` and the frame cannot cross to a worker thread (pass an owned value /
+  `Arc` / `Channel` there). A reference to a task-LOCAL inside the spawned body
+  needs none of this. Net
   offers BOTH: value `read() -> Result<Data, IoError>` (fresh Data per call, the
   ergonomic default) AND reference `read_into(&var Data) -> Result<Int, IoError>`
   (design 96 — appends the chunk into a caller buffer through a `&var` held across
   the internal park, so a reader ACCUMULATES successive chunks into ONE growing
   buffer with no per-chunk allocation; returns the byte count, 0 = EOF).
-- **A SPAWN CAPTURE MUST BE DECLARED BEFORE ITS GROUP (design 188).** A borrow
-  capture into `group.spawn(...)` is the sanctioned way for a task to reach the
-  spawner (`let h = group.spawn(run({ [&var n] in n = n + 1  n }))` — legal, and
-  the write is visible at the root after `join()`), and it is sound because
-  destruction is LIFO: the group's Deinit joins before anything declared AHEAD
-  of it dies. Declared AFTER the group, that inverts — the binding is torn down
-  while the tasks are still live — so it is a compile error naming both
-  declaration lines and the fix. Declare the group at the TOP of the scope it
-  governs. (An MT group refuses the capture anyway: a closure is not `Send`.)
-- **THE CAPTURE'S EXTENT IS THE TASK'S LIFE, AND THE HANDLE CARRIES IT
-  (design 189).** `[&var x]` borrows `x`'s root EXCLUSIVELY and `[&x]` shares
-  it, for as long as the task can reach it — so the Law of Exclusivity now sees
-  a spawn capture, over a window as long as the task rather than as long as the
-  spawning call. **`join()` releases** (it consumes the result exactly once, so
-  the point is statically known), which is what keeps SPAWN-JOIN-USE legal with
-  nothing extra written:
+- **TWO SPELLINGS REACH THE SPAWNER, ONE RULE COVERS BOTH (designs 188/189/201).**
+  A borrow CAPTURE (`group.spawn(run({ [&var n] in n = n + 1  n }))`) and a
+  `&`/`&var` ARGUMENT of the spawned call (`group.spawn(bump(&var n))`) are the
+  same borrow, and everything below applies to each. The argument spelling is
+  what a worker filling a caller's buffer wants:
+  ```saw
+  func fill(v: &var Vector<Int>, n: Int) -> Int { … v.push(i) … v.len() }
+  var buf: Vector<Int> = []
+  var group = TaskGroup()
+  let h = group.spawn(fill(&var buf, 3))
+  print(h.join())          // 3
+  print(buf.len())         // 3 — the task wrote through to the root
+  ```
+  The frame holds a pointer into the caller's storage and owns nothing through
+  it, so the pushed elements die once, with `buf`, at `buf`'s scope end — a
+  task's OWN values deinit eagerly at completion, a borrowed referent is not
+  one of them.
+- **DECLARE THE ROOT BEFORE ITS GROUP (design 188).** Sound because destruction
+  is LIFO: the group's Deinit joins before anything declared AHEAD of it dies.
+  Declared AFTER the group, that inverts — the binding is torn down while the
+  tasks are still live — so it is a compile error naming both declaration lines
+  and the fix. Declare the group at the TOP of the scope it governs.
+- **AN MT GROUP TAKES NEITHER SPELLING.** A reference is not `Send`
+  (``parameter `n` of type `&var Int` is not `Send` ``), and a closure is not
+  either, so the capture is refused one indirection out. Share cross-thread
+  state through `Arc`/`Mutex`/`Channel`.
+- **THE BORROW'S EXTENT IS THE TASK'S LIFE, AND THE HANDLE CARRIES IT
+  (design 189).** `&var x` borrows `x`'s root EXCLUSIVELY and `&x` shares it,
+  for as long as the task can reach it — so the Law of Exclusivity sees a spawn
+  borrow over a window as long as the task rather than as long as the spawning
+  call. **`join()` releases** (it consumes the result exactly once, so the point
+  is statically known), which is what keeps SPAWN-JOIN-USE legal with nothing
+  extra written:
   ```saw
   var n = 0
   var group = TaskGroup()
@@ -1435,11 +1455,11 @@ dump_tasks()                // every live task's logical backtrace (std.task)
   print(h.join())
   print(n)                 // fine: the borrow ended at the join
   ```
-  **An exclusive capture excludes READS too** (one writer XOR many readers, over
+  **An exclusive borrow excludes READS too** (one writer XOR many readers, over
   a task-length window), so `let seen = n` between the spawn and the join is the
   same error. To watch a value while the task runs, share it through an
   `Arc<Mutex<T>>` or a `Channel` — where the synchronization is in the types.
-  Shared `[&x]` captures COMPOSE: two of them live at once, with caller reads
+  Shared `&x` borrows COMPOSE: two of them live at once, with caller reads
   beside them, are fine. A `move` of a borrowed root is the same violation under
   the move vocabulary, and it is the one that made this a SOUNDNESS rule:
   `consume(move buf)` between a spawn and its join used to drop the buffer and
@@ -1448,13 +1468,14 @@ dump_tasks()                // every live task's logical backtrace (std.task)
   handle holds its borrow to the GROUP's death (a `TaskHandle`'s Deinit owns
   nothing and does not join), and so does one stored in a field or an element; a
   join inside an `if` releases on that path only, so the borrow is live again
-  below the branch (hoist the join out); a capture still live when a LOOP BODY
+  below the branch (hoist the join out); a borrow still live when a LOOP BODY
   ends is refused outright, since the next iteration would open a second
   exclusive borrow of one root (join inside the body — that shape is fine).
-  `cancel()` does NOT release: the cancelled task still runs its cancel path.
+  `cancel()` does NOT release: the cancelled task still runs its cancel path,
+  and it reaches the referent through the same pointer.
   **IDIOM**: declare the group first, spawn, join, then touch the root. If the
   caller genuinely needs the value mid-task, that is an `Arc<Mutex<T>>` or a
-  `Channel`, not a capture.
+  `Channel`, not a borrow.
 
 ## Modules & packages
 ```saw

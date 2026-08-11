@@ -2744,9 +2744,10 @@ a mutation through a twice-forwarded `&var` after a resume is visible at the roo
 caller. Exclusivity is enforced by **root path**: forwarding `&var r` while also
 forwarding `&r` (the same referent) in one call is an exclusive-access violation,
 caught statically — the forwarded borrow is rooted at the parameter's referent
-path exactly like a directly-taken reference. A spawned (cross-task) frame still
-may not take a reference parameter at its root (confinement — the referent would
-be the dead spawner stack), so forwarding never lets a reference escape its task.
+path exactly like a directly-taken reference. A spawned frame may take a
+reference parameter at its root, on the terms *A task may borrow from the frame
+that spawned it* sets out under Concurrency: the argument borrows its root for
+the task's life, so a forwarded reference never outlives the storage it names.
 
 **Method Self:**
 Methods use reference syntax for self:
@@ -4904,15 +4905,18 @@ Observable rules:
   Part 0c, is the same mechanism for its receiver). The reference does not own the
   referent, so it is never dropped by the frame — destruction stays exactly-once
   through the referent's real owner.
-  - **Driven-in-place vs spawned (the confinement boundary).** A held reference is
-    sound only when its referent outlives the frame. A function DRIVEN in place may
-    freely hold a reference param into the driver's live storage. A SPAWNED task,
-    whose frame is boxed onto the run queue and resumed later (possibly on another
-    thread), may NOT take a reference PARAMETER — that would point into the
-    spawner's stack, which can die before the task runs; it is a compile error
-    (both single- and multi-threaded groups, a confinement rule deeper than the
-    design-75 `Send` gate). A reference to a task-CONFINED local INSIDE the spawned
-    body is fine — it points into the task's own frame, which the box keeps alive.
+  - **Driven-in-place vs spawned.** A held reference is sound only when its
+    referent outlives the frame. A function DRIVEN in place may freely hold a
+    reference param into the driver's live storage: the driver's caller is parked
+    on the drive, so the referent cannot go anywhere. A SPAWNED task's frame is
+    boxed onto the run queue and resumed later, so the answer there is the
+    EXTENT, not the position: a `&`/`&var` argument at a spawn borrows its root
+    for the task's life and the handle carries that borrow, which is what keeps
+    the spawner's storage alive underneath it. See *A task may borrow from the
+    frame that spawned it* below. A reference to a task-CONFINED local INSIDE the
+    spawned body needs none of that — it points into the task's own frame, which
+    the box keeps alive. A `threads: N` group refuses a reference parameter
+    outright, on `Send`.
   - Container-internal borrows (`Vector.with_ref`/`with_var_ref`) keep their
     `sync`-body restriction: unlike a confined stack/frame referent, a container
     borrow projects into shared, reachable storage that a concurrent task could
@@ -5429,10 +5433,18 @@ behind a `Box`.
 
 #### A task may borrow from the frame that spawned it
 
-A reference capture into a spawned task is sound when the captured binding is
-declared **before** its group. Destruction is LIFO and the group's `Deinit`
-joins at scope exit, so everything declared ahead of the group is still alive
-when the join runs:
+There are two spellings and one rule. A borrow **capture** reaches the spawner
+through a closure the task runs; a `&`/`&var` **argument** of the spawned call
+reaches it directly:
+
+```saw
+let h = group.spawn(run({ [&var n] in n = n + 1  n }))   // capture
+let g = group.spawn(bump(&var n))                        // argument
+```
+
+Both are sound when the borrowed binding is declared **before** its group.
+Destruction is LIFO and the group's `Deinit` joins at scope exit, so everything
+declared ahead of the group is still alive when the join runs:
 
 ```saw
 var n = 7
@@ -5444,7 +5456,7 @@ print(n)               // 8 — the task's write is visible at the root
 
 Declared **after** the group, that argument inverts: LIFO tears the binding down
 first, while the group has not joined, and the task reaches freed storage. It is
-a compile error naming the order:
+a compile error naming the order, in either spelling:
 
 ```saw
 var group = TaskGroup()
@@ -5452,18 +5464,34 @@ var n = 7
 let h = group.spawn(run({ [&var n] in n = n + 1  n }))
 // error: cannot capture `&var n` into a task: `n` is declared AFTER the group
 //        `group` it is spawned into …, and destruction is LIFO
+
+let g = group.spawn(bump(&var n))
+// error: cannot pass `&var n` into a task: `n` is declared AFTER the group
+//        `group` it is spawned into …, and destruction is LIFO
 ```
 
-The group opens the scope it governs, so it is declared at the top of it. A
-reference capture into a `threads: N` group is refused separately: a closure is
-not `Send`, so the frame cannot cross to a worker thread.
+The group opens the scope it governs, so it is declared at the top of it.
 
-#### The capture's extent is the task's life
+A **`threads: N` group takes neither spelling.** A reference is not `Send`, so
+the frame cannot cross to a worker thread; the capture is refused for the same
+reason one indirection out (a closure is not `Send` either):
 
-The capture borrows its root for as long as the task can reach it, and the
-task's **handle carries that borrow**. `[&var x]` opens an exclusive borrow of
-`x`'s root and `[&x]` a shared one, judged by the Law of Exclusivity over that
-whole window rather than over the spawning call.
+```saw
+var group = TaskGroup(threads: 2)
+let h = group.spawn(bump(&var n))
+// error: cannot spawn `bump` into a multi-threaded `TaskGroup(threads: ...)`:
+//        parameter `n` of type `&var Int` is not `Send` …
+```
+
+Share genuinely cross-thread state through an `Arc`, a `Mutex` or a `Channel`.
+
+#### The borrow's extent is the task's life
+
+A spawn borrow — capture or argument, the same record either way — holds its
+root for as long as the task can reach it, and the task's **handle carries that
+borrow**. `&var` opens an exclusive borrow of the root and `&` a shared one,
+judged by the Law of Exclusivity over that whole window rather than over the
+spawning call.
 
 Joining releases. `join()` takes the task's result out of its cell exactly once,
 so the release point is statically known and the spawn-join-use order above
@@ -5481,13 +5509,38 @@ print(h.join())
 print(n)               // fine: the borrow ended at the join
 ```
 
-An exclusive capture excludes reads too, not only writes. That is the ordinary
+An exclusive borrow excludes reads too, not only writes. That is the ordinary
 one-writer-XOR-many-readers table applied over a window as long as the task, and
 it is what makes the write the task performs unobservable in progress. To watch
 a value while a task is still running, share it through an `Arc<Mutex<T>>` or a
-`Channel`, where the synchronization is in the types. Shared captures compose:
-two `[&x]` captures may be live at once, and the caller may read `x` beside
-them.
+`Channel`, where the synchronization is in the types. Shared borrows compose:
+two `&x` borrows may be live at once, and the caller may read `x` beside them.
+
+The argument spelling reads the same, and the spawn-join-use order is what a
+worker filling a caller's buffer looks like:
+
+```saw
+func fill(v: &var Vector<Int>, n: Int) -> Int {
+    var i = 0
+    while i < n {
+        v.push(i)
+        yield_now()
+        i = i + 1
+    }
+    v.len()
+}
+
+var buf: Vector<Int> = []
+var group = TaskGroup()
+let h = group.spawn(fill(&var buf, 3))
+print(h.join())        // 3
+print(buf.len())       // 3 — the task wrote through to the root
+```
+
+The frame holds a pointer into the caller's storage and owns nothing through it,
+so the elements the task pushed are destroyed once, by `buf`, at `buf`'s scope
+end. A task's own values deinit eagerly at task completion; a borrowed referent
+is not one of them.
 
 A `move` of a borrowed root is the same violation under the move vocabulary,
 and it is the case that made this a soundness rule rather than a consistency
@@ -5513,10 +5566,10 @@ Three cases release later than the join, each conservatively:
   since there is no binding to recognize a join on.
 - A **join inside a branch** releases only on that path, so the borrow is live
   again below the branch. Hoist the join out of the branch to get the root back.
-- A capture still live when a **loop body** ends is refused outright: one
-  textual spawn would open a second exclusive borrow of the same root on the
-  next iteration. Join inside the body and each iteration's borrow is released
-  before the next opens.
+- A borrow still live when a **loop body** ends is refused outright: one textual
+  spawn would open a second exclusive borrow of the same root on the next
+  iteration. Join inside the body and each iteration's borrow is released before
+  the next opens.
 
 `cancel()` does not release. A cancelled task still runs its cancel path, and
 the reference is live until it finishes.
