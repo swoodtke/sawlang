@@ -9,8 +9,6 @@
 // writing gets an unsynchronized answer, so it is refused too, and the way to
 // watch a value mid-task is an `Arc<Mutex<T>>` or a `Channel`, where the
 // synchronization is visible in the types.
-// XFAIL: DF-201a — the shape is refused wholesale by design 88's confinement
-// error today, so the exclusion window it needs is never reached.
 // EXPECT: error
 // EXPECT-ERROR-CONTAINS: `n` cannot be read here
 // EXPECT-ERROR-CONTAINS: `n` cannot be written here

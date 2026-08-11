@@ -8,8 +8,6 @@
 // probe compiled this shape and watched the task push into `buf` after the
 // scope had ended, exit 0 (DF-201a). The check reads the same declaration
 // order and prints the same teaching error; only the position is new.
-// XFAIL: DF-201a — design 88's confinement error is what this program prints
-// today; the LIFO check does not yet look at a reference argument.
 // EXPECT: error
 // EXPECT-ERROR-CONTAINS: is declared AFTER the group `group`
 // EXPECT-ERROR-CONTAINS: destruction is LIFO

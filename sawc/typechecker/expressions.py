@@ -9,7 +9,7 @@ Usage:
         pass
 """
 
-from typing import Optional, Dict, List
+from typing import Optional, Dict, List, NamedTuple
 from types import SimpleNamespace as _SandboxNode
 from ast_nodes import (
     Expression, IntLiteral, FloatLiteral, BoolLiteral, StringLiteral,
@@ -40,6 +40,26 @@ from namespace import Visibility, EnumSymbol
 # an instantiation rather than to this (abstract) pass — `[v; N]` inside a
 # generic body (design 148). Distinct from None, which means "not constant".
 _ABSTRACT_COUNT = object()
+
+
+class _SpawnBorrow(NamedTuple):
+    """One root a `group.spawn(...)` borrows for its task's life.
+
+    Produced by `ExpressionsMixin._spawn_borrow_sources`, which is the single
+    place that knows WHERE a spawned task can take a reference to its spawner.
+    `key` identifies the source so the order check can hand back what it refused;
+    `kind` is `'capture'` or `'argument'` and drives nothing but the wording.
+    """
+    key: int
+    kind: str
+    name: str
+    mutable: bool
+    line: int
+    column: int
+
+    @property
+    def sigil(self) -> str:
+        return "&var" if self.mutable else "&"
 
 
 class ExpressionsMixin:
@@ -7368,8 +7388,9 @@ class ExpressionsMixin:
             spawn_name = self._effect_queue_fn_mono(spawn_name, resolved_args)
             inner.name = spawn_name
             inner.type_args = None
-        refused = self._check_spawn_capture_order(expr, inner)
-        self._register_task_capture_borrows(expr, inner, refused)
+        sources = self._spawn_borrow_sources(expr, inner)
+        refused = self._check_spawn_borrow_order(expr, sources)
+        self._register_task_capture_borrows(expr, sources, refused)
         self._effect_record_spawn(spawn_name, result_type)
         # design 75 (A2): if the receiver group was built multi-threaded
         # (`TaskGroup(threads: N)`), record this spawn root so the coroutine
@@ -7393,9 +7414,61 @@ class ExpressionsMixin:
         expr.resolved_type = handle_type
         return handle_type
 
-    def _check_spawn_capture_order(self, spawn_expr, inner) -> None:
-        """A reference capture of a binding declared AFTER its group is an error
-        (DF-188c case i, design 188 unit 5).
+    def _spawn_borrow_sources(self, spawn_expr, inner):
+        """Every root a `group.spawn(...)` borrows for its task's life.
+
+        THE FUNNEL (obligation 1). The rule this feeds quantifies over "every
+        position where a spawned task takes a reference to its spawner", and
+        there are exactly TWO. Both entry points are here, and both consumers —
+        `_check_spawn_borrow_order` (design 188's LIFO rule) and
+        `_register_task_capture_borrows` (design 189's extent) — read this list
+        rather than walking the call themselves:
+
+          * a borrow CAPTURE in a closure the spawned call carries — `[&x]` /
+            `[&var x]` (design 189). Found through `_closures_in`, so a closure
+            anywhere inside the spawned call counts.
+          * a `&` / `&var` ARGUMENT of the spawned call itself (design 201). The
+            coroutine transform lowers it to a frame-resident pointer into the
+            spawner's storage, which is the SAME extent the capture has, spelled
+            at the call instead of in a capture list.
+
+        Deliberately NOT a source: a reference created by a NESTED call inside
+        the spawned call's arguments (`group.spawn(f(g(&var n)))`). `g` runs
+        synchronously at the spawn site and its borrow dies with the statement,
+        so nothing outlives it. The Law still sees it — it is an ordinary
+        design-199 access-set entry of the spawning call.
+
+        Order is captures then arguments; each source's ROOT is what gets
+        borrowed, so `f(&var p.x)` charges `p` exactly as a place borrow does.
+        """
+        out = []
+        for closure in self._closures_in(inner):
+            for spec in (getattr(closure, 'capture_specs', None) or []):
+                if spec.mode not in ('ref', 'ref_var'):
+                    continue
+                out.append(_SpawnBorrow(
+                    key=id(spec), kind='capture', name=spec.name,
+                    mutable=(spec.mode == 'ref_var'),
+                    line=spec.line or spawn_expr.line,
+                    column=spec.column or spawn_expr.column))
+        for arg in (getattr(inner, 'arguments', None) or []):
+            value = arg.value
+            if not isinstance(value, ReferenceExpr):
+                continue
+            path = self._build_access_path(value.expr)
+            if path is None:
+                continue
+            out.append(_SpawnBorrow(
+                key=id(value), kind='argument', name=path[0],
+                mutable=bool(value.mutable),
+                line=value.line or spawn_expr.line,
+                column=value.column or spawn_expr.column))
+        return out
+
+    def _check_spawn_borrow_order(self, spawn_expr, sources) -> set:
+        """A spawn borrow of a binding declared AFTER its group is an error
+        (DF-188c case i, design 188 unit 5; extended to reference ARGUMENTS by
+        design 201).
 
         A task borrowing from its spawner is structured concurrency's core
         promise, not a hazard, and the blanket refusal was considered and
@@ -7416,56 +7489,61 @@ class ExpressionsMixin:
         drop-to-terminate idioms, whose whole point is a guard declared after
         the group whose deinit is what lets the tasks finish.
 
-        Returns the capture specs this refused, so design 189's extent
-        registration skips them: a capture that cannot be written at all owes no
-        borrow, and the LIFO-teaching error is the one worth reading.
+        Design 201 brings the reference ARGUMENT under the same rule, and it had
+        to: probed Aug 10 with the confinement refusal lifted, a `&var buf` whose
+        root is declared after the group compiled and the task pushed into `buf`
+        AFTER the enclosing scope had ended, exit 0 (DF-201a). The argument
+        position is not reached by the capture walk — nothing about the LIFO
+        argument is different there, only the spelling.
+
+        Returns the SOURCE KEYS this refused, so design 189's extent registration
+        skips them: a borrow that cannot be written at all owes no extent, and
+        the LIFO-teaching error is the one worth reading.
         """
         refused = set()
         if not isinstance(spawn_expr.object, Identifier):
             # A group reached through a field or a parameter has no declaration
-            # order to compare against in this scope, and the capture cannot
+            # order to compare against in this scope, and the borrow cannot
             # outlive it by the LIFO argument anyway.
             return refused
         group_info = self.current_scope.lookup(spawn_expr.object.name)
         if group_info is None:
             return refused
         group_name = spawn_expr.object.name
-        for closure in self._closures_in(inner):
-            for spec in (getattr(closure, 'capture_specs', None) or []):
-                if spec.mode not in ('ref', 'ref_var'):
-                    continue
-                info = self.current_scope.lookup(spec.name)
-                if info is None or info.binding_id <= group_info.binding_id:
-                    continue
-                refused.add(id(spec))
-                sigil = "&var" if spec.mode == 'ref_var' else "&"
-                self._error(
-                    ErrorKind.EXCLUSIVITY_VIOLATION,
-                    f"cannot capture `{sigil} {spec.name}` into a task: "
-                    f"`{spec.name}` is declared AFTER the group `{group_name}` "
-                    f"it is spawned into (line {info.line} against line "
-                    f"{group_info.line}), and destruction is LIFO — "
-                    f"`{spec.name}` is torn down BEFORE `{group_name}` joins "
-                    f"its children, so the task would reach it after it is gone",
-                    spec.line or spawn_expr.line, spec.column or spawn_expr.column,
-                    hint=f"declare `{spec.name}` BEFORE `{group_name}` — the "
-                         f"group opens the scope it governs, so everything the "
-                         f"tasks borrow outlives the join. Or pass the value in "
-                         f"by value / through an `Arc` instead of borrowing it"
-                )
+        for src in sources:
+            info = self.current_scope.lookup(src.name)
+            if info is None or info.binding_id <= group_info.binding_id:
+                continue
+            refused.add(src.key)
+            verb = "capture" if src.kind == 'capture' else "pass"
+            self._error(
+                ErrorKind.EXCLUSIVITY_VIOLATION,
+                f"cannot {verb} `{src.sigil} {src.name}` into a task: "
+                f"`{src.name}` is declared AFTER the group `{group_name}` "
+                f"it is spawned into (line {info.line} against line "
+                f"{group_info.line}), and destruction is LIFO — "
+                f"`{src.name}` is torn down BEFORE `{group_name}` joins "
+                f"its children, so the task would reach it after it is gone",
+                src.line, src.column,
+                hint=f"declare `{src.name}` BEFORE `{group_name}` — the "
+                     f"group opens the scope it governs, so everything the "
+                     f"tasks borrow outlives the join. Or pass the value in "
+                     f"by value / through an `Arc` instead of borrowing it"
+            )
         return refused
 
-    def _register_task_capture_borrows(self, spawn_expr, inner, refused) -> None:
-        """Open a borrow of each captured ROOT for the spawned task's life
-        (design 189 unit 1).
+    def _register_task_capture_borrows(self, spawn_expr, sources, refused) -> None:
+        """Open a borrow of each borrowed ROOT for the spawned task's life
+        (design 189 unit 1; design 201 for the argument position).
 
-        The conflict this capture may ALREADY be in was reported on the way
-        down: a capture list is part of the spawned call's access set, so
-        `_check_call_exclusivity` has just checked it against every live borrow
-        (that is how a second `[&var n]` of one root is refused). What is left
-        is to record the new borrow, and to leave it PENDING until the `let h =`
-        binding that will carry it — a handle that never appears releases at the
-        group's death instead, which is the fallback, not the norm.
+        The conflict a source may ALREADY be in was reported on the way down:
+        both a capture list and a reference argument are part of the spawned
+        call's access set, so `_check_call_exclusivity` has just checked each
+        against every live borrow (that is how a second `[&var n]` of one root —
+        or a second `f(&var n)` — is refused). What is left is to record the new
+        borrow, and to leave it PENDING until the `let h =` binding that will
+        carry it — a handle that never appears releases at the group's death
+        instead, which is the fallback, not the norm.
         """
         from .core import TaskCaptureBorrow
         group_info = None
@@ -7474,22 +7552,22 @@ class ExpressionsMixin:
             group_name = spawn_expr.object.name
             group_info = self.current_scope.lookup(group_name)
         opened = []
-        for closure in self._closures_in(inner):
-            for spec in (getattr(closure, 'capture_specs', None) or []):
-                if spec.mode not in ('ref', 'ref_var') or id(spec) in refused:
-                    continue
-                info = self.current_scope.lookup(spec.name)
-                if info is None:
-                    continue
-                opened.append(TaskCaptureBorrow(
-                    root_id=info.binding_id,
-                    root_name=spec.name,
-                    mutable=(spec.mode == 'ref_var'),
-                    spawn_line=spec.line or spawn_expr.line,
-                    spawn_column=spec.column or spawn_expr.column,
-                    group_id=(group_info.binding_id if group_info else None),
-                    group_name=group_name,
-                ))
+        for src in sources:
+            if src.key in refused:
+                continue
+            info = self.current_scope.lookup(src.name)
+            if info is None:
+                continue
+            opened.append(TaskCaptureBorrow(
+                root_id=info.binding_id,
+                root_name=src.name,
+                mutable=src.mutable,
+                spawn_line=src.line,
+                spawn_column=src.column,
+                group_id=(group_info.binding_id if group_info else None),
+                group_name=group_name,
+                kind=src.kind,
+            ))
         self._task_borrows.extend(opened)
         self._pending_task_borrows = opened
 

@@ -228,6 +228,8 @@ class RegistrationMixin:
         # spawn, N live borrows — the Law violated by iteration rather than by
         # a second line. Spawn-and-join-in-the-body is untouched (the join
         # released it), and so is a shared `[&x]` capture, which composes.
+        # A `&var` ARGUMENT of the spawned call is the same record (design 201),
+        # so it takes this rule with nothing added but the word it is named by.
         for b in self._task_borrows:
             if id(b) in entry_borrows or not b.mutable:
                 continue
@@ -236,7 +238,7 @@ class RegistrationMixin:
             self._error(
                 ErrorKind.EXCLUSIVITY_VIOLATION,
                 f"exclusive access violation: this task's `&var {b.root_name}` "
-                f"capture is still live when the loop body ends, so the next "
+                f"{b.kind} is still live when the loop body ends, so the next "
                 f"iteration would open a second exclusive borrow of the same "
                 f"root: {self._task_borrow_extent(b)}",
                 b.spawn_line, b.spawn_column,

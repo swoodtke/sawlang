@@ -67,19 +67,26 @@ class VariableInfo:
 
 @dataclass
 class TaskCaptureBorrow:
-    """One reference capture registered at a `group.spawn(...)` (design 189).
+    """One reference borrow registered at a `group.spawn(...)` (design 189, and
+    design 201 for the argument position).
 
-    A capture into a spawned task borrows its ROOT for the task's life, and the
+    A reference into a spawned task borrows its ROOT for the task's life, and the
     task's HANDLE carries that borrow: joining the handle releases it, and a
     handle that is discarded or never joined releases at the GROUP's death.
     The record is what makes that extent visible to the Law of Exclusivity —
     it is a new extent, not a new checker.
+
+    Both spellings produce the same record — a `[&var x]` CAPTURE (design 189)
+    and a `&var x` ARGUMENT of the spawned call (design 201) — because they are
+    the same extent. `kind` exists so a diagnostic can name what the author
+    wrote; nothing about the rule reads it.
     """
     root_id: int                       # VariableInfo.binding_id of the root
     root_name: str
-    mutable: bool                      # `[&var x]` exclusive vs `[&x]` shared
+    mutable: bool                      # `&var x` exclusive vs `&x` shared
     spawn_line: int
     spawn_column: int
+    kind: str = 'capture'              # 'capture' | 'argument' — wording only
     group_id: Optional[int] = None     # the group binding the task was spawned into
     group_name: Optional[str] = None
     handle_id: Optional[int] = None    # the binding the `TaskHandle` landed in

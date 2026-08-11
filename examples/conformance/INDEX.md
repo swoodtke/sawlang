@@ -502,11 +502,14 @@ Obligation 3 asks a safety-surface brief for its rows FIRST, so a row that
 states a ruling the compiler has not been taught yet lands as a cited XFAIL and
 the unit that teaches it removes the marker.
 
-Open: **K14-K20** — design 201's seven rows, written under an XFAIL citing
-DF-201a. Design 88 refuses every reference argument at a spawn root before any
-of these questions is asked, so all seven state the ratified rule against a
-compiler that still prints one confinement error. K15, K17, K18 and K20 flip
-with the typechecker (unit 2); K14, K16 and K19 with the lowering (unit 3).
+Open: **K14, K16, K19** — three of design 201's seven rows, still under an XFAIL
+citing DF-201a. Design 88's confinement refusal still stops the ACCEPT shapes
+(K14, K16) at the lowering, and still runs ahead of the Send gate the MT row
+(K19) names. All three flip with unit 3.
+
+Closed: **K15, K17, K18, K20** — the four refusals, flipped by unit 2. The
+extent the typechecker tracks is what refuses them, and it reports before the
+lowering ever runs.
 
 Closed: **B09** — written under an XFAIL citing DF-153b (a private std type
 reserved its simple name for every program in the language, and the reserved

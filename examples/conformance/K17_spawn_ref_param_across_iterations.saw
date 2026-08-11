@@ -9,10 +9,8 @@
 // The accept side is one line away and is pinned in K14 and in
 // examples/spawn_capture_join_releases.saw: join the handle inside the body and
 // each iteration's borrow is released before the next one opens.
-// XFAIL: DF-201a — refused by design 88's confinement error today, so the
-// cross-iteration question is never asked of a reference argument.
 // EXPECT: error
-// EXPECT-ERROR-CONTAINS: `&var total` is still live when the loop body ends
+// EXPECT-ERROR-CONTAINS: this task's `&var total` argument is still live when the loop body ends
 // EXPECT-ERROR-CONTAINS: the next iteration would open a second exclusive borrow of the same root
 
 import std.task.*

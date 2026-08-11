@@ -9,8 +9,6 @@
 //
 // The diagnostic is the ordinary move vocabulary plus the extent sentence: the
 // borrow is what makes the move visible as a violation at all.
-// XFAIL: DF-201a — refused by design 88's confinement error today, so the move
-// never meets a borrow it could violate.
 // EXPECT: error
 // EXPECT-ERROR-CONTAINS: cannot `move` `buf` while a spawned task borrows it
 // EXPECT-ERROR-CONTAINS: holds `&var buf` until `h.join()` releases it
