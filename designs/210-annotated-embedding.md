@@ -1,5 +1,9 @@
 # Design 210 — the embed carries its answers
 
+**LANDED Aug 11.** All eight units. blade compiles again (24 errors → 0), which
+is DF-206e's stated acceptance; design 206 lands with this brief as unit 0. What
+landed, unit by unit, is at the bottom.
+
 **Status: RULED Aug 11 (user: "fix this properly now") + AUTHORED;
 dispatches immediately, building ON design 206's blocked branch.
 Closes DF-206e by architecture rather than patch, and lands 206's two
@@ -152,3 +156,57 @@ serializable, do not serialize); a general typed-IR/MIR layer (the
 annotation contract IS the layer this compiler gets); changing WHEN
 embedding happens or which calls embed (design 84/96/104's decisions
 stand); the effect-graph model beyond what 206 already fixed.
+
+## What landed, unit by unit
+
+0. Design 206's five commits cherry-picked onto main and integrated with
+   design 201's spawn-reference lowering. **No textual conflicts** —
+   `coro_transform.py` and `gmgate.py` auto-merged, `designs/todo.md` too — and
+   the semantic combination held: both 206 liveness pins flipped and all seven
+   of 201's K-rows green in one tree, 1738 passed / 8 xfailed.
+1. Conformance rows K21-K24, three as cited XFAIL pins on DF-206e.
+2. `THE EMBED CONTRACT` in `coro_transform.py`'s module docstring, censused off
+   the schema (110 declared annotation fields across 23 classes) and indexed by
+   the design-note section above.
+3. The non-generic path. `Expression.embed_preserved` marks the expression kinds
+   whose check consults the NAMESPACE; `_check_expression` hands back the stored
+   answer; `_close_embed_marks` reduces the mark to subtrees that can actually
+   answer; `_answered` is the funnel for what the transform grafts.
+   `_store_binding_in_slot` is the frame-slot authority both binding
+   constructs go through. DF-210a and DF-210b fixed. K21, K24 flip.
+4. The generic path. `_home_module_scope` (four rechecks named in its docstring)
+   plus `_lend_instantiation_types` for the caller's type arguments. K22 flips.
+5. Design 84's std-only accommodation becomes `_decl_is_foreign_splice` —
+   provenance, not privilege. Row K25 covers the position it could only permit:
+   a module-private `static` in a CONST position, which lives in an annotation
+   field and no structural walker reaches.
+6. DF-206f: bisected in three legs, and the answer was not this brief's. It
+   reproduces on design 206 ALONE (`ee24cdba`: 1089 examples, OK, **exit 139**)
+   and on NEITHER integrated tree (unit 0: 1093, exit 0; unit 5: 1094, exit 0),
+   so what closed it is design 201's spawn-reference lowering, combined with 206
+   for the first time by unit 0. The tracker carries the table.
+7. Docs: the spec's embedding-model paragraphs, the skill's cross-module
+   concurrency story, README's positional paragraph, the tracker, and design
+   206's brief flipped to LANDED-VIA-210.
+
+### What the non-generic path's one authority subsumed
+
+`_store_binding_in_slot` replaced two disagreeing copies of "how does a pattern
+binding cross into its frame slot": `_optbind_dispatch`'s unconditional `move`
+(DF-182c) and `_split_match`'s unconditional alias. Each was right for one copy
+tier and wrong for the other, and the two failed in opposite directions — the
+alias was a compile error on an owned payload, the move was silent memory
+corruption on a retained one. One rule, asked of `Namespace.read_policy`, is
+correct for both. `_answered` similarly gathered the frame-projection stamps
+that had accumulated at seven call sites.
+
+### Two things the ruling's premise did not survive contact with, both recorded
+
+The declaration-time AST is not FULLY annotated (DF-210c: `StringInterpolation`
+and friends carry no `resolved_type`), so "preserved" cannot be asserted
+wholesale — it is COMPUTED, at the splice boundary, and any subtree that cannot
+answer takes the ordinary path. And re-checking a node that never needed a scope
+is not merely harmless but load-bearing: the post-transform pass accumulates
+context as it walks, so marking too much LOSES facts. Both are why the mark is
+scoped to the namespace-consulting kinds rather than to everything the
+declaration pass touched.

@@ -321,12 +321,100 @@ every battery run (checksums GATE — they are a behavioral pin; timing only
 reports). Swift/Rust sources sit beside it as manual baselines so the
 battery takes no swiftc/rustc dependency.
 
-## Design 206 — executor park liveness (BLOCKED on DF-206e, Aug 10)
+## Design 210 — annotated embedding (LANDED Aug 11; lands 206 with it)
 
-**The branch is NOT landable.** Both hangs are closed on the `examples/` corpus
-(suite 1730 / 8 xfailed, gmgate both lanes green at -n 5, ten-repeat stable) and
-the full battery is RED: `bootstrap` and `sos` fail because blade no longer
-compiles. See DF-206e below — it needs a ruling, not a patch.
+`designs/210-annotated-embedding.md`. The user's ruling of Aug 11: an imported
+NON-GENERIC function carries sufficient information for a caller to embed it in
+its frame with NO re-typecheck; an imported GENERIC function exports what a
+per-instantiation re-typecheck needs, and that recheck runs in the callee's HOME
+module scope. Both paths built; design 84's std-only special case dissolved;
+DF-206e closed by architecture, and design 206's two liveness fixes land with it.
+
+**The embed contract is written down** (`coro_transform.py`'s module docstring,
+indexed in the brief): six families an embed consumes — resolved expression
+types, resolved callee SYMBOLS, effect/suspension facts, place/copy judgments,
+what the transform stamps itself, and no-escape facts carried by construction.
+Five ride the AST as declared `annotation(...)` fields; the sixth is the design-22
+effect graph, keyed by `node_id` and therefore serializable on the same terms.
+The astgraft lane is the closure proof. Kept serializable, NOT serialized —
+separate compilation stays future work.
+
+**The non-generic path** marks the expression kinds whose check CONSULTS THE
+NAMESPACE (`FunctionCall`, `MethodCall`, `Identifier`, `MemberAccess`,
+`StructInit`, `EnumInit`) with `Expression.embed_preserved`, and
+`_check_expression` hands back the stored answer instead of re-resolving.
+Marking only those is deliberate and was measured: everything else is judged
+from its children's types and needs no scope, and skipping it LOSES facts,
+because the post-transform pass accumulates context as it walks (a `try`'s error
+type is collected from the `try` expressions the walk passes). The mark means
+the subtree is CLOSED, which `_close_embed_marks` makes true bottom-up at the
+splice boundary rather than assuming; the skip is wholesale, because descending
+re-asks about nodes that were never independently askable (a module qualifier is
+an `Identifier` its parent resolves). What the transform grafts, it answers for:
+`_answered(node, type)` is the funnel, and a frame read takes the type of the
+local it replaces.
+
+**The generic path** keeps the per-instantiation recheck (designs 70/74) and
+moves it into the template's home module through `_home_module_scope`, whose
+docstring names all four rechecks. Plus the instantiation map: the caller's
+concrete type ARGUMENTS are lent into the template's scope, because
+`amplify<Lo>`'s body names `boost` (the template's module) and `Lo` (the
+caller's) in one expression and neither namespace alone has both.
+
+Conformance rows K21-K25 (`examples/conformance/INDEX.md`). blade compiles
+again — 24 errors before, 0 after — which is DF-206e's stated acceptance.
+
+Findings, all fixed:
+
+- **DF-210a (FIXED) — a `match` arm's payload binding was stored into its frame
+  slot by ALIAS.** For an ExplicitCopy or NoCopy payload the transfer checkpoint
+  refused it outright: `cannot copy value of type `Cli` which implements
+  ExplicitCopy`, anchored at `FILE:0:0`, on a program that writes no copy at all.
+  Three of blade's 24 errors. PIN:
+  `examples/conformance/K24_frame_slot_payload_binding_not_a_copy.saw`.
+- **DF-210b (FIXED — silent memory corruption) — the `if let` twin moved
+  UNCONDITIONALLY.** DF-182c made `_optbind_dispatch` store its binding with
+  `move`, correct for a payload the binding OWNS and wrong for one whose read
+  only RETAINS (the ImplicitCopy tier). For an `Arc` payload the frame released a
+  reference the binding never held: probed on the pre-fix tree, `deinit` fires
+  while the original still points at the value, `strong_count()` then reads freed
+  memory, and a second `deinit` prints a garbage id. Only the `match` half was
+  ever visibly broken, which is why the fix is ONE authority for both:
+  `_store_binding_in_slot` asks `Namespace.read_policy` (design 193's funnel) and
+  moves exactly when the read consumed. Both spellings balance now.
+- **DF-210c (RECORDED, no action) — the declaration-time AST is not FULLY
+  annotated.** Several node kinds carry no `resolved_type` — `StringInterpolation`
+  and its `FormatPlaceholder`s among them — so "declaration-time annotated" and
+  "fully annotated" are not yet the same statement. Design 210 does not need them
+  to be (`_close_embed_marks` un-marks any subtree holding one, and it takes the
+  ordinary path), but a future separate-compilation interface would, and the
+  astgraft gate does not catch it: it polices whether a stamped attribute is
+  DECLARED, not whether every node is stamped.
+- **DF-210d (RECORDED, no action) — `ForceUnwrap.frame_move_read` is stamped and
+  declared but has no reader.** Its documented job ("the read is a transfer even
+  for a NoCopy payload") is done by the `frame_place_read` early return in
+  `_check_value_transfer`, which covers move and non-move reads alike. Dead
+  marker, or a second guard that never landed; folded into whatever next touches
+  the frame-slot family.
+
+**DF-206f is closed by the unit-0 integration, not by this brief's own work** —
+the three-leg bisect is in the DF-206f entry below. It reproduces on design 206
+ALONE (exit 139) and on neither integrated tree.
+
+## Design 206 — executor park liveness (LANDED VIA 210, Aug 11)
+
+**Landed as design 210 unit 0** — the five commits cherry-picked onto main and
+integrated with design 201's spawn-reference lowering, which had never been
+combined with them. No textual conflicts; `coro_transform.py` and `gmgate.py`
+auto-merged, and both sides' rows are green in one tree (206's two liveness pins
+flipped, 201's seven K-rows passing). The blocker below is closed by design 210.
+
+The historical record of why it was blocked follows, unchanged.
+
+**The branch was NOT landable on its own.** Both hangs were closed on the
+`examples/` corpus (suite 1730 / 8 xfailed, gmgate both lanes green at -n 5,
+ten-repeat stable) and the full battery was RED: `bootstrap` and `sos` failed
+because blade no longer compiled. See DF-206e below.
 
 `designs/206-executor-park-liveness.md`, with the unit-1 diagnosis written into
 the brief. DF-203a and DF-203b were ONE bug, and it was neither of the two the
@@ -345,10 +433,15 @@ primitive nor the design-62 G3 receive lowering needed changing.
 suspends" shared by both typecheckers, with its callers and its four routes
 named in its docstring.
 
-Five findings; two fixed, and one of the three filed is the blocker:
+Five findings; two fixed here, and the blocker was closed by design 210:
 
-- **DF-206e (BLOCKER — needs a ruling) — the coroutine transform cannot embed a
-  method of an imported USER module, and design 206 is what first asks it to.**
+- **DF-206e (CLOSED by design 210, Aug 11) — the coroutine transform cannot embed
+  a method of an imported USER module, and design 206 is what first asks it to.**
+  The ruling was way (a): the honest fix, in its own brief. A non-generic embed
+  keeps its home module's meaning by CARRYING its declaration-time answers rather
+  than by re-resolving them anywhere; a generic one re-checks per instantiation in
+  the template's home scope. blade compiles again (24 errors → 0), which is the
+  acceptance this entry names. The frame-field half is DF-210a.
   Unit 2 makes `main` suspending whenever it REALLY suspends, by any route. That
   is what LANGUAGE_SPEC:5053 already promised, and its consequence is that the
   transform now runs on programs it has never run on. blade is one: its `main`
@@ -370,27 +463,39 @@ Five findings; two fixed, and one of the three filed is the blocker:
   are wrong too (`cannot copy value of type `Cli` which implements ExplicitCopy`
   at main.saw:0:0).
 
-  THREE WAYS OUT, and the choice is a ruling: (a) fix the transform's
+  THREE WAYS OUT, and the choice was a ruling: (a) fix the transform's
   cross-module splice so an embedded body keeps its home module's namespace —
   the honest fix, its own brief, and it makes "a suspending method drives at any
   depth" true across modules for the first time; (b) scope the entry-executor
   gate so it does not reach a user-module method (arbitrary, and it would leave
   the DF-203a family broken for exactly the multi-module programs that hit it);
-  (c) accept the transform and change blade's shape. Nothing here should land
-  until that is decided.
+  (c) accept the transform and change blade's shape. The user ruled (a) on
+  Aug 11 and design 210 built it.
 
-- **DF-206f (UNRESOLVED, not bisected) — `irdet --all` prints OK and then exits
-  139 (SIGSEGV).** On the design-206 tree, run ALONE: "compiled 1089 example(s)
-  twice ... irdet: OK -- every sampled example compiled to byte-identical IR",
-  then a segfault on the way out. The determinism ANSWER is therefore good —
-  every example still compiles to byte-identical IR, which is what the gate is
-  for — but the exit code fails the lane. It does NOT reproduce at 2 examples or
-  at 119 (both exit 0), so it is scale-dependent. Plausibly design 206's, since
-  irdet drives sawc through `Command.output()` and its own `main` is therefore
-  now a coroutine for the first time — the same blast radius as DF-206e, in a
-  program that DOES compile. NOT BISECTED against the pre-change tree (a
-  comparison run is ~10 minutes per side and the branch is blocked on DF-206e
-  regardless), so this is recorded as unresolved rather than attributed.
+- **DF-206f (CLOSED by the design-201 integration — BISECTED, design 210 unit 6)
+  — `irdet --all` printed OK and then exited 139 (SIGSEGV).** The original
+  observation was real and the cause was NOT design 206. Three legs, each run
+  ALONE on this machine, each read from its own output file:
+
+  | tree | result |
+  |---|---|
+  | `ee24cdba` — design 206 alone, the branch as filed | 1089 examples, `OK`, **exit 139** |
+  | design 210 unit 0 — the same five commits integrated with design 201 | 1093 examples, `OK`, exit 0 |
+  | design 210 unit 5 — the landed brief | 1094 examples, `OK`, exit 0 |
+
+  So what closed it is design 201's spawn-reference lowering, which main gained
+  after the 206 branch was cut and which unit 0 combined with it for the first
+  time. The determinism ANSWER was always good on all three; only the exit code
+  differed. Not narrowed further within 201 (each leg is ~12 minutes and the
+  finding is closed on the shipping branch); the plausible member is the
+  DUAL-ROLE TRAMPOLINE forwarding fix, since irdet's `main` spawns a root that
+  is also embedded and a trampoline forwarding the wrong argument is the shape
+  that corrupts memory late, but that is a hypothesis and is labelled one.
+
+  Worth keeping for the method rather than the answer: the finding was recorded
+  as "plausibly design 206's" because 206 was what had just changed, and it was
+  not. A blast-radius argument is a hypothesis; the two extra runs are what made
+  it a fact.
 
 Of the rest, two fixed here:
 
@@ -442,7 +547,7 @@ Six Sonnet naive-implementer programs (203 u1). All six produced correct,
 deterministic, spec-passing programs; the findings cluster in the
 scheduler's park paths, stdlib seams, and diagnostics. The two (d)s:
 
-- **DF-203a (LIVENESS — CLOSED by design 206, Aug 10): a task spawned before
+- **DF-203a (LIVENESS — CLOSED by design 206, landed via 210 Aug 11): a task spawned before
   main's FIRST suspension never starts when that suspension is a REACTOR park.**
   `group.spawn(worker())` then `listener.accept()` blocks the executor on
   the OS reactor without draining the run queue, so a worker that would
@@ -457,7 +562,7 @@ scheduler's park paths, stdlib seams, and diagnostics. The two (d)s:
   std method, so `main` was never wrapped in the entry executor at all and
   `accept`'s `io_wait` took the outside-frame blocking lowering. Timer vs
   reactor was a coincidence of the two spellings.
-- **DF-203b (LIVENESS — CLOSED by design 206, Aug 10): `Channel.receive()`
+- **DF-203b (LIVENESS — CLOSED by design 206, landed via 210 Aug 11): `Channel.receive()`
   through ONE helper frame in a spawned task hangs.** Direct `ch.receive()` in the
   task body works; the same operation behind `acquire(ch)` (free function
   OR method — the extra FRAME is the trigger, isolated by a five-probe

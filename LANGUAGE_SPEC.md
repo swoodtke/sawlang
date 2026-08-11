@@ -4895,6 +4895,28 @@ Observable rules:
   graph would have no finite frame size (frames embed by value), so it is rejected
   with a diagnostic that names the cycle (e.g. `ping -> pong -> ping`). Ordinary
   non-suspending recursion is unaffected.
+- **The defining module does not restrict embedding.** A suspending function or
+  method embeds into a caller's frame whether it was declared in the caller's
+  module, in another package, or in std. The three are one rule, and the callee's
+  body keeps its own module's meaning across the embed: the names it resolved at
+  its declaration — a module-private helper, a private `static`, an overload, a
+  trait conformance — resolve to the same things after it has been embedded,
+  where the calling module cannot see them and has no need to.
+
+  Two mechanisms carry that, and which one applies is decided by whether the
+  callee is generic. A **non-generic** callee is embedded from the annotations
+  its own declaration check produced: the resolved types, callee symbols,
+  suspension points and copy judgments travel with the body, and nothing about
+  it is resolved a second time. A **generic** callee is re-checked once per
+  instantiation, because its types and its effects both depend on the type
+  arguments; that re-check runs in the module where the template was written,
+  with the instantiation's concrete type arguments in scope, so a template can
+  name its own module's helpers and the caller's types in the same expression.
+
+  A generic template defined in one module and instantiated in another is
+  therefore driven, embedded and monomorphized like any other; per-instantiation
+  frames are keyed by the mangled instantiation, so two instantiations of one
+  template are two frames.
 - **References may span suspensions** (design 18 D6, task confinement;
   implemented design 88): a `&`/`&var` parameter or reference local — including
   `&var self` — remains valid and exclusive across a suspension, because the whole

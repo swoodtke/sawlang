@@ -1,5 +1,16 @@
 # Design 206 — the executor's park paths keep the eager-spawn promise
 
+**LANDED VIA DESIGN 210, Aug 11.** The five commits are design 210's unit 0,
+cherry-picked onto main and integrated with design 201's spawn-reference
+lowering (no textual conflicts; both sides' rows green in one tree). The blocker
+below — DF-206e — was ruled on and fixed by design 210 rather than worked
+around: an embed carries its declaration-time answers, so a spliced body keeps
+its own module's meaning and blade compiles again. Both liveness pins are
+passing and the brief's own units are unchanged from what is written here.
+
+The record of why it was blocked follows, because the diagnosis is the durable
+part and the blocker is the reason 210 exists.
+
 **BLOCKED Aug 10 — DO NOT INTEGRATE THIS BRANCH AS IT STANDS.** Units 1-4 are
 written and both hangs are closed on the `examples/` corpus (suite 1730 passed /
 8 xfailed, gmgate both lanes green, ten-repeat stable), but the FULL battery is
@@ -41,6 +52,8 @@ This needs a ruling before the brief can land: fix the transform's cross-module
 splice (its own brief), or scope the entry-executor gate, or accept it and
 change blade. What is NOT acceptable is the current tree, which fixes two hangs
 and breaks the package manager.
+
+*(Ruled Aug 11: the first. `designs/210-annotated-embedding.md`.)*
 
 The unit-1 diagnosis below stands unchanged and is the durable part of this
 work: both hangs are ONE bug and neither park primitive nor the G3 lowering is

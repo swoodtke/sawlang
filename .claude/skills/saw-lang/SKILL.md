@@ -1167,6 +1167,30 @@ dump_tasks()                // every live task's logical backtrace (std.task)
   `match stream.read() { … }` where the call is the scrutinee (design 96 closed
   the depth-2+ hang: a callee whose only suspension source was a nested std method
   was miscompiled as a blocking call that wedged the thread).
+- **ANY DEPTH MEANS ANY MODULE TOO (design 210).** The frames between a root and
+  its park may live in your package, a dependency, or std, in any mix — the three
+  are one rule. A suspending method of an imported module embeds into the
+  caller's frame with its own module's meaning intact: the module-private helpers
+  and `static`s its body names keep resolving after the embed, inside a module
+  that cannot see them and does not need to. Generic templates cross module lines
+  the same way, one frame per instantiation.
+  ```saw
+  // pkg/lib.saw — `resolve_slot` and `SLOTS` are private to this module
+  static SLOTS: Int = 16
+  func resolve_slot(key: String) -> Int { key.len() % SLOTS }
+  public extension Store {
+      public func fetch(&self, key: String) -> Result<Data, IoError> {
+          let slot = resolve_slot(key)
+          self.conn(slot).read()             // suspends, in a DEPENDENCY's method
+      }
+  }
+  // main.saw — drives it without seeing either private name
+  func main() { print(try! store.fetch("k").len()) }
+  ```
+  Before design 210 this compiled only when the callee was std; a user module's
+  method failed with ``function `resolve_slot` is not directly accessible``
+  pointing INTO the dependency's own file, a diagnostic about code the caller
+  neither wrote nor could fix. That shape means the compiler predates 210.
 - **ONE ambient cooperative scheduler (design 89-b):** `spawn` enqueues a task
   into the current thread's shared run queue and it runs EAGERLY — whenever the
   executor runs, not only at `join`. So an infinite `accept`-loop server

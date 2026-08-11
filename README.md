@@ -602,6 +602,13 @@ The short-circuit keeps its guard wherever it sits. In the `return` above the
 A suspension the transform cannot place is a compile error naming the site, not
 a silent blocking call.
 
+Nor does the position depend on which module the code lives in. A suspending
+function or method from a dependency, or from the standard library, is drawn
+into the calling task's frame like a local one, and it keeps its own module's
+meaning while it is there: the private helpers and constants its body names go
+on resolving where they were written. Generic functions cross module boundaries
+the same way, with one frame per instantiation.
+
 A single cooperative scheduler runs spawned tasks eagerly, backed by an I/O
 reactor (kqueue or epoll). A task parked on a socket wakes exactly when its file
 descriptor is ready, cancellation wakes even an already-parked task, and an
