@@ -397,12 +397,11 @@ Findings, all fixed:
   marker, or a second guard that never landed; folded into whatever next touches
   the frame-slot family.
 
-**DF-206f is OPEN and the `irdet` lane is RED** — 16 of 17 battery stages green,
-`irdet` failing rc=139. It is located (a `Vector<String>` frame slot dropped
-through a wild pointer in `__Frame_main___release`), deterministic, and present
-on design 206 alone as well as here, so it is not design 210's to fix. Unit 6
-STOPS on it per the brief. See the DF-206f entry below, including the correction
-to a wrong bisect I published first.
+**DF-206f is FIXED (unit 8)** — it was a real generated-code memory bug that
+this branch's own widening exposed: a frame released one `Vector<String>` buffer
+twice, through a consumed binding's slot and through the hoisted scrutinee temp
+it came out of. The mechanism is DF-210f below; the pin is
+`examples/coro_hoisted_scrutinee_released_once.saw`.
 
 ## Design 206 — executor park liveness (LANDED VIA 210, Aug 11)
 
@@ -475,58 +474,61 @@ Five findings; two fixed here, and the blocker was closed by design 210:
   (c) accept the transform and change blade's shape. The user ruled (a) on
   Aug 11 and design 210 built it.
 
-- **DF-206f (OPEN — LOCATED, not fixed; design 210 unit 6 STOPS here) —
-  `irdet --all` prints OK and then exits 139 (SIGSEGV).** It is DETERMINISTIC,
-  it is NOT design 210's, and it still fails the `irdet` lane on the landed
-  branch. **The final battery is 16 of 17 stages green with `irdet` RED.**
+- **DF-206f (CLOSED by design 210 unit 8 — the mechanism is DF-210f below) —
+  `irdet --all` printed OK and then exited 139 (SIGSEGV).** A real
+  generated-code memory bug in frame teardown, not a harness artifact. It was
+  DETERMINISTIC, it reproduced at **`-n 2`** in three seconds (the original
+  "does not reproduce at 2 or at 119" was the same exit-code misreading
+  corrected below), and Guard Malloc turned it into a first-bad-access fault on
+  a guarded page. Crash frame, identical on every tree and every run:
 
-  THE CRASH, from the macOS crash reports (`~/Library/Logs/DiagnosticReports/
-  irdetbin-*.ips`) — identical on every tree tested:
-
-      EXC_BAD_ACCESS (SIGSEGV), KERN_INVALID_ADDRESS at a wild pointer
+      EXC_BAD_ACCESS (SIGSEGV)
       thread 0:
         Vector$2$String$GlobalAllocator_deinit
         __Frame_main___release
 
-  So it is a FRAME-SLOT TEARDOWN bug: the design-124 synthesized `__release` of
-  `main`'s frame drops a `Vector<String>` slot through a pointer that is not
-  valid. `main`'s two `Vector<String>`s are `argv` (a `let`, lent by `&` to
-  `parse_options`) and `files` (a `var` assigned on three paths, twice from a
-  `move` of another binding). The determinism ANSWER is good on every run — the
-  corpus compiles to byte-identical IR — and the process dies on the way out.
-
-  BISECT — three trees, all four runs, all crashed:
-
-  | tree | result |
-  |---|---|
-  | `ee24cdba` — design 206 alone, as filed | 1089 examples, `OK`, **exit 139** |
-  | design 210 unit 0 — 206 integrated with 201 | 1093 examples, `OK`, **exit 139** |
-  | design 210 unit 5/7 — the landed brief | 1094 examples, `OK`, **exit 139** |
-
-  So it predates design 210's units and the 201 integration did not close it.
-  It is design 206's blast radius exactly as the original entry guessed: `main`
-  becomes a coroutine when it really suspends, and `main`'s frame teardown is
-  code that had never run on this program before.
-
-  NOT MINIMIZED. Three programs reproducing the shape by hand — a `var
-  Vector<String>` reassigned from a `move`d `guard let` binding across a
-  suspension; the loop-built `candidates` path with a spawning wave loop; an
-  `Env.args()` lent by `&` across the frame — all run clean. Consistent with
-  the original note that it does not reproduce at 2 or at 119 examples: it
-  wants corpus scale, so the next step is a debug build under a memory
-  sanitizer rather than more hand-minimization.
+  `main`'s frame released the same `Vector<String>` buffer twice: once through
+  the `guard let` binding's slot and once through the `__hoist0` slot holding
+  the suspending scrutinee it was bound out of. See DF-210f.
 
   **A CORRECTION, recorded because the method matters.** This entry first said
-  DF-206f was CLOSED by the 201 integration, on a three-leg bisect that read
-  exit 0 from two of the legs. That was wrong, and the error was mine and
-  entirely in the measurement: two legs ran as `./irdetbin --all > out.txt;
-  echo "EXIT=$?"`, the shell moved the compound command to the background, and
-  I read `out.txt` — which holds irdet's STDOUT and says `OK` — instead of the
-  exit status, which was in the task's own output. The third leg appended
-  `EXIT=$?` INTO the file, which is the only reason its 139 was visible. The
-  full battery then failed the lane and the four crash reports settled it: every
-  run had crashed. Reading the artifact that is easy to reach instead of the one
-  that answers the question is how a red gate reads green.
+  DF-206f was CLOSED by the design-201 integration, on a three-leg bisect that
+  read exit 0 from two legs. That was wrong, and the error was entirely in the
+  measurement: two legs ran as `./irdetbin --all > out.txt; echo "EXIT=$?"`, the
+  shell moved the compound command to the background, and I read `out.txt` —
+  which holds irdet's STDOUT and ends in `OK` — instead of the exit status,
+  which had gone to the task's own output. The third leg appended `EXIT=$?` INTO
+  the file, which is the only reason its 139 was ever visible. All four runs had
+  crashed. Reading the artifact that is easy to reach instead of the one that
+  answers the question is how a red gate reads green — and it also cost a real
+  bug three hours of being called somebody else's.
+
+- **DF-210f (FIXED) — a CONSUMED hoisted scrutinee never gave up its claim on
+  the payload, so the frame freed it twice.** The mechanism behind DF-206f.
+
+  The transform hoists a SUSPENDING scrutinee into a frame temp —
+  `guard let out = cmd.output()` becomes `let __hoist0 = cmd.output()` plus a
+  binding out of `__hoist0`, and `match fetch() { … }` becomes `__match0` the
+  same way. When the payload's read policy is CONSUME (design 131's
+  nocopy/explicit tiers), design 210 unit 3 stores the binding into its slot by
+  `move` — correctly. But the temp still held the value, and nothing told it
+  otherwise: `_optbind_dispatch`'s `forgets` list was fed only by an EXPLICIT
+  `move` scrutinee (`if let r = move held`, DF-182c). The author cannot write
+  that `move` here, because the temp is not a name they have. So `__release`
+  dropped the binding's slot and the temp's slot, both pointing at one buffer.
+
+  Fixed at both hoisters: `_hoist_temps` records the temps the transform makes
+  (`__hoistN`, `__matchN`), `_slot_store_consumes` is the shared answer to "did
+  this store take ownership" (the same `Namespace.read_policy` oracle
+  `_store_binding_in_slot` uses), and the dispatch emits the clear the author
+  could not write. The `match` side is per ARM, since only the arm that binds
+  consumes. An ImplicitCopy payload is untouched: its read RETAINS, both slots
+  legitimately own a reference, and both legitimately drop — which is DF-210b's
+  rule seen from the other side, and why one oracle answers both.
+
+  PIN: `examples/coro_hoisted_scrutinee_released_once.saw` — both spellings, an
+  ExplicitCopy payload each. The exit code is the assertion; under Guard Malloc
+  it faults on the first bad access.
 
 Of the rest, two fixed here:
 

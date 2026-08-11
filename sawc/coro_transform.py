@@ -1045,6 +1045,14 @@ class _FrameBuilder:
         # binding types when a suspension splits a `match` across states).
         self.func = func
         self._tc = tc
+        # DF-210f: every SCRUTINEE TEMP this builder hoists, by name — the
+        # condition hoist's `__hoistN` and the match hoist's `__matchN`. A hoist
+        # temp holds a value the AUTHOR cannot name, so when the binding it
+        # feeds CONSUMES the payload, the temp's slot has to give up its claim
+        # on it or the frame frees the same buffer twice at teardown. Declared
+        # here rather than in either hoister because both write it and they do
+        # not run in a fixed order.
+        self._hoist_temps = set()
         # design 210: record what the DECLARATION typecheck already answered,
         # before this builder rewrites anything. Everything below — the hoists,
         # the state split, the frame-slot rewrites — then produces unmarked
@@ -1176,6 +1184,7 @@ class _FrameBuilder:
         if self._call_suspends_expr(cond):
             tmp = f"__hoist{self._hoist_ctr}"
             self._hoist_ctr += 1
+            self._hoist_temps.add(tmp)          # DF-210f
             let_stmt = LetStatement(name=tmp, type_annotation=None, value=cond,
                                     mutable=False, line=cond.line, column=cond.column)
             ident = Identifier(name=tmp, line=cond.line, column=cond.column)
@@ -1294,6 +1303,7 @@ class _FrameBuilder:
         inner = m.matched_expr
         tmp = f"__match{self._match_ctr}"
         self._match_ctr += 1
+        self._hoist_temps.add(tmp)          # DF-210f — see `_optbind_dispatch`
         let_stmt = LetStatement(name=tmp, type_annotation=None, value=inner,
                                 mutable=False, line=inner.line, column=inner.column)
         ident = Identifier(name=tmp, line=inner.line, column=inner.column)
@@ -3731,22 +3741,38 @@ class _FrameBuilder:
         A slot whose type is unknown keeps the conservative alias: the
         checkpoint then judges it exactly as it always has.
         """
-        slot_type = self._frame_slot_type(name)
-        policy = None
-        if slot_type is not None and self._tc is not None:
-            # `check_module` resets `typechecker.namespace` on the way out, so
-            # the entry module's own namespace is reached through the seam it
-            # stashed — the same one `_promote_nested_generic_calls` re-installs.
-            ns = (getattr(self._tc, '_entry_module_ns', None)
-                  or getattr(self._tc, 'namespace', None))
-            if ns is not None and hasattr(ns, 'read_policy'):
-                policy = ns.read_policy(slot_type)
-        if policy in ('nocopy', 'explicit'):
+        if self._slot_store_consumes(name):
             value = MoveExpr(variable=name, path=None, line=line, column=column)
         else:
             value = Identifier(name=name, line=line, column=column)
         return AssignStatement(target=_self_field(name, line, column),
                                value=value, line=line, column=column)
+
+    def _slot_store_consumes(self, name) -> bool:
+        """Does storing the binding `name` into its frame slot CONSUME the value?
+
+        The decision procedure behind `_store_binding_in_slot`, split out because
+        a second caller needs the same answer for a different reason: when the
+        store consumes, whatever the payload was read OUT of has given it up, and
+        a source the transform owns must be told so (DF-210f).
+
+        `Namespace.read_policy` is the oracle (design 193's funnel over design
+        131's read table and design 139's tiers): 'nocopy'/'explicit' consume,
+        'retain'/'trivial' do not. Unknown answers "no", which is the
+        conservative direction — an extra retain leaks at worst, while a
+        wrongly-claimed consume double-frees.
+        """
+        slot_type = self._frame_slot_type(name)
+        if slot_type is None or self._tc is None:
+            return False
+        # `check_module` resets `typechecker.namespace` on the way out, so the
+        # entry module's own namespace is reached through the seam it stashed —
+        # the same one `_promote_nested_generic_calls` re-installs.
+        ns = (getattr(self._tc, '_entry_module_ns', None)
+              or getattr(self._tc, 'namespace', None))
+        if ns is None or not hasattr(ns, 'read_policy'):
+            return False
+        return ns.read_policy(slot_type) in ('nocopy', 'explicit')
 
     def _goto(self, target):
         """Unconditional edge: set the state word and re-dispatch in the same
@@ -4000,12 +4026,32 @@ class _FrameBuilder:
         `forgets` are the drop-flag clears a `move` SCRUTINEE owes (`if let r =
         move held`): the read has already happened by the time either branch
         runs, so the source field's flag is cleared on BOTH — the value left it
-        either way."""
+        either way.
+
+        DF-210f adds the clear the author did NOT write. When the scrutinee is a
+        HOIST TEMP — the frame slot the transform makes for a suspending
+        scrutinee, `guard let out = cmd.output()` — and the binding's store
+        CONSUMES the payload, the temp has handed its value over and must give
+        up its claim on it. Nothing said so: `forgets` was fed only by an
+        explicit `move`, so the frame released the same buffer twice at
+        teardown, once through the binding's slot and once through the temp's.
+        That is DF-206f — a `Vector<String>` freed twice in
+        `__Frame_main___release`, which is where irdet died after printing its
+        answer. The author cannot write the `move` here, because the temp is not
+        a name they have; the transform owns the temp, so the transform owes the
+        clear."""
         bind = node.name
         some_body = []
         if bind in self.encmap:
             some_body.append(self._store_binding_in_slot(
                 bind, node.line, node.column))
+            src = getattr(node, 'optional_expr', None)
+            if (self._slot_store_consumes(bind)
+                    and isinstance(src, Identifier)
+                    and src.name in self._hoist_temps
+                    and src.name in self.encmap
+                    and src.name not in forgets):
+                forgets = list(forgets) + [src.name]
         some_body.extend(self._forgets(forgets))
         some_body.append(AssignStatement(
             target=_self_field("__state"), value=_int(some_state)))
@@ -4164,12 +4210,24 @@ class _FrameBuilder:
             # (writing the field twice is idempotent); a MOVE emitted twice is
             # `use of moved variable`, reported on the compiler's own statement.
             _seen_binds = set()
+            _consumed = False
             for bname in list(arm.bindings) + self._pattern_binding_names(arm.pattern):
                 if bname == "_" or bname not in self.encmap or bname in _seen_binds:
                     continue
                 _seen_binds.add(bname)
                 dispatch.append(self._store_binding_in_slot(
                     bname, arm.line, arm.column))
+                _consumed = _consumed or self._slot_store_consumes(bname)
+            # DF-210f: the `if let` twin's rule, on the arm that actually took
+            # the payload. An arm whose binding CONSUMED means the scrutinee has
+            # given its value up, so a scrutinee the TRANSFORM hoisted must drop
+            # its claim — otherwise the frame frees the same buffer twice at
+            # teardown, once through the binding's slot and once through the
+            # temp's. Per ARM, because only the arm that binds consumes.
+            if _consumed and isinstance(e.matched_expr, Identifier) \
+                    and e.matched_expr.name in self._hoist_temps \
+                    and e.matched_expr.name in self.encmap:
+                dispatch.extend(self._forgets([e.matched_expr.name]))
             dispatch.append(AssignStatement(
                 target=_self_field("__state"), value=_int(entry)))
             # design 101: preserve `pattern` and `guard` on the regenerated dispatch

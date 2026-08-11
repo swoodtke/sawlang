@@ -1,0 +1,62 @@
+// DF-206f / DF-210f: a suspending SCRUTINEE is hoisted into a frame temp, and
+// when the binding it feeds CONSUMES the payload the temp must give up its
+// claim on it. It did not, so the frame freed the same buffer twice at
+// teardown — `Vector$2$String$GlobalAllocator_deinit` inside
+// `__Frame_main___release`, after the program had printed its answer. That is
+// what killed `irdet --all` (and `irdet -n 2`) with SIGSEGV on every run.
+//
+// Both spellings that hoist a scrutinee are here, because the bug was in both:
+// `guard let` over a suspending call (the `__hoistN` temp) and `match` over one
+// (the `__matchN` temp). The payloads are ExplicitCopy, which is what puts the
+// store in consume mode; an ImplicitCopy payload retains instead and both slots
+// legitimately drop (DF-210b is the other side of that rule).
+//
+// The exit code IS the assertion: a double free here is a segfault, not a wrong
+// number. Run under Guard Malloc it faults on the first bad access.
+//
+// EXPECT: success
+// EXPECT-OUTPUT:
+// guard 2
+// match 3
+// done
+
+import std.task.{yield_now}
+
+func fetch_guard() -> Vector<String>? {
+    var v = Vector<String>()
+    v.push("a")
+    v.push("b")
+    yield_now()
+    move v
+}
+
+enum Load { case Ready(files: Vector<String>), case Empty }
+
+@synthesize
+extension Load: ExplicitCopy {}
+
+func fetch_match() -> Load {
+    var v = Vector<String>()
+    v.push("x")
+    v.push("y")
+    v.push("z")
+    yield_now()
+    Load.Ready(files: move v)
+}
+
+func main() {
+    guard let got = fetch_guard() else {
+        print("guard none")
+        return
+    }
+    print("guard {got.len()}")
+
+    match fetch_match() {
+        case Ready(files) -> {
+            yield_now()
+            print("match {files.len()}")
+        },
+        case Empty -> print("match none")
+    }
+    print("done")
+}
