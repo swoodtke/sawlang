@@ -195,6 +195,14 @@ CONCURRENCY_GATE = [
     # never be dropped. A frame that drops one frees a value its CALLER still
     # owns, and the caller's own drop then lands in freed storage.
     "examples/coro_ref_param_deinit_once.saw",
+    # The same negative in SPAWN position (design 201), which is where it is
+    # load-bearing rather than merely true: the frame is boxed on the run queue,
+    # its referent is the spawner's storage, and design 124 tears a task's own
+    # values down eagerly at completion. A borrowed referent must be exempt from
+    # that teardown, and the elements the task pushed must die once, with the
+    # caller. Three Deinit-bearing elements, so a second drop lands on a page
+    # Guard Malloc has already unmapped.
+    "examples/spawn_ref_param_referent_deinit_once.saw",
 
     # --- Captures: an env the frame owns, and a root a task borrows ----------
     # A closure capturing a frame-resident Arc, held across a suspension. The
@@ -216,6 +224,13 @@ CONCURRENCY_GATE = [
     # shapes with the borrow released where it should be. DF-189c handed a task
     # a freed `Vector` buffer, and `log` here is that same Vector.
     "examples/spawn_capture_join_releases.saw",
+    # The join-release shape through a reference ARGUMENT (design 201): the
+    # `Vector` is filled by one task, read by a second that borrows it SHARED
+    # after the first join, and appended to by a third. Three tasks reach one
+    # buffer across two releases, and every reallocating push happens while a
+    # frame elsewhere holds a pointer to the root — which is the arrangement
+    # that turns a release point off by one task into a fault here.
+    "examples/conformance/K14_spawn_ref_param_join_releases.saw",
 
     # --- Join and teardown: who drops what, and when -------------------------
     # Design 124's eager teardown: a task's owned values deinit AT TASK
