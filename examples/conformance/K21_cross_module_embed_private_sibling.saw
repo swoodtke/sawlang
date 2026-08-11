@@ -13,7 +13,6 @@
 // entry module's namespace — where `inner` and `boost` are, correctly, not
 // names at all.
 //
-// XFAIL: DF-206e the coroutine transform re-typechecks a spliced imported body in the ENTRY module's namespace, so a callee module's private siblings stop resolving (`undefined function inner`)
 // COMPILE-FLAGS: --module-path embedmod={TESTDIR}/modules/embedmod
 // EXPECT: success
 // EXPECT-OUTPUT:

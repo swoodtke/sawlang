@@ -14,7 +14,6 @@
 // 206 made `main` a coroutine whenever it really suspends, which is what first
 // pointed the frame machinery at it.
 //
-// XFAIL: DF-206e the ExplicitCopy half of the same finding — the transform's move of a match payload binding into a frame slot is re-judged as a user copy on the second pass (`cannot copy value of type `Cli` which implements ExplicitCopy` at 0:0)
 // EXPECT: success
 // EXPECT-OUTPUT:
 // 2

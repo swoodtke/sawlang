@@ -840,6 +840,19 @@ class Expression(ASTNode):
     #                           onto the read the lowering builds from it.
     place_value_read: bool = annotation(False)
     place_abstract_read: bool = annotation(False)
+    #   embed_preserved      -- design 210: this subtree was RESOLVED at its
+    #                           declaration site and the coroutine transform
+    #                           spliced it, unchanged, into a driven frame. The
+    #                           post-transform pass must not re-resolve it: it
+    #                           runs under the ENTRY module's namespace, and the
+    #                           answers stored here were given under the
+    #                           CALLEE's — which is where its private siblings
+    #                           are names (DF-206e). The mark says "the answers
+    #                           travel with the node"; the transform's own
+    #                           rewrites are unmarked by construction and get
+    #                           typed as ordinary glue. See `THE EMBED CONTRACT`
+    #                           in coro_transform.py.
+    embed_preserved: bool = annotation(False)
 
 
 @dataclass

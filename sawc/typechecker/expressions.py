@@ -102,6 +102,16 @@ class ExpressionsMixin:
         old_node = getattr(self, '_current_node', None)
         self._current_node = expr
 
+        # design 210: this subtree already has its answers. Hand them back
+        # instead of asking the entry module's namespace a question the callee's
+        # namespace answered at the declaration.
+        # `getattr`: a `ForLoop` is a Statement that also arrives here (a
+        # for-loop in expression position), so the field is not universal.
+        if getattr(expr, 'embed_preserved', False) and expr.resolved_type is not None:
+            result = self._check_preserved_embed(expr)
+            self._current_node = old_node
+            return result
+
         method_name = f'visit_{expr.__class__.__name__}'
         visitor = getattr(self, method_name, None)
         if visitor is None:
@@ -124,6 +134,44 @@ class ExpressionsMixin:
                 self._check_spinlock_target(result, expr)
         self._current_node = old_node
         return result
+
+    def _check_preserved_embed(self, expr: Expression) -> Optional[SawType]:
+        """Answer for a subtree the coroutine transform spliced in UNCHANGED.
+
+        Design 210, the non-generic path. An embed splices a callee's
+        already-checked body into the ENTRY module's AST, and the post-transform
+        pass then re-checks that AST under the entry module's namespace. Every
+        question this subtree could be asked was answered once already, in the
+        CALLEE's namespace — which is where its module-private siblings are
+        names. Re-asking is not a safety net, it is a different question: it is
+        what made `builder.Builder.build`, embedded into blade's `main`, report
+        `function `resolve` is not directly accessible` about a call in
+        `builder`'s own file (DF-206e).
+
+        So the mark says "the answers travel with the node", and this returns
+        the stored `resolved_type` without re-resolving anything. What the
+        contract covers — resolved types, resolved callee symbols, effect facts,
+        place/copy judgments — is enumerated in `THE EMBED CONTRACT` at the top
+        of `coro_transform.py`, and closed by the astgraft gate.
+
+        THE WHOLE SUBTREE IS SKIPPED, not just this node. A preserved subtree is
+        closed: every node in it was resolved together, and descending would
+        re-ask questions about nodes that were never independently askable —
+        a module QUALIFIER (`builder.Builder(...)`) is an `Identifier` its parent
+        resolves as part of one qualified name, so checking it alone reports
+        `undefined variable `builder``, which is how blade failed when this
+        descended.
+
+        GLUE IS STILL TYPED, and that is what makes the wholesale skip safe: the
+        transform stamps its OWN rewrites where it makes them — a frame-slot read
+        takes the type of the local it replaces (`_read_field`), an ANF temp the
+        type of the call it hoists — so a graft inside a preserved subtree
+        arrives already answered rather than needing this pass. Everything the
+        transform builds AROUND the body — the state dispatch, the resumption
+        edges, the frame init — is a new unmarked node and is checked here
+        normally. `_assert_embed_closed` is the tripwire on the invariant.
+        """
+        return expr.resolved_type
 
     # ===== Expression Visitor Methods =====
 

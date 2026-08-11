@@ -570,9 +570,46 @@ def _enc_cleanup(enc):
 #             (brief 23) drops the inner value exactly once at frame death, and
 #             nothing at all in the None state). Read as `self.name!`.
 
+def _answered(node, saw_type):
+    """Stamp a node the transform GRAFTED into a preserved subtree with its own
+    answer, so the subtree stays closed (design 210 unit 3).
+
+    The post-transform pass skips a preserved subtree WHOLESALE, so anything the
+    transform splices into one has to arrive already typed — this is the one
+    place that says so, and the reason every graft site funnels through it
+    rather than assigning `resolved_type` in nine places. `saw_type` of None
+    means the caller had no answer to give: the node is left plain, the subtree
+    is re-opened by the ordinary pass, and `_assert_embed_closed` reports it.
+
+    ENTRY POINTS (every graft into a preserved subtree; process rule 1):
+      * `_read_field` — a frame-resident local/param read, in all four
+        encodings. The bulk: this is `locals -> frame fields`.
+      * `_sub_result_read` — an embedded sub-frame's `__result` move-out, which
+        replaces the CALL whose value it carries.
+      * `_FrameBuilder._anf_hoist` — the `Identifier(__anfN)` that replaces a
+        hoisted suspending call in its original expression position.
+      * `_FrameBuilder._rewrite_expr` — the `!` re-applied after `move o!`, and
+        the materialized-capture local that replaces a frame name in a closure.
+    """
+    if saw_type is not None:
+        node.resolved_type = saw_type
+        node.embed_preserved = True
+    return node
+
+
 def _read_field(name, encoding, line=0, column=0, owning_read=False,
-                move_read=False):
+                move_read=False, saw_type=None):
     """The rewritten read of frame field `name`.
+
+    `saw_type` is design 210's half: the type of the LOCAL this read replaces.
+    A frame read of `x` has exactly `x`'s type — the encoding wraps the FIELD,
+    and the read unwraps back to the value — so the transform can answer for
+    the node it just built instead of leaving it for the post-transform pass to
+    re-derive. Stamped together with `embed_preserved`, which is what lets the
+    enclosing preserved subtree be skipped WHOLESALE: a graft that carries its
+    own answer needs no descent to find it. A caller with no type in hand passes
+    None and the node is left for the ordinary pass, which is sound but re-opens
+    the subtree — `_assert_embed_closed` reports any that do.
 
     `owning_read` marks a read of the WHOLE binding that is not a `move` — the
     frame keeps the field (and its drop flag), so if the read lands in a transfer
@@ -601,6 +638,12 @@ def _read_field(name, encoding, line=0, column=0, owning_read=False,
     NoCopy one that the frame is legitimately moving out."""
     acc = _self_field(name, line, column)
     acc.frame_place_read = True
+    if saw_type is not None:
+        # The FIELD's own type, which is the value's type wrapped in whatever
+        # the encoding adds. Codegen reads this level directly for a write
+        # target (`n += 1` through a `ref` field is `self.n[0]`, and the
+        # compound-assign path asks the `self.n` in the middle for its type).
+        acc.resolved_type = _field_type(saw_type, encoding)
     if encoding in ("opt", "opt_closure"):
         fu = ForceUnwrap(expr=acc, line=line, column=column)
         fu.frame_place_read = True
@@ -608,7 +651,7 @@ def _read_field(name, encoding, line=0, column=0, owning_read=False,
             fu.frame_owning_read = True
         if move_read:
             fu.frame_move_read = True
-        return fu
+        return _answered(fu, saw_type)
     if encoding == "ref":
         # design 88 (D6): the reference name reads through the frame's pointer
         # field — `self.name[0]` — yielding an lvalue of the pointee type. Member
@@ -616,8 +659,110 @@ def _read_field(name, encoding, line=0, column=0, owning_read=False,
         # normally (the identical `self.__recv[0]` receiver rewrite of design 45 0c).
         deref = ArrayIndex(array_expr=acc, index=_int(0), line=line, column=column)
         deref.frame_place_read = True
-        return deref
-    return acc
+        return _answered(deref, saw_type)
+    return _answered(acc, saw_type)
+
+
+# The expression kinds whose check CONSULTS THE NAMESPACE — the ones whose
+# answer depends on WHICH module is asking. Design 210 marks exactly these, and
+# `THE EMBED CONTRACT`'s family 2 is their stored answers.
+#
+# Everything else an expression can be — an operator, a literal, a cast, an
+# `if`, a `try` — is judged from the types of its children and needs no scope at
+# all, so re-checking one after the splice asks the same question and gets the
+# same answer. Marking those too would be strictly worse than useless: the
+# post-transform pass ACCUMULATES context as it walks (a `try`'s error type is
+# collected from the `try` expressions the walk passes), so skipping a node that
+# never needed a namespace loses a fact for no gain — which is exactly what
+# turned `let a = try compute(...)` into `cannot assign `Error` to field of type
+# `Flaky?``, on a program whose error type had been known all along.
+_EMBED_SCOPED_KINDS = (FunctionCall, MethodCall, Identifier, MemberAccess,
+                       StructInit, EnumInit)
+
+
+def _mark_embed_preserved(node):
+    """Mark every already-resolved NAMESPACE-CONSULTING expression under `node`.
+
+    Design 210's non-generic path, and the one place the mark is applied. Called
+    by `_FrameBuilder.__init__` on the body it is about to lower, BEFORE it
+    rewrites a single node — so the mark records exactly what the declaration
+    typecheck produced, and everything the transform builds afterwards is
+    unmarked by construction and gets typed as ordinary glue.
+
+    The predicate is "pass 1 stamped a type here, and re-deriving it would need
+    a scope". `_check_expression` is the one chokepoint that stamps
+    `resolved_type`, so an expression carrying one was resolved in its OWN
+    module's namespace — and for the kinds in `_EMBED_SCOPED_KINDS` that
+    namespace is load-bearing, because the answer names a function, a method, a
+    static, a module qualifier or a type that the ENTRY module may not be able
+    to see. That is the whole of DF-206e.
+
+    Idempotent, so a body driven twice (an entry-module function that is both a
+    root and a sub-frame) marks the same nodes twice with the same result.
+
+    Uniform across user modules and std, per the ruling: the splice does not
+    care which module a non-generic body came from, so neither does this.
+    """
+    for sub in child_nodes(node):
+        if (isinstance(sub, _EMBED_SCOPED_KINDS)
+                and sub.resolved_type is not None):
+            sub.embed_preserved = True
+        _mark_embed_preserved(sub)
+
+
+def _close_embed_marks(decls):
+    """Reduce `embed_preserved` to the subtrees that are actually CLOSED — the
+    targeted check at the splice boundary (design 210 unit 3).
+
+    The post-transform pass skips a preserved subtree WHOLESALE (it must: a
+    module qualifier inside one is an `Identifier` that was never independently
+    resolvable, so descending reports `undefined variable `builder``). That is
+    only sound where the subtree can answer for itself, so the mark has to mean
+    "closed", not merely "was here before the transform ran". This pass makes it
+    so, once, bottom-up, over the declarations the transform synthesized.
+
+    A subtree is closed when every expression in it carries a `resolved_type`.
+    Two things break that, and neither is an error:
+
+      * a GRAFT the transform made without a type to give — `_answered(x, None)`.
+        The enclosing expressions are un-marked here, so the ordinary pass
+        re-checks them, and their still-closed children short-circuit. Only the
+        spine back to the graft is re-resolved, which is exactly the old
+        behaviour scoped down to where it is still needed.
+      * a node kind the DECLARATION pass never stamps at all. There are a few —
+        `StringInterpolation` and its `FormatPlaceholder`s among them — so
+        "declaration-time annotated" is not yet the same as "fully annotated"
+        (DF-210c). Those subtrees simply keep taking the ordinary path.
+
+    The walk stops at a `frame_place_read`: that mark is the transform's own
+    "this projection is mine" (design 131), and the projection's interior — the
+    `SelfExpr` under a `self.x`, the `self.x` under a `self.x!` — is scaffolding
+    built to a fixed shape whose ROOT carries the answer any reader wants.
+
+    Returns the number of marks cleared, for the `-v` line.
+    """
+    cleared = [0]
+
+    def closed(node):
+        if isinstance(node, Expression) and node.frame_place_read:
+            return True
+        ok = True
+        for sub in child_nodes(node):
+            # No short-circuit: every branch must be visited so its own marks
+            # are cleared, not just the first one that fails.
+            if not closed(sub):
+                ok = False
+        if isinstance(node, Expression):
+            if node.resolved_type is None:
+                ok = False
+            if not ok and node.embed_preserved:
+                node.embed_preserved = False
+                cleared[0] += 1
+        return ok
+
+    for d in decls:
+        closed(d)
+    return cleared[0]
 
 
 def _sub_result_read(sub: str, result_enc):
@@ -663,7 +808,8 @@ def _rewrite_node(node, encmap):
     string fields (FunctionCall.name, StructInit.struct_name, MemberAccess.member)
     and are untouched; only bare Identifier EXPRESSIONS are rewritten."""
     if isinstance(node, Identifier) and node.name in encmap:
-        return _read_field(node.name, encmap[node.name], node.line, node.column)
+        return _read_field(node.name, encmap[node.name], node.line, node.column,
+                           saw_type=node.resolved_type)
     if isinstance(node, ASTNode):
         for f in structural_fields(node):
             setattr(node, f.name, _rewrite_val(getattr(node, f.name), encmap))
@@ -861,6 +1007,13 @@ class _FrameBuilder:
         # binding types when a suspension splits a `match` across states).
         self.func = func
         self._tc = tc
+        # design 210: record what the DECLARATION typecheck already answered,
+        # before this builder rewrites anything. Everything below — the hoists,
+        # the state split, the frame-slot rewrites — then produces unmarked
+        # nodes, which is exactly the glue the post-transform pass still types.
+        # See `_mark_embed_preserved` and `THE EMBED CONTRACT` above.
+        if getattr(func, 'body', None) is not None:
+            _mark_embed_preserved(func.body)
         # design 74 (A8): the user file this frame's function came from, so every
         # rejection this builder raises anchors at the user's source.
         self.src_file = getattr(func, 'source_file', None)
@@ -3485,6 +3638,78 @@ class _FrameBuilder:
             return
         self._blocks[self.cur].extend(stmts)
 
+    # ------------------------------------------------------------------ #
+    # THE FRAME-SLOT AUTHORITY (design 210 unit 3)
+    # ------------------------------------------------------------------ #
+
+    def _frame_slot_type(self, name):
+        """The declared type of the frame slot `name` holds, or None.
+
+        Reads the same `(name, type)` list the frame STRUCT's fields are built
+        from, so the slot's type and the judgment made about it can never drift
+        apart."""
+        for lname, lt in self.frame_locals:
+            if lname == name:
+                return lt
+        for p in self.params:
+            if p.name == name:
+                return p.type
+        return None
+
+    def _store_binding_in_slot(self, name, line=0, column=0):
+        """THE store of a PATTERN BINDING into the frame slot made for it.
+
+        A binding introduced by an `if let`, a `guard let` or a `match` arm is
+        bound in the DISPATCH arm the transform emits and dies at the end of
+        it, while the body that reads it runs in a separately-dispatched resume
+        state. So the value has to cross into the frame — and how it crosses is
+        decided by whether the binding OWNS what it holds, which is a copy-tier
+        question with exactly one oracle in this compiler:
+        `Namespace.read_policy` (design 193's funnel over design 131's read
+        table and design 139's tiers).
+
+          * 'nocopy' / 'explicit' — the payload read CONSUMED its source, so the
+            binding owns the value outright. The frame takes it by `move`; an
+            alias would be refused outright by the transfer checkpoint, which is
+            how blade's `main` came to report `cannot copy value of type `Cli`
+            which implements ExplicitCopy` at `FILE:0:0` on a program that
+            writes no copy at all (DF-210a).
+          * 'retain' / 'trivial' — the read did NOT consume: the source still
+            owns its reference and the binding is a second view of it. The store
+            is an ordinary transfer, and the checkpoint stamps the retain the
+            tier calls for. Moving instead hands the frame a reference the
+            binding never held, so the frame's release is one too many: the
+            payload is destroyed while the original still points at it
+            (DF-210b — this is what `if let` did for an `Arc` payload, and what
+            `match` did NOT, which is why only one of the two was visibly
+            broken).
+
+        ENTRY POINTS — every position where a pattern binding crosses into a
+        frame slot (process rule 1):
+          * `_optbind_dispatch` — `if let` / `guard let` (design 104 item 1)
+          * `_split_match` — every payload binding of every arm of a
+            suspension-spanning `match` (designs 63 / 101)
+
+        A slot whose type is unknown keeps the conservative alias: the
+        checkpoint then judges it exactly as it always has.
+        """
+        slot_type = self._frame_slot_type(name)
+        policy = None
+        if slot_type is not None and self._tc is not None:
+            # `check_module` resets `typechecker.namespace` on the way out, so
+            # the entry module's own namespace is reached through the seam it
+            # stashed — the same one `_promote_nested_generic_calls` re-installs.
+            ns = (getattr(self._tc, '_entry_module_ns', None)
+                  or getattr(self._tc, 'namespace', None))
+            if ns is not None and hasattr(ns, 'read_policy'):
+                policy = ns.read_policy(slot_type)
+        if policy in ('nocopy', 'explicit'):
+            value = MoveExpr(variable=name, path=None, line=line, column=column)
+        else:
+            value = Identifier(name=name, line=line, column=column)
+        return AssignStatement(target=_self_field(name, line, column),
+                               value=value, line=line, column=column)
+
     def _goto(self, target):
         """Unconditional edge: set the state word and re-dispatch in the same
         resume call (loop back-edge / branch merge)."""
@@ -3723,13 +3948,16 @@ class _FrameBuilder:
         binding is stored into its frame field so it survives the transition to the
         (separately-dispatched) body state; both paths set `__state` and re-dispatch.
 
-        DF-182c: that store is a MOVE. The binding owns the payload the unwrap
-        just produced and dies at the end of the dispatch arm, so handing the
-        field a copy was wrong twice over — a NoCopy payload has no copy to give
-        and was refused outright, and an ExplicitCopy one would have been
-        dropped by both the field and the binding. Moving retires the binding
-        with the value, which is what the field taking ownership means, and
-        costs an ImplicitCopy payload one retain/release pair it never needed.
+        DF-182c: that store is a MOVE when the binding OWNS the payload — a
+        NoCopy one has no copy to give and was refused outright, and an
+        ExplicitCopy one would have been dropped by both the field and the
+        binding. DF-210b narrows the "when": design 182 made the move
+        UNCONDITIONAL, and for a payload whose read only RETAINS (the
+        ImplicitCopy tier — an `Arc`, a `String`) the binding never held a
+        reference of its own to give, so the frame's release was one too many
+        and the payload was destroyed while its source still pointed at it. The
+        tier decides, through `_store_binding_in_slot` — the one authority both
+        this and `_split_match` now go through.
 
         `forgets` are the drop-flag clears a `move` SCRUTINEE owes (`if let r =
         move held`): the read has already happened by the time either branch
@@ -3738,10 +3966,8 @@ class _FrameBuilder:
         bind = node.name
         some_body = []
         if bind in self.encmap:
-            some_body.append(AssignStatement(
-                target=_self_field(bind),
-                value=MoveExpr(variable=bind, path=None,
-                               line=node.line, column=node.column)))
+            some_body.append(self._store_binding_in_slot(
+                bind, node.line, node.column))
         some_body.extend(self._forgets(forgets))
         some_body.append(AssignStatement(
             target=_self_field("__state"), value=_int(some_state)))
@@ -3886,11 +4112,26 @@ class _FrameBuilder:
             # a nested enum pattern). The guard, if any, runs during dispatch and
             # reads these bindings as LOCALS (still in scope in the dispatch arm),
             # so it stays unrewritten — it is stored to the field only in the body.
+            #
+            # DF-210a: the store goes through `_store_binding_in_slot`, the one
+            # authority the `if let` twin uses too, so an OWNED payload crosses
+            # by `move` instead of being refused. An alias of an ExplicitCopy
+            # payload is what made blade's `main` report `cannot copy value of
+            # type `Cli` which implements ExplicitCopy` at `FILE:0:0` on a
+            # program that writes no copy at all.
+            #
+            # The two sources OVERLAP — an enum arm carries its payload names in
+            # `arm.bindings` AND in a design-63 `pattern` — so the list is
+            # deduplicated. It did not have to be while every store was an alias
+            # (writing the field twice is idempotent); a MOVE emitted twice is
+            # `use of moved variable`, reported on the compiler's own statement.
+            _seen_binds = set()
             for bname in list(arm.bindings) + self._pattern_binding_names(arm.pattern):
-                if bname == "_" or bname not in self.encmap:
+                if bname == "_" or bname not in self.encmap or bname in _seen_binds:
                     continue
-                dispatch.append(AssignStatement(
-                    target=_self_field(bname), value=Identifier(name=bname)))
+                _seen_binds.add(bname)
+                dispatch.append(self._store_binding_in_slot(
+                    bname, arm.line, arm.column))
             dispatch.append(AssignStatement(
                 target=_self_field("__state"), value=_int(entry)))
             # design 101: preserve `pattern` and `guard` on the regenerated dispatch
@@ -4457,9 +4698,14 @@ class _FrameBuilder:
         if self.has_recv and isinstance(node, SelfExpr):
             # The method's `self` -> the receiver through the frame pointer:
             # `self.__recv[0]` (here `self` is the frame — resume's receiver).
-            return ArrayIndex(
+            # design 210: the deref has the RECEIVER's type, which is `self`'s,
+            # and it is a frame projection like every other — the same mark the
+            # `ref` encoding's deref carries in `_read_field`.
+            recv = ArrayIndex(
                 array_expr=_self_field("__recv", node.line, node.column),
                 index=_int(0), line=node.line, column=node.column)
+            recv.frame_place_read = True
+            return _answered(recv, node.resolved_type)
         if isinstance(node, MoveExpr) and node.path is None and node.variable in self.encmap:
             name = node.variable
             enc = self.encmap[name]
@@ -4467,7 +4713,8 @@ class _FrameBuilder:
                 forgets.append(name)
             read = _read_field(name, enc, getattr(node, 'line', 0),
                                getattr(node, 'column', 0),
-                               move_read=_enc_cleanup(enc))
+                               move_read=_enc_cleanup(enc),
+                               saw_type=node.resolved_type)
             # design 131: `move o!` moved the binding AND projected the payload.
             # The `move` half is what the field read + `__saw_forget` above
             # express; re-apply the `!` so the expression still has the payload's
@@ -4477,10 +4724,12 @@ class _FrameBuilder:
                 read = ForceUnwrap(expr=read, line=getattr(node, 'line', 0),
                                    column=getattr(node, 'column', 0))
                 read.frame_place_read = True
+                _answered(read, node.resolved_type)
             return read
         if isinstance(node, Identifier) and node.name in self.encmap:
             return _read_field(node.name, self.encmap[node.name], node.line,
-                               node.column, owning_read=True)
+                               node.column, owning_read=True,
+                               saw_type=node.resolved_type)
         if isinstance(node, ASTNode):
             for f in structural_fields(node):
                 setattr(node, f.name,
@@ -6558,6 +6807,11 @@ def transform_program(program, typechecker, imported_ast=None):
         if const_statics:
             for decl in list(new_extensions) + list(new_functions) + list(new_structs):
                 _inline_static_refs(decl, const_statics)
+
+    # design 210 unit 3: the splice boundary. Reduce the preserved marks to the
+    # subtrees that can actually answer for themselves, BEFORE the post-transform
+    # pass is told it may skip them.
+    _close_embed_marks(list(new_extensions) + list(new_functions))
 
     # design 158: every frame exists now, so the table order — and each frame's
     # `__bt_desc` answer — can be fixed.
