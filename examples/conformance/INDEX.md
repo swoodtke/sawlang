@@ -6,10 +6,10 @@ either a file in this directory or an existing `examples/` test that already
 asserts the same rule at the same position — this table is the record of which,
 and the dedup decisions are meant to be audited from it.
 
-**88 rows carry a file here; 196 are covered elsewhere.** (The audit's 247 plus
+**95 rows carry a file here; 196 are covered elsewhere.** (The audit's 247 plus
 the rows later briefs added: W02-W05, design 194 unit 4; W06-W19, design 195
 unit 1; X41-X45, design 199 unit 1; M31-M35, design 200 unit 1; V26-V30,
-design 202 unit 1; B09-B12, design 204 unit 1.)
+design 202 unit 1; B09-B12, design 204 unit 1; K14-K20, design 201 unit 1.)
 
 ## How to read it
 
@@ -315,7 +315,7 @@ Claim source: spec 5 *Discarding a Result*; design 151
 
 ## Concurrency safety
 
-Claim source: spec 6 *Send and Sync* + *Cooperative tasks*; designs 75, 88, 103, 186, 188 u5, 189, 193 u6
+Claim source: spec 6 *Send and Sync* + *Cooperative tasks*; designs 75, 88, 103, 186, 188 u5, 189, 193 u6, 201
 
 | Row | Checks | Covered by | Ruling |
 |-----|--------|------------|--------|
@@ -332,6 +332,13 @@ Claim source: spec 6 *Send and Sync* + *Cooperative tasks*; designs 75, 88, 103,
 | K11 | a `SpinLock` captured into a closure (NoCopy) | `K11_spinlock_captured.saw` |  |
 | K12 | `Mutex.lock` body mutating through `&var T` | `mutex_lock_result.saw` |  |
 | K13 | MT group accumulating into an `Arc<Mutex<Int>>` | `K13_mt_sum_under_mutex.saw` |  |
+| K14 | control: a `&var` argument at a spawn, joined, then the root touched again | `K14_spawn_ref_param_join_releases.saw` | 201 — the relaxation's accept side: the argument borrows its root for the TASK's life and `join()` releases it, so spawn-join-use compiles with nothing extra written |
+| K15 | a caller READ and a caller WRITE of the root between the spawn and the join | `K15_spawn_ref_param_exclusion_window.saw` | 201 — design 189's one-writer-XOR-many-readers table, at the argument position |
+| K16 | control: a SHARED `&` argument composes with other readers | `K16_spawn_shared_ref_param_composes.saw` | 201 — only a writer excludes; two shared borrows and a caller read live at once |
+| K17 | a `&var` argument still live when a loop body ends | `K17_spawn_ref_param_across_iterations.saw` | 201 — one textual spawn, N live borrows; design 189's loop rule at the argument position |
+| K18 | a `&var` argument whose root is declared AFTER the group | `K18_spawn_ref_param_after_group.saw` | 201 — design 188's LIFO rule does NOT reach an argument on its own (DF-201a probe: the task pushed into the root after the scope ended, exit 0); it does now |
+| K19 | a reference argument into a MULTI-THREADED group | `K19_spawn_ref_param_mt_send.saw` | 201 — the fence that stays: a reference is not `Send`, so the Send gate refuses it. Regression row |
+| K20 | `move` of a root a spawned task borrows by ARGUMENT | `K20_spawn_ref_param_move_root.saw` | 201 — design 189 probe 5's silent use-after-free, reached through an argument (DF-201a) |
 
 ## Visibility and module boundaries
 
@@ -495,7 +502,11 @@ Obligation 3 asks a safety-surface brief for its rows FIRST, so a row that
 states a ruling the compiler has not been taught yet lands as a cited XFAIL and
 the unit that teaches it removes the marker.
 
-None are open.
+Open: **K14-K20** — design 201's seven rows, written under an XFAIL citing
+DF-201a. Design 88 refuses every reference argument at a spawn root before any
+of these questions is asked, so all seven state the ratified rule against a
+compiler that still prints one confinement error. K15, K17, K18 and K20 flip
+with the typechecker (unit 2); K14, K16 and K19 with the lowering (unit 3).
 
 Closed: **B09** — written under an XFAIL citing DF-153b (a private std type
 reserved its simple name for every program in the language, and the reserved

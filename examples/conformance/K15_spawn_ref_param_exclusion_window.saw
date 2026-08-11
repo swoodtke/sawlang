@@ -1,0 +1,34 @@
+// Conformance row K15 — the exclusion window: a caller READ and a caller WRITE
+// between the spawn and the join
+//
+// An exclusive `&var` argument at a spawn excludes every other touch of the
+// root for the task's life — one writer XOR many readers, over a window as long
+// as the task rather than as long as the spawning call. That is design 189's
+// ratified table, and design 201 puts the ARGUMENT under it beside the capture.
+// The READ is the half worth pinning: a caller that reads a root a task is
+// writing gets an unsynchronized answer, so it is refused too, and the way to
+// watch a value mid-task is an `Arc<Mutex<T>>` or a `Channel`, where the
+// synchronization is visible in the types.
+// XFAIL: DF-201a — the shape is refused wholesale by design 88's confinement
+// error today, so the exclusion window it needs is never reached.
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: `n` cannot be read here
+// EXPECT-ERROR-CONTAINS: `n` cannot be written here
+// EXPECT-ERROR-CONTAINS: holds `&var n` until `h.join()` releases it
+
+import std.task.*
+
+func bump(n: &var Int) -> Int {
+    yield_now()
+    n = n + 100
+    n
+}
+
+func main() {
+    var n = 1
+    var group = TaskGroup()
+    let h = group.spawn(bump(&var n))
+    let seen = n             // refused: the task holds `&var n`
+    n = 5                    // refused: same borrow, the write half
+    print("task {h.join()} seen {seen}")
+}

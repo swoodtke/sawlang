@@ -1,0 +1,31 @@
+// Conformance row K16 — a SHARED `&` argument composes with other readers
+//
+// The control on K15. `&` at a spawn opens a shared borrow, and shared borrows
+// compose the way they compose everywhere else: two live at once, with the
+// caller reading the root between the spawns and again before either join. Only
+// a WRITER excludes. Without this row the exclusion rule reads as "a spawn
+// argument freezes its root", which is not what was ratified.
+// XFAIL: DF-201a — design 88's blanket refusal rejects a shared reference
+// argument at a spawn root exactly as it rejects an exclusive one.
+// EXPECT: success
+// EXPECT-OUTPUT:
+// caller reads base while shared: 7
+// doubled 14 tripled 21
+// base after both joins: 7
+
+import std.task.*
+
+func scaled(base: &Int, k: Int) -> Int {
+    yield_now()
+    base * k
+}
+
+func main() {
+    let base = 7
+    var group = TaskGroup()
+    let a = group.spawn(scaled(&base, 2))
+    let b = group.spawn(scaled(&base, 3))
+    print("caller reads base while shared: {base}")
+    print("doubled {a.join()} tripled {b.join()}")
+    print("base after both joins: {base}")
+}

@@ -1,0 +1,38 @@
+// Conformance row K20 — `move` of a root a spawned task borrows by argument
+//
+// The shape that made the extent a SOUNDNESS rule rather than hygiene. Design
+// 189's probe 5 found it through a capture: `consume(move buf)` between a spawn
+// and its join drops the buffer and hands the task freed memory, silently, exit
+// 0. Design 201's unit-1 probe found the same thing through an ARGUMENT — the
+// caller printed `consumed 0` and the task then pushed three elements into the
+// freed storage (DF-201a).
+//
+// The diagnostic is the ordinary move vocabulary plus the extent sentence: the
+// borrow is what makes the move visible as a violation at all.
+// XFAIL: DF-201a — refused by design 88's confinement error today, so the move
+// never meets a borrow it could violate.
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: cannot `move` `buf` while a spawned task borrows it
+// EXPECT-ERROR-CONTAINS: holds `&var buf` until `h.join()` releases it
+
+import std.task.*
+
+func fill(v: &var Vector<Int>, n: Int) -> Int {
+    var i = 0
+    while i < n {
+        v.push(i)
+        yield_now()
+        i = i + 1
+    }
+    v.len()
+}
+
+func consume(v: Vector<Int>) -> Int { v.len() }
+
+func main() {
+    var buf: Vector<Int> = []
+    var group = TaskGroup()
+    let h = group.spawn(fill(&var buf, 3))
+    print("consumed {consume(move buf)}")
+    print("task {h.join()}")
+}

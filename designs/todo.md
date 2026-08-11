@@ -1177,6 +1177,35 @@ absent path (audit row O10). The type error is still owed (187 unit 7,
 note updated there). Audit rows confirming fixed items: V17 (DF-146j),
 O10/O11 controls, the 26/26 trap table.
 
+## Design 201 — spawn reference parameters (IN FLIGHT, Aug 10)
+
+`designs/201-spawn-reference-parameters.md` — design 189's unbuilt unit 4,
+ratified as its own brief. `group.spawn(f(&var buf))` becomes legal in a
+SINGLE-THREADED group on exactly the extent machinery 189 built for captures.
+
+- **DF-201a — the ratified relaxation is not built, and the two holes it must
+  close are only invisible because the shape cannot be written.** Probed Aug 10
+  (unit 1, `.build/scratch/probe201_*.saw`) by lifting design 88's blanket
+  refusal and running the shapes the extent model is supposed to cover. Two of
+  them are silent use-after-frees in safe code — the SAME two design 189's
+  probes found through a capture, reached through an ARGUMENT instead:
+  - **declared-after-group (probe H).** A root declared after its group, handle
+    discarded: LIFO tears the root down first and the task's pushes print AFTER
+    "scope ends", exit 0. This does NOT fall out of design 188's rule — that
+    check walks a spawn's capture LISTS and never looks at its arguments — so
+    the brief's "verify, row either way" question is answered: it owes an
+    implementation, not just a row. Row K18.
+  - **`move` of a borrowed root between spawn and join (probe I).**
+    `consume(move buf)` compiled, printed `consumed 0`, dropped the buffer, and
+    the task then pushed three elements into freed storage. Design 189 probe
+    5's shape, one position over. Row K20.
+  Two more shapes compile today with no diagnostic: a caller read/write of the
+  root inside the spawn-join window (probe B — the caller read `1`, the task
+  then wrote through the same root), and one textual spawn in a loop body
+  opening N live exclusive borrows (probe E). Rows K15 and K17.
+  Cited by the seven XFAILs `examples/conformance/K14`-`K20`; K15/K17/K18/K20
+  flip with unit 2, K14/K16/K19 with unit 3.
+
 ## Design 189 — scoped task borrows (UNITS 1-3 LANDED, Aug 9; unit 4 NOT built)
 
 `designs/189-scoped-task-borrows.md`, authored from the five-probe

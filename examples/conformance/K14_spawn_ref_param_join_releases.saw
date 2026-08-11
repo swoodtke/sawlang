@@ -1,0 +1,61 @@
+// Conformance row K14 — the legal shape: a `&var` argument at a spawn, joined,
+// then the root touched again
+//
+// Design 201's accept side, and the whole point of the relaxation. The argument
+// borrows its ROOT for the TASK's life, the handle carries the borrow, and
+// `join()` releases it — so spawn-join-use needs nothing written beyond the
+// three lines it already reads as. The task's writes are visible at the root
+// afterwards, because the frame holds a pointer into the spawner's storage, not
+// a copy of it.
+//
+// Design 88 refused this outright ("it would point into the dead spawner
+// stack"). What answers that is the same argument design 189 made for the
+// borrow CAPTURE: the borrow pins the root for the task's reachable life, LIFO
+// destruction plus the declared-before-group rule keep the spawner's frame
+// alive, and K18 next door refuses the one ordering where it would not.
+// XFAIL: DF-201a — design 88's blanket refusal still rejects every reference
+// argument at a spawn root, so the ratified shape does not compile yet.
+// EXPECT: success
+// EXPECT-OUTPUT:
+// task filled 3
+// root len 3
+// root sum 300
+// after second join: 6
+
+import std.task.*
+
+func fill(v: &var Vector<Int>, n: Int, base: Int) -> Int {
+    var i = 0
+    while i < n {
+        v.push(base + i)
+        yield_now()
+        i = i + 1
+    }
+    v.len()
+}
+
+func total(v: &Vector<Int>) -> Int {
+    yield_now()
+    var sum = 0
+    for x in v.iter() {
+        sum = sum + x
+    }
+    sum
+}
+
+func main() {
+    var buf: Vector<Int> = []
+    var group = TaskGroup()
+
+    let h = group.spawn(fill(&var buf, 3, 99))
+    print("task filled {h.join()}")
+    print("root len {buf.len()}")
+
+    // The borrow ended at the join, so the root is free again — including for a
+    // second task that borrows it SHARED and reads what the first one wrote.
+    let s = group.spawn(total(&buf))
+    print("root sum {s.join()}")
+
+    let h2 = group.spawn(fill(&var buf, 3, 0))
+    print("after second join: {h2.join()}")
+}

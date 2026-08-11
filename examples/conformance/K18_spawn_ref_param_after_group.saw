@@ -1,0 +1,35 @@
+// Conformance row K18 — a `&var` argument whose root is declared AFTER the group
+//
+// Design 188's LIFO rule, at the argument position. Destruction is LIFO, so a
+// root declared after the group is torn down BEFORE the group's `Deinit` joins
+// its children, and the task reaches storage that is already gone.
+//
+// It does NOT fall out of the capture rule on its own — design 201's unit-1
+// probe compiled this shape and watched the task push into `buf` after the
+// scope had ended, exit 0 (DF-201a). The check reads the same declaration
+// order and prints the same teaching error; only the position is new.
+// XFAIL: DF-201a — design 88's confinement error is what this program prints
+// today; the LIFO check does not yet look at a reference argument.
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: is declared AFTER the group `group`
+// EXPECT-ERROR-CONTAINS: destruction is LIFO
+// EXPECT-ERROR-CONTAINS: declare `buf` BEFORE `group`
+
+import std.task.*
+
+func fill(v: &var Vector<Int>, n: Int) -> Int {
+    var i = 0
+    while i < n {
+        v.push(i)
+        yield_now()
+        i = i + 1
+    }
+    v.len()
+}
+
+func main() {
+    var group = TaskGroup()
+    var buf: Vector<Int> = []
+    let h = group.spawn(fill(&var buf, 3))
+    print("len {h.join()}")
+}
