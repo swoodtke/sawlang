@@ -1132,15 +1132,44 @@ class TypeChecker(ExpressionsMixin, StatementsMixin, RegistrationMixin, TypeUtil
         return leaf
 
     def _decl_is_std_sourced(self, node) -> bool:
-        """Whether a declaration comes from a std/builtin source file. Used so a
-        std method/function body re-checked in a USER compile (e.g. a suspending
-        std method the coroutine transform splices into the entry AST, design 84)
-        may still reach std internals — the accessibility gate applies to user
-        SOURCE, not to std's own already-validated bodies."""
+        """Whether a declaration comes from a std/builtin source file."""
         sf = getattr(node, 'source_file', None)
         if not sf:
             return False
         return self._vis_module_for_source(sf)[:1] == ("<std>",)
+
+    def _decl_is_foreign_splice(self, node) -> bool:
+        """Whether this declaration's body was written in a DIFFERENT module
+        from the one now checking it — i.e. the coroutine transform spliced it
+        here.
+
+        Design 210 unit 5, and this is where design 84's std-only special case
+        dissolves. 84 built cross-module embedding for std methods and gave the
+        spliced body a permission — check it with the accessibility gate off,
+        "like the builtin check" — on the reasoning that the gate judges user
+        SOURCE and a spliced body is not source at this position. That
+        reasoning was never about std. It is about the SPLICE, and it is just as
+        true of a user module: `builder.Builder.build` embedded into blade's
+        `main` is exactly as much "not source here" as `TcpListener.accept` is.
+        std got the permission because std was the only module design 84 could
+        embed; DF-206e is what the other kind of module got instead.
+
+        So the predicate is provenance, not privilege. Most of what the
+        permission used to cover is gone — a spliced body's namespace-consulting
+        nodes carry `embed_preserved` and are never re-resolved (unit 3) — and
+        what remains is the positions no `resolved_type` ever reaches, above all
+        a module-private `static` named in a CONST position (`[UInt32;
+        RESOLVE_MAX]`, `[0; RESOLVE_MAX]`), which is resolved as a name every
+        time it is seen. Those keep the permission, and now they keep it
+        wherever the body came from.
+        """
+        sf = getattr(node, 'source_file', None)
+        if not sf:
+            return False
+        if self._vis_module_for_source(sf)[:1] == ("<std>",):
+            return True
+        entry = self._module_scope_by_file.get(sf)
+        return entry is not None and entry[0] != self.current_module_path
 
     def _shadows_hidden_std(self, name: str) -> bool:
         """Whether a user declaration of `name` shadows a HIDDEN (non-prelude,

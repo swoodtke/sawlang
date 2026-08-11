@@ -6,11 +6,11 @@ either a file in this directory or an existing `examples/` test that already
 asserts the same rule at the same position — this table is the record of which,
 and the dedup decisions are meant to be audited from it.
 
-**98 rows carry a file here; 197 are covered elsewhere.** (The audit's 247 plus
+**99 rows carry a file here; 197 are covered elsewhere.** (The audit's 247 plus
 the rows later briefs added: W02-W05, design 194 unit 4; W06-W19, design 195
 unit 1; X41-X45, design 199 unit 1; M31-M35, design 200 unit 1; V26-V30,
 design 202 unit 1; B09-B12, design 204 unit 1; K14-K20, design 201 unit 1;
-K21-K24, design 210 unit 1.)
+K21-K25, design 210 units 1 and 5.)
 
 ## How to read it
 
@@ -344,6 +344,7 @@ Claim source: spec 6 *Send and Sync* + *Cooperative tasks*; designs 75, 88, 103,
 | K22 | a GENERIC template of an imported user module, driven at an entry-module instantiation, keeps its HOME module's scope | `K22_cross_module_generic_embed_private_sibling.saw` | 210 — the generic path: the per-instantiation recheck (70/74) stays, and runs in the callee's home namespace |
 | K23 | regression: an imported STD method still embeds and drives | `net_precise_wakeup.saw` + `spawned_task_runs_before_reactor_park.saw` + `channel_receive_through_helper.saw` + `process_run_concurrent.saw` + `coro_nested_yield_wrapper.saw` | 210 — design 84's std-only splice accommodations DISSOLVE into the two uniform paths; these are the rows that say std did not regress with them. Listed rather than copied |
 | K24 | a match-arm payload binding live across a suspension is a frame SLOT, not a user copy | `K24_frame_slot_payload_binding_not_a_copy.saw` | 210 — design 131's `frame_place_read` carve-out generalized: the transform is the authority for every slot it fills, not only the reads it routes through `_read_field` |
+| K25 | a spliced body's module-private `static` in a CONST position (array length, repeat count) | `K25_cross_module_embed_private_static_const_position.saw` | 210 unit 5 — the position design 84 could only PERMIT (std's statics are merged into every compile and its bodies checked with the gate off). `repeat_count` is a declared annotation, so every structural walker steps over it; the marking walk is the one walk that visits annotations |
 
 ## Visibility and module boundaries
 
@@ -509,11 +510,15 @@ Obligation 3 asks a safety-surface brief for its rows FIRST, so a row that
 states a ruling the compiler has not been taught yet lands as a cited XFAIL and
 the unit that teaches it removes the marker.
 
-Open: **K21, K22, K24** — design 210's three rows, all citing DF-206e. K21 and
-K22 state the cross-module embedding guarantee the two paths make true (unit 3
-removes K21's marker, unit 4 K22's); K24 states the frame-slot authority rule
-and flips with unit 3. K23 needs no marker — it names the std rows that must
-keep passing while design 84's std-only accommodations are dissolved.
+None are open.
+
+Closed: **K21, K22, K24** — design 210's three pins, all written under DF-206e.
+K21 (a non-generic imported method embedding with its private siblings intact)
+and K24 (the frame-slot authority) flipped with unit 3's annotation-preserving
+splice; K22 (the generic twin) flipped with unit 4's home-scope recheck. K23
+never carried a marker — it names the std rows that had to keep passing while
+design 84's std-only accommodations were dissolved, and they did. K25 landed
+with the unit that closed its position rather than ahead of it.
 
 Closed: **K14-K20** — design 201's seven rows. The four refusals (K15, K17,
 K18, K20) flipped with the typechecker in unit 2 — the extent it tracks reports

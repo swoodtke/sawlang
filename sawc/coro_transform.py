@@ -702,12 +702,50 @@ def _mark_embed_preserved(node):
 
     Uniform across user modules and std, per the ruling: the splice does not
     care which module a non-generic body came from, so neither does this.
+
+    Walks EVERY field, not just the structural ones — the one metadata walk in
+    the transform that has to. `ArrayLiteral.repeat_count` (the `N` in `[v; N]`)
+    is a declared ANNOTATION on purpose: it is compile-time-only, so the hoist
+    must not lift it into a `let`. But it is also an expression the author wrote
+    and the declaration pass resolved, and a module-private `static` named there
+    is exactly as unresolvable after the splice as one named anywhere else. A
+    structural-only walk left `[0; RESOLVE_MAX]` out of the contract. Marking is
+    idempotent and stamps no structure, so covering annotations costs nothing;
+    `seen` guards the aliasing an annotation is allowed to do.
     """
-    for sub in child_nodes(node):
+    _mark_embed_preserved_walk(node, set())
+
+
+def _mark_embed_preserved_walk(node, seen):
+    if id(node) in seen:
+        return
+    seen.add(id(node))
+    for sub in _all_child_nodes(node):
         if (isinstance(sub, _EMBED_SCOPED_KINDS)
                 and sub.resolved_type is not None):
             sub.embed_preserved = True
-        _mark_embed_preserved(sub)
+        _mark_embed_preserved_walk(sub, seen)
+
+
+def _all_child_nodes(node):
+    """`ast_walk.child_nodes` plus the ANNOTATION fields — every AST node
+    reachable from `node`, however it is stored. Only `_mark_embed_preserved`
+    wants this: every other walk in the transform is structural by design."""
+    if isinstance(node, Argument):
+        node = node.value
+    if not isinstance(node, ASTNode):
+        return
+    for f in dataclasses.fields(node):
+        val = getattr(node, f.name, None)
+        stack = [val]
+        while stack:
+            item = stack.pop()
+            if isinstance(item, (list, tuple)):
+                stack.extend(item)
+            elif isinstance(item, Argument):
+                stack.append(item.value)
+            elif isinstance(item, ASTNode):
+                yield item
 
 
 def _close_embed_marks(decls):
@@ -6789,15 +6827,22 @@ def transform_program(program, typechecker, imported_ast=None):
     for ext, method_ast in removed_methods:
         ext.methods = [m for m in ext.methods if m is not method_ast]
 
-    # design 84/89: an embedded imported (std) method body may reference a
-    # module-level `static` private to its own module (e.g. `TcpListener.accept`
-    # names `INVALID_FD`). The transform splices that method into the ENTRY module,
+    # design 84/89: an embedded imported method body may reference a module-level
+    # `static` private to its own module (`TcpListener.accept` names
+    # `INVALID_FD`). The transform splices that method into the ENTRY module,
     # which is then re-typechecked under the entry namespace — where the imported
-    # static is NOT visible (imported free functions ARE, but statics are not; the
-    # standing cross-module-static limitation). Statics are const-initialized, so
-    # inline the referenced imported static's initializer at the reference sites in
-    # the synthesized declarations. Only imported statics NOT shadowed by an
-    # entry-module static of the same name are inlined, keeping this precise.
+    # static is NOT visible. Statics are const-initialized, so inline the
+    # referenced static's initializer at the reference sites in the synthesized
+    # declarations. Only imported statics NOT shadowed by an entry-module static
+    # of the same name are inlined, keeping this precise.
+    #
+    # design 210 unit 5: this reads `imported_ast.statics`, which is the MERGED
+    # AST — every module's, not std's — so the mechanism was already uniform and
+    # only its comment said "std". What was std-only is gone from the checker
+    # (`_decl_is_foreign_splice`). Note the scope: this rewrites the SYNTHESIZED
+    # declarations, so a const-position reference the structural walk cannot
+    # reach (`ArrayLiteral.repeat_count`) is covered by the preserve marking
+    # instead — see `_all_child_nodes` and conformance row K25.
     if imported_ast is not None:
         entry_static_names = {s.name for s in program.statics}
         const_statics = {s.name: s.initializer

@@ -14,6 +14,11 @@ func inner() -> Int { 7 }
 
 func boost(n: Int) -> Int { n + 100 }
 
+// …and a module-private STATIC, for row K25. A const position is the hard case:
+// it is resolved as a NAME every time it is seen, so nothing about it is
+// carried on an already-resolved node.
+static SLOTS: Int = 4
+
 // ---- K21: the NON-GENERIC shape ----------------------------------------
 
 public struct Runner { public tag: Int }
@@ -24,6 +29,14 @@ public extension Runner {
         let a = inner()
         yield_now()
         a + boost(self.tag)
+    }
+
+    /// Row K25: the same, but the private name is a `static` in a CONST
+    /// position — an array length and a repeat count, both compile-time-only.
+    public func fill(&self) -> Int {
+        var cells: [Int; SLOTS] = [3; SLOTS]
+        yield_now()
+        cells[0] + SLOTS + self.tag
     }
 }
 

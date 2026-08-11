@@ -167,13 +167,14 @@ class StatementsMixin:
         self.found_return_with_value = False
         self.current_type_subst = type_subst or {}
 
-        # design 82 Part B: a std-sourced method body reaches std internals by
-        # construction — check it permissively (see _check_function).
+        # design 210 unit 5: the method twin of `_check_function`'s splice rule —
+        # provenance, not privilege. See there.
         _saved_aaa = self.namespace.allow_all_access
         _saved_cb = getattr(self, '_checking_builtins', False)
-        if self._decl_is_std_sourced(method):
+        if self._decl_is_foreign_splice(method):
             self.namespace.allow_all_access = True
-            self._checking_builtins = True
+            if self._decl_is_std_sourced(method):
+                self._checking_builtins = True
 
         # Method-level generic type params (brief 36) join the type-param scope
         # for this body, so `U` in `func map<U>(...)` is a known abstract type
@@ -716,14 +717,18 @@ class StatementsMixin:
         self.current_function = func
         self.found_return_with_value = False  # Reset for each function
 
-        # design 82 Part B: a std-sourced body (e.g. a suspending std method
-        # spliced into the entry AST by the coro transform) reaches std internals
-        # by construction — check it permissively, like the builtin check.
+        # design 210 unit 5: a SPLICED body — one the coroutine transform moved
+        # here from another module — is checked with the accessibility gate off,
+        # because at this position it is not source. Design 84 gave this to std
+        # alone; `_decl_is_foreign_splice` gives it to every module, which is
+        # what dissolving the special case means. `_checking_builtins` stays
+        # std-only: it says "this IS std", and several gates key off that.
         _saved_aaa = self.namespace.allow_all_access
         _saved_cb = getattr(self, '_checking_builtins', False)
-        if self._decl_is_std_sourced(func):
+        if self._decl_is_foreign_splice(func):
             self.namespace.allow_all_access = True
-            self._checking_builtins = True
+            if self._decl_is_std_sourced(func):
+                self._checking_builtins = True
 
         # design 22: analyze this function body as a suspend-graph node (a
         # `sync func` is a sync context). Generic bodies are analyzed abstractly,
