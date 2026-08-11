@@ -12,7 +12,6 @@
 // STRUCT's method (`Cell<Lo>.charge`), each at one instantiation from a type
 // the entry module owns.
 //
-// XFAIL: DF-206e the per-instantiation recheck runs in the ENTRY module's namespace, so a cross-module template naming a private sibling loses it — the clone's locals come out with no resolved type
 // COMPILE-FLAGS: --module-path embedmod={TESTDIR}/modules/embedmod
 // EXPECT: success
 // EXPECT-OUTPUT:

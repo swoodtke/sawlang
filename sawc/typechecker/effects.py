@@ -501,8 +501,11 @@ class EffectsMixin:
         saved_warnings = len(self.reporter.warnings)
         # type_subst binds `self` to `Holder<Int>` so field access through `self`
         # resolves the struct's `T`-typed fields to their concrete types, and maps
-        # the method's own type params to their concrete arguments.
-        self._check_method(struct_name, clone, type_map)
+        # the method's own type params to their concrete arguments. In the
+        # template's HOME module scope (design 210 unit 4), so a method body that
+        # names its own module's private helper still finds it.
+        with self._home_module_scope(clone, type_map):
+            self._check_method(struct_name, clone, type_map)
         del self.reporter.errors[saved_errors:]
         del self.reporter.warnings[saved_warnings:]
         # The re-check stamps `resolved_type` on the body's expressions, but member
@@ -615,10 +618,14 @@ class EffectsMixin:
         if splice:
             self._register_function(clone)
             module_ast.functions.append(clone)
-        # Re-check the body with errors suppressed (effect harvest only).
+        # Re-check the body with errors suppressed (effect harvest only), in the
+        # TEMPLATE's home module scope (design 210 unit 4) — a template naming
+        # its own module's private helper must find it here, or the harvest is
+        # silently empty and the instantiation carries no types at all.
         saved_errors = len(self.reporter.errors)
         saved_warnings = len(self.reporter.warnings)
-        self._check_function(clone)
+        with self._home_module_scope(clone, type_map):
+            self._check_function(clone)
         del self.reporter.errors[saved_errors:]
         del self.reporter.warnings[saved_warnings:]
         return True
@@ -648,10 +655,9 @@ class EffectsMixin:
         clone.type_params = []
         clone.mangled_symbol = None
         clone.is_mono_instance = True
-        # Restore the entry module's symbol scope for registration + re-check (the
-        # namespace was reset after check_module returned; a fresh check under the
-        # wrong scope would silently fail to resolve types and leave locals
-        # untyped, which the frame builder needs).
+        # Restore the entry module's symbol scope for REGISTRATION (the namespace
+        # was reset after check_module returned, and the instantiation is spliced
+        # into the entry AST, so that is where its symbol belongs).
         saved_ns = self.namespace
         saved_path = getattr(self, 'current_module_path', None)
         entry_ns = getattr(self, '_entry_module_ns', None)
@@ -663,7 +669,15 @@ class EffectsMixin:
         try:
             self._register_function(clone)
             module_ast.functions.append(clone)
-            self._check_function(clone)
+            # …but the BODY is re-checked in the template's HOME module scope
+            # (design 210 unit 4). Registration and checking want different
+            # answers here: the symbol is the entry module's, the body's names
+            # are the template's. Doing both under the entry scope is DF-206e's
+            # generic costume — `boost` does not resolve, the suppressed errors
+            # hide it, and `local `b` in driven `amplify$1$Lo` has no resolved
+            # type` is what the frame builder says about it three phases later.
+            with self._home_module_scope(clone, type_map):
+                self._check_function(clone)
         finally:
             del self.reporter.errors[saved_errors:]
             del self.reporter.warnings[saved_warnings:]
@@ -695,7 +709,9 @@ class EffectsMixin:
         ext.methods.append(clone)
         saved_errors = len(self.reporter.errors)
         saved_warnings = len(self.reporter.warnings)
-        self._check_method(struct_name, clone, {})
+        # design 210 unit 4: in the template's home module scope.
+        with self._home_module_scope(clone, type_map):
+            self._check_method(struct_name, clone, {})
         del self.reporter.errors[saved_errors:]
         del self.reporter.warnings[saved_warnings:]
         return True

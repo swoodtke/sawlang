@@ -45,6 +45,25 @@ from .serde import SerdeMixin
 _BINDING_ID_COUNTER = itertools.count(1)
 
 
+def _module_source_files(module_ast):
+    """Every distinct source file the declarations of `module_ast` came from.
+
+    A module is a DIRECTORY (design 82 makes each std file its own module, and a
+    user module can span several `.saw` files), so "which module owns this
+    declaration" is answered per file rather than per AST. Design 210 unit 4
+    keys a module's checked scope on this so a generic template can be re-checked
+    where it was written.
+    """
+    seen = []
+    for group in ('functions', 'structs', 'enums', 'extensions', 'traits',
+                  'statics', 'type_aliases'):
+        for decl in getattr(module_ast, group, None) or ():
+            src = getattr(decl, 'source_file', None)
+            if src and src not in seen:
+                seen.append(src)
+    return seen
+
+
 @dataclass
 class VariableInfo:
     """Information about a variable in scope."""
@@ -296,6 +315,16 @@ class TypeChecker(ExpressionsMixin, StatementsMixin, RegistrationMixin, TypeUtil
         # cannot answer there; `_declaring` maintains this.
         self._decl_source_file: Optional[str] = None
 
+        # design 210 unit 4: source FILE -> the (module path, namespace) that
+        # file's declarations were checked under, filled by `check_module` as
+        # each module finishes. Read by `_home_module_scope`, which is how a
+        # GENERIC instantiation gets re-checked where its template was written
+        # instead of where the call that reached it was.
+        self._module_scope_by_file: Dict[str, Tuple[Tuple[str, ...], Any]] = {}
+        # …and the design-142 direct imports each module was checked with, which
+        # `Namespace` does not carry. Same lifetime, same reader.
+        self._direct_imports_by_module: Dict[Tuple[str, ...], Set[Tuple[str, ...]]] = {}
+
         # design 194 unit 4: the prelude-gate reports already made, keyed by
         # (module, name, line, column). The front half re-enters the same AST
         # (place lowering, the coroutine transform's re-check), so a rule that
@@ -398,6 +427,117 @@ class TypeChecker(ExpressionsMixin, StatementsMixin, RegistrationMixin, TypeUtil
             yield
         finally:
             self._decl_source_file = saved
+
+    def _lend_instantiation_types(self, src_ns, dst_ns, type_map):
+        """Make the concrete TYPE ARGUMENTS of an instantiation resolvable in the
+        template's home namespace — the "plus the instantiation map" half of
+        design 210's generic path.
+
+        A template's home scope has its own private siblings and none of the
+        caller's types. That is exactly backwards for one thing and exactly right
+        for everything else: `amplify<Lo>`'s body names `boost` (home) AND `Lo`
+        (the caller's), and `w.seed()` cannot be resolved without the `extension
+        Lo: Seed` the caller wrote. So the type arguments — and only they — are
+        lent across.
+
+        Additive and non-clobbering: a name the home module already binds keeps
+        its own meaning, so this can never change what the template itself means.
+        The entries stay after the recheck, which is harmless because the home
+        module's own declarations were all checked before any instantiation of
+        it could be built.
+        """
+        if not type_map or src_ns is None or dst_ns is None or src_ns is dst_ns:
+            return
+        seen = set()
+
+        def lend(t, depth=0):
+            if t is None or depth > 6:
+                return
+            for name in (getattr(t, 'struct_name', None),
+                         getattr(t, 'enum_name', None)):
+                if not name or name in seen:
+                    continue
+                seen.add(name)
+                if name in src_ns.structs and name not in dst_ns.structs:
+                    dst_ns.structs[name] = src_ns.structs[name]
+                if name in src_ns.enums and name not in dst_ns.enums:
+                    dst_ns.enums[name] = src_ns.enums[name]
+                if name in src_ns.conformances and name not in dst_ns.conformances:
+                    dst_ns.conformances[name] = src_ns.conformances[name]
+                if name in src_ns.generic_structs and name not in dst_ns.generic_structs:
+                    dst_ns.generic_structs[name] = src_ns.generic_structs[name]
+            for written, identity in list(src_ns.type_names.items()):
+                if identity in seen and written not in dst_ns.type_names:
+                    dst_ns.type_names[written] = identity
+            for child in ((getattr(t, 'type_args', None) or [])
+                          + (getattr(t, 'element_types', None) or [])):
+                lend(child, depth + 1)
+            lend(getattr(t, 'inner_type', None), depth + 1)
+
+        for arg in type_map.values():
+            lend(arg)
+
+    @contextmanager
+    def _home_module_scope(self, decl, type_map=None):
+        """Check `decl` under the scope of the module that DECLARED it.
+
+        Design 210 unit 4 — the generic path. A generic body cannot be embedded
+        from its declaration-time annotations alone: designs 70/74 re-infer both
+        types and EFFECTS per instantiation, because both depend on the type
+        arguments. So the recheck stays; what moves is where it runs. A template
+        in `embedmod` calling `embedmod`'s private `boost` must be re-checked
+        with `embedmod`'s namespace installed, not with the namespace of
+        whichever module reached the template — under which `boost` is not a
+        name, the recheck silently resolves nothing (its errors are suppressed:
+        it is an annotation harvest), and the clone comes out with untyped
+        locals that surface much later as `local `b` in driven `amplify$1$Lo`
+        has no resolved type` (DF-206e's generic costume).
+
+        Composes with design 204's `_type_lookup_module` rather than duplicating
+        it: this installs the SYMBOL scope (functions, statics, variables) while
+        `_declaring` installs the TYPE-name scope, and both key off the same
+        thing — the declaration's own `source_file`.
+
+        ENTRY POINTS — every per-instantiation recheck (process rule 1):
+          * `_build_fn_mono` — a queued generic free-function instantiation
+          * `_splice_fn_mono` — the post-fixpoint splice the coroutine transform
+            asks for when it promotes a nested suspending generic call
+          * `_build_method_mono` — a method-generic instantiation
+          * `_build_generic_struct_method_mono` — a driven method on a generic
+            struct (design 74 shape 2)
+
+        A declaration whose file was never recorded — a single-file compile, a
+        std template, a synthesized clone with no source — falls back to the
+        current scope, which is what every one of these did before.
+        """
+        src = getattr(decl, 'source_file', None)
+        entry = self._module_scope_by_file.get(src) if src else None
+        if entry is None:
+            with self._declaring(decl):
+                yield
+            return
+        home_path, home_ns = entry
+        saved_ns = self.namespace
+        saved_path = self.current_module_path
+        saved_imports = self.current_direct_imports
+        # The instantiation map: the caller's concrete type arguments, lent into
+        # the template's scope so `w.seed()` finds the caller's conformance.
+        self._lend_instantiation_types(saved_ns, home_ns, type_map)
+        self.namespace = home_ns
+        self.current_module_path = home_path
+        # Design 142: extension lookup reads the DIRECT imports of the file being
+        # checked, so a template that reaches an extension of its own dep keeps
+        # reaching it. `Namespace` does not carry them, so they are re-derived
+        # from the module the template belongs to.
+        self.current_direct_imports = self._direct_imports_by_module.get(
+            home_path, saved_imports)
+        try:
+            with self._declaring(decl):
+                yield
+        finally:
+            self.namespace = saved_ns
+            self.current_module_path = saved_path
+            self.current_direct_imports = saved_imports
 
     def _in_synthesized_context(self) -> bool:
         """Whether the code currently being checked is compiler-synthesized
@@ -2192,6 +2332,19 @@ class TypeChecker(ExpressionsMixin, StatementsMixin, RegistrationMixin, TypeUtil
         # its effect node (keyed by the mangled symbol) is populated before the
         # whole-program fixpoint. Splices concrete clones into `module_ast`, which
         # the coroutine transform and codegen then treat as ordinary functions.
+        # design 210 unit 4: record this module's checked scope against every
+        # source FILE it owns. A GENERIC instantiation is re-checked per
+        # instantiation (designs 70/74 — types AND effects both depend on the
+        # type arguments), and that recheck belongs in the TEMPLATE's home
+        # scope: `boost` is a name in `embedmod` and nowhere else. The key is
+        # the file because that is what a declaration carries;
+        # `_vis_module_for_source` cannot answer it after the fact (it reports
+        # `current_module_path` for anything outside std, which is whoever is
+        # being checked NOW rather than who owns the file).
+        for _src in _module_source_files(module_ast):
+            self._module_scope_by_file[_src] = (module_path, ns)
+        self._direct_imports_by_module[module_path] = set(self.current_direct_imports)
+
         if is_entry:
             self._process_effect_monos(module_ast)
             # design 74 (A5-rest, shape 3): stash the entry module namespace so the
