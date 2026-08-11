@@ -1,5 +1,55 @@
 # Design 206 — the executor's park paths keep the eager-spawn promise
 
+**BLOCKED Aug 10 — DO NOT INTEGRATE THIS BRANCH AS IT STANDS.** Units 1-4 are
+written and both hangs are closed on the `examples/` corpus (suite 1730 passed /
+8 xfailed, gmgate both lanes green, ten-repeat stable), but the FULL battery is
+RED: `bootstrap` and `sos` both fail, because **blade no longer compiles**.
+
+The cause is unit 2's blast radius, and it is a genuine design question rather
+than a slip in the patch — see DF-206e in the tracker. Making `main` suspending
+whenever it REALLY suspends is correct and is what LANGUAGE_SPEC:5053 already
+promised; the consequence is that the coroutine transform now runs on programs
+it has never run on, and it does not support one of them. blade's `main` reaches
+`Command.run` through `builder.Builder.build` — a method of an imported USER
+module — so the transform embeds that method as a sub-frame, and the spliced
+body is re-typechecked in the ENTRY module's namespace, where the callee
+module's own private functions are not visible. blade dies on `resolve`,
+`read_file`, `sos_clang` and friends: "function `resolve` is not directly
+accessible". Cross-module embedding works for a STD method (design 84 built it
+for exactly that, and std is one scoping domain the entry compile has fully
+registered) and not for a user-module one.
+
+Minimal repro, two files, no blade:
+
+    // util.saw
+    import std.process.{Command}
+    public struct Runner { public tag: Int }
+    func inner() -> Int { 7 }
+    extension Runner {
+        public func run_echo(&self) -> Int {
+            var c = Command(program: "/bin/echo")
+            c.arg("hi")
+            let _ = try! c.run()
+            inner() + self.tag                  // error: undefined function `inner`
+        }
+    }
+    // main.saw
+    import util.*
+    func main() { let r = Runner(tag: 1)  print(r.run_echo()) }
+
+This needs a ruling before the brief can land: fix the transform's cross-module
+splice (its own brief), or scope the entry-executor gate, or accept it and
+change blade. What is NOT acceptable is the current tree, which fixes two hangs
+and breaks the package manager.
+
+The unit-1 diagnosis below stands unchanged and is the durable part of this
+work: both hangs are ONE bug and neither park primitive nor the G3 lowering is
+implicated. DF-206a and DF-206b were fixed on discovery and are independently
+good; DF-206c, DF-206d and DF-206e are filed. No user-facing doc change is
+owed — LANGUAGE_SPEC:5053 already says the compiler wraps `main` when it
+"transitively reaches" a cooperative primitive, and the skill's
+any-nesting-depth guarantee already covered the helper-frame case.
+
 **Status: AUTHORED Aug 10 from dogfood wave 1's two probe-confirmed
 liveness hangs (DF-203a, DF-203b). No ruling needed — both violate
 DOCUMENTED contracts (design 89-b's "spawn enqueues a task and it runs
@@ -126,6 +176,61 @@ Per-unit commits, full tracked battery each; gmgate both lanes at -n 5
 mandatory (these are scheduler changes — the flaky-surface discipline
 applies); irdet --all. Ten-repeat stability on the two flipped pins plus
 the two net-adjacent gmgate additions. Zero uncited xfails.
+
+## What landed, unit by unit
+
+1. The diagnosis above, in the brief and in the commit.
+2. `really_suspending(nodes)` as ONE definition shared by both typecheckers;
+   `_std_really_suspending_methods` (node-id-keyed) computed by the builtin
+   compile and seeded into the entry graph by `_effect_seed_std_methods`.
+   DF-203a closes. gmgate concurrency lane gains the spawn-then-accept shape.
+   Beside it: DF-206a's third classifier (`_classify_recv` guarding `let _`).
+3. `_body_has_chan_recv` splits the structural-suspension seed's question from
+   `_scan_method_callees`'s, so the transform's own discovery route agrees with
+   the effect graph rather than being covered by it. DF-203b closes.
+   `examples/channel_receive_in_main.saw` adds the `main`-waits-on-a-channel
+   position (direct and behind a helper). gmgate gains the semaphore shape.
+4. Contract sweep (this section). No user-facing doc change owed.
+
+Before unit 2 could land, two prerequisite compiler bugs had to go (both
+pre-existing, both fix-on-discovery, both blocking a program this brief needed
+to compile): DF-206a (`let _` discards shared one frame field) and DF-206b
+(destructuring a tuple of owning elements in a frame was a copy). Their pins are
+`examples/coro_wildcard_discards_own_slots.saw` and
+`examples/coro_destructure_nocopy_into_frame.saw`.
+
+## The contract sweep (unit 4)
+
+The two fixed paths are load-bearing for every net and channel test, so the full
+battery IS the sweep. Named verifications, all passing:
+
+* **Op-budget fairness (design 89-c + 127)** — `net_budget_fairness`,
+  `taskgroup_compute_preemption`, `taskgroup_compute_preemption_unbounded`,
+  `taskgroup_compute_preemption_mt`, `taskgroup_budget_loop_semantics`.
+* **Precise reactor wakeup (design 91)** — `net_precise_wakeup`,
+  `net_precise_n_readers`, `net_two_concurrent_parked_reads`,
+  `net_cancel_precise`, `net_cancel_parked_read`, `net_cancel_unregisters_token`.
+* **Cancellation + interleaving (designs 102, 180, 89-b)** —
+  `taskgroup_cancel_during_sleep`, `taskgroup_cancel_receive`,
+  `channel_recv_cancel`, `net_io_sleep_interleave`, `taskgroup_spawn_and_loop`.
+
+MT paths were not implicated by the diagnosis and are untouched: the seeded
+nodes change what the ENTRY typechecker infers, and every executor body is
+unchanged Saw.
+
+Obligation 3 (conformance rows first) does not bind: no safety guarantee is
+touched. Nothing became more permitted — the two prerequisite fixes each
+stopped the compiler REFUSING a legal program (DF-206a's second discard,
+DF-206b's owning-tuple destructuring), and DF-206b's replacement semantics are
+exactly what the non-frame path already did. The guarantees this brief restores
+are LIVENESS promises (design 89-b's eager spawn, designs 96/104's any-depth
+drive), which the conformance ledger does not carry rows for; their pins are
+the two `examples/` programs above.
+
+Ten-repeat stability, 10/10 byte-identical output and exit code each:
+`spawned_task_runs_before_reactor_park`, `channel_receive_through_helper`,
+`channel_receive_in_main`, `coro_wildcard_discards_own_slots`,
+`coro_destructure_nocopy_into_frame`.
 
 ## Explicitly out
 

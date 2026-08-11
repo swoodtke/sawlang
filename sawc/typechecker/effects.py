@@ -176,6 +176,13 @@ class EffectsMixin:
         # free-function key is a tuple, a method/closure key a plain int.
         self._suspend_nodes: Dict[Any, SuspendNode] = {}
         self._suspend_stack: List[SuspendNode] = []
+        # design 206: the std METHODS that REALLY suspend, as
+        # `Method.node_id -> (short, real-source label, line)`. Empty here and
+        # filled by the driver out of the builtin namespace (`sawc.py`), because
+        # only the builtin typechecker ever analyzes a std body. Empty is the
+        # right default for the BUILTIN compile itself, which has those bodies in
+        # front of it. `_effect_seed_std_methods` mints a leaf node per entry.
+        self._std_really_suspending_methods: Dict[Any, tuple] = {}
         # design 44: free-function names driven by a `__saw_drive(...)` /
         # `__saw_drive_steps(...)` site, mapped to the set of driver modes requested
         # ({"value", "steps"}). A driven root and its suspending callees are the
@@ -724,7 +731,7 @@ class EffectsMixin:
         `_std_suspending_methods` name set the coroutine transform consults
         structurally.
         """
-        table = getattr(self, "_std_really_suspending_methods", None)
+        table = self._std_really_suspending_methods
         if not table:
             return
         for node_id, (short, label, line) in table.items():

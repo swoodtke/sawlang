@@ -321,14 +321,129 @@ every battery run (checksums GATE — they are a behavioral pin; timing only
 reports). Swift/Rust sources sit beside it as manual baselines so the
 battery takes no swiftc/rustc dependency.
 
+## Design 206 — executor park liveness (BLOCKED on DF-206e, Aug 10)
+
+**The branch is NOT landable.** Both hangs are closed on the `examples/` corpus
+(suite 1730 / 8 xfailed, gmgate both lanes green at -n 5, ten-repeat stable) and
+the full battery is RED: `bootstrap` and `sos` fail because blade no longer
+compiles. See DF-206e below — it needs a ruling, not a patch.
+
+`designs/206-executor-park-liveness.md`, with the unit-1 diagnosis written into
+the brief. DF-203a and DF-203b were ONE bug, and it was neither of the two the
+brief guessed: **the entry compile's effect graph has no node for any std
+METHOD**, so the fixpoint answers NO to "does this body suspend?" for a body
+whose only suspension is a std method call, and every consumer of that answer
+lowers the body as if it never suspended. `main` was then never wrapped in the
+entry executor (DF-203a: `accept`'s `io_wait` took the outside-frame lowering
+that blocks the executor thread in `poll(-1)`), and a helper was never pulled
+into the driven closure (DF-203b: `receive()` compiled to the library body,
+whose `yield_now` is a NO-OP outside a frame — a bare spin). `sleep` differs
+only in being an INTRINSIC, recorded as a direct source on its caller's own
+node; timer-vs-reactor was a coincidence of the two spellings. Neither park
+primitive nor the design-62 G3 receive lowering needed changing.
+`really_suspending(nodes)` (effects.py) is now ONE definition of "really
+suspends" shared by both typecheckers, with its callers and its four routes
+named in its docstring.
+
+Five findings; two fixed, and one of the three filed is the blocker:
+
+- **DF-206e (BLOCKER — needs a ruling) — the coroutine transform cannot embed a
+  method of an imported USER module, and design 206 is what first asks it to.**
+  Unit 2 makes `main` suspending whenever it REALLY suspends, by any route. That
+  is what LANGUAGE_SPEC:5053 already promised, and its consequence is that the
+  transform now runs on programs it has never run on. blade is one: its `main`
+  reaches `Command.run` through `builder.Builder.build`, a method of the
+  imported `builder` module, so the transform embeds that method as a sub-frame
+  — and the spliced body is re-typechecked in the ENTRY module's namespace,
+  where `builder`'s own private functions are not visible. blade dies on
+  `resolve`, `read_file`, `sos_clang`, `arch_for_target`, `write_sosimg`
+  ("function `resolve` is not directly accessible", 24 errors), which takes
+  `bootstrap` and `sos` down with it. Design 84 built cross-module embedding for
+  STD methods and its comment records the "static-inlining fix" that made
+  `INVALID_FD` visible; std works because it is one scoping domain the entry
+  compile has fully registered, and a user module is not.
+
+  Minimal repro (two files, no blade): a `public` struct in `util.saw` whose
+  method calls `Command.run` and a private sibling `inner()`, and a `main` in
+  the entry module that calls the method — `error: undefined function `inner``.
+  Beside it, blade's `main` shows the other half: the frame's own field copies
+  are wrong too (`cannot copy value of type `Cli` which implements ExplicitCopy`
+  at main.saw:0:0).
+
+  THREE WAYS OUT, and the choice is a ruling: (a) fix the transform's
+  cross-module splice so an embedded body keeps its home module's namespace —
+  the honest fix, its own brief, and it makes "a suspending method drives at any
+  depth" true across modules for the first time; (b) scope the entry-executor
+  gate so it does not reach a user-module method (arbitrary, and it would leave
+  the DF-203a family broken for exactly the multi-module programs that hit it);
+  (c) accept the transform and change blade's shape. Nothing here should land
+  until that is decided.
+
+- **DF-206f (UNRESOLVED, not bisected) — `irdet --all` prints OK and then exits
+  139 (SIGSEGV).** On the design-206 tree, run ALONE: "compiled 1089 example(s)
+  twice ... irdet: OK -- every sampled example compiled to byte-identical IR",
+  then a segfault on the way out. The determinism ANSWER is therefore good —
+  every example still compiles to byte-identical IR, which is what the gate is
+  for — but the exit code fails the lane. It does NOT reproduce at 2 examples or
+  at 119 (both exit 0), so it is scale-dependent. Plausibly design 206's, since
+  irdet drives sawc through `Command.output()` and its own `main` is therefore
+  now a coroutine for the first time — the same blast radius as DF-206e, in a
+  program that DOES compile. NOT BISECTED against the pre-change tree (a
+  comparison run is ~10 minutes per side and the branch is blocked on DF-206e
+  regardless), so this is recorded as unresolved rather than attributed.
+
+Of the rest, two fixed here:
+
+- **DF-206a (FIXED) — `let _ = expr` owed a frame field, and every discard in a
+  driven body shared the one named `_`.** `_uniquify_bindings` (DF-151a) exempts
+  `_` on the reasoning that it binds nothing: true of a match arm and an
+  `if let`, false of a `let`. Two discards of different types were a bogus
+  `cannot assign Int to field of type Data?` on a legal program — the
+  `let _ = try! s.read()` / `let _ = h.join()` pair, which is what the DF-203a
+  pin's own `main` says. The fix is not a rename: a discard drops its value AT
+  the statement, so it owes no field at all, which also restores the timing a
+  second same-typed discard had lost (it lived until frame death). THREE
+  classifiers decide a `let`'s frame target and only two guarded `_`;
+  `_classify_recv` now does too. PIN:
+  `examples/coro_wildcard_discards_own_slots.saw`.
+- **DF-206b (FIXED) — destructuring a tuple of OWNING elements in a driven body
+  was a copy.** Design 77 item 10 lowered `let (a, b) = v` as a source temp plus
+  `self.a = __destr0.0`, a tuple-index READ. Right for the `(Int, Int)` tuples
+  it was built for; `let (a, b) = TcpStream.pair()` in a spawned task refused
+  outright with "cannot copy value of type `TcpStream` which implements NoCopy",
+  on a program the non-frame path compiles. Components now come out through the
+  ordinary `DestructuringLet` over an explicit `move` of the source temp. PIN:
+  `examples/coro_destructure_nocopy_into_frame.saw`; the copyable half stays
+  pinned by `df151f_tuple_drop_glue`'s `destructured_across_suspend`.
+- **DF-206c (FILED, not fixed) — a TAIL-position `ch.receive()` is a compile
+  error.** `func take_one(ch: Channel<Int>) -> Int { ch.receive() }` is refused
+  with "suspending call to `receive` ... appears in a nested/expression
+  position; only a top-level `let x = receive(...)` or `receive(...)` statement
+  is supported". That is design 62 G3's stated scope and a CLEAN anchored error,
+  not a liveness bug — but it is the natural spelling of exactly the
+  reusable-wrapper shape DF-203b was about, and the skill's own claim is that a
+  suspending call embeds "in any EXPRESSION position" (design 120). Bind and
+  return is the workaround (`examples/channel_receive_in_main.saw` does).
+  Small: G3 needs the same ANF hoist the other suspending calls got.
+- **DF-206d (OBSERVATION, no action) — the effect graph's std seam is keyed by
+  NAME in the transform and by `node_id` in the typechecker.** Design 84's
+  `_std_suspending_methods` is a set of `(struct, method)` name pairs, so a user
+  struct named `TcpStream` with a method `read` would be treated as suspending
+  by the coroutine transform's structural scan. Design 206's new table is keyed
+  by `Method.node_id` instead — exact, and preserved verbatim across the std
+  cache's pickle — so the two halves of the same seam now disagree about
+  precision. Not a live bug (design 204 made std file-private types unnameable
+  and the transform's imprecision is conservative), and not worth a brief on its
+  own; worth folding into whatever next touches design 84's set.
+
 ## Design 203 dogfood wave 1 — findings (filed Aug 10, lead-triaged, both probe-confirmed)
 
 Six Sonnet naive-implementer programs (203 u1). All six produced correct,
 deterministic, spec-passing programs; the findings cluster in the
 scheduler's park paths, stdlib seams, and diagnostics. The two (d)s:
 
-- **DF-203a (LIVENESS — CONFIRMED HANG): a task spawned before main's
-  FIRST suspension never starts when that suspension is a REACTOR park.**
+- **DF-203a (LIVENESS — CLOSED by design 206, Aug 10): a task spawned before
+  main's FIRST suspension never starts when that suspension is a REACTOR park.**
   `group.spawn(worker())` then `listener.accept()` blocks the executor on
   the OS reactor without draining the run queue, so a worker that would
   CONNECT to that listener never runs — permanent hang. The timer path
@@ -336,18 +451,24 @@ scheduler's park paths, stdlib seams, and diagnostics. The two (d)s:
   three controls; hang re-confirmed by the lead on main). Breaks design
   89-b's "runs EAGERLY" promise on the reactor path; the chatroom
   program's natural spelling (spawn clients, then accept). PIN:
-  `examples/spawned_task_runs_before_reactor_park.saw` (XFAIL, cited —
-  NOTE: costs the 30s runner timeout every suite run; fix soon).
-- **DF-203b (LIVENESS — CONFIRMED HANG): `Channel.receive()` through ONE
-  helper frame in a spawned task hangs.** Direct `ch.receive()` in the
+  `examples/spawned_task_runs_before_reactor_park.saw` (XFAIL REMOVED —
+  it passes). THE DIAGNOSIS WAS NOT THE PARK: `sleep` is an intrinsic and
+  `accept` is a std METHOD, and the entry compile has no effect node for a
+  std method, so `main` was never wrapped in the entry executor at all and
+  `accept`'s `io_wait` took the outside-frame blocking lowering. Timer vs
+  reactor was a coincidence of the two spellings.
+- **DF-203b (LIVENESS — CLOSED by design 206, Aug 10): `Channel.receive()`
+  through ONE helper frame in a spawned task hangs.** Direct `ch.receive()` in the
   task body works; the same operation behind `acquire(ch)` (free function
   OR method — the extra FRAME is the trigger, isolated by a five-probe
   ladder) prints the first entry and stops. Contradicts the documented
   any-nesting-depth guarantee (96/104); suspected root is design 62 G3's
   INLINE receive lowering not composing with an embedding callee frame.
   The reusable-semaphore shape every library writes. PIN:
-  `examples/channel_receive_through_helper.saw` (XFAIL, cited — same
-  30s-per-run cost).
+  `examples/channel_receive_through_helper.saw` (XFAIL REMOVED — it passes).
+  THE G3 LOWERING WAS INNOCENT: the same std-method blind spot left `acquire`
+  out of the driven closure entirely, so its `receive()` compiled to the
+  library body, whose `yield_now` is a no-op outside a frame — a bare spin.
 
 Both belong to ONE subsystem (executor park/drive paths) — candidate
 small brief 206 alongside/ahead of 201, same surface discipline. The
