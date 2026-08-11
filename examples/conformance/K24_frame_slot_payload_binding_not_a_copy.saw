@@ -1,0 +1,51 @@
+// Conformance row K24 — a match-arm payload binding live across a suspension is
+// a FRAME SLOT, and the transform's move into it is not a user copy
+//
+// Design 131's read table and design 139's tiers judge what the SOURCE writes.
+// A local that outlives a suspension is not written anywhere: the coroutine
+// transform moves it into a frame field and reads it back out, and design 131
+// already carved that out for the reads it synthesizes (`frame_place_read`).
+// The carve-out has to cover every slot the transform fills, not just the ones
+// reached through `_read_field` — otherwise a legal program is refused for a
+// copy nobody wrote, at `FILE:0:0`, naming a type the author never duplicated.
+//
+// This is the shape blade's `main` has: a `match` over a `Result` whose Ok
+// payload is an ExplicitCopy struct, with a suspension inside the arm. Design
+// 206 made `main` a coroutine whenever it really suspends, which is what first
+// pointed the frame machinery at it.
+//
+// XFAIL: DF-206e the ExplicitCopy half of the same finding — the transform's move of a match payload binding into a frame slot is re-judged as a user copy on the second pass (`cannot copy value of type `Cli` which implements ExplicitCopy` at 0:0)
+// EXPECT: success
+// EXPECT-OUTPUT:
+// 2
+
+import std.task.{yield_now}
+
+struct Cli { command: Vector<String> }
+
+@synthesize
+extension Cli: ExplicitCopy {}
+
+extension Cli {
+    func parse() -> Result<Cli, Int> {
+        var v: Vector<String> = []
+        v.push("build")
+        Cli(command: move v)
+    }
+    func count(&self) -> Int { self.command.len() }
+}
+
+func step(n: Int) -> Int {
+    yield_now()
+    n + 1
+}
+
+func main() {
+    match Cli.parse() {
+        case Ok(parsed) -> {
+            let n = step(parsed.count())
+            print(n)
+        },
+        case Err(e) -> print(e)
+    }
+}

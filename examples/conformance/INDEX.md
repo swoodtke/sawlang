@@ -6,10 +6,11 @@ either a file in this directory or an existing `examples/` test that already
 asserts the same rule at the same position — this table is the record of which,
 and the dedup decisions are meant to be audited from it.
 
-**95 rows carry a file here; 196 are covered elsewhere.** (The audit's 247 plus
+**98 rows carry a file here; 197 are covered elsewhere.** (The audit's 247 plus
 the rows later briefs added: W02-W05, design 194 unit 4; W06-W19, design 195
 unit 1; X41-X45, design 199 unit 1; M31-M35, design 200 unit 1; V26-V30,
-design 202 unit 1; B09-B12, design 204 unit 1; K14-K20, design 201 unit 1.)
+design 202 unit 1; B09-B12, design 204 unit 1; K14-K20, design 201 unit 1;
+K21-K24, design 210 unit 1.)
 
 ## How to read it
 
@@ -315,7 +316,7 @@ Claim source: spec 5 *Discarding a Result*; design 151
 
 ## Concurrency safety
 
-Claim source: spec 6 *Send and Sync* + *Cooperative tasks*; designs 75, 88, 103, 186, 188 u5, 189, 193 u6, 201
+Claim source: spec 6 *Send and Sync* + *Cooperative tasks*; designs 75, 88, 103, 186, 188 u5, 189, 193 u6, 201, 206, 210
 
 | Row | Checks | Covered by | Ruling |
 |-----|--------|------------|--------|
@@ -339,6 +340,10 @@ Claim source: spec 6 *Send and Sync* + *Cooperative tasks*; designs 75, 88, 103,
 | K18 | a `&var` argument whose root is declared AFTER the group | `K18_spawn_ref_param_after_group.saw` | 201 — design 188's LIFO rule does NOT reach an argument on its own (DF-201a probe: the task pushed into the root after the scope ended, exit 0); it does now |
 | K19 | a reference argument into a MULTI-THREADED group | `K19_spawn_ref_param_mt_send.saw` | 201 — the fence that stays: a reference is not `Send`, so the Send gate refuses it. Regression row |
 | K20 | `move` of a root a spawned task borrows by ARGUMENT | `K20_spawn_ref_param_move_root.saw` | 201 — design 189 probe 5's silent use-after-free, reached through an argument (DF-201a) |
+| K21 | a NON-GENERIC method of an imported USER module embeds with its module-private siblings intact | `K21_cross_module_embed_private_sibling.saw` | 210 — the any-depth drive guarantee (96/104) across a module boundary. Design 84 built the embed for std only; 206 pointed it at user modules and DF-206e was the result |
+| K22 | a GENERIC template of an imported user module, driven at an entry-module instantiation, keeps its HOME module's scope | `K22_cross_module_generic_embed_private_sibling.saw` | 210 — the generic path: the per-instantiation recheck (70/74) stays, and runs in the callee's home namespace |
+| K23 | regression: an imported STD method still embeds and drives | `net_precise_wakeup.saw` + `spawned_task_runs_before_reactor_park.saw` + `channel_receive_through_helper.saw` + `process_run_concurrent.saw` + `coro_nested_yield_wrapper.saw` | 210 — design 84's std-only splice accommodations DISSOLVE into the two uniform paths; these are the rows that say std did not regress with them. Listed rather than copied |
+| K24 | a match-arm payload binding live across a suspension is a frame SLOT, not a user copy | `K24_frame_slot_payload_binding_not_a_copy.saw` | 210 — design 131's `frame_place_read` carve-out generalized: the transform is the authority for every slot it fills, not only the reads it routes through `_read_field` |
 
 ## Visibility and module boundaries
 
@@ -504,7 +509,11 @@ Obligation 3 asks a safety-surface brief for its rows FIRST, so a row that
 states a ruling the compiler has not been taught yet lands as a cited XFAIL and
 the unit that teaches it removes the marker.
 
-None are open.
+Open: **K21, K22, K24** — design 210's three rows, all citing DF-206e. K21 and
+K22 state the cross-module embedding guarantee the two paths make true (unit 3
+removes K21's marker, unit 4 K22's); K24 states the frame-slot authority rule
+and flips with unit 3. K23 needs no marker — it names the std rows that must
+keep passing while design 84's std-only accommodations are dissolved.
 
 Closed: **K14-K20** — design 201's seven rows. The four refusals (K15, K17,
 K18, K20) flipped with the typechecker in unit 2 — the extent it tracks reports

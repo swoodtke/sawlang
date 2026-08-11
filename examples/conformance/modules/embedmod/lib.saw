@@ -1,0 +1,50 @@
+// Helper module for conformance rows K21 and K22 (design 210).
+//
+// An imported USER module whose PUBLIC suspending surface calls MODULE-PRIVATE
+// siblings. The entry module drives that surface, so the coroutine transform
+// embeds these bodies into the entry frame as sub-frames — and `boost` and
+// `inner` must still resolve afterwards. They are private to this file: nothing
+// the entry module writes could name them, and nothing it does should have to.
+
+import std.task.{yield_now}
+
+// The two module-private siblings. Neither is `public`, so an importer cannot
+// name either one — the embed is the only thing that ever moves them.
+func inner() -> Int { 7 }
+
+func boost(n: Int) -> Int { n + 100 }
+
+// ---- K21: the NON-GENERIC shape ----------------------------------------
+
+public struct Runner { public tag: Int }
+
+public extension Runner {
+    /// Suspends, and reaches a private sibling on each side of the suspension.
+    public func run(&self) -> Int {
+        let a = inner()
+        yield_now()
+        a + boost(self.tag)
+    }
+}
+
+// ---- K22: the GENERIC shape --------------------------------------------
+
+public trait Seed { func seed(&self) -> Int }
+
+/// A generic suspending free function over a private sibling.
+public func amplify<T: Seed>(w: T) -> Int {
+    let b = boost(w.seed())
+    yield_now()
+    b
+}
+
+public struct Cell<T: Seed> { public item: T }
+
+public extension Cell<T: Seed> {
+    /// A generic STRUCT's suspending method over the same private sibling.
+    public func charge(&self) -> Int {
+        let b = boost(self.item.seed())
+        yield_now()
+        b + inner()
+    }
+}

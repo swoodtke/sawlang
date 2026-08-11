@@ -1,0 +1,35 @@
+// Conformance row K22 — a GENERIC template of an imported USER module, driven
+// at an entry-module instantiation, keeps its HOME module's scope
+//
+// The generic twin of K21. A generic body cannot be embedded from its
+// declaration-time annotations alone: designs 70/74 re-infer types AND effects
+// per instantiation, because both depend on the type arguments. Design 210's
+// generic path keeps that recheck and moves it into the callee's HOME module
+// namespace (design 204's `_type_lookup_module` funnel plus the instantiation
+// map), so `boost` and `inner` resolve where they were written.
+//
+// Both generic shapes are here: a free function (`amplify<Lo>`) and a generic
+// STRUCT's method (`Cell<Lo>.charge`), each at one instantiation from a type
+// the entry module owns.
+//
+// XFAIL: DF-206e the per-instantiation recheck runs in the ENTRY module's namespace, so a cross-module template naming a private sibling loses it — the clone's locals come out with no resolved type
+// COMPILE-FLAGS: --module-path embedmod={TESTDIR}/modules/embedmod
+// EXPECT: success
+// EXPECT-OUTPUT:
+// 105
+// 114
+
+import embedmod.{Seed, amplify, Cell}
+
+struct Lo { n: Int }
+extension Lo: Seed { func seed(&self) -> Int { self.n } }
+
+func run_free(x: Int) -> Int {
+    amplify<Lo>(Lo(n: x))
+}
+
+func main() {
+    print(__saw_drive(run_free(5)))
+    var c = Cell<Lo>(item: Lo(n: 7))
+    print(__saw_drive(c.charge()))
+}

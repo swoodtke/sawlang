@@ -1,0 +1,27 @@
+// Conformance row K21 — a NON-GENERIC method of an imported USER module embeds
+// into the caller's frame with its own module's private siblings intact
+//
+// Designs 96/104 promise that a suspending call drives at ANY nesting depth,
+// and design 150 makes user modules and std one uniform import model. Put
+// together, they say this program runs: `Runner.run` lives in `embedmod`, it
+// suspends, and `main` calls it — so the coroutine transform embeds `run` as a
+// sub-frame of `main`'s. `run`'s body names `inner` and `boost`, which are
+// private to `embedmod`.
+//
+// Design 210's non-generic path is what makes that true: the embed carries the
+// declaration-time annotations, so the spliced body is never re-resolved in the
+// entry module's namespace — where `inner` and `boost` are, correctly, not
+// names at all.
+//
+// XFAIL: DF-206e the coroutine transform re-typechecks a spliced imported body in the ENTRY module's namespace, so a callee module's private siblings stop resolving (`undefined function inner`)
+// COMPILE-FLAGS: --module-path embedmod={TESTDIR}/modules/embedmod
+// EXPECT: success
+// EXPECT-OUTPUT:
+// 108
+
+import embedmod.{Runner}
+
+func main() {
+    let r = Runner(tag: 1)
+    print(r.run())
+}
