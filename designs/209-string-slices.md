@@ -42,27 +42,43 @@ per piece instead of N allocations and byte copies; `trim`/`trim_start`
    the TYPE, and the `Data.detached()` precedent names the escape
    hatch.
 
-## [OPEN] — the user's calls
+## RULED (Aug 10, continued)
 
-- **The type name.** Candidates: `Substring` (Swift's, familiar),
-  `StrSlice`, `StringSlice`, `Str`. (DF-153b's lesson: whatever the
-  name, it is a PUBLIC std type — it reserves its name knowingly.)
+3. **The name is `StringSlice`** — the fully-named Saw convention
+   (`StringBuilder`, `TcpListener`), not Swift's `Substring`. A PUBLIC
+   std type; reserves its name knowingly (DF-153b's lesson).
+4. **Interchange rides a TRAIT, and the trait IS the implementation.**
+   `StringView` (name confirmable at brief-finalization) declares two
+   primitives — `len(&self) -> Int`, `byte_at(&self, i: Int) -> Int8` —
+   and carries the whole read-only surface as DEFAULT BODIES over them
+   (`contains`/`starts_with`/`ends_with`/trims/parsers). `String` and
+   `StringSlice` conform by supplying the primitives; one copy of every
+   algorithm, provably identical on both. LIMITATION to design around:
+   primitives cannot be erased (design 176), so `&any StringView` with
+   a `String` inside is impossible — interchange is the GENERIC BOUND
+   `<S: StringView>`, monomorphized. POLICY (the Swift StringProtocol
+   cautionary tale, adopted): std takes the bound only where READING is
+   the contract (parse/search/compare); anything that KEEPS text (a
+   field, a Map key, storage) takes `String`, and callers write
+   `.to_string()` — the allocation is the detach decision and stays
+   visible, per no-hidden-alloc grain. `Printable` on `StringSlice`
+   covers interpolation/print, the largest interchange class in
+   practice. Map-key interop is a real boundary either way
+   (`Map<String, V>` probed by a slice needs conversion; a borrowed-key
+   lookup story is its own future design, noted not taken).
+
+## [OPEN] — remaining calls
+
 - **`split`'s signature.** (a) CHANGE `split` to return
-  `Vector<Substring>` (one blessed spelling, a breaking change with a
+  `Vector<StringSlice>` (one blessed spelling, a breaking change with a
   consumer sweep — the toml/blade call sites migrate); or (b) keep
   `split` allocating and add a `split_slices` twin (no breakage, two
-  spellings forever). The infer-when-accurate doctrine has no opinion
-  here; the never-two-spellings instinct leans (a).
-- **The shared read-only surface.** Which String methods the slice
-  offers: `len`/`is_empty`/`byte_at`/`chars`/`bytes`/`contains`/
-  `starts_with`/`ends_with`/`trim*` (returning slices)/`to_int*`/
-  `to_uint*`/`to_float`/`==`/`Hashable` (MUST hash equal to the equal
-  String — Map interop)/`Printable`/interpolation. Mechanism: duplicated
-  extensions vs a shared trait vs a slice-only surface with
-  `.to_string()` for the rest — the maintenance shape is the lead's
-  proposal to make, the surface list is the user's call.
-- **Does `String` gain `slice(start, len) -> Substring` + range
-  spelling, and does `substring` (allocating) survive beside it?**
+  spellings forever). The never-two-spellings instinct leans (a).
+- **The exact default-body surface list** (which of `chars`/`bytes`/
+  the parsers ride the trait vs stay String-only) — proposed at brief
+  finalization, user confirms.
+- **Does `String` gain `slice(start, len) -> StringSlice` + a range
+  spelling, and does allocating `substring` survive beside it?**
 
 ## Sketch of units (firms up when the [OPEN]s close)
 
