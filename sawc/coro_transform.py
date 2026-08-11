@@ -26,6 +26,103 @@ Staging (this file grows across the brief's items):
 
 `transform_program(program, typechecker)` mutates `program` in place and returns
 True iff it changed anything (i.e. there were driven roots).
+
+
+THE EMBED CONTRACT (design 210 unit 2) — what an imported declaration exports
+============================================================================
+
+Embedding an imported function into a driven frame means splicing its
+already-checked body into the ENTRY module's AST. Design 210 rules that a
+NON-GENERIC declaration's declaration-time annotations are SUFFICIENT for that
+— the spliced body is never re-resolved — so this is the written-down list of
+what "sufficient" covers, and the thing to check a new embed requirement
+against. It is an IN-MEMORY interface today and deliberately kept
+serializable: it is the same per-declaration shape a separate-compilation
+module interface would need. Nothing here is serialized; that is explicitly
+out of design 210.
+
+SIX FAMILIES. Five ride the AST as DECLARED `annotation(...)` fields (design
+126, gated by the `astgraft` lane — 813 declared attribute names across
+`sawc/`, zero grafted writes); the sixth rides beside it, keyed by `node_id`.
+
+1. RESOLVED EXPRESSION TYPES. `Expression.resolved_type` on every node
+   (`_check_expression` is the one chokepoint that stamps it), plus the
+   derived type records a later pass cannot recover without re-resolving:
+   `resolved_type_identity` (design 144 — WHICH module's `Color`),
+   `expected_type`, `autowrap_to_optional`, `matched_enum_type`,
+   `matched_scrutinee_type`, `result_enum_type`, `error_type`/`error_types`,
+   `vector_container_type`, `spawn_result_type`, `arc_forward_payload_type`,
+   `box_forward_payload_type`, `um_scalar_type`, `place_elem_type`. The frame
+   builder's own input is in this family too: the resolved type of every local
+   it lifts into a field is what the frame struct is built out of.
+
+2. RESOLVED CALLEE SYMBOLS AND DISPATCH DECISIONS. `resolved_symbol` on
+   `FunctionCall` and `MethodCall` (design 95's overload answer), `arg_plan`,
+   `resolved_init_params`, `resolved_field_inits`, `authored_callee`,
+   `existential_dispatch`, `is_field_call`/`field_call_unwrap`,
+   `array_builtin`, `is_static_method_call`/`static_receiver`,
+   `resolved_module`/`resolved_module_symbol`/`resolved_static_name`/
+   `resolved_struct_name`/`resolved_static_symbol`, `mangled_symbol`,
+   `tuple_field_index`, `enum_raw_value`/`enum_from_raw`/`resolved_enum_init`,
+   `alias_construction`, `as_function_call`, `type_args_inferred`,
+   `const_param_name`/`const_static_value`/`const_static_reject`,
+   `int_limit`/`int_from`, `optional_take`, `cast_check`, `repeat_count`,
+   `use_general_match`, the three `is_*_construct` markers,
+   `interior_cell_ptr`, the erasure set (`erased_box_make`,
+   `erased_downcast`, `erase_propagate`, `erase_concrete`, `erase_to_trait`,
+   `to_pointer_cast`) and the `um_*` unsafe-memory set.
+
+   THIS is the family DF-206e lost. Every one of these was answered in the
+   callee's OWN module, and re-answering them under the entry module's
+   namespace is what asks for `inner` in a scope where `inner` is not a name.
+
+3. EFFECT AND SUSPENSION FACTS — what decides the state splits. On the AST:
+   `MethodCall.is_chan_recv` (design 62 G3's inline lowering),
+   `is_yield_intrinsic` (design 114's wrapper), `spawn_root`, `blk_extern`
+   (design 103's offload), `GuardLetStatement._coro_split` /
+   `IfLetExpr._coro_split`, `WhileExpr.diverges`. BESIDE the AST: the design-22
+   effect graph (`typechecker._suspend_nodes`, keyed by `node_id` for a method
+   and `("fn", name)` for a function), whose one answer is
+   `effects.really_suspending`. The graph is the single family that is not an
+   annotation, and it is keyed by `node_id` — per-declaration and serializable
+   exactly as the AST is. It is CARRIED for a non-generic embed and RE-DERIVED
+   for a generic instantiation, because designs 70/74 make effects depend on
+   the type arguments.
+
+4. PLACE AND COPY JUDGMENTS. `needs_copy` (the move checker's verdict at a
+   transfer site), `payload_needs_copy` (design 131's optional-payload
+   retain), `closure_lend`, `enum_variant_literal` (design 139),
+   `place_value_read`/`place_abstract_read`, `MatchArm.lent_bindings`,
+   `ReferenceExpr.from_lend`, and on the declaration
+   `place_type`/`place_optional`/`place_lend_paths`/`place_self_by_pointer`/
+   `place_lend_var`/`place_var_twin`. Place LOWERING runs before the transform
+   and is not re-run on re-entry (`places_lowered=True`), so an embed consumes
+   its output rather than reproducing it.
+
+5. WHAT THE TRANSFORM STAMPS ITSELF — produced, not consumed. Every node the
+   transform synthesizes for a mechanical rewrite carries the transform's own
+   judgment instead of asking the language's: `frame_place_read` (design 131)
+   and the `ForceUnwrap` pair `frame_owning_read`/`frame_move_read`. The
+   transform is the AUTHORITY for what it synthesizes — one funnel, entry
+   points named in its docstring.
+
+6. NO-ESCAPE FACTS — carried by construction, stamped nowhere. `noescape.py`'s
+   `first_reference_in` is a declaration-time REFUSAL with three entries
+   (`parser/types.py`'s signature walk, `_first_laundered_reference`,
+   `_first_reference_in_type` for an inferred closure return). A body that
+   would let a reference escape does not compile, so an embed of a body that
+   DID compile inherits the answer with nothing to carry. Design 88's
+   spawn-frame confinement and design 201's task-borrow extent are checked
+   against the FRAME the transform builds, not against the spliced body, so
+   they are glue-side obligations rather than contract entries.
+
+THE CLOSURE PROOF is the astgraft gate. A fact the embed needs but no class
+declares would have to be a runtime graft; `tools/test_ast_graft.py` fails on
+any attribute assignment in `sawc/` that no class declares, and
+`substitute_ast_types` — the monomorphizer — walks `dataclasses.fields()`, so
+an undeclared fact would additionally survive monomorphization stale. Anything
+an embed turns out to need that is not in the six families above is a FINDING
+against this schema, to be declared and listed here; never a graft.
 """
 
 import dataclasses

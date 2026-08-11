@@ -89,6 +89,52 @@ serialized now (explicitly out).
    section's cross-module story; close out DF-206e/DF-203a/DF-203b in
    the tracker; design 206's brief flips from BLOCKED to LANDED-VIA-210.
 
+## The contract, enumerated (unit 2)
+
+Written down in full as the module docstring of `sawc/coro_transform.py`
+("THE EMBED CONTRACT"); the summary here is the index into it.
+
+An embed consumes SIX families. Five are DECLARED `annotation(...)` fields on
+AST node classes (design 126); the sixth is the effect graph, which rides
+beside the AST keyed by `node_id`.
+
+1. **Resolved expression types** — `resolved_type` on every node plus the
+   derived records a later pass cannot recover without re-resolving
+   (`resolved_type_identity`, `expected_type`, `autowrap_to_optional`, the
+   match/result/error type records, the forward payload types). The frame
+   struct is BUILT out of this family: a field's type is its local's resolved
+   type.
+2. **Resolved callee symbols and dispatch decisions** — `resolved_symbol`,
+   `arg_plan`, `resolved_init_params`, `existential_dispatch`, `mangled_symbol`,
+   the module/static/struct resolution records, the enum and erasure sets, the
+   `um_*` set. **This is the family DF-206e lost**: each was answered in the
+   callee's own module, and re-answering them under the entry namespace is
+   exactly the request for `inner` in a scope that has no `inner`.
+3. **Effect and suspension facts** — the state splits. On the AST:
+   `is_chan_recv`, `is_yield_intrinsic`, `spawn_root`, `blk_extern`, the two
+   `_coro_split` markers, `WhileExpr.diverges`. Beside it: the design-22 graph
+   (`_suspend_nodes`), funnelled by design 206's `really_suspending`. CARRIED
+   for a non-generic embed; RE-DERIVED per instantiation for a generic one,
+   because designs 70/74 make effects depend on the type arguments.
+4. **Place and copy judgments** — `needs_copy`, `payload_needs_copy`,
+   `closure_lend`, `enum_variant_literal`, `place_value_read` /
+   `place_abstract_read`, `lent_bindings`, `from_lend`, and the declaration's
+   `place_*` set. Place lowering runs BEFORE the transform and is not re-run,
+   so an embed consumes its output.
+5. **What the transform stamps itself** — produced, not consumed:
+   `frame_place_read` and the `ForceUnwrap` pair
+   `frame_owning_read`/`frame_move_read`. Unit 3 turns this from a scattered
+   habit into the one authority.
+6. **No-escape facts** — carried by construction, stamped nowhere. The
+   no-escape walk is a declaration-time refusal, so a body that compiled
+   inherits its answer with nothing to carry.
+
+**The closure proof is the astgraft gate** (813 declared attribute names,
+zero grafted writes at unit 2): a fact the embed needed but no class declared
+would have to be a graft, and the lane fails on any graft. Anything an embed
+turns out to need beyond these six is a FINDING against the schema — declared
+and listed — never a graft.
+
 ## Gates
 
 Per-unit commits, full suite each; the FINAL gate is the full tracked
