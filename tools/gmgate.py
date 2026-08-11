@@ -260,6 +260,13 @@ CONCURRENCY_GATE = [
     # Malloc is what turns "main's frame was released a beat early" into a
     # fault rather than a passing test.
     "examples/spawned_task_runs_before_reactor_park.saw",
+    # The semaphore-wrapper shape: a helper frame between a task and a channel
+    # `receive()`. Two tasks pass one token through a channel, so the value
+    # crosses task boundaries while `acquire`'s frame is EMBEDDED BY VALUE in
+    # each worker's frame — a sub-frame whose storage is interior to another
+    # allocation, which is exactly the arrangement a stale interior pointer
+    # survives unnoticed under the ordinary allocator.
+    "examples/channel_receive_through_helper.saw",
 
     # --- Values crossing a task boundary -------------------------------------
     # Owning values moved through a cooperative channel: the sender gives up

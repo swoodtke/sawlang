@@ -1,0 +1,54 @@
+// `main` waiting on a channel a spawned task fills — the other half of DF-203b,
+// at the position the pin next door does not cover.
+//
+// `Channel.receive()` is a std METHOD, so before design 206 the entry compile's
+// effect graph saw no suspension in this `main` at all: it was never wrapped in
+// the entry executor, the receive compiled to the library body, and that body's
+// `yield_now()` codegens to NOTHING outside a coroutine frame. `main` spun on
+// `try_receive` at 100% of a core while the producer that would have sent the
+// value sat in the run queue, never once given a turn. Both spellings are here
+// — the direct receive and the one behind a helper — because a body reaches the
+// executor through two independent routes (the effect fixpoint's `main` gate and
+// the coroutine transform's driven closure) and each covers a different one.
+// EXPECT: success
+// EXPECT-OUTPUT:
+// waiting
+// producing 7
+// got 7
+// waiting again
+// producing 9
+// got 9 through helper
+
+import std.task.*
+import std.channel.{Channel}
+
+func producer(ch: Channel<Int>, n: Int) {
+    yield_now()
+    print("producing {n}")
+    ch.send(n)
+}
+
+// The reusable-wrapper shape: one frame between the caller and the receive.
+// The receive is bound and then returned rather than written as the tail
+// expression — design 62 G3 lowers `receive()` inline from a top-level `let` or
+// a bare statement only, and a tail-position one is a clean anchored error
+// naming those two forms (DF-206c).
+func take_one(ch: Channel<Int>) -> Int {
+    let v = ch.receive()
+    v
+}
+
+func main() {
+    var ch = Channel<Int>()
+    var group = TaskGroup()
+
+    let _ = group.spawn(producer(ch, 7))
+    print("waiting")
+    let first = ch.receive()
+    print("got {first}")
+
+    let _ = group.spawn(producer(ch, 9))
+    print("waiting again")
+    let second = take_one(ch)
+    print("got {second} through helper")
+}

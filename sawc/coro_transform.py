@@ -6048,6 +6048,21 @@ def transform_program(program, typechecker, imported_ast=None):
                     out.append(("method", mid))
         return out
 
+    def _body_has_chan_recv(body):
+        """Does `body` contain a cooperative `Channel.receive()` (design 62 G3)?
+
+        The twin of `_scan_method_callees` for the ONE suspending method call
+        that embeds no frame — a receive is lowered inline into the calling
+        frame, so it is a suspension with nothing to enqueue. Kept separate
+        because the two callers want different answers: the closure WALK wants
+        frames to build, the structural-suspension SEED wants to know whether
+        the body suspends at all.
+        """
+        for mc in _iter_method_calls(body):
+            if getattr(mc, 'is_chan_recv', False):
+                return True
+        return False
+
     # design 96: the effect fixpoint cannot see suspension that arises SOLELY from
     # a nested std METHOD call — a std method's effect node is absent (the same gap
     # `_scan_method_callees` works around), so a call edge to it never propagates
@@ -6064,11 +6079,23 @@ def transform_program(program, typechecker, imported_ast=None):
     # executor) instead of blocking the thread. Only ADDS genuinely-suspending fns
     # (`_scan_method_callees` never yields a non-suspending method), so no over-
     # inclusion; a fn the fixpoint already marks stays followed via `t.suspends`.
+    #
+    # design 206: `_scan_method_callees` answers "which callee FRAMES does this
+    # body embed", and this seed asks "does this body suspend at all" — two
+    # questions, and a channel `receive()` answers them differently. It embeds
+    # nothing (design 62 G3 lowers it INLINE, so the scan skips it, correctly)
+    # and it suspends absolutely (its loop is `try_receive` + `yield_now`). One
+    # scan served both, so `acquire(ch)` — a helper whose ONLY suspension is a
+    # receive — was left out of the closure, got no frame, and its `receive()`
+    # compiled to the library body whose `yield_now` is a NO-OP outside a frame:
+    # an infinite spin, DF-203b. Unit 2 made the effect FIXPOINT answer this
+    # correctly too; the two routes agree now rather than one covering for the
+    # other, which is the point of asking each its own question.
     structurally_susp_fns = set()
     for _fname, _f in funcs_by_name.items():
         if getattr(_f, 'type_params', None):
             continue
-        if _scan_method_callees(_f.body):
+        if _scan_method_callees(_f.body) or _body_has_chan_recv(_f.body):
             structurally_susp_fns.add(_fname)
     _susp_changed = True
     while _susp_changed:
