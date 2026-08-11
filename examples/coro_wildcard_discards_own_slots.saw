@@ -1,0 +1,63 @@
+// DF-206a: two `let _ = ...` discards in one driven body are TWO bindings, so
+// each owns its own frame slot.
+//
+// `_uniquify_bindings` (DF-151a) exists to make a name a binding identity, and
+// it exempted `_` on the reasoning that `_` binds nothing. True of a match arm
+// and an `if let`; false of a `let`, which still gets a frame FIELD holding the
+// discarded value until the frame drops it. So two discards shared one field:
+// with different types the second was a bogus `cannot assign Int to field of
+// type Arc<Res>?` on a legal program — the shape `let _ = try! s.read()` then
+// `let _ = h.join()` takes, and the reason the design-206 pin next door could
+// not compile once its `main` became a coroutine.
+//
+// ORACLE: `LIVE` counts live `Res` values. Each discard consumes one and drops
+// it exactly once, so the count is back to zero at every observation — one
+// field doing two jobs would drop one value twice or not at all.
+// EXPECT: success
+// EXPECT-OUTPUT:
+// after first 0
+// after second 0
+// after third 0
+// done 0
+
+import std.task.*
+
+static LIVE: Atomic<Int> = Atomic(0)
+
+struct Res {
+    name: String
+}
+
+extension Res: NoCopy {
+    func deinit(&var self) { LIVE.fetch_add(0 - 1) }
+}
+
+func res(tag: Int) -> Arc<Res> {
+    LIVE.fetch_add(1)
+    Arc<Res>(value: Res(name: "r-{tag}"))
+}
+
+// A suspending producer, so the discard it feeds is a frame-resident local.
+func owning(tag: Int) -> Arc<Res> {
+    yield_now()
+    res(tag: tag)
+}
+
+func plain() -> Int { 7 }
+
+func body() -> Int {
+    let _ = owning(tag: 1)
+    print("after first {LIVE.load()}")
+    let _ = plain()                 // a DIFFERENT type — the failing pair
+    print("after second {LIVE.load()}")
+    yield_now()
+    let _ = owning(tag: 2)          // a third discard, owning again
+    print("after third {LIVE.load()}")
+    LIVE.load()
+}
+
+func main() {
+    var group = TaskGroup()
+    let h = group.spawn(body())
+    print("done {h.join()}")
+}

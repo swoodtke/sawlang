@@ -2138,7 +2138,16 @@ class _FrameBuilder:
 
         def walk_stmt(s, scope_spans, force=False):
             if isinstance(s, LetStatement):
-                if scope_spans:
+                # DF-206a: `let _ = expr` is a DISCARD — it consumes the value and
+                # drops it at the statement, so nothing about it crosses a state
+                # boundary and it owes no field. Giving it one was worse than
+                # wasteful: every discard in a body shared the ONE field named
+                # `_`, so a second one of a different type was a bogus "cannot
+                # assign `Int` to field of type `Data?`" on a legal program (the
+                # `let _ = try! s.read()` / `let _ = h.join()` pair), and one of
+                # the same type held its value alive until the frame died instead
+                # of dropping it where it was written.
+                if scope_spans and s.name != "_":
                     t = s.type_annotation or getattr(s.value, 'resolved_type', None)
                     add(s.name, t, s.line, s.column)
                 return
@@ -2286,22 +2295,48 @@ class _FrameBuilder:
         fields exactly like the classic enum `arm.bindings` (design 101)."""
         return pattern_binding_names(pattern)
 
-    def _destructure_assigns(self, pattern, base_expr, out, line, col):
-        """Append `self.<leaf> = <base>.<i>...` assignments for each binding leaf
-        of a tuple pattern (design 77 item 10). `base_expr` indexes into the
-        source temp; nested tuple patterns recurse through `TupleIndex`."""
-        if isinstance(pattern, TuplePattern):
-            for i, sub in enumerate(pattern.elements):
-                idx = TupleIndex(tuple_expr=base_expr, index=i, line=line, column=col)
-                self._destructure_assigns(sub, idx, out, line, col)
-            return
-        if isinstance(pattern, BindingPattern):
-            out.append(AssignStatement(
-                target=_self_field(pattern.name, line, col),
-                value=base_expr, line=line, column=col))
-            return
-        # WildcardPattern: bind nothing (the component is dropped; POD tuples in
-        # v1 need no explicit drop).
+    def _destructure_temp_pattern(self, pattern, line, col):
+        """A copy of `pattern` with every binding leaf renamed to a fresh temp,
+        plus the `self.<leaf> = move <temp>` statements that follow it (DF-206b).
+
+        Design 77 item 10 lowered `let (a, b) = v` as a source temp plus
+        `self.a = __destr0.0` — a tuple-index READ, i.e. a COPY of the element.
+        Right for the `(Int, Int)` tuples it was built for, wrong the moment an
+        element OWNS anything: `let (a, b) = TcpStream.pair()` inside a driven
+        body refused outright with "cannot copy value of type `TcpStream` which
+        implements NoCopy", on a program the non-frame path compiles. There the
+        source is a temporary and each component MOVES out (design 35 L1); the
+        frame lowering turned that temporary into a named local and then read
+        its elements, which is a different operation.
+
+        So the components come out through the ordinary `DestructuringLet`
+        instead, over an explicit `move` of the source temp — the spelling whose
+        codegen transfers rather than retains, and which therefore says the same
+        thing for a NoCopy element and an ImplicitCopy one. The source temp
+        itself still takes the value with whatever semantics the SOURCE
+        EXPRESSION has (a frame-field read retains, a call result moves), so
+        `let (a, b) = t` keeps `t` live and its own reference exactly as it does
+        outside a frame. Wildcards keep their `_` and so keep the non-frame
+        path's drop of a discarded component.
+        """
+        moves = []
+
+        def rebuild(pat):
+            if isinstance(pat, TuplePattern):
+                return TuplePattern(
+                    elements=[rebuild(p) for p in pat.elements],
+                    line=pat.line, column=pat.column)
+            if isinstance(pat, BindingPattern):
+                tmp = f"__destr{self._destr_ctr}"
+                self._destr_ctr += 1
+                moves.append(AssignStatement(
+                    target=_self_field(pat.name, line, col),
+                    value=MoveExpr(variable=tmp, line=line, column=col),
+                    line=line, column=col))
+                return BindingPattern(name=tmp, line=pat.line, column=pat.column)
+            return pat
+
+        return rebuild(pattern), moves
 
     # ------------------------------------------------------------------ #
     # suspension analysis over the body (CFG split decisions, design 52)
@@ -4556,18 +4591,26 @@ class _FrameBuilder:
 
         if isinstance(s, DestructuringLet):
             # `let (a, b) = value` across a suspension (design 77 item 10): bind
-            # the source tuple to a fresh straight-line temp, then assign each
-            # frame-resident leaf `self.<name> = __t.<i>` (the assignment
-            # auto-wraps an opt-encoded field to Some). Wildcards bind nothing.
+            # the source tuple to a fresh straight-line temp, destructure a
+            # `move` of it into per-leaf temps with the ORDINARY lowering, then
+            # move each temp into its frame-resident field (the assignment
+            # auto-wraps an opt-encoded field to Some). See
+            # `_destructure_temp_pattern` for why the original
+            # `self.<leaf> = __t.<i>` read was the wrong operation (DF-206b).
             forgets = []
             cap_lets, value = self._rewrite_hosting(s.value, forgets)
-            tmp = f"__destr{self._destr_ctr}"
+            src = f"__destrsrc{self._destr_ctr}"
             self._destr_ctr += 1
             out = list(cap_lets)
-            out.append(LetStatement(name=tmp, type_annotation=None, value=value,
+            out.append(LetStatement(name=src, type_annotation=None, value=value,
                                     mutable=False, line=s.line, column=s.column))
-            base = Identifier(name=tmp, line=s.line, column=s.column)
-            self._destructure_assigns(s.pattern, base, out, s.line, s.column)
+            temp_pattern, moves = self._destructure_temp_pattern(
+                s.pattern, s.line, s.column)
+            out.append(DestructuringLet(
+                pattern=temp_pattern,
+                value=MoveExpr(variable=src, line=s.line, column=s.column),
+                mutable=False, line=s.line, column=s.column))
+            out.extend(moves)
             return out + self._forgets(forgets)
 
         if isinstance(s, LetStatement):

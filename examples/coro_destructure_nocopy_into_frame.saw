@@ -1,0 +1,70 @@
+// DF-206b: destructuring a tuple of OWNING elements inside a driven body binds
+// each leaf by MOVE, exactly as it does outside one.
+//
+// Design 77 item 10 lowered `let (a, b) = v` in a frame as a source temp plus
+// `self.a = __destr0.0` — a tuple-index READ, i.e. a copy of the element. Right
+// for the `(Int, Int)` tuples it was built for, wrong the moment an element
+// owns anything: `let (a, b) = TcpStream.pair()` in a spawned task refused with
+// "cannot copy value of type `TcpStream` which implements NoCopy", on a program
+// the non-frame path compiles. The components come out through the ordinary
+// destructuring over a `move` of the source now, which transfers rather than
+// retains and so says the same thing for a NoCopy element and a copyable one.
+//
+// ORACLE: `LIVE` counts live `Res` values, so each element is destroyed exactly
+// once — the wildcard element too, whose component the destructuring drops on
+// the spot. `df151f_tuple_drop_glue` covers the COPYABLE side of the same
+// lowering (an ImplicitCopy element read out of a frame-resident tuple must
+// still retain, and its `destructured_across_suspend` says so).
+// EXPECT: success
+// EXPECT-OUTPUT:
+// pair 8 live 2
+// after pair 0
+// wildcard 5 live 1
+// after wildcard 0
+// done 0
+
+import std.task.*
+
+static LIVE: Atomic<Int> = Atomic(0)
+
+struct Res {
+    name: String
+}
+
+extension Res: NoCopy {
+    func deinit(&var self) { LIVE.fetch_add(0 - 1) }
+}
+
+func make_pair(k: Int) -> (Res, Res) {
+    LIVE.fetch_add(2)
+    (Res(name: "aaa-{k}"), Res(name: "b-{k}"))
+}
+
+// Both leaves bound, both held across a suspension: two frame-resident owners,
+// one destruction each.
+func pair(k: Int) -> Int {
+    let (a, b) = make_pair(k)
+    yield_now()
+    print("pair {a.name.len() + b.name.len()} live {LIVE.load()}")
+    0
+}
+
+// A per-position `_` discards its component where it stands, so only the bound
+// leaf reaches the frame.
+func wildcard(k: Int) -> Int {
+    let (a, _) = make_pair(k)
+    yield_now()
+    print("wildcard {a.name.len()} live {LIVE.load()}")
+    0
+}
+
+func main() {
+    var group = TaskGroup()
+    let h = group.spawn(pair(1))
+    let _ = h.join()
+    print("after pair {LIVE.load()}")
+    let h2 = group.spawn(wildcard(2))
+    let _ = h2.join()
+    print("after wildcard {LIVE.load()}")
+    print("done {LIVE.load()}")
+}
