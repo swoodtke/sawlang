@@ -1,20 +1,28 @@
-// A task spawned before main's FIRST suspension must get its first turn even
-// when that suspension is a REACTOR park (design 89-b: "spawn enqueues a task
-// ... and it runs EAGERLY — whenever the executor runs, not only at join").
-// Today that promise holds for the timer path (a `sleep` runs the queued
-// tasks) but NOT the reactor path: `listener.accept()` as the first
-// suspension after `group.spawn(...)` blocks on the reactor without ever
-// starting the queued task — so a worker that would CONNECT to that very
-// listener never runs, and the program hangs forever. Found by the design-203
-// dogfood chatroom program (its natural spelling: spawn the clients, then
-// accept them); probe-confirmed on main Aug 10. The intended behavior is
-// below: the worker runs, connects, main accepts, and the program completes.
-// XFAIL: DF-203a a task spawned before a first-suspension reactor park never starts; accept() blocks the executor without draining the run queue
+// A task spawned before main's FIRST suspension gets its first turn even when
+// that suspension is a REACTOR park (design 89-b: "spawn enqueues a task ...
+// and it runs EAGERLY — whenever the executor runs, not only at join").
+//
+// DF-203a, fixed by design 206: the promise held for `sleep` and not for
+// `listener.accept()`, and the difference was never timer-vs-reactor. `sleep`
+// is an INTRINSIC, so the effect graph recorded it as a direct suspension
+// source on `main` itself and the design-45 gate wrapped `main` in the entry
+// executor. `accept` is a std METHOD, and the entry compile has no effect node
+// for a std method — so `main` was judged suspension-free, never became a
+// coroutine at all, and `accept`'s internal `io_wait` took the outside-frame
+// lowering, which blocks the one executor thread in `poll(-1)` with a ready
+// worker sitting in the run queue. Found by the design-203 dogfood chatroom
+// program (its natural spelling: spawn the clients, then accept them).
+//
+// The output order is deterministic and worth reading: on loopback the worker's
+// `connect` completes through the listen backlog and its `write` fits in the
+// socket buffer, so the whole worker finishes on main's first park — BEFORE
+// main returns from `accept`. `group` registers into the ambient scheduler list
+// after the root, so it is swept first.
 // EXPECT: success
 // EXPECT-OUTPUT:
 // worker connecting
-// accepted
 // worker done
+// accepted
 // done
 
 import std.net.{TcpListener, TcpStream}

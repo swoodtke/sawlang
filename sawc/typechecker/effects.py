@@ -77,6 +77,65 @@ class SuspendSource:
     line: int
 
 
+# The REAL cooperative primitives (design 45 item 1, design 76). A source
+# labelled with one of these means the body actually hands control back to the
+# executor (or blocks on it); every OTHER source in the graph is the
+# conservative "a call through a non-`sync` function value" one, which any
+# closure-taking call raises and which must NOT, on its own, wrap `main` in an
+# entry executor or pull a body into the coroutine transform's driven closure.
+REAL_SUSPEND_LABELS = ("yield_now", "sleep", "__saw_io_park", "io_wait")
+
+
+def _is_real_source(source: SuspendSource) -> bool:
+    return (source.label in REAL_SUSPEND_LABELS
+            or source.label.startswith("blocking extern"))
+
+
+def really_suspending(nodes) -> Dict[Any, bool]:
+    """THE answer to "does this body REALLY suspend?", for every node in `nodes`.
+
+    Design 206's funnel: one definition, two typecheckers. Both callers below
+    ask the same question of the same graph shape, and the two used to differ —
+    which is the whole of DF-203a/DF-203b.
+
+    ENTRY POINTS (every caller; process rule 1):
+      * `EffectsMixin.finalize_effects` — the ENTRY compile, for `_main_suspends`
+        (the design-45 item-1 gate that wraps a suspending `main` in the entry
+        executor).
+      * `sawc.build_builtin_namespace` — the BUILTIN compile, for
+        `_std_really_suspending_methods`, the table the entry compile is then
+        seeded with (`EffectsMixin._effect_seed_std_methods`). std bodies are
+        checked only there, so without the table the entry graph believes
+        `listener.accept()` and `ch.receive()` suspend nothing.
+
+    ROUTES a real suspension travels to reach a body (the position matrix this
+    answer quantifies over):
+      1. a direct cooperative primitive in the body — `yield_now()` /
+         `sleep(d)` / `io_wait(fd, dir)` / `__saw_io_park()`;
+      2. a `blocking` extern call (design 103's thread offload);
+      3. a call to another analyzed body that reaches 1-3 (any depth, SCC-safe);
+      4. a call to a std METHOD that reaches 1-3 — carried in as a seeded leaf
+         node, because std bodies belong to a different typechecker's graph.
+    The conservative closure source is deliberately NOT a route: it says
+    "might", and this question is "does".
+    """
+    really: Dict[Any, bool] = {}
+    for key, node in nodes.items():
+        really[key] = any(_is_real_source(s) for s in node.direct)
+    changed = True
+    while changed:
+        changed = False
+        for key, node in nodes.items():
+            if really.get(key):
+                continue
+            for e in node.edges:
+                if really.get(e.target):
+                    really[key] = True
+                    changed = True
+                    break
+    return really
+
+
 @dataclass
 class SuspendEdge:
     """A call from one node to another (potentially suspending) node."""
@@ -634,6 +693,53 @@ class EffectsMixin:
         del self.reporter.warnings[saved_warnings:]
         return True
 
+    # ------------------------------------------------ design 206: the std seam
+    def _effect_seed_std_methods(self):
+        """Mint a leaf suspend node for every std METHOD that really suspends.
+
+        std bodies are checked ONCE, by the builtin typechecker inside
+        `build_builtin_namespace`, and the entry compile never sees them. So
+        `_effect_call_method` records an edge to `TcpListener.accept`'s
+        `Method.node_id` and that key names nothing: the fixpoint reads `None`,
+        the edge propagates nothing, and a `main` (or any helper) whose ONLY
+        suspension is a std method call is judged suspension-free. It is then
+        lowered as if it were — `main` never reaches the entry executor, a
+        helper never joins the coroutine transform's driven closure — and the
+        std method's park runs OUTSIDE a frame, where `io_wait` blocks the
+        executor's thread on the reactor and `yield_now` codegens to nothing at
+        all. That is DF-203a and DF-203b, one bug in two costumes.
+
+        The table comes from `sawc.build_builtin_namespace`, keyed by
+        `Method.node_id` — the compiler's only node identity, preserved verbatim
+        across the std cache's pickle, and exact where a `(struct, method)` name
+        pair would collide with a user type of the same name. Each entry carries
+        the representative REAL source the builtin graph walked to, so a sync
+        violation through a std method still names the primitive it ends at.
+
+        Only REALLY-suspending methods are seeded (`really_suspending`'s gate):
+        `Vector.map` and friends "suspend" solely by the conservative
+        closure-call rule, and minting nodes for those would flag every
+        `sync`/`deinit` body that maps a vector. A merely-conservative std
+        method keeps the design-84 treatment it already had — the
+        `_std_suspending_methods` name set the coroutine transform consults
+        structurally.
+        """
+        table = getattr(self, "_std_really_suspending_methods", None)
+        if not table:
+            return
+        for node_id, (short, label, line) in table.items():
+            if node_id in self._suspend_nodes:
+                continue
+            self._suspend_nodes[node_id] = SuspendNode(
+                key=node_id,
+                short=short,
+                desc=f"method {short}",
+                line=line,
+                column=1,
+                source_file=None,
+                direct=[SuspendSource(label=label, line=line)],
+            )
+
     # -------------------------------------------------- fixpoint + diagnostics
     def finalize_effects(self):
         """Run the whole-program fixpoint, then check every sync context.
@@ -644,6 +750,12 @@ class EffectsMixin:
         if getattr(self, "_effects_finalized", False):
             return
         self._effects_finalized = True
+
+        # design 206: the entry compile never checks std bodies, so every edge to
+        # a std method points at a node that does not exist. Mint those nodes
+        # first — before the fixpoint reads them — or the whole analysis below is
+        # computed over a graph with the io and channel primitives cut out of it.
+        self._effect_seed_std_methods()
 
         nodes = self._suspend_nodes
         # Iterate to fixpoint. Correct for mutual recursion and SCCs: a node
@@ -674,25 +786,9 @@ class EffectsMixin:
         # only with explicit `__saw_drive`) must NOT auto-wrap main.
         # design 76: `__saw_io_park` (IO reactor) and blocking-extern offload are also
         # REAL suspensions that must wrap `main` in the entry executor.
-        real_labels = ("yield_now", "sleep", "__saw_io_park", "io_wait")
-
-        def _is_real(s):
-            return s.label in real_labels or s.label.startswith("blocking extern")
-        really = {}
-        for key, node in nodes.items():
-            really[key] = any(_is_real(s) for s in node.direct)
-        changed = True
-        while changed:
-            changed = False
-            for key, node in nodes.items():
-                if really.get(key):
-                    continue
-                for e in node.edges:
-                    if really.get(e.target):
-                        really[key] = True
-                        changed = True
-                        break
-        self._main_suspends = bool(really.get(("fn", "main")))
+        # design 206: the gate reads `really_suspending` — the ONE definition,
+        # shared with the builtin compile that supplies the std method table.
+        self._main_suspends = bool(really_suspending(nodes).get(("fn", "main")))
 
         for node in nodes.values():
             if node.sync_reason and node.suspends:

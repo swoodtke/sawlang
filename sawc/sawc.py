@@ -21,6 +21,7 @@ from codegen import CodeGenerator
 from errors import (ErrorReporter, ErrorKind, WARNING_CATEGORIES,
                     enable_warnings)
 from typechecker import TypeChecker
+from typechecker.effects import really_suspending
 from module_resolver import ModuleResolver, ModulePathError
 
 
@@ -428,6 +429,30 @@ def build_builtin_namespace(verbose: bool = False, freestanding: bool = False,
             if node is not None and node.suspends:
                 std_suspending.add((sname, m.name))
     builtin_ns._std_suspending_methods = std_suspending
+
+    # design 206: the same census, asked with the REAL-primitive gate instead of
+    # the broad `suspends` bit, and keyed by `Method.node_id` rather than by
+    # name. This is the table `EffectsMixin._effect_seed_std_methods` mints leaf
+    # nodes from, which is what lets the entry compile's effect FIXPOINT — not
+    # just the coroutine transform's structural scan — see that
+    # `listener.accept()` or `ch.receive()` suspends. Each entry carries the
+    # representative real source the builtin graph ends at, so a `sync` violation
+    # reached through a std method still names the primitive that suspends.
+    # Narrow on purpose: `Vector.map` suspends only by the conservative
+    # closure-call rule, and a leaf node for THAT would make every `deinit` that
+    # maps a vector a suspension error.
+    std_really_suspending = {}
+    _really = really_suspending(builtin_tc._suspend_nodes)
+    for ext in getattr(builtin_ast, 'extensions', []):
+        sname = getattr(ext, 'struct_name', None)
+        for m in ext.methods:
+            node = builtin_tc._suspend_nodes.get(m.node_id)
+            if node is None or not _really.get(m.node_id):
+                continue
+            _hops, _short, _line = builtin_tc._effect_path(node)
+            std_really_suspending[m.node_id] = (
+                f"`{sname}.{m.name}`", _hops[-1], _line)
+    builtin_ns._std_really_suspending_methods = std_really_suspending
 
     # design 121: the same question for FREE std functions (`yield_now`), so
     # `--emit-docs` can report each std item's effect. Same reason the method set
@@ -1050,6 +1075,11 @@ def _prepare_codegen(source_path: str, entry_ast, entry_source: str, verbose: bo
     # so the coroutine transform can embed nested suspending std methods.
     typechecker._std_suspending_methods = getattr(
         builtin_ns, '_std_suspending_methods', set())
+    # design 206: and the REALLY-suspending half of the same census, which the
+    # effect fixpoint seeds itself with (`_effect_seed_std_methods`) so the entry
+    # graph knows that `listener.accept()` / `ch.receive()` is a suspension.
+    typechecker._std_really_suspending_methods = getattr(
+        builtin_ns, '_std_really_suspending_methods', {})
     # design 82 Part B: the (std symbol name -> owning std file) map, so a bare
     # reference to a non-prelude std symbol errors with a "did you mean import"
     # hint instead of resolving silently.

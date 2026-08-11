@@ -251,6 +251,16 @@ CONCURRENCY_GATE = [
     # is what turns "a stale handle reads the new occupant" into a fault.
     "examples/taskgroup_slot_reuse_o_live.saw",
 
+    # --- The executor's own drive paths (design 206) --------------------------
+    # A task spawned BEFORE main's first suspension, where that suspension is a
+    # reactor park. `main` is a coroutine frame here — it was a plain C function
+    # until design 206 — so main's `TcpListener`, its accepted `TcpStream` and
+    # the worker's own stream all live in heap frames the executor drops, and
+    # the worker's frame dies at completion while main is still parked. Guard
+    # Malloc is what turns "main's frame was released a beat early" into a
+    # fault rather than a passing test.
+    "examples/spawned_task_runs_before_reactor_park.saw",
+
     # --- Values crossing a task boundary -------------------------------------
     # Owning values moved through a cooperative channel: the sender gives up
     # ownership, the receiver takes it, and exactly one of them drops.

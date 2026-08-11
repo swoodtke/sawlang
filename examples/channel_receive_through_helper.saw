@@ -1,19 +1,23 @@
-// `Channel.receive()` must drive correctly at ANY call depth below a spawned
-// root — the skill's own guarantee ("a suspending reactor method drives
-// correctly at ANY NESTING DEPTH", designs 96/104) — including through ONE
-// helper frame, which is the shape every reusable wrapper takes (a semaphore
-// type's `acquire()`, a protocol codec's `read_frame()`). Today the DIRECT
-// call works and the one-frame indirection hangs: with a 1-token channel and
-// two workers each doing acquire → yield → release, the program prints
-// `in 0` and stops — the first worker never resumes from its yield and the
-// second's parked receive never wakes. Found by the design-203 dogfood
-// limiter program (its natural spelling: a Limiter struct wrapping the
-// channel; a free-function wrapper reproduces it too, so it is the extra
-// frame, not `&self`); probe-confirmed on main Aug 10. Suspected root: the
-// design-62 G3 inline lowering of `receive()` not composing with the
-// embedded-sub-frame path one call down. Intended behavior below: all four
-// lines print and the program exits.
-// XFAIL: DF-203b Channel.receive() reached through one helper frame in a spawned task hangs; the inline receive lowering does not compose with an embedding callee frame
+// `Channel.receive()` drives correctly at ANY call depth below a spawned root —
+// the skill's own guarantee ("a suspending reactor method drives correctly at
+// ANY NESTING DEPTH", designs 96/104) — including through ONE helper frame,
+// which is the shape every reusable wrapper takes (a semaphore type's
+// `acquire()`, a protocol codec's `read_frame()`).
+//
+// DF-203b, fixed by design 206, and NOT in the G3 lowering the finding
+// suspected. `acquire`'s only suspension is a channel `receive()`, a std
+// method — and the entry compile has no effect node for a std method, so
+// `acquire` was judged suspension-free and never joined the coroutine
+// transform's driven closure. Design 96 had already patched the one consumer of
+// that blind spot it knew about, the structural free-function scan, but that
+// scan skips `is_chan_recv` calls (correctly: a receive is lowered inline, never
+// as a method sub-frame), so this shape fell through both. With no frame,
+// `receive()` compiled to the monomorphized library body — a
+// `try_receive`/`yield_now` loop whose `yield_now` codegens to NOTHING outside a
+// frame — and worker 1 spun on it at 100% forever, which is `in 0` and then
+// silence. Found by the design-203 dogfood limiter program (a Limiter struct
+// wrapping the channel; a free function reproduces it too, so it is the extra
+// frame, not `&self`).
 // EXPECT: success
 // EXPECT-OUTPUT:
 // in 0

@@ -2992,7 +2992,16 @@ class _FrameBuilder:
         mc = None
         target = None
         if isinstance(stmt, LetStatement) and isinstance(stmt.value, MethodCall):
-            mc, target = stmt.value, stmt.name
+            mc = stmt.value
+            # DF-206a, third classifier: `let _ = ch.receive()` is a DISCARD, so
+            # it has no frame field to write into — the received value is
+            # dropped at the statement. `_classify_call` and
+            # `_classify_method_call` both guard `_` this way and this one did
+            # not, which was invisible while a body whose only suspension was a
+            # channel receive never became a frame at all (DF-203b). It does
+            # now, and a `self._` store into a frame with no such field is a
+            # post-transform type error.
+            target = stmt.name if stmt.name != "_" else None
         elif (isinstance(stmt, ExpressionStatement)
               and isinstance(stmt.expression, MethodCall)):
             mc = stmt.expression
