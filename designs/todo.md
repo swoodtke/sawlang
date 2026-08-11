@@ -397,9 +397,12 @@ Findings, all fixed:
   marker, or a second guard that never landed; folded into whatever next touches
   the frame-slot family.
 
-**DF-206f is closed by the unit-0 integration, not by this brief's own work** —
-the three-leg bisect is in the DF-206f entry below. It reproduces on design 206
-ALONE (exit 139) and on neither integrated tree.
+**DF-206f is OPEN and the `irdet` lane is RED** — 16 of 17 battery stages green,
+`irdet` failing rc=139. It is located (a `Vector<String>` frame slot dropped
+through a wild pointer in `__Frame_main___release`), deterministic, and present
+on design 206 alone as well as here, so it is not design 210's to fix. Unit 6
+STOPS on it per the brief. See the DF-206f entry below, including the correction
+to a wrong bisect I published first.
 
 ## Design 206 — executor park liveness (LANDED VIA 210, Aug 11)
 
@@ -472,30 +475,58 @@ Five findings; two fixed here, and the blocker was closed by design 210:
   (c) accept the transform and change blade's shape. The user ruled (a) on
   Aug 11 and design 210 built it.
 
-- **DF-206f (CLOSED by the design-201 integration — BISECTED, design 210 unit 6)
-  — `irdet --all` printed OK and then exited 139 (SIGSEGV).** The original
-  observation was real and the cause was NOT design 206. Three legs, each run
-  ALONE on this machine, each read from its own output file:
+- **DF-206f (OPEN — LOCATED, not fixed; design 210 unit 6 STOPS here) —
+  `irdet --all` prints OK and then exits 139 (SIGSEGV).** It is DETERMINISTIC,
+  it is NOT design 210's, and it still fails the `irdet` lane on the landed
+  branch. **The final battery is 16 of 17 stages green with `irdet` RED.**
+
+  THE CRASH, from the macOS crash reports (`~/Library/Logs/DiagnosticReports/
+  irdetbin-*.ips`) — identical on every tree tested:
+
+      EXC_BAD_ACCESS (SIGSEGV), KERN_INVALID_ADDRESS at a wild pointer
+      thread 0:
+        Vector$2$String$GlobalAllocator_deinit
+        __Frame_main___release
+
+  So it is a FRAME-SLOT TEARDOWN bug: the design-124 synthesized `__release` of
+  `main`'s frame drops a `Vector<String>` slot through a pointer that is not
+  valid. `main`'s two `Vector<String>`s are `argv` (a `let`, lent by `&` to
+  `parse_options`) and `files` (a `var` assigned on three paths, twice from a
+  `move` of another binding). The determinism ANSWER is good on every run — the
+  corpus compiles to byte-identical IR — and the process dies on the way out.
+
+  BISECT — three trees, all four runs, all crashed:
 
   | tree | result |
   |---|---|
-  | `ee24cdba` — design 206 alone, the branch as filed | 1089 examples, `OK`, **exit 139** |
-  | design 210 unit 0 — the same five commits integrated with design 201 | 1093 examples, `OK`, exit 0 |
-  | design 210 unit 5 — the landed brief | 1094 examples, `OK`, exit 0 |
+  | `ee24cdba` — design 206 alone, as filed | 1089 examples, `OK`, **exit 139** |
+  | design 210 unit 0 — 206 integrated with 201 | 1093 examples, `OK`, **exit 139** |
+  | design 210 unit 5/7 — the landed brief | 1094 examples, `OK`, **exit 139** |
 
-  So what closed it is design 201's spawn-reference lowering, which main gained
-  after the 206 branch was cut and which unit 0 combined with it for the first
-  time. The determinism ANSWER was always good on all three; only the exit code
-  differed. Not narrowed further within 201 (each leg is ~12 minutes and the
-  finding is closed on the shipping branch); the plausible member is the
-  DUAL-ROLE TRAMPOLINE forwarding fix, since irdet's `main` spawns a root that
-  is also embedded and a trampoline forwarding the wrong argument is the shape
-  that corrupts memory late, but that is a hypothesis and is labelled one.
+  So it predates design 210's units and the 201 integration did not close it.
+  It is design 206's blast radius exactly as the original entry guessed: `main`
+  becomes a coroutine when it really suspends, and `main`'s frame teardown is
+  code that had never run on this program before.
 
-  Worth keeping for the method rather than the answer: the finding was recorded
-  as "plausibly design 206's" because 206 was what had just changed, and it was
-  not. A blast-radius argument is a hypothesis; the two extra runs are what made
-  it a fact.
+  NOT MINIMIZED. Three programs reproducing the shape by hand — a `var
+  Vector<String>` reassigned from a `move`d `guard let` binding across a
+  suspension; the loop-built `candidates` path with a spawning wave loop; an
+  `Env.args()` lent by `&` across the frame — all run clean. Consistent with
+  the original note that it does not reproduce at 2 or at 119 examples: it
+  wants corpus scale, so the next step is a debug build under a memory
+  sanitizer rather than more hand-minimization.
+
+  **A CORRECTION, recorded because the method matters.** This entry first said
+  DF-206f was CLOSED by the 201 integration, on a three-leg bisect that read
+  exit 0 from two of the legs. That was wrong, and the error was mine and
+  entirely in the measurement: two legs ran as `./irdetbin --all > out.txt;
+  echo "EXIT=$?"`, the shell moved the compound command to the background, and
+  I read `out.txt` — which holds irdet's STDOUT and says `OK` — instead of the
+  exit status, which was in the task's own output. The third leg appended
+  `EXIT=$?` INTO the file, which is the only reason its 139 was visible. The
+  full battery then failed the lane and the four crash reports settled it: every
+  run had crashed. Reading the artifact that is easy to reach instead of the one
+  that answers the question is how a red gate reads green.
 
 Of the rest, two fixed here:
 

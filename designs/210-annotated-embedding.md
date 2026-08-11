@@ -1,8 +1,11 @@
 # Design 210 — the embed carries its answers
 
-**LANDED Aug 11.** All eight units. blade compiles again (24 errors → 0), which
-is DF-206e's stated acceptance; design 206 lands with this brief as unit 0. What
-landed, unit by unit, is at the bottom.
+**LANDED Aug 11, with one lane RED.** All eight units are built. blade compiles
+again (24 errors → 0), which is DF-206e's stated acceptance, and `bootstrap` and
+`sos` are green with it. The final battery is **16 of 17 stages green; `irdet`
+fails rc=139 on DF-206f**, which unit 6 STOPS on: it is located, deterministic,
+and present on design 206 alone, so it is not this brief's to fix. What landed,
+unit by unit, is at the bottom.
 
 **Status: RULED Aug 11 (user: "fix this properly now") + AUTHORED;
 dispatches immediately, building ON design 206's blocked branch.
@@ -180,11 +183,14 @@ stand); the effect-graph model beyond what 206 already fixed.
    provenance, not privilege. Row K25 covers the position it could only permit:
    a module-private `static` in a CONST position, which lives in an annotation
    field and no structural walker reaches.
-6. DF-206f: bisected in three legs, and the answer was not this brief's. It
-   reproduces on design 206 ALONE (`ee24cdba`: 1089 examples, OK, **exit 139**)
-   and on NEITHER integrated tree (unit 0: 1093, exit 0; unit 5: 1094, exit 0),
-   so what closed it is design 201's spawn-reference lowering, combined with 206
-   for the first time by unit 0. The tracker carries the table.
+6. DF-206f: **STOPPED, per this unit's own instruction.** Located, not fixed,
+   and not this brief's: the crash reports put it at
+   `Vector$2$String$GlobalAllocator_deinit` inside `__Frame_main___release` — a
+   frame-slot teardown through a wild pointer — and it reproduces identically on
+   design 206 ALONE, on unit 0, and here. The `irdet` lane stays RED. The
+   tracker carries the bisect, the crash frame, the three hand-minimizations
+   that do NOT reproduce it, and a correction to a wrong bisect I published
+   first.
 7. Docs: the spec's embedding-model paragraphs, the skill's cross-module
    concurrency story, README's positional paragraph, the tracker, and design
    206's brief flipped to LANDED-VIA-210.
