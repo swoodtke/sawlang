@@ -5112,38 +5112,47 @@ def _make_driver(fb: _FrameBuilder, mode, fbs):
 # spawn lowering (design 52b item 2)
 # --------------------------------------------------------------------------- #
 
-def _reject_spawn_frame_refs(fb: _FrameBuilder, fbs):
-    """design 88 (D6 confinement crux). A DRIVEN-in-place frame may hold a
-    reference across a suspension: the driver seeds a pointer into a referent on
-    the LIVE caller stack that outlives the whole drive. A SPAWNED frame cannot
-    hold a reference INTO ITS SPAWNER: it is boxed onto the group's run queue and
-    resumed later (possibly on another thread), by which time a reference into the
-    spawner's stack could dangle. So a reference PARAMETER (or across-suspend
-    reference local) of the SPAWN ROOT is a hard error, for BOTH single- and
-    multi-threaded groups (confinement, not merely Send).
+def _helper_param_type(fb: _FrameBuilder, p):
+    """The `__spawn_<f>` helper's parameter type for one of `f`'s parameters.
 
-    Only the ROOT's own params/locals are checked — NOT embedded callee
-    sub-frames. A nested suspending call's reference argument is rewritten to
-    `&self.<field>` (a pointer into the TASK frame, which the box keeps alive as
-    long as the task runs), so a reference into a task-confined local is sound and
-    stays allowed (`read_into(&var buf)` inside a spawned handler works). Since
-    references cannot be stored in owned values / escape, a nested callee can only
-    ever receive a pointer into the task frame once the root carries no reference
-    param — which this check guarantees."""
-    for p in fb.params:
-        if fb.encmap.get(p.name) == "ref":
-            raise CoroTransformError(
-                f"cannot spawn `{fb.func.name}`: parameter `{p.name}` of type "
-                f"`{p.type}` is a reference into the spawner held across a "
-                f"suspension. A spawned task's frame outlives the call that created "
-                f"it, so a reference into the spawner's stack could dangle — "
-                f"references are confined to their own task (D6). Pass an owned "
-                f"value (`move`), or share via `Arc`/`Mutex`/`Channel`. (Driving the "
-                f"function in place with `__saw_drive` DOES allow a held reference; a "
-                f"reference to a task-LOCAL inside the spawned body is also fine.)",
-                getattr(p, 'line', 0) or fb.func.line,
-                getattr(p, 'column', 0) or fb.func.column,
-                source_file=fb.src_file)
+    A reference parameter travels to the helper AS A RAW POINTER, exactly as it
+    travels to a `__saw_drive_<f>` driver (design 88, and design 201 in spawn
+    position): the spawn SITE casts `&var x` -> `UnsafePointer<T>`
+    (`_ref_arg_to_ptr`), the helper takes the pointer, and it seeds the frame's
+    `UnsafePointer<T>` field directly. Everything else keeps its own type."""
+    return _ref_ptr_type(p.type) if fb.encmap.get(p.name) == "ref" else p.type
+
+
+def _reject_spawn_frame_refs(fb: _FrameBuilder, fbs):
+    """design 88 (D6 confinement crux), as design 201 leaves it.
+
+    A frame that holds a reference across a suspension holds a pointer into
+    somebody else's storage, and the question is always whether that storage
+    outlives the frame. For a DRIVEN-in-place frame it does by construction (the
+    driver's own caller owns the referent and is parked on the drive). For a
+    SPAWNED frame — boxed onto the group's run queue and resumed later — design
+    88 answered "it cannot" and refused every reference PARAMETER at a spawn
+    root. Design 201 replaces that blanket refusal with the EXTENT the
+    typechecker now tracks: a `&`/`&var` argument at a spawn borrows its root for
+    the TASK's life, the handle carries the borrow, `join()` releases it, and a
+    root declared after the group is already refused by design 188's LIFO rule.
+    So the spawner's storage provably outlives the task, and the parameter is
+    sound in exactly the way a borrow capture (design 189) is.
+
+    What still cannot be spawned is an across-suspend reference LOCAL: no source
+    construct binds one today (`let r = &x` is refused), so this is a
+    belt-and-braces gate on the frame layout rather than a user-facing rule.
+
+    MULTI-THREADED groups are unaffected and refuse a reference parameter still —
+    through `_check_spawn_frame_send` below, since a `&T` is not `Send`. That is
+    the right refusal for the right reason: the hazard there is the thread
+    crossing, not the extent.
+
+    Only the ROOT's own locals are checked — NOT embedded callee sub-frames. A
+    nested suspending call's reference argument is rewritten to `&self.<field>`
+    (a pointer into the TASK frame, which the box keeps alive as long as the task
+    runs), so a reference into a task-confined local is sound and stays allowed
+    (`read_into(&var buf)` inside a spawned handler works)."""
     for (lname, lt) in fb.frame_locals:
         if fb.encmap.get(lname) == "ref":
             raise CoroTransformError(
@@ -5336,7 +5345,8 @@ def _make_spawn_helper(fb: _FrameBuilder, fbs, helper_name=None):
                          ("generation", Identifier(name="__gen"))])
         ret_type = SawType(TypeKind.STRUCT, struct_name="VoidTaskHandle")
         helper_params = [Parameter(name="__group", type=tg_ptr)] + \
-                        [Parameter(name=p.name, type=p.type) for p in params]
+                        [Parameter(name=p.name, type=_helper_param_type(fb, p))
+                         for p in params]
         return Function(name=helper_name, parameters=helper_params,
                         return_type=ret_type,
                         body=Block(statements=stmts, final_expr=handle),
@@ -5351,12 +5361,34 @@ def _make_spawn_helper(fb: _FrameBuilder, fbs, helper_name=None):
                      ("generation", Identifier(name="__gen"))])
     ret_type = SawType(TypeKind.STRUCT, struct_name="TaskHandle", type_args=[T])
     helper_params = [Parameter(name="__group", type=tg_ptr)] + \
-                    [Parameter(name=p.name, type=p.type) for p in params]
+                    [Parameter(name=p.name, type=_helper_param_type(fb, p))
+                     for p in params]
     return Function(name=helper_name, parameters=helper_params,
                     return_type=ret_type,
                     body=Block(statements=stmts, final_expr=handle),
                     is_synthesized=True,
                     source_file=getattr(fb.func, 'source_file', ""))
+
+
+def _trampoline_arg(p):
+    """The expression `f$spawnroot` passes for one of `f`'s parameters.
+
+    The trampoline's body is ORDINARY SAW that the post-transform typecheck reads
+    (`return f(<args>)`), so a REFERENCE parameter is forwarded the way design 106
+    spells forwarding — `f(&var m)` — and not as a bare name. That is what makes
+    the embedded sub-frame's argument a `ReferenceExpr` the frame rewrite turns
+    into `&(self.m[0])`, i.e. the address the trampoline was handed. Passing the
+    bare name instead handed `_build_sub_frame` the DEREF to cast, so the callee
+    frame's pointer field was seeded with the referent's VALUE — probe J of
+    design 201: a segfault the moment the task read through it.
+
+    Everything else is a `move`, for the reason `_frame_param_arg` gives."""
+    from ast_nodes import MoveExpr as _Move
+    if getattr(p.type, 'kind', None) == TypeKind.REFERENCE:
+        return ReferenceExpr(expr=Identifier(name=p.name),
+                             mutable=bool(p.type.reference_mutable),
+                             in_argument_position=True)
+    return _Move(variable=p.name, path=None)
 
 
 def _make_spawn_trampoline(func, root_name):
@@ -5399,7 +5431,7 @@ def _make_spawn_trampoline(func, root_name):
               for p in func.parameters]
     call = FunctionCall(
         name=root_name,
-        arguments=[Argument(name=None, value=_frame_param_arg(p)) for p in params],
+        arguments=[Argument(name=None, value=_trampoline_arg(p)) for p in params],
         line=func.line, column=func.column)
     ret = func.return_type or SawType(TypeKind.VOID)
     # A `Void` body has no result to thread, so the bare-call form is the tail
@@ -5501,7 +5533,8 @@ def _spawn_site_rule(node):
             expr=ReferenceExpr(expr=group, mutable=False), target_type=tg_ptr)
         call = FunctionCall(
             name=f"__spawn_{root}",
-            arguments=[Argument(name=None, value=group_ptr)] + list(inner.arguments),
+            arguments=([Argument(name=None, value=group_ptr)]
+                       + [_ref_arg_to_ptr(a) for a in inner.arguments]),
             line=node.line, column=node.column)
         # Carry the handle type so a suspending spawner can type the frame-resident
         # `let h = ...` binding (conservative-by-scope liveness reads it).

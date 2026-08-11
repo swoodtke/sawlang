@@ -1183,7 +1183,17 @@ O10/O11 controls, the 26/26 trap table.
 ratified as its own brief. `group.spawn(f(&var buf))` becomes legal in a
 SINGLE-THREADED group on exactly the extent machinery 189 built for captures.
 
-- **DF-201a — the ratified relaxation is not built, and the two holes it must
+- ~~**DF-201a — the ratified relaxation is not built, and the two holes it must
+  close are only invisible because the shape cannot be written.**~~ **CLOSED by
+  units 2-3** (Aug 10). The four refusals are the typechecker's (unit 2: the
+  extent intake takes a reference ARGUMENT through one funnel beside the
+  capture, and design 188's LIFO check reads the same list); the two accepts and
+  the MT refusal are the lowering's (unit 3: design 88's blanket refusal
+  retired, the spawn site casting `&var x` to a pointer exactly as a drive site
+  does, and the Send gate left to refuse the multi-threaded case on its own
+  terms). All seven pins flipped. Original text:
+
+  **DF-201a — the ratified relaxation is not built, and the two holes it must
   close are only invisible because the shape cannot be written.** Probed Aug 10
   (unit 1, `.build/scratch/probe201_*.saw`) by lifting design 88's blanket
   refusal and running the shapes the extent model is supposed to cover. Two of

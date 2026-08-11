@@ -1,0 +1,48 @@
+// A spawned frame's reference parameter is a POINTER, not an owner (design 201's
+// lowering, on design 88's held-ref machinery). Two things follow, and both are
+// checked here against a referent that says out loud when it is destroyed:
+//
+//   1. the frame drops NOTHING through the parameter — the elements the task
+//      pushes are owned by the caller's `Vector`, so each is destroyed exactly
+//      once, at the ROOT's scope end and not at task completion (design 124
+//      tears a task's own values down eagerly, which is exactly what must NOT
+//      happen to a borrowed referent);
+//   2. every write the task made is at the root afterwards, because the frame
+//      addressed the caller's storage rather than a copy of it.
+//
+// The drops land after "scope ends", in the `Vector`'s own element order —
+// nothing about the borrow changes when or how the root is torn down.
+// EXPECT: success
+// EXPECT-OUTPUT:
+// task filled 3
+// root len 3 tags 0 1 2
+// scope ends
+// drop 0
+// drop 1
+// drop 2
+
+import std.task.*
+
+struct Res { tag: Int }
+extension Res: NoCopy {
+    func deinit(&var self) { print("drop {self.tag}") }
+}
+
+func fill(v: &var Vector<Res>, n: Int) -> Int {
+    var i = 0
+    while i < n {
+        v.push(Res(tag: i))
+        yield_now()
+        i = i + 1
+    }
+    v.len()
+}
+
+func main() {
+    var buf: Vector<Res> = []
+    var group = TaskGroup()
+    let h = group.spawn(fill(&var buf, 3))
+    print("task filled {h.join()}")
+    print("root len {buf.len()} tags {buf[0].tag} {buf[1].tag} {buf[2].tag}")
+    print("scope ends")
+}

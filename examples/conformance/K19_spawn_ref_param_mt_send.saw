@@ -9,8 +9,6 @@
 //
 // A regression row: this is the error the tree already printed, kept honest
 // after the confinement refusal that used to run first was retired.
-// XFAIL: DF-201a — the confinement refusal runs AHEAD of the Send gate today,
-// so an MT group prints design 88's message and never reaches this one.
 // EXPECT: error
 // EXPECT-ERROR-CONTAINS: cannot spawn `bump` into a multi-threaded `TaskGroup(threads: ...)`
 // EXPECT-ERROR-CONTAINS: parameter `n` of type `&var Int` is not `Send`

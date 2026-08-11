@@ -121,7 +121,7 @@ Claim source: spec 4 *Reference Types*; designs 88, 106, 163d, 188 u1, 193 u5
 | R22 | borrow-capture in an escaping closure bound to a `let` | `errors/capture_borrow_escaping.saw` |  |
 | R23 | borrow-capture in a closure returned from a function | `R23_returned_closure_borrow_capture.saw` |  |
 | R24 | borrow-capture in a spawned closure | `spawn_capture_after_group.saw` | 188 u5 + 189 — was a NOTE (accepted); the capture is refused because `x` is declared AFTER its group |
-| R25 | spawned task frame taking a reference parameter (design 88) | `coro_spawn_ref_rejected.saw` |  |
+| R25 | spawned task frame taking a reference parameter (design 88) | `K14_spawn_ref_param_join_releases.saw` + `K19_spawn_ref_param_mt_send.saw` | 201 — SUPERSEDED. The blanket refusal is retired and the row is an ACCEPTANCE for a single-threaded group: the reference does not escape, it borrows its root for the task's life (K15/K18/K20 are the refusals that makes sound). An MT group still refuses, on Send (K19). The old pin `coro_spawn_ref_rejected.saw` is retired with the rule |
 | R26 | `Optional<&Int>` spelled via the written name | `R26_optional_written_name_ref.saw` |  |
 | R27 | reference inside a nested generic (`Box<Vector<&Int>>`) | `R27_nested_generic_ref.saw` |  |
 | R28 | the sanctioned crossing `(&var n) as UnsafePointer<Int>` | `ref_pointer_cast_blessed.saw` |  |
@@ -322,7 +322,7 @@ Claim source: spec 6 *Send and Sync* + *Cooperative tasks*; designs 75, 88, 103,
 | K01 | a non-Send parameter crossing into a `threads: N` group | `errors/taskgroup_threads_nonsend_reject.saw` | 186 — `Vector<Int>` IS `Send` (a container is Send iff its contents are), so the audit's probe proved nothing; the covering test uses a `Vector` of closures |
 | K02 | a non-Send across-suspend local in an MT group | `K02_nonsend_across_suspend_local_mt.saw` | 186 — same ruling; re-authored here with a `Vector` of closures as the non-Send local |
 | K03 | a non-Send RESULT type from an MT-spawned task | `errors/spawn_result_not_send.saw` | 186 + 193 u6 — same ruling for the result type; the covering test uses a struct holding an `UnsafePointer` |
-| K04 | a reference parameter at a spawned task root (design 88) | `coro_spawn_ref_rejected.saw` |  |
+| K04 | a reference parameter at a spawned task root (design 88) | `K14_spawn_ref_param_join_releases.saw` + `K19_spawn_ref_param_mt_send.saw` | 201 — SUPERSEDED, same ruling as R25: legal in a single-threaded group under the extent rule, refused into a `threads: N` one because a reference is not `Send` |
 | K05 | a reference to a task-LOCAL inside a spawned body is fine | `coro_spawn_nested_ref.saw` |  |
 | K06 | a `static` of a non-Sync type | `errors/static_non_sync.saw` |  |
 | K07 | a suspending call inside a `SpinLock.lock` body (`sync` enforced) | `errors/spinlock_suspending_body.saw` |  |
@@ -454,12 +454,14 @@ Claim source: behavioral, not error-message — no single claim section
 
 ## What changed since the audit ran
 
-24 rows are authored to a RULING rather than to the audit's own
+26 rows are authored to a RULING rather than to the audit's own
 expectation, and one more had a defective probe:
 
 - **K01** — 186 — `Vector<Int>` IS `Send` (a container is Send iff its contents are), so the audit's probe proved nothing; the covering test uses a `Vector` of closures
 - **K02** — 186 — same ruling; re-authored here with a `Vector` of closures as the non-Send local
 - **K03** — 186 + 193 u6 — same ruling for the result type; the covering test uses a struct holding an `UnsafePointer`
+- **K04** — 201 — SUPERSEDED: a reference parameter at a spawn root is legal in a single-threaded group under the extent rule, and refused into a `threads: N` one on Send
+- **R25** — 201 — the same ruling read from the references-cannot-escape side: the reference does not escape, it borrows its root for the task's life
 - **O09** — 187 — was a DEVIATION (DF-174g: silent miscompile, exit 16); a bare value lands intact at any depth now
 - **P05** — 188 u3 — was a DEVIATION (accepted; writes vanished); refused now
 - **P14** — 188 u3 — was a DEVIATION (`c.slot() = 99` was a silent no-op); refused now
@@ -502,14 +504,13 @@ Obligation 3 asks a safety-surface brief for its rows FIRST, so a row that
 states a ruling the compiler has not been taught yet lands as a cited XFAIL and
 the unit that teaches it removes the marker.
 
-Open: **K14, K16, K19** — three of design 201's seven rows, still under an XFAIL
-citing DF-201a. Design 88's confinement refusal still stops the ACCEPT shapes
-(K14, K16) at the lowering, and still runs ahead of the Send gate the MT row
-(K19) names. All three flip with unit 3.
+None are open.
 
-Closed: **K15, K17, K18, K20** — the four refusals, flipped by unit 2. The
-extent the typechecker tracks is what refuses them, and it reports before the
-lowering ever runs.
+Closed: **K14-K20** — design 201's seven rows. The four refusals (K15, K17,
+K18, K20) flipped with the typechecker in unit 2 — the extent it tracks reports
+before the lowering runs; the three remaining rows (K14, K16 accept, K19 the MT
+refusal) flipped with the lowering in unit 3, which is where design 88's blanket
+confinement refusal was retired.
 
 Closed: **B09** — written under an XFAIL citing DF-153b (a private std type
 reserved its simple name for every program in the language, and the reserved

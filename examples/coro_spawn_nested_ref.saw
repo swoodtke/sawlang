@@ -7,8 +7,9 @@
 // run queue and resumed by the scheduler — exactly the shape a `read_into(&var
 // Data)` net helper would use (the socket read itself is orthogonally blocked by
 // the nested-suspending-method depth limit; the reference mechanism is proven
-// here). The spawn ROOT itself takes NO reference param (that would be a dead
-// spawner-stack pointer — rejected; see coro_spawn_ref_rejected).
+// here). The spawn ROOT itself takes no reference param, which is what made this
+// the ONLY legal shape until design 201; a root that DOES take one now borrows
+// its caller's storage for the task's life (conformance rows K14-K20).
 // EXPECT: success
 // EXPECT-OUTPUT: 40
 

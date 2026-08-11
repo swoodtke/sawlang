@@ -5,8 +5,6 @@
 // caller reading the root between the spawns and again before either join. Only
 // a WRITER excludes. Without this row the exclusion rule reads as "a spawn
 // argument freezes its root", which is not what was ratified.
-// XFAIL: DF-201a — design 88's blanket refusal rejects a shared reference
-// argument at a spawn root exactly as it rejects an exclusive one.
 // EXPECT: success
 // EXPECT-OUTPUT:
 // caller reads base while shared: 7

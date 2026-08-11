@@ -1,0 +1,66 @@
+// Two edges of design 201's lowering that the ordinary spawn-join shape does not
+// reach.
+//
+//   1. A DUAL-ROLE root (DF-138a). `bump` is BOTH spawned and embedded as a
+//      sub-frame of a suspending caller, so it gets the `bump$spawnroot`
+//      trampoline — a synthesized `f$spawnroot(<params>) { return f(<params>) }`
+//      whose body the post-transform typecheck reads as ordinary Saw. A
+//      reference parameter must be FORWARDED there (`bump(&var n)`), not passed
+//      as a bare name: passing the name handed the sub-frame builder the DEREF
+//      to cast, so the callee frame's pointer field was seeded with the
+//      referent's VALUE and the first read through it segfaulted.
+//
+//   2. CANCEL DOES NOT RELEASE (design 189's ratified edge). A cancelled task
+//      still runs its cancel path, and it reaches the referent through the same
+//      pointer — so the borrow has to outlive the `cancel()`, not end at it.
+//      The cancelled task writes its marker and the caller reads it after the
+//      join.
+// EXPECT: success
+// EXPECT-OUTPUT:
+// spawned 2 a 2
+// driven 11 b 11
+// cancelled task len 1 marker -1
+// root after cancel 1
+
+import std.task.*
+
+func bump(n: &var Int) -> Int {
+    yield_now()
+    n = n + 1
+    n
+}
+
+func relay(m: &var Int) -> Int {
+    bump(&var m)
+}
+
+func fill(v: &var Vector<Int>, n: Int) -> Int {
+    var i = 0
+    while i < n {
+        if cancelled() {
+            v.push(-1)
+            return v.len()
+        }
+        v.push(i)
+        yield_now()
+        i = i + 1
+    }
+    v.len()
+}
+
+func main() {
+    var a = 1
+    var b = 10
+    var marked: Vector<Int> = []
+    var group = TaskGroup()
+
+    let h = group.spawn(bump(&var a))
+    print("spawned {h.join()} a {a}")
+    print("driven {relay(&var b)} b {b}")
+
+    let c = group.spawn(fill(&var marked, 20))
+    c.cancel()
+    let len = c.join()
+    print("cancelled task len {len} marker {marked[0]}")
+    print("root after cancel {marked.len()}")
+}

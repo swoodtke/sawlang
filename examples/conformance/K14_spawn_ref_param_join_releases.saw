@@ -13,8 +13,6 @@
 // borrow CAPTURE: the borrow pins the root for the task's reachable life, LIFO
 // destruction plus the declared-before-group rule keep the spawner's frame
 // alive, and K18 next door refuses the one ordering where it would not.
-// XFAIL: DF-201a — design 88's blanket refusal still rejects every reference
-// argument at a spawn root, so the ratified shape does not compile yet.
 // EXPECT: success
 // EXPECT-OUTPUT:
 // task filled 3
