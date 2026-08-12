@@ -220,6 +220,50 @@ extension TomlSection {
     }
 }
 
+// The `[sos]` priorities table, read through ONE place-window on `index`
+// rather than one per band (design 212 unit 2 — `load_sos_config` used to
+// spell `section_at` four times here, one per band).
+func read_priorities(doc: &TomlDoc, index: Int) -> Result<UInt, SosError> {
+    try priorities_from(&doc.section_at(index))
+}
+
+func priorities_from(section: &TomlSection) -> Result<UInt, SosError> {
+    let background = try section.band_level("background", DEFAULT_BACKGROUND)
+    let low = try section.band_level("low", DEFAULT_LOW)
+    let normal = try section.band_level("normal", DEFAULT_NORMAL)
+    let high = try section.band_level("high", DEFAULT_HIGH)
+    pack_priorities(background, low, normal, high)
+}
+
+// The `[sos]` / `[sos.<triple>]` toolchain keys `load_sos_config` folds into
+// a `SosConfig`, read through ONE place-window on `index` rather than one per
+// field (design 212 unit 2 — five spellings of `section_at` before this).
+// Fields stay `None` when absent: this reader has no target triple to fall
+// back to, so the caller applies each field's own default
+// (`""` for `linker_script`/`native`, the triple's `ToolchainDefaults` for
+// the rest).
+struct ToolchainFields {
+    linker_script: String?
+    march: String?
+    mabi: String?
+    target_features: String?
+    native: String?
+}
+
+func read_toolchain_fields(doc: &TomlDoc, index: Int) -> ToolchainFields {
+    toolchain_fields_from(&doc.section_at(index))
+}
+
+func toolchain_fields_from(section: &TomlSection) -> ToolchainFields {
+    ToolchainFields(
+        linker_script: section.get("linker-script"),
+        march: section.get("march"),
+        mabi: section.get("mabi"),
+        target_features: section.get("target-features"),
+        native: section.get("native"),
+    )
+}
+
 /// Read the `[sos]` section of `<dir>/Saw.toml`. Returns None when the package
 /// has no `[sos]` section — an ordinary host package, built the ordinary way.
 ///
@@ -282,11 +326,7 @@ public func load_sos_config(dir: Path, requested: String = "") -> Result<SosConf
 
     // `priorities` describes the PROGRAM, so it is read from `[sos]` whichever
     // spelling the per-machine keys use.
-    let background = try doc.section_at(sos).band_level("background", DEFAULT_BACKGROUND)
-    let low = try doc.section_at(sos).band_level("low", DEFAULT_LOW)
-    let normal = try doc.section_at(sos).band_level("normal", DEFAULT_NORMAL)
-    let high = try doc.section_at(sos).band_level("high", DEFAULT_HIGH)
-    let packed = pack_priorities(background, low, normal, high)
+    let packed = try read_priorities(&doc, sos)
 
     // Which section carries the per-machine keys, and which triple it is for.
     let flat_target = doc.section_at(sos).get("target") ?? ""
@@ -321,7 +361,8 @@ public func load_sos_config(dir: Path, requested: String = "") -> Result<SosConf
         return SosError(msg: "internal: [{section_name}] vanished")
     }
 
-    let linker_script = doc.section_at(chosen).get("linker-script") ?? ""
+    let toolchain = read_toolchain_fields(&doc, chosen)
+    let linker_script = toolchain.linker_script ?? ""
     if linker_script.is_empty() {
         return SosError(msg: "[{section_name}] linker-script is required (an SOS image has a fixed load address)")
     }
@@ -335,11 +376,11 @@ public func load_sos_config(dir: Path, requested: String = "") -> Result<SosConf
     // is an internal compiler error.
     let found: SosConfig? = SosConfig(
         target: target,
-        march: doc.section_at(chosen).get("march") ?? defaults.march,
-        mabi: doc.section_at(chosen).get("mabi") ?? defaults.mabi,
-        target_features: doc.section_at(chosen).get("target-features") ?? defaults.target_features,
+        march: toolchain.march ?? defaults.march,
+        mabi: toolchain.mabi ?? defaults.mabi,
+        target_features: toolchain.target_features ?? defaults.target_features,
         linker_script: linker_script,
-        native: doc.section_at(chosen).get("native") ?? "",
+        native: toolchain.native ?? "",
         prio_map: packed,
     )
     return found
