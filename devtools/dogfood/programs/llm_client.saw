@@ -1,0 +1,501 @@
+// A minimal LLM chat client: POSTs one prompt to an OpenAI-compatible
+// /v1/chat/completions endpoint and prints the assistant's reply.
+//
+// Written against LM Studio on Mac-Studio.local:1234, which also speaks
+// /api/v1 and /v1/messages; the OpenAI path is the portable one.
+//
+// The JSON handling here is deliberately NOT a parser. The request body is
+// built by escaping into a StringBuilder, and the reply is found by an
+// ANCHORED SCAN for the choices -> message -> content key path. Saw has no
+// std.json (designs/214-raft-simulation-dogfood.md records the gap), and this
+// program is what a client looks like without one.
+//
+// Usage:  llm_client [prompt words...]
+//         LLM_HOST=<host>  LLM_PORT=<port>  LLM_MODEL=<id>   all override
+//
+// MACOS LOCAL NETWORK PERMISSION. On macOS 15+ a binary with no Local Network
+// grant gets EHOSTUNREACH (errno 65) from connect() for any LAN address, while
+// loopback works — so this client reports "connect failed (other error)" against
+// Mac-Studio.local until the terminal running it is enabled under
+// System Settings > Privacy & Security > Local Network. That is not a bug in
+// this program or in std.net: a plain cc-built C binary behaves identically.
+// Verify the HTTP and JSON paths without the LAN hop by pointing LLM_HOST and
+// LLM_PORT at a local server.
+
+import std.net.{TcpStream, IoError}
+import std.data.{Data}
+import std.env.{Env}
+
+// =============================================================================
+// The bytes this program compares against
+// =============================================================================
+//
+// `String.byte_at` hands back an `Int8`, so every one of these is one — and a
+// byte >= 0x80 reads NEGATIVE, which is what keeps UTF-8 continuation bytes out
+// of the ASCII branches below and passes them through untouched.
+
+static BACKSPACE_BYTE: Int8 = 8
+static TAB_BYTE: Int8 = 9
+static NEWLINE_BYTE: Int8 = 10
+static FORMFEED_BYTE: Int8 = 12
+static RETURN_BYTE: Int8 = 13
+static SPACE_BYTE: Int8 = 32
+static QUOTE_BYTE: Int8 = 34
+static SLASH_BYTE: Int8 = 47
+static COLON_BYTE: Int8 = 58
+static BACKSLASH_BYTE: Int8 = 92
+static LOWER_B: Int8 = 98
+static LOWER_F: Int8 = 102
+static LOWER_N: Int8 = 110
+static LOWER_R: Int8 = 114
+static LOWER_T: Int8 = 116
+static LOWER_U: Int8 = 117
+
+// The surrogate range, for the \uXXXX\uXXXX pair JSON must use to spell a
+// scalar above the BMP (an emoji, most of the time).
+static SURROGATE_HI_MIN: Int = 0xD800
+static SURROGATE_HI_MAX: Int = 0xDBFF
+static SURROGATE_LO_MIN: Int = 0xDC00
+static SURROGATE_LO_MAX: Int = 0xDFFF
+static SUPPLEMENTARY_BASE: Int = 0x10000
+
+// =============================================================================
+// Failures this client can report on its own
+// =============================================================================
+//
+// The network and UTF-8 failures already have types (IoError, Utf8Error); these
+// are the three ways a well-formed HTTP exchange can still not carry a reply.
+
+enum ChatError {
+    case HttpStatus(line: String),
+    case NoBody,
+    case NoContent
+}
+
+extension ChatError: Printable {
+    func format(&self, into: &var StringBuilder) {
+        match self {
+            case HttpStatus(line) -> {
+                into.append("server returned ")
+                into.append(line)
+            },
+            case NoBody -> into.append("the response had no HTTP body"),
+            case NoContent -> {
+                into.append("no assistant message in the response body ")
+                into.append("(no choices[].message.content)")
+            }
+        }
+    }
+}
+
+extension ChatError: Error {}
+
+// =============================================================================
+// String scanning — what std.string does not offer yet
+// =============================================================================
+
+/// Reports whether `needle` sits at `at` in `haystack`.
+///
+/// Compares bytes rather than cutting a substring, so a search over a
+/// response body allocates nothing.
+func matches_at(haystack: String, needle: String, at: Int) -> Bool {
+    let hn = haystack.len()
+    let nn = needle.len()
+    if at < 0 || at + nn > hn {
+        return false
+    }
+    var k = 0
+    while k < nn {
+        if haystack.byte_at(at + k) != needle.byte_at(k) {
+            return false
+        }
+        k += 1
+    }
+    true
+}
+
+/// Returns the first index at or after `from` where `needle` occurs.
+///
+/// `std.string` has `index_of_char` for a single byte and nothing for a
+/// multi-byte needle, so this is the substring search.
+func find_from(haystack: String, needle: String, from: Int) -> Int? {
+    let hn = haystack.len()
+    let nn = needle.len()
+    if nn == 0 {
+        return from
+    }
+    if nn > hn {
+        return None
+    }
+    var i = from
+    if i < 0 {
+        i = 0
+    }
+    while i + nn <= hn {
+        if matches_at(haystack, needle, i) {
+            return i
+        }
+        i += 1
+    }
+    None
+}
+
+/// Returns everything before the first CRLF, or the whole string if there is
+/// none. Used to quote a bad status line back to the user.
+func first_line(s: String) -> String {
+    guard let i = find_from(s, "\r\n", 0) else {
+        return s
+    }
+    s.substring(0, i)
+}
+
+// =============================================================================
+// JSON out — escaping into a builder
+// =============================================================================
+
+/// Returns the lowercase hex digit for the low nibble of `v`.
+func hex_digit(v: Int) -> Int8 {
+    let d = v & 0xF
+    if d < 10 {
+        (48 + d) as Int8
+    } else {
+        (87 + d) as Int8
+    }
+}
+
+/// Appends `s` as the contents of a JSON string — no surrounding quotes.
+///
+/// Escapes exactly what RFC 8259 requires: the quote, the backslash, and every
+/// control byte below 0x20. Bytes at or above 0x80 are UTF-8 already and go
+/// through unchanged.
+func json_escape(s: String, into: &var StringBuilder) {
+    let n = s.len()
+    var i = 0
+    while i < n {
+        let b = s.byte_at(i)
+        if b == QUOTE_BYTE {
+            into.append("\\\"")
+        } else if b == BACKSLASH_BYTE {
+            into.append("\\\\")
+        } else if b == NEWLINE_BYTE {
+            into.append("\\n")
+        } else if b == RETURN_BYTE {
+            into.append("\\r")
+        } else if b == TAB_BYTE {
+            into.append("\\t")
+        } else if b == BACKSPACE_BYTE {
+            into.append("\\b")
+        } else if b == FORMFEED_BYTE {
+            into.append("\\f")
+        } else if b >= 0 && b < SPACE_BYTE {
+            into.append("\\u00")
+            into.append_char(hex_digit((b as Int) >> 4))
+            into.append_char(hex_digit(b as Int))
+        } else {
+            into.append_char(b)
+        }
+        i += 1
+    }
+}
+
+// =============================================================================
+// JSON in — an anchored scan, not a parser
+// =============================================================================
+
+func is_json_space(b: Int8) -> Bool {
+    b == SPACE_BYTE || b == TAB_BYTE || b == NEWLINE_BYTE || b == RETURN_BYTE
+}
+
+/// Returns the value of the four hex digits at `at`.
+func hex4(s: String, at: Int) -> Int? {
+    if at < 0 || at + 4 > s.len() {
+        return None
+    }
+    var v = 0
+    var k = 0
+    while k < 4 {
+        let b = s.byte_at(at + k)
+        var d = -1
+        if b >= 48 && b <= 57 {
+            d = (b as Int) - 48
+        } else if b >= 97 && b <= 102 {
+            d = (b as Int) - 87
+        } else if b >= 65 && b <= 70 {
+            d = (b as Int) - 55
+        }
+        if d < 0 {
+            return None
+        }
+        v = (v << 4) | d
+        k += 1
+    }
+    v
+}
+
+/// Appends `scalar` as UTF-8, falling back to the literal `text` it was written
+/// as when it is not a scalar value.
+///
+/// `append_scalar` refuses an unpaired surrogate, which is the case that shows
+/// up in practice. Keeping the source text means a malformed escape is visible
+/// in the output instead of vanishing from it.
+func append_scalar_or_text(into: &var StringBuilder, scalar: Int, text: String) {
+    if let _ = into.append_scalar(scalar) {
+        return
+    }
+    into.append(text)
+}
+
+/// Reads the JSON string value that follows `"<key>"` at or after `from`,
+/// unescaping it.
+///
+/// This trusts the shape of the document: it finds the key, steps over the
+/// colon, and reads one string. It validates nothing else, which is exactly the
+/// line between a scan and a parser.
+func string_after_key(json: String, key: String, from: Int) -> String? {
+    let n = json.len()
+
+    var pattern = StringBuilder()
+    pattern.append("\"")
+    pattern.append(key)
+    pattern.append("\"")
+    let needle = pattern.build()
+
+    guard let found = find_from(json, needle, from) else {
+        return None
+    }
+
+    var i = found + needle.len()
+    while i < n && is_json_space(json.byte_at(i)) {
+        i += 1
+    }
+    if i >= n || json.byte_at(i) != COLON_BYTE {
+        return None
+    }
+    i += 1
+    while i < n && is_json_space(json.byte_at(i)) {
+        i += 1
+    }
+    if i >= n || json.byte_at(i) != QUOTE_BYTE {
+        return None
+    }
+    i += 1
+
+    var out = StringBuilder()
+    while i < n {
+        let b = json.byte_at(i)
+        if b == QUOTE_BYTE {
+            return out.build()
+        }
+        if b != BACKSLASH_BYTE {
+            out.append_char(b)
+            i += 1
+        } else {
+            if i + 1 >= n {
+                return None
+            }
+            let e = json.byte_at(i + 1)
+            if e == QUOTE_BYTE {
+                out.append_char(QUOTE_BYTE)
+                i += 2
+            } else if e == BACKSLASH_BYTE {
+                out.append_char(BACKSLASH_BYTE)
+                i += 2
+            } else if e == SLASH_BYTE {
+                out.append_char(SLASH_BYTE)
+                i += 2
+            } else if e == LOWER_N {
+                out.append_char(NEWLINE_BYTE)
+                i += 2
+            } else if e == LOWER_R {
+                out.append_char(RETURN_BYTE)
+                i += 2
+            } else if e == LOWER_T {
+                out.append_char(TAB_BYTE)
+                i += 2
+            } else if e == LOWER_B {
+                out.append_char(BACKSPACE_BYTE)
+                i += 2
+            } else if e == LOWER_F {
+                out.append_char(FORMFEED_BYTE)
+                i += 2
+            } else if e == LOWER_U {
+                guard let hi = hex4(json, i + 2) else {
+                    return None
+                }
+                // A high surrogate only means something paired with the low one
+                // after it; that pair is how JSON spells an emoji.
+                var advance = 6
+                var scalar = hi
+                if hi >= SURROGATE_HI_MIN && hi <= SURROGATE_HI_MAX {
+                    // A wrapped `&&` needs the enclosing parens (DF-172d):
+                    // a binary expression does not span lines on its own.
+                    let paired = (i + 7 < n
+                                  && json.byte_at(i + 6) == BACKSLASH_BYTE
+                                  && json.byte_at(i + 7) == LOWER_U)
+                    if paired {
+                        guard let lo = hex4(json, i + 8) else {
+                            return None
+                        }
+                        if lo >= SURROGATE_LO_MIN && lo <= SURROGATE_LO_MAX {
+                            let high_part = (hi - SURROGATE_HI_MIN) << 10
+                            scalar = SUPPLEMENTARY_BASE + (high_part | (lo - SURROGATE_LO_MIN))
+                            advance = 12
+                        }
+                    }
+                }
+                append_scalar_or_text(&var out, scalar, json.substring(i, i + advance))
+                i += advance
+            } else {
+                // An escape JSON does not define. Keep both bytes rather than
+                // guessing what was meant.
+                out.append_char(BACKSLASH_BYTE)
+                out.append_char(e)
+                i += 2
+            }
+        }
+    }
+    None
+}
+
+/// Finds the assistant's reply in a chat-completions response body.
+///
+/// Anchors the search at `"choices"` then `"message"` so that a `"content"` key
+/// anywhere else in the envelope cannot be mistaken for the reply.
+func assistant_content(body: String) -> String? {
+    let at_choices = find_from(body, "\"choices\"", 0) ?? 0
+    let at_message = find_from(body, "\"message\"", at_choices) ?? at_choices
+    string_after_key(body, "content", at_message)
+}
+
+// =============================================================================
+// HTTP
+// =============================================================================
+
+func build_body(model: String, prompt: String) -> String {
+    // `\{` and `\}` are the literal-brace escapes: a bare `{` in a string
+    // literal opens an interpolation, so every JSON brace is escaped here.
+    var sb = StringBuilder()
+    sb.append("\{\"model\":\"")
+    json_escape(model, &var sb)
+    sb.append("\",\"messages\":[\{\"role\":\"user\",\"content\":\"")
+    json_escape(prompt, &var sb)
+    sb.append("\"\}],\"stream\":false\}")
+    sb.build()
+}
+
+/// Builds the request. `Connection: close` is what makes reading to EOF the
+/// right way to read the response — without it an HTTP/1.1 server holds the
+/// socket open and the read below would park forever.
+func build_request(host: String, path: String, body: String) -> String {
+    var sb = StringBuilder()
+    sb.append("POST ")
+    sb.append(path)
+    sb.append(" HTTP/1.1\r\nHost: ")
+    sb.append(host)
+    sb.append("\r\nContent-Type: application/json")
+    sb.append("\r\nAccept: application/json")
+    sb.append("\r\nConnection: close")
+    sb.append("\r\nContent-Length: ")
+    sb.append(body.len())
+    sb.append("\r\n\r\n")
+    sb.append(body)
+    sb.build()
+}
+
+/// Sends `request` and reads the whole response.
+///
+/// There is no read deadline: `std.net` has no way to set one yet, so a server
+/// that accepts the connection and never answers parks this task forever.
+func post(host: String, port: Int, request: String) -> Result<Data, IoError> {
+    let stream = try TcpStream.connect(host, port)
+    try stream.write(request)
+
+    var response = Data()
+    var reading = true
+    while reading {
+        let chunk = try stream.read()
+        if chunk.len() == 0 {
+            reading = false          // an empty Ok is EOF, distinct from an Err
+        } else {
+            response.append(chunk)
+        }
+    }
+    return response
+}
+
+func status_ok(response: String) -> Bool {
+    response.starts_with("HTTP/1.1 200") || response.starts_with("HTTP/1.0 200")
+}
+
+func http_body(response: String) -> String? {
+    let separator = "\r\n\r\n"
+    guard let i = find_from(response, separator, 0) else {
+        return None
+    }
+    response.substring(i + separator.len(), response.len())
+}
+
+// =============================================================================
+// The one call this program exists for
+// =============================================================================
+
+func chat(host: String, port: Int, model: String, prompt: String) -> Result<String, Box<any Error>> {
+    let body = build_body(model, prompt)
+    let request = build_request(host, "/v1/chat/completions", body)
+
+    let raw = try post(host, port, request)
+    let response = try raw.to_string()
+
+    if not status_ok(response) {
+        return ChatError.HttpStatus(line: first_line(response))
+    }
+    guard let json = http_body(response) else {
+        return ChatError.NoBody
+    }
+    guard let content = assistant_content(json) else {
+        return ChatError.NoContent
+    }
+    content
+}
+
+// =============================================================================
+// main
+// =============================================================================
+
+/// Joins the command-line arguments after the program name into one prompt.
+func prompt_from_args() -> String? {
+    let args = Env.args()
+    if args.len() < 2 {
+        return None
+    }
+    var sb = StringBuilder()
+    var i = 1
+    while i < args.len() {
+        if i > 1 {
+            sb.append(" ")
+        }
+        sb.append(args[i])
+        i += 1
+    }
+    sb.build()
+}
+
+func main() {
+    let host = Env.get("LLM_HOST") ?? "Mac-Studio.local"
+    let model = Env.get("LLM_MODEL") ?? "google/gemma-4-31b-qat"
+    let prompt = prompt_from_args() ?? "Say hello in exactly five words."
+
+    var port = 1234
+    if let text = Env.get("LLM_PORT") {
+        guard let parsed = text.to_int() else {
+            print("llm_client: LLM_PORT is not a number: {text}")
+            return
+        }
+        port = parsed
+    }
+
+    match chat(host, port, model, prompt) {
+        case Ok(reply) -> print(reply),
+        case Err(e) -> print("llm_client: {e}")
+    }
+}

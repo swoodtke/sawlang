@@ -101,60 +101,67 @@ matrix; conformance rows first; consumer sweep owed.
 
 ## FUTURE WORK — design 214, Raft under deterministic simulation (Aug 12)
 
-**Not scheduled, not ruled, no units authored.** High-level brief only:
-`designs/214-raft-simulation-dogfood.md`. Recorded now so the ruling
-session starts from the investigation rather than from scratch.
+**Not scheduled, not ruled, no units authored.** Brief:
+`designs/214-raft-simulation-dogfood.md`, written from a live
+investigation of the tree so the ruling session starts from facts.
 
-The idea: implement Raft as a pure I/O-free state machine behind three
-seams (Clock / Transport / Storage), with a simulated backend — virtual
-clock, in-memory network with scripted drop/delay/reorder/partition,
-seeded RNG — and assert the paper's four safety invariants over
-thousands of replayable seeds. The FoundationDB/TigerBeetle method. It
-is the first dogfood target that puts ownership-without-lifetimes,
-cancellation, existential dispatch, the wire stack and the error surface
-under load AT THE SAME TIME, and the first with a correctness oracle
-stronger than "it ran".
+Raft as a pure I/O-free state machine behind three seams (Clock /
+Transport / Storage) over a simulated backend — virtual clock, scripted
+network faults, seeded RNG — asserting the paper's four safety
+invariants across replayable seeds. The first dogfood target to load
+ownership-without-lifetimes, cancellation, existential dispatch and the
+error surface at once, and the first with a correctness oracle stronger
+than "it ran".
 
-What the Aug-12 investigation found ALREADY WORKS (no work owed):
-- Suspension through `any` existentials, colorlessly [design 51,
-  `examples/errors/any_sync_suspend.saw`] — so one `Transport` trait can
-  have a suspending live impl and a sync simulated one. The key enabler.
-- **The executor's clock is already RELATIVE** — earliest-deadline over
-  relative sleeps, "no wall clock needed" [`std/taskgroup.saw:20-21`],
-  advanced by subtraction [`taskgroup.saw:1304-1329`]. Real time enters
-  at ONE branch [`taskgroup.saw:845-855`]. A virtual-clock mode is a
-  surgical change, not a new simulator.
-- Single-threaded default engine, counted (not timed) preemption via the
-  127 op budget, cancellation reaching io-parked and sleeping tasks.
+Enabling work the investigation found missing, each its own future
+brief: a seeded RNG (there is none in the tree), `File.sync` (crosses
+the frozen `rt/ABI.md`), a virtual-clock executor mode, a `TcpStream`
+read deadline, and two VERIFY probes (single-threaded scheduler
+determinism, `Map` iteration order). The RNG, `fsync` and **the `select`
+/ receive-with-timeout ruling** are each dispatchable ahead of and
+independent of any Raft code — `select` is a language question worth
+answering either way.
 
-What is MISSING (the enabling work — each its own future brief):
-1. **A seeded RNG. There is none anywhere in the tree.** Needed for
-   election timeouts AND the fault schedule. Contract > algorithm:
-   explicitly seeded, no implicit entropy read, freestanding-safe.
-2. **`std.file` has no `fsync`** — the surface stops at
-   seek/position/rename [`std/file.saw`]. Raft durability is vacuous
-   without it. Needs an `os_ops` seam + `File.sync()`, `F_FULLFSYNC` on
-   macOS; crosses the frozen `rt/ABI.md`, so a real brief.
-3. **A virtual-clock executor mode** — opt-in shape and the
-   "a real fd IS registered" case are both open. Executor blast radius.
-4. **VERIFY: is the single-threaded scheduler deterministic?** Nothing
-   asserts it. Owed a probe; a gap here blocks everything downstream.
-5. **No `select`, and no receive-with-timeout** [`std/channel.saw`]. A
-   node waits on {peer reply, election timeout, client request,
-   shutdown}. Expressible as fan-in-to-one-channel, but that is a
-   workaround with allocation and cancellation cost. **A LANGUAGE
-   RULING, worth answering whether or not Raft is ever built:** does Saw
-   want `select`, or is fan-in the blessed idiom?
-6. **VERIFY: `Map` iteration order** is a pure function of the insertion
-   sequence (likely — no random seeding found — but replay rests on it).
-7. No deadline on `TcpStream.read`; the live transport needs one.
+## Design 215 — the LLM client (Python reference LANDED; Saw port FUTURE WORK)
 
-Items 1/2/6 are cheap, 4 is a probe, **3 and 5 are the real work and
-both stand on their own merits.** Staged A-G in the brief (enablers →
-sim substrate proven on a toy protocol → log → election → replication →
-membership → live backend), stoppable after any stage; stage G's
-acceptance criterion is that the node code compiles UNCHANGED against
-the live seams.
+Brief: `designs/215-llm-client-saw-port.md`. Both programs sit in
+`devtools/dogfood/programs/`. User order (Aug 12): Python first, port
+second, debugging language issues as they surface.
+
+**LANDED — `llm_client.py`**, the reference and the port's spec: stdlib
+only, OpenAI-compatible `/v1`, with streaming, tool calling, gated file
+editing, a system-prompt file, and an interactive REPL (vi bindings,
+persistent history, slash commands). Verified against LM Studio on
+`Mac-Studio.local:1234`.
+
+**ALSO LANDED — `llm_client.saw`**, the first Saw attempt (one-shot,
+non-streaming), verified end-to-end against a local mock. lexdiff and
+astdiff green over 1937 files with it in the corpus.
+
+**Environment fact worth carrying beyond this brief:** macOS 15+ gates
+Local Network access PER APP, so an unapproved binary gets
+`EHOSTUNREACH` for ANY LAN address while loopback works. Not a Saw bug —
+a freshly `cc`-built C binary behaves identically. Every future net
+dogfood program on this machine will hit it.
+
+Four findings, all probe-reduced; evidence and repros in the brief:
+- **DF-215a — std.net can name NO remote-connect failure.** Five errnos
+  unmapped, all collapsing to "other error" with the cause discarded;
+  the suite never leaves loopback, which is why it went unseen.
+  **Land first** — small fix, and it is what made the session long.
+- **DF-215b — `move` of a frame local in a nested block's TAIL
+  expression is refused in a suspending body.** 25-line repro, ready to
+  become a cited pin; the diagnostic's advice does not apply.
+- **DF-215c — hand-written JSON pays `\{` at every brace**, since a bare
+  `{` in a literal opens an interpolation.
+- **DF-215d — the wrapped `&&` (DF-172d) re-confirmed.**
+
+Port blockers, staged A-F in the brief: DF-215a first; **std.json — tool
+use is where hand-rolled JSON stops working, making this its third
+consumer and the first that cannot route around it**; incremental line
+reads for streaming; a `TcpStream` read deadline; and **a line-editing
+story, probably its own brief**, since Saw has no terminal surface at
+all.
 
 ## Design 212 findings — the long-function decomposition sweep (Aug 12)
 
