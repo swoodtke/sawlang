@@ -45,6 +45,33 @@ public extension ParseError {
     }
 }
 
+public struct ScanResult {
+    public flags: Map<String, String>
+    public positional: Vector<String>
+}
+
+extension ScanResult: NoCopy {}
+
+func scan_args(args: &Vector<String>, start: Int, value_flags: &Set<String>) -> ScanResult {
+    var flags: Map<String, String> = {:}
+    var positional = Vector<String>()
+    var i = start
+    while i < args.len() {
+        if let a = args.get(i) {
+            if value_flags.contains(a) {
+                i = i + 1
+                let _ = flags.insert(a, args.get(i) ?? "")
+            } else if a.starts_with("--") {
+                let _ = flags.insert(a, "")
+            } else {
+                positional.push(a)
+            }
+        }
+        i = i + 1
+    }
+    ScanResult(flags: move flags, positional: move positional)
+}
+
 public struct Cli {
     public command: BladeCommand
 }
@@ -68,33 +95,15 @@ public extension Cli {
         }
 
         if cmd.equals("build") {
-            var force = false
-            var target = ""
-            var i = 2
-            while i < args.len() {
-                if let a = args.get(i) {
-                    if a.equals("--force") {
-                        force = true
-                    } else if a.equals("--target") {
-                        i = i + 1
-                        target = args.get(i) ?? ""
-                    }
-                }
-                i = i + 1
-            }
+            let value_flags = Set<String>.of("--target")
+            let scanned = scan_args(&args, 2, &value_flags)
+            let force = scanned.flags.contains_key("--force")
+            let target = scanned.flags.get("--target") ?? ""
             Cli(command: BladeCommand.Build(force: force, target: target))
         } else if cmd.equals("clean") {
-            var target = ""
-            var i = 2
-            while i < args.len() {
-                if let a = args.get(i) {
-                    if a.equals("--target") {
-                        i = i + 1
-                        target = args.get(i) ?? ""
-                    }
-                }
-                i = i + 1
-            }
+            let value_flags = Set<String>.of("--target")
+            let scanned = scan_args(&args, 2, &value_flags)
+            let target = scanned.flags.get("--target") ?? ""
             Cli(command: BladeCommand.Clean(target: target))
         } else if cmd.equals("update") {
             Cli(command: BladeCommand.Update)
@@ -117,27 +126,18 @@ public extension Cli {
             guard let name = args.get(2) else {
                 return ParseError(msg: "blade add requires a dependency name")
             }
+            let value_flags: Set<String> = {"--path", "--git", "--version"}
+            let scanned = scan_args(&args, 3, &value_flags)
             var kind = ""
             var loc = ""
-            var version = ""
-            var i = 3
-            while i < args.len() {
-                if let a = args.get(i) {
-                    if a.equals("--path") {
-                        kind = "path"
-                        i = i + 1
-                        loc = args.get(i) ?? ""
-                    } else if a.equals("--git") {
-                        kind = "git"
-                        i = i + 1
-                        loc = args.get(i) ?? ""
-                    } else if a.equals("--version") {
-                        i = i + 1
-                        version = args.get(i) ?? ""
-                    }
-                }
-                i = i + 1
+            if let path_loc = scanned.flags.get("--path") {
+                kind = "path"
+                loc = path_loc
+            } else if let git_loc = scanned.flags.get("--git") {
+                kind = "git"
+                loc = git_loc
             }
+            let version = scanned.flags.get("--version") ?? ""
             if kind.is_empty() {
                 return ParseError(msg: "blade add requires --path <dir> or --git <url>")
             }

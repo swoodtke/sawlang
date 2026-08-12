@@ -99,6 +99,101 @@ ladder); value-branch arms are TRANSFERS through the existing
 checkpoint (lossless widening legal, like `return`). 12-row position
 matrix; conformance rows first; consumer sweep owed.
 
+## Design 212 findings — the long-function decomposition sweep (Aug 12)
+
+- **DF-212a — `return` inside a closure literal is checked against the
+  ENCLOSING NAMED FUNCTION's return type, not the closure's own.** Hit while
+  extracting unit 4's arg-scanner closures (`blade/src/cli.saw`), which
+  wanted an early `return 1`/`return 2` to report how many tokens a branch
+  consumed. `_check_return_statement` (`sawc/typechecker/statements.py:2825`)
+  reads `self.current_function`/`self.current_method` unconditionally — it
+  never tracks entry into a `ClosureExpr`, so a `return` textually inside a
+  closure is type-checked as if it were a `return` from whichever `func` or
+  method lexically contains the closure. When the two return types disagree
+  this is a loud, confusing error (a closure returning `Int` reports
+  `expected return type` as the OUTER function's unrelated type); when they
+  happen to agree it would silently compile with the WRONG target — untested,
+  but the mechanism gives no reason to expect otherwise. `designs/todo.md`'s
+  own DF-187c entry (design 187, "Design 185" section) already describes the
+  coro_transform's OWN model as "a closure's own `return` is untouched" when
+  rewriting suspending bodies — i.e., the compiler's mental model already
+  assumes closures have local returns; the typechecker's `_check_return_statement`
+  just never implements it. Minimal repro:
+  ```saw
+  func call_it(body: (Int) -> Int) -> Int { body(5) }
+  func outer() -> String {
+      let r = call_it({ x in
+          if x > 0 { return 99 }
+          0
+      })
+      "r={r}"
+  }
+  ```
+  `error: expected return type `String` but got `Int`` — pointing at `return
+  99`, which correctly would want to return `99` from the closure (typed
+  `(Int) -> Int`) but is instead checked against `outer`'s `-> String`. NOT a
+  blocker for unit 4 on its own: this codebase's established closure idiom is
+  already value-expression tails (`if`/`match` as the closure's last
+  expression, no `return`), which every existing closure in
+  `sawc/std/taskgroup.saw` already uses. Superseded as unit 4's actual blocker
+  by DF-212b below, which rules out passing a closure to the helper at all.
+
+- **DF-212b (BLOCKED unit 4 as designed) — a closure literal argument to a
+  free function corrupts an unrelated enum's type identity, ACROSS the whole
+  caller, when the caller sits in a module that gets cross-module-embedded
+  for an unrelated reason.** Isolated by bisection in
+  `blade/src/cli.saw`/`blade/src/main.saw` (both restored — no trace left in
+  the tree): adding
+  ```saw
+  func scan_args(args: &Vector<String>, start: Int, handle: (Int, Int) -> Int) { ... }
+  ```
+  to `cli.saw`, and calling it with a closure LITERAL argument
+  (`scan_args(&args, 2, { av, i in 1 })`, body irrelevant — even a trivial
+  return-1 stub) from inside ONE branch of `Cli.parse()`'s value-returning
+  `if`/`else if` chain (each branch builds `Cli(command: BladeCommand.X)`,
+  both types declared in `cli.saw`), makes EVERY branch of that chain fail
+  with ``field `command` expects type `BladeCommand` but got `BladeCommand` ``
+  — the same printed name, two distinct identities, which is design 144's
+  signature for a type resolved twice under two different (module, name)
+  answers. The FIRST failing line is `return Cli(command: BladeCommand.Help)`,
+  textually BEFORE the branch that calls `scan_args` at all. Bisection (each
+  step re-verified against the real blade project, `--module-path`
+  toml/semver/imgformat, via `sawc/sawc.py blade/src/main.saw`):
+  - Declaring `scan_args` unused: compiles.
+  - Calling it with a NON-closure argument (`scan_args(&args, 2) -> Int`, no
+    `handle` parameter at all): compiles.
+  - Calling it with a closure argument, `main.saw`'s own `main()` NOT
+    suspending (a `main()` that only calls `cli.Cli.parse()` and prints the
+    result, or that also imports `src.manifest`/`src.builder`/`src.tester`
+    but never calls anything suspending): compiles.
+  - Calling it with a closure argument AND `main()` transitively suspending
+    (its real body's `Build` arm reaches `Builder.build` -> `Command.run`,
+    which suspends): FAILS, reproducibly, regardless of whether the closure's
+    own parameter types name a reference (`(&Vector<String>, Int) -> Int` and
+    the reference-free `(Int, Int) -> Int` both trigger it).
+  - Unrelated to design 212 units 2/3: reproduces identically with
+    `sosimg.saw`/`builder.saw` reverted to their pre-212 content.
+  Reading: `main`'s body becomes ONE coroutine frame because it eventually
+  suspends, so the frame machinery has to carry every earlier local
+  (`parsed_cli: Cli`) across the whole function — including the ones bound
+  before the branch that will never suspend. Something about registering a
+  closure-typed parameter's argument at that call site, during whatever pass
+  builds or re-resolves that frame, mints a SECOND identity for
+  `BladeCommand` that prints the same but does not `==` the first. NOT
+  reproduced in an isolated two-file `import src.cli` + `Cli.parse()` project
+  with no suspending call anywhere — the suspending-frame condition is load-
+  bearing and a fully minimal standalone repro is still owed. Worked around
+  by AVOIDING the closure entirely (not a "workaround" of THIS unit's design
+  goal — a genuinely different, still-mechanical extraction): unit 4's
+  `scan_args` takes `value_flags: &Set<String>` and returns a
+  `ScanResult { flags: Map<String, String>, positional: Vector<String> }`
+  instead of a `handle` closure, which collapses the SAME three loops with no
+  closure anywhere in the call graph. `run`'s loop (no flag recognition at
+  all — it collects every token, "--"-prefixed ones included) is left as its
+  own small loop rather than forced through the flag-shaped scanner, which
+  would have changed its behavior (a `blade run --foo` argument must still
+  reach the child program's argv).
+
 ## Design 153 findings — the magic-values→backed-enums sweep (Aug 10)
 
 - ~~**DF-153a — two std FILES cannot declare the same type name.**~~ **CLOSED
