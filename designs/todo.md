@@ -4400,8 +4400,11 @@ file, and sos/spec.md §5c states the three reasons there are.
 
 Closed items: see todo_aug1-aug9.md.
 
-- **Design 212 — long-function decomposition sweep (RULED + AUTHORED Aug
-  12, dispatched to a Sonnet agent as a mechanical pass).** Extraction
+- ~~**Design 212 — long-function decomposition sweep**~~ — **LANDED Aug
+  12**, units 0-6 (unit 7 skipped per the brief's more-machinery clause),
+  tracked battery green. Two findings filed: DF-212a, DF-212b (above).
+  Was: (RULED + AUTHORED Aug
+  12, dispatched to a Sonnet agent as a mechanical pass). Extraction
   refactor over the Aug-12 review's two hot spots (taskgroup.saw's
   `g[0].<field>` chains, blade) plus a handful of plain duplications and
   one enum-idiom miss; zero behavior change, sos/ out of scope.

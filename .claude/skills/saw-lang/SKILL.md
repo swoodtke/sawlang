@@ -343,6 +343,26 @@ var u = w.copy()       // explicit duplicate
   swaps the payload. Generic `&var T` works per instantiation (the RHS must BE a
   `T`). A bare trait name behind a ref (`&Shape`/`&var Shape`) is unsized — write
   `&any Shape`/`&var any Shape`.
+- **NO LOCAL REFERENCES → EXTRACT A FUNCTION (the idiom).** Because a
+  reference cannot be bound (`let r = &foo.bar.baz.arr` is not a form), a long
+  body working on a deep place re-spells the whole chain at every use —
+  `foo.bar.baz.arr[0]`, `foo.bar.baz.arr.len()`, again and again. The intended
+  shape, not a workaround: extract a helper that takes the place by reference,
+  so the chain is spelled ONCE at the call site and the helper works through
+  the parameter:
+  ```saw
+  func drain(arr: &var Vector<Job>) { ... arr.len() ... arr[0] ... }
+  drain(&var foo.bar.baz.arr)
+  ```
+  The same move serves a NoCopy place you cannot bind (a `TomlSection` off
+  `doc.section_at(i)` re-opened at every read): pass the OWNER by reference
+  plus the index and do the lookup once inside the helper. Signals to split: a
+  function past ~60 lines, or the same 2+-hop chain spelled 3+ times. The
+  borrow lasts exactly the call, so exclusivity stays easy to see — and the
+  helper gets a name, which is what the chain never had. (Design 212 swept
+  std + blade for exactly this; the taskgroup executor's repeated
+  `g[0].<field>` fetches and blade's `section_at` re-opens were the found
+  cases.)
 - Law of Exclusivity: one `&var` XOR many `&` to overlapping paths,
   statically checked. The receiver's SPELLING does not matter — a call through
   an `&any Trait` existential or an opaque `&T` under a bound is checked exactly

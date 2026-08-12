@@ -1,7 +1,20 @@
 # Design 212 — long-function decomposition sweep
 
+**LANDED Aug 12.** All of units 0-6; unit 7 skipped as the brief allowed
+(the six blocks differ in post-load behavior, so the helper needs a
+closure parameter — the "more machinery" clause — and a closure argument
+there would retrigger DF-212b). Full tracked battery green (17 stages,
+suite 1743 passed / 8 pre-existing xfails). Two findings filed:
+DF-212a (a closure literal's `return` is checked against the ENCLOSING
+function's return type) and DF-212b (a closure-literal argument in a
+transitively-suspending, cross-module-embedded caller mints a second
+identity for an unrelated enum — blocked unit 4's closure design; the
+landed `scan_args` is Set/Map-based with no closure in the call graph).
+One recorded edge: `blade add --path X --git Y` now prefers `--path`
+regardless of argv order (was last-flag-wins; untested before and after).
+
 **Status: RULED Aug 12 (user: locate + refactor, "mostly mechanical")
-+ AUTHORED; dispatches to a Sonnet agent as a mechanical pass.**
++ AUTHORED; dispatched to a Sonnet agent as a mechanical pass.**
 
 ## Motivation
 
