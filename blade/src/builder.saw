@@ -90,6 +90,32 @@ func append_dir_saw(b: &var StringBuilder, dir: String) {
 }
 
 // =============================================================================
+// Build avoidance (freshness stamp)
+// =============================================================================
+
+// Has nothing reachable changed since the last build, AND is `artifact`
+// still where that build left it? `build` and `build_sos_image` each ran
+// this exact check, closed over their own layout/hash/artifact.
+func is_up_to_date(layout: &BuildLayout, hash: &String, artifact: String) -> Bool {
+    if not read_file(layout.stamp()).equals(hash) {
+        return false
+    }
+    File.exists(Path(s: artifact))
+}
+
+// Record this target's build hash beside its artifact, for the next build's
+// `is_up_to_date` to find. A stamp that cannot be written only costs the
+// next build its cache hit.
+func record_build_stamp(layout: &BuildLayout, hash: &String) {
+    match File.create(Path(s: layout.stamp())) {
+        case Ok(f) -> {
+            let _ = f.write(hash.to_data())
+        },
+        case Err(_) -> print("    (could not record the build hash)")
+    }
+}
+
+// =============================================================================
 // Builder - Compiles Saw projects
 // =============================================================================
 
@@ -314,13 +340,9 @@ public extension Builder {
         let res = try self.resolve_deps()
 
         let hash = self.build_hash(&res)
-        if not force {
-            if read_file(layout.stamp()).equals(hash) {
-                if File.exists(Path(s: image)) {
-                    print("    Finished {image} (up to date)")
-                    return 0
-                }
-            }
+        if not force && is_up_to_date(&layout, &hash, image) {
+            print("    Finished {image} (up to date)")
+            return 0
         }
 
         print("   Compiling {name} v{self.manifest.version()} (sosimg, {cfg.target})")
@@ -432,13 +454,7 @@ public extension Builder {
 
         match write_sosimg(Path(s: elf), Path(s: image), cfg.prio_map, arch) {
             case Ok(size) -> {
-                // A stamp we cannot write only costs the next build its cache hit.
-                match File.create(Path(s: layout.stamp())) {
-                    case Ok(f) -> {
-                        let _ = f.write(hash.to_data())
-                    },
-                    case Err(_) -> print("    (could not record the build hash)")
-                }
+                record_build_stamp(&layout, &hash)
                 print("    Finished {image} ({size} bytes)")
                 0
             },
@@ -476,13 +492,9 @@ public extension Builder {
         // and an artifact left over from an older layout, sitting beside the
         // source where Blade used to put it, is simply not consulted.
         let hash = self.build_hash(&res)
-        if not force {
-            if read_file(self.layout.stamp()).equals(hash) {
-                if File.exists(Path(s: output_path)) {
-                    print("    Finished {output_path} (up to date)")
-                    return 0
-                }
-            }
+        if not force && is_up_to_date(&self.layout, &hash, output_path) {
+            print("    Finished {output_path} (up to date)")
+            return 0
         }
 
         if let triple = self.layout.triple() {
@@ -527,14 +539,7 @@ public extension Builder {
             }
         }
         if exit_code == (0 as Int32) {
-            // Record this target's build hash beside its artifact. A stamp we
-            // cannot write only costs the next build its cache hit.
-            match File.create(Path(s: self.layout.stamp())) {
-                case Ok(f) -> {
-                    let _ = f.write(hash.to_data())
-                },
-                case Err(_) -> print("    (could not record the build hash)")
-            }
+            record_build_stamp(&self.layout, &hash)
             print("    Finished {output_path}")
             0
         } else {
