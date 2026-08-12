@@ -245,6 +245,23 @@ extension String {
         }
     }
 
+    // Does `old` match starting at byte offset `i`? `replace`'s count pass
+    // and copy pass both ask this at every position.
+    func matches_at(&self, i: Int, old: &String) -> Bool {
+        let old_len = old.len()
+        if i + old_len > self.len() {
+            return false
+        }
+        var j = 0
+        while j < old_len {
+            if self.byte_at(i + j) != old.byte_at(j) {
+                return false
+            }
+            j = j + 1
+        }
+        true
+    }
+
     // Replace all occurrences of old with new
     public func replace(&self, old: String, new: String) unsafe -> String {
         let self_len = self.len()
@@ -258,15 +275,7 @@ extension String {
             var count = 0
             var i = 0
             while i <= self_len - old_len {
-                var j = 0
-                var matches = true
-                while j < old_len && matches {
-                    if self.byte_at(i + j) != old.byte_at(j) {
-                        matches = false
-                    }
-                    j = j + 1
-                }
-                if matches {
+                if self.matches_at(i, &old) {
                     count = count + 1
                     i = i + old_len
                 } else {
@@ -289,20 +298,7 @@ extension String {
                 var dst_i = 0
 
                 while src_i < self_len {
-                    // Check for match
-                    var matches = false
-                    if src_i <= self_len - old_len {
-                        matches = true
-                        var j = 0
-                        while j < old_len && matches {
-                            if self.byte_at(src_i + j) != old.byte_at(j) {
-                                matches = false
-                            }
-                            j = j + 1
-                        }
-                    }
-
-                    if matches {
+                    if self.matches_at(src_i, &old) {
                         // Copy replacement
                         var k = 0
                         while k < new_len {
