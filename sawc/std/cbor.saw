@@ -489,48 +489,57 @@ public extension CborDecoder {
             }
             stack[last] = rem - 1
             let h = try self.read_head()
-            if h.major == CborMajor.Unsigned {
-                try to.write_uint(h.arg)
-            } else if h.major == CborMajor.Negative {
-                if h.arg > (Int.max as UInt) {
-                    return DecodeError(offset: h.start, fault: DecodeFault.OutOfRange)
+            match h.major {
+                case Unsigned -> {
+                    try to.write_uint(h.arg)
+                },
+                case Negative -> {
+                    if h.arg > (Int.max as UInt) {
+                        return DecodeError(offset: h.start, fault: DecodeFault.OutOfRange)
+                    }
+                    try to.write_int(-1 - (h.arg as Int))
+                },
+                case Bytes -> {
+                    let n = try self.payload_len(h)
+                    try to.begin_bytes(n)
+                    var i = 0
+                    while i < n {
+                        let b = try self.next_byte()
+                        try to.write_byte(b)
+                        i = i + 1
+                    }
+                },
+                case Text -> {
+                    let s = try self.take_text(h)
+                    try to.write_text(s)
+                },
+                case Array -> {
+                    let n = try self.container_count(h)
+                    try to.begin_array(n)
+                    if n > 0 {
+                        stack.push(n)
+                    }
+                },
+                case Map -> {
+                    let n = try self.container_count(h)
+                    try to.begin_map(n)
+                    if n > 0 {
+                        stack.push(n * 2)
+                    }
+                },
+                case Simple -> {
+                    let info = h.arg as UInt8
+                    if info == (CborSimple.BoolTrue as UInt8) {
+                        try to.write_bool(true)
+                    } else if info == (CborSimple.BoolFalse as UInt8) {
+                        try to.write_bool(false)
+                    } else {
+                        try to.write_null()
+                    }
+                },
+                case Tag -> {
+                    return DecodeError(offset: h.start, fault: DecodeFault.Unsupported)
                 }
-                try to.write_int(-1 - (h.arg as Int))
-            } else if h.major == CborMajor.Bytes {
-                let n = try self.payload_len(h)
-                try to.begin_bytes(n)
-                var i = 0
-                while i < n {
-                    let b = try self.next_byte()
-                    try to.write_byte(b)
-                    i = i + 1
-                }
-            } else if h.major == CborMajor.Text {
-                let s = try self.take_text(h)
-                try to.write_text(s)
-            } else if h.major == CborMajor.Array {
-                let n = try self.container_count(h)
-                try to.begin_array(n)
-                if n > 0 {
-                    stack.push(n)
-                }
-            } else if h.major == CborMajor.Map {
-                let n = try self.container_count(h)
-                try to.begin_map(n)
-                if n > 0 {
-                    stack.push(n * 2)
-                }
-            } else if h.major == CborMajor.Simple {
-                let info = h.arg as UInt8
-                if info == (CborSimple.BoolTrue as UInt8) {
-                    try to.write_bool(true)
-                } else if info == (CborSimple.BoolFalse as UInt8) {
-                    try to.write_bool(false)
-                } else {
-                    try to.write_null()
-                }
-            } else {
-                return DecodeError(offset: h.start, fault: DecodeFault.Unsupported)
             }
         }
         return
@@ -865,32 +874,44 @@ public extension CborDecoder {
                 return DecodeError(offset: self.pos, fault: DecodeFault.TooManyItems)
             }
             let h = try self.read_head()
-            if h.major == CborMajor.Bytes {
-                let n = try self.payload_len(h)
-                self.pos = self.pos + n
-                try self.close_item(&var stack, h.start)
-            } else if h.major == CborMajor.Text {
-                let n = try self.payload_len(h)
-                try self.check_utf8(self.pos, n, h.start)
-                self.pos = self.pos + n
-                try self.close_item(&var stack, h.start)
-            } else if h.major == CborMajor.Array {
-                let n = try self.container_count(h)
-                try self.descend(&var stack, h, n, false)
-            } else if h.major == CborMajor.Map {
-                let n = try self.container_count(h)
-                if n > (self.max_items / 2) {
-                    return DecodeError(offset: h.start, fault: DecodeFault.TooManyItems)
+            match h.major {
+                case Bytes -> {
+                    let n = try self.payload_len(h)
+                    self.pos = self.pos + n
+                    try self.close_item(&var stack, h.start)
+                },
+                case Text -> {
+                    let n = try self.payload_len(h)
+                    try self.check_utf8(self.pos, n, h.start)
+                    self.pos = self.pos + n
+                    try self.close_item(&var stack, h.start)
+                },
+                case Array -> {
+                    let n = try self.container_count(h)
+                    try self.descend(&var stack, h, n, false)
+                },
+                case Map -> {
+                    let n = try self.container_count(h)
+                    if n > (self.max_items / 2) {
+                        return DecodeError(offset: h.start, fault: DecodeFault.TooManyItems)
+                    }
+                    try self.descend(&var stack, h, n * 2, true)
+                },
+                case Tag -> {
+                    return DecodeError(offset: h.start, fault: DecodeFault.Unsupported)
+                },
+                case Simple -> {
+                    try self.check_simple(h)
+                    try self.close_item(&var stack, h.start)
+                },
+                case Unsigned -> {
+                    // Unsigned and Negative carry their whole value in the head.
+                    try self.close_item(&var stack, h.start)
+                },
+                case Negative -> {
+                    // Unsigned and Negative carry their whole value in the head.
+                    try self.close_item(&var stack, h.start)
                 }
-                try self.descend(&var stack, h, n * 2, true)
-            } else if h.major == CborMajor.Tag {
-                return DecodeError(offset: h.start, fault: DecodeFault.Unsupported)
-            } else if h.major == CborMajor.Simple {
-                try self.check_simple(h)
-                try self.close_item(&var stack, h.start)
-            } else {
-                // Unsigned and Negative carry their whole value in the head.
-                try self.close_item(&var stack, h.start)
             }
         }
         if self.pos != total {
