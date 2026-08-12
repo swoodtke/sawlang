@@ -99,6 +99,63 @@ ladder); value-branch arms are TRANSFERS through the existing
 checkpoint (lossless widening legal, like `return`). 12-row position
 matrix; conformance rows first; consumer sweep owed.
 
+## FUTURE WORK — design 214, Raft under deterministic simulation (Aug 12)
+
+**Not scheduled, not ruled, no units authored.** High-level brief only:
+`designs/214-raft-simulation-dogfood.md`. Recorded now so the ruling
+session starts from the investigation rather than from scratch.
+
+The idea: implement Raft as a pure I/O-free state machine behind three
+seams (Clock / Transport / Storage), with a simulated backend — virtual
+clock, in-memory network with scripted drop/delay/reorder/partition,
+seeded RNG — and assert the paper's four safety invariants over
+thousands of replayable seeds. The FoundationDB/TigerBeetle method. It
+is the first dogfood target that puts ownership-without-lifetimes,
+cancellation, existential dispatch, the wire stack and the error surface
+under load AT THE SAME TIME, and the first with a correctness oracle
+stronger than "it ran".
+
+What the Aug-12 investigation found ALREADY WORKS (no work owed):
+- Suspension through `any` existentials, colorlessly [design 51,
+  `examples/errors/any_sync_suspend.saw`] — so one `Transport` trait can
+  have a suspending live impl and a sync simulated one. The key enabler.
+- **The executor's clock is already RELATIVE** — earliest-deadline over
+  relative sleeps, "no wall clock needed" [`std/taskgroup.saw:20-21`],
+  advanced by subtraction [`taskgroup.saw:1304-1329`]. Real time enters
+  at ONE branch [`taskgroup.saw:845-855`]. A virtual-clock mode is a
+  surgical change, not a new simulator.
+- Single-threaded default engine, counted (not timed) preemption via the
+  127 op budget, cancellation reaching io-parked and sleeping tasks.
+
+What is MISSING (the enabling work — each its own future brief):
+1. **A seeded RNG. There is none anywhere in the tree.** Needed for
+   election timeouts AND the fault schedule. Contract > algorithm:
+   explicitly seeded, no implicit entropy read, freestanding-safe.
+2. **`std.file` has no `fsync`** — the surface stops at
+   seek/position/rename [`std/file.saw`]. Raft durability is vacuous
+   without it. Needs an `os_ops` seam + `File.sync()`, `F_FULLFSYNC` on
+   macOS; crosses the frozen `rt/ABI.md`, so a real brief.
+3. **A virtual-clock executor mode** — opt-in shape and the
+   "a real fd IS registered" case are both open. Executor blast radius.
+4. **VERIFY: is the single-threaded scheduler deterministic?** Nothing
+   asserts it. Owed a probe; a gap here blocks everything downstream.
+5. **No `select`, and no receive-with-timeout** [`std/channel.saw`]. A
+   node waits on {peer reply, election timeout, client request,
+   shutdown}. Expressible as fan-in-to-one-channel, but that is a
+   workaround with allocation and cancellation cost. **A LANGUAGE
+   RULING, worth answering whether or not Raft is ever built:** does Saw
+   want `select`, or is fan-in the blessed idiom?
+6. **VERIFY: `Map` iteration order** is a pure function of the insertion
+   sequence (likely — no random seeding found — but replay rests on it).
+7. No deadline on `TcpStream.read`; the live transport needs one.
+
+Items 1/2/6 are cheap, 4 is a probe, **3 and 5 are the real work and
+both stand on their own merits.** Staged A-G in the brief (enablers →
+sim substrate proven on a toy protocol → log → election → replication →
+membership → live backend), stoppable after any stage; stage G's
+acceptance criterion is that the node code compiles UNCHANGED against
+the live seams.
+
 ## Design 212 findings — the long-function decomposition sweep (Aug 12)
 
 - **DF-212a — `return` inside a closure literal is checked against the
