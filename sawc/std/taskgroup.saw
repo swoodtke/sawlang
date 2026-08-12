@@ -685,6 +685,35 @@ extension TaskGroup {
     }
 }
 
+// One slot's scheduler-visible state, fetched together. `__saw_exec_worker` and
+// `__saw_exec_run` both scan every slot in a group asking the same three
+// questions before deciding what to do with it; this snapshot replaces the
+// repeated `done`/`active`/`remaining` triple fetch each scan used to spell out
+// field by field.
+struct __SlotState {
+    done: Bool
+    active: Bool
+    remaining: Int
+}
+
+func __saw_exec_slot_state(g: UnsafePointer<TaskGroup>, i: Int) unsafe -> __SlotState {
+    __SlotState(done: g[0].done.get(i)!, active: g[0].active.get(i)!, remaining: g[0].remaining.get(i)!)
+}
+
+// The completion update after a resume: mark the slot Done (`__complete` retires
+// it, and recycles it if nothing keeps its result) or record the wake reason it
+// should resume at next. `active` is cleared unconditionally first — the same
+// write `__complete` itself makes internally on the Done path, kept here so both
+// callers see the identical sequence this replaces: clear `active`, THEN decide.
+func __saw_exec_finish_resume(g: UnsafePointer<TaskGroup>, idx: Int, oc: __ResumeOutcome) unsafe {
+    g[0].active.set(idx, false)
+    if oc.done {
+        g[0].__complete(idx)
+    } else {
+        g[0].remaining.set(idx, oc.wake)
+    }
+}
+
 // design 75 (A2): one worker thread's body. Reconstruct the group pointer from the
 // address (Send-safe: an Int crosses the `spawn` boundary), then loop claiming and
 // resuming runnable frames until no live task remains. The mutex serializes queue
@@ -711,23 +740,21 @@ func __saw_exec_worker(addr: Int) unsafe {
             var minrem = -1
             var i = 0
             while i < n {
-                let done_i = g[0].done.get(i)!
-                if not done_i {
+                let st = __saw_exec_slot_state(g, i)
+                if not st.done {
                     live = live + 1
-                    let active_i = g[0].active.get(i)!
-                    if active_i {
+                    if st.active {
                         anyactive = true
                     } else {
-                        let rem = g[0].remaining.get(i)!
-                        if rem == 0 {
+                        if st.remaining == 0 {
                             if idx < 0 {
                                 idx = i
                             }
-                        } else if rem < 0 {
+                        } else if st.remaining < 0 {
                             anyio = true          // design 76: io-parked
                         } else {
-                            if minrem < 0 || rem < minrem {
-                                minrem = rem
+                            if minrem < 0 || st.remaining < minrem {
+                                minrem = st.remaining
                             }
                         }
                     }
@@ -748,16 +775,9 @@ func __saw_exec_worker(addr: Int) unsafe {
                             case Done -> __ResumeOutcome(done: true, wake: 0)
                         }
                     })
-                    if oc.done {
-                        pthread_mutex_lock(lk)
-                        g[0].__complete(idx)
-                        let _ = pthread_mutex_unlock(lk)
-                    } else {
-                        pthread_mutex_lock(lk)
-                        g[0].active.set(idx, false)
-                        g[0].remaining.set(idx, oc.wake)
-                        let _ = pthread_mutex_unlock(lk)
-                    }
+                    pthread_mutex_lock(lk)
+                    __saw_exec_finish_resume(g, idx, oc)
+                    let _ = pthread_mutex_unlock(lk)
                 } else {
                     if anyactive {
                         // Nothing runnable, but a peer is mid-resume — it may make
@@ -787,10 +807,9 @@ func __saw_exec_worker(addr: Int) unsafe {
                         pthread_mutex_lock(lk)
                         var k = 0
                         while k < n {
-                            let done_k = g[0].done.get(k)!
-                            if not done_k {
-                                let rk = g[0].remaining.get(k)!
-                                if rk < 0 {
+                            let st = __saw_exec_slot_state(g, k)
+                            if not st.done {
+                                if st.remaining < 0 {
                                     // design 102 item 2: wake a reactor-latched OR a
                                     // peer-cancelled io-parked frame (it re-checks
                                     // cancelled() and bails); non-cancelled parked
@@ -801,8 +820,8 @@ func __saw_exec_worker(addr: Int) unsafe {
                                     if wk {
                                         g[0].remaining.set(k, 0)
                                     }
-                                } else if rk > 0 && events == 0 && minrem > 0 {
-                                    var nr = rk - minrem
+                                } else if st.remaining > 0 && events == 0 && minrem > 0 {
+                                    var nr = st.remaining - minrem
                                     if nr < 0 {
                                         nr = 0
                                     }
@@ -836,10 +855,9 @@ func __saw_exec_worker(addr: Int) unsafe {
                         }
                         var j = 0
                         while j < n {
-                            let done_j = g[0].done.get(j)!
-                            if not done_j {
-                                let r2 = g[0].remaining.get(j)!
-                                if r2 > 0 {
+                            let st = __saw_exec_slot_state(g, j)
+                            if not st.done {
+                                if st.remaining > 0 {
                                     // A cancelled SLEEPER becomes runnable now
                                     // rather than at its deadline (design 180
                                     // unit 5) — the timer half of what design
@@ -850,7 +868,7 @@ func __saw_exec_worker(addr: Int) unsafe {
                                     if ck {
                                         g[0].remaining.set(j, 0)
                                     } else {
-                                        var nr = r2 - spent
+                                        var nr = st.remaining - spent
                                         if nr < 0 {
                                             nr = 0
                                         }
@@ -1326,10 +1344,8 @@ func __saw_exec_run(term_group: Int, term_slot: Int, term_gen: Int) unsafe {
                 let n = g[0].tasks.len()
                 var i = 0
                 while i < n {
-                    let done_i = g[0].done.get(i)!
-                    let active_i = g[0].active.get(i)!
-                    let rem_i = g[0].remaining.get(i)!
-                    if (not done_i) && (not active_i) && rem_i == 0 {
+                    let st = __saw_exec_slot_state(g, i)
+                    if (not st.done) && (not st.active) && st.remaining == 0 {
                         g[0].active.set(i, true)
                         let oc = g[0].tasks.with_var_ref<__ResumeOutcome>(i, { f in
                             match f!.resume() {
@@ -1337,12 +1353,7 @@ func __saw_exec_run(term_group: Int, term_slot: Int, term_gen: Int) unsafe {
                                 case Done -> __ResumeOutcome(done: true, wake: 0)
                             }
                         })
-                        g[0].active.set(i, false)
-                        if oc.done {
-                            g[0].__complete(i)
-                        } else {
-                            g[0].remaining.set(i, oc.wake)
-                        }
+                        __saw_exec_finish_resume(g, i, oc)
                         if __saw_exec_should_stop(term_group, term_slot, term_gen) {
                             return
                         }
@@ -1367,16 +1378,14 @@ func __saw_exec_run(term_group: Int, term_slot: Int, term_gen: Int) unsafe {
             let n = g[0].tasks.len()
             var i = 0
             while i < n {
-                let done_i = g[0].done.get(i)!
-                let active_i = g[0].active.get(i)!
-                if (not done_i) && (not active_i) {
+                let st = __saw_exec_slot_state(g, i)
+                if (not st.done) && (not st.active) {
                     anylive = true
-                    let r = g[0].remaining.get(i)!
-                    if r < 0 {
+                    if st.remaining < 0 {
                         io = true
-                    } else if r > 0 {
-                        if deadline < 0 || r < deadline {
-                            deadline = r
+                    } else if st.remaining > 0 {
+                        if deadline < 0 || st.remaining < deadline {
+                            deadline = st.remaining
                         }
                     }
                 }
@@ -1711,24 +1720,35 @@ func __bt_emit_status(g: UnsafePointer<TaskGroup>, slot: Int) unsafe {
     }
 }
 
-/// How many tasks are live right now, across every group and both engines.
-func __saw_bt_live_count() unsafe -> Int {
-    var count = 0
+// Walk every live task slot across every registered backtrace group, bounded
+// to BT_MAX_GROUPS, calling `body` with the group pointer, that group's
+// 1-based ordinal, and the slot index. `__saw_bt_live_count` (count only) and
+// `__saw_bt_dump` (count + print) shared this walk verbatim before this
+// extraction — same bound, same live test, same group-then-slot order.
+func __bt_each_live_slot(body: (UnsafePointer<TaskGroup>, Int, Int) unsafe -> Void) unsafe {
     var cur = __saw_bt_head.load()
-    var groups = 0
-    while cur != 0 && groups < BT_MAX_GROUPS {
-        groups = groups + 1
+    var number = 0
+    while cur != 0 && number < BT_MAX_GROUPS {
+        number = number + 1
         let g = cur as UnsafePointer<TaskGroup>
         let n = g[0].tasks.len()
         var i = 0
         while i < n {
             if __bt_slot_live(g, i) {
-                count = count + 1
+                body(g, number, i)
             }
             i = i + 1
         }
         cur = g[0].bt_next
     }
+}
+
+/// How many tasks are live right now, across every group and both engines.
+func __saw_bt_live_count() unsafe -> Int {
+    var count = 0
+    __bt_each_live_slot({ [&var count] g, number, i in
+        count = count + 1
+    })
     count
 }
 
@@ -1758,36 +1778,24 @@ public func __saw_bt_dump() unsafe {
     } else {
         __bt_emit(" live (unsynchronized snapshot)\n")
     }
-    var cur = __saw_bt_head.load()
-    var number = 0
-    while cur != 0 && number < BT_MAX_GROUPS {
-        number = number + 1
-        let g = cur as UnsafePointer<TaskGroup>
-        let n = g[0].tasks.len()
-        var i = 0
-        while i < n {
-            if __bt_slot_live(g, i) {
-                __bt_emit("  task group ")
-                __bt_emit_int(number)
-                __bt_emit(" slot ")
-                __bt_emit_int(i)
-                __bt_emit(" gen ")
-                __bt_emit_int(g[0].gen.get(i)!)
-                __bt_emit(" ")
-                __bt_emit_status(g, i)
-                __bt_emit("\n")
-                // The frame's TYPE comes through the erased vtable (design 158
-                // `Resumable.__bt_desc`); its ADDRESS is the box's data word.
-                let index = g[0].tasks.with_ref<Int>(i, { t in t!.__bt_desc() })
-                let addr = g[0].tasks.with_ref<Int>(i, { t in
-                    __saw_box_data(&t!) as Int
-                })
-                __bt_emit_stack(tbl, index, addr)
-            }
-            i = i + 1
-        }
-        cur = g[0].bt_next
-    }
+    __bt_each_live_slot({ g, number, i in
+        __bt_emit("  task group ")
+        __bt_emit_int(number)
+        __bt_emit(" slot ")
+        __bt_emit_int(i)
+        __bt_emit(" gen ")
+        __bt_emit_int(g[0].gen.get(i)!)
+        __bt_emit(" ")
+        __bt_emit_status(g, i)
+        __bt_emit("\n")
+        // The frame's TYPE comes through the erased vtable (design 158
+        // `Resumable.__bt_desc`); its ADDRESS is the box's data word.
+        let index = g[0].tasks.with_ref<Int>(i, { t in t!.__bt_desc() })
+        let addr = g[0].tasks.with_ref<Int>(i, { t in
+            __saw_box_data(&t!) as Int
+        })
+        __bt_emit_stack(tbl, index, addr)
+    })
 }
 
 /// The panic sink for a program that links the executor.
