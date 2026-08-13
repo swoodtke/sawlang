@@ -262,6 +262,20 @@ discharge; DF-217j/k get the per-instance declaration-derivation extension
 (unit 3), which also discharges 218's Slot<TaskGroup> dependency. Owes its
 obligation-2 consumer sweep before dispatch. Gates 218 stages 1-2.
 
+- **DF-218a (FIX OWED — user ruling Aug 13: presence is TIER-INDEPENDENT,
+  fix promptly, not fix-when-touched). `if let _`/`guard let _` over an
+  UNCONDITIONAL lend of an optional-TYPED place is judged a value read,
+  not design 111/146's presence test** — so a NoCopy payload cannot be
+  presence-tested AT ALL in that position (clean over-refusal; Copy tiers
+  pay a transient retain). Found by 218 unit 1; its own module surfaces
+  the shape naturally (`Slot<T?>.value()` — "does the inner optional hold
+  a value" must be askable at every tier). The fix: route the `_`-blessed
+  classification through ONE chokepoint covering every optional-yielding
+  place spelling (conditional lend — works; unconditional lend — broken;
+  plain optional local — works; frame slots — worker C's O13 family),
+  obligation 1, with a tier x spelling test matrix. Dispatch as its own
+  small unit after 218 unit 1 integrates.
+
 ## Design 218 unit 0 LANDED (Aug 13) — corodiff is a battery lane; three new DFs
 
 `tools/corodiff.py` (the coro differential harness, tracked), an 87-entry
