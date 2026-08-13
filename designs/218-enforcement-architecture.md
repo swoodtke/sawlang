@@ -232,6 +232,14 @@ cover (the port was always going to stop before codegen). Both sides of that:
 - Obligation 3: units 1 and 2 write their conformance rows first (the
   DF-217a/b/h impossibility rows, the Slot exactly-once rows).
 
+**RULED (user, Aug 13, at 218a review):** the receiver handle is
+`UnsafeRef<T>`, an `unsafe struct` in a new PUBLIC `std.compiler.frame`
+module (with `Slot<T>`, which stays ordinary safe Saw). Generated resume
+methods emit honest `unsafe` declarations instead of riding an exemption;
+users who touch an `UnsafeRef` carry the obligation via their own declared
+`unsafe` — design 130's contract, applied uniformly to compiler and user
+alike. Details + consequences in 218a's RULINGS header.
+
 ## What stays trusted (the explicit list)
 
 The `Slot` implementation and any unit-5 unchecked variant; the executor and

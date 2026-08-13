@@ -1,6 +1,36 @@
 # Design 218a — the frame primitive module: `Slot<T>` / `Receiver<T>` spec
 
 **Status: DRAFT (spec agent, Aug 13 2026). SPEC ONLY — no implementation.**
+
+## RULINGS (user, Aug 13 — post-review; these supersede the matching text below)
+
+1. **`Receiver<T>` is renamed `UnsafeRef<T>` and becomes an `unsafe struct`**
+   (design 130's compiler-enforced `Unsafe*` naming). Read every `Receiver`
+   below as `UnsafeRef`. Consequences, ruled with it:
+   - Generated resume methods that bind an `UnsafeRef` (or the cell/reactor
+     pointers) EMIT the honest `unsafe` declaration — the design-130 rule is
+     SATISFIED, not exempted, so **E2 (section 6) DELETES entirely** instead
+     of narrowing. Ownership checking inside those bodies is unaffected
+     (`unsafe` marks the domain; it relaxes no move/exclusivity rule).
+   - **P10b's escape (section 3a) is answered by the marking contract, not
+     confinement**: a user who binds an `UnsafeRef` must declare `unsafe`,
+     which puts the validity obligation visibly on them — the language's own
+     "a precondition is spelled as an unsafe-typed parameter" rule.
+   - Calibration note: user closures embedded in an `unsafe`-declared resume
+     inherit its unsafe domain on the RE-check (closures inherit the
+     enclosing domain, by rule); their pre-transform check ran in the user's
+     safe domain, so no user-facing rule weakens.
+2. **Module: `std.compiler.frame` (a new `std.compiler.*` namespace for
+   compiler-support types), PUBLIC from the start** — `Slot` and `UnsafeRef`
+   both, public constructors included. The brief's litmus is thereby
+   satisfied COMPLETELY: generated code, minting included, is code a user
+   could legally write (in an honestly `unsafe`-declared function). NOT in
+   the prelude. Recorded cost (design 144): type identity is
+   (module, name), so any future re-homing of `UnsafeRef` to general std is
+   a breaking identity change — a deliberate versioned decision if ever.
+3. **OQ1 is RATIFIED as recommended** (one type, mode = binding mutability —
+   unaffected by the rename). **OQ2 is superseded by ruling 2.** OQ3-OQ8
+   remain open.
 Charter: design 218 unit 1's pre-step. This document is the exact form the
 Opus implementers build against, reviewed by the lead, ruled by the user.
 Inputs: the 218 brief (constitution), the DF-217a/b/c/l landed fixes (root
@@ -244,13 +274,13 @@ not delegation magic.
 /// structure keeps alive (a driven frame's referent outlives the drive —
 /// design 88's confinement, unchanged), and because no user code can
 /// construct one at all (private field, no public init — see CONFINEMENT).
-struct Receiver<T> {
-    p: UnsafePointer<T>                    // PRIVATE
+unsafe struct UnsafeRef<T> {               // RULED name+marking (header block)
+    p: UnsafePointer<T>
 }
 
-extension Receiver<T>: NoCopy {}
+extension UnsafeRef<T>: NoCopy {}
 
-extension Receiver<T> {
+extension UnsafeRef<T> {
     /// Lend the referent as a place. The use site picks shared vs exclusive
     /// out of this one `&self` declaration; the WINDOW MODE is governed by
     /// the mutability of the receiver-typed BINDING (see 3a). `unsafe` in
@@ -264,11 +294,13 @@ extension Receiver<T> {
     /// 4), where the frame must KEEP `__recv` and the closure env needs its
     /// own handle. Sound because validity is lifetime-based, not
     /// uniqueness-based: a duplicate constrains nothing the original did not.
-    func dup(&self) unsafe -> Receiver<T> { Receiver<T>(p: self.p) }
+    func dup(&self) unsafe -> UnsafeRef<T> { UnsafeRef<T>(p: self.p) }
 }
 ```
 
-Construction: `Receiver<T>(p: <ptr>)` inside the defining module only. The
+Construction: `UnsafeRef<T>(p: <ptr>)`, PUBLIC (ruling 2) — the constructor
+receives an unsafe-typed value, so any minting function is `unsafe`-declared
+by the design-130 rule, which is the obligation carrier. The
 transform's seed sites (census P1/P2) build the pointer exactly as today
 (`&(<place>) as UnsafePointer<T>` / the drive-site cast) and wrap it; the
 cast is the unsafe crossing the skill already documents as the language's
