@@ -278,6 +278,27 @@ obligation-2 consumer sweep before dispatch. Gates 218 stages 1-2.
   (row O14) + `examples/optional_presence_unconditional_lend.saw` +
   `examples/optional_presence_tag_only.saw`
 
+- **DF-218b (BOGUS-REFUSAL, found probing DF-218a, pre-existing and
+  unrelated to its fix). `<place>.take()` on an optional-typed place is
+  refused, and the diagnostic names a synthesized binding.**
+  `s.value().take()` on a `Slot<Res?>` reports ``cannot call `take()` on
+  immutable variable `__p76` `` — a compiler-internal window parameter in a
+  user-facing message, with a `let`-vs-`var` hint pointing at nothing the
+  author wrote. MECHANISM: `place_uses._method_mutates` picks the window
+  flavor by looking the method up on the receiver's owning STRUCT
+  (`_method_owner_name` -> `ns.lookup_method`), and an OPTIONAL receiver has
+  no struct owner, so every `Optional` method reads as non-mutating and the
+  window opens SHARED. `take` is `&var self` and needs an exclusive one.
+  SIBLINGS (obligation 4): the mechanism reaches exactly the
+  compiler-implemented `Optional` methods, since those are the ones with no
+  struct owner to look up — `take` is the only mutating member today, and
+  `is_some`/`is_none` are `&self` so a shared window is correct for them.
+  Any future `&var self` addition to `Optional` lands in the same hole. Two
+  fixes are owed and they are separable: teach the flavor decision about
+  `Optional`'s own methods, and stop synthesized binding names reaching a
+  diagnostic. Not scheduled; moving a payload out of a slot's optional
+  element has the `Slot.take()`/`Optional.take` spellings meanwhile.
+
 ## Design 218 unit 0 LANDED (Aug 13) — corodiff is a battery lane; three new DFs
 
 `tools/corodiff.py` (the coro differential harness, tracked), an 87-entry
