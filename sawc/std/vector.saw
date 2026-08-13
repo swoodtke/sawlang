@@ -298,7 +298,10 @@ extension Vector<T, A: Allocator = GlobalAllocator> {
         } else {
             self.length = self.length - 1
             if let buf = self.buffer {
-                buf[self.length]
+                // The slot is past the new `length`, so the vector no longer
+                // owns what is in it — `move` is the spelling that says the
+                // element's ownership leaves here (design 219 unit A2).
+                move buf[self.length]
             } else {
                 None
             }
@@ -323,9 +326,12 @@ extension Vector<T, A: Allocator = GlobalAllocator> {
     // (`Int8`, a trivial type), so it is a pure bitwise relocation of the two
     // slots' contents — no element-level `copy()`/retain and no `deinit`/
     // release ever run. An owning element type (String, Vector, File) is
-    // neither retained nor dropped; the two live values just change slots. A
-    // T-level `move buf[i]` cannot express this (partial moves are forbidden,
-    // design 35), hence the byte loop. No `T: Copy` bound is needed.
+    // neither retained nor dropped; the two live values just change slots. No
+    // `T: Copy` bound is needed. (A T-level `move buf[i]` became expressible in
+    // design 219 unit A2 — it was a partial move before — so a three-move
+    // exchange through a temporary would type-check now. The byte loop stays:
+    // it is the same relocation with no element-typed temporary, and swapping
+    // it out is a change that owes its own review.)
     /// Swaps the elements at indices `i` and `j` in place. No element-level copy
     /// or deinit runs — the two live values just change slots — so it works for
     /// any element type, including NoCopy. Swapping an index with itself is a
@@ -374,7 +380,10 @@ extension Vector<T, A: Allocator = GlobalAllocator> {
             panic("Vector.swap_out: index out of range")
         }
         if let buf = self.buffer {
-            let old = buf[index]
+            // Both halves of the exchange spell their transfer (design 219 unit
+            // A2): the old element's ownership leaves the slot, the new one's
+            // arrives in it.
+            let old = move buf[index]
             buf[index] = value
             move old
         } else {

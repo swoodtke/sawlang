@@ -102,7 +102,9 @@ extension Task<T> {
             if let h = self.handle {
                 PosixThread(handle: (h as UnsafePointer<Int>)[0]).join()
                 let result_ptr = (h + 16) as UnsafePointer<T>
-                let result = result_ptr[0]
+                // The control block is freed on the next line, so the result's
+                // ownership leaves it here (design 219 unit A2).
+                let result = move result_ptr[0]
                 GlobalAllocator().dealloc(h, 16 + sizeof<T>(), 16)
                 self.joined = true
                 result

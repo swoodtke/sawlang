@@ -1,0 +1,44 @@
+// DF-219a: `Vector.pop` used to LEAK one reference per popped element.
+//
+// The read that hands the element out (`buf[self.length]`, after `length` has
+// already been decremented) was spelled as a plain read, so the transfer
+// checkpoint judged it a COPY and stamped a retain — while the vector, whose
+// length no longer covers that slot, never released the reference it had. Net
+// effect at a refcounted element: the count ended one too high and the payload
+// was never destroyed. Design 219 unit A2's `move` spelling says the read is a
+// transfer, and the retain is gone.
+//
+// The counts below are the whole assertion: pop hands over the vector's OWN
+// reference, so the count does not move across the pop, and the payload's
+// `DEINIT` runs exactly once when the last handle goes.
+// EXPECT: success
+// EXPECT-OUTPUT:
+// after push 2
+// after pop 2
+// popped 2
+// after popped drops 1
+// DEINIT 1
+// end
+
+struct Res { id: Int }
+extension Res: NoCopy {
+    func deinit(&var self) { print("DEINIT {self.id}") }
+}
+
+func main() {
+    let keeper = Arc<Res>(value: Res(id: 1))
+    var v = Vector<Arc<Res>>()
+    v.push(keeper.copy())
+    print("after push {keeper.strong_count()}")
+
+    if let popped = v.pop() {
+        print("after pop {keeper.strong_count()}")
+        print("popped {popped.strong_count()}")
+    }
+    // `popped` died with the `if let` scope: the vector's reference, handed
+    // over by the pop, is released exactly once.
+    print("after popped drops {keeper.strong_count()}")
+
+    let _ = move keeper
+    print("end")
+}

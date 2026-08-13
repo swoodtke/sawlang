@@ -174,7 +174,9 @@ extension Channel<T: Send> {
             let head_slot = (block + 144) as UnsafePointer<UnsafePointer<Int8>>
             let node = head_slot[0]
             let val_slot = (node + 8) as UnsafePointer<T>
-            let value = val_slot[0]
+            // The node is freed below, so the value's ownership leaves the
+            // queue here — `move` declares that transfer (design 219 unit A2).
+            let value = move val_slot[0]
             count[0] = count[0] - 1
             if count[0] > 0 {
                 let node_next = node as UnsafePointer<UnsafePointer<Int8>>
@@ -235,7 +237,9 @@ extension Channel<T: Send> {
             let tail_slot = (block + 152) as UnsafePointer<UnsafePointer<Int8>>
             let node = head_slot[0]
             let val_slot = (node + 8) as UnsafePointer<T>
-            let value = val_slot[0]
+            // As in `try_receive`: the node is freed below, so this read is the
+            // value's transfer out of the queue (design 219 unit A2).
+            let value = move val_slot[0]
             count[0] = count[0] - 1
             if count[0] > 0 {
                 let node_next = node as UnsafePointer<UnsafePointer<Int8>>
