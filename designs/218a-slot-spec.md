@@ -100,6 +100,19 @@
 9. **OQ8 RATIFIED (user, Aug 13):** stage 3 is strictly SEQUENTIAL after
    stage 2. All ten open questions are now RULED; the spec is the
    build-against document.
+10. **`dup()` RENAMED to an ExplicitCopy CONFORMANCE (user, Aug 13, at
+   unit-1 review — post-dates the spec body; read every `dup()` below as
+   `copy()`).** Design 219's vocabulary ruling makes ExplicitCopy THE trait
+   for exactly `UnsafeRef`'s shape: move-only, duplicable on request,
+   spelled at the call site — `dup()` was a bespoke second word for it.
+   `extension UnsafeRef<T>: ExplicitCopy` with
+   `copy(&self) unsafe -> UnsafeRef<T>`, same body, same lifetime-based
+   validity contract; composes via `@synthesize` memberwise. KNOWN
+   WRINKLE to watch at implementation: the trait requirement is unmarked
+   `copy(&self) -> Self` while the conformer must carry `unsafe` (its
+   signature names an unsafe type) — if conformance checking refuses the
+   effect mismatch, that is a REPORTED rule question, not a workaround
+   site.
 Charter: design 218 unit 1's pre-step. This document is the exact form the
 Opus implementers build against, reviewed by the lead, ruled by the user.
 Inputs: the 218 brief (constitution), the DF-217a/b/c/l landed fixes (root
