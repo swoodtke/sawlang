@@ -59,6 +59,19 @@ Saw, so the re-check cannot hold it to the ordinary rules.
    Calibration matters: this brief converts the OWNERSHIP class into checked
    territory; it does not promise the control-flow class away.
 
+**WHICH FORM THE GUARANTEE VALIDATES (added Aug 13 after sweep S1):** "the
+generated code typechecks" must name the form — S1 row p08a proved a generic
+COROUTINE's laundering leak passes the post-transform re-check VACUOUSLY,
+because the re-check sees only abstract `T` (DF-217i's boundary). So unit 2's
+guarantee is stated as: transformed output passes the ownership rules AT THE
+FORM THE CHECKER ACTUALLY JUDGES, and the abstract-T gap is closed by the
+DF-217i ruling — either post-monomorphization re-judgement (the Send lane,
+p03a/c2/d2, is the existence proof that this machinery is built and wired to
+frames) or tiered least-permissive body checking (the design-146 place rule
+is the diagnostic model; `T: Copy` alone is NOT a sufficient license, S1 row
+9d). The 217i ruling therefore lands BEFORE or WITH unit 2, else generic
+driven functions remain the soft spot under the new architecture too.
+
 ## Units
 
 **Unit 0 — the differential lane lands FIRST (independent, dispatchable now).**

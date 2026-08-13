@@ -303,13 +303,44 @@ brief should skip to 218 or adopt them.
    least; nothing re-judges the body (or the bound-discharge site) at the
    concrete type argument. Same boundary as the 216b matrix's open row C07.
    Design 146 covers PLACE reads in generic bodies (`v[i]` needs a Copy
-   bound); plain parameter/local reads of type `T` have no such rule. A
-   dedicated sweep is owed: every tier- or effect-dependent rule x the
-   abstract-T laundering shape — copy tiers (this repro), Send/Sync at a
-   generic `spawn`, NoMove pinning, place rules (verify 146 actually
-   holds), unsafe-type contact. Fix direction is a ruling: check generic
-   bodies against the LEAST permissive tier unless a bound says otherwise
-   (matching how the rest of the language treats unbounded `T`).
+   bound); plain parameter/local reads of type `T` have no such rule.
+
+   **SWEEP S1 RUN (Aug 13, 30 probes; matrix + repros in
+   `.build/scratch/sweep_absT/`). The boundary leaks THREE independent rule
+   families; Send is the sound counterexample.** DF-217i widened: a bound
+   does not help (`T: Printable` unchanged), **`T: Copy` does NOT close it**
+   (ExplicitCopy satisfies Copy but still owes `.copy()`/`move` — SIGTRAP),
+   nesting widens multiplicatively (6 deinits for 1 value at two levels),
+   generic METHODS leak identically, and — the design-218 hit — **a generic
+   COROUTINE leaks across a suspend (row p08a, lead-verified: 3 deinits +
+   use-after-free), because the post-transform re-check sees only abstract
+   `T`: "the generated code typechecks" is satisfied VACUOUSLY there.** Two
+   NEW findings, both lead-verified:
+   - **DF-217j (RUNTIME ABORT from safe code) — the NoMove containment
+     cascade is never derived per instantiation.** `struct Wrap<T>` declared
+     NoCopy, instantiated at NoMove `TaskGroup`: `move w` compiles, and a
+     spawn-move-spawn sequence dies `panic at taskgroup.saw:1008: force
+     unwrap of None` — exactly the abort design 188 exists to prevent. The
+     COPY policy of `Wrap<Res>` IS monomorphized (p04g refuses correctly);
+     the NoMove cascade just never meets the same machinery (concrete twin
+     p04e refuses at declaration). Repro: `p04f2_nomove_taskgroup_live.saw`.
+   - **DF-217k (declaration hygiene) — the design-130 unsafe-signature rule
+     skips monomorphized signatures.** `idn<T>` at `T = UnsafePointer<Int8>`
+     compiles undeclared; the concrete twin is refused. Memory-safe (the
+     caller rule still fires) but the signature lies about its domain.
+   FIX-BOUNDARY EVIDENCE (for the ruling): Send is checked
+   POST-MONOMORPHIZATION with concrete-type diagnostics naming the mangled
+   instance — the existence proof that per-instantiation re-judgement is
+   built and wired to frames; design 146's place rule fires at the ABSTRACT
+   check with the doctrine diagnostic ("copy for some instantiations, alias
+   for others") — the model for a bound-vocabulary fix, but 9d shows that
+   vocabulary must be TIERED (Copy alone is not a license to bind twice);
+   call-site bound discharge (p09c) works but only fires when a bound is
+   written. DF-217j sits outside all three: a type-declaration cascade
+   needing the containment rule derived per instantiation the way copy
+   policy already is. Not covered by S1: Sync (no forcing construct built),
+   UnsafeSend/UnsafeSync assertions, trait-requirement/existential dispatch
+   positions, const generics, enum-payload/fixed-array cascades.
 
 2. **Labeled-call recognition divergence — hypothesis mostly REFUTED, and
    the refutation redraws DF-216c.** 11-recognizer census, 25 probe rows.
