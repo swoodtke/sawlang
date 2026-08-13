@@ -23,6 +23,13 @@
 //   r6  control: a derived shadow one scope IN, which always worked
 //   r7  the carve-out's own shape: two arms of one match binding one name, so
 //       the second is renamed and BOTH views of it must reach one field
+//   r8  the ExplicitCopy tier — the fault is frame-field IDENTITY, so it never
+//       depended on the copy policy, and the differential sweep confirmed the
+//       crash on `Vector`-family values too
+//   r9  a SPAWNED root rather than a driven one
+//   r10 the redefinition inside a LOOP body, so the pair is rebound on every
+//       iteration — four values, four deinits, with iteration 1's second value
+//       released where iteration 2's store overwrites its field
 //
 // The non-suspending twin is the oracle and this matches it COUNT for count:
 // two deinits for r1/r3/r4/r5/r6, three for r2, one per binding, never two of
@@ -53,6 +60,19 @@
 // D f12
 // D f1
 // r7 41 52
+// r8 2 3
+// r9 g1
+// D g1
+// r9 g12
+// D g12
+// r10 h1
+// D h1
+// r10 h12
+// r10 h1
+// D h1
+// D h12
+// r10 h12
+// D h12
 
 import std.task.*
 
@@ -139,6 +159,54 @@ func r7(s: Step) -> Int {
     }
 }
 
+struct Bag { v: Vector<Int> }
+
+@synthesize
+extension Bag: ExplicitCopy {}
+
+func grow(b: Bag) -> Bag {
+    var v = b.v.copy()
+    v.push(9)
+    Bag(v: move v)
+}
+
+// r8 — ExplicitCopy. The crash destroyed the FIRST binding's value, so reading
+// both lengths is the oracle here.
+func r8() {
+    let b = Bag(v: [1, 2])
+    yield_now()
+    let n = b.v.len()
+    let b = grow(move b)
+    yield_now()
+    print("r8 {n} {b.v.len()}")
+}
+
+// r9 — a spawned root builds its frame the same way a driven one does.
+func r9() -> Int {
+    let s = Res(name: "g1")
+    yield_now()
+    print("r9 {s.name}")
+    let s = derive(move s)
+    yield_now()
+    print("r9 {s.name}")
+    0
+}
+
+// r10 — inside a loop body, so both fields are written on every iteration and a
+// shared one would carry a value across the back edge.
+func r10() {
+    var i = 0
+    while i < 2 {
+        let s = Res(name: "h1")
+        yield_now()
+        print("r10 {s.name}")
+        let s = derive(move s)
+        yield_now()
+        print("r10 {s.name}")
+        i += 1
+    }
+}
+
 func main() {
     __saw_drive(r1())
     __saw_drive(r2())
@@ -149,4 +217,9 @@ func main() {
     let a = __saw_drive(r7(Step.Go(n: 40)))
     let b = __saw_drive(r7(Step.Halt(n: 50)))
     print("r7 {a} {b}")
+    __saw_drive(r8())
+    var group = TaskGroup()
+    let h = group.spawn(r9())
+    let _ = h.join()
+    __saw_drive(r10())
 }

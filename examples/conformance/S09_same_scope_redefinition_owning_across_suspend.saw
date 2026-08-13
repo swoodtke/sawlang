@@ -14,8 +14,13 @@
 // (`DEINIT s1` twice, then `force unwrap of None`, SIGABRT) — on a program the
 // spec teaches. DF-217a.
 //
-// The non-suspending spelling is the oracle: both halves print the same
-// per-binding deinit sequence.
+// The fault is frame-field IDENTITY, so it is copy-tier-independent: the row
+// carries the NoCopy spelling, where a deinit count makes it legible, AND the
+// ExplicitCopy one, where the rebound binding's own value is what the crash
+// destroyed.
+//
+// The non-suspending spelling is the oracle: both halves of each pair print the
+// same sequence.
 // EXPECT: success
 // EXPECT-OUTPUT:
 // plain p1
@@ -26,6 +31,8 @@
 // DEINIT d1
 // driven d12
 // DEINIT d12
+// plain 2 3
+// driven 2 3
 
 import std.task.{yield_now}
 
@@ -36,6 +43,17 @@ extension Res: NoCopy {
 }
 
 func derive(r: Res) -> Res { Res(name: "{r.name}2") }
+
+struct Bag { v: Vector<Int> }
+
+@synthesize
+extension Bag: ExplicitCopy {}
+
+func grow(b: Bag) -> Bag {
+    var v = b.v.copy()
+    v.push(9)
+    Bag(v: move v)
+}
 
 // No suspension anywhere: no frame is built, and this is what the driven half
 // has to match exactly.
@@ -56,7 +74,27 @@ func driven() {
     print("driven {s.name}")
 }
 
+// The ExplicitCopy pair. Reading both lengths is what a collapsed field made
+// impossible: the rebind overwrote the field the first binding still owned.
+func plain_explicit() {
+    let b = Bag(v: [1, 2])
+    let n = b.v.len()
+    let b = grow(move b)
+    print("plain {n} {b.v.len()}")
+}
+
+func driven_explicit() {
+    let b = Bag(v: [1, 2])
+    yield_now()
+    let n = b.v.len()
+    let b = grow(move b)
+    yield_now()
+    print("driven {n} {b.v.len()}")
+}
+
 func main() {
     plain()
     __saw_drive(driven())
+    plain_explicit()
+    __saw_drive(driven_explicit())
 }
