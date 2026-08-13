@@ -1,0 +1,138 @@
+// Conformance row O14 — a presence test is TIER-INDEPENDENT
+//
+// The guarantee: asking whether an optional holds a value looks at the tag and
+// never at the payload, so the question is askable — and the answer identical —
+// at every copy tier, move-only payloads included. Nothing is duplicated, so no
+// tier owes a `.copy()` or a `move`; nothing is taken out, so no tier owes a
+// drop. This is what makes "is it there" a question about STORAGE rather than
+// about the value the storage holds.
+//
+// The row exists because the guarantee was position-dependent, not universal.
+// `if let _ =` delivered it over a plain optional and over a CONDITIONAL lend,
+// but an UNCONDITIONAL lend of an optional-TYPED place — `Slot<T>.value()` at
+// `T = Res?`, which is how a state machine asks about its own storage — fell
+// through to the value-read path instead. A NoCopy payload was refused outright
+// (DF-218a: a clean over-refusal, so the question could not be asked at all)
+// and a Copy tier paid a retain for an answer that never reads the payload.
+//
+// Three spellings times four tiers below, each answering the same question the
+// same way. The NoCopy rows carry deinit counts: exactly one drop per payload
+// says the presence test moved nothing, which is the property the tiers share.
+// EXPECT: success
+// EXPECT-OUTPUT:
+// value nocopy=true explicit=true implicit=true trivial=true
+// value absent nocopy=false trivial=false
+// uncond nocopy=true explicit=true implicit=true trivial=true
+// uncond absent nocopy=false trivial=false
+// cond nocopy=true explicit=true implicit=true trivial=true
+// cond absent nocopy=false trivial=false
+// drop res 3
+// drop res 2
+// drop res 1
+
+import std.compiler.frame.{Slot}
+
+struct Res { id: Int }
+
+extension Res: NoCopy {
+    func deinit(&var self) { print("drop res {self.id}") }
+}
+
+// --- spelling 1: a plain optional VALUE -----------------------------------
+
+func value_nocopy(o: &Res?) -> Bool {
+    if let _ = o { true } else { false }
+}
+
+func value_vec(o: &Vector<Int>?) -> Bool {
+    if let _ = o { true } else { false }
+}
+
+func value_str(o: &String?) -> Bool {
+    if let _ = o { true } else { false }
+}
+
+func value_int(o: &Int?) -> Bool {
+    if let _ = o { true } else { false }
+}
+
+// --- spelling 2: an UNCONDITIONAL lend of an optional-typed place ---------
+//
+// `Slot<T>.value()` is `borrows -> T`; at `T = Res?` the lend is unconditional
+// and the optional is the ELEMENT. This is the row DF-218a fixed.
+
+func uncond_nocopy(s: &Slot<Res?>) -> Bool {
+    if let _ = s.value() { true } else { false }
+}
+
+func uncond_vec(s: &Slot<Vector<Int>?>) -> Bool {
+    if let _ = s.value() { true } else { false }
+}
+
+func uncond_str(s: &Slot<String?>) -> Bool {
+    if let _ = s.value() { true } else { false }
+}
+
+func uncond_int(s: &Slot<Int?>) -> Bool {
+    if let _ = s.value() { true } else { false }
+}
+
+// --- spelling 3: a CONDITIONAL lend (`borrows -> T?`) ---------------------
+//
+// `Vector.get` — the absent path opens no window, which is why this spelling
+// keeps its own lowering rather than being desugared with the one above.
+
+func cond_nocopy(v: &Vector<Res>, i: Int) -> Bool {
+    if let _ = v.get(i) { true } else { false }
+}
+
+func cond_vec(v: &Vector<Vector<Int>>, i: Int) -> Bool {
+    if let _ = v.get(i) { true } else { false }
+}
+
+func cond_str(v: &Vector<String>, i: Int) -> Bool {
+    if let _ = v.get(i) { true } else { false }
+}
+
+func cond_int(v: &Vector<Int>, i: Int) -> Bool {
+    if let _ = v.get(i) { true } else { false }
+}
+
+func main() {
+    // ---- spelling 1: plain optional values --------------------------------
+    let vn: Res? = Res(id: 1)
+    let ve_elems: Vector<Int> = [1]
+    let ve: Vector<Int>? = move ve_elems
+    let vs: String? = "s"
+    let vi: Int? = 4
+    print("value nocopy={value_nocopy(&vn)} explicit={value_vec(&ve)} implicit={value_str(&vs)} trivial={value_int(&vi)}")
+
+    let vn_absent: Res? = None
+    let vi_absent: Int? = None
+    print("value absent nocopy={value_nocopy(&vn_absent)} trivial={value_int(&vi_absent)}")
+
+    // ---- spelling 2: unconditional lends ----------------------------------
+    var un = Slot<Res?>.of(value: Res(id: 2))
+    let un_elems: Vector<Int> = [2]
+    var ue = Slot<Vector<Int>?>.of(value: move un_elems)
+    var us = Slot<String?>.of(value: "s")
+    var ui = Slot<Int?>.of(value: 4)
+    print("uncond nocopy={uncond_nocopy(&un)} explicit={uncond_vec(&ue)} implicit={uncond_str(&us)} trivial={uncond_int(&ui)}")
+
+    var un_absent = Slot<Res?>.of(value: None)
+    var ui_absent = Slot<Int?>.of(value: None)
+    print("uncond absent nocopy={uncond_nocopy(&un_absent)} trivial={uncond_int(&ui_absent)}")
+
+    // ---- spelling 3: conditional lends ------------------------------------
+    var cn = Vector<Res>()
+    cn.push(Res(id: 3))
+    var ce = Vector<Vector<Int>>()
+    let ce_elems: Vector<Int> = [3]
+    ce.push(move ce_elems)
+    var cs = Vector<String>()
+    cs.push("s")
+    var ci = Vector<Int>()
+    ci.push(4)
+    print("cond nocopy={cond_nocopy(&cn, 0)} explicit={cond_vec(&ce, 0)} implicit={cond_str(&cs, 0)} trivial={cond_int(&ci, 0)}")
+    print("cond absent nocopy={cond_nocopy(&cn, 9)} trivial={cond_int(&ci, 9)}")
+}

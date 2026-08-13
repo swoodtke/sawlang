@@ -262,27 +262,21 @@ discharge; DF-217j/k get the per-instance declaration-derivation extension
 (unit 3), which also discharges 218's Slot<TaskGroup> dependency. Owes its
 obligation-2 consumer sweep before dispatch. Gates 218 stages 1-2.
 
-- **DF-218a (FIX OWED — user ruling Aug 13: presence is TIER-INDEPENDENT,
-  fix promptly, not fix-when-touched). `if let _`/`guard let _` over an
-  UNCONDITIONAL lend of an optional-TYPED place is judged a value read,
-  not design 111/146's presence test** — so a NoCopy payload cannot be
-  presence-tested AT ALL in that position (clean over-refusal; Copy tiers
-  pay a transient retain). Found by 218 unit 1; its own module surfaces
-  the shape naturally (`Slot<T?>.value()` — "does the inner optional hold
-  a value" must be askable at every tier). **THE FIX SHAPE (user, Aug 13):
-  an AST DESUGAR, not a classification patch** — the `_`-blessed forms
-  rewrite to `is_some()` (`if let _ = expr` → `if expr.is_some()`;
-  `guard let _` likewise) BEFORE checking, so presence becomes ordinary
-  checked code: a `&self` tag-only method call, tier-independent by
-  construction, member-lookup-resolved (immune to the Poll-style
-  bare-name shadow). Deletes the per-position classification funnel
-  instead of patching its missed position — the 218 desugar-early
-  doctrine. ONE verification row is load-bearing: the CONDITIONAL lend
-  (`if let _ = v.get(i)`) works today with "the absent path opens no
-  window" — the desugar must preserve that property exactly or leave
-  that spelling on its existing path, scoped to the value-typed and
-  unconditional-lend positions; the tier x spelling matrix decides by
-  probe. Dispatch as its own small unit after 218 unit 1 integrates.
+- **DF-218a FIXED (Aug 13) — presence is TIER-INDEPENDENT at every
+  spelling.** `if let _`/`guard let _` over an UNCONDITIONAL lend of an
+  optional-TYPED place (`Slot<T?>.value()`) was judged a value read, so a
+  NoCopy payload could not be presence-tested at all there and a Copy tier
+  paid a retain. Fixed as design 218's ELABORATION PRINCIPLE asked — an AST
+  desugar to `is_some()`, not a classification patch — in three commits:
+  `Optional.is_some()`/`is_none()` as compiler-implemented tag-only reads,
+  the desugar in `place_uses._presence_condition`, then the matrix and docs.
+  Scope was decided by probe and is SPLIT; the conditional lend keeps its own
+  lowering because the desugared spelling is not expressible there at all.
+  The split, the placement decision and the probe evidence are in the design
+  218 brief's DF-218a section.
+  PIN: `examples/conformance/O14_presence_test_is_tier_independent.saw`
+  (row O14) + `examples/optional_presence_unconditional_lend.saw` +
+  `examples/optional_presence_tag_only.saw`
 
 ## Design 218 unit 0 LANDED (Aug 13) — corodiff is a battery lane; three new DFs
 

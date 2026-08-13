@@ -1603,6 +1603,25 @@ over their own reference. Whole-optional operations are unaffected: `let y = x`
 on a `T?` already retained through the owning-enum rule, and `move x` already
 retired the binding.
 
+**`Optional.is_some(&self) -> Bool`** and **`Optional.is_none(&self) -> Bool`**
+read the occupancy tag and nothing else. No reference is created and none is
+taken, so the copy tier never enters into it: the two work on a move-only
+payload exactly as they work on an `Int`, and neither a `.copy()` nor a `move`
+is owed anywhere. They take no arguments and need no mutable place, so a call
+result is as good a receiver as a local.
+
+```saw
+struct Logger { sink: File? }
+extension Logger: NoCopy {}
+
+func is_open(l: &Logger) -> Bool {
+    l.sink.is_some()          // `File` is NoCopy; the tag is not the payload
+}
+```
+
+A receiver that is a freshly produced value still owns its payload after the
+tag is read, and deinits at the end of the statement.
+
 **Call-site optional auto-wrap** (`designs/57`, DF3). The implicit `T → T?` wrap
 also applies at **call boundaries**: a bare `T` argument auto-wraps into a `T?`
 parameter at every call form (free function, method, static method,
@@ -3256,6 +3275,24 @@ match slots[i] {                              // discriminant through the borrow
     case Empty -> 0,
     case Occupied(_, _) -> 1
 }
+```
+
+Presence is tier-independent wherever it is asked, and the scrutinee's shape
+does not change that. A plain optional, a conditional lend (`v.get(i)`), and an
+unconditional lend whose element is ITSELF optional (`Slot<T>.value()` at
+`T = Res?`) all answer the same question the same way, at every tier. The third
+of those is the one worth naming, because it reads like a value read and is not:
+the lend is unconditional, so the optional the use site sees is the element
+rather than the lend's own presence, and asking whether it holds anything is
+still a look at the tag. It desugars to `is_some()`, which is the same question
+written out.
+
+```saw
+struct Session { id: Int }
+extension Session: NoCopy {}
+
+var slot = Slot<Session?>.of(value: Session(id: 1))
+if let _ = slot.value() { ... }        // same question as slot.value().is_some()
 ```
 
 Two shapes keep the ordinary value-read path, because a window is a closure: an

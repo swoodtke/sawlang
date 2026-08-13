@@ -1,0 +1,99 @@
+// DF-218a: `if let _` / `guard let _` over an UNCONDITIONAL lend of an
+// optional-TYPED place. `Slot<T>.value()` is `borrows -> T`, so at `T = Res?`
+// the lend is unconditional and the optional the use site sees is the ELEMENT.
+// That position used to fall through to the value-read path: a NoCopy payload
+// could not be presence-tested at all, and a Copy tier paid a retain for an
+// answer that never looks at the payload. It desugars to `is_some()` now.
+//
+// The grid: both `_`-blessed spellings, occupied and empty, at every tier —
+// with the NoCopy payloads dropping exactly once, which is what says the
+// presence test moved nothing.
+// EXPECT: success
+// EXPECT-OUTPUT:
+// nocopy occupied: iflet=true guard=true
+// nocopy empty: iflet=false guard=false
+// explicit occupied: iflet=true guard=true
+// implicit occupied: iflet=true guard=true
+// implicit empty: iflet=false guard=false
+// trivial occupied: iflet=true guard=true
+// trivial empty: iflet=false guard=false
+// done
+// drop res 2
+// drop res 1
+
+import std.compiler.frame.{Slot}
+
+struct Res { id: Int }
+
+extension Res: NoCopy {
+    func deinit(&var self) { print("drop res {self.id}") }
+}
+
+func iflet_res(s: &Slot<Res?>) -> Bool {
+    if let _ = s.value() { true } else { false }
+}
+
+func guardlet_res(s: &Slot<Res?>) -> Bool {
+    guard let _ = s.value() else { return false }
+    true
+}
+
+func iflet_vec(s: &Slot<Vector<Int>?>) -> Bool {
+    if let _ = s.value() { true } else { false }
+}
+
+func guardlet_vec(s: &Slot<Vector<Int>?>) -> Bool {
+    guard let _ = s.value() else { return false }
+    true
+}
+
+func iflet_str(s: &Slot<String?>) -> Bool {
+    if let _ = s.value() { true } else { false }
+}
+
+func guardlet_str(s: &Slot<String?>) -> Bool {
+    guard let _ = s.value() else { return false }
+    true
+}
+
+func iflet_int(s: &Slot<Int?>) -> Bool {
+    if let _ = s.value() { true } else { false }
+}
+
+func guardlet_int(s: &Slot<Int?>) -> Bool {
+    guard let _ = s.value() else { return false }
+    true
+}
+
+func main() {
+    // NoCopy — the headline. Refused outright before DF-218a.
+    var n = Slot<Res?>.of(value: Res(id: 1))
+    print("nocopy occupied: iflet={iflet_res(&n)} guard={guardlet_res(&n)}")
+    var ne = Slot<Res?>.of(value: None)
+    print("nocopy empty: iflet={iflet_res(&ne)} guard={guardlet_res(&ne)}")
+
+    // ExplicitCopy — also refused before, and no `.copy()` is owed now.
+    let elems: Vector<Int> = [7, 8]
+    var e = Slot<Vector<Int>?>.of(value: move elems)
+    print("explicit occupied: iflet={iflet_vec(&e)} guard={guardlet_vec(&e)}")
+
+    // ImplicitCopy — compiled before, but paid a retain for the tag.
+    var i = Slot<String?>.of(value: "x")
+    print("implicit occupied: iflet={iflet_str(&i)} guard={guardlet_str(&i)}")
+    var ie = Slot<String?>.of(value: None)
+    print("implicit empty: iflet={iflet_str(&ie)} guard={guardlet_str(&ie)}")
+
+    // trivial
+    var t = Slot<Int?>.of(value: 5)
+    print("trivial occupied: iflet={iflet_int(&t)} guard={guardlet_int(&t)}")
+    var te = Slot<Int?>.of(value: None)
+    print("trivial empty: iflet={iflet_int(&te)} guard={guardlet_int(&te)}")
+
+    // A second Res, presence-tested and then still dropped exactly once.
+    var n2 = Slot<Res?>.of(value: Res(id: 2))
+    if let _ = n2.value() {
+        print("done")
+    } else {
+        print("unreachable")
+    }
+}

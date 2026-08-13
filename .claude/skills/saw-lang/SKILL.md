@@ -759,6 +759,13 @@ if err.is<IoErr>() { if let io = err.take<IoErr>() { retry(io) } }  // downcast
     place and returns the payload owned, so it works on a FIELD (the move-out
     `move` can't do). Needs a mutable place, exclusivity-checked like any
     `&var self` method. Checked spelling `o.take()!`.
+  **`o.is_some()` / `o.is_none()` (DF-218a) read the TAG and nothing else** —
+  no reference made, none taken, so the copy tier never enters into it and they
+  work on a `File?` exactly as on an `Int?`. `&self`-shaped: no arguments, no
+  mutable place, and a call result is as good a receiver as a local (its payload
+  drops at the end of the statement, once). This is the core form the `_`-blessed
+  presence test desugars to, so reach for it directly when the answer is a value
+  you want rather than a branch you take.
   `if let a = move o` is the consuming binding. A WHOLE-optional read follows the
   same table since design 139 — the optional's tier IS its payload's, so
   `let y = x` retains a `String?` and is REFUSED on a `Vector<Int>?`/`File?`
@@ -2293,6 +2300,15 @@ construct in the owner and lend `&driver` down.
   Holding one index and reading several values (`doc.section_at(i).get("a")`,
   `...get("b")`) is still the idiom when reads must span STATEMENTS — a place
   window is one expression, so an INDEX is what survives.
+  PRESENCE IS TIER-INDEPENDENT AT EVERY SPELLING (design 218, DF-218a) — a plain
+  optional, a conditional lend (`v.get(i)`), and an UNCONDITIONAL lend whose
+  element is itself optional (`Slot<T>.value()` at `T = Res?`) all answer the
+  same way at every tier. That third one reads like a value read and is not: the
+  lend is unconditional, so the optional is the ELEMENT rather than the lend's
+  own presence. It used to fall through to the value path — a NoCopy payload
+  could not be presence-tested AT ALL there, and a Copy tier paid a retain — so
+  treat it as working now and SUSPECT in older builds. It desugars to
+  `is_some()`, which is the same question spelled out.
 - **A place value read inside a generic body needs a bound** (design 146). An
   element type that mentions a type parameter (`Slot<K>`, or a bare `K`) has no
   copy tier of its own — the instantiation decides — so the read is legal only

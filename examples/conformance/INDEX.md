@@ -459,7 +459,7 @@ Claim source: spec 2 *Variables and Mutability*; designs 100, 107
 
 ## Optionals and payload reads
 
-Claim source: spec 3 *Optionals*; designs 111, 131, 174, 187
+Claim source: spec 3 *Optionals*; designs 111, 131, 174, 187, 218
 
 | Row | Checks | Covered by | Ruling |
 |-----|--------|------------|--------|
@@ -476,6 +476,7 @@ Claim source: spec 3 *Optionals*; designs 111, 131, 174, 187
 | O11 | control: the sanctioned nested-optional route (`v.get(i)` on `Vector<Int?>`) | `optional_nested_wrap_depth.saw` |  |
 | O12 | an `if let` binding out of a `move` scrutinee releases its payload once INSIDE a coroutine | `O12_iflet_move_binding_released_in_coroutine.saw` | DF-217b — codegen read the ownership off the AST shape (`isinstance(src, MoveExpr)`), and the coroutine transform's rewrite is what deletes that shape; a `self_opt` frame field reads back as a plain `MemberAccess`, so every driven function leaked the payload with no suspension near either binding |
 | O13 | `if let _` / `guard let _` over a `move` scrutinee releases the payload it discards | `O13_wildcard_optional_binding_releases_moved_payload.saw` | DF-217l — design 111's `_` rider dropped only a fresh-TEMPORARY payload, so a `move` scrutinee (which retires the source binding just as completely) leaked, with no coroutine involved at all. Found sweeping O12's predicate |
+| O14 | a presence test is TIER-INDEPENDENT — same question, same answer, every copy tier, at all three scrutinee spellings | `O14_presence_test_is_tier_independent.saw` | DF-218a — the guarantee was position-dependent, not universal: an UNCONDITIONAL lend of an optional-TYPED place (`Slot<T>.value()` at `T = Res?`) fell through to the value-read path, so a NoCopy payload could not be presence-tested AT ALL and a Copy tier paid a retain for an answer that never reads the payload. Fixed by design 218's ELABORATION PRINCIPLE — the position desugars to `is_some()` rather than growing a fourth classification arm. The row spans all three spellings because the split between them is the thing worth auditing: the conditional lend keeps its own lowering, where the `?` is the window's presence rather than a value |
 
 ## Freestanding and `--no-hidden-alloc`
 

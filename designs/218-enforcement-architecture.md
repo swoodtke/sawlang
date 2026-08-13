@@ -120,10 +120,10 @@ refusal.
 
 Three things the landing found that the spec did not anticipate. (a)
 `lend self.v!` IS legal as written — the direct receiver-rooted lend, no
-one-case-enum fallback. (b) `is_some()` does not exist on `T?`, so
+one-case-enum fallback. (b) `is_some()` did not exist on `T?`, so
 `is_occupied` is the binds-nothing presence test; and `if let _ = <place>` over
-an UNCONDITIONAL lend of an optional-typed place is judged a value read rather
-than a presence test, which is a spelling gap worth a look but not a blocker.
+an UNCONDITIONAL lend of an optional-typed place was judged a value read rather
+than a presence test. Filed as DF-218a and FIXED — see the section below.
 (c) A PUBLIC std type reserves its name program-wide, and `Slot` is a name 29
 corpus files use. Four pre-existing holes in design 82's "a gated std module
 reserves no user name" surfaced at once, every one reproducible with
@@ -268,6 +268,65 @@ keys teardown on the index. Where the proof does not discharge, the tag stays
 — no unchecked mode exists to misuse. Unit 0's lane extends to model-vs-elided
 twin parity. Do not start this unit without a measured regression attributable
 to the tags (perf-via-measurement policy).
+
+## DF-218a LANDED (Aug 13) — the first fix under the ELABORATION PRINCIPLE
+
+Unit 1's finding (b), fixed in three commits: `Optional.is_some()` / `is_none()`
+as compiler-implemented tag-only reads; the desugar; the matrix, conformance row
+O14 and docs. The bug was that `if let _` over an UNCONDITIONAL lend of an
+optional-TYPED place (`Slot<T>.value()` at `T = Res?`) fell through to the
+value-read path, so a NoCopy payload could not be presence-tested at all and a
+Copy tier paid a retain for an answer that never reads the payload.
+
+**Where `is_some()` lives.** `Optional` has no Saw-source extension point and
+cannot grow one — `extension Int?` is unparseable and
+`Namespace._PRIMITIVE_CONFORMANCE_KEYS` has no `TypeKind.OPTIONAL` entry — so
+the two land the way `take` and the fixed-array builtins do: one declared
+`annotation(...)` field, one checker arm, one codegen arm. Worth knowing for
+unit 2, which will want more of this vocabulary: the frame module can be written
+in Saw, but `Optional`'s own surface cannot.
+
+**Placement: `place_uses.py`, not the parser.** The decision reads
+`place_elem_type` / `place_optional`, annotations only the typechecker stamps,
+so the desugar is TYPE-INFORMED by necessity — which is what the principle asks
+for anyway. `place_uses` already runs as a post-check pass that re-enters the
+full typecheck on its output (`sawc.py:1293-1321`), i.e. the principle's
+elaborate-then-re-check pipeline, already built and already the funnel owning
+both `_`-blessed spellings. astdiff and lexdiff are untouched because no parser
+changed. Worth recording for later desugars: astdiff has no second parser today
+(it pins the Python dumper's completeness and determinism), and
+`tools/dump_ast.py` deliberately shows the AUTHORED form — so a parser-level
+desugar would make the desugared shape the contract the future Saw parser port
+must reproduce, which is wrong for a semantic elaboration. Spans were verified
+against a real post-desugar diagnostic rather than argued: a `&var self`
+accessor on a `let` root reports ``cannot call `&var self` method `value` on
+immutable variable `c` `` anchored at `c.value()`.
+
+**The scope is SPLIT, and the probe is why.** The ruling allowed either a
+uniform desugar or a split decided by the tier × spelling matrix. The matrix
+decided a split, on a structural fact rather than a preference:
+
+- **Unconditional lend of an optional-typed place — DESUGARED.** The lend is
+  unconditional, so the optional the use site sees is the ELEMENT rather than
+  the lend's presence, and `<place>.is_some()` is exactly the question. It
+  lowers through the ordinary chain machinery, which already borrows a place to
+  call a method on it.
+- **Conditional lend — LEFT ON ITS EXISTING PATH.** Not a concession: the
+  desugared spelling is *not expressible* there. `v.get(0).is_some()` lowers the
+  call INSIDE the window, where the binding is the lent ELEMENT, and reports
+  ``type `Res` has no method `is_some` ``. The `?` of `borrows -> T?` is the
+  window's presence, not a value, so there is nothing to call the method on. Its
+  documented property (the absent path opens no window) is preserved by not
+  being touched.
+- **Plain optional value — LEFT ON ITS EXISTING PATH.** Probed working at all
+  four tiers with exactly-once deinits. Design 111's `_` rider also carries the
+  `move`-scrutinee release that DF-217l fixed days ago (conformance O13);
+  routing it through the desugar would put that at risk for no gain.
+
+So the principle did not delete this classification funnel outright — it
+removed the one position that was misclassified, by routing it to core the user
+can now write. The remaining two arms are each answering a question the other
+cannot express, which is a different thing from a duplicated rule.
 
 ## Self-hosting interaction (user, Aug 13)
 
