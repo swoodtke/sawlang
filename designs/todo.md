@@ -227,7 +227,14 @@ Aug 13): BINARY requirement inference — a body either copies `T` silently
 (rare by design); the legacy `T: Copy` bound RETIRES from generic signatures
 (it admits ExplicitCopy args into silently-copying bodies — the 9d
 miscompile). Call-site DISCHARGE rejection + definition-time
-declaration-coverage checking. Tier-aware bounds unify with
+declaration-coverage checking. **VOCABULARY UNIT RULED (Aug 13): the tier
+system's final form is Copy / NoCopy / ExplicitCopy-the-TRAIT** — `Copy`
+merges trivial+ImplicitCopy (the word `ImplicitCopy` retires); a declared
+Copy conformance is an assertion (empty) or the retain hook (with body —
+the visible-stdlib mechanism Arc is built on, kept by ruling: a heavy
+user `copy()` is a declared-and-documented performance choice, not banned);
+ExplicitCopy's tier dissolves into move-only, its trait + `@synthesize`
+derivation survive unchanged, blanket-satisfied by Copy types. Tier-aware bounds unify with
 tier derivation (probe-found gap: today `T: ImplicitCopy` rejects Int AND
 auto-tier structs). THE NAMED TRADE: body edits can tighten an inferred
 requirement — mitigated by declared bounds as the contract, with a

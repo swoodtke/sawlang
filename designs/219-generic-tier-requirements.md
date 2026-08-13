@@ -84,6 +84,53 @@ error: "public generic must declare its tier requirement") or (b) warned
 an API contract enforced only by an off-by-default warning is not a contract;
 private/internal generics ride pure inference freely.
 
+## THE VOCABULARY UNIT (RULED, user, Aug 13 — the tier system's final form)
+
+Three words, one job each; `ImplicitCopy` and ExplicitCopy-the-TIER retire:
+
+- **`Copy`** — THE silently-copyable tier (today's trivial + ImplicitCopy
+  merged; bitwise-vs-retain stays a codegen detail). Auto-derived
+  structurally (design 139 restated: all members Copy → Copy). A DECLARED
+  conformance has two forms, both kept:
+  - EMPTY (`extension P: Copy {}`) = an ASSERTION — compiles iff the members
+    qualify, and keeps compiling only while they do: a type-level API
+    contract mirroring this brief's declared-bound rule.
+  - WITH a `copy()` body = THE RETAIN HOOK: codegen calls it at every silent
+    transfer (`_emit_retain_at`, resources.py:807 — its comment already says
+    "String/Arc/user type"). This is the mechanism `Arc`/`Channel` are BUILT
+    ON, in visible stdlib Saw (arc.saw:137-165: atomic add copy, atomic
+    sub + fence + drop-glue deinit) — NOT compiler magic, and retiring it
+    would force refcounting INTO codegen, the opposite of design 218. It is
+    also what lets users write their own Arc-alikes in ordinary Saw.
+    **CONTRACT (user ruling): valid but a potential performance footgun —
+    something to DECLARE AND DOCUMENT, not mechanically ban.** The trait
+    docstring states the expected shape (cheap, infallible, `sync` — the
+    retain shape); a heavy body is legal and its cost is the author's
+    documented choice. LANGUAGE_SPEC + skill carry the warning prominently.
+- **`NoCopy`** — unchanged: the declared opt-out making an otherwise-Copy
+  type move-only; still the carrier for hand-written deinit bodies (131).
+- **`ExplicitCopy`** — an ordinary synthesizable TRAIT (`copy(&self) ->
+  Self`; `@synthesize` memberwise derivation survives character-for-
+  character). Blanket-satisfied by every Copy type (`copy()` ≡ the silent
+  copy), so `<T: ExplicitCopy>` means "duplicable, possibly with ceremony".
+  The TIER dissolves into move-only; the transfer rule becomes one
+  sentence — non-Copy values move; the refusal hints `.copy()` iff the
+  conformance exists.
+
+Census rows this adds to the consumer sweep: (a) every compiler site keyed
+on the ExplicitCopy TIER beyond refusal+hint (suspects: the hint text,
+`@synthesize` derivation, design-139 wrapper carrying, `_frame_read_policy`'s
+'explicit' arm — each survives as a conformance lookup); (b) the corpus-wide
+`ImplicitCopy` → `Copy` rename (declarations, spec, skill — mech batch);
+(c) corpus types declaring ImplicitCopy WITH a hand-written `copy()` (known:
+one test fixture); (d) **the `--no-hidden-alloc` question** — does an
+inserted `copy()` that allocates count as a design-135 hidden allocation?
+If not, that gate (or a `-W` category) is the natural soft-enforcement hook
+for the performance contract — investigate, never ban. Note the knock-on
+simplifications: the 216b stopgap's tier condition restates as "move-only",
+`Slot`'s tier table loses a row, and the `&Self` brief's conformer updates
+shrink.
+
 ## What this deliberately does not cover
 
 - **DF-217j / DF-217k are declaration-level**, not body-level: the NoMove
