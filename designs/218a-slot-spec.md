@@ -117,6 +117,20 @@
    `[&self]` lowering calls `self.__recv.copy()` by direct method lookup.
    `UnsafeRef` stays NoCopy; 219 adds the one-line conformance when the
    collapse lands.
+11. **THE TRAIT'S FULL SIGNATURE BECOMES SPELLABLE (user, Aug 13, at
+   unit-1 review): `__Poll` → `Poll`, public in `std.compiler.frame`, and
+   `Resumable`'s remaining requirements un-prefix in the same relocation**
+   (`__wake_reason` → `wake_reason`, `__is_cancelled` → `is_cancelled`,
+   the design-158 backtrace method by the same pattern). Principle: a
+   public trait's signature must be spellable by its readers — types and
+   names both; leaving `__` names would enforce "conformance is inert"
+   by UNSPELLABILITY, the wrong mechanism (the enqueue gate is the right
+   one, ruling 4). The `__` convention keeps meaning compiler-synthesized/
+   not-user-nameable — which a public trait's requirements no longer are.
+   Same rename class as `__release` → `release()`; consumer sweep extends
+   to the executor/transform references; the taskgroup workaround for the
+   unnameable `__Poll` (taskgroup.saw:372-374) should simplify or vanish
+   — verify and note.
 Charter: design 218 unit 1's pre-step. This document is the exact form the
 Opus implementers build against, reviewed by the lead, ruled by the user.
 Inputs: the 218 brief (constitution), the DF-217a/b/c/l landed fixes (root
