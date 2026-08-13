@@ -269,12 +269,20 @@ obligation-2 consumer sweep before dispatch. Gates 218 stages 1-2.
   presence-tested AT ALL in that position (clean over-refusal; Copy tiers
   pay a transient retain). Found by 218 unit 1; its own module surfaces
   the shape naturally (`Slot<T?>.value()` — "does the inner optional hold
-  a value" must be askable at every tier). The fix: route the `_`-blessed
-  classification through ONE chokepoint covering every optional-yielding
-  place spelling (conditional lend — works; unconditional lend — broken;
-  plain optional local — works; frame slots — worker C's O13 family),
-  obligation 1, with a tier x spelling test matrix. Dispatch as its own
-  small unit after 218 unit 1 integrates.
+  a value" must be askable at every tier). **THE FIX SHAPE (user, Aug 13):
+  an AST DESUGAR, not a classification patch** — the `_`-blessed forms
+  rewrite to `is_some()` (`if let _ = expr` → `if expr.is_some()`;
+  `guard let _` likewise) BEFORE checking, so presence becomes ordinary
+  checked code: a `&self` tag-only method call, tier-independent by
+  construction, member-lookup-resolved (immune to the Poll-style
+  bare-name shadow). Deletes the per-position classification funnel
+  instead of patching its missed position — the 218 desugar-early
+  doctrine. ONE verification row is load-bearing: the CONDITIONAL lend
+  (`if let _ = v.get(i)`) works today with "the absent path opens no
+  window" — the desugar must preserve that property exactly or leave
+  that spelling on its existing path, scoped to the value-typed and
+  unconditional-lend positions; the tier x spelling matrix decides by
+  probe. Dispatch as its own small unit after 218 unit 1 integrates.
 
 ## Design 218 unit 0 LANDED (Aug 13) — corodiff is a battery lane; three new DFs
 
