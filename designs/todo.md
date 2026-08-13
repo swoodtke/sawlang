@@ -217,10 +217,24 @@ brief should skip to 218 or adopt them.
      refused with the nested/expression-position error, contradicting design
      120's documented literals coverage. Control twin runs. All four tiers.
      Repro: `coro_diff/findings/NEW_tuple_literal_element_...refused.saw`.
-   Coverage honesty (from the harness's own log): susp_main cross product
-   ~50-60% exhausted, other contexts a curated subset, match-arm-retain axis
-   unimplemented, NO ImplicitCopy leak witnessing (leaks in that tier were
-   invisible) — the harness is rerunnable and those axes are the next pass.
+   FINAL RUN (the harness completed after the interim report): 336 twin
+   pairs / 672 programs, 1104 combos pruned with reasons logged, 264 pairs
+   byte-identical, 60 flagged and triaged. Two more results:
+   - **DF-217h (DOUBLE-FREE, lead-verified)** — `v.set(i, <suspending
+     call>)` replacing a NoCopy element frees the REPLACEMENT value twice
+     (repro prints `DEINIT r3` twice; overwritten element deinits once,
+     correctly). The bare `v[i] = <suspending call>` spelling is a clean
+     refusal (sync place-window rule), so `.set` is the exposed path.
+     Likely the DF-210f mechanism (hoisted temp keeps its claim). Repro:
+     `coro_diff/findings/NEW_vector_set_suspending_rhs_double_free.saw`.
+   - **DF-217c EXTENDED** — the capture-materialization bug also refuses
+     an AUTO-ImplicitCopy struct capture (`type Bag is not Copy`) called
+     after a suspend; the original filing assumed non-NoCopy tiers were
+     unaffected. The fix's "keep other tiers identical" bar applies to
+     tiers that WORK today, not to this refusal, which is part of the bug.
+   Remaining coverage gaps (harness rerunnable): non-main contexts a
+   curated subset, match-arm-retain axis unimplemented, no ImplicitCopy
+   leak witnessing.
    **Part 0 ranked UNSWEPT class candidates from the full DF history**
    (detail: `coro_diff/part0_table.md`): DF-193b (move-inside-container-
    literal gap, only struct-literal position tested) #1, then DF-206d (two
