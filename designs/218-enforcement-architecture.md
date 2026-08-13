@@ -97,7 +97,20 @@ per-bug impossibility argument for DF-217a/b/h (which becomes the conformance
 row set). The spec runs AFTER the DF-217 fixes land (their confirmed root
 causes are its input), is reviewed by the lead, ruled by the user, and only
 then do Opus implementers dispatch against it. The API is designed against
-the census, not invented. Expected surface: `Slot<T>` with `put(&var self, v: T)` (consumes),
+the census, not invented.
+
+**DF-216g folds in here WHOLE (user ruling, Aug 13 — no interim diagnostic):**
+a closure naming `self` in a SUSPENDING method ICEs because the capture is
+judged pre-transform (where `self` is the receiver) and the rewrite rebinds
+`self` to the frame, leaving the receiver behind the `__recv` pointer with no
+expressible borrow to capture. The census gets two rows from it: the receiver
+borrow-capture (`[&self]` as legal user syntax the transform can also emit —
+the deep fix; the transform generates what a user could have written, so the
+post-transform re-check validates it as ordinary source), and `__recv` itself
+as a primitive-module candidate (today a bare `UnsafePointer` + rewrite
+convention whose validity argument lives in a comment). Pin:
+`examples/closure_captures_self_suspending.saw`, pre-registered on unit 2's
+flip list. Expected surface: `Slot<T>` with `put(&var self, v: T)` (consumes),
 `take(&var self) -> T` (moves out, empties), place-style read accessors, and a
 deinit that drops the payload iff occupied — occupancy as an Optional-like
 tag, exactly-once release a property of the TYPE. Compiler-internal std
