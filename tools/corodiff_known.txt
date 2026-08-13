@@ -9,7 +9,7 @@
 # `<kind>: <binding>/<placement> @ <context class>`, which names one testable
 # cell of the axis grammar, and a mechanism's full set of cells is exactly the
 # position matrix obligations 1 and 4 ask a fix brief to carry. The DF-217h and
-# DF-pending-C blocks below ARE those matrices, generated from a full `--all`
+# DF-217p blocks below ARE those matrices, generated from a full `--all`
 # run rather than guessed.
 #
 # The rules are the suite's XFAIL rules:
@@ -18,8 +18,8 @@
 #     fixes the bug, exactly as you delete the XFAIL marker
 #   - `--ignore-known` re-reports everything here, which is how you check
 #
-# `DF-pending-*` entries are findings this harness reported on the day it
-# landed, awaiting a number and a pin from the lead at integration.
+# (The landing run's `DF-pending-*` entries were numbered DF-217n/o/p by the
+# lead at integration; their examples/ pins ride the pin-promotion batch.)
 #
 # Format: DF <TAB> signature   (the signature corodiff prints for it)
 
@@ -70,7 +70,7 @@ DF-217h	STDOUT-PARITY: swap_out/in_rhs @ loop
 # 218 unit 2's flip list. The sync twin compiles and runs (design 216 unit 1).
 DF-216g	ICE: error: internal compiler error at <src>:N:N (MemberAccess): Cannot find field n in struct with type %"__Frame_Holder_run"
 
-# DF-pending-A (reported 2026-08-13) — NEW. A `match` arm whose payload pattern
+# DF-217n (reported 2026-08-13) — NEW. A `match` arm whose payload pattern
 # BINDS NOTHING leaks the payload of an owned enum:
 #
 #     match Wrap.Has(x: Res(name: "r1")) { case Has(_) -> { print("hi") } }
@@ -81,15 +81,15 @@ DF-216g	ICE: error: internal compiler error at <src>:N:N (MemberAccess): Cannot 
 # sibling of DF-217l (`if let _ = move opt`), i.e. design 111's `_` rider
 # reaching a second construct the DF-217l fix did not cover.
 # Standalone repro: .build/scratch/probe_matchwild.saw
-DF-pending-A-2026-08-13	LEAK: match_nobinding/after @ linear
-DF-pending-A-2026-08-13	LEAK: match_nobinding/after @ loop
-DF-pending-A-2026-08-13	LEAK: match_nobinding/before @ linear
-DF-pending-A-2026-08-13	LEAK: match_nobinding/before @ loop
-DF-pending-A-2026-08-13	LEAK: match_nobinding/between @ linear
-DF-pending-A-2026-08-13	LEAK: match_nobinding/between @ loop
-DF-pending-A-2026-08-13	LEAK: match_nobinding/in_rhs @ linear
+DF-217n-2026-08-13	LEAK: match_nobinding/after @ linear
+DF-217n-2026-08-13	LEAK: match_nobinding/after @ loop
+DF-217n-2026-08-13	LEAK: match_nobinding/before @ linear
+DF-217n-2026-08-13	LEAK: match_nobinding/before @ loop
+DF-217n-2026-08-13	LEAK: match_nobinding/between @ linear
+DF-217n-2026-08-13	LEAK: match_nobinding/between @ loop
+DF-217n-2026-08-13	LEAK: match_nobinding/in_rhs @ linear
 
-# DF-pending-B (reported 2026-08-13) — NEW. A SPAWNED task body that contains
+# DF-217o (reported 2026-08-13) — NEW. A SPAWNED task body that contains
 # no suspension point cannot destructure a tuple:
 #
 #     func worker() -> Int { let (a, b) = (mk(1), mk(2))  ...  0 }
@@ -101,9 +101,9 @@ DF-pending-A-2026-08-13	LEAK: match_nobinding/in_rhs @ linear
 # makes it compile and run — which is why the DRIVEN twin is the one that works
 # and the oracle reports this as BOGUS-ACCEPT.
 # Standalone repro: .build/scratch/probe_spawntuple.saw
-DF-pending-B-2026-08-13	BOGUS-ACCEPT: error: struct `X` has no field `X`
+DF-217o-2026-08-13	BOGUS-ACCEPT: error: struct `X` has no field `X`
 
-# DF-pending-C (reported 2026-08-13) — NEW, and the widest thing in this file:
+# DF-217p (reported 2026-08-13) — NEW, and the widest thing in this file:
 # 61 cells of ONE mechanism. A frame-resident local in a driven body is
 # released at FRAME TEARDOWN rather than at the end of the scope that owns it.
 # Deterministic destruction is a language guarantee, so a resource held past
@@ -122,64 +122,64 @@ DF-pending-B-2026-08-13	BOGUS-ACCEPT: error: struct `X` has no field `X`
 #     while i < 2 { yield_now()  let a = Res(name: "a{i}")  print(...) }
 # prints `after loop` BEFORE the last iteration's `DEINIT a1`; the twin with
 # the yield removed prints it after.
-DF-pending-C-2026-08-13	DEINIT-ORDER: closure_capture_implicit/after @ loop
-DF-pending-C-2026-08-13	DEINIT-ORDER: closure_capture_implicit/before @ loop
-DF-pending-C-2026-08-13	DEINIT-ORDER: closure_capture_implicit/between @ loop
-DF-pending-C-2026-08-13	DEINIT-ORDER: closure_capture_move/after @ loop
-DF-pending-C-2026-08-13	DEINIT-ORDER: closure_capture_move/before @ loop
-DF-pending-C-2026-08-13	DEINIT-ORDER: closure_capture_move/between @ loop
-DF-pending-C-2026-08-13	DEINIT-ORDER: coalesce_rhs/after @ loop
-DF-pending-C-2026-08-13	DEINIT-ORDER: coalesce_rhs/before @ loop
-DF-pending-C-2026-08-13	DEINIT-ORDER: coalesce_rhs/in_rhs @ loop
-DF-pending-C-2026-08-13	DEINIT-ORDER: guard_let/after @ loop
-DF-pending-C-2026-08-13	DEINIT-ORDER: guard_let/before @ loop
-DF-pending-C-2026-08-13	DEINIT-ORDER: guard_let/between @ loop
-DF-pending-C-2026-08-13	DEINIT-ORDER: if_let_move_local/after @ linear
-DF-pending-C-2026-08-13	DEINIT-ORDER: if_let_move_local/after @ loop
-DF-pending-C-2026-08-13	DEINIT-ORDER: if_let_move_local/between @ linear
-DF-pending-C-2026-08-13	DEINIT-ORDER: if_let_move_local/between @ loop
-DF-pending-C-2026-08-13	DEINIT-ORDER: if_let_payload/after @ linear
-DF-pending-C-2026-08-13	DEINIT-ORDER: if_let_payload/after @ loop
-DF-pending-C-2026-08-13	DEINIT-ORDER: if_let_payload/between @ linear
-DF-pending-C-2026-08-13	DEINIT-ORDER: if_let_payload/between @ loop
-DF-pending-C-2026-08-13	DEINIT-ORDER: let/after @ loop
-DF-pending-C-2026-08-13	DEINIT-ORDER: let/before @ loop
-DF-pending-C-2026-08-13	DEINIT-ORDER: let/between @ loop
-DF-pending-C-2026-08-13	DEINIT-ORDER: let/in_rhs @ loop
-DF-pending-C-2026-08-13	DEINIT-ORDER: let_rebind_distinct/after @ loop
-DF-pending-C-2026-08-13	DEINIT-ORDER: let_rebind_distinct/before @ loop
-DF-pending-C-2026-08-13	DEINIT-ORDER: let_rebind_distinct/between @ loop
-DF-pending-C-2026-08-13	DEINIT-ORDER: let_rebind_distinct/in_rhs @ loop
-DF-pending-C-2026-08-13	DEINIT-ORDER: let_shadow_rebind/after @ linear
-DF-pending-C-2026-08-13	DEINIT-ORDER: let_shadow_rebind/after @ loop
-DF-pending-C-2026-08-13	DEINIT-ORDER: let_shadow_rebind/before @ linear
-DF-pending-C-2026-08-13	DEINIT-ORDER: let_shadow_rebind/before @ loop
-DF-pending-C-2026-08-13	DEINIT-ORDER: let_shadow_rebind/between @ linear
-DF-pending-C-2026-08-13	DEINIT-ORDER: let_shadow_rebind/between @ loop
-DF-pending-C-2026-08-13	DEINIT-ORDER: let_shadow_rebind/in_rhs @ linear
-DF-pending-C-2026-08-13	DEINIT-ORDER: let_shadow_rebind/in_rhs @ loop
-DF-pending-C-2026-08-13	DEINIT-ORDER: match_borrow/before @ loop
-DF-pending-C-2026-08-13	DEINIT-ORDER: match_consume/after @ linear
-DF-pending-C-2026-08-13	DEINIT-ORDER: match_consume/after @ loop
-DF-pending-C-2026-08-13	DEINIT-ORDER: match_consume/between @ linear
-DF-pending-C-2026-08-13	DEINIT-ORDER: match_consume/between @ loop
-DF-pending-C-2026-08-13	DEINIT-ORDER: nested_tuple_destructure/after @ loop
-DF-pending-C-2026-08-13	DEINIT-ORDER: nested_tuple_destructure/before @ loop
-DF-pending-C-2026-08-13	DEINIT-ORDER: nested_tuple_destructure/between @ loop
-DF-pending-C-2026-08-13	DEINIT-ORDER: optional_take/after @ loop
-DF-pending-C-2026-08-13	DEINIT-ORDER: optional_take/before @ loop
-DF-pending-C-2026-08-13	DEINIT-ORDER: optional_take/between @ loop
-DF-pending-C-2026-08-13	DEINIT-ORDER: place_write_index/after @ loop
-DF-pending-C-2026-08-13	DEINIT-ORDER: place_write_index/before @ loop
-DF-pending-C-2026-08-13	DEINIT-ORDER: place_write_index/between @ loop
-DF-pending-C-2026-08-13	DEINIT-ORDER: place_write_set/after @ loop
-DF-pending-C-2026-08-13	DEINIT-ORDER: place_write_set/before @ loop
-DF-pending-C-2026-08-13	DEINIT-ORDER: place_write_set/between @ loop
-DF-pending-C-2026-08-13	DEINIT-ORDER: place_write_set/in_rhs @ loop
-DF-pending-C-2026-08-13	DEINIT-ORDER: swap_out/after @ loop
-DF-pending-C-2026-08-13	DEINIT-ORDER: swap_out/before @ loop
-DF-pending-C-2026-08-13	DEINIT-ORDER: swap_out/between @ loop
-DF-pending-C-2026-08-13	DEINIT-ORDER: swap_out/in_rhs @ loop
-DF-pending-C-2026-08-13	DEINIT-ORDER: tuple_destructure/after @ loop
-DF-pending-C-2026-08-13	DEINIT-ORDER: tuple_destructure/before @ loop
-DF-pending-C-2026-08-13	DEINIT-ORDER: tuple_destructure/between @ loop
+DF-217p-2026-08-13	DEINIT-ORDER: closure_capture_implicit/after @ loop
+DF-217p-2026-08-13	DEINIT-ORDER: closure_capture_implicit/before @ loop
+DF-217p-2026-08-13	DEINIT-ORDER: closure_capture_implicit/between @ loop
+DF-217p-2026-08-13	DEINIT-ORDER: closure_capture_move/after @ loop
+DF-217p-2026-08-13	DEINIT-ORDER: closure_capture_move/before @ loop
+DF-217p-2026-08-13	DEINIT-ORDER: closure_capture_move/between @ loop
+DF-217p-2026-08-13	DEINIT-ORDER: coalesce_rhs/after @ loop
+DF-217p-2026-08-13	DEINIT-ORDER: coalesce_rhs/before @ loop
+DF-217p-2026-08-13	DEINIT-ORDER: coalesce_rhs/in_rhs @ loop
+DF-217p-2026-08-13	DEINIT-ORDER: guard_let/after @ loop
+DF-217p-2026-08-13	DEINIT-ORDER: guard_let/before @ loop
+DF-217p-2026-08-13	DEINIT-ORDER: guard_let/between @ loop
+DF-217p-2026-08-13	DEINIT-ORDER: if_let_move_local/after @ linear
+DF-217p-2026-08-13	DEINIT-ORDER: if_let_move_local/after @ loop
+DF-217p-2026-08-13	DEINIT-ORDER: if_let_move_local/between @ linear
+DF-217p-2026-08-13	DEINIT-ORDER: if_let_move_local/between @ loop
+DF-217p-2026-08-13	DEINIT-ORDER: if_let_payload/after @ linear
+DF-217p-2026-08-13	DEINIT-ORDER: if_let_payload/after @ loop
+DF-217p-2026-08-13	DEINIT-ORDER: if_let_payload/between @ linear
+DF-217p-2026-08-13	DEINIT-ORDER: if_let_payload/between @ loop
+DF-217p-2026-08-13	DEINIT-ORDER: let/after @ loop
+DF-217p-2026-08-13	DEINIT-ORDER: let/before @ loop
+DF-217p-2026-08-13	DEINIT-ORDER: let/between @ loop
+DF-217p-2026-08-13	DEINIT-ORDER: let/in_rhs @ loop
+DF-217p-2026-08-13	DEINIT-ORDER: let_rebind_distinct/after @ loop
+DF-217p-2026-08-13	DEINIT-ORDER: let_rebind_distinct/before @ loop
+DF-217p-2026-08-13	DEINIT-ORDER: let_rebind_distinct/between @ loop
+DF-217p-2026-08-13	DEINIT-ORDER: let_rebind_distinct/in_rhs @ loop
+DF-217p-2026-08-13	DEINIT-ORDER: let_shadow_rebind/after @ linear
+DF-217p-2026-08-13	DEINIT-ORDER: let_shadow_rebind/after @ loop
+DF-217p-2026-08-13	DEINIT-ORDER: let_shadow_rebind/before @ linear
+DF-217p-2026-08-13	DEINIT-ORDER: let_shadow_rebind/before @ loop
+DF-217p-2026-08-13	DEINIT-ORDER: let_shadow_rebind/between @ linear
+DF-217p-2026-08-13	DEINIT-ORDER: let_shadow_rebind/between @ loop
+DF-217p-2026-08-13	DEINIT-ORDER: let_shadow_rebind/in_rhs @ linear
+DF-217p-2026-08-13	DEINIT-ORDER: let_shadow_rebind/in_rhs @ loop
+DF-217p-2026-08-13	DEINIT-ORDER: match_borrow/before @ loop
+DF-217p-2026-08-13	DEINIT-ORDER: match_consume/after @ linear
+DF-217p-2026-08-13	DEINIT-ORDER: match_consume/after @ loop
+DF-217p-2026-08-13	DEINIT-ORDER: match_consume/between @ linear
+DF-217p-2026-08-13	DEINIT-ORDER: match_consume/between @ loop
+DF-217p-2026-08-13	DEINIT-ORDER: nested_tuple_destructure/after @ loop
+DF-217p-2026-08-13	DEINIT-ORDER: nested_tuple_destructure/before @ loop
+DF-217p-2026-08-13	DEINIT-ORDER: nested_tuple_destructure/between @ loop
+DF-217p-2026-08-13	DEINIT-ORDER: optional_take/after @ loop
+DF-217p-2026-08-13	DEINIT-ORDER: optional_take/before @ loop
+DF-217p-2026-08-13	DEINIT-ORDER: optional_take/between @ loop
+DF-217p-2026-08-13	DEINIT-ORDER: place_write_index/after @ loop
+DF-217p-2026-08-13	DEINIT-ORDER: place_write_index/before @ loop
+DF-217p-2026-08-13	DEINIT-ORDER: place_write_index/between @ loop
+DF-217p-2026-08-13	DEINIT-ORDER: place_write_set/after @ loop
+DF-217p-2026-08-13	DEINIT-ORDER: place_write_set/before @ loop
+DF-217p-2026-08-13	DEINIT-ORDER: place_write_set/between @ loop
+DF-217p-2026-08-13	DEINIT-ORDER: place_write_set/in_rhs @ loop
+DF-217p-2026-08-13	DEINIT-ORDER: swap_out/after @ loop
+DF-217p-2026-08-13	DEINIT-ORDER: swap_out/before @ loop
+DF-217p-2026-08-13	DEINIT-ORDER: swap_out/between @ loop
+DF-217p-2026-08-13	DEINIT-ORDER: swap_out/in_rhs @ loop
+DF-217p-2026-08-13	DEINIT-ORDER: tuple_destructure/after @ loop
+DF-217p-2026-08-13	DEINIT-ORDER: tuple_destructure/before @ loop
+DF-217p-2026-08-13	DEINIT-ORDER: tuple_destructure/between @ loop

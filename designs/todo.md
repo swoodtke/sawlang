@@ -214,6 +214,38 @@ spellings that reach it. The sweep also found:
   function infers fine, so it is method-specific. Verified by hand; repros
   named in the brief.
 
+## Design 218 unit 0 LANDED (Aug 13) — corodiff is a battery lane; three new DFs
+
+`tools/corodiff.py` (the coro differential harness, tracked), an 87-entry
+`tools/corodiff_known.txt` ledger whose DF-217h and DF-217p blocks are
+run-generated position matrices, and a `corodiff` battery stage (19s quick
+mode). Full cross: 1514 twin pairs / 3028 programs, five tier chunks,
+S3's axes (cancel, panic, MT `threads:2`) swept for the first time — no new
+mechanism from cancel/panic/MT beyond confirming DF-217f/h reach them.
+Three NEW findings, all lead-verified from standalone repros:
+
+- **DF-217n (LEAK, sync path) — `case Has(_)` on an owned enum never
+  releases the payload**; the binding arm beside it releases correctly.
+  Both twins leak, so no coroutine involved: design 111's `_` rider at a
+  construct DF-217l's fix did not reach. THIRD member of the
+  discard-position family (`let _` ok, `if let _` fixed as 217l, match `_`
+  broken) — the family owes a one-row-per-discard-form matrix.
+- **DF-217o (BOGUS-REFUSAL) — a spawned body with NO suspension cannot
+  destructure a tuple**: `error: struct __Frame_worker has no field a1` at
+  the user's own line; adding a pointless `yield_now()` is the workaround.
+  Leaks a compiler-internal frame name into a user diagnostic.
+- **DF-217p (DEINIT-ORDER, 61 cells — the widest) — a driven frame local is
+  released at FRAME TEARDOWN, not at its scope's end.** A loop-body local
+  outlives the loop; a design-107 shadow rebind holds the replaced binding
+  to teardown where the sync twin drops it at the redefinition. Counts
+  always balance (never a leak), but deterministic destruction is a
+  headline guarantee — a `File`/`TcpStream` bound in a driven loop stays
+  open for the rest of it. The known-list block IS the position matrix.
+- **DF-217h extended:** the `??` RHS is a tenth consuming position (husk
+  release with an empty name), and `Vector.swap_out(i, f())` a second
+  consuming-argument accessor; fires across linear/loop/cancel/teardown/MT,
+  which pins it to the hoist, not the context.
+
 ## Design 218 — enforcement architecture (RULED Aug 13, staged)
 
 Brief: `designs/218-enforcement-architecture.md`. The user's ruling: all
