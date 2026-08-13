@@ -238,15 +238,26 @@ grammar also rejects `self` at the PARSER (parser/expressions.py:1503 expects
 an IDENT token; `self` is a keyword), so `{ [self] in ... }` is unwritable
 today.
 
-### DF-216c — found by the sweep, verified by hand: generic METHOD
-type-argument inference fails on labeled arguments
+### DF-216c — found by the sweep, verified by hand, then REDRAWN by the
+Aug-13 labeled-call sweep: generic METHOD calls are broken on EVERY spelling
 
-`func probe<U>(other: U)` on an extension: `h.probe(other: 99i64)` errors
-`cannot infer type argument U`; the two-param shape
-`probe<U>(seed: Int, other: U)` misreports the matching label as
-`no parameter named seed`. The identical free function infers fine
-(design 93/105's tested path), so this is method-specific. Repros:
-`sweep216a/probe_dbg4.saw`, `probe_dbg5.saw`, control `probe_ctl_free.saw`.
+First filed as "inference fails on labeled arguments"; the follow-up sweep
+(`.build/scratch/sweep_labeled/RESULTS.md`) refuted the labeled framing —
+positional `h.probe(99i64)` produces the BYTE-IDENTICAL inference error, and
+explicit type arguments produce two further distinct wrong diagnostics
+(`no parameter named other` labeled; `takes at most 0 argument(s)`
+positional). The fault axis is METHOD-vs-FREE-FUNCTION: the method-side
+inference path (expressions.py:8367-8440) is a second, independently written
+caller of the label-mapping funnel (`_infer_label_mapping`/`_bind_args`,
+expressions.py:2311-2700), defective as a whole — suspect the `off`-adjusted
+parameter slice it feeds the funnel. Sharpest family member is **DF-217d**:
+`func probe<U = Int>(other: U = 7)` on an extension, called `h.probe()`,
+ICEs (`Type of #1 arg mismatch: i64 != %"Plain"`); the free twin is clean.
+Sibling found by the same sweep: **DF-217e** — method DECLARATION
+duplicate-signature checking ignores labels (label-only-distinguished method
+overloads refused; free functions fine; contradicts LANGUAGE_SPEC.md:389).
+Repros: `sweep216a/probe_dbg4.saw`, `probe_dbg5.saw`, `probe_ctl_free.saw`,
+plus the `sweep_labeled/` probe set.
 
 Unconfirmed lead (agent-reported, does NOT reproduce in the plain shape —
 `probe_esc_return.saw` compiles and runs): contradictory diagnostics when

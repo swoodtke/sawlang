@@ -169,33 +169,61 @@ entry point at the capture-list grammar. The sweep also found:
   function infers fine, so it is method-specific. Verified by hand; repros
   named in the brief.
 
-## Obligation-4 retro triage of recent DF fixes (Aug 13 — sweeps QUEUED, not run)
+## Obligation-4 retro triage of recent DF fixes (Aug 13 — BOTH SWEEPS RUN)
 
-Reviewed the recent fix waves for class-shaped mechanisms the fixes may have
-patched position-by-position. Two sweeps owed; ready to dispatch (the 216
-sweep prompts are the template). NOT dispatched — session token budget.
+Reviewed the recent fix waves for class-shaped mechanisms; two sweeps
+dispatched (checkpointed agents) and complete. Full matrices + probe files:
+`.build/scratch/sweep_frame/RESULTS.md` and `sweep_labeled/RESULTS.md`
+(gitignored — promote reproducers to cited pins before any `.build` clean).
+DF-217x numbers are RESERVED here for these findings; the next authored
+brief should skip to 218 or adopt them.
 
 1. **Coro-frame owning-binding positions** (the DF-206a/b/f + DF-210a/b/f
-   family — SIX fixes, two designs, one mechanism space). The fixes built the
-   right oracle (`Namespace.read_policy`, asked by `_store_binding_in_slot` +
-   `_slot_store_consumes`) but the class quantifier is the OTHER axis: which
-   binding/discard constructs' lowerings ASK it. Covered: match arm payload,
-   `if let`/`guard let` (incl. hoisted scrutinee temps), `let _`, tuple
-   destructure. Unprobed siblings for the matrix: `??` RHS binding an owning
-   payload, `?.`-chain consumption via the `_`-blessed forms, nested
-   destructuring, for-loop bindings, closure captures of owning values in
-   driven bodies, place writes into frame slots. (`while let` does not exist —
-   N/A.) DF-210d's dead `frame_move_read` marker is already flagged "folded
-   into whatever next touches the frame-slot family" — this sweep is that
-   touch. Evidence shape: deinit counts in suspending bodies, per position.
+   family). Ten positions probed at two tiers against non-suspending twins.
+   Seven rows CORRECT/clean. THREE NEW FINDINGS:
+   - **DF-217a (CRASH, most severe) — same-name shadow rebind of a NoCopy
+     local across a suspend** (`let s = derive(move s)` in a driven body):
+     double-free + `force unwrap of None` panic; evidence says old and new
+     binding share one frame field. The distinct-name spelling is correct —
+     and shadow-by-derivation is the BLESSED idiom (design 100). Suspects:
+     `_uniquify_bindings` + frame-field allocation.
+   - **DF-217b (LEAK) — `if let v2 = move opt` on a plain NoCopy Optional
+     local leaks in ANY driven function**, even with no suspend crossing the
+     binding. Suspect: coroutine-membership alone routes the binding through
+     frame machinery (`_lower_inplace` / `forgets` bookkeeping).
+   - **DF-217c (BOGUS-REFUSAL, DF-210a shape) — closure capturing a NoCopy
+     local `[move r]`, called after a suspend**: `_materialize_closure_captures`
+     (coro_transform.py:4959, 5013) unconditionally emits `.copy()` instead of
+     asking `read_policy` — a THIRD entry point the funnel's docstring never
+     named. Other tiers work only because `.copy()` is legal there.
+   Obligation-1 verdict: `read_policy` is the right funnel with a proven-
+   incomplete entry list; 217a/b are an ADJACENT class (frame-field identity/
+   liveness), their own row set in the fix brief.
 
-2. **Labeled-call recognition divergence.** DF-190b (a LABELED call was not a
-   call to the coroutine transform's effect census) and now DF-216c (generic
-   METHOD type-arg inference fails on labeled args) are two subsystems caught
-   mishandling the same input shape. Sweep: census every recognizer that
-   dispatches on call shape (coro effect graph, inference, overload
-   resolution, place analysis, capture analysis), probe each with
-   labeled x positional x method/free x generic.
+2. **Labeled-call recognition divergence — hypothesis mostly REFUTED, and
+   the refutation redraws DF-216c.** 11-recognizer census, 25 probe rows.
+   Labeled and positional are byte-identical everywhere probed (effect census,
+   ANF hoist, spawn lowering, `?.` call heads, transfer checkpoint, `&var`/
+   exclusivity, free-fn overloads + inference). Two funnels exist and work
+   (`_rewrite_labeled_calls` coro_transform.py:5981; `_infer_label_mapping`/
+   `_bind_args` expressions.py:2311-2700). The real findings:
+   - **DF-216c CORRECTED — the fault axis is METHOD-vs-FREE-FUNCTION, not
+     labeled-vs-positional.** Generic method calls fail on EVERY spelling
+     (positional: byte-identical inference error; explicit type-arg: two
+     further distinct wrong diagnostics; labels misreported as unknown). The
+     method-side inference path (expressions.py:8367-8440) is a second,
+     independently written caller of the label-mapping funnel, defective as a
+     whole. Brief updated.
+   - **DF-217d (ICE) — `func probe<U = Int>(other: U = 7)` on an extension,
+     called `h.probe()`**: internal compiler error (`Type of #1 arg mismatch:
+     i64 != %"Plain"`). Free-function twin clean. The 216c family's sharpest
+     member.
+   - **DF-217e — method-declaration duplicate-signature checking ignores
+     labels.** Two methods distinguished only by labels refused at DECLARATION
+     (`indistinguishable signature`); the identical free-function pair works.
+     Contradicts LANGUAGE_SPEC.md:389 ("labels are part of a function's
+     identity"). Fix wants the label-aware identity test `_resolve_overload`
+     already uses.
 
 Reviewed and NOT owed a sweep (mechanism already funneled or swept by its
 fix): design 196's erased-error family (one canonical spelling, unit 2; the
