@@ -1,0 +1,58 @@
+// Conformance row U29 — `move ptr[i]`: the move-out family's fourth member
+//
+// Every move out of a place either maintains the place's occupancy
+// (`Optional.take` by tag, `Vector.swap_out` by replacement, `Slot.take` by
+// tag) or happens where no occupancy is tracked — and the second kind is
+// spelled `move` inside `unsafe`-declared code. A pointer place is the second
+// kind: the author keeps occupancy true, the compiler asks no question the
+// pointer erased the answer to.
+//
+// Deinit-exactness is the assertion: one `DEINIT` per value taken, and the
+// slot is refilled and taken again to show the take left no claim behind.
+// EXPECT: success
+// EXPECT-OUTPUT:
+// got a
+// DEINIT a
+// got b
+// DEINIT b
+
+struct Res { name: String }
+extension Res: NoCopy {
+    func deinit(&var self) { print("DEINIT {self.name}") }
+}
+
+func slot_alloc() unsafe -> UnsafePointer<Res> {
+    if let raw = GlobalAllocator().alloc(sizeof<Res>(), alignof<Res>()) {
+        raw as UnsafePointer<Res>
+    } else {
+        panic("slot_alloc: allocation failed")
+    }
+}
+
+func slot_free(slot: UnsafePointer<Res>) unsafe {
+    GlobalAllocator().dealloc(slot as UnsafePointer<Int8>,
+                              sizeof<Res>(), alignof<Res>())
+}
+
+func slot_put(slot: UnsafePointer<Res>, value: Res) unsafe {
+    slot[0] = move value
+}
+
+func slot_take(slot: UnsafePointer<Res>) unsafe -> Res {
+    move slot[0]
+}
+
+func consume(r: Res) {
+    print("got {r.name}")
+}
+
+func run() unsafe {
+    let slot = slot_alloc()
+    slot_put(slot, Res(name: "a"))
+    consume(slot_take(slot))
+    slot_put(slot, Res(name: "b"))
+    consume(slot_take(slot))
+    slot_free(slot)
+}
+
+func main() { run() }

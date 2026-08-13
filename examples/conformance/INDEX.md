@@ -6,12 +6,13 @@ either a file in this directory or an existing `examples/` test that already
 asserts the same rule at the same position — this table is the record of which,
 and the dedup decisions are meant to be audited from it.
 
-**104 rows carry a file here; 197 are covered elsewhere.** (The audit's 247 plus
+**107 rows carry a file here; 197 are covered elsewhere.** (The audit's 247 plus
 the rows later briefs added: W02-W05, design 194 unit 4; W06-W19, design 195
 unit 1; X41-X45, design 199 unit 1; M31-M35, design 200 unit 1; V26-V30,
 design 202 unit 1; B09-B12, design 204 unit 1; K14-K20, design 201 unit 1;
 K21-K25, design 210 units 1 and 5; S09, O12 and K26, the DF-217a/b/c fixes; O13,
-the DF-217l leak their sweep turned up; K27, design 219 unit A1.)
+the DF-217l leak their sweep turned up; K27, design 219 unit A1; U28-U29 and
+V31, design 219 unit A2.)
 
 ## How to read it
 
@@ -210,6 +211,7 @@ Claim source: spec 4 *The Copy Trait Family* + *Move-Only Types*; designs 34, 13
 | V28 | control: the declared-NoCopy holder builds, mutates and moves | `V28_atomic_holder_declares_nocopy.saw` | 202 — the accept side; one line of policy is the whole migration |
 | V29 | control: a `static Atomic<Int>` mutated in place and lent by `&` | `V29_static_atomic_unaffected.saw` | 202 — statics are unaffected: a NoCopy static is legal and every atomic op takes `&self` |
 | V30 | `move` of an `Atomic` local, into a binding, a call and a struct | `V30_move_atomic_local.saw` | 202 — `NoCopy` and deliberately not `NoMove`: nothing pins an atomic's address |
+| V31 | `move v[0]` on a `Vector` — design 35 intact for every SAFE-rooted place | `V31_move_out_of_vector_element.saw` | 219 A2 — the regression fence on the carve-out: the rule is keyed on the place's root, so a place whose occupancy the language tracks keeps the refusal and the occupancy-maintaining outs (`swap_out`, `pop`) |
 
 ## Places (`borrows` / `lend`) — window discipline
 
@@ -267,6 +269,8 @@ Claim source: spec 10 *Unsafe Code*; designs 130, 136, 149, 188 u6
 | U25 | an UNSAFE-bodied conformer satisfying a SAFE trait requirement (the dangerous direction) | `unsafe_conformance_effects.saw` | 188 u6 — the audit expected a refusal; the reverse direction stays LEGAL under rule 7, so this row is an acceptance |
 | U26 | a SAFE conformer of an `unsafe` requirement, called through the existential | `unsafe_trait_requirement_effect.saw` | 188 u6 — the audit expected acceptance; a safe conformer of an `unsafe` requirement is refused now |
 | U27 | reaching an unsafe body through a safe trait call site | `U27_unsafe_body_via_safe_trait_call.saw` |  |
+| U28 | an owning VALUE READ out of a pointer place, unspelled | `U28_pointer_place_read_needs_move.saw` | 219 A2 — the read always transferred (codegen emits a raw load and hands the value on); the refusal now teaches the spelling that says so instead of naming the pointer binding |
+| U29 | `move ptr[i]` — the move-out family's fourth member, deinit-exact | `U29_pointer_place_move_out.saw` | 219 A2 — design 35's refusal is keyed on the place's ROOT, and a pointer place tracks no occupancy for a move-out to corrupt; the author keeps it true inside `unsafe`-declared code |
 
 ## Always-on runtime checks
 

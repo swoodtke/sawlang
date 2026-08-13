@@ -3304,6 +3304,19 @@ class TypeUtilsMixin:
         would send an author with a `File?` field down a path that does not
         exist.
         """
+        # design 219 unit A2(b): a value read out of a POINTER place. The place
+        # tracks no occupancy, so this is a TRANSFER — nothing is duplicated and
+        # nothing is left behind — and `move` is the spelling that declares it.
+        # Naming `move <binding>` here would send the author at the pointer, and
+        # naming `.copy()` alone would hide that the read already moves.
+        if getattr(expr, 'pointer_place', False):
+            place = self._render_lvalue_path(expr)
+            if tier == 'explicit':
+                return (f"this read transfers ownership — spell it "
+                        f"`move {place}`, or `{place}.copy()` to duplicate the "
+                        f"element and leave the slot occupied")
+            return (f"this read transfers ownership — spell it "
+                    f"`move {place}`")
         if src_type is not None and src_type.kind == TypeKind.OPTIONAL:
             path = self._render_place(expr) if self._is_aliasing_expr(expr) else "the optional"
             parts = []

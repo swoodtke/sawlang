@@ -1,0 +1,22 @@
+// Conformance row U28 — an owning value read out of a POINTER place must
+// spell `move`
+//
+// The place tracks no occupancy, so the read is a TRANSFER whichever way it is
+// written: codegen has always lowered `ptr[i]` to a raw load and handed the
+// value on. Design 219 unit A2 makes the source say so — the refusal's fixit
+// names the spelling rather than sending the author at the pointer binding.
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: cannot copy value of type `Res` which implements NoCopy
+// EXPECT-ERROR-CONTAINS: this read transfers ownership — spell it `move slot[0]`
+
+struct Res { name: String }
+extension Res: NoCopy {
+    func deinit(&var self) { print("DEINIT {self.name}") }
+}
+
+func peek(slot: UnsafePointer<Res>) unsafe -> String {
+    let taken = slot[0]
+    taken.name
+}
+
+func main() { print("unreachable") }

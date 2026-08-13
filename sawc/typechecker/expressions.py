@@ -816,6 +816,14 @@ class ExpressionsMixin:
         # every struct (design 35). Only whole bindings are movable. Reject with
         # a diagnostic naming the field/element and its base.
         if expr.path is not None:
+            # design 219 unit A2: design 35's refusal is keyed on the place's
+            # ROOT. A place the language tracks occupancy for keeps it; a place
+            # behind a raw pointer tracks nothing, so the `move` spelling is
+            # what declares the transfer. The place machinery owns that
+            # question — see `_place_move_out_type`.
+            elem = self._place_move_out_type(expr)
+            if elem is not None:
+                return elem
             # design 131: `move h.s!` is still a partial move — the payload sits
             # inside a field, and retiring it would leave `h` half-owned. The
             # field-safe consuming read is `h.s.take()`.
@@ -5256,6 +5264,11 @@ class ExpressionsMixin:
             # Raw-pointer deref. Reaching a pointer to index it already marked
             # the enclosing function under the design-130 trigger rule, so the
             # deref itself carries no separate obligation.
+            #
+            # design 219 unit A2: this is where the place's ROOT kind is known,
+            # so it is where the "no occupancy is tracked here" stamp is set.
+            # See `_place_move_out_type` for what reads it.
+            expr.pointer_place = True
             return container_type.inner_type
         else:
             self._error(

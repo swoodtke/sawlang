@@ -142,6 +142,60 @@ class PlacesMixin:
         return self._check_place_use(expr, info, struct_name, container_type,
                                      "[]", [expr.index])
 
+    # =====================================================================
+    # Moving OUT of a place (design 35's refusal, re-keyed by design 219 A2)
+    # =====================================================================
+    #
+    # Design 35 forbids a move out of a place, and the rule's real key is
+    # OCCUPANCY TRACKING: the language knows the storage is full, so a move-out
+    # would leave a hole its deinit drops a second time. Every sanctioned
+    # move-out is therefore occupancy-MAINTAINING — `Optional.take` (the tag
+    # stays true), `Vector.swap_out` (the replacement fills the slot),
+    # `Slot.take` (the tag again).
+    #
+    # A place behind a RAW POINTER tracks nothing — that is exactly what the
+    # design-130 manual domain means — so there is no invariant a move-out could
+    # corrupt, and `move ptr[i]` joins that family as its fourth member, with
+    # the AUTHOR keeping occupancy true inside `unsafe`-declared code. The
+    # carve-out is keyed on the place's ROOT KIND, never on a node shape: the
+    # question asked is "does this place track occupancy", and a pointer root is
+    # the one answer of "no".
+    #
+    # ENTRY POINTS (process rule 1 — every position that asks the question):
+    #   * `_check_move_expr` (expressions.py) — the `move <place>` spelling.
+    #     Design 35's refusal is a single funnel every partial move already
+    #     passes through, so re-keying it here reaches every position at once.
+
+    def _place_move_out_type(self, expr):
+        """The type `move <expr.path>` yields when the place tracks NO
+        occupancy, else None — which hands the caller back to design 35's
+        refusal, unchanged for every safe-rooted place.
+
+        THE SHAPE IS `move <pointer>[<index>]`. A deeper projection off a
+        pointer element (`move ptr[i].field`) stays a partial move of the
+        STRUCT, about which the pointer says nothing, and `move ptr[i]!` stays
+        refused too — the payload-yielding `move` retires a whole BINDING, and
+        a place is not one.
+
+        Nothing is recorded as moved: the pointer binding is the place's base,
+        not the value transferred, and the memory it points at has no binding
+        the checker tracks. The spelling is DECLARED INTENT, not a liveness
+        proof — the same contract depth as `unsafe` itself. It restores
+        read/store symmetry (a store through a pointer place already spells
+        `move`) and makes every manual transfer point greppable.
+        """
+        from ast_nodes import ArrayIndex
+        path = expr.path
+        if getattr(expr, 'unwrap', False) or not isinstance(path, ArrayIndex):
+            return None
+        # Checking the place stamps `pointer_place` in the arm that knows the
+        # container's kind, so the root question is answered by the same pass
+        # that answers it for a plain read.
+        elem = self._check_expression(path)
+        if elem is None or not getattr(path, 'pointer_place', False):
+            return None
+        return elem
+
     def _check_lend_statement(self, stmt: LendStatement) -> None:
         decl = self.current_method or self.current_function
         name = getattr(decl, 'name', None) if decl is not None else None

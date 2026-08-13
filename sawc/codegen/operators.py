@@ -1172,6 +1172,15 @@ class OperatorsMixin:
 
     def _generate_move_expr(self, expr: MoveExpr):
         """Generate code for move expression - transfers ownership without copying."""
+        # design 219 unit A2: `move ptr[i]` — the pointer-place transfer
+        # spelling. The typechecker admits a `path` only for a pointer-rooted
+        # index, and the pointer place is ownership-neutral, so this lowers to
+        # EXACTLY what the bare read has always lowered to: one GEP + one load.
+        # No retain (nothing is duplicated) and no drop-flag store (the pointer
+        # BINDING did not move — it is the base of the place, not the value).
+        if expr.path is not None:
+            return self._generate_expression(expr.path)
+
         var_name = expr.variable
         if var_name not in self.variables:
             # A local whose type instantiated to `Void` has no storage, so there

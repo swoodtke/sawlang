@@ -1171,6 +1171,14 @@ class ArrayIndex(Expression):
     # Projection into an UnsafeMemory register block (design 112, R1).
     um_projection: bool = annotation(False)
 
+    # design 219 unit A2: this index names a place behind a RAW POINTER
+    # (`ptr[i]`), the one place kind the language tracks no occupancy for.
+    # Stamped where the container's kind is known — `_check_array_index`'s
+    # POINTER arm — and read by the two rules that key on the place's ROOT: the
+    # move-out carve-out (`_place_move_out_type`) and the transfer refusal's
+    # `move ptr[i]` fixit.
+    pointer_place: bool = annotation(False)
+
     # A PLACE use (design 141/146): this index resolved to a `[]` borrows
     # accessor, so it names storage rather than producing a value. The checker
     # stamps these and `place_uses.py` turns the node into the window call.
