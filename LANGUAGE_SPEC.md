@@ -7508,6 +7508,67 @@ span methods panic rather than report a negative one: `elapsed` if the monotonic
 clock stepped backward, `duration_since` if `earlier` is in fact the later of
 the two.
 
+**`std.compiler.frame`** is the frame vocabulary the coroutine transform
+compiles against: `Slot<T>`, `UnsafeRef<T>` and the `Resumable` trait every
+generated frame conforms to. It is import-gated and it is not written for
+everyday code — reach for a plain `let` in ordinary Saw — but it is PUBLIC, and
+that is a decision rather than an accident. Generated code is held to the
+ordinary ownership rules, so the transform may emit only code a programmer
+could have written; a vocabulary the compiler could reach and you could not
+would be a second set of rules with nothing checking it.
+
+`Slot<T>` is storage that either holds a `T` or is empty. It is where a frame
+keeps a local across a suspension, and its occupancy is part of the type:
+
+```saw
+import std.compiler.frame.{Slot}
+
+var s = Slot<String>.empty()
+s.put("payload")
+print(s.value().len())      // prints: 7
+let owned = s.take()        // the slot is empty again
+```
+
+`put` installs a value and drops the previous occupant if there was one.
+`take` moves the occupant out and panics on an empty slot — the caller's state
+machine is the proof that it is not empty, and a wrong proof reports itself
+rather than handing back a husk. `clear` drops the occupant if there is one and
+is idempotent, which is what a frame's teardown runs per field. `value()` is a
+`borrows` accessor, so reads, writes and method calls reach the payload where
+it sits. `is_occupied` answers the tag.
+
+The field is private, which is the whole guarantee: a payload leaves a slot by
+exactly four operations — `take`, `clear`, a `put` onto an occupied slot, and
+the synthesized deinit — and each of them updates the tag in the same body that
+moves or drops the payload. Released exactly once is therefore a property of
+the type. A slot is `NoCopy`, and a `NoMove` `T` does not belong in one: `put`
+and `take` are moves, and a pinned value's storage is a plain field.
+
+`UnsafeRef<T>` is a pointer to a `T` that something else owns — a frame's
+method receiver, and the reference parameters it carries across a suspension.
+It owns nothing and is never dropped. `deref()` lends the referent as a place,
+and the WINDOW MODE comes from the binding: a `var`-bound handle can open an
+exclusive window and a `let`-bound one cannot, so a `&self` receiver and a
+`&var self` receiver get the right window out of one declaration. `copy()`
+returns a second handle to the same referent; the type is `NoCopy` so that
+duplication is written where it happens.
+
+The validity contract is the part the compiler does not check: every `deref`
+must happen while the referent is alive, and the referent must not have moved.
+A handle over storage that outlives it by construction satisfies that; a handle
+over anything else does not, and nothing will say so. The obligation has a
+carrier rather than a proof — `UnsafeRef` is an `unsafe struct`, so every
+function that mints, holds or dereferences one is `unsafe`-declared and is
+reviewed as the unit that owns the argument.
+
+`Resumable` is the protocol a frame answers to: `resume` (advance one step),
+`__wake_reason`, `__is_cancelled`, `__bt_desc`, and `release` (drop what the
+frame still owns). Conforming by hand grants nothing — spawning and enqueuing
+are lowered by the compiler against frames it built itself — and the trait is
+published so the synthesized conformance is nameable, not as an extension
+point. `release` carries the contract eager teardown needs: it may run before
+the frame's deinit, and the deinit is a no-op afterwards.
+
 ### Profiles (hosted and freestanding)
 
 **Status: freestanding stage 1 implemented.** Saw compiles under two profiles.

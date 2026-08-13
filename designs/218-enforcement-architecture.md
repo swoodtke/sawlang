@@ -83,7 +83,42 @@ This is the net under every later unit; the migration does not start until it
 is a battery lane. Close the harness's own named gaps as part of the port:
 ImplicitCopy leak witnessing, the match-arm-retain axis, non-main contexts.
 
-**Unit 1 — the frame primitive module (the verified-unsafe core).**
+**Unit 1 — the frame primitive module (the verified-unsafe core). LANDED
+(Aug 13).** `sawc/std/compiler/frame.saw` ships `Slot<T>` (ordinary safe Saw,
+NoCopy, private `T?`), `UnsafeRef<T>` (an `unsafe struct` per the RULINGS
+header, with `deref() unsafe borrows` and — after the user's design-219
+vocabulary refinement — a plain `copy()` rather than the spec's `dup()`; the
+ExplicitCopy CONFORMANCE waits for 219, since under today's tier semantics it
+would admit the handle into `T: Copy` generic bodies), and `Resumable`,
+relocated here from builtin.saw and gaining `func release(&var self) sync` per
+ruling 4. The transform's synthesized `__release` is renamed `release` to
+satisfy it; BODIES ARE UNCHANGED and no census row is migrated — that is unit
+2. Conformance rows K27/K28 land green, with module tests at all four tiers,
+`Slot<T?>`, the `UnsafeRef` place zoo, a user-code mint, and the let-root
+refusal.
+
+Three things the landing found that the spec did not anticipate. (a)
+`lend self.v!` IS legal as written — the direct receiver-rooted lend, no
+one-case-enum fallback. (b) `is_some()` does not exist on `T?`, so
+`is_occupied` is the binds-nothing presence test; and `if let _ = <place>` over
+an UNCONDITIONAL lend of an optional-typed place is judged a value read rather
+than a presence test, which is a spelling gap worth a look but not a blocker.
+(c) A PUBLIC std type reserves its name program-wide, and `Slot` is a name 29
+corpus files use. Four pre-existing holes in design 82's "a gated std module
+reserves no user name" surfaced at once, every one reproducible with
+`IoError`/`Once` on an untouched tree: the codegen filter read the std leaf off
+the basename (so a subdirectory module was never excluded); a user `enum X`
+over a hidden std `struct X` was refused where `struct X` was allowed
+(DF-153b's allowance stopped one line short of the cross-kind check); the
+design-194 annotation gate was declaration-ORDER sensitive; and the merged
+namespace's exclusion covered symbol tables but not conformances, thread
+assertions or the generic AST. All four are fixed and pinned by
+`examples/std_gated_name_redefined_by_user.saw`. A fifth, from the relocation
+itself: naming a TRAIT pulled its whole leaf into codegen, which would have
+compiled `Slot` into every program via `std.taskgroup`'s `Box<any Resumable>`
+— the exclusion now agrees with `_filter_std_ast`, which already keeps
+declaration-only symbols whatever leaf they came from.
+
 PROCESS RULING (user, Aug 13): this is a tricky rewrite, so a FABLE spec agent
 documents the exact form FIRST, as `designs/218a-slot-spec.md` — the emission
 census (every store/read/release/temp shape the transform emits:

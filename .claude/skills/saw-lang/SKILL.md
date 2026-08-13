@@ -1559,6 +1559,24 @@ dump_tasks()                // every live task's logical backtrace (std.task)
   **IDIOM**: declare the group first, spawn, join, then touch the root. If the
   caller genuinely needs the value mid-task, that is an `Arc<Mutex<T>>` or a
   `Channel`, not a borrow.
+- **`std.compiler.frame` is the FRAME vocabulary, and you almost never want it**
+  (design 218 unit 1). A suspending function becomes a state machine over a heap
+  frame, and this module is the types that machine is written in: `Slot<T>`
+  (storage that either holds a `T` or is empty — `empty`/`of`/`put`/`take`/
+  `clear`/`is_occupied` plus a `borrows` `value()`), `UnsafeRef<T>` (an
+  `unsafe struct` holding a pointer to something else's storage, with a
+  `deref() unsafe borrows` and a `copy()`), and the `Resumable` trait every
+  generated frame conforms to. Import-gated and NOT in the prelude; in ordinary
+  Saw a plain `let` is the answer and reaching for a `Slot` is a smell. It is
+  PUBLIC on purpose: transform output is held to the ordinary ownership rules,
+  so the compiler may only emit code you could have written, and a vocabulary
+  it could reach and you could not would be a second rule set. What it is worth
+  knowing for: `Slot`'s payload is released exactly once BY CONSTRUCTION (the
+  tag and the payload move in one operation, and the field is private), and
+  `UnsafeRef`'s validity — the referent outlives every `deref` — is carried by
+  design 130's marking rule rather than by a check, so a function touching one
+  is `unsafe`-declared and is reviewed. Conforming to `Resumable` by hand
+  grants nothing: spawn and enqueue are compiler-lowered.
 
 ## Modules & packages
 ```saw
@@ -1689,7 +1707,11 @@ import mymodule as mm       // aliasing; `module`/`public`/`package`/`parent`
   gated), and — since design 188 closed the two the gate list had missed —
   `SpinLock` (std.spinlock) and `SlabHead`/`slab_alloc`/`slab_dealloc`
   (std.slab), both of which used to resolve bare against a spec that said
-  otherwise. A bare non-prelude name is a clean
+  otherwise, and `Slot`/`UnsafeRef`/`Resumable`
+  (std.compiler.frame — design 218 unit 1; the first std module in a
+  SUBDIRECTORY, so the import path has three segments and the qualifier is the
+  last one: `import std.compiler.frame` gives you `frame.Slot`). A bare
+  non-prelude name is a clean
   error ("`X` is not in the prelude and must be imported") whose hint names all
   three forms — so reach it BARE with `import std.X.*` or `import std.X.{Name}`,
   and `import std.X` alone gives you `X.Name` instead (design 150; the module

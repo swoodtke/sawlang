@@ -1373,6 +1373,15 @@ The standard library includes:
   `max_items` before any typed read runs, walking an explicit work stack rather
   than the call stack - a deeply nested blob is refused at a byte offset instead
   of exhausting the stack, and no input panics. Floats are a decode error in v1.
+- **std.compiler.frame** (`import std.compiler.frame.{Slot}`) - the frame
+  vocabulary the coroutine transform compiles against: `Slot<T>` (storage that
+  either holds a `T` or is empty, whose payload is released exactly once
+  because the tag and the payload move together in every operation),
+  `UnsafeRef<T>` (a non-owning handle lending its referent as a place), and the
+  `Resumable` trait every generated frame conforms to. Import-gated, and not
+  for everyday code. It is public because generated code is held to the
+  ordinary ownership rules, so the compiler may emit only what you could have
+  written yourself.
 - **Traits** - `Equatable`, `Comparable`, `Hashable`, `Printable`, `Error`,
   `Serialize`, `Deserialize`.
 

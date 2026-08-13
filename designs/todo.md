@@ -339,6 +339,14 @@ checked Slot elision — occupancy re-derived from the resume index as a proved
 refinement, which is today's hand pattern earned back safely. The trusted-base
 list at the brief's end is its most important artifact.
 
+**Unit 1 LANDED (Aug 13)** — `sawc/std/compiler/frame.saw`: `Slot<T>`,
+`UnsafeRef<T>`, and `Resumable` relocated from builtin.saw with a `release`
+requirement (the transform's `__release` renamed to satisfy it; bodies
+unchanged). Rows K27/K28 green. No transform emission migrated — that is unit
+2. Details, including the first std module in a SUBDIRECTORY and the four
+pre-existing design-82 name-reservation holes that landing a public `Slot`
+exposed, in the brief's unit-1 paragraph.
+
 ## NEXT-WAVE SWEEPS (queued Aug 13, dispatch after the current fix wave lands)
 
 - **S1 — the abstract-T boundary (DF-217i's class; HIGHEST SEVERITY).** One
