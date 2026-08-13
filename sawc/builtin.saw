@@ -417,41 +417,14 @@ struct WriteOnly<T> {
 // suspended and must be resumed again) or Done (it completed; its result, if
 // any, is frame-resident in `__result`). Compiler-synthesized frames return
 // this; the executor drives on it. Declared here (rather than synthesized per
-// program) so it is a stable named type the builtin `Resumable` trait can name.
+// program) so it is a stable named type the `Resumable` trait can name.
+// `Resumable` itself lives in `std/compiler/frame.saw` since design 218 unit 1
+// — it is the frame vocabulary, published beside `Slot` and `UnsafeRef`, not
+// part of the compiler's private core. `__Poll` stays here because the
+// compiler names it by string when it synthesizes `resume`.
 enum __Poll {
     case Pending,
     case Done
-}
-
-// Resumable — the erased driver protocol every coroutine frame conforms to (the
-// conformance is compiler-synthesized by the coro transform, design 52b item 1).
-// A frame boxed as `Box<any Resumable>` lets a heterogeneous run queue
-// (`Vector<Box<any Resumable>>`) drive distinct frame types uniformly.
-//   * `resume(&var self) -> __Poll` — advance the state machine one step;
-//     mutation flows through the fat pointer's data word into the heap frame.
-//   * `__wake_reason(&self) -> Int` — after a Pending, the wake reason the frame
-//     communicated: 0 = ready (yield / channel-wait retry — requeue at once),
-//     >0 = sleep that many milliseconds. Read by the executor to schedule.
-// Object-safe by construction: no Self-by-value, no generics, no associated
-// types; `&var self` receivers are any-able (design 51).
-// Both methods are `sync` (suspension-free): `resume` is the anti-suspension
-// boundary — it runs one state and RETURNS `Pending`, it never itself suspends —
-// so it is prompt by construction. Marking them `sync` is what lets the executor
-// (and thus `TaskGroup`'s Deinit, a sync context) drive erased tasks.
-trait Resumable {
-    func resume(&var self) sync -> __Poll
-    func __wake_reason(&self) sync -> Int
-    // design 102 item 2: the frame's cooperative-cancel word, read by the
-    // scheduler so a `cancel()` on an ALREADY-io-parked frame rouses it (the
-    // reactor self-wake returns the blocked poll; this tells the scheduler which
-    // parked frame to make runnable so it re-checks `cancelled()` at its loop top).
-    func __is_cancelled(&self) sync -> Bool
-    // design 158: this frame type's entry in the in-binary backtrace table, or
-    // -1 when the program carries none. A logical backtrace is a walk of static
-    // tables from a frame's `__state` word, and this is the only thing the walk
-    // cannot read out of the frame itself — the frame's TYPE. Reaching it through
-    // the vtable keeps the descriptor out of every frame's storage.
-    func __bt_desc(&self) sync -> Int
 }
 
 // =============================================================================

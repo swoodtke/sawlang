@@ -1131,7 +1131,7 @@ class _FrameBuilder:
         # suspending callee never registers anything, and the callee's own frame
         # carries (and releases) its registration. Computed from the untouched
         # body, before any lowering rewrites the call away. Frames that answer
-        # False get no `__io_fd`/`__io_dir` fields and no disarm in `__release`,
+        # False get no `__io_fd`/`__io_dir` fields and no disarm in `release`,
         # so non-IO code (every freestanding frame included) is byte-identical.
         self.arms_io = _body_arms_io(func.body)
 
@@ -3170,7 +3170,7 @@ class _FrameBuilder:
         # frame's `__wake` word — the one the scheduler reads. 0 = not yet set.
         fields.append(StructField(name="__io_tok", type=SawType(TypeKind.INT)))
         if self.arms_io:
-            # DF-134a: the LAST (fd, direction) this frame armed, so `__release`
+            # DF-134a: the LAST (fd, direction) this frame armed, so `release`
             # can drop a registration the body left behind. -1 = nothing armed.
             fields.append(StructField(name="__io_fd", type=SawType(TypeKind.INT)))
             fields.append(StructField(name="__io_dir", type=SawType(TypeKind.INT)))
@@ -3669,11 +3669,15 @@ class _FrameBuilder:
             source_file=getattr(func, 'source_file', ""))
         # design 124: the frame's end-of-scope teardown, called at every `return
         # Done` site so a completed task's owned values die WITH THE TASK rather
-        # than with its group. Not part of the `Resumable` protocol — the frame
-        # releases itself from inside `resume`, so the executor needs no new
-        # method and the erased vtable is unchanged.
+        # than with its group. Since design 218 unit 1 it is a REQUIREMENT of
+        # `Resumable` rather than a bare synthesized method, so the mechanism
+        # has a name in the language and the invariant it rests on ("release
+        # may run before deinit; deinit is a no-op afterwards") is written down
+        # on the trait instead of living in this comment. The wiring is
+        # unchanged: the frame still releases itself from inside `resume`, and
+        # nothing dispatches through the vtable to reach it yet.
         release = Method(
-            name="__release",
+            name="release",
             parameters=[Parameter(name="self", type=SawType(TypeKind.VOID),
                                   is_reference=True, reference_mutable=True)],
             return_type=SawType(TypeKind.VOID),
@@ -3682,8 +3686,9 @@ class _FrameBuilder:
             is_synthesized=True,
             line=func.line, column=func.column,
             source_file=getattr(func, 'source_file', ""))
-        # Every frame conforms to the builtin `Resumable` trait (design 52b item
-        # 1): the conformance is what lets a frame be erased into
+        # Every frame conforms to the `Resumable` trait (design 52b item 1;
+        # `std.compiler.frame` since design 218 unit 1): the conformance is
+        # what lets a frame be erased into
         # `Box<any Resumable>` for the heterogeneous run queue. Concrete drives
         # (nested sub-frames, the entry executor, `__saw_drive_*`) still bind `resume`
         # statically — conformance only synthesizes a vtable at an erasure site.
@@ -3905,7 +3910,7 @@ class _FrameBuilder:
                 # `&self.__wake` on first resume; a nested sub-frame inherits it from
                 # its parent at each drive, so an `io_wait` buried in a sub-frame still
                 # routes the wake to the root frame the scheduler schedules.
-                # DF-134a: remember WHAT we armed, so `__release` can drop a
+                # DF-134a: remember WHAT we armed, so `release` can drop a
                 # registration this body leaves behind (the cancellation exit that
                 # forgets to disarm, with the fd escaping through the result — the
                 # token would then point into a freed frame box). Recording the
@@ -4085,7 +4090,7 @@ class _FrameBuilder:
         explicit `move`, so the frame released the same buffer twice at
         teardown, once through the binding's slot and once through the temp's.
         That is DF-206f — a `Vector<String>` freed twice in
-        `__Frame_main___release`, which is where irdet died after printing its
+        `__Frame_main_release`, which is where irdet died after printing its
         answer. The author cannot write the `move` here, because the temp is not
         a name they have; the transform owns the temp, so the transform owes the
         clear."""
@@ -5325,7 +5330,7 @@ class _FrameBuilder:
     # for an EOF that only the writer's drop could produce, and that drop waited
     # on the reader).
     #
-    # `__release` is the frame's end-of-scope teardown, emitted at EVERY exit the
+    # `release` is the frame's end-of-scope teardown, emitted at EVERY exit the
     # state machine has (both `return Done` sites). It drops exactly what a
     # returning ordinary function would drop, in the same LIFO order, and keeps
     # exactly one thing alive: `__result`, which `join()` moves out (or which the
@@ -5341,7 +5346,7 @@ class _FrameBuilder:
     # ------------------------------------------------------------------ #
     def _release_call(self):
         return ExpressionStatement(expression=MethodCall(
-            object=SelfExpr(), method_name="__release", arguments=[]))
+            object=SelfExpr(), method_name="release", arguments=[]))
 
     def _owned_frame_fields(self):
         """(name, encoding, declared type) for every frame field this frame OWNS,
@@ -5363,7 +5368,7 @@ class _FrameBuilder:
         return owned
 
     def _release_seq(self):
-        """The body of `__release`: drop every owned field in reverse declaration
+        """The body of `release`: drop every owned field in reverse declaration
         order (LIFO, matching both ordinary scope exit and the struct teardown in
         codegen/resources.py)."""
         seq = []

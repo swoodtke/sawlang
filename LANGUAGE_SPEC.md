@@ -5246,10 +5246,12 @@ and resuming at once for each `yield_now`.
 
 **Multi-task cooperative concurrency — `TaskGroup` (design 52b).** The
 heterogeneous run queue is now built on `any Trait` erasure (design 51): every
-coroutine frame is compiler-synthesized to conform to a builtin `Resumable`
-trait — `resume(&var self) sync -> __Poll` (advance one step; `resume` is the
+coroutine frame is compiler-synthesized to conform to the `Resumable`
+trait (`std.compiler.frame`, below) — `resume(&var self) sync -> __Poll`
+(advance one step; `resume` is the
 anti-suspension boundary, so it is `sync`) plus `__wake_reason(&self) sync -> Int`
-(the wake surface: `0` = ready/yield, `>0` = sleep that many nanoseconds). A frame boxed as
+(the wake surface: `0` = ready/yield, `>0` = sleep that many nanoseconds) and
+`release(&var self) sync` (drop what the frame still owns). A frame boxed as
 `Box<any Resumable>` lets distinct frame types share one queue,
 `Vector<Box<any Resumable>>`.
 
@@ -5289,7 +5291,7 @@ anti-suspension boundary, so it is `sync`) plus `__wake_reason(&self) sync -> In
   in the cell and is dropped once at group teardown, exactly-once either way.
 - **Eager per-task destruction (design 124).** A task's owned values are released
   when THE TASK completes, not when its group is torn down. Params and
-  across-suspend locals are frame fields, so the transform emits a `__release` at
+  across-suspend locals are frame fields, so the transform emits a `release` at
   every `return Done` site: it drops them in the same LIFO order an ordinary
   function's scope exit uses, including a frame-resident nested `TaskGroup` (whose
   own children are structured-joined first). The single exception is the result

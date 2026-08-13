@@ -163,3 +163,64 @@ extension UnsafeRef<T> {
         UnsafeRef<T>(p: self.p)
     }
 }
+
+// =============================================================================
+// Resumable — the driver protocol every coroutine frame conforms to
+// =============================================================================
+
+/// The protocol a coroutine frame answers to.
+///
+/// A suspending function becomes a frame type, and the compiler synthesizes
+/// this conformance for it. Erasing a frame to `Box<any Resumable>` is what
+/// lets one run queue drive frames of many different types.
+///
+/// CONFORMING BY HAND GRANTS NOTHING. Spawning and enqueuing are lowered by
+/// the compiler from `spawn` and `group.spawn(f(...))`, against frames it
+/// built itself; a hand-written conformer is a type with four methods and no
+/// way to reach a scheduler. The trait is published so the synthesized
+/// conformance is nameable and reviewable, not as an extension point.
+///
+/// Every method is `sync`. `resume` is the anti-suspension boundary: it runs
+/// one state and returns `Pending` rather than suspending, which is what lets
+/// a `sync` context — `TaskGroup`'s own `Deinit`, for one — drive erased
+/// tasks.
+public trait Resumable {
+    /// Advances the state machine one step.
+    ///
+    /// `Pending` means the frame suspended and must be resumed again; `Done`
+    /// means it completed, with any result frame-resident in `__result`.
+    func resume(&var self) sync -> __Poll
+
+    /// Why the frame stopped, read after a `Pending`.
+    ///
+    /// 0 means ready — a yield, or a channel wait to retry — so the executor
+    /// requeues at once. A positive value is a sleep in milliseconds.
+    func __wake_reason(&self) sync -> Int
+
+    /// This task's cooperative-cancel word.
+    ///
+    /// The scheduler reads it so a `cancel()` on an already io-parked frame
+    /// rouses it: the reactor's self-wake returns the blocked poll, and this
+    /// says which parked frame to make runnable so it re-checks `cancelled()`
+    /// at its park-loop top.
+    func __is_cancelled(&self) sync -> Bool
+
+    /// This frame type's entry in the in-binary backtrace table, or -1 when
+    /// the program carries none.
+    ///
+    /// A logical backtrace walks static tables from the frame's state word,
+    /// and the frame's TYPE is the one thing that walk cannot read out of the
+    /// frame itself. Reaching it through the vtable keeps the descriptor out
+    /// of every frame's storage.
+    func __bt_desc(&self) sync -> Int
+
+    /// Drops everything the frame still owns, leaving it empty.
+    ///
+    /// A task is a scope: its values die when the TASK completes, not when
+    /// its group is torn down, so a completed frame releases itself at its
+    /// `Done` exit while the box it lives in may outlive that by a long way.
+    /// The two are reconciled by the contract on this method — `release` may
+    /// run before the frame's deinit, and the deinit is a no-op afterwards.
+    /// Releasing twice is a no-op for the same reason.
+    func release(&var self) sync
+}

@@ -2,7 +2,7 @@
 // when the binding it feeds CONSUMES the payload the temp must give up its
 // claim on it. It did not, so the frame freed the same buffer twice at
 // teardown — `Vector$2$String$GlobalAllocator_deinit` inside
-// `__Frame_main___release`, after the program had printed its answer. That is
+// `__Frame_main_release`, after the program had printed its answer. That is
 // what killed `irdet --all` (and `irdet -n 2`) with SIGSEGV on every run.
 //
 // Both spellings that hoist a scrutinee are here, because the bug was in both:

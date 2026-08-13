@@ -4,7 +4,7 @@
 //
 // `held` (55) is an ordinary across-suspend local: released when the task
 // completes, so `955` prints BEFORE the marker. The result `Res(77)` is the slot
-// `__release` leaves alone, so its `977` prints once at group teardown, AFTER
+// `release` leaves alone, so its `977` prints once at group teardown, AFTER
 // the marker. Two prints, one each: no early free, no double drop.
 // EXPECT: success
 // EXPECT-OUTPUT:

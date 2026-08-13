@@ -1,5 +1,5 @@
 // design 124 (semantics 2, JOINED path): eager teardown must not disturb the
-// result slot. A task's `__result` is the ONE thing `__release` leaves alone, so
+// result slot. A task's `__result` is the ONE thing `release` leaves alone, so
 // `join()` still moves an owned result out of the frame and the caller owns it
 // for real — readable after the join, dropped exactly once at ITS scope.
 //

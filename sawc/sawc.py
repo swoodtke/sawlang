@@ -374,11 +374,18 @@ def build_builtin_namespace(verbose: bool = False, freestanding: bool = False,
     # not about what it may name, so it works from these.
     std_file_all_names = {}    # leaf -> set(names)
     std_file_keys = {}         # leaf -> set(names + identities)
-    for decls in (getattr(builtin_ast, 'structs', []),
-                  getattr(builtin_ast, 'enums', []),
-                  getattr(builtin_ast, 'functions', []),
-                  getattr(builtin_ast, 'traits', []),
-                  getattr(builtin_ast, 'type_definitions', [])):
+    # The DECLARATION-ONLY subset — traits and type aliases, which emit no code
+    # and which `_filter_std_ast` keeps whatever leaf they came from. The
+    # codegen exclusion reads this so naming one does not drag its whole module
+    # into the program (`std.taskgroup` names `Resumable`, which lives in
+    # `std.compiler.frame` beside `Slot`).
+    std_file_decl_only = {}    # leaf -> set(names)
+    for decls, decl_only in (
+            (getattr(builtin_ast, 'structs', []), False),
+            (getattr(builtin_ast, 'enums', []), False),
+            (getattr(builtin_ast, 'functions', []), False),
+            (getattr(builtin_ast, 'traits', []), True),
+            (getattr(builtin_ast, 'type_definitions', []), True)):
         for d in decls:
             leaf = _leaf_of(getattr(d, 'source_file', None))
             if leaf is None:
@@ -386,6 +393,9 @@ def build_builtin_namespace(verbose: bool = False, freestanding: bool = False,
             identity = getattr(d, 'type_identity', "") or d.name
             std_file_all_names.setdefault(leaf, set()).add(d.name)
             std_file_keys.setdefault(leaf, set()).update((d.name, identity))
+            if decl_only:
+                std_file_decl_only.setdefault(leaf, set()).update(
+                    (d.name, identity))
             if is_qualified(identity):
                 continue
             std_file_symbols.setdefault(leaf, set()).add(d.name)
@@ -421,6 +431,7 @@ def build_builtin_namespace(verbose: bool = False, freestanding: bool = False,
     builtin_ns._std_file_symbols = std_file_symbols
     builtin_ns._std_file_all_names = std_file_all_names
     builtin_ns._std_file_keys = std_file_keys
+    builtin_ns._std_file_decl_only_names = std_file_decl_only
     builtin_ns._std_symbol_file = std_symbol_file
     builtin_ns._import_required_modules = IMPORT_REQUIRED_STD_MODULES
     builtin_ns._import_required_symbols = IMPORT_REQUIRED_STD_SYMBOLS
@@ -540,6 +551,17 @@ def compute_std_codegen_exclusions(builtin_ns, import_asts):
     file_symbols = getattr(builtin_ns, '_std_file_all_names', {}) or {}
     file_keys = getattr(builtin_ns, '_std_file_keys', {}) or {}
     all_leaves = set(file_symbols)
+    # A TRAIT (and a type alias) is declaration-only: it emits no code, and
+    # `_filter_std_ast` keeps it whatever leaf it came from, because other std
+    # modules name it in their signatures. The exclusion has to AGREE with
+    # that, on both halves, or naming one drags its whole module in:
+    #   * a compiled module mentioning it must not pull the leaf into codegen
+    #     (`std.taskgroup` names `Resumable` in every queue signature, which
+    #     would compile `std.compiler.frame`'s `Slot` into every program and
+    #     take the name `Slot` away from user code);
+    #   * and the name must stay OUT of `excluded_symbols`, so the merged
+    #     namespace keeps the trait the kept declaration needs.
+    decl_only = getattr(builtin_ns, '_std_file_decl_only_names', {}) or {}
 
     # Read the std sources (comment-stripped) once for the reference scan.
     from type_identity import std_leaf
@@ -567,12 +589,13 @@ def compute_std_codegen_exclusions(builtin_ns, import_asts):
                 if leaf not in IMPORT_REQUIRED_STD_MODULES}
     compiled |= (imported & all_leaves)
 
-    # Precompile a word matcher per leaf's symbols.
-    leaf_patterns = {
-        leaf: re.compile('|'.join(r'\b' + re.escape(s) + r'\b'
-                                  for s in syms)) if syms else None
-        for leaf, syms in file_symbols.items()
-    }
+    # Precompile a word matcher per leaf's CODE-BEARING symbols.
+    leaf_patterns = {}
+    for leaf, syms in file_symbols.items():
+        code_syms = syms - decl_only.get(leaf, set())
+        leaf_patterns[leaf] = (
+            re.compile('|'.join(r'\b' + re.escape(s) + r'\b'
+                                for s in code_syms)) if code_syms else None)
     # Transitive closure: pull in any module referenced by a compiled module.
     changed = True
     while changed:
@@ -592,6 +615,7 @@ def compute_std_codegen_exclusions(builtin_ns, import_asts):
     excluded_symbols = set()
     for leaf in excluded_leaves:
         excluded_symbols |= file_keys.get(leaf, file_symbols.get(leaf, set()))
+        excluded_symbols -= decl_only.get(leaf, set())
     return excluded_leaves, excluded_symbols
 
 

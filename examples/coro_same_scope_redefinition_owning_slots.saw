@@ -35,7 +35,7 @@
 // two deinits for r1/r3/r4/r5/r6, three for r2, one per binding, never two of
 // one value. Only the TIMING differs — a frame-resident value is released at
 // frame teardown rather than where its binding is replaced, so the driven
-// deinits land after the print instead of before it (the `__release`-only drop
+// deinits land after the print instead of before it (the `release`-only drop
 // model, orthogonal to this fix). `D a1` still prints first in r1 because
 // `derive` CONSUMED the original and dropped it in its own frame.
 // EXPECT: success

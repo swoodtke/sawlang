@@ -235,7 +235,7 @@ func __saw_exec_io_register(fd: Int, dir: Int, token: Int) {
 // DF-134a: the disarm entry point, called from the two places a registration can
 // be left behind. std.net's park loops call it on their cancellation exit (the
 // one path that leaves a loop with an event still armed), and a coroutine
-// frame's synthesized `__release` calls it for the last fd the frame armed, as
+// frame's synthesized `release` calls it for the last fd the frame armed, as
 // belt and braces for any exit the library did not cover. Both are safe to call
 // when nothing is armed: the seam is idempotent.
 func __saw_exec_io_unregister(fd: Int, dir: Int) {

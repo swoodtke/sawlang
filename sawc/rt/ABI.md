@@ -522,7 +522,7 @@ a registration that outlives its frame is a dangling write, not a leak — and
 since design 134 the frame box is released at task completion, which makes the
 window real. Two callers: std.net's park loops call it on their cancellation
 exit (the one path that leaves a loop with an event still armed), and a
-coroutine frame's synthesized `__release` calls it for the last `(fd, dir)` the
+coroutine frame's synthesized `release` calls it for the last `(fd, dir)` the
 frame armed, ahead of its own field drops so the fd is still open and still the
 frame's. A frame whose body contains no `io_wait` arms nothing and gets neither
 the bookkeeping fields nor the call.

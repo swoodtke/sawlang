@@ -220,7 +220,7 @@ func tuple_in_vector_copy(k: Int) -> Int {
 }
 
 // In a coroutine frame both tuples are frame-resident, and the frame's
-// `__release` drops each through the same structural glue.
+// `release` drops each through the same structural glue.
 func copy_across_suspend(k: Int) -> Int {
     let t = (res(tag: k), k)
     let u = t.copy()

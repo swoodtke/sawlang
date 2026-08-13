@@ -220,7 +220,7 @@ func overwritten(k: Int) -> Int {
     t.1
 }
 
-// In a coroutine frame the tuple is an opt-encoded field whose `__release`
+// In a coroutine frame the tuple is an opt-encoded field whose `release`
 // assigns `None` — which drops through the very same glue.
 func across_suspend(k: Int) -> Int {
     let t = (res(tag: k), k)
