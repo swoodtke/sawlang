@@ -1,0 +1,185 @@
+# corodiff's XFAIL ledger (design 218 unit 0).
+#
+# A signature listed here is a twin-parity finding that has been FILED as a DF
+# and is not yet fixed. corodiff still reports every hit — with its DF number
+# and the first combo that reached it — but does not fail the run for it, so
+# the battery's corodiff lane stays a signal rather than a wall.
+#
+# READ IT AS A MATRIX, not as a list of excuses. A runtime signature is
+# `<kind>: <binding>/<placement> @ <context class>`, which names one testable
+# cell of the axis grammar, and a mechanism's full set of cells is exactly the
+# position matrix obligations 1 and 4 ask a fix brief to carry. The DF-217h and
+# DF-pending-C blocks below ARE those matrices, generated from a full `--all`
+# run rather than guessed.
+#
+# The rules are the suite's XFAIL rules:
+#   - an entry MUST cite a DF, and a numbered DF MUST have a pin in examples/
+#   - an entry that no longer fires is STALE — delete it in the landing that
+#     fixes the bug, exactly as you delete the XFAIL marker
+#   - `--ignore-known` re-reports everything here, which is how you check
+#
+# `DF-pending-*` entries are findings this harness reported on the day it
+# landed, awaiting a number and a pin from the lead at integration.
+#
+# Format: DF <TAB> signature   (the signature corodiff prints for it)
+
+# DF-217f — a suspending call as a labeled enum-constructor argument that is
+# itself a `match` scrutinee reaches codegen unhoisted. One of sweep S2's
+# statement-HEAD entry gaps; the `_uncond_children` funnel does not enter from
+# a match scrutinee. Reaches all five tiers and every context the harness has,
+# MT included.
+DF-217f	ICE: error: internal compiler error at <src>:N:N (FunctionCall): Undefined function: <mk>
+
+# DF-217g — a suspending call inside a destructuring `let`'s tuple literal is
+# refused with the nested/expression-position error, contradicting design 120's
+# documented literals coverage. The control twin compiles and runs. Same
+# diagnostic covers the `??` LHS spelling S2 also filed.
+DF-217g	BOGUS-REFUSAL: error: coroutine transform: suspending call to `X` in `X` appears in a nested/expression position; only a top-level `X` or `X` statement is supported
+
+# DF-217h — the ANF hoist's temp for an owning value produced by a suspending
+# call in a CHILD position is consumed by the parent and dropped AGAIN at frame
+# teardown. `_anf_lift` emits a bare temp with no consume bookkeeping.
+#
+# THREE argument positions reach it here, and the `??` RHS is a position S2's
+# nine-row list does not carry: `v.set(i, f())`, `v.swap_out(i, f())`, and
+# `none() ?? f()`. The husk rows are the SECOND release reading storage that no
+# longer holds a live value — the empty-name deinit the tracker entry
+# describes. Every oracle class it can reach does: linear, loop, cancel,
+# teardown and MT alike, which is the evidence that it is a property of the
+# hoist and not of the context.
+DF-217h	DOUBLE-FREE: place_write_set/in_rhs @ cancel
+DF-217h	DOUBLE-FREE: place_write_set/in_rhs @ linear
+DF-217h	DOUBLE-FREE: place_write_set/in_rhs @ loop
+DF-217h	DOUBLE-FREE: place_write_set/in_rhs @ mt
+DF-217h	DOUBLE-FREE: place_write_set/in_rhs @ teardown
+DF-217h	DOUBLE-FREE: swap_out/in_rhs @ linear
+DF-217h	DOUBLE-FREE: swap_out/in_rhs @ loop
+DF-217h	HUSK-RELEASE: coalesce_rhs/in_rhs @ linear
+DF-217h	HUSK-RELEASE: coalesce_rhs/in_rhs @ loop
+DF-217h	STDOUT-PARITY: coalesce_rhs/in_rhs @ linear
+DF-217h	STDOUT-PARITY: coalesce_rhs/in_rhs @ loop
+DF-217h	STDOUT-PARITY: place_write_set/in_rhs @ linear
+DF-217h	STDOUT-PARITY: place_write_set/in_rhs @ loop
+DF-217h	STDOUT-PARITY: swap_out/in_rhs @ linear
+DF-217h	STDOUT-PARITY: swap_out/in_rhs @ loop
+
+# DF-216g — a closure naming `self` inside a SUSPENDING method ICEs: the
+# capture is judged pre-transform, where `self` is the receiver, and the
+# rewrite rebinds `self` to the frame. Pinned as
+# examples/closure_captures_self_suspending.saw and pre-registered on design
+# 218 unit 2's flip list. The sync twin compiles and runs (design 216 unit 1).
+DF-216g	ICE: error: internal compiler error at <src>:N:N (MemberAccess): Cannot find field n in struct with type %"__Frame_Holder_run"
+
+# DF-pending-A (reported 2026-08-13) — NEW. A `match` arm whose payload pattern
+# BINDS NOTHING leaks the payload of an owned enum:
+#
+#     match Wrap.Has(x: Res(name: "r1")) { case Has(_) -> { print("hi") } }
+#
+# never runs `r1`'s deinit, while the binding arm `case Has(v)` releases it
+# correctly. NO COROUTINE IS INVOLVED — both twins leak, so this is a sync-path
+# bug the differential oracle happened to surface. It is the `match`-arm
+# sibling of DF-217l (`if let _ = move opt`), i.e. design 111's `_` rider
+# reaching a second construct the DF-217l fix did not cover.
+# Standalone repro: .build/scratch/probe_matchwild.saw
+DF-pending-A-2026-08-13	LEAK: match_nobinding/after @ linear
+DF-pending-A-2026-08-13	LEAK: match_nobinding/after @ loop
+DF-pending-A-2026-08-13	LEAK: match_nobinding/before @ linear
+DF-pending-A-2026-08-13	LEAK: match_nobinding/before @ loop
+DF-pending-A-2026-08-13	LEAK: match_nobinding/between @ linear
+DF-pending-A-2026-08-13	LEAK: match_nobinding/between @ loop
+DF-pending-A-2026-08-13	LEAK: match_nobinding/in_rhs @ linear
+
+# DF-pending-B (reported 2026-08-13) — NEW. A SPAWNED task body that contains
+# no suspension point cannot destructure a tuple:
+#
+#     func worker() -> Int { let (a, b) = (mk(1), mk(2))  ...  0 }
+#     g.spawn(worker())        // error: struct `__Frame_worker` has no field `a`
+#
+# A spawn root is always frame-transformed, but with no suspension the pass
+# that gives a destructuring `let`'s bindings their frame fields does not run,
+# while the read rewrite still does. Adding one `yield_now()` to the same body
+# makes it compile and run — which is why the DRIVEN twin is the one that works
+# and the oracle reports this as BOGUS-ACCEPT.
+# Standalone repro: .build/scratch/probe_spawntuple.saw
+DF-pending-B-2026-08-13	BOGUS-ACCEPT: error: struct `X` has no field `X`
+
+# DF-pending-C (reported 2026-08-13) — NEW, and the widest thing in this file:
+# 61 cells of ONE mechanism. A frame-resident local in a driven body is
+# released at FRAME TEARDOWN rather than at the end of the scope that owns it.
+# Deterministic destruction is a language guarantee, so a resource held past
+# its scope is a real behavioral difference and not a cosmetic one — the counts
+# always balance, which is why this is DEINIT-ORDER and never LEAK.
+#
+# Two faces, both from the same cause:
+#   - @ loop — a loop-body local survives into the NEXT iteration (and the last
+#     iteration's survives the whole loop). Reaches essentially every binding
+#     construct, which is what makes it a mechanism rather than a construct bug.
+#   - @ linear — a scope that ends INSIDE the body: the replaced binding of a
+#     same-scope redefinition (design 107 drops it AT the redefinition point),
+#     an `if let`/`guard let` body's end, a `match` arm's end.
+#
+# Sharpest hand-written repro (.build/scratch/probe_loopdrift.saw): a driven
+#     while i < 2 { yield_now()  let a = Res(name: "a{i}")  print(...) }
+# prints `after loop` BEFORE the last iteration's `DEINIT a1`; the twin with
+# the yield removed prints it after.
+DF-pending-C-2026-08-13	DEINIT-ORDER: closure_capture_implicit/after @ loop
+DF-pending-C-2026-08-13	DEINIT-ORDER: closure_capture_implicit/before @ loop
+DF-pending-C-2026-08-13	DEINIT-ORDER: closure_capture_implicit/between @ loop
+DF-pending-C-2026-08-13	DEINIT-ORDER: closure_capture_move/after @ loop
+DF-pending-C-2026-08-13	DEINIT-ORDER: closure_capture_move/before @ loop
+DF-pending-C-2026-08-13	DEINIT-ORDER: closure_capture_move/between @ loop
+DF-pending-C-2026-08-13	DEINIT-ORDER: coalesce_rhs/after @ loop
+DF-pending-C-2026-08-13	DEINIT-ORDER: coalesce_rhs/before @ loop
+DF-pending-C-2026-08-13	DEINIT-ORDER: coalesce_rhs/in_rhs @ loop
+DF-pending-C-2026-08-13	DEINIT-ORDER: guard_let/after @ loop
+DF-pending-C-2026-08-13	DEINIT-ORDER: guard_let/before @ loop
+DF-pending-C-2026-08-13	DEINIT-ORDER: guard_let/between @ loop
+DF-pending-C-2026-08-13	DEINIT-ORDER: if_let_move_local/after @ linear
+DF-pending-C-2026-08-13	DEINIT-ORDER: if_let_move_local/after @ loop
+DF-pending-C-2026-08-13	DEINIT-ORDER: if_let_move_local/between @ linear
+DF-pending-C-2026-08-13	DEINIT-ORDER: if_let_move_local/between @ loop
+DF-pending-C-2026-08-13	DEINIT-ORDER: if_let_payload/after @ linear
+DF-pending-C-2026-08-13	DEINIT-ORDER: if_let_payload/after @ loop
+DF-pending-C-2026-08-13	DEINIT-ORDER: if_let_payload/between @ linear
+DF-pending-C-2026-08-13	DEINIT-ORDER: if_let_payload/between @ loop
+DF-pending-C-2026-08-13	DEINIT-ORDER: let/after @ loop
+DF-pending-C-2026-08-13	DEINIT-ORDER: let/before @ loop
+DF-pending-C-2026-08-13	DEINIT-ORDER: let/between @ loop
+DF-pending-C-2026-08-13	DEINIT-ORDER: let/in_rhs @ loop
+DF-pending-C-2026-08-13	DEINIT-ORDER: let_rebind_distinct/after @ loop
+DF-pending-C-2026-08-13	DEINIT-ORDER: let_rebind_distinct/before @ loop
+DF-pending-C-2026-08-13	DEINIT-ORDER: let_rebind_distinct/between @ loop
+DF-pending-C-2026-08-13	DEINIT-ORDER: let_rebind_distinct/in_rhs @ loop
+DF-pending-C-2026-08-13	DEINIT-ORDER: let_shadow_rebind/after @ linear
+DF-pending-C-2026-08-13	DEINIT-ORDER: let_shadow_rebind/after @ loop
+DF-pending-C-2026-08-13	DEINIT-ORDER: let_shadow_rebind/before @ linear
+DF-pending-C-2026-08-13	DEINIT-ORDER: let_shadow_rebind/before @ loop
+DF-pending-C-2026-08-13	DEINIT-ORDER: let_shadow_rebind/between @ linear
+DF-pending-C-2026-08-13	DEINIT-ORDER: let_shadow_rebind/between @ loop
+DF-pending-C-2026-08-13	DEINIT-ORDER: let_shadow_rebind/in_rhs @ linear
+DF-pending-C-2026-08-13	DEINIT-ORDER: let_shadow_rebind/in_rhs @ loop
+DF-pending-C-2026-08-13	DEINIT-ORDER: match_borrow/before @ loop
+DF-pending-C-2026-08-13	DEINIT-ORDER: match_consume/after @ linear
+DF-pending-C-2026-08-13	DEINIT-ORDER: match_consume/after @ loop
+DF-pending-C-2026-08-13	DEINIT-ORDER: match_consume/between @ linear
+DF-pending-C-2026-08-13	DEINIT-ORDER: match_consume/between @ loop
+DF-pending-C-2026-08-13	DEINIT-ORDER: nested_tuple_destructure/after @ loop
+DF-pending-C-2026-08-13	DEINIT-ORDER: nested_tuple_destructure/before @ loop
+DF-pending-C-2026-08-13	DEINIT-ORDER: nested_tuple_destructure/between @ loop
+DF-pending-C-2026-08-13	DEINIT-ORDER: optional_take/after @ loop
+DF-pending-C-2026-08-13	DEINIT-ORDER: optional_take/before @ loop
+DF-pending-C-2026-08-13	DEINIT-ORDER: optional_take/between @ loop
+DF-pending-C-2026-08-13	DEINIT-ORDER: place_write_index/after @ loop
+DF-pending-C-2026-08-13	DEINIT-ORDER: place_write_index/before @ loop
+DF-pending-C-2026-08-13	DEINIT-ORDER: place_write_index/between @ loop
+DF-pending-C-2026-08-13	DEINIT-ORDER: place_write_set/after @ loop
+DF-pending-C-2026-08-13	DEINIT-ORDER: place_write_set/before @ loop
+DF-pending-C-2026-08-13	DEINIT-ORDER: place_write_set/between @ loop
+DF-pending-C-2026-08-13	DEINIT-ORDER: place_write_set/in_rhs @ loop
+DF-pending-C-2026-08-13	DEINIT-ORDER: swap_out/after @ loop
+DF-pending-C-2026-08-13	DEINIT-ORDER: swap_out/before @ loop
+DF-pending-C-2026-08-13	DEINIT-ORDER: swap_out/between @ loop
+DF-pending-C-2026-08-13	DEINIT-ORDER: swap_out/in_rhs @ loop
+DF-pending-C-2026-08-13	DEINIT-ORDER: tuple_destructure/after @ loop
+DF-pending-C-2026-08-13	DEINIT-ORDER: tuple_destructure/before @ loop
+DF-pending-C-2026-08-13	DEINIT-ORDER: tuple_destructure/between @ loop
