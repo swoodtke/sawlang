@@ -238,6 +238,15 @@ extension Reel: NoCopy {}
 @synthesize
 extension Bag: ExplicitCopy {}   // payload-deep copy() over the ACTIVE variant
 ```
+**A HAND-WRITTEN `copy()` IS THE RETAIN HOOK, AND MUST BE `sync`** (design 219).
+A `copy()` body inside an ImplicitCopy/ExplicitCopy conformance is called at
+transfer sites no source construct names, so a suspending one is refused AT the
+conformance ("a copy-policy `copy()` runs at compiler-inserted call sites and
+must be `sync`"). You need not write `sync` — a body that never suspends
+already passes, which is how std's own hooks (`Arc`, `Channel`) do. What the
+compiler does not check is the rest of the contract: a hook it inserts
+everywhere should be cheap and infallible, and a heavy one costs on every
+silent transfer.
 **WRAPPERS CARRY THE TIER OF WHAT THEY WRAP** (design 139). Every type has
 exactly one transfer class, and a composite is never weaker than its parts: an
 `Optional<T>`, a tuple, a `[T; N]`, an enum payload and a `Result<T, E>` all take
@@ -1980,6 +1989,16 @@ captures give a closure the whole enclosing frame, so its braces confine the tex
 but not the blast radius; the enforceable boundary is a SIGNATURE. An
 unsafe-built, safe-signatured closure escaping behind a plain function type is
 the author's rule-7 wrapper (the ad-hoc `Vector`-over-`UnsafePointer`).
+**A POINTER PLACE TRANSFERS BOTH WAYS, AND BOTH SPELL `move` (design 219).**
+`ptr[i] = move value` was always the placement write; `let x = move ptr[i]` is
+now the read, legal (a scoped carve-out from the no-partial-moves rule — a
+pointer place tracks no occupancy for a move-out to corrupt) and REQUIRED for an
+ExplicitCopy/NoCopy element, whose unspelled read is refused with ``this read
+transfers ownership — spell it `move buf[index]` `` (an ExplicitCopy element may
+also `ptr[i].copy()`, which leaves the slot occupied). The pointer binding is
+untouched; keeping track of which slots are still live is yours, exactly as for
+the write side. `move v[0]` on a Vector/field/tuple element stays the design-35
+error — those places ARE tracked, and `swap_out`/`take()` are their move-outs.
 **Calling an unsafe function from safe code needs no ceremony.** What makes that
 sound: a function whose parameters are all safe types must be sound for EVERY
 input, and a precondition is expressed by taking an unsafe-typed parameter —

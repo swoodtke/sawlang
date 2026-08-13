@@ -220,7 +220,25 @@ spellings that reach it. The sweep also found:
 
 ## Design 219 — generic tier requirements (DIRECTION RULED Aug 13; the DF-217i fix)
 
-Brief: `designs/219-generic-tier-requirements.md`. The ruling (SIMPLIFIED
+Brief: `designs/219-generic-tier-requirements.md`.
+
+**WAVE A LANDED (Aug 13) — the two self-contained ratified rules, ahead of the
+collapse/inference waves.** A1: a copy-policy `copy()` must be `sync`, checked
+once at the conformance (**DF-217r FIXED at the conformance**; the ALLOC half
+stays documentation + an optional `-W`, per the ruling). "Provably sync"
+counts — `sync` is a declared negative effect, so std's unmarked hooks pass
+unchanged. A2: `move ptr[i]`, the pointer-place transfer spelling — the
+carve-out lives in the place machinery keyed on the place's ROOT kind, design
+35 intact for every safe place, and the unspelled owning read now names the
+spelling in its fixit. std's five pointer-read transfer sites spell it (census:
+46 reads, 41 trivial, ZERO peeks). Conformance rows K27, U28, U29, V31.
+**DF-219a (LEAK) — `Vector.pop` leaked one reference per popped refcounted
+element**: its read sat in Optional-tail position, where the checkpoint judged
+it a copy and stamped a retain while the vector released nothing. Found by
+A/B'ing the sweep's IR, FIXED by the spelling, pinned by
+`examples/vector_pop_refcount_exact.saw`.
+
+The ruling (SIMPLIFIED
 Aug 13): BINARY requirement inference — a body either copies `T` silently
 (requires trivial/ImplicitCopy, inferred) or does not (move-only, any tier);
 `.copy()` is NEVER inferred — it requires a declared `<T: ExplicitCopy>`

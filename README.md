@@ -894,7 +894,10 @@ Saw provides deterministic memory management without garbage collection:
   `@synthesize extension Holder: ExplicitCopy {}` for a memberwise deep copy.
   That is the one thing the compiler will not guess for you. An enum carrying
   such a payload picks a policy the same way, and its derived `copy()` is
-  payload-deep over the active variant.
+  payload-deep over the active variant. Writing the `copy()` body yourself is
+  how `Arc` is built, in ordinary Saw: the compiler calls it at transfer sites
+  nothing in the source names, so it must not suspend, and a suspending one is
+  refused at the conformance rather than at an invisible call.
 - **A type whose owning members are all trivial or `ImplicitCopy` is
   `ImplicitCopy` itself**, with no declaration written and none required. So
   `struct Ticket { code: String }` compiles bare, and `let b = a` is a refcount

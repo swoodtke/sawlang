@@ -2288,6 +2288,25 @@ claim: the cost of every transfer is now readable at the use site.
   `T: Deinit` remains legal as a generic bound; only the conformance form is
   gone.
 - **`ImplicitCopy` and `ExplicitCopy` are mutually exclusive** on one type.
+- **A hand-written `copy()` must be `sync`** (design 219). The `copy()` body
+  inside a copy-policy conformance is the retain hook: the compiler calls it at
+  transfer sites the source never spells, so a suspension inside it would
+  suspend a function that declared itself `sync` with nothing on the page to
+  show for it. A suspending body is refused at the conformance, where the
+  author can act on it:
+
+  ```
+  error: cannot suspend in the `ImplicitCopy` `copy()` of `Heavy`: method
+         `Heavy.copy` calls yield_now (`Heavy.copy` suspends at line 8)
+  hint: a copy-policy `copy()` runs at compiler-inserted call sites and must be
+        `sync` ...
+  ```
+
+  Writing `sync` is optional: a body the effect analysis finds suspension-free
+  already satisfies the rule, which is how every std hook (`Arc`, `Channel`,
+  `Vector`) passes with nothing written. The rule is mechanical; the rest of
+  the hook's contract is not. A `copy()` the compiler inserts everywhere should
+  be cheap and infallible, and a heavy one is legal at the author's cost.
 
 ```saw
 // Trivial: implicit bitwise copy, both valid
@@ -8027,6 +8046,64 @@ writing the slot at the current `length` — is what keeps every placement write
 landing on uninitialized memory, so no live element is ever silently leaked.
 `Box.make` is the single-slot user: `ptr[0] = move value` into the freshly
 allocated chunk.
+
+### Pointer-place reads (`move ptr[i]`)
+
+**Status: implemented (design 219).** A read through a typed raw pointer —
+`ptr[i]`, where `ptr: UnsafePointer<T>` — is the mirror image of the placement
+write above. The load hands the value to the reader and nothing releases the
+slot afterward, so the read *transfers* the element rather than duplicating it.
+An owning element says so:
+
+```saw
+public func pop(&var self) unsafe -> T? {
+    if self.length == 0 {
+        None
+    } else {
+        self.length = self.length - 1
+        if let buf = self.buffer {
+            move buf[self.length]     // the slot is past the new length
+        } else {
+            None
+        }
+    }
+}
+```
+
+- **`move` is required for an `ExplicitCopy` or `NoCopy` element.** An unspelled
+  read is refused, and the diagnostic names the spelling:
+  ``this read transfers ownership — spell it `move buf[index]` ``. An
+  `ExplicitCopy` element has a second answer, `ptr[i].copy()`, which duplicates
+  the element and leaves the slot occupied. A trivial or `ImplicitCopy` element
+  reads as a copy with no spelling, exactly as it does elsewhere.
+- **The pointer binding is untouched.** `move ptr[i]` retires no binding: the
+  pointer is the place's base, not the value transferred, and it stays usable
+  on the next line.
+- **Author's obligation.** After the move, the slot holds bytes no `deinit` will
+  ever run on. Reading the same slot again hands out a second owner of one
+  value, which is a double free at the second drop. Keeping track of which slots
+  are live is the author's job here, in the same way it is for a placement
+  write — the pointer is what put this code in the manual domain, and the
+  enclosing `unsafe` declaration is what marks it.
+- **Safe places are unaffected.** `move` out of a `Vector` element, a struct
+  field or a tuple element stays a compile error (``cannot move out of element
+  `[0]` of `v` ``). The language tracks occupancy for those places, so a
+  move-out would leave a hole their `deinit` drops a second time.
+
+The move-out family, and what keeps each one's occupancy true:
+
+| Spelling | What refills the place |
+|---|---|
+| `o.take()` | writes `None` back, so the tag says empty |
+| `v.swap_out(i, value)` | the replacement element |
+| `move ptr[i]` | the author, inside `unsafe`-declared code |
+
+**Every move out of a place either maintains the place's occupancy or happens
+where no occupancy is tracked, and the second kind is spelled `move` inside
+`unsafe` code.** The spelling is a declaration of intent rather than a proof of
+liveness, which is the same contract depth `unsafe` itself carries. It also
+makes `move <pointer place>` the greppable census of a program's manual
+transfer points.
 
 ### Address casts (`&T` → pointer, pointer ↔ `Int`)
 
