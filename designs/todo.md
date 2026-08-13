@@ -200,6 +200,34 @@ brief should skip to 218 or adopt them.
    incomplete entry list; 217a/b are an ADJACENT class (frame-field identity/
    liveness), their own row set in the fix brief.
 
+1b. **Coro differential harness** (Aug 13, third retro sweep): a generator
+   crossing binding constructs x copy tiers x suspend placements x contexts,
+   oracle = parity with each program's non-suspending twin. Harness + full
+   coverage log: `.build/scratch/coro_diff/` (RESULTS.md, gen.py,
+   findings/). Re-confirmed DF-217a (now ALSO reproduces on ExplicitCopy,
+   not just NoCopy) and DF-217b (across taskgroup/loop contexts). TWO NEW,
+   both lead-verified against clean control twins:
+   - **DF-217f (ICE)** — a suspending call as a LABELED enum-constructor
+     argument that is itself a `match` scrutinee:
+     `internal compiler error ... (FunctionCall): Undefined function: mk_s`.
+     All four tiers, three contexts. Repro:
+     `coro_diff/findings/NEW_enum_ctor_labeled_arg_suspending_call_ICE.saw`.
+   - **DF-217g (BOGUS-REFUSAL)** — a suspending call as a TUPLE-LITERAL
+     element in a destructuring let (`let (a,b) = (mk_s(1), mk_s(2))`) is
+     refused with the nested/expression-position error, contradicting design
+     120's documented literals coverage. Control twin runs. All four tiers.
+     Repro: `coro_diff/findings/NEW_tuple_literal_element_...refused.saw`.
+   Coverage honesty (from the harness's own log): susp_main cross product
+   ~50-60% exhausted, other contexts a curated subset, match-arm-retain axis
+   unimplemented, NO ImplicitCopy leak witnessing (leaks in that tier were
+   invisible) — the harness is rerunnable and those axes are the next pass.
+   **Part 0 ranked UNSWEPT class candidates from the full DF history**
+   (detail: `coro_diff/part0_table.md`): DF-193b (move-inside-container-
+   literal gap, only struct-literal position tested) #1, then DF-206d (two
+   independently-maintained suspending-call recognizers), DF-196e (N=2-only
+   closure-collision fix), DF-210c, DF-193c, DF-204a/b. Caveat: ~126 of ~185
+   DF ids were classified from their opening sentence only.
+
 2. **Labeled-call recognition divergence — hypothesis mostly REFUTED, and
    the refutation redraws DF-216c.** 11-recognizer census, 25 probe rows.
    Labeled and positional are byte-identical everywhere probed (effect census,
