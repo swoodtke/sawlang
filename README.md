@@ -941,6 +941,12 @@ Saw provides deterministic memory management without garbage collection:
   refused for `ExplicitCopy`/`NoCopy`. The consuming reads are `move o!`, which
   retires the whole binding, and `o.take()`, which writes `None` back into the
   place and hands you the payload — including out of a struct field.
+- **Asking whether a payload is there costs nothing at any tier.**
+  `o.is_some()` and `o.is_none()` read the occupancy tag, so no reference is
+  made and none is taken, and a `File?` answers exactly as an `Int?` does. The
+  binds-nothing patterns are the same question as a branch: `if let _ = o`,
+  `guard let _ = o`, and a `match` arm like `case Occupied(_)` all look at the
+  tag through a borrow and work on move-only payloads.
 - **A method can hand out storage, not just a value.** A `borrows` method lends a
   **place** — an element or field that stays where it is — for the duration of
   one expression. `lend` is where the accessor pauses: it stops with its frame

@@ -1,0 +1,45 @@
+// DF-218a in a SUSPENDING body. The presence test over an unconditional lend
+// desugars before the coroutine transform runs, so the transform sees an
+// ordinary `is_some()` method call and has to carry its marker across the
+// frame rewrite — the annotation family DF-206e once lost. Both spellings here,
+// with a suspension on either side of each and a `&` argument at the spawn, so
+// the place is reached through a borrow the frame holds across the parks.
+// EXPECT: success
+// EXPECT-OUTPUT:
+// occupied=12 empty=20
+// done
+// drop res 1
+
+import std.compiler.frame.{Slot}
+import std.task.*
+
+struct Res { id: Int }
+
+extension Res: NoCopy {
+    func deinit(&var self) { print("drop res {self.id}") }
+}
+
+func probe(s: &Slot<Res?>, tag: Int) -> Int {
+    yield_now()
+    var hits = 0
+    if let _ = s.value() {
+        hits = hits + 1
+    }
+    yield_now()
+    // The desugared spelling, written out.
+    if s.value().is_some() {
+        hits = hits + 1
+    }
+    yield_now()
+    hits + tag
+}
+
+func main() {
+    var s = Slot<Res?>.of(value: Res(id: 1))
+    var empty = Slot<Res?>.of(value: None)
+    var group = TaskGroup()
+    let a = group.spawn(probe(&s, 10))
+    let b = group.spawn(probe(&empty, 20))
+    print("occupied={a.join()} empty={b.join()}")
+    print("done")
+}
