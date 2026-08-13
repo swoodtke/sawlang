@@ -15,17 +15,26 @@ bitwise copy, SIGTRAP (S1 row 9d — today's behavior is a MISCOMPILE, not a
 semantic to preserve); nesting multiplies; generic methods identical; generic
 COROUTINES pass the post-transform re-check vacuously (row p08a).
 
-## The ruling
+## The ruling (SIMPLIFIED per user, Aug 13 — binary inference, one rare explicit bound)
 
-**Requirement inference on the copy lattice + call-site discharge rejection.**
-The body is walked ONCE at definition time; per type parameter the compiler
-computes the least upper bound of its demands:
+**Requirement inference is BINARY + call-site discharge rejection.** The body
+is walked ONCE at definition time; per type parameter:
 
-| body does | inferred requirement | satisfied by (DERIVED tier) |
-|---|---|---|
-| only moves `x` (or never binds by value) | move-only (bottom) | every tier incl. NoCopy |
-| spells `x.copy()` | needs-explicit-copy | ExplicitCopy, ImplicitCopy, trivial |
-| silently re-binds / uses by value twice / place value-read | needs-implicit-copy | ImplicitCopy, trivial |
+| body does | requirement | how it arises | satisfied by (DERIVED tier) |
+|---|---|---|---|
+| only moves `x` / never binds by value | move-only (bottom) | inferred | every tier incl. NoCopy |
+| silently re-binds / by-value twice / place value-read | needs-implicit-copy | inferred | trivial, ImplicitCopy ONLY |
+| spells `x.copy()` | explicit-copy | **NEVER inferred — requires a DECLARED `<T: ExplicitCopy>`**; `.copy()` on abstract `T` without it is a definition-time error ("declare T: ExplicitCopy") | ExplicitCopy, ImplicitCopy, trivial — `.copy()` lowers tier-correct (real copy / retain / bitwise) |
+
+The middle rung is deliberately NOT in the inference: explicit copies get
+explicit bounds — the tier that demands ceremony per use demands a visible
+contract per signature, and it is expected to be RARE. **The legacy `T: Copy`
+bound RETIRES from generic signatures** — it is the ambiguity (it admits
+ExplicitCopy arguments into silently-copying bodies, which IS the 9d
+miscompile). Existing `T: Copy` sites migrate to `ImplicitCopy` or
+`ExplicitCopy` per what their body actually does; the consumer sweep produces
+the migration list, and design 216's Vector rework (`&T` element closures)
+deletes most of std's Copy bounds independently.
 
 Bound discharge — the machinery that already runs per call site with good
 anchored errors (S1 p09c) — checks the argument's DERIVED tier against the
@@ -45,10 +54,12 @@ struct** (`Bag { s: String }` — which design 139 says IS ImplicitCopy with no
 declaration owed). Bounds check DECLARED conformances; tiers are a separate
 derivation; they have never met. Unit 1 unifies them: a tier-family bound is
 satisfied by DERIVED tier — `T: ImplicitCopy` = tier ∈ {trivial,
-ImplicitCopy}; `T: Copy` = tier ∈ {trivial, ImplicitCopy, ExplicitCopy}
-(unchanged in extension, now by derivation not declaration). Consumer-sweep
-item: any overload resolution or conformance check whose outcome changes when
-`Int`/auto-tier structs start satisfying `ImplicitCopy`.
+ImplicitCopy}; `T: ExplicitCopy` = tier ∈ {trivial, ImplicitCopy,
+ExplicitCopy}. (`T: Copy` retires from generic signatures per the simplified
+ruling above; during migration it reads as whichever of the two its body
+requires.) Consumer-sweep item: any overload resolution or conformance check
+whose outcome changes when `Int`/auto-tier structs start satisfying
+`ImplicitCopy`.
 
 ## THE API-STABILITY CALLOUT (user, Aug 13 — named behavior + mitigation)
 
@@ -58,8 +69,9 @@ NoCopy types break with no signature change. This is why Rust refused
 inferred bounds; Saw's doctrine (infer what is determined) admits them, but
 the hazard is real and is hereby CALLED OUT as the design's known trade.
 
-**The mitigation: the writer binds the parameter — `<T: ImplicitCopy>` (or
-`T: Copy`) — and the declaration becomes the contract.** Where a bound is
+**The mitigation: the writer binds the parameter — `<T: ImplicitCopy>` as
+the standard spelling, `<T: ExplicitCopy>` in the rare `.copy()` case — and
+the declaration becomes the contract.** Where a bound is
 declared, the compiler checks the BODY FITS WITHIN IT at definition time
 (exceeding your declaration is a definition-time error with the design-146
 doctrine message — "would be a copy for some instantiations and an alias for

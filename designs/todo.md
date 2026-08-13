@@ -216,11 +216,14 @@ spellings that reach it. The sweep also found:
 
 ## Design 219 — generic tier requirements (DIRECTION RULED Aug 13; the DF-217i fix)
 
-Brief: `designs/219-generic-tier-requirements.md`. The ruling: requirement
-INFERENCE on the copy lattice (move-only / needs-explicit-copy /
-needs-implicit-copy, computed from the body once at definition time) +
-call-site DISCHARGE rejection (best attribution of the options considered) +
-definition-time declaration-coverage checking. Tier-aware bounds unify with
+Brief: `designs/219-generic-tier-requirements.md`. The ruling (SIMPLIFIED
+Aug 13): BINARY requirement inference — a body either copies `T` silently
+(requires trivial/ImplicitCopy, inferred) or does not (move-only, any tier);
+`.copy()` is NEVER inferred — it requires a declared `<T: ExplicitCopy>`
+(rare by design); the legacy `T: Copy` bound RETIRES from generic signatures
+(it admits ExplicitCopy args into silently-copying bodies — the 9d
+miscompile). Call-site DISCHARGE rejection + definition-time
+declaration-coverage checking. Tier-aware bounds unify with
 tier derivation (probe-found gap: today `T: ImplicitCopy` rejects Int AND
 auto-tier structs). THE NAMED TRADE: body edits can tighten an inferred
 requirement — mitigated by declared bounds as the contract, with a
