@@ -122,6 +122,37 @@ determinism, `Map` iteration order). The RNG, `fsync` and **the `select`
 independent of any Raft code — `select` is a language question worth
 answering either way.
 
+## Design 216 — lifting `T: Copy` off Vector's closure and sort APIs (PROPOSAL)
+
+**Not scheduled, not ruled.** Brief: `designs/216-vector-copy-bounds.md`.
+
+`map`, `each`, `each_indexed`, `fold` and `sort` carry a `T: Copy` bound their
+algorithms do not need — inherited from `iter`/`enumerated`, which do. The
+effect is that a `Vector` of move-only elements cannot be mapped, folded or
+sorted at all. Four probes in the brief show the bound comes off: `&T` element
+closures for the first four (and the transform need not be `sync`, so
+suspending transforms survive), and `swap` plus borrowed comparison for `sort`.
+A NoCopy `Vector` sorts end to end today, written from outside std.
+
+- **DF-216a — ICE: any closure naming `self` inside a method** fails with
+  ``'self' not found in current scope``. 20-line repro; not specific to the
+  receiver (a free function fails identically), so the trigger is the
+  identifier. Workarounds: hoist the field to a local, or pass `&self` to the
+  closure as an explicit parameter. ZERO occurrences in std, which is why it
+  went unseen. An ICE, so a finding on its own terms.
+- **DF-216b — SOUNDNESS: the comparison operators bypass the transfer
+  checkpoint.** `a.compare(b)` on a NoCopy type is correctly refused; `a > b`,
+  the same call, COMPILES. The operator passes the by-value `other` as a
+  borrow, so a conformance that exercises its declared right to `move other`
+  deinits a value the caller still owns — three comparisons of a two-element
+  vector print FIVE deinits, from fully safe code with no `unsafe` at the call
+  site. The DF-132a shape at the operator lowering. Two fixes wanted together:
+  the missing check (one rule, two entry points — obligation 1), and
+  `Comparable`/`Equatable` taking `other: &Self`, which closes it by
+  construction and is what makes NoCopy comparison legitimate. **Blocks 216's
+  `sort` half; the `map`/`each`/`fold` half is independent.** Core trait
+  signature change, so its own brief.
+
 ## Design 215 — the LLM client (Python reference LANDED; Saw port FUTURE WORK)
 
 Brief: `designs/215-llm-client-saw-port.md`. Both programs sit in
