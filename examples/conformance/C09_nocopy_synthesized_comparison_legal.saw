@@ -1,0 +1,34 @@
+// Conformance row C09 — control: a NoCopy operand whose comparison tree is
+// FULLY synthesized keeps its operators, and answers correctly
+//
+// A synthesized body never consumes its operand — memberwise `==` and
+// lexicographic `compare` read fields and recurse — so handing it a borrow is
+// sound and there is nothing for DF-216b's stopgap to refuse. Keeping this
+// legal is the reason the rule asks whether a hand-written body is REACHABLE
+// rather than just looking at the operand's copy tier: a blanket "NoCopy
+// operands cannot be compared" would have made every `@synthesize`d move-only
+// type incomparable for no soundness gain.
+// EXPECT: success
+// EXPECT-OUTPUT:
+// ne
+// gt
+// le
+// drop 3
+// drop 9
+
+struct Tag { id: Int }
+extension Tag: NoCopy {
+    func deinit(&var self) { print("drop {self.id}") }
+}
+@synthesize
+extension Tag: Equatable {}
+@synthesize
+extension Tag: Comparable {}
+
+func main() {
+    let a = Tag(id: 9)
+    let b = Tag(id: 3)
+    if a != b { print("ne") }
+    if a > b { print("gt") }
+    if b <= a { print("le") }
+}

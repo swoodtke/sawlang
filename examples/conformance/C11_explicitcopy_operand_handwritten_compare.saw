@@ -1,0 +1,33 @@
+// Conformance row C11 — the ExplicitCopy half of the rule
+//
+// The refusal is keyed on "a checked call site could not have passed this
+// operand by value without saying so", which is the ExplicitCopy tier as much
+// as the NoCopy one: `a.compare(b)` on an ExplicitCopy operand is refused too,
+// naming `.copy()` and `move`. So the operator owes the same refusal, and the
+// hint names both outs rather than `move` alone (DF-216b).
+// XFAIL: DF-216b an ExplicitCopy operand is refused at a checked call site too, so the operator owes the same refusal and does not make it
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: takes `other` by value, but the operator passes a borrow
+
+struct Ledger { entries: Vector<Int> }
+@synthesize
+extension Ledger: ExplicitCopy {}
+extension Ledger: Equatable {
+    func equals(&self, other: Ledger) -> Bool {
+        self.entries.len() == other.entries.len()
+    }
+}
+extension Ledger: Comparable {
+    func compare(&self, other: Ledger) -> Ordering {
+        let taken = move other
+        if self.entries.len() < taken.entries.len() { Ordering.Less }
+        else if self.entries.len() > taken.entries.len() { Ordering.Greater }
+        else { Ordering.Equal }
+    }
+}
+
+func main() {
+    var first = Ledger(entries: [1, 2, 3])
+    var second = Ledger(entries: [4])
+    if first > second { print("longer") }
+}

@@ -1,0 +1,44 @@
+// Conformance row C10 — control: the DIRECT call spellings are unchanged
+//
+// The outs the operator's refusal names have to exist, and they are the same
+// two the transfer checkpoint has always accepted at a by-value parameter:
+// `move` on a NoCopy operand, `.copy()` on an ExplicitCopy one. Each really
+// does hand the callee a value it may consume, which is why they are sound
+// where the operator is not (DF-216b).
+// EXPECT: success
+// EXPECT-OUTPUT:
+// drop 3
+// tags differ
+// ledgers differ
+// drop 9
+
+struct Tag { id: Int }
+extension Tag: NoCopy {
+    func deinit(&var self) { print("drop {self.id}") }
+}
+extension Tag: Equatable {
+    func equals(&self, other: Tag) -> Bool {
+        let taken = move other
+        self.id == taken.id
+    }
+}
+
+struct Ledger { entries: Vector<Int> }
+@synthesize
+extension Ledger: ExplicitCopy {}
+extension Ledger: Equatable {
+    func equals(&self, other: Ledger) -> Bool {
+        let taken = move other
+        self.entries.len() == taken.entries.len()
+    }
+}
+
+func main() {
+    let a = Tag(id: 9)
+    let b = Tag(id: 3)
+    if not a.equals(move b) { print("tags differ") }
+
+    let first = Ledger(entries: [1, 2, 3])
+    let second = Ledger(entries: [4])
+    if not first.equals(second.copy()) { print("ledgers differ") }
+}

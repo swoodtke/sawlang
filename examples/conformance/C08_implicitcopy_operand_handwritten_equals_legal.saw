@@ -1,0 +1,29 @@
+// Conformance row C08 — control: an ImplicitCopy operand with a hand-written
+// `equals` keeps its operator
+//
+// The refusal is keyed on the tier where a checked call site would have
+// demanded `move`/`.copy()`. An ImplicitCopy operand is not that tier —
+// `a.equals(b)` is accepted directly, the transfer copying by retain — so the
+// operator stays legal and a hand-written body is untouched by DF-216b's
+// stopgap. This is the row that says the rule did not over-reach into ordinary
+// value types.
+// EXPECT: success
+// EXPECT-OUTPUT:
+// same code
+// different code
+
+struct Ticket { code: String }
+
+extension Ticket: Equatable {
+    func equals(&self, other: Ticket) -> Bool {
+        self.code.len() == other.code.len()
+    }
+}
+
+func main() {
+    let a = Ticket(code: "AB")
+    let b = Ticket(code: "CD")
+    let c = Ticket(code: "EFG")
+    if a == b { print("same code") }
+    if a != c { print("different code") }
+}

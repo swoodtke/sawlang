@@ -1,0 +1,30 @@
+// Conformance row C03 — `==` in a MATCH-ARM GUARD on a NoCopy operand
+//
+// A guard is an ordinary expression position, so it reaches the same lowering
+// C02 covers. The row exists because a guard is where the comparison is least
+// visible — nothing about `case n if a == b` looks like a call that consumes
+// its argument (DF-216b).
+// XFAIL: DF-216b a match-arm guard is an ordinary expression position, so `==` there reaches the consuming conformance unchecked
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: takes `other` by value, but the operator passes a borrow
+
+struct Tag { id: Int }
+extension Tag: NoCopy {
+    func deinit(&var self) { print("drop {self.id}") }
+}
+extension Tag: Equatable {
+    func equals(&self, other: Tag) -> Bool {
+        let taken = move other
+        self.id == taken.id
+    }
+}
+
+func main() {
+    let a = Tag(id: 9)
+    let b = Tag(id: 3)
+    let verdict = match a.id {
+        case n if a == b -> "same",
+        case _ -> "different"
+    }
+    print(verdict)
+}

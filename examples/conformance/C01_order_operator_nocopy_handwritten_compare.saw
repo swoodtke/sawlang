@@ -1,0 +1,36 @@
+// Conformance row C01 — `<` `>` `<=` `>=` on a NoCopy operand whose `compare`
+// is hand-written
+//
+// `Comparable.compare(&self, other: Self)` takes `other` BY VALUE, so the body
+// may `move` it. The ordering operators lower to that method but hand it a
+// BORROW, so a conformance exercising its right to consume `other` releases a
+// value the caller still owns — a double free reached from safe code with no
+// `unsafe` anywhere (DF-216b). The direct call `a.compare(b)` is refused by the
+// transfer checkpoint; the operator must agree.
+// XFAIL: DF-216b `<` `>` `<=` `>=` on a NoCopy operand reach a consuming hand-written `compare` through a borrow the callee is entitled to own
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: takes `other` by value, but the operator passes a borrow
+
+struct Tag { id: Int }
+extension Tag: NoCopy {
+    func deinit(&var self) { print("drop {self.id}") }
+}
+@synthesize
+extension Tag: Equatable {}
+extension Tag: Comparable {
+    func compare(&self, other: Tag) -> Ordering {
+        let taken = move other
+        if self.id < taken.id { Ordering.Less }
+        else if self.id > taken.id { Ordering.Greater }
+        else { Ordering.Equal }
+    }
+}
+
+func main() {
+    let a = Tag(id: 9)
+    let b = Tag(id: 3)
+    if a < b { print("lt") }
+    if a > b { print("gt") }
+    if a <= b { print("le") }
+    if a >= b { print("ge") }
+}

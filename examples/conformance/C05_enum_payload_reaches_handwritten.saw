@@ -1,0 +1,32 @@
+// Conformance row C05 — enum payload-deep `==` reaching a payload type's
+// hand-written conformance
+//
+// `Wrap`'s Equatable is the compiler's payload-deep body, which compares the
+// active variant's payload by recursing on `Tag` — the same borrow handed to
+// the same consuming `equals` C04 reaches through a struct field. One
+// mechanism, a different container (DF-216b).
+// XFAIL: DF-216b enum payload-deep `==` recurses into the payload type's consuming hand-written `equals`
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: takes `other` by value, but the operator passes a borrow
+
+struct Tag { id: Int }
+extension Tag: NoCopy {
+    func deinit(&var self) { print("drop {self.id}") }
+}
+extension Tag: Equatable {
+    func equals(&self, other: Tag) -> Bool {
+        let taken = move other
+        self.id == taken.id
+    }
+}
+
+enum Wrap { case Has(t: Tag) }
+extension Wrap: NoCopy {}
+@synthesize
+extension Wrap: Equatable {}
+
+func main() {
+    let a = Wrap.Has(t: Tag(id: 9))
+    let b = Wrap.Has(t: Tag(id: 3))
+    if a == b { print("eq") }
+}

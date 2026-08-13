@@ -1,0 +1,44 @@
+// Conformance row C07 — `==` / `>` inside a GENERIC body under a
+// `T: Equatable` / `T: Comparable` bound, instantiated at a NoCopy conformer
+// whose body consumes `other`
+//
+// The seventh position of DF-216b's matrix, and the one the operator gate
+// cannot see: a generic body is checked ONCE with `T` abstract (tier
+// `abstract`, no conformance to inspect) and is not re-checked per
+// instantiation, so `Tag` never reaches the comparison chokepoint. Closing it
+// means judging the TYPE ARGUMENT where the `Equatable`/`Comparable` bound is
+// discharged, and that is six independent call-site checks today rather than
+// one funnel — a ruling, not a stopgap. `other: &Self` closes it by
+// construction along with the rest of the matrix.
+// XFAIL: DF-216b the comparison operators in a generic body reach a NoCopy conformer's consuming `equals`/`compare` at instantiation, and the operand type never reaches `_check_binary_op` — the stopgap gate covers the six concrete positions only
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: takes `other` by value, but the operator passes a borrow
+
+struct Tag { id: Int }
+extension Tag: NoCopy {
+    func deinit(&var self) { print("drop {self.id}") }
+}
+extension Tag: Equatable {
+    func equals(&self, other: Tag) -> Bool {
+        let taken = move other
+        self.id == taken.id
+    }
+}
+extension Tag: Comparable {
+    func compare(&self, other: Tag) -> Ordering {
+        let taken = move other
+        if self.id < taken.id { Ordering.Less }
+        else if self.id > taken.id { Ordering.Greater }
+        else { Ordering.Equal }
+    }
+}
+
+func same<T: Equatable>(a: &T, b: &T) -> Bool { a == b }
+func bigger<T: Comparable>(a: &T, b: &T) -> Bool { a > b }
+
+func main() {
+    let a = Tag(id: 9)
+    let b = Tag(id: 3)
+    if same<Tag>(&a, &b) { print("eq") }
+    if bigger<Tag>(&a, &b) { print("gt") }
+}

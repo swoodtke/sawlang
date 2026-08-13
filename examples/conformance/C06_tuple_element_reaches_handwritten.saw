@@ -1,0 +1,27 @@
+// Conformance row C06 — tuple `==` reaching an ELEMENT type's hand-written
+// conformance
+//
+// A tuple has no conformance of its own to inspect: `==` over one is the
+// conjunction of element-wise `==`, so `(Int, Tag)` reaches `Tag.equals` with a
+// borrow exactly as a struct field does. A tuple also takes the strongest tier
+// it holds, which is what makes this operand NoCopy (DF-216b).
+// XFAIL: DF-216b element-wise tuple `==` recurses into the element type's consuming hand-written `equals`
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: takes `other` by value, but the operator passes a borrow
+
+struct Tag { id: Int }
+extension Tag: NoCopy {
+    func deinit(&var self) { print("drop {self.id}") }
+}
+extension Tag: Equatable {
+    func equals(&self, other: Tag) -> Bool {
+        let taken = move other
+        self.id == taken.id
+    }
+}
+
+func main() {
+    let a = (1, Tag(id: 9))
+    let b = (1, Tag(id: 3))
+    if a == b { print("eq") }
+}
