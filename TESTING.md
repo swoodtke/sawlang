@@ -423,6 +423,98 @@ Then it is an ordinary finding:
    together. A ledger entry that no longer fires is stale exactly as an XPASS
    marker is; `--ignore-known` re-reports everything, which is how you check.
 
+## The Coroutine Differential Harness
+
+```bash
+./.venv/bin/python tools/corodiff.py --quick        # ~60 pairs, the battery mode
+./.venv/bin/python tools/corodiff.py --all          # the whole cross (~40 min)
+./.venv/bin/python tools/corodiff.py --list-axes    # the axis grammar
+./.venv/bin/python tools/corodiff.py --filter place_write_set
+./.venv/bin/python tools/corodiff.py --replay let_shadow_rebind__nocopy__before__susp_main
+```
+
+`tools/corodiff.py` (design 218 unit 0) generates a program twice with the SAME
+value flow: the DRIVEN version suspends, the CONTROL version does not. **Adding
+a suspension to a program is not supposed to change what it prints, what it
+returns, or how many times anything is destroyed** — so a difference between
+the twins is a coroutine-transform bug, and no model of what the program
+*should* do is needed to see it.
+
+That is the point of the lane. The DF-217 family are ownership bugs in
+GENERATED code, which is exactly the code no reader reviews: the transform
+lowers ownership-tracked locals into `UnsafePointer`-typed frame fields, where
+ownership tracking stops by design, and exactly-once release is then a matter
+of hand bookkeeping that the post-transform re-check structurally cannot
+police. This harness is the net under that, and design 218 does not start
+migrating the transform until it is a battery lane.
+
+Four axes cross into the combo space:
+
+- **20 BINDING constructs** — `let`, same-name shadow rebind, `if let`/`guard
+  let`, both consuming match flavours and the BORROWING one (an arm binding its
+  payload in place), tuple and nested-tuple destructuring, `_` discard, `??`
+  RHS, three closure captures including one naming `self`, both place writes,
+  `swap_out`, `Optional.take`.
+- **5 copy TIERS**, of which two WITNESS their own destruction: `nocopy`
+  (`Res`, a hand-written deinit) and `tag` (a declared ImplicitCopy struct over
+  an `Arc<Res>` — a copy RETAINS, so the payload still dies exactly once, which
+  is what makes an ImplicitCopy over-release visible at all). `trivial`,
+  `implicit` and `explicit` carry the parity checks only.
+- **4 SUSPEND PLACEMENTS** — before the binding, after it, between bind and
+  use, and inside the initializer itself.
+- **13 CONTEXTS** — a suspending `main`, a spawned task, a loop body, a closure,
+  a nested block, a suspending METHOD, three cancellation shapes, a panicking
+  task, an unjoined handle, a two-task group teardown, and `TaskGroup(threads:
+  2)`.
+
+### What the oracle checks, and where it stops
+
+1. A traceback, an `internal compiler error`, a compile hang or a run hang is a
+   finding on either twin, parity or no parity.
+2. **COMPILE PARITY** — one twin refused where the other compiles. The driven
+   twin being the refuser is a BOGUS-REFUSAL; both refusing identically is a
+   deliberate rule and not a finding.
+3. **RUN PARITY** — exit code, then stdout including the `NEW <id>` /
+   `DEINIT <id>` witness lines. Same lines in a different ORDER is reported
+   separately (`DEINIT-ORDER`): nothing was lost or duplicated and what moved
+   is a destruction POINT, which is a resource-lifetime bug rather than a
+   memory-safety one.
+4. **WITNESS EXACTLY-ONCE**, per twin, independent of parity: for every witness
+   id, `count(DEINIT id) == count(NEW id)`. More is a DOUBLE-FREE, fewer is a
+   LEAK.
+
+Check 4 is what carries the axes where parity CANNOT apply. A cancelled task
+legitimately prints different lines from an uncancelled one, so the
+cancellation contexts run the witness oracle and turn stdout parity off. A
+panicking task ABORTS without unwinding, so nothing is released and a leak
+means nothing there — that context keeps only the double-release half. An MT
+group has no deterministic interleaving, so its stdout is compared as a
+multiset. Each context declares which checks it can carry, in one place, which
+is how a new axis gets added without either weakening the strong checks or
+drowning the run in false reports.
+
+Everything comes from the axes and `--seed`, and nothing reads a clock, a PID
+or `os.urandom`. `--quick` takes a stratified sample — every value of every
+axis covered at least once, then filled to size — so the battery runs the same
+pairs on every machine. Compiles and runs go out in waves of `--jobs`, every
+wave reaped before the next (DF-182f's rule).
+
+### When it finds something
+
+A finding is written to `.build/corodiff-findings/` as three files: both twins
+and a `.txt` report with the combo, the oracle profile that judged it, what
+differs, and the replay command. Findings are deduplicated by signature, so one
+bug reached from thirty combos writes one report. A compiler complaint keys
+itself (normalized, so the same refusal from another tier matches); a runtime
+finding is keyed by construct, placement and the context's oracle class.
+
+Then it is an ordinary finding — file the DF, pin the repro in `examples/`
+under a behavior name, XFAIL it citing the DF, and add the signature to
+`tools/corodiff_known.txt`. That file is this tool's XFAIL ledger and reads as
+a matrix of known-broken cells: a listed signature is still reported, with its
+DF number, but does not fail the run. Delete the entry in the landing that
+fixes the bug; `--ignore-known` re-reports everything, which is how you check.
+
 ## The IR Contract Gate
 
 ```bash

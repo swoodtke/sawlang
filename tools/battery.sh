@@ -57,6 +57,7 @@ STAGES=(
     "abidoc|no|rt/ABI.md describes exactly the frozen seam set|$PY tools/test_runtime_abi_doc.py"
     "bttable|no|the task-backtrace table against the frame layouts|$PY tools/test_bt_table.py"
     "fuzz|no|corpus-mutation fuzzing, one oracle: no ICE, no traceback|$PY tools/sawfuzz.py --quick"
+    "corodiff|no|coroutine twin parity: suspending vs non-suspending|$PY tools/corodiff.py --quick"
     "bench|no|warehouse benchmark: checksums gate, timing reports|__BENCH__"
     "selfhostlex|no|the selfhost lexer's own tests compile and pass|__SELFHOSTLEX__"
     "irdet|yes|IR determinism over the WHOLE corpus (not a sample)|__IRDET__"
