@@ -130,6 +130,30 @@ zero ownership exemptions. Pins the OTHER briefs own flip there instead
 pin-promotion batch converts every open DF repro out of gitignored
 `.build/scratch/` once the current fix wave and sweeps S1/S2 report.
 
+**Unit 1.5 — monomorphization becomes a pre-codegen transform (RULED, user,
+Aug 13; sequenced BEFORE unit 2 because it defines the validated form).**
+Today monomorphization is codegen-side (`codegen/generics.py`,
+`_ensure_monomorphized_*`, lazily during lowering) — the largest single thing
+codegen DECIDES, and no judgment ever runs on the instances (the one re-check
+that exists, effects.py:500-510, deletes its own errors — it is a
+type-stamping device). This unit lifts it into the transform pipeline:
+typecheck (abstract — KEPT as the definition-site UX/inference layer) →
+monomorphize (demand-driven reachability fixpoint over the AST, replacing
+codegen's lazy discovery; the census of every `_ensure_monomorphized_*` call
+site is spec material) → instances RE-ENTER the checker with errors REAL →
+place/coro transforms then run on CONCRETE ASTs only (deleting the coro
+transform's private generic-instance machinery incl. the error-deleting
+re-check) → codegen lowers. Closes DF-217i/j/k at the right boundary and
+S1 row p08a with them. Known cost: instance-check error attribution (cite
+the instantiating call site + definition line; migrate rules into abstract
+bound vocabulary over time so the instance check rarely fires) and re-check
+cost per instance (cache per (template, type-arg tuple); consider tier-shape
+sharing; measure before optimizing). INTERIM STEP, dispatchable ahead of the
+full unit: generalize the Send lane (which already re-judges monomorphized
+frames with concrete-type diagnostics) to the ownership rules — the fast
+DF-217i fix inside the current architecture, so the migration lands as
+architecture rather than as an emergency soundness patch.
+
 **Unit 3 — comparisons desugar at the AST (coordinates with the `other: &Self`
 brief).** `a > b` becomes `a.compare(b)` (and `==` family likewise) as an AST
 rewrite BEFORE checking, so the transfer checkpoint judges the real call and
