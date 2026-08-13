@@ -1016,6 +1016,18 @@ Saw provides deterministic memory management without garbage collection:
   that reach real storage — `[&var x]` to capture by borrow (a closure passed
   directly to a non-escaping parameter), or `Arc<Mutex<T>>` to share state a
   closure outlives the frame with.
+- **A closure body may name `self`**, and may name a `&T`/`&var T` parameter of
+  the enclosing function. Both are captured by borrow, so the body reads the live
+  value and a `&var self` receiver writes the caller's:
+  ```saw
+  extension Counter {
+      func bump(&var self) -> Int { run({ self.n = self.n + 10  self.n }) }
+  }
+  ```
+  A receiver is a reference, so the rule is the one below: a capture that lowers
+  to a pointer into the enclosing frame is legal only in a closure passed
+  directly to a non-escaping parameter. `[&x]`, a reference parameter and `self`
+  are three spellings of it, and an escaping closure refuses all three.
 - **Reference types** (`&T`, `&var T`) for borrowing, checked for exclusivity at
   compile time.
 - **The Law of Exclusivity**: a `&var` (mutable) reference must not overlap any

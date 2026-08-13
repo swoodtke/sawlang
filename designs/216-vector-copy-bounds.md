@@ -89,7 +89,10 @@ So the movement half of sorting was never the problem. The comparison half is.
   yields an element the consumer owns, which is a real constraint (design 122),
   not an inherited one.
 
-## DF-216a — ICE: a closure naming `self` inside a method
+## DF-216a — ICE: a closure naming `self` inside a method — **LANDED**
+
+**Status: FIXED**, unit 1 (with DF-216d and DF-169f). The ruling and what the
+probes forced are in *The DF-216a ruling* below; the original report follows.
 
 Found while writing the borrow-based comparison, and it blocks the natural
 spelling of it.
@@ -117,6 +120,77 @@ closure as an explicit parameter (`body: (&Counter, Int) sync -> R` called as
 A corpus grep found ZERO closures naming `self` anywhere in std, which is why
 this has gone unseen. It is an ICE, so by the design-192 fuzzing oracle it is a
 finding on its own terms regardless of this brief.
+
+## The DF-216a ruling (Aug 13 — unit 1 landed)
+
+The fix had to decide what `self` capture MEANS, and the brief's instruction was
+that it must mean whatever reference-PARAMETER capture already means, since a
+receiver is a reference. Both halves were probed before a line was written.
+
+| Probe | Shape | Verdict |
+|---|---|---|
+| R1 | `apply({ v in r.x + v })`, `r: &Thing` — direct call argument | COMPILES, runs, correct value |
+| R2 | `let g = { r.x + 1 }`, called in-frame | COMPILES (heap env) |
+| R3 | `return { r.x + 1 }` out of a function | COMPILES |
+| R4/R5 | R3's closure called after the referent's frame died | COMPILES, reads the dead frame |
+
+So the diagnostic the brief expected ("references cannot escape") **did not
+exist at this site**, though LANGUAGE_SPEC has always claimed it. R3's `make`
+emits `store ptr %r` into a HEAP environment — a raw pointer into a frame that
+dies, out of fully safe code, silently. Filed as **DF-216d**.
+
+That ruled out reading the instruction literally in either direction: giving
+`self` "the same diagnostic ref params get" would have shipped a second way to
+spell a dangling pointer, and refusing only `self` would have been a third
+behavior. The landing makes the rule ONE PREDICATE over its three spellings
+instead, which is the funnel obligation 1 asks for:
+
+> **A capture that lowers to a pointer into the enclosing frame is legal only in
+> a closure passed directly to a non-escaping parameter.**
+>
+> 1. an explicit `[&x]` / `[&var x]` borrow capture — already checked, at its
+>    spec;
+> 2. `self` in a method — implicitly `ref` for `&self`, `ref_var` for
+>    `&var self`. A CONSUMING `self` receiver is an owned binding and stays a
+>    plain value capture;
+> 3. a REFERENCE-TYPED binding (a `&T`/`&var T` parameter), whose plain capture
+>    copies the pointer itself into the env. This is the spelling that bypassed
+>    the rule entirely.
+
+`self` is therefore a BORROW capture, never a value one. A value capture would
+have been wrong twice: it would snapshot the receiver, and it would demand of
+`self` a copy policy no receiver ever owed (a NoCopy receiver refused outright).
+As a borrow it needed NO codegen change — the env-of-reference lowering that
+already serves `[&x]` binds the name to the enclosing frame's storage, which is
+exactly what `_generate_self_expr` and the `self`-rooted member/method paths
+read.
+
+**Consumer sweep (obligation 2), owed because spelling 3 flips a contract:**
+zero consumers across 1938 tracked `.saw` files. No closure in std, blade, libs,
+sos, devtools or examples captures a reference parameter or `self` —
+self-capture was mechanically impossible, and escaping ref-param capture had no
+authors. `spawn` routes through the same funnel and fires this beside the
+pre-existing `not Send` error, so it is not a second entry point.
+
+**DF-169f fell out with it, and corrects the sweep's "not a class" verdict.**
+Its pin `place_write_self_rhs` went XPASS: place lowering hoists a place write's
+RHS into the window's closure, so a COMPILER-SYNTHESIZED closure was reaching
+the same missing `SelfExpr` case. The sweep had enumerated the source spellings
+that reach the funnel and found no siblings; it had not enumerated the funnel's
+own CALLERS, where the sibling was. That is the obligation-4 refinement this
+landing earned.
+
+**Left open, deliberately — DF-216e.** `borrow_ok`'s `as_call_argument`
+heuristic cannot tell "the callee RUNS this closure" from "the callee STORES
+it", so a borrow capture handed to `Vector.push` is still classified
+non-escaping and still compiles a stack-env pointer that dangles (IR-confirmed,
+found by the consumer sweep). It predates this landing and reaches all three
+spellings equally. Closing it needs a non-escaping parameter TYPE, which is
+design 21's already-named future work, so it is its own brief rather than
+something to invent here.
+
+Conformance rows: R35 (spelling 3 — a DEVIATION until now), R36 (`self`
+escaping), R37 (`self` non-escaping, the acceptance beside R30).
 
 ## DF-216b — SOUNDNESS: the comparison operators bypass the transfer checkpoint
 
@@ -312,7 +386,14 @@ row by row.
 One second entry point for the fix to decide about: the explicit capture-list
 grammar also rejects `self` at the PARSER (parser/expressions.py:1503 expects
 an IDENT token; `self` is a keyword), so `{ [self] in ... }` is unwritable
-today.
+today. **Decided: left as a parse error** (`Expected capture name`, re-probed
+after unit 1). The implicit capture is the whole feature — nothing needs the
+explicit spelling, and the mode `[self]` would ask for is the one the receiver
+already dictates.
+
+**This verdict was WRONG about siblings, and unit 1 says how** — see *The
+DF-216a ruling* above. Every other SOURCE spelling probed green, but the funnel
+has a second CALLER: the place transform's synthesized closure (DF-169f).
 
 ### DF-216c — found by the sweep, verified by hand, then REDRAWN by the
 Aug-13 labeled-call sweep: generic METHOD calls are broken on EVERY spelling

@@ -2154,6 +2154,39 @@ construct in the owner and lend `&driver` down.
   `s.f = v`, `t.0 = v`, a fixed-array element — but NOT `v[i] = x` on a
   `Vector`, whose heap buffer the copy shares (that write does persist). The
   counter-closure idiom is unwritable without an `Arc<Mutex<Int>>`.
+- **A closure body MAY NAME `self`** (design 216) — and a `&T`/`&var T` PARAMETER
+  of the enclosing function. Both are captured BY BORROW: the body reads the live
+  value, and through `&var self` / a `&var T` param it WRITES the caller's
+  storage. This used to be an ICE (`'self' not found in current scope`) for every
+  closure naming `self` in any method, which is why no std code does it.
+  ```saw
+  extension Counter {
+      func viaFree(&self) -> Int { run_int({ self.n + 1 }) }
+      func bump(&var self) -> Int { run_int({ self.n = self.n + 10  self.n }) }
+  }
+  ```
+  ONE rule over three spellings, because a receiver IS a reference: **a capture
+  that lowers to a pointer into the enclosing frame is legal only in a closure
+  passed directly to a non-escaping parameter** — `[&x]`/`[&var x]`, a reference
+  parameter, and `self` alike. Escaping is refused:
+  ```saw
+  func handOut(&self) -> () -> Int { return { self.n + 3 } }
+  // error: an escaping closure cannot capture `self`: a method's receiver is a
+  // borrow of storage the CALLER owns ...
+  func make(r: &Thing) -> () -> Int { return { r.x + 1 } }
+  // error: an escaping closure cannot capture `r`, a reference (`&Thing`) ...
+  ```
+  GOTCHA: `let f = { self.n }` counts as ESCAPING even when you call `f()` two
+  lines later — the env is on the heap either way and the check reads the
+  position, not the eventual use. Pass the closure straight to the call that runs
+  it. The two outs the diagnostic names: hoist what the body needs into locals
+  ahead of the closure, or take the receiver as an explicit closure parameter
+  (`body: (&Counter, Int) sync -> R`, called `self.run({ c, v in c.n + v })`) —
+  the second is what a std-side by-borrow callback wants. A CONSUMING `self`
+  receiver (no `&`) is an owned binding and captures by value as usual.
+  Treat the ref-param half as caught now and SUSPECT in older builds: an escaping
+  closure capturing a `&T` param used to compile to a raw pointer into a dead
+  frame with no diagnostic.
 - `guard` must exit (return/break/continue/panic).
 - Shadowing footgun (design 100/107): naming an inner binding after an outer one
   is an ERROR unless the inner DERIVES from the outer (its initializer mentions the

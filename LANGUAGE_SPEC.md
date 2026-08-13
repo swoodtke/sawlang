@@ -2576,8 +2576,12 @@ process(original)  // original is copied, unchanged
 - A bare trait name behind a reference (`&Shape` / `&var Shape`) is unsized and
   rejected — write the existential (`&any Shape` / `&var any Shape`)
 - References cannot escape: cannot return, store in structs, or be captured by
-  an escaping closure (the non-escaping `[&x]`/`[&var x]` borrow-captures are
-  confined to the call)
+  an escaping closure. A capture that lowers to a pointer into the enclosing
+  frame is legal only in a closure passed directly to a non-escaping parameter,
+  and three spellings reach that rule: the explicit `[&x]`/`[&var x]`
+  borrow-capture, a plain capture of a `&T`/`&var T` **parameter**, and a
+  closure body naming `self` (a receiver is a borrow). See
+  [Capturing `self` and reference parameters](#capturing-self-and-reference-parameters)
 
 **A return type may not name a reference.** The no-escape property above is
 enforced at the declaration, in every position a return type is written: a
@@ -2689,6 +2693,52 @@ let f = { &x }
 // `&Int`, which is a reference ...
 ```
 
+#### Capturing `self` and reference parameters
+
+A closure body may name `self`, and may name a `&T`/`&var T` parameter of the
+enclosing function. Both are captured **by borrow**: the environment holds a
+pointer to the storage, so the body reads the live value, and through a
+`&var self` receiver or a `&var T` parameter it writes the caller's storage.
+
+```saw
+extension Counter {
+    func viaFree(&self) -> Int { run_int({ self.n + 1 }) }
+
+    func bump(&var self) -> Int {
+        run_int({ self.n = self.n + 10  self.n })   // the write lands on the caller's value
+    }
+}
+```
+
+A receiver is a reference, so this is the same rule as everywhere else in this
+section: **a capture that lowers to a pointer into the enclosing frame is legal
+only in a closure passed directly to a non-escaping parameter.** One predicate,
+three spellings — the explicit `[&x]`/`[&var x]` borrow-capture, a reference
+parameter, and `self`. Outside that position the environment is heap-allocated
+and outlives the frame it points into, so the capture is refused:
+
+```saw
+extension Counter {
+    func handOut(&self) -> () -> Int { return { self.n + 3 } }
+    // error: an escaping closure cannot capture `self`: a method's receiver is
+    // a borrow of storage the CALLER owns — a reference borrows storage for the
+    // duration of one call and may not outlive the frame it points into
+}
+
+func make(r: &Thing) -> () -> Int { return { r.x + 1 } }
+// error: an escaping closure cannot capture `r`, a reference (`&Thing`) ...
+```
+
+Binding the closure to a `let` counts as escaping even when it is called in the
+same frame: the environment is on the heap either way, and the checker judges
+the position rather than the eventual use. The diagnostic names the ways out —
+copy the values the body needs into locals ahead of the closure and capture
+those, or take the receiver as an explicit closure parameter
+(`body: (&Counter, Int) sync -> R`, called as `self.run({ c, v in c.n + v })`).
+
+A **consuming** `self` receiver (declared without `&`) is an owned binding, not
+a borrow, so it is captured by value under the ordinary transfer rules.
+
 **Call-site reference sigils:** the call site mirrors the parameter's reference
 spelling. `&x` lends immutably to a `&T` parameter; `&var x` lends mutably to a
 `&var T` parameter. A mismatch in **either** direction is a compile error
@@ -2783,8 +2833,10 @@ g(&x, &x)             // ok when both parameters are immutable `&` (shared reads
 
 This check is **fully static** and needs no lifetimes or runtime flags.
 References cannot escape in Saw: they are only parameters, never returned or
-stored in fields, and closures capture by value except for the `[&x]`/`[&var x]`
-borrow-captures, which are confined to non-escaping closures. Every live
+stored in fields, and a closure captures by value except where the capture is
+itself a borrow of the enclosing frame — an explicit `[&x]`/`[&var x]`, a
+reference parameter, or `self` — all three of which are confined to non-escaping
+closures. Every live
 reference therefore has a statically known extent, and two of them can alias
 only within it. Forwarding is covered by applying the same rule at *every* call
 site: inside a callee its `var` parameters are distinct storage, and the only
@@ -4846,7 +4898,9 @@ multiple threads (design 75) — carrying the coroutine transform, suspending
   the task frame owns the closure's reference and the trampoline release is THE
   release — the env is torn down on the task thread exactly once. Non-escaping
   closures (a direct call argument, e.g. `Mutex.lock`'s body) keep a stack env and
-  own nothing. `[&var x]` reference-captures remain non-escaping-only. *(This
+  own nothing. Borrow captures remain non-escaping-only, in all three of their
+  spellings: `[&x]`/`[&var x]`, a reference parameter, and `self` (see
+  [Capturing `self` and reference parameters](#capturing-self-and-reference-parameters)). *(This
   closed design 71's residual gap: an owning closure in a copyable struct that is
   then copied now retains the shared env and tears it down once at the last
   owner.)*

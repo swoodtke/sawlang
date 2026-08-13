@@ -134,12 +134,20 @@ closures for the first four (and the transform need not be `sync`, so
 suspending transforms survive), and `swap` plus borrowed comparison for `sort`.
 A NoCopy `Vector` sorts end to end today, written from outside std.
 
-- **DF-216a — ICE: any closure naming `self` inside a method** fails with
-  ``'self' not found in current scope``. 20-line repro; not specific to the
-  receiver (a free function fails identically), so the trigger is the
-  identifier. Workarounds: hoist the field to a local, or pass `&self` to the
-  closure as an explicit parameter. ZERO occurrences in std, which is why it
-  went unseen. An ICE, so a finding on its own terms.
+- **DF-216a — ICE: any closure naming `self` inside a method** — **FIXED**
+  (design 216 unit 1). A closure body may name `self`, captured BY BORROW like
+  the reference a receiver is, non-escaping only. Ruling, the DF-216d hole it
+  uncovered, and the one gap left open are in the brief.
+- **DF-216d — an escaping closure capturing a `&T`/`&var T` PARAMETER dangled
+  silently** — **FIXED** with 216a, by the same predicate. Found by the DF-216a
+  ruling probes: it compiled to a raw pointer into a dead frame with no
+  diagnostic, at the one site not enforcing the spec's own no-escape rule.
+- **DF-216e — `borrow_ok`'s `as_call_argument` heuristic cannot tell "the callee
+  RUNS this closure" from "the callee STORES it"**, so a borrow capture handed
+  to `Vector.push` is still classified non-escaping and still compiles a stack
+  pointer that dangles (IR-confirmed). Predates 216 and reaches all three
+  spellings of the borrow capture. Closing it needs a non-escaping parameter
+  TYPE — design 21's already-named future work, so it is its own brief.
 - **DF-216b — SOUNDNESS: the comparison operators bypass the transfer
   checkpoint.** `a.compare(b)` on a NoCopy type is correctly refused; `a > b`,
   the same call, COMPILES. The operator passes the by-value `other` as a
@@ -171,7 +179,12 @@ builds a call node, so the stopgap funnel is `_check_binary_op`'s trait gating
 and the `&Self` signature change closes the whole matrix by construction.
 DF-216a is NOT a class: one missing `SelfExpr` arm in the closure-capture
 funnel (`collect_names`), every other binding kind probed green; a second small
-entry point at the capture-list grammar. The sweep also found:
+entry point at the capture-list grammar. **Corrected by the landing:** the arm
+had a second CONSUMER the sweep did not look for — place lowering hoists a place
+write's RHS into a synthesized closure, so DF-169f was the same missing arm
+reached from the compiler's own side, and fixing 216a flipped its pin to XPASS.
+The lesson for obligation 4: enumerate a funnel's CALLERS, not only the source
+spellings that reach it. The sweep also found:
 
 - **DF-216c — generic METHOD type-arg inference fails on labeled arguments.**
   `h.probe(other: 99i64)` on `func probe<U>(other: U)` cannot infer `U`; the
@@ -3075,7 +3088,10 @@ Closed items: see todo_aug1-aug9.md.
   caller names the concrete type, `LockEntry.deserialize(from: &var dec)`. Repro:
   `.build/scratch/probe_static_bound.saw` (a two-requirement trait, one static
   one instance, called both ways).
-- **DF-169f — a place WRITE whose RHS names `self` is an ICE.**
+- **DF-169f — a place WRITE whose RHS names `self` is an ICE — FIXED** by
+  design 216 unit 1: it was DF-216a's missing `SelfExpr` arm reached through a
+  COMPILER-SYNTHESIZED closure rather than a written one. One mechanism, two
+  entry points. The pin now passes; original report below.
   `self.marks[0] = self.tick` and `self.marks[0] = self.width()` both die with
   `internal compiler error: 'self' not found in current scope`, no source anchor.
   Place lowering rewrites the write into an accessor call taking the window as a
