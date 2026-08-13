@@ -210,7 +210,7 @@ class ConditionalsMixin:
         that did not happen would double-free. They asked only
         `_is_owned_temporary`, so `if let _ = move opt` (and its `guard let`
         twin) released nothing at all — a leak of a spec-blessed idiom with no
-        coroutine anywhere in sight. DF-217i.
+        coroutine anywhere in sight. DF-217l.
         """
         return (isinstance(src, MoveExpr)
                 or getattr(src, 'frame_move_read', False)

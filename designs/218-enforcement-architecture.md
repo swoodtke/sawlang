@@ -182,6 +182,31 @@ keys teardown on the index. Where the proof does not discharge, the tag stays
 twin parity. Do not start this unit without a measured regression attributable
 to the tags (perf-via-measurement policy).
 
+## Self-hosting interaction (user, Aug 13)
+
+Moving semantics out of codegen ENLARGES the pre-codegen surface — which is
+exactly the surface the self-hosted compiler's initial phases were planned to
+cover (the port was always going to stop before codegen). Both sides of that:
+
+- **The cost:** the self-hosted front-end now owes desugaring, monomorphization
+  and the transforms, not just lex/parse/check — more to port before a Saw
+  front-end "means anything".
+- **The payoff, and it dominates:** every phase 218 moves up is an AST-to-AST
+  transformation — pure data in, pure data out — which is the EASIEST kind of
+  phase to port and to verify: each ported phase gets a lexdiff/astdiff-style
+  parity lane against the Python implementation (the selfhost lexer + lexdiff
+  precedent, already in the battery). Codegen, the hardest thing to port,
+  stays Python/llvmlite the longest behind a frozen boundary.
+- **The concrete deliverable this adds:** the checked, monomorphized,
+  transformed AST becomes a DEFINED ARTIFACT — a stable, serializable contract
+  (the rt/ABI.md move applied to the compiler's own midpoint). That one
+  contract is simultaneously (a) codegen's input spec, which unit 4's ledger
+  documents, (b) the self-hosting handoff point — a Saw front-end can feed the
+  Python codegen across it during the transition, making the port incremental
+  per-phase rather than all-or-nothing, and (c) the differential-testing
+  interface each ported phase is validated against. 218 does not compete with
+  self-hosting; it defines its milestones.
+
 ## Obligations mapping (design 190)
 
 - Obligation 1: `Slot<T>` IS the funnel for frame ownership — the entry-point

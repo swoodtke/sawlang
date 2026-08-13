@@ -12,7 +12,7 @@
 // it instead. `if let _ = move opt` leaked, with NO coroutine involved — and
 // `guard let _ = move opt` leaked in a plain function while its driven twin was
 // correct, because a driven `guard let` splits and carries its binding in a
-// frame slot. DF-217i, found sweeping DF-217b's predicate.
+// frame slot. DF-217l, found sweeping DF-217b's predicate.
 //
 // ORACLE: `LIVE` counts live `Res` values; every observation is zero.
 // EXPECT: success

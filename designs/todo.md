@@ -264,7 +264,7 @@ brief should skip to 218 or adopt them.
 **Status (Aug 13): section 1 is CLOSED — all three frame-slot findings fixed,
 each with its conformance row and position matrix, on branch
 `worktree-agent-a94bfdce48f5369d5`.** Fixing them turned up two more, both from
-sweeping the PREDICATES rather than the symptoms: DF-217i (fixed with them) and
+sweeping the PREDICATES rather than the symptoms: DF-217l (fixed with them) and
 DF-217h (open, pinned, wants its own dispatch). Section 2 (DF-216c / DF-217d /
 DF-217e) is untouched and still open.
 
@@ -307,7 +307,9 @@ DF-217e) is untouched and still open.
    (frame-field identity/liveness) they were called.
    Two FURTHER findings came out of fixing them, both from sweeping the
    predicates rather than the symptoms:
-   - **DF-217i — FIXED (`c783540`).** `if let _ = move opt` and
+   - **DF-217l — FIXED (`c783540`; committed under the colliding number
+     DF-217i, renumbered at integration — DF-217i is the abstract-T
+     boundary).** `if let _ = move opt` and
      `guard let _ = move opt` LEAK the payload they discard, with no coroutine
      involved at all: design 111's `_` rider dropped only a fresh-TEMPORARY
      payload, and a `move` scrutinee retires the source binding just as
