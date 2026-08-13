@@ -9,6 +9,27 @@ than generating unsafe code directly — the same contract Saw imposes on all
 Saw code; the typechecker's checks then validate the generated transformations
 and rely on the uncheckable unsafe core to work as expected.*
 
+## THE ELABORATION PRINCIPLE (RATIFIED, user, Aug 13 — the brief's end-state in one paragraph)
+
+**Usability lives in surface syntax; meaning lives in core; the path between
+them is type-informed desugar whose output is always code the checker
+validates and (where expressible) a user could have written.** Desugar is
+just transforming the usability features into core Saw the user could have
+written (the user's phrasing, ratified verbatim). The pipeline it names:
+surface check (inference + user-facing errors, anchored on what the user
+wrote) → ELABORATE (type-informed desugar to core — auto-wrap, operators,
+presence tests, synthesized bodies) → re-check the core (verification,
+EXPECTED SILENT for anything the surface check can express). Invariant made
+load-bearing by this ruling: every elaborated node keeps its surface span,
+so the re-check's rare errors anchor at written code. What cannot desugar to
+core (`UnsafePointer` ops, the resume dispatch) is a PRIMITIVE on the
+trusted ledger with a named contract — nothing hides between the two. The
+payoffs the ruling buys: every downstream funnel shrinks to core grammar;
+consumers need no secret node kinds (the l5 lesson); new sugar becomes a
+desugar plus tests, never new enforcement surface; and the elaborated core
+is the self-hosting midpoint contract. Every subsequent brief cites this
+paragraph instead of re-deriving it.
+
 ## The problem this closes (evidence, Aug 13)
 
 One day of obligation-4 sweeps produced nine findings (DF-216a/b/c, DF-217a-i
