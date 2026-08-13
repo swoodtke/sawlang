@@ -22,6 +22,15 @@ blade/tests/fixtures/**/Saw.lock
 # Saw.lock is NOT ignored — the SOS root packages are applications, and
 # applications commit their lockfiles (user policy; design 143).
 
+# Dogfood LLM prompts are working material, rebuilt per sweep as the rules
+# evolve; the durable record of what a sweep learned is its brief/tracker entry.
+devtools/dogfood/programs/prompts/
+
+# Session working notes — never committed (standing policy).
+HANDOFF.md
+review.md
+safety_audit.md
+
 # Python
 __pycache__/
 *.pyc
