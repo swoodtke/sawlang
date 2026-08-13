@@ -224,6 +224,24 @@ EMPTY in-tree. ~80% of the migration is mech-shaped. NEW FINDINGS
    pointer-read sites is a transfer (a value-read "peek" of an owning
    type would be DF-132a by definition — expect unanimous); std bodies
    then gain the `move` spelling in the same unit.
+   **THE PLACE FRAMING (user, Aug 13 — how (b) is implemented and taught).**
+   `ptr[i]` already IS a place in the checker's model (the copy-tier
+   refusal on its value read is the place rule firing; the store is a
+   place store). What blocks move-out is design 35 — and 35's real key is
+   OCCUPANCY TRACKING: moving out of a place the language tracks leaves a
+   hole its deinit would drop again, so every safe move-out is an
+   occupancy-maintaining operation. Pointer places track nothing — that is
+   what the manual domain means — so there is no invariant for a move-out
+   to corrupt. Implement the carve-out IN THE PLACE MACHINERY, keyed on
+   the root's kind (`TypeKind.POINTER` root → the design-35 refusal does
+   not apply; the `move` spelling declares the transfer) — never as an
+   expression-level special case. The move-out FAMILY, for the spec:
+   `Optional.take` (tag keeps occupancy true), `Vector.swap_out` (the
+   replacement does), `Slot.take` (the tag), `move ptr[i]` (the AUTHOR
+   does, inside `unsafe`-declared code). Spec sentence: "every move out
+   of a place either maintains its occupancy or happens where no
+   occupancy is tracked — and the second kind is spelled `move` inside
+   `unsafe` code."
 2. **Design 146 vs 219 — RULED (user, Aug 13): 146 yields. Copy ≠
    ExplicitCopy at every silent position.** `_COPY_PROVING_BOUNDS` becomes
    the merged `Copy` alone: a silent place value read in a generic body is
