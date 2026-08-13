@@ -67,7 +67,11 @@
    the D2 TaskGroup row upgrades from "trusted pattern" to "ordinary
    checked code". Unchanged: `Slot<T>` at a NoMove `T` must be REFUSED, and
    that refusal is convention until DF-217j / unit 1.5 lands (the
-   enforcement dependency stands). OQ5-OQ8 remain open.
+   enforcement dependency stands).
+6. **OQ6 RATIFIED (user, Aug 13):** `self_opt` locals become `Slot<T?>` —
+   the extra tag word is accepted; the DF-217b pun (one tag doing double
+   duty as optionality and drop flag) becomes unrepresentable. OQ5, OQ7,
+   OQ8 remain open.
 Charter: design 218 unit 1's pre-step. This document is the exact form the
 Opus implementers build against, reviewed by the lead, ruled by the user.
 Inputs: the 218 brief (constitution), the DF-217a/b/c/l landed fixes (root
