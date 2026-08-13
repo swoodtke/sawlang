@@ -1,0 +1,48 @@
+// XFAIL: DF-217g a destructuring `let` whose RHS suspends is refused with the
+// nested/expression-position error, which design 120 says it should not be
+//
+// Sweep S2 rows i4/p2. The finding was first filed against the tuple LITERAL;
+// the sweep rescoped it: a tuple literal of suspending calls is fine in an
+// ordinary `let` (row p3's twin), and it is the DESTRUCTURING form — `let (a,
+// b) = ...` — that the transform refuses, in both its spellings. A suspending
+// call returning a tuple is refused the same way, so the fault is the binding
+// construct, not the literal.
+//
+// Design 120 lists literals among the expression positions a suspending call
+// may occupy, and the non-suspending twin of each shape compiles and runs, so
+// this is a bogus refusal rather than a documented fence. It is the
+// DestructuringLet statement class missing from the child-position funnel's
+// entry list — the same enumeration gap as DF-217f's match scrutinee.
+// EXPECT: success
+// EXPECT-OUTPUT:
+// literal 1 2
+// call 3 4
+// done
+
+import std.task.{yield_now}
+
+func mk_s(id: Int) -> Int {
+    yield_now()
+    id
+}
+
+func mk_pair() -> (Int, Int) {
+    yield_now()
+    (3, 4)
+}
+
+func tuple_literal_rhs() {
+    let (a, b) = (mk_s(1), mk_s(2))
+    print("literal {a} {b}")
+}
+
+func suspending_call_rhs() {
+    let (a, b) = mk_pair()
+    print("call {a} {b}")
+}
+
+func main() {
+    tuple_literal_rhs()
+    suspending_call_rhs()
+    print("done")
+}
