@@ -1,0 +1,58 @@
+// XFAIL: DF-217h the ANF temp for a suspending call in a struct-init field or
+// an enum-case payload is consumed by the constructor and released AGAIN at
+// frame teardown
+//
+// Sweep S2 rows a5/a6. Design 120 hoists `mk(5)` out of the argument position
+// into a frame temp; the constructor then takes the `Res` BY VALUE, and nothing
+// tells the temp it has handed the value over — so the frame releases it a
+// second time when it tears down. The non-suspending twin of each shape prints
+// exactly one `deinit` per value.
+//
+// Same mechanism as `coro_hoisted_call_arg_consumed_once.saw` (a plain
+// by-value call argument): `_anf_lift` emits a bare temp with no consume
+// bookkeeping, so every consuming PARENT position inherits the double release.
+// This file pins the two constructor positions of that class.
+// EXPECT: success
+// EXPECT-OUTPUT:
+// h=5
+// deinit 5
+// e=6
+// deinit 6
+// done
+
+import std.task.{yield_now}
+
+struct Res { n: Int }
+extension Res: NoCopy {
+    func deinit(&var self) { print("deinit {self.n}") }
+}
+
+struct Holder { r: Res }
+extension Holder: NoCopy {}
+
+enum Ev { case Load(r: Res), case Idle }
+extension Ev: NoCopy {}
+
+func mk(n: Int) -> Res {
+    yield_now()
+    Res(n: n)
+}
+
+func struct_init_field() {
+    let h = Holder(r: mk(5))
+    print("h={h.r.n}")
+}
+
+func enum_case_payload() {
+    let e = Ev.Load(r: mk(6))
+    match e {
+        case Load(r) -> print("e={r.n}"),
+        case Idle -> print("idle")
+    }
+}
+
+func main() {
+    struct_init_field()
+    enum_case_payload()
+    print("done")
+}

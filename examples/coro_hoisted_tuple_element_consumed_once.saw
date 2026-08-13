@@ -1,0 +1,39 @@
+// XFAIL: DF-217h a hoisted suspending call used as a TUPLE-LITERAL element is
+// consumed by the tuple and released AGAIN at frame teardown
+//
+// Sweep S2 row p4. A tuple carries the strongest tier it holds, so `(mk(70),
+// mk(71))` takes both `Res` values by value and the tuple owns them; the ANF
+// temp each suspending call was hoisted into never gives up its claim, so the
+// frame releases BOTH elements a second time at teardown. The non-suspending
+// twin prints one `deinit` per element, in reverse element order.
+//
+// Same `_anf_lift` chokepoint as `coro_hoisted_call_arg_consumed_once.saw` —
+// the tuple literal is the aggregate face of the same consuming parent.
+// EXPECT: success
+// EXPECT-OUTPUT:
+// t=70 71
+// deinit 71
+// deinit 70
+// done
+
+import std.task.{yield_now}
+
+struct Res { n: Int }
+extension Res: NoCopy {
+    func deinit(&var self) { print("deinit {self.n}") }
+}
+
+func mk(n: Int) -> Res {
+    yield_now()
+    Res(n: n)
+}
+
+func tuple_elements() {
+    let t = (mk(70), mk(71))
+    print("t={t.0.n} {t.1.n}")
+}
+
+func main() {
+    tuple_elements()
+    print("done")
+}

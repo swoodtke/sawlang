@@ -1,0 +1,55 @@
+// XFAIL: DF-217h a hoisted suspending call feeding a consuming COLLECTION
+// accessor is released a second time at frame teardown
+//
+// Sweep S2 rows m14/h4. `v.push(mk(52))` and `v.set(0, mk(3))` both take the
+// element BY VALUE — the vector owns it afterwards — but the ANF temp the
+// suspending call was hoisted into keeps its claim, so the frame releases it
+// again when it tears down. The non-suspending twin of each shape releases
+// every value exactly once.
+//
+// `.set` is the exposed spelling of the place write: the bare `v[0] = mk(3)`
+// form is a clean refusal (a place window's body is `sync`), while `.set` is
+// an ordinary method call whose suspending argument is accepted and then
+// mishandled. Same `_anf_lift` chokepoint as
+// `coro_hoisted_call_arg_consumed_once.saw`.
+// EXPECT: success
+// EXPECT-OUTPUT:
+// len=1
+// deinit 52
+// deinit 1
+// head=3
+// deinit 3
+// deinit 2
+// done
+
+import std.task.{yield_now}
+
+struct Res { n: Int }
+extension Res: NoCopy {
+    func deinit(&var self) { print("deinit {self.n}") }
+}
+
+func mk_sync(n: Int) -> Res { Res(n: n) }
+
+func mk(n: Int) -> Res {
+    yield_now()
+    Res(n: n)
+}
+
+func push_argument() {
+    var v = Vector<Res>()
+    v.push(mk(52))
+    print("len={v.len()}")
+}
+
+func set_argument() {
+    var v: Vector<Res> = [mk_sync(1), mk_sync(2)]
+    v.set(0, mk(3))
+    print("head={v[0].n}")
+}
+
+func main() {
+    push_argument()
+    set_argument()
+    print("done")
+}

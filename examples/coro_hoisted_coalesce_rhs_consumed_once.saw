@@ -1,0 +1,42 @@
+// XFAIL: DF-217h a hoisted suspending call in a `??` RHS is released a second
+// time at frame teardown, the second release reading a husk
+//
+// The tenth consuming position of the DF-217h class, found by the corodiff
+// lane (design 218 unit 0) rather than by sweep S2's nine-row list:
+// `none_res() ?? mk(9)` takes the RHS by value to produce the coalesced value,
+// and the ANF temp the suspending call was hoisted into keeps its claim, so the
+// frame releases it again at teardown — reading storage whose value has already
+// been handed over. The non-suspending twin releases the value exactly once.
+//
+// Same `_anf_lift` chokepoint as `coro_hoisted_call_arg_consumed_once.saw`;
+// what makes it worth its own row is that `??` is not a call, so a fix that
+// only teaches argument positions to forget their temps would miss it.
+// EXPECT: success
+// EXPECT-OUTPUT:
+// r=9
+// deinit 9
+// done
+
+import std.task.{yield_now}
+
+struct Res { n: Int }
+extension Res: NoCopy {
+    func deinit(&var self) { print("deinit {self.n}") }
+}
+
+func none_res() -> Res? { None }
+
+func mk(n: Int) -> Res {
+    yield_now()
+    Res(n: n)
+}
+
+func coalesce_rhs() {
+    let r = none_res() ?? mk(9)
+    print("r={r.n}")
+}
+
+func main() {
+    coalesce_rhs()
+    print("done")
+}

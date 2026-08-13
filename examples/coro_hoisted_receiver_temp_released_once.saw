@@ -1,0 +1,57 @@
+// XFAIL: DF-217h a hoisted suspending call used as a RECEIVER leaves its temp
+// alive to frame teardown instead of releasing it where the statement ends
+//
+// Sweep S2 rows b1-b4/m7. `mk(10).describe()` hoists the receiver into a frame
+// temp, and that temp is a frame local for the rest of the function: the value
+// is released exactly once, but at teardown rather than at the end of the
+// statement that produced it. The non-suspending twin of the first shape prints
+// `deinit 10` BEFORE `x=10`; the driven one prints it after.
+//
+// Same `_anf_lift` temp-lifecycle chokepoint as the argument positions (see
+// `coro_hoisted_call_arg_consumed_once.saw`), on its non-consuming face:
+// nothing double-frees here, deterministic destruction just stops being
+// deterministic — a `File` or a `TcpStream` built this way stays open for the
+// rest of the frame.
+// EXPECT: success
+// EXPECT-OUTPUT:
+// deinit 10
+// x=10
+// deinit 44
+// n=44
+// done
+
+import std.task.{yield_now}
+
+struct Res { n: Int }
+extension Res: NoCopy {
+    func deinit(&var self) { print("deinit {self.n}") }
+}
+extension Res {
+    func describe(&self) -> Int { self.n }
+}
+
+func mk(n: Int) -> Res {
+    yield_now()
+    Res(n: n)
+}
+
+func mk_opt(n: Int) -> Res? {
+    yield_now()
+    Res(n: n)
+}
+
+func call_result_receiver() {
+    let x = mk(10).describe()
+    print("x={x}")
+}
+
+func forced_optional_receiver() {
+    let n = mk_opt(44)!.describe()
+    print("n={n}")
+}
+
+func main() {
+    call_result_receiver()
+    forced_optional_receiver()
+    print("done")
+}
