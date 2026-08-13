@@ -145,6 +145,7 @@ from ast_nodes import (
     ResultErrWrap, ErasedErrWrap,
     structural_fields,
 )
+from type_identity import type_identity as _type_identity
 from ast_walk import (child_nodes, control_blocks, map_nodes,
                       pattern_binding_names)
 
@@ -205,8 +206,17 @@ def _int(n):
     return IntLiteral(value=n)
 
 
+# The design-144 IDENTITY of `std.compiler.frame`'s `Poll`, not its spelling.
+# Every reference below is SYNTHESIZED, so it must reach std's declaration
+# whatever the module it lands in declares: a user `enum Poll` binds the
+# spelling to its own identity, and a synthesized `return Pending` that went
+# through name resolution would follow it into a type with no such variant.
+# Computed rather than written out, so the mangling rule stays in one place.
+POLL_IDENTITY = _type_identity("Poll", ("<std>", "compiler.frame"))
+
+
 def _poll(variant):
-    return EnumInit(enum_name="Poll", variant_name=variant, arguments=[])
+    return EnumInit(enum_name=POLL_IDENTITY, variant_name=variant, arguments=[])
 
 
 # The suspension-boundary intrinsics: `__saw_suspend` (test-only synthetic), and the
@@ -3612,7 +3622,7 @@ class _FrameBuilder:
             name="resume",
             parameters=[Parameter(name="self", type=SawType(TypeKind.VOID),
                                   is_reference=True, reference_mutable=True)],
-            return_type=SawType(TypeKind.ENUM, enum_name="Poll"),
+            return_type=SawType(TypeKind.ENUM, enum_name=POLL_IDENTITY),
             body=Block(statements=[io_tok_init, loop], final_expr=None),
             self_mutable=True, self_is_reference=True, is_sync=True,
             is_synthesized=True,

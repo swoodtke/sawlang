@@ -405,7 +405,11 @@ def build_builtin_namespace(verbose: bool = False, freestanding: bool = False,
             if decl_only:
                 std_file_decl_only.setdefault(leaf, set()).update(
                     (d.name, identity))
-            if is_qualified(identity):
+            # A qualified identity marks a std file's PRIVATE type, which is
+            # not part of the module's surface — except for a compiler-emitted
+            # one, which is qualified so a synthesized reference cannot be
+            # shadowed and is public precisely so it can be imported.
+            if is_qualified(identity) and d.name not in COMPILER_EMITTED_STD_SYMBOLS:
                 continue
             std_file_symbols.setdefault(leaf, set()).add(d.name)
             std_symbol_file.setdefault(d.name, leaf)

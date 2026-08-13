@@ -141,19 +141,43 @@ def is_std_module(module: Optional[Tuple[str, ...]]) -> bool:
     return bool(module) and module[:1] == ("<std>",)
 
 
-def qualifies(module: Optional[Tuple[str, ...]], private: bool = False) -> bool:
+# The std types the COMPILER ITSELF emits references to (design 218 unit 1).
+#
+# A synthesized reference has to reach STD's declaration whatever the user's
+# own module declares, and the only thing that distinguishes two same-named
+# types downstream is the identity string — codegen keys every table by it. So
+# these carry a module-qualified identity even though std's PUBLIC surface is
+# otherwise exempt (see the module docstring), and the coroutine transform
+# emits that identity rather than the bare name.
+#
+# They stay NAMEABLE, which is the point of publishing them: the qualified
+# identity is bound in the SHARED name view under the plain spelling (see
+# `is_module_local`), so `import std.compiler.frame.{Poll}` reaches it and a
+# user `enum Poll` simply rebinds the spelling to its OWN identity instead of
+# colliding. `Resumable` needs none of this — a trait and a user's struct or
+# enum of the same name live in different tables and never meet.
+COMPILER_EMITTED_STD_TYPES = {"Poll"}
+
+
+def qualifies(module: Optional[Tuple[str, ...]], private: bool = False,
+              name: Optional[str] = None) -> bool:
     """Whether a type defined in `module` carries a module-qualified identity.
 
     `private` is the declaration's own visibility, and it only matters inside
     std: a user module's types qualify either way (design 144), while a std
     file qualifies exactly what it keeps to itself (design 204). See the module
-    docstring for why root and std's published surface are exempt."""
+    docstring for why root and std's published surface are exempt.
+
+    `name` is consulted only for the compiler-emitted carve-out above, which is
+    the one case where a PUBLIC std type qualifies."""
     if not module:
         return False
     if is_std_module(module):
-        if not private:
+        if module[1:2] == (STD_VOCABULARY_LEAF,):
             return False
-        return module[1:2] != (STD_VOCABULARY_LEAF,)
+        if name in COMPILER_EMITTED_STD_TYPES:
+            return True
+        return private
     return True
 
 
@@ -168,7 +192,7 @@ def type_identity(name: str, module: Optional[Tuple[str, ...]],
     """
     if not name or QUALIFIER in name:
         return name
-    if not qualifies(module, private):
+    if not qualifies(module, private, name):
         return name
     return f"{name}{QUALIFIER}{module_tag(module)}"
 
@@ -208,8 +232,12 @@ def is_module_local(identity: Optional[str],
     True for exactly the std file-private types design 204 introduced. A user
     module's qualified types stay nameable from an importer (that is what
     design 144's public same-name coexistence rests on), so they are not
-    module-local and keep their binding in the shared name view."""
-    return is_std_module(module) and is_qualified(identity)
+    module-local and keep their binding in the shared name view. Neither is a
+    COMPILER-EMITTED std type: it is qualified for a different reason (so a
+    synthesized reference cannot be shadowed) and is public, so it keeps its
+    shared binding and stays importable."""
+    return (is_std_module(module) and is_qualified(identity)
+            and display_name(identity) not in COMPILER_EMITTED_STD_TYPES)
 
 
 def display_name(identity: Optional[str]) -> Optional[str]:

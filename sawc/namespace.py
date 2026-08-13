@@ -679,6 +679,21 @@ class Namespace:
         self.bind_type_name(name, identity, "enum", source_label,
                             self._type_is_module_local(symbol, identity))
 
+    def rebind_type_name(self, local: str, identity: str):
+        """Point the spelling `local` at `identity` here, replacing whatever it
+        was bound to and clearing any ambiguity recorded for it.
+
+        `bind_type_name` is first-wins, which is right for two IMPORTS racing
+        for a name. This is the other case: the module being registered
+        declares `local` ITSELF, over a hidden std name it never imported, so
+        the spelling is unambiguously the module's. It matters once a std
+        declaration's identity differs from its spelling (design 218 unit 1's
+        compiler-emitted types), because then first-wins leaves the name
+        pointing at std's identity and the user's declaration reads as an
+        ambiguity instead of a shadow."""
+        self.type_names[local] = identity
+        self.ambiguous_types.pop(local, None)
+
     def hide_type_conformances(self, identity: str):
         """Forget the conformances THIS namespace merged in for `identity`,
         because a declaration here supersedes the type that had them.

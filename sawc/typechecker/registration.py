@@ -299,6 +299,12 @@ class RegistrationMixin:
         # are still a duplicate; a std file's private `State` and another's are
         # two types and never meet.
         identity = self._stamp_type_identity(struct)
+        # A hidden std name this module declares itself: the spelling is the
+        # module's from here on. A no-op wherever the std declaration's
+        # identity IS its spelling (the usual case, `IoError`); load-bearing
+        # for a compiler-emitted type, whose identity is qualified.
+        if self._shadows_hidden_std(struct.name):
+            self.namespace.rebind_type_name(struct.name, identity)
         if self.namespace.has_struct(identity):
             if not self._shadows_hidden_std(struct.name):
                 self._error(
@@ -382,6 +388,9 @@ class RegistrationMixin:
         # to structs and never to enums, so a user `enum OpenMode` lost to
         # std.file's private one where a user `struct File` did not.
         identity = self._stamp_type_identity(enum)
+        # See `_register_struct`: the spelling becomes this module's.
+        if self._shadows_hidden_std(enum.name):
+            self.namespace.rebind_type_name(enum.name, identity)
         if self.namespace.has_enum(identity):
             if not self._shadows_hidden_std(enum.name):
                 self._error(
