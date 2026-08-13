@@ -70,7 +70,30 @@
    enforcement dependency stands).
 6. **OQ6 RATIFIED (user, Aug 13):** `self_opt` locals become `Slot<T?>` —
    the extra tag word is accepted; the DF-217b pun (one tag doing double
-   duty as optionality and drop flag) becomes unrepresentable. OQ5, OQ7,
+   duty as optionality and drop flag) becomes unrepresentable.
+7. **OQ5 RULED, AMENDED BY THE USER'S LIFO ARGUMENT (Aug 13).** S9's ref
+   arguments to sub-frames are STACK-SHAPED and therefore in the SAME
+   validity class as `__recv`, not a new manual argument: (a) the sub-frame
+   is a FIELD of the caller's frame — outlives-by-construction; (b) the
+   caller executes no statement while the call is in flight (its state
+   machine is "drive sub to Done"), so nothing can `take`/`clear` the lent
+   slot mid-call — suspension parks the whole LIFO chain, it does not
+   interleave the caller; (c) spawn, the one construct that breaks LIFO,
+   already REJECTS ref arguments (`_reject_spawn_frame_refs`). The
+   "occupied and untaken while the handle lives" condition is IMPLIED by
+   LIFO + no-statements-mid-call + the spawn rule. CONSEQUENCE: S9
+   migrates to `UnsafeRef` in stage 4 under the `__recv` contract
+   ("constructed only over storage the drive structure keeps alive") — no
+   generation machinery needed; the ledger entry cites this paragraph as
+   an INHERITED-from-structure argument, not an asserted one. What stays
+   deferred, narrowed to its honest reason: general `[&x]` capture — not
+   validity (the direct-to-non-escaping closure kind is LIFO too, and a
+   borrow capture cannot consume the slot from inside the body) but
+   EXCLUSIVITY DESIGN: the bound-then-called closure kind is genuinely
+   non-LIFO (invoked after arbitrary statements, including a `take()` of
+   the captured slot) and needs generation-checked handles (the design-134
+   `__stale` precedent) or a refusal, plus the two-`[&var x]`-handles
+   ordering rules. That is the follow-up brief, if demand appears. OQ7 and
    OQ8 remain open.
 Charter: design 218 unit 1's pre-step. This document is the exact form the
 Opus implementers build against, reviewed by the lead, ruled by the user.
