@@ -1,12 +1,12 @@
-// A place WRITE whose RHS names `self` is an internal compiler error today:
-// place lowering hoists the RHS into the window's closure, and that closure
-// never captured `self`, so codegen reports `'self' not found in current
-// scope` with no source anchor. Reading the RHS into a local first compiles and
-// runs, which is what `sawc/std/cbor.saw` does at its two key-bookkeeping
-// sites.
+// A place WRITE whose RHS names `self`. Place lowering hoists the RHS into the
+// window's closure, so this is DF-216a's ICE reached through a
+// COMPILER-SYNTHESIZED closure rather than a written one: the capture analyzer
+// had no `SelfExpr` case, `self` never entered the closure's captures, and
+// codegen reported `'self' not found in current scope` with no source anchor.
+// Design 216 gave the analyzer that case, which fixed both entry points at once
+// (DF-169f and DF-216a were one mechanism).
 //
-// Intended behavior is below: both writes land, and the reads see them.
-// XFAIL: DF-169f a place write whose RHS names `self` is an ICE in codegen
+// Both writes land, and the reads see them.
 // EXPECT: success
 // EXPECT-OUTPUT:
 // field 5

@@ -95,7 +95,7 @@ Claim source: spec 2 *Variables and Mutability* + 4 *Reference Types*; designs 4
 
 ## References are parameters only — they can never escape
 
-Claim source: spec 4 *Reference Types*; designs 88, 106, 163d, 188 u1, 193 u5
+Claim source: spec 4 *Reference Types*; designs 88, 106, 163d, 188 u1, 193 u5, 216
 
 | Row | Checks | Covered by | Ruling |
 |-----|--------|------------|--------|
@@ -133,6 +133,9 @@ Claim source: spec 4 *Reference Types*; designs 88, 106, 163d, 188 u1, 193 u5
 | R32 | storing a reference in a `Box` | `R32_box_of_ref.saw` |  |
 | R33 | `borrows -> &Int` (a place whose type is a reference) | `R33_borrows_lends_ref_type.saw` |  |
 | R34 | struct field whose type is a ref-returning function type | `R34_field_of_ref_returning_fn_type.saw` |  |
+| R35 | PLAIN capture of a `&T`/`&var T` PARAMETER by an escaping closure | `closure_captures_reference_param_escaping_error.saw` | 216 — was a DEVIATION (accepted silently). R22-R24 covered the `[&x]` SPELLING only; a reference-typed binding captured plainly is the same pointer-into-the-frame and bypassed the rule, compiling to `store ptr %r` into a HEAP env (DF-216d). One predicate now covers both spellings |
+| R36 | a closure naming `self`, escaping the method's frame | `closure_captures_self_escaping_error.saw` | 216 — a receiver IS a borrow, so this is the implicit third spelling of R35. Previously unreachable: any closure naming `self` ICEd (DF-216a) |
+| R37 | a closure naming `self` in a NON-escaping closure — the acceptance | `closure_captures_self.saw` | 216 — the legal side, matching R30. Reads see the live receiver and a `&var self` write reaches the caller |
 
 ## The Law of Exclusivity — one writer XOR many readers
 

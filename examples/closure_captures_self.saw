@@ -1,0 +1,102 @@
+// Design 216 (DF-216a): a closure body may NAME `self`. `self` is a binding
+// like any other, so the capture analyzer records it and the closure captures
+// the receiver — as a BORROW, which is what a receiver is. Reads see the live
+// receiver and a `&var self` write through the closure reaches the caller's
+// value; neither would hold for a by-value snapshot.
+//
+// Every context the DF-216a sweep enumerated is here, because the ICE hit all
+// of them: a plain method, an ENUM extension method (`match self` inside the
+// closure), a generic method of a generic extension, a trait DEFAULT body, a
+// hand-written `deinit`, a NoCopy receiver (a value capture would have demanded
+// a copy policy no receiver ever owed), and a NESTED closure naming `self`.
+// EXPECT: success
+// EXPECT-OUTPUT:
+// 6
+// 10
+// 15
+// 15
+// b
+// 7
+// hi Ada
+// 33
+// drop 3
+
+func run_int(body: () sync -> Int) -> Int { body() }
+func run_str(body: () sync -> String) -> String { body() }
+
+struct Counter { n: Int }
+
+extension Counter {
+    func lend_n<R>(&self, body: (&Int) sync -> R) -> R { body(&self.n) }
+
+    // The closure goes to a FREE function, so the trigger is the identifier and
+    // not the receiver of the call it is an argument to.
+    func viaFree(&self) -> Int { run_int({ self.n + 1 }) }
+
+    // ... and to a method on `self` itself.
+    func viaMethod(&self) -> Int { self.lend_n({ v in self.n + v }) }
+
+    // A `&var self` receiver is the caller's storage: the write lands there.
+    func bump(&var self) -> Int { run_int({ self.n = self.n + 10  self.n }) }
+}
+
+enum Color { case Red, case Blue }
+
+extension Color {
+    func label(&self) -> String {
+        run_str({ match self { case Red -> "r", case Blue -> "b" } })
+    }
+}
+
+struct Box2<T> { v: Int, payload: T }
+
+extension Box2<T> {
+    func describe<U>(&self, other: U) -> String { run_str({ "{self.v}" }) }
+}
+
+trait Greeter {
+    func name(&self) -> String
+    func greet(&self) -> String { run_str({ "hi {self.name()}" }) }
+}
+
+struct Person { n: String }
+extension Person: Greeter {
+    func name(&self) -> String { self.n }
+}
+
+struct Bag { v: Vector<Int> }
+extension Bag: NoCopy {}
+
+extension Bag {
+    // Nested closures: the inner body's `self` is a transitive capture of the
+    // outer one too.
+    func total(&self) -> Int {
+        run_int({ run_int({ self.v.len() * 10 }) + self.v.len() })
+    }
+}
+
+struct Res { tag: Int }
+extension Res: NoCopy {
+    func deinit(&var self) { print("{}", run_str({ "drop {self.tag}" })) }
+}
+
+func main() {
+    var c = Counter(n: 5)
+    print("{}", c.viaFree())      // 6
+    print("{}", c.viaMethod())    // 5 + 5
+    print("{}", c.bump())         // 15
+    print("{}", c.n)              // 15 — the write reached the receiver
+
+    print("{}", Color.Blue.label())
+
+    let b = Box2<String>(v: 7, payload: "z")
+    print("{}", b.describe("x"))
+
+    let p = Person(n: "Ada")
+    print("{}", p.greet())
+
+    let bag = Bag(v: [1, 2, 3])
+    print("{}", bag.total())      // 3*10 + 3
+
+    let r = Res(tag: 3)
+}

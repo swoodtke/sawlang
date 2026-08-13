@@ -1,0 +1,31 @@
+// Design 216: the other half of the frame-pointer capture rule. A method's
+// receiver is a BORROW of storage the caller owns, so a closure that names
+// `self` and then OUTLIVES the method's frame would read a dead frame. Refused,
+// on exactly the terms an explicit `[&x]` borrow capture is refused.
+//
+// Both escaping shapes are here — bound to a local, and returned — because the
+// DF-216a sweep found the ICE in both and the fix must not trade one crash for
+// another.
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: an escaping closure cannot capture `self`
+// EXPECT-ERROR-CONTAINS: a method's receiver is a borrow of storage the CALLER owns
+// EXPECT-ERROR-CONTAINS: may not outlive the frame it points into
+// EXPECT-ERROR-CONTAINS: take the receiver as an explicit closure parameter
+
+struct Counter { n: Int }
+
+extension Counter {
+    // Bound to a local: the env is heap-allocated, so the compiler must treat
+    // it as escaping even though this one happens to be called in-frame.
+    func boundLocal(&self) -> Int {
+        let f = { self.n + 2 }
+        f()
+    }
+
+    // Returned: the closure genuinely outlives the receiver's borrow.
+    func handOut(&self) -> () -> Int {
+        return { self.n + 3 }
+    }
+}
+
+func main() {}

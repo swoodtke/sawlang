@@ -1,0 +1,29 @@
+// Design 216 (DF-216d): the SAME rule at its third spelling. A capture that
+// lowers to a pointer into the enclosing frame is sound only because a
+// non-escaping closure cannot outlive the call that runs it — and a plain
+// capture of a REFERENCE-TYPED binding is exactly such a pointer.
+//
+// This spelling used to bypass the rule entirely. `make` below compiled to a
+// `store ptr %r` into a HEAP environment, and calling the returned closure read
+// the referent's frame after it had died — a dangling read out of fully safe
+// code, with no diagnostic. LANGUAGE_SPEC has always said references are
+// parameter-only and cannot escape; this was the one site not enforcing it.
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: an escaping closure cannot capture `r`, a reference (`&Thing`)
+// EXPECT-ERROR-CONTAINS: may not outlive the frame it points into
+// EXPECT-ERROR-CONTAINS: an escaping closure cannot capture `m`, a reference (`&var Thing`)
+
+struct Thing { x: Int }
+
+// `&T`, returned out — the dangling shape.
+func make(r: &Thing) -> () -> Int {
+    return { r.x + 1 }
+}
+
+// `&var T`, bound to a local — the same rule, the mutable spelling.
+func hold(m: &var Thing) -> Int {
+    let f = { m.x + 1 }
+    f()
+}
+
+func main() {}

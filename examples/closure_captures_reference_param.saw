@@ -1,0 +1,36 @@
+// Design 216: the legal side of the frame-pointer capture rule, and the
+// positive control for the DF-216d refusal beside it. A NON-ESCAPING closure —
+// one passed straight to the call that runs it — keeps its environment on the
+// stack, so borrowing the enclosing frame is sound: a captured `&T` parameter
+// reads the live referent, and a captured `&var T` parameter WRITES it, with
+// the write visible to the caller afterwards.
+//
+// This is the behavior `self` capture was ruled to match, so it is also what
+// pins the two together.
+// EXPECT: success
+// EXPECT-OUTPUT:
+// 15
+// 41
+// 41
+
+struct Thing { x: Int }
+
+func apply(body: (Int) sync -> Int) -> Int { body(10) }
+func once(body: () sync -> Int) -> Int { body() }
+
+// A shared borrow: the closure reads through the reference.
+func read_through(r: &Thing) -> Int {
+    apply({ v in r.x + v })
+}
+
+// A mutable borrow: the closure writes through it, into the CALLER's storage.
+func write_through(m: &var Thing) -> Int {
+    once({ m.x = m.x + 36  m.x })
+}
+
+func main() {
+    var t = Thing(x: 5)
+    print("{}", read_through(&t))    // 5 + 10
+    print("{}", write_through(&var t))
+    print("{}", t.x)                 // the write landed on the caller's value
+}

@@ -10237,12 +10237,79 @@ class ExpressionsMixin:
                 captures.append(spec.name)
         expr.captures = captures
         expr.has_reference_params = has_reference_params
+        # `self` is a BORROW capture, never a value one (design 216, DF-216a).
+        # A method's receiver IS a reference binding — `&self` names the callee's
+        # own copy of it, `&var self` names the caller's storage — so a closure
+        # naming `self` must capture the POINTER, exactly as it captures a
+        # `&T`/`&var T` parameter: the body then reads (and, through `&var self`,
+        # writes) the live receiver. A value capture would be wrong twice over —
+        # it would snapshot the receiver, and it would demand of `self` a copy
+        # policy no receiver ever owed. A CONSUMING `self` receiver (no `&`) is
+        # an owned binding and stays a plain value capture.
+        cm = getattr(self, 'current_method', None)
+        self_capture_mode = None
+        if cm is not None and getattr(cm, 'self_is_reference', False):
+            self_capture_mode = ('ref_var' if getattr(cm, 'self_mutable', False)
+                                 else 'ref')
         # Record each capture's effective mode for codegen (design 16/29): listed
-        # names take their declared mode; everything else is `plain`.
+        # names take their declared mode, `self` the receiver's borrow mode, and
+        # everything else is `plain`.
         expr.capture_modes = {
-            name: (spec_by_name[name].mode if name in spec_by_name else 'plain')
+            name: (spec_by_name[name].mode if name in spec_by_name
+                   else (self_capture_mode if (name == 'self'
+                                               and self_capture_mode is not None)
+                         else 'plain'))
             for name in captures
         }
+        # THE FRAME-POINTER CAPTURE RULE, one predicate over its three spellings.
+        # A capture that lowers to a pointer INTO the enclosing frame is sound
+        # only because a non-escaping closure cannot outlive the call that runs
+        # it, so it is legal only in a closure passed directly to a non-escaping
+        # parameter. Three spellings reach it and all three are checked here:
+        #   1. an explicit `[&x]` / `[&var x]` borrow capture — checked above at
+        #      its spec, where the author wrote the `&`;
+        #   2. `self` in a method, whose implicit mode is set just above;
+        #   3. a REFERENCE-TYPED binding (`&T` / `&var T` parameter), whose plain
+        #      capture copies the pointer itself into the env.
+        # Spelling 3 used to bypass the rule entirely: an escaping closure
+        # capturing a `&T` parameter compiled to `store ptr %r` into a HEAP env
+        # and read the referent's frame after it died, with no diagnostic
+        # (DF-216d). LANGUAGE_SPEC has always said references are parameter-only
+        # and cannot escape; this is the one site that did not enforce it.
+        if not borrow_ok:
+            for cap_name in captures:
+                if cap_name in spec_by_name:
+                    continue        # already reported at its spec
+                cap_info = outer_scope.lookup(cap_name)
+                cap_type = cap_info.type if cap_info is not None else None
+                is_self_borrow = (cap_name == 'self'
+                                  and self_capture_mode is not None)
+                is_ref_binding = (cap_type is not None
+                                  and cap_type.kind == TypeKind.REFERENCE)
+                if not (is_self_borrow or is_ref_binding):
+                    continue
+                what = ("`self`: a method's receiver is a borrow of storage the "
+                        "CALLER owns" if is_self_borrow
+                        else f"`{cap_name}`, a reference (`{cap_type}`)")
+                self._error(
+                    ErrorKind.TYPE_MISMATCH,
+                    f"an escaping closure cannot capture {what} — a reference "
+                    f"borrows storage for the duration of one call and may not "
+                    f"outlive the frame it points into",
+                    expr.line, expr.column,
+                    hint=("pass the closure straight to the call that runs it (a "
+                          "non-escaping closure keeps its environment on the "
+                          "stack, so borrowing the frame is sound), copy the "
+                          "values it needs into locals ahead of the closure and "
+                          "capture those, or take the receiver as an explicit "
+                          "closure parameter (`body: (&Self, Int) sync -> R`, "
+                          "called as `self.run({ s, v in ... })`)"
+                          if is_self_borrow else
+                          "pass the closure straight to the call that runs it (a "
+                          "non-escaping closure keeps its environment on the "
+                          "stack, so borrowing the frame is sound), or copy the "
+                          "values it needs out of the referent into locals ahead "
+                          "of the closure and capture those"))
         # Escape analysis (design 21b E1): a closure used in value position (bound
         # to a let/var, returned, stored, or a struct field) outlives the frame
         # that built it, so its environment must be heap-allocated with captured
@@ -10385,6 +10452,13 @@ class ExpressionsMixin:
         a transitive capture of this closure too. A name is a capture iff it
         resolves in `outer_scope`; the closure's own params/locals do not.
 
+        `self` COUNTS AS A NAME (design 216, DF-216a): the `SelfExpr` arm records
+        it, and a method scope defines a binding under that name, so a closure
+        body naming `self` inside a method captures the receiver like any other
+        enclosing binding. WHICH MODE it is captured in — a BORROW, legal only in
+        a non-escaping closure — is decided by the caller, `_check_closure`,
+        beside the explicit `[&x]` capture rules it shares that rule with.
+
         The accumulator is an insertion-ordered dict, NOT a set: the returned
         order becomes the closure environment's field order in the emitted IR, so
         iterating a set of names made the compiler emit different IR for the same
@@ -10403,6 +10477,18 @@ class ExpressionsMixin:
                 collect_names(expr.right)
             elif isinstance(expr, UnaryOp):
                 collect_names(expr.operand)
+            elif isinstance(expr, SelfExpr):
+                # `self` is a BINDING like any other — the method scope defines
+                # it under that name — and a body naming it captures it
+                # (design 216, DF-216a). Without this arm SelfExpr fell to the
+                # structural tail, which contributes nothing because the node has
+                # no fields: `self` never entered `expr.captures`, codegen's
+                # closure scope was never given one, and `_generate_self_expr`
+                # raised "'self' not found in current scope" for EVERY closure
+                # body naming `self`, in every method. The name is a use, and
+                # the node has no child to learn that from — which is exactly
+                # what the cases above this one are for.
+                used_names['self'] = None
             elif isinstance(expr, MoveExpr):
                 used_names[expr.variable] = None
             elif isinstance(expr, ReferenceExpr):
