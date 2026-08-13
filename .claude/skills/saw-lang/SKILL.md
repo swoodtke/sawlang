@@ -159,7 +159,7 @@ print("{#file}:{#line} - msg")  // #file/#line/#function: definition-site consts
 ## Ownership (the part that bites)
 Copy tiers: trivial/POD = implicit bitwise copy; `ImplicitCopy`
 (String, Arc, Data, escaping closures) = free refcount bump; `ExplicitCopy`
-(Vector — the ONLY ExplicitCopy std type — and a conformance bounded `T: Copy`)
+(Vector, and a conformance bounded `T: Copy`)
 = must `move v` or `v.copy()` at every transfer; `NoCopy` (File, Mutex, Box,
 StringBuilder, TcpListener/TcpStream, Command, TaskGroup, SpinLock, Once,
 Atomic — and currently Map/Set: their `ExplicitCopy` is future work, `.copy()`
@@ -171,9 +171,9 @@ on them is a compile error) = `move` only.
 TaskGroup: NoCopy {}` + `extension TaskGroup: NoMove {}`; declaring it on a
 Copy-tier type is an error). Containment is a DECLARED cascade — a struct
 holding one says both words itself, or holds it behind a `Box` for a movable
-handle over pinned storage. Not a generic bound. `TaskGroup` is the only
-conformer: a group is a SCOPE (design 124) whose Deinit joins where it was born,
-so `move group` used to compile and abort in the runtime.
+handle over pinned storage. Not a generic bound. `TaskGroup` conforms: a group
+is a SCOPE (design 124) whose Deinit joins where it was born, so `move group`
+used to compile and abort in the runtime.
 **`Data` MOVED OFF the NoCopy list (design 165)** and is now the COPY-ON-WRITE
 member of the ImplicitCopy tier: a `Data` is a window (offset + length) onto
 `Arc`-owned storage, `let b = a` and `a.copy()` are retains, and the bytes

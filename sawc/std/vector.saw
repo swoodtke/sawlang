@@ -1,5 +1,15 @@
-// Vector<T> - Dynamic array implementation
-// Part of the Saw standard library
+//! The growable array. A `Vector<T>` owns its elements and grows on demand
+//! through an `Allocator`, so it works in the freestanding profile as well as
+//! the hosted one.
+//!
+//! Indexing is a PLACE: `v[i].count += 1` mutates the element where it sits
+//! rather than copying it out. Reading an element out as a value follows the
+//! element's copy tier, so a move-only element is refused instead of aliased —
+//! reach it through `with_ref`, or take it out with `swap_out` or `pop`.
+//!
+//! `Vector` is ExplicitCopy: every transfer needs `move v` or `v.copy()`.
+//! Operations that cannot report failure panic when the allocator refuses, and
+//! each has a `try_` twin returning `Result<_, AllocError>` instead.
 
 // =============================================================================
 // FFI declarations for memory management
@@ -25,6 +35,8 @@ extern "C" {
 // =============================================================================
 // Vector<T, A> - A dynamically-sized array over allocator `A`
 // =============================================================================
+/// A dynamically-sized array that uses allocator A for memory management. It
+/// defaults to GlobalAllocator.
 
 public struct Vector<T, A: Allocator = GlobalAllocator> {
     buffer: UnsafePointer<T>?
@@ -49,17 +61,17 @@ extension Vector<T: Send, A: Send>: UnsafeSend {}
 extension Vector<T: Sync, A: Sync>: UnsafeSync {}
 
 extension Vector<T, A: Allocator = GlobalAllocator> {
-    // Create an empty vector
+    /// Initializes an empty vector.
     public init() -> Vector<T, A> {
         Vector<T, A>(buffer: None, length: 0, capacity: 0)
     }
 
-    /// Creates an empty vector with room for `capacity` elements.
-    ///
-    /// Panics if the allocator refuses the request (design 123, infallible
-    /// tier). It used to hand back an EMPTY vector, so a caller that asked to
-    /// reserve a megabyte and got nothing carried on as if it had succeeded.
-    /// `try_with_capacity` is the twin that reports the failure.
+    // Regression guard: this used to hand back an EMPTY vector on refusal, so a
+    // caller that asked to reserve a megabyte and got nothing carried on as if
+    // it had succeeded (design 123, infallible tier).
+    /// Creates an empty vector with room for `capacity` elements. Panics if the
+    /// allocator refuses the request; `try_with_capacity` is the twin that
+    /// reports the failure instead.
     public init(capacity: Int) unsafe -> Vector<T, A> {
         if capacity <= 0 {
             Vector<T, A>(buffer: None, length: 0, capacity: 0)
@@ -74,12 +86,9 @@ extension Vector<T, A: Allocator = GlobalAllocator> {
         }
     }
 
-    /// Creates an empty vector with room for `n` elements, reporting allocator
-    /// exhaustion as `Err(AllocError)` rather than panicking.
-    ///
-    /// The `AllocError` carries the byte size and alignment of the request that
-    /// failed. A non-positive `n` needs no allocation and succeeds with an
-    /// empty vector.
+    /// Creates an empty vector with capacity for `n` elements. If allocation fails,
+    /// returns `Err(AllocError)` containing the failed request's byte size and
+    /// alignment. A non-positive `n` returns an empty vector without an allocation.
     public func try_with_capacity(n: Int) unsafe -> Result<Vector<T, A>, AllocError> {
         if n <= 0 {
             return Vector<T, A>()
@@ -93,31 +102,28 @@ extension Vector<T, A: Allocator = GlobalAllocator> {
         return AllocError(size: byte_size, align: alignof<T>())
     }
 
-    // Get the number of elements
+    /// Returns the number of elements.
     public func len(&self) -> Int {
         self.length
     }
 
-    // Check if the vector is empty
+    /// Returns true if the vector contains no elements.
     public func is_empty(&self) -> Bool {
         self.length == 0
     }
 
-    /// The element at `index`, as a PLACE (design 141).
+    /// Returns the element at `index` as a place, so it is read or written where
+    /// it sits: `v[i].count += 1` mutates the element in the vector and never
+    /// copies it out. Reading the place out as a value follows the element's copy
+    /// tier: trivial copies bitwise, `ImplicitCopy` retains, and
+    /// `ExplicitCopy`/`NoCopy` is refused with the ways out named.
     ///
-    /// The element is read or written where it sits, so `v[i].count += 1`
-    /// mutates the element in the vector and never copies it out. Reading the
-    /// place out as a VALUE follows the element's copy tier: trivial copies
-    /// bitwise, `ImplicitCopy` retains, and `ExplicitCopy`/`NoCopy` is refused
-    /// with the ways out named.
+    /// The same `v[i]` serves a read and a write; the use site decides which.
+    /// Either way the whole vector is borrowed for the length of the expression,
+    /// so growing it in the middle of one — `v.push(x)` inside `v[i]` — is a
+    /// compile error.
     ///
-    /// The receiver is borrowed with the WINDOW's flavor, chosen at the use
-    /// site, which is why one `&self` declaration serves both a read and a
-    /// write. While the window is open the whole vector is borrowed, so
-    /// `v.push(x)` inside one is a compile error.
-    ///
-    /// Panics if `index` is outside `0..<len()` (design 130's accessor rule).
-    /// `get` is the `None`-returning twin.
+    /// Panics if `index` is outside `0..<len()`. `get` is the `None`-returning twin.
     public func [](&self, index: Int) unsafe borrows -> T {
         if index < 0 || index >= self.length {
             panic("Vector.[]: index out of range")
@@ -129,20 +135,19 @@ extension Vector<T, A: Allocator = GlobalAllocator> {
         }
     }
 
-    /// The element at `index` if it is in range, as an optional PLACE.
+    // Regression guard: `get` used to return `T?` BY VALUE with no bound at all,
+    // so a move-only element came out as a bitwise alias the caller then owned
+    // and dropped while the vector still held it — two lookups, two frees, from
+    // fully safe code (DF-132a). The copy-tier refusal below is the fix.
+    /// Returns the element at `index` if it is in range, as an optional place:
+    /// the `None`-returning twin of `[]`. The element is reached where it sits,
+    /// so `v.get(i)!.count += 1` writes it in the vector, and
+    /// `if let _ = v.get(i)` asks only whether it is there. When the index is out
+    /// of range nothing is borrowed at all.
     ///
-    /// The `None`-returning twin of `[]`, and the same lowering: the element is
-    /// reached where it sits, so `v.get(i)!.count += 1` writes it in the vector
-    /// and `if let _ = v.get(i)` asks only whether it is there. The absent path
-    /// opens no window at all.
-    ///
-    /// Reading the place out as a VALUE follows the element's copy tier:
-    /// trivial copies bitwise, `ImplicitCopy` retains, and `ExplicitCopy`/
-    /// `NoCopy` is refused with the ways out named. That refusal is the point.
-    /// `get` used to return `T?` BY VALUE with no bound at all, so a move-only
-    /// element came out as a bitwise alias the caller then owned and dropped
-    /// while the vector still held it — two lookups, two frees, no `unsafe`
-    /// anywhere (DF-132a).
+    /// Reading the place out as a value follows the element's copy tier: trivial
+    /// copies bitwise, `ImplicitCopy` retains, and `ExplicitCopy`/`NoCopy` is
+    /// refused with the ways out named.
     public func get(&self, index: Int) unsafe borrows -> T? {
         if index < 0 || index >= self.length {
             return None
@@ -182,6 +187,9 @@ extension Vector<T, A: Allocator = GlobalAllocator> {
     // this vector, reallocating the buffer and dangling the borrow — the exact
     // iterator-invalidation this API prevents. Confinement does not cover a
     // container-internal borrow, so the borrow may not span a suspension.
+    /// Provides scoped, no-copy access to the element at `index`, returning the
+    /// closure's result. The closure receives the element as `&var T` and must be
+    /// `sync`. Panics if `index` is outside `0..<len()`.
     public func with_var_ref<R>(&var self, index: Int, body: (&var T) sync -> R) unsafe -> R {
         if index < 0 || index >= self.length {
             panic("Vector.with_var_ref: index out of range")
@@ -193,8 +201,8 @@ extension Vector<T, A: Allocator = GlobalAllocator> {
         }
     }
 
-    // Immutable twin of `with_var_ref`: an in-place `&T` borrow of the element.
-    // Bounds-checked on the same terms.
+    /// The shared twin of `with_var_ref`: the closure receives the element as
+    /// `&T`. Bounds-checked on the same terms.
     public func with_ref<R>(&self, index: Int, body: (&T) sync -> R) unsafe -> R {
         if index < 0 || index >= self.length {
             panic("Vector.with_ref: index out of range")
@@ -206,22 +214,15 @@ extension Vector<T, A: Allocator = GlobalAllocator> {
         }
     }
 
-    /// Replaces the element at `index`, releasing the one it overwrites.
-    ///
-    /// Panics if `index` is outside `0..<len()`.
-    ///
-    /// The slot at `index` is LIVE, so the prior occupant must be released: a
-    /// bare `buf[index] = value` is the placement-move primitive (see `push`),
-    /// which moves the new value in WITHOUT dropping what was there — that
-    /// leaked every owning element a `set` overwrote (design 122 unit A).
-    /// `swap_out` moves the old element out and places the new one in; the
-    /// `let _ =` discard then consumes and drops the old value right here, so
-    /// exactly one deinit runs for it and nothing is duplicated.
-    ///
-    /// The out-of-range case used to be a silent no-op. Design 130's accessor
-    /// rule retired that: a direct accessor on a safe type panics rather than
-    /// quietly doing less than its name promises, and `value` is consumed either
-    /// way, so the no-op also dropped the caller's element on the floor.
+    // The slot at `index` is LIVE, so the prior occupant must be RELEASED: a bare
+    // `buf[index] = value` is the placement-move primitive (see `push`), which
+    // moves the new value in WITHOUT dropping what was there — that leaked every
+    // owning element a `set` overwrote (design 122 unit A). `swap_out` moves the
+    // old element out and the `let _ =` discard drops it here, so exactly one
+    // deinit runs for it. The out-of-range case used to be a silent no-op, which
+    // also dropped the caller's `value` on the floor (design 130's accessor rule).
+    /// Replaces the element at `index`, releasing the one it overwrites. Panics if
+    /// `index` is outside `0..<len()`; `value` is consumed either way.
     public func set(&var self, index: Int, value: T) unsafe {
         if index < 0 || index >= self.length {
             panic("Vector.set: index out of range")
@@ -229,17 +230,14 @@ extension Vector<T, A: Allocator = GlobalAllocator> {
         let _ = self.swap_out(index, value)
     }
 
-    /// Appends `value` to the end.
-    ///
-    /// Panics if the buffer must grow and the allocator refuses (design 123,
-    /// infallible tier). `try_push` is the twin that reports the failure, and
+    // Regression guard (RS-1 heap overflow): `grow()` used to return silently on
+    // failure, so the placement write below landed one element PAST the buffer
+    // and `length` advanced past `capacity`. Every later `get`, iteration and the
+    // final `deinit` then read and freed out of bounds, from fully safe code with
+    // no diagnostic. The panic above is what closes it — do not soften it.
+    /// Appends `value` to the end. Panics if the buffer must grow and the
+    /// allocator refuses; `try_push` is the twin that reports the failure, and
     /// `try_reserve` is how you make a later `push` allocation-free.
-    ///
-    /// This was the RS-1 heap overflow: `grow()` returned silently on failure,
-    /// so the placement write below landed one element PAST the buffer and
-    /// `length` advanced past `capacity` — every later `get`, iteration and the
-    /// final `deinit` then read and freed out of bounds, from fully safe code
-    /// with no diagnostic.
     public func push(&var self, value: T) unsafe {
         if not self._reserve(self.length + 1) {
             panic("Vector.push: allocation failed")
@@ -263,11 +261,9 @@ extension Vector<T, A: Allocator = GlobalAllocator> {
         }
     }
 
-    /// Appends `value`, reporting allocator exhaustion as `Err(AllocError)`.
-    ///
-    /// The vector is unchanged on `Err`. `value` is destroyed at that point
-    /// (it deinits at scope exit rather than being handed back); reserve first
-    /// with `try_reserve` when the value must survive a refusal.
+    /// Appends `value` to the vector, returning `Err(AllocError)` if allocation
+    /// fails. On error, the vector remains unchanged and `value` is destroyed. Use
+    /// `try_reserve` if `value` must survive a failed push.
     public func try_push(&var self, value: T) unsafe -> Result<Void, AllocError> {
         let wanted = self.length + 1
         if not self._reserve(wanted) {
@@ -281,12 +277,10 @@ extension Vector<T, A: Allocator = GlobalAllocator> {
         return
     }
 
-    /// Reserves room for `additional` more elements, reporting allocator
-    /// exhaustion as `Err(AllocError)`.
-    ///
-    /// On `Ok` the next `additional` pushes cannot allocate, so they cannot
-    /// fail. Capacity is never reduced and a non-positive `additional` is a
-    /// no-op.
+    /// Reserves space for `additional` elements, returning `Err(AllocError)` if the
+    /// allocator is exhausted. A successful call ensures the next `additional`
+    /// pushes will not fail due to allocation errors. Capacity is never reduced and
+    /// non-positive `additional` values are no-ops.
     public func try_reserve(&var self, additional: Int) -> Result<Void, AllocError> {
         let wanted = self.length + additional
         if not self._reserve(wanted) {
@@ -296,7 +290,8 @@ extension Vector<T, A: Allocator = GlobalAllocator> {
         return
     }
 
-    // Remove and return the last element
+    /// Removes and returns the last element, or `None` when the vector is empty.
+    /// The caller owns the returned value.
     public func pop(&var self) unsafe -> T? {
         if self.length == 0 {
             None
@@ -310,7 +305,7 @@ extension Vector<T, A: Allocator = GlobalAllocator> {
         }
     }
 
-    // Remove all elements (keeps capacity)
+    /// Removes all elements while retaining the current capacity.
     public func clear(&var self) {
         self.length = 0
     }
@@ -331,6 +326,10 @@ extension Vector<T, A: Allocator = GlobalAllocator> {
     // neither retained nor dropped; the two live values just change slots. A
     // T-level `move buf[i]` cannot express this (partial moves are forbidden,
     // design 35), hence the byte loop. No `T: Copy` bound is needed.
+    /// Swaps the elements at indices `i` and `j` in place. No element-level copy
+    /// or deinit runs — the two live values just change slots — so it works for
+    /// any element type, including NoCopy. Swapping an index with itself is a
+    /// no-op; panics if either index is outside `0..<len()`.
     public func swap(&var self, i: Int, j: Int) unsafe {
         // No-op on identical indices — swapping a slot with itself is pointless
         // and the byte loop would still be a correct identity, but short-circuit.
@@ -367,6 +366,9 @@ extension Vector<T, A: Allocator = GlobalAllocator> {
     // worst of the three unchecked accessors — `buf[index] = value` past the
     // end is an out-of-bounds WRITE, i.e. heap corruption reachable from fully
     // safe code.
+    /// Replaces the element at the specified index with the provided value and
+    /// returns the previous occupant by move. The caller takes ownership of the
+    /// returned value. This function panics if the index is out of bounds.
     public func swap_out(&var self, index: Int, value: T) unsafe -> T {
         if index < 0 || index >= self.length {
             panic("Vector.swap_out: index out of range")
@@ -473,11 +475,10 @@ extension Vector<T, A: Allocator = GlobalAllocator> {
 // (The `deinit` body is on the unconditional extension above, so it covers every
 // `T`; the `ExplicitCopy: Deinit` requirement is satisfied by that method.)
 extension Vector<T: Copy, A: Allocator = GlobalAllocator>: ExplicitCopy {
+    // Regression guard: this used to return a SHORTER vector on refusal, so a
+    // "copy" could silently be missing elements (design 123, infallible tier).
     /// Duplicates the vector and every element through the same allocator `A`.
-    ///
-    /// Panics if the allocator refuses (design 123, infallible tier); it used
-    /// to return a SHORTER vector, so a "copy" could silently be missing
-    /// elements. `try_copy` reports the failure instead.
+    /// Panics if the allocator refuses; `try_copy` reports the failure instead.
     public func copy(&self) unsafe -> Vector<T, A> {
         var result = Vector<T, A>(capacity: self.capacity)
         var i = 0
@@ -492,12 +493,9 @@ extension Vector<T: Copy, A: Allocator = GlobalAllocator>: ExplicitCopy {
 }
 
 extension Vector<T: Copy, A: Allocator = GlobalAllocator> {
-    /// Duplicates the vector, reporting allocator exhaustion as
-    /// `Err(AllocError)`.
-    ///
-    /// The whole buffer is reserved up front, so the element loop cannot
-    /// allocate and the result is either a complete copy or an `Err` — never a
-    /// partial one.
+    /// Duplicates the vector, returning `Err(AllocError)` if the allocator runs out
+    /// of memory. The entire buffer is reserved upfront, ensuring the function
+    /// returns either a complete copy or an error, never a partial vector.
     public func try_copy(&self) unsafe -> Result<Vector<T, A>, AllocError> {
         var result = Vector<T, A>()
         let _ = try result.try_reserve(self.length)
@@ -545,11 +543,14 @@ extension Vector<T: Copy, A: Allocator = GlobalAllocator> {
     // a borrow iterator would have to hold the container borrowed for the
     // whole loop, which is exactly what `with_ref`/`with_var_ref` already
     // offer per element, and it is where a NoCopy element type is reached.
+    /// Returns an iterator over the vector's elements (`for x in v.iter()`).
+    /// Each element is yielded as an owned copy, which is what requires
+    /// `T: Copy`.
     public func iter(&self) unsafe -> VectorIterator<T> {
         VectorIterator<T>(buffer: self.buffer, length: self.length, index: 0)
     }
 
-    // Visit each element in order, passing it to `body`.
+    /// Iterates over each element in order, passing it to the provided function.
     public func each(&self, body: (T) -> Void) {
         var i = 0
         while i < self.length {
@@ -573,6 +574,10 @@ extension Vector<T: Copy, A: Allocator = GlobalAllocator> {
     // Panics on allocator exhaustion, through `push` (design 123, infallible
     // tier). It used to drop transformed values on the floor and hand back a
     // short result vector.
+    /// Applies `transform` to each element to return a new `Vector<U>`, where the
+    /// output type `U` must be explicitly specified at the call site. Because
+    /// elements are passed to the closure by value, `T` must satisfy the `Copy`
+    /// bound. The function panics on allocator exhaustion.
     public func map<U>(&self, transform: (T) -> U) -> Vector<U, A> {
         var result = Vector<U, A>()
         var i = 0
@@ -593,6 +598,10 @@ extension Vector<T: Copy, A: Allocator = GlobalAllocator> {
     // (e.g. `Int`) moves bitwise. `T: Copy` is again inherited for by-value
     // element access. (The accumulator param is named `Acc`, not `A`, because
     // `A` is now the extension's allocator type parameter — brief 37.)
+    /// Performs a left fold by threading an accumulator through the elements using
+    /// the `combine` function. The caller provides an initial value and an explicit
+    /// type parameter for the accumulator. The accumulator is moved into and out of
+    /// the `combine` closure at each step.
     public func fold<Acc>(&self, initial: Acc, combine: (Acc, T) -> Acc) -> Acc {
         var acc = move initial
         var i = 0
@@ -608,6 +617,9 @@ extension Vector<T: Copy, A: Allocator = GlobalAllocator> {
     // Visit each element with its index, passing `(index, element)` to `body`
     // (design 53). The closure twin of `enumerated()`: same non-escaping
     // discipline and same by-value / `T: Copy` element rule as `each`.
+    /// Iterates through each element, passing the index and the element to the
+    /// closure. The closure must be non-escaping, and `T` must implement `Copy`
+    /// because elements are passed by value.
     public func each_indexed(&self, body: (Int, T) -> Void) {
         var i = 0
         while i < self.length {
@@ -621,6 +633,9 @@ extension Vector<T: Copy, A: Allocator = GlobalAllocator> {
     // A concrete iterator yielding `(index, element)` pairs for `for` loops
     // (design 53). Mirrors `iter()`/VectorIterator's bounds; `T: Copy` because
     // each element is produced by value.
+    /// Returns an iterator yielding `(index, element)` pairs. The iterator follows
+    /// the bounds of `iter()`. Because elements are yielded by value, the type `T`
+    /// must implement `Copy`.
     public func enumerated(&self) unsafe -> EnumeratedIterator<T> {
         EnumeratedIterator<T>(buffer: self.buffer, length: self.length, index: 0)
     }
@@ -644,7 +659,8 @@ extension Vector<T: Copy, A: Allocator = GlobalAllocator> {
 // future by-reference comparison overload would lift that. `sort` additionally
 // requires `T: Comparable` for the `<`/`>` ordering.
 extension Vector<T: Comparable + Copy, A: Allocator = GlobalAllocator> {
-    // Sort ascending by the element type's Comparable order. Stable.
+    /// Sorts elements in ascending order according to the element type's Comparable
+    /// implementation. The sort is stable.
     public func sort(&var self) {
         var i = 1
         while i < self.length {

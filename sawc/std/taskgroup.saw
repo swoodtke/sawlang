@@ -1,3 +1,10 @@
+//! TaskGroup manages a collection of tasks and ensures all child tasks complete
+//! before the group is destroyed. The default configuration provides
+//! single-threaded, cooperative execution on the current thread, while
+//! specifying a thread count enables multi-threaded execution. Communication
+//! between tasks requires `Arc`, `Mutex`, or `Channel`, as references cannot be
+//! shared across a spawn.
+
 // TaskGroup — the structured-concurrency nursery (design 18 C1, design 52b).
 //
 // A `TaskGroup` is a local. `group.spawn(f(args))` is compiler-lowered (like
@@ -390,6 +397,10 @@ extension TaskGroup {
     // the run-queue mutex and, at drain time, spawns a worker pool. Spawning into a
     // group built this way turns on the Send-on-frames gate (a frame that crosses
     // to another worker must be Send).
+    /// Initializes a TaskGroup with a specified number of worker threads. A thread
+    /// count of one or the default constructor runs a single-threaded engine
+    /// without locks, while two or more threads spawn a worker pool and require
+    /// frames crossing between workers to be `Send`.
     public init(threads: Int) unsafe -> TaskGroup {
         let t = Vector<Box<any Resumable>?>()
         let c = Vector<Box<any __TaskCell>?>()
@@ -425,6 +436,9 @@ extension TaskGroup {
     // tasks plus completed tasks whose result nobody has joined yet. A slot is
     // RECLAIMED when it has nothing left to hold, so a long-lived group's count
     // tracks concurrency rather than the number of tasks ever spawned.
+    /// Returns the number of task slots currently held by the group, including live
+    /// tasks and completed tasks awaiting a join. This value tracks current
+    /// concurrency rather than the total number of tasks spawned.
     public func count(&self) -> Int {
         self.tasks.len() - self.free.len()
     }
@@ -947,6 +961,10 @@ extension TaskGroup: NoMove {}
 // completes and its frame box is released. Dropping an unjoined handle is fine
 // (no-op Deinit): the result stays in the cell and is dropped once at group
 // teardown — exactly-once either way.
+/// Provides typed access to the result of a spawned child task. It contains
+/// pointers to group-owned storage that remains valid after the task completes.
+/// Dropping the handle does nothing; the result is released when the group is
+/// torn down.
 public struct TaskHandle<T> {
     result_ptr: UnsafePointer<T?>
     cancel_ptr: UnsafePointer<Bool>
@@ -970,6 +988,9 @@ extension TaskHandle<T> {
     //
     // Joining twice therefore panics rather than returning a second value: there
     // is only ever one result and this call already moved it out.
+    /// Waits for the task to complete and returns its result. This operation
+    /// consumes the result and reclaims the task's slot in the group. Calling
+    /// `join` more than once causes a panic.
     public func join(&self) unsafe -> T {
         if self.group_ptr[0].__stale(self.slot, self.generation) {
             panic("TaskHandle.join: this task's result was already joined")
@@ -995,6 +1016,10 @@ extension TaskHandle<T> {
     // Cancelling a task that has already finished and been reclaimed is a defined
     // no-op (design 134) — there is nothing left to ask to stop, and the stale
     // handle must not reach a successor sharing its slot.
+    /// Sets the cell's cancellation flag to signal the task for cooperative
+    /// cancellation. The task must observe the signal via `cancelled()` or a
+    /// cancellation-aware wait to return through normal control flow. Cancelling a
+    /// task that has already finished is a no-op.
     public func cancel(&self) unsafe {
         if self.group_ptr[0].__stale(self.slot, self.generation) {
             return
@@ -1016,6 +1041,12 @@ extension TaskHandle<T> {
     // so a write that lands after the task finished is defined and inert. Taking
     // the address PINS the slot: it keeps its cell and gives up reuse, because a
     // bare `Int` carries no generation for the peer to check against.
+    /// Returns the address of this task's cancel flag as a `Send` integer, which
+    /// is how a peer task cancels this one: a `TaskHandle` itself cannot cross a
+    /// spawn, but the address can. The receiver cancels by writing through it,
+    /// `(addr as UnsafePointer<Bool>)[0] = true`. Taking the address pins the
+    /// task's slot and gives up its reuse. A write that lands after the task has
+    /// finished is defined and does nothing.
     public func cancel_addr(&self) unsafe -> Int {
         self.group_ptr[0].__pin(self.slot, self.generation)
         self.cancel_ptr as Int
@@ -1036,6 +1067,9 @@ extension TaskHandle<T>: NoCopy {
 // completion and returns. Cancellation and drop-if-unjoined behave exactly like
 // `TaskHandle<T>`. Distinct type (not `TaskHandle<Void>`) so the generic handle
 // never has to encode a zero-size `T?` result pointer.
+/// A handle for a spawned task that returns `Void`. Calling join drives the
+/// task to completion and returns. Cancellation and drop-if-unjoined behavior
+/// matches `TaskHandle<T>`.
 public struct VoidTaskHandle {
     cancel_ptr: UnsafePointer<Bool>
     group_ptr: UnsafePointer<TaskGroup>
@@ -1049,6 +1083,8 @@ extension VoidTaskHandle {
     // (nothing outlives it), so joining one that already finished is a defined
     // no-op rather than a panic: the question "is it done yet" has an answer, and
     // the answer is yes.
+    /// Waits until the task is done. Joining one that has already finished
+    /// returns immediately.
     public func join(&self) unsafe {
         if self.group_ptr[0].__stale(self.slot, self.generation) {
             return
@@ -1060,8 +1096,9 @@ extension VoidTaskHandle {
         }
     }
 
-    // A defined no-op once the task has finished and its slot was reclaimed
-    // (see `TaskHandle.cancel`).
+    /// Cancels the task. If the task has already finished and its slot was
+    /// reclaimed, this function performs no operation. See `TaskHandle.cancel` for
+    /// more information.
     public func cancel(&self) unsafe {
         if self.group_ptr[0].__stale(self.slot, self.generation) {
             return
@@ -1071,7 +1108,8 @@ extension VoidTaskHandle {
         __saw_exec_reactor_wake()
     }
 
-    // Pins the slot, exactly as `TaskHandle.cancel_addr` does.
+    /// Returns the cancel-flag address and pins the slot, exactly as
+    /// `TaskHandle.cancel_addr` does.
     public func cancel_addr(&self) unsafe -> Int {
         self.group_ptr[0].__pin(self.slot, self.generation)
         self.cancel_ptr as Int
