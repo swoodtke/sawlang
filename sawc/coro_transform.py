@@ -2094,17 +2094,24 @@ class _FrameBuilder:
             if new not in self._uniq_taken:
                 return new
 
-    def _uniq_bind(self, name, scope, callable_=False):
+    def _uniq_bind(self, name, scope, callable_=False, second_view=False):
         """Introduce `name` into `scope`, renaming it when the name is already
-        bound somewhere else in this body. Returns the effective name."""
+        bound somewhere else in this body. Returns the effective name.
+
+        `second_view=True` marks the ONE caller that is re-binding a name this
+        same scope already holds because the parser gave it two views of one
+        binding (a plain enum arm's `bindings` list AND its `pattern` carry the
+        same names) — it reuses the first view's mapping rather than minting a
+        second field. Every other caller mints: a name already in the SAME scope
+        is a design-107 same-scope REDEFINITION (`let s = derive(move s)`), i.e.
+        a second, distinct binding that owes a field of its own. Reusing there
+        collapsed both onto one slot and double-freed the consumed original
+        (DF-217a)."""
         if name == "_" or name.startswith("__"):
             # `_` binds nothing, and a `__`-prefixed name is a compiler temp
             # (the lexer reserves the prefix) — unique already.
             return name
-        if name in scope:
-            # The parser fills a plain enum arm's `bindings` AND its `pattern`
-            # with the same names; the second view reuses the first's mapping
-            # rather than minting a second field.
+        if second_view and name in scope:
             return scope[name][0]
         new = self._uniq_fresh(name) if name in self._uniq_taken else name
         self._uniq_taken.add(new)
@@ -2199,7 +2206,10 @@ class _FrameBuilder:
                                 for b in (arm.bindings or [])]
                 if arm.pattern is not None:
                     for pat in _pattern_binding_nodes(arm.pattern):
-                        pat.name = self._uniq_bind(pat.name, bound)
+                        # The pattern is the SECOND view of the names
+                        # `arm.bindings` just bound — one binding, one field.
+                        pat.name = self._uniq_bind(pat.name, bound,
+                                                   second_view=True)
                 if arm.lent_bindings:
                     arm.lent_bindings = [
                         (bound[b][0] if b in bound else b)

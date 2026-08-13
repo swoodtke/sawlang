@@ -1,0 +1,152 @@
+// DF-217a — a same-scope REDEFINITION (design 107) inside a coroutine body is a
+// second BINDING, and every binding owes a frame field of its own.
+//
+// `_uniquify_bindings` (DF-151a) alpha-renames a name a second binding reuses so
+// that a name IS a binding identity downstream. Its `_uniq_bind` had one
+// carve-out — a name already present in the scope being bound reused the
+// existing mapping — written for the parser's TWO VIEWS of one match-arm binding
+// (`arm.bindings` and the arm `pattern` carry the same names). A same-scope
+// redefinition looks identical from inside that check, so `let s = derive(move
+// s)` collapsed both bindings onto one field: the consumed original was released
+// again at frame teardown and the rebound name read a field the transform had
+// already forgotten. `DEINIT s1` twice, then `force unwrap of None`, SIGABRT.
+//
+// The carve-out is now the caller's to ask for (`second_view=True`, the match
+// pattern only), so r7 below is the shape it exists for and must keep working.
+//
+//   r1  the crash: NoCopy, redefined between two suspensions
+//   r2  three bindings of one name — three fields, three deinits
+//   r3  design 107's own spelling, `var` replaced by `let`
+//   r4  redefinition with NO suspension between the two bindings (coroutine
+//       membership alone is what put them in the frame)
+//   r5  control: the DISTINCT-name spelling, which always worked
+//   r6  control: a derived shadow one scope IN, which always worked
+//   r7  the carve-out's own shape: two arms of one match binding one name, so
+//       the second is renamed and BOTH views of it must reach one field
+//
+// The non-suspending twin is the oracle and this matches it COUNT for count:
+// two deinits for r1/r3/r4/r5/r6, three for r2, one per binding, never two of
+// one value. Only the TIMING differs — a frame-resident value is released at
+// frame teardown rather than where its binding is replaced, so the driven
+// deinits land after the print instead of before it (the `__release`-only drop
+// model, orthogonal to this fix). `D a1` still prints first in r1 because
+// `derive` CONSUMED the original and dropped it in its own frame.
+// EXPECT: success
+// EXPECT-OUTPUT:
+// D a1
+// r1 a12
+// D a12
+// r2 b123
+// D b123
+// D b12
+// D b1
+// r3 c12
+// D c12
+// D c1
+// r4 d12
+// D d12
+// D d1
+// r5 e1 e12
+// D e12
+// D e1
+// r6 f12
+// D f12
+// D f1
+// r7 41 52
+
+import std.task.*
+
+struct Res { name: String }
+
+extension Res: NoCopy {
+    func deinit(&var self) { print("D {self.name}") }
+}
+
+// Consuming: the `move` spellings hand the original over.
+func derive(r: Res) -> Res { Res(name: "{r.name}2") }
+
+// Borrowing: the original stays alive, so its own deinit is observable too.
+func extend(r: &Res, tail: String) -> Res { Res(name: "{r.name}{tail}") }
+
+// r1 — the reproducer. One deinit per binding.
+func r1() {
+    let s = Res(name: "a1")
+    yield_now()
+    let s = derive(move s)
+    yield_now()
+    print("r1 {s.name}")
+}
+
+// r2 — a name bound three times, no binding consumed: three live values.
+func r2() {
+    let s = Res(name: "b1")
+    yield_now()
+    let s = extend(&s, "2")
+    yield_now()
+    let s = extend(&s, "3")
+    yield_now()
+    print("r2 {s.name}")
+}
+
+// r3 — the spelling design 107 documents: a `var` replaced by a `let`.
+func r3() {
+    var s = Res(name: "c1")
+    yield_now()
+    let s = extend(&s, "2")
+    yield_now()
+    print("r3 {s.name}")
+}
+
+// r4 — nothing suspends between the two bindings; the function is a coroutine
+// for a reason that has nothing to do with either of them.
+func r4() {
+    let s = Res(name: "d1")
+    let s = extend(&s, "2")
+    print("r4 {s.name}")
+    yield_now()
+}
+
+// r5 — control: distinct names were never affected.
+func r5() {
+    let s = Res(name: "e1")
+    yield_now()
+    let s2 = extend(&s, "2")
+    yield_now()
+    print("r5 {s.name} {s2.name}")
+}
+
+// r6 — control: a derived shadow one scope in is a different scope dict, so it
+// always minted its own field.
+func r6(flag: Bool) {
+    let s = Res(name: "f1")
+    yield_now()
+    if flag {
+        let s = extend(&s, "2")
+        yield_now()
+        print("r6 {s.name}")
+    }
+}
+
+enum Step { case Go(n: Int), case Halt(n: Int), case Stop }
+
+// r7 — two arms binding `k`: the second is renamed, and the arm's `bindings`
+// list and its `pattern` are two views of THAT one binding.
+func r7(s: Step) -> Int {
+    match s {
+        case Go(k) -> { yield_now()  return k + 1 },
+        case Halt(k) -> { yield_now()  return k + 2 },
+        case Stop -> 0
+    }
+}
+
+func main() {
+    __saw_drive(r1())
+    __saw_drive(r2())
+    __saw_drive(r3())
+    __saw_drive(r4())
+    __saw_drive(r5())
+    __saw_drive(r6(true))
+    let a = __saw_drive(r7(Step.Go(n: 40)))
+    let b = __saw_drive(r7(Step.Halt(n: 50)))
+    print("r7 {a} {b}")
+}

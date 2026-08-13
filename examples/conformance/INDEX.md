@@ -6,11 +6,11 @@ either a file in this directory or an existing `examples/` test that already
 asserts the same rule at the same position — this table is the record of which,
 and the dedup decisions are meant to be audited from it.
 
-**99 rows carry a file here; 197 are covered elsewhere.** (The audit's 247 plus
+**100 rows carry a file here; 197 are covered elsewhere.** (The audit's 247 plus
 the rows later briefs added: W02-W05, design 194 unit 4; W06-W19, design 195
 unit 1; X41-X45, design 199 unit 1; M31-M35, design 200 unit 1; V26-V30,
 design 202 unit 1; B09-B12, design 204 unit 1; K14-K20, design 201 unit 1;
-K21-K25, design 210 units 1 and 5.)
+K21-K25, design 210 units 1 and 5; S09, the DF-217a fix.)
 
 ## How to read it
 
@@ -441,6 +441,7 @@ Claim source: spec 2 *Variables and Mutability*; designs 100, 107
 | S06 | a parameter shadowing a module `static` | `errors/shadow_param.saw` |  |
 | S07 | a same-scope non-deriving redefinition | `errors/shadow_redef_nonderived.saw` |  |
 | S08 | two same-named bindings across a suspension keep distinct slots | `coro_bind_id_shadow_regressions.saw` |  |
+| S09 | a same-scope REDEFINITION of an OWNING local in a driven body | `S09_same_scope_redefinition_owning_across_suspend.saw` | DF-217a — S08's covering test binds an `Int`, where a collapsed slot is invisible (a trivial value has no deinit to run twice). With a NoCopy value the same shape double-freed the consumed original and then read a forgotten field: `force unwrap of None`, SIGABRT, on design 107's own idiom |
 
 ## Optionals and payload reads
 
