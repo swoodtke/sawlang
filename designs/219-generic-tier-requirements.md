@@ -238,9 +238,22 @@ EMPTY in-tree. ~80% of the migration is mech-shaped. NEW FINDINGS
    stands: design 216's `&T`-closure rework lands WITH or BEFORE
    enforcement, so iteration at non-Copy elements moves to the borrow
    path (p8's `.each` shape) instead of breaking.
-3. **The wrapper-receiver matrix for the `ExplicitCopy` bound gate**
-   (DF-217q's fix): the gate becomes a funnel computing the requirement
-   recursively over composite receivers, with p9's shapes as the rows.
+3. **The wrapper-receiver matrix — RATIFIED (user, Aug 13).** DF-217q's
+   fix: the `.copy()`-needs-a-bound gate becomes ONE funnel computing the
+   requirement recursively over composite receivers — `(T, Int)`, `T?`,
+   `[T; N]`, `Vector<T>`, nested combinations — with p9's probe shapes as
+   the obligation-1 row matrix its tests cover.
+
+**THE DF-217r SYNC RULE — RATIFIED (user, Aug 13):** a `copy()` method on a
+Copy conformance (declared or the retain-hook form) MUST be `sync`, checked
+ONCE at the conformance declaration — refusing a suspending copy() where it
+is declared, not where it is invisibly invoked. This is the mechanical half
+of the declare-and-document contract: with it, compiler-inserted copy()
+calls cannot violate a `sync` guarantee regardless of insertion site (p13's
+hole closes at the root). The allocation half stays documentation +
+optionally `-W` (the census row stands). Conformance row owed (obligation
+3): a suspending copy() on a declared Copy conformance is refused with an
+error naming the rule.
 Secondary (implementer-note tier): `Map._find`'s unwritten key bound gets
 written (`K: Copy` merged); the eleven `infer_overload*` test sites use the
 bound as an overload DISCRIMINATOR and are updated as tests, not migrated.
