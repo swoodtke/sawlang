@@ -214,6 +214,22 @@ spellings that reach it. The sweep also found:
   function infers fine, so it is method-specific. Verified by hand; repros
   named in the brief.
 
+## Design 219 — generic tier requirements (DIRECTION RULED Aug 13; the DF-217i fix)
+
+Brief: `designs/219-generic-tier-requirements.md`. The ruling: requirement
+INFERENCE on the copy lattice (move-only / needs-explicit-copy /
+needs-implicit-copy, computed from the body once at definition time) +
+call-site DISCHARGE rejection (best attribution of the options considered) +
+definition-time declaration-coverage checking. Tier-aware bounds unify with
+tier derivation (probe-found gap: today `T: ImplicitCopy` rejects Int AND
+auto-tier structs). THE NAMED TRADE: body edits can tighten an inferred
+requirement — mitigated by declared bounds as the contract, with a
+public-generics-must-declare ruling wanted at dispatch. S1 row 9d's
+ExplicitCopy miscompile becomes a clean refusal; C07's funnel falls out of
+discharge; DF-217j/k get the per-instance declaration-derivation extension
+(unit 3), which also discharges 218's Slot<TaskGroup> dependency. Owes its
+obligation-2 consumer sweep before dispatch. Gates 218 stages 1-2.
+
 ## Design 218 unit 0 LANDED (Aug 13) — corodiff is a battery lane; three new DFs
 
 `tools/corodiff.py` (the coro differential harness, tracked), an 87-entry
