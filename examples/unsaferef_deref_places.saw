@@ -1,0 +1,76 @@
+// `UnsafeRef<T>` — the referent reached as a PLACE (design 218 unit 1).
+//
+// The handle publishes one `borrows` accessor, and everything a frame's
+// receiver rewrite needs falls out of the places system: field reads, field
+// writes, compound assignment, `&self` and `&var self` method calls, and
+// further place hops in either direction. Nothing here is special lowering.
+//
+// The MODE comes from the binding: a `var`-bound handle can open an exclusive
+// window, a `let`-bound one cannot (see
+// `examples/errors/unsaferef_write_through_let_root.saw`), so `&self` and
+// `&var self` receivers get the right window out of one declaration.
+//
+// The mint is ordinary user code. `UnsafeRef` has a public constructor, and
+// taking an `UnsafePointer` argument is what makes `mint` an `unsafe`-declared
+// function — design 130's trigger rule carrying the validity obligation to the
+// author, which is the whole reason the type is public rather than hidden.
+// EXPECT: success
+// EXPECT-OUTPUT:
+// read a 1
+// read method 1
+// read nested 5
+// write a 7
+// compound a 8
+// method bump 9
+// nested write 42
+// caller sees 9 42
+// second handle sees 9
+// through second handle 30
+// original sees 30
+
+import std.compiler.frame.{UnsafeRef}
+
+struct Inner { n: Int }
+
+struct Counter { a: Int, inner: Inner }
+
+extension Counter {
+    func get_a(&self) -> Int { self.a }
+    func bump(&var self) { self.a = self.a + 1 }
+}
+
+// The obligation carrier: this signature names an unsafe type, so the
+// declaration says `unsafe` and the author owns the validity argument — here,
+// that the referent outlives every handle derived from it.
+func mint(c: &var Counter) unsafe -> UnsafeRef<Counter> {
+    UnsafeRef<Counter>(p: (&c) as UnsafePointer<Counter>)
+}
+
+func main() unsafe {
+    var c = Counter(a: 1, inner: Inner(n: 5))
+    var r = mint(&var c)
+
+    print("read a {r.deref().a}")
+    print("read method {r.deref().get_a()}")
+    print("read nested {r.deref().inner.n}")
+
+    r.deref().a = 7
+    print("write a {r.deref().a}")
+    r.deref().a += 1
+    print("compound a {r.deref().a}")
+    r.deref().bump()
+    print("method bump {r.deref().a}")
+    r.deref().inner.n = 42
+    print("nested write {r.deref().inner.n}")
+
+    // Every write landed in the caller's own storage, not in a copy.
+    print("caller sees {c.a} {c.inner.n}")
+
+    // Duplication is written where it happens: `copy` is the one spelling, and
+    // both handles name the same storage.
+    var second = r.copy()
+    print("second handle sees {second.deref().a}")
+    second.deref().a = 30
+    print("through second handle {second.deref().a}")
+    print("original sees {r.deref().a}")
+}

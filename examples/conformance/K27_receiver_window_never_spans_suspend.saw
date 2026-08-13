@@ -1,0 +1,43 @@
+// Conformance row K27 — a place window never spans a suspension
+//
+// `UnsafeRef.deref()` and `Slot.value()` hand out STORAGE: the window is open
+// for exactly one expression, and the referent must not move or die while it
+// is. A suspension inside that expression would park the task with the window
+// open, and everything the frame's own teardown and the executor do next would
+// run against a place somebody is still holding.
+//
+// Nothing new enforces this. A `borrows` body is `sync` (the design-146 v1
+// fence), so the window expression is a sync region and a suspending call in
+// it is the ordinary sync violation — which is the point of the row: the
+// invariant the transform relies on is one the compiler already checks, for
+// generated and hand-written code alike. The transform could not emit a
+// violation anyway, since the ANF hoist runs first and leaves only sync
+// residue in expression positions; this is the belt beside those braces.
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: cannot suspend in a `sync` closure context
+
+import std.compiler.frame.{UnsafeRef}
+import std.task.*
+
+struct Counter { a: Int }
+
+func slow() -> Int {
+    yield_now()
+    7
+}
+
+func mint(c: &var Counter) unsafe -> UnsafeRef<Counter> {
+    UnsafeRef<Counter>(p: (&c) as UnsafePointer<Counter>)
+}
+
+func work() unsafe {
+    var c = Counter(a: 1)
+    var r = mint(&var c)
+    // The window opens on `c` and the RHS suspends inside it.
+    r.deref().a = slow()
+    print(c.a)
+}
+
+func main() {
+    __saw_drive(work())
+}

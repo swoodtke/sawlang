@@ -1,0 +1,108 @@
+// Conformance row K28 — a `Slot<T>` payload is released exactly once
+//
+// The guarantee design 218 unit 1 buys: a payload leaves a slot by exactly
+// four operations — `take`, `clear`, a `put` onto an occupied slot, and the
+// synthesized deinit — and every one of them updates the occupancy tag in the
+// SAME method body that moves or drops the payload. The field is private, so
+// there is no fifth way in. "Released exactly once" is therefore a property of
+// the type, checked here once, rather than a theorem about pairs of emitted
+// statements: the model it replaces stored the consuming read and the tag
+// clear as two statements any site could mispair, and DF-206f, DF-210f and
+// DF-217h are three sites that mispaired them.
+//
+// What a wrong SEQUENCE can still do is drop earlier or later than intended,
+// or panic on an empty slot. What it cannot do is drop twice or leak, and that
+// is what the counts below pin: every `res(...)` is matched by exactly one
+// deinit, in a stated order, at both an owning and a refcounted tier.
+// EXPECT: success
+// EXPECT-OUTPUT:
+// occupied false
+// borrow r1
+// deinit r1
+// took r2
+// occupied false
+// deinit r3
+// live 1
+// deinit r2
+// live 0
+// deinit r4
+// live 0
+// inside 2
+// after take 2
+// live 1
+// deinit a
+// live 0
+
+import std.compiler.frame.{Slot}
+
+static LIVE: Atomic<Int> = Atomic(0)
+
+struct Res { name: String }
+
+extension Res: NoCopy {
+    func deinit(&var self) {
+        LIVE.fetch_add(0 - 1)
+        print("deinit {self.name}")
+    }
+}
+
+func res(tag: String) -> Res {
+    LIVE.fetch_add(1)
+    Res(name: tag)
+}
+
+// NoCopy: the payload moves in and out, and each of the four exits fires once.
+func nocopy_round_trip() {
+    var s = Slot<Res>.empty()
+    print("occupied {s.is_occupied()}")
+
+    s.put(res("r1"))
+    // `value()` lends the payload where it sits: a borrow, so nothing is
+    // copied and nothing is released.
+    print("borrow {s.value().name}")
+
+    // Replace. The previous occupant dies HERE, at the statement that
+    // displaces it — not at teardown.
+    s.put(res("r2"))
+
+    // Move out. The slot is empty afterwards, so the later `clear` and the
+    // slot's own deinit have nothing to drop.
+    let out = s.take()
+    print("took {out.name}")
+    print("occupied {s.is_occupied()}")
+
+    s.clear()               // idempotent: clearing an empty slot does nothing
+    s.put(res("r3"))
+    s.clear()               // r3 dies here
+
+    print("live {LIVE.load()}")   // 1 — `out` is the only survivor
+}                                 // and it dies at this scope's end
+
+// The fourth exit: a slot that still holds its payload when it dies.
+func dropped_occupied() {
+    var s = Slot<Res>.empty()
+    s.put(res("r4"))
+}
+
+// ImplicitCopy: `put` takes its argument by value, so the ordinary transfer
+// retains and the caller's own handle stays live. Nothing about the slot
+// changes the tier's arithmetic.
+func implicitcopy_tier() {
+    let a = Arc<Res>(value: res("a"))
+    var s = Slot<Arc<Res>>.empty()
+    s.put(a)
+    print("inside {s.value().strong_count()}")
+
+    let taken = s.take()
+    print("after take {taken.strong_count()}")
+    print("live {LIVE.load()}")
+}
+
+func main() {
+    nocopy_round_trip()
+    print("live {LIVE.load()}")
+    dropped_occupied()
+    print("live {LIVE.load()}")
+    implicitcopy_tier()
+    print("live {LIVE.load()}")
+}

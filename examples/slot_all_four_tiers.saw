@@ -1,0 +1,102 @@
+// `Slot<T>` at every copy tier — design 218 unit 1.
+//
+// The slot itself is tier-blind: `put` takes `T` by value and `take` hands one
+// back, so each tier's ordinary transfer rule decides what the CALLER has to
+// write. That is the property the coro transform is being migrated onto — a
+// tier-wrong emission becomes a compile error on generated code instead of a
+// silent alias — so the four rows are worth pinning together.
+//
+//   trivial       bare in, bare out
+//   ImplicitCopy  bare in (the argument transfer retains), bare out
+//   ExplicitCopy  `move` or `.copy()` at the call
+//   NoCopy        `move` only
+//
+// `value()` is a borrow at every tier, and `clear()` on an empty slot is a
+// no-op at every tier. Counts are exact: each owning value is created once and
+// deinits once.
+// EXPECT: success
+// EXPECT-OUTPUT:
+// trivial 41 42
+// trivial occupied false
+// implicit inside 2
+// implicit outside 2
+// implicit taken 2
+// explicit len 3
+// explicit taken 3 first 10
+// explicit source still 3
+// nocopy borrow n1
+// deinit n1
+// nocopy took n2
+// deinit n2
+// live 0
+
+import std.compiler.frame.{Slot}
+
+static LIVE: Atomic<Int> = Atomic(0)
+
+struct Res { name: String }
+
+extension Res: NoCopy {
+    func deinit(&var self) {
+        LIVE.fetch_add(0 - 1)
+        print("deinit {self.name}")
+    }
+}
+
+func res(tag: String) -> Res {
+    LIVE.fetch_add(1)
+    Res(name: tag)
+}
+
+struct Bag { items: Vector<Int> }
+
+@synthesize
+extension Bag: ExplicitCopy {}
+
+func trivial_tier() {
+    var s = Slot<Int>.empty()
+    s.put(41)
+    let borrowed = s.value()
+    s.put(42)
+    let taken = s.take()
+    print("trivial {borrowed} {taken}")
+    s.clear()
+    print("trivial occupied {s.is_occupied()}")
+}
+
+func implicitcopy_tier() {
+    let a = Arc<Int>(value: 7)
+    var s = Slot<Arc<Int>>.empty()
+    s.put(a)                                  // bare: the transfer retains
+    print("implicit inside {s.value().strong_count()}")
+    print("implicit outside {a.strong_count()}")
+    let taken = s.take()
+    print("implicit taken {taken.strong_count()}")
+}
+
+func explicitcopy_tier() {
+    var source = Bag(items: [10, 20, 30])
+    var s = Slot<Bag>.empty()
+    s.put(source.copy())                      // ExplicitCopy: written at the call
+    print("explicit len {s.value().items.len()}")
+    let taken = s.take()
+    print("explicit taken {taken.items.len()} first {taken.items[0]}")
+    print("explicit source still {source.items.len()}")
+}
+
+func nocopy_tier() {
+    var s = Slot<Res>.empty()
+    s.put(res("n1"))
+    print("nocopy borrow {s.value().name}")
+    s.put(res("n2"))                          // replace: n1 dies here
+    let taken = s.take()                      // move out
+    print("nocopy took {taken.name}")
+}                                             // taken dies here
+
+func main() {
+    trivial_tier()
+    implicitcopy_tier()
+    explicitcopy_tier()
+    nocopy_tier()
+    print("live {LIVE.load()}")
+}

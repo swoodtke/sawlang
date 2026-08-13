@@ -1,0 +1,28 @@
+// design 218 unit 1: an `UnsafeRef<T>` window takes its MODE from the binding.
+//
+// The handle declares one accessor, `deref(&self) unsafe borrows -> T`, and
+// the use site picks shared or exclusive out of it — so a write needs a `var`
+// root exactly as a write through any other place accessor does. That is what
+// gives the coroutine frame's receiver rewrite the right window for free: a
+// `&self` method materializes a `let`-bound handle and a `&var self` method a
+// `var`-bound one, and an emission that gets it backwards is this error rather
+// than a write nobody checked.
+//
+// The read on the line above compiles — a shared window is all a read needs.
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: cannot open an exclusive place window on immutable variable `r`
+
+import std.compiler.frame.{UnsafeRef}
+
+struct Counter { a: Int }
+
+func mint(c: &var Counter) unsafe -> UnsafeRef<Counter> {
+    UnsafeRef<Counter>(p: (&c) as UnsafePointer<Counter>)
+}
+
+func main() unsafe {
+    var c = Counter(a: 1)
+    let r = mint(&var c)
+    print(r.deref().a)
+    r.deref().a = 7
+}

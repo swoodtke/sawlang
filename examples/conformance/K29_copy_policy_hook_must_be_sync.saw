@@ -1,5 +1,5 @@
-// Conformance row K27 — a copy-policy `copy()` must be `sync`, checked at the
-// conformance
+// Conformance row K29 — a copy-policy `copy()` must be `sync`, checked at the
+// conformance (renumbered from K27 at integration; 218a pre-registered K27/K28)
 //
 // A hand-written `copy()` inside a copy-policy conformance is the RETAIN HOOK:
 // the compiler calls it at every silent transfer, at sites no source construct
