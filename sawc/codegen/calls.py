@@ -1329,6 +1329,10 @@ class CallsMixin:
         if expr.optional_take:
             return self._generate_optional_take(expr)
 
+        # `o.is_some()` / `o.is_none()` (DF-218a): the tag-only presence reads.
+        if expr.optional_presence is not None:
+            return self._generate_optional_presence(expr)
+
         # Erased-box downcasting `b.is<T>()` / `b.take<T>()` (design 72). `take`
         # consumes the box: clear the receiver binding's drop flag (like a move)
         # so scope-exit teardown does not double-free the shell take already freed.
@@ -2525,6 +2529,27 @@ class CallsMixin:
             none_val, ir.Constant(ir.IntType(1), 0), 0, name="take_none")
         self.builder.store(none_val, opt_ptr)
         return taken
+
+    def _generate_optional_presence(self, expr: MethodCall):
+        """Lower `o.is_some()` / `o.is_none()` (DF-218a).
+
+        An optional is `{ i1 is_some, T }`, so the answer is field 0 and the
+        payload is never addressed. Nothing is retained (no reference is
+        created) and nothing is released (none was taken), which is the whole
+        reason the result does not depend on the payload's copy tier.
+
+        A receiver that is a freshly-produced owned value still owns its
+        payload after the tag is read, so it is registered for statement-end
+        release exactly as an ordinary method call's temporary receiver is;
+        an lvalue receiver belongs to its binding and is left alone.
+        """
+        obj_val = self._generate_expression(expr.object)
+        if self._is_owned_temporary(expr.object):
+            self._register_stmt_temp(obj_val, self._expr_type(expr.object))
+        tag = self.builder.extract_value(obj_val, 0, name="opt_is_some")
+        if expr.optional_presence == "is_none":
+            tag = self.builder.not_(tag, name="opt_is_none")
+        return tag
 
     def _generate_array_builtin(self, expr: MethodCall):
         """Lower a fixed-array builtin (design 72 L12/M1).

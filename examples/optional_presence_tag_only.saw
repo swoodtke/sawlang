@@ -1,0 +1,55 @@
+// DF-218a: `Optional.is_some()` / `is_none()` read the TAG and nothing else.
+// The payload is never addressed, so the answer costs no retain and no drop and
+// is the same at every copy tier — which is the property that makes a presence
+// test askable of a move-only payload. All four tiers here, plus an owned
+// TEMPORARY receiver whose payload must still be released exactly once.
+// EXPECT: success
+// EXPECT-OUTPUT:
+// nocopy some=true none=false
+// drop res 1
+// nocopy cleared some=false none=true
+// explicit some=true none=false
+// implicit some=true none=false
+// trivial some=false none=true
+// temp some=true
+// drop res 99
+// after temp
+// drop vec 2
+
+struct Res { id: Int }
+
+extension Res: NoCopy {
+    func deinit(&var self) { print("drop res {self.id}") }
+}
+
+func maybe_res(on: Bool) -> Res? {
+    if on { Res(id: 99) } else { None }
+}
+
+func main() {
+    // NoCopy — the tier `if let _ =` could not reach at every position.
+    var n: Res? = Res(id: 1)
+    print("nocopy some={n.is_some()} none={n.is_none()}")
+    n = None
+    print("nocopy cleared some={n.is_some()} none={n.is_none()}")
+
+    // ExplicitCopy: no `.copy()` and no `move` is owed, because nothing moves.
+    let elems: Vector<Int> = [1, 2]
+    let e: Vector<Int>? = move elems
+    print("explicit some={e.is_some()} none={e.is_none()}")
+
+    // ImplicitCopy: no retain either — the tag is not the payload.
+    let i: String? = "x"
+    print("implicit some={i.is_some()} none={i.is_none()}")
+
+    // trivial
+    let t: Int? = None
+    print("trivial some={t.is_some()} none={t.is_none()}")
+
+    // A freshly-produced owned receiver still owns its payload after the tag
+    // is read, so it drops at the end of the statement, exactly once.
+    print("temp some={maybe_res(true).is_some()}")
+    print("after temp")
+
+    print("drop vec {e!.len()}")
+}

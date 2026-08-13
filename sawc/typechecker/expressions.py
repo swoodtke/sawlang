@@ -6418,6 +6418,35 @@ class ExpressionsMixin:
                                      receiver_mutable=True)
         return opt_type
 
+    def _check_optional_presence(self, expr: MethodCall,
+                                 opt_type: SawType) -> Optional[SawType]:
+        """Check `o.is_some()` / `o.is_none()` — `Optional`'s tag-only reads.
+
+        An optional is a tag beside a payload, and these two answer the tag.
+        Nothing is taken out, so there is no transfer to judge: design 131's
+        copy-tier table is never consulted and the answer is the same for a
+        `NoCopy` payload as for an `Int`. That tier-independence is the point —
+        it is what lets a move-only payload be asked whether it is there, which
+        `if let _ = …` could not do at every position (DF-218a).
+
+        `&self`-shaped, so unlike `take` it needs no mutable place and no place
+        at all: a call result is as good a receiver as a local. The receiver's
+        path joins the enclosing call's exclusivity entries as a SHARED access,
+        which is what lets a presence test sit beside other readers.
+        """
+        if expr.arguments:
+            self._error(
+                ErrorKind.TYPE_MISMATCH,
+                f"`{expr.method_name}()` takes no arguments, "
+                f"got {len(expr.arguments)}",
+                expr.line, expr.column
+            )
+            return None
+        expr.optional_presence = expr.method_name
+        self._check_call_exclusivity([], [], receiver=expr.object,
+                                     receiver_mutable=False)
+        return SawType(TypeKind.BOOL)
+
     def _check_nil_coalesce(self, expr: NilCoalesce) -> Optional[SawType]:
         """Check nil coalescing: expr ?? default - returns T."""
         opt_type = self._check_expression(expr.expr)
@@ -8371,6 +8400,12 @@ class ExpressionsMixin:
                 and expr.method_name == "take"
                 and not getattr(expr, 'type_args', None)):
             return self._check_optional_take(expr, obj_type)
+
+        # `o.is_some()` / `o.is_none()` — the tag-only presence reads (DF-218a).
+        if (obj_type.kind == TypeKind.OPTIONAL
+                and expr.method_name in ("is_some", "is_none")
+                and not getattr(expr, 'type_args', None)):
+            return self._check_optional_presence(expr, obj_type)
 
         _prim_ext_name = self.namespace.primitive_conformance_key(obj_type)
         if _prim_ext_name is not None:

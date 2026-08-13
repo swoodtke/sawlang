@@ -1485,6 +1485,10 @@ class MethodCall(Expression):
     # design 131: `o.take()` — `Optional.take(&var self) -> T?`. Swaps `None`
     # into the receiver place and returns the payload owned.
     optional_take: bool = annotation(False)
+    # DF-218a: `o.is_some()` / `o.is_none()` — `Optional`'s tag-only reads.
+    # `"is_some"` or `"is_none"`; the payload is never touched, so the answer is
+    # the same at every copy tier and codegen owes no retain and no drop.
+    optional_presence: Optional[str] = annotation(None)
     # design 170: `UInt8.from(x)` / `UInt8.from(truncating: x)` — the conversion
     # family beside the checked cast. `(target TypeKind, is_truncating,
     # source_is_signed)`; there is no symbol to call, so codegen lowers it
