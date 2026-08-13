@@ -77,9 +77,14 @@ RV32 = ["--freestanding", "--target", "riscv32-unknown-none-elf",
         "--target-features", "+m,+a,+c"]
 
 # A frame's presence is read off the methods the transform synthesizes for it.
+# The separator is `_+` rather than the literal `___` this used to spell:
+# design 218 unit 1 un-prefixed the `Resumable` requirements (`__is_cancelled`
+# -> `is_cancelled` and the rest), so a frame method mangles with ONE
+# underscore now and the old pattern matched nothing — which this lane reports
+# as "no coroutine frames at all" rather than as a pass.
 _FRAME_RE = re.compile(
-    r"__Frame_([A-Za-z0-9_$]+?)___"
-    r"(?:state|resume|is_cancelled|wake_reason|bt_desc)")
+    r"__Frame_([A-Za-z0-9_$]+?)_+"
+    r"(?:state|resume|is_cancelled|wake_reason|bt_desc|release)\b")
 
 # llvmlite's unoptimized rendering: `declare external i64 @"name"(i64 %".1")`.
 # The head is scanned rather than matched whole — a parameter may itself be a
