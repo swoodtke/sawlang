@@ -224,13 +224,20 @@ EMPTY in-tree. ~80% of the migration is mech-shaped. NEW FINDINGS
    pointer-read sites is a transfer (a value-read "peek" of an owning
    type would be DF-132a by definition — expect unanimous); std bodies
    then gain the `move` spelling in the same unit.
-2. **Design 146 vs 219.** `place_uses._COPY_PROVING_BOUNDS` deliberately
-   lets `T: ExplicitCopy` license a SILENT place value read lowered as a
-   real `copy()` (p14 runs) — exactly what 219 forbids. LEAD RECOMMENDS:
-   146 yields (silent reads need the merged `Copy`), with the sequencing
-   note that design 216's `&T`-closure rework must land WITH or BEFORE
-   enforcement so `Vector<Vector<Int>>` iteration (p8, works today)
-   migrates to the borrow path instead of breaking.
+2. **Design 146 vs 219 — RULED (user, Aug 13): 146 yields. Copy ≠
+   ExplicitCopy at every silent position.** `_COPY_PROVING_BOUNDS` becomes
+   the merged `Copy` alone: a silent place value read in a generic body is
+   licensed only by the silent tier; an `ExplicitCopy` bound licenses only
+   SPELLED `.copy()`. Container copyability at ceremony-tier elements is
+   expressed where it belongs — as the CONTAINER'S OWN conformance: e.g.
+   `Vector<T: ExplicitCopy>: ExplicitCopy`, whose body spells
+   `buf[i].copy()` (which std's existing `Vector<T: Copy>: ExplicitCopy`
+   conformance already does — its bound migrates class-(b) and
+   `Vector<Vector<Int>>.copy()` keeps working, spelled at the call site).
+   What retires is only the silent admission. Sequencing constraint
+   stands: design 216's `&T`-closure rework lands WITH or BEFORE
+   enforcement, so iteration at non-Copy elements moves to the borrow
+   path (p8's `.each` shape) instead of breaking.
 3. **The wrapper-receiver matrix for the `ExplicitCopy` bound gate**
    (DF-217q's fix): the gate becomes a funnel computing the requirement
    recursively over composite receivers, with p9's shapes as the rows.
