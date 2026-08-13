@@ -1027,7 +1027,8 @@ Saw provides deterministic memory management without garbage collection:
   A receiver is a reference, so the rule is the one below: a capture that lowers
   to a pointer into the enclosing frame is legal only in a closure passed
   directly to a non-escaping parameter. `[&x]`, a reference parameter and `self`
-  are three spellings of it, and an escaping closure refuses all three.
+  are three spellings of it, and an escaping closure refuses all three. The
+  enclosing method must be `sync`; the suspending case is not supported yet.
 - **Reference types** (`&T`, `&var T`) for borrowing, checked for exclusivity at
   compile time.
 - **The Law of Exclusivity**: a `&var` (mutable) reference must not overlap any

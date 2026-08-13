@@ -2739,6 +2739,13 @@ those, or take the receiver as an explicit closure parameter
 A **consuming** `self` receiver (declared without `&`) is an owned binding, not
 a borrow, so it is captured by value under the ordinary transfer rules.
 
+> **Limitation.** The enclosing method must be `sync`. Naming `self` in a
+> closure inside a **suspending** method is not supported yet (DF-216g): the
+> coroutine transform moves the receiver behind the task frame, and how a frame
+> lends its receiver to a closure is an open question. Read the field into a
+> local ahead of the closure, or take the receiver as an explicit closure
+> parameter.
+
 **Call-site reference sigils:** the call site mirrors the parameter's reference
 spelling. `&x` lends immutably to a `&T` parameter; `&var x` lends mutably to a
 `&var T` parameter. A mismatch in **either** direction is a compile error

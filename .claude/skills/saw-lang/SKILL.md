@@ -2187,6 +2187,11 @@ construct in the owner and lend `&driver` down.
   Treat the ref-param half as caught now and SUSPECT in older builds: an escaping
   closure capturing a `&T` param used to compile to a raw pointer into a dead
   frame with no diagnostic.
+  **LIMITATION: the enclosing method must be `sync`.** Naming `self` in a closure
+  inside a SUSPENDING method still ICEs (DF-216g) — the coroutine transform moves
+  the receiver behind the task frame, so the body's `self` binds to the frame.
+  Read the field into a local ahead of the closure, or take the receiver as an
+  explicit closure parameter.
 - `guard` must exit (return/break/continue/panic).
 - Shadowing footgun (design 100/107): naming an inner binding after an outer one
   is an ERROR unless the inner DERIVES from the outer (its initializer mentions the

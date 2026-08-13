@@ -1,0 +1,43 @@
+// Design 216's rule reaching a SUSPENDING method. A non-escaping closure naming
+// `self` works in a sync method (closure_captures_self); in a suspending one it
+// does not, because the coroutine transform moves the receiver behind the
+// frame: inside a resume body the name `self` IS the frame, so the capture
+// grabs the frame and `self.n` is looked up in `__Frame_Counter_slow`.
+//
+// This case ICEd before design 216 too — as DF-216a's own
+// `'self' not found in current scope` — so it is an uncovered case of that
+// finding rather than a regression from its fix. What it needs is a ruling the
+// capture funnel cannot make on its own: `__recv` holds a POINTER to the
+// receiver, so the closure wants to borrow through it, and the transform's
+// existing answer for frame state (`_materialize_closure_captures`, which
+// copies each captured frame local into a real local ahead of the closure) is a
+// VALUE snapshot — which contradicts the borrow ruling and cannot work for a
+// NoCopy receiver at all. Saw has no local reference binding to materialize a
+// borrow into.
+//
+// Intended behavior is below: the same as the sync case, reading the live
+// receiver.
+// XFAIL: DF-216g a closure naming `self` inside a SUSPENDING method ICEs — the coroutine transform leaves the body's `self` bound to the frame
+// EXPECT: success
+// EXPECT-OUTPUT:
+// 16
+
+import std.task
+
+func run_int(body: () sync -> Int) -> Int { body() }
+
+struct Counter { n: Int }
+
+extension Counter {
+    func slow(&self) -> Int {
+        task.yield_now()
+        let a = run_int({ self.n + 1 })
+        task.yield_now()
+        a + run_int({ self.n * 2 })
+    }
+}
+
+func main() {
+    let c = Counter(n: 5)
+    print("{}", c.slow())      // 6 + 10
+}

@@ -180,6 +180,26 @@ that reach the funnel and found no siblings; it had not enumerated the funnel's
 own CALLERS, where the sibling was. That is the obligation-4 refinement this
 landing earned.
 
+**Left open, and it wants a RULING — DF-216g: the SUSPENDING method.** The sync
+case is what landed. A closure naming `self` inside a suspending method still
+ICEs, because the coroutine transform moves the receiver behind the frame:
+inside a resume body the name `self` IS the frame, so the capture takes the
+frame and `self.n` is looked up in `__Frame_Counter_slow`. Verified to have ICEd
+before this landing too (with DF-216a's own message, by reverting
+`expressions.py` to 84758161 and re-running the probe), so it is an uncovered
+case of DF-216a rather than a regression from its fix.
+
+It is not a small follow-up, which is why it stopped here rather than growing
+the unit. `__recv` holds a POINTER to the receiver, so the closure wants to
+BORROW through it — but the transform's existing answer for frame state,
+`_materialize_closure_captures`, copies each captured frame local into a real
+local ahead of the closure. That is a VALUE snapshot: it contradicts the borrow
+ruling above, and it cannot work at all for a NoCopy receiver. Saw has no local
+reference binding to materialize a borrow into. So the fix needs a decision
+about how a coroutine frame lends its receiver to a closure, which is a design
+question rather than a missing case. Pinned:
+`examples/closure_captures_self_suspending.saw`.
+
 **Left open, deliberately — DF-216e.** `borrow_ok`'s `as_call_argument`
 heuristic cannot tell "the callee RUNS this closure" from "the callee STORES
 it", so a borrow capture handed to `Vector.push` is still classified

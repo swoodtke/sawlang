@@ -142,6 +142,21 @@ A NoCopy `Vector` sorts end to end today, written from outside std.
   silently** — **FIXED** with 216a, by the same predicate. Found by the DF-216a
   ruling probes: it compiled to a raw pointer into a dead frame with no
   diagnostic, at the one site not enforcing the spec's own no-escape rule.
+- **DF-216g — a closure naming `self` inside a SUSPENDING method still ICEs, and
+  it wants a RULING.** The sync case landed (216 unit 1); this one did not,
+  because the coroutine transform moves the receiver behind the frame — inside a
+  resume body the name `self` IS the frame, so the capture takes the frame and
+  `self.n` is looked up in `__Frame_Counter_slow`. It ICEd before 216 as well
+  (with DF-216a's own message), so it is an uncovered case of that finding, not
+  a regression from its fix. The reason it is not a small follow-up: `__recv`
+  holds a POINTER to the receiver, so the closure wants to BORROW through it,
+  while the transform's existing answer for frame state
+  (`_materialize_closure_captures`) copies each captured frame local into a real
+  local ahead of the closure — a value snapshot, which contradicts the borrow
+  ruling and cannot work for a NoCopy receiver. Saw has no local reference
+  binding to materialize a borrow into, so the fix needs a decision about how a
+  coroutine frame lends its receiver to a closure. Pinned:
+  `examples/closure_captures_self_suspending.saw`.
 - **DF-216f — `Self` does not resolve in an extension method's PARAMETER type.**
   `func addFrom(&self, other: &Self)` on `extension Counter` reports ``argument
   `other` expects `&Self` but got `&Counter``` at the call site plus ``cannot

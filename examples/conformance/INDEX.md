@@ -136,6 +136,7 @@ Claim source: spec 4 *Reference Types*; designs 88, 106, 163d, 188 u1, 193 u5, 2
 | R35 | PLAIN capture of a `&T`/`&var T` PARAMETER by an escaping closure | `closure_captures_reference_param_escaping_error.saw` | 216 — was a DEVIATION (accepted silently). R22-R24 covered the `[&x]` SPELLING only; a reference-typed binding captured plainly is the same pointer-into-the-frame and bypassed the rule, compiling to `store ptr %r` into a HEAP env (DF-216d). One predicate now covers both spellings |
 | R36 | a closure naming `self`, escaping the method's frame | `closure_captures_self_escaping_error.saw` | 216 — a receiver IS a borrow, so this is the implicit third spelling of R35. Previously unreachable: any closure naming `self` ICEd (DF-216a) |
 | R37 | a closure naming `self` in a NON-escaping closure — the acceptance | `closure_captures_self.saw` | 216 — the legal side, matching R30. Reads see the live receiver and a `&var self` write reaches the caller |
+| R38 | the same, inside a SUSPENDING method | `closure_captures_self_suspending.saw` | 216 — OPEN (DF-216g), pinned XFAIL. The coroutine transform binds the body's `self` to the frame; how a frame lends its receiver to a closure is unruled |
 
 ## The Law of Exclusivity — one writer XOR many readers
 
