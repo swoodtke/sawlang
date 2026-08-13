@@ -425,6 +425,7 @@ stays legal, because a synthesized body never consumes its operand (C09).
 | C09 | control: a NoCopy operand with a FULLY synthesized comparison tree keeps its operators and answers correctly | `C09_nocopy_synthesized_comparison_legal.saw` | 216 — what a blanket "NoCopy cannot be compared" would have cost |
 | C10 | control: the direct-call spellings `a.equals(move b)` / `a.equals(b.copy())` are unchanged | `C10_direct_call_transfer_spellings.saw` | 216 — the outs the diagnostic names have to exist; `drop 3` printing before the comparison result is the by-value contract working |
 | C11 | the ExplicitCopy half of the tier condition | `C11_explicitcopy_operand_handwritten_compare.saw` | 216 — `.copy()` joins `move` in the hint |
+| C12 | an ImplicitCopy operand must survive a comparison whose conformance consumes `other` | `C12_implicitcopy_operand_survives_consuming_equals.saw` | 216 — OPEN, XFAIL citing DF-216b: an EIGHTH position, past the seven the class sweep probed (it tested NoCopy throughout). The stopgap's tier condition excludes ImplicitCopy on the grounds that retain semantics make the borrow sound; probed, they do not — the operator adds no retain at any tier, so 200 comparisons over-release a heap `String` and the process dies with SIGTRAP. The row pins the PROPERTY, not a mechanism, because which fix delivers it is a ruling |
 
 ## Shadowing
 
@@ -537,6 +538,13 @@ rows (R24, X15, X16, X20, U24, U25, K13). The last one closed:
 Obligation 3 asks a safety-surface brief for its rows FIRST, so a row that
 states a ruling the compiler has not been taught yet lands as a cited XFAIL and
 the unit that teaches it removes the marker.
+
+Open: **C12** — an ImplicitCopy operand compared through a conformance that
+consumes `other` is over-released, and the stopgap's tier condition deliberately
+does not reach it. Found by probing the ruling's own premise ("retain semantics
+make the borrow sound") rather than by the class sweep, which tested NoCopy
+operands throughout. The row states the guarantee and leaves the mechanism to
+the ruling; `other: &Self` satisfies it at every tier at once.
 
 Open: **C07** — design 216's stopgap closes six of DF-216b's seven positions at
 the comparison chokepoint; the seventh (a generic body under a

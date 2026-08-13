@@ -1608,6 +1608,15 @@ class ExpressionsMixin:
         pair is exactly the disagreement between the two spellings of one call:
         `a.compare(b)` is refused at the transfer checkpoint, `a > b` was not.
 
+        THE TIER CONDITION IS NARROWER THAN SOUNDNESS, deliberately. An
+        ImplicitCopy operand is excluded because a checked call site accepts it
+        — but the operator adds no retain at any tier, so a consuming body
+        over-releases one of those too (conformance row C12 pins it, and the
+        probe SIGTRAPs). Widening this to every non-trivial tier would refuse
+        the operator on ordinary value types with a hand-written `equals`,
+        which is a ruling rather than a stopgap; `other: &Self` removes the
+        callee's ability to consume at every tier at once and is the real fix.
+
         Returns True when it reported, so the caller stops.
         """
         tier = self.namespace.copy_tier(operand_type)
@@ -1631,7 +1640,7 @@ class ExpressionsMixin:
         self._error(
             ErrorKind.CANNOT_COPY,
             f"cannot compare values of type `{operand_type}` with "
-            f"`{expr.op}`: `{operand_type}` implements {policy} and {clause}, "
+            f"`{expr.op}`: `{operand_type}` is {policy} and {clause}, "
             f"but the operator passes a borrow — a conformance that consumes "
             f"`other` would release a value the caller still owns (DF-216b)",
             expr.line, expr.column,

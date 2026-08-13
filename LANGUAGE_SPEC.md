@@ -4437,10 +4437,10 @@ extension Tag: Equatable {
 let a = Tag(id: 9)
 let b = Tag(id: 3)
 if a == b { }
-// error: cannot compare values of type `Tag` with `==`: `Tag` implements
-//   NoCopy and its hand-written `equals` takes `other` by value, but the
-//   operator passes a borrow — a conformance that consumes `other` would
-//   release a value the caller still owns (DF-216b)
+// error: cannot compare values of type `Tag` with `==`: `Tag` is NoCopy and
+//   its hand-written `equals` takes `other` by value, but the operator passes
+//   a borrow — a conformance that consumes `other` would release a value the
+//   caller still owns (DF-216b)
 // hint: call it directly with an explicit transfer — `a.equals(move b)` — or
 //   make the conformance `@synthesize`d; a synthesized body never consumes
 //   its operand
@@ -4469,11 +4469,11 @@ extension Holder: NoCopy {}
 extension Holder: Equatable {}
 
 if holder_a == holder_b { }
-// error: cannot compare values of type `Holder` with `==`: `Holder`
-//   implements NoCopy and its comparison recurses into `Tag`'s hand-written
-//   `equals`, which takes `other` by value, but the operator passes a borrow
-//   — a conformance that consumes `other` would release a value the caller
-//   still owns (DF-216b)
+// error: cannot compare values of type `Holder` with `==`: `Holder` is NoCopy
+//   and its comparison recurses into `Tag`'s hand-written `equals`, which
+//   takes `other` by value, but the operator passes a borrow — a conformance
+//   that consumes `other` would release a value the caller still owns
+//   (DF-216b)
 ```
 
 Three spellings work. Call the method with an explicit transfer,
@@ -4482,10 +4482,19 @@ ExplicitCopy one; make the conformance `@synthesize`d; or write a conformance
 that reads `other` instead of consuming it and reach it through one of the
 first two.
 
-**Known gap.** Inside a generic body under a `T: Equatable` or `T: Comparable`
-bound, the operators are not yet refused when the bound is discharged at a
-move-only conformer with a consuming body. A generic body is checked once with
-`T` abstract, so the operand type never reaches the check.
+**Known gaps.** Two shapes still reach a consuming conformance through an
+operator:
+
+- Inside a generic body under a `T: Equatable` or `T: Comparable` bound, when
+  the bound is discharged at a move-only conformer with a consuming body. A
+  generic body is checked once with `T` abstract, so the operand type never
+  reaches the check.
+- On an ImplicitCopy operand. The operator passes the operand without a retain,
+  so a body that consumes it releases a reference the caller still holds. The
+  refusal above does not cover this tier.
+
+Until both are closed, write `equals` and `compare` bodies that read `other`
+rather than consuming it. A `@synthesize`d conformance always does.
 
 ### Hashing (`Hashable`) and `Hasher`
 

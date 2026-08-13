@@ -960,11 +960,14 @@ v.map<String>({ $0.to_string() })   // the closure's return; explicit still wins
   that surprises: a `@synthesize`d outer type whose memberwise comparison
   recurses into a member's hand-written body is refused too, naming the member
   (`Holder` ... recurses into `Tag`'s hand-written `equals`), and it follows
-  struct fields, enum payloads and tuple elements alike. Not yet covered: the
-  operators inside a GENERIC body under a `T: Equatable`/`T: Comparable` bound,
-  instantiated at such a type — the body is checked once with `T` abstract, so
-  that shape still compiles and still double-frees. Write comparison bodies
-  that READ `other` rather than consuming it and none of this reaches you.
+  struct fields, enum payloads and tuple elements alike. TWO shapes are NOT yet
+  covered and still corrupt silently: the operators inside a GENERIC body under
+  a `T: Equatable`/`T: Comparable` bound instantiated at such a type (the body
+  is checked once with `T` abstract), and an ImplicitCopy operand — the operator
+  adds no retain at any tier, so a consuming `equals` on a `struct Held { name:
+  String }` over-releases and 200 comparisons SIGTRAP. **THE RULE THAT KEEPS YOU
+  OUT OF ALL OF IT: a comparison body READS `other`, never `move`s it.** A
+  `@synthesize`d conformance always does.
 - **SERIALIZATION (design 169): `Serialize` / `Deserialize` over `Encoder` /
   `Decoder`.** Prelude-visible, both profiles. A value writes itself into a
   format-agnostic sink and reads itself back out of one. `@synthesize` DERIVES

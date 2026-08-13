@@ -255,6 +255,30 @@ also refuse `Map<Tag, V>` keys, which the sweep established are SOUND. So row 7
 stays open, pinned as conformance row C07 (XFAIL citing DF-216b), and
 `other: &Self` is what closes it.
 
+**An EIGHTH position, and the stopgap does NOT cover it: an ImplicitCopy
+operand.** The ruling's tier condition excludes ImplicitCopy on the stated
+grounds that retain semantics make the borrow sound. Probed after the stopgap
+landed, that premise is FALSE — the operator lowering adds no retain at ANY
+tier, it just hands the callee two loaded values. An auto-ImplicitCopy `struct
+Held { name: String }` whose hand-written `equals` does `move other` releases a
+reference nobody took on every comparison; 200 of them and the process dies with
+SIGTRAP (`.build/scratch/probe_implicitcopy_consuming2.saw`), while the
+identical body READING `other` survives (`probe_implicitcopy_control.saw`) — the
+difference is exactly the `move`. A first probe using string LITERALS showed
+nothing, which is why the sweep's shapes missed it: a literal is immortal, so
+the over-release is invisible until the String is heap-allocated. The class
+sweep tested NoCopy operands throughout and never asked this question.
+
+Widening the tier condition to `!= 'free'` would close it, but that is a
+ruling, not a stopgap: it would refuse the operator on ordinary value types
+(`struct Ticket { code: String }` with a hand-written `equals`), which is the
+gratuitous breakage the ruling was written to avoid, and the honest alternative
+— retain the operand at the lowering — is a codegen change in the emitters this
+brief deliberately did not touch. Pinned as conformance row C12, which states
+the GUARANTEE (a comparison does not destroy its operands) rather than any one
+mechanism. `other: &Self` satisfies it at every tier at once, which is one more
+argument for that brief being the real fix.
+
 **Consumer sweep (obligation 2), run before the fix, ZERO tracked breakage.**
 Across examples/, sawc/std/, sawc/builtin.saw, sawc/rt/, blade/, libs/, sos/,
 devtools/ and tools/ there are exactly five hand-written `equals`/`compare`
