@@ -196,10 +196,25 @@ class ConditionalsMixin:
         own answer, stamped by `_read_field` on whatever shape the read takes.
         """
         src = node.optional_expr
+        return (self._optional_source_hands_over(src)
+                or node.payload_needs_copy)
+
+    def _optional_source_hands_over(self, src) -> bool:
+        """Whether an optional-binding SCRUTINEE hands its payload to whatever
+        binds it — because it was `move`d, or because it was a fresh temporary
+        nobody else holds.
+
+        Split out of `_optional_binding_owns` because the `_` arms need exactly
+        this and NOT the `payload_needs_copy` term: `_` binds nothing, so no
+        retain is ever emitted for it, and dropping on the strength of a retain
+        that did not happen would double-free. They asked only
+        `_is_owned_temporary`, so `if let _ = move opt` (and its `guard let`
+        twin) released nothing at all — a leak of a spec-blessed idiom with no
+        coroutine anywhere in sight. DF-217i.
+        """
         return (isinstance(src, MoveExpr)
                 or getattr(src, 'frame_move_read', False)
-                or self._is_owned_temporary(src)
-                or node.payload_needs_copy)
+                or self._is_owned_temporary(src))
 
     def _generate_if_let_expression(self, expr: IfLetExpr):
         """Generate code for if let/var optional binding.
@@ -257,11 +272,12 @@ class ConditionalsMixin:
             pattern_names = self._pattern_binding_names(expr.pattern)
         elif expr.name == "_":
             # Design 111 rider: `if let _ = opt` binds nothing. Drop the unwrapped
-            # payload immediately when this optional is a fresh owned temporary
-            # whose payload we now solely hold (a named/field source keeps owning
-            # it). This is how a `Void?` is consumed (its unit payload is trivial).
+            # payload immediately when the source HANDED IT OVER — a fresh owned
+            # temporary, or a `move` that retired the whole binding (a named/field
+            # source keeps owning it, and dropping there would double-free). This
+            # is how a `Void?` is consumed (its unit payload is trivial).
             if (inner_saw is not None
-                    and self._is_owned_temporary(expr.optional_expr)
+                    and self._optional_source_hands_over(expr.optional_expr)
                     and self._needs_cleanup(inner_saw)):
                 slot = self._entry_alloca(inner_val.type, name="_.discard")
                 self.builder.store(inner_val, slot)
@@ -549,11 +565,12 @@ class ConditionalsMixin:
             return
 
         # Design 111 rider: `guard let _ = opt else { ... }` binds nothing. Drop the
-        # unwrapped payload immediately for a fresh owned-temporary source (a
-        # named/field source keeps owning it). Consumes a `Void?` (trivial unit).
+        # unwrapped payload immediately when the source handed it over — a fresh
+        # owned temporary or a `move` (a named/field source keeps owning it).
+        # Consumes a `Void?` (trivial unit).
         if stmt.name == "_":
             if (inner_saw is not None
-                    and self._is_owned_temporary(stmt.optional_expr)
+                    and self._optional_source_hands_over(stmt.optional_expr)
                     and self._needs_cleanup(inner_saw)):
                 slot = self._entry_alloca(inner_val.type, name="_.discard")
                 self.builder.store(inner_val, slot)

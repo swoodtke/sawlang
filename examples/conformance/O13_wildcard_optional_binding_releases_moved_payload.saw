@@ -1,0 +1,91 @@
+// Conformance row O13 — `if let _ = move opt` / `guard let _ = move opt`
+// releases the payload it discards
+//
+// Design 111's `_` rider binds nothing and DROPS the payload — that is what
+// makes it the way to consume a `Void?` and the way to ask "did the write
+// happen" without keeping the value. Codegen dropped it only when the scrutinee
+// was a fresh owned temporary (a call, a constructor), which is the source shape
+// the rider was written against.
+//
+// A `move` scrutinee hands the payload over just as completely: it retires the
+// whole binding, so the source's own scope-exit drop is skipped. Nothing dropped
+// it instead. `if let _ = move opt` leaked, with NO coroutine involved — and
+// `guard let _ = move opt` leaked in a plain function while its driven twin was
+// correct, because a driven `guard let` splits and carries its binding in a
+// frame slot. DF-217i, found sweeping DF-217b's predicate.
+//
+// ORACLE: `LIVE` counts live `Res` values; every observation is zero.
+// EXPECT: success
+// EXPECT-OUTPUT:
+// if let plain 0
+// if let driven 0
+// guard let plain 0
+// guard let driven 0
+// control temporary 0
+// control named 0
+
+import std.task.*
+
+static LIVE: Atomic<Int> = Atomic(0)
+
+struct Res { name: String }
+
+extension Res: NoCopy {
+    func deinit(&var self) { LIVE.fetch_add(0 - 1) }
+}
+
+func res(tag: String) -> Res {
+    LIVE.fetch_add(1)
+    Res(name: tag)
+}
+
+func iflet_plain() {
+    var o: Res? = res("a")
+    if let _ = move o { }
+}
+
+func iflet_driven() {
+    var o: Res? = res("a")
+    yield_now()
+    if let _ = move o { }
+}
+
+func guardlet_plain() {
+    var o: Res? = res("b")
+    guard let _ = move o else { return }
+}
+
+func guardlet_driven() {
+    var o: Res? = res("b")
+    yield_now()
+    guard let _ = move o else { return }
+}
+
+func mk() -> Res? { res("c") }
+
+// Control: the temporary source the rider was written against.
+func control_temporary() {
+    if let _ = mk() { }
+}
+
+// Control: a NAMED source with no `move` keeps owning its payload and releases
+// it itself at scope end — dropping here too would double-free.
+func control_named() {
+    let o: Res? = res("d")
+    if let _ = o { }
+}
+
+func main() {
+    iflet_plain()
+    print("if let plain {LIVE.load()}")
+    __saw_drive(iflet_driven())
+    print("if let driven {LIVE.load()}")
+    guardlet_plain()
+    print("guard let plain {LIVE.load()}")
+    __saw_drive(guardlet_driven())
+    print("guard let driven {LIVE.load()}")
+    control_temporary()
+    print("control temporary {LIVE.load()}")
+    control_named()
+    print("control named {LIVE.load()}")
+}

@@ -6,11 +6,12 @@ either a file in this directory or an existing `examples/` test that already
 asserts the same rule at the same position — this table is the record of which,
 and the dedup decisions are meant to be audited from it.
 
-**102 rows carry a file here; 197 are covered elsewhere.** (The audit's 247 plus
+**103 rows carry a file here; 197 are covered elsewhere.** (The audit's 247 plus
 the rows later briefs added: W02-W05, design 194 unit 4; W06-W19, design 195
 unit 1; X41-X45, design 199 unit 1; M31-M35, design 200 unit 1; V26-V30,
 design 202 unit 1; B09-B12, design 204 unit 1; K14-K20, design 201 unit 1;
-K21-K25, design 210 units 1 and 5; S09, O12 and K26, the DF-217a/b/c fixes.)
+K21-K25, design 210 units 1 and 5; S09, O12 and K26, the DF-217a/b/c fixes; O13,
+the DF-217i leak their sweep turned up.)
 
 ## How to read it
 
@@ -462,6 +463,7 @@ Claim source: spec 3 *Optionals*; designs 111, 131, 174, 187
 | O10 | DF-174h: `??` with a default one layer too deep | `errors/optional_coalesce_default_too_deep.saw` |  |
 | O11 | control: the sanctioned nested-optional route (`v.get(i)` on `Vector<Int?>`) | `optional_nested_wrap_depth.saw` |  |
 | O12 | an `if let` binding out of a `move` scrutinee releases its payload once INSIDE a coroutine | `O12_iflet_move_binding_released_in_coroutine.saw` | DF-217b — codegen read the ownership off the AST shape (`isinstance(src, MoveExpr)`), and the coroutine transform's rewrite is what deletes that shape; a `self_opt` frame field reads back as a plain `MemberAccess`, so every driven function leaked the payload with no suspension near either binding |
+| O13 | `if let _` / `guard let _` over a `move` scrutinee releases the payload it discards | `O13_wildcard_optional_binding_releases_moved_payload.saw` | DF-217i — design 111's `_` rider dropped only a fresh-TEMPORARY payload, so a `move` scrutinee (which retires the source binding just as completely) leaked, with no coroutine involved at all. Found sweeping O12's predicate |
 
 ## Freestanding and `--no-hidden-alloc`
 
