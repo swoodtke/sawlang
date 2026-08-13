@@ -169,6 +169,13 @@ uncomparable. Fixing (2) is what the collection API wants. It changes a core
 trait signature and every conformer with it, so it is its own brief; this one
 records the evidence and the dependency.
 
+**Status: (1) is LANDED as the stopgap** (see "The stopgap" under Class sweeps
+below) — and it is narrower than "leaves them uncomparable": only a comparison
+reaching a HAND-WRITTEN body is refused, so a `@synthesize`d NoCopy type keeps
+every operator. **(2) is still owed**, and now carries two dependencies rather
+than one: the `sort` half of this brief, and matrix row 7 (the operators inside
+a generic body), which the stopgap's chokepoint cannot see.
+
 ## Class sweeps (Aug 13 — obligation 4, run before any dispatch)
 
 Two probe-backed sweeps, agent-run, every verdict from a real compile/run.
@@ -214,6 +221,51 @@ Funnel verdict: the one chokepoint seeing every comparison operator is
 a stopgap check there makes NoCopy comparison a clean error at every position
 at once. The `other: &Self` signature change remains the real fix: it closes
 the entire matrix by construction, including the recursive codegen paths.
+
+### The stopgap: LANDED (units 1-2), six of seven positions
+
+The refusal fires where BOTH hold: the operand's copy tier is ExplicitCopy or
+NoCopy (a checked call site could not have passed it by value without
+`move`/`.copy()`), and the comparison TRANSITIVELY reaches a hand-written
+`equals`/`compare` — the operand's own, or one reached through a member, enum
+payload, tuple element, optional payload or array element that a synthesized
+comparison recurses into. A fully synthesized tree stays legal, because a
+synthesized body never consumes its operand; that is what keeps `@synthesize`d
+NoCopy types comparable instead of making move-only comparison impossible.
+One helper (`_consuming_comparison_conformer`) holds the rule and its docstring
+names its single entry point; the synthesized-vs-hand-written question is
+answered from the registered method's `is_derived_equals`/`is_derived_compare`
+AST flag (an enum's derived body mints no method symbol at all, which reads the
+same way). Conformance rows C01-C11.
+
+**The matrix claim above was wrong on one row, and the correction is the
+stopgap's real boundary.** Tracing every probe through the chokepoint: rows 1-6
+(`>`-family, `==`/`!=`, match guards, `@synthesize` memberwise, enum payload,
+tuple) deliver the CONCRETE operand type there at tier `nocopy`, and all six
+close. Row 7 (a generic body under `T: Equatable`/`T: Comparable`) delivers only
+`T` at tier `abstract` — a generic body is checked ONCE with `T` abstract and is
+NOT re-checked per instantiation (probed independently: `func passthrough<T>(x:
+T) -> T { let y = x  move y }` compiles when instantiated at a NoCopy type), so
+the concrete conformer never reaches `_check_binary_op` at all. Closing it means
+judging the type ARGUMENT where the bound is discharged, and that is SIX
+independent callers of `_bound_satisfied` (expressions.py:2865, 3838, 3851,
+3868, 3910, 5947) rather than a funnel — six new check sites is what obligation
+1 exists to refuse, and putting the rule inside `_bound_satisfied` itself would
+also refuse `Map<Tag, V>` keys, which the sweep established are SOUND. So row 7
+stays open, pinned as conformance row C07 (XFAIL citing DF-216b), and
+`other: &Self` is what closes it.
+
+**Consumer sweep (obligation 2), run before the fix, ZERO tracked breakage.**
+Across examples/, sawc/std/, sawc/builtin.saw, sawc/rt/, blade/, libs/, sos/,
+devtools/ and tools/ there are exactly five hand-written `equals`/`compare`
+bodies: `String` (std/string.saw:324, 347) and four example types (`Doc`,
+`Reverse`, two `AK`s). Every one is on an ImplicitCopy or builtin-String type,
+which condition (a) excludes. The only NoCopy types carrying an Equatable
+conformance are three `Counted` fixtures (examples/map_nocopy_key_error.saw and
+siblings), all `@synthesize`d — and independently refused earlier by design 65's
+Map/Set key-copyability gate, so their `==` never type-checks. Std's generic
+comparison sites (`map.saw:102`, the `vector.saw` sort family) are `Copy`-bounded
+or key-gated and reach the chokepoint as abstract `K`/`T` regardless.
 
 ### DF-216a is NOT a class: one funnel, one missing case
 

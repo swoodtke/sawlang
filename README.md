@@ -258,6 +258,13 @@ never changes `==` or `compare` behind your back. Trivial (POD) structs and
 payload-free enums are the exception: they are already `Equatable` and
 `Hashable` with no declaration at all, and nothing to mark.
 
+The marker also decides whether a move-only type keeps its comparison
+operators. `equals` and `compare` receive the second operand by value, so a
+hand-written body may consume it, while `==` and `<` pass a reference — on an
+`ExplicitCopy` or `NoCopy` type the compiler refuses the operator and points at
+`a.equals(move b)` or the `@synthesize`d conformance. A derived body never
+consumes its operand, so a `@synthesize`d move-only type compares normally.
+
 ### Overloading
 
 A function, method, or `init` name carries an overload set resolved by exact

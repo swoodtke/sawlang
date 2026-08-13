@@ -4415,6 +4415,78 @@ trait Comparable {          // requires Equatable
   is `false` (matching the primitive `fcmp`); in a three-way `compare`, an
   unordered pair yields `Equal` (there is no total order over NaN — documented).
 
+### A comparison operator may not reach a consuming conformance
+
+**Status: implemented.** `Equatable.equals(&self, other: Self)` and
+`Comparable.compare(&self, other: Self)` take the second operand **by value**,
+so a hand-written body is entitled to `move` it. The operators lower to those
+methods but pass a reference. Where the two disagree, the operator is refused:
+
+```saw
+struct Tag { id: Int }
+extension Tag: NoCopy {
+    func deinit(&var self) { print("drop {self.id}") }
+}
+extension Tag: Equatable {
+    func equals(&self, other: Tag) -> Bool {
+        let taken = move other      // legal: `other` arrived by value
+        self.id == taken.id
+    }
+}
+
+let a = Tag(id: 9)
+let b = Tag(id: 3)
+if a == b { }
+// error: cannot compare values of type `Tag` with `==`: `Tag` implements
+//   NoCopy and its hand-written `equals` takes `other` by value, but the
+//   operator passes a borrow — a conformance that consumes `other` would
+//   release a value the caller still owns (DF-216b)
+// hint: call it directly with an explicit transfer — `a.equals(move b)` — or
+//   make the conformance `@synthesize`d; a synthesized body never consumes
+//   its operand
+```
+
+Two conditions must both hold for the refusal:
+
+- The operand's copy tier is **ExplicitCopy or NoCopy** — the tiers where a
+  checked call site could not have passed the value without writing `move` or
+  `.copy()`. An ImplicitCopy or trivial operand is unaffected, so a hand-written
+  `equals` on an ordinary value type keeps its operators.
+- The comparison **reaches a hand-written body**, directly or through the
+  members, enum payloads, tuple elements, optional payloads and array elements
+  a synthesized comparison recurses into. A `@synthesize`d body never consumes
+  its operand, so a fully synthesized tree stays legal at every tier:
+  `@synthesize extension Tag: Equatable {}` makes the same move-only `Tag`
+  comparable with `==`, `<` and the rest.
+
+The transitive half matters because nothing at the outer type's declaration
+names the consuming body:
+
+```saw
+struct Holder { tag: Tag }          // Tag has the hand-written `equals` above
+extension Holder: NoCopy {}
+@synthesize
+extension Holder: Equatable {}
+
+if holder_a == holder_b { }
+// error: cannot compare values of type `Holder` with `==`: `Holder`
+//   implements NoCopy and its comparison recurses into `Tag`'s hand-written
+//   `equals`, which takes `other` by value, but the operator passes a borrow
+//   — a conformance that consumes `other` would release a value the caller
+//   still owns (DF-216b)
+```
+
+Three spellings work. Call the method with an explicit transfer,
+`a.equals(move b)` on a NoCopy operand or `a.equals(b.copy())` on an
+ExplicitCopy one; make the conformance `@synthesize`d; or write a conformance
+that reads `other` instead of consuming it and reach it through one of the
+first two.
+
+**Known gap.** Inside a generic body under a `T: Equatable` or `T: Comparable`
+bound, the operators are not yet refused when the bound is discharged at a
+move-only conformer with a consuming body. A generic body is checked once with
+`T` abstract, so the operand type never reaches the check.
+
 ### Hashing (`Hashable`) and `Hasher`
 
 **Status: implemented** (`designs/48-ord-hash.md`). The `Hashable` trait gates

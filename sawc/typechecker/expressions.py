@@ -1618,20 +1618,22 @@ class ExpressionsMixin:
             return False
         method_name, _ = self._COMPARISON_REQUIREMENT[trait]
         policy = 'NoCopy' if tier == 'nocopy' else 'ExplicitCopy'
-        via = (f"its hand-written `{method_name}`"
-               if reached == self._comparison_type_name(operand_type)
-               else f"`{reached}`'s hand-written `{method_name}`, which its "
-                    f"comparison recurses into")
+        if reached == self._comparison_type_name(operand_type):
+            clause = (f"its hand-written `{method_name}` takes `other` by "
+                      f"value")
+        else:
+            clause = (f"its comparison recurses into `{reached}`'s "
+                      f"hand-written `{method_name}`, which takes `other` by "
+                      f"value")
         outs = (f"`a.{method_name}(move b)`" if tier == 'nocopy'
                 else f"`a.{method_name}(move b)` or "
                      f"`a.{method_name}(b.copy())`")
         self._error(
             ErrorKind.CANNOT_COPY,
             f"cannot compare values of type `{operand_type}` with "
-            f"`{expr.op}`: `{operand_type}` implements {policy} and {via} "
-            f"takes `other` by value, but the operator passes a borrow — a "
-            f"conformance that consumes `other` would release a value the "
-            f"caller still owns (DF-216b)",
+            f"`{expr.op}`: `{operand_type}` implements {policy} and {clause}, "
+            f"but the operator passes a borrow — a conformance that consumes "
+            f"`other` would release a value the caller still owns (DF-216b)",
             expr.line, expr.column,
             hint=f"call it directly with an explicit transfer — {outs} — or "
                  f"make the conformance `@synthesize`d; a synthesized body "

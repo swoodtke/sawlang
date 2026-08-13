@@ -152,6 +152,13 @@ A NoCopy `Vector` sorts end to end today, written from outside std.
   construction and is what makes NoCopy comparison legitimate. **Blocks 216's
   `sort` half; the `map`/`each`/`fold` half is independent.** Core trait
   signature change, so its own brief.
+  **STOPGAP LANDED** (design 216 units 1-2): the operator is refused where the
+  operand is ExplicitCopy/NoCopy AND the comparison transitively reaches a
+  hand-written body — six of the seven positions, conformance rows C01-C06 +
+  C11, consumer sweep clean. STILL OPEN: the `other: &Self` brief, and with it
+  matrix row 7 (generic bodies), pinned XFAIL as row C07 — a generic body is
+  checked once with `T` abstract, so the operand never reaches the gate. See
+  the brief.
 
 **Class sweeps run Aug 13 (obligation 4's first exercise; matrices + mechanism
 anchors in the brief).** DF-216b IS a class: SEVEN unsound positions

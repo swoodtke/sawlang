@@ -938,6 +938,33 @@ v.map<String>({ $0.to_string() })   // the closure's return; explicit still wins
   Comparable requires Equatable (no auto, so EVERY Comparable conformance is
   written and every derived one is marked). Hashable mirrors Equatable.
   Printable: hand-written `format` (no synthesis).
+- **A HAND-WRITTEN `equals`/`compare` COSTS A MOVE-ONLY TYPE ITS OPERATORS
+  (design 216, DF-216b).** `Equatable.equals(&self, other: Self)` and
+  `Comparable.compare(&self, other: Self)` take the second operand BY VALUE, so
+  a hand-written body may `move` it — while `==` `!=` `<` `>` `<=` `>=` pass a
+  BORROW. On an ExplicitCopy or NoCopy operand (the tiers where a checked call
+  site would have demanded `move`/`.copy()`) the operator is refused:
+  ```saw
+  extension Tag: Equatable {                  // Tag is NoCopy
+      func equals(&self, other: Tag) -> Bool { let t = move other  self.id == t.id }
+  }
+  a == b            // error: `Tag` implements NoCopy and its hand-written
+                    //   `equals` takes `other` by value, but the operator
+                    //   passes a borrow
+  a.equals(move b)  // OK — the transfer is written (`b.copy()` on ExplicitCopy)
+  ```
+  `@synthesize` is the other way out and usually the right one: a synthesized
+  body never consumes its operand, so a FULLY synthesized tree keeps every
+  operator at every tier — `@synthesize extension Tag: Equatable {}` on the
+  same move-only type compares fine. The rule is TRANSITIVE, which is the part
+  that surprises: a `@synthesize`d outer type whose memberwise comparison
+  recurses into a member's hand-written body is refused too, naming the member
+  (`Holder` ... recurses into `Tag`'s hand-written `equals`), and it follows
+  struct fields, enum payloads and tuple elements alike. Not yet covered: the
+  operators inside a GENERIC body under a `T: Equatable`/`T: Comparable` bound,
+  instantiated at such a type — the body is checked once with `T` abstract, so
+  that shape still compiles and still double-frees. Write comparison bodies
+  that READ `other` rather than consuming it and none of this reaches you.
 - **SERIALIZATION (design 169): `Serialize` / `Deserialize` over `Encoder` /
   `Decoder`.** Prelude-visible, both profiles. A value writes itself into a
   format-agnostic sink and reads itself back out of one. `@synthesize` DERIVES
