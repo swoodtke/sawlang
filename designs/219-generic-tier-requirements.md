@@ -171,10 +171,62 @@ flips HERE (or at `other: &Self`, whichever lands first; coordinate).
 3. The declaration-derivation extension (DF-217j, DF-217k).
 4. The public-declaration rule (per the ruling taken at dispatch).
 
-Obligation-2 consumer sweep BEFORE dispatch: every unbounded generic in the
-corpus that would now infer above move-only (grep + compile census; S1's
-evidence says std reads through Copy bounds already, but the sweep is the
-proof), plus the `ImplicitCopy`-bound semantic change.
+## CONSUMER SWEEP RUN (Aug 13 — full report `.build/scratch/sweep219/RESULTS.md`)
+
+1900 files parsed, 358 generic decls, 24 Copy-family bounds (zero outside
+std+examples), 271 generic references at non-Copy type args, 23 retain-hook
+`copy()` bodies (not the 3 assumed — 21 are test fixtures), the rename
+inventory counted (180 py / 156 saw / 88 doc mentions). Part 2d's
+compat-sensitive set (Copy-bounded generics instantiated at ExplicitCopy) is
+EMPTY in-tree. ~80% of the migration is mech-shaped. NEW FINDINGS
+(lead-verified):
+- **DF-217q — the `.copy()`-needs-a-bound gate covers only a BARE-`T`
+  receiver.** `dup<T>(p: (T, Int)) { p.copy() }` compiles unbounded and
+  double-frees at NoCopy (p9; live corpus instance df151i_tuple_copy.saw:205).
+  The declared-`ExplicitCopy` rule must quantify over wrapper receivers —
+  an obligation-1 position matrix ((T,Int), T?, [T;N], Vector<T>).
+- **DF-217r — compiler-INSERTED `copy()` calls are invisible to the effect
+  and alloc gates.** A suspending `copy()` runs inside a `sync`-DECLARED
+  function (p13: three inserted calls, each `yield_now()`, no diagnostic —
+  the sync guarantee is violated by code no source construct names), and an
+  allocating `copy()` passes `--no-hidden-alloc` (p11). The retain-hook
+  contract currently has NO mechanical enforcement anywhere; minimum fix:
+  inserted calls join the effect census (a non-`sync` copy() on a Copy
+  conformance should be refused at the CONFORMANCE), and the 135 gate learns
+  the inserted-call category.
+- **DF-217i EXTENDED:** the unbounded field-getter (`func get(&self) -> T
+  { self.value }`) double-frees at NoCopy (p1) — a field-read position the
+  bind-twice pin does not cover — and silently bitwise-copies at
+  ExplicitCopy (p2).
+
+**THREE JUDGMENT SITES BLOCK DISPATCH (rulings owed):**
+1. **std's raw-pointer move idiom.** The concrete checkpoint judges
+   `ptr[0] = v` and `let x = ptr[0]` as COPIES (refusing NoCopy without
+   `move`; and there is NO move-out spelling for a pointer read — p7),
+   while codegen already lowers them as moves (p5: one deinit). std's own
+   `pop`/`recv`/`join`/`swap` reads compile TODAY only because generic
+   bodies are unchecked (DF-217i!) — close the hole naively and Vector/
+   Channel/Arc/Once/Task stop accepting non-Copy elements (271 downstream
+   references). LEAD RECOMMENDS: UnsafePointer indexing is EXEMPT from the
+   tier judgment — it is the design-130 manual domain (the enclosing
+   methods are already `unsafe`-declared), so `ptr[0]` reads/writes count
+   as neither copy nor move of `T` in the inference.
+2. **Design 146 vs 219.** `place_uses._COPY_PROVING_BOUNDS` deliberately
+   lets `T: ExplicitCopy` license a SILENT place value read lowered as a
+   real `copy()` (p14 runs) — exactly what 219 forbids. LEAD RECOMMENDS:
+   146 yields (silent reads need the merged `Copy`), with the sequencing
+   note that design 216's `&T`-closure rework must land WITH or BEFORE
+   enforcement so `Vector<Vector<Int>>` iteration (p8, works today)
+   migrates to the borrow path instead of breaking.
+3. **The wrapper-receiver matrix for the `ExplicitCopy` bound gate**
+   (DF-217q's fix): the gate becomes a funnel computing the requirement
+   recursively over composite receivers, with p9's shapes as the rows.
+Secondary (implementer-note tier): `Map._find`'s unwritten key bound gets
+written (`K: Copy` merged); the eleven `infer_overload*` test sites use the
+bound as an overload DISCRIMINATOR and are updated as tests, not migrated.
+Known false-positive class for unit 2: branch-exclusive double use
+(`if a < b { b } else { a }`) — the inference must be flow-sensitive or it
+over-tightens three corpus sites (named in the report).
 
 Sequencing: before or with design 218 stages 1-2 (it is their gate); unit 3
 also discharges 218's DF-217j dependency (the `Slot<TaskGroup>` refusal
