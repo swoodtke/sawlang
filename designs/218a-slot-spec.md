@@ -29,8 +29,45 @@
    (module, name), so any future re-homing of `UnsafeRef` to general std is
    a breaking identity change — a deliberate versioned decision if ever.
 3. **OQ1 is RATIFIED as recommended** (one type, mode = binding mutability —
-   unaffected by the rename). **OQ2 is superseded by ruling 2.** OQ3-OQ8
-   remain open.
+   unaffected by the rename). **OQ2 is superseded by ruling 2.**
+4. **OQ3 RULED, AMENDED (user, Aug 13): the eager-teardown mechanism becomes
+   a TRAIT CONFORMANCE, not a bare synthesized method.** `Resumable` (the
+   existing frame-driving trait) RELOCATES to `std.compiler.frame` (public,
+   ruling 2) and gains `func release(&var self) sync`; the transform
+   synthesizes each frame's conformance body (the safe `clear()` loop of
+   census D2); generated Done paths call it directly and group teardown
+   dispatches through the `any Resumable` existential it already holds. The
+   design-124 eager-timing constraint is unchanged — what changes is the
+   mechanism has a NAME in the language, with the invariant documented on
+   the trait ("release may run before deinit; deinit is a no-op
+   afterward"). One trait, not two: existentials do not cross-cast, and
+   every frame needs both capabilities. Costs recorded: the relocation is a
+   type-identity move riding obligation 2 (consumer sweep over
+   taskgroup.saw's uses), and public `Resumable` is INERT for users
+   (conformance grants nothing — the spawn/enqueue surface stays
+   compiler-lowered; the docstring says so). D2/D3 and stage 4 read
+   accordingly.
+5. **OQ4 RULED (user, Aug 13), REFRAMED from carve-out to CORRECT-BY-KIND.**
+   A NoMove value needs no occupancy tracking at all: its position is fixed
+   at birth, no move in or out is expressible, so exactly-once is
+   STRUCTURAL — born in the frame field, dies in the frame field. Slot's
+   move-based API is not merely unnecessary for it; it is the wrong shape
+   for a pinned value. The plain field is the correct representation, not a
+   compromise. The one thing eager teardown still owes (design 124: the
+   group's JOIN runs at Done, and the box may outlive Done via an unjoined
+   handle) is deinit-in-place at Done plus no second deinit at box death —
+   and the placeholder overwrite provides both in one statement:
+   `self.g = TaskGroup()` joins the old group where it was born and leaves a
+   fresh empty group whose later structural deinit is a cheap no-op. The
+   placeholder IS the occupancy mechanism, encoded as value-freshness
+   instead of a tag. PROBE-PROVEN (lead, `nomove_replace_probe.saw`):
+   whole-value replacement of a NoMove conformer is ORDINARY LEGAL USER
+   CODE — old value deinits at the replacement point, exactly once each —
+   so the pattern passes the litmus with no exemption and no trust item;
+   the D2 TaskGroup row upgrades from "trusted pattern" to "ordinary
+   checked code". Unchanged: `Slot<T>` at a NoMove `T` must be REFUSED, and
+   that refusal is convention until DF-217j / unit 1.5 lands (the
+   enforcement dependency stands). OQ5-OQ8 remain open.
 Charter: design 218 unit 1's pre-step. This document is the exact form the
 Opus implementers build against, reviewed by the lead, ruled by the user.
 Inputs: the 218 brief (constitution), the DF-217a/b/c/l landed fixes (root
