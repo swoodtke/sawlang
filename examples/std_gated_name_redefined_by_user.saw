@@ -1,0 +1,54 @@
+// A GATED std module reserves no name in a user program (design 82 Part B).
+// The promise held for a struct redefining a gated std STRUCT and nowhere
+// else; design 218 unit 1 added `std.compiler.frame.Slot`, a gated public name
+// the corpus already used, and four holes surfaced at once. Each is exercised
+// here, and each reproduced before the fix with a std name that predates 218:
+//
+//   1. a user ENUM over a gated std STRUCT of the same name was refused
+//      ("enum `Slot` conflicts with existing struct name") where a user STRUCT
+//      over one was allowed — DF-153b's allowance stopped at the same-kind
+//      checks;
+//   2. the design-194 annotation gate was declaration-ORDER sensitive, so a
+//      field naming a type declared LOWER in the file was judged against the
+//      std spelling and told to import `std.once`;
+//   3. the merged namespace's exclusion covered symbol tables but not the
+//      CONFORMANCE table, so a user `Once` inherited std `Once<T>: NoCopy` and
+//      every struct holding one was told to declare a copy policy;
+//   4. nor did it cover the generic AST, so the excluded std template shadowed
+//      the user type at codegen ("Undefined struct: Slot").
+//
+// EXPECT: success
+// EXPECT-OUTPUT:
+// 7
+// 7
+// 3
+// empty
+
+// (2): the field's type is declared BELOW it, and `Once` is a gated std name.
+struct Holder { o: Once }
+
+struct Once { n: Int }
+
+// (1) + (4): an enum over the gated std struct `std.compiler.frame.Slot<T>`.
+enum Slot { case Empty, case Filled(n: Int) }
+
+func main() {
+    let h = Holder(o: Once(n: 7))
+    // (3): a free copy. std's `Once<T>` is NoCopy; this `Once` is the user's,
+    // trivially copyable, and both bindings stay live.
+    let g = h
+    print(h.o.n)
+    print(g.o.n)
+
+    var v = Vector<Slot>()
+    v.push(Slot.Filled(n: 3))
+    v.push(Slot.Empty)
+    var i = 0
+    while i < v.len() {
+        match v[i] {
+            case Empty -> print("empty"),
+            case Filled(n) -> print(n)
+        }
+        i += 1
+    }
+}

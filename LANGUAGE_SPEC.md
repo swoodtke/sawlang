@@ -7435,6 +7435,7 @@ need one of the three [import forms](#imports).
 | `std.fixedbuf` | `FixedBuf<N>`, `FixedStringBuilder<N>` | no |
 | `std.serde` | `Serialize`, `Deserialize`, `Encoder`, `Decoder`, the error types | yes |
 | `std.cbor` | `CborEncoder`, `CborDecoder`, `encode` | no |
+| `std.compiler.frame` | `Slot<T>`, `UnsafeRef<T>`, `Resumable` | no |
 
 Concurrency has no module of its own beyond those: it is colorless, with no
 thread API and no `async`/`await`. `spawn { ... } -> Task<T>` is the

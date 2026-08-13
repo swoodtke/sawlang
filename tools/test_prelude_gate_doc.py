@@ -43,7 +43,9 @@ SPEC = os.path.join(REPO, "LANGUAGE_SPEC.md")
 # heading rename does not silently turn this test into a no-op.
 _HEADER = re.compile(r"^\|\s*Module\s*\|\s*Principal names\s*\|\s*Prelude\s*\|")
 _SEPARATOR = re.compile(r"^\|[\s:|-]+\|$")
-_MODULE = re.compile(r"`std\.([a-z_]+)`")
+# A leaf may be DOTTED since design 218 unit 1 (`std.compiler.frame` is
+# `sawc/std/compiler/frame.saw`), so the capture runs to the closing backtick.
+_MODULE = re.compile(r"`std\.([a-z_]+(?:\.[a-z_]+)*)`")
 
 # Prelude cells that are a plain answer for the WHOLE module. Anything else is a
 # per-symbol carve-out and is listed below by hand, so adding one is a

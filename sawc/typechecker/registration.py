@@ -299,13 +299,17 @@ class RegistrationMixin:
         # are still a duplicate; a std file's private `State` and another's are
         # two types and never meet.
         identity = self._stamp_type_identity(struct)
-        if self.namespace.has_struct(identity) and not self._shadows_hidden_std(struct.name):
-            self._error(
-                ErrorKind.DUPLICATE_FUNCTION,  # We can reuse this error kind
-                f"struct `{struct.name}` is defined multiple times",
-                struct.line, struct.column
-            )
-            return
+        if self.namespace.has_struct(identity):
+            if not self._shadows_hidden_std(struct.name):
+                self._error(
+                    ErrorKind.DUPLICATE_FUNCTION,  # We can reuse this error kind
+                    f"struct `{struct.name}` is defined multiple times",
+                    struct.line, struct.column
+                )
+                return
+            # The registration below overwrites the merged SYMBOL; the
+            # conformance table is keyed separately and has to be told too.
+            self.namespace.hide_type_conformances(identity)
 
         # design 130 rule 1: the SEMANTICS come from the `unsafe` keyword, but the
         # NAME is then enforced, so an unsafe type is visible at every use site
@@ -378,22 +382,34 @@ class RegistrationMixin:
         # to structs and never to enums, so a user `enum OpenMode` lost to
         # std.file's private one where a user `struct File` did not.
         identity = self._stamp_type_identity(enum)
-        if (self.namespace.has_enum(identity)
-                and not self._shadows_hidden_std(enum.name)):
-            self._error(
-                ErrorKind.DUPLICATE_FUNCTION,  # Reuse this error kind
-                f"enum `{enum.name}` is defined multiple times",
-                enum.line, enum.column
-            )
-            return
+        if self.namespace.has_enum(identity):
+            if not self._shadows_hidden_std(enum.name):
+                self._error(
+                    ErrorKind.DUPLICATE_FUNCTION,  # Reuse this error kind
+                    f"enum `{enum.name}` is defined multiple times",
+                    enum.line, enum.column
+                )
+                return
+            self.namespace.hide_type_conformances(identity)
 
+        # DF-153b's allowance, one line further: a HIDDEN std name is not in the
+        # user's namespace, so a user declaration of it is not a clash — and the
+        # kind of the declaration it hides has nothing to do with that. The
+        # same-kind halves above already say so; this cross-kind one used to
+        # refuse a user `enum Slot` against a gated std `struct Slot` while
+        # accepting a user `struct IoError` against a gated std `struct
+        # IoError`. Shadowing hides the std STRUCT entry too, so a bare `Slot`
+        # afterwards is the user's enum and nothing resolves to two types.
         if self.namespace.has_struct(identity):
-            self._error(
-                ErrorKind.DUPLICATE_FUNCTION,
-                f"enum `{enum.name}` conflicts with existing struct name",
-                enum.line, enum.column
-            )
-            return
+            if not self._shadows_hidden_std(enum.name):
+                self._error(
+                    ErrorKind.DUPLICATE_FUNCTION,
+                    f"enum `{enum.name}` conflicts with existing struct name",
+                    enum.line, enum.column
+                )
+                return
+            self.namespace.hide_struct(identity)
+            self.namespace.hide_type_conformances(identity)
 
         # Check for duplicate variants
         variants = {}

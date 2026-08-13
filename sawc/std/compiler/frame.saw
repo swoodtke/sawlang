@@ -1,0 +1,165 @@
+//! The frame vocabulary the coroutine transform compiles against.
+//!
+//! A suspending function becomes a state machine over a heap-resident frame:
+//! every local that lives across a suspension is a field of that frame, and
+//! the transform decides when each field is filled, read and released. This
+//! module is the type vocabulary those decisions are written in.
+//!
+//! ```saw
+//! import std.compiler.frame.{Slot}
+//!
+//! var s = Slot<String>.empty()
+//! s.put("payload")
+//! print(s.value().len())      // prints: 7
+//! let owned = s.take()        // the slot is empty again
+//! ```
+//!
+//! WHY IT IS PUBLIC. Generated code is held to the ordinary ownership rules,
+//! so the transform may only emit code a programmer could have written. That
+//! rules out a private vocabulary: a `Slot` operation the transform can reach
+//! and you cannot would be an operation the checker judges by a second set of
+//! rules. Nothing here is in the prelude, and nothing here is meant for
+//! everyday code — reach for a plain `let` in ordinary Saw, and for `Slot`
+//! when you are writing storage whose occupancy a state machine decides.
+//!
+//! WHAT IT COSTS TO USE. `Slot` is ordinary safe Saw and the checker holds it
+//! to the same rules as any other type. `UnsafeRef` is an `unsafe struct`, so
+//! a function that mints, holds or dereferences one is declared `unsafe` and
+//! carries the validity obligation stated on the type.
+
+// =============================================================================
+// Slot<T> — owning frame storage whose occupancy is part of the type
+// =============================================================================
+
+/// Storage that either holds a `T` or is empty.
+///
+/// A slot is where a coroutine frame keeps a local across a suspension. The
+/// occupancy tag and the payload move together: `put` fills, `take` empties,
+/// `clear` drops, and the synthesized deinit drops whatever is left. There is
+/// no way to reach the payload without going through one of them, which is
+/// what makes "released exactly once" a property of the type rather than a
+/// rule each write site has to follow.
+///
+/// A slot is storage, not a value: it is `NoCopy`, and `T` moves in and out.
+/// A `NoMove` `T` therefore never belongs in one — `put` and `take` are moves,
+/// and a pinned value's storage is a plain field.
+public struct Slot<T> {
+    // Private (design 80): the tag is not separately addressable from the
+    // payload, which is the whole exactly-once argument.
+    v: T?
+}
+
+extension Slot<T>: NoCopy {}
+
+extension Slot<T> {
+    /// Returns an empty slot.
+    public func empty() -> Slot<T> {
+        Slot<T>(v: None)
+    }
+
+    /// Returns a slot holding `value`.
+    ///
+    /// Consumes `value`.
+    public func of(value: T) -> Slot<T> {
+        Slot<T>(v: move value)
+    }
+
+    /// Installs `value`, dropping the previous occupant if there was one.
+    ///
+    /// Consumes `value`. Never panics: putting into an occupied slot is the
+    /// replace a rebound binding performs, and putting into an empty one is
+    /// the first write.
+    public func put(&var self, value: T) {
+        self.v = move value
+    }
+
+    /// Moves the occupant out, leaving the slot empty.
+    ///
+    /// Panics if the slot is empty. The caller's state machine is the proof
+    /// that it is not, and a wrong proof reports itself here instead of
+    /// handing back a husk.
+    public func take(&var self) -> T {
+        guard let out = self.v.take() else { panic("Slot.take: slot is empty") }
+        move out
+    }
+
+    /// Drops the occupant if there is one, leaving the slot empty.
+    ///
+    /// Idempotent: clearing an empty slot does nothing. This is what a frame's
+    /// teardown runs per field, so running it twice has to be a no-op.
+    public func clear(&var self) {
+        self.v = None
+    }
+
+    /// Whether the slot holds a value.
+    public func is_occupied(&self) -> Bool {
+        if let _ = self.v { true } else { false }
+    }
+
+    /// Lends the occupant where it sits.
+    ///
+    /// The use site picks the window: a read borrows the slot shared, a write
+    /// or a `&var` argument borrows it exclusively. Reads and writes reach the
+    /// payload in the slot's own storage, so nothing is copied on the way.
+    ///
+    /// Panics if the slot is empty.
+    public func value(&self) borrows -> T {
+        guard let _ = self.v else { panic("Slot.value: slot is empty") }
+        lend self.v!
+    }
+}
+
+// =============================================================================
+// UnsafeRef<T> — a non-owning handle to storage somebody else keeps alive
+// =============================================================================
+
+/// A pointer to a `T` that something else owns, as a type rather than a
+/// convention.
+///
+/// A driven frame holds one for its method receiver and for every reference
+/// parameter it carries across a suspension. The handle owns nothing: it is
+/// never dropped, never copied silently, and the value it points at is
+/// unaffected by the handle's own lifetime.
+///
+/// VALIDITY, which the compiler does not check: every `deref` must happen
+/// while the referent is still alive, and the referent must not have moved.
+/// A handle constructed over storage that outlives it by construction — a
+/// caller's local reached through a reference the callee holds for exactly
+/// the call, a field of a frame the drive structure keeps alive — satisfies
+/// that. A handle constructed over anything else does not, and nothing will
+/// tell you: the type carries the obligation, not a proof.
+///
+/// The obligation has a carrier. Constructing one takes an `UnsafePointer`,
+/// so every function that mints, holds or dereferences an `UnsafeRef` is
+/// declared `unsafe` and is reviewed as the unit that owns the argument.
+public unsafe struct UnsafeRef<T> {
+    /// The referent's address. Public because construction is the one
+    /// operation the type offers and it is spelled as a memberwise literal.
+    public p: UnsafePointer<T>
+}
+
+extension UnsafeRef<T>: ExplicitCopy {
+    /// Returns a second handle to the same referent.
+    ///
+    /// The tier is the contract: duplication is written where it happens, so
+    /// a frame that keeps its own handle and hands one to a closure says so.
+    /// Duplicating is sound on the same terms the original was — a second
+    /// handle constrains nothing the first did not, since validity is about
+    /// the referent's lifetime and not about how many handles exist.
+    public func copy(&self) unsafe -> UnsafeRef<T> {
+        UnsafeRef<T>(p: self.p)
+    }
+}
+
+extension UnsafeRef<T> {
+    /// Lends the referent where it sits.
+    ///
+    /// The use site picks the window, as with any other place accessor, and
+    /// the WRITE side additionally needs a mutable binding: a write through a
+    /// `let`-bound handle is refused, a `var`-bound one goes through. Field
+    /// reads and writes, method calls and further place hops all work on the
+    /// referent's own storage.
+    public func deref(&self) unsafe borrows -> T {
+        lend self.p[0]
+    }
+}

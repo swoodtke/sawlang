@@ -196,10 +196,11 @@ class DocsBuilder:
         return {"schema_version": SCHEMA_VERSION, "modules": modules}
 
     def _std_path(self, leaf: str) -> str:
+        from type_identity import std_leaf
         for p in self._file_module_docs:
-            if os.path.splitext(os.path.basename(p))[0] == leaf:
+            if std_leaf(p) == leaf:
                 return p
-        return leaf + ".saw"
+        return leaf.replace(".", os.sep) + ".saw"
 
     def _imported_std_leaves(self) -> List[str]:
         """The std modules this compilation asked for by name. A doc driver is
@@ -209,17 +210,20 @@ class DocsBuilder:
         for ast in asts:
             for imp in getattr(ast, "imports", []) or []:
                 path = list(imp.path or [])
-                if len(path) >= 2 and path[0] == "std" and path[1] not in leaves:
-                    leaves.append(path[1])
+                if path and path[-1] == "*":
+                    path = path[:-1]
+                if len(path) < 2 or path[0] != "std":
+                    continue
+                leaf = ".".join(path[1:])
+                if leaf not in leaves:
+                    leaves.append(leaf)
         leaves.sort()
         return leaves
 
     @staticmethod
     def _leaf_of(decl) -> Optional[str]:
-        src = getattr(decl, "source_file", None)
-        if not src:
-            return None
-        return os.path.splitext(os.path.basename(src))[0]
+        from type_identity import std_leaf
+        return std_leaf(getattr(decl, "source_file", None))
 
     @staticmethod
     def _first_source_file(ast) -> Optional[str]:

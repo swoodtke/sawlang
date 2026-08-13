@@ -674,6 +674,33 @@ class Namespace:
         self.bind_type_name(name, identity, "enum", source_label,
                             self._type_is_module_local(symbol, identity))
 
+    def hide_type_conformances(self, identity: str):
+        """Forget the conformances THIS namespace merged in for `identity`,
+        because a declaration here supersedes the type that had them.
+
+        The design-82 hidden-std shadow replaces the SYMBOL (a user `struct
+        Once` overwrites the merged entry), and the conformance table is keyed
+        separately by identity — so without this the user's own type answered
+        yes to `Once: NoCopy` and every struct holding one was told to declare
+        a copy policy for a `NoCopy` field it does not have. The user type
+        registers its own conformances a pass later, so clearing here loses
+        nothing of theirs."""
+        self.conformances.pop(identity, None)
+
+    def hide_struct(self, identity: str):
+        """Drop a struct entry THIS namespace merged in, because a declaration
+        of the same name in another category supersedes it here.
+
+        The design-82 hidden-std shadow (a user declaring a name a gated std
+        module also declares) works by OVERWRITE when both are structs — the
+        user symbol lands on the same identity key. Across categories there is
+        no overwrite to rely on: registering an enum leaves the merged struct
+        entry in place, and a later `lookup_struct` would answer with the std
+        type the program cannot even name. Every namespace owns its own tables
+        (`merge_into` copies entries), so the removal is local to this module's
+        view and the builtin namespace is untouched."""
+        self.structs.pop(identity, None)
+
     def register_trait(self, name: str, symbol: TraitSymbol,
                        source_label: Optional[str] = None):
         """Register a trait symbol under its identity, bound to `name`."""
@@ -2638,6 +2665,8 @@ class Namespace:
         # name). Two modules binding one name to two identities marks the name
         # ambiguous rather than silently picking the first.
         for _n, _ident in other.type_names.items():
+            if exclude and (_n in exclude or _ident in exclude):
+                continue
             self.bind_type_name(_n, _ident, "type", source_label)
         # Design 204: the per-module private name views travel too, keyed by
         # defining module, so a std file's private types stay reachable from
@@ -2652,8 +2681,20 @@ class Namespace:
         for name, sym in other.modules.items():
             if name not in self.modules:
                 self.modules[name] = sym
-        # Merge conformances
+        # Merge conformances. The design-82 exclusion applies here too: these
+        # tables are keyed by type name, and a std module this program does not
+        # compile in must contribute NOTHING under a name a user type may hold.
+        # Only the symbol tables above honoured `exclude`, so an excluded std
+        # type kept answering conformance and generic-template queries about a
+        # user type of the same name — `Once: NoCopy` reached a user's own
+        # `struct Once`, and the excluded generic template shadowed a user
+        # enum's LLVM type outright.
+        def _excluded(key) -> bool:
+            return bool(exclude) and key in exclude
+
         for type_name, iface_map in other.conformances.items():
+            if _excluded(type_name):
+                continue
             if type_name not in self.conformances:
                 self.conformances[type_name] = {}
             for iface_name, assoc_types in iface_map.items():
@@ -2663,20 +2704,24 @@ class Namespace:
         # conformances they live beside — the orphan rule already pins each to
         # one module, so first-wins can never drop a competing declaration.
         for type_name, trait_map in other.thread_assertions.items():
+            if _excluded(type_name):
+                continue
             dst = self.thread_assertions.setdefault(type_name, {})
             for trait_name, bounds in trait_map.items():
                 dst.setdefault(trait_name, bounds)
         # Merge generic AST storage
         for name, ast in other.generic_functions.items():
-            if name not in self.generic_functions:
+            if name not in self.generic_functions and not _excluded(name):
                 self.generic_functions[name] = ast
         for name, ast in other.generic_structs.items():
-            if name not in self.generic_structs:
+            if name not in self.generic_structs and not _excluded(name):
                 self.generic_structs[name] = ast
         for name, ast in other.generic_enums.items():
-            if name not in self.generic_enums:
+            if name not in self.generic_enums and not _excluded(name):
                 self.generic_enums[name] = ast
         for name, exts in other.generic_extensions.items():
+            if _excluded(name):
+                continue
             if name not in self.generic_extensions:
                 self.generic_extensions[name] = exts
             else:

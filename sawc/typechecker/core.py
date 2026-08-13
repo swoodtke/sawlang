@@ -359,21 +359,11 @@ class TypeChecker(ExpressionsMixin, StatementsMixin, RegistrationMixin, TypeUtil
     # bypass for visibility only (codegen's compiler-known-ness is untouched).
     # ------------------------------------------------------------------ #
     def _vis_module_for_source(self, source_file: Optional[str]) -> Tuple[str, ...]:
-        import os
+        from type_identity import std_leaf
         if not source_file:
             return self.current_module_path
-        try:
-            norm = os.path.abspath(source_file)
-        except Exception:
-            return self.current_module_path
-        std_prefix = getattr(self, '_std_dir_prefix', None)
-        if std_prefix is None:
-            sawc_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-            std_prefix = os.path.join(sawc_dir, 'std') + os.sep
-            self._std_dir_prefix = std_prefix
-        base = os.path.basename(norm)
-        if norm.startswith(std_prefix) or base == 'builtin.saw':
-            leaf = base[:-4] if base.endswith('.saw') else base
+        leaf = std_leaf(source_file)
+        if leaf is not None:
             return ("<std>", leaf)
         return self.current_module_path
 
@@ -1059,7 +1049,11 @@ class TypeChecker(ExpressionsMixin, StatementsMixin, RegistrationMixin, TypeUtil
                 "`import std` needs a module (e.g. `import std.net`)",
                 getattr(imp, 'line', 0), getattr(imp, 'column', 0))
             return None
-        leaf = path[1]
+        # Design 218 unit 1: a std module may sit in a subdirectory, so the leaf
+        # is the WHOLE tail after `std` (`std.compiler.frame` -> the module
+        # `compiler.frame`, which is `std/compiler/frame.saw`). A single-segment
+        # import is the same join over one element, so nothing else changes.
+        leaf = '.'.join(path[1:])
         available = file_symbols.get(leaf)
         if available is None:
             self._error(
@@ -1126,8 +1120,8 @@ class TypeChecker(ExpressionsMixin, StatementsMixin, RegistrationMixin, TypeUtil
         if not is_glob:
             self._bind_module_qualifier(
                 ns, imp,
-                alias=getattr(imp, 'alias', None) or leaf,
-                path=["std", leaf],
+                alias=getattr(imp, 'alias', None) or path[-1],
+                path=["std"] + path[1:],
                 source_ns=self._std_leaf_namespace(leaf, builtin_namespace))
         return leaf
 
@@ -1203,6 +1197,10 @@ class TypeChecker(ExpressionsMixin, StatementsMixin, RegistrationMixin, TypeUtil
             return False
         if name in ns.directly_accessible:
             return False
+        # A name this module declares itself is the module's, at every position
+        # and in any declaration order (see `_module_own_type_names`).
+        if name in getattr(self, '_module_own_type_names', ()):
+            return False
         owner = getattr(self, '_std_symbol_file', {}).get(name)
         if owner is None:
             return False  # not a std symbol — leave normal resolution/errors
@@ -1212,6 +1210,10 @@ class TypeChecker(ExpressionsMixin, StatementsMixin, RegistrationMixin, TypeUtil
         # Design 150: name all three forms. A whole-module `import std.file` no
         # longer exposes `File` bare — it binds the qualifier — so a hint that
         # offered only that spelling would send the reader in a circle.
+        # The qualifier a whole-module import binds is the LAST path segment, so
+        # a dotted leaf (`compiler.frame`) offers `frame.Slot`, not
+        # `compiler.frame.Slot` — the latter is not a spelling that resolves.
+        qualifier = owner.rsplit('.', 1)[-1]
         self._error(
             ErrorKind.UNKNOWN_TYPE,
             f"`{name}` is not in the prelude and must be imported",
@@ -1219,7 +1221,7 @@ class TypeChecker(ExpressionsMixin, StatementsMixin, RegistrationMixin, TypeUtil
             hint=f"`import std.{owner}.{{{name}}}` selects it, "
                  f"`import std.{owner}.*` takes the module's whole vocabulary "
                  f"bare, and `import std.{owner}` lets you write "
-                 f"`{owner}.{name}`",
+                 f"`{qualifier}.{name}`",
         )
         return True
 
@@ -2144,6 +2146,25 @@ class TypeChecker(ExpressionsMixin, StatementsMixin, RegistrationMixin, TypeUtil
         # resolves a field whose length names one.
         self._collect_const_statics(module_ast)
         self._fold_const_lengths_in_program(module_ast)
+
+        # THE NAMES THIS MODULE DECLARES ITSELF, collected before any of them is
+        # registered. The design-194 annotation gate asks whether the AUTHOR
+        # could write a name bare, and the answer for a type the module itself
+        # declares is yes wherever it sits — Saw has no forward declarations.
+        # Accessibility is granted per declaration as the passes below walk
+        # them, which made the gate declaration-ORDER sensitive: a field naming
+        # a type declared further down the file was judged while that spelling
+        # still meant only the gated std symbol, so `struct Holder { e: IoError
+        # }` above `struct IoError` was refused with a hint to import
+        # `std.net`. This set is the order-independent answer, and it is
+        # deliberately NOT `directly_accessible` — that set is what
+        # `_shadows_hidden_std` reads to tell an import from a redefinition.
+        self._module_own_type_names = {
+            d.name
+            for group in (module_ast.type_definitions, module_ast.structs,
+                          module_ast.enums, module_ast.traits)
+            for d in group
+        }
 
         # Register type definitions
         for type_def in module_ast.type_definitions:

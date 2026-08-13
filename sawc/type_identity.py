@@ -59,12 +59,67 @@ the compiler either publishes or reaches by string. It holds no private type,
 so there is nothing there for the rule to free.
 """
 
+import os
 from typing import Optional, Tuple
 
 # The std file whose declarations are the compiler's own vocabulary. Nothing in
 # it is file-private, and every name in it is either published or reached by
 # string from `sawc/`, so it never qualifies (design 204).
 STD_VOCABULARY_LEAF = "builtin"
+
+# The directory std's sources live in. `builtin.saw` sits one level above it.
+STD_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "std")
+
+
+def std_leaf(source_file: Optional[str]) -> Optional[str]:
+    """THE std source-file -> module-leaf funnel (design 218 unit 1).
+
+    A std file's leaf is its path RELATIVE TO `std/`, extension dropped, path
+    separators rendered as dots — which is exactly the tail of the `import`
+    that reaches it:
+
+        sawc/std/vector.saw          -> `vector`          (`import std.vector`)
+        sawc/std/compiler/frame.saw  -> `compiler.frame`  (`import std.compiler.frame`)
+        sawc/builtin.saw             -> `builtin`
+
+    Returns None for a file that is not a std source, so a caller can tell
+    "user code" from "std file whose leaf is X".
+
+    Design 82 makes each std FILE its own module `("<std>", leaf)`; before
+    design 218 every std file sat directly in `std/` and the leaf was just the
+    basename, computed independently at each of the entry points below. A
+    SUBDIRECTORY makes basename and import spelling disagree, so the four
+    answers have to come from one place or `std/compiler/frame.saw` is module
+    `frame` to one of them and `compiler.frame` to another.
+
+    ENTRY POINTS — every place a std source path becomes a module name:
+      * `sawc.build_builtin_namespace` — the (leaf -> symbols) surface map that
+        `import std.<leaf>` re-exposes and the prelude gate keys on.
+      * `sawc.compute_std_codegen_exclusions` — which std files a program
+        code-generates, and `sawc._filter_std_ast`, which drops the rest.
+      * `TypeChecker._vis_module_for_source` (typechecker/core.py) — the
+        design-80/204 visibility module of a declaration.
+      * `DocsEmitter._leaf_of` / `_std_path` (docs_emit.py) — `--emit-docs`
+        module names.
+    The import side is `_process_std_import`, which joins the path after `std`
+    on the same dot.
+    """
+    if not source_file:
+        return None
+    try:
+        norm = os.path.abspath(source_file)
+    except Exception:
+        return None
+    base = os.path.basename(norm)
+    if not base.endswith(".saw"):
+        return None
+    prefix = STD_DIR + os.sep
+    if norm.startswith(prefix):
+        rel = norm[len(prefix):-4]
+        return rel.replace(os.sep, ".")
+    if base == "builtin.saw":
+        return STD_VOCABULARY_LEAF
+    return None
 
 # Design 142's delimiter (`registration._module_private_symbol`). One scheme,
 # two users: a private function's codegen symbol and a type's identity.

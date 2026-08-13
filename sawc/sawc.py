@@ -106,6 +106,11 @@ IMPORT_REQUIRED_STD_MODULES = {
     "file", "directory", "path", "data", "channel", "mutex", "spinlock",
     "slab", "time", "net", "process", "env", "task", "fixedbuf", "cbor",
     "once",
+    # design 218 unit 1: the compiler's own frame vocabulary. Public so that
+    # generated code is code a user could have written, and gated because
+    # nothing in it belongs in an ordinary program's namespace. A leaf may be
+    # dotted — this one is `sawc/std/compiler/frame.saw`.
+    "compiler.frame",
 }
 # Symbols carved out of an otherwise-prelude std file (the file stays prelude
 # for its other symbols; only these named ones require an import).
@@ -133,11 +138,22 @@ def std_source_paths(freestanding: bool = False, runtime_build: bool = False):
     # std/ is skipped entirely in runtime-build mode.
     std_dir = os.path.join(sawc_dir, 'std')
     if not runtime_build and os.path.isdir(std_dir):
-        std_files = sorted(f for f in os.listdir(std_dir) if f.endswith('.saw'))
+        # Design 218 unit 1: a std module may live in a SUBDIRECTORY
+        # (`std/compiler/frame.saw` is `std.compiler.frame`), so the walk is
+        # recursive and the sort key is the relative path — deterministic load
+        # order, which the design-168 std cache key depends on.
+        std_rel = []
+        for root, dirs, files in os.walk(std_dir):
+            dirs.sort()
+            for f in files:
+                if f.endswith('.saw'):
+                    std_rel.append(
+                        os.path.relpath(os.path.join(root, f), std_dir))
+        std_rel.sort()
         if freestanding:
-            std_files = [f for f in std_files
-                         if os.path.splitext(f)[0] not in HOSTED_STD_MODULES]
-        paths.extend(os.path.join(std_dir, f) for f in std_files)
+            std_rel = [r for r in std_rel
+                       if os.path.splitext(r)[0] not in HOSTED_STD_MODULES]
+        paths.extend(os.path.join(std_dir, r) for r in std_rel)
 
     return paths
 
@@ -343,13 +359,7 @@ def build_builtin_namespace(verbose: bool = False, freestanding: bool = False,
     # design 82 Part B: build the (std-file -> {symbol names}) map from the AST's
     # source_file provenance, so an `import std.<module>` can re-expose exactly
     # that module's symbols and the "did you mean import" hint can name the owner.
-    def _leaf_of(source_file):
-        if not source_file:
-            return None
-        b = os.path.basename(source_file)
-        return b[:-4] if b.endswith('.saw') else b
-
-    from type_identity import is_qualified
+    from type_identity import is_qualified, std_leaf as _leaf_of
 
     # Design 204: a std file's PRIVATE type is not part of its module's
     # surface. It stays registered (compiler-known, and its own file's bodies
@@ -532,26 +542,25 @@ def compute_std_codegen_exclusions(builtin_ns, import_asts):
     all_leaves = set(file_symbols)
 
     # Read the std sources (comment-stripped) once for the reference scan.
-    sawc_dir = os.path.dirname(__file__)
+    from type_identity import std_leaf
     sources = {}
-    std_dir = os.path.join(sawc_dir, 'std')
-    if os.path.isdir(std_dir):
-        for fn in os.listdir(std_dir):
-            if fn.endswith('.saw'):
-                with open(os.path.join(std_dir, fn)) as f:
-                    sources[fn[:-4]] = _strip_line_comments(f.read())
-    builtin_path = os.path.join(sawc_dir, 'builtin.saw')
-    if os.path.exists(builtin_path):
-        with open(builtin_path) as f:
-            sources['builtin'] = _strip_line_comments(f.read())
+    for path in std_source_paths():
+        leaf = std_leaf(path)
+        if leaf is None:
+            continue
+        with open(path) as f:
+            sources[leaf] = _strip_line_comments(f.read())
 
     # Imported std leaves (an `import std.<leaf>...` anywhere in the program).
+    # A leaf may be dotted (`std.compiler.frame`), so the whole tail joins.
     imported = set()
     for ast in import_asts:
         for imp in getattr(ast, 'imports', []):
-            p = getattr(imp, 'path', None) or []
+            p = list(getattr(imp, 'path', None) or [])
+            if p and p[-1] == '*':
+                p = p[:-1]
             if len(p) >= 2 and p[0] == 'std':
-                imported.add(p[1])
+                imported.add('.'.join(p[1:]))
 
     # Base compiled set: prelude modules + imported import-required modules.
     compiled = {leaf for leaf in all_leaves
@@ -592,16 +601,10 @@ def _filter_std_ast(builtin_ast, excluded_leaves):
     not code-generated (design 82 Part B). Provenance is the decl's source_file
     leaf; anything without a std source_file is kept."""
     from ast_nodes import Program
-
-    def _leaf(node):
-        sf = getattr(node, 'source_file', None)
-        if not sf:
-            return None
-        b = os.path.basename(sf)
-        return b[:-4] if b.endswith('.saw') else b
+    from type_identity import std_leaf
 
     def keep(node):
-        leaf = _leaf(node)
+        leaf = std_leaf(getattr(node, 'source_file', None))
         return leaf is None or leaf not in excluded_leaves
 
     # Traits and type aliases are kept regardless of their owning file: they are
