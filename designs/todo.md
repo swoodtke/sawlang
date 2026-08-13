@@ -153,6 +153,22 @@ A NoCopy `Vector` sorts end to end today, written from outside std.
   `sort` half; the `map`/`each`/`fold` half is independent.** Core trait
   signature change, so its own brief.
 
+**Class sweeps run Aug 13 (obligation 4's first exercise; matrices + mechanism
+anchors in the brief).** DF-216b IS a class: SEVEN unsound positions
+(`>`-family, `==`/`!=`, match guards, `@synthesize` memberwise, enum payload,
+tuple, generic bodies under bounds) — one mechanism, the operator path never
+builds a call node, so the stopgap funnel is `_check_binary_op`'s trait gating
+and the `&Self` signature change closes the whole matrix by construction.
+DF-216a is NOT a class: one missing `SelfExpr` arm in the closure-capture
+funnel (`collect_names`), every other binding kind probed green; a second small
+entry point at the capture-list grammar. The sweep also found:
+
+- **DF-216c — generic METHOD type-arg inference fails on labeled arguments.**
+  `h.probe(other: 99i64)` on `func probe<U>(other: U)` cannot infer `U`; the
+  two-param shape misreports a matching label as unknown. The identical free
+  function infers fine, so it is method-specific. Verified by hand; repros
+  named in the brief.
+
 ## Design 215 — the LLM client (Python reference LANDED; Saw port FUTURE WORK)
 
 Brief: `designs/215-llm-client-saw-port.md`. Both programs sit in
