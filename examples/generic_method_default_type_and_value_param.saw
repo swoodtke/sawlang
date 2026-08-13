@@ -1,0 +1,31 @@
+// XFAIL: DF-217d a generic method with BOTH a default type argument and a
+// default value, called with no arguments, is an internal compiler error
+//
+// `func probe<U = Int>(other: U = 7)` on an extension, called `h.probe()`,
+// dies `Type of #1 arg mismatch: i64 != %"Plain"` — the receiver is being fed
+// where the defaulted argument belongs, which is the `off`-adjusted parameter
+// slice the method-side inference path hands the label-mapping funnel. The
+// free-function twin on the line above takes the identical signature and is
+// clean, so nothing about defaults-driving-inference (design 108) is at fault.
+//
+// Sharpest member of the DF-216c family (generic method calls are broken on
+// every spelling), and the one that reaches codegen instead of stopping at a
+// diagnostic.
+// EXPECT: success
+// EXPECT-OUTPUT:
+// free 5
+// method 5
+
+struct Plain { dummy: Int }
+
+extension Plain {
+    func probe<U = Int>(other: U = 7) -> Int { 5 }
+}
+
+func probe_free<U = Int>(other: U = 7) -> Int { 5 }
+
+func main() {
+    let h = Plain(dummy: 0)
+    print("free {probe_free()}")
+    print("method {h.probe()}")
+}

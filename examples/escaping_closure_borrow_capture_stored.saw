@@ -1,0 +1,35 @@
+// XFAIL: DF-216e a closure capturing a reference is classified NON-escaping
+// merely because it is written as a call ARGUMENT, so storing it compiles a
+// stack pointer that outlives the frame it points into
+//
+// `borrow_ok`'s `as_call_argument` heuristic cannot tell "the callee RUNS this
+// closure" from "the callee STORES it". A closure passed straight to the call
+// that runs it may borrow its enclosing frame soundly — that is the acceptance
+// design 216 unit 1 landed — but `out.push({ n * 2 })` hands the same shape to
+// a container that keeps it, and `stash`'s frame is gone before `build`'s
+// caller ever runs it. The escape rule that catches the direct spelling
+// ("an escaping closure cannot capture ... a reference") never fires here.
+//
+// Predates design 216 and reaches all three spellings of the borrow capture
+// equally. Closing it properly needs a non-escaping parameter TYPE — design
+// 21's already-named future work — so the fix is its own brief, not a patch to
+// the heuristic; this pin is the row that brief flips.
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: escaping closure cannot capture
+
+func stash(out: &var Vector<() sync -> Int>, n: &Int) {
+    out.push({ n * 2 })
+}
+
+func build() -> Vector<() sync -> Int> {
+    var fns = Vector<() sync -> Int>()
+    var local = 21
+    stash(&var fns, &local)
+    move fns
+}
+
+func main() {
+    let fns = build()
+    let f = fns[0]
+    print("f {f()}")
+}

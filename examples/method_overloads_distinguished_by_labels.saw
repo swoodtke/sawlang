@@ -1,0 +1,36 @@
+// XFAIL: DF-217e method-declaration duplicate-signature checking ignores
+// labels, so two methods distinguished only by their labels are refused at the
+// DECLARATION
+//
+// LANGUAGE_SPEC.md says labels are part of a function's identity, and the
+// free-function pair below proves the language means it — the same two
+// signatures as free functions declare and resolve fine. Only the extension
+// pair is rejected as an `indistinguishable signature`, because the
+// method-declaration identity test compares parameter TYPES and drops the
+// labels that `_resolve_overload` already knows how to compare at the call
+// site.
+//
+// Third member of the DF-216c family (the method-side call machinery is a
+// second, independently written implementation of what free functions get
+// right). The fix wants the label-aware identity test the resolver already
+// uses.
+// EXPECT: success
+// EXPECT-OUTPUT:
+// free 3 30
+// method 3 30
+
+struct Bag { n: Int }
+
+extension Bag {
+    func at(index: Int) -> Int { index }
+    func at(key: Int) -> Int { key * 10 }
+}
+
+func at_free(index: Int) -> Int { index }
+func at_free(key: Int) -> Int { key * 10 }
+
+func main() {
+    print("free {at_free(index: 3)} {at_free(key: 3)}")
+    let b = Bag(n: 0)
+    print("method {b.at(index: 3)} {b.at(key: 3)}")
+}

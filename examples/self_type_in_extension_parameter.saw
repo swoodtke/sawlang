@@ -1,0 +1,28 @@
+// XFAIL: DF-216f `Self` does not resolve in an extension method's PARAMETER
+// type, while the RETURN position resolves fine in the same extension
+//
+// `func add_from(&self, other: &Self)` reports ``argument `other` expects
+// `&Self` but got `&Counter``` at the call site and ``cannot access member of
+// non-struct type `Self``` in the body, so the parameter's `Self` is left
+// unresolved on both sides of the call while `-> Self` two lines below it
+// works. Hit while wording DF-216a's fixit, which nearly taught the broken
+// spelling — the fixit names the concrete receiver type instead, which is a
+// workaround standing in for this fix.
+// EXPECT: success
+// EXPECT-OUTPUT:
+// sum 3
+// bumped 2
+
+struct Counter { n: Int }
+
+extension Counter {
+    func add_from(&self, other: &Self) -> Int { self.n + other.n }
+    func bumped(&self) -> Self { Counter(n: self.n + 1) }
+}
+
+func main() {
+    let a = Counter(n: 1)
+    let b = Counter(n: 2)
+    print("sum {a.add_from(other: &b)}")
+    print("bumped {a.bumped().n}")
+}
