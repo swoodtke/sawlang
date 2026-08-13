@@ -71,11 +71,20 @@ is a battery lane. Close the harness's own named gaps as part of the port:
 ImplicitCopy leak witnessing, the match-arm-retain axis, non-main contexts.
 
 **Unit 1 — the frame primitive module (the verified-unsafe core).**
-FIRST a census: enumerate every store/read/release/temp shape the transform
-emits today (`_store_binding_in_slot`, `_slot_store_consumes`,
-`_optbind_dispatch` forgets, `_hoist_temps`, `_materialize_closure_captures`,
-the `__release` synthesis) — the API is designed against that list, not
-invented. Expected surface: `Slot<T>` with `put(&var self, v: T)` (consumes),
+PROCESS RULING (user, Aug 13): this is a tricky rewrite, so a FABLE spec agent
+documents the exact form FIRST, as `designs/218a-slot-spec.md` — the emission
+census (every store/read/release/temp shape the transform emits:
+`_store_binding_in_slot`, `_slot_store_consumes`, `_optbind_dispatch` forgets,
+`_hoist_temps`, `_materialize_closure_captures`, the `__release` synthesis;
+one table row per site, current shape → exact new safe form), the exact
+`Slot<T>` signatures with ownership contracts and panic conditions, worked
+before/after examples from real transformed programs, the `post_transform`
+exemption inventory mapped to the unit-2 stage that retires each, and a
+per-bug impossibility argument for DF-217a/b/h (which becomes the conformance
+row set). The spec runs AFTER the DF-217 fixes land (their confirmed root
+causes are its input), is reviewed by the lead, ruled by the user, and only
+then do Opus implementers dispatch against it. The API is designed against
+the census, not invented. Expected surface: `Slot<T>` with `put(&var self, v: T)` (consumes),
 `take(&var self) -> T` (moves out, empties), place-style read accessors, and a
 deinit that drops the payload iff occupied — occupancy as an Optional-like
 tag, exactly-once release a property of the TYPE. Compiler-internal std
