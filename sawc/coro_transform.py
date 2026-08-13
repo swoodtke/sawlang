@@ -626,7 +626,19 @@ def _read_field(name, encoding, line=0, column=0, owning_read=False,
 
     `move_read` marks the opposite case: the frame hands its own reference over
     through the paired `__saw_forget`, so the read is a transfer even for a
-    NoCopy payload.
+    NoCopy payload, and whoever the value lands in OWNS it. It is stamped on
+    the returned node WHATEVER SHAPE that node has — the `self.x!` of an
+    opt-encoded field, the bare `self.x` of a plain/self_opt one, the
+    `self.x[0]` of a reference — because this function is the single place a
+    frame read is built and a consumer downstream cannot recover the answer
+    from the shape: the rewrite is what deleted the `MoveExpr` the source used
+    to be. A consumer that asked the shape leaked a `self_opt` field's payload,
+    which reads as a plain MemberAccess and so answered "not a move" to every
+    test codegen had (DF-217b).
+
+    ENTRY POINTS that ask for the move mark (process rule 1): the `MoveExpr`
+    rewrite in `_rewrite_expr` is the only one — a `move` of a frame-resident
+    binding, wherever the expression stands.
 
     EVERY node this returns is additionally stamped `frame_place_read` (design
     131). The transform rewrites a local into a projection of the frame — a
@@ -636,8 +648,14 @@ def _read_field(name, encoding, line=0, column=0, owning_read=False,
     AST (which the typechecker saw, and annotated, as the plain local it was).
     Judging it twice would double-retain an ImplicitCopy payload and reject a
     NoCopy one that the frame is legitimately moving out."""
+    def _marked(node):
+        node.frame_place_read = True
+        if move_read:
+            node.frame_move_read = True
+        return node
+
     acc = _self_field(name, line, column)
-    acc.frame_place_read = True
+    _marked(acc)
     if saw_type is not None:
         # The FIELD's own type, which is the value's type wrapped in whatever
         # the encoding adds. Codegen reads this level directly for a write
@@ -645,20 +663,17 @@ def _read_field(name, encoding, line=0, column=0, owning_read=False,
         # compound-assign path asks the `self.n` in the middle for its type).
         acc.resolved_type = _field_type(saw_type, encoding)
     if encoding in ("opt", "opt_closure"):
-        fu = ForceUnwrap(expr=acc, line=line, column=column)
-        fu.frame_place_read = True
+        fu = _marked(ForceUnwrap(expr=acc, line=line, column=column))
         if owning_read:
             fu.frame_owning_read = True
-        if move_read:
-            fu.frame_move_read = True
         return _answered(fu, saw_type)
     if encoding == "ref":
         # design 88 (D6): the reference name reads through the frame's pointer
         # field — `self.name[0]` — yielding an lvalue of the pointee type. Member
         # access, compound-assignment mutation, and method calls on it all flow
         # normally (the identical `self.__recv[0]` receiver rewrite of design 45 0c).
-        deref = ArrayIndex(array_expr=acc, index=_int(0), line=line, column=column)
-        deref.frame_place_read = True
+        deref = _marked(
+            ArrayIndex(array_expr=acc, index=_int(0), line=line, column=column))
         return _answered(deref, saw_type)
     return _answered(acc, saw_type)
 

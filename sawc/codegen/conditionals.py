@@ -175,15 +175,29 @@ class ConditionalsMixin:
         """Whether an `if let` / `guard let` binding OWNS the payload it bound —
         and must therefore release it when its scope ends.
 
-        Three ways the payload becomes the binding's: a `move` scrutinee handed
+        Four ways the payload becomes the binding's: a `move` scrutinee handed
         the whole optional over, a fresh temporary minted a value nobody else
-        holds, or the design-131 place rule retained a second reference out of a
-        place the scrutinee keeps. A plain read of a trivial payload owns
+        holds, the design-131 place rule retained a second reference out of a
+        place the scrutinee keeps, or the coroutine transform already settled
+        the question and said `move`. A plain read of a trivial payload owns
         nothing (there is nothing to release), and a non-retained read out of a
         place is still owned by that place — releasing it here would double-free.
+
+        The fourth is the one that cannot be read off the AST. Inside a
+        coroutine body the transform rewrites `move opt` into a read of the
+        frame field `opt` paired with a `__saw_forget` that clears the field's
+        drop flag — so the `MoveExpr` the first test looks for is GONE by the
+        time codegen runs, and for a `self_opt`-encoded field what stands in its
+        place is a bare `self.opt` MemberAccess, which is not a temporary
+        either. All three tests answered "borrowed", nothing dropped the
+        payload, and the forget had already told the frame not to: `if let v =
+        move opt` leaked in every driven function, whether or not any suspension
+        came near either binding (DF-217b). `frame_move_read` is the transform's
+        own answer, stamped by `_read_field` on whatever shape the read takes.
         """
         src = node.optional_expr
         return (isinstance(src, MoveExpr)
+                or getattr(src, 'frame_move_read', False)
                 or self._is_owned_temporary(src)
                 or node.payload_needs_copy)
 

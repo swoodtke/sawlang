@@ -1,0 +1,220 @@
+// DF-217b — a consuming optional binding in a coroutine body releases its
+// payload exactly once, at every tier and in every lowering position.
+//
+// The coroutine transform rewrites `move opt` on a frame-resident local into a
+// read of the frame field plus a `__saw_forget` that clears the field's drop
+// flag: the frame has handed its reference over and must not release it again.
+// Codegen's `_optional_binding_owns` decided whether the BINDING then owns the
+// payload by asking the AST whether the scrutinee was a `MoveExpr` — a shape
+// the rewrite had just deleted. For a `self_opt`-encoded field what stands in
+// its place is a bare `self.opt` MemberAccess, which is not an owned temporary
+// either, so all three of its tests answered "borrowed" and nothing released
+// the payload at all.
+//
+// The transform now stamps its own answer (`frame_move_read`) on whatever shape
+// `_read_field` builds, and the predicate reads it. The rows below are the
+// positions that mechanism reaches, each paired with the plain spelling that is
+// its oracle.
+//
+//   t1  the bug: NoCopy, non-spanning `if let v = move opt`
+//   t2  the same at the ImplicitCopy tier, where the payload is a refcount
+//   t3  the same nested inside an `if` branch of the driven body
+//   t4  control: `guard let v = move opt`, which SPLITS and so was always
+//       carried by `_store_binding_in_slot`'s read-policy funnel instead
+//   t5  control: a SPANNING `if let v = move opt` (DF-182c), same reason
+//   t6  control: a NON-move `if let v = opt` on an ImplicitCopy optional — the
+//       source keeps its payload, so an over-eager fix double-releases here
+//   t7  control: `Optional.take()`, a call-shaped source the predicate could
+//       always answer for
+//
+// ORACLE: `LIVE` counts live `Res` values. Each row's plain and driven halves
+// are the same program, so both report zero once the value's scope (for the
+// driven half, the frame) is gone. A leak reports a positive count; a double
+// release reports a negative one.
+// EXPECT: success
+// EXPECT-OUTPUT:
+// t1 in t1p
+// t1 plain 0
+// t1 in t1d
+// t1 driven 0
+// t2 in 1
+// t2 plain 0
+// t2 in 1
+// t2 driven 0
+// t3 in t3p
+// t3 plain 0
+// t3 in t3d
+// t3 driven 0
+// t4 in t4p
+// t4 plain 0
+// t4 in t4d
+// t4 driven 0
+// t5 in t5p
+// t5 plain 0
+// t5 in t5d
+// t5 driven 0
+// t6 in 2
+// t6 plain 0
+// t6 in 2
+// t6 driven 0
+// t7 in t7p
+// t7 plain 0
+// t7 in t7d
+// t7 driven 0
+
+import std.task.*
+
+static LIVE: Atomic<Int> = Atomic(0)
+
+struct Res { name: String }
+
+extension Res: NoCopy {
+    func deinit(&var self) { LIVE.fetch_add(0 - 1) }
+}
+
+func res(tag: String) -> Res {
+    LIVE.fetch_add(1)
+    Res(name: tag)
+}
+
+// t1 — the reproducer.
+func t1_plain() {
+    var opt: Res? = res("t1p")
+    if let v = move opt { print("t1 in {v.name}") }
+}
+
+func t1_driven() {
+    var opt: Res? = res("t1d")
+    yield_now()
+    if let v = move opt { print("t1 in {v.name}") }
+}
+
+// t2 — ImplicitCopy tier: the payload is an `Arc`, so the release is a refcount
+// drop and a missing one keeps the `Res` alive forever.
+func t2_plain() {
+    var opt: Arc<Res>? = Arc<Res>(value: res("t2p"))
+    if let v = move opt { print("t2 in {v.strong_count()}") }
+}
+
+func t2_driven() {
+    var opt: Arc<Res>? = Arc<Res>(value: res("t2d"))
+    yield_now()
+    if let v = move opt { print("t2 in {v.strong_count()}") }
+}
+
+// t3 — the same binding one block in, so the rewrite reaches it through the
+// nested-block lowering rather than the body's top level.
+// (The trailing discard keeps the `if` off the block's tail: a `move` of a
+// frame local in a nested TAIL expression is a separate, deliberate refusal.)
+func t3_plain(flag: Bool) {
+    var opt: Res? = res("t3p")
+    if flag {
+        if let v = move opt { print("t3 in {v.name}") }
+        let _ = flag
+    }
+    let _ = flag
+}
+
+func t3_driven(flag: Bool) {
+    var opt: Res? = res("t3d")
+    yield_now()
+    if flag {
+        if let v = move opt { print("t3 in {v.name}") }
+        let _ = flag
+    }
+    let _ = flag
+}
+
+// t4 — control: a `guard let` splits, so its binding is a frame slot filled
+// through `_store_binding_in_slot` and never reached this predicate.
+func t4_plain() {
+    var opt: Res? = res("t4p")
+    guard let v = move opt else { return }
+    print("t4 in {v.name}")
+}
+
+func t4_driven() {
+    var opt: Res? = res("t4d")
+    yield_now()
+    guard let v = move opt else { return }
+    print("t4 in {v.name}")
+}
+
+// t5 — control: a suspension INSIDE the branch splits the `if let` the same way.
+func t5_plain() {
+    var opt: Res? = res("t5p")
+    if let v = move opt { print("t5 in {v.name}") }
+}
+
+func t5_driven() {
+    var opt: Res? = res("t5d")
+    yield_now()
+    if let v = move opt {
+        yield_now()
+        print("t5 in {v.name}")
+    }
+}
+
+// t6 — control: no `move`. The optional keeps owning its payload and the
+// binding is a second reference the place rule retained; releasing the binding
+// as if it had been handed the value would free what `opt` still points at.
+func t6_plain() {
+    let opt: Arc<Res>? = Arc<Res>(value: res("t6p"))
+    if let v = opt { print("t6 in {v.strong_count()}") }
+}
+
+func t6_driven() {
+    let opt: Arc<Res>? = Arc<Res>(value: res("t6d"))
+    yield_now()
+    if let v = opt { print("t6 in {v.strong_count()}") }
+}
+
+// t7 — control: `take()` is a MethodCall, which the predicate has always
+// recognized as a fresh owned value.
+func t7_plain() {
+    var opt: Res? = res("t7p")
+    if let v = opt.take() { print("t7 in {v.name}") }
+}
+
+func t7_driven() {
+    var opt: Res? = res("t7d")
+    yield_now()
+    if let v = opt.take() { print("t7 in {v.name}") }
+}
+
+func main() {
+    t1_plain()
+    print("t1 plain {LIVE.load()}")
+    __saw_drive(t1_driven())
+    print("t1 driven {LIVE.load()}")
+
+    t2_plain()
+    print("t2 plain {LIVE.load()}")
+    __saw_drive(t2_driven())
+    print("t2 driven {LIVE.load()}")
+
+    t3_plain(true)
+    print("t3 plain {LIVE.load()}")
+    __saw_drive(t3_driven(true))
+    print("t3 driven {LIVE.load()}")
+
+    t4_plain()
+    print("t4 plain {LIVE.load()}")
+    __saw_drive(t4_driven())
+    print("t4 driven {LIVE.load()}")
+
+    t5_plain()
+    print("t5 plain {LIVE.load()}")
+    __saw_drive(t5_driven())
+    print("t5 driven {LIVE.load()}")
+
+    t6_plain()
+    print("t6 plain {LIVE.load()}")
+    __saw_drive(t6_driven())
+    print("t6 driven {LIVE.load()}")
+
+    t7_plain()
+    print("t7 plain {LIVE.load()}")
+    __saw_drive(t7_driven())
+    print("t7 driven {LIVE.load()}")
+}

@@ -804,6 +804,20 @@ class Expression(ASTNode):
     #                           was settled on the pre-transform AST, so the
     #                           place rule must not re-judge it on the second
     #                           type-check pass.
+    #   frame_move_read      -- and the way it was settled was a `move`: the
+    #                           paired `__saw_forget` hands the frame's own
+    #                           reference over, so the reader OWNS what it
+    #                           reads, even for a NoCopy payload. It sits here
+    #                           rather than on one node type because
+    #                           `_read_field` is the single funnel that builds
+    #                           every frame read and returns three shapes for
+    #                           it (a `self.x!` ForceUnwrap for an opt-encoded
+    #                           field, a bare `self.x` MemberAccess for a plain
+    #                           or self_opt one, a `self.x[0]` deref for a
+    #                           reference) — and a consumer that asks the AST
+    #                           SHAPE whether a source was a `move` gets the
+    #                           wrong answer for all three, since the rewrite
+    #                           is what erased the `MoveExpr` (DF-217b).
     #   enum_variant_literal -- design 139: this MemberAccess spells a
     #                           payload-free enum variant (`Slot.Empty`), so it
     #                           CONSTRUCTS a fresh value rather than reading one
@@ -816,6 +830,7 @@ class Expression(ASTNode):
     closure_lend: bool = annotation(False)
     payload_needs_copy: bool = annotation(False)
     frame_place_read: bool = annotation(False)
+    frame_move_read: bool = annotation(False)
     enum_variant_literal: bool = annotation(False)
     #   resolved_type_identity -- design 144: the module-qualified IDENTITY of
     #                           the type this node's WRITTEN name resolved to
@@ -1265,19 +1280,17 @@ class LendVarLiteral(Expression):
 class ForceUnwrap(Expression):
     """Force unwrap: expr!
 
-    Two marks the coroutine transform stamps on the `self.name!` reads it
-    synthesizes for opt-encoded frame fields (design 124 / 131). Both say the
-    frame — not the language's ordinary place rule — decides this read's
-    ownership, because the transform pairs it with its own bookkeeping:
-      frame_owning_read -- a non-`move` whole-binding read; the frame KEEPS the
-                           field, so codegen retains at the transfer site.
-      frame_move_read   -- a `move` read; the paired `__saw_forget` hands the
-                           frame's own reference over, so it is a transfer even
-                           for a NoCopy payload.
+    `frame_owning_read` marks a non-`move` whole-binding read of an opt-encoded
+    frame field (design 124 / 131): the frame KEEPS the field, so codegen must
+    retain at the transfer site. It lives HERE and not on `Expression` because
+    the `!` is precisely what creates the need — the ownership checkpoint
+    recognizes bare place expressions and would judge a plain `self.name`
+    correctly on its own, but cannot see the place through a ForceUnwrap.
+    Its `move` counterpart is `Expression.frame_move_read`, which every frame
+    read shape can carry.
     """
     expr: Expression
     frame_owning_read: bool = annotation(False)
-    frame_move_read: bool = annotation(False)
 
 
 @dataclass
