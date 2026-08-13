@@ -93,8 +93,13 @@
    non-LIFO (invoked after arbitrary statements, including a `take()` of
    the captured slot) and needs generation-checked handles (the design-134
    `__stale` precedent) or a refusal, plus the two-`[&var x]`-handles
-   ordering rules. That is the follow-up brief, if demand appears. OQ7 and
-   OQ8 remain open.
+   ordering rules. That is the follow-up brief, if demand appears.
+8. **OQ7 RATIFIED (user, Aug 13):** the S10 channel-receive suspect is
+   probed BEFORE stage 1 dispatches; if it reproduces it gets a DF and a
+   pin on stage 1's flip list.
+9. **OQ8 RATIFIED (user, Aug 13):** stage 3 is strictly SEQUENTIAL after
+   stage 2. All ten open questions are now RULED; the spec is the
+   build-against document.
 Charter: design 218 unit 1's pre-step. This document is the exact form the
 Opus implementers build against, reviewed by the lead, ruled by the user.
 Inputs: the 218 brief (constitution), the DF-217a/b/c/l landed fixes (root
