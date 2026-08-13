@@ -1,0 +1,47 @@
+// XFAIL: DF-217m two SYNC-path temps are never released — a by-value owning
+// argument to a METHOD, and a call-result temp used as a RECEIVER
+//
+// No coroutine is involved: three values are created here and only the first
+// one's deinit runs. The free-function argument (`takeres(mk(1))`) is correct
+// and is the control — it proves the position is releasable and fixes the
+// expected ORDER, at the end of the statement that built the temp. The method
+// argument (`s.take(mk(2))`) and the temp receiver (`mk(3).n`) both leak.
+//
+// Found by sweep S2 while probing the suspending positions: the suspending
+// twin of each shape releases exactly once, i.e. the coro path is CORRECT here
+// and the plain path is the one that leaks — the reverse of the DF-217h class
+// beside it, and the reason it needs its own pin rather than riding one.
+// EXPECT: success
+// EXPECT-OUTPUT:
+// deinit 1
+// free fn arg -> 1
+// deinit 2
+// method arg -> 2
+// deinit 3
+// temp receiver field -> 3
+// done
+
+struct Res { n: Int }
+extension Res: NoCopy {
+    func deinit(&var self) { print("deinit {self.n}") }
+}
+
+struct Sink { tag: Int }
+extension Sink {
+    func take(&self, r: Res) -> Int { r.n }
+}
+
+func takeres(r: Res) -> Int { r.n }
+
+func mk(n: Int) -> Res { Res(n: n) }
+
+func main() {
+    let a = takeres(mk(1))
+    print("free fn arg -> {a}")
+    let s = Sink(tag: 0)
+    let b = s.take(mk(2))
+    print("method arg -> {b}")
+    let c = mk(3).n
+    print("temp receiver field -> {c}")
+    print("done")
+}

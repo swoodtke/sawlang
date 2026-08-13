@@ -1,0 +1,46 @@
+// XFAIL: DF-217i a generic body evades the copy-tier rules, and instantiation
+// never re-checks — `let a = sink(x); let b = sink(x)` on an abstract `T`
+// compiles with no bound demanded and no move checkpoint applied
+//
+// Instantiated at a NoCopy type this prints THREE deinits for ONE value and
+// reads the payload after two of them: a use-after-free out of fully safe code
+// with no `unsafe` anywhere. The concrete twin of the same body is refused
+// ("cannot copy value of type `Res` which implements NoCopy"), so the abstract
+// `T` is being treated as the MOST permissive tier where it should be treated
+// as the least.
+//
+// Sweep S1 widened it: a bound does not help, `T: Copy` does NOT close it
+// (ExplicitCopy satisfies Copy and still owes `.copy()`/`move`), nesting
+// multiplies the releases, generic METHODS leak identically, and a generic
+// COROUTINE launders across a suspend because the post-transform re-check sees
+// only abstract `T` — "the generated code typechecks" is satisfied vacuously
+// there.
+//
+// THE FIX DIRECTION IS UNRULED: per-instantiation re-judgement (what `Send`
+// already does, with concrete-type diagnostics) or a TIERED bound vocabulary
+// (design 146's place rule is the model, but `Copy` alone is not a license to
+// bind twice). This pin asserts only what both directions must deliver — safe
+// code does not compile into a triple release — and names the tier the
+// concrete twin already names; a fix that words its refusal differently
+// updates the directive with the marker.
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: NoCopy
+
+struct Res { name: String }
+extension Res: NoCopy {
+    func deinit(&var self) { print("DEINIT {self.name}") }
+}
+
+func sink<T>(a: T) -> Int { 1 }
+
+func twice<T>(x: T) -> Int {
+    let a = sink(x)
+    let b = sink(x)
+    a + b
+}
+
+func main() {
+    let r = Res(name: "r1")
+    print("n {twice(move r)}")
+    print("after")
+}

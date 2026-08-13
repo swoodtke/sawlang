@@ -1,0 +1,33 @@
+// XFAIL: DF-217k the design-130 unsafe-signature rule skips monomorphized
+// signatures, so a generic function receives and returns an unsafe type
+// undeclared
+//
+// `idn<T>` at `T = UnsafePointer<Int8>` RECEIVES and RETURNS a value of unsafe
+// type and compiles with no `unsafe` in its effect slot; the concrete twin is
+// refused at the declaration ("function `idn` is not declared `unsafe`, but its
+// signature receives a value of unsafe type"). The instantiated signature is
+// the one a reader of the call site sees, and it lies about its domain.
+//
+// Memory-safe as it stands — the caller rule still fires, which is why this is
+// declaration hygiene rather than a soundness hole — but design 130's whole
+// claim is that unsafety is TYPE-CARRIED and visible in the signature, and a
+// monomorphized signature is a signature. Same abstract-`T` boundary as
+// DF-217i/DF-217j: the rule runs once with `T` abstract and nothing re-judges
+// it at the concrete type argument.
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: not declared `unsafe`
+
+func idn<T>(x: T) -> T { move x }
+
+func make_ptr() unsafe -> UnsafePointer<Int8> {
+    0 as UnsafePointer<Int8>
+}
+
+func caller() unsafe -> Int {
+    let p = idn(make_ptr())
+    p as Int
+}
+
+func main() {
+    print("n {caller()}")
+}

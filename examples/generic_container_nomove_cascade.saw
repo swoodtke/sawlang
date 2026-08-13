@@ -1,0 +1,36 @@
+// XFAIL: DF-217j the NoMove containment cascade is never derived per
+// instantiation, so a generic container relocates a pinned value and aborts
+//
+// `struct Wrap<T>` declares `NoCopy` and is instantiated at `TaskGroup`, which
+// is NoMove. `move w` compiles, and the spawn-move-spawn sequence below dies
+// `panic at taskgroup.saw: force unwrap of None` — exactly the abort design 188
+// exists to prevent, reached from safe code. The concrete twin `struct Wrap {
+// v: TaskGroup }` is refused AT THE DECLARATION with the cascade error and its
+// two-way hint (declare `NoMove` too, or hold the pinned value behind a `Box`).
+//
+// The COPY policy of `Wrap<Res>` IS monomorphized — a `Wrap` over a NoCopy
+// payload is refused correctly — so the machinery exists and the NoMove cascade
+// simply never meets it. Same abstract-`T` boundary as DF-217i, but a
+// type-DECLARATION rule rather than a transfer rule, which is why it sits
+// outside all three of the fix boundaries sweep S1 mapped.
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: NoMove
+
+import std.task.*
+
+struct Wrap<T> { v: T }
+extension Wrap<T>: NoCopy {}
+
+func work(n: Int) -> Int {
+    yield_now()
+    yield_now()
+    n * 2
+}
+
+func main() {
+    var w = Wrap<TaskGroup>(v: TaskGroup())
+    let h = w.v.spawn(work(21))
+    var w2 = move w
+    let h2 = w2.v.spawn(work(10))
+    print("got {h.join()} and {h2.join()}")
+}
