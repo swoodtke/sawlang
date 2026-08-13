@@ -422,8 +422,10 @@ class _PlaceUses:
             # question, so it comes back as the Bool the caller is testing.
             return self._chain_assign_window(subject, want='bool')
         place = subject if is_place(subject) else None
-        if place is None or not getattr(place, 'place_optional', False):
+        if place is None:
             return None
+        if not getattr(place, 'place_optional', False):
+            return self._presence_desugar(place)
         body = Block(statements=[],
                      final_expr=BoolLiteral(value=True, line=place.line,
                                             column=place.column),
@@ -431,6 +433,43 @@ class _PlaceUses:
         return self._window_call(place, self._fresh(), body,
                                  SawType(TypeKind.BOOL),
                                  exclusive=False, absent='false')
+
+    def _presence_desugar(self, place):
+        """`if let _ = <unconditional lend of an optional-TYPED place>`.
+
+        DF-218a. `Slot<T?>.value()` is `borrows -> T` at `T = Res?`: the lend is
+        UNCONDITIONAL, so the place is there by construction and the optional
+        the use site sees is the ELEMENT, not the lend's presence. The window
+        above answers the lend's own question and has nothing to say about this
+        one, so the read fell through to the value path and a move-only payload
+        could not be presence-tested at all.
+
+        The fix is design 218's ELABORATION PRINCIPLE rather than a fourth
+        classification arm: rewrite to `<place>.is_some()`, which is core a
+        programmer could have written, and let the ordinary chain machinery
+        lower it. That machinery already borrows a place to call a method on it
+        — `s.value().method()` is the escape hatch `_value_read_ok`'s own hint
+        names — so the presence test becomes a `&self` tag read inside a shared
+        window, tier-independent because the tag is not the payload. The node
+        carries the PLACE's span, so a diagnostic still anchors at what the
+        author wrote.
+
+        Scoped deliberately. A CONDITIONAL lend keeps the window above: there
+        the `?` IS the window's presence rather than a value, so the desugared
+        spelling is not expressible at all — lowering `v.get(i).is_some()` puts
+        the call inside the window, where the binding is the lent ELEMENT
+        (``type `Res` has no method `is_some` ``). A plain optional value keeps
+        design 111's `_` rider, which already releases a `move` scrutinee's
+        payload exactly once (DF-217l). Both were probed at every tier before
+        this was scoped.
+        """
+        elem = getattr(place, 'place_elem_type', None)
+        if elem is None or elem.kind != TypeKind.OPTIONAL:
+            return None
+        call = MethodCall(object=place, method_name="is_some", arguments=[],
+                          line=place.line, column=place.column)
+        call.resolved_type = SawType(TypeKind.BOOL)
+        return self._chain_window(call, place)
 
     def _borrow_match(self, expr):
         """`match <place> { … }`: the match moves INSIDE the window and reads
