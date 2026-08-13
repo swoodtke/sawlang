@@ -1,0 +1,55 @@
+// design 219 unit A1 — the ACCEPT side of the copy-policy `sync` rule.
+//
+// Three retain hooks the rule must leave alone:
+//   * `Counted`  — the Arc shape: an unmarked body that provably never
+//                  suspends. `sync` is a DECLARED negative effect, so a body
+//                  the effect pass finds suspension-free satisfies the rule
+//                  with nothing written.
+//   * `Marked`   — the same body with `sync` spelled out.
+//   * `Deep`     — an ExplicitCopy `copy()`, which is only ever called where
+//                  the source says `.copy()`, and stays legal too.
+// EXPECT: success
+// EXPECT-OUTPUT:
+// counted 2
+// marked 2
+// deep 3
+// deep copy 3
+
+struct Counted { tag: String, n: Int }
+extension Counted: ImplicitCopy {
+    func copy(&self) -> Counted { Counted(tag: self.tag, n: self.n) }
+}
+
+struct Marked { tag: String, n: Int }
+extension Marked: ImplicitCopy {
+    func copy(&self) sync -> Marked { Marked(tag: self.tag, n: self.n) }
+}
+
+struct Deep { items: Vector<Int> }
+extension Deep: ExplicitCopy {
+    func copy(&self) -> Deep {
+        var out = Vector<Int>()
+        var i = 0
+        while i < self.items.len() {
+            out.push(self.items[i])
+            i += 1
+        }
+        Deep(items: move out)
+    }
+}
+
+func count(c: Counted) -> Int { c.n }
+func count_marked(m: Marked) -> Int { m.n }
+
+func main() {
+    let c = Counted(tag: "c", n: 1)
+    print("counted {count(c) + count(c)}")
+
+    let m = Marked(tag: "m", n: 1)
+    print("marked {count_marked(m) + count_marked(m)}")
+
+    let d = Deep(items: [1, 2, 3])
+    print("deep {d.items.len()}")
+    let dup = d.copy()
+    print("deep copy {dup.items.len()}")
+}

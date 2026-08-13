@@ -1,0 +1,30 @@
+// Conformance row K27 — a copy-policy `copy()` must be `sync`, checked at the
+// conformance
+//
+// A hand-written `copy()` inside a copy-policy conformance is the RETAIN HOOK:
+// the compiler calls it at every silent transfer, at sites no source construct
+// names. A suspending one therefore suspends where nothing says "call" — and
+// design 219 unit A1 refuses it where it is DECLARED, not where it is
+// invisibly invoked, so the refusal is one error at one line no matter how
+// many transfers the program contains.
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: cannot suspend in the `ImplicitCopy` `copy()` of `Heavy`
+// EXPECT-ERROR-CONTAINS: must be `sync`
+
+import std.task.*
+
+struct Heavy { name: String, n: Int }
+
+extension Heavy: ImplicitCopy {
+    func copy(&self) -> Heavy {
+        yield_now()
+        Heavy(name: self.name, n: self.n + 1)
+    }
+}
+
+func take(h: Heavy) -> Int { h.n }
+
+func main() {
+    let h = Heavy(name: "h", n: 0)
+    print(take(h) + take(h))
+}

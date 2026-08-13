@@ -154,6 +154,11 @@ class SuspendNode:
     column: int
     source_file: Optional[str]
     sync_reason: Optional[str] = None   # non-None => this is a `sync` context
+    # The hint a violation of THIS context prints. None takes the general
+    # "hoist it out of the sync region" advice; a context whose sync-ness comes
+    # from a rule the author did not write (design 219's copy-policy `copy()`)
+    # supplies its own, because the general advice cannot name that rule.
+    sync_hint: Optional[str] = None
     direct: List[SuspendSource] = field(default_factory=list)
     edges: List[SuspendEdge] = field(default_factory=list)
     suspends: bool = False              # computed by the fixpoint
@@ -324,9 +329,25 @@ class EffectsMixin:
             mname = getattr(method, "name", "?")
             is_deinit = (mname == "deinit")
             is_sync = getattr(method, "is_sync", False)
+            # design 219 unit A1 (DF-217r): the copy-policy retain hook, stamped
+            # at registration. This is the THIRD way a method becomes a `sync`
+            # context, and the only one the author does not spell — hence its
+            # own hint, which names the rule and where the calls come from.
+            copy_hook = getattr(method, "copy_policy_hook", None)
             reason = None
+            hint = None
             if is_deinit:
                 reason = "`deinit` context"
+            elif copy_hook:
+                reason = f"the `{copy_hook}` `copy()` of `{struct_name}`"
+                hint = (
+                    "a copy-policy `copy()` runs at compiler-inserted call "
+                    "sites and must be `sync` (design 219): the compiler calls "
+                    "it at every silent transfer, where no source construct "
+                    "names a call, so a suspension here would break the `sync` "
+                    "guarantee of whatever function the transfer sits in. Keep "
+                    "the body the retain shape — cheap, infallible, "
+                    "suspension-free")
             elif is_sync:
                 reason = "`sync func` method"
             node = SuspendNode(
@@ -338,6 +359,7 @@ class EffectsMixin:
                 column=method.column,
                 source_file=getattr(method, "source_file", None),
                 sync_reason=reason,
+                sync_hint=hint,
             )
             self._suspend_nodes[key] = node
         self._suspend_stack.append(node)
@@ -824,8 +846,9 @@ class EffectsMixin:
                f"calls {chain} ({susp_short} suspends at line {susp_line})")
         self.reporter.error(
             ErrorKind.TYPE_MISMATCH, msg, node.line, node.column,
-            hint="a `sync` context must be transitively suspension-free: remove "
-                 "the suspending call or hoist it out of the sync region",
+            hint=node.sync_hint or (
+                "a `sync` context must be transitively suspension-free: remove "
+                "the suspending call or hoist it out of the sync region"),
             source_file=node.source_file,
         )
 

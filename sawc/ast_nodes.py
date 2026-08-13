@@ -2064,6 +2064,13 @@ class Method(ASTNode):
     is_derived_serialize: bool = False
     is_derived_deserialize: bool = False
     is_sync: bool = False  # True for a `sync func` method (checked suspension-free)
+    # design 219 unit A1 (DF-217r): the copy-policy trait whose RETAIN HOOK this
+    # hand-written `copy()` is ("ImplicitCopy" / "ExplicitCopy"), stamped at
+    # registration on the body an author wrote inside the conformance. The
+    # compiler INSERTS calls to it at silent transfers, where no source construct
+    # names a call, so it is a `sync` context: the effect pass reads this to give
+    # the node a `sync_reason` and refuse a suspending body AT the declaration.
+    copy_policy_hook: Optional[str] = annotation(None)
     # `unsafe func` / `unsafe init` (design 130): this method touches an unsafe
     # type. Declared, never inferred — the trigger rule checks the declaration
     # against the body rather than supplying it.

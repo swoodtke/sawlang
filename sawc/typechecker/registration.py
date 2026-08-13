@@ -2270,6 +2270,16 @@ class RegistrationMixin:
         declares_copy_policy = declared_copy_policy is not None
         has_copy_method, already_derived = self._derivation_slot(
             extension, "copy", "is_derived_copy")
+        # design 219 unit A1 (DF-217r): a hand-written `copy()` inside a
+        # copy-policy conformance is the RETAIN HOOK — codegen inserts a call to
+        # it at every silent transfer, at sites no source construct names. Stamp
+        # it so the effect pass makes it a `sync` context and refuses a
+        # suspending body AT this declaration rather than at an invisible call.
+        if declares_copy_policy and has_copy_method:
+            for m in extension.methods:
+                if (not m.is_init and m.name == "copy"
+                        and not getattr(m, "is_derived_copy", False)):
+                    m.copy_policy_hook = declared_copy_policy
         if declares_copy_policy and not has_copy_method:
             self._demand_synthesize_marker(extension, declared_copy_policy, "copy")
             derived_any = True

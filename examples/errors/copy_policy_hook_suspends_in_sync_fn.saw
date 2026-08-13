@@ -1,0 +1,34 @@
+// DF-217r, design 219 unit A1: the hole the rule closes. `silent` is DECLARED
+// `sync`, and the only thing in it that could suspend is the copy the compiler
+// inserts for `let a = h` — a call the source never spells, which the effect
+// census therefore never saw. The `sync` guarantee was violated by code no
+// construct names.
+//
+// The refusal lands at the `copy()` declaration, not at the transfer: one
+// error at the root, and `silent` stays a legal `sync` function.
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: cannot suspend in the `ImplicitCopy` `copy()` of `Heavy`
+// EXPECT-ERROR-CONTAINS: compiler-inserted call sites
+
+import std.task.*
+
+struct Heavy { name: String, n: Int }
+
+extension Heavy: ImplicitCopy {
+    func copy(&self) -> Heavy {
+        yield_now()
+        Heavy(name: self.name, n: self.n + 1)
+    }
+}
+
+func take(h: Heavy) -> Int { h.n }
+
+func silent(h: &Heavy) sync -> Int {
+    let a = h
+    take(a) + take(a)
+}
+
+func main() {
+    let h = Heavy(name: "h", n: 0)
+    print(silent(&h))
+}
