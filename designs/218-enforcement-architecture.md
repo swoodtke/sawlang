@@ -103,10 +103,19 @@ retires in favor of the frame struct's ordinary structural deinit. As each
 generated construct becomes ordinary safe code, the corresponding
 `post_transform` exemption is REMOVED — split the bool into named per-gate
 exemptions first, then delete them one by one, each deletion its own commit
-with the newly-applicable gate green. Exit criterion: the re-check runs the
-transfer/exclusivity rules over transformed output with zero ownership
-exemptions, and the DF-217a/b/h reproducer shapes are compile-time-impossible
-to regenerate (a conformance row asserts each).
+with the newly-applicable gate green. Exit criterion — THE PIN GATE (user, Aug 13): before this unit dispatches,
+every still-open finding the rewrite claims to fix is a cited XFAIL pin
+(standard policy: DF-cited reason, minimal repro, EXPECT directives stating
+intended behavior), and 218a's impossibility arguments map 1:1 to those pin
+FILENAMES — the flip list is pre-registered in the spec, so unit 2 lands by
+flipping exactly the pins it promised (XPASS markers removed in the landing;
+an unflipped promised pin means a missed case, an unpromised flip means an
+unclaimed fix — both are review findings, not silent events). Additionally:
+the re-check runs the transfer/exclusivity rules over transformed output with
+zero ownership exemptions. Pins the OTHER briefs own flip there instead
+(position pins → the 120-matrix fix; C07/C12 → `other: &Self`); a
+pin-promotion batch converts every open DF repro out of gitignored
+`.build/scratch/` once the current fix wave and sweeps S1/S2 report.
 
 **Unit 3 — comparisons desugar at the AST (coordinates with the `other: &Self`
 brief).** `a > b` becomes `a.compare(b)` (and `==` family likewise) as an AST
