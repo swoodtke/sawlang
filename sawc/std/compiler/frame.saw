@@ -138,18 +138,7 @@ public unsafe struct UnsafeRef<T> {
     public p: UnsafePointer<T>
 }
 
-extension UnsafeRef<T>: ExplicitCopy {
-    /// Returns a second handle to the same referent.
-    ///
-    /// The tier is the contract: duplication is written where it happens, so
-    /// a frame that keeps its own handle and hands one to a closure says so.
-    /// Duplicating is sound on the same terms the original was — a second
-    /// handle constrains nothing the first did not, since validity is about
-    /// the referent's lifetime and not about how many handles exist.
-    public func copy(&self) unsafe -> UnsafeRef<T> {
-        UnsafeRef<T>(p: self.p)
-    }
-}
+extension UnsafeRef<T>: NoCopy {}
 
 extension UnsafeRef<T> {
     /// Lends the referent where it sits.
@@ -161,5 +150,16 @@ extension UnsafeRef<T> {
     /// referent's own storage.
     public func deref(&self) unsafe borrows -> T {
         lend self.p[0]
+    }
+
+    /// Returns a second handle to the same referent.
+    ///
+    /// `UnsafeRef` is `NoCopy` so that duplication is written where it
+    /// happens: a frame that keeps its own handle and hands one to a closure
+    /// says so. Duplicating is sound on the same terms the original was — a
+    /// second handle constrains nothing the first did not, since validity is
+    /// about the referent's lifetime and not about how many handles exist.
+    public func copy(&self) unsafe -> UnsafeRef<T> {
+        UnsafeRef<T>(p: self.p)
     }
 }
