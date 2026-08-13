@@ -206,10 +206,43 @@ list at the brief's end is its most important artifact.
   pinning, design-146 place rules (verify the claimed coverage), unsafe-type
   contact, Deinit timing. Oracle: deinit counts + cross-thread data races vs
   the concrete-typed twin of the same body.
-- **S2 — the design-120 expression-position enumeration (CHEAPEST TO CLOSE).**
-  Full expression grammar x one suspending call, twin-parity oracle. Four
-  known members (DF-206c, DF-215b, DF-217f, DF-217g); the matrix becomes the
-  fix brief's test plan. Finite and mechanical.
+- **S2 — RUN (Aug 13). 117-row matrix in `.build/scratch/sweep_pos120/
+  RESULTS.md`: 70 CORRECT, 16 MISCOMPILE, 12 ICE, 10 REFUSED.** The claim
+  holds in ~65 of ~90 grammar positions. Findings, lead-verified where
+  starred:
+  - **DF-217h WIDENED into a class (*)** — the ANF hoist's temp for an
+    owning value produced by a suspending call in a CHILD position is
+    consumed by the parent and dropped AGAIN at frame teardown: free-fn
+    args, struct-init/enum-ctor args, tuple-literal elements, multi-arg
+    calls, `Vector.push(f())`, optional wrap, `?.` hops — nine positions,
+    payload-refcount evidence (a shared `Arc`'s storage released under a
+    live owner). Anchor: `_anf_lift` (coro_transform.py:1417) emits a bare
+    temp with NO consume bookkeeping — contrast `_vc_hoist_to_temp:1738`
+    which registers its temp. Agrees with worker C's independent narrowing.
+  - **DF-217m (NEW, *) — SYNC-PATH LEAKS, no coroutine involved:** a
+    by-value OWNING argument to a METHOD is never deinited, and a
+    call-result temp RECEIVER (`mk(3).n`) is never deinited — three values
+    created, one deinit, in ordinary sync code (`min_leak.saw`). The
+    suspending twin drops exactly once, i.e. the coro path is CORRECT and
+    the plain path leaks.
+  - **ICE family = statement-HEAD entry gaps:** if/while conditions,
+    `&&`/`||` LHS (RHS works), for-range bounds, and match scrutinees whose
+    ctor args suspend (DF-217f + its struct-init sibling) all reach codegen
+    unhoisted and die `Undefined function`. Bogus refusals: `??` LHS,
+    `?.` HEAD, compound assignment RHS, `return f()` under Result
+    auto-wrap, and DestructuringLet — which is DF-217g's REAL scope (the
+    tuple literal itself compiles; `let (a,b) = ...` is what refuses).
+  - Receiver-temp deinit TIMING drifts from the spec's promise (temp lives
+    to frame teardown), lower severity.
+  - **Funnel verdict:** one child-position funnel (`_uncond_children`,
+    coro_transform.py:1481) missing 3-5 node classes (EnumInit, RangeExpr,
+    the ResultWrap family), ENTERED from a scattered hand-enumerated
+    statement set (4 of ~8 statement classes, 0 of 3 head positions) plus
+    three narrow per-construct hoists and a second position map in stage 2.
+    The fix brief: unify the statement entries into the funnel, add the
+    missing nodes, and give `_anf_lift` the temp-ownership bookkeeping —
+    with this matrix as the row-by-row test plan (obligation 1 satisfied by
+    construction). Feeds 218a directly: hoisted temps ARE the Slots.
 - **S3 — cancellation/panic teardown differential (DEEPEST UNKNOWN).** Extend
   the coro harness axes: cancel mid-suspend, cancel an io-parked task, panic
   mid-suspend, unjoined handles, group teardown order, and the MT
