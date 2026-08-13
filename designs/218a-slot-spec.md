@@ -100,19 +100,23 @@
 9. **OQ8 RATIFIED (user, Aug 13):** stage 3 is strictly SEQUENTIAL after
    stage 2. All ten open questions are now RULED; the spec is the
    build-against document.
-10. **`dup()` RENAMED to an ExplicitCopy CONFORMANCE (user, Aug 13, at
-   unit-1 review — post-dates the spec body; read every `dup()` below as
-   `copy()`).** Design 219's vocabulary ruling makes ExplicitCopy THE trait
-   for exactly `UnsafeRef`'s shape: move-only, duplicable on request,
-   spelled at the call site — `dup()` was a bespoke second word for it.
-   `extension UnsafeRef<T>: ExplicitCopy` with
-   `copy(&self) unsafe -> UnsafeRef<T>`, same body, same lifetime-based
-   validity contract; composes via `@synthesize` memberwise. KNOWN
-   WRINKLE to watch at implementation: the trait requirement is unmarked
-   `copy(&self) -> Self` while the conformer must carry `unsafe` (its
-   signature names an unsafe type) — if conformance checking refuses the
-   effect mismatch, that is a REPORTED rule question, not a workaround
-   site.
+10. **`dup()` RENAMED `copy()` — as a PLAIN METHOD; the ExplicitCopy
+   conformance is DEFERRED to design 219's implementation (user, Aug 13,
+   two-step ruling at unit-1 review — post-dates the spec body; read every
+   `dup()` below as `copy()`).** The name honors 219's vocabulary now
+   (`UnsafeRef` is exactly the trait's shape: move-only, duplicable on
+   request, spelled at the call site). The CONFORMANCE waits, for two
+   reasons: declaring ExplicitCopy under TODAY'S tier semantics would make
+   `UnsafeRef` satisfy current `T: Copy` bounds — admitting it into
+   silently-copying generic bodies, benign for a pointer type (a bitwise
+   copy IS a valid duplicate under the lifetime-based contract) but
+   unruled surface — and the trait-requirement effect-matching question
+   (unmarked `copy(&self) -> Self` vs the `unsafe`-marked conformer) is
+   219's to answer once, for `Arc` and the blanket Copy-satisfies-
+   ExplicitCopy rule too. Nothing in 218 needs the conformance: the
+   `[&self]` lowering calls `self.__recv.copy()` by direct method lookup.
+   `UnsafeRef` stays NoCopy; 219 adds the one-line conformance when the
+   collapse lands.
 Charter: design 218 unit 1's pre-step. This document is the exact form the
 Opus implementers build against, reviewed by the lead, ruled by the user.
 Inputs: the 218 brief (constitution), the DF-217a/b/c/l landed fixes (root
