@@ -256,31 +256,73 @@ list at the brief's end is its most important artifact.
 Reviewed the recent fix waves for class-shaped mechanisms; two sweeps
 dispatched (checkpointed agents) and complete. Full matrices + probe files:
 `.build/scratch/sweep_frame/RESULTS.md` and `sweep_labeled/RESULTS.md`
-(gitignored — promote reproducers to cited pins before any `.build` clean).
+(gitignored — promote reproducers to cited pins before any `.build` clean), plus
+the later differential sweep's `.build/scratch/coro_diff/RESULTS.md`.
 DF-217x numbers are RESERVED here for these findings; the next authored
 brief should skip to 218 or adopt them.
 
+**Status (Aug 13): section 1 is CLOSED — all three frame-slot findings fixed,
+each with its conformance row and position matrix, on branch
+`worktree-agent-a94bfdce48f5369d5`.** Fixing them turned up two more, both from
+sweeping the PREDICATES rather than the symptoms: DF-217i (fixed with them) and
+DF-217h (open, pinned, wants its own dispatch). Section 2 (DF-216c / DF-217d /
+DF-217e) is untouched and still open.
+
 1. **Coro-frame owning-binding positions** (the DF-206a/b/f + DF-210a/b/f
    family). Ten positions probed at two tiers against non-suspending twins.
-   Seven rows CORRECT/clean. THREE NEW FINDINGS:
-   - **DF-217a (CRASH, most severe) — same-name shadow rebind of a NoCopy
-     local across a suspend** (`let s = derive(move s)` in a driven body):
-     double-free + `force unwrap of None` panic; evidence says old and new
-     binding share one frame field. The distinct-name spelling is correct —
-     and shadow-by-derivation is the BLESSED idiom (design 100). Suspects:
-     `_uniquify_bindings` + frame-field allocation.
-   - **DF-217b (LEAK) — `if let v2 = move opt` on a plain NoCopy Optional
-     local leaks in ANY driven function**, even with no suspend crossing the
-     binding. Suspect: coroutine-membership alone routes the binding through
-     frame machinery (`_lower_inplace` / `forgets` bookkeeping).
-   - **DF-217c (BOGUS-REFUSAL, DF-210a shape) — closure capturing a NoCopy
-     local `[move r]`, called after a suspend**: `_materialize_closure_captures`
-     (coro_transform.py:4959, 5013) unconditionally emits `.copy()` instead of
-     asking `read_policy` — a THIRD entry point the funnel's docstring never
-     named. Other tiers work only because `.copy()` is legal there.
-   Obligation-1 verdict: `read_policy` is the right funnel with a proven-
-   incomplete entry list; 217a/b are an ADJACENT class (frame-field identity/
-   liveness), their own row set in the fix brief.
+   Seven rows CORRECT/clean. THREE NEW FINDINGS — **ALL THREE FIXED Aug 13**;
+   the differential sweep's extensions (both tiers for 217a, the
+   auto-ImplicitCopy tier for 217c) are covered by the same fixes and named in
+   the rows below.
+   - **DF-217a — FIXED (`de7f49d` + coverage `2b9c185`).** Same-name shadow rebind across a suspend
+     (`let s = derive(move s)`) double-freed and then panicked. Root cause:
+     `_uniq_bind`'s reuse of an existing scope mapping, written for the
+     parser's two views of ONE match-arm binding, also swallowed a design-107
+     same-scope REDEFINITION, so both bindings shared a frame field. The reuse
+     is now the caller's to ask for (`second_view=True`, the match pattern
+     only). Tier-independent, as the differential sweep confirmed: rows S09 +
+     `coro_same_scope_redefinition_owning_slots.saw` carry NoCopy AND
+     ExplicitCopy, driven/spawned/loop.
+   - **DF-217b — FIXED (`ea6c9da`).** `if let v = move opt` leaked in every
+     driven function. Root cause: codegen's `_optional_binding_owns` read the
+     ownership off the AST SHAPE (`isinstance(src, MoveExpr)`), and the
+     transform's rewrite is exactly what deletes that shape — a `self_opt`
+     field reads back as a plain `MemberAccess`, so all three of its tests said
+     "borrowed" while `__saw_forget` had already told the frame not to release
+     it. `_read_field` recorded the answer (`frame_move_read`) but stamped it
+     only in its ForceUnwrap branch and nothing consumed it; it is now stamped
+     on every shape (annotation moved to `Expression`) and read by the
+     predicate. Rows O12 + `coro_iflet_move_scrutinee_releases_payload.saw`.
+   - **DF-217c — FIXED (`d0f13c2`).** Root cause as suspected:
+     `_materialize_closure_captures` spelled `.copy()` unconditionally. It now
+     branches on `_frame_read_policy` — the extracted funnel `read_policy` sits
+     behind, whose docstring names BOTH callers. `.copy()` is not a method
+     every tier has, so the same bug refused a NoCopy `[move r]` capture AND an
+     AUTOMATIC-ImplicitCopy struct (design 159's tier declares no `copy`) — the
+     differential sweep's extension, cured by the same fix. Declared
+     ImplicitCopy and ExplicitCopy come out byte-identical. Rows K26 +
+     `coro_closure_capture_reads_by_policy.saw`.
+   Obligation-1 verdict (held up): `read_policy` was the right funnel with a
+   proven-incomplete entry list, and 217a/b were the ADJACENT class
+   (frame-field identity/liveness) they were called.
+   Two FURTHER findings came out of fixing them, both from sweeping the
+   predicates rather than the symptoms:
+   - **DF-217i — FIXED (`c783540`).** `if let _ = move opt` and
+     `guard let _ = move opt` LEAK the payload they discard, with no coroutine
+     involved at all: design 111's `_` rider dropped only a fresh-TEMPORARY
+     payload, and a `move` scrutinee retires the source binding just as
+     completely. Row O13.
+   - **DF-217h — OPEN, pinned** (`examples/coro_hoisted_call_arg_consumed_once.saw`).
+     A hoisted suspending call feeding an argument the callee CONSUMES by value
+     is double-freed: the sub-frame's `__result` is forgotten correctly, but
+     nothing then forgets the ANF TEMP the outer call consumed. DF-210f taught
+     `_optbind_dispatch` this lesson for an optional scrutinee; a by-value call
+     argument never learned it. NOT `Vector.set`-specific — a plain free
+     function with a by-value NoCopy parameter does it too, and the second
+     release reads a husk (empty name). A DIFFERENT chokepoint from 217a/b/c
+     (the ANF hoist's temp lifecycle), and its fix owes a position matrix of
+     its own: which argument positions consume (by-value NoCopy/ExplicitCopy)
+     versus which do not (`&`/`&var`, an ImplicitCopy retain). Own dispatch.
 
 1b. **Coro differential harness** (Aug 13, third retro sweep): a generator
    crossing binding constructs x copy tiers x suspend placements x contexts,

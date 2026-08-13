@@ -1,0 +1,47 @@
+// XFAIL: DF-217h a hoisted suspending call's result is double-freed when the
+// call it feeds CONSUMES it by value — the ANF temp never gives up its claim
+//
+// Design 120 lifts a suspending call out of an argument position into a frame
+// temp, and the sub-frame's `__result` IS forgotten when its value moves into
+// that temp. Nothing then forgets the TEMP when the outer call consumes it: the
+// callee takes the NoCopy value by value and the frame releases it again at
+// teardown. DF-210f taught `_optbind_dispatch` this same lesson for an optional
+// binding's scrutinee — "the temp has handed its value over and must give up
+// its claim on it" — and a by-value CALL ARGUMENT is the position that never
+// learned it.
+//
+// Not `Vector.set`-specific (that is how the differential sweep found it): a
+// plain free function with a by-value NoCopy parameter double-frees the same
+// way, and the second release reads a husk whose String has already gone, so it
+// prints an empty name. Writing the hoist by hand — `let fresh = mk_res_s(3)`
+// then `sink(move fresh)` — is clean, because the author's `move` is what emits
+// the forget today.
+//
+// The fix owes a position matrix of its own: which argument positions consume
+// (a by-value NoCopy or ExplicitCopy parameter) versus which do not (`&`/`&var`,
+// and an ImplicitCopy argument that retains). Left for its own dispatch.
+// EXPECT: success
+// EXPECT-OUTPUT:
+// sink r3
+// DEINIT r3
+// done
+
+import std.task.{yield_now}
+
+struct Res { name: String }
+
+extension Res: NoCopy {
+    func deinit(&var self) { print("DEINIT {self.name}") }
+}
+
+func mk_res_s(id: Int) -> Res {
+    yield_now()
+    Res(name: "r{id}")
+}
+
+func sink(r: Res) { print("sink {r.name}") }
+
+func main() {
+    sink(mk_res_s(3))
+    print("done")
+}
