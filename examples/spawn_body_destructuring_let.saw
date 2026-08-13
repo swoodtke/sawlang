@@ -1,0 +1,31 @@
+// XFAIL: DF-217o a spawned body with NO suspension cannot destructure a tuple
+// — `struct __Frame_worker has no field a`, at the user's own line
+//
+// A spawn root is always frame-transformed, but with no suspension point in
+// the body the pass that gives a destructuring `let`'s bindings their frame
+// fields does not run, while the read rewrite still does — so the read looks
+// for a field nothing created. Adding one pointless `yield_now()` to the same
+// body makes it compile and run, which is why the DRIVEN twin is the one that
+// works and the differential oracle reports this as a bogus ACCEPT of the
+// driven side rather than a miscompile.
+//
+// It also leaks a compiler-internal frame name into a user diagnostic, so even
+// the error is not one a reader can act on.
+// EXPECT: success
+// EXPECT-OUTPUT:
+// got 3
+// done
+
+import std.task.*
+
+func worker() -> Int {
+    let (a, b) = (1, 2)
+    a + b
+}
+
+func main() {
+    var g = TaskGroup()
+    let h = g.spawn(worker())
+    print("got {h.join()}")
+    print("done")
+}

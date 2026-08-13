@@ -1,0 +1,45 @@
+// XFAIL: DF-217n a `match` arm whose payload pattern binds NOTHING never
+// releases the payload of the owned enum it consumed
+//
+// `case Has(_)` leaks; the binding arm `case Has(v)` beside it releases
+// correctly. No coroutine is involved — the corodiff lane surfaced it because
+// BOTH twins leak — so this is design 111's `_` rider reaching a construct the
+// DF-217l fix (`if let _ = move opt`, which leaked the same way) did not cover.
+//
+// Third member of the discard-position family: `let _ = ...` releases,
+// `if let _ = move opt` used to leak and is fixed, `match ... case P(_)` still
+// leaks. The family owes a one-row-per-discard-form matrix, which is the fix's
+// test plan; this file pins the row the matrix is missing.
+// EXPECT: success
+// EXPECT-OUTPUT:
+// bound r1
+// DEINIT r1
+// wildcard
+// DEINIT r2
+// done
+
+struct Res { name: String }
+extension Res: NoCopy {
+    func deinit(&var self) { print("DEINIT {self.name}") }
+}
+
+enum Wrap { case Has(x: Res) }
+extension Wrap: NoCopy {}
+
+func binding_arm() {
+    match Wrap.Has(x: Res(name: "r1")) {
+        case Has(v) -> print("bound {v.name}")
+    }
+}
+
+func wildcard_arm() {
+    match Wrap.Has(x: Res(name: "r2")) {
+        case Has(_) -> print("wildcard")
+    }
+}
+
+func main() {
+    binding_arm()
+    wildcard_arm()
+    print("done")
+}
