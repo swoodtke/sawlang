@@ -158,6 +158,24 @@ consuming body (the 216b transitive query, evaluated at the concrete
 argument) — `@synthesize`d conformers pass, Map's Copy-gated keys pass. C07
 flips HERE (or at `other: &Self`, whichever lands first; coordinate).
 
+## WAVE-B RIDER (user, Aug 13): prefix `*` deref as parser sugar
+
+`*expr`, where `expr` is pointer-typed, desugars in the PARSER to the same
+pointer-place production as `expr[0]` — one grammar arm (prefix position,
+disambiguated like unary `-`), checked and lowered on the EXISTING place
+path, nothing new in checker or codegen (the desugar-early principle; the
+`[]` borrows-operator method is the precedent that operator-shaped places
+are established machinery). NOT a general user-definable prefix operator —
+that surface stays closed. Motivation: `ptr[0]` conflates array indexing
+with single-pointee deref; std's sites are mostly single-object pointers,
+where `*__recv` and `let v = move *val_slot` state the intent precisely
+(the A2 move spelling composes: `move *ptr` is the fourth move-out family
+member in its most readable form). Rides WAVE B because it touches the
+same pointer-place code A2 reorganizes; costs both-lexer/parser parity
+(lexdiff/astdiff gated) + spec grammar text; A2's conformance rows gain
+the `*` spelling variants when it lands. All uses sit inside
+`unsafe`-declared code, so the audience is the trusted base's authors.
+
 ## Units
 
 0. Conformance rows FIRST (obligation 3): the S1 matrix rows (bind-twice,
