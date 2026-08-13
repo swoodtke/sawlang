@@ -7,7 +7,6 @@
 // value the caller still owns — a double free reached from safe code with no
 // `unsafe` anywhere (DF-216b). The direct call `a.compare(b)` is refused by the
 // transfer checkpoint; the operator must agree.
-// XFAIL: DF-216b `<` `>` `<=` `>=` on a NoCopy operand reach a consuming hand-written `compare` through a borrow the callee is entitled to own
 // EXPECT: error
 // EXPECT-ERROR-CONTAINS: takes `other` by value, but the operator passes a borrow
 

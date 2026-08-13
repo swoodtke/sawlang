@@ -5,7 +5,6 @@
 // as the NoCopy one: `a.compare(b)` on an ExplicitCopy operand is refused too,
 // naming `.copy()` and `move`. So the operator owes the same refusal, and the
 // hint names both outs rather than `move` alone (DF-216b).
-// XFAIL: DF-216b an ExplicitCopy operand is refused at a checked call site too, so the operator owes the same refusal and does not make it
 // EXPECT: error
 // EXPECT-ERROR-CONTAINS: takes `other` by value, but the operator passes a borrow
 

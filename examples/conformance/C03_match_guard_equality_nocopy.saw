@@ -4,7 +4,6 @@
 // C02 covers. The row exists because a guard is where the comparison is least
 // visible — nothing about `case n if a == b` looks like a call that consumes
 // its argument (DF-216b).
-// XFAIL: DF-216b a match-arm guard is an ordinary expression position, so `==` there reaches the consuming conformance unchecked
 // EXPECT: error
 // EXPECT-ERROR-CONTAINS: takes `other` by value, but the operator passes a borrow
 

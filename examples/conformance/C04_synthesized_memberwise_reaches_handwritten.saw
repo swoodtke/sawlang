@@ -6,7 +6,6 @@
 // `Tag.equals`/`Tag.compare` and hands each a borrow. The refusal is therefore
 // TRANSITIVE: it follows members, payloads and elements into whatever
 // hand-written body the comparison would actually run (DF-216b).
-// XFAIL: DF-216b a `@synthesize`d memberwise comparison recurses into a member's consuming hand-written body, and the refusal must follow it
 // EXPECT: error
 // EXPECT-ERROR-CONTAINS: takes `other` by value, but the operator passes a borrow
 

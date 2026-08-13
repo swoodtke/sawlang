@@ -5,7 +5,6 @@
 // active variant's payload by recursing on `Tag` — the same borrow handed to
 // the same consuming `equals` C04 reaches through a struct field. One
 // mechanism, a different container (DF-216b).
-// XFAIL: DF-216b enum payload-deep `==` recurses into the payload type's consuming hand-written `equals`
 // EXPECT: error
 // EXPECT-ERROR-CONTAINS: takes `other` by value, but the operator passes a borrow
 

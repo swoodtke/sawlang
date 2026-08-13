@@ -5,7 +5,6 @@
 // conjunction of element-wise `==`, so `(Int, Tag)` reaches `Tag.equals` with a
 // borrow exactly as a struct field does. A tuple also takes the strongest tier
 // it holds, which is what makes this operand NoCopy (DF-216b).
-// XFAIL: DF-216b element-wise tuple `==` recurses into the element type's consuming hand-written `equals`
 // EXPECT: error
 // EXPECT-ERROR-CONTAINS: takes `other` by value, but the operator passes a borrow
 

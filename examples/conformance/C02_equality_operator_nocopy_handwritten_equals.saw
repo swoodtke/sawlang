@@ -4,7 +4,6 @@
 // The equality half of C01's rule. `Equatable.equals(&self, other: Self)` takes
 // `other` by value; `==`/`!=` pass a borrow. A body that does `move other`
 // destroys an operand the caller still owns (DF-216b).
-// XFAIL: DF-216b `==` / `!=` on a NoCopy operand reach a consuming hand-written `equals` through a borrow the callee is entitled to own
 // EXPECT: error
 // EXPECT-ERROR-CONTAINS: takes `other` by value, but the operator passes a borrow
 
