@@ -214,8 +214,8 @@ follows the saw-docs skill. Standing policy: fix user-facing bugs
 on discovery unless genuinely ambiguous (then tracker + flag). Record
 language pain hit while writing Saw as DF-findings in the tracker.
 
-Three BRIEF OBLIGATIONS (design 190, from the Aug-9 quality analysis —
-each earned by a family of found bugs):
+Four BRIEF OBLIGATIONS (1-3 from design 190's Aug-9 quality analysis;
+4 added Aug 13 — each earned by a family of found bugs):
 1. **A position-quantified rule is a funnel or a matrix.** A brief that
    introduces or touches a rule quantifying over "every position where X
    appears" either routes it through ONE chokepoint whose docstring NAMES
@@ -231,6 +231,18 @@ each earned by a family of found bugs):
 3. **A safety-surface brief writes its conformance rows first.** Once
    design 191 lands, a brief touching a safety guarantee adds/updates its
    `examples/conformance/` rows as its FIRST unit.
+4. **A DF finding is presumed to be a CLASS until a sweep says otherwise.**
+   Before a DF's fix is dispatched, name the MECHANISM that produced it (a
+   bypassed funnel, an incompletely built scope, a missing check on one of
+   several synthesized paths), enumerate the other positions that mechanism
+   reaches, and probe them with compile/run evidence — the fix brief then
+   targets the mechanism, with the sweep's matrix as its test plan, not the
+   found symptom. A finding that really is one-off records WHY the
+   mechanism admits no siblings instead. (Earned by DF-216a/b, Aug 13:
+   both presented as isolated instances of general mechanisms — the
+   comparison operators are one of several compiler-synthesized call
+   constructions that skip `_check_value_transfer`, and `self` is one of
+   several enclosing bindings a closure body's scope must carry.)
 
 ## Language state (orientation digest — details in spec/skill)
 Landed through design 161 (Aug 6; 152-155, 157 and 158 are briefs, not yet
