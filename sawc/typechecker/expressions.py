@@ -10291,6 +10291,10 @@ class ExpressionsMixin:
                 what = ("`self`: a method's receiver is a borrow of storage the "
                         "CALLER owns" if is_self_borrow
                         else f"`{cap_name}`, a reference (`{cap_type}`)")
+                # Name the CONCRETE receiver type in the fixit. `Self` does not
+                # resolve in a closure parameter type, so spelling the hint
+                # `(&Self, ...)` would hand the author a second error.
+                recv = cap_type if cap_type is not None else "Receiver"
                 self._error(
                     ErrorKind.TYPE_MISMATCH,
                     f"an escaping closure cannot capture {what} — a reference "
@@ -10302,8 +10306,8 @@ class ExpressionsMixin:
                           "stack, so borrowing the frame is sound), copy the "
                           "values it needs into locals ahead of the closure and "
                           "capture those, or take the receiver as an explicit "
-                          "closure parameter (`body: (&Self, Int) sync -> R`, "
-                          "called as `self.run({ s, v in ... })`)"
+                          f"closure parameter (`body: (&{recv}, Int) sync -> R`, "
+                          "called as `self.run({ r, v in r.field + v })`)"
                           if is_self_borrow else
                           "pass the closure straight to the call that runs it (a "
                           "non-escaping closure keeps its environment on the "

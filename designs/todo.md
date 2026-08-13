@@ -142,6 +142,13 @@ A NoCopy `Vector` sorts end to end today, written from outside std.
   silently** — **FIXED** with 216a, by the same predicate. Found by the DF-216a
   ruling probes: it compiled to a raw pointer into a dead frame with no
   diagnostic, at the one site not enforcing the spec's own no-escape rule.
+- **DF-216f — `Self` does not resolve in an extension method's PARAMETER type.**
+  `func addFrom(&self, other: &Self)` on `extension Counter` reports ``argument
+  `other` expects `&Self` but got `&Counter``` at the call site plus ``cannot
+  access member of non-struct type `Self` `` in the body; the RETURN position
+  (`-> Self`) resolves fine in the same extension. Hit while wording DF-216a's
+  fixit, which nearly taught the broken spelling — the fixit names the concrete
+  receiver type instead. Repro: `.build/scratch/fa_self_type_positions.saw`.
 - **DF-216e — `borrow_ok`'s `as_call_argument` heuristic cannot tell "the callee
   RUNS this closure" from "the callee STORES it"**, so a borrow capture handed
   to `Vector.push` is still classified non-escaping and still compiles a stack

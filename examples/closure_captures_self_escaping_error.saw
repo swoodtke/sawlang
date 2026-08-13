@@ -10,7 +10,11 @@
 // EXPECT-ERROR-CONTAINS: an escaping closure cannot capture `self`
 // EXPECT-ERROR-CONTAINS: a method's receiver is a borrow of storage the CALLER owns
 // EXPECT-ERROR-CONTAINS: may not outlive the frame it points into
+// The fixit names the CONCRETE receiver type. `Self` does not resolve in a
+// closure parameter type (DF-216f), so spelling it `(&Self, ...)` would hand
+// the author a second error.
 // EXPECT-ERROR-CONTAINS: take the receiver as an explicit closure parameter
+// EXPECT-ERROR-CONTAINS: `body: (&Counter, Int) sync -> R`
 
 struct Counter { n: Int }
 
