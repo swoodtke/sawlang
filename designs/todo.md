@@ -169,6 +169,27 @@ entry point at the capture-list grammar. The sweep also found:
   function infers fine, so it is method-specific. Verified by hand; repros
   named in the brief.
 
+## NEXT-WAVE SWEEPS (queued Aug 13, dispatch after the current fix wave lands)
+
+- **S1 — the abstract-T boundary (DF-217i's class; HIGHEST SEVERITY).** One
+  probe already proved corruption. Matrix: every tier- or effect-dependent
+  rule x the generic laundering shape — copy-tier transfers (proven), `Send`/
+  `Sync` at a generic `spawn` (plausible second soundness hole), NoMove
+  pinning, design-146 place rules (verify the claimed coverage), unsafe-type
+  contact, Deinit timing. Oracle: deinit counts + cross-thread data races vs
+  the concrete-typed twin of the same body.
+- **S2 — the design-120 expression-position enumeration (CHEAPEST TO CLOSE).**
+  Full expression grammar x one suspending call, twin-parity oracle. Four
+  known members (DF-206c, DF-215b, DF-217f, DF-217g); the matrix becomes the
+  fix brief's test plan. Finite and mechanical.
+- **S3 — cancellation/panic teardown differential (DEEPEST UNKNOWN).** Extend
+  the coro harness axes: cancel mid-suspend, cancel an io-parked task, panic
+  mid-suspend, unjoined handles, group teardown order, and the MT
+  (`threads: N`) contexts nothing has swept. Oracle: every frame slot
+  released exactly once, deinit counts vs the uncancelled/unpanicked twin.
+  (Also the harness's own named gaps: ImplicitCopy leak witnessing,
+  match-arm-retain axis.)
+
 ## Obligation-4 retro triage of recent DF fixes (Aug 13 — BOTH SWEEPS RUN)
 
 Reviewed the recent fix waves for class-shaped mechanisms; two sweeps
