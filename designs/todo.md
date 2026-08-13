@@ -169,6 +169,42 @@ entry point at the capture-list grammar. The sweep also found:
   function infers fine, so it is method-specific. Verified by hand; repros
   named in the brief.
 
+## Obligation-4 retro triage of recent DF fixes (Aug 13 — sweeps QUEUED, not run)
+
+Reviewed the recent fix waves for class-shaped mechanisms the fixes may have
+patched position-by-position. Two sweeps owed; ready to dispatch (the 216
+sweep prompts are the template). NOT dispatched — session token budget.
+
+1. **Coro-frame owning-binding positions** (the DF-206a/b/f + DF-210a/b/f
+   family — SIX fixes, two designs, one mechanism space). The fixes built the
+   right oracle (`Namespace.read_policy`, asked by `_store_binding_in_slot` +
+   `_slot_store_consumes`) but the class quantifier is the OTHER axis: which
+   binding/discard constructs' lowerings ASK it. Covered: match arm payload,
+   `if let`/`guard let` (incl. hoisted scrutinee temps), `let _`, tuple
+   destructure. Unprobed siblings for the matrix: `??` RHS binding an owning
+   payload, `?.`-chain consumption via the `_`-blessed forms, nested
+   destructuring, for-loop bindings, closure captures of owning values in
+   driven bodies, place writes into frame slots. (`while let` does not exist —
+   N/A.) DF-210d's dead `frame_move_read` marker is already flagged "folded
+   into whatever next touches the frame-slot family" — this sweep is that
+   touch. Evidence shape: deinit counts in suspending bodies, per position.
+
+2. **Labeled-call recognition divergence.** DF-190b (a LABELED call was not a
+   call to the coroutine transform's effect census) and now DF-216c (generic
+   METHOD type-arg inference fails on labeled args) are two subsystems caught
+   mishandling the same input shape. Sweep: census every recognizer that
+   dispatches on call shape (coro effect graph, inference, overload
+   resolution, place analysis, capture analysis), probe each with
+   labeled x positional x method/free x generic.
+
+Reviewed and NOT owed a sweep (mechanism already funneled or swept by its
+fix): design 196's erased-error family (one canonical spelling, unit 2; the
+capture funnel + positions, unit 4), DF-176c (design 200 unit 3 committed its
+sweep record), DF-203a/b (fix installed `really_suspending` as the ONE shared
+definition, four routes named), design 195's platform-width family (units
+quantified over ALL typed operands / ALL value-branch arms; remainder is
+design 205's authored brief).
+
 ## Design 215 — the LLM client (Python reference LANDED; Saw port FUTURE WORK)
 
 Brief: `designs/215-llm-client-saw-port.md`. Both programs sit in
