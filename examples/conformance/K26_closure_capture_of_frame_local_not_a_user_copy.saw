@@ -1,0 +1,81 @@
+// Conformance row K26 — a closure's capture of a frame-resident local is a
+// frame read judged by the copy tier, not a user `.copy()`
+//
+// K24's guarantee at a third position. A local a closure captures in a driven
+// body lives in the frame, so the transform materializes it as a real local
+// ahead of the closure and moves that into the env. HOW it reads the field out
+// is a copy-tier question with one oracle (`Namespace.read_policy`) — and this
+// site never asked it, spelling `.copy()` on every tier while its comment
+// claimed to be following "the same read-out-of-storage discipline as
+// `Vector.get`".
+//
+// `.copy()` is not a method every tier has. A NoCopy local captured `[move r]`
+// was refused with ``type `Res` is not Copy``, and so was an AUTOMATIC
+// ImplicitCopy struct (design 159's tier owes no declaration, so it declares no
+// `copy` either) — both on programs whose non-suspending twins compile, both
+// followed by a spurious `capture of undefined variable` from the
+// materialization that never happened. DF-217c.
+//
+// The declared-ImplicitCopy row is the control the fix must not disturb: the
+// frame KEEPS its field, so the capture takes its own reference and the count
+// reads 2 inside the closure and 2 outside it, exactly as before.
+// EXPECT: success
+// EXPECT-OUTPUT:
+// nocopy r
+// live 0
+// autoimplicit tag
+// arc inside 2
+// arc outside 2
+// live 0
+
+import std.task.*
+
+static LIVE: Atomic<Int> = Atomic(0)
+
+struct Res { name: String }
+
+extension Res: NoCopy {
+    func deinit(&var self) { LIVE.fetch_add(0 - 1) }
+}
+
+func res(tag: String) -> Res {
+    LIVE.fetch_add(1)
+    Res(name: tag)
+}
+
+// Design 159's automatic tier: copies for free, and has no `copy` method.
+struct Tag { s: String }
+
+// NoCopy, explicitly moved into the env: the frame hands its own reference over
+// and forgets the field, so the value is released exactly once.
+func nocopy_capture() {
+    let r = res("r")
+    let f = { [move r] in print("nocopy {r.name}") }
+    yield_now()
+    f()
+}
+
+// Auto-ImplicitCopy, captured implicitly.
+func autoimplicit_capture() {
+    let t = Tag(s: "tag")
+    let f = { print("autoimplicit {t.s}") }
+    yield_now()
+    f()
+}
+
+// Declared ImplicitCopy: a retain, and the frame's own field survives it.
+func arc_capture() {
+    let a = Arc<Res>(value: res("a"))
+    let f = { print("arc inside {a.strong_count()}") }
+    yield_now()
+    f()
+    print("arc outside {a.strong_count()}")
+}
+
+func main() {
+    __saw_drive(nocopy_capture())
+    print("live {LIVE.load()}")
+    __saw_drive(autoimplicit_capture())
+    __saw_drive(arc_capture())
+    print("live {LIVE.load()}")
+}

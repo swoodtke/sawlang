@@ -1,0 +1,211 @@
+// DF-217c — how a closure capture reads a frame local out of its field is a
+// copy-tier question, asked at the ONE oracle every other frame read asks.
+//
+// `_materialize_closure_captures` emits `let <local> = <frame read>` ahead of a
+// closure literal in a driven body, and the closure moves that local into its
+// env. It read the field with an unconditional `.copy()`, under a comment
+// claiming "the same read-out-of-storage discipline as `Vector.get`" — but it
+// never consulted `Namespace.read_policy`, the funnel that discipline lives in,
+// and `.copy()` is not a method every tier has. The route now branches on the
+// policy: a NoCopy field is handed over by `move` plus the `__saw_forget` that
+// keeps the frame from releasing it again, a non-consuming tier is read with
+// design 124's `frame_owning_read` mark (which retains at the transfer), and an
+// ExplicitCopy field keeps the `.copy()` that duplicates it.
+//
+// Every row's driven half is checked against the plain spelling that is its
+// oracle — the tiers that already worked must come out IDENTICAL, since a fix
+// that over-moved here would double-free and one that over-copied would refuse.
+//
+//   c1  trivial, implicit capture
+//   c2  AUTO-ImplicitCopy struct, implicit capture — refused before this fix
+//   c3  AUTO-ImplicitCopy struct, explicit `[move b]` — refused too
+//   c4  declared ImplicitCopy (`Arc`), implicit capture: a RETAIN, so the
+//       count reads 2 inside the closure and the frame's own field survives
+//   c5  ExplicitCopy (`Vector`), explicit `[move v]`: `.copy()` duplicates
+//   c6  NoCopy, explicit `[move r]` — the bogus refusal DF-217c is named for
+//   c7  NoCopy again, in a SPAWNED root rather than a driven one
+//   c8  two closures in one block capturing one local (DF-196e's shape, which
+//       the fresh per-closure materialized name exists for)
+//
+// ORACLE: `LIVE` counts live `Res` values; every observation is zero, so a
+// leaked capture reads positive and a double release reads negative.
+// EXPECT: success
+// EXPECT-OUTPUT:
+// c1 7
+// c1 7
+// c2 b
+// c2 b
+// c3 c
+// c3 c
+// c4 inside 2
+// c4 outside 2
+// c4 inside 2
+// c4 outside 2
+// c4 live 0
+// c5 3
+// c5 3
+// c6 r
+// c6 r
+// c6 live 0
+// c7 r
+// c7 live 0
+// c8 s
+// c8 s
+// c8 s
+// c8 s
+
+import std.task.*
+
+static LIVE: Atomic<Int> = Atomic(0)
+
+struct Res { name: String }
+
+extension Res: NoCopy {
+    func deinit(&var self) { LIVE.fetch_add(0 - 1) }
+}
+
+func res(tag: String) -> Res {
+    LIVE.fetch_add(1)
+    Res(name: tag)
+}
+
+// Design 159's automatic tier: copies for free, declares nothing, and so has no
+// `copy` method for the old spelling to call.
+struct Bag { s: String }
+
+// c1 — trivial.
+func c1_plain() {
+    let n = 7
+    let f = { print("c1 {n}") }
+    f()
+}
+
+func c1_driven() {
+    let n = 7
+    let f = { print("c1 {n}") }
+    yield_now()
+    f()
+}
+
+// c2 — auto-ImplicitCopy, implicit capture.
+func c2_plain() {
+    let b = Bag(s: "b")
+    let f = { print("c2 {b.s}") }
+    f()
+}
+
+func c2_driven() {
+    let b = Bag(s: "b")
+    let f = { print("c2 {b.s}") }
+    yield_now()
+    f()
+}
+
+// c3 — auto-ImplicitCopy, written capture spec.
+func c3_plain() {
+    let b = Bag(s: "c")
+    let f = { [move b] in print("c3 {b.s}") }
+    f()
+}
+
+func c3_driven() {
+    let b = Bag(s: "c")
+    let f = { [move b] in print("c3 {b.s}") }
+    yield_now()
+    f()
+}
+
+// c4 — declared ImplicitCopy. The control: a retain, not a steal.
+func c4_plain() {
+    let a = Arc<Res>(value: res("a"))
+    let f = { print("c4 inside {a.strong_count()}") }
+    f()
+    print("c4 outside {a.strong_count()}")
+}
+
+func c4_driven() {
+    let a = Arc<Res>(value: res("a"))
+    let f = { print("c4 inside {a.strong_count()}") }
+    yield_now()
+    f()
+    print("c4 outside {a.strong_count()}")
+}
+
+// c5 — ExplicitCopy. An IMPLICIT capture of one is refused by the language in
+// both builds (it would be a copy nobody wrote), so the spec is written.
+func c5_plain() {
+    let v: Vector<Int> = [1, 2, 3]
+    let f = { [move v] in print("c5 {v.len()}") }
+    f()
+}
+
+func c5_driven() {
+    let v: Vector<Int> = [1, 2, 3]
+    let f = { [move v] in print("c5 {v.len()}") }
+    yield_now()
+    f()
+}
+
+// c6 — NoCopy. The frame gives up its reference; the env releases it once.
+func c6_plain() {
+    let r = res("r")
+    let f = { [move r] in print("c6 {r.name}") }
+    f()
+}
+
+func c6_driven() {
+    let r = res("r")
+    let f = { [move r] in print("c6 {r.name}") }
+    yield_now()
+    f()
+}
+
+// c7 — the same on a spawned root.
+func c7_spawned() -> Int {
+    let r = res("r")
+    let f = { [move r] in print("c7 {r.name}") }
+    yield_now()
+    f()
+    0
+}
+
+// c8 — two closures, one captured local: each gets its own materialized name.
+func c8_plain() {
+    let b = Bag(s: "s")
+    let f = { print("c8 {b.s}") }
+    let g = { print("c8 {b.s}") }
+    f()
+    g()
+}
+
+func c8_driven() {
+    let b = Bag(s: "s")
+    let f = { print("c8 {b.s}") }
+    let g = { print("c8 {b.s}") }
+    yield_now()
+    f()
+    g()
+}
+
+func main() {
+    c1_plain()
+    __saw_drive(c1_driven())
+    c2_plain()
+    __saw_drive(c2_driven())
+    c3_plain()
+    __saw_drive(c3_driven())
+    c4_plain()
+    __saw_drive(c4_driven())
+    print("c4 live {LIVE.load()}")
+    c5_plain()
+    __saw_drive(c5_driven())
+    c6_plain()
+    __saw_drive(c6_driven())
+    print("c6 live {LIVE.load()}")
+    var group = TaskGroup()
+    let h = group.spawn(c7_spawned())
+    let _ = h.join()
+    print("c7 live {LIVE.load()}")
+    c8_plain()
+    __saw_drive(c8_driven())
+}

@@ -6,11 +6,11 @@ either a file in this directory or an existing `examples/` test that already
 asserts the same rule at the same position — this table is the record of which,
 and the dedup decisions are meant to be audited from it.
 
-**101 rows carry a file here; 197 are covered elsewhere.** (The audit's 247 plus
+**102 rows carry a file here; 197 are covered elsewhere.** (The audit's 247 plus
 the rows later briefs added: W02-W05, design 194 unit 4; W06-W19, design 195
 unit 1; X41-X45, design 199 unit 1; M31-M35, design 200 unit 1; V26-V30,
 design 202 unit 1; B09-B12, design 204 unit 1; K14-K20, design 201 unit 1;
-K21-K25, design 210 units 1 and 5; S09, the DF-217a fix; O12, the DF-217b fix.)
+K21-K25, design 210 units 1 and 5; S09, O12 and K26, the DF-217a/b/c fixes.)
 
 ## How to read it
 
@@ -345,6 +345,7 @@ Claim source: spec 6 *Send and Sync* + *Cooperative tasks*; designs 75, 88, 103,
 | K23 | regression: an imported STD method still embeds and drives | `net_precise_wakeup.saw` + `spawned_task_runs_before_reactor_park.saw` + `channel_receive_through_helper.saw` + `process_run_concurrent.saw` + `coro_nested_yield_wrapper.saw` | 210 — design 84's std-only splice accommodations DISSOLVE into the two uniform paths; these are the rows that say std did not regress with them. Listed rather than copied |
 | K24 | a match-arm payload binding live across a suspension is a frame SLOT, not a user copy | `K24_frame_slot_payload_binding_not_a_copy.saw` | 210 — design 131's `frame_place_read` carve-out generalized: the transform is the authority for every slot it fills, not only the reads it routes through `_read_field` |
 | K25 | a spliced body's module-private `static` in a CONST position (array length, repeat count) | `K25_cross_module_embed_private_static_const_position.saw` | 210 unit 5 — the position design 84 could only PERMIT (std's statics are merged into every compile and its bodies checked with the gate off). `repeat_count` is a declared annotation, so every structural walker steps over it; the marking walk is the one walk that visits annotations |
+| K26 | a closure's capture of a frame-resident local is a frame read judged by the copy tier, not a user `.copy()` | `K26_closure_capture_of_frame_local_not_a_user_copy.saw` | DF-217c — K24's guarantee at a third position. The materialization spelled `.copy()` on every tier without asking `read_policy`, so a NoCopy `[move r]` capture AND an automatic-ImplicitCopy struct (design 159's tier declares no `copy`) were both refused on programs whose non-suspending twins compile |
 
 ## Visibility and module boundaries
 

@@ -3763,6 +3763,11 @@ class _FrameBuilder:
           * `_split_match` — every payload binding of every arm of a
             suspension-spanning `match` (designs 63 / 101)
 
+        A THIRD position asks the same oracle for a different construct and so
+        has its own entry point below rather than this one:
+        `_materialize_closure_captures` reads a frame local OUT for a closure to
+        capture. See `_frame_read_policy`, which both go through.
+
         A slot whose type is unknown keeps the conservative alias: the
         checkpoint then judges it exactly as it always has.
         """
@@ -3787,17 +3792,36 @@ class _FrameBuilder:
         conservative direction — an extra retain leaks at worst, while a
         wrongly-claimed consume double-frees.
         """
+        return self._frame_read_policy(name) in ('nocopy', 'explicit')
+
+    def _frame_read_policy(self, name):
+        """`Namespace.read_policy` for the type of frame slot `name`, or None
+        when the slot's type or the namespace is not available.
+
+        THE ONE PLACE the transform asks the language what reading a value out
+        of storage costs (design 193's funnel over design 131's read table and
+        design 139's tiers). Its two callers want different things from the same
+        answer, which is why the answer and not a boolean is what is shared:
+        `_slot_store_consumes` asks whether a pattern binding's store into its
+        slot consumes, and `_materialize_closure_captures` asks how to hand a
+        frame local to a closure env. Every earlier bug in this area came from a
+        caller deciding for itself — DF-210a/b were `_store_binding_in_slot`
+        moving or copying unconditionally, and DF-217c was the closure
+        materialization spelling `.copy()` on every tier, which is a compile
+        error on a NoCopy value and on an AUTOMATIC-ImplicitCopy struct (design
+        159's tier owes no declaration, so it has no `copy` method to call).
+        """
         slot_type = self._frame_slot_type(name)
         if slot_type is None or self._tc is None:
-            return False
+            return None
         # `check_module` resets `typechecker.namespace` on the way out, so the
         # entry module's own namespace is reached through the seam it stashed —
         # the same one `_promote_nested_generic_calls` re-installs.
         ns = (getattr(self._tc, '_entry_module_ns', None)
               or getattr(self._tc, 'namespace', None))
         if ns is None or not hasattr(ns, 'read_policy'):
-            return False
-        return ns.read_policy(slot_type) in ('nocopy', 'explicit')
+            return None
+        return ns.read_policy(slot_type)
 
     def _goto(self, target):
         """Unconditional edge: set the state word and re-dispatch in the same
@@ -5025,22 +5049,60 @@ class _FrameBuilder:
                 _rename_in_closure(cexpr, name, local)
                 cexpr.capture_specs = list(cexpr.capture_specs or []) + [
                     CaptureSpec(name=local, mode="move", line=line, column=col)]
-            if any(ls.name == local for ls in self._cap_lets):
+            if any(isinstance(ls, LetStatement) and ls.name == local
+                   for ls in self._cap_lets):
                 continue
-            # `.copy()` makes the materialized local an INDEPENDENT owner: the
-            # frame still owns its field, so reading it out for the closure to
-            # capture must not steal the frame's reference (that would double-free
-            # at teardown). `.copy()` retains an ImplicitCopy (Arc / String /
-            # closure env), duplicates an ExplicitCopy, and is a bitwise copy for
-            # a trivial type — the same read-out-of-storage discipline as
-            # `Vector.get`. The `move` capture above then transfers this owned copy
-            # into the env.
-            read = MethodCall(
-                object=_read_field(name, self.encmap[name], line, col),
-                method_name="copy", arguments=[], line=line, column=col)
+            # The materialized local must be an INDEPENDENT OWNER — the `move`
+            # capture below transfers it into the env, and the env releases it
+            # once at frame death. HOW a frame local yields one is a copy-tier
+            # question, and it has exactly one oracle in this compiler:
+            # `Namespace.read_policy`, reached through `_frame_read_policy` (the
+            # same funnel `_store_binding_in_slot` asks for the store side).
+            #
+            # This spelled `.copy()` for every tier and called that "the same
+            # read-out-of-storage discipline as `Vector.get`" — but it never
+            # asked, and `.copy()` is not a method every tier HAS. On a NoCopy
+            # local explicitly captured `[move r]` it was `type `Res` is not
+            # Copy`, and on an AUTOMATIC-ImplicitCopy struct (design 159: the
+            # tier that owes no declaration, so it declares no `copy` either) it
+            # was `type `Bag` is not Copy` — both on programs whose
+            # non-suspending twins compile, both followed by a spurious `capture
+            # of undefined variable` from the materialization that never
+            # happened. DF-217c.
+            enc = self.encmap[name]
+            slot_type = self._frame_slot_type(name)
+            policy = self._frame_read_policy(name)
+            if policy == 'nocopy':
+                # No copy exists, and the author wrote `move`: the FRAME hands
+                # its own reference over. The paired `__saw_forget` is what
+                # keeps that from being a double-free at teardown — exactly the
+                # discipline `_rewrite_expr` uses for a `move` of a frame local
+                # anywhere else.
+                read = _read_field(name, enc, line, col,
+                                   move_read=_enc_cleanup(enc),
+                                   saw_type=slot_type)
+                forget = self._forget_stmt(name) if _enc_cleanup(enc) else None
+            elif policy in ('retain', 'trivial'):
+                # The read does not consume: the frame keeps its field and the
+                # capture takes its own reference. `frame_owning_read` is design
+                # 124's mark for precisely that, and its own docstring names
+                # this materialization as the discipline it generalizes.
+                read = _read_field(name, enc, line, col, owning_read=True,
+                                   saw_type=slot_type)
+                forget = None
+            else:
+                # 'explicit', or no answer at all: `.copy()` is the spelling
+                # that duplicates an ExplicitCopy value, and an unknown slot
+                # type keeps the behavior it has always had.
+                read = MethodCall(
+                    object=_read_field(name, enc, line, col),
+                    method_name="copy", arguments=[], line=line, column=col)
+                forget = None
             self._cap_lets.append(LetStatement(
                 name=local, type_annotation=None, value=read,
                 mutable=False, line=line, column=col))
+            if forget is not None:
+                self._cap_lets.append(forget)
 
     def _lower_stmt_list(self, stmts):
         out = []
