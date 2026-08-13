@@ -242,6 +242,26 @@ brief should skip to 218 or adopt them.
    closure-collision fix), DF-210c, DF-193c, DF-204a/b. Caveat: ~126 of ~185
    DF ids were classified from their opening sentence only.
 
+1c. **DF-217i (SOUNDNESS, lead-found + verified Aug 13) — a generic body
+   evades the copy-tier rules; instantiation never re-checks.** An UNBOUNDED
+   `func launder<T>(x: T)` whose body binds `x` twice (`let y = x; let z =
+   x`) compiles — no Copy bound demanded, no move checkpoint applied to the
+   second read — and instantiated at a NoCopy type prints THREE deinits for
+   ONE value, the payload read AFTER two of them (use-after-free), from
+   fully safe code. Repro: `.build/scratch/generic_evasion_probe.saw`.
+   Mechanism: a generic body is checked ONCE with `T` abstract, and
+   abstract `T` is treated as the MOST permissive tier instead of the
+   least; nothing re-judges the body (or the bound-discharge site) at the
+   concrete type argument. Same boundary as the 216b matrix's open row C07.
+   Design 146 covers PLACE reads in generic bodies (`v[i]` needs a Copy
+   bound); plain parameter/local reads of type `T` have no such rule. A
+   dedicated sweep is owed: every tier- or effect-dependent rule x the
+   abstract-T laundering shape — copy tiers (this repro), Send/Sync at a
+   generic `spawn`, NoMove pinning, place rules (verify 146 actually
+   holds), unsafe-type contact. Fix direction is a ruling: check generic
+   bodies against the LEAST permissive tier unless a bound says otherwise
+   (matching how the rest of the language treats unbounded `T`).
+
 2. **Labeled-call recognition divergence — hypothesis mostly REFUTED, and
    the refutation redraws DF-216c.** 11-recognizer census, 25 probe rows.
    Labeled and positional are byte-identical everywhere probed (effect census,
