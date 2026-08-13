@@ -396,6 +396,11 @@ class Namespace:
         # namespace tables are keyed by.
         self._std_file_all_names: Dict[str, Set[str]] = {}
         self._std_file_keys: Dict[str, Set[str]] = {}
+        # design 218 unit 1: the DECLARATION-ONLY subset of the above — traits
+        # and type aliases, which emit no code and which `_filter_std_ast`
+        # keeps whatever leaf they came from. The codegen exclusion reads this
+        # so naming one does not drag its whole module into the program.
+        self._std_file_decl_only_names: Dict[str, Set[str]] = {}
         # design 150: the std modules and symbols that REQUIRE an import — the
         # non-prelude surface. Constants from `sawc.py`, not per-namespace state.
         self._import_required_modules: Set[str] = set()

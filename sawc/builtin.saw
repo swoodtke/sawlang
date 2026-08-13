@@ -409,23 +409,10 @@ struct WriteOnly<T> {
     value: T
 }
 
-// =============================================================================
-// Cooperative-task protocol (designs 44/45/52b)
-// =============================================================================
-
-// __Poll — the resume signal. A coroutine frame's `resume` returns Pending (it
-// suspended and must be resumed again) or Done (it completed; its result, if
-// any, is frame-resident in `__result`). Compiler-synthesized frames return
-// this; the executor drives on it. Declared here (rather than synthesized per
-// program) so it is a stable named type the `Resumable` trait can name.
-// `Resumable` itself lives in `std/compiler/frame.saw` since design 218 unit 1
-// — it is the frame vocabulary, published beside `Slot` and `UnsafeRef`, not
-// part of the compiler's private core. `__Poll` stays here because the
-// compiler names it by string when it synthesizes `resume`.
-enum __Poll {
-    case Pending,
-    case Done
-}
+// The cooperative-task protocol — `Poll` and `Resumable` — lives in
+// `std/compiler/frame.saw` since design 218 unit 1. It is the frame
+// vocabulary, published beside `Slot` and `UnsafeRef` so that the signature a
+// synthesized frame conforms to is one a reader can spell, types included.
 
 // =============================================================================
 // Iterator Support

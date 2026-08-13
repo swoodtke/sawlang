@@ -188,7 +188,7 @@ def _vtable_index(target, reader, table):
     A live task is an erased `Box<any Resumable>`, so the vtable word beside its
     data pointer names its frame TYPE — and that is the one thing the walk
     cannot read out of the frame itself. The in-process walker asks the vtable
-    directly (`__bt_desc`); a debugger must not run code in the target, so the
+    directly (`bt_desc`); a debugger must not run code in the target, so the
     compiler writes the map down as `__saw_bt_vtables`, a pointer per frame in
     table order (design 158). Matching by vtable SYMBOL is not an option: those
     globals are private and the linker drops their names.

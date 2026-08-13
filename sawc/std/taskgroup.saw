@@ -16,7 +16,7 @@
 // destroy — the only frame drop is a Box teardown after the child is Done.
 //
 // The parallel vectors are the run queue and the scheduler bookkeeping:
-//   * `tasks`     — the erased frames (`resume`/`__wake_reason` dispatch here).
+//   * `tasks`     — the erased frames (`resume`/`wake_reason` dispatch here).
 //                   `None` once the task completes: design 134 releases the frame
 //                   box AT completion, so a Done slot holds no frame at all.
 //   * `cells`     — the per-task result/cancel cell (design 134), which OUTLIVES
@@ -369,10 +369,14 @@ public struct TaskGroup {
 
 // The result of resuming one frame, carried OUT of a `with_var_ref` borrow
 // (design 81). `with_var_ref<R>` needs an explicit result type (method-generic
-// inference is future work) and the frame's `__Poll` is not user-nameable, so
-// the executor's scoped borrow returns this trivial (Copy) struct instead of
-// matching `__Poll` inside the closure. `done` = the frame finished; otherwise
-// `wake` is its `__wake_reason` (0 = ready, >0 = sleep nanoseconds, <0 = io-parked).
+// inference is future work), and this struct carries TWO answers out of ONE
+// borrow: whether the frame finished, and — when it did not — its wake reason,
+// which is a second call on the same borrowed frame. Returning the `Poll`
+// itself would need a second `with_var_ref` to ask `wake_reason()`, so the
+// struct stays. (Design 218 unit 1 removed the other half of the reason: the
+// signal enum is `Poll` in `std.compiler.frame` now, spellable by anyone.)
+// `done` = the frame finished; otherwise `wake` is its `wake_reason`
+// (0 = ready, >0 = sleep nanoseconds, <0 = io-parked).
 struct __ResumeOutcome {
     done: Bool
     wake: Int
@@ -785,7 +789,7 @@ func __saw_exec_worker(addr: Int) unsafe {
                     let _ = pthread_mutex_unlock(lk)
                     let oc = g[0].tasks.with_var_ref<__ResumeOutcome>(idx, { f in
                         match f!.resume() {
-                            case Pending -> __ResumeOutcome(done: false, wake: f!.__wake_reason()),
+                            case Pending -> __ResumeOutcome(done: false, wake: f!.wake_reason()),
                             case Done -> __ResumeOutcome(done: true, wake: 0)
                         }
                     })
@@ -807,7 +811,7 @@ func __saw_exec_worker(addr: Int) unsafe {
                         // event, so a missed worker must retry rather than block
                         // forever (no lost-wakeup hang). Poll OUTSIDE the lock; then
                         // (design 91) wake PRECISELY the io-parked tasks the reactor
-                        // latched (`__wake_reason()` >= 0), not the herd — the latch
+                        // latched (`wake_reason()` >= 0), not the herd — the latch
                         // is a persistent word, so a fire that races the park is
                         // caught on the next scan. Advance sleepers only if the poll
                         // TIMED OUT (events == 0). The scan runs UNDER the lock, so
@@ -829,7 +833,7 @@ func __saw_exec_worker(addr: Int) unsafe {
                                     // cancelled() and bails); non-cancelled parked
                                     // siblings stay parked.
                                     let wk = g[0].tasks.with_var_ref<Bool>(k, { f in
-                                        f!.__wake_reason() >= 0 || f!.__is_cancelled()
+                                        f!.wake_reason() >= 0 || f!.is_cancelled()
                                     })
                                     if wk {
                                         g[0].remaining.set(k, 0)
@@ -877,7 +881,7 @@ func __saw_exec_worker(addr: Int) unsafe {
                                     // unit 5) — the timer half of what design
                                     // 102 gave the io half.
                                     let ck = g[0].tasks.with_var_ref<Bool>(j, { f in
-                                        f!.__is_cancelled()
+                                        f!.is_cancelled()
                                     })
                                     if ck {
                                         g[0].remaining.set(j, 0)
@@ -1196,7 +1200,7 @@ func __saw_exec_should_stop(term_group: Int, term_slot: Int, term_gen: Int) unsa
 // design 91: precise reactor wakeup (wake-all retired). The reactor's poll
 // latched the `__wake` word of EXACTLY the frame(s) whose (fd, direction) fired
 // (from IO_PARK_WAKE = -1 to 0). Here we wake only those: an io-parked frame
-// (remaining < 0) is made runnable ONLY when its `__wake_reason()` has become
+// (remaining < 0) is made runnable ONLY when its `wake_reason()` has become
 // >= 0 — a frame still parked (word == -1) stays parked (no thundering herd, and
 // no reliance on every op re-verifying). If the poll TIMED OUT (events == 0),
 // advance sleepers by the elapsed deadline. Skips frames active on the C stack.
@@ -1217,7 +1221,7 @@ func __saw_exec_wake_io(events: Int, deadline: Int) unsafe {
                     // cancelled() at its park-loop top and bails. Non-cancelled,
                     // still-parked siblings stay parked (no herd wake).
                     let woke = g[0].tasks.with_var_ref<Bool>(i, { f in
-                        f!.__wake_reason() >= 0 || f!.__is_cancelled()
+                        f!.wake_reason() >= 0 || f!.is_cancelled()
                     })
                     if woke {
                         g[0].remaining.set(i, 0)
@@ -1255,7 +1259,7 @@ func __saw_exec_any_cancelled_io() unsafe -> Bool {
             if (not done_i) && (not active_i) {
                 let r = g[0].remaining.get(i)!
                 if r < 0 {
-                    let c = g[0].tasks.with_var_ref<Bool>(i, { f in f!.__is_cancelled() })
+                    let c = g[0].tasks.with_var_ref<Bool>(i, { f in f!.is_cancelled() })
                     if c {
                         return true
                     }
@@ -1289,7 +1293,7 @@ func __saw_exec_any_latched_io() unsafe -> Bool {
             if (not done_i) && (not active_i) {
                 let r = g[0].remaining.get(i)!
                 if r < 0 {
-                    let latched = g[0].tasks.with_var_ref<Bool>(i, { f in f!.__wake_reason() >= 0 })
+                    let latched = g[0].tasks.with_var_ref<Bool>(i, { f in f!.wake_reason() >= 0 })
                     if latched {
                         return true
                     }
@@ -1325,7 +1329,7 @@ func __saw_exec_wake_cancelled_sleepers() unsafe -> Bool {
             if (not done_i) && (not active_i) {
                 let r = g[0].remaining.get(i)!
                 if r > 0 {
-                    let c = g[0].tasks.with_var_ref<Bool>(i, { f in f!.__is_cancelled() })
+                    let c = g[0].tasks.with_var_ref<Bool>(i, { f in f!.is_cancelled() })
                     if c {
                         g[0].remaining.set(i, 0)
                         woke = true
@@ -1387,7 +1391,7 @@ func __saw_exec_run(term_group: Int, term_slot: Int, term_gen: Int) unsafe {
                         g[0].active.set(i, true)
                         let oc = g[0].tasks.with_var_ref<__ResumeOutcome>(i, { f in
                             match f!.resume() {
-                                case Pending -> __ResumeOutcome(done: false, wake: f!.__wake_reason()),
+                                case Pending -> __ResumeOutcome(done: false, wake: f!.wake_reason()),
                                 case Done -> __ResumeOutcome(done: true, wake: 0)
                             }
                         })
@@ -1647,7 +1651,7 @@ func __bt_depth(tbl: UnsafeConstPointer<UInt8>, index: Int, addr: Int) unsafe ->
         // record offset from it and then dereferences the frame at that offset,
         // so an index the table does not describe is a wild read — and this is
         // the panic path, where a wild read replaces a diagnosable failure with
-        // an undiagnosable one. A frame whose `__bt_desc` was never patched
+        // an undiagnosable one. A frame whose `bt_desc` was never patched
         // answers -1, which lands exactly here.
         if not __bt_known_frame(tbl, i) {
             return depth
@@ -1827,8 +1831,8 @@ public func __saw_bt_dump() unsafe {
         __bt_emit_status(g, i)
         __bt_emit("\n")
         // The frame's TYPE comes through the erased vtable (design 158
-        // `Resumable.__bt_desc`); its ADDRESS is the box's data word.
-        let index = g[0].tasks.with_ref<Int>(i, { t in t!.__bt_desc() })
+        // `Resumable.bt_desc`); its ADDRESS is the box's data word.
+        let index = g[0].tasks.with_ref<Int>(i, { t in t!.bt_desc() })
         let addr = g[0].tasks.with_ref<Int>(i, { t in
             __saw_box_data(&t!) as Int
         })

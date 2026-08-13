@@ -1566,7 +1566,8 @@ dump_tasks()                // every live task's logical backtrace (std.task)
   `clear`/`is_occupied` plus a `borrows` `value()`), `UnsafeRef<T>` (an
   `unsafe struct` holding a pointer to something else's storage, with a
   `deref() unsafe borrows` and a `copy()`), and the `Resumable` trait every
-  generated frame conforms to. Import-gated and NOT in the prelude; in ordinary
+  generated frame conforms to (`resume`/`wake_reason`/`is_cancelled`/`bt_desc`/
+  `release`) with its `Poll` signal enum. Import-gated and NOT in the prelude; in ordinary
   Saw a plain `let` is the answer and reaching for a `Slot` is a smell. It is
   PUBLIC on purpose: transform output is held to the ordinary ownership rules,
   so the compiler may only emit code you could have written, and a vocabulary
@@ -1707,7 +1708,7 @@ import mymodule as mm       // aliasing; `module`/`public`/`package`/`parent`
   gated), and — since design 188 closed the two the gate list had missed —
   `SpinLock` (std.spinlock) and `SlabHead`/`slab_alloc`/`slab_dealloc`
   (std.slab), both of which used to resolve bare against a spec that said
-  otherwise, and `Slot`/`UnsafeRef`/`Resumable`
+  otherwise, and `Slot`/`UnsafeRef`/`Poll`/`Resumable`
   (std.compiler.frame — design 218 unit 1; the first std module in a
   SUBDIRECTORY, so the import path has three segments and the qualifier is the
   last one: `import std.compiler.frame` gives you `frame.Slot`). A bare

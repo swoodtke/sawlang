@@ -5,7 +5,7 @@
 // where the construct holding it WAS the statement. Reached through an
 // expression — a `match` that is a `let`'s value, a value `if`'s branch, an
 // assignment's RHS — only the identifiers inside were rewritten and the
-// `return` stayed raw, so a resume method whose result type is `__Poll` emitted
+// `return` stayed raw, so a resume method whose result type is `Poll` emitted
 // `ret <the function's own value>`. Invalid IR, caught by llvmlite rather than
 // by anything in the compiler: `value doesn't match function result type 'i32'`.
 //

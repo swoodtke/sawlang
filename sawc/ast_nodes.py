@@ -2127,7 +2127,7 @@ class Method(ASTNode):
     # trait requirement is callable wherever the conformance is visible regardless.
     visibility: 'Visibility' = Visibility.PRIVATE
     # Compiler-synthesized (design 80): coroutine-transform-generated methods
-    # (frame `resume`/`__wake_reason`) are exempt from the member-visibility gate.
+    # (frame `resume`/`wake_reason`) are exempt from the member-visibility gate.
     is_synthesized: bool = False
     source_file: str = ""
     doc: Optional[str] = None

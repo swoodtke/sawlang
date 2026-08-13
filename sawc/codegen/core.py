@@ -1351,7 +1351,7 @@ class CodeGenerator(ResultsMixin, MatchMixin, StructsMixin, CollectionsMixin, Ca
 
         A DEBUGGER identifies a live task's frame type by the vtable word in its
         erased `Box<any Resumable>`, and has no other way: the in-process walker
-        asks the vtable itself (`__bt_desc`), which needs running code. Matching
+        asks the vtable itself (`bt_desc`), which needs running code. Matching
         the vtable by SYMBOL would be the obvious alternative and does not work —
         a vtable global is `private`, so the linker is free to drop its name
         entirely, and does.

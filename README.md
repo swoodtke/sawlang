@@ -1378,7 +1378,8 @@ The standard library includes:
   either holds a `T` or is empty, whose payload is released exactly once
   because the tag and the payload move together in every operation),
   `UnsafeRef<T>` (a non-owning handle lending its referent as a place), and the
-  `Resumable` trait every generated frame conforms to. Import-gated, and not
+  `Resumable` trait every generated frame conforms to, with its `Poll` signal
+  enum. Import-gated, and not
   for everyday code. It is public because generated code is held to the
   ordinary ownership rules, so the compiler may emit only what you could have
   written yourself.

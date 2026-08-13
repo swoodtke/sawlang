@@ -54,7 +54,7 @@ FILE-PRIVATE types of a std file. Three consequences worth stating:
   — finally applied to type declarations.
 
 `builtin.saw` is exempt WHOLESALE: it declares the compiler's own vocabulary
-(the copy family, `Ordering`, `Atomic`, `Range`, `__Poll`), every name of which
+(the copy family, `Ordering`, `Atomic`, `Range`), every name of which
 the compiler either publishes or reaches by string. It holds no private type,
 so there is nothing there for the rule to free.
 """

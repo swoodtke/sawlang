@@ -4,7 +4,7 @@
 // — and in a state machine "returning" means storing the Result into the
 // frame's slot and answering `Done`, exactly as a written `return` does. The
 // transform left the `try` untouched, so codegen tried to `ret` a Result out of
-// a `resume` whose return type is `__Poll`, and the author got an error naming
+// a `resume` whose return type is `Poll`, and the author got an error naming
 // a type they never wrote (DF-196d, fixed by design 196 unit 3). Until then
 // `try` had no concurrent spelling at all: `try!` panics and `try?` drops the
 // cause, so design 92's failable-returns-Result idiom stopped at the first

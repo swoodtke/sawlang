@@ -710,8 +710,8 @@ Emitted as Saw AST by `coro_transform.py` or as IR by `codegen/`:
 - **Frame layout + transform** (KEPT synthesized — a non-goal to move): per
   suspending fn/method a `__Frame_<f>` struct with fields, in order,
   `__state:Int`, `__wake:Int`, `__io_tok:Int`, `__cancel:Bool`,
-  `__result:R?` (omitted for a `Void` body); the `resume() -> __Poll`
-  state machine; the `__wake_reason()->Int` and `__is_cancelled()->Bool`
+  `__result:R?` (omitted for a `Void` body); the `resume() -> Poll`
+  state machine; the `wake_reason()->Int` and `is_cancelled()->Bool`
   read accessors; the `Resumable` conformance (vtable for `Box<any Resumable>`
   erasure). A suspension is just `__wake=<reason>; __state=<n>; return Pending`
   — no executor call. Wake reason: `>0` sleep NANOSECONDS (design 180), `0`

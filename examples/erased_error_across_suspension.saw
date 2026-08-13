@@ -6,7 +6,7 @@
 // it makes the body suspending, so the coroutine transform lowers the return
 // into an ASSIGNMENT into the frame's result slot — and the Err has to be built
 // against the WRAP's own `result_type`, because the enclosing state-machine
-// step returns `__Poll`. Its concrete sibling `ResultErrWrap` always passed its
+// step returns `Poll`. Its concrete sibling `ResultErrWrap` always passed its
 // own type down; the erased wrap called the one-argument overload and was a
 // codegen ICE (DF-192c, fixed by design 196).
 // EXPECT: success

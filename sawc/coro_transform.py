@@ -206,7 +206,7 @@ def _int(n):
 
 
 def _poll(variant):
-    return EnumInit(enum_name="__Poll", variant_name=variant, arguments=[])
+    return EnumInit(enum_name="Poll", variant_name=variant, arguments=[])
 
 
 # The suspension-boundary intrinsics: `__saw_suspend` (test-only synthetic), and the
@@ -3612,7 +3612,7 @@ class _FrameBuilder:
             name="resume",
             parameters=[Parameter(name="self", type=SawType(TypeKind.VOID),
                                   is_reference=True, reference_mutable=True)],
-            return_type=SawType(TypeKind.ENUM, enum_name="__Poll"),
+            return_type=SawType(TypeKind.ENUM, enum_name="Poll"),
             body=Block(statements=[io_tok_init, loop], final_expr=None),
             self_mutable=True, self_is_reference=True, is_sync=True,
             is_synthesized=True,
@@ -3622,7 +3622,7 @@ class _FrameBuilder:
         # a `&self` accessor returning the frame's wake word, so the executor can
         # schedule an erased task without reaching into a concrete field.
         wake_reason = Method(
-            name="__wake_reason",
+            name="wake_reason",
             parameters=[Parameter(name="self", type=SawType(TypeKind.VOID),
                                   is_reference=True, reference_mutable=False)],
             return_type=SawType(TypeKind.INT),
@@ -3639,7 +3639,7 @@ class _FrameBuilder:
         # `__cellp` for a spawn root. The executor only ever asks a NOT-done
         # frame, so the cell it reaches through is always still there.
         is_cancelled = Method(
-            name="__is_cancelled",
+            name="is_cancelled",
             parameters=[Parameter(name="self", type=SawType(TypeKind.VOID),
                                   is_reference=True, reference_mutable=False)],
             return_type=SawType(TypeKind.BOOL),
@@ -3658,7 +3658,7 @@ class _FrameBuilder:
         bt_lit = _int(-1)
         self._bt_desc_lit = bt_lit
         bt_desc = Method(
-            name="__bt_desc",
+            name="bt_desc",
             parameters=[Parameter(name="self", type=SawType(TypeKind.VOID),
                                   is_reference=True, reference_mutable=False)],
             return_type=SawType(TypeKind.INT),
@@ -4488,7 +4488,7 @@ class _FrameBuilder:
 
         Before design 196 unit 3 the `try` survived the transform untouched and
         codegen tried to `ret` a Result out of a `resume` whose return type is
-        `__Poll` — which the typechecker caught as an error naming `__Poll`, a
+        `Poll` — which the typechecker caught as an error naming `Poll`, a
         type the author never wrote (DF-196d). So `try` was unusable in a task
         body: `try!` panicked, `try?` dropped the cause, and design 92's whole
         failable-returns-Result idiom had no concurrent spelling."""
@@ -4836,7 +4836,7 @@ class _FrameBuilder:
         # so a `return` in it owes the frame's done sequence. The generic
         # recursion below only rewrote its identifiers and left the `return`
         # raw, which lowered to a bare `ret <value>` out of a resume method
-        # whose result type is `__Poll`: invalid IR, caught by llvmlite rather
+        # whose result type is `Poll`: invalid IR, caught by llvmlite rather
         # than by anything in the compiler. `_lower_inplace` handles the same
         # blocks when the construct IS the statement; doing it here covers every
         # expression position instead — a `let`'s value, an assignment's RHS, a
@@ -6405,7 +6405,7 @@ def _promote_nested_generic_calls(program, funcs_by_name, seed_names, typechecke
 
 def _assign_bt_indices(frame_structs, builders):
     """design 158: fix the backtrace table's frame ORDER and patch each frame's
-    `__bt_desc` literal to its index.
+    `bt_desc` literal to its index.
 
     Ordered by frame NAME, not by construction order: the name is a property of
     the source, the construction order is a property of a work-list pop, and the
@@ -6514,9 +6514,11 @@ def transform_program(program, typechecker, imported_ast=None):
     new_functions = []
     removed = set()
 
-    # The `__Poll` signal enum and the `Resumable` trait are declared in
-    # builtin.saw (always in scope) — not synthesized here — so `Resumable` can
-    # name `__Poll` and frames can conform to it for the erased run queue.
+    # The `Poll` signal enum and the `Resumable` trait are declared in
+    # std/compiler/frame.saw (design 218 unit 1) — not synthesized here — and
+    # sawc.py's `COMPILER_EMITTED_STD_SYMBOLS` carve-out keeps both compiled in
+    # even when that module is not imported, so `Resumable` can name `Poll` and
+    # frames can conform to it for the erased run queue.
     nodes = getattr(typechecker, "_suspend_nodes", {})
 
     # design 74 (A5-rest, shape 3): promote NESTED suspending generic calls inside
@@ -7009,7 +7011,7 @@ def transform_program(program, typechecker, imported_ast=None):
     _close_embed_marks(list(new_extensions) + list(new_functions))
 
     # design 158: every frame exists now, so the table order — and each frame's
-    # `__bt_desc` answer — can be fixed.
+    # `bt_desc` answer — can be fixed.
     _assign_bt_indices(new_structs, all_builders)
 
     # Splice: remove driven roots, add synthesized declarations.

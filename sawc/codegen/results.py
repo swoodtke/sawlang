@@ -429,13 +429,13 @@ class ResultsMixin:
 
         `result_type` overrides `current_return_type`: the coroutine transform
         rewrites `return <ResultErrWrap>` into a store to the frame's result slot
-        inside `resume` (whose own return type is `__Poll`, not the Result), so
+        inside `resume` (whose own return type is `Poll`, not the Result), so
         the wrap node's stored `result_type` is the authority there (design 92)."""
         # Prefer current_return_type — during generic monomorphization it is the
         # SUBSTITUTED concrete Result (the wrap node still carries the generic
         # template). Fall back to the node's type only when current_return_type is
         # not a Result: the coroutine-transform resume case, where `return` was
-        # rewritten to a result-slot store and current_return_type is `__Poll`.
+        # rewritten to a result-slot store and current_return_type is `Poll`.
         if self.current_return_type and self.current_return_type.is_result():
             result_type = self.current_return_type
         if not result_type or not result_type.is_result():
@@ -572,7 +572,7 @@ class ResultsMixin:
         # generic-monomorphization case), and the node's type is the authority
         # where it is not — the coroutine transform rewrites `return <wrap>` into
         # a store to the frame's result slot inside `resume`, whose return type
-        # is `__Poll`. Omitting it made an erased-error return in a SUSPENDING
+        # is `Poll`. Omitting it made an erased-error return in a SUSPENDING
         # body an ICE (DF-192c) while its concrete sibling worked.
         return self._create_result_err_for_return(fat, expr.result_type)
 

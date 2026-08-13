@@ -5247,9 +5247,9 @@ and resuming at once for each `yield_now`.
 **Multi-task cooperative concurrency — `TaskGroup` (design 52b).** The
 heterogeneous run queue is now built on `any Trait` erasure (design 51): every
 coroutine frame is compiler-synthesized to conform to the `Resumable`
-trait (`std.compiler.frame`, below) — `resume(&var self) sync -> __Poll`
+trait (`std.compiler.frame`, below) — `resume(&var self) sync -> Poll`
 (advance one step; `resume` is the
-anti-suspension boundary, so it is `sync`) plus `__wake_reason(&self) sync -> Int`
+anti-suspension boundary, so it is `sync`) plus `wake_reason(&self) sync -> Int`
 (the wake surface: `0` = ready/yield, `>0` = sleep that many nanoseconds) and
 `release(&var self) sync` (drop what the frame still owns). A frame boxed as
 `Box<any Resumable>` lets distinct frame types share one queue,
@@ -7437,7 +7437,7 @@ need one of the three [import forms](#imports).
 | `std.fixedbuf` | `FixedBuf<N>`, `FixedStringBuilder<N>` | no |
 | `std.serde` | `Serialize`, `Deserialize`, `Encoder`, `Decoder`, the error types | yes |
 | `std.cbor` | `CborEncoder`, `CborDecoder`, `encode` | no |
-| `std.compiler.frame` | `Slot<T>`, `UnsafeRef<T>`, `Resumable` | no |
+| `std.compiler.frame` | `Slot<T>`, `UnsafeRef<T>`, `Poll`, `Resumable` | no |
 
 Concurrency has no module of its own beyond those: it is colorless, with no
 thread API and no `async`/`await`. `spawn { ... } -> Task<T>` is the
@@ -7509,8 +7509,8 @@ clock stepped backward, `duration_since` if `earlier` is in fact the later of
 the two.
 
 **`std.compiler.frame`** is the frame vocabulary the coroutine transform
-compiles against: `Slot<T>`, `UnsafeRef<T>` and the `Resumable` trait every
-generated frame conforms to. It is import-gated and it is not written for
+compiles against: `Slot<T>`, `UnsafeRef<T>`, and the `Resumable` trait every
+generated frame conforms to with its `Poll` signal enum. It is import-gated and it is not written for
 everyday code — reach for a plain `let` in ordinary Saw — but it is PUBLIC, and
 that is a decision rather than an accident. Generated code is held to the
 ordinary ownership rules, so the transform may emit only code a programmer
@@ -7561,12 +7561,15 @@ carrier rather than a proof — `UnsafeRef` is an `unsafe struct`, so every
 function that mints, holds or dereferences one is `unsafe`-declared and is
 reviewed as the unit that owns the argument.
 
-`Resumable` is the protocol a frame answers to: `resume` (advance one step),
-`__wake_reason`, `__is_cancelled`, `__bt_desc`, and `release` (drop what the
-frame still owns). Conforming by hand grants nothing — spawning and enqueuing
-are lowered by the compiler against frames it built itself — and the trait is
-published so the synthesized conformance is nameable, not as an extension
-point. `release` carries the contract eager teardown needs: it may run before
+`Resumable` is the protocol a frame answers to: `resume` (advance one step,
+returning `Poll.Pending` or `Poll.Done`), `wake_reason`, `is_cancelled`,
+`bt_desc`, and `release` (drop what the
+frame still owns). `Poll` is the signal enum, published in the same module so
+that the trait's whole signature — types and names both — is one a reader can
+write down. Conforming by hand grants nothing — spawning and enqueuing
+are lowered by the compiler against frames it built itself, and THAT gate is
+what keeps a user conformance inert, not any unspellability in the signature.
+`release` carries the contract eager teardown needs: it may run before
 the frame's deinit, and the deinit is a no-op afterwards.
 
 ### Profiles (hosted and freestanding)

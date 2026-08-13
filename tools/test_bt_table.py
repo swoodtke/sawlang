@@ -96,7 +96,7 @@ def check_structure(path, verbose):
         index, frame = hit
         if index != info["bt_index"]:
             problems.append(f"{symbol}: table index {index} != bt_index "
-                            f"{info['bt_index']} — `__bt_desc` would lie")
+                            f"{info['bt_index']} — `bt_desc` would lie")
         fields = {f["name"]: f for f in info["fields"]}
         if frame["state_field"] != fields["__state"]["offset"]:
             problems.append(f"{symbol}: __state at {frame['state_field']} in "

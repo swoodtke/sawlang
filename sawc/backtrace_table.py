@@ -158,7 +158,7 @@ def _collect_frames(codegen, program):
     """Every monomorphized frame, in the table's order.
 
     The order is the `bt_index` the coro transform assigned (frame name sorted),
-    because that index is baked into each frame's `__bt_desc` body — the table
+    because that index is baked into each frame's `bt_desc` body — the table
     and the vtables have to agree, so the transform is the authority and this
     pass follows it.
     """

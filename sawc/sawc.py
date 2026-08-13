@@ -112,6 +112,15 @@ IMPORT_REQUIRED_STD_MODULES = {
     # dotted — this one is `sawc/std/compiler/frame.saw`.
     "compiler.frame",
 }
+
+# std symbols the COMPILER ITSELF emits references to, into modules that are
+# not std sources: the coro transform stamps `Poll` and `Resumable` into every
+# user module that suspends. No scan of std sources can see those references,
+# and the exclusion below runs before the transform, so these two declarations
+# are compiled in whatever their module's exclusion says. Only the named
+# declarations are kept — the rest of the leaf is excluded as usual, which is
+# what keeps `Slot` out of a program that never asked for it.
+COMPILER_EMITTED_STD_SYMBOLS = {"Poll", "Resumable"}
 # Symbols carved out of an otherwise-prelude std file (the file stays prelude
 # for its other symbols; only these named ones require an import).
 IMPORT_REQUIRED_STD_SYMBOLS = {
@@ -563,6 +572,11 @@ def compute_std_codegen_exclusions(builtin_ns, import_asts):
     #     namespace keeps the trait the kept declaration needs.
     decl_only = getattr(builtin_ns, '_std_file_decl_only_names', {}) or {}
 
+    def _kept(leaf: str) -> set:
+        """Names of `leaf` that survive its exclusion: the declaration-only
+        ones above, plus the declarations the compiler emits references to."""
+        return decl_only.get(leaf, set()) | COMPILER_EMITTED_STD_SYMBOLS
+
     # Read the std sources (comment-stripped) once for the reference scan.
     from type_identity import std_leaf
     sources = {}
@@ -592,7 +606,7 @@ def compute_std_codegen_exclusions(builtin_ns, import_asts):
     # Precompile a word matcher per leaf's CODE-BEARING symbols.
     leaf_patterns = {}
     for leaf, syms in file_symbols.items():
-        code_syms = syms - decl_only.get(leaf, set())
+        code_syms = syms - _kept(leaf)
         leaf_patterns[leaf] = (
             re.compile('|'.join(r'\b' + re.escape(s) + r'\b'
                                 for s in code_syms)) if code_syms else None)
@@ -615,6 +629,13 @@ def compute_std_codegen_exclusions(builtin_ns, import_asts):
     excluded_symbols = set()
     for leaf in excluded_leaves:
         excluded_symbols |= file_keys.get(leaf, file_symbols.get(leaf, set()))
+        # Declaration-only names stay BOUND in the merged namespace: a kept
+        # trait declaration is useless without the symbol behind it, and a
+        # trait reserves no name a user type competes for (the tables are
+        # separate). `Poll` is a different case and is NOT subtracted here —
+        # its DECLARATION is kept so codegen has the layout, but leaving its
+        # NAME bound would make a user `enum Poll` an ambiguity against a
+        # module they never imported.
         excluded_symbols -= decl_only.get(leaf, set())
     return excluded_leaves, excluded_symbols
 
@@ -628,6 +649,10 @@ def _filter_std_ast(builtin_ast, excluded_leaves):
     from type_identity import std_leaf
 
     def keep(node):
+        # The compiler emits references to these into user modules, where no
+        # scan can see them, so they survive their leaf's exclusion.
+        if getattr(node, 'name', None) in COMPILER_EMITTED_STD_SYMBOLS:
+            return True
         leaf = std_leaf(getattr(node, 'source_file', None))
         return leaf is None or leaf not in excluded_leaves
 
