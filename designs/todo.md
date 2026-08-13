@@ -299,6 +299,28 @@ obligation-2 consumer sweep before dispatch. Gates 218 stages 1-2.
   diagnostic. Not scheduled; moving a payload out of a slot's optional
   element has the `Slot.take()`/`Optional.take` spellings meanwhile.
 
+- **DF-218c — the driven-path channel refusal is channel-blind and anchored
+  at 0:0.** S10's probe (218a ruling 11a): ExplicitCopy/NoCopy channel
+  elements are REFUSED on the driven receive path (`cannot copy value of
+  type Vector<Int...>` at `file:0:0`, no mention of channels; blocking
+  `recv()` works) — safe-by-accident, but a live diagnostic bug and an
+  expressiveness hole until 218 stage 1's S10 feature flip. No rescue
+  spelling exists (`move ch.receive()` misfires with a wrong noun).
+- **DF-218d (ICE, sawfuzz-oracle class) — a value-`if` statement followed by
+  a line beginning with `-`** dies `internal compiler error (BinaryOp):
+  'NoneType' object has no attribute 'type'` (the value-if binding parsed
+  as a subtraction LHS). Repro `.build/scratch/probe_s10/ice1.saw`; a `let`
+  in the same position works. Pin + sawfuzz_known entry owed at the next
+  pin batch. Sibling wart, same parse family: `move <method call>` in
+  argument position is a parse error rather than a `move` diagnostic.
+- **QUEUED: the Rust-ism docs sweep** (user, Aug 13, after the Sync-doc
+  catch) — audit LANGUAGE_SPEC/skill/README/builtin.saw doc comments for
+  concepts described via RUST mechanisms rather than Saw's: Send/Sync
+  phrasing (wave B fixes builtin.saw's), borrow/clone/RAII/destructor
+  terminology (saw-docs bans some already), lifetime references, stale
+  `T: Copy` semantics post-219. Dispatch AFTER wave B lands (it is
+  rewriting the same docs; avoid conflicts).
+
 ## Design 218 unit 0 LANDED (Aug 13) — corodiff is a battery lane; three new DFs
 
 `tools/corodiff.py` (the coro differential harness, tracked), an 87-entry

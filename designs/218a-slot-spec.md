@@ -117,6 +117,19 @@
    `[&self]` lowering calls `self.__recv.copy()` by direct method lookup.
    `UnsafeRef` stays NoCopy; 219 adds the one-line conformance when the
    collapse lands.
+11a. **OQ7's PROBE RAN (Aug 13, `.build/scratch/probe_s10/` — 17 cells,
+   mechanism traced not inferred): S10 is NOT unsound.** The bare alias
+   store is tier-CHECKED by the post-transform re-check, so every
+   ExplicitCopy/NoCopy channel element is REFUSED (at a 0:0 phantom
+   location, wrong noun — filed as DF-218c) rather than double-freed;
+   ImplicitCopy elements are retain-balanced (measured, strong-count
+   1/2/2/1). CONSEQUENCE FOR STAGE 1: the S10 migration to
+   `put(move __rvN)` is the census's one FEATURE FLIP — it makes
+   `Channel<Vector<Int>>`/NoCopy receive compile for the first time
+   (blocking `recv()` already works; only the driven path refuses). Its
+   acceptance tests are the probe's cells 1/1e/10 (compile-error today →
+   correct-output after), with cells 1s/4/5 as the unchanged balance
+   oracles. No soundness pin owed.
 11. **THE TRAIT'S FULL SIGNATURE BECOMES SPELLABLE (user, Aug 13, at
    unit-1 review): `__Poll` → `Poll`, public in `std.compiler.frame`, and
    `Resumable`'s remaining requirements un-prefix in the same relocation**
