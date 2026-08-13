@@ -200,17 +200,30 @@ EMPTY in-tree. ~80% of the migration is mech-shaped. NEW FINDINGS
   ExplicitCopy (p2).
 
 **THREE JUDGMENT SITES BLOCK DISPATCH (rulings owed):**
-1. **std's raw-pointer move idiom.** The concrete checkpoint judges
-   `ptr[0] = v` and `let x = ptr[0]` as COPIES (refusing NoCopy without
-   `move`; and there is NO move-out spelling for a pointer read — p7),
-   while codegen already lowers them as moves (p5: one deinit). std's own
-   `pop`/`recv`/`join`/`swap` reads compile TODAY only because generic
-   bodies are unchecked (DF-217i!) — close the hole naively and Vector/
-   Channel/Arc/Once/Task stop accepting non-Copy elements (271 downstream
-   references). LEAD RECOMMENDS: UnsafePointer indexing is EXEMPT from the
-   tier judgment — it is the design-130 manual domain (the enclosing
-   methods are already `unsafe`-declared), so `ptr[0]` reads/writes count
-   as neither copy nor move of `T` in the inference.
+1. **std's raw-pointer move idiom — RULED (user, Aug 13), two clauses.**
+   Background: the concrete checkpoint judges `ptr[0] = v` and
+   `let x = ptr[0]` as COPIES (refusing NoCopy; and there is NO move-out
+   spelling for a pointer read — `move ptr[0]` is refused as a partial
+   move, p7), while codegen already lowers them as moves (p5: one deinit).
+   std's `pop`/`recv`/`join`/`swap` reads compile TODAY only because
+   generic bodies are unchecked (DF-217i). The ruling:
+   (a) **Pointer places are OWNERSHIP-NEUTRAL to the tier judgment and the
+   inference** — the compiler stops asking a question the pointer erased
+   the answer to; the exactly-once obligations belong to the design-130
+   manual domain the enclosing `unsafe` declarations already mark.
+   (b) **Non-Copy transfers through a pointer place must SPELL `move`,
+   reads and stores alike** (user amendment): `let x = move buf[i]`
+   becomes legal (a carve-out from the partial-move refusal SCOPED to
+   UnsafePointer-rooted places — design 35 stays intact for safe places)
+   and REQUIRED for owning-type value reads, with a fixit. This is
+   declared intent enforced as a spelling rule, not a liveness proof —
+   the same contract depth as `unsafe` itself; it restores read/store
+   symmetry (stores already spell it) and makes `move <ptr-place>` the
+   greppable census of manual transfer points the 218 review discipline
+   wants. Census item for the implementer: verify each of the ~12 std
+   pointer-read sites is a transfer (a value-read "peek" of an owning
+   type would be DF-132a by definition — expect unanimous); std bodies
+   then gain the `move` spelling in the same unit.
 2. **Design 146 vs 219.** `place_uses._COPY_PROVING_BOUNDS` deliberately
    lets `T: ExplicitCopy` license a SILENT place value read lowered as a
    real `copy()` (p14 runs) — exactly what 219 forbids. LEAD RECOMMENDS:
