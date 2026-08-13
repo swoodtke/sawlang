@@ -179,6 +179,24 @@ entry point at the capture-list grammar. The sweep also found:
   function infers fine, so it is method-specific. Verified by hand; repros
   named in the brief.
 
+## Design 218 — enforcement architecture (RULED Aug 13, staged)
+
+Brief: `designs/218-enforcement-architecture.md`. The user's ruling: all
+transforms happen BEFORE codegen, and transforms emit ordinary safe Saw over a
+small manually-verified unsafe core (design 130's contract applied to the
+compiler itself) — so the existing post-transform re-check genuinely validates
+generated code, and the whole DF-217 ownership class becomes compile errors
+instead of trusted bookkeeping. Five units: (0) the coro differential harness
+becomes a battery lane FIRST — the net under the migration; (1) the `Slot<T>`
+frame-primitive module, census-driven API, tag cost ACCEPTED by ruling;
+(2) the coro transform migrates to safe code over it, `post_transform`
+exemptions split then deleted one by one; (3) comparison/equality desugar to
+AST, coordinated with the `other: &Self` brief; (4) the codegen
+decides-vs-lowers census + standing ledger; (5) FUTURE, measurement-gated:
+checked Slot elision — occupancy re-derived from the resume index as a proved
+refinement, which is today's hand pattern earned back safely. The trusted-base
+list at the brief's end is its most important artifact.
+
 ## NEXT-WAVE SWEEPS (queued Aug 13, dispatch after the current fix wave lands)
 
 - **S1 — the abstract-T boundary (DF-217i's class; HIGHEST SEVERITY).** One
