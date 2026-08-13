@@ -179,7 +179,25 @@ migrating the by-value form only to delete it.
 **Unit 4 — the decides-vs-lowers census (completeness check).**
 Audit codegen for every remaining `_emit_*` that DECIDES semantics rather than
 lowering checked AST (optionals machinery is the first suspect after
-comparisons). Each finding either migrates up into a transform/desugar or gets
+comparisons). The census ALSO covers a THIRD category (user-named, Aug 13):
+**MID-CHECK AST SYNTHESIS** — rewrites the typechecker splices into the tree
+during checking, creating node kinds parsed source never contains, which
+every downstream consumer must then be taught. Charter member: the AUTO-WRAP
+family (`OptionalWrap`/`ResultOkWrap`/`ResultErrWrap`/`ErasedErrWrap`,
+ast_nodes.py:1349-1398, inserted at 7+ scattered checker sites —
+expressions.py:4294/4309/9472/9479, statements.py:338/488/2842 + the
+Optional/erased variants' own). Evidence the phase placement bites: S2 row
+l5 — the coro transform's `_uncond_children` funnel was missing all three
+Result-wrap node kinds, so `return f()` under auto-wrap refuses a suspending
+call the spec promises. End-state disposition: auto-wrap desugars in the
+TRANSFORM layer to ordinary constructor AST (`Some(e)`/`Ok(e)`/
+`Err(erase(e))`) and the four special node classes DELETE — no bespoke node
+kinds, no downstream funnel knowledge, seven sites collapse to one desugar
+with a documented position list. Interim: the 120-matrix fix brief adds the
+wrap kinds to `_uncond_children` (its l5 row). Also the synthesized-copy
+row (user, same day): `@synthesize` copy() bodies migrate from codegen
+emission (codegen/methods.py:240-295) to checked AST synthesis — marked
+MIGRATES, not survives, in the eventual table. Each finding either migrates up into a transform/desugar or gets
 a documented justification in a standing ledger — the codegen twin of rt/ABI.md:
 what codegen is allowed to know about the language, frozen and reviewable.
 
