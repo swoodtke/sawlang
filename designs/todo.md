@@ -164,12 +164,14 @@ A NoCopy `Vector` sorts end to end today, written from outside std.
   (`-> Self`) resolves fine in the same extension. Hit while wording DF-216a's
   fixit, which nearly taught the broken spelling — the fixit names the concrete
   receiver type instead. Repro: `.build/scratch/fa_self_type_positions.saw`.
+  PIN: `examples/self_type_in_extension_parameter.saw`
 - **DF-216e — `borrow_ok`'s `as_call_argument` heuristic cannot tell "the callee
   RUNS this closure" from "the callee STORES it"**, so a borrow capture handed
   to `Vector.push` is still classified non-escaping and still compiles a stack
   pointer that dangles (IR-confirmed). Predates 216 and reaches all three
   spellings of the borrow capture. Closing it needs a non-escaping parameter
   TYPE — design 21's already-named future work, so it is its own brief.
+  PIN: `examples/escaping_closure_borrow_capture_stored.saw`
 - **DF-216b — SOUNDNESS: the comparison operators bypass the transfer
   checkpoint.** `a.compare(b)` on a NoCopy type is correctly refused; `a > b`,
   the same call, COMPILES. The operator passes the by-value `other` as a
@@ -213,6 +215,8 @@ spellings that reach it. The sweep also found:
   two-param shape misreports a matching label as unknown. The identical free
   function infers fine, so it is method-specific. Verified by hand; repros
   named in the brief.
+  PIN: `examples/generic_method_type_arg_inference.saw` (all four method
+  spellings beside the working free-function control)
 
 ## Design 219 — generic tier requirements (DIRECTION RULED Aug 13; the DF-217i fix)
 
@@ -249,10 +253,12 @@ Three NEW findings, all lead-verified from standalone repros:
   construct DF-217l's fix did not reach. THIRD member of the
   discard-position family (`let _` ok, `if let _` fixed as 217l, match `_`
   broken) — the family owes a one-row-per-discard-form matrix.
+  PIN: `examples/match_wildcard_payload_released.saw`
 - **DF-217o (BOGUS-REFUSAL) — a spawned body with NO suspension cannot
   destructure a tuple**: `error: struct __Frame_worker has no field a1` at
   the user's own line; adding a pointless `yield_now()` is the workaround.
   Leaks a compiler-internal frame name into a user diagnostic.
+  PIN: `examples/spawn_body_destructuring_let.saw`
 - **DF-217p (DEINIT-ORDER, 61 cells — the widest) — a driven frame local is
   released at FRAME TEARDOWN, not at its scope's end.** A loop-body local
   outlives the loop; a design-107 shadow rebind holds the replaced binding
@@ -260,10 +266,13 @@ Three NEW findings, all lead-verified from standalone repros:
   always balance (never a leak), but deterministic destruction is a
   headline guarantee — a `File`/`TcpStream` bound in a driven loop stays
   open for the rest of it. The known-list block IS the position matrix.
+  PIN: `examples/coro_frame_local_released_at_scope_end.saw` (both faces —
+  the loop-body local and the shadow rebind)
 - **DF-217h extended:** the `??` RHS is a tenth consuming position (husk
   release with an empty name), and `Vector.swap_out(i, f())` a second
   consuming-argument accessor; fires across linear/loop/cancel/teardown/MT,
   which pins it to the hoist, not the context.
+  PIN: `examples/coro_hoisted_coalesce_rhs_consumed_once.saw`
 
 ## Design 218 — enforcement architecture (RULED Aug 13, staged)
 
@@ -305,12 +314,18 @@ list at the brief's end is its most important artifact.
     live owner). Anchor: `_anf_lift` (coro_transform.py:1417) emits a bare
     temp with NO consume bookkeeping — contrast `_vc_hoist_to_temp:1738`
     which registers its temp. Agrees with worker C's independent narrowing.
+    PIN: the four class files design 218a's flip list defines —
+    `examples/coro_hoisted_struct_init_arg_consumed_once.saw` (a5/a6),
+    `coro_hoisted_receiver_temp_released_once.saw` (b1-b4/m7),
+    `coro_hoisted_push_arg_consumed_once.saw` (m14/h4),
+    `coro_hoisted_tuple_element_consumed_once.saw` (p4)
   - **DF-217m (NEW, *) — SYNC-PATH LEAKS, no coroutine involved:** a
     by-value OWNING argument to a METHOD is never deinited, and a
     call-result temp RECEIVER (`mk(3).n`) is never deinited — three values
     created, one deinit, in ordinary sync code (`min_leak.saw`). The
     suspending twin drops exactly once, i.e. the coro path is CORRECT and
     the plain path leaks.
+    PIN: `examples/sync_call_temp_released_once.saw`
   - **ICE family = statement-HEAD entry gaps:** if/while conditions,
     `&&`/`||` LHS (RHS works), for-range bounds, and match scrutinees whose
     ctor args suspend (DF-217f + its struct-init sibling) all reach codegen
@@ -424,11 +439,15 @@ DF-217e) is untouched and still open.
      `internal compiler error ... (FunctionCall): Undefined function: mk_s`.
      All four tiers, three contexts. Repro:
      `coro_diff/findings/NEW_enum_ctor_labeled_arg_suspending_call_ICE.saw`.
+     PIN: `examples/coro_suspending_ctor_arg_in_match_scrutinee.saw` (both
+     the enum-ctor and the struct-init sibling)
    - **DF-217g (BOGUS-REFUSAL)** — a suspending call as a TUPLE-LITERAL
      element in a destructuring let (`let (a,b) = (mk_s(1), mk_s(2))`) is
      refused with the nested/expression-position error, contradicting design
      120's documented literals coverage. Control twin runs. All four tiers.
      Repro: `coro_diff/findings/NEW_tuple_literal_element_...refused.saw`.
+     PIN: `examples/coro_destructuring_let_suspending_rhs.saw` (the
+     rescoped shape — tuple literal AND suspending-call RHS)
    FINAL RUN (the harness completed after the interim report): 336 twin
    pairs / 672 programs, 1104 combos pruned with reasons logged, 264 pairs
    byte-identical, 60 flagged and triaged. Two more results:
@@ -461,6 +480,8 @@ DF-217e) is untouched and still open.
    second read — and instantiated at a NoCopy type prints THREE deinits for
    ONE value, the payload read AFTER two of them (use-after-free), from
    fully safe code. Repro: `.build/scratch/generic_evasion_probe.saw`.
+   PIN: `examples/generic_body_honors_copy_tier.saw` (EXPECTs the refusal
+   the concrete twin already gets; the fix DIRECTION stays unruled)
    Mechanism: a generic body is checked ONCE with `T` abstract, and
    abstract `T` is treated as the MOST permissive tier instead of the
    least; nothing re-judges the body (or the bound-discharge site) at the
@@ -487,10 +508,12 @@ DF-217e) is untouched and still open.
      COPY policy of `Wrap<Res>` IS monomorphized (p04g refuses correctly);
      the NoMove cascade just never meets the same machinery (concrete twin
      p04e refuses at declaration). Repro: `p04f2_nomove_taskgroup_live.saw`.
+     PIN: `examples/generic_container_nomove_cascade.saw`
    - **DF-217k (declaration hygiene) — the design-130 unsafe-signature rule
      skips monomorphized signatures.** `idn<T>` at `T = UnsafePointer<Int8>`
      compiles undeclared; the concrete twin is refused. Memory-safe (the
      caller rule still fires) but the signature lies about its domain.
+     PIN: `examples/generic_instantiation_unsafe_signature.saw`
    FIX-BOUNDARY EVIDENCE (for the ruling): Send is checked
    POST-MONOMORPHIZATION with concrete-type diagnostics naming the mangled
    instance — the existence proof that per-instantiation re-judgement is
@@ -523,12 +546,14 @@ DF-217e) is untouched and still open.
      called `h.probe()`**: internal compiler error (`Type of #1 arg mismatch:
      i64 != %"Plain"`). Free-function twin clean. The 216c family's sharpest
      member.
+     PIN: `examples/generic_method_default_type_and_value_param.saw`
    - **DF-217e — method-declaration duplicate-signature checking ignores
      labels.** Two methods distinguished only by labels refused at DECLARATION
      (`indistinguishable signature`); the identical free-function pair works.
      Contradicts LANGUAGE_SPEC.md:389 ("labels are part of a function's
      identity"). Fix wants the label-aware identity test `_resolve_overload`
      already uses.
+     PIN: `examples/method_overloads_distinguished_by_labels.saw`
 
 Reviewed and NOT owed a sweep (mechanism already funneled or swept by its
 fix): design 196's erased-error family (one canonical spelling, unit 2; the
