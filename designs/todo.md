@@ -375,6 +375,67 @@ obligation-2 consumer sweep before dispatch. Gates 218 stages 1-2.
   PIN: `examples/coro_generic_spawn_root_nested_suspending_call.saw`
   (XFAIL) + `tools/corodiff_known.txt`
 
+- **DESIGN 218 STAGE 1 IS BLOCKED — two obstacles, both needing a ruling.**
+  The migration was built end to end (working patch, `.build/stage1-wip.patch`
+  in the stage-1 worktree; 1813 of 1817 green, four failures, none of them
+  cosmetic). What works is not in doubt: every owning frame LOCAL and PARAM
+  becomes a `Slot<T>`, stores are `put`, move-reads are `take()`, non-move
+  reads are `value()` lends, `__release` is a `clear()` loop, `Slot<T>.of` /
+  `Slot<T>.empty()` seed the frame, and the paired `__saw_forget`s vanish with
+  each converted row. The two things that stop it landing:
+
+  - **DF-218g — the frame vocabulary cannot be compiled into every driven
+    program without taking the name `Slot` from user code.** Generated frames
+    name `Slot`, so `std.compiler.frame` must be in codegen for any driven
+    program; but it is a GATED std module precisely so a user may declare
+    their own `Slot`, which `examples/std_gated_name_redefined_by_user.saw`
+    pins. Forcing the leaf in and keeping its NAMES out of the merged
+    namespace fixes the user-STRUCT case (`coro_generic_struct_method` goes
+    green) and not the user-ENUM case (`df151d_match_temporary_scrutinee`:
+    `internal compiler error: Undefined enum: Slot`) — hole 1 of the four that
+    same pin lists, reopened because the std struct is now present. This is
+    the design-82 exclusion boundary meeting design 144 identity: exclusion is
+    the language's answer to name reuse, and a type the compiler must always
+    emit cannot be excluded. Wants a ruling — a qualified codegen identity for
+    the frame types, or a name no user program competes for.
+  - **DF-218f — a CALL ARGUMENT does not auto-wrap to `Result`, while an
+    assignment does.** `func takes(v: Result<Int, MyErr>)` refuses `takes(5)`
+    ("argument `v` expects `Result<Int, MyErr>` but got `Int`"); the same
+    value assigned to a `Result`-typed field wraps `Ok`. `Optional` auto-wraps
+    in BOTH positions, which is what makes this an asymmetry rather than a
+    missing feature. Consequence for 218: census rows R5/R6 (`__result`
+    becomes a `Slot`) are STOPPED — a result store rides assignment auto-wrap
+    (`return v.len()` from a `-> Result<Int, E>` body), and `put` takes its
+    value as an argument, so migrating the slot would make the transform
+    re-derive a wrap it is supposed to inherit. Repro
+    `.build/scratch/framecheck/f7.saw`.
+
+  Recorded with them, from building it: FOUR census families proved
+  wrong-shaped against reality and are deferred with reasons, not preference.
+  (a) `opt_closure` — a frame closure is CALLED, and calling the result of a
+  lend is not expressible (`self.f.value()()` parses as a tuple), so it owes a
+  materialized local and a statement slot the expression rewrite does not
+  always have; (b) every local whose ADDRESS is taken — `&x` anywhere, a
+  nested suspending method call's receiver (P1), a `ref` argument (S9), and a
+  `p?.x = v` head — because a `Slot` has no addressable payload spelling, which
+  is exactly the `payload_ptr` 218a §4 deferred; (c) `Void` payloads
+  (`Slot<Void>` is a pointer to void llvmlite refuses); (d) fixed ARRAYS
+  (`a[i] = v` writes through element storage — the same addressing class).
+  Also found: the post-transform re-entry must RE-RUN the place lowering (the
+  `value()` lends are emitted after that pass) and must NOT `uncheck` when it
+  does (stripping the wraps the post-transform check inserted hands the next
+  check `cannot assign Int to field of type Result<Int, IoError>?`).
+
+- **DF-218b AMENDMENT (measured, Aug 14): the one-line flavor fix LEAKS.**
+  Teaching `place_uses._method_mutates` that `Optional.take` is `&var self`
+  (so an optional-typed place opens an EXCLUSIVE window) does remove the
+  wrong-noun refusal — and changes drop behavior:
+  `coro_iflet_move_scrutinee_releases_payload` moves from `t6 in 2 / t6 driven
+  0 / t7 plain 0` to `t6 in 3 / t6 driven 1 / t7 plain 1`, i.e. a retained
+  payload on the PLAIN path as well as the driven one. So the flavor decision
+  and the write-back are coupled, and DF-218b's first half is not a one-liner:
+  it owes its own analysis of what an exclusive window does to the payload.
+
 - **QUEUED: the Rust-ism docs sweep** (user, Aug 13, after the Sync-doc
   catch) — audit LANGUAGE_SPEC/skill/README/builtin.saw doc comments for
   concepts described via RUST mechanisms rather than Saw's: Send/Sync
