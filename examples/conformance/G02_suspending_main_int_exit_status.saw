@@ -5,8 +5,6 @@
 // main's frame to completion. The value lands in the frame's `__result` slot;
 // the executor has to read it back out, exactly as every non-main driven root's
 // driver already does.
-// XFAIL: DF-220b — the single-frame entry executor declares itself Void and
-// drops main's result; every driven program exits 0
 // EXPECT: success
 // EXPECT-EXIT: 7
 // EXPECT-OUTPUT: susp-int

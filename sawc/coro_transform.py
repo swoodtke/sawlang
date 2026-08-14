@@ -6830,6 +6830,63 @@ def _build_frame_init(fb: _FrameBuilder, param_values, fbs, recv_value=None,
     return StructInit(struct_name=fb.frame_name, field_inits=field_inits)
 
 
+def _read_frame_result(fb: _FrameBuilder, stmts):
+    """Move a completed root frame's result out of `__f`, and answer the
+    expression that hands it on. `None` for a `Void` body.
+
+    THE ONE PLACE a driven ROOT's result leaves its frame. Entry points:
+    `_make_driver` (every non-main driven root — spawn helpers and drive sites
+    reach a root through it) and `_make_entry_executor` (the synthesized `main`
+    of a suspending program with no spawn). The AMBIENT executor is deliberately
+    not one: its frame is erased into a `Box<any Resumable>` before anything can
+    read a typed slot, so its result travels through the group-owned cell
+    instead (design 221 unit B3).
+
+    Appending to `stmts` rather than returning a block is what lets both callers
+    keep their own frame-init and drive-loop preamble; the read must come after
+    the loop, and there is nothing else to order.
+
+    Reading the result MOVES it out of the frame: `__f` is a local about to die,
+    and the result is the one thing that escapes it. Spelled as the sub-frame
+    path spells the same transfer — take the value, then `__saw_forget` the slot
+    so the frame's teardown does not release what the caller now owns.
+
+    Design 139 is what forced the spelling. A retain would do for a Copy result
+    (a bump the frame's own release then undoes), and that is what used to
+    happen; but once `Result<Int, Box<any Error>>` became move-only there was no
+    retain to reach for, and a move is what this always was.
+    """
+    if fb.is_void:
+        # design 102 item 1: a `Void` driven body has no `__result` slot — the
+        # caller just loops to completion and returns Void.
+        return None
+    # Census R6. On a migrated slot the read and the give-up are ONE call:
+    # `take()` empties the slot as the value leaves it, so the `__saw_forget`
+    # that used to follow has nothing left to do.
+    if _enc_is_slot(fb.result_enc):
+        read = _slot_op(MemberAccess(object=Identifier(name="__f"),
+                                     member="__result"), "take")
+        stmts.append(LetStatement(name="__res", type_annotation=None,
+                                  value=read))
+    else:
+        # DEFERRED: opt_closure, fixed-array — a ROOT's legacy `__result`, the
+        # same two return types the sub-frame path sees. `spawn-cell` cannot
+        # reach here either: a spawn root's result lives in the cell and its
+        # enqueue path has no driver.
+        read = MemberAccess(object=Identifier(name="__f"), member="__result")
+        read.frame_place_read = True
+        if _enc_unwraps(fb.result_enc):
+            read = ForceUnwrap(expr=read)
+            read.frame_place_read = True
+        stmts.append(LetStatement(name="__res", type_annotation=None,
+                                  value=read))
+        if _enc_cleanup(fb.result_enc):
+            slot = MemberAccess(object=Identifier(name="__f"), member="__result")
+            slot.frame_place_read = True
+            stmts.append(_forget_call(slot, fb.result_defer_family))
+    return MoveExpr(variable="__res")
+
+
 def _make_entry_executor(fb: _FrameBuilder, fbs):
     """Synthesize the entry executor that replaces a suspending `main` (design 45
     item 1). It builds main's frame and drives it to completion on a single
@@ -6837,6 +6894,12 @@ def _make_entry_executor(fb: _FrameBuilder, fbs):
     `sleep(d)`, parks that long (`__saw_exec_park`) before resuming; a
     `yield_now` (wake 0) resumes at once. `main` may thus suspend with no
     user-visible executor.
+
+    design 221 unit B2 (DF-220b): the executor RETURNS main's result. It used to
+    declare itself `Void` whatever main returned, so the value reached the
+    frame's `__result` slot and was dropped there — every driven program exited
+    0. It is main's own frame and its own local, exactly the shape
+    `_make_driver` reads, so it reads it through the same funnel.
     """
     frame_init = _build_frame_init(fb, [], fbs)
     stmts = [
@@ -6870,9 +6933,11 @@ def _make_entry_executor(fb: _FrameBuilder, fbs):
                 MatchArm(variant_name="Done", bindings=[], body=done_body),
             ]))], final_expr=None))
     stmts.append(ExpressionStatement(expression=loop))
+    final = _read_frame_result(fb, stmts)
     return _declare_unsafe(
-        Function(name="main", parameters=[], return_type=SawType(TypeKind.VOID),
-                 body=Block(statements=stmts, final_expr=None),
+        Function(name="main", parameters=[],
+                 return_type=SawType(TypeKind.VOID) if fb.is_void else fb.ret,
+                 body=Block(statements=stmts, final_expr=final),
                  is_synthesized=True,
                  source_file=getattr(fb.func, 'source_file', "")),
         _frame_init_names_unsafe(fb, fbs))
@@ -6957,49 +7022,7 @@ def _make_driver(fb: _FrameBuilder, mode, fbs):
     else:
         driver_name = f"__saw_drive_{fb.name}"
         ret = fb.ret
-        if fb.is_void:
-            # design 102 item 1: a `Void` driven body has no `__result` slot —
-            # the driver just loops to completion and returns Void.
-            final = None
-        else:
-            # Reading the result MOVES it out of the frame: `__f` is a
-            # driver-local about to die, and the result is the one thing that
-            # escapes it. Spelled as the sub-frame path spells the same
-            # transfer — take the value, then `__saw_forget` the slot so the
-            # frame's teardown does not release what the caller now owns.
-            #
-            # Design 139 is what forced the spelling. A retain would do for an
-            # Copy result (a bump the frame's own release then undoes),
-            # and that is what used to happen; but once `Result<Int, Box<any
-            # Error>>` became move-only there was no retain to reach for, and a
-            # move is what this always was.
-            # Census R6. On a migrated slot the read and the give-up are ONE
-            # call: `take()` empties the slot as the value leaves it, so the
-            # `__saw_forget` that used to follow has nothing left to do.
-            if _enc_is_slot(fb.result_enc):
-                read = _slot_op(MemberAccess(object=Identifier(name="__f"),
-                                             member="__result"), "take")
-                stmts.append(LetStatement(name="__res", type_annotation=None,
-                                          value=read))
-            else:
-                # DEFERRED: opt_closure, fixed-array — a ROOT's legacy
-                # `__result`, the same two return types the sub-frame path sees.
-                # `spawn-cell` cannot reach here either: a spawn root's result
-                # lives in the cell and its enqueue path has no driver.
-                read = MemberAccess(object=Identifier(name="__f"),
-                                    member="__result")
-                read.frame_place_read = True
-                if _enc_unwraps(fb.result_enc):
-                    read = ForceUnwrap(expr=read)
-                    read.frame_place_read = True
-                stmts.append(LetStatement(name="__res", type_annotation=None,
-                                          value=read))
-                if _enc_cleanup(fb.result_enc):
-                    slot = MemberAccess(object=Identifier(name="__f"),
-                                        member="__result")
-                    slot.frame_place_read = True
-                    stmts.append(_forget_call(slot, fb.result_defer_family))
-            final = MoveExpr(variable="__res")
+        final = _read_frame_result(fb, stmts)
 
     # design 88: a reference param flows through the driver AS a raw pointer (the
     # drive site casts `&var x` -> `UnsafePointer<T>`), seeding the frame's pointer
