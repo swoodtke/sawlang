@@ -3492,7 +3492,8 @@ class TypeUtilsMixin:
             # REQUIREMENT on the type parameters it names, which every call
             # site discharges against its concrete argument.
             if self._is_aliasing_expr(expr):
-                self._tier_req_transfer(expr, src_type, line, column)
+                self._tier_req_transfer(expr, src_type, line, column,
+                                        is_return=is_return)
 
     def _transfer_refusal_hint(self, src_type: SawType, expr: Expression,
                                tier: str) -> str:

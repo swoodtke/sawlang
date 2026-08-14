@@ -206,7 +206,8 @@ class TierRequirementsMixin:
         return var_info
 
     def _tier_req_transfer(self, expr: Expression, src_type: SawType,
-                           line: int, column: int) -> None:
+                           line: int, column: int,
+                           is_return: bool = False) -> None:
         """The `'abstract'` arm of `_check_value_transfer` (entry point 1).
 
         A whole-binding read is PROVISIONALLY a move — design 15's dataflow
@@ -214,6 +215,16 @@ class TierRequirementsMixin:
         duplicate the moment it is written.
         """
         if getattr(self, '_tier_req_acc', None) is None:
+            return
+        if is_return and isinstance(expr, Identifier):
+            # A RETURN of a whole binding is the last read on its path by
+            # construction, so it is a move and raises nothing. Stated here
+            # rather than left to the dataflow because the tail-expression
+            # check runs after `_check_block` has popped the body scope: the
+            # name no longer resolves, and every generic returning a local
+            # would otherwise look like a read out of storage it does not own.
+            # (`SpinLock.lock`'s `let result = body(...)` / `result` is the
+            # shape, and it is the whole of std's generic return idiom.)
             return
         var_info = self._tier_binding_is_owned(expr)
         if var_info is None:

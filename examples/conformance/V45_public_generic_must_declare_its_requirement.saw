@@ -1,0 +1,31 @@
+// Conformance row V45 — a module-PUBLIC generic whose inferred requirement
+// exceeds move-only must DECLARE its bound
+//
+// The API-stability trade design 219 calls out by name. Pure inference means
+// editing a body can TIGHTEN a published contract with no signature change: a
+// maintainer adds a second bind and downstream callers at move-only types break
+// having changed nothing. This is why Rust refused inferred bounds; Saw's
+// doctrine (infer what is determined) admits them, and pays for them here.
+//
+// The mitigation is a hard error, not a warning: an API contract enforced only
+// by an off-by-default warning is not a contract. Where the bound is declared,
+// the requirement can never drift without a visible signature change; private
+// and internal generics ride pure inference freely, which is the other half of
+// the ruling and what V46 checks.
+//
+// `public` on a METHOD carries the same obligation — design 80 makes members
+// private-by-default, so the keyword is a deliberate publication.
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: must declare the tier it requires
+
+public func published<T>(x: T) -> Int {
+    let a = x
+    let b = x
+    let _ = a
+    let _ = b
+    1
+}
+
+func main() {
+    print(published<Int>(1))
+}

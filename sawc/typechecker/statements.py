@@ -397,10 +397,15 @@ class StatementsMixin:
                                     f"method `{method.name}`", method.line, method.column)
 
         self._tier_req_exit(method, _tier_saved, _tier_names)
+        # The public-declaration rule reaches a `public` METHOD too: design 80
+        # makes members private-by-default, so a method carrying the keyword has
+        # deliberately been published and owes the same contract a public free
+        # function does. Its own type params only — the ENCLOSING extension's
+        # are declared on the extension, and are checked when it is.
         self._tier_check_declaration(
             method, method.type_params, "method",
             f"{struct_name}.{method.name}" if struct_name else method.name,
-            False, method.line, method.column)
+            method.visibility == Visibility.PUBLIC, method.line, method.column)
         self._effect_exit()
         self.current_method = None
         self.moved_bindings = saved_moves

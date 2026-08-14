@@ -14,7 +14,7 @@ K21-K25, design 210 units 1 and 5; S09, O12 and K26, the DF-217a/b/c fixes; O13,
 the DF-217l leak their sweep turned up; K29, design 219 unit A1 (renumbered
 from K27 at integration — the 218a spec pre-registered K27/K28); U28-U29 and
 V31, design 219 unit A2; K27-K28, design 218 unit 1; V32-V35, design 219 wave B;
-V36-V44, K30 and U30, design 219 wave C.)
+V36-V47, K30 and U30, design 219 wave C.)
 
 ## How to read it
 
@@ -226,6 +226,9 @@ Claim source: spec 4 *The Copy Trait Family* + *Move-Only Types*; designs 34, 13
 | V41 | control: branch-exclusive uses are ONE use per path, so the body stays move-only | `V41_branch_exclusive_uses_stay_move_only.saw` | 219 C1 — the false-positive class. `if a < b { b } else { a }` mentions each parameter twice and duplicates neither; a name-counting rule would have tightened three corpus generics. Correct because the inference asks design 15's dataflow, which has merged branches since it was written |
 | V42 | control: the duplicating body still works at every tier that can satisfy it | `V42_copy_argument_to_duplicating_body_runs.saw` | 219 C1 — the accept side. Primitives, `String`'s retain and design 139's AUTOMATIC tier all pass one bounded body, each duplicate lowering at its own tier. Without this row the refusal could be delivered by a rule that refuses generic duplication outright |
 | V43 | the `.copy()`-needs-a-bound rule over COMPOSITE receivers — `(T, Int)`, `T?`, `[T; N]`, nested | `V43_copy_call_needs_a_bound_through_wrappers.saw` | 219 C2 — DF-217q. The rule was written once, for a bare `T`, so every wrapper reached its own arm instead, and each of those reasons about the WRAPPER: the tuple arm's comment promised the tuple "settles at the instantiation" and nothing ever settled it. One funnel, gated on the abstract tier |
+| V45 | a module-PUBLIC generic whose inferred requirement exceeds move-only must DECLARE its bound | `V45_public_generic_must_declare_its_requirement.saw` | 219 C4 — the API-stability trade the brief calls out by name, ruled HARD-REQUIRE: pure inference means editing a body can tighten a published contract with no signature change, and a contract enforced only by an off-by-default warning is not a contract. `public` on a METHOD carries the same obligation, design 80 making members private-by-default |
+| V46 | a DECLARED copy-family bound the body exceeds is a definition-time error; a private generic rides inference | `V46_declared_bound_the_body_exceeds.saw` | 219 C4 — `<T: ExplicitCopy>` licenses a SPELLED `.copy()` and nothing more, so a body reading the value out unwritten is design 146's sentence exactly. Caught at the declaration, where the author can act on it. The private control is the other half: the rule is not "every generic must declare" |
+| V47 | control: returning a whole binding out of a generic body is a MOVE | `V47_generic_return_of_a_local_is_a_move.saw` | 219 C4 — std's tail-expression idiom (`SpinLock.lock`'s `let result = body(...)` / `result`). It was a live false positive: the tail check runs after the body scope is popped, so the name no longer resolved and every generic returning a local looked like a read out of storage it does not own. Surfaced the moment the public rule reached methods, which is what a hard error buys over a warning |
 | V44 | control: the bounded wrapper copies really work, at both duplicable tiers | `V44_bounded_wrapper_copy_runs.saw` | 219 C2 — the accept side, and the fix to the ARRAY arm the row found: `type_satisfies_explicit_copy_bound` answers from the tier alone, so `[T; 2]` under a declared `<T: ExplicitCopy>` came back False and the one spelling the bound exists to license was refused |
 
 ## Places (`borrows` / `lend`) — window discipline

@@ -1,0 +1,37 @@
+// Conformance row V46 — a DECLARED copy-family bound the body exceeds is a
+// definition-time error, and a private generic rides inference freely
+//
+// Two halves of one ruling. `<T: ExplicitCopy>` says "duplicable, with
+// ceremony" and licenses a SPELLED `.copy()` — nothing more. A body that reads
+// the value out unwritten needs the SILENT tier, and the gap between the two is
+// design 146's sentence exactly: the same line would be a copy for some
+// instantiations and an alias for others. Caught where the author can act on
+// it, at the declaration, rather than at some caller's line.
+//
+// The `rides_inference` function below is the control: it has the same body and
+// no `public`, so it owes no declaration — the inferred requirement IS its
+// contract, and its call sites discharge it. Without this half the rule would
+// read as "every generic must declare", which is not what was ruled.
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: but its body needs `T` to be `Copy`
+
+func rides_inference<T>(x: T) -> Int {
+    let a = x
+    let b = x
+    let _ = a
+    let _ = b
+    1
+}
+
+func exceeds<T: ExplicitCopy>(x: T) -> Int {
+    let a = x
+    let b = x
+    let _ = a
+    let _ = b
+    2
+}
+
+func main() {
+    print(rides_inference<Int>(1))
+    print(exceeds<Int>(2))
+}
