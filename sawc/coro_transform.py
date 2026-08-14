@@ -1110,6 +1110,12 @@ def _read_field(name, encoding, line=0, column=0, owning_read=False,
         return _unsaferef_deref(_self_field(name, line, column), saw_type,
                                 line=line, column=column)
 
+    # DEFERRED: opt_closure, address-taken, window-move, rendering-operand,
+    # void-payload, fixed-array, scrutinee-temp — THE legacy read, so every
+    # deferred family reaches it and it retires with the last of them (218a
+    # section 6's M1/M3 row). M2 (`frame_move_read`) rides in the same block and
+    # goes with them; it has no consumer of its own left to satisfy beyond
+    # `_optional_binding_owns`, which a `take()` result already answers.
     def _marked(node):
         node.frame_place_read = True
         if move_read:
@@ -1126,6 +1132,11 @@ def _read_field(name, encoding, line=0, column=0, owning_read=False,
         acc.resolved_type = _field_type(saw_type, encoding)
     if encoding in ("opt", "opt_closure"):
         fu = _marked(ForceUnwrap(expr=acc, line=line, column=column))
+        # DEFERRED: opt_closure, address-taken, window-move, rendering-operand,
+        # void-payload, fixed-array, scrutinee-temp — M3, the retain codegen
+        # supplies because the checkpoint never saw this read. Reached by every
+        # family whose field is `opt`/`opt_closure`-encoded, the `__matchN`
+        # temps among them (a `self_opt` one reads bare and skips this arm).
         if owning_read:
             fu.frame_owning_read = True
         return _answered(fu, saw_type)
@@ -1396,6 +1407,12 @@ def _sub_result_read(sub: str, result_enc):
     if _enc_is_slot(result_enc):
         return _slot_op(MemberAccess(object=_self_field(sub), member="__result"),
                         "take")
+    # DEFERRED: opt_closure, fixed-array — a CALLEE's legacy `__result`, so the
+    # families are the ones a return TYPE can land in: a function type and a
+    # fixed array (`examples/coro_result_array_and_closure.saw` covers both).
+    # `spawn-cell` cannot reach here — a spawn root is never a nested callee
+    # (a function that is both is a dual-role root, whose own frame is not
+    # spawn-encoded).
     read = MemberAccess(object=_self_field(sub), member="__result")
     read.frame_place_read = True
     if _enc_unwraps(result_enc):
@@ -5769,7 +5786,19 @@ class _FrameBuilder:
             if getattr(node, 'unwrap', False) and not isinstance(read, ForceUnwrap):
                 read = ForceUnwrap(expr=read, line=getattr(node, 'line', 0),
                                    column=getattr(node, 'column', 0))
-                read.frame_place_read = True
+                if not _enc_is_slot(enc):
+                    # DEFERRED: opt_closure, address-taken, window-move,
+                    # rendering-operand, void-payload, fixed-array,
+                    # scrutinee-temp — the legacy `move o!`, whose `!` projects
+                    # out of a field the checkpoint must not re-judge.
+                    #
+                    # The MIGRATED read needs no mark and no longer carries one:
+                    # `self.o.take()` hands back an owned temporary, and design
+                    # 131 already says a payload read out of a call result is
+                    # the value being yours. Stage 4's citation gate is what
+                    # found this one — it was the only stamp left on a migrated
+                    # path, asserting past a rule that now answers correctly.
+                    read.frame_place_read = True
                 _answered(read, node.resolved_type)
             return read
         if (isinstance(node, ForceUnwrap) and isinstance(node.expr, Identifier)
@@ -5827,6 +5856,11 @@ class _FrameBuilder:
         binding, whose write really does go through the frame's pointer."""
         if isinstance(target, Identifier) and _enc_unwraps(
                 self.encmap.get(target.name)):
+            # DEFERRED: opt_closure, address-taken, window-move,
+            # rendering-operand, void-payload, fixed-array, scrutinee-temp — the
+            # `_enc_unwraps` guard is what confines this to legacy fields; a
+            # migrated one takes the ordinary rewrite below, where `put`'s
+            # by-value parameter is the checkpoint.
             acc = _self_field(target.name, target.line, target.column)
             acc.frame_place_read = True
             return acc
@@ -6948,6 +6982,10 @@ def _make_driver(fb: _FrameBuilder, mode, fbs):
                 stmts.append(LetStatement(name="__res", type_annotation=None,
                                           value=read))
             else:
+                # DEFERRED: opt_closure, fixed-array — a ROOT's legacy
+                # `__result`, the same two return types the sub-frame path sees.
+                # `spawn-cell` cannot reach here either: a spawn root's result
+                # lives in the cell and its enqueue path has no driver.
                 read = MemberAccess(object=Identifier(name="__f"),
                                     member="__result")
                 read.frame_place_read = True
