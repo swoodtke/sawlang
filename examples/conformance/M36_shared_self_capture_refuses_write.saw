@@ -1,0 +1,27 @@
+// Conformance row M36 — the receiver-capture MODE joins the "may this write the
+// receiver" rule. A closure inside a `&var self` method that captures `[&self]`
+// holds a SHARED borrow, so its body is checked exactly as a `&self` method's
+// body is: the write is refused, and the hint names the capture rather than the
+// method, because the method is already `&var self`.
+//
+// This is what makes the sigil load-bearing instead of decorative (design 218
+// section 4). It is also the pre-transform half of an answer the transformed
+// form gives on its own: a materialized `UnsafeRef` bound to a `let` refuses a
+// write through its window, and to a `var` allows one.
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: cannot assign to storage reached through a `&self` receiver
+// EXPECT-ERROR-CONTAINS: the enclosing closure captured the receiver `[&self]`
+// EXPECT-ERROR-CONTAINS: write `[&var self]` to capture it exclusively
+
+func run_int(body: () sync -> Int) -> Int { body() }
+
+struct Counter { n: Int }
+
+extension Counter {
+    func narrow(&var self) -> Int { run_int({ [&self] in self.n = 9  self.n }) }
+}
+
+func main() {
+    var c = Counter(n: 5)
+    print("{}", c.narrow())
+}

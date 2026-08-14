@@ -1128,14 +1128,12 @@ class ExpressionsMixin:
                 # method, not the binding), so consult the enclosing method's
                 # `self_mutable`. A `&self` method's receiver is a shared borrow —
                 # `&var self` is rejected.
-                cm = getattr(self, "current_method", None)
-                self_is_mut = cm is not None and getattr(cm, "self_mutable", False)
-                if not self_is_mut:
+                if not self._self_borrow_is_exclusive():
                     self._error(
                         ErrorKind.TYPE_MISMATCH,
                         "cannot take mutable reference to immutable `self`",
                         expr.line, expr.column,
-                        hint="use `&var self` in method signature to make self mutable"
+                        hint=self._shared_self_hint()
                     )
                     return None
             elif self._projects_from_self(expr.expr):
@@ -1150,9 +1148,8 @@ class ExpressionsMixin:
                 # of a `lend`: a borrows accessor's receiver travels by pointer
                 # exactly so its window can write through, and that reference is
                 # marked `from_lend`.
-                cm = getattr(self, "current_method", None)
-                self_is_mut = cm is not None and getattr(cm, "self_mutable", False)
-                if not self_is_mut and not getattr(expr, 'from_lend', False):
+                if (not self._self_borrow_is_exclusive()
+                        and not getattr(expr, 'from_lend', False)):
                     self._error(
                         ErrorKind.TYPE_MISMATCH,
                         "cannot take a mutable reference into a `&self` "
@@ -1160,9 +1157,7 @@ class ExpressionsMixin:
                         "self....` would hand out a mutable reference to a copy "
                         "and the write would be lost",
                         expr.line, expr.column,
-                        hint="declare the method `&var self` to mutate through "
-                             "the receiver, or `borrows -> T` to lend the place "
-                             "and let each use site choose the window's flavor"
+                        hint=self._shared_self_hint()
                     )
                     return None
 
@@ -10350,6 +10345,93 @@ class ExpressionsMixin:
                  f"rather than letting a pointer out")
         return found.inner_type if found is return_type else return_type
 
+    def _frame_pointer_escape_error(self, expr, cap_name, cap_type,
+                                    is_self_borrow) -> None:
+        """THE refusal of a frame-pointer capture in an escaping closure.
+
+        One message for every spelling that reaches the rule — the implicit
+        `self` capture, the explicit `[&self]` (design 218 section 4), and a
+        plain capture of a reference-typed binding — because they are one
+        capture judged once. `_check_closure` names the entry points.
+        """
+        what = ("`self`: a method's receiver is a borrow of storage the "
+                "CALLER owns" if is_self_borrow
+                else f"`{cap_name}`, a reference (`{cap_type}`)")
+        # Name the CONCRETE receiver type in the fixit. `Self` does not
+        # resolve in a closure parameter type, so spelling the hint
+        # `(&Self, ...)` would hand the author a second error.
+        recv = cap_type if cap_type is not None else "Receiver"
+        self._error(
+            ErrorKind.TYPE_MISMATCH,
+            f"an escaping closure cannot capture {what} — a reference "
+            f"borrows storage for the duration of one call and may not "
+            f"outlive the frame it points into",
+            expr.line, expr.column,
+            hint=("pass the closure straight to the call that runs it (a "
+                  "non-escaping closure keeps its environment on the "
+                  "stack, so borrowing the frame is sound), copy the "
+                  "values it needs into locals ahead of the closure and "
+                  "capture those, or take the receiver as an explicit "
+                  f"closure parameter (`body: (&{recv}, Int) sync -> R`, "
+                  "called as `self.run({ r, v in r.field + v })`)"
+                  if is_self_borrow else
+                  "pass the closure straight to the call that runs it (a "
+                  "non-escaping closure keeps its environment on the "
+                  "stack, so borrowing the frame is sound), or copy the "
+                  "values it needs out of the referent into locals ahead "
+                  "of the closure and capture those"))
+
+    def _check_self_capture_spec(self, expr, spec, self_capture_mode,
+                                 borrow_ok) -> None:
+        """Check one written `[&self]` / `[&var self]` capture (design 218
+        section 4).
+
+        The spelling adds no capture KIND — it is the receiver borrow design
+        216 already makes implicitly — so the only things there are to check are
+        the two the written form makes expressible:
+
+          1. that there IS a borrow receiver to capture. A free function has no
+             `self` at all, and a CONSUMING `self` receiver is an owned binding
+             whose ordinary value capture needs no list.
+          2. that `[&var self]` is not asking a `&self` method for an exclusive
+             borrow it does not hold. The reverse narrowing IS allowed —
+             `[&self]` in a `&var self` method captures the receiver shared, and
+             the body's writes are refused through `_self_borrow_is_exclusive`.
+
+        The escape rule is not one of them: it is the same rule the implicit
+        spelling meets, so it is reported here in the same words rather than
+        through the generic borrow-capture message, which would say `&self` and
+        teach nothing about receivers.
+        """
+        cm = getattr(self, 'current_method', None)
+        if self_capture_mode is None:
+            where = ("a consuming `self` receiver, which is an owned binding"
+                     if cm is not None else "a function with no receiver")
+            self._error(
+                ErrorKind.UNDEFINED_VARIABLE,
+                f"cannot capture `self` here: this is {where}",
+                spec.line, spec.column,
+                hint=("`[&self]` captures a `&self` / `&var self` receiver as "
+                      "a borrow; a consuming receiver is captured by value "
+                      "with no capture list at all"))
+            return
+        if spec.mode == 'ref_var' and self_capture_mode != 'ref_var':
+            name = getattr(cm, 'name', 'this method')
+            self._error(
+                ErrorKind.TYPE_MISMATCH,
+                f"`[&var self]` needs a `&var self` receiver, and `{name}` "
+                f"takes `&self`: a shared borrow has no exclusive borrow to "
+                f"hand out",
+                spec.line, spec.column,
+                hint=(f"write `[&self]` to capture the receiver as the shared "
+                      f"borrow it is, or declare `{name}` with a `&var self` "
+                      f"receiver"))
+            return
+        if not borrow_ok:
+            info = self.current_scope.lookup('self')
+            self._frame_pointer_escape_error(
+                expr, 'self', info.type if info is not None else None, True)
+
     def _check_closure(self, expr: ClosureExpr, expected_type: Optional[SawType] = None,
                         as_call_argument: bool = False,
                         force_escape: bool = False) -> Optional[SawType]:
@@ -10399,6 +10481,15 @@ class ExpressionsMixin:
                                and expected_type.kind == TypeKind.FUNCTION
                                and getattr(expected_type, 'func_is_escaping', False))
         borrow_ok = as_call_argument and not force_escape and not target_escaping
+        # `self`'s own borrow mode, from the enclosing method's receiver. A
+        # CONSUMING `self` receiver is an owned binding and has none, which is
+        # what makes it an ordinary value capture (design 216).
+        cm = getattr(self, 'current_method', None)
+        self_capture_mode = None
+        if cm is not None and getattr(cm, 'self_is_reference', False):
+            self_capture_mode = ('ref_var' if getattr(cm, 'self_mutable', False)
+                                 else 'ref')
+        shared_self_capture = False
         for spec in (expr.capture_specs or []):
             if spec.name in spec_by_name:
                 self._error(
@@ -10406,6 +10497,16 @@ class ExpressionsMixin:
                     f"capture `{spec.name}` listed more than once",
                     spec.line, spec.column)
             spec_by_name[spec.name] = spec
+            if spec.name == 'self':
+                # design 218 section 4: `[&self]` / `[&var self]`, the explicit
+                # spelling of the capture design 216 already makes implicitly.
+                # It reaches the same frame-pointer rule (below) through the
+                # same predicate; what it adds is the MODE written out loud.
+                shared_self_capture = (shared_self_capture
+                                       or spec.mode == 'ref')
+                self._check_self_capture_spec(
+                    expr, spec, self_capture_mode, borrow_ok)
+                continue
             outer_info = outer_scope.lookup(spec.name)
             if outer_info is None:
                 self._error(
@@ -10558,9 +10659,16 @@ class ExpressionsMixin:
         saved_found_return = self.found_return_with_value
         self.in_try_catch_block = False
         self._try_catch_error_types = None
+        # design 218 section 4: an explicit `[&self]` narrows the receiver to a
+        # SHARED borrow for this body, so every write-through-`self` rule judges
+        # it as it would in a `&self` method (`_self_borrow_is_exclusive`).
+        if shared_self_capture:
+            self._shared_self_capture_depth += 1
         try:
             return_type = self._check_block(expr.body)
         finally:
+            if shared_self_capture:
+                self._shared_self_capture_depth -= 1
             self._closure_returns.pop()
             self.in_try_catch_block = saved_in_try_catch
             self._try_catch_error_types = saved_try_err_types
@@ -10651,12 +10759,10 @@ class ExpressionsMixin:
         # writes) the live receiver. A value capture would be wrong twice over —
         # it would snapshot the receiver, and it would demand of `self` a copy
         # policy no receiver ever owed. A CONSUMING `self` receiver (no `&`) is
-        # an owned binding and stays a plain value capture.
-        cm = getattr(self, 'current_method', None)
-        self_capture_mode = None
-        if cm is not None and getattr(cm, 'self_is_reference', False):
-            self_capture_mode = ('ref_var' if getattr(cm, 'self_mutable', False)
-                                 else 'ref')
+        # an owned binding and stays a plain value capture. `self_capture_mode`
+        # is computed with the capture specs, above, because design 218's
+        # `[&self]` spelling is checked against it there.
+        #
         # Record each capture's effective mode for codegen (design 16/29): listed
         # names take their declared mode, `self` the receiver's borrow mode, and
         # everything else is `plain`.
@@ -10682,6 +10788,11 @@ class ExpressionsMixin:
         # and read the referent's frame after it died, with no diagnostic
         # (DF-216d). LANGUAGE_SPEC has always said references are parameter-only
         # and cannot escape; this is the one site that did not enforce it.
+        #
+        # Spelling 2 has an EXPLICIT form too since design 218 section 4
+        # (`[&self]`), and it reaches this same rule — reported at its spec by
+        # `_check_self_capture_spec`, which calls the same error builder, so the
+        # implicit and explicit spellings are refused in identical words.
         if not borrow_ok:
             for cap_name in captures:
                 if cap_name in spec_by_name:
@@ -10694,32 +10805,8 @@ class ExpressionsMixin:
                                   and cap_type.kind == TypeKind.REFERENCE)
                 if not (is_self_borrow or is_ref_binding):
                     continue
-                what = ("`self`: a method's receiver is a borrow of storage the "
-                        "CALLER owns" if is_self_borrow
-                        else f"`{cap_name}`, a reference (`{cap_type}`)")
-                # Name the CONCRETE receiver type in the fixit. `Self` does not
-                # resolve in a closure parameter type, so spelling the hint
-                # `(&Self, ...)` would hand the author a second error.
-                recv = cap_type if cap_type is not None else "Receiver"
-                self._error(
-                    ErrorKind.TYPE_MISMATCH,
-                    f"an escaping closure cannot capture {what} — a reference "
-                    f"borrows storage for the duration of one call and may not "
-                    f"outlive the frame it points into",
-                    expr.line, expr.column,
-                    hint=("pass the closure straight to the call that runs it (a "
-                          "non-escaping closure keeps its environment on the "
-                          "stack, so borrowing the frame is sound), copy the "
-                          "values it needs into locals ahead of the closure and "
-                          "capture those, or take the receiver as an explicit "
-                          f"closure parameter (`body: (&{recv}, Int) sync -> R`, "
-                          "called as `self.run({ r, v in r.field + v })`)"
-                          if is_self_borrow else
-                          "pass the closure straight to the call that runs it (a "
-                          "non-escaping closure keeps its environment on the "
-                          "stack, so borrowing the frame is sound), or copy the "
-                          "values it needs out of the referent into locals ahead "
-                          "of the closure and capture those"))
+                self._frame_pointer_escape_error(
+                    expr, cap_name, cap_type, is_self_borrow)
         # Escape analysis (design 21b E1): a closure used in value position (bound
         # to a let/var, returned, stored, or a struct field) outlives the frame
         # that built it, so its environment must be heap-allocated with captured

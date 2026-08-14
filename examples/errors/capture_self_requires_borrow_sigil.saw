@@ -2,7 +2,6 @@
 // capture list only behind `&` or `&var`. A plain `[self]` would be a value
 // capture, which is not what a receiver is — the receiver's own mode dictates
 // the capture's, and a spelling that could contradict it is not offered.
-// XFAIL: DF-216g the capture grammar does not know `self` at all yet, so this reports the generic "Expected capture name" instead of the teaching error
 // EXPECT: error
 // EXPECT-ERROR-CONTAINS: `self` may be captured only as a borrow
 

@@ -7,7 +7,6 @@
 // Row R36 is the implicit spelling of this same refusal. Both are here because a
 // new spelling that bypassed the rule would be a hole with an author's signature
 // on it: the escaping env outlives the method's frame either way.
-// XFAIL: DF-216g `[&self]` is not yet a spelling the grammar accepts, so this reports a parse error rather than the escape refusal
 // EXPECT: error
 // EXPECT-ERROR-CONTAINS: an escaping closure cannot capture `self`
 // EXPECT-ERROR-CONTAINS: a method's receiver is a borrow of storage the CALLER owns

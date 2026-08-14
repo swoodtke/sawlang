@@ -1523,7 +1523,22 @@ class ExpressionsMixin:
             self.pos = saved
 
     def _parse_capture_list(self) -> List['CaptureSpec']:
-        """Parse `[ &var sum, move conn, copy v, x ]` (design 16/29)."""
+        """Parse `[ &var sum, move conn, copy v, &self, x ]` (design 16/29 +
+        design 218 section 4).
+
+        `self` is a capture name only BEHIND A BORROW SIGIL. A method's receiver
+        IS a reference, so the receiver's own mode dictates the capture's, and a
+        spelling that could contradict it is not offered: bare `[self]` and
+        `[move self]` are refused here with the working spelling, and a CONSUMING
+        `self` receiver is an owned binding that takes the ordinary implicit
+        value capture with no list at all.
+
+        The spelling exists so the coroutine transform can EMIT a receiver
+        capture (design 218's litmus: generated code is code a programmer could
+        have written). It means exactly what the implicit `self` capture already
+        means — see `_check_closure`'s frame-pointer capture rule, which judges
+        both through one predicate.
+        """
         from ast_nodes import CaptureSpec
         self.expect(TokenType.LBRACKET)
         self.skip_newlines()
@@ -1544,6 +1559,20 @@ class ExpressionsMixin:
             elif self.match_ident('copy'):
                 self.advance()
                 mode = 'copy'
+            if self.match(TokenType.SELF):
+                if mode not in ('ref', 'ref_var'):
+                    self.error_at(
+                        tok,
+                        "`self` may be captured only as a borrow — write "
+                        "`[&self]`, or `[&var self]` in a `&var self` method")
+                self.advance()
+                specs.append(CaptureSpec(name="self", mode=mode,
+                                         line=tok.line, column=tok.column))
+                if self.match(TokenType.COMMA):
+                    self.advance()
+                    self.skip_newlines()
+                    continue
+                break
             name_tok = self.expect(TokenType.IDENT, "Expected capture name")
             specs.append(CaptureSpec(name=name_tok.value, mode=mode,
                                      line=tok.line, column=tok.column))

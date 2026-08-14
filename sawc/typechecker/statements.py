@@ -1714,6 +1714,38 @@ class StatementsMixin:
             return expr.name
         return None
 
+    def _self_borrow_is_exclusive(self) -> bool:
+        """Whether `self` is borrowed EXCLUSIVELY at the point being checked —
+        THE one question every "may this write the receiver" rule asks.
+
+        Two facts answer it. The enclosing method's receiver mode is the first
+        and was, until design 218, the whole of it: a `&var self` body may
+        mutate the receiver, a `&self` body may not.
+
+        The second is design 218 section 4's explicit `[&self]` capture. A
+        closure heading its list with the shared spelling captures the receiver
+        as a SHARED borrow whatever the method's own mode is, so its body is
+        checked as if it sat in a `&self` method. That is what makes the sigil
+        load-bearing rather than decorative, and it is the pre-transform half of
+        an answer the transformed form gives on its own — a materialized
+        `UnsafeRef` bound to a `let` refuses a write through its window (218a
+        probe P8), and to a `var` allows one (P8b).
+
+        ENTRY POINTS (obligation 1 — a funnel names its entries), each a rule
+        that refuses a write through a shared receiver:
+          * `_reject_shared_self_write` — a direct write into receiver storage,
+            plain or compound.
+          * `_reject_var_self_call_on_shared_self` — a `&var self` method call
+            on `self` or on a field of it.
+          * `_check_self_replacement_assign` — design 110's `self = v`.
+          * `_check_reference_expr`, both arms — `&var self` re-borrowed whole,
+            and a `&var self.<field>` projection out of it.
+        """
+        method = getattr(self, 'current_method', None)
+        if method is None or not getattr(method, 'self_mutable', False):
+            return False
+        return not getattr(self, '_shared_self_capture_depth', 0)
+
     def _reject_shared_self_write(self, target, line, column, compound=False):
         """DF-175a: a WRITE into the receiver of a plain `&self` method.
 
@@ -1746,8 +1778,9 @@ class StatementsMixin:
             return False
         if not self._writes_into_self_storage(target):
             return False
-        method = getattr(self, 'current_method', None)
-        if method is None or getattr(method, 'self_mutable', False):
+        if getattr(self, 'current_method', None) is None:
+            return False
+        if self._self_borrow_is_exclusive():
             return False
         verb = "use compound assignment on" if compound else "assign to"
         self._error(
@@ -1757,11 +1790,22 @@ class StatementsMixin:
             f"copy that is discarded when the method returns or mutates a "
             f"value the caller holds immutably",
             line, column,
-            hint="declare the method `&var self` to mutate through the "
-                 "receiver, or `borrows -> T` to lend the place and let each "
-                 "use site choose the window's flavor"
+            hint=self._shared_self_hint()
         )
         return True
+
+    def _shared_self_hint(self) -> str:
+        """The way out of a shared-receiver refusal, which depends on WHY the
+        receiver is shared — the method's own mode, or design 218's `[&self]`
+        capture narrowing it for this closure body."""
+        if getattr(self, '_shared_self_capture_depth', 0):
+            return ("the enclosing closure captured the receiver `[&self]`, "
+                    "which is a SHARED borrow — write `[&var self]` to capture "
+                    "it exclusively (the method's own receiver is already "
+                    "`&var self`)")
+        return ("declare the method `&var self` to mutate through the "
+                "receiver, or `borrows -> T` to lend the place and let each "
+                "use site choose the window's flavor")
 
     def _reject_var_self_call_on_shared_self(self, expr, method_info) -> bool:
         """A `&var self` method called on `self` — or on a FIELD of it — from
@@ -1804,7 +1848,7 @@ class StatementsMixin:
         if getattr(method_info, "is_init", False):
             return False
         method = getattr(self, 'current_method', None)
-        if method is None or getattr(method, 'self_mutable', False):
+        if method is None or self._self_borrow_is_exclusive():
             return False
         # A window call the PLACE lowering synthesized is not a call anyone
         # wrote: `place_uses` picks the accessor and its flavor by the design
@@ -1825,16 +1869,16 @@ class StatementsMixin:
             if field_type is None:
                 return False
             what = "storage reached through a `&self` receiver"
-        if getattr(method, 'is_borrows', False) or getattr(
+        if getattr(self, '_shared_self_capture_depth', 0):
+            hint = self._shared_self_hint()
+        elif getattr(method, 'is_borrows', False) or getattr(
                 method, 'place_type', None) is not None:
             hint = ("declare the accessor `&var self` — every use site then "
                     "borrows the receiver exclusively, reads included — or "
                     "gate the mutation on `#lend_var` so it runs only in the "
                     "exclusive specialization")
         else:
-            hint = ("declare the method `&var self` to mutate through the "
-                    "receiver, or `borrows -> T` to lend the place and let "
-                    "each use site choose the window's flavor")
+            hint = self._shared_self_hint()
         self._error(
             ErrorKind.IMMUTABLE_ASSIGNMENT,
             f"cannot call `&var self` method `{expr.method_name}` on "
@@ -2656,14 +2700,16 @@ class StatementsMixin:
         `&self` (immutable) method with the existing self-mutability diagnostic;
         otherwise routed through the normal replacement checkpoint against the
         receiver's (Self) type."""
-        method = self.current_method
-        self_mutable = method is not None and getattr(method, "self_mutable", False)
-        if not self_mutable:
+        if not self._self_borrow_is_exclusive():
             self._error(
                 ErrorKind.IMMUTABLE_ASSIGNMENT,
                 "cannot assign to `self`: the receiver is immutable",
                 stmt.line, stmt.column,
-                hint="use `&var self` in the method signature to replace `self`"
+                hint=("the enclosing closure captured the receiver `[&self]`, "
+                      "which is a SHARED borrow — write `[&var self]`"
+                      if getattr(self, '_shared_self_capture_depth', 0)
+                      else "use `&var self` in the method signature to "
+                           "replace `self`")
             )
             return
         self_info = self.current_scope.lookup("self")

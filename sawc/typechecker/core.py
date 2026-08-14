@@ -284,6 +284,10 @@ class TypeChecker(ExpressionsMixin, StatementsMixin, RegistrationMixin, TypeUtil
         # innermost entry arrived by VALUE capture, so writing it would hit the
         # per-call copy of the env and be discarded (DF-122a).
         self._closure_scopes: List[Scope] = []
+        # design 218 section 4: how deep we are inside closure bodies that
+        # captured the receiver as a SHARED borrow (`[&self]`) from a `&var self`
+        # method. Read ONLY through `_self_borrow_is_exclusive`.
+        self._shared_self_capture_depth = 0
         # design 213: the return target of each enclosing closure body, innermost
         # last. Read ONLY through `_return_target`.
         self._closure_returns: List[ClosureReturnTarget] = []
