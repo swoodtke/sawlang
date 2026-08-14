@@ -57,6 +57,46 @@ full write-ups are in the BRANCH's copy of this brief.
   flips `battery.sh run_irdet` to parse irdet's structured output —
   never `$?` — closing the vacuous-green gate hole.
 
+  **SWEEP RUN (Aug 14, obligation 4 — full matrix + probes p1-p27 in
+  `.build/scratch/sweep220b/RESULTS.md`, GITIGNORED, promote the matrix
+  rows to conformance rows at fix time). MECHANISM CONFIRMED, a CLASS of
+  exactly two:** the value reaches the frame's `__result` slot and both
+  synthesized ENTRY EXECUTORS declare themselves Void and drop it —
+  `_make_entry_executor` (coro_transform.py:6275-6278) and
+  `_make_ambient_entry_executor` (:6298-6302, whose root rides
+  `__saw_exec_run_root(Box<any Resumable>)` + a `__VoidCell`, so the
+  ambient half is an rt/ABI.md seam question). `_make_driver`
+  (:6356-6398) — every NON-main driven root — already does the correct
+  `take`/`move __res` read; spawned `work() -> Int` returns fine
+  (proven). Panics UNAFFECTED (rc 134 everywhere incl. MT);
+  suspending `-> Void` clean; `--freestanding` has the SAME bug (entry
+  synthesis is target-independent). Fix shape: give both executors the
+  driver's result plumbing at the shared point, then ONE i32
+  narrow/convert in codegen for every main (obligation-1 funnel).
+  Blast radius: `blade/src/tester.saw:52-108` and `test_runner.py:687`
+  both judge by rc==0 and WOULD falsely pass a suspending nonzero-return
+  test, but are INERT today — all 43 test mains across
+  blade/libs/selfhost/bench are Void + panic-based (verified by
+  compile). Live consumers: only irdet (battery.sh:103-106,
+  Makefile:72-77) — plus a CORRECTION to the branch brief:
+  `irdet_remote.py:59`'s `--plan` returncode guard is ALSO vacuous
+  (check_here itself is sound). Only workaround today: libc `exit()`,
+  which blade already uses (blade/src/main.saw:19-21). std has no
+  process.exit.
+
+- **DF-220c (NEW, found by the 220b sweep) — `main`'s return type is
+  entirely unconstrained.** typechecker/core.py:1680+2461 check only
+  that `main` EXISTS; codegen/core.py:2396-2400 overrides the LLVM
+  return type to i32 ONLY for Void and emits everything else as
+  declared. Measured: `main() -> String` exits 192 (the low byte of a
+  heap POINTER); `main() -> Result<Int, Oops>` emits a struct-return
+  `@main` against a C ABI expecting int (exit 138); `-> Int` works by
+  ABI accident (i64 vs i32) on arm64/x86-64. LANGUAGE_SPEC.md documents
+  no `main` rule at all. NEEDS A USER RULING at the fix brief: which
+  return types `main` may legally have (`-> Result` is the spelling
+  users will reach for once `-> Int` propagates) — then the diagnostic
+  and the one-funnel i32 conversion land together with DF-220b's fix.
+
 Post-fix path: rebase the branch onto fixed main, re-run unit-2's N=20
 replay leg (currently blocked on DF-220a), re-gate (expect reuse GREEN
 and the irdet lane honestly red-capable), then integrate.
