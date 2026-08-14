@@ -9,6 +9,11 @@
 //
 // Deinit-exactness is the assertion: one `DEINIT` per value taken, and the
 // slot is refilled and taken again to show the take left no claim behind.
+//
+// BOTH SPELLINGS are checked (design 219's wave-B rider): `slot[0]` and the
+// prefix `*slot`, which the parser desugars to the same place. The store side
+// and the take side each appear once in each spelling, so a divergence between
+// them would show up as a deinit-count change here.
 // EXPECT: success
 // EXPECT-OUTPUT:
 // got a
@@ -42,6 +47,15 @@ func slot_take(slot: UnsafePointer<Res>) unsafe -> Res {
     move slot[0]
 }
 
+// The same two operations in the prefix spelling.
+func slot_put_star(slot: UnsafePointer<Res>, value: Res) unsafe {
+    *slot = move value
+}
+
+func slot_take_star(slot: UnsafePointer<Res>) unsafe -> Res {
+    move *slot
+}
+
 func consume(r: Res) {
     print("got {r.name}")
 }
@@ -50,8 +64,8 @@ func run() unsafe {
     let slot = slot_alloc()
     slot_put(slot, Res(name: "a"))
     consume(slot_take(slot))
-    slot_put(slot, Res(name: "b"))
-    consume(slot_take(slot))
+    slot_put_star(slot, Res(name: "b"))
+    consume(slot_take_star(slot))
     slot_free(slot)
 }
 

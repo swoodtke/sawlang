@@ -291,6 +291,34 @@ class ExpressionsMixin:
                 column=op_token.column
             )
 
+        if self.match(TokenType.STAR):
+            # PREFIX `*` — pointer dereference, DESUGARED HERE (design 219's
+            # wave-B rider). `*p` becomes exactly the place `p[0]` already
+            # names, so nothing downstream learns a new node kind: the
+            # typechecker, the place machinery and codegen all see the pointer
+            # place they have always handled, and `move *p`, `*p = v`,
+            # `(*p).field` and a `&*p` argument each work because the SAME
+            # production is behind them.
+            #
+            # Disambiguated by POSITION exactly as unary `-` is: the binary
+            # parser consumes its own `*` before descending here, so a leading
+            # `*` can only be a prefix. This is not a general user-definable
+            # prefix operator — that surface stays closed.
+            #
+            # `p[0]` conflates array indexing with single-pointee deref; std's
+            # pointer sites are mostly single-object, where `*slot` states the
+            # intent. The SPAN is the `*` token's, so every diagnostic anchors
+            # on what the author wrote (the elaboration principle's invariant).
+            star_token = self.advance()
+            operand = self.parse_unary()
+            return ArrayIndex(
+                array_expr=operand,
+                index=IntLiteral(value=0, line=star_token.line,
+                                 column=star_token.column),
+                line=star_token.line,
+                column=star_token.column
+            )
+
         if self.match(TokenType.TILDE):
             # Unary bitwise complement `~x` (design 50); integer-only, enforced
             # by the typechecker.
@@ -305,6 +333,15 @@ class ExpressionsMixin:
 
         if self.match(TokenType.MOVE):
             move_token = self.advance()
+            # `move *p` — the prefix-deref spelling of `move p[0]`, and the
+            # fourth move-out family member in its most readable form (wave A
+            # legalized the transfer; the rider gives it this spelling). The
+            # star is consumed HERE rather than by the prefix arm above because
+            # `move` parses its own path: the projection loop below builds the
+            # place, and this just seeds it with the `[0]` hop.
+            deref_star = None
+            if self.match(TokenType.STAR):
+                deref_star = self.advance()
             # move must be followed by an identifier (the root binding)
             if not self.match(TokenType.IDENT):
                 raise SyntaxError(f"Expected identifier after 'move' at line {move_token.line}")
@@ -318,6 +355,13 @@ class ExpressionsMixin:
             node = Identifier(name=base_token.value, line=base_token.line,
                               column=base_token.column)
             is_partial = False
+            if deref_star is not None:
+                node = ArrayIndex(
+                    array_expr=node,
+                    index=IntLiteral(value=0, line=deref_star.line,
+                                     column=deref_star.column),
+                    line=deref_star.line, column=deref_star.column)
+                is_partial = True
             while True:
                 if self.match(TokenType.DOT):
                     dot = self.advance()

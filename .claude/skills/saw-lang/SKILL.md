@@ -2041,6 +2041,12 @@ also `ptr[i].copy()`, which leaves the slot occupied). The pointer binding is
 untouched; keeping track of which slots are still live is yours, exactly as for
 the write side. `move v[0]` on a Vector/field/tuple element stays the design-35
 error — those places ARE tracked, and `swap_out`/`take()` are their move-outs.
+**PREFIX `*` IS THE SAME PLACE, SPELLED (design 219).** `*p` and `p[0]` are ONE
+production — parser sugar, so the read, the store, `(*pt).x`, `&var *p` and
+`move *p` all work exactly as the index form does. Reach for it on a
+SINGLE-OBJECT pointer, where `p[0]` reads like an array index and `*p` says what
+is meant. Disambiguated by position like unary `-` (`a * *p` is both), and it is
+NOT a user-definable prefix operator — that surface stays closed.
 **Calling an unsafe function from safe code needs no ceremony.** What makes that
 sound: a function whose parameters are all safe types must be sound for EVERY
 input, and a precondition is expressed by taking an unsafe-typed parameter —

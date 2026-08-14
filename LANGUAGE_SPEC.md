@@ -8267,6 +8267,31 @@ liveness, which is the same contract depth `unsafe` itself carries. It also
 makes `move <pointer place>` the greppable census of a program's manual
 transfer points.
 
+### Prefix `*` — the pointer place, spelled
+
+**Status: implemented (design 219).** `*p` names the same place as `p[0]`. It is
+parser sugar: the two spellings produce one production, so everything the index
+form supports the prefix form supports, and neither the typechecker nor codegen
+knows there are two.
+
+```saw
+let v = *p                  // value read
+*p = fresh                  // store
+(*pt).x = 3                 // field projection through the pointee
+bump(&var *p)               // the place, by reference
+let taken = move *p         // the transfer, on an owning pointee
+```
+
+`p[0]` conflates array indexing with single-pointee dereference, and std's
+pointer sites are mostly single-object; `*slot` says which is meant. Precedence
+and disambiguation follow unary `-`: a `*` in prefix position is a dereference,
+one between two operands is multiplication, and `a * *p` is both. **`*` is not a
+user-definable prefix operator** — this is one grammar production for the
+pointer place, not an operator surface.
+
+Every use sits inside `unsafe`-declared code, since naming an `UnsafePointer`
+is what forces that declaration.
+
 ### Address casts (`&T` → pointer, pointer ↔ `Int`)
 
 **Status: implemented (design 42, stdlib-internal).** Two explicit unsafe casts
