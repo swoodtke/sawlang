@@ -16,7 +16,7 @@ from K27 at integration — the 218a spec pre-registered K27/K28); U28-U29 and
 V31, design 219 unit A2; K27-K28, design 218 unit 1; V32-V35, design 219 wave B;
 V36-V47, K30, K31 and U30, design 219 wave C; R39-R42 and M36, design 218
 stage 3; G01-G15, design 221 unit B1; G16-G18, design 221 unit B4's return-site
-sweep.)
+sweep; K32, design 222 unit 1.)
 
 ## How to read it
 
@@ -412,6 +412,7 @@ Claim source: spec 6 *Send and Sync* + *Cooperative tasks*; designs 75, 88, 103,
 | K31 | an `Arc<T>` at a NON-Sync `T` cannot cross to a worker thread, and the generic path does not launder it | `K31_generic_arc_share_at_non_sync_refused.saw` | 219 C5 — the row S1 left uncovered: `Send` was proven sound at the abstract-`T` boundary on all three axes, the SYNC axis never forced. It holds, by a mechanism the message does not name — `Arc`'s own `Send` derivation is conditioned on `T: Send + Sync` TOGETHER, so a non-Sync payload makes the Arc non-Send. The generic twin is refused even earlier, by the MT spawn's concrete-type-arguments gate |
 | K30 | a generic container instantiated at a NoMove payload is itself NoMove, derived per instance | `K30_generic_container_of_pinned_is_pinned.saw` | 219 C3 — DF-217j: `Wrap<TaskGroup>` relocated a live group and died `force unwrap of None`, the abort design 188 exists to prevent, from safe code. The declared cascade stays the rule where a declaration site exists; a generic container has none (`Wrap<T>` cannot say `NoMove` without pinning `Wrap<Int>`), so the property is derived from the type argument exactly as the copy policy already was |
 | K29 | a suspending `copy()` on a declared copy-policy conformance is refused AT the conformance | `K29_copy_policy_hook_must_be_sync.saw` | 219 A1 — DF-217r: the retain hook is called at compiler-INSERTED sites, so its suspension was invisible to the effect census and ran inside a `sync`-declared function with no diagnostic. Checked once at the declaration, where the author can act on it. (Renumbered from K27 at integration; the 218a spec pre-registered K27/K28) |
+| K32 | a spawned task's result and cancel word cross the group-owned cell exactly once | `K32_task_cell_result_and_cancel.saw` | 222 unit 1 — the OBSERVABLE half of design 218's trusted-list item 2. The cell outlives the frame on purpose (design 134), so the frame reaches it through a handle whose validity is a manual argument; what a caller can see of that argument is pinned here — a NoCopy result moved to the joiner and dropped once, a refcounted one crossing with its count intact, an UNJOINED one released once at group teardown, and the cancel word observed through the same handle at both cell shapes (`__ResultCell<T>` and the result-less `__VoidCell`) |
 
 ## Visibility and module boundaries
 

@@ -1,0 +1,145 @@
+// Conformance row K32 — a spawned task's result and cancel word cross the
+// group-owned cell exactly once
+//
+// Design 134 splits a spawned task in two: the FRAME (released the moment the
+// task completes) and a group-owned CELL holding the result slot and the cancel
+// word, which outlives it. The frame reaches that cell through a handle, and
+// every property a caller can observe about a task rides it — so the row pins
+// what the handle owes, at the tiers where getting it wrong is visible:
+//
+//   * the result is MOVED to the joiner, not copied: a NoCopy payload made
+//     inside the task dies exactly once, in the joiner's scope;
+//   * a refcounted result crosses with its count intact — no laundered retain,
+//     no dropped one;
+//   * an UNJOINED result still dies exactly once, at group teardown, because
+//     the cell is what owns it until somebody takes it;
+//   * the cancel word is read through the same handle, so a task cancelled
+//     before it runs observes it at its first check.
+//
+// Design 218's ledger calls this plumbing trusted (item 2), which is the reason
+// to pin its observable half here: the argument is manual, so the behaviour it
+// claims has to be a test.
+// EXPECT: success
+// EXPECT-OUTPUT:
+// joined r1
+// live 1
+// deinit r1
+// live 0
+// arc count 1
+// live 1
+// deinit a1
+// live 0
+// unjoined live 1
+// deinit r2
+// live 0
+// cancelled 101
+// void task cancelled
+
+import std.task.*
+
+static LIVE: Atomic<Int> = Atomic(0)
+
+struct Res { name: String }
+
+extension Res: NoCopy {
+    func deinit(&var self) {
+        LIVE.fetch_add(0 - 1)
+        print("deinit {self.name}")
+    }
+}
+
+func res(tag: String) -> Res {
+    LIVE.fetch_add(1)
+    Res(name: tag)
+}
+
+func make_one(tag: String) -> Res {
+    yield_now()
+    res(tag)
+}
+
+func make_arc(tag: String) -> Arc<Res> {
+    yield_now()
+    Arc<Res>(value: res(tag))
+}
+
+// A NoCopy result: built in the task, delivered through the cell, owned by the
+// joiner afterwards, dropped once at the joiner's scope end.
+func nocopy_result() {
+    var group = TaskGroup()
+    let h = group.spawn(make_one("r1"))
+    let got = h.join()
+    print("joined {got.name}")
+    print("live {LIVE.load()}")
+}
+
+// A refcounted result: the count the joiner sees is the count the task made.
+func arc_result() {
+    var group = TaskGroup()
+    let h = group.spawn(make_arc("a1"))
+    let got = h.join()
+    print("arc count {got.strong_count()}")
+    print("live {LIVE.load()}")
+}
+
+// Nobody joins: the cell still owns the payload, and the group's teardown is
+// what releases it — once.
+func unjoined_result() {
+    var group = TaskGroup()
+    let _ = group.spawn(make_one("r2"))
+    var spins = 0
+    while spins < 4 {
+        yield_now()
+        spins = spins + 1
+    }
+    print("unjoined live {LIVE.load()}")
+}
+
+// The cancel word lives in the cell too, and the task reads it through the same
+// handle. Cancelled before the executor ever runs it, so the observation is
+// deterministic.
+func cancel_word(base: Int) -> Int {
+    var i = 0
+    while i < 1000000 {
+        if cancelled() {
+            return base + 100
+        }
+        yield_now()
+        i = i + 1
+    }
+    return base
+}
+
+// The Void twin rides `__VoidCell`, which has no result slot at all — only the
+// cancel word, reached the same way.
+func cancel_word_void() {
+    var i = 0
+    while i < 1000000 {
+        if cancelled() {
+            print("void task cancelled")
+            return
+        }
+        yield_now()
+        i = i + 1
+    }
+}
+
+func cancel_observed() {
+    var group = TaskGroup()
+    let h = group.spawn(cancel_word(1))
+    let v = group.spawn(cancel_word_void())
+    h.cancel()
+    v.cancel()
+    print("cancelled {h.join()}")
+    v.join()
+}
+
+func main() {
+    nocopy_result()
+    print("live {LIVE.load()}")
+    arc_result()
+    print("live {LIVE.load()}")
+    unjoined_result()
+    print("live {LIVE.load()}")
+    cancel_observed()
+}
