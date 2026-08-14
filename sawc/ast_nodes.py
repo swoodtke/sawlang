@@ -2083,6 +2083,13 @@ class Method(ASTNode):
     # names a call, so it is a `sync` context: the effect pass reads this to give
     # the node a `sync_reason` and refuse a suspending body AT the declaration.
     copy_policy_hook: Optional[str] = annotation(None)
+    # design 219 wave C: the TIER REQUIREMENT this body places on each type
+    # parameter in scope — `{param_name: (requirement, reason, line)}`, where
+    # the requirement is `'move'` (every tier satisfies it) or `'copy'` (the
+    # body duplicates a value of that parameter with nothing written, so only
+    # the silent tier does). Inferred while the body is checked; discharged at
+    # every call site. See `typechecker/tierreq.py`.
+    tier_requirements: Optional[dict] = annotation(None)
     # `unsafe func` / `unsafe init` (design 130): this method touches an unsafe
     # type. Declared, never inferred — the trigger rule checks the declaration
     # against the body rather than supplying it.
@@ -2214,6 +2221,8 @@ class Function(ASTNode):
     # `sync func` declaration (design 22): body checked transitively
     # suspension-free at definition (ISR/callback style).
     is_sync: bool = False
+    # design 219 wave C: see `Method.tier_requirements`.
+    tier_requirements: Optional[dict] = annotation(None)
     # `unsafe func` declaration (design 130): see Method.is_unsafe.
     is_unsafe: bool = False
     # `borrows func` declaration (design 141): see Method.is_borrows.

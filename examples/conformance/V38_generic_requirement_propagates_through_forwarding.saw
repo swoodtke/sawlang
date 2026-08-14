@@ -1,0 +1,35 @@
+// Conformance row V38 — the requirement PROPAGATES through a forwarding hop,
+// so nesting cannot launder it
+//
+// Sweep S1 row 10: `launder<T>` calling `launder2<U>` twice widened the leak
+// rather than closing it — one value, SIX deinits, five of them before the
+// read. A per-call rule that stopped at the immediate callee would let any
+// generic wrapper hide a duplicating body behind a move-only-looking signature.
+//
+// Discharge runs to a FIXPOINT: `outer` forwards its `T` to `inner`, which
+// needs `Copy`, so `outer` acquires the same requirement and the refusal lands
+// at `outer`'s own call site with the concrete type named.
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: requires `T` to be `Copy`
+
+struct Res { name: String }
+extension Res: NoCopy {
+    func deinit(&var self) { print("DEINIT {self.name}") }
+}
+
+func sink<U>(a: U) -> Int { 1 }
+
+func inner<U>(y: U) -> Int {
+    let a = sink(y)
+    let b = sink(y)
+    a + b
+}
+
+func outer<T>(x: T) -> Int {
+    inner<T>(x)
+}
+
+func main() {
+    let r = Res(name: "r1")
+    print("n {outer(move r)}")
+}

@@ -40,6 +40,7 @@ from .expressions import ExpressionsMixin
 from .effects import EffectsMixin
 from .places import PlacesMixin
 from .serde import SerdeMixin
+from .tierreq import TierRequirementsMixin
 
 
 _BINDING_ID_COUNTER = itertools.count(1)
@@ -175,7 +176,7 @@ class Scope:
         return self.variables.get(name)
 
 
-class TypeChecker(ExpressionsMixin, StatementsMixin, RegistrationMixin, TypeUtilsMixin, EffectsMixin, PlacesMixin, SerdeMixin):
+class TypeChecker(ExpressionsMixin, StatementsMixin, RegistrationMixin, TypeUtilsMixin, EffectsMixin, PlacesMixin, SerdeMixin, TierRequirementsMixin):
     """Type checks a Saw program."""
 
     def __init__(self, reporter: ErrorReporter, freestanding: bool = False,
@@ -259,8 +260,18 @@ class TypeChecker(ExpressionsMixin, StatementsMixin, RegistrationMixin, TypeUtil
         # Keyed by the binding's `VariableInfo.binding_id`, so that same-named
         # bindings in different functions/scopes never interact and a `let`/`var`
         # shadow gets fresh state.
-        # value = (var_info, name, move_line, move_column)
-        self.moved_bindings: Dict[int, Tuple['VariableInfo', str, int, int]] = {}
+        # value = (var_info, name, move_line, move_column, provisional)
+        # design 219 wave C: `provisional` marks a transfer of an ABSTRACT-tier
+        # value, which is a move if nothing uses the binding again and a
+        # duplicate if something does. The move dataflow decides — see
+        # `typechecker/tierreq.py`.
+        self.moved_bindings: Dict[int, Tuple['VariableInfo', str, int, int, bool]] = {}
+        # design 219 wave C: the tier-requirement accumulator for the
+        # declaration whose body is being checked, the declaration it belongs
+        # to, and the call sites owing a discharge (resolved at finalize).
+        self._tier_req_acc: Optional[Dict[str, tuple]] = None
+        self._tier_req_decl = None
+        self._tier_obligations: List[tuple] = []
         # design 189: the reference captures spawned tasks are holding RIGHT
         # HERE. Function-local like the move state above, and conservative at
         # every join point — a borrow released on only one branch comes back at
@@ -1635,6 +1646,11 @@ class TypeChecker(ExpressionsMixin, StatementsMixin, RegistrationMixin, TypeUtil
         # Ninth pass: whole-program `sync` effect analysis (design 22).
         self.finalize_effects()
 
+        # design 219 wave C: discharge every recorded generic tier obligation.
+        # After every body, because declaration order is not call order, and to
+        # a fixpoint, because a requirement propagates through forwarding hops.
+        self._tier_discharge_all()
+
         return not self.reporter.has_errors()
 
     # ------------------------------------------------------------------ design 58
@@ -2501,6 +2517,9 @@ class TypeChecker(ExpressionsMixin, StatementsMixin, RegistrationMixin, TypeUtil
         # call-graph edges, so this runs once over the complete graph.
         if is_entry:
             self.finalize_effects()
+            # design 219 wave C: same reason, same place — every module's
+            # bodies have been walked, so every callee's requirement is known.
+            self._tier_discharge_all()
 
         if self.reporter.has_errors():
             return None

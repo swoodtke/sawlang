@@ -210,10 +210,19 @@ class RegistrationMixin:
         # tail expression is discarded unconditionally.
         self._check_result_discard(body.final_expr)
 
-        for key, (var_info, name, move_line, move_col) in list(self.moved_bindings.items()):
+        for key, (var_info, name, move_line, move_col, provisional) in list(
+                self.moved_bindings.items()):
             if key in entry_moves:
                 continue  # already moved before the loop -- caught elsewhere
             if key in outer_ids:
+                if provisional:
+                    # design 219 wave C, entry point 4: an abstract-tier
+                    # transfer that survives to the next iteration is a second
+                    # use of the same binding, so the body needs a real
+                    # duplicate rather than a move.
+                    self._tier_req_second_use(var_info, name, move_line,
+                                              move_line)
+                    continue
                 self._error(
                     ErrorKind.USE_AFTER_MOVE,
                     f"use of moved variable `{name}` across loop iterations",

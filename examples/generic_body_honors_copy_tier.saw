@@ -1,30 +1,25 @@
-// XFAIL: DF-217i a generic body evades the copy-tier rules, and instantiation
-// never re-checks — `let a = sink(x); let b = sink(x)` on an abstract `T`
-// compiles with no bound demanded and no move checkpoint applied
+// DF-217i, FIXED by design 219 wave C: a generic body no longer evades the
+// copy-tier rules — `let a = sink(x); let b = sink(x)` on an abstract `T`
+// infers a `Copy` requirement, and the call site discharges it.
 //
-// Instantiated at a NoCopy type this prints THREE deinits for ONE value and
-// reads the payload after two of them: a use-after-free out of fully safe code
-// with no `unsafe` anywhere. The concrete twin of the same body is refused
-// ("cannot copy value of type `Res` which implements NoCopy"), so the abstract
-// `T` is being treated as the MOST permissive tier where it should be treated
-// as the least.
+// Instantiated at a NoCopy type this used to print THREE deinits for ONE value
+// and read the payload after two of them: a use-after-free out of fully safe
+// code with no `unsafe` anywhere. The concrete twin of the same body was
+// refused all along, so the abstract `T` was being treated as the MOST
+// permissive tier where it should be treated as the least.
 //
-// Sweep S1 widened it: a bound does not help, `T: Copy` does NOT close it
-// (ExplicitCopy satisfies Copy and still owes `.copy()`/`move`), nesting
-// multiplies the releases, generic METHODS leak identically, and a generic
-// COROUTINE launders across a suspend because the post-transform re-check sees
-// only abstract `T` — "the generated code typechecks" is satisfied vacuously
-// there.
+// Sweep S1 widened it and wave C closes every row: a bound does not help,
+// nesting multiplies the releases, generic METHODS leak identically, and a
+// generic COROUTINE launders across a suspend because the post-transform
+// re-check sees only abstract `T`. The requirement is a property of the
+// AUTHORED body, inferred once while it is checked, so all four refuse at the
+// call — see `conformance/V36`-`V40` for the row-by-row ledger.
 //
-// THE FIX DIRECTION IS UNRULED: per-instantiation re-judgement (what `Send`
-// already does, with concrete-type diagnostics) or a TIERED bound vocabulary
-// (design 146's place rule is the model, but `Copy` alone is not a license to
-// bind twice). This pin asserts only what both directions must deliver — safe
-// code does not compile into a triple release — and names the tier the
-// concrete twin already names; a fix that words its refusal differently
-// updates the directive with the marker.
+// The refusal names the tier from the ARGUMENT's side ("move-only") rather
+// than repeating the conformance spelling, because the reader's question at a
+// call site is what this type can do, not what it declared.
 // EXPECT: error
-// EXPECT-ERROR-CONTAINS: NoCopy
+// EXPECT-ERROR-CONTAINS: requires `T` to be `Copy`
 
 struct Res { name: String }
 extension Res: NoCopy {

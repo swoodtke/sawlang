@@ -22,6 +22,7 @@ from ast_nodes import (
     SawType, TypeKind,
     ResultOkWrap, ResultErrWrap, OptionalWrap,
     WildcardPattern, BindingPattern, TuplePattern,
+    Visibility,
 )
 from ast_walk import pattern_binding_sites
 from errors import ErrorKind
@@ -291,6 +292,14 @@ class StatementsMixin:
             resolved_ret = self._resolve_type(expected_return)
             self._stamp_return_literal_types(method.body, resolved_ret)
 
+        # design 219 wave C: the accumulator covers EVERY type parameter in
+        # scope for this body — the method's own AND the enclosing extension's
+        # — because a `Wrap<T>` method that duplicates its `T` is the same
+        # DF-217i shape as a free function's (S1 row 12 found both).
+        _tier_names = [n for n in (getattr(self, 'current_type_params', None)
+                                   or {})]
+        _tier_saved = self._tier_req_enter(method, _tier_names)
+
         # Check body
         body_type = self._check_block(method.body)
 
@@ -387,6 +396,11 @@ class StatementsMixin:
         self._check_no_copy_return(check_type, method.body.final_expr,
                                     f"method `{method.name}`", method.line, method.column)
 
+        self._tier_req_exit(method, _tier_saved, _tier_names)
+        self._tier_check_declaration(
+            method, method.type_params, "method",
+            f"{struct_name}.{method.name}" if struct_name else method.name,
+            False, method.line, method.column)
         self._effect_exit()
         self.current_method = None
         self.moved_bindings = saved_moves
@@ -805,6 +819,12 @@ class StatementsMixin:
         # top-level `return`) gets the return type as its expected type.
         self._stamp_return_literal_types(func.body, resolved_return_type)
 
+        # design 219 wave C: open the tier-requirement accumulator for this
+        # body's type parameters. Non-generic bodies get None and every
+        # requirement site becomes a no-op.
+        _tier_saved = self._tier_req_enter(
+            func, [tp.name for tp in (func.type_params or [])])
+
         # Check body (stamps annotations at the _check_expression chokepoint)
         body_type = self._check_block(func.body)
 
@@ -840,6 +860,21 @@ class StatementsMixin:
                 # so did the non-generic tail — this is the one path that did
                 # not.
                 self._wrap_optional_tail(func, resolved_return_type, body_type)
+            # design 219 wave C: the RETURN position is a transfer like every
+            # other, and the generic path is the one that never asked. A tail
+            # `self.value` at `-> T` is DF-217i's field-getter shape (S1 p1).
+            _tier_return_type = resolved_return_type
+            if (_tier_return_type.is_optional()
+                    and _tier_return_type.inner_type is not None):
+                _tier_return_type = _tier_return_type.inner_type
+            self._check_no_copy_return(
+                _tier_return_type, func.body.final_expr,
+                f"function `{func.name}`", func.line, func.column)
+            self._tier_req_exit(func, _tier_saved,
+                                [tp.name for tp in (func.type_params or [])])
+            self._tier_check_declaration(
+                func, func.type_params, "function", func.name,
+                func.visibility == Visibility.PUBLIC, func.line, func.column)
             self.current_type_params = prev_type_params
             self.current_const_param_types = prev_const_params
             self._effect_exit()
@@ -866,6 +901,7 @@ class StatementsMixin:
         self._check_no_copy_return(check_type, func.body.final_expr,
                                     f"function `{func.name}`", func.line, func.column)
 
+        self._tier_req_exit(func, _tier_saved, [])
         self.current_type_params = prev_type_params
         self.current_const_param_types = prev_const_params
         self._effect_exit()

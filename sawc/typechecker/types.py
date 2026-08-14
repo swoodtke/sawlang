@@ -2851,14 +2851,25 @@ class TypeUtilsMixin:
         entry = self.moved_bindings.get(var_info.binding_id)
         if entry is None:
             return None
-        _, name, line, col = entry
+        _, name, line, col, _prov = entry
         return name, line, col
+
+    def _binding_move_is_provisional(self, var_info) -> bool:
+        """Whether the recorded move is a design-219 PROVISIONAL one — a
+        transfer of an abstract-tier value, which the dataflow is still
+        deciding between a move and a duplicate. A use of one is not a
+        use-after-move error; it is the evidence that raises the type
+        parameter's requirement (see `typechecker/tierreq.py`)."""
+        entry = self.moved_bindings.get(var_info.binding_id)
+        return bool(entry is not None and entry[4])
 
     def _is_binding_moved(self, var_info) -> bool:
         return var_info.binding_id in self.moved_bindings
 
-    def _mark_binding_moved(self, var_info, name: str, line: int, column: int):
-        self.moved_bindings[var_info.binding_id] = (var_info, name, line, column)
+    def _mark_binding_moved(self, var_info, name: str, line: int, column: int,
+                            provisional: bool = False):
+        self.moved_bindings[var_info.binding_id] = (var_info, name, line,
+                                                    column, provisional)
 
     def _revive_binding(self, var_info):
         """Clear moved-state for a binding (revival by assignment)."""
@@ -3420,6 +3431,15 @@ class TypeUtilsMixin:
         elif tier == 'implicit':
             if self._is_aliasing_expr(expr):
                 expr.needs_copy = True
+        elif tier == 'abstract':
+            # design 219 wave C, entry point 1. `'abstract'` used to fall off
+            # the end of this chain — the whole of DF-217i: a generic body was
+            # judged once with `T` abstract, the most permissive answer, and
+            # nothing re-judged it at instantiation. The transfer now RAISES A
+            # REQUIREMENT on the type parameters it names, which every call
+            # site discharges against its concrete argument.
+            if self._is_aliasing_expr(expr):
+                self._tier_req_transfer(expr, src_type, line, column)
 
     def _transfer_refusal_hint(self, src_type: SawType, expr: Expression,
                                tier: str) -> str:

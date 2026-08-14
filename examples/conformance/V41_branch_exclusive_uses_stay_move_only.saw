@@ -1,0 +1,46 @@
+// Conformance row V41 — control: branch-exclusive uses are ONE use per path,
+// so the body stays move-only and accepts every tier
+//
+// The false-positive class the inference has to avoid. `if a < b { b } else
+// { a }` mentions each parameter twice in the source, but no PATH uses either
+// twice, so nothing is duplicated and the body imposes no requirement. A
+// name-counting rule would tighten it and take three corpus generics
+// (`comparable_generic_bound`, `generic_bound_propagation`,
+// `generic_primitive_bounds`) with it.
+//
+// It stays correct because the inference asks design 15's move dataflow, which
+// has merged branches since it was written: the requirement is raised by a
+// USE-AFTER-TRANSFER, and there is none here.
+// The `DEINIT r1` line before `kept` is the point: `pick` MOVED one argument
+// out and dropped the other, exactly once each. A duplicating body would have
+// released `r2` twice.
+// EXPECT: success
+// EXPECT-OUTPUT:
+// 7
+// b
+// DEINIT r1
+// kept r2
+// DEINIT r2
+
+struct Res { name: String }
+extension Res: NoCopy {
+    func deinit(&var self) { print("DEINIT {self.name}") }
+}
+
+func maxOf<T: Comparable>(a: T, b: T) -> T {
+    if a < b { b } else { a }
+}
+
+// The same shape at a move-only argument: one path, one use, one owner.
+func pick<T>(a: T, b: T, first: Bool) -> T {
+    if first { move a } else { move b }
+}
+
+func main() {
+    print(maxOf<Int>(3, 7))
+    print(maxOf<String>("a", "b"))
+    let r1 = Res(name: "r1")
+    let r2 = Res(name: "r2")
+    let kept = pick<Res>(move r1, move r2, false)
+    print("kept {kept.name}")
+}

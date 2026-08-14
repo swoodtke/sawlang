@@ -1,0 +1,39 @@
+// Conformance row V42 — control: the duplicating body still works, at every
+// tier that can satisfy it
+//
+// The accept side of V36. `twice<T>` binds `x` twice, so it requires the silent
+// `Copy` tier — and that tier is not just the primitives: a `String` retains,
+// and design 139's AUTOMATIC tier (a struct whose owning members are all
+// Copy, declaring nothing) qualifies with no annotation owed. All three
+// instantiations compile and each duplicate lowers at its own tier.
+//
+// Without this row the refusal could be delivered by a rule that simply
+// refuses generic duplication, which would cost the language every generic
+// container it has.
+// EXPECT: success
+// EXPECT-OUTPUT:
+// 2
+// hi hi
+// bag bag
+
+struct Bag { s: String }
+
+func twiceInt<T: Copy>(x: T) -> Int {
+    let a = x
+    let b = x
+    let _ = a
+    let _ = b
+    2
+}
+
+func pair<T: Copy>(x: T) -> (T, T) {
+    (x, x)
+}
+
+func main() {
+    print(twiceInt<Int>(9))
+    let s = pair<String>("hi")
+    print("{s.0} {s.1}")
+    let b = pair<Bag>(Bag(s: "bag"))
+    print("{b.0.s} {b.1.s}")
+}

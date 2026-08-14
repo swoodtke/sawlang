@@ -777,13 +777,22 @@ class ExpressionsMixin:
         move_info = self._binding_move_info(var_info)
         if move_info is not None:
             _, move_line, _ = move_info
-            self._error(
-                ErrorKind.USE_AFTER_MOVE,
-                f"use of moved variable `{expr.name}`",
-                expr.line, expr.column,
-                hint=f"value was moved at line {move_line} and can no longer be used"
-            )
-            return None
+            if self._binding_move_is_provisional(var_info):
+                # design 219 wave C, entry point 2. The earlier transfer was an
+                # abstract-tier read; this second use proves it was a DUPLICATE
+                # rather than a move, which is the requirement the call sites
+                # discharge. Not an error here — at `T = Int` the same body is
+                # perfectly legal.
+                self._tier_req_second_use(var_info, expr.name, expr.line,
+                                          move_line)
+            else:
+                self._error(
+                    ErrorKind.USE_AFTER_MOVE,
+                    f"use of moved variable `{expr.name}`",
+                    expr.line, expr.column,
+                    hint=f"value was moved at line {move_line} and can no longer be used"
+                )
+                return None
 
         # design 189: reading a root a task holds EXCLUSIVELY. A `[&var]`
         # capture excludes readers as well as writers — one writer XOR many
@@ -855,13 +864,20 @@ class ExpressionsMixin:
         move_info = self._binding_move_info(var_info)
         if move_info is not None:
             _, move_line, _ = move_info
-            self._error(
-                ErrorKind.USE_AFTER_MOVE,
-                f"use of moved variable `{expr.variable}`",
-                expr.line, expr.column,
-                hint=f"value was already moved at line {move_line} and can no longer be used"
-            )
-            return None
+            if self._binding_move_is_provisional(var_info):
+                # design 219 wave C, entry point 3: the same reading as an
+                # ordinary second use — the earlier abstract-tier transfer
+                # duplicated rather than moved, and this `move` is the proof.
+                self._tier_req_second_use(var_info, expr.variable, expr.line,
+                                          move_line)
+            else:
+                self._error(
+                    ErrorKind.USE_AFTER_MOVE,
+                    f"use of moved variable `{expr.variable}`",
+                    expr.line, expr.column,
+                    hint=f"value was already moved at line {move_line} and can no longer be used"
+                )
+                return None
 
         # Disallow moving out of references - this would leave the referent invalid
         if var_info.type.kind == TypeKind.REFERENCE:
@@ -3033,11 +3049,24 @@ class ExpressionsMixin:
                     hint="the default is checked against the instantiated type at "
                          "this call")
 
-    def _check_type_param_bounds(self, type_params, type_map, line, column):
+    def _check_type_param_bounds(self, type_params, type_map, line, column,
+                                 callee_decl=None, display=None):
         """Verify each parameter's concrete binding in `type_map` satisfies the
         parameter's trait bounds, naming the concrete (possibly inferred) type in
         the failure. Mirrors the free-function bound checks; used by the generic
-        METHOD path (both explicit and inferred), which previously did none."""
+        METHOD path (both explicit and inferred), which previously did none.
+
+        design 219 wave C: this is also discharge entry point 2 — passing
+        `callee_decl` records the call's obligation to satisfy the callee's
+        INFERRED tier requirement, which is resolved at finalize. It serves the
+        overloaded free-function, module-qualified, instance-method and
+        static-method paths; the singleton free-function path records its own
+        (it does not route through here), as do generic-struct instantiation
+        and a method call's RECEIVER type arguments.
+        """
+        if callee_decl is not None:
+            self._tier_record_obligation(callee_decl, type_params, type_map,
+                                         display or "this call", line, column)
         for tp in type_params:
             resolved_arg = type_map.get(tp.name)
             if resolved_arg is None:
@@ -3119,7 +3148,8 @@ class ExpressionsMixin:
                 type_map[tp.name] = self._resolve_type(ta)
             # Design 105: inferred (or explicit) type args are bound-checked.
             self._check_type_param_bounds(
-                func_info.type_params, type_map, expr.line, expr.column)
+                func_info.type_params, type_map, expr.line, expr.column,
+                callee_decl=func_info.ast_node, display=f"`{expr.name}`")
             # design 70 (A5): record the deferred poly-call edge so a suspending
             # instantiation taints the caller / drives (mirrors the singleton
             # generic path), only when the args are fully concrete.
@@ -3178,7 +3208,9 @@ class ExpressionsMixin:
             for tp, ta in zip(method_info.type_params, expr.type_args or []):
                 full_subst[tp.name] = self._resolve_type(ta)
             self._check_type_param_bounds(
-                method_info.type_params, full_subst, expr.line, expr.column)
+                method_info.type_params, full_subst, expr.line, expr.column,
+                callee_decl=method_info.ast_node,
+                display=f"`{struct_name}.{expr.method_name}`")
         param_types = method_info.param_types[offset:]
         if full_subst:
             param_types = [t.substitute(full_subst) if t is not None else t
@@ -4140,6 +4172,12 @@ class ExpressionsMixin:
                                 ErrorKind.TYPE_MISMATCH,
                                 f"type `{resolved_arg}` does not satisfy the `{bound}` bound",
                                 expr.line, expr.column)
+            # design 219 wave C: discharge entry point 1 (the free-function
+            # generic path). Declared bounds are checked above; the INFERRED
+            # tier requirement is recorded here and resolved at finalize.
+            self._tier_record_obligation(
+                func_info.ast_node, func_info.type_params, type_map,
+                f"`{expr.name}`", expr.line, expr.column)
             # design 70 (A5): record a deferred effect edge to this instantiation.
             # Materialized at finalize only if `expr.name`'s template is
             # effect-polymorphic (calls a method on a type-param receiver), so an
@@ -8503,6 +8541,15 @@ class ExpressionsMixin:
         # mechanism keyed on the payload type's own access).
         if method_info is not None:
             self._check_method_visible(struct_name, expr.method_name, method_info, expr)
+            # design 219 wave C: discharge entry point 3 — the RECEIVER's type
+            # arguments. A method of `extension Wrap<T>` that duplicates its
+            # `T` is DF-217i at a second position (S1 row 12), and the type
+            # parameter it constrains belongs to the extension, not the call.
+            if type_subst and struct_info.type_params:
+                self._tier_record_obligation(
+                    method_info.ast_node, struct_info.type_params, type_subst,
+                    f"`{struct_name}.{expr.method_name}`", expr.line,
+                    expr.column)
         # Overloading (design 55): a method name with 2+ overloads on this struct
         # resolves through the exact-match resolver (before effect edges are
         # recorded), then feeds the shared downstream machinery.
@@ -8691,12 +8738,16 @@ class ExpressionsMixin:
                 for tp in method_type_params:
                     type_subst[tp.name] = full[tp.name]
                 self._check_type_param_bounds(
-                    method_type_params, type_subst, expr.line, expr.column)
+                    method_type_params, type_subst, expr.line, expr.column,
+                    callee_decl=method_info.ast_node,
+                    display=f"`{expr.method_name}`")
             else:
                 for tp, ta in zip(method_type_params, provided_type_args):
                     type_subst[tp.name] = self._resolve_type(ta)
                 self._check_type_param_bounds(
-                    method_type_params, type_subst, expr.line, expr.column)
+                    method_type_params, type_subst, expr.line, expr.column,
+                    callee_decl=method_info.ast_node,
+                    display=f"`{expr.method_name}`")
         elif provided_type_args:
             self._error(
                 ErrorKind.TYPE_MISMATCH,

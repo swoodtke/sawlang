@@ -1,0 +1,33 @@
+// Conformance row V36 — a generic body that binds a `T` value twice is refused
+// AT THE CALL when the argument is move-only (DF-217i, the head of the family)
+//
+// The body is judged once with `T` abstract, which used to answer every
+// copy-tier question most permissively: this exact program compiled and printed
+// THREE `DEINIT` lines for ONE value, reading the payload after two of them —
+// a use-after-free out of code with no `unsafe` anywhere (sweep S1 row 1).
+//
+// Design 219 wave C infers the requirement from the body ONCE — `x` is bound
+// twice, so `T` has to be on the silent `Copy` tier — and every call site
+// discharges it against the argument's DERIVED tier. The refusal lands at the
+// caller's line, names the requirement, the reason with both lines, and the
+// argument's tier.
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: requires `T` to be `Copy`
+
+struct Res { name: String }
+extension Res: NoCopy {
+    func deinit(&var self) { print("DEINIT {self.name}") }
+}
+
+func sink<T>(a: T) -> Int { 1 }
+
+func twice<T>(x: T) -> Int {
+    let a = sink(x)
+    let b = sink(x)
+    a + b
+}
+
+func main() {
+    let r = Res(name: "r1")
+    print("n {twice(move r)}")
+}

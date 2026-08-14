@@ -1,0 +1,32 @@
+// Conformance row V37 — a generic body that reads a `T` out of storage it does
+// not own requires the `Copy` tier, however few times the name appears
+//
+// The DF-217i EXTENSION the consumer sweep found (S1 p1): the unbounded field
+// getter. `self.value` mentions nothing twice, so a use-COUNT rule would call
+// it a move — but there is no partial move out of a borrowed `self` (design
+// 35), so the read leaves a live second owner behind and double-frees at a
+// move-only argument.
+//
+// This is why the inference asks the move dataflow rather than counting names:
+// a whole-binding read gets the benefit of the doubt and a PROJECTION never
+// does.
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: requires `T` to be `Copy`
+
+struct Res { name: String }
+extension Res: NoCopy {
+    func deinit(&var self) { print("DEINIT {self.name}") }
+}
+
+struct Cell<T> { value: T }
+extension Cell<T>: NoCopy {}
+
+extension Cell<T> {
+    func get(&self) -> T { self.value }
+}
+
+func main() {
+    let c = Cell<Res>(value: Res(name: "r1"))
+    let out = c.get()
+    print("got {out.name}")
+}

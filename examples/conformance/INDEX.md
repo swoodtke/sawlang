@@ -13,7 +13,8 @@ design 202 unit 1; B09-B12, design 204 unit 1; K14-K20, design 201 unit 1;
 K21-K25, design 210 units 1 and 5; S09, O12 and K26, the DF-217a/b/c fixes; O13,
 the DF-217l leak their sweep turned up; K29, design 219 unit A1 (renumbered
 from K27 at integration — the 218a spec pre-registered K27/K28); U28-U29 and
-V31, design 219 unit A2; K27-K28, design 218 unit 1.)
+V31, design 219 unit A2; K27-K28, design 218 unit 1; V32-V35, design 219 wave B;
+V36-V42, design 219 wave C.)
 
 ## How to read it
 
@@ -217,6 +218,13 @@ Claim source: spec 4 *The Copy Trait Family* + *Move-Only Types*; designs 34, 13
 | V33 | an ExplicitCopy argument is REFUSED at a silent-copy bound | `V33_explicitcopy_refused_at_silent_bound.saw` | 219 B2 — S1 row 9d was a MISCOMPILE, not a semantic to preserve: `T: Copy` admitted the ceremony tier into a body that duplicates `T` unwritten, and the re-bind lowered to a bitwise copy of a `Vector` (two owners, one buffer). `Copy` now names the silent tier alone, so the refusal lands at the call with the type named |
 | V34 | `T: ExplicitCopy` is the whole DUPLICABLE family, and licenses `.copy()` | `V34_explicitcopy_bound_is_the_copyable_family.saw` | 219 B2 — the other half of V33: `Copy` names what duplicates silently, `ExplicitCopy` what duplicates at all. Every Copy-tier type satisfies it (copying one for free is a valid `copy()`), so one bounded body serves `Int`, `String` and `Vector<Int>`, each lowering at its own tier |
 | V35 | iterating a `Vector<Vector<Int>>` survives the collapse, via borrows | `vector_nested_each_borrows.saw` | 219 B1 — the shape enforcement would otherwise have broken. The old by-value `each` reached an ExplicitCopy element only because a `T: Copy` bound admitted the ceremony tier; design 216's `&T` closures move iteration to the borrow path FIRST, which is the sequencing constraint judgment site 2 records |
+| V36 | a generic body binding a `T` value twice is refused AT THE CALL at a move-only argument | `V36_generic_body_double_bind_refused_at_call.saw` | 219 C1 — DF-217i's head. An abstract `T` answered every copy-tier question most permissively and nothing re-judged the body at instantiation, so this compiled into three releases of one value with a read after two of them. The requirement is inferred from the body once and discharged at every call site |
+| V37 | a generic body reading a `T` out of storage it does not own requires `Copy`, however few times the name appears | `V37_generic_body_field_read_requires_copy.saw` | 219 C1 — the DF-217i EXTENSION (S1 p1). No partial move exists out of a borrowed `self`, so a PROJECTION read is a duplicate on sight; only a whole-binding read gets the benefit of the doubt from the move dataflow |
+| V38 | the requirement PROPAGATES through a forwarding hop | `V38_generic_requirement_propagates_through_forwarding.saw` | 219 C1 — S1 row 10 widened the leak to six deinits by nesting. Discharge runs to a fixpoint, so a generic wrapper cannot hide a duplicating body behind a move-only-looking signature |
+| V39 | the rule reaches a generic METHOD and a generic STRUCT's method, discharged against the RECEIVER's type arguments | `V39_generic_method_body_honors_copy_tier.saw` | 219 C1 — S1 row 12 found both positions leaking identically. The extension's parameter is judged even though no call site writes it |
+| V40 | a generic COROUTINE gets the same judgement, BEFORE the transform runs | `V40_generic_coroutine_body_honors_copy_tier.saw` | 219 C1 — S1 row 8a. The post-transform re-check saw the same abstract `T` the first check saw, so "the generated code typechecks" was satisfied vacuously. The requirement is a property of the AUTHORED body |
+| V41 | control: branch-exclusive uses are ONE use per path, so the body stays move-only | `V41_branch_exclusive_uses_stay_move_only.saw` | 219 C1 — the false-positive class. `if a < b { b } else { a }` mentions each parameter twice and duplicates neither; a name-counting rule would have tightened three corpus generics. Correct because the inference asks design 15's dataflow, which has merged branches since it was written |
+| V42 | control: the duplicating body still works at every tier that can satisfy it | `V42_copy_argument_to_duplicating_body_runs.saw` | 219 C1 — the accept side. Primitives, `String`'s retain and design 139's AUTOMATIC tier all pass one bounded body, each duplicate lowering at its own tier. Without this row the refusal could be delivered by a rule that refuses generic duplication outright |
 
 ## Places (`borrows` / `lend`) — window discipline
 

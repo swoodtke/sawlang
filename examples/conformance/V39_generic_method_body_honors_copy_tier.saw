@@ -1,0 +1,35 @@
+// Conformance row V39 — the rule reaches a generic METHOD and a generic
+// STRUCT's method, discharged against the receiver's type arguments
+//
+// Sweep S1 row 12 found both positions leaking identically to the free
+// function, which is why the requirement is inferred for every type parameter
+// in scope for the body — the method's own AND the enclosing extension's — and
+// why a method call discharges the RECEIVER's type arguments as well as its
+// own. `Wrap<T>`'s parameter belongs to the extension; nothing at the call
+// writes it, and it still has to be judged.
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: requires `T` to be `Copy`
+
+struct Res { name: String }
+extension Res: NoCopy {
+    func deinit(&var self) { print("DEINIT {self.name}") }
+}
+
+func sink<U>(a: U) -> Int { 1 }
+
+struct Wrap<T> { tag: Int }
+extension Wrap<T> {
+    // The parameter is the EXTENSION's, so the call site writes no type
+    // argument at all — the receiver's `Wrap<Res>` is the whole discharge.
+    func dup(x: T) -> Int {
+        let a = sink(x)
+        let b = sink(x)
+        a + b
+    }
+}
+
+func main() {
+    let w = Wrap<Res>(tag: 1)
+    let n = w.dup(Res(name: "s1"))
+    print("n {n}")
+}

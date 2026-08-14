@@ -1,0 +1,36 @@
+// Conformance row V40 — a generic COROUTINE gets the same judgement, and gets
+// it BEFORE the transform runs
+//
+// Sweep S1 row 8a: laundering across a suspension compiled and released one
+// value three times. The post-transform re-check could not catch it — it sees
+// the same abstract `T` the first check saw, so "the generated code
+// typechecks" was satisfied vacuously.
+//
+// The requirement is a property of the AUTHORED body, inferred while that body
+// is checked, so a suspension between the two binds changes nothing: the
+// refusal lands at the spawn, which is where the concrete type argument is
+// written.
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: requires `T` to be `Copy`
+
+import std.task.*
+
+struct Res { name: String }
+extension Res: NoCopy {
+    func deinit(&var self) { print("DEINIT {self.name}") }
+}
+
+func sink<U>(a: U) -> Int { 1 }
+
+func launder_s<T>(x: T) -> Int {
+    let a = sink(x)
+    yield_now()
+    let b = sink(x)
+    a + b
+}
+
+func main() {
+    var g = TaskGroup()
+    let h = g.spawn(launder_s(Res(name: "r1")))
+    print("got {h.join()}")
+}
