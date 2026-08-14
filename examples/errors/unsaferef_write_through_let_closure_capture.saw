@@ -1,0 +1,32 @@
+// The refusal half of `unsaferef_captured_by_closure.saw` (design 218 stage 3,
+// spec probe P8). A handle captured out of a `let` binding cannot open an
+// exclusive window inside the closure body, so a write through it is refused
+// where the `var`-bound twin goes through.
+//
+// This is the mechanism the generated receiver capture rests on: a `&self`
+// method's materialized handle is a `let`, so a closure that tries to write the
+// receiver is refused in the transformed form on exactly the terms the source
+// check already refused it.
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: cannot open an exclusive place window on immutable variable `h`
+
+import std.compiler.frame.{UnsafeRef}
+
+func run_int(body: () sync -> Int) -> Int { body() }
+
+struct Counter { n: Int }
+extension Counter { func bump(&var self) { self.n = self.n + 10 } }
+
+func mint(c: &var Counter) unsafe -> UnsafeRef<Counter> {
+    UnsafeRef<Counter>(p: (&c) as UnsafePointer<Counter>)
+}
+
+func through_let(c: &var Counter) unsafe -> Int {
+    let h = mint(&var c)
+    run_int({ [move h] in h.deref().bump()  h.deref().n })
+}
+
+func main() {
+    var c = Counter(n: 5)
+    print("{}", through_let(&var c))
+}

@@ -2131,6 +2131,13 @@ class Method(ASTNode):
     # type. Declared, never inferred — the trigger rule checks the declaration
     # against the body rather than supplying it.
     is_unsafe: bool = False
+    # design 218 stage 3: this SYNTHESIZED declaration is held to the design-130
+    # trigger rule anyway. Its producer decided `is_unsafe` from what the
+    # declaration actually touches, so a wrong answer must be an error rather
+    # than a thing `is_synthesized` waves through — which is what retiring the
+    # E2 whole-pass exemption means. Set by the coroutine transform on the
+    # declarations it emits; see `_needs_unsafe_decl`.
+    unsafe_decl_checked: bool = False
     # `borrows` (design 141): this method yields a PLACE of `return_type` for a
     # window rather than a value. Its body lends exactly once per path; the
     # place transform rewrites it into the window-closure form and records the
@@ -2264,6 +2271,8 @@ class Function(ASTNode):
     comparison_requirements: Optional[dict] = annotation(None)
     # `unsafe func` declaration (design 130): see Method.is_unsafe.
     is_unsafe: bool = False
+    # design 218 stage 3: see Method.unsafe_decl_checked.
+    unsafe_decl_checked: bool = False
     # `borrows func` declaration (design 141): see Method.is_borrows.
     is_borrows: bool = False
     place_type: Optional[SawType] = annotation(None)

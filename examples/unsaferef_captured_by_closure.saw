@@ -1,0 +1,74 @@
+// `UnsafeRef<T>` carried into a closure ENVIRONMENT by value — the shape design
+// 218 stage 3 generates for a closure that names `self` in a suspending method,
+// written by hand here so the rule is checkable without a coroutine in the way.
+//
+// The handle is what a receiver borrow becomes when a closure has to hold one:
+// Saw has no local reference binding, so there is nothing else to put in an env.
+// It is `NoCopy`, so it travels by `move` and the env owns exactly one.
+//
+// THE MODE IS THE BINDING'S. A `var`-bound handle opens an exclusive window
+// inside the body and the write reaches the caller's storage; a `let`-bound one
+// reads only, and the write is refused (see
+// `examples/errors/unsaferef_write_through_let_closure_capture.saw`). That is
+// what makes a `&self` method's generated capture and a `&var self` method's
+// differ by one word.
+//
+// A NESTED closure needs a handle of its OWN — the inner env cannot capture the
+// outer one, since `UnsafeRef` is `NoCopy` and both the implicit capture and
+// `[copy h]` are refused. `copy()` at a statement inside the outer body is the
+// spelling that works, and it is what the transform emits for a nested closure
+// naming `self` (`coro_closure_captures_self_nested.saw`).
+// EXPECT: success
+// EXPECT-OUTPUT:
+// read 6
+// method 15
+// caller sees 15
+// nested read 15
+
+import std.compiler.frame.{UnsafeRef}
+
+func run_int(body: () sync -> Int) -> Int { body() }
+
+struct Counter { n: Int }
+
+extension Counter {
+    func get(&self) -> Int { self.n }
+    func bump(&var self) { self.n = self.n + 10 }
+}
+
+func mint(c: &var Counter) unsafe -> UnsafeRef<Counter> {
+    UnsafeRef<Counter>(p: (&c) as UnsafePointer<Counter>)
+}
+
+// Reading the LIVE referent through a captured handle.
+func read_through(c: &var Counter) unsafe -> Int {
+    let h = mint(&var c)
+    run_int({ [move h] in h.deref().n + 1 })
+}
+
+// A `&var self` method call through a `var`-bound one: the window is exclusive
+// and the mutation lands where the caller can see it.
+func bump_through(c: &var Counter) unsafe -> Int {
+    var h = mint(&var c)
+    run_int({ [move h] in h.deref().bump()  h.deref().n })
+}
+
+// A NESTED closure mints its own handle from the outer one, at a statement.
+func nested_read(c: &var Counter) unsafe -> Int {
+    let h = mint(&var c)
+    run_int({ [move h] in
+        let inner = h.copy()
+        run_int({ [move inner] in inner.deref().get() })
+    })
+}
+
+func main() {
+    var a = Counter(n: 5)
+    print("read {read_through(&var a)}")
+
+    var b = Counter(n: 5)
+    print("method {bump_through(&var b)}")
+    print("caller sees {b.n}")
+
+    print("nested read {nested_read(&var b)}")
+}

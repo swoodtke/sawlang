@@ -4267,6 +4267,19 @@ class _FrameBuilder:
         # `Box<any Resumable>` for the heterogeneous run queue. Concrete drives
         # (nested sub-frames, the entry executor, `__saw_drive_*`) still bind `resume`
         # statically — conformance only synthesizes a vtable at an erasure site.
+        # design 218 stage 3 (218a ruling 1): the honest `unsafe` declarations,
+        # decided per method from what it touches. `resume` is unconditional —
+        # the `__io_tok` latch above casts `&self.__wake` to an
+        # `UnsafePointer<Int>` in EVERY frame. `is_cancelled` follows the cell:
+        # a spawn root reads its cancel word through `__cellp`, a driven frame
+        # reads its own field. `release` names every OWNED FIELD's type, so it
+        # follows the field set. `wake_reason` and `bt_desc` read an `Int` and a
+        # literal, in every frame there is.
+        _declare_unsafe(resume, True)
+        _declare_unsafe(wake_reason, False)
+        _declare_unsafe(is_cancelled, self.is_spawn_root)
+        _declare_unsafe(bt_desc, False)
+        _declare_unsafe(release, _frame_fields_name_unsafe(self))
         resume_ext = Extension(struct_name=self.frame_name,
                                methods=[resume, wake_reason, is_cancelled,
                                         bt_desc, release],
@@ -5941,9 +5954,14 @@ class _FrameBuilder:
         capture of the handle: the receiver borrow is what the handle IS, and
         there is no longer a name `self` for the spec to refer to.
         """
-        local = f"__cap{self._cap_ctr}_self"
-        self._cap_ctr += 1
-        _replace_self_in_closure(cexpr, local)
+        def alloc():
+            name = f"__cap{self._cap_ctr}_self"
+            self._cap_ctr += 1
+            return name
+
+        mutable = bool(getattr(self.func, 'self_mutable', False))
+        local = alloc()
+        _replace_self_in_closure(cexpr, local, alloc, mutable)
         cexpr.capture_specs = [s for s in (cexpr.capture_specs or [])
                                if getattr(s, 'name', None) != 'self']
         cexpr.capture_specs.append(
@@ -5953,8 +5971,7 @@ class _FrameBuilder:
             value=MethodCall(object=_self_field("__recv", line, col),
                              method_name="copy", arguments=[],
                              line=line, column=col),
-            mutable=bool(getattr(self.func, 'self_mutable', False)),
-            line=line, column=col))
+            mutable=mutable, line=line, column=col))
 
     def _lower_stmt_list(self, stmts):
         out = []
@@ -6287,6 +6304,109 @@ class _FrameBuilder:
         return seq
 
 
+def _declare_unsafe(decl, unsafe):
+    """Give a SYNTHESIZED declaration its design-130 answer, and put it under
+    the rule (design 218 stage 3, 218a ruling 1).
+
+    E2 used to exempt the whole post-transform pass from the trigger rule
+    because a resume body names `UnsafePointer` and had no declaration to mark.
+    It has one now: the transform writes it, from what the declaration actually
+    touches, and `unsafe_decl_checked` says the checker should hold it to that
+    answer instead of waving it through as synthesized. A wrong answer is a
+    compile error on generated code — which is the whole architecture, applied
+    to the one rule that was still being skipped rather than satisfied.
+
+    ENTRY POINTS (obligation 1): `_FrameBuilder.build` for the five `Resumable`
+    methods, `_make_driver`, `_make_spawn_helper`, `_make_spawn_trampoline`,
+    and the two entry executors — i.e. every declaration this file emits."""
+    decl.is_unsafe = bool(unsafe)
+    decl.unsafe_decl_checked = True
+    return decl
+
+
+def _names_unsafe_type(t, depth=0):
+    """Whether `t`'s own tree names an unsafe type — design 130's question, asked
+    from the transform, which has no typechecker to ask.
+
+    Two answers make it up. A raw pointer is unsafe by construction. A STRUCT is
+    unsafe when its name says so: design 130 REQUIRES an `unsafe struct` to be
+    named `Unsafe*` and rejects the declaration otherwise, so the prefix is a
+    sound over-approximation — it can only claim a plain `struct UnsafeDefaults`
+    is unsafe, and a redundant `unsafe` on a generated declaration is legal
+    ("a promise about the contract, not a lie"). Under-claiming is what would
+    hurt, and the prefix cannot: every unsafe struct has it. Identity mangling
+    appends a SUFFIX (`Foo$m$mod`), so it survives design 144 too.
+
+    Struct FIELDS are not walked, matching `_first_unsafe_type`: unsafety is not
+    transitive."""
+    if t is None or depth > 12:
+        return False
+    kind = getattr(t, 'kind', None)
+    if kind == TypeKind.POINTER:
+        return True
+    if kind == TypeKind.STRUCT and (t.struct_name or "").startswith("Unsafe"):
+        return True
+    for sub in (getattr(t, 'inner_type', None),
+                getattr(t, 'array_element_type', None),
+                getattr(t, 'func_return_type', None)):
+        if _names_unsafe_type(sub, depth + 1):
+            return True
+    for group in ('type_args', 'element_types', 'param_types'):
+        for sub in (getattr(t, group, None) or []):
+            if _names_unsafe_type(sub, depth + 1):
+                return True
+    return False
+
+
+def _frame_fields_name_unsafe(fb):
+    """Whether `fb`'s own FIELD SET names an unsafe type.
+
+    The question `release` has to answer: its body is one `clear()`/`= None` per
+    owned field, so it names every field's type. A method frame's `__recv` is an
+    `UnsafeRef`, a reference field is one too, a spawn root reaches its cell
+    through a raw pointer — and a plain local can be unsafe-typed all by itself
+    (`var p: UnsafePointer<Int8>` held across a suspension, an `UnsafeMmioReg`
+    driver bound in a driven body)."""
+    if fb.has_recv or getattr(fb, 'is_spawn_root', False):
+        return True
+    # A `ref`-encoded field is an `UnsafeRef` whatever its DECLARED type says:
+    # the declaration is `&T`, which names nothing unsafe, and the ENCODING is
+    # what turns it into a handle (and the driver's parameter into a raw
+    # pointer). Ask the encoding, not the annotation.
+    if any(enc == "ref" for enc in fb.encmap.values()):
+        return True
+    types = [p.type for p in fb.params]
+    types += [t for (_, t) in fb.frame_locals]
+    types.append(fb.ret)
+    types += [rc['elem_type'] for rc in getattr(fb, 'recv_calls', [])]
+    return any(_names_unsafe_type(t) for t in types)
+
+
+def _frame_init_names_unsafe(fb, fbs, seen=None):
+    """Whether CONSTRUCTING `fb`'s frame names an unsafe type, at any depth.
+
+    Building a frame seeds every field AND every embedded sub-frame, so the
+    walk is `_frame_fields_name_unsafe` over the whole tree: a dead sub-frame's
+    receiver placeholder is a null pointer cast, its locals' empty `Slot<T>`
+    seeds name their `T`, and either can be the unsafe one.
+
+    This is what a declaration emitting `_build_frame_init` has to ask before it
+    answers design 130 (`_declare_unsafe`). Cycles are impossible in a frame
+    TREE but the guard is free and the map is keyed by name."""
+    if seen is None:
+        seen = set()
+    if fb.name in seen:
+        return False
+    seen.add(fb.name)
+    if _frame_fields_name_unsafe(fb):
+        return True
+    for c in fb.calls:
+        sub = fbs.get(c['callee'])
+        if sub is not None and _frame_init_names_unsafe(sub, fbs, seen):
+            return True
+    return False
+
+
 def _closure_names_self(cexpr):
     """Whether a closure literal reaches the enclosing method's receiver —
     by naming `self` in its body (nested closures included, which are part of
@@ -6309,7 +6429,7 @@ def _closure_names_self(cexpr):
     return found[0]
 
 
-def _replace_self_in_closure(cexpr, local):
+def _replace_self_in_closure(cexpr, local, alloc, mutable, seen=None):
     """Rewrite every `self` in a closure body to `<local>.deref()` — the
     receiver reached through the materialized handle (census R7).
 
@@ -6317,8 +6437,52 @@ def _replace_self_in_closure(cexpr, local):
     named binding, so the rename rules do not see it, and what replaces it is
     an expression rather than a name. The `deref()` carries no stamped type —
     the post-transform check derives it from the handle's own type argument,
-    which is the receiver's."""
+    which is the receiver's.
+
+    A NESTED closure naming `self` gets a handle OF ITS OWN, minted inside the
+    enclosing closure's body and moved into the inner env:
+
+        run_int({ [move __cap0_self] in
+            let __cap1_self = __cap0_self.copy()
+            run_int({ [move __cap1_self] in __cap1_self.deref().v.len() * 10 })
+                + __cap0_self.deref().v.len() })
+
+    It cannot share the outer one. `UnsafeRef` is `NoCopy`, so the inner
+    closure's implicit capture of the outer handle is refused (``cannot copy
+    value of type `UnsafeRef<Bag>` ``) and `[copy …]` is refused with it — the
+    tier declaration is what makes duplication a written act, and `copy()` at a
+    statement is where it gets written. The sync twin of this shape has always
+    worked (`closure_captures_self.saw`'s `Bag.total`), so the driven form owes
+    it too.
+
+    `seen` keeps the recursion from re-processing a nested closure the walk
+    then descends into again: by the time the outer rule reaches it, its own
+    `self`s are already handles, and processing it twice would mint a second
+    one per level."""
+    if seen is None:
+        seen = set()
+    seen.add(id(cexpr))
+
     def rule(node):
+        if isinstance(node, ClosureExpr):
+            if id(node) not in seen and _closure_names_self(node):
+                inner = alloc()
+                _replace_self_in_closure(node, inner, alloc, mutable, seen)
+                node.capture_specs = [
+                    s for s in (node.capture_specs or [])
+                    if getattr(s, 'name', None) != 'self']
+                node.capture_specs.append(CaptureSpec(
+                    name=inner, mode="move", line=node.line,
+                    column=node.column))
+                cexpr.body.statements.insert(0, LetStatement(
+                    name=inner, type_annotation=None,
+                    value=MethodCall(
+                        object=Identifier(name=local, line=node.line,
+                                          column=node.column),
+                        method_name="copy", arguments=[],
+                        line=node.line, column=node.column),
+                    mutable=mutable, line=node.line, column=node.column))
+            return node
         if isinstance(node, SelfExpr):
             return MethodCall(
                 object=Identifier(name=local, line=node.line,
@@ -6532,10 +6696,12 @@ def _make_entry_executor(fb: _FrameBuilder, fbs):
                 MatchArm(variant_name="Done", bindings=[], body=done_body),
             ]))], final_expr=None))
     stmts.append(ExpressionStatement(expression=loop))
-    return Function(name="main", parameters=[], return_type=SawType(TypeKind.VOID),
-                    body=Block(statements=stmts, final_expr=None),
-                    is_synthesized=True,
-                    source_file=getattr(fb.func, 'source_file', ""))
+    return _declare_unsafe(
+        Function(name="main", parameters=[], return_type=SawType(TypeKind.VOID),
+                 body=Block(statements=stmts, final_expr=None),
+                 is_synthesized=True,
+                 source_file=getattr(fb.func, 'source_file', "")),
+        _frame_init_names_unsafe(fb, fbs))
 
 
 def _make_ambient_entry_executor(fb: _FrameBuilder, fbs):
@@ -6555,11 +6721,13 @@ def _make_ambient_entry_executor(fb: _FrameBuilder, fbs):
         arguments=[Argument(name=None, value=frame_init)])
     call = FunctionCall(name="__saw_exec_run_root",
                         arguments=[Argument(name=None, value=box_make)])
-    return Function(name="main", parameters=[], return_type=SawType(TypeKind.VOID),
-                    body=Block(statements=[ExpressionStatement(expression=call)],
-                               final_expr=None),
-                    is_synthesized=True,
-                    source_file=getattr(fb.func, 'source_file', ""))
+    return _declare_unsafe(
+        Function(name="main", parameters=[], return_type=SawType(TypeKind.VOID),
+                 body=Block(statements=[ExpressionStatement(expression=call)],
+                            final_expr=None),
+                 is_synthesized=True,
+                 source_file=getattr(fb.func, 'source_file', "")),
+        _frame_init_names_unsafe(fb, fbs))
 
 
 def _make_driver(fb: _FrameBuilder, mode, fbs):
@@ -6671,10 +6839,15 @@ def _make_driver(fb: _FrameBuilder, mode, fbs):
         # construction out of the transform and into every caller.
         driver_params = [Parameter(name="__recv",
                                    type=fb.recv_ptr_type)] + driver_params
-    return Function(name=driver_name, parameters=driver_params, return_type=ret,
-                    body=Block(statements=stmts, final_expr=final),
-                    is_synthesized=True,
-                    source_file=getattr(fb.func, 'source_file', ""))
+    # The driver names a raw pointer when its own signature does (a receiver, a
+    # reference parameter the drive site addressed) — and also when merely
+    # BUILDING the frame does, which reaches down the embedded call tree.
+    return _declare_unsafe(
+        Function(name=driver_name, parameters=driver_params, return_type=ret,
+                 body=Block(statements=stmts, final_expr=final),
+                 is_synthesized=True,
+                 source_file=getattr(fb.func, 'source_file', "")),
+        _frame_init_names_unsafe(fb, fbs))
 
 
 # --------------------------------------------------------------------------- #
@@ -6918,11 +7091,15 @@ def _make_spawn_helper(fb: _FrameBuilder, fbs, helper_name=None):
         helper_params = [Parameter(name="__group", type=tg_ptr)] + \
                         [Parameter(name=p.name, type=_helper_param_type(fb, p))
                          for p in params]
-        return Function(name=helper_name, parameters=helper_params,
-                        return_type=ret_type,
-                        body=Block(statements=stmts, final_expr=handle),
-                        is_synthesized=True,
-                        source_file=getattr(fb.func, 'source_file', ""))
+        # The helper takes the group by raw pointer and hands the cell's
+        # `__cancel` address to the handle: unsafe by signature and by body,
+        # in every shape (the trusted design-134 cell plumbing).
+        return _declare_unsafe(
+            Function(name=helper_name, parameters=helper_params,
+                     return_type=ret_type,
+                     body=Block(statements=stmts, final_expr=handle),
+                     is_synthesized=True,
+                     source_file=getattr(fb.func, 'source_file', "")), True)
     handle = StructInit(
         struct_name="TaskHandle", type_args=[T],
         field_inits=[("result_ptr", Identifier(name="__rp")),
@@ -6934,11 +7111,12 @@ def _make_spawn_helper(fb: _FrameBuilder, fbs, helper_name=None):
     helper_params = [Parameter(name="__group", type=tg_ptr)] + \
                     [Parameter(name=p.name, type=_helper_param_type(fb, p))
                      for p in params]
-    return Function(name=helper_name, parameters=helper_params,
-                    return_type=ret_type,
-                    body=Block(statements=stmts, final_expr=handle),
-                    is_synthesized=True,
-                    source_file=getattr(fb.func, 'source_file', ""))
+    return _declare_unsafe(
+        Function(name=helper_name, parameters=helper_params,
+                 return_type=ret_type,
+                 body=Block(statements=stmts, final_expr=handle),
+                 is_synthesized=True,
+                 source_file=getattr(fb.func, 'source_file', "")), True)
 
 
 def _trampoline_arg(p):

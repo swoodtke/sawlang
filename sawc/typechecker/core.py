@@ -227,14 +227,28 @@ class TypeChecker(ExpressionsMixin, StatementsMixin, RegistrationMixin, TypeUtil
         # with a name, a docstring at its read site, and a disposition:
         #
         #   E1 exempt_hidden_alloc          PERMANENT (provenance, not safety)
-        #   E2 exempt_unsafe_trigger        DELETES at stage 3 (218a ruling 1:
-        #                                   resume methods that bind an
-        #                                   `UnsafeRef` declare `unsafe`)
+        #   E2 exempt_unsafe_trigger        NARROWED at stage 3 to the bodies
+        #                                   the transform REWRITES; the ones it
+        #                                   AUTHORS declare honestly instead
         #   E3 exempt_ext_scope             PERMANENT (source-level rule)
         #   E4 exempt_shadowed_qualifier    PERMANENT (warnings describe source)
         #   E5 exempt_prelude_gate          PERMANENT (source-level rule)
-        #   E6 exempt_lost_write_to_capture DELETES at stage 3 (generated
-        #                                   closures must pass the real check)
+        #
+        # E6 (design 132's lost-write rule) is GONE as of stage 3, which is what
+        # the split was for: the closures the transform emits are ordinary
+        # checked code now, so they pass the real check.
+        #
+        # E2 did NOT delete outright, and the reason is measured rather than
+        # preferred. 218a ruling 1 expected the offenders to be generated resume
+        # methods, which now declare `unsafe` and SATISFY the rule
+        # (`unsafe_decl_checked` — see `_unsafe_check_exempt`). But the transform
+        # also splices a DRIVE-SITE CAST into the caller's own body: a plain
+        # `func main()` calling a suspending method gets
+        # `__saw_drive_C_slow((&c) as UnsafeConstPointer<C>)`, and holding the
+        # author to a rule about a pointer they did not write is E1's provenance
+        # error in a second place. So the flag survives for REWRITTEN bodies,
+        # on the same terms as E1/E3/E5, and stops covering the declarations the
+        # transform is the author of.
         #
         # (E7 is the parameter threading through `sawc.py`; it follows this
         # split mechanically, since every flag is derived here.)
@@ -249,7 +263,6 @@ class TypeChecker(ExpressionsMixin, StatementsMixin, RegistrationMixin, TypeUtil
         self.exempt_ext_scope = post_transform
         self.exempt_shadowed_qualifier = post_transform
         self.exempt_prelude_gate = post_transform
-        self.exempt_lost_write_to_capture = post_transform
         # Freestanding profile (design 19/20): gates hosted-only facilities such
         # as Float formatting in print (dtoa is not available without libc).
         self.freestanding = freestanding
@@ -869,18 +882,27 @@ class TypeChecker(ExpressionsMixin, StatementsMixin, RegistrationMixin, TypeUtil
                                 "its body names an unsafe static", name)
 
     def _unsafe_check_exempt(self, node) -> bool:
-        """Compiler-synthesized bodies are exempt from the trigger rule: the
-        coroutine transform's frames and the derived copy/equals/compare/hash
-        bodies traffic in whatever their source type holds, and there is no
-        declaration for an author to mark.
+        """Whether the design-130 trigger rule looks away from this declaration.
 
-        E2 (design 218a §6), and it DELETES at stage 3. Resume bodies name
-        `UnsafePointer` today — `__recv`, the `ref`-encoded locals, `__cellp`,
-        `__io_tok` — so every driven method's resume would owe an `unsafe`
-        declaration it does not carry. Ruling 1 answers that by making the
-        declaration honest instead of exempting it: once `UnsafeRef<T>`
-        replaces those raw pointers, the generated resume says `unsafe` and
-        satisfies design 130's rule rather than dodging it."""
+        Two standing reasons, both about AUTHORSHIP. The DERIVED bodies
+        (copy/equals/compare/hash) traffic in whatever their source type holds
+        and have no declaration for an author to mark. `exempt_unsafe_trigger`
+        (E2) covers the post-transform pass, where a body may name a pointer its
+        author never wrote — the drive-site cast the transform splices into a
+        plain caller is the shape, and holding the author to a rule about it is
+        E1's provenance error in a second place. See the exemption table in
+        `__init__`.
+
+        `unsafe_decl_checked` OVERRIDES both, and is design 218 stage 3's move:
+        a declaration the coroutine transform AUTHORS carries the transform's
+        own answer about what it touches, and is judged like any hand-written
+        one. A resume body names unsafe types by construction (the `__io_tok`
+        latch casts `&self.__wake`, a method frame binds an `UnsafeRef`, a spawn
+        root reaches its cell through a raw pointer), so it SAYS `unsafe` and
+        satisfies the rule rather than being excused from it — and a wrong
+        answer is a compile error on generated code."""
+        if getattr(node, 'unsafe_decl_checked', False):
+            return False
         return (self.exempt_unsafe_trigger
                 or getattr(node, 'is_synthesized', False)
                 or getattr(node, 'is_derived_copy', False)

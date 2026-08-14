@@ -1,0 +1,78 @@
+// Design 218 stage 3: the contexts `closure_captures_self.saw` covers for a SYNC
+// method, reached in a SUSPENDING one. DF-216g's pin proves the plain case; this
+// is the rest of the sweep, because the mechanism that closes it (the frame
+// mints a second `UnsafeRef` handle per closure) has to reach every shape the
+// capture funnel does.
+//
+// The NESTED closure is the one with its own machinery: an inner env cannot
+// capture the outer handle — `UnsafeRef` is `NoCopy`, so the implicit capture
+// and `[copy h]` are both refused — so each nesting level mints its own with a
+// `copy()` at a statement inside the enclosing body.
+//
+// A NoCopy receiver is here for the reason it is in the sync test: a value
+// snapshot would have demanded of `self` a copy policy no receiver ever owed.
+//
+// Three of the sync test's contexts are ABSENT, each blocked before any closure
+// is reached and each recorded as its own finding: a suspending method in a
+// trait CONFORMANCE (DF-218k), a suspending method on an ENUM extension
+// (DF-218l), and a suspending method on a GENERIC struct reached from a driven
+// body (DF-218m). All three reproduce with no closure in the body.
+// EXPECT: success
+// EXPECT-OUTPUT:
+// 33
+// hi Ada
+// 15
+
+import std.task.*
+
+func run_int(body: () sync -> Int) -> Int { body() }
+func run_str(body: () sync -> String) -> String { body() }
+
+struct Bag { v: Vector<Int> }
+extension Bag: NoCopy {}
+
+extension Bag {
+    // NESTED closures over a NoCopy receiver, across a suspension.
+    func total(&self) -> Int {
+        yield_now()
+        run_int({ run_int({ self.v.len() * 10 }) + self.v.len() })
+    }
+}
+
+struct Person { n: String }
+
+extension Person {
+    // A closure calling a `&self` METHOD on the receiver, not just reading a
+    // field: the hop goes through the same window. (The trait-CONFORMANCE
+    // spelling of this is unavailable for an unrelated reason — a suspending
+    // conformance method is refused with a "does not implement" diagnostic,
+    // DF-218k, with no closure in the repro.)
+    func greet(&self) -> String {
+        yield_now()
+        run_str({ "hi {self.name()}" })
+    }
+
+    func name(&self) -> String { self.n }
+}
+
+struct Counter { n: Int }
+
+extension Counter {
+    // A `&var self` receiver: the closure's window is exclusive and the write
+    // reaches the caller's storage.
+    func bump(&var self) -> Int {
+        yield_now()
+        run_int({ self.n += 10  self.n })
+    }
+}
+
+func main() {
+    let bag = Bag(v: [1, 2, 3])
+    print("{}", bag.total())          // 3*10 + 3
+
+    let p = Person(n: "Ada")
+    print("{}", p.greet())
+
+    var c = Counter(n: 5)
+    print("{}", c.bump())
+}

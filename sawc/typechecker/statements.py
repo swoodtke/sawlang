@@ -2107,15 +2107,15 @@ class StatementsMixin:
         heap-backed container (`Vector`) goes through a pointer the copy shares
         and DOES persist, so those are left alone.
 
-        The transform's exemption here is E6 (design 218a §6), and it DELETES
-        at stage 3: transform-emitted closures and env rewrites trip this
-        source-shape heuristic today, but once capture materialization emits
-        ordinary checked code — and `[&self]` writes go through `UnsafeRef`
-        windows the place system judges — the generated closures must PASS the
-        real check rather than skip it.
+        E6 (design 218a §6) is GONE as of stage 3. The transform used to be
+        exempted from this rule wholesale, because its capture materialization
+        and env rewrites tripped the source-shape heuristic; now the closures it
+        emits are ordinary checked code — a materialized capture is a `move` of
+        a real local, and a receiver capture writes through an `UnsafeRef`
+        window the place system judges — so they PASS the real check instead of
+        skipping it.
         """
-        if not self._closure_scopes or getattr(
-                self, 'exempt_lost_write_to_capture', False):
+        if not self._closure_scopes:
             return None
         # Peel the target to its root binding, remembering the hops on the way
         # so we can tell an in-storage write from one that goes through a

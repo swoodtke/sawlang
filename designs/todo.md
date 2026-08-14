@@ -539,6 +539,58 @@ obligation-2 consumer sweep before dispatch. Gates 218 stages 1-2.
   double free.
   PIN: `examples/place_window_move_arg_consumes_local.saw` (XFAIL)
 
+- **DF-218j (BOGUS-REFUSAL, PRE-EXISTING) — an assignment whose TARGET and
+  whose RHS each open a place window on the same MOVE-ONLY root is refused as
+  a copy nobody wrote.** `h.at().n = h.at().n + 10` on a NoCopy `h` reports
+  ``cannot copy value of type `Holder` which implements NoCopy``, hinting at a
+  `move`. Two controls compile and run, which is what says the refusal is
+  about the PAIR of windows rather than either one: `h.at().n += 10` (one
+  window, same root) and `p.at().n = p.at().n + 10` (two windows, Copy root).
+  Windows nest LIFO and a place borrow charges its root, so two windows on one
+  root in one statement is at worst an exclusivity question — answering it
+  with a copy error is the wrong noun for the wrong rule. Found by design 218
+  stage 3: the `[&self]` capture reaches the receiver through a window in a
+  driven body, so `self.n = self.n + 10` inside such a closure IS this shape,
+  while its SYNC twin compiles (the sync capture lowering opens no window).
+  PIN: `examples/place_two_windows_one_nocopy_root.saw` (XFAIL)
+
+- **DF-218k (BOGUS-REFUSAL + wrong diagnostic, PRE-EXISTING) — a SUSPENDING
+  method in a trait CONFORMANCE is reported as not implementing the
+  requirement.** `extension Person: Greeter { func greet(&self) -> String {
+  yield_now()  self.n } }` against `trait Greeter { func greet(&self) ->
+  String }` reports ``type `Person` does not implement required method `greet`
+  from trait `Greeter``` at the extension, about a method plainly written
+  there. No closure and no coroutine machinery in the repro beyond the
+  `yield_now()`; the same body without it conforms. Repro
+  `.build/scratch/s3_trait_susp.saw`. Found while sweeping design 218 stage
+  3's contexts (the sync `closure_captures_self.saw` covers a trait DEFAULT
+  body; the suspending analogue cannot be written at all).
+
+- **DF-218l (ICE, PRE-EXISTING) — a SUSPENDING method on an ENUM extension is
+  a codegen ICE.** `extension Color { func label(&self) -> String {
+  yield_now()  match self { ... } } }` dies `internal compiler error
+  (MethodCall): Undefined method: Color.label` at the call site. Design 145
+  gives enums extensions with `&self` methods and design 74 gives methods
+  frames; the two have not met. Repro `.build/scratch/s3_enum_susp.saw`,
+  reproduced on the stage-2 tree. Found with DF-218k, same sweep.
+
+- **DF-218m (SILENT WRONG BEHAVIOR + ICE, PRE-EXISTING) — a suspending method
+  on a GENERIC struct, reached from a driven body, is compiled as a PLAIN
+  function.** `Box2<T>.describe(&self)` containing `yield_now()`, called from
+  a `main` that a driven call already made a frame root, emits
+  `Box2$1$String_describe$1$String` as an ordinary function (IR-confirmed):
+  no frame, no sub-frame field in the caller, the suspension point compiled
+  inline. It happens to print the right answer, which is what makes it the
+  bad kind of finding — the cooperative contract is simply not applied. Add a
+  closure naming `self` to that body and it becomes an ICE against the
+  CALLER's frame (``Cannot find field v in struct with type
+  %"__Frame_main"``), which is how it was found: design 218 stage 3's receiver
+  capture never runs, because no frame builder ran for the method. Design 74
+  shape 2 says a generic struct's suspending method drives; this is the
+  EMBEDDED position of that shape. Repros
+  `.build/scratch/s3_generic_noclosure.saw` (silent) and
+  `.build/scratch/s3_generic_struct_self.saw` (ICE).
+
 - **DESIGN 218 STAGES 1 AND 2 LANDED (Aug 14).** Gate at both: full suite
   (1824 passed / 23 xfailed), `corodiff --all` (1566 pairs, 0 NEW findings)
   and `irdet --all` (1149 examples, byte-identical IR).

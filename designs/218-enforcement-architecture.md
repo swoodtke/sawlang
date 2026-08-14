@@ -199,6 +199,46 @@ zero ownership exemptions. Pins the OTHER briefs own flip there instead
 pin-promotion batch converts every open DF repro out of gitignored
 `.build/scratch/` once the current fix wave and sweeps S1/S2 report.
 
+**STAGE 3 LANDED (Aug 14) — closure envs, `[&self]`, `UnsafeRef`.** Census rows
+R4, R7, P1 and P2 migrated and 218a section 4 landed whole. `__recv` and every
+`ref`-encoded field are `UnsafeRef<T>` read through `deref()`, an ordinary
+`borrows` accessor; `[&self]`/`[&var self]` is a spelling the parser accepts and
+the capture rules judge; and a closure naming `self` in a driven method captures
+a second handle minted with `copy()`, which is what closed DF-216g.
+
+Four things the landing decided that the spec did not anticipate.
+
+(a) **Forwarding beats re-addressing.** Three sites took `&` of what is now a
+place window — a nested suspending call's receiver when it is `self` or a
+reference binding, and a `&var r` argument forwarding one — and `&` of a window
+is a value read the place system refuses for a move-only pointee (std's
+`Command.run` calling `self.reap(job)` was the first casualty). The frame holds
+the pointer already, so all three forward `<handle>.p` instead. Re-taking the
+address was never the right operation.
+
+(b) **E2 NARROWED rather than deleted, and ruling 1's premise is why.** The
+ruling expected the offenders to be generated resume methods, which now declare
+`unsafe` and SATISFY design 130 (`unsafe_decl_checked` puts a synthesized
+declaration under the rule instead of waving it through). But the transform also
+splices a DRIVE-SITE CAST into the caller's own body — a plain `func main()`
+calling a suspending method gets `__saw_drive_C_slow((&c) as
+UnsafeConstPointer<C>)` — so deleting the flag outright holds an author to a
+rule about a pointer they did not write, which is E1's provenance error in a
+second place. The flag survives for REWRITTEN bodies and stops covering the
+declarations the transform AUTHORS. E6 deleted outright, as promised.
+
+(c) **M1/M3 could not delete**, because stage 1's six deferred census families
+keep the legacy encodings alive and `_read_field`'s legacy branch is what stamps
+them. What stage 3 removed is the `ref` and `__recv` emitters — the two the
+migration owned. The marks retire with the deferred families, not here.
+
+(d) **Three pre-existing findings block contexts the sync capture test covers**
+— a suspending method in a trait CONFORMANCE (DF-218k), on an ENUM extension
+(DF-218l), and on a GENERIC struct reached from a driven body (DF-218m, which
+compiles the method as a plain function and applies no cooperative contract at
+all). All three reproduce with no closure in the body, and none is stage 3's to
+fix; `coro_closure_captures_self_nested.saw` records their absence.
+
 **Unit 1.5 — monomorphization becomes a pre-codegen transform (RULED, user,
 Aug 13; sequenced BEFORE unit 2 because it defines the validated form).**
 Today monomorphization is codegen-side (`codegen/generics.py`,
