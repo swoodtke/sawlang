@@ -3,8 +3,6 @@
 // The near miss: `Int?` looks like it carries a status and an "it failed", and
 // it is not one of the four. `Result<Int, E>` is the shape that says the same
 // thing and can also say WHY — which is why the diagnostic names it.
-// XFAIL: DF-220c — the typechecker checks only that `main` EXISTS; no rule
-// constrains its return type
 // EXPECT: error
 // EXPECT-ERROR-CONTAINS: `main` must return `Void`, `Int`, `Result<Void, E>` or `Result<Int, E>`
 // EXPECT-ERROR-CONTAINS: `Int?`

@@ -913,8 +913,8 @@ def _synthesize_main_exit_funnel(entry_ast):
     # bind, which is `Result<Void, E>`'s whole point.
     ok_arm = MatchArm(variant_name="Ok",
                       bindings=[] if ok_is_void else ["__v"],
-                      body=(IntLiteral(value=0) if ok_is_void
-                            else Identifier(name="__v")))
+                      body=(IntLiteral(value=0, line=line, column=col) if ok_is_void
+                            else Identifier(name="__v", line=line, column=col)))
     # The Err path renders through the value's own `Printable` surface — the
     # format-argument spelling (design 137), so it allocates nothing and works
     # under a denied allocator. Status 1: the error is not a number, and
@@ -922,18 +922,22 @@ def _synthesize_main_exit_funnel(entry_ast):
     err_arm = MatchArm(
         variant_name="Err", bindings=["__e"],
         body=Block(statements=[ExpressionStatement(expression=FunctionCall(
-            name="print",
+            name="print", line=line, column=col,
             arguments=[Argument(name=None, value=StringInterpolation(
-                parts=["error: ", ""], expressions=[FormatPlaceholder()])),
-                Argument(name=None, value=Identifier(name="__e"))]))],
-            final_expr=IntLiteral(value=1)))
+                parts=["error: ", ""],
+                expressions=[FormatPlaceholder(line=line, column=col)],
+                line=line, column=col)),
+                Argument(name=None, value=Identifier(name="__e", line=line,
+                                                     column=col))]))],
+            final_expr=IntLiteral(value=1, line=line, column=col)))
 
     entry_ast.functions.append(Function(
         name=MAIN_EXIT_FUNNEL,
         parameters=[Parameter(name="__r", type=main.return_type)],
         return_type=SawType(TypeKind.INT),
         body=Block(statements=[], final_expr=MatchExpr(
-            matched_expr=Identifier(name="__r"), arms=[ok_arm, err_arm])),
+            matched_expr=Identifier(name="__r", line=line, column=col),
+            arms=[ok_arm, err_arm], line=line, column=col)),
         is_synthesized=True, line=line, column=col, source_file=src))
 
 

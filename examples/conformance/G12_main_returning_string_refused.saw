@@ -3,8 +3,6 @@
 // A process exit status is one small integer. A `String` main used to compile
 // clean and exit with the low byte of a heap POINTER — an address leaking into
 // the status, different on every run of a program the compiler had accepted.
-// XFAIL: DF-220c — the typechecker checks only that `main` EXISTS; no rule
-// constrains its return type
 // EXPECT: error
 // EXPECT-ERROR-CONTAINS: `main` must return `Void`, `Int`, `Result<Void, E>` or `Result<Int, E>`
 // EXPECT-ERROR-CONTAINS: `String`

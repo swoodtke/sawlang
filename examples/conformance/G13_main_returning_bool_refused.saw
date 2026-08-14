@@ -3,8 +3,6 @@
 // The tempting one, and the one that would be read backwards: shell truth is
 // status 0, so a `true` main would have to exit 0 and a `false` one 1. Refused
 // rather than guessed — say which integer you mean.
-// XFAIL: DF-220c — the typechecker checks only that `main` EXISTS; no rule
-// constrains its return type
 // EXPECT: error
 // EXPECT-ERROR-CONTAINS: `main` must return `Void`, `Int`, `Result<Void, E>` or `Result<Int, E>`
 // EXPECT-ERROR-CONTAINS: `Bool`

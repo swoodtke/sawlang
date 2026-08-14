@@ -845,6 +845,55 @@ class TypeChecker(ExpressionsMixin, StatementsMixin, RegistrationMixin, TypeUtil
             source_file=getattr(node, 'source_file', None) or None,
         )
 
+    # design 221 Part C (DF-220c). A program's exit status is one small integer,
+    # so `main` may say exactly four things: nothing, a status, "this can fail"
+    # with no status, or "this can fail" with one.
+    _MAIN_RETURN_RULE = ("`main` must return `Void`, `Int`, `Result<Void, E>` "
+                         "or `Result<Int, E>`")
+
+    def _check_main_return_type(self, program) -> None:
+        """Hold `main` to the four return types the exit status can carry.
+
+        Unchecked until design 221, and the shapes it let through did not fail
+        quietly: `main() -> String` compiled clean and exited with the low byte
+        of a HEAP POINTER, and `main() -> Result<Int, E>` emitted a
+        struct-returning `@main` against a C ABI expecting `int` (status 138 on
+        this host, meaningless on any). The typechecker asked only whether
+        `main` existed.
+
+        Runs on whatever module declares a top-level `main`, and runs again on
+        the transform's re-entry — where `main` is a synthesized entry executor
+        whose return type is `Void`, `Int`, or exactly what the user's `main`
+        declared, so the rule holds there by construction.
+
+        `E` carries no separate obligation here: what the Err path needs is
+        rendering, and the synthesized `__saw_main_exit_code` (built from main's
+        own signature, at main's own line) asks for it in the ordinary way — a
+        non-`Printable` error type is the ordinary not-`Printable` diagnostic,
+        pointing at `main`.
+        """
+        main = next((f for f in getattr(program, 'functions', [])
+                     if f.name == "main"), None)
+        if main is None:
+            return
+        ret = main.return_type
+        if ret is None or ret.kind == TypeKind.VOID or ret.kind == TypeKind.INT:
+            return
+        if ret.is_result():
+            ok = ret.unwrap_result_ok()
+            if ok is None or ok.kind in (TypeKind.VOID, TypeKind.INT):
+                return
+        self.reporter.error(
+            ErrorKind.TYPE_MISMATCH,
+            f"{self._MAIN_RETURN_RULE}, but returns `{ret}`",
+            getattr(main, 'line', 1) or 1, getattr(main, 'column', 1) or 1,
+            hint="the exit status is an integer: return `Int` for the status, "
+                 "`Result<Int, E>` to report a failure as well, `Result<Void, "
+                 "E>` when only the failure matters, and nothing at all when "
+                 "the program cannot fail",
+            source_file=getattr(main, 'source_file', None) or None,
+        )
+
     def _type_names_spinlock(self, t) -> bool:
         """Whether `t`'s own tree names a `SpinLock` (walked like the unsafe
         tree: through optionals, references, arrays, tuples and type args)."""
@@ -1710,6 +1759,7 @@ class TypeChecker(ExpressionsMixin, StatementsMixin, RegistrationMixin, TypeUtil
                 1, 1,
                 hint="add a `func main() { }` function as the entry point, or use -c to compile as object file"
             )
+        self._check_main_return_type(program)
 
         # Seventh pass: type check function bodies
         for func in program.functions:
@@ -2491,6 +2541,7 @@ class TypeChecker(ExpressionsMixin, StatementsMixin, RegistrationMixin, TypeUtil
                 1, 1,
                 hint="add a `func main() { }` function as the entry point, or use -c to compile as object file"
             )
+        self._check_main_return_type(module_ast)
 
         # Enable import checking for this module
         ns.enable_import_checking()
