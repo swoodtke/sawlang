@@ -6154,13 +6154,27 @@ holding a lock is a compile error.
 
 ### Send and Sync
 
-`Send` ("may move to another task") and `Sync` ("may be shared by
-reference across tasks") are compiler-derived STRUCTURALLY — a struct or
+`Send` ("may move to another task or thread") and `Sync` ("this type's `&self`
+surface is safe under true parallelism: more than one thread may hold shared
+access at once") are compiler-derived STRUCTURALLY — a struct or
 enum is `Send`/`Sync` iff every field or payload is, and **explicit
 `extension X: Send` is rejected**. `spawn` audits every capture for `Send`;
 `Channel<T>` requires `T: Send`. `String` is `Send`+`Sync` (immutable buffer,
 atomic refcount); `UnsafePointer` is neither and poisons anything holding one;
 an interior cell blocks `Sync` ([Interior mutability](#interior-mutability)).
+
+Saw has no shared references in flight, so `Sync` is not about `&` travelling.
+A plain `&` never crosses a spawn, and a single-threaded group never consults
+`Sync` at all. It is consulted where handles and statics CREATE parallel shared
+access: an `Arc` sent across a spawn in a `threads: N` group (which is why
+`Arc<T: Send + Sync>` demands it), a lock (`Mutex` and `SpinLock` are `Sync`
+BECAUSE they serialize), and a `static`, which every thread can reach.
+
+Interior mutability is what makes the two separate axes. A struct with an
+`Atomic` field mutates safely through `&self`, so it is `Send` AND `Sync`. A
+struct wrapping a non-atomic interior cell moves harmlessly to another thread
+(`Send`) but would race under two threads' shared access (not `Sync`). `Send`
+cannot tell those apart; `Sync` is the record of exactly that difference.
 
 #### `UnsafeSync` / `UnsafeSend`
 
