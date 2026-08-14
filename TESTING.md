@@ -330,7 +330,7 @@ in a block libmalloc has freed but not unmapped, so the program prints the right
 answers and exits 0; the damage surfaces later, at whatever unrelated allocation
 trips over it. That is how DF-151b stayed in a green tree from design 73
 onward — and two of the tests that should have caught it were passing for the
-wrong reason, because a destructor fires on the 1 -> 0 refcount edge and never
+wrong reason, because a deinit fires on the 1 -> 0 refcount edge and never
 again, so neither a `strong_count` assertion nor a deinit-print count can see a
 double release.
 

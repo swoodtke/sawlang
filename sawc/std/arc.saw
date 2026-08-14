@@ -111,8 +111,9 @@ extension Arc<T> {
     /// solo.with_unique({ c in c.bump()  c.n })                          // None
     /// ```
     ///
-    /// The `None` arm is the caller's cue to clone and write to the clone, which
-    /// is how `Data` gets value semantics over shared storage.
+    /// The `None` arm is the caller's cue to duplicate the payload and write to
+    /// the duplicate, which is how `Data` gets value semantics over shared
+    /// storage.
     ///
     /// The uniqueness this reports is single-threaded. `strong_count()` alone is
     /// a racy snapshot; what makes the answer here trustworthy is the `&var

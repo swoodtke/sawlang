@@ -279,7 +279,7 @@ NoCopy``.
 compile error naming the three policies. A hand-written `deinit` body goes
 INSIDE the policy conformance (`extension Res: NoCopy { func deinit(&var self)
 {...} }`) — the requirement is inherited, so that is the only spelling. A type
-declaring just `Deinit` had a destructor and no transfer rule, so `let s = r`
+declaring just `Deinit` had a `deinit` and no transfer rule, so `let s = r`
 silently aliased it and both halves ran deinit. `T: Deinit` as a generic BOUND
 is still fine.
 ```saw

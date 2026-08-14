@@ -938,7 +938,7 @@ Saw provides deterministic memory management without garbage collection:
   scope exit. You write a `deinit` by hand only for a raw resource such as a
   file descriptor; it runs before the field drops, and it goes inside the copy
   policy's conformance (`extension Res: NoCopy { func deinit(&var self) {...} }`)
-  — every policy already requires `Deinit`, and a type with a destructor but no
+  — every policy already requires `Deinit`, and a type with a `deinit` but no
   policy has no transfer rule.
 - **Reading a payload out of an optional obeys the same table.** `o!`, the left
   operand of `??`, and an `if let` binding all name storage the optional still

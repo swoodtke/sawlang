@@ -1755,8 +1755,8 @@ func total_area() -> Int {
 
 **Representation.** An erased value is a two-word *fat pointer* `(data, vtable)`.
 The vtable is a per-`(concrete type, trait)` constant (rodata; freestanding-fine)
-laid out `[destructor, size, align, type_id, methods…]` with the methods in trait
-declaration order. `Box<any Trait, A>` teardown takes the destructor, size, and
+laid out `[deinit, size, align, type_id, methods…]` with the methods in trait
+declaration order. `Box<any Trait, A>` teardown takes the deinit, size, and
 align from the vtable (never a static `sizeof<T>`, since the payload is erased)
 and routes the dealloc to `A`. The `type_id` header slot is a stable
 per-concrete-type constant that backs downcasting (below).
@@ -1772,8 +1772,8 @@ concrete conforming type through two builtins with an **explicit** type argument
 - `b.is<T>() -> Bool` — compares the box's vtable `type_id` to `T`'s. A borrow:
   the box stays live, so a caller can branch before deciding to consume.
 - `b.take<T>() -> T?` — **consumes** the box. On a match it moves the payload out
-  (freeing the shell *without* running the destructor, since ownership transfers)
-  and yields `Some(T)`; on a mismatch it drops the box (destructor + dealloc) and
+  (freeing the shell *without* running the deinit, since ownership transfers)
+  and yields `Some(T)`; on a mismatch it drops the box (deinit + dealloc) and
   yields `None`. It consumes the box **either way** (a mismatch is not left
   intact — `is<T>()` first is how you branch without consuming), so a use after
   `take` is a use-after-move error.
@@ -2298,12 +2298,12 @@ collections" claim: the cost of every transfer is readable at the use site.
 - **`NoCopy` and `ExplicitCopy` extend `Deinit`**: they are declared as
   `trait NoCopy: Deinit` and `trait ExplicitCopy: Deinit` in the builtin
   prelude. A type opts into one because it manages a resource, and managing a
-  resource means having a destructor. The `deinit` itself is synthesized (see
+  resource means having a `deinit`. The `deinit` itself is synthesized (see
   [Synthesized destruction](#synthesized-destruction)); declaring the policy is
   all you write.
 - **`Deinit` is not declarable on its own.** `extension T: Deinit {...}` is a
   compile error naming the copy policies. A type that declared only `Deinit`
-  had a destructor and no transfer rule, so `let s = r` fell through every arm
+  had a `deinit` and no transfer rule, so `let s = r` fell through every arm
   of the checkpoint and both halves ran `deinit`. A hand-written `deinit` body
   goes inside the policy conformance, where the requirement is inherited:
 
@@ -3585,7 +3585,8 @@ stdlib.
 **Status: implemented.** Saw provides a hierarchy of traits for types that need
 custom copy behavior or cleanup when going out of scope. This enables reference
 counting (like `String` and `Arc<T>`), deep-copy owning types (like
-`Vector`), RAII patterns (like file handles), and move-only types. Conformance
+`Vector`), scope-bound cleanup of a raw resource (like file handles), and
+move-only types. Conformance
 is always declared through an `extension` (`extension T: Trait`); there is no
 struct-header conformance syntax. The family is `Copy` (the silent tier),
 `NoCopy` (the move-only opt-out) and `ExplicitCopy` (the duplicable family),
@@ -5005,7 +5006,7 @@ multiple threads (design 75) — carrying the coroutine transform, suspending
   or returning by value — is a **refcount bump**; there is no observable mutation
   through a shared env, so the sharing is semantically invisible. Dropping a
   closure **releases** one reference: it decrements the refcount and, only at the
-  last owner, runs the env destructor (releasing owned captures exactly once and
+  last owner, runs the env deinit (releasing owned captures exactly once and
   freeing the block) under the normal LIFO + drop-flag rules, wherever the value
   lives (a `let`/`var`, a struct field, a `Vector` element, a returned result).
   A **capture-less** closure has a null env (no refcount word) and is trivially
@@ -5220,7 +5221,7 @@ Observable rules:
     `sync`-body restriction: unlike a confined stack/frame referent, a container
     borrow projects into shared, reachable storage that a concurrent task could
     reallocate across a suspension, so it may not span one.
-- **`deinit` may not suspend** — a destructor is always a `sync` context, so a
+- **`deinit` may not suspend** — a `deinit` is always a `sync` context, so a
   suspension inside one is a compile error (deterministic destruction).
 - **Effect polymorphism — generic suspending functions/methods** (design 70,
   A5). A generic function's suspend-bit is not fixed at its declaration: effect
@@ -5429,7 +5430,7 @@ anti-suspension boundary, so it is `sync`) plus `wake_reason(&self) sync -> Int`
   result and the cancel word live in a per-task CELL the group owns, allocated at
   spawn beside the slot; the cell is typed (it holds a `T?`) but the group holds
   it erased, so the group never names `T` and the box teardown still runs the
-  right destructor. A `Void` task's cell holds only the cancel word, so its slot
+  right deinit. A `Void` task's cell holds only the cancel word, so its slot
   is reclaimed at completion; a task with a result keeps its slot until `join`
   takes the value.
 
