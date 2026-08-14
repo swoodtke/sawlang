@@ -29,10 +29,10 @@ FOUR CHECKS, in the order they are applied:
 
 WITNESS TIERS. Only two of the five copy tiers can witness their own
 destruction without confusing a legitimate copy for a double free: `nocopy`
-(`Res`, a hand-written deinit) and `tag` (`Tag`, a DECLARED ImplicitCopy struct
+(`Res`, a hand-written deinit) and `tag` (`Tag`, a DECLARED `Copy` struct
 over an `Arc<Res>` — a copy RETAINS, so the payload still dies exactly once).
-`tag` is why an ImplicitCopy over-release is visible here at all; the previous
-harness's ImplicitCopy tier was a plain `struct Bag { s: String }` with nothing
+`tag` is why a retain-tier over-release is visible here at all; the previous
+harness's retain tier was a plain `struct Bag { s: String }` with nothing
 to count, and said so in its own gap list. `trivial`, `implicit` (that same
 `Bag`, kept because DF-217c's extension was found on it) and `explicit`
 (`Vector<Int>`) carry the parity checks only.
@@ -124,7 +124,7 @@ struct Tag {
     cell: Arc<Res>
 }
 @synthesize
-extension Tag: ImplicitCopy {}
+extension Tag: Copy {}
 
 func mk_triv(id: Int) -> Int { id }
 func mk_triv_s(id: Int) -> Int {
@@ -219,7 +219,7 @@ class Tier:
         self._use = use
         self.needs_move = needs_move
         # True when this tier's values print `NEW`/`DEINIT` lines a copy cannot
-        # forge: NoCopy (no copy exists) and ImplicitCopy-over-Arc (a copy is a
+        # forge: NoCopy (no copy exists) and Copy-over-Arc (a copy is a
         # retain, so the payload still dies once).
         self.witnesses = witnesses
 

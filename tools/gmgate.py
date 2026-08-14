@@ -55,14 +55,14 @@ OUT_DIR = os.path.join(REPO, ".build", "gmgate")
 # The ownership lane. Each entry is an example that asserts something about
 # ownership; the comment says which shape it pins.
 OWNERSHIP_GATE = [
-    # The undeclared ImplicitCopy tier across every transfer class (design 159).
+    # The undeclared `Copy` tier across every transfer class (design 159).
     "examples/df151b_implicit_tier_transfers.saw",
     # A closure env retained through struct copies (design 73). This one is the
     # reason the lane exists: its own `strong_count` assertions read correct
     # while the env was released three times, so Guard Malloc is the ONLY thing
     # that can police it.
     "examples/closure_copyable_struct_copied.saw",
-    # An ImplicitCopy value copied out of a place, then the place overwritten
+    # A `Copy`-tier value copied out of a place, then the place overwritten
     # (design 147 unit B / DF-139a).
     "examples/df139a_copy_then_overwrite.saw",
     # A closure env's retains and releases counted against an Arc (design 73).
