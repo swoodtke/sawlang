@@ -149,6 +149,36 @@ Optionals and every other type stay freely discardable; the rule is about
 failures, and a `Result` a caller may always ignore should not have been a
 `Result`.
 
+### The Exit Status Is `main`'s Return Value
+
+`main` may return `Void`, `Int`, `Result<Void, E>` or `Result<Int, E>`, and
+nothing else. `Void` exits 0, an `Int` is the status, an `Ok` payload is the
+status (0 for `Ok(())`), and an `Err` prints the error and exits 1:
+
+```saw
+import std.file
+import std.path.{Path}
+import std.net.{IoError}
+
+func main() -> Result<Void, IoError> {
+    var config = try file.File.open(Path(s: "saw.toml"))
+    let text = try config.read()
+    print("read {text.len()} bytes")
+    return
+}
+// With no saw.toml: prints `error: io error: open failed (not found)`, exits 1.
+```
+
+So a command-line program reports failure by returning it, with no `exit()` call
+and no status constant to keep in sync. `E` prints the way `"{e}"` prints it, so
+an erased `Result<T, Box<any Error>>` works too. A `main` returning anything
+else is refused at the declaration, since an exit status has nowhere to put a
+`String` or an `Int?`. The eight-bit narrowing a shell sees is POSIX's: 300
+arrives as 44.
+
+`main` may suspend whatever it returns; the value comes back out of the entry
+executor unchanged.
+
 ### Pattern Matching
 
 ```saw

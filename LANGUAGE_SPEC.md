@@ -408,6 +408,55 @@ payload construction keep their own **order-independent** name matching
 (`Point(y: 4, x: 3)` is valid); they are a separate resolution scheme from the
 ordered call binding rule, by design (design 66).
 
+### The entry point
+
+**Status: implemented.** A program starts at `main`, a top-level function
+taking no parameters. Its return type is the program's **exit status**, and it
+may be exactly one of four:
+
+| Written | Exit status |
+|---|---|
+| `func main()` | 0 |
+| `func main() -> Int` | the value |
+| `func main() -> Result<Void, E>` | 0 on `Ok`; on `Err`, the error is printed and the status is 1 |
+| `func main() -> Result<Int, E>` | the `Ok` payload; on `Err`, the error is printed and the status is 1 |
+
+Any other return type is a compile error at the declaration:
+
+```saw
+func main() -> String { "done" }
+// error: `main` must return `Void`, `Int`, `Result<Void, E>` or
+//   `Result<Int, E>`, but returns `String`
+```
+
+`E` is renderable — `Printable`, which `Error` refines — and the `Err` path
+prints it the way `"{e}"` does, so an erased `Result<T, Box<any Error>>` works
+through its vtable like anything else. An error type that conforms to neither is
+the ordinary not-`Printable` diagnostic, reported at `main`.
+
+```saw
+import std.file
+import std.path.{Path}
+import std.net.{IoError}
+
+func main() -> Result<Void, IoError> {
+    var config = try file.File.open(Path(s: "saw.toml"))
+    let text = try config.read()
+    print("read {text.len()} bytes")
+    return
+}
+// With no saw.toml: prints `error: io error: open failed (not found)`, exits 1.
+```
+
+The status is one byte wide by the time a shell sees it: POSIX `wait(2)` carries
+eight bits, so a `main` returning 300 is observed as 44. Saw passes the value to
+the C entry unchanged and the platform does the narrowing.
+
+`main` may suspend (see [Concurrency](#6-concurrency)) whatever it returns. The
+compiler replaces a suspending `main` with an entry executor that drives its
+frame — and, if the program also spawns, drives every task alongside it — and
+the value comes back out of that executor unchanged.
+
 ### Built-in Functions
 
 A handful of functions are compiler-known (no import needed):

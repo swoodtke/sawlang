@@ -127,15 +127,21 @@ full write-ups are in the BRANCH's copy of this brief.
   the error, exit 1. The diagnostic and the funnel land in the
   DF-220a/b fix brief; LANGUAGE_SPEC gains the `main` rule.
 
-**THE FIX BRIEF IS AUTHORED + FULLY RULED:
-`designs/221-main-exit-and-compile-context.md`** (Aug 14; DF-220a fix A
-per-compile LLVM context + its twice-in-one-process gate lane, DF-220b
-entry-executor plumbing with the RULED root-cell + executor-side
-conversion, DF-220c's ruled `main` rule + one exit funnel, battery/
-irdet_remote honest-gate flips). Dispatches after 218 stage 4.
+**DF-220a, DF-220b and DF-220c ARE FIXED — `designs/221-main-exit-and-compile-context.md`
+is BUILT** (Aug 14, branch `worktree-agent-af68e30d247888405`, seven commits
+`d943f2c8..`, based on `4b3efa0d`; awaiting user review). Each compile owns
+its `LLVMContext` (zero corpus churn, measured); both entry executors
+return main's result, the ambient one through a group-owned
+`__ResultCell<Int>` and `__saw_exec_run_root_status`; `main`'s return type
+is held to the four; ONE codegen funnel maps every shape to the C entry's
+`i32`, and its return-site sweep found a third door (`try` inside `main`
+emitted a struct out of an `i32` function — a `Result` main with a `try`
+did not compile at all). The battery gained a `reemit` lane (two compiles
+in one process, byte-comparing the OPTIMIZED IR) and the irdet lane reads
+`--jsonl` records instead of `$?`. Conformance rows G01-G18.
 
 Post-fix path: rebase the branch onto fixed main, re-run unit-2's N=20
-replay leg (currently blocked on DF-220a), re-gate (expect reuse GREEN
+replay leg (was blocked on DF-220a), re-gate (expect reuse GREEN
 and the irdet lane honestly red-capable), then integrate.
 
 - **DF-221a (NEW, found writing design 221's conformance row G11) — a

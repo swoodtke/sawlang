@@ -710,6 +710,29 @@ if err.is<IoErr>() { if let io = err.take<IoErr>() { retry(io) } }  // downcast
   everything else stay freely discardable (`m.insert(k, v)`'s old-value `V?`,
   a `Void?` `?.` chain statement). There is no must-use attribute: a Result you
   may always ignore should not have been a Result.
+- **`main` RETURNS THE EXIT STATUS, and may return exactly four things**
+  (design 221): `Void` (0), `Int` (the value), `Result<Void, E>` and
+  `Result<Int, E>` (the `Ok` payload, 0 for `Ok(())`; an `Err` PRINTS the error
+  and exits 1). Anything else is refused at the declaration — ``error: `main`
+  must return `Void`, `Int`, `Result<Void, E>` or `Result<Int, E>`, but returns
+  `String` ``. So a failing command-line program `return`s its failure instead
+  of calling libc `exit()`:
+  ```saw
+  func main() -> Result<Void, IoError> {
+      var config = try file.File.open(Path(s: "saw.toml"))
+      let text = try config.read()
+      print("read {text.len()} bytes")
+      return
+  }
+  ```
+  `E` must be renderable (`Printable`; `Error` refines it, and an erased
+  `Box<any Error>` works through its vtable) — the Err path prints it the way
+  `"{e}"` does. The status is POSIX-narrowed to a byte by the platform, so 300
+  is observed as 44. `main` may SUSPEND at any of the four. Treat all of this as
+  working now and SUSPECT in older builds: a suspending `main` used to drop its
+  value and exit 0 whatever it returned, `-> Result` emitted a struct-returning
+  `@main` against a C ABI expecting `int` (a stable, meaningless 138), and
+  `-> String` exited with the low byte of a heap POINTER.
 - `trait Error: Printable {}` — conform via `extension E: Error {
   func format(&self, into: &var StringBuilder) {...} }`.
 - **An error type may be an ENUM, and usually should be** (design 145). A closed
