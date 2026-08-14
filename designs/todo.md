@@ -138,6 +138,20 @@ Post-fix path: rebase the branch onto fixed main, re-run unit-2's N=20
 replay leg (currently blocked on DF-220a), re-gate (expect reuse GREEN
 and the irdet lane honestly red-capable), then integrate.
 
+## Design 222 — the safe async rewrite (AUTHORED Aug 14, dispatches after 218 stage 4)
+
+`designs/222-safe-async-rewrite.md`. PROTOTYPE brief, user-directed: the
+transform's output becomes ordinary checked Saw and E2 DELETES — whatever
+resists lands in a NAMED verified-unsafe core with per-item impossibility
+arguments (218a §7 style). Unit 0 derives the work list by measurement
+(E2 off, corpus errors categorized) + stage 4's ratified trusted list;
+unit 1 safe cell in std.compiler.frame (DF-218g identity mechanism);
+unit 2 the safe drive-site spelling (empties E2's rewritten-bodies
+coverage); unit 3 the wake latch (safe wrapper or a written core entry);
+unit 4 E2's read site goes. Landing decided at review. Deliberately
+sequenced behind stage 4 — it rewrites the teardown/cancel surface and
+ratifies the trusted list this brief consumes.
+
 ## The next queue — designs 195-202 + 153 (ALL RULED Aug 10, awaiting dispatch)
 
 Every open ruling from the overnight run plus the parked backlog was
