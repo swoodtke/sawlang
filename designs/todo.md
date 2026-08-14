@@ -36,14 +36,41 @@ full write-ups are in the BRANCH's copy of this brief.
 
 - **DF-220a — `compile_saw()` is not self-reproducible across calls in
   ONE process** (seed-independent; 6-line repro in the branch brief).
-  Hypothesis: the `ast_nodes.py` `_NEXT_NODE_ID` global leaking into the
-  always-linked backtrace-table monomorphization (DF-164a sibling).
-  TODAY'S irdet is structurally blind to this class — two fresh processes
-  start the counter identically — so this is a hidden nondeterminism
-  family the 220 verify exposed on first contact. Obligation 4 before the
-  fix: name every global counter/id() source that can reach emitted IR,
-  not just this one. Design 115's bit-identity audit needs re-running as
-  part of the fix's gate.
+  **SWEEP RUN (Aug 14, `.build/scratch/sweep220a/RESULTS.md`, GITIGNORED):
+  the `_NEXT_NODE_ID` hypothesis is REFUTED (reset probe is a no-op) and
+  the real mechanism is PINNED: LLVM's process-global `LLVMContext`
+  named-struct uniquing.** Every `binding.parse_assembly` at
+  codegen/core.py:3132/:3148 omits `context=` and lands in the global
+  context; llvmlite's ABI-size queries (core.py:2091-2096 →
+  `_get_ll_global_value_type`) parse a throwaway module carrying the
+  compile's WHOLE identified-type table into that same context — 92
+  parses × ~45 types ≈ 4150 uniquings per compile — so compile 2's
+  struct names get `.NNNN` suffixes from `NamedStructTypesUniqueID`.
+  SCOPE IS TEXT-ONLY AND BENIGN: unoptimized sidecar `.ll` and `.o`
+  bytes are IDENTICAL across in-process compiles; the whole optimized-IR
+  diff normalizes away by stripping `\.\d+`; the 33-byte exe delta is
+  the known design-164 N_OSO mtime artifact, not this. Design 115's
+  bit-identity HOLDS for compile 1 (byte-equal to fresh CLI) and breaks
+  from compile 2 on. Nothing in today's tree is miscompiled — the bug
+  bites exactly design 220's optimized-IR reuse compare (the "84.4%
+  VIOLATED" backlog is suffix churn). Obligation-4 census: every
+  Python-side counter/cache/id() site enumerated and cleared with probe
+  evidence (unopt IR byte-identical across advanced counters); the
+  LLVMContext is the ONE mechanism. **FIX A MEASURED TO WORK: route
+  every parse through a per-compile `binding.create_context()` — three
+  compiles in one process, unopt/opt/obj all identical AND equal to
+  today's fresh-process output, i.e. ZERO corpus churn.** Brief snags:
+  llvmlite's `Type.get_abi_size` hard-codes the global context (sawc
+  must own that query or compute layout from the data-layout string);
+  the context must outlive every ModuleRef/target-machine use. The
+  fix's gate needs a NEW LANE: compile one file TWICE in one process,
+  compare OPTIMIZED IR — today's `tools/reemitdiff.py` compares only
+  the stable artifacts (green and blind) and is NOT in battery STAGES.
+  Perf rider for the brief: each compile permanently leaks ~45 types /
+  ~4200 uniquings into a design-115 worker's global context. Not
+  probed: --freestanding/--runtime-build/--target/-O0/--module-path
+  paths (mechanism is triple-independent but unevidenced there);
+  suffix-only-ness verified for 2 of 12 diverging files.
 - **DF-220b — a suspending `main() -> Int` never propagates its return
   value to the process exit status** (12-line repro; confirmed against
   the unmodified pre-220 irdet binary). USER-FACING language bug: every
