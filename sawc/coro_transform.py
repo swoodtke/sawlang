@@ -910,7 +910,12 @@ def _slot_read(place, method, saw_type, line=0, column=0):
 
 def _field_type(saw_type, enc):
     if enc == "ref":
-        return _ref_ptr_type(saw_type)
+        # design 218 stage 3 (census P2): the FIELD is the handle. The raw
+        # pointer stays the PLUMBING — a driver parameter, a spawn helper's
+        # parameter, the cast at a nested call's reference argument — so
+        # `_ref_ptr_type` is still what those sites build and `_seed_field`
+        # wraps it exactly once, where the frame is.
+        return _unsaferef_type(saw_type.inner_type)
     if _enc_is_slot(enc):
         # `_clear_escaping` inside the wrapper: it walks Optional/array/tuple/
         # function shapes and would not see through the `Slot<...>` struct, and
@@ -1045,6 +1050,14 @@ def _read_field(name, encoding, line=0, column=0, owning_read=False,
         return _slot_read(_self_field(name, line, column),
                           "take" if move_read else "value",
                           saw_type, line=line, column=column)
+    if encoding == "ref":
+        # Census P2, the stage-3 form of design 88's reference field. The read
+        # was `self.name[0]` under a `frame_place_read` mark; it is now the
+        # handle's own lend, judged like `__recv`'s and like anybody else's
+        # `borrows` accessor. A reference binding NEVER owns, so there is no
+        # move/borrow distinction to make here — `deref()` serves both.
+        return _unsaferef_deref(_self_field(name, line, column), saw_type,
+                                line=line, column=column)
 
     def _marked(node):
         node.frame_place_read = True
@@ -1065,14 +1078,6 @@ def _read_field(name, encoding, line=0, column=0, owning_read=False,
         if owning_read:
             fu.frame_owning_read = True
         return _answered(fu, saw_type)
-    if encoding == "ref":
-        # design 88 (D6): the reference name reads through the frame's pointer
-        # field — `self.name[0]` — yielding an lvalue of the pointee type. Member
-        # access, compound-assignment mutation, and method calls on it all flow
-        # normally (the identical `self.__recv[0]` receiver rewrite of design 45 0c).
-        deref = _marked(
-            ArrayIndex(array_expr=acc, index=_int(0), line=line, column=column))
-        return _answered(deref, saw_type)
     return _answered(acc, saw_type)
 
 
@@ -5407,18 +5412,30 @@ class _FrameBuilder:
         arg_vals = []
         cap_lets = []
         for i, a in enumerate(info['args']):
+            is_ref_param = (i < len(callee_fb.params)
+                            and callee_fb.encmap.get(
+                                callee_fb.params[i].name) == "ref")
+            forwarded = (self._forwarded_ref_handle(a.value)
+                         if is_ref_param else None)
+            if forwarded is not None:
+                arg_vals.append(_unsaferef_init(
+                    forwarded, callee_fb.params[i].type.inner_type))
+                continue
             caps, val = self._rewrite_hosting(a.value, forgets)
             cap_lets.extend(caps)
             # design 88 (D6): a reference argument to a nested suspending callee is
-            # seeded into the callee sub-frame's `UnsafePointer<T>` field as a raw
-            # pointer into THIS (caller) frame's storage — the referent lives in the
-            # task frame, so it outlives the sub-frame's drive. Cast `&var self.x`
-            # -> `UnsafePointer<T>` to match the callee's "ref" field encoding.
+            # seeded into the callee sub-frame's field as a raw pointer into THIS
+            # (caller) frame's storage — the referent lives in the task frame, so
+            # it outlives the sub-frame's drive. Cast `&var self.x` ->
+            # `UnsafePointer<T>`, which `_seed_field` then wraps in the handle.
             if i < len(callee_fb.params):
                 pname = callee_fb.params[i].name
                 if callee_fb.encmap.get(pname) == "ref":
-                    val = CastExpr(expr=val,
-                                   target_type=_ref_ptr_type(callee_fb.params[i].type))
+                    val = _seed_field(
+                        callee_fb, pname, callee_fb.params[i].type,
+                        CastExpr(expr=val,
+                                 target_type=_ref_ptr_type(
+                                     callee_fb.params[i].type)))
                 else:
                     # Census S8/S9's seeding half: an owning parameter arrives
                     # into a `Slot<T>` and is born holding its value. WHICH
@@ -5444,6 +5461,30 @@ class _FrameBuilder:
         out.extend(self._forgets(forgets))
         return out
 
+    def _forwarded_ref_handle(self, arg):
+        """The POINTER out of a caller-frame reference handle, when the argument
+        is design 106's forwarding of one (`g(&var r)` where `r` is a `&var T`
+        parameter this frame holds across a suspension) — else None.
+
+        Same argument `_sub_frame_recv_ptr` makes for the receiver: `r` rewrites
+        to `self.r.deref()`, and `&` of a place window is a value read the place
+        system judges by the pointee's copy tier. The frame is holding the
+        pointer already, so forwarding it costs no window and the callee gets
+        the identical address either way.
+        """
+        if not isinstance(arg, ReferenceExpr):
+            return None
+        inner = arg.expr
+        if not isinstance(inner, Identifier):
+            return None
+        if self.encmap.get(inner.name) != "ref":
+            return None
+        return MemberAccess(
+            object=_self_field(inner.name, getattr(arg, 'line', 0),
+                               getattr(arg, 'column', 0)),
+            member="p", line=getattr(arg, 'line', 0),
+            column=getattr(arg, 'column', 0))
+
     def _sub_frame_recv_ptr(self, recv, callee_fb):
         """The POINTER a nested suspending method call seeds its sub-frame's
         `__recv` with (design 84; census P1 in its stage-3 form).
@@ -5452,22 +5493,34 @@ class _FrameBuilder:
         `&(<rewritten place>) as UnsafePointer<T>` — the drive-site cast, in the
         one position the transform takes an address.
 
-        EXCEPT when the receiver is the caller's OWN receiver. `self` rewrites
-        to `self.__recv.deref()`, a place window, and `&` of a window is a VALUE
-        read the place system refuses for a move-only type — ``lends a place of
-        type `Command`, which is move-only``, on std's own `Command.run`
-        calling `self.reap(job)`. Re-taking that address was never the right
-        operation anyway: the frame is holding the pointer already, so the
-        sub-frame is handed the SAME pointer rather than the address of a lend
-        of it. Forwarding a handle costs no window and asks the place system
-        nothing.
+        EXCEPT when the receiver is already reached through a HANDLE this frame
+        holds — the caller's own `self`, or a `ref`-encoded binding
+        (`read_len(stream: &TcpStream)` calling `stream.read()`). Both rewrite
+        to a `deref()` place window, and `&` of a window is a VALUE read the
+        place system refuses for a move-only type: ``lends a place of type
+        `Command`, which is move-only`` on std's `Command.run`, and the same for
+        `TcpStream` two frames below a spawned server. Re-taking that address
+        was never the right operation anyway — the frame is holding the pointer
+        already, so the sub-frame is handed the SAME pointer rather than the
+        address of a lend of it. Forwarding costs no window and asks the place
+        system nothing.
         """
+        handle = None
         if isinstance(recv, SelfExpr) and self.has_recv:
-            return MemberAccess(
-                object=_self_field("__recv", getattr(recv, 'line', 0),
-                                   getattr(recv, 'column', 0)),
-                member="p", line=getattr(recv, 'line', 0),
-                column=getattr(recv, 'column', 0))
+            handle = "__recv"
+        elif (isinstance(recv, Identifier)
+                and self.encmap.get(recv.name) == "ref"):
+            handle = recv.name
+        if handle is not None:
+            line, col = getattr(recv, 'line', 0), getattr(recv, 'column', 0)
+            # Cast so the callee's pointer MUTABILITY is the callee's business:
+            # a `&T` binding's handle carries a read-only pointer, and the
+            # receiver slot of a driven method frame is spelled without that
+            # qualification.
+            return CastExpr(
+                expr=MemberAccess(object=_self_field(handle, line, col),
+                                  member="p", line=line, column=col),
+                target_type=callee_fb.recv_ptr_type)
         recv_rewritten = self._rewrite_expr(recv, [])
         return CastExpr(
             expr=ReferenceExpr(expr=recv_rewritten, mutable=False),
@@ -6222,11 +6275,15 @@ def _zeroed_value(enc, saw_type):
         return _slot_static("empty", _clear_escaping(saw_type))
     if _enc_cleanup(enc):
         return NoneLiteral()
-    # design 88: a reference frame field (raw pointer) in the not-yet-live state
-    # is a null pointer — a dead sub-frame's placeholder, rebuilt with the real
-    # referent address when its call site is reached, so never dereferenced.
+    # design 88: a reference frame field in the not-yet-live state is a NULL
+    # handle — a dead sub-frame's placeholder, rebuilt with the real referent
+    # address when its call site is reached, so never dereferenced. The
+    # placeholder is the same null cast it always was, wrapped like every other
+    # construction of the handle (design 218 stage 3).
     if enc == "ref":
-        return CastExpr(expr=_int(0), target_type=_ref_ptr_type(saw_type))
+        return _unsaferef_init(
+            CastExpr(expr=_int(0), target_type=_ref_ptr_type(saw_type)),
+            saw_type.inner_type)
     # design 62 G1: a plain-encoded frame-resident TaskGroup placeholder is a real
     # empty group (not a zero word) — always safe to drop, overwritten by the
     # user's `let group = TaskGroup()`.
@@ -6260,11 +6317,19 @@ def _seed_field(fb: _FrameBuilder, name, saw_type, value):
     is the type's own answer to the "params start live, locals start empty"
     convention `_zeroed_value` used to spell as `None` for both.
 
+    A `ref`-encoded field is the other half of the same idea and the opposite
+    ownership story: the value ARRIVING is a raw pointer (a driver or spawn
+    helper takes one, because the drive site is where `&var x` becomes an
+    address), and the field wraps it into the non-owning handle.
+
     ENTRY POINTS (process rule 1): every construction of a frame with real
     arguments — `_make_driver`, `_make_spawn_helper`, `_build_sub_frame`."""
-    if _enc_is_slot(fb.encmap.get(name)):
+    enc = fb.encmap.get(name)
+    if _enc_is_slot(enc):
         return _slot_static("of", _clear_escaping(saw_type),
                             [Argument(name=None, value=value)])
+    if enc == "ref":
+        return _unsaferef_init(value, saw_type.inner_type)
     return value
 
 
