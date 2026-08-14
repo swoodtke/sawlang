@@ -6,7 +6,7 @@ either a file in this directory or an existing `examples/` test that already
 asserts the same rule at the same position — this table is the record of which,
 and the dedup decisions are meant to be audited from it.
 
-**109 rows carry a file here; 197 are covered elsewhere.** (The audit's 247 plus
+**112 rows carry a file here; 198 are covered elsewhere.** (The audit's 247 plus
 the rows later briefs added: W02-W05, design 194 unit 4; W06-W19, design 195
 unit 1; X41-X45, design 199 unit 1; M31-M35, design 200 unit 1; V26-V30,
 design 202 unit 1; B09-B12, design 204 unit 1; K14-K20, design 201 unit 1;
@@ -14,7 +14,7 @@ K21-K25, design 210 units 1 and 5; S09, O12 and K26, the DF-217a/b/c fixes; O13,
 the DF-217l leak their sweep turned up; K29, design 219 unit A1 (renumbered
 from K27 at integration — the 218a spec pre-registered K27/K28); U28-U29 and
 V31, design 219 unit A2; K27-K28, design 218 unit 1; V32-V35, design 219 wave B;
-V36-V47, K30, K31 and U30, design 219 wave C.)
+V36-V47, K30, K31 and U30, design 219 wave C; R39-R42, design 218 stage 3.)
 
 ## How to read it
 
@@ -140,6 +140,10 @@ Claim source: spec 4 *Reference Types*; designs 88, 106, 163d, 188 u1, 193 u5, 2
 | R36 | a closure naming `self`, escaping the method's frame | `closure_captures_self_escaping_error.saw` | 216 — a receiver IS a borrow, so this is the implicit third spelling of R35. Previously unreachable: any closure naming `self` ICEd (DF-216a) |
 | R37 | a closure naming `self` in a NON-escaping closure — the acceptance | `closure_captures_self.saw` | 216 — the legal side, matching R30. Reads see the live receiver and a `&var self` write reaches the caller |
 | R38 | the same, inside a SUSPENDING method | `closure_captures_self_suspending.saw` | 216 — OPEN (DF-216g), pinned XFAIL. The coroutine transform binds the body's `self` to the frame; how a frame lends its receiver to a closure is unruled |
+| R39 | the EXPLICIT `[&self]` / `[&var self]` spelling, sync and suspending | `R39_explicit_self_borrow_capture.saw` | 218 §4 — the spelling exists so the coroutine transform can EMIT the receiver capture as code a programmer could have written. Same capture as R37's implicit one, same non-escaping rule |
+| R40 | `[&var self]` in a `&self` method | `R40_var_self_capture_needs_var_receiver.saw` | 218 §4 — the mode decides whether the body may write through the capture, and a shared receiver has no exclusive borrow to hand out |
+| R41 | the explicit `[&self]` spelling, escaping | `R41_explicit_self_capture_escaping_error.saw` | 218 §4 — writing the `&` out loud says nothing new about where the closure goes, so R36's refusal covers it. A new spelling that bypassed the rule would be a hole with an author's signature on it |
+| R42 | `[self]` / `[move self]` — not spellings | `errors/capture_self_requires_borrow_sigil.saw` + `errors/capture_self_move_requires_borrow_sigil.saw` | 218 §4 — a receiver's own mode dictates the capture's, so only the `&`-sigilled forms are offered; a consuming `self` receiver captures by value with no list |
 
 ## The Law of Exclusivity — one writer XOR many readers
 

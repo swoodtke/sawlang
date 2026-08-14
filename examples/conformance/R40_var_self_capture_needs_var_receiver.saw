@@ -1,0 +1,27 @@
+// Conformance row R40 — `[&var self]` asks for an exclusive borrow of the
+// receiver, and a `&self` method does not have one to give: its receiver is a
+// shared borrow of storage the caller owns. Refused at the capture, with the
+// two spellings that work.
+//
+// The mode is not decoration. It decides whether the closure body may write
+// through the capture, and a `&self` method that could hand out a writable
+// receiver would be the design-146 rule (`a &self method may not write its
+// receiver`) with a closure in front of it.
+// XFAIL: DF-216g `[&var self]` is not yet a spelling the grammar accepts, so this reports a parse error rather than the mode error
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: `[&var self]` needs a `&var self` receiver
+// EXPECT-ERROR-CONTAINS: `read` takes `&self`
+// EXPECT-ERROR-CONTAINS: write `[&self]`
+
+func run_int(body: () sync -> Int) -> Int { body() }
+
+struct Counter { n: Int }
+
+extension Counter {
+    func read(&self) -> Int { run_int({ [&var self] in self.n + 1 }) }
+}
+
+func main() {
+    let c = Counter(n: 5)
+    print("{}", c.read())
+}

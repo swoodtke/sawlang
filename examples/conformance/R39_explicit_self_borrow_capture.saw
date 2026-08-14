@@ -1,0 +1,59 @@
+// Conformance row R39 — `[&self]` / `[&var self]` is an EXPLICIT spelling of the
+// capture design 216 already makes implicitly. It means exactly what the implicit
+// one means: the receiver is borrowed, the body reads the live value (and writes
+// it through `&var self`), and the closure is legal only where it is passed
+// straight to a non-escaping parameter.
+//
+// The spelling exists because design 218 holds generated code to the ordinary
+// rules: the coroutine transform has to EMIT a receiver capture, and it may only
+// emit code a programmer could have written. Both spellings appear here in a sync
+// method and in a SUSPENDING one, because the suspending half is the one DF-216g
+// held open — the transform moves the receiver behind the frame, so the capture
+// reaches it through the frame's own handle.
+// XFAIL: DF-216g a closure naming `self` inside a SUSPENDING method ICEs, and `[&self]` is not yet a spelling the grammar accepts
+// EXPECT: success
+// EXPECT-OUTPUT:
+// 6
+// 15
+// 15
+// 16
+// 15
+// 15
+
+import std.task
+
+func run_int(body: () sync -> Int) -> Int { body() }
+
+struct Counter { n: Int }
+
+extension Counter {
+    func syncRead(&self) -> Int { run_int({ [&self] in self.n + 1 }) }
+
+    func syncWrite(&var self) -> Int {
+        run_int({ [&var self] in self.n = self.n + 10  self.n })
+    }
+
+    func slowRead(&self) -> Int {
+        task.yield_now()
+        let a = run_int({ [&self] in self.n + 1 })
+        task.yield_now()
+        a + run_int({ [&self] in self.n * 2 })
+    }
+
+    func slowWrite(&var self) -> Int {
+        task.yield_now()
+        run_int({ [&var self] in self.n = self.n + 10  self.n })
+    }
+}
+
+func main() {
+    var c = Counter(n: 5)
+    print("{}", c.syncRead())      // 6
+    print("{}", c.syncWrite())     // 15 — the write reached the receiver
+    print("{}", c.n)               // 15
+
+    var d = Counter(n: 5)
+    print("{}", d.slowRead())      // 6 + 10
+    print("{}", d.slowWrite())     // 15
+    print("{}", d.n)               // 15
+}
