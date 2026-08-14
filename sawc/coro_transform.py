@@ -579,6 +579,55 @@ def _ref_ptr_type(ref_type):
 # user `enum Slot` (`internal compiler error: Undefined enum: Slot`).
 SLOT_STRUCT_NAME = _type_identity("Slot", ("<std>", "compiler.frame"))
 
+# The same for `UnsafeRef` (design 218 stage 3), the frame's NON-owning handle:
+# the method receiver `__recv` (census P1) and every `ref`-encoded local or
+# parameter (census P2). Each was a bare `UnsafePointer<T>` whose validity
+# argument lived in a comment; the handle carries it as a type instead, with
+# design 130's marking rule as the obligation's carrier.
+UNSAFEREF_STRUCT_NAME = _type_identity("UnsafeRef", ("<std>", "compiler.frame"))
+
+
+def _unsaferef_type(pointee):
+    """`UnsafeRef<pointee>` — the frame-field type of a receiver or a
+    reference-encoded binding."""
+    return SawType(TypeKind.STRUCT, struct_name=UNSAFEREF_STRUCT_NAME,
+                   type_args=[pointee])
+
+
+def _unsaferef_init(ptr_expr, pointee, line=0, column=0):
+    """`UnsafeRef<pointee>(p: <ptr>)` — the one construction, at the one place
+    the address is taken.
+
+    The pointer expression is exactly what the field used to be seeded with
+    (`&(<place>) as UnsafePointer<T>`, or a null cast for a dead sub-frame's
+    placeholder), so the VERIFIED-unsafe crossing has not moved: it is the same
+    cast, now wrapped in the handle that names what the transform is promising.
+
+    ENTRY POINTS (obligation 1): `_build_frame_init` for `__recv` (every frame
+    construction, dead placeholder included), `_build_sub_frame` and
+    `_make_driver` for the pointer it wraps, and `_zeroed_value`/`_seed_field`
+    for a `ref`-encoded local or parameter."""
+    return StructInit(
+        struct_name=UNSAFEREF_STRUCT_NAME,
+        type_args=[pointee],
+        field_inits=[("p", ptr_expr)], line=line, column=column)
+
+
+def _unsaferef_deref(place, saw_type, line=0, column=0):
+    """`<place>.deref()` — the lend that replaces a raw `[0]` pointer read.
+
+    A graft on the same terms `_slot_read`'s is (see its docstring): the method
+    is public in `std.compiler.frame`, present in every driven program, and the
+    read has to be RE-CHECKED rather than skipped, because the place lowering
+    only sees an accessor the checker stamped `place_struct` on."""
+    node = MethodCall(object=place, method_name="deref", arguments=[],
+                      line=line, column=column)
+    if saw_type is not None:
+        node.resolved_type = saw_type
+        node.frame_slot_op = True
+    return node
+
+
 _SLOT_ENC_OF_LEGACY = {"opt": "slot", "self_opt": "slot_self",
                        "opt_closure": "slot_closure"}
 
@@ -1522,11 +1571,22 @@ class _FrameBuilder:
             # produces. A plain method's receiver has no type args.
             pointee = recv_saw_type if recv_saw_type is not None else \
                 SawType(TypeKind.STRUCT, struct_name=struct_name)
-            self.recv_type = (SawType(TypeKind.POINTER, inner_type=pointee)
+            # design 218 stage 3 (census P1): the FIELD is an `UnsafeRef<T>`;
+            # the raw pointer survives as the thing the handle is built over —
+            # the drive-site cast, the driver's own parameter, and the dead
+            # sub-frame's null placeholder. Two types because the crossing has
+            # not moved: `recv_ptr_type` is where the address still lives, and
+            # `recv_type` is what the frame stores.
+            self.recv_ptr_type = (SawType(TypeKind.POINTER, inner_type=pointee)
+                                  if self.has_recv else None)
+            self.recv_pointee = pointee if self.has_recv else None
+            self.recv_type = (_unsaferef_type(pointee)
                               if self.has_recv else None)
         else:
             self.name = func.name
             self.recv_type = None
+            self.recv_ptr_type = None
+            self.recv_pointee = None
         self.frame_name = f"__Frame_{self.name}"
         # design 158: the name a logical backtrace frame PRINTS. The frame key is
         # a mangled monomorphization symbol; a reader wants the source spelling,
@@ -5377,15 +5437,41 @@ class _FrameBuilder:
             # The method BORROWS through the pointer (no ownership move): accept /
             # read / write_all take `&self`, so the caller frame stays the sole owner
             # and drops the value exactly once at frame death.
-            recv_rewritten = self._rewrite_expr(info['recv'], [])
-            recv_value = CastExpr(
-                expr=ReferenceExpr(expr=recv_rewritten, mutable=False),
-                target_type=callee_fb.recv_type)
+            recv_value = self._sub_frame_recv_ptr(info['recv'], callee_fb)
         init = _build_frame_init(callee_fb, arg_vals, fbs, recv_value=recv_value)
         out = list(cap_lets)
         out.append(AssignStatement(target=_self_field(info['sub']), value=init))
         out.extend(self._forgets(forgets))
         return out
+
+    def _sub_frame_recv_ptr(self, recv, callee_fb):
+        """The POINTER a nested suspending method call seeds its sub-frame's
+        `__recv` with (design 84; census P1 in its stage-3 form).
+
+        The receiver is a caller-frame local/param, and the address of one is
+        `&(<rewritten place>) as UnsafePointer<T>` — the drive-site cast, in the
+        one position the transform takes an address.
+
+        EXCEPT when the receiver is the caller's OWN receiver. `self` rewrites
+        to `self.__recv.deref()`, a place window, and `&` of a window is a VALUE
+        read the place system refuses for a move-only type — ``lends a place of
+        type `Command`, which is move-only``, on std's own `Command.run`
+        calling `self.reap(job)`. Re-taking that address was never the right
+        operation anyway: the frame is holding the pointer already, so the
+        sub-frame is handed the SAME pointer rather than the address of a lend
+        of it. Forwarding a handle costs no window and asks the place system
+        nothing.
+        """
+        if isinstance(recv, SelfExpr) and self.has_recv:
+            return MemberAccess(
+                object=_self_field("__recv", getattr(recv, 'line', 0),
+                                   getattr(recv, 'column', 0)),
+                member="p", line=getattr(recv, 'line', 0),
+                column=getattr(recv, 'column', 0))
+        recv_rewritten = self._rewrite_expr(recv, [])
+        return CastExpr(
+            expr=ReferenceExpr(expr=recv_rewritten, mutable=False),
+            target_type=callee_fb.recv_ptr_type)
 
     # -------------------------------------------------- in-place lowering
     #
@@ -5458,16 +5544,20 @@ class _FrameBuilder:
             self._lower_block_in_place(node)
             return node
         if self.has_recv and isinstance(node, SelfExpr):
-            # The method's `self` -> the receiver through the frame pointer:
-            # `self.__recv[0]` (here `self` is the frame — resume's receiver).
-            # design 210: the deref has the RECEIVER's type, which is `self`'s,
-            # and it is a frame projection like every other — the same mark the
-            # `ref` encoding's deref carries in `_read_field`.
-            recv = ArrayIndex(
-                array_expr=_self_field("__recv", node.line, node.column),
-                index=_int(0), line=node.line, column=node.column)
-            recv.frame_place_read = True
-            return _answered(recv, node.resolved_type)
+            # Census R4. The method's `self` -> the receiver LENT through the
+            # frame's handle: `self.__recv.deref()` (here `self` is the frame —
+            # resume's receiver).
+            #
+            # This was `self.__recv[0]` under a `frame_place_read` mark, which
+            # is the transform asserting "ownership already settled here" about
+            # a raw pointer read the checker could not judge. `deref()` is an
+            # ordinary `borrows` accessor, so the whole postfix zoo the receiver
+            # rewrite needs — field reads and writes, `&self` and `&var self`
+            # method calls, nested place hops — is the places system doing what
+            # it already does, judged rather than asserted.
+            return _unsaferef_deref(
+                _self_field("__recv", node.line, node.column),
+                node.resolved_type, line=node.line, column=node.column)
         if isinstance(node, MoveExpr) and node.path is None and node.variable in self.encmap:
             name = node.variable
             enc = self.encmap[name]
@@ -6191,7 +6281,12 @@ def _build_frame_init(fb: _FrameBuilder, param_values, fbs, recv_value=None,
     from ast_nodes import StructInit
     field_inits = []
     if fb.has_recv:
-        field_inits.append(("__recv", recv_value))
+        # design 218 stage 3: callers hand a POINTER (the drive-site cast, the
+        # driver's parameter, or a null placeholder) and the field wraps it
+        # here — one construction site for every frame, so the handle can never
+        # be built anywhere the pointer was not already being taken.
+        field_inits.append(("__recv",
+                            _unsaferef_init(recv_value, fb.recv_pointee)))
     for i, p in enumerate(fb.params):
         field_inits.append((p.name, param_values[i]))
     for lname, lt in fb.frame_locals:
@@ -6202,7 +6297,7 @@ def _build_frame_init(fb: _FrameBuilder, param_values, fbs, recv_value=None,
         # design 84: a method sub-frame's `__recv` in the DEAD (zero-init) state is a
         # null pointer — the frame is rebuilt with the real receiver address when its
         # call site is reached, so this placeholder is never dereferenced.
-        zrecv = (CastExpr(expr=_int(0), target_type=sub_fb.recv_type)
+        zrecv = (CastExpr(expr=_int(0), target_type=sub_fb.recv_ptr_type)
                  if sub_fb.has_recv else None)
         field_inits.append((c['sub'],
                             _build_frame_init(sub_fb, zvals, fbs, recv_value=zrecv)))
@@ -6405,7 +6500,12 @@ def _make_driver(fb: _FrameBuilder, mode, fbs):
                                      if fb.encmap.get(p.name) == "ref" else p.type))
                      for p in params]
     if fb.has_recv:
-        driver_params = [Parameter(name="__recv", type=fb.recv_type)] + driver_params
+        # The driver's own parameter stays a RAW pointer: the drive site casts
+        # `&recv` at the call, and the handle is built inside `_build_frame_init`
+        # where the frame is. Wrapping at the boundary instead would move the
+        # construction out of the transform and into every caller.
+        driver_params = [Parameter(name="__recv",
+                                   type=fb.recv_ptr_type)] + driver_params
     return Function(name=driver_name, parameters=driver_params, return_type=ret,
                     body=Block(statements=stmts, final_expr=final),
                     is_synthesized=True,
