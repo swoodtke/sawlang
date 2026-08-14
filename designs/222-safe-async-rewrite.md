@@ -107,6 +107,52 @@ this wraps the frame side, it does not redesign task result delivery.
 Conformance rows for the cell's contract land first (obligation 3 applies:
 this is a safety surface).
 
+### UNIT 1 LANDED (Aug 14) — the cell gets a named handle, and "safe" is refused honestly
+
+**The safe cell the brief asked for does not exist under design 130, and the
+reason is design 130's own soundness argument.** A cell handle's accessors are
+not sound for every input — the referent is storage the GROUP owns, and a handle
+outliving it dereferences a corpse — so by the rule "a function with all-safe
+parameters must be sound for every input; a precondition is spelled as an
+unsafe-typed parameter", the receiver must BE unsafe-typed. The tempting shape is
+`Vector`'s (a safe struct with an `UnsafePointer` field and `unsafe` methods),
+and it does not transfer: `Vector` OWNS its buffer, so its invariant is its own
+to keep, while a cell handle's invariant is a fact about somebody else's
+lifetime. Writing it that way would launder the unsafety into a type whose
+holders owe nothing — exactly what unit 3's instruction forbids, applied one unit
+early. A genuinely safe cell needs SHARED OWNERSHIP (the cell behind an `Arc`),
+which is a redesign of task result delivery and out of this unit's scope by its
+own constraint.
+
+**What landed instead: the cell joins `UnsafeRef`.** `__cellp` is
+`UnsafeRef<__ResultCell<T>>` / `UnsafeRef<__VoidCell>` where it was a bare
+`UnsafePointer`, minted through the existing `_unsaferef_init` funnel at
+`_build_frame_init` (one more entry point on a docstring that already names
+them), and every cell READ — `is_cancelled`, the cooperative-cancel branch, the
+copy-down to a sub-frame, a rewritten `cancelled()` — is `deref()`, an ordinary
+`borrows` accessor the place system judges. Trusted-list item 2 stops being
+bespoke plumbing with its argument in a comment and becomes an instance of item
+1, whose argument is written on the type.
+
+**One half did NOT migrate, and it is a deferred family, not a new problem.** The
+result WRITE keeps the raw index, forwarded through the handle's own `p`.
+Measured: routing it through `deref()` broke three corpus programs
+(`coro_iflet_suspending_deinit`, `coro_nested_iflet_struct_init`,
+`taskgroup_nested_ambient`) with ``cannot copy value of type `Res` which
+implements NoCopy`` at context `closure capture`. The mechanism is
+`FAM_WINDOW_MOVE` / DF-218h exactly: a place window is lowered as a CLOSURE, so
+every enclosing local the assignment's RHS names becomes a by-value capture — and
+the stored value is precisely what a frame's locals feed, so the write meets it
+every time rather than occasionally. Forwarding `<handle>.p` is stage 3's own
+answer to the same shape (its finding (a)). The write migrates with the
+window-move family, in that family's landing.
+
+Conformance: K32 (rows first) pins the observable half — result moved to the
+joiner and dropped once at NoCopy and Arc tiers, an unjoined result released once
+at group teardown, and the cancel word read through the handle at both cell
+shapes. Green before the rewrite and after it. Suite 1854 / 25 xfailed at both
+commits. **E2 is unchanged by this unit, as unit 0 predicted.**
+
 **Unit 2 — the drive-site spelling.** Remove the caller-body cast: the
 drive wrapper takes a spelling that is SAFE at the call site (candidates,
 in preference order: the driver declaring a reference parameter — design

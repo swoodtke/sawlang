@@ -604,9 +604,10 @@ def _unsaferef_init(ptr_expr, pointee, line=0, column=0):
     cast, now wrapped in the handle that names what the transform is promising.
 
     ENTRY POINTS (obligation 1): `_build_frame_init` for `__recv` (every frame
-    construction, dead placeholder included), `_build_sub_frame` and
-    `_make_driver` for the pointer it wraps, and `_zeroed_value`/`_seed_field`
-    for a `ref`-encoded local or parameter."""
+    construction, dead placeholder included) AND for a spawn root's `__cellp`
+    (design 222 unit 1), `_build_sub_frame` and `_make_driver` for the pointer it
+    wraps, and `_zeroed_value`/`_seed_field` for a `ref`-encoded local or
+    parameter."""
     return StructInit(
         struct_name=UNSAFEREF_STRUCT_NAME,
         type_args=[pointee],
@@ -1589,7 +1590,31 @@ def _cell_type(fb):
 
 
 def _cell_ptr_type(fb):
+    """The RAW address of the cell — what the spawn helper derives from the
+    box's data word and hands the frame constructor. The crossing lives here."""
     return SawType(TypeKind.POINTER, inner_type=_cell_type(fb))
+
+
+def _cell_ref_type(fb):
+    """The frame FIELD's type: `UnsafeRef<__ResultCell<T>>` (design 222 unit 1).
+
+    Census S11/R8/P4 was the last bare `UnsafePointer` a frame stored, read with
+    a bare `[0]` deref whose validity argument lived in a comment. It is the same
+    argument `__recv` and the `ref` fields make — the referent outlives every
+    deref, because the drive structure keeps it alive — so it gets the same
+    carrier: one named handle type, one construction funnel, and design 130's
+    marking rule holding the obligation.
+
+    What the handle does NOT buy is safety. `UnsafeRef` is an `unsafe struct`
+    because a handle to storage somebody else owns is not sound for every input,
+    and design 130's own soundness argument ("a function with all-safe parameters
+    must be sound for every input; a precondition is spelled as an unsafe-typed
+    parameter") is what forbids the safe-wrapper-with-unsafe-accessors shape here
+    — that would be `Vector`'s spelling for a type that, unlike `Vector`, does
+    not own its referent. A genuinely safe cell needs SHARED OWNERSHIP (the cell
+    behind an `Arc`), which is a redesign of task result delivery and not this
+    unit's to make."""
+    return _unsaferef_type(_cell_type(fb))
 
 
 def _body_arms_io(body):
@@ -3907,7 +3932,7 @@ class _FrameBuilder:
             # cell instead of a cancel word and a result slot of its own. The
             # cell holds both, outlives the frame, and is what every `TaskHandle`
             # addresses — so a completed task's box can be released at once.
-            fields.append(StructField(name="__cellp", type=_cell_ptr_type(self)))
+            fields.append(StructField(name="__cellp", type=_cell_ref_type(self)))
         else:
             # design 52b item 3: the cooperative cancel word. Task code reads it
             # via `cancelled()`, which the transform rewrites to this field. NO
@@ -3930,20 +3955,54 @@ class _FrameBuilder:
     # nested sub-frame, and CELL fields (reached through `__cellp`) for a spawn
     # root. Every read and write goes through these two helpers, so the rest of
     # the lowering never has to know which layout it is looking at.
+    #
+    # design 222 unit 1: the cell hop is `__cellp.deref()`, an ordinary `borrows`
+    # accessor the place system judges, where it used to be a bare `[0]` on a raw
+    # pointer. Every READ of the cell goes through it.
+    def _cell_hop(self, line=0, column=0):
+        return _unsaferef_deref(_self_field("__cellp", line, column),
+                                _cell_type(self), line=line, column=column)
+
+    def _cell_hop_raw(self, line=0, column=0):
+        """The cell reached through the handle's OWN pointer, no window opened.
+
+        DEFERRED: window-move (`FAM_WINDOW_MOVE`, DF-218h). The result WRITE
+        cannot go through `deref()`, and the reason is the mechanism that defers
+        that whole family rather than anything about the cell: a place window is
+        lowered as a CLOSURE, so every enclosing local the assignment's RHS names
+        is a by-value capture, and a move-only one is refused
+        (``cannot copy value of type `Res` which implements NoCopy``, context
+        `closure capture` — measured on `coro_iflet_suspending_deinit`,
+        `coro_nested_iflet_struct_init` and `taskgroup_nested_ambient`). The
+        value being stored is precisely the thing a frame's locals feed, so the
+        write is the one cell operation that meets it every time.
+
+        Forwarding the handle's pointer is stage 3's own answer to the same shape
+        (its finding (a): three sites that took `&` of a window forward
+        `<handle>.p` instead — re-taking the address was never the right
+        operation). `p` is public for exactly this. The write migrates when the
+        window-move family does, in one landing with the rest of it."""
+        return ArrayIndex(
+            array_expr=MemberAccess(object=_self_field("__cellp", line, column),
+                                    member="p"),
+            index=_int(0))
+
     def _result_place(self, line=0, column=0):
+        """The result slot — a WRITE target only (`_store_result` is its one
+        caller; a driven root's own result leaves through `_read_frame_result`,
+        which reads the frame field directly)."""
         if self.is_spawn_root:
-            return MemberAccess(
-                object=ArrayIndex(array_expr=_self_field("__cellp", line, column),
-                                  index=_int(0)),
-                member="__result")
+            return MemberAccess(object=self._cell_hop_raw(line, column),
+                                member="__result")
         return _self_field("__result", line, column)
 
     def _cancel_place(self, line=0, column=0):
+        """The cancel word — READ everywhere it appears (`is_cancelled`, the
+        cooperative-cancel branch, the copy-down to a sub-frame, and a rewritten
+        `cancelled()`), so the cell hop is the checked window."""
         if self.is_spawn_root:
-            return MemberAccess(
-                object=ArrayIndex(array_expr=_self_field("__cellp", line, column),
-                                  index=_int(0)),
-                member="__cancel")
+            return MemberAccess(object=self._cell_hop(line, column),
+                                member="__cancel")
         return _self_field("__cancel", line, column)
 
     def _classify_call(self, stmt):
@@ -6862,7 +6921,12 @@ def _build_frame_init(fb: _FrameBuilder, param_values, fbs, recv_value=None,
         field_inits.append(("__io_fd", _int(-1)))
         field_inits.append(("__io_dir", _int(0)))
     if fb.is_spawn_root:
-        field_inits.append(("__cellp", cellp_value))
+        # design 222 unit 1: the cell address is wrapped into its handle HERE,
+        # at the one place a frame is built — the same discipline `__recv` has
+        # had since stage 3, so the handle can never be minted anywhere the
+        # pointer was not already being taken.
+        field_inits.append(("__cellp",
+                            _unsaferef_init(cellp_value, _cell_type(fb))))
     else:
         field_inits.append(("__cancel", BoolLiteral(value=False)))
         if not fb.is_void:
