@@ -168,6 +168,12 @@ def main() -> int:
                 if event.get("status") == "mismatch":
                     print("  MISMATCH (remote): %s (%s)"
                           % (rel, event.get("detail", "")))
+                elif event.get("status") == "invariant":
+                    # design 220 D4: a reused artifact that does not match
+                    # what its OWN recorded seed produces fresh — never a
+                    # nondeterminism report, its own category.
+                    print("  VIOLATED INVARIANT (remote): %s (%s)"
+                          % (rel, event.get("detail", "")))
             run = worker.submit(
                 {"kind": "irdet", "paths": remote_files, "jobs": args.jobs},
                 blob, {"file": on_file})
@@ -191,6 +197,12 @@ def main() -> int:
             results.update(check_here(binary, missing, args.jobs, args.verbose))
 
     mismatches = sorted(r for r, (s, _) in results.items() if s == "mismatch")
+    # design 220 D4: "violated invariant" is its OWN failure category (a
+    # reused artifact that does not match a fresh recompile at its own
+    # recorded seed) — it must never be silently absorbed into "mismatch"
+    # (a true-nondeterminism report) or dropped from the failure count
+    # entirely, which not counting it here would do.
+    invariants = sorted(r for r, (s, _) in results.items() if s == "invariant")
     skipped = sum(1 for s, _ in results.values() if s == "skip")
     checked = len(results) - skipped
 
@@ -198,8 +210,12 @@ def main() -> int:
         print("irdet: %s" % note)
     print("irdet: compiled %d example(s) twice under differing PYTHONHASHSEED "
           "(%d skipped, %.1fs)" % (checked, skipped, time.time() - t0))
+    if invariants:
+        print("irdet: %d file(s) violated the reuse invariant (stale stamp, "
+              "or in-process-vs-subprocess divergence)" % len(invariants))
     if mismatches:
         print("irdet: %d file(s) produced NON-REPRODUCIBLE IR" % len(mismatches))
+    if mismatches or invariants:
         return 1
     if checked == 0:
         print("irdet: NOTHING WAS CHECKED -- every candidate failed to compile.")

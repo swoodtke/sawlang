@@ -12,6 +12,18 @@
 //! `PYTHONHASHSEED` values, and the emitted `.ll` files are compared as bytes.
 //! Any difference is a determinism bug. Zero is the acceptance bar.
 //!
+//! Design 220 unit 3 (D4): when `test_runner_last` carries a fresh manifest
+//! entry for a file, that side of the pair is REUSED instead of recompiled —
+//! one fresh compile under a differing seed, byte-compared against the
+//! suite's own optimized-IR artifact. A mismatch never reports on its own;
+//! it triggers a three-way verify (fresh recompiles at both seeds) that
+//! distinguishes true nondeterminism from a VIOLATED INVARIANT (the reused
+//! artifact does not match what its own recorded seed produces fresh) from a
+//! transient race — so a cache bug can only cost time or produce a red that
+//! names itself, never a silent pass. No manifest present (a clean checkout,
+//! or a generation predating this scheme) is byte-for-byte the pre-220
+//! behavior: every file compiles fresh both sides.
+//!
 //! This is the design-155 port of `tools/irdet.py`, and the first devtool
 //! written in Saw. The TOOL is Saw; the compiler it checks is not — it drives
 //! the Python `sawc`, and will keep doing so for the whole rewrite track. Run it
@@ -66,24 +78,35 @@ static EXIT_OK: Int = 0
 static EXIT_FAILED: Int = 1
 static EXIT_USAGE: Int = 2
 
-/// What one file's two compiles proved.
+/// What one file's check proved.
 enum Verdict: UInt8 {
-    /// Both compiles produced the same bytes.
+    /// The IR compares equal — either two fresh compiles (no manifest hit)
+    /// or a reused artifact against one fresh compile (design 220 D4), or a
+    /// transient mismatch resolved by the three-way verify's fresh pair.
     case Ok = 0
     /// The file does not build standalone, so there was no IR to compare.
     case Skip = 1
-    /// The two compiles disagreed — a determinism bug.
+    /// Two FRESH compiles disagreed — a determinism bug, reported exactly as
+    /// before design 220 (design 220 D4's "true nondeterminism" outcome).
     case Mismatch = 2
+    /// design 220 D4: a reused artifact does not match a fresh recompile at
+    /// its OWN recorded seed (`fresh-A != artifact`) — a stale stamp or an
+    /// in-process-vs-subprocess divergence (design 115's audited bit-identity
+    /// broken), never absorbed into `Mismatch`. Its own failure category, so
+    /// a cache bug can only cost time or produce a red that names itself.
+    case Invariant = 3
 }
 
 extension Verdict {
     /// The name this verdict carries in a `--jsonl` record. It is wire text a
-    /// remote worker reads back (design 160), so these three strings are ABI.
+    /// remote worker reads back (design 160), so these four strings are ABI —
+    /// `tools/irdet_remote.py` matches "mismatch" and "invariant" by name.
     func wire_name(&self) -> String {
         match self {
             case Ok -> "ok",
             case Skip -> "skip",
-            case Mismatch -> "mismatch"
+            case Mismatch -> "mismatch",
+            case Invariant -> "invariant"
         }
     }
 }
@@ -93,6 +116,10 @@ extension Verdict {
 struct Check {
     verdict: Verdict
     detail: String
+    /// Whether this verdict came from a reused artifact rather than two
+    /// fresh compiles (design 220 D4) — purely for the reuse-rate report,
+    /// never read to decide pass/fail.
+    reused: Bool
 }
 
 /// The command line, once it has been understood.
@@ -286,6 +313,20 @@ func read_text(path: String) -> String? {
     }
 }
 
+/// A whole file's raw bytes, or `None` when it could not be read. Unlike
+/// `read_text` this never rejects non-UTF-8 content — an `.ll` artifact is
+/// compared byte-for-byte, not read as text.
+func read_data_file(path: String) -> Data? {
+    var f = match File.open(Path(s: path)) {
+        case Ok(handle) -> move handle,
+        case Err(_) -> { return None }
+    }
+    match f.read() {
+        case Ok(data) -> move data,
+        case Err(_) -> None
+    }
+}
+
 /// Error / skip examples never reach codegen, so they have no IR to compare.
 ///
 /// The rule is the DIRECTIVE the suite itself reads (`test_runner.py`) rather
@@ -412,25 +453,198 @@ func same_bytes(a: &Data, b: &Data) sync -> Bool {
     true
 }
 
-/// Check one file. The two seed compiles stay SEQUENTIAL inside the task; the
-/// parallelism is across files, which are independent.
-func check_one(index: Int, rel: String, python: String) -> Check {
+// ===========================================================================
+// The suite manifest (design 220 D4). test_runner.py's suite compiles a
+// SUCCESS/PANIC test's optimized IR under a recorded per-worker seed and, on
+// an unchanged tree, hardlinks it forward run to run. `test_runner_last` is
+// the published symlink; resolving it ONCE here (rather than re-reading it
+// per file) means a suite run that republishes mid-irdet-run can never mix
+// two generations' artifacts into one decision.
+//
+// With no manifest present (a clean checkout, or a generation that predates
+// this scheme), every lookup below answers `None` and every file falls
+// through to `check_one_compile_both` — byte-for-byte today's behavior.
+// ===========================================================================
+
+/// One manifest entry: the worker seed that produced the artifact, and the
+/// artifact's filename (always directly under the run directory, whether it
+/// was compiled fresh or hardlinked forward — see test_runner.py's
+/// `try_carry_forward`).
+struct ManifestEntry {
+    seed: String
+    ll_name: String
+}
+
+/// `test_runner_last`'s target directory (e.g. `.build/test_runner_167.../`),
+/// or `None` if the symlink is absent — no completed suite run yet. Shells
+/// out to `readlink` because Saw has no symlink-resolution call of its own;
+/// a single-level read is all D2's layout ever needs (the symlink's target is
+/// always a bare run-directory name, never a further symlink).
+func resolve_last_run_dir() -> String? {
+    var c = Command(program: "readlink")
+    c.arg(".build/test_runner_last")
+    guard let done = c.output() else {
+        return None
+    }
+    if not done.success() {
+        return None
+    }
+    let target = done.stdout.trim()
+    if target.is_empty() {
+        return None
+    }
+    var out = StringBuilder()
+    out.append(".build/")
+    out.append(target)
+    out.build()
+}
+
+/// Parses `<run_dir>/manifest.tsv` (test_runner.py's `write_manifest`):
+/// `path\tseed\tll_name\tmtime` per line, `#`-prefixed lines are comments.
+/// `None` when the file is absent or unreadable — the manifest is optional
+/// infrastructure, never a hard requirement (D4).
+func read_manifest(run_dir: String) -> Map<String, ManifestEntry>? {
+    var path = StringBuilder()
+    path.append(run_dir)
+    path.append("/manifest.tsv")
+    guard let text = read_text(path.build()) else {
+        return None
+    }
+    var entries = Map<String, ManifestEntry>()
+    let lines = text.split("\n")
+    var i = 0
+    while i < lines.len() {
+        if let line = lines.get(i) {
+            let trimmed = line.trim()
+            if not trimmed.is_empty() && not trimmed.starts_with("#") {
+                let parts = trimmed.split("\t")
+                if parts.len() == 4 {
+                    if let rel_path = parts.get(0) {
+                        if let seed = parts.get(1) {
+                            if let ll_name = parts.get(2) {
+                                entries.insert(rel_path,
+                                    ManifestEntry(seed: seed, ll_name: ll_name))
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        i = i + 1
+    }
+    move entries
+}
+
+/// A seed that differs from `recorded` (D4: "a seed drawn to differ from the
+/// recorded one"). Saw has no general RNG (DF-155b's platform gap extends
+/// here), so this is DETERMINISTIC rather than a true random draw — a
+/// distinct value per file (via `task_id`), reproducible across runs of the
+/// same corpus, which for a determinism-audit harness is a reasonable trade:
+/// a replay of a red irdet run reproduces exactly rather than re-rolling.
+func differing_seed(recorded: String, task_id: Int) -> String {
+    var candidate = (task_id * 2654435761 + 104729) % 2000000000
+    if candidate == 0 {
+        candidate = 1
+    }
+    var s = candidate.to_string()
+    if s == recorded {
+        s = if recorded == "1" { "2" } else { "1" }
+    }
+    s
+}
+
+/// Check one file with NO manifest hit: the original two-fresh-compiles path,
+/// unchanged since before design 220. The two seed compiles stay SEQUENTIAL
+/// inside the task; the parallelism is across files, which are independent.
+func check_one_compile_both(index: Int, rel: String, python: String) -> Check {
     var first = emit_ir(rel, seed_a(), index, python)
     if let a = move first {
         var second = emit_ir(rel, seed_b(), index, python)
         if let b = move second {
             if same_bytes(&a, &b) {
-                Check(verdict: Verdict.Ok, detail: "")
+                Check(verdict: Verdict.Ok, detail: "", reused: false)
             } else {
                 Check(verdict: Verdict.Mismatch,
-                      detail: "{a.len()} vs {b.len()} bytes")
+                      detail: "{a.len()} vs {b.len()} bytes", reused: false)
             }
         } else {
-            Check(verdict: Verdict.Skip, detail: "")
+            Check(verdict: Verdict.Skip, detail: "", reused: false)
         }
     } else {
-        Check(verdict: Verdict.Skip, detail: "")
+        Check(verdict: Verdict.Skip, detail: "", reused: false)
     }
+}
+
+/// Check one file that HAS a fresh manifest entry (design 220 D4): one fresh
+/// compile under a differing seed, byte-compared against the reused
+/// artifact. On any mismatch, the three-way verify — fresh recompiles at
+/// BOTH the recorded seed and the differing one, in subprocesses — decides
+/// which of the three D4 outcomes this is, and the verdict NEVER comes from
+/// the reused artifact alone past this point.
+func check_one_reuse(index: Int, rel: String, entry: ManifestEntry,
+                     run_dir: String, python: String) -> Check {
+    var artifact_path = StringBuilder()
+    artifact_path.append(run_dir)
+    artifact_path.append("/")
+    artifact_path.append(entry.ll_name)
+    guard let artifact = read_data_file(artifact_path.build()) else {
+        // The manifest named an artifact that is not actually there —
+        // fall back rather than trusting a dangling entry.
+        return check_one_compile_both(index, rel, python)
+    }
+
+    let seed_b = differing_seed(entry.seed, index)
+    guard let fresh = emit_ir(rel, seed_b, index, python) else {
+        return check_one_compile_both(index, rel, python)
+    }
+
+    if same_bytes(&fresh, &artifact) {
+        return Check(verdict: Verdict.Ok, detail: "", reused: true)
+    }
+
+    // Mismatch: never reported from this one comparison alone. Recompile
+    // BOTH sides fresh, in subprocesses, before concluding anything.
+    guard let fresh_a = emit_ir(rel, entry.seed, index, python) else {
+        return check_one_compile_both(index, rel, python)
+    }
+    guard let fresh_b = emit_ir(rel, seed_b, index, python) else {
+        return check_one_compile_both(index, rel, python)
+    }
+
+    if same_bytes(&fresh_a, &artifact) {
+        if same_bytes(&fresh_a, &fresh_b) {
+            // fresh-A == fresh-B == artifact: the earlier mismatch was
+            // transient (e.g. the artifact raced a prune) — counted, but the
+            // verdict comes from the fresh pair, which agree.
+            Check(verdict: Verdict.Ok,
+                  detail: "reuse-fallback: transient mismatch against the artifact, fresh pair agrees",
+                  reused: false)
+        } else {
+            // fresh-A == artifact, fresh-A != fresh-B: true nondeterminism,
+            // reported exactly as the compile-both path already does.
+            Check(verdict: Verdict.Mismatch,
+                  detail: "{fresh_a.len()} vs {fresh_b.len()} bytes", reused: false)
+        }
+    } else {
+        // fresh-A != artifact: the artifact does not match what its OWN
+        // recorded seed produces fresh — a violated invariant, never
+        // absorbed into Mismatch or a silent pass.
+        Check(verdict: Verdict.Invariant,
+              detail: "recorded artifact is {artifact.len()} byte(s); a fresh recompile at its own seed ({entry.seed}) is {fresh_a.len()} byte(s)",
+              reused: false)
+    }
+}
+
+/// The dispatcher: a fresh manifest hit takes the reuse path, everything else
+/// (no manifest, or no entry for this file) takes the original one.
+func check_one(index: Int, rel: String, entry: ManifestEntry?,
+               run_dir: String?, python: String) -> Check {
+    if let e = entry {
+        if let dir = run_dir {
+            return check_one_reuse(index, rel, e, dir, python)
+        }
+    }
+    check_one_compile_both(index, rel, python)
 }
 
 /// A string as a JSON scalar body. Only the two characters JSON forbids raw need
@@ -533,6 +747,25 @@ func main() -> Int {
     let _ = Directory.create(Path(s: build_dir()))
     let _ = Directory.create(Path(s: scratch_dir()))
 
+    // design 220 D4: resolved and read ONCE, before any check starts — see
+    // `resolve_last_run_dir`'s own docstring for why a fixed generation
+    // matters. Absent (either half) means every file falls through to
+    // `check_one_compile_both`, byte-for-byte today's behavior. `manifest`
+    // is read from repeatedly below (once per file, across the whole run) —
+    // `is_some()` + `!` are both BORROWS (design 218 DF-218a / the payload
+    // borrow rule), so this never consumes it, unlike `if let`.
+    let manifest_run_dir = resolve_last_run_dir()
+    var manifest: Map<String, ManifestEntry>? = None
+    if let dir = manifest_run_dir {
+        manifest = read_manifest(dir)
+    }
+    if manifest.is_some() {
+        let count = manifest!.len()
+        print("irdet: suite manifest found ({count} entries)")
+    } else {
+        print("irdet: no suite manifest -- every file compiles fresh both sides, as before design 220")
+    }
+
     let started = Instant.now()
 
     // Files are independent, so the checks fan out — in WAVES of at most
@@ -547,6 +780,8 @@ func main() -> Int {
     var checked = 0
     var skipped = 0
     var mismatched = 0
+    var invariant_violations = 0
+    var reused = 0
     var index = 0
     while index < files.len() {
         var wave = Vector<TaskHandle<Check>>()
@@ -555,7 +790,17 @@ func main() -> Int {
             guard let rel = files.get(index + w) else {
                 break
             }
-            let h = group.spawn(check_one(index + w, rel, opts.python))
+            // The lookup happens HERE, in the main task, and only the
+            // looked-up entry (an owned, Copy-tier value — two Strings)
+            // crosses into the spawned task, never the Map itself: an MT
+            // TaskGroup borrow would need `Send`, and a lone entry sidesteps
+            // the question entirely.
+            var entry: ManifestEntry? = None
+            if manifest.is_some() {
+                entry = manifest!.get(rel)
+            }
+            let h = group.spawn(
+                check_one(index + w, rel, entry, manifest_run_dir, opts.python))
             wave.push(move h)
             w = w + 1
         }
@@ -579,6 +824,9 @@ func main() -> Int {
         let result = handle.join()
         let rel = files.get(index) ?? "<unknown>"
 
+        if result.reused {
+            reused = reused + 1
+        }
         match result.verdict {
             case Ok -> { checked = checked + 1 },
             case Skip -> {
@@ -591,6 +839,11 @@ func main() -> Int {
                 checked = checked + 1
                 mismatched = mismatched + 1
                 print("  MISMATCH: {rel} ({result.detail})")
+            },
+            case Invariant -> {
+                checked = checked + 1
+                invariant_violations = invariant_violations + 1
+                print("  VIOLATED INVARIANT: {rel} ({result.detail})")
             }
         }
         if let sink = opts.jsonl {
@@ -603,10 +856,18 @@ func main() -> Int {
     let elapsed = started.elapsed().as_millis()
     let whole = elapsed / 1000
     let tenths = (elapsed % 1000) / 100
-    print("irdet: compiled {checked} example(s) twice under differing PYTHONHASHSEED ({skipped} skipped, {whole}.{tenths}s)")
+    print("irdet: compiled {checked} example(s) under differing PYTHONHASHSEED ({skipped} skipped, {whole}.{tenths}s)")
+    if reused > 0 {
+        print("irdet: {reused}/{checked} reused a suite artifact instead of a second fresh compile")
+    }
 
+    if invariant_violations > 0 {
+        print("irdet: {invariant_violations} file(s) VIOLATED THE REUSE INVARIANT (a reused artifact did not match a fresh recompile at its own recorded seed)")
+    }
     if mismatched > 0 {
         print("irdet: {mismatched} file(s) produced NON-REPRODUCIBLE IR")
+    }
+    if mismatched > 0 || invariant_violations > 0 {
         return EXIT_FAILED
     }
     if checked == 0 {

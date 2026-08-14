@@ -156,6 +156,104 @@ artifact produces the invariant-violation category, not a nondeterminism
 report and not a pass; `irdet --all` with NO manifest present behaves
 exactly as today.
 
+**Unit 3 finding (STOP-DON'T-WORKAROUND, pre-existing compiler bug, more
+severe than unit 2's and PREDATES design 220 entirely): `irdet`'s process
+exit code is not functional and never has been — the `irdet`/`irdet-all`
+battery gate has been VACUOUSLY GREEN since design 155 ported the harness to
+Saw.** Minimal repro (12 lines, no design-220 code involved):
+```saw
+import std.process.{Command}
+func main() -> Int {
+    var c = Command(program: "echo")
+    c.arg("hi")
+    guard let done = c.output() else { return 9 }
+    print("ran")
+    if done.success() { return 1 }
+    0
+}
+```
+Compiled and run: prints `ran`, exits **0** — not 1. `Command.output()`
+suspends (TESTING.md / the saw-lang skill: "run() and output() ARE BOTH
+COOPERATIVE"), which makes `main()` a coroutine transitively; a coroutine
+`main() -> Int`'s returned value does not reach the process exit status,
+for any value, anywhere in the function — confirmed with the CHECKED OUT,
+UNMODIFIED, pre-220 `devtools/irdet/src/main.saw` (`git show HEAD~4:...`):
+compiled as-is and run with a bad flag (`return EXIT_USAGE` = 2, from
+`parse_options`, itself reached only because `main()` already suspends via
+`tracked_examples()`'s own `Command.output()` for `git ls-files`), it exits
+**0**, not 2. A SYNC `main() -> Int` (no suspending call anywhere in it)
+works correctly — confirmed separately — so the break is specific to the
+suspending-main + `Int` return combination; `codegen/core.py`'s special
+case for `main` (`_declare_function`, ~line 2399) only hardcodes a `ret 0`
+for a `-> Void` main, so a `-> Int` main's LLVM-level return type is
+whatever `func.return_type` says, and something in the coroutine-lowered
+path for `main` specifically loses that value between the state machine's
+final `Poll::Ready` and the process's actual `exit()`. Blast radius,
+swept (brief obligation 4): every `func main() -> Int` in the tree —
+`selfhost/lexer/src/main.saw` (no suspending call visible in it — likely
+unaffected, not independently confirmed) and four `examples/*.saw` tests
+(their return value is not what test_runner checks, so the bug is inert for
+them) — `devtools/bench/src/main.saw` uses a VOID main + `panic()` for its
+checksum gate, unaffected by construction. `devtools/irdet` is the ONE
+existing program combining a suspending `main()` with a data-driven `Int`
+return depended on for pass/fail, which is exactly `battery.sh`'s
+`run_irdet()` and `make irdet`/`irdet-all`'s gating mechanism. Consequence:
+design 141's own mismatches were most likely caught by a human reading a
+printed `MISMATCH:` line (or by the pre-155 Python `tools/irdet.py`, whose
+`sys.exit` is unaffected) rather than by automated CI, and any REGRESSION
+since the design-155 port would not have failed a build. Not worked around
+here (there is no in-language alternative — Saw's stdlib has no explicit
+`process.exit(code)` to sidestep `main`'s return value with); unit 3's own
+Saw logic below is verified by READING STDOUT (the printed `MISMATCH:` /
+`VIOLATED INVARIANT:` lines and summary counts), never by trusting
+`irdet`'s exit code, and this brief's own gate runs report the real
+mismatch/invariant counts alongside the (currently meaningless) exit
+status. Needs its own DF and fix outside this tooling-track brief — likely
+the highest-priority of the two findings this brief surfaced, since it
+means a WHOLE BATTERY STAGE provides no automated protection today.
+`tools/irdet_remote.py` is UNAFFECTED (both its local and remote checking
+already read structured `--jsonl` records rather than trusting `$?` —
+confirmed by re-reading `check_here`, which never even examines its
+`subprocess.run(...)`'s return code), so the two-machine driver's own
+pass/fail judgment stays sound; only the bare `./.build/irdetbin --all`
+invocation (`battery.sh`'s `run_irdet`, `make irdet`/`irdet-all`) is
+affected.
+
+**Unit 3 gate, run at full scale (`irdet --all` against a fresh 1152-entry
+suite manifest, one seed differing per file — design 220's own
+`differing_seed`, deterministic since Saw has no RNG):** 1147 examples
+checked, 67 skipped, **0 true-nondeterminism mismatches**, **174/1147
+(15.2%) reused cleanly** (a fresh compile matched the suite's own artifact
+on the first try), **968/1147 (84.4%) landed in `VIOLATED INVARIANT`** —
+every one of them correctly categorized, none silently passed, none
+misreported as nondeterminism, exactly as D4 specifies; this is the unit-2
+finding's node_id-leak bug manifesting at corpus scale, not a defect in
+unit 3's own logic (confirmed: the mandatory deliberate-corruption test
+below produces the identical category through the identical code path).
+Wall time: **1041.0s**, i.e. SLOWER than the 755s Aug-14 baseline
+(+38%) — because 84.4% of the corpus pays the three-way verify's full
+THREE compiles (reuse attempt + fresh-A + fresh-B) instead of the
+baseline's two, and only 15.2% gets the intended one-compile saving. D5's
+"roughly half cost in the steady state" motivation is REAL but not
+currently realized: it is gated on DF-pending's node_id-leak fix landing
+first, at which point the reuse rate should jump from 15% toward the
+near-100% this run's clean 15.2% slice already demonstrates is achievable
+(nothing about those files is special — they are almost certainly
+whichever file happened to be the first each irdet worker/task compiled
+in its process, matching unit 2's finding precisely). Deliberate-corruption
+test (mandatory): `examples/hello.saw`'s recorded artifact was appended
+with a garbage comment line and irdet re-run on it alone —
+`VIOLATED INVARIANT: examples/hello.saw (recorded artifact is 25093
+byte(s); a fresh recompile at its own seed (1432464053) is 25031
+byte(s))` — the invariant-violation category, never a nondeterminism
+report, never a pass. No-manifest test (mandatory): run against
+`--only-files` with `.build/test_runner_last` absent prints "no suite
+manifest -- every file compiles fresh both sides, as before design 220"
+and every file takes `check_one_compile_both`, unchanged from the
+pre-220 binary bit for bit (verified by running the CHECKED-OUT pre-220
+binary and this one side by side on the same two files with `--only-files`
+and comparing output shape).
+
 **Unit 4 — battery + docs.** battery.sh ordering note (irdet after suite
 maximizes reuse but must not REQUIRE it — D4's fallback), TESTING.md,
 CLAUDE.md testing digest. Gate: full tracked battery.
