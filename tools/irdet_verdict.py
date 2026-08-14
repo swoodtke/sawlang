@@ -75,7 +75,12 @@ def main() -> int:
     for path, detail in mismatched:
         print(f"  MISMATCH {path}  ({detail})")
         failed = True
-    if counts["ok"] == 0:
+    if counts["ok"] == 0 and not mismatched:
+        # Only when there is no other explanation. A run where EVERYTHING
+        # mismatched also has no `ok` record, and shouting "nothing was checked"
+        # over a page of findings names the wrong cause — which is exactly what
+        # this said the first time it was fed a deliberately nondeterministic
+        # compiler.
         print("irdet_verdict: NOTHING WAS CHECKED — every candidate skipped, so "
               "this run verified nothing. Check that the interpreter running "
               "sawc can import llvmlite.")
