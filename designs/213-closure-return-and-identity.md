@@ -1,6 +1,9 @@
 # Design 213 — closures: local `return` typing + the embed identity leak
 
-**Status: DF-212a LANDED Aug 13 (units 1-4). Fixes the two compiler
+**Status: DF-212a LANDED Aug 13 (units 1-4). DF-212b minimized + pinned
+(units 5-6); unit 7's FIX is STOPPED pending a ruling — see "What the
+sweep changed about DF-212b's shape" below, which retires two of this
+brief's premises. Fixes the two compiler
 bugs design 212's sweep surfaced (DF-212a, DF-212b — filed with full
 bisection notes in `designs/todo.md`, "Design 212 findings"). One
 family: both are places the typechecker/embed machinery fails to
@@ -142,6 +145,51 @@ Units:
    Set/Map design is fine and tested) — instead the pin from unit 6
    plus one closure-argument-in-suspending-caller example is the
    regression coverage.
+
+## What the sweep changed about DF-212b's shape (Aug 13, units 5-7)
+
+**Units 5-6 LANDED; unit 7 STOPPED and reported.** Two of this half's
+premises did not survive contact:
+
+1. **The closure is INCIDENTAL.** The minimized repro contains none.
+   A non-`sync` function-typed parameter is conservatively
+   suspending, so the original `scan_args({...})` was just the
+   cheapest way to make `parse` suspend; a plain `yield_now()` in its
+   place reproduces identically. The brief's title for DF-212b ("a
+   closure-literal argument mints a second type identity") names a
+   coincidence, not the mechanism. Unit 8 is therefore MOOT — there is
+   no closure-argument shape to re-enable.
+2. **There is no second identity.** Instrumenting the comparison:
+   expected is `TypeKind.STRUCT` / `struct_name='Cmd'` / `symbol=None`
+   — an UNRESOLVED field annotation carrying the parser's default kind
+   for a bare named type — against the real `TypeKind.ENUM` with its
+   `EnumSymbol`. Same printed name, same module; a KIND mismatch. A
+   STRUCT-typed field of the identical shape compiles and runs, which
+   is exactly why only enum-typed fields bite.
+
+Root cause, as far as unit 7 took it: design 84's cross-module embed
+splices the frame struct + resume method into the ENTRY AST
+(`coro_transform.py:6448-6456`), and the `post_transform=True`
+re-entry re-checks that spliced body as entry-module code. The `Cli`
+symbol found there has the bare/root identity and
+**un-canonicalized field types** — module A's own registration
+resolved them, the merged/entry one did not.
+
+The brief's nominated suspect was wrong: the fix is NOT at design
+204's `_type_lookup_module`. Teaching `_vis_module_for_source` to
+answer from `_module_scope_by_file` for user files (the map
+`_home_module_scope` already keeps for the generic path) makes the
+lookup module correct — verified — and does NOT fix the bug, because
+the failing comparison never depended on it. That change was reverted
+unlanded. The fix belongs where an imported module's declarations are
+registered into the merged namespace, and it rides the path
+`gmgate`/`bootstrap`/`sos` all exercise — hence STOPPED for a ruling
+rather than attempted under a suite gate this session could not
+honestly clear.
+
+`examples/crossmodule_embed_type_identity.saw` (+ its
+`examples/modules/embed_provider.saw`) is the XFAIL pin, carrying the
+verified load-bearing legs in its header.
 
 ## Gates
 

@@ -771,7 +771,39 @@ all.
   `sawc/std/taskgroup.saw` already uses. Superseded as unit 4's actual blocker
   by DF-212b below, which rules out passing a closure to the helper at all.
 
-- **DF-212b (BLOCKED unit 4 as designed) — a closure literal argument to a
+- **DF-212b — RESTATED Aug 13 by design 213 units 5-7: the CLOSURE IS
+  INCIDENTAL, and so is the "second identity" reading.** The minimized repro
+  (`examples/crossmodule_embed_type_identity.saw` + `examples/modules/
+  embed_provider.saw`, pinned XFAIL) is 25 lines and contains no closure at
+  all: a suspending EXTENSION METHOD in module A that constructs a struct with
+  an ENUM-typed field, called from a module-B `main` that transitively
+  suspends. The closure in the original bisection was only the cheapest way to
+  make a function suspending — a non-`sync` function-typed parameter is
+  conservatively suspending, so `scan_args` suspended, so `parse` did. Swapping
+  it for a plain `yield_now()` reproduces identically.
+  **What the two `Cmd`s actually are** (instrumented, Aug 13): NOT two module
+  identities. The EXPECTED side is `TypeKind.STRUCT`, `struct_name='Cmd'`,
+  `symbol=None` — an UNRESOLVED field annotation still carrying the parser's
+  default kind for a bare named type; the ACTUAL side is the real
+  `TypeKind.ENUM` with its `EnumSymbol`. They print the same because display
+  renders the name. A STRUCT-typed field of the same shape compiles and runs,
+  which is why only enum-typed fields bite.
+  **Where it comes from**: design 84's cross-module embed splices the frame
+  struct + resume method into the ENTRY AST (`coro_transform.py:6448-6456`),
+  and the re-entry pass (`post_transform=True`) re-checks that spliced body as
+  entry-module code. The struct symbol `Cli` it finds there has identity `Cli`
+  (bare/root) and un-canonicalized field types — module A's own registration
+  resolved them, this one did not. So the fix belongs at the registration of an
+  imported module's declarations into the merged/entry namespace (resolve the
+  field annotations), or at keeping the spliced body on A's identities; it is
+  NOT at the design-204 `_type_lookup_module` funnel, which the brief nominated
+  — making `_vis_module_for_source` answer from `_module_scope_by_file` for
+  user files was tried and does NOT fix it (reverted, unlanded).
+  **Unit 7 STOPPED and reported** rather than worked around: the fix touches
+  the embed/registration path that `gmgate`/`bootstrap`/`sos` all ride.
+  Original text (superseded where it says "closure" and "second identity"):
+
+  **DF-212b (BLOCKED unit 4 as designed) — a closure literal argument to a
   free function corrupts an unrelated enum's type identity, ACROSS the whole
   caller, when the caller sits in a module that gets cross-module-embedded
   for an unrelated reason.** Isolated by bisection in

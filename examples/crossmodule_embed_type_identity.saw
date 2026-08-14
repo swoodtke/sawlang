@@ -1,0 +1,30 @@
+// XFAIL: DF-212b a type declared in a CROSS-MODULE-EMBEDDED module gets a
+// SECOND identity — `field `command` expects type `Cmd` but got `Cmd``, the
+// same printed name on both sides, which is design 144's signature for one
+// type resolved under two different (module, name) answers.
+//
+// A type keeps ONE identity however its defining module is reached. When
+// module B's `main` transitively suspends, design 210's machinery embeds
+// module A's suspending `Cli.parse` into B's frame; re-resolving A's own
+// declarations while doing so must not mint a new `Cmd`. Note the error lands
+// on a line that has nothing to do with the closure — the enum is simply
+// declared in the module that got embedded.
+//
+// Load-bearing legs, each verified by bisection (removing any one silences it):
+//   - `main` (the entry point) transitively suspends
+//   - `parse` is made potentially-suspending by a non-`sync` function-typed
+//     parameter that is passed a function value (marking it `sync` fixes it)
+//   - `parse` is an EXTENSION METHOD (a free function hits a different error)
+//   - `Cmd`/`Cli` are declared in the OTHER module (all-in-one-file compiles)
+// The closure LITERAL is not required — a pre-bound closure value does it too.
+// EXPECT: success
+// EXPECT-OUTPUT:
+// build
+import std.task
+import modules.embed_provider
+
+func main() {
+    let c = embed_provider.Cli.parse()
+    print(embed_provider.name_of(&c))
+    task.yield_now()
+}

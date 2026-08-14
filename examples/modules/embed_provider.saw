@@ -1,0 +1,33 @@
+// Module A for the DF-212b pin (`examples/crossmodule_embed_type_identity.saw`).
+//
+// The three things that have to be TOGETHER in one module for the bug: a type
+// (`Cmd`), a struct with a field of that type (`Cli.command`), and a function
+// made potentially-suspending by a non-`sync` function-typed parameter that is
+// actually called with a function value. `parse` must be an EXTENSION METHOD —
+// as a free function the same shape trips a different error instead.
+
+public enum Cmd {
+    case Build
+}
+
+public struct Cli { public command: Cmd }
+
+// `handle` carries no `sync`, so a call through it may suspend: `scan_args`
+// suspends, so `parse` does, so `main` does — which is what puts `parse` on the
+// cross-module embed path (design 210).
+func scan_args(handle: () -> Int) -> Int {
+    handle()
+}
+
+public extension Cli {
+    public func parse() -> Cli {
+        let k = scan_args({ 1 })
+        Cli(command: Cmd.Build)
+    }
+}
+
+public func name_of(c: &Cli) -> String {
+    match c.command {
+        case Build -> "build"
+    }
+}
