@@ -130,9 +130,10 @@ extension LockRelease: NoCopy {
 // one the compiler synthesizes.
 extension Mutex<T>: NoCopy {}
 
-// Snapshot the payload under the lock. Requires `T: Copy` so the read
-// duplicates rather than moves the guarded value out.
-extension Mutex<T: Copy> {
+// Snapshot the payload under the lock. Bounded `T: ExplicitCopy` — the body
+// spells `.copy()`, and that is the bound licensing the spelling (design 219) —
+// so the read duplicates rather than moves the guarded value out.
+extension Mutex<T: ExplicitCopy> {
     /// Returns a copy of the payload, read under the lock.
     public func get(&self) unsafe -> T {
         let word = self.state.ptr()

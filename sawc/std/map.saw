@@ -125,6 +125,13 @@ extension Map<K: Hashable + Equatable, V, A: Allocator = GlobalAllocator> {
     // borrows body that has to SEARCH splits in two, with the finder here and
     // the accessor lending the bucket it picked. `get`/`contains_key`/`remove`/
     // `[]` are all this probe plus what they do with the answer.
+    // NOTE (design 219 B3): this body uses `key` by value three times, so its
+    // real requirement is the silent `Copy` tier — an UNWRITTEN one, the DF-217i
+    // shape. It cannot be written here: every caller (`get`, `contains_key`,
+    // `remove`, `[]`) sits in this same K-unbounded extension, so the bound has
+    // to hoist to the extension header, which makes it a Map-wide API change
+    // rather than one method's signature. Left for the wave that runs that
+    // consumer sweep; design 65's key-copyability gate is what holds meanwhile.
     func _find(&self, key: K) -> Int {
         if self.cap == 0 {
             return -1

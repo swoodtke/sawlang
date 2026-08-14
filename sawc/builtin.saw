@@ -10,26 +10,56 @@ trait Deinit {
     func deinit(&var self)
 }
 
-// Copy umbrella trait - "this type can be duplicated via copy()". Used mainly
-// as a generic bound (`T: Copy`). Satisfied implicitly by trivially-copyable
-// (POD) types, and by any type declaring ImplicitCopy or ExplicitCopy; the
-// compiler checks satisfaction structurally, so types need not declare `: Copy`.
+// Copy - THE silently-copyable tier (design 219). A `Copy` value is duplicated
+// by the compiler at every transfer with nothing written at the site. It is
+// DERIVED, not declared: trivially-copyable (POD) types are Copy, and so is any
+// struct or enum whose owning members are all Copy — the automatic tier, which
+// owes no declaration and is not asked for one. Whether a given type duplicates
+// bitwise or by retaining a refcount is an emission detail; nothing above
+// codegen distinguishes the two.
+//
+// A DECLARED conformance has two forms, both meaningful:
+//
+//   extension Point: Copy {}          // an ASSERTION: compiles iff the members
+//                                     // qualify, and keeps compiling only while
+//                                     // they do — a type-level API contract
+//
+//   extension Arc<T>: Copy {          // THE RETAIN HOOK: the compiler calls this
+//       func copy(&self) -> Self {    // body at every silent transfer
+//           ...atomic increment...
+//       }
+//   }
+//
+// The hook is the mechanism `Arc` and `Channel` are built on, in ordinary Saw
+// rather than compiler magic, and it is what lets a user write their own
+// Arc-alike. It is also a PERFORMANCE FOOTGUN worth stating plainly: the body
+// runs at transfer sites no source construct names, so a heavy one costs on
+// every silent copy. Cheap and infallible is the expected shape. The one part
+// of that contract the compiler enforces is `sync` (design 219 A1) — a
+// suspending `copy()` is refused at the conformance, because its suspension
+// would otherwise be invisible at every site the compiler inserts it.
+//
+// `ImplicitCopy` is the retiring spelling of this same tier and means exactly
+// `Copy`.
 trait Copy {
     func copy(&self) -> Self
 }
 
-// ImplicitCopy trait - the compiler invokes copy() automatically at every
-// transfer site. Contract: cheap, O(1)-ish (e.g. Rc refcount bump).
-// Implementing ImplicitCopy requires also implementing Deinit.
 trait ImplicitCopy: Deinit {
     func copy(&self) -> Self
 }
 
-// ExplicitCopy trait - the compiler NEVER invokes copy() automatically;
-// transfer sites demand `move`, and duplication is always a visible v1.copy().
-// Contract: may be expensive/deep (e.g. Vector, Map).
-// Implementing ExplicitCopy requires also implementing Deinit.
-// ImplicitCopy and ExplicitCopy are mutually exclusive on one type.
+// ExplicitCopy - "this value can be duplicated, and the duplicate is SPELLED".
+// An ordinary trait, and since design 219 no longer a tier: a type declaring it
+// and nothing else is move-only, so every transfer needs `move` and every
+// duplicate a visible `.copy()`. Contract: may be expensive or deep (Vector,
+// Map). `@synthesize extension T: ExplicitCopy {}` derives the memberwise body.
+//
+// Every `Copy` type satisfies it — copying one for free is a valid way to
+// answer `copy()` — so `<T: ExplicitCopy>` reads as "duplicable, possibly with
+// ceremony" and is the bound that licenses a spelled `.copy()` on an abstract
+// `T`. `<T: Copy>` is the stricter one: it admits only what duplicates
+// silently.
 trait ExplicitCopy: Deinit {
     func copy(&self) -> Self
 }
@@ -217,13 +247,31 @@ trait Error: Printable {
 // Thread-safety marker traits (design 21 item 1)
 // =============================================================================
 
-// Send - "a value of this type may be transferred to another task".
-// Sync - "a &-reference to this type may be shared across tasks".
+// Send - "a value of this type may MOVE to another task or thread".
+//
+// Sync - "this type's `&self` surface is safe under true parallelism: more than
+// one thread may hold shared access at once".
+//
+// Saw has no shared references in flight, so Sync is not about `&` travelling:
+// a plain `&` never crosses a spawn, and a single-threaded group never consults
+// Sync at all. It is consulted where handles and statics CREATE parallel shared
+// access — an `Arc` clone sent across a spawn in a `threads: N` group (which is
+// why `Arc<T: Send + Sync>` demands it), a lock (`Mutex` and `SpinLock` are Sync
+// BECAUSE they serialize), and a `static`, which every thread can reach (the
+// `unsafe static var` exemption is the escape hatch that proves the rule).
+//
+// INTERIOR MUTABILITY is what makes the two separate axes. A struct with an
+// `Atomic` field mutates safely through `&self`, so it is Send AND Sync. A
+// struct wrapping a non-atomic interior cell moves harmlessly to another thread
+// (Send) but would race under two threads' shared access (not Sync). Send
+// cannot tell those apart; Sync is the record of exactly that difference.
+//
 // Both are COMPILER-KNOWN and auto-derived STRUCTURALLY (the auto-Copy
 // pattern): a struct/enum is Send/Sync iff all its fields/payloads are.
-// Explicit conformance (`extension X: Send`) is rejected - derivation only.
-// They are declared here purely so they are nameable as generic bounds
-// (`T: Send`); the compiler never consults a registered conformance for them.
+// Explicit conformance (`extension X: Send`) is rejected - derivation only;
+// `UnsafeSend`/`UnsafeSync` below are how a type asserts what the compiler
+// cannot see. They are declared here purely so they are nameable as generic
+// bounds (`T: Send`); the compiler never consults a registered conformance.
 trait Send {
     // Marker trait - structurally derived, no methods
 }

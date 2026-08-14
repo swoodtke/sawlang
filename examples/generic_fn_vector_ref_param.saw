@@ -6,7 +6,10 @@
 // EXPECT-OUTPUT:
 // 3
 
-func vlen<T: Copy>(v: &Vector<T>) -> Int {
+// UNBOUNDED (design 219): the body only asks the vector its length, so it never
+// duplicates a `T` and owes no copy bound. The `T: Copy` it used to carry proved
+// nothing the body needed and refused `vlen<File>` for no reason.
+func vlen<T>(v: &Vector<T>) -> Int {
     v.len()
 }
 

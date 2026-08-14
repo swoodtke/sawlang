@@ -1,11 +1,13 @@
 // Vector.copy() is a conditional method: it only exists when the element type
-// is Copy (`extension Vector<T: Copy>`). Vector<File> has a NoCopy element, so
-// copy() does not exist for it and the call is a compile-time error naming the
-// unmet bound. (Diagnostic improved from the old codegen-time "cannot copy
-// value of type `File`" to this typechecker-time bound diagnostic.)
+// can be duplicated (`extension Vector<T: ExplicitCopy>` — design 219, since the
+// body spells `buf[i].copy()`). `Vector<File>` has a move-only element that
+// cannot be duplicated at all, so copy() does not exist for it and the call is a
+// compile-time error naming the unmet bound. (Diagnostic improved from the old
+// codegen-time "cannot copy value of type `File`" to this typechecker-time
+// bound diagnostic.)
 // EXPECT: error
 // EXPECT-ERROR-CONTAINS: type `Vector<File, GlobalAllocator>` has no method `copy`
-// EXPECT-ERROR-CONTAINS: requires `T: Copy`, and `File` does not conform
+// EXPECT-ERROR-CONTAINS: requires `T: ExplicitCopy`, and `File` does not conform
 
 func main() {
     var v = Vector<File>()

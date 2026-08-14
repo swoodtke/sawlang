@@ -152,6 +152,24 @@ extension UnsafeRef<T> {
         lend self.p[0]
     }
 
+}
+
+// The conformance design 218a ruling 10 deferred to design 219, landed with the
+// collapse. `UnsafeRef` is exactly the trait's shape: move-only, duplicable on
+// request, spelled at the call site — and it can be said out loud now that
+// `ExplicitCopy` is an ordinary trait rather than a tier. The type stays
+// `NoCopy`, which is what keeps the handle move-only: the tier declaration wins,
+// and this conformance adds only the named `copy()`.
+//
+// EFFECT MATCHING (the wrinkle ruling 10 flagged, answered once here and for
+// `Arc` alike): the requirement is a plain `copy(&self) -> Self` and the
+// conformer is `unsafe`-marked, which is LEGAL. A conformer may be STRICTER
+// than its requirement, never looser — an `unsafe` marker describes the body,
+// and design 130 forces it onto any function naming an unsafe type, so refusing
+// it would make the trait unimplementable by exactly the types that need it.
+// The reverse direction stays refused (a safe conformer of an `unsafe`
+// requirement, conformance row U26).
+extension UnsafeRef<T>: ExplicitCopy {
     /// Returns a second handle to the same referent.
     ///
     /// `UnsafeRef` is `NoCopy` so that duplication is written where it

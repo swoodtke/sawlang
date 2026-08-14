@@ -116,7 +116,10 @@ extension Once<T> {
     }
 }
 
-extension Once<T: Copy> {
+// Bounded `T: ExplicitCopy` (design 219): the readers below hand back a
+// duplicate of the published value and SPELL `.copy()` to make it, which is the
+// bound that licenses the spelling. The whole duplicable family qualifies.
+extension Once<T: ExplicitCopy> {
     /// The published value.
     ///
     /// PANICS if nothing has been published yet. Reading a value that has not

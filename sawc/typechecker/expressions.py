@@ -3051,25 +3051,36 @@ class ExpressionsMixin:
                               and resolved_arg.struct_name
                               in getattr(self, 'current_type_params', {}))
             for bound in tp.bounds:
-                if bound == "Copy":
-                    ok = self._type_satisfies_copy_bound(resolved_arg)
-                else:
-                    if bound not in ("Send", "Sync") and self.get_trait_info(bound) is None:
-                        self._error(
-                            ErrorKind.UNDEFINED_VARIABLE,
-                            f"unknown trait `{bound}` in type parameter bound",
-                            line, column)
-                        continue
-                    ok = self._bound_satisfied(resolved_arg, bound)
+                if bound not in ("Send", "Sync") and self.get_trait_info(bound) is None:
+                    self._error(
+                        ErrorKind.UNDEFINED_VARIABLE,
+                        f"unknown trait `{bound}` in type parameter bound",
+                        line, column)
+                    continue
+                # THE Copy family goes through `_bound_satisfied` like every
+                # other bound (design 219). This site used to special-case
+                # `Copy` with a predicate that ignores the in-scope type-param
+                # bounds environment — the third of three entry points the
+                # collapse found for one rule, and the reason obligation 1 asks
+                # for a funnel.
+                ok = self._bound_satisfied(resolved_arg, bound)
                 if ok:
                     if concrete_name and not in_scope_param:
                         for an, at in self.namespace.get_type_assignments(
                                 concrete_name, bound).items():
                             type_map[an] = at
                     continue
-                if bound == "Copy":
-                    hint = ("use a trivially-copyable type, or one implementing "
-                            "ImplicitCopy/ExplicitCopy")
+                if bound in self._SILENT_COPY_BOUND_NAMES:
+                    hint = ("the `Copy` tier is what duplicates silently — a "
+                            "trivially-copyable type, or one whose members the "
+                            "compiler retains; a type that copies only with a "
+                            "spelled `.copy()` needs an `ExplicitCopy` bound "
+                            "here instead")
+                elif bound == "ExplicitCopy":
+                    hint = (f"add `@synthesize extension {concrete_name}: "
+                            f"ExplicitCopy {{}}`" if concrete_name else
+                            "the type must be duplicable: on the `Copy` tier, "
+                            "or declaring `ExplicitCopy`")
                 elif in_scope_param:
                     hint = (f"add the bound to the enclosing signature: "
                             f"`<{resolved_arg.struct_name}: {bound}>`")

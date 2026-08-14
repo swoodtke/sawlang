@@ -478,12 +478,18 @@ extension Vector<T, A: Allocator = GlobalAllocator> {
 // heap buffer would double-free). Transferring a Vector requires `move`;
 // duplicating it is always a visible `.copy()`, which deep-copies the buffer.
 //
-// The bound `<T: Copy>` is required because copy() duplicates each element via
-// T's copy path. Elements that are not Copy (e.g. Vector<File>) make
-// `.copy()` a compile error naming the element type at monomorphization.
+// The bound `<T: ExplicitCopy>` is what the body needs and what it now says
+// (design 219, judgment site 2): `copy()` SPELLS `buf[i].copy()`, so the element
+// must be duplicable — silently or with ceremony, either is fine here because
+// the ceremony is written. This is also what keeps `Vector<Vector<Int>>.copy()`
+// working after `Copy` narrowed to the silent tier: a nested vector is
+// duplicable, just not silently, and the container's own conformance is exactly
+// where that gets expressed.
+// Elements that cannot be duplicated at all (`Vector<File>`) make `.copy()` a
+// compile error naming the element type at monomorphization.
 // (The `deinit` body is on the unconditional extension above, so it covers every
 // `T`; the `ExplicitCopy: Deinit` requirement is satisfied by that method.)
-extension Vector<T: Copy, A: Allocator = GlobalAllocator>: ExplicitCopy {
+extension Vector<T: ExplicitCopy, A: Allocator = GlobalAllocator>: ExplicitCopy {
     // Regression guard: this used to return a SHORTER vector on refusal, so a
     // "copy" could silently be missing elements (design 123, infallible tier).
     /// Duplicates the vector and every element through the same allocator `A`.
@@ -501,7 +507,9 @@ extension Vector<T: Copy, A: Allocator = GlobalAllocator>: ExplicitCopy {
     }
 }
 
-extension Vector<T: Copy, A: Allocator = GlobalAllocator> {
+// `try_copy` carries `copy`'s bound for `copy`'s reason: it spells the same
+// per-element `.copy()`.
+extension Vector<T: ExplicitCopy, A: Allocator = GlobalAllocator> {
     /// Duplicates the vector, returning `Err(AllocError)` if the allocator runs out
     /// of memory. The entire buffer is reserved upfront, ensuring the function
     /// returns either a complete copy or an error, never a partial vector.
@@ -749,13 +757,17 @@ struct VectorIterator<T> {
     index: Int
 }
 
-// `T: Copy` (design 122 unit A): `next()` yields an element the CONSUMER owns,
-// so it must be a real copy per T's copy class — `.copy()` retains an
-// ImplicitCopy payload, deep-copies an ExplicitCopy one, and bitwise-copies a
-// trivial one. Reading the slot without it minted a duplicate owner and the
-// element was deinit'd twice. `Vector<T>.iter()` carries the matching bound, so
-// a NoCopy element type never reaches here (use `with_ref`/`with_var_ref`).
-extension VectorIterator<T: Copy>: Iterator {
+// `T: ExplicitCopy` (design 122 unit A, restated by 219): `next()` yields an
+// element the CONSUMER owns, so it must be a real copy per T's tier — the
+// SPELLED `buf[idx].copy()` below retains a refcounted payload, deep-copies a
+// ceremony-tier one, and bitwise-copies a trivial one. Reading the slot without
+// it minted a duplicate owner and the element was deinit'd twice. The bound
+// names the duplicable family because the body spells the duplicate;
+// `Vector<T>.iter()` keeps the stricter `T: Copy` at the producer, which every
+// duplicable-family bound admits.
+// A move-only element type never reaches here (use `with_ref`/`with_var_ref`,
+// or the closure methods, which carry no bound at all since design 216).
+extension VectorIterator<T: ExplicitCopy>: Iterator {
     type Item = T
 
     public func next(&var self) unsafe -> T? {
@@ -783,10 +795,10 @@ struct EnumeratedIterator<T> {
     index: Int
 }
 
-// `T: Copy` + `.copy()` for the same reason as `VectorIterator` above: the
-// yielded pair OWNS its element, so it must not be a bitwise duplicate of the
-// slot. (`enumerated()` already carried the bound at the producer.)
-extension EnumeratedIterator<T: Copy>: Iterator {
+// `T: ExplicitCopy` + `.copy()` for the same reason as `VectorIterator` above:
+// the yielded pair OWNS its element, so it must not be a bitwise duplicate of
+// the slot. (`enumerated()` keeps the stricter `T: Copy` at the producer.)
+extension EnumeratedIterator<T: ExplicitCopy>: Iterator {
     type Item = (Int, T)
 
     public func next(&var self) unsafe -> (Int, T)? {

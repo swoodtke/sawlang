@@ -115,9 +115,14 @@ extension Set<T: Hashable + Equatable, A: Allocator = GlobalAllocator> {
 
 // Snapshot + set algebra both DUPLICATE elements into a fresh set/vector while
 // the operands stay live, so the whole extension is bounded `T: Copy` — the
-// same bound `Map.keys()` carries. (This is the tightest achievable bound: even
-// membership-only ops like `is_subset` must read each element BY VALUE to probe
-// the other set, and the visitor/snapshot read path is by-value — a looser
+// same bound `Map.keys()` carries. It stays the SILENT tier under design 219
+// rather than widening to `ExplicitCopy`: two of these bodies spell `e.copy()`,
+// but the rest read each element BY VALUE through the visitors and through
+// `Vector.iter()`, and a by-value read is licensed only by the silent tier.
+// The bound the whole block needs is therefore the stricter one, which admits
+// the spelled copies as well.
+// (This is also the tightest achievable bound: even membership-only ops like
+// `is_subset` must read each element by value to probe the other set — a looser
 // `Hashable + Equatable` bound would need by-reference enum-payload projection,
 // which is not expressible yet, same limit as design 57's snapshots.)
 extension Set<T: Hashable + Equatable + Copy, A: Allocator = GlobalAllocator> {

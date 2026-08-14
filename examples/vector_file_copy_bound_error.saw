@@ -1,10 +1,12 @@
 // Design 40 item 2 (L4, verify-first): `Vector<File>.copy()` once produced a
 // raw Python traceback (brief 09). The bound-gated extension (brief 14) plus the
 // ICE wrapper (brief 26) turned it into a clean, user-facing diagnostic: `copy`
-// lives in `extension Vector<T: Copy>`, and `File` is a NoCopy resource, so the
-// method simply does not exist for `Vector<File>`. Locking test for that verdict.
+// lives in `extension Vector<T: ExplicitCopy>` (design 219 — the body spells
+// `buf[i].copy()`, so the bound names the DUPLICABLE family), and `File` is a
+// move-only resource that cannot be duplicated at all, so the method simply does
+// not exist for `Vector<File>`. Locking test for that verdict.
 // EXPECT: error
-// EXPECT-ERROR-CONTAINS: has no method `copy`: requires `T: Copy`, and `File` does not conform
+// EXPECT-ERROR-CONTAINS: has no method `copy`: requires `T: ExplicitCopy`, and `File` does not conform
 
 func main() {
     var v = Vector<File>()

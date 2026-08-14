@@ -85,12 +85,14 @@ extension Box<T, A: Allocator = GlobalAllocator>: NoCopy {
     }
 }
 
-// Read accessor for a Copy payload (design 42 item 1). Bounded `T: Copy`: it
-// hands back a COPY of the payload (`.copy()` — bitwise for a trivial T, a
-// refcount bump for an ImplicitCopy T like String), leaving the box's own `T`
-// intact. A NoCopy payload has no `.copy()`, so `value()` is simply unavailable
-// there — reach such a payload through method forwarding (below) instead.
-extension Box<T: Copy, A: Allocator = GlobalAllocator> {
+// Read accessor for a duplicable payload (design 42 item 1). Bounded
+// `T: ExplicitCopy`: the body SPELLS `.copy()`, and that bound is the one that
+// licenses the spelling (design 219). It admits the whole duplicable family —
+// bitwise for a trivial T, a retain for a `String`, the type's own `copy()` for
+// a `Vector` — and hands back a copy, leaving the box's own `T` intact. A
+// move-only payload has no `.copy()`, so `value()` is simply unavailable there;
+// reach such a payload through method forwarding (below) instead.
+extension Box<T: ExplicitCopy, A: Allocator = GlobalAllocator> {
     public func value(&self) unsafe -> T {
         self.ptr[0].copy()
     }
