@@ -10,7 +10,13 @@
 // method and in a SUSPENDING one, because the suspending half is the one DF-216g
 // held open — the transform moves the receiver behind the frame, so the capture
 // reaches it through the frame's own handle.
-// XFAIL: DF-216g a closure naming `self` inside a SUSPENDING method ICEs, and `[&self]` is not yet a spelling the grammar accepts
+//
+// The suspending write is spelled `+=` rather than `self.n = self.n + 10`: in a
+// driven body the capture reaches the receiver through a place window, and TWO
+// windows on one move-only root in a single assignment are refused today
+// (DF-218j, pinned by `place_two_windows_one_nocopy_root.saw` — a pre-existing
+// place-system limit with no coroutine in it). The compound form opens one
+// window and is the same write.
 // EXPECT: success
 // EXPECT-OUTPUT:
 // 6
@@ -42,7 +48,7 @@ extension Counter {
 
     func slowWrite(&var self) -> Int {
         task.yield_now()
-        run_int({ [&var self] in self.n = self.n + 10  self.n })
+        run_int({ [&var self] in self.n += 10  self.n })
     }
 }
 

@@ -1,0 +1,53 @@
+// DF-218j: an assignment whose TARGET and whose RHS each open a place window on
+// the same move-only root is refused with a copy error naming a copy nobody
+// wrote. `h.at().n = h.at().n + 10` is the shape; the two controls beside it
+// compile and run, which is what says the refusal is about the pair of windows
+// and not about either one:
+//
+//   * `h.at().n += 10` — ONE window, same move-only root: fine.
+//   * `p.at().n = p.at().n + 10` — TWO windows, Copy-tier root: fine.
+//
+// Windows nest LIFO and a place borrow charges its root (design 141/146), so
+// two windows on one root in one statement is at worst an exclusivity question.
+// Answering it with `cannot copy value of type `Holder`` is the wrong noun for
+// the wrong rule.
+//
+// Found by design 218 stage 3: the `[&self]` capture reaches the receiver
+// through a window in a driven body, so `self.n = self.n + 10` inside the
+// closure becomes exactly this shape — while the SYNC twin of the same source
+// compiles, because the sync capture lowering uses no window at all.
+// XFAIL: DF-218j two place windows on one move-only root in one assignment are refused as a copy
+// EXPECT: success
+// EXPECT-OUTPUT:
+// 11
+// 11
+// 11
+
+struct Cell { n: Int }
+
+struct Holder { c: Cell }
+extension Holder: NoCopy {}
+
+extension Holder {
+    func at(&self) borrows -> Cell { lend self.c }
+}
+
+struct Plain { c: Cell }
+
+extension Plain {
+    func at(&self) borrows -> Cell { lend self.c }
+}
+
+func main() {
+    var h = Holder(c: Cell(n: 1))
+    h.at().n = h.at().n + 10
+    print("{}", h.at().n)
+
+    var g = Holder(c: Cell(n: 1))
+    g.at().n += 10
+    print("{}", g.at().n)
+
+    var p = Plain(c: Cell(n: 1))
+    p.at().n = p.at().n + 10
+    print("{}", p.at().n)
+}

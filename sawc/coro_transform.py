@@ -5802,7 +5802,8 @@ class _FrameBuilder:
         closure with frame captures appears in a position with no accumulator
         (e.g. a suspension-spanning condition)."""
         names = self._closure_frame_free_names(cexpr)
-        if not names:
+        wants_recv = self.has_recv and _closure_names_self(cexpr)
+        if not names and not wants_recv:
             return
         if self._cap_lets is None:
             raise CoroTransformError(
@@ -5813,6 +5814,8 @@ class _FrameBuilder:
                 getattr(cexpr, 'column', 0))
         line = getattr(cexpr, 'line', 0)
         col = getattr(cexpr, 'column', 0)
+        if wants_recv:
+            self._materialize_receiver_capture(cexpr, line, col)
         spec_names = {s.name for s in (cexpr.capture_specs or [])}
         for name in names:
             # The closure takes ownership of the materialized copy via a `move`
@@ -5902,6 +5905,56 @@ class _FrameBuilder:
                 mutable=False, line=line, column=col))
             if forget is not None:
                 self._cap_lets.append(forget)
+
+    def _materialize_receiver_capture(self, cexpr, line, col):
+        """The RECEIVER arm of capture materialization — census R7, and the
+        whole of DF-216g.
+
+        A closure in a driven METHOD body may name `self`. Design 216 rules that
+        capture a BORROW (a receiver IS a reference), which the sync lowering
+        serves by capturing the receiver pointer into the env. In a driven body
+        there is no receiver to point at: the resume method's `self` is the
+        FRAME, and the real receiver is behind `__recv`. So the capture takes
+        the one value that carries "borrow of the receiver" — a second handle:
+
+            let __cap0_self = self.__recv.copy()
+            run_int({ [move __cap0_self] in __cap0_self.deref().n + 1 })
+
+        `copy()` exists for exactly this site. The frame KEEPS `__recv` for its
+        later resumes, so the handle cannot be moved out of the field; it is
+        DUPLICATED, visibly, through the one sanctioned spelling — `UnsafeRef`
+        is `NoCopy` precisely so that duplication is never silent.
+
+        MODE is the binding's mutability, which is what the place system reads
+        when the body writes through the window (218a probes P3/P8/P8b): a
+        `&self` method materializes a `let` and its writes are refused; a
+        `&var self` method materializes a `var` and its writes persist. That is
+        the same answer the PRE-transform check gave the same program through
+        `_self_borrow_is_exclusive`, reached by a different mechanism — the
+        sync twin's rule and the driven form's agree by construction rather
+        than by two rules being kept in step.
+
+        Every `SelfExpr` in the body — nested closures included — is rewritten
+        to `<local>.deref()`, so `self.n` becomes `__cap0_self.deref().n` and
+        the whole postfix zoo is the places system doing what it already does.
+        A written `[&self]` / `[&var self]` spec is REPLACED by the value
+        capture of the handle: the receiver borrow is what the handle IS, and
+        there is no longer a name `self` for the spec to refer to.
+        """
+        local = f"__cap{self._cap_ctr}_self"
+        self._cap_ctr += 1
+        _replace_self_in_closure(cexpr, local)
+        cexpr.capture_specs = [s for s in (cexpr.capture_specs or [])
+                               if getattr(s, 'name', None) != 'self']
+        cexpr.capture_specs.append(
+            CaptureSpec(name=local, mode="move", line=line, column=col))
+        self._cap_lets.append(LetStatement(
+            name=local, type_annotation=None,
+            value=MethodCall(object=_self_field("__recv", line, col),
+                             method_name="copy", arguments=[],
+                             line=line, column=col),
+            mutable=bool(getattr(self.func, 'self_mutable', False)),
+            line=line, column=col))
 
     def _lower_stmt_list(self, stmts):
         out = []
@@ -6232,6 +6285,53 @@ class _FrameBuilder:
                     target=_self_field(name),
                     value=FunctionCall(name="TaskGroup", arguments=[])))
         return seq
+
+
+def _closure_names_self(cexpr):
+    """Whether a closure literal reaches the enclosing method's receiver —
+    by naming `self` in its body (nested closures included, which are part of
+    the same body tree) or by listing it in an explicit `[&self]` capture.
+
+    The spec list is consulted for the same reason `_closure_frame_free_names`
+    consults it: a capture named but not used still names the receiver, and the
+    typechecker has already judged the spelling (design 218 section 4)."""
+    found = [False]
+
+    def rule(node):
+        if isinstance(node, SelfExpr):
+            found[0] = True
+        return node
+
+    map_nodes(cexpr.body, rule)
+    if not found[0]:
+        found[0] = any(getattr(s, 'name', None) == 'self'
+                       for s in (cexpr.capture_specs or []))
+    return found[0]
+
+
+def _replace_self_in_closure(cexpr, local):
+    """Rewrite every `self` in a closure body to `<local>.deref()` — the
+    receiver reached through the materialized handle (census R7).
+
+    Not `_rename_in_closure`'s job: `self` is a `SelfExpr` node rather than a
+    named binding, so the rename rules do not see it, and what replaces it is
+    an expression rather than a name. The `deref()` carries no stamped type —
+    the post-transform check derives it from the handle's own type argument,
+    which is the receiver's."""
+    def rule(node):
+        if isinstance(node, SelfExpr):
+            return MethodCall(
+                object=Identifier(name=local, line=node.line,
+                                  column=node.column),
+                method_name="deref", arguments=[],
+                line=node.line, column=node.column)
+        return node
+
+    cexpr.body = map_nodes(cexpr.body, rule)
+    if cexpr.captures:
+        cexpr.captures = [c for c in cexpr.captures if c != 'self']
+    if cexpr.capture_modes:
+        cexpr.capture_modes.pop('self', None)
 
 
 def _rename_in_closure(cexpr, old, new):
