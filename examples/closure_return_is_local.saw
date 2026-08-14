@@ -1,0 +1,178 @@
+// Design 213's ruling: a `return` inside a closure literal returns FROM THE
+// CLOSURE and is checked against the CLOSURE's own return type.
+//
+// A closure literal is a CALLABLE, so everything the checker knew as "the
+// function I am in" changes at its brace. The checker used to keep exactly one
+// such answer and never pushed a new one at a closure body, so SIX rules read
+// the enclosing named function's state straight through the closure boundary
+// (DF-212a plus the five siblings its mechanism sweep found — two of them
+// reached codegen and ICEd). `_return_target` is now the one funnel; this file
+// is its position matrix, one leg per entry point.
+// EXPECT: success
+// EXPECT-OUTPUT:
+// r=99
+// saw 1
+// saw 3
+// each done
+// nested=70
+// suspending=42
+// inferred=7
+// all-returns=99
+// if-wrap=ok 10
+// match-wrap=err zero
+// try-in-closure=ok 8
+// closure-owns-its-catch=caught inner
+
+struct E { m: String }
+extension E: Printable { func format(&self, into: &var StringBuilder) { into.append(self.m) } }
+extension E: Error {}
+
+func might_fail(n: Int) -> Result<Int, E> {
+    if n < 0 { return E(m: "neg") }
+    n * 2
+}
+
+func call_sync(body: (Int) sync -> Int) -> Int { body(5) }
+func each_sync(body: (Int) sync -> Void) { body(1)  body(-2)  body(3) }
+func call_susp(body: (Int) -> Int) -> Int { body(5) }
+func call_res(body: (Int) sync -> Result<Int, E>) -> Result<Int, E> { body(5) }
+
+// Leg 1 — the tracker's minimal repro. The closure is `(Int) -> Int`; the
+// enclosing function returns `String`. Today: "expected return type `String`
+// but got `Int`", pointing at `return 99`.
+func leg_value() -> String {
+    let r = call_sync({ x in
+        if x > 0 { return 99 }
+        0
+    })
+    "r={r}"
+}
+
+// Leg 2 — the "skip this element" idiom: a bare `return` in a Void closure
+// under a non-Void enclosing function. Today: "function should return `Int`
+// but return has no value".
+func leg_void() -> Int {
+    each_sync({ e in
+        if e < 0 { return }
+        print("saw {e}")
+    })
+    print("each done")
+    0
+}
+
+// Leg 3 — closures NEST, so the target is the INNERMOST enclosing closure,
+// not merely "some closure".
+func leg_nested() -> Int {
+    call_sync({ x in
+        let inner = call_sync({ y in
+            if y > 0 { return 7 }
+            0
+        })
+        if inner == 7 { return inner * 10 }
+        1
+    })
+}
+
+// Leg 4 — the same closure in a SUSPENDING context. A non-`sync` function-typed
+// parameter is potentially-suspending, so `call_susp` and this body are
+// coroutine-transformed; the closure's `return` must still target the closure,
+// not the frame's `resume() -> Poll`. Today: "expected return type `Poll` but
+// got `Int`".
+func leg_suspending() -> Int {
+    call_susp({ x in
+        if x > 0 { return 42 }
+        0
+    })
+}
+
+// Leg 5 — no expected type ANYWHERE: the closure's return type is pure
+// inference, so the `return`s are checked against each other rather than
+// against the enclosing function. Today: "function returns void but return has
+// a value of type `Int`" (checked against `main`/`leg_inferred`'s Void).
+func leg_inferred() -> Int {
+    let f = { x: Int in
+        if x > 0 { return 7 }
+        0
+    }
+    f(3)
+}
+
+// Leg 6 — a body whose EVERY path is a `return`, so there is no tail
+// expression to infer the type from. Today it types `(Int) -> Void` and fails
+// to match `(Int) sync -> Int`.
+func leg_all_returns() -> Int {
+    call_sync({ x in
+        if x > 0 { return 99 }
+        return 0
+    })
+}
+
+// Leg 7 (entry point 2) — the value-`if` Ok/Err auto-wrap reconciliation reads
+// the CLOSURE's declared `Result<Int, E>`, so a closure gets the same auto-wrap
+// a named function does. Today: "`if` and `else` branches have incompatible
+// types: `Int` vs `E`", because it read `leg_if_wrap`'s `-> String`.
+func leg_if_wrap() -> String {
+    let r = call_res({ x in
+        if x > 0 { x * 2 } else { E(m: "neg") }
+    })
+    match r { case Ok(v) -> "ok {v}", case Err(e) -> "err {e}" }
+}
+
+// Leg 8 (entry point 3) — the same for `match` arms.
+func leg_match_wrap() -> String {
+    let r = call_res({ x in
+        match x {
+            case 5 -> E(m: "zero"),
+            case _ -> x * 3
+        }
+    })
+    match r { case Ok(v) -> "ok {v}", case Err(e) -> "err {e}" }
+}
+
+// Leg 9 (entry point 4) — a `try` inside a closure propagates out of the
+// CLOSURE, so it needs the CLOSURE to return a Result. This one does, and the
+// error stays inside the closure's own Result.
+func leg_try() -> String {
+    let r = call_res({ x in
+        let v = try might_fail(x - 1)
+        // `return v` rather than a bare `v` tail: a closure declared
+        // `-> Result<T, E>` does not auto-wrap its TAIL value the way a named
+        // function does (DF-213b) — the `return` path does.
+        return v
+    })
+    match r { case Ok(v) -> "ok {v}", case Err(e) -> "err {e}" }
+}
+
+// Leg 10 (entry point 5) — the enclosing `try {} catch {}` does not extend into
+// a closure body: that catch lives in the OUTER frame and is not on this
+// body's error path. The closure carries its own. Today codegen ICEd on the
+// leaked one ("use of undefined value '%caught_error'").
+func leg_own_catch() -> String {
+    try {
+        let r = call_sync({ x in
+            try {
+                let v = try might_fail(x - 10)      // -5 -> Err
+                v
+            } catch {
+                print("closure-owns-its-catch=caught inner")
+                0
+            }
+        })
+        "outer saw {r}"
+    } catch {
+        "outer caught"
+    }
+}
+
+func main() {
+    print(leg_value())
+    let _ = leg_void()
+    print("nested={leg_nested()}")
+    print("suspending={leg_suspending()}")
+    print("inferred={leg_inferred()}")
+    print("all-returns={leg_all_returns()}")
+    print("if-wrap={leg_if_wrap()}")
+    print("match-wrap={leg_match_wrap()}")
+    print("try-in-closure={leg_try()}")
+    let _ = leg_own_catch()
+}

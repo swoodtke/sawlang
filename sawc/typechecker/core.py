@@ -116,6 +116,38 @@ class TaskCaptureBorrow:
     reported: set = field(default_factory=set)
 
 
+@dataclass
+class ClosureReturnTarget:
+    """The callable a `return` inside a closure literal returns to (design 213).
+
+    A closure literal is a CALLABLE, so everything the checker knows as "the
+    function I am currently in" changes at its brace — its return type, and
+    whether a raised error has a `catch` on its path. The checker used to keep
+    exactly one such answer (`current_function`/`current_method`) and a closure
+    body was checked without pushing a new one, so five separate rules read the
+    ENCLOSING NAMED function's state through the closure boundary (DF-212a and
+    its four siblings; two of them reached codegen and ICEd).
+
+    One record per closure body being checked, innermost last; `_return_target`
+    is the single funnel that reads them.
+
+    `expected` is the closure's return type when the call site supplied one (a
+    function-typed parameter, an annotated binding). When it is None the return
+    type is being INFERRED from the body, so the returns are checked against
+    each other instead: the first `return <value>` fills `observed` and later
+    ones must agree with it.
+    """
+    expected: Optional['SawType'] = None
+    observed: Optional['SawType'] = None       # first `return <v>` when inferring
+    observed_line: int = 0
+    observed_column: int = 0
+    has_return: bool = False                   # the body contains any `return`
+    saw_bare_return: bool = False              # a valueless `return` was seen
+    # `try`s raised while the return type was still unknown, replayed against
+    # the inferred type once the body has been checked.
+    pending_try: list = field(default_factory=list)
+
+
 class Scope:
     """A lexical scope containing variable bindings."""
 
@@ -217,6 +249,9 @@ class TypeChecker(ExpressionsMixin, StatementsMixin, RegistrationMixin, TypeUtil
         # innermost entry arrived by VALUE capture, so writing it would hit the
         # per-call copy of the env and be discarded (DF-122a).
         self._closure_scopes: List[Scope] = []
+        # design 213: the return target of each enclosing closure body, innermost
+        # last. Read ONLY through `_return_target`.
+        self._closure_returns: List[ClosureReturnTarget] = []
         # Track break value types for each loop level
         # Each entry is (expected_type: Optional[SawType], is_infinite: bool, has_break: bool)
         self.loop_break_info: List[Tuple[Optional[SawType], bool, bool]] = []
@@ -333,6 +368,52 @@ class TypeChecker(ExpressionsMixin, StatementsMixin, RegistrationMixin, TypeUtil
 
         # Register built-in functions
         self._register_builtins()
+
+    # ------------------------------------------------------------------
+    # design 213: THE ONE ANSWER TO "WHAT CALLABLE AM I RETURNING TO?"
+    # ------------------------------------------------------------------
+    def _return_target(self) -> Optional[ClosureReturnTarget]:
+        """The innermost enclosing CLOSURE's return target, or None in a
+        function/method body.
+
+        THE FUNNEL for design 213. A closure literal is a callable: a `return`
+        written inside one returns from the CLOSURE, and an error it raises
+        propagates out of the CLOSURE. Every rule that asks "what does control
+        leaving here go to?" must ask here first, and only fall back to
+        `current_function`/`current_method` when this returns None.
+
+        ENTRY POINTS (the position matrix DF-212a's sweep produced — each was
+        an independent copy of the same mistake before this funnel existed):
+          1. `_check_return_statement`      (statements.py) — the return's type
+          2. `_check_if_expr`               (expressions.py) — value-`if` arms'
+                                             Result auto-wrap reconciliation
+          3. `_check_match_expr`            (expressions.py) — match arms', ditto
+          4. `_validate_error_propagation`  (expressions.py) — `try`'s target
+          5. `_check_closure`               (expressions.py) — pushes/pops the
+                                             record, and clears the enclosing
+                                             `try {} catch {}` state, which is
+                                             the same leak in boolean form
+
+        Pushed by `_check_closure` around the body check and nowhere else.
+        """
+        return self._closure_returns[-1] if self._closure_returns else None
+
+    def _enclosing_return_type(self) -> Optional['SawType']:
+        """The return type of the innermost enclosing callable, resolved.
+
+        None means "no answer available" — either there is no enclosing callable
+        at all, or we are in a closure whose return type is still being inferred.
+        Callers that must distinguish the two ask `_return_target()` directly.
+        """
+        target = self._return_target()
+        if target is not None:
+            return (self._resolve_type(target.expected)
+                    if target.expected is not None else None)
+        if self.current_method is not None:
+            return self._resolve_type(self.current_method.return_type)
+        if self.current_function is not None:
+            return self._resolve_type(self.current_function.return_type)
+        return None
 
     def _get_current_source_file(self) -> Optional[str]:
         """Get the source file from the current method or function context."""

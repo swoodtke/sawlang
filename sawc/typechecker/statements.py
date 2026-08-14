@@ -2824,8 +2824,23 @@ class StatementsMixin:
 
     def _check_return_statement(self, stmt: ReturnStatement):
         """Check a return statement."""
-        # Get expected return type from either function or method context
-        if self.current_function is not None:
+        # design 213 (DF-212a): a `return` inside a closure literal returns FROM
+        # THE CLOSURE, so it is checked against the CLOSURE's return type — not
+        # the enclosing named function's, and not the synthesized coroutine
+        # frame's `resume() -> Poll` once the transform has run. `_return_target`
+        # is the funnel; None means we are directly in a function/method body.
+        target = self._return_target()
+        if target is not None:
+            target.has_return = True
+            if stmt.value is None:
+                target.saw_bare_return = True
+            if target.expected is None:
+                # The closure's return type is being INFERRED. Check the returns
+                # against each other: the first valued one fixes the type.
+                self._check_inferred_closure_return(stmt, target)
+                return
+            expected = target.expected
+        elif self.current_function is not None:
             expected = self.current_function.return_type
         elif self.current_method is not None:
             expected = self.current_method.return_type
@@ -2972,12 +2987,46 @@ class StatementsMixin:
             # tail-return path. Runs after any Result/Optional wrapping above so
             # a wrapped value is a fresh temporary (not aliasing).
             context_name = "function"
-            if self.current_function is not None:
+            if self._return_target() is not None:
+                context_name = "closure"
+            elif self.current_function is not None:
                 context_name = f"function `{self.current_function.name}`"
             elif self.current_method is not None:
                 context_name = f"method `{self.current_method.name}`"
             self._check_value_transfer(stmt.value, expected, context_name,
                                        stmt.line, stmt.column, is_return=True)
+
+    def _check_inferred_closure_return(self, stmt: ReturnStatement, target):
+        """Check a `return` in a closure whose return type is being INFERRED.
+
+        Design 213. With no expected type from the call site there is nothing to
+        check the return AGAINST, so the returns are checked against each other:
+        the first `return <value>` fixes the closure's return type and every
+        later one must agree with it. Before this existed such a `return` was
+        checked against the enclosing NAMED function — so `let f = { x: Int in
+        if x > 0 { return 7 }  0 }` written inside a `main()` reported
+        "function returns void but return has a value of type `Int`".
+        """
+        if stmt.value is None:
+            return
+        value_type = self._check_expression(stmt.value)
+        if value_type is None:
+            return
+        if target.observed is None:
+            target.observed = value_type
+            target.observed_line = stmt.line
+            target.observed_column = stmt.column
+            return
+        if not self._types_compatible(value_type, target.observed):
+            self._error(
+                ErrorKind.TYPE_MISMATCH,
+                f"closure returns `{target.observed}` here but `{value_type}` "
+                f"at line {target.observed_line}",
+                stmt.line, stmt.column,
+                hint="a closure's return type is inferred from its body — give "
+                     "every `return` the same type, or annotate the binding "
+                     "with the function type you mean"
+            )
 
     def _check_while_expr(self, stmt: WhileExpr):
         """Check a while loop used as a statement (no return value expected)."""

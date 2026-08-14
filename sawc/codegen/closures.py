@@ -152,6 +152,25 @@ class ClosuresMixin:
         saved_drop_flags = self.drop_flags
         saved_moved_variables = self.moved_variables
         saved_borrowed_variables = self.borrowed_variables
+        # design 213, codegen half: a closure is a callable, so inside its body
+        # `current_return_type` is the CLOSURE's return type. It used to stay
+        # the enclosing function's, so a `return`/`try` in a closure declared
+        # `-> Result<T, E>` asked the wrong signature ("Cannot create Result.Err
+        # outside Result-returning function" when the outer one returned a plain
+        # value). Mirrors the typechecker's `_return_target` funnel.
+        # The resolved signature can still carry the TEMPLATE's type parameter
+        # (`Mutex.lock<R>(body: () -> R)`), which is not a return type codegen
+        # can use — installing one reaches monomorphization unsubstituted. So
+        # substitute against the active context and, when that still leaves a
+        # bare parameter, leave the enclosing value in place: there is nothing
+        # better to say, and no Result flows through an unsolved `R`.
+        saved_return_type = self.current_return_type
+        closure_ret = ret_saw_type
+        if closure_ret is not None:
+            closure_ret = self._substitute_saw_type(
+                closure_ret, getattr(self, 'type_param_context', {}) or {})
+        if closure_ret is not None and closure_ret.kind != TypeKind.TYPE_PARAM:
+            self.current_return_type = closure_ret
 
         # Generate closure body
         entry = closure_fn.append_basic_block(name="entry")
@@ -254,6 +273,7 @@ class ClosuresMixin:
         self.cleanup_stack = saved_cleanup_stack
         self.drop_flags = saved_drop_flags
         self.moved_variables = saved_moved_variables
+        self.current_return_type = saved_return_type
 
         # Build the environment and copy captured values in. A NON-escaping
         # closure (a direct call argument, e.g. Mutex.lock's body) keeps its env

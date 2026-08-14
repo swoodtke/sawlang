@@ -1,10 +1,55 @@
 # Design 213 — closures: local `return` typing + the embed identity leak
 
-**Status: AUTHORED Aug 12, awaiting dispatch. Fixes the two compiler
+**Status: DF-212a LANDED Aug 13 (units 1-4). Fixes the two compiler
 bugs design 212's sweep surfaced (DF-212a, DF-212b — filed with full
 bisection notes in `designs/todo.md`, "Design 212 findings"). One
 family: both are places the typechecker/embed machinery fails to
 account for a closure literal in the tree.**
+
+## What the sweep changed about DF-212a's shape (Aug 13)
+
+Obligation 4 applied: the mechanism is **the checker keeps ONE answer to
+"what callable am I in" and a closure body is checked without pushing a
+new one**. DF-212a is one of SEVEN positions that read it, found by
+probing every reader of the enclosing callable's state:
+
+| # | site | symptom before |
+|---|------|----------------|
+| 1 | `_check_return_statement` | DF-212a: closure `return` checked against the outer fn — and, post-transform, against the frame's `resume() -> Poll` |
+| 2 | value-`if` arm Result auto-wrap (`_check_if_expr`) | a closure declared `-> Result<T,E>` could not auto-wrap its arms |
+| 3 | `match` arm Result auto-wrap | same |
+| 4 | `_validate_error_propagation` | a `try` in a non-Result closure ACCEPTED whenever the outer fn returned a Result → **LLVM ICE** (`value doesn't match function result type 'i64'`) |
+| 5 | `in_try_catch_block` / `_try_catch_error_types` | a closure's `try` routed to the OUTER frame's catch → **LLVM ICE** (`use of undefined value '%caught_error'`) |
+| 6 | `found_return_with_value` | a `return` in a closure silently satisfied the OUTER function's "body yields a value" check |
+| 7 | codegen `current_return_type` (`_generate_closure`) | `return`/`try` in a `-> Result` closure asked the enclosing signature (`Cannot create Result.Err outside Result-returning function`) |
+
+Per the ELABORATION PRINCIPLE (design 218) the fix is not a
+classification patch at seven sites: it makes the checker's notion of
+"the callable I am in" correct, and every site asks the one funnel
+(`_return_target` in `core.py`, whose docstring names its entry points).
+Codegen gets the symmetric one-line context save.
+
+**Unit 1's probe answer: codegen was already RIGHT.** With agreeing
+types (`func f() -> Int` containing a `(Int) -> Int` closure with
+`return 99`) the return exits the CLOSURE's frame — the caller resumed
+after `body(5)` with `r=99` and the outer function returned 100. So
+DF-212a proper is diagnostic-only and **no `examples/conformance/` row
+is owed** (the brief's own carve-out). The two ICEs at siblings 4 and 5
+are the mechanism's miscompile-class members, and they are compile-time
+rejections now, not conformance rows.
+
+**Unit 4's sweep: ZERO.** A brace-scanning census over all 2003 tracked
+`.saw` files finds no `return` written inside a closure literal
+anywhere in the corpus — so nothing was relying on the agreeing-types
+accident, and the codebase's value-expression closure idiom is
+confirmed corpus-wide, not just in std.
+
+Two adjacent findings this work opened, both filed in the tracker:
+**DF-213a** is the pair of ICEs above (closed by this landing);
+**DF-213b** is a pre-existing gap this work exposed but did NOT close —
+a closure declared `-> Result<T, E>` does not auto-wrap its TAIL value
+the way a named function does (`return v` works, a bare `v` tail does
+not).
 
 ## The ruling this brief carries
 

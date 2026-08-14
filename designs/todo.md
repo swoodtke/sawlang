@@ -696,9 +696,45 @@ reads for streaming; a `TcpStream` read deadline; and **a line-editing
 story, probably its own brief**, since Saw has no terminal surface at
 all.
 
+## Design 213 findings — the closure-callable sweep (Aug 13)
+
+- ~~**DF-213a — a closure body could not raise an error out of itself.**~~
+  **CLOSED by design 213** (Aug 13). Two LLVM ICEs, both members of DF-212a's
+  mechanism (see that entry and the brief's position matrix): a `try` inside a
+  closure was validated against the ENCLOSING function's Result, so a `try` in
+  an `Int`-returning closure was accepted whenever the outer function returned
+  a Result and codegen emitted the Result out of an `i64` function; and a
+  closure written inside an outer `try {} catch {}` inherited that catch, which
+  lives in a frame the closure's error path never reaches. Both are clean
+  diagnostics now, and codegen carries the closure's own return type.
+
+- **DF-213b (OPEN) — a closure declared `-> Result<T, E>` does not auto-wrap
+  its TAIL value.** A named function returning `Result<Int, E>` auto-wraps a
+  bare `n` tail into `Ok(n)`; a closure with the same declared return type does
+  not, so `call_res({ x in let v = try f(x)  v })` is
+  ``argument `body` expects `(Int) sync -> Result<Int, E>` but got
+  `(Int) -> Int` ``. `return v` works — the `return` path wraps — so the
+  workaround is one keyword, which is why this is a wart rather than a
+  blocker. Exposed while writing design 213's position matrix (leg 9 of
+  `examples/closure_return_is_local.saw` carries the `return` spelling and a
+  comment citing this entry); NOT caused by it — the tail-wrap gap predates
+  the closure-callable funnel and lives in `_check_closure`'s post-body
+  reconciliation, which handles the OPTIONAL auto-wrap and has no Result twin.
+
 ## Design 212 findings — the long-function decomposition sweep (Aug 12)
 
-- **DF-212a — `return` inside a closure literal is checked against the
+- ~~**DF-212a — `return` inside a closure literal is checked against the
+  ENCLOSING NAMED FUNCTION's return type, not the closure's own.**~~
+  **CLOSED by design 213** (Aug 13), which ruled that a closure's `return`
+  returns FROM THE CLOSURE. The obligation-4 sweep found DF-212a was one of
+  SEVEN readers of "what callable am I in" that a closure body never
+  updated — two of the others (a `try` in a non-Result closure, and a
+  closure's `try` routed to the OUTER frame's catch) reached codegen and
+  ICEd; see the brief's position matrix. All seven now ask one funnel,
+  `_return_target`. Pin + matrix: `examples/closure_return_is_local.saw`.
+  Original text:
+
+  **DF-212a — `return` inside a closure literal is checked against the
   ENCLOSING NAMED FUNCTION's return type, not the closure's own.** Hit while
   extracting unit 4's arg-scanner closures (`blade/src/cli.saw`), which
   wanted an early `return 1`/`return 2` to report how many tokens a branch

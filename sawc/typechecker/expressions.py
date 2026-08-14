@@ -4270,12 +4270,11 @@ class ExpressionsMixin:
             if else_type is not None and else_type.kind == TypeKind.NEVER:
                 return then_type
             if then_type and else_type and not self._types_compatible(then_type, else_type):
-                # Check if branches could be Result auto-wrapped
-                expected_return = None
-                if self.current_method:
-                    expected_return = self._resolve_type(self.current_method.return_type)
-                elif self.current_function:
-                    expected_return = self._resolve_type(self.current_function.return_type)
+                # Check if branches could be Result auto-wrapped.
+                # design 213 entry point 2: inside a closure this is the
+                # CLOSURE's return type — a closure declared `-> Result<T, E>`
+                # gets the same Ok/Err arm reconciliation a named function does.
+                expected_return = self._enclosing_return_type()
 
                 if expected_return and expected_return.is_result():
                     ok_type = expected_return.type_args[0] if expected_return.type_args else None
@@ -9476,12 +9475,10 @@ class ExpressionsMixin:
             if not self._types_compatible(result_type, arm_type):
                 # Check if arms could be Result auto-wrapped
                 # If we're in a function returning Result<T, E> and arms return T and E,
-                # they're compatible (will be auto-wrapped later)
-                expected_return = None
-                if self.current_method:
-                    expected_return = self._resolve_type(self.current_method.return_type)
-                elif self.current_function:
-                    expected_return = self._resolve_type(self.current_function.return_type)
+                # they're compatible (will be auto-wrapped later).
+                # design 213 entry point 3: inside a closure this is the
+                # CLOSURE's return type, exactly as for the value-`if` above.
+                expected_return = self._enclosing_return_type()
 
                 if expected_return and expected_return.is_result():
                     ok_type = expected_return.type_args[0] if expected_return.type_args else None
@@ -10227,9 +10224,60 @@ class ExpressionsMixin:
                     param_type = SawType(TypeKind.INT)
                 param_types.append(param_type)
                 self.current_scope.define(f"${i}", VariableInfo(param_type, False, expr.line, expr.column))
-        return_type = self._check_block(expr.body)
+        # design 213: a closure is a CALLABLE, so the body is checked against
+        # the CLOSURE's return target, not the enclosing named function's. The
+        # target carries the declared return type when the call site supplied
+        # one; otherwise it is None and the body's own `return`s agree among
+        # themselves (see `ClosureReturnTarget`). The enclosing `try {} catch {}`
+        # is cleared for the same reason — that catch sits in the OUTER frame
+        # and is not on this body's error path (it ICEd in codegen: "use of
+        # undefined value '%caught_error'").
+        from .core import ClosureReturnTarget
+        declared_ret = None
+        if expected_type is not None and expected_type.kind == TypeKind.FUNCTION:
+            declared_ret = expected_type.func_return_type
+            if declared_ret is not None and declared_ret.kind == TypeKind.TYPE_PARAM:
+                declared_ret = None      # unsolved `U` — nothing to check against
+        ret_target = ClosureReturnTarget(expected=declared_ret)
+        self._closure_returns.append(ret_target)
+        saved_in_try_catch = self.in_try_catch_block
+        saved_try_err_types = getattr(self, '_try_catch_error_types', None)
+        # ...and `found_return_with_value` is the enclosing FUNCTION's "does the
+        # body produce a value" answer. A `return 1` in a closure used to set it,
+        # silently satisfying the outer function's own check.
+        saved_found_return = self.found_return_with_value
+        self.in_try_catch_block = False
+        self._try_catch_error_types = None
+        try:
+            return_type = self._check_block(expr.body)
+        finally:
+            self._closure_returns.pop()
+            self.in_try_catch_block = saved_in_try_catch
+            self._try_catch_error_types = saved_try_err_types
+            self.found_return_with_value = saved_found_return
         if return_type is None:
             return_type = SawType(TypeKind.VOID)
+        # A body whose every path is a `return <value>` has no tail expression,
+        # so the block yields Void — but the closure plainly returns that
+        # value's type. Take it from the declared type when there is one, and
+        # from the returns themselves when the type is being inferred.
+        # `has_return` is load-bearing: a body that returns NOTHING and ends in
+        # a statement (`{ &var n in n = n + 1 }`) is genuinely Void, and reading
+        # the expected type there handed `Mutex.lock<R>`'s unsolved `R` back as
+        # the closure's type.
+        if (ret_target.has_return
+                and return_type.kind == TypeKind.VOID
+                and expr.body.final_expr is None
+                and not ret_target.saw_bare_return):
+            if ret_target.expected is not None:
+                return_type = self._resolve_type(ret_target.expected)
+            elif ret_target.observed is not None:
+                return_type = ret_target.observed
+        # `try`s raised before the return type was known are replayed against it
+        # now (design 213 entry point 4).
+        for (err_type, line, column, node) in ret_target.pending_try:
+            self._validate_error_propagation_against(
+                return_type, err_type, line, column, node)
         # A closure may not RETURN a reference (DF-163d). Design 163a refuses a
         # written `-> &T` at every declaration that has one, and a closure
         # literal writes no return type at all — inference is the only place the
@@ -10759,13 +10807,41 @@ class ExpressionsMixin:
                 self._try_catch_error_types.append(err_type)
             return  # OK - error will be caught by enclosing try-catch
 
-        # Get expected return type from current function/method
-        expected_return = None
-        if self.current_function:
+        # design 213 entry point 4: an error raised inside a closure propagates
+        # out of the CLOSURE, so the target is the closure's return type. Reading
+        # the enclosing named function's instead accepted a `try` in an
+        # `Int`-returning closure whenever the OUTER function returned a Result,
+        # and codegen then emitted the Result out of an `i64` function ("value
+        # doesn't match function result type 'i64'").
+        target = self._return_target()
+        if target is not None:
+            if target.expected is None:
+                # Return type not known yet — replay once the body has been
+                # checked and it is (see `_check_closure`).
+                target.pending_try.append((err_type, line, column, expr))
+                return
+            expected_return = self._resolve_type(target.expected)
+        elif self.current_function:
             expected_return = self.current_function.return_type
         elif self.current_method:
             expected_return = self.current_method.return_type
+        else:
+            expected_return = None
 
+        self._validate_error_propagation_against(
+            expected_return, err_type, line, column, expr)
+
+    def _validate_error_propagation_against(self, expected_return, err_type: SawType,
+                                            line: int, column: int, expr=None):
+        """Validate a propagated error against an ALREADY-RESOLVED return target.
+
+        Split out of `_validate_error_propagation` (design 213) so a closure
+        whose return type is still being inferred can replay its `try`s once the
+        body has settled the type.
+        """
+        # Name what the `try` is actually leaving, so a closure's diagnostic
+        # does not point the reader at the enclosing function's signature.
+        what = "closure" if self._return_target() is not None else "function"
         if expected_return is None:
             self._error(
                 ErrorKind.TYPE_MISMATCH,
@@ -10777,7 +10853,7 @@ class ExpressionsMixin:
         if not expected_return.is_result():
             self._error(
                 ErrorKind.TYPE_MISMATCH,
-                f"`try` cannot propagate errors from a function returning `{expected_return}` (must return Result)",
+                f"`try` cannot propagate errors from a {what} returning `{expected_return}` (must return Result)",
                 line, column,
                 hint="use `try?` to convert to optional, or `try!` to force unwrap, or add a `catch` block"
             )
