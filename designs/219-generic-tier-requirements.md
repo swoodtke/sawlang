@@ -300,3 +300,38 @@ over-tightens three corpus sites (named in the report).
 Sequencing: before or with design 218 stages 1-2 (it is their gate); unit 3
 also discharges 218's DF-217j dependency (the `Slot<TaskGroup>` refusal
 becomes compiler-enforced).
+
+## WAVE B LANDED (Aug 13)
+
+The tier collapse and the vocabulary, in five units on one worktree branch,
+full suite green at every commit. Wave C (requirement inference, call-site
+discharge, declaration-derivation, the public-declaration rule) is untouched.
+
+- **B1** — design 216's closure rework: `&T` elements, no copy bound.
+- **B2** — the collapse itself: `Copy` is the merged silently-copyable tier
+  (trivial + retain families) and only that; bounds ask the TIER rather than a
+  declared conformance, so `T: Copy` stops rejecting `Int` and the auto-tier
+  `Bag { s: String }`, and stops admitting an `ExplicitCopy` argument (S1 row
+  9d). `ExplicitCopy`'s tier dissolves into move-only.
+- **B3** — the trait declarations, the effect-matching rule, the bounds.
+- **B4** — the WORD. `trait ImplicitCopy` deleted from `builtin.saw`; 166
+  occurrences across 86 tracked `.saw` files renamed, plus 151 in `sawc/`'s own
+  prose and ~120 across the docs. `Copy` did NOT gain `: Deinit` — the
+  supertrait was never the machinery, and every predicate that named the
+  copy-policy traits now routes through one funnel
+  (`Namespace.declares_copy_tier` / `names_copy_tier`). The retired spelling is
+  refused rather than aliased, since the name is now free for user code, and
+  every unknown-trait diagnostic teaches the rename through one table
+  (`_retired_trait_hint`). Pinned by
+  `examples/errors/implicitcopy_renamed_to_copy.saw`.
+- **B5** — prefix `*`, the pointer place, spelled.
+
+Two rules the collapse DELETED are now deleted from the docs as well, not just
+the compiler: `ImplicitCopy`/`ExplicitCopy` mutual exclusivity (declaring both
+is legal and redundant — `examples/copy_traits_both_declared_legal.saw`
+replaced the error test), and `T: Copy` admitting `ExplicitCopy` arguments.
+
+Carried forward to wave C, unchanged by B4: the brief's "declared conformance
+is an ASSERTION (empty)" form still requires `@synthesize`, exactly as the
+`ImplicitCopy` spelling did — design 128's derivation gate is untouched here,
+and relaxing it is declaration-derivation work.

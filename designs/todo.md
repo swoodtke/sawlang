@@ -238,6 +238,15 @@ it a copy and stamped a retain while the vector released nothing. Found by
 A/B'ing the sweep's IR, FIXED by the spelling, pinned by
 `examples/vector_pop_refcount_exact.saw`.
 
+**WAVE B LANDED (Aug 13) — the tier collapse and the vocabulary, ahead of
+wave C's inference/discharge.** B1: design 216's closure rework (`&T`
+elements, no copy bound). B2: `Copy` becomes the merged silent tier and only
+that, bounds asking the tier rather than a declaration. B3: the trait
+declarations, the effect-matching rule and the bounds. B4: the corpus-wide
+`ImplicitCopy` -> `Copy` rename, `trait ImplicitCopy` deleted, a teaching hint
+at every unknown-trait position, docs on three words. B5: prefix `*`, the
+pointer place spelled. Details in the brief's WAVE B LANDED note.
+
 The ruling (SIMPLIFIED
 Aug 13): BINARY requirement inference — a body either copies `T` silently
 (requires trivial/ImplicitCopy, inferred) or does not (move-only, any tier);
