@@ -353,7 +353,8 @@ var u = w.copy()       // explicit duplicate
   Call sites mirror the sigil: `f(&x)` / `f(&var x)` (and `x`
   must be `var`). Mutate through `&var` via compound assignment, methods, or
   whole-referent REPLACEMENT `x = v` (design 110 — uniform across functions,
-  `&var self` methods via `self = v`, and closures; matches Swift `inout`).
+  `&var self` methods via `self = v`, and closures; the caller's binding
+  stays valid).
   `x = v` is legal exactly when `v` type-checks as `var x: T = v`: the RHS takes
   the ordinary transfer checkpoint (fresh temp needs nothing, Copy copies,
   ExplicitCopy/NoCopy need `move v`/`.copy()` — the `move` consumes the CALLEE's
@@ -583,7 +584,7 @@ var scratch: [Int8; 256] = [0; 256] // REPEAT literal: N copies of one value
   `func f<R>(...) -> R` compiles at every `R`, `Void` included — it becomes a
   zero-sized binding (no storage; reading the name yields no value), so a
   generic body that type-checks compiles for every instantiation and you never
-  get an error at a distance. Same as a unit type in Rust/Swift.
+  get an error at a distance.
 - Map/Set keys: `Hashable + Equatable` and copyable-with-retain
   (NoCopy keys rejected). A payload-free enum qualifies — it is a bare
   tag, so `Set<Color>` and `Map<Color, Int>` both work (design 132).
@@ -1800,7 +1801,7 @@ and the PRIMARY surface for allocator-parameterized types (`Vector<T, A>`,
 `try_reserve`, `try_copy`, `try_make`, `try_append`, `try_append_char`,
 `try_append_bytes`, `try_insert`, `try_send`. `try_` is the ONE spelling (design
 123 renamed `Box.make_or` -> `try_make`; `Channel.try_receive` is unrelated — a
-non-blocking poll, Rust's `try_recv`). A `try_` op is ALL-OR-NOTHING: on `Err`
+non-blocking poll). A `try_` op is ALL-OR-NOTHING: on `Err`
 the container is untouched, every element still in it. Its argument is consumed
 either way — `try_reserve` FIRST when the value must survive a refusal.
 `AllocError` carries the refused `size`/`align` and is `Error + Printable`

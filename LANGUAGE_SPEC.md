@@ -1,6 +1,6 @@
 # Saw Language Specification
 
-> A modern systems programming language combining the safety of Rust with the elegance of Swift
+> A systems programming language with Rust-style memory safety and Swift-style syntax
 
 ## Status markers
 
@@ -134,7 +134,7 @@ A `<` that turns out to be a comparison is never treated as a bracket, so
 ### Variables and Mutability
 
 ```saw
-// Immutable by default (like Rust)
+// Immutable by default
 let x = 42
 let name = "Saw"
 
@@ -540,7 +540,7 @@ let result = while {
     }
 }
 
-// Guard for early exit (from Swift)
+// Guard binds for the rest of the scope; the `else` must exit
 func process(input: String?) {
     guard let value = input else {
         return
@@ -1129,8 +1129,8 @@ func around<R>(&self, body: (Int) sync -> R) -> R {
 ```
 
 Generic code stays instantiation-uniform: a body that type-checks generically
-compiles for every instantiation, so there is no error at a distance from a call
-site far from the definition. This is how a unit type binds in Rust and Swift.
+compiles for every instantiation, `Void` included, so no call site can produce
+an error the definition did not.
 
 ### Structs
 
@@ -2629,7 +2629,8 @@ process(original)  // original is copied, unchanged
   exactly once, then the new value installs; the caller's binding is never
   invalidated and still owns a valid `T`. This unifies functions/methods with
   closures, which already permitted `n = v` through a `&var`/`[&var]` parameter,
-  and matches Swift `inout`. Two exclusions keep their own diagnostics: (1)
+  so the caller's binding is never invalidated and still owns a valid `T`. Two
+  exclusions keep their own diagnostics: (1)
   assignment through an immutable `&T` is rejected (read-only); (2) the referent
   must be a **statically-known** type — a `&var any Trait` **erased** referent is
   rejected (behind the erasure the caller's slot is a concrete type, so a
@@ -4408,7 +4409,8 @@ position exactly as they do in operand position, so the arms above in an
   `x << 2 + 1` == `x << (2 + 1)`.
 - **Shift range is checked.** A shift amount that is **negative or `>=` the left
   operand's bit width panics** with "shift out of range" — the same
-  checked-by-default house rule as arithmetic overflow (Rust-debug precedent).
+  checked-by-default house rule as arithmetic overflow: a check the release
+  build keeps.
   Wrapping-shift variants are not shipped.
 - **`>>` is arithmetic on signed, logical on unsigned.** A signed left operand
   sign-extends (`ashr`); an unsigned left operand zero-fills (`lshr`). `<<` is a
@@ -6248,7 +6250,7 @@ static ARENA: [UInt8; 65536] = [0; 65536]  // all-zero initializer → .bss too
 public static VERSION: Int = 7        // exported; read as `mod.VERSION`
 ```
 
-Statics obey four rules, ratified in design 19 (Rust's model):
+Statics obey four rules, ratified in design 19:
 
 - **Const-initialized only.** A static is image bytes, so its initial value
   is fixed at compile time. There are exactly THREE tiers, and the third one
@@ -6998,30 +7000,31 @@ const FACT_10: Int = factorial(10)
 
 ```saw
 // Declarative macros (pattern-based)
-macro vec[$($elem:expr),*] {
+macro vector[$($elem:expr),*] {
     {
-        var v = Vec()
+        var v = Vector()
         $(v.push($elem);)*
         v
     }
 }
 
-let nums = vec![1, 2, 3, 4]
+let nums = vector![1, 2, 3, 4]
 
-// Derive macros (code generation)
-#[derive(Debug, Clone, PartialEq)]
+// Derive macros (code generation) — Saw's trait names, and the `@name`
+// attribute grammar the language already uses
+@derive(Printable, Copy, Equatable)
 struct User {
-    name: String,
-    age: Int,
+    name: String
+    age: Int
 }
 
 // Attribute macros
-#[test]
+@test
 func test_addition() {
-    assert_eq(2 + 2, 4)
+    assert(2 + 2 == 4)
 }
 
-#[inline(always)]
+@inline(always)
 func hot_path() { ... }
 ```
 
@@ -7034,10 +7037,10 @@ const func field_names<T>() -> [String] {
 }
 
 // Generate serialization automatically
-#[derive(Serialize)]
+@derive(Serialize)
 struct Config {
-    host: String,
-    port: Int,
+    host: String
+    port: Int
 }
 ```
 
@@ -7101,7 +7104,7 @@ public extension Account {
 
 Consequences:
 - A member marked `public` on a member of a non-public struct is legal but
-  inert (like Rust) — the struct itself gates reachability.
+  inert — the struct itself gates reachability.
 - **Cross-module memberwise construction** (`Account(name:, balance:)`) requires
   ALL fields visible; if any field is private, use a visible `init` instead. The
   same rule governs any field access — reads AND writes go through one gate, so a
@@ -8187,8 +8190,9 @@ through the trigger rule itself.
 - `dealloc(ptr: UnsafePointer<Int8>, size: Int, align: Int)` names an unsafe
   type, so any caller must name one too, and every caller is therefore unsafe.
 
-This gives the two categories Rust spells `unsafe fn` and "safe fn wrapping
-`unsafe {}`" with one marker and no `unsafe(caller)` spelling.
+One marker therefore covers both categories: a function that requires an
+unsafe-typed argument, and a safe function that reaches through one internally.
+There is no `unsafe(caller)` spelling.
 
 Standing policy for std, and the assumption the model rests on: an `unsafe`
 function is short enough to review as a unit.

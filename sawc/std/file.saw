@@ -15,8 +15,8 @@
 //! cooperative task that issues one holds its executor thread for however long it
 //! takes, with every sibling task on that thread waiting behind it. Sockets and
 //! `Command.run` do not behave this way; they park on the reactor. Files are the
-//! exception, and it is a policy rather than an oversight — Rust and Go draw the
-//! same line.
+//! exception, and it is a policy rather than an oversight: a local file read has
+//! no readiness a reactor can wait on, so there is nothing to park on.
 //!
 //! There is no per-call opt-out. Code that knows it is on a network mount and
 //! cannot afford the stall should do that work in a `spawn`-ed `Task`, whose own
