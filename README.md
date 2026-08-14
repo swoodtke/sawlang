@@ -1067,9 +1067,10 @@ Saw provides deterministic memory management without garbage collection:
   value, or lend the storage with a `borrows` accessor, which hands out the
   place itself for a window. A reference in parameter position is untouched.
   One expression crosses the line on purpose: `(&x) as UnsafePointer<T>` is the
-  language's address-of, legal in any position, and it hands the lifetime
-  question to the unsafe tier — a pointer leaves, not a reference, and the
-  `unsafe` effect on every signature naming it is the fence.
+  language's address-of, legal in any position. A pointer leaves, not a
+  reference, so keeping the storage alive and unmoved for every dereference is
+  the unsafe tier's obligation, and the `unsafe` effect on every signature
+  naming it is the fence.
 - **Shared ownership** through `Arc<T>` (Saw uses atomic reference counts only)
   and owned heap allocation through `Box<T, A>`.
 - **Allocation failure is loud**: an infallible operation (`push`, `append`,

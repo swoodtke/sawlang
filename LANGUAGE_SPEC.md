@@ -2720,10 +2720,11 @@ const twin are legal in **any** expression position — a call argument, a local
 binding, a function's return expression, and the chained
 `(&self) as UnsafePointer<TaskGroup> as Int` that turns an address into a
 token. This is the only address-of Saw has, and it is a crossing into the
-unsafe tier rather than an escape: the cast hands lifetime responsibility to
-that tier, what survives the expression is a pointer rather than a reference,
-and the unsafe effect the pointer forces onto every signature that names it is
-the fence from there on. The cast must name a pointer type to qualify —
+unsafe tier rather than an escape. What survives the expression is a pointer
+rather than a reference, so keeping the referent alive and unmoved for every
+dereference becomes the unsafe tier's obligation; the unsafe effect the pointer
+forces onto every signature that names it is the fence from there on. The cast
+must name a pointer type to qualify —
 `(&x) as Int` is an ordinary expression and the reference in it is refused.
 
 ```saw
