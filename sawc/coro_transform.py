@@ -4387,6 +4387,39 @@ class _FrameBuilder:
         # driven with `__io_tok` already set by its parent (propagated in the drive
         # block), so this leaves the inherited root token in place — an `io_wait`
         # anywhere in the call tree routes its wakeup to the root's `__wake` word.
+        #
+        # THE VERIFIED-UNSAFE CORE ENTRY (design 222 unit 3). This is the ONE site
+        # that emits it, and it stays a raw cast on purpose. What the address does
+        # after this statement is outside every scope the checker has:
+        #
+        #   1. it leaves the type system as an INTEGER (`io_wait(fd, dir, tok)` ->
+        #      `__saw_rt_reactor_register(r, fd, w, token: Int)`, frozen in
+        #      rt/ABI.md) and is stored in KERNEL memory — a kqueue `udata`, an
+        #      epoll `data.u64`;
+        #   2. the WRITE side is the runtime's poll, which rebuilds a pointer from
+        #      that integer with no provenance and stores through it
+        #      (`rt_reactor_poll`: `let tokptr = ud as UnsafePointer<Int>;
+        #      tokptr[0] = 0`), in another module, from another thread;
+        #   3. it must stay valid for as long as the REGISTRATION does, which is
+        #      not a lexical extent: the frame's box keeps the address stable
+        #      (design 134), one-shot rearm keeps a fired event from re-firing, and
+        #      DF-134a's `release` unregisters whatever an exiting frame left armed;
+        #   4. in an MT group the store is unsynchronized against the executor's
+        #      reads (the poll runs OUTSIDE the queue lock, by design — a bounded
+        #      timeout plus a persistent latch word, so a fire that races a park is
+        #      caught on the next scan).
+        #
+        # A WRAPPER IS AVAILABLE AND IS REFUSED. `wake_token(word: &var Int) unsafe
+        # -> Int` compiles, and a caller of it needs no `unsafe` — probed
+        # (`.build/scratch/u3_latch_probe.saw`), which is exactly the problem: the
+        # obligation would vanish from every signature while the address still
+        # escapes. An `UnsafeRef<Int>` field is the other candidate and is refused
+        # for a different reason — the contract it states ("the referent outlives
+        # every `deref()`") is not the obligation above, nobody derefs, and the
+        # field must stay an `Int` to propagate down the frame chain and reach the
+        # frozen seam. So the cast stays visible, `resume` is unconditionally
+        # `unsafe` because of it, and the argument lives here and in design 218's
+        # ratified list rather than in a type that would read as reviewed.
         io_tok_init = ExpressionStatement(expression=IfExpr(
             condition=BinaryOp(op="==", left=_self_field("__io_tok"), right=_int(0)),
             then_branch=Block(statements=[AssignStatement(

@@ -214,6 +214,51 @@ written impossibility argument tied to the reactor contract (design 91/102)
 — NOT a shrug. If it enters the core, `resume`'s unsafety stays
 unconditional and the core list says exactly why.
 
+### UNIT 3 LANDED (Aug 14) — the latch is a CORE ENTRY, and the wrapper was built before it was refused
+
+**Outcome: verified-unsafe core entry, not a wrapper.** The instruction was not
+to force one that launders, so the wrapper was written and RUN first, and it
+launders measurably.
+
+**The probe** (`.build/scratch/u3_latch_probe.saw`, compiled and run): the
+candidate is `func wake_token(word: &var Int) unsafe -> Int` — all-safe
+signature, unsafe body, exactly the shape a `std.compiler.frame.wake_token`
+would take. Its caller compiles with **no `unsafe` declaration**. That is the
+whole objection: the address still escapes, and the obligation has disappeared
+from every signature between the escape and the reader. It also violates design
+130's own soundness premise from the inside — a function with all-safe
+parameters must be sound for every input, and this one is sound only for a
+word whose owner outlives a registration the caller knows nothing about.
+
+**The other candidate, `UnsafeRef<Int>`, is refused for a different reason.** It
+does not launder (a `resume` binding one still declares `unsafe`), but the
+contract it states — "the referent outlives every `deref()`" — is not the
+obligation that has to hold here, and nobody ever derefs it. Attaching it would
+make a reviewed-looking type carry the wrong theorem. There is a mechanical
+blocker beside the principled one: `__io_tok` must stay an `Int` to be copied
+down the frame chain at every drive and to reach `__saw_rt_reactor_register(r,
+fd, w, token: Int)`, which rt/ABI.md freezes — the handle would project back to
+an integer one line later.
+
+**The argument, traced rather than asserted** (now also at the emission site, the
+single `io_tok_init` in `_FrameBuilder.build`):
+
+1. The address **leaves the type system as an integer** and is stored in KERNEL
+   memory — a kqueue `udata`, an epoll `data.u64`.
+2. The **write side is the runtime's poll**, in another module and on another
+   thread, rebuilding a pointer from that integer with no provenance:
+   `rt_reactor_poll` does `let tokptr = ud as UnsafePointer<Int>; tokptr[0] = 0`.
+3. Validity extends over the **registration**, which is not a lexical extent: the
+   frame's box holds the address stable (design 134), one-shot rearm stops a
+   fired event re-firing, and DF-134a's `release` unregisters what an exiting
+   frame left armed.
+4. In an MT group the store is **unsynchronized** against the executor's reads —
+   the poll runs outside the queue lock by design, with a bounded timeout and a
+   persistent latch word so a fire racing a park is caught on the next scan.
+
+No Saw type states (2), (3) or (4). `resume`'s unsafety therefore stays
+unconditional, and the core list says why.
+
 **Unit 4 — E2 deletes.** The flag's read site goes; the design-130 rule
 runs everywhere; the verified-unsafe core list (possibly empty, possibly
 unit 3's one entry) is recorded in the 218 enforcement brief and cross-cited
