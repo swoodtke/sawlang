@@ -1,0 +1,29 @@
+// A member access written on a TYPE NAME or MODULE QUALIFIER carries no
+// `resolved_type` — it is not a value expression, and the checker's type-name
+// arms return before the value path that would stamp one. Design 210's
+// closedness reduction read that absence as an opening, cleared the enclosing
+// subtree's `embed_preserved` marks, and let the ENTRY module re-resolve names
+// only the provider can see (DF-212b unit 2).
+//
+// The provider keeps `take`, `idn` and its `embed_typename_deeper` import
+// private, so every row here fails loudly if the marks are cleared:
+// `function `take` is not directly accessible` /
+// `undefined variable `embed_typename_deeper``.
+// EXPECT: success
+// EXPECT-OUTPUT:
+// enum arg 2
+// generic arg 11
+// qualifier 12
+// static 201
+// builtin 301
+import std.task
+import modules.embed_typenames as heads
+
+func main() {
+    print("enum arg {heads.Anchor.enum_literal_arg()}")
+    print("generic arg {heads.Anchor.generic_call_arg()}")
+    print("qualifier {heads.Anchor.module_qualifier()}")
+    print("static {heads.Anchor.static_head()}")
+    print("builtin {heads.Anchor.builtin_heads()}")
+    task.yield_now()
+}

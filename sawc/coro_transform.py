@@ -774,6 +774,47 @@ def _all_child_nodes(node):
                 yield item
 
 
+def _is_type_name_base(parent, child):
+    """True when `child` is the TYPE NAME or MODULE QUALIFIER that `parent` is
+    written on, rather than a value expression of its own (DF-212b unit 2).
+
+    `Cmd.Build`, `Int.max`, `Instant.now()`, `builder.Builder(...)`,
+    `lib.Color.Red` — in every one of these the head is a NAME the member check
+    consumes as part of one qualified reference. The checker's type-name arms
+    all return before the value path (`obj_type = self._check_expression(
+    expr.object)`), so the head is never visited as an expression and never
+    stamped: `_check_expression` is the one place `resolved_type` is written.
+    `_check_preserved_embed`'s docstring says the same thing from the other
+    side — descending into such a head reports `undefined variable `builder``.
+
+    THE PREDICATE IS THE ABSENCE ITSELF, deliberately, rather than a list of
+    the ~10 family-2 markers the three type-name ladders stamp between them
+    (`enum_variant_literal`, `int_limit`, `resolved_static_name`,
+    `resolved_module`, `is_static_method_call`, `enum_from_raw`, `int_from`, …).
+    A fourth copy of that disjunction would rot the way the first three
+    already disagree — `_check_method_call`'s nested-base arm stamps nothing
+    where `_check_member_access`'s stamps `resolved_type`. What holds without
+    enumerating them: on a program that CHECKED, a head carrying no
+    `resolved_type` under a parent that carries one is a head the value path
+    never reached, because `visit_Identifier` returns None only for a name that
+    is not defined — which is a compile error, not a subtree we ever reach.
+
+    Sound for the wholesale skip because the head is never ASKED anything
+    either: a preserved parent is answered from its own stored type and the
+    pass does not descend (`_check_preserved_embed`). The head has no answer to
+    give and no question to answer.
+    """
+    if not isinstance(child, (Identifier, MemberAccess)):
+        return False
+    if child.resolved_type is not None:
+        return False
+    if not isinstance(parent, (MemberAccess, MethodCall)):
+        return False
+    if parent.resolved_type is None:
+        return False
+    return child is parent.object
+
+
 def _close_embed_marks(decls):
     """Reduce `embed_preserved` to the subtrees that are actually CLOSED — the
     targeted check at the splice boundary (design 210 unit 3).
@@ -812,6 +853,13 @@ def _close_embed_marks(decls):
             return True
         ok = True
         for sub in child_nodes(node):
+            # DF-212b: a member access's TYPE-NAME head is not a value
+            # expression, so its missing `resolved_type` is not an opening.
+            # Judging it as one re-opened every subtree holding an enum-case
+            # literal — `take(Cmd.Build)` in an embedded body lost its marks
+            # and re-resolved `take` in a module that cannot see it.
+            if _is_type_name_base(node, sub):
+                continue
             # No short-circuit: every branch must be visited so its own marks
             # are cleared, not just the first one that fails.
             if not closed(sub):
