@@ -118,6 +118,109 @@ exactly as today.
 maximizes reuse but must not REQUIRE it — D4's fallback), TESTING.md,
 CLAUDE.md testing digest. Gate: full tracked battery.
 
+## Unit 0 findings (consumer sweep + measurements)
+
+**Consumer sweep.** Grepped every reader of `.build/` across the tree
+(`test_runner.py`, `Makefile`, `tools/battery.sh`, all of `tools/*.py`,
+`TESTING.md`) for a dependency on the flat `.build/<stem>` naming the layout
+flip changes. Findings:
+
+- The stem-dedup scheme lives entirely in `test_runner.py` itself —
+  `TestCase.binary_stem` (line 135), `compile_into_place`'s temp-write-then-
+  `os.replace` (line 525), and `sweep_stale_temp_products` (line 575, called
+  once at `main()` start). All three operate on whatever `Path` they are
+  handed and carry no flat-layout assumption baked in; moving the base from
+  `Path('.build')` to `Path('.build/test_runner_<stamp>')` is a one-line
+  change at the `exe_path = Path('.build') / test.binary_stem` call site
+  (line 898) plus wiring the run-dir through.
+- `Makefile`'s `clean` target is `rm -rf .build/*` — layout-agnostic, still
+  removes everything including run dirs and the `test_runner_last` symlink.
+  No other Makefile target names a test_runner output path.
+- `tools/battery.sh`'s `suite` stage is a bare `test_runner.py` invocation;
+  every other stage (`irdet`, `bench`, `selfhostlex`) uses its own
+  independent `.build/<subdir>` namespace (`.build/irdetbin`,
+  `.build/benchbin_warehouse`, `.build/selfhostlex/`) and does not read
+  `test_runner`'s outputs.
+- Every `tools/*.py` script that touches `.build/` (`gmgate.py`,
+  `test_ir_contract.py`, `test_bt_table.py`, `lexdiff.py`,
+  `test_ice_breadcrumb.py`, `blade_bootstrap.py`, `sos_runner.py`,
+  `sawfuzz.py`, `corodiff.py`, `test_lldb_saw.py`,
+  `remote_worker_selftest.py`, `irdet_remote.py`, `test_worker.py`) owns a
+  private subdirectory under `.build/` for its own compiles and never reads
+  a path `test_runner.py` produced. `worker_proto.py`'s snapshot builder
+  already excludes `.build` wholesale (`SNAPSHOT_EXCLUDE_SUFFIXES` /
+  directory exclude list) when shipping the tree to a remote worker, so the
+  layout change is invisible to design 160's remote-shard path either way —
+  confirms D3's remote-shard carve-out matches what already happens today.
+- `tools/test_runner_selftest.py` (not wired into any battery stage or
+  Makefile target — a design-156 unit test, run by hand) imports
+  `test_runner` as a module but only exercises `run_executable` and
+  `SettleQueue`, neither of which touches `.build/` paths. Unaffected.
+- `TESTING.md` prose (the "Test Runner Implementation" section) describes
+  the flat layout by name (`examples/ffi/int_types.saw` becomes
+  `.build/ffi_int_types`) — a genuine doc consumer, scheduled for the Unit 4
+  docs pass.
+
+No other consumer found. The flip is contained: `test_runner.py` changes,
+`TESTING.md` prose updates in Unit 4, nothing else moves.
+
+**A second finding, load-bearing for D5.** `_emit_object` in `sawc/sawc.py`
+(shared by every `compile_saw()` caller — CLI, test_runner's in-process
+path, blade, bootstrap, sos) already writes an IR sidecar to
+`<output_path>.ll` on **every** compile, unconditionally, at
+`optimize=False` (hardcoded, "for debugging"). `test_runner.py` already
+treats `.ll` as one of the products `compile_into_place` renames into place
+(`_PRODUCT_SUFFIXES`), so a `.build/<stem>.ll` file already exists after
+every suite run today — 1165 of them, 358,579,913 bytes total on this
+corpus. Nothing reads that path back (checked `reemitdiff.py`,
+`test_debug_info.py`, `test_stable_type_id.py`, `test_ir_contract.py`: each
+compiles its own target with its own `-o`, none touch a `test_runner.py`
+output). It is unoptimized, pre-O1 IR — **not** what D4's byte-compare
+needs, since irdet's own `--emit-ir` compiles at the default `optimize=True`
+to match the O1-style default pipeline the corpus actually ships under.
+D5's "the suite emits IR" therefore does not mean adding a sidecar from
+nothing; it means the suite's sidecar has to become the *optimized* one.
+Chosen shape for units 1-2: add `emit_optimized_ir: bool = False` to
+`compile_saw()` / `_emit_object()` (default off, so every existing caller —
+CLI, blade, bootstrap, sos — is untouched byte-for-byte); test_runner's
+in-process compile path (`compile_saw_in_process`, a direct Python call into
+the `sawc` module, not the CLI) passes `emit_optimized_ir=True`
+unconditionally. No new CLI flag: the parameter is an internal API surface
+`sawc.py`'s own `argparse` entry point never exposes, so CLAUDE.md's "complete
+flag set" listing stays accurate unchanged. Tests that fall back to the
+subprocess compile path (unmodeled `// COMPILE-FLAGS:`) simply get no
+optimized sidecar and thus no manifest entry — which is exactly D4's
+existing carve-out ("Files with no fresh artifact (COMPILE-FLAGS, module
+paths, skips, remote-shard exclusions) take today's compile-both path").
+
+**Measurements** (this machine, full corpus, 1817-test suite, `rm -rf
+.build` between runs, suite lock held):
+
+| | compile stage | total (+ draining) | `.build` size |
+|---|---|---|---|
+| baseline (today, unoptimized `.ll` sidecar as now) | 235.5s | 240.4s | 518M |
+| probe: **also** emits an optimized `.ll` alongside the existing one | 243.1s | 248.0s | 834M |
+
+Probe delta: **+7.6s compile time (+3.2%)**; the added optimized-IR corpus
+alone is 328,215,005 bytes (~313 MiB) across the same 1165 files (slightly
+smaller than the unoptimized corpus, as expected — O1 removes dead allocas
+and unreachable code). The probe measured the *additive* cost (both
+sidecars written) to isolate the marginal price of the extra
+`codegen.emit_ir(optimize=True)` pass; the real Unit 1/2 implementation
+*replaces* the existing unoptimized sidecar rather than adding a second
+file (previous finding), so the actual per-run disk footprint stays close
+to today's 518M (optimized IR is a few percent smaller than unoptimized),
+not +316M. The real disk growth design 220 introduces is retaining K
+generations of run directories instead of one flat `.build/` — hardlink
+carry-forward (D3) makes an unchanged file free across generations, so the
+K multiplier only bites the files that actually changed since the last
+run. A full-corpus invalidation (any `sawc/` change) is the worst case:
+up to K x ~500M until pruning catches up, which is what D5's fallback ("if
+disk is obnoxious, `.ll` retention can drop to K=1") exists for. Compile
+time cost (+3.2%) is small enough that K does not multiply it — IR is
+emitted once at compile time regardless of how many prior generations are
+kept.
+
 ## Non-goals
 
 The 40-file `make irdet` sample keeps compiling both sides itself (it is the
