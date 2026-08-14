@@ -98,6 +98,69 @@ class TypeUtilsMixin:
         "resolved_symbol", "target_symbol",
     ))
 
+    def _stamp_annotation_kind(self, written, here) -> None:
+        """Correct a written annotation's KIND in place, in the DECLARING
+        module's own view (DF-212b).
+
+        The parser defaults every bare capitalized name to `TypeKind.STRUCT` —
+        it cannot know what the name denotes — and the three DECLARATION slots
+        design 194 lists (a struct FIELD's type, an enum PAYLOAD's type, a
+        `type R = T` right-hand side) are stored RAW and read straight off the
+        AST, so nothing ever corrects that default for them. A field typed by
+        an ENUM therefore sits in `StructSymbol.fields` as a STRUCT-kinded
+        `SawType` with no symbol, and every consumer that compares it against a
+        real value has to bridge the kinds by ASKING A NAMESPACE whether the
+        name is an enum (`_types_compatible`'s generic-enum arm,
+        `Namespace._normalize_struct_enum`). That question has a different
+        answer in a different module, which is the whole of DF-212b: design
+        84's cross-module embed splices a provider's suspending body into the
+        ENTRY module's AST, the re-check compares the same field annotation
+        there, the entry namespace reaches the provider's enum only DEEP (its
+        shallow `has_enum` says no), so the bridge does not fire and a
+        `Cmd`-typed field rejects a `Cmd` value — the same name printed twice.
+
+        Stamping the kind HERE, where the declaration's own module view is in
+        force, is design 210's rule applied one level down: the spliced subtree
+        must carry fully-resolved identities BEFORE it lands, so no consumer
+        downstream of the splice needs a namespace to finish the job. Nothing
+        re-derives; the re-check consults the stamp.
+
+        In place and conservative. In place because the symbol tables share
+        these `SawType` OBJECTS with the AST (see `_canonicalize_module_types`),
+        so one mutation updates every holder — which is what reaches
+        `StructSymbol.fields` without enumerating the holders. Conservative
+        because a name that resolves to a struct or a type alias, or to nothing
+        at all (a type PARAMETER, a forward reference this module cannot see),
+        is left exactly as it was: this only ever REPLACES a parser default
+        with the answer the declaring module already has.
+
+        Idempotent — an already-ENUM annotation never enters this arm — which
+        matters because the front half re-enters the same AST (the place
+        lowering and the coroutine transform both do).
+
+        ENTRY POINT (obligation 1): `_canonicalize_module_types` only, which is
+        itself reached from `check_program` (single-file + the builtins) and
+        `check_module` (per module). One walk, one context, one answer.
+        """
+        name = written.struct_name
+        if not name or '.' in name:
+            return
+        ns = getattr(self, 'namespace', None)
+        if ns is None:
+            return
+        # A struct or an alias of this identity wins: only a name that is
+        # UNAMBIGUOUSLY an enum here is a parser default worth correcting.
+        if (ns.lookup_struct(name, here) is not None
+                or ns.lookup_type_alias(name, here) is not None):
+            return
+        enum_symbol = ns.lookup_enum(name, here)
+        if enum_symbol is None:
+            return
+        written.kind = TypeKind.ENUM
+        written.enum_name = name
+        written.struct_name = None
+        written.symbol = enum_symbol
+
     def _canonicalize_module_types(self, module_ast) -> None:
         """Rewrite every type REFERENCE in `module_ast` to its identity, in place.
 
@@ -107,6 +170,11 @@ class TypeUtilsMixin:
         `_resolve_type` cannot reach on its own: a struct FIELD type, a method
         signature and a `let x: T` are read straight off the AST by the checks
         and by codegen, many without ever passing through resolution.
+
+        Since DF-212b the walk stamps the annotation's KIND as well as its
+        name — see `_stamp_annotation_kind`. Same reason, one level down: an
+        identity the declaring module resolved is one nobody downstream of a
+        cross-module splice has to re-derive.
 
         In place, and by identity of the `SawType` OBJECT, because the symbol
         tables share those objects with the AST — `StructSymbol.fields` holds
@@ -144,6 +212,9 @@ class TypeUtilsMixin:
                 if obj.struct_name:
                     obj.struct_name = self._canonical_type_name(
                         obj.struct_name, here)
+                    # DF-212b: the identity is settled, so settle the KIND too,
+                    # while this module's view is the one in force.
+                    self._stamp_annotation_kind(obj, here)
                 if obj.enum_name:
                     obj.enum_name = self._canonical_type_name(
                         obj.enum_name, here)

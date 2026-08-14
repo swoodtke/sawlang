@@ -1,0 +1,102 @@
+// Provider for the DF-212b annotation-position matrix
+// (`examples/crossmodule_embed_annotation_positions.saw`).
+//
+// Every method below names the enum `Cmd` at ONE type-annotation position and
+// is made potentially-suspending by `scan_args`, so design 84 embeds its body
+// into the ENTRY module's AST. Before DF-212b's fix a field, payload, generic
+// argument or optional typed by `Cmd` reached that re-check still carrying the
+// parser's default `TypeKind.STRUCT`, and the entry namespace could not bridge
+// the kinds — the same name rejected itself.
+
+public enum Cmd {
+    case Build
+}
+
+public enum Wrap {
+    case One(c: Cmd),
+    case Nothing
+}
+
+public struct Cli { public command: Cmd }
+
+public struct Bag { public items: Vector<Cmd> }
+extension Bag: NoCopy {}
+
+public struct Optish { public v: Cmd? }
+
+public struct Anchor { public n: Int }
+
+// `handle` carries no `sync`, so a call through it may suspend: `scan_args`
+// suspends, so every caller below does, so each lands on the embed path.
+func scan_args(handle: () -> Int) -> Int {
+    handle()
+}
+
+public func give() -> Cmd {
+    Cmd.Build
+}
+
+public extension Anchor {
+    public func echo(&self, c: Cmd) -> Cmd { c }
+
+    // R1 — a struct FIELD typed by the enum.
+    public func field_type() -> Int {
+        let k = scan_args({ 1 })
+        let c = Cli(command: Cmd.Build)
+        match c.command {
+            case Build -> 10 + k
+        }
+    }
+
+    // R2 — the enum inside a GENERIC ARGUMENT of a field's type.
+    public func generic_arg() -> Int {
+        let k = scan_args({ 1 })
+        let b = Bag(items: [Cmd.Build])
+        20 + b.items.len() * k
+    }
+
+    // R3 — the enum inside an OPTIONAL field type.
+    public func optional_field() -> Int {
+        let k = scan_args({ 1 })
+        let o = Optish(v: Cmd.Build)
+        match o.v! {
+            case Build -> 30 + k
+        }
+    }
+
+    // R4 — an enum CASE PAYLOAD typed by the enum.
+    public func enum_payload() -> Int {
+        let k = scan_args({ 1 })
+        let w = Wrap.One(c: Cmd.Build)
+        match w {
+            case One(_) -> 40 + k,
+            case Nothing -> 0
+        }
+    }
+
+    // R7 — a free function's RETURN type (already resolved; a regression row).
+    public func fn_return() -> Int {
+        let k = scan_args({ 1 })
+        match give() {
+            case Build -> 70 + k
+        }
+    }
+
+    // R8 — a method's PARAMETER and RETURN types (already resolved).
+    public func method_signature() -> Int {
+        let k = scan_args({ 1 })
+        let a = Anchor(n: 1)
+        match a.echo(Cmd.Build) {
+            case Build -> 80 + k
+        }
+    }
+
+    // R9 — a LOCAL's written annotation (already resolved).
+    public func local_annotation() -> Int {
+        let k = scan_args({ 1 })
+        let c: Cmd = Cmd.Build
+        match c {
+            case Build -> 90 + k
+        }
+    }
+}

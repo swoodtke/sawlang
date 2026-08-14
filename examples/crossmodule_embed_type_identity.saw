@@ -1,7 +1,11 @@
-// XFAIL: DF-212b a type declared in a CROSS-MODULE-EMBEDDED module gets a
-// SECOND identity — `field `command` expects type `Cmd` but got `Cmd``, the
-// same printed name on both sides, which is design 144's signature for one
-// type resolved under two different (module, name) answers.
+// DF-212b (FIXED): a type declared in a CROSS-MODULE-EMBEDDED module used to
+// get a SECOND identity — `field `command` expects type `Cmd` but got `Cmd``,
+// the same printed name on both sides. The two `Cmd`s were never two modules:
+// the expected side was the struct field's UNRESOLVED annotation, still
+// carrying the parser's default `TypeKind.STRUCT`, and the entry namespace
+// reaches the provider's enum only DEEP, so the kind bridge in
+// `_types_compatible` did not fire there. `_stamp_annotation_kind` settles the
+// kind in the DECLARING module's view, where the answer is known.
 //
 // A type keeps ONE identity however its defining module is reached. When
 // module B's `main` transitively suspends, design 210's machinery embeds
