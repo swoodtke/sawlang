@@ -1,5 +1,6 @@
-// XFAIL: DF-217h a hoisted suspending call feeding a consuming COLLECTION
-// accessor is released a second time at frame teardown
+// A hoisted suspending call feeding a consuming COLLECTION accessor is
+// released once. (DF-217h; fixed by design 218 stage 2 — the ANF temp is a
+// `Slot` read with `take()`.)
 //
 // Sweep S2 rows m14/h4. `v.push(mk(52))` and `v.set(0, mk(3))` both take the
 // element BY VALUE — the vector owns it afterwards — but the ANF temp the

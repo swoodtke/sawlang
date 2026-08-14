@@ -1,5 +1,7 @@
-// XFAIL: DF-217h a hoisted suspending call's result is double-freed when the
-// call it feeds CONSUMES it by value — the ANF temp never gives up its claim
+// A hoisted suspending call's result is released ONCE when the call it feeds
+// consumes it by value. (DF-217h; fixed by design 218 stage 2 — the ANF temp
+// is a `Slot` and its one read is `take()`, which is the read and the give-up
+// in one method body.)
 //
 // Design 120 lifts a suspending call out of an argument position into a frame
 // temp, and the sub-frame's `__result` IS forgotten when its value moves into

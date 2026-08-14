@@ -1,5 +1,6 @@
-// XFAIL: DF-217h a hoisted suspending call used as a TUPLE-LITERAL element is
-// consumed by the tuple and released AGAIN at frame teardown
+// A hoisted suspending call used as a TUPLE-LITERAL element is consumed by the
+// tuple and released once. (DF-217h; fixed by design 218 stage 2 — the ANF temp
+// is a `Slot` read with `take()`.)
 //
 // Sweep S2 row p4. A tuple carries the strongest tier it holds, so `(mk(70),
 // mk(71))` takes both `Res` values by value and the tuple owns them; the ANF

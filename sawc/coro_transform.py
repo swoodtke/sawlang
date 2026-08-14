@@ -565,8 +565,10 @@ def _ref_ptr_type(ref_type):
 # rather than punning one tag for optionality and liveness (218a ruling 6,
 # the shape that hid DF-217b).
 #
-# The LEGACY trio survives for exactly one thing — the transform's own hoisted
-# temps, census rows T1-T5, which stage 2 owns. See `_is_stage2_temp`.
+# Stage 2 adds the transform's own hoisted temps (census rows T1-T5). They are
+# the migration's whole point: an ANF temp is the DF-217h family, where a
+# consuming read and the drop-flag clear were two facts recorded in two places
+# and the second one was missing. See `_TRANSFORM_CONSUMING_TEMPS`.
 # --------------------------------------------------------------------------- #
 
 # The design-144 IDENTITY of `std.compiler.frame`'s `Slot`, for the same reason
@@ -580,20 +582,57 @@ SLOT_STRUCT_NAME = _type_identity("Slot", ("<std>", "compiler.frame"))
 _SLOT_ENC_OF_LEGACY = {"opt": "slot", "self_opt": "slot_self",
                        "opt_closure": "slot_closure"}
 
-# The prefixes of the temps the transform hoists for itself. They keep the
-# legacy optional encoding through stage 1: migrating them without stage 2's
-# consuming-position rule would turn DF-217h's double-free into a compile
-# error on programs that compile today (a parent that CONSUMES the temp reads
-# it as a bare identifier, which lowers to a borrow).
-_STAGE2_TEMP_PREFIXES = ("__anf", "__hoist", "__match", "__vc", "__trycall")
+# The transform's own SINGLE-USE hoisted temps (design 218 stage 2, census rows
+# T1-T4). Each is written once by the hoist that made it and read once, in the
+# position the hoist lifted the expression out of — so its one read CONSUMES it,
+# and the migrated spelling for that is `take()`.
+#
+# That is the whole of DF-217h. Today the read is a bare identifier, which
+# lowers to an owning read that leaves the drop flag set, and nothing clears it
+# afterwards: the value is released by the consumer AND again by the frame's
+# teardown. `take()` is the read and the give-up in one method body, so the
+# state "consumed but still flagged live" stops being representable.
+#
+# NOT on the list, and the distinction is load-bearing: `__vcN`, the payload
+# binding a value-conditional's lowering makes (`a ?? b` becomes
+# `if let __vcN = a`). That is an ordinary pattern binding whose store goes
+# through `_store_binding_in_slot` and whose read follows the use site's own
+# tier, exactly like a binding the author wrote. `__vchN` — the value-
+# conditional HOIST temp, which shares its prefix — IS on the list, and the
+# two are kept apart deliberately.
+#
+_TRANSFORM_CONSUMING_TEMPS = ("__anf", "__trycall", "__vch")
 
 
-def _is_stage2_temp(name):
-    """Whether `name` is one of the transform's own hoisted temps (T1-T5).
+def _is_consuming_temp(name):
+    """Whether `name` is one of the transform's single-use EXPRESSION temps,
+    whose one read consumes it."""
+    return isinstance(name, str) and name.startswith(_TRANSFORM_CONSUMING_TEMPS)
 
-    `__vc` covers `__vch` (the value-conditional hoist) and `__vcN` (the
-    payload binding its lowering makes) alike."""
-    return isinstance(name, str) and name.startswith(_STAGE2_TEMP_PREFIXES)
+
+# The SCRUTINEE temps — census rows T1 and T3 — which stage 2 does NOT migrate.
+# Their reader is an `if let` / `match` dispatch, and it consumes only when the
+# BINDING it feeds does; the rest of the time the payload stays in the temp for
+# teardown to drop. Neither answer is spellable on a slot today:
+#
+#   * `take()` where the binding does NOT consume moves the payload into a
+#     binding whose scope is a CFG BLOCK the split reaches from another block,
+#     and the cleanup that would drop it never runs there — measured, a clean
+#     leak (`coro_iflet_suspending_deinit`'s 907 disappears);
+#   * `value()` is refused outright for a move-only payload — ``lends a place
+#     of type `Res?`, which is move-only`` — because a NAMED `if let` binding
+#     over an optional-typed lend is a value read, which is the half of DF-218a
+#     that its `_`-only desugar deliberately left open.
+#
+# So the row waits for two things that belong together: the named-binding form
+# of the DF-218a desugar, and a split dispatch whose binding is frame-resident
+# by construction rather than by the alloca happening to survive. The DF-210f
+# forget stays exactly as it is for them, which is why it is not deleted here.
+_SCRUTINEE_TEMPS = ("__hoist", "__match")
+
+
+def _is_scrutinee_temp(name):
+    return isinstance(name, str) and name.startswith(_SCRUTINEE_TEMPS)
 
 
 def _slot_type(payload):
@@ -634,8 +673,6 @@ def _migrated_enc(name, enc, address_taken=(), saw_type=None,
     Every owning field migrates to `Slot<T>` except four families, each held
     back by a LATER stage that owns the mechanism, not by preference:
 
-      * the transform's own hoisted temps (T1-T5) — stage 2, see
-        `_is_stage2_temp`;
       * `opt_closure` — a frame-resident closure is CALLED, and the rewrite
         spells that as an indirect call on the field. A `Slot`'s occupant is
         reached by `value()`, and calling the result directly is not
@@ -649,6 +686,7 @@ def _migrated_enc(name, enc, address_taken=(), saw_type=None,
         pointer INTO the local's storage, and a `Slot` has no addressable
         payload spelling: that pointer is exactly the `payload_ptr` section 4
         deferred, and it arrives with `UnsafeRef` in stage 3;
+      * a SCRUTINEE temp (`__hoistN` / `__matchN`) — see `_SCRUTINEE_TEMPS`;
       * a local a method call CONSUMES another local into — `v.push(move h)`
         (DF-218h). A slot read is a lend, so the call moves inside the window's
         closure, and a `move` of an ENCLOSING local from inside a closure body
@@ -661,8 +699,8 @@ def _migrated_enc(name, enc, address_taken=(), saw_type=None,
         protective behavior and this row waits for the closure move-out design
         that fixes both halves.
     """
-    if (_is_stage2_temp(name) or enc == "opt_closure" or name in address_taken
-            or name in move_arg_receivers
+    if (enc == "opt_closure" or name in address_taken
+            or name in move_arg_receivers or _is_scrutinee_temp(name)
             or not _slot_payload_ok(saw_type)):
         return enc
     return _SLOT_ENC_OF_LEGACY.get(enc, enc)
@@ -1392,8 +1430,14 @@ class _FrameBuilder:
         # feeds CONSUMES the payload, the temp's slot has to give up its claim
         # on it or the frame frees the same buffer twice at teardown. Declared
         # here rather than in either hoister because both write it and they do
-        # not run in a fixed order.
+        # not run in a fixed order. Still live after design 218 stage 2: the
+        # scrutinee temps are the one hoisted family that did NOT migrate, so
+        # they keep the drop flag this rule pairs with (`_SCRUTINEE_TEMPS`).
         self._hoist_temps = set()
+        # The `__vcN` payload bindings the value-conditional lowering makes,
+        # under the `__obN` names the split rename gives them. Single-use, so
+        # their read consumes — see `_prep_ob_split`.
+        self._vc_ob_bindings = set()
         # design 210: record what the DECLARATION typecheck already answered,
         # before this builder rewrites anything. Everything below — the hoists,
         # the state split, the frame-slot rewrites — then produces unmarked
@@ -2685,6 +2729,14 @@ class _FrameBuilder:
         old = node.name
         new = f"__ob{self._optbind_ctr}"
         self._optbind_ctr += 1
+        # Census T5 (design 218 stage 2): a `??` / `?.` lowering's payload
+        # binding is single-use — the lowering built the `if let` and reads the
+        # binding exactly once, in the sink it wrote — so its read CONSUMES it
+        # like any other transform temp. The rename is what would otherwise
+        # lose that: after it the name is `__obN`, indistinguishable from a
+        # user's own `if let` binding, which is multi-use and reads by tier.
+        if old.startswith("__vc") and not old.startswith("__vch"):
+            self._vc_ob_bindings.add(new)
         scopes = []
         if scope_block is not None:
             scopes.append(scope_block)
@@ -4542,7 +4594,14 @@ class _FrameBuilder:
         `__Frame_main_release`, which is where irdet died after printing its
         answer. The author cannot write the `move` here, because the temp is not
         a name they have; the transform owns the temp, so the transform owes the
-        clear."""
+        clear.
+
+        DESIGN 218 STAGE 2 DISSOLVES THAT RULE for a migrated temp. The
+        scrutinee is `self.__hoistN.take()`, which empties the slot in the same
+        method body the value leaves by, so there is no separate claim left to
+        give up and nothing here to remember to do. The rule survives only for
+        the encodings stage 2 did not migrate, and goes with the last of
+        them."""
         bind = node.name
         some_body = []
         if bind in self.encmap:
@@ -4553,6 +4612,7 @@ class _FrameBuilder:
                     and isinstance(src, Identifier)
                     and src.name in self._hoist_temps
                     and src.name in self.encmap
+                    and _enc_cleanup(self.encmap[src.name])
                     and src.name not in forgets):
                 forgets = list(forgets) + [src.name]
         some_body.extend(self._forgets(forgets))
@@ -4593,6 +4653,25 @@ class _FrameBuilder:
             if self.cur not in self._term:
                 self._goto(merge)
         self.cur = merge
+
+    def _takes_temp(self, name):
+        """Whether a read of frame field `name` is a `take()`.
+
+        True for the transform's own SINGLE-USE temps once they are migrated:
+        the ANF hoist's `__anfN`, the `try` hoist's `__trycallN`, the
+        value-conditional hoist's `__vchN`, and the payload binding a `??`/`?.`
+        lowering makes (`__vcN`, which the split rename turns into `__obN` —
+        `_prep_ob_split` is what remembers). Each is written once and read once,
+        in the position the lowering lifted an expression out of, so the read
+        hands the value over and `take()` is that in one method body.
+
+        False for everything else, including a user's own binding: a name the
+        author wrote can be read more than once, and which of those reads
+        consumes is the use site's own tier question."""
+        enc = self.encmap.get(name)
+        return bool(_enc_is_slot(enc)
+                    and (_is_consuming_temp(name)
+                         or name in self._vc_ob_bindings))
 
     def _split_guard_let(self, s, loop_ctx):
         forgets = []                           # DF-182c — see `_split_if_let`
@@ -4727,9 +4806,15 @@ class _FrameBuilder:
             # its claim — otherwise the frame frees the same buffer twice at
             # teardown, once through the binding's slot and once through the
             # temp's. Per ARM, because only the arm that binds consumes.
+            #
+            # A MIGRATED temp needs none of it (design 218 stage 2): the
+            # scrutinee is `self.__matchN.take()`, read once ahead of the
+            # dispatch, so no arm can find a claim still standing. The per-arm
+            # asymmetry — only the binding arm forgot — goes with it.
             if _consumed and isinstance(e.matched_expr, Identifier) \
                     and e.matched_expr.name in self._hoist_temps \
-                    and e.matched_expr.name in self.encmap:
+                    and e.matched_expr.name in self.encmap \
+                    and _enc_cleanup(self.encmap[e.matched_expr.name]):
                 dispatch.extend(self._forgets([e.matched_expr.name]))
             dispatch.append(AssignStatement(
                 target=_self_field("__state"), value=_int(entry)))
@@ -5355,8 +5440,33 @@ class _FrameBuilder:
                 read.frame_place_read = True
                 _answered(read, node.resolved_type)
             return read
+        if (isinstance(node, ForceUnwrap) and isinstance(node.expr, Identifier)
+                and self._takes_temp(node.expr.name)):
+            # `__anfN!` — the ONE position where a consuming temp does not
+            # take. Unwrapping projects the payload out of the optional and
+            # leaves the optional itself as a temporary nobody registers: on the
+            # PLAIN path codegen leaks exactly this shape (DF-217m, pinned), so
+            # taking here would trade a late release for no release at all.
+            # Borrowing keeps the payload in the slot, where the frame's own
+            # `clear()` releases it exactly once.
+            node.expr = _read_field(node.expr.name,
+                                    self.encmap[node.expr.name],
+                                    node.expr.line, node.expr.column,
+                                    owning_read=True,
+                                    saw_type=node.expr.resolved_type)
+            return node
         if isinstance(node, Identifier) and node.name in self.encmap:
-            return _read_field(node.name, self.encmap[node.name], node.line,
+            enc = self.encmap[node.name]
+            # Census T1-T4 (design 218 stage 2): the transform's own single-use
+            # temps are CONSUMED at their one read, so a migrated one reads as
+            # `take()`. On a legacy encoding the answer is unchanged — the
+            # bookkeeping there is the `__saw_forget` the hoisters register,
+            # which is exactly what DF-217h shows nobody can be trusted to pair.
+            if self._takes_temp(node.name):
+                return _read_field(node.name, enc, node.line, node.column,
+                                   move_read=True,
+                                   saw_type=node.resolved_type)
+            return _read_field(node.name, enc, node.line,
                                node.column, owning_read=True,
                                saw_type=node.resolved_type)
         if isinstance(node, ASTNode):

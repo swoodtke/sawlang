@@ -1,5 +1,16 @@
-// XFAIL: DF-217h a hoisted suspending call used as a RECEIVER leaves its temp
-// alive to frame teardown instead of releasing it where the statement ends
+// XFAIL: DF-217m an UNWRAPPED call-result receiver (`mk_opt(44)!.describe()`)
+// leaves its temp alive to frame teardown instead of releasing it at the
+// statement
+//
+// HALF FIXED by design 218 stage 2. The plain call-result receiver
+// (`mk(10).describe()`) now releases where the statement ends — its ANF temp is
+// a `Slot` whose one read is `take()`, so the value leaves the frame and dies
+// as an ordinary statement temporary. The UNWRAPPED shape below still does not,
+// and the reason it is DF-217m's rather than this row's: unwrapping projects
+// the payload out and leaves the optional itself as a temporary nobody
+// registers, which the SYNC twin leaks OUTRIGHT (no coroutine anywhere). Stage
+// 2 keeps that read a borrow deliberately — a late release beats no release —
+// so this row flips when the sync temp lifecycle is fixed.
 //
 // Sweep S2 rows b1-b4/m7. `mk(10).describe()` hoists the receiver into a frame
 // temp, and that temp is a frame local for the rest of the function: the value

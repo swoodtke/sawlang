@@ -1,6 +1,6 @@
-// XFAIL: DF-217h the ANF temp for a suspending call in a struct-init field or
-// an enum-case payload is consumed by the constructor and released AGAIN at
-// frame teardown
+// The ANF temp for a suspending call in a struct-init field or an enum-case
+// payload is consumed by the constructor and released once. (DF-217h; fixed by
+// design 218 stage 2 — the ANF temp is a `Slot` read with `take()`.)
 //
 // Sweep S2 rows a5/a6. Design 120 hoists `mk(5)` out of the argument position
 // into a frame temp; the constructor then takes the `Res` BY VALUE, and nothing
