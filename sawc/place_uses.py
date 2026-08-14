@@ -88,12 +88,24 @@ def is_place(node) -> bool:
         node, 'place_lowered', False)
 
 
-def transform_place_uses(programs, namespace, reporter) -> bool:
-    """Lower every place use in `programs`. Returns True if any was."""
+def transform_place_uses(programs, namespace, reporter, uncheck_after=True) -> bool:
+    """Lower every place use in `programs`. Returns True if any was.
+
+    `uncheck_after` is False for the POST-TRANSFORM run (design 218 stage 1),
+    where the only new place uses are the `Slot.value()` lends the coroutine
+    transform just emitted. `uncheck` exists to restore what the AUTHOR wrote
+    so the next check re-derives its own rewrites — and the transformed AST has
+    no author. Its `self.__result = <Int>` store in a `-> Result<Int, E>` frame
+    is wrapped `Ok` by the check that just ran, and stripping that wrap hands
+    the next check a store it refuses outright ("cannot assign `Int` to field
+    of type `Result<Int, IoError>?`"). The lowering's own output is stamped
+    `place_lowered`, so leaving the tree checked costs nothing: a second
+    lowering pass over it finds no place left to lower.
+    """
     tx = _PlaceUses(namespace, reporter)
     for program in programs:
         tx.run(program)
-    if tx.changed:
+    if tx.changed and uncheck_after:
         for program in programs:
             uncheck(program)
     return tx.changed
@@ -138,7 +150,8 @@ def _uncheck_node(node):
     per-pass `resolved_type`. Nodes the LOWERING stamped (`place_lowered`) are
     its own output, not the checker's leftovers, and are left alone."""
     while (isinstance(node, _CHECKER_WRAPS)
-           and not getattr(node, 'place_lowered', False)):
+           and not getattr(node, 'place_lowered', False)
+           and node.value is not None):
         node = node.value
     if isinstance(node, Expression) and not getattr(node, 'place_lowered', False):
         node.resolved_type = None
@@ -358,7 +371,9 @@ class _PlaceUses:
                                          line=place.line, column=place.column)
                 body_expr.place_lowered = True
         else:
-            body_expr = self._value(self._replace_head(expr, place, name))
+            body_expr = self._value(
+                self._replace_head(expr, place, name,
+                                   getattr(place, 'place_elem_type', None)))
         body = Block(statements=[], final_expr=body_expr,
                      line=expr.line, column=expr.column)
         return self._window_call(place, name, body, result_type,
@@ -1176,10 +1191,26 @@ class _PlaceUses:
             node = self._chain_down(node)
         return None
 
-    def _replace_head(self, expr, place, name):
-        """`expr` with `place` swapped for the window's parameter."""
+    def _replace_head(self, expr, place, name, head_type=None):
+        """`expr` with `place` swapped for the window's parameter.
+
+        The substituted identifier carries `head_type` — the type the window
+        binds it at — because the pass that would otherwise derive it may never
+        look. A postfix chain whose head is a place can sit inside a design-210
+        PRESERVED subtree: the coroutine transform reads a frame slot with
+        `self.x.value()`, which is a lend, so an author's `x.m()` becomes a
+        chain this window swallows. A preserved node answers for itself and is
+        not descended into, so a head with no answer of its own is a head
+        nobody ever answers for, and codegen meets an untyped receiver.
+        Substituting WITH the answer keeps the subtree closed — the same
+        obligation `coro_transform._answered` carries for its own grafts.
+
+        Costs nothing on the ordinary path: `transform_place_uses` unchecks the
+        tree it rewrote, which clears this stamp with every other, and the next
+        check derives it again.
+        """
         if expr is place:
-            return Identifier(name=name, line=place.line, column=place.column)
+            return self._window_head(name, place, head_type)
         if (isinstance(expr, ForceUnwrap) and expr.expr is place
                 and getattr(place, 'place_optional', False)):
             # `v.get(i)!.m()`: the `!` is how the source says "I promise the
@@ -1188,18 +1219,26 @@ class _PlaceUses:
             # is the panic the `!` asked for. So the unwrap is CONSUMED here; the
             # window parameter is already `&var T`, and leaving the `!` on would
             # force-unwrap a non-optional.
-            return Identifier(name=name, line=place.line, column=place.column)
+            return self._window_head(name, place, head_type)
         if isinstance(expr, MemberAccess):
-            expr.object = self._replace_head(expr.object, place, name)
+            expr.object = self._replace_head(expr.object, place, name, head_type)
         elif isinstance(expr, MethodCall):
-            expr.object = self._replace_head(expr.object, place, name)
+            expr.object = self._replace_head(expr.object, place, name, head_type)
         elif isinstance(expr, ArrayIndex):
-            expr.array_expr = self._replace_head(expr.array_expr, place, name)
+            expr.array_expr = self._replace_head(expr.array_expr, place, name,
+                                                 head_type)
         elif isinstance(expr, TupleIndex):
-            expr.tuple_expr = self._replace_head(expr.tuple_expr, place, name)
+            expr.tuple_expr = self._replace_head(expr.tuple_expr, place, name,
+                                                 head_type)
         elif isinstance(expr, ForceUnwrap):
-            expr.expr = self._replace_head(expr.expr, place, name)
+            expr.expr = self._replace_head(expr.expr, place, name, head_type)
         return expr
+
+    @staticmethod
+    def _window_head(name, place, head_type):
+        head = Identifier(name=name, line=place.line, column=place.column)
+        head.resolved_type = head_type
+        return head
 
     def _call_arguments(self, expr):
         if isinstance(expr, (FunctionCall, MethodCall)):

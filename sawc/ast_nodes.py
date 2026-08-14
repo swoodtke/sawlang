@@ -867,7 +867,25 @@ class Expression(ASTNode):
     #                           rewrites are unmarked by construction and get
     #                           typed as ordinary glue. See `THE EMBED CONTRACT`
     #                           in coro_transform.py.
+    #   frame_slot_op        -- design 218: this node is a `Slot` READ the
+    #                           coroutine transform built over a frame field
+    #                           (`self.x.value()` / `self.x.take()`). It is the
+    #                           second kind of graft the embed contract admits:
+    #                           not "already answered" like `embed_preserved`,
+    #                           but RE-CHECKABLE ANYWHERE — it names only the
+    #                           frame struct's own field and a public method of
+    #                           `std.compiler.frame`, which every driven program
+    #                           compiles, so no module-private name is at stake.
+    #                           A preserved ancestor therefore descends to it
+    #                           (`_check_preserved_embed`) instead of skipping
+    #                           it, and the closedness walk treats it as
+    #                           answered (`_close_embed_marks`) instead of
+    #                           re-opening the spine above it. It has to be
+    #                           re-checked rather than pre-answered because a
+    #                           `value()` lend only becomes a window call once
+    #                           the checker has stamped `place_struct` on it.
     embed_preserved: bool = annotation(False)
+    frame_slot_op: bool = annotation(False)
 
 
 @dataclass

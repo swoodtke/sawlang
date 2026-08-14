@@ -170,8 +170,53 @@ class ExpressionsMixin:
         transform builds AROUND the body — the state dispatch, the resumption
         edges, the frame init — is a new unmarked node and is checked here
         normally. `_assert_embed_closed` is the tripwire on the invariant.
+
+        THE ONE DESCENT (design 218 stage 1). A frame-slot READ is the graft
+        that cannot arrive pre-answered: `self.x.value()` is a `borrows`
+        accessor, and an accessor becomes a window call only after this pass
+        stamps `place_struct` on it, so skipping it leaves a call codegen has
+        never heard of. It is also the graft that does not NEED to be
+        pre-answered — it names the frame struct's own field and a public
+        method of `std.compiler.frame`, so the entry module's namespace answers
+        it exactly as the callee's would. The transform says so with
+        `frame_slot_op`.
+
+        The place lowering then rewrites those reads, and its output inherits
+        the same standing: a `value()` chain becomes a `__window` call carrying
+        the rest of the chain in a closure, and the closure's parameter type is
+        derived from the accessor's signature by THIS pass. Un-marked
+        `place_lowered` output inside a preserved subtree is by construction
+        the post-transform lowering's own (anything lowered before the
+        transform was marked with everything else the declaration pass
+        resolved), and it is namespace-neutral for the same reason the read
+        was. So the descent covers both, and asks nothing else in the subtree
+        anything.
         """
+        self._check_embedded_grafts(expr)
         return expr.resolved_type
+
+    @staticmethod
+    def _is_embedded_graft(node) -> bool:
+        """Whether `node` inside a preserved subtree is a graft this pass owes
+        an answer — a transform slot read, or the place lowering's rewrite of
+        one."""
+        if getattr(node, 'frame_slot_op', False):
+            return True
+        return (getattr(node, 'place_lowered', False)
+                and not getattr(node, 'embed_preserved', False))
+
+    def _check_embedded_grafts(self, expr) -> None:
+        """Check the grafts inside a preserved subtree.
+
+        The walk does not descend THROUGH a graft: its receiver, arguments and
+        (for a window) the rest of the chain are covered by checking it, and
+        the preserved nodes it carries short-circuit on their own.
+        """
+        for sub in child_nodes(expr):
+            if self._is_embedded_graft(sub):
+                self._check_expression(sub)
+            else:
+                self._check_embedded_grafts(sub)
 
     # ===== Expression Visitor Methods =====
 

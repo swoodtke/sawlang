@@ -553,9 +553,181 @@ def _ref_ptr_type(ref_type):
                    pointer_mutable=bool(ref_type.reference_mutable))
 
 
+# --------------------------------------------------------------------------- #
+# design 218 stage 1: the owning encodings become `Slot<T>`.
+#
+# `slot` / `slot_self` / `slot_closure` are the migrated forms of `opt` /
+# `self_opt` / `opt_closure`: the field is a `Slot<T>` from
+# `std.compiler.frame`, occupancy is the type's own business, and the four
+# operations the transform needs — `put`, `take`, `value()`, `clear()` — are
+# ordinary method calls the re-check judges like anybody else's. `slot_self`
+# holds `Slot<T?>`: the local IS an optional, and it gets its own honest tag
+# rather than punning one tag for optionality and liveness (218a ruling 6,
+# the shape that hid DF-217b).
+#
+# The LEGACY trio survives for exactly one thing — the transform's own hoisted
+# temps, census rows T1-T5, which stage 2 owns. See `_is_stage2_temp`.
+# --------------------------------------------------------------------------- #
+
+SLOT_STRUCT_NAME = "Slot"
+
+_SLOT_ENC_OF_LEGACY = {"opt": "slot", "self_opt": "slot_self",
+                       "opt_closure": "slot_closure"}
+
+# The prefixes of the temps the transform hoists for itself. They keep the
+# legacy optional encoding through stage 1: migrating them without stage 2's
+# consuming-position rule would turn DF-217h's double-free into a compile
+# error on programs that compile today (a parent that CONSUMES the temp reads
+# it as a bare identifier, which lowers to a borrow).
+_STAGE2_TEMP_PREFIXES = ("__anf", "__hoist", "__match", "__vc", "__trycall")
+
+
+def _is_stage2_temp(name):
+    """Whether `name` is one of the transform's own hoisted temps (T1-T5).
+
+    `__vc` covers `__vch` (the value-conditional hoist) and `__vcN` (the
+    payload binding its lowering makes) alike."""
+    return isinstance(name, str) and name.startswith(_STAGE2_TEMP_PREFIXES)
+
+
+def _slot_type(payload):
+    """`Slot<payload>` — the frame-field type of a migrated owning encoding."""
+    return SawType(TypeKind.STRUCT, struct_name=SLOT_STRUCT_NAME,
+                   type_args=[payload])
+
+
+def _enc_is_slot(enc):
+    return enc in ("slot", "slot_self", "slot_closure")
+
+
+def _slot_payload_ok(saw_type):
+    """Whether a frame field of this type may become a `Slot<T>` in stage 1.
+
+    Two shapes stay on the legacy encoding, each for a reason that belongs to a
+    later stage rather than to taste:
+
+      * `Void` — `Slot<Void>` puts a `Void?` in a struct field, and a pointer to
+        void is not a type llvmlite will build. A Void local carries nothing to
+        release, so the slot buys nothing either;
+      * a FIXED ARRAY — `a[i] = v` writes through the element's storage, which
+        is addressing the local, the same class as the `&x` deferrals above.
+        The write lands inside a `value()` window whose flavor the place system
+        picks, and an array element assignment through a lend is stage 3's
+        addressability work, not stage 1's.
+    """
+    if saw_type is None:
+        return False
+    return saw_type.kind not in (TypeKind.VOID, TypeKind.ARRAY)
+
+
+def _migrated_enc(name, enc, address_taken=(), saw_type=None):
+    """The encoding a frame field actually gets, given the one `_enc_of` picked
+    from its type.
+
+    Every owning field migrates to `Slot<T>` except three families, each held
+    back by a LATER stage that owns the mechanism, not by preference:
+
+      * the transform's own hoisted temps (T1-T5) — stage 2, see
+        `_is_stage2_temp`;
+      * `opt_closure` — a frame-resident closure is CALLED, and the rewrite
+        spells that as an indirect call on the field. A `Slot`'s occupant is
+        reached by `value()`, and calling the result directly is not
+        expressible (`self.f.value()()` parses as a tuple), so the migration
+        owes a materialized local — which needs a statement slot the
+        expression rewrite does not always have. Stage 3 owns the closure-env
+        work and this row goes with it;
+      * a local whose ADDRESS the transform takes — the receiver of a nested
+        suspending method call (census P1) and a `ref` argument to a
+        sub-frame (census S9's ref half, 218a ruling 7). Both seed a raw
+        pointer INTO the local's storage, and a `Slot` has no addressable
+        payload spelling: that pointer is exactly the `payload_ptr` section 4
+        deferred, and it arrives with `UnsafeRef` in stage 3.
+    """
+    if (_is_stage2_temp(name) or enc == "opt_closure" or name in address_taken
+            or not _slot_payload_ok(saw_type)):
+        return enc
+    return _SLOT_ENC_OF_LEGACY.get(enc, enc)
+
+
+def _place_root_name(expr):
+    """The name of the binding a place expression is rooted at, or None.
+
+    Used to find the locals whose storage the transform addresses: `&x`,
+    `&x.field`, `&x[i]` all root at `x`, and it is `x`'s FIELD that has to stay
+    addressable."""
+    node = expr
+    seen = 0
+    while node is not None and seen < 32:
+        seen += 1
+        if isinstance(node, Identifier):
+            return node.name
+        for attr in ('object', 'expr', 'array_expr', 'tuple_expr', 'value'):
+            child = getattr(node, attr, None)
+            if isinstance(child, ASTNode):
+                node = child
+                break
+        else:
+            return None
+    return None
+
+
+def _slot_static(method, payload, args=(), line=0, column=0):
+    """`Slot<payload>.<method>(args)` — the seeding calls `_build_frame_init`
+    emits. The type argument is EXPLICIT because a static method on a generic
+    type infers nothing from its argument or from the field it initializes."""
+    return MethodCall(
+        object=Identifier(name=SLOT_STRUCT_NAME, type_args=[payload],
+                          line=line, column=column),
+        method_name=method, arguments=list(args), line=line, column=column)
+
+
+def _slot_op(place, method, args=(), line=0, column=0):
+    """`<place>.<method>(args)` on a slot-typed place."""
+    return MethodCall(object=place, method_name=method, arguments=list(args),
+                      line=line, column=column)
+
+
+def _slot_read(place, method, saw_type, line=0, column=0):
+    """A slot READ — `self.x.value()` or `self.x.take()` — as a graft the embed
+    contract admits (design 218 stage 1, design 210 unit 3).
+
+    A read is the one slot operation that lands INSIDE a preserved subtree: the
+    transform replaces the local `x` wherever the author wrote it, including in
+    the middle of a call the declaration pass resolved in the callee's own
+    module. `_answered` is the wrong tool for it — a pre-answered node is
+    SKIPPED by the post-transform pass, and `value()` has to be checked to be
+    lowered at all (the place lowering only sees an accessor the checker
+    stamped `place_struct` on).
+
+    So the read declares the other thing that makes a graft safe: it is
+    RE-CHECKABLE ANYWHERE. It names the frame struct's own field and a public
+    method of `std.compiler.frame`, both present in every driven program and
+    neither private to anybody's module, so the entry namespace answers exactly
+    what the callee's would. `frame_slot_op` is that claim, read by
+    `_check_preserved_embed` (descend to it) and `_close_embed_marks` (do not
+    re-open the spine above it).
+
+    `saw_type` — the type of the LOCAL this read replaces, which is also what
+    the operation returns — is stamped so the closedness walk finds an answer
+    at the root. It does NOT come with `embed_preserved`: the answer is a
+    convenience for the walk, and the checker overwrites it with its own.
+    """
+    node = _slot_op(place, method, line=line, column=column)
+    if saw_type is not None:
+        node.resolved_type = saw_type
+        node.frame_slot_op = True
+    return node
+
+
 def _field_type(saw_type, enc):
     if enc == "ref":
         return _ref_ptr_type(saw_type)
+    if _enc_is_slot(enc):
+        # `_clear_escaping` inside the wrapper: it walks Optional/array/tuple/
+        # function shapes and would not see through the `Slot<...>` struct, and
+        # a `slot_closure` payload still needs its escaping bit cleared and its
+        # `sync` bit forced.
+        return _slot_type(_clear_escaping(saw_type))
     return _opt(saw_type) if enc in ("opt", "opt_closure") else saw_type
 
 
@@ -564,9 +736,17 @@ def _enc_unwraps(enc):
 
 
 def _enc_cleanup(enc):
-    """True for an encoding whose field carries a drop flag (None/Some): a move
-    out must `__saw_forget` it, and its initial (not-yet-live) value is `None`."""
+    """True for a LEGACY encoding whose field carries a drop flag (None/Some):
+    a move out must `__saw_forget` it, and its initial (not-yet-live) value is
+    `None`. A `Slot` field answers False — it carries its occupancy itself, and
+    `take`/`clear` are what move the tag."""
     return enc in ("opt", "self_opt", "opt_closure")
+
+
+def _enc_owns(enc):
+    """True for any encoding whose field OWNS its contents and therefore owes a
+    release — the legacy drop-flag trio and the migrated slots alike."""
+    return _enc_cleanup(enc) or _enc_is_slot(enc)
 
 
 # --------------------------------------------------------------------------- #
@@ -658,7 +838,25 @@ def _read_field(name, encoding, line=0, column=0, owning_read=False,
     read whose ownership the transform has ALREADY settled on the pre-transform
     AST (which the typechecker saw, and annotated, as the plain local it was).
     Judging it twice would double-retain a Copy payload and reject a
-    NoCopy one that the frame is legitimately moving out."""
+    NoCopy one that the frame is legitimately moving out.
+
+    NONE OF THAT APPLIES TO A `Slot` FIELD (design 218 stage 1). A migrated
+    field has exactly two reads — `take()`, which moves the payload out and
+    empties the slot in one method body, and `value()`, which lends it as a
+    place — and both are ordinary method calls the re-check judges by the
+    ordinary rules. So the slot branch stamps NOTHING: no `frame_place_read`
+    telling the transfer checkpoint to look away, no `frame_move_read` (M2,
+    which deletes with this stage — a `take()` result is an owned temporary the
+    existing predicate already answers correctly), and no `frame_owning_read`
+    asking codegen for a retain the checker never saw. A tier-wrong choice
+    between the two is a compile error on generated code, which is the whole
+    point of the migration.
+    """
+    if _enc_is_slot(encoding):
+        return _slot_read(_self_field(name, line, column),
+                          "take" if move_read else "value",
+                          saw_type, line=line, column=column)
+
     def _marked(node):
         node.frame_place_read = True
         if move_read:
@@ -844,12 +1042,22 @@ def _close_embed_marks(decls):
     `SelfExpr` under a `self.x`, the `self.x` under a `self.x!` — is scaffolding
     built to a fixed shape whose ROOT carries the answer any reader wants.
 
+    It stops at a `frame_slot_op` for the migrated half of the same reason
+    (design 218 stage 1): `self.x.value()` is that projection in its new
+    spelling, its interior is the same fixed scaffolding, and its root carries
+    the type of the local it replaced. The difference from the old form is what
+    happens NEXT — a slot read is re-checked rather than skipped, which
+    `_check_preserved_embed` arranges — and it does not change this walk's
+    question, which is only whether the spine ABOVE the graft still holds an
+    answer. It does.
+
     Returns the number of marks cleared, for the `-v` line.
     """
     cleared = [0]
 
     def closed(node):
-        if isinstance(node, Expression) and node.frame_place_read:
+        if isinstance(node, Expression) and (node.frame_place_read
+                                             or node.frame_slot_op):
             return True
         ok = True
         for sub in child_nodes(node):
@@ -892,7 +1100,14 @@ def _sub_result_read(sub: str, result_enc):
     catch-all 'retain' and codegen bumped a refcount the paired `__saw_forget`
     then dropped — a leak that no test could see. Once `Result<Data, IoError>`
     became move-only the same read turned into a hard error instead.
+
+    A MIGRATED result slot says all of that in one call: `take()` IS the
+    transfer, and the sub-frame gives its claim up in the same method body the
+    value leaves by. The paired `__saw_forget` at each call site goes with it.
     """
+    if _enc_is_slot(result_enc):
+        return _slot_op(MemberAccess(object=_self_field(sub), member="__result"),
+                        "take")
     read = MemberAccess(object=_self_field(sub), member="__result")
     read.frame_place_read = True
     if _enc_unwraps(result_enc):
@@ -2711,10 +2926,12 @@ class _FrameBuilder:
             if isinstance(pat, BindingPattern):
                 tmp = f"__destr{self._destr_ctr}"
                 self._destr_ctr += 1
-                moves.append(AssignStatement(
-                    target=_self_field(pat.name, line, col),
-                    value=MoveExpr(variable=tmp, line=line, column=col),
-                    line=line, column=col))
+                # Census S7: the leaf stores go through the store funnel, so a
+                # migrated leaf is a `put` and an unmigrated one is the
+                # assignment it always was.
+                moves.append(self._store_field(
+                    pat.name, MoveExpr(variable=tmp, line=line, column=col),
+                    line, col))
                 return BindingPattern(name=tmp, line=pat.line, column=pat.column)
             return pat
 
@@ -3173,18 +3390,87 @@ class _FrameBuilder:
         self._collect_calls()
         self.frame_locals = self._collect_frame_locals()
 
+        # The locals the transform takes the ADDRESS of, which therefore keep an
+        # addressable payload until stage 3's `UnsafeRef` lands. Collected from
+        # the nested-call sites `_collect_calls` just found: the method
+        # receiver (census P1) and every reference argument (census S9's ref
+        # half). Conservative by design — a reference ARGUMENT is recognised by
+        # its own `&` spelling rather than by the callee's encoding, which is
+        # not known until every frame has been prepared.
+        addressed = set()
+
+        def _addressed_add(expr):
+            root = _place_root_name(expr)
+            if root is not None:
+                addressed.add(root)
+
+        def _scan_addressing(node, seen):
+            if node is None or id(node) in seen:
+                return
+            seen.add(id(node))
+            # `&x` / `&var x` ANYWHERE in the body: the reference is taken of
+            # the local's storage, and after the rewrite that storage is the
+            # frame's field.
+            if isinstance(node, ReferenceExpr):
+                _addressed_add(node.expr)
+            # `p?.x = v` reaches its head as a mutable PATH, which a lend is
+            # not.
+            if isinstance(node, OptionalChainAssign):
+                _addressed_add(getattr(node, 'target', None)
+                               or getattr(node, 'chain', None))
+            for sub in child_nodes(node):
+                _scan_addressing(sub, seen)
+
+        _scan_addressing(self.func.body, set())
+        # The nested-call sites address two more things the scan above cannot
+        # see, because the transform (not the source) is what takes them: a
+        # suspending METHOD call's receiver becomes the callee frame's `__recv`
+        # pointer, and a reference argument becomes its `ref` field.
+        for c in self.calls:
+            if c.get('has_recv') and c.get('recv') is not None:
+                _addressed_add(c['recv'])
+            for a in c.get('args', []):
+                if isinstance(getattr(a, 'value', None), ReferenceExpr):
+                    _addressed_add(a.value)
+        self._address_taken = addressed
+
         encmap = {}
         for p in self.params:
-            encmap[p.name] = _enc_of(p.type)
+            encmap[p.name] = _migrated_enc(p.name, _enc_of(p.type), addressed,
+                                           p.type)
         for lname, lt in self.frame_locals:
-            encmap[lname] = _enc_of(lt)
+            encmap[lname] = _migrated_enc(lname, _enc_of(lt), addressed, lt)
+        # design 62 G3: a DISCARDED cooperative `receive()` parks its value in a
+        # `__rcvN` holder. Registered here so the ONE store funnel
+        # (`_store_field`) can answer for it like any other owning field; no
+        # source name can collide with it.
+        for rc in self.recv_calls:
+            if rc['target'] is None:
+                encmap[f"__rcv{rc['idx']}"] = _migrated_enc(
+                    f"__rcv{rc['idx']}", _enc_of(rc['elem_type']), addressed,
+                    rc['elem_type'])
         if self.is_void:
             self.result_enc = "plain"
         elif self.force_opt_result:
             # A spawn root forces its result opt-encoded so the `TaskHandle<T>`
-            # uniformly holds `UnsafePointer<T?>`, regardless of T.
+            # uniformly holds `UnsafePointer<T?>`, regardless of T. That slot
+            # lives in the group-owned CELL, not in the frame, and the cell is
+            # on design 218's trusted list — so it keeps the legacy encoding.
             self.result_enc = "opt"
         else:
+            # CENSUS ROWS R5/R6 ARE DEFERRED, and the reason is a language
+            # asymmetry rather than a preference (DF-218f): a result store
+            # relies on ASSIGNMENT auto-wrap — `return v.len()` from a
+            # `-> Result<Int, E>` body stores a bare `Int` and the assignment
+            # wraps it `Ok` — and `put` takes its value as a CALL ARGUMENT,
+            # where auto-wrap to `Result` does not happen (it does for
+            # `Optional`, which is what makes this an asymmetry and not a
+            # missing feature). Migrating the slot would need the transform to
+            # re-derive the wrap it is supposed to be inheriting, which is the
+            # decides-vs-lowers shape design 218 exists to remove. So
+            # `__result` keeps the optional encoding until the auto-wrap
+            # ruling lands, and `_sub_result_read` / the driver's move-out keep
+            # their paired `__saw_forget`.
             self.result_enc = _enc_of(self.ret)
         self.encmap = encmap
 
@@ -3209,8 +3495,10 @@ class _FrameBuilder:
             fields.append(StructField(name=f"__have{rc['idx']}",
                                       type=SawType(TypeKind.BOOL)))
             if rc['target'] is None:
-                fields.append(StructField(name=f"__rcv{rc['idx']}",
-                                          type=_opt(rc['elem_type'])))
+                rcv = f"__rcv{rc['idx']}"
+                fields.append(StructField(
+                    name=rcv,
+                    type=_field_type(rc['elem_type'], encmap[rcv])))
         # design 103 (A6): each offloaded blocking-extern call needs a frame-resident
         # `__blkjobN` handle (the job pointer as Int), held across the io_wait park
         # between start and take.
@@ -3834,11 +4122,35 @@ class _FrameBuilder:
 
         A slot whose type is unknown keeps the conservative alias: the
         checkpoint then judges it exactly as it always has.
+
+        Design 218 stage 1 changes what the store IS, not how it is decided:
+        `put` takes its value BY VALUE, so the ordinary call-argument transfer
+        checkpoint demands the tier-correct spelling and a wrong policy answer
+        becomes a compile error on generated code rather than a silent alias.
+        The branch below still picks the spelling; it no longer has to be
+        trusted.
         """
         if self._slot_store_consumes(name):
             value = MoveExpr(variable=name, path=None, line=line, column=column)
         else:
             value = Identifier(name=name, line=line, column=column)
+        return self._store_field(name, value, line, column)
+
+    def _store_field(self, name, value, line=0, column=0):
+        """THE write of a whole frame field — the one place a value crosses
+        into frame storage under its own name.
+
+        ENTRY POINTS (process rule 1): `_store_binding_in_slot` (pattern
+        bindings), `_lower_inplace`'s `let` and whole-binding `assign` arms,
+        `_split_for`'s range bounds, `_emit_recv_call`'s received value, and
+        `_emit_nested_call`'s sub-frame result. A migrated field is written by
+        `put`, whose replace semantics — drop the previous occupant if there
+        was one — are exactly the optional-assign drop a rebound `var` used to
+        get from the field's own tag."""
+        if _enc_is_slot(self.encmap.get(name)):
+            return ExpressionStatement(expression=_slot_op(
+                _self_field(name, line, column), "put",
+                [Argument(name=None, value=value)], line, column))
         return AssignStatement(target=_self_field(name, line, column),
                                value=value, line=line, column=column)
 
@@ -4282,8 +4594,8 @@ class _FrameBuilder:
         lo_forgets, hi_forgets = [], []
         lo_caps, lo = self._rewrite_hosting(s.iterable.start, lo_forgets)
         hi_caps, hi = self._rewrite_hosting(s.iterable.end, hi_forgets)
-        init = [AssignStatement(target=_self_field(var), value=lo),
-                AssignStatement(target=_self_field(end_name), value=hi)]
+        init = [self._store_field(var, lo, s.line, s.column),
+                self._store_field(end_name, hi, s.line, s.column)]
         self._emit(lo_caps + hi_caps + init
                    + self._forgets(lo_forgets) + self._forgets(hi_forgets))
         header = self._new_block()
@@ -4477,9 +4789,9 @@ class _FrameBuilder:
         self._tcland_ctr += 1
         inner = self._lower_inplace(s)
         landing = Block(statements=[
-            AssignStatement(target=_self_field(err_field, line, col),
-                            value=Identifier(name=raw, line=line, column=col),
-                            line=line, column=col),
+            self._store_field(err_field,
+                              Identifier(name=raw, line=line, column=col),
+                              line, col),
             AssignStatement(target=_self_field("__state", line, col),
                             value=_int(catch_entry), line=line, column=col),
             ContinueStatement(line=line, column=col),
@@ -4650,7 +4962,7 @@ class _FrameBuilder:
         if bc['ret']:
             self._done(take)
         elif bc['target'] is not None:
-            self._emit([AssignStatement(target=_self_field(bc['target']), value=take)])
+            self._emit([self._store_field(bc['target'], take)])
         else:
             self._emit([ExpressionStatement(expression=take)])
 
@@ -4684,11 +4996,24 @@ class _FrameBuilder:
         self.cur = body_b
         try_call = MethodCall(object=recv_expr, method_name="try_receive",
                               arguments=[])
+        # Census S10, and the migration's one FEATURE FLIP. The store used to
+        # be a bare alias of the `if let` binding — it did not go through the
+        # store funnel at all, so it was tier-BLIND, and the post-transform
+        # re-check refused every ExplicitCopy/NoCopy channel element rather
+        # than double-freeing it (218a ruling 11a; the wrong-noun diagnostic
+        # is DF-218c). `put(move __rvN)` is the honest spelling: the binding
+        # owns the received value and hands it to the slot, which is what makes
+        # `Channel<Vector<Int>>` and NoCopy elements compile on the driven path
+        # for the first time. Blocking `recv()` always worked.
+        store = (self._store_field(
+                     target, MoveExpr(variable=rv, path=None))
+                 if _enc_is_slot(self.encmap.get(target))
+                 else AssignStatement(target=_self_field(target),
+                                      value=Identifier(name=rv)))
         iflet = IfLetExpr(
             name=rv, optional_expr=try_call, mutable=False,
             then_branch=Block(statements=[
-                AssignStatement(target=_self_field(target),
-                                value=Identifier(name=rv)),
+                store,
                 AssignStatement(target=_self_field(have),
                                 value=BoolLiteral(value=True)),
             ], final_expr=None),
@@ -4736,8 +5061,7 @@ class _FrameBuilder:
                 res = _sub_result_read(sub, callee_fb.result_enc)
                 # Store first (loads the value), THEN clear the sub-frame's drop
                 # flag so its teardown won't double-drop the moved-out result.
-                done_body.append(AssignStatement(
-                    target=self._result_place(), value=res))
+                done_body.append(self._store_result(res))
                 if _enc_cleanup(callee_fb.result_enc):
                     done_body.append(ExpressionStatement(expression=FunctionCall(
                         name="__saw_forget", arguments=[Argument(name=None,
@@ -4754,24 +5078,29 @@ class _FrameBuilder:
         else:
             if target is not None and not callee_fb.is_void:
                 res = _sub_result_read(sub, callee_fb.result_enc)
-                done_body.append(AssignStatement(
-                    target=_self_field(target), value=res))
+                done_body.append(self._store_field(target, res))
                 if _enc_cleanup(callee_fb.result_enc):
                     done_body.append(ExpressionStatement(expression=FunctionCall(
                         name="__saw_forget", arguments=[Argument(name=None,
                             value=MemberAccess(object=_self_field(sub),
                                                member="__result"))])))
             elif (target is None and not callee_fb.is_void
-                  and _enc_cleanup(callee_fb.result_enc)):
+                  and _enc_owns(callee_fb.result_enc)):
                 # design 124: a DISCARDED nested result (`let _ = g()` / a bare
                 # `g()` whose callee returns an owned value) has no target to move
                 # into, so the sub-frame's `__result` used to sit live until the
                 # whole frame was torn down. Clear the slot here instead — that IS
                 # the drop, at the statement that discarded it, matching `let _ =`
                 # everywhere else in the language.
-                done_body.append(AssignStatement(
-                    target=MemberAccess(object=_self_field(sub), member="__result"),
-                    value=NoneLiteral()))
+                if _enc_is_slot(callee_fb.result_enc):
+                    done_body.append(ExpressionStatement(expression=_slot_op(
+                        MemberAccess(object=_self_field(sub),
+                                     member="__result"), "clear")))
+                else:
+                    done_body.append(AssignStatement(
+                        target=MemberAccess(object=_self_field(sub),
+                                            member="__result"),
+                        value=NoneLiteral()))
             done_body.append(AssignStatement(
                 target=_self_field("__state"), value=_int(after)))
         pending_body = [
@@ -4834,6 +5163,14 @@ class _FrameBuilder:
                 if callee_fb.encmap.get(pname) == "ref":
                     val = CastExpr(expr=val,
                                    target_type=_ref_ptr_type(callee_fb.params[i].type))
+                else:
+                    # Census S8/S9's seeding half: an owning parameter arrives
+                    # into a `Slot<T>` and is born holding its value. WHICH
+                    # spelling the argument itself is — an owning read or a
+                    # `take()` — is stage 2's question; this only says where it
+                    # lands.
+                    val = _seed_field(callee_fb, pname,
+                                      callee_fb.params[i].type, val)
             arg_vals.append(val)
         recv_value = None
         if info.get('has_recv'):
@@ -4938,11 +5275,16 @@ class _FrameBuilder:
         if isinstance(node, MoveExpr) and node.path is None and node.variable in self.encmap:
             name = node.variable
             enc = self.encmap[name]
+            # Census D1: on a migrated field the `move` IS `take()`, which
+            # empties the slot in the same method body the value leaves by —
+            # so there is no separate flag clear to pair with, and no pairing
+            # to get wrong (DF-206f / DF-210f / DF-217h were three sites that
+            # mispaired exactly this).
             if _enc_cleanup(enc):
                 forgets.append(name)
             read = _read_field(name, enc, getattr(node, 'line', 0),
                                getattr(node, 'column', 0),
-                               move_read=_enc_cleanup(enc),
+                               move_read=_enc_owns(enc),
                                saw_type=node.resolved_type)
             # design 131: `move o!` moved the binding AND projected the payload.
             # The `move` half is what the field read + `__saw_forget` above
@@ -5173,7 +5515,7 @@ class _FrameBuilder:
                 # discipline `_rewrite_expr` uses for a `move` of a frame local
                 # anywhere else.
                 read = _read_field(name, enc, line, col,
-                                   move_read=_enc_cleanup(enc),
+                                   move_read=_enc_owns(enc),
                                    saw_type=slot_type)
                 forget = self._forget_stmt(name) if _enc_cleanup(enc) else None
             elif policy in ('retain', 'trivial'):
@@ -5248,9 +5590,7 @@ class _FrameBuilder:
             forgets = []
             cap_lets, value = self._rewrite_hosting(s.value, forgets)
             if s.name in self.encmap:
-                new = AssignStatement(
-                    target=_self_field(s.name, s.line, s.column),
-                    value=value, line=s.line, column=s.column)
+                new = self._store_field(s.name, value, s.line, s.column)
             else:
                 s.value = value
                 new = s
@@ -5261,6 +5601,14 @@ class _FrameBuilder:
             # The VALUE first: `out = out + "!"` reads the old binding, and the
             # target rewrite must not change what that read means.
             cap_lets, s.value = self._rewrite_hosting(s.value, forgets)
+            # A whole-binding target on a MIGRATED field is not a write at all
+            # any more, it is a `put` — which is why the DF-196a shape (writing
+            # THROUGH a `!`) has no spelling here to get wrong.
+            if (isinstance(s.target, Identifier)
+                    and _enc_is_slot(self.encmap.get(s.target.name))):
+                new = self._store_field(s.target.name, s.value,
+                                        s.line, s.column)
+                return cap_lets + [new] + self._forgets(forgets)
             s.target = self._rewrite_assign_target(s.target, forgets)
             return cap_lets + [s] + self._forgets(forgets)
 
@@ -5333,6 +5681,25 @@ class _FrameBuilder:
         cap_lets, ns = self._rewrite_hosting(s, forgets)
         return cap_lets + [ns] + self._forgets(forgets)
 
+    def _store_result(self, value):
+        """The write of this frame's result — the one place a value crosses
+        into `__result`.
+
+        Two layouts hide behind it (design 134): a spawn root's result lives in
+        the group-owned CELL, which is on design 218's trusted list and keeps
+        the optional encoding, while a driven frame's and a sub-frame's is a
+        field of its own and is a `Slot<T>` since stage 1. The migrated form
+        also retires `_result_store_value`'s DF-174b wrinkle: `put` takes a
+        `T`, so a `return None` from a `-> T?` body is a `None` of `T?` with
+        nothing to disambiguate.
+        """
+        if _enc_is_slot(self.result_enc):
+            return ExpressionStatement(expression=_slot_op(
+                _self_field("__result"), "put",
+                [Argument(name=None, value=value)]))
+        return AssignStatement(target=self._result_place(),
+                               value=self._result_store_value(value))
+
     def _result_store_value(self, value):
         """The expression to store into an OPT-ENCODED result slot.
 
@@ -5395,8 +5762,7 @@ class _FrameBuilder:
             # exactly the shape a non-diverging tail gives it.
             seq.append(ExpressionStatement(expression=value))
         elif value is not None:
-            seq.append(AssignStatement(target=self._result_place(),
-                                       value=self._result_store_value(value)))
+            seq.append(self._store_result(value))
         seq.extend(self._forgets(forgets))
         seq.append(self._release_call())
         done_lit = _int(0)  # patched to the done-state marker after CFG assembly
@@ -5449,10 +5815,11 @@ class _FrameBuilder:
         for lname, lt in self.frame_locals:
             owned.append((lname, self.encmap[lname], lt))
         # design 62 G3: a DISCARDED cooperative `receive()` parks its moved-out
-        # value in a `__rcvN` holder (already `T?`-shaped, its own tag the flag).
+        # value in a `__rcvN` holder, which owns it until teardown.
         for rc in self.recv_calls:
             if rc['target'] is None:
-                owned.append((f"__rcv{rc['idx']}", "self_opt", rc['elem_type']))
+                rcv = f"__rcv{rc['idx']}"
+                owned.append((rcv, self.encmap[rcv], rc['elem_type']))
         return owned
 
     def _release_seq(self):
@@ -5478,7 +5845,15 @@ class _FrameBuilder:
                         ]))], final_expr=None),
                 else_branch=None)))
         for name, enc, t in reversed(self._owned_frame_fields()):
-            if _enc_cleanup(enc):
+            if _enc_is_slot(enc):
+                # design 218 census D2: the per-field body of `release` is one
+                # safe call. `clear` drops the occupant if there is one and is
+                # idempotent by the type, so the box's later memberwise
+                # teardown stays a no-op by construction rather than by the
+                # tag convention holding.
+                seq.append(ExpressionStatement(expression=_slot_op(
+                    _self_field(name), "clear")))
+            elif _enc_cleanup(enc):
                 seq.append(AssignStatement(target=_self_field(name),
                                            value=NoneLiteral()))
             elif enc == "plain" and _is_taskgroup(t):
@@ -5527,7 +5902,13 @@ def _zeroed_value(enc, saw_type):
     """The empty initial value for a not-yet-live frame field: `None` for a
     cleanup-needing (opt-encoded) field — the drop flag reads not-live, so the
     frame never drops a placeholder — and a zero for a POD field (needs no
-    cleanup)."""
+    cleanup).
+
+    A migrated field says the same thing as a type rather than as a
+    convention: `Slot<T>.empty()` IS the not-yet-live state, and its deinit
+    drops nothing."""
+    if _enc_is_slot(enc):
+        return _slot_static("empty", _clear_escaping(saw_type))
     if _enc_cleanup(enc):
         return NoneLiteral()
     # design 88: a reference frame field (raw pointer) in the not-yet-live state
@@ -5561,6 +5942,21 @@ def _frame_param_arg(p):
     return _Move(variable=p.name, path=None)
 
 
+def _seed_field(fb: _FrameBuilder, name, saw_type, value):
+    """Wrap a frame field's ARRIVING value in whatever its encoding stores.
+
+    A migrated field is born holding its value — `Slot<T>.of(<value>)` — which
+    is the type's own answer to the "params start live, locals start empty"
+    convention `_zeroed_value` used to spell as `None` for both.
+
+    ENTRY POINTS (process rule 1): every construction of a frame with real
+    arguments — `_make_driver`, `_make_spawn_helper`, `_build_sub_frame`."""
+    if _enc_is_slot(fb.encmap.get(name)):
+        return _slot_static("of", _clear_escaping(saw_type),
+                            [Argument(name=None, value=value)])
+    return value
+
+
 def _build_frame_init(fb: _FrameBuilder, param_values, fbs, recv_value=None,
                       cellp_value=None):
     """A `StructInit` for `fb`'s frame: param fields from `param_values` (an
@@ -5592,7 +5988,9 @@ def _build_frame_init(fb: _FrameBuilder, param_values, fbs, recv_value=None,
     for rc in getattr(fb, 'recv_calls', []):
         field_inits.append((f"__have{rc['idx']}", BoolLiteral(value=False)))
         if rc['target'] is None:
-            field_inits.append((f"__rcv{rc['idx']}", NoneLiteral()))
+            rcv = f"__rcv{rc['idx']}"
+            field_inits.append((rcv, _zeroed_value(fb.encmap[rcv],
+                                                   rc['elem_type'])))
     # design 103 (A6): each offloaded blocking call's `__blkjobN` handle starts 0
     # (no job yet — start writes the real handle when the call site is reached).
     for bc in getattr(fb, 'blk_calls', []):
@@ -5694,7 +6092,8 @@ def _make_driver(fb: _FrameBuilder, mode, fbs):
     # (design 42's `&T`->pointer bridge is what the drive site supplies).
     recv_value = Identifier(name="__recv") if fb.has_recv else None
     frame_init = _build_frame_init(
-        fb, [_frame_param_arg(p) for p in params], fbs, recv_value=recv_value)
+        fb, [_seed_field(fb, p.name, p.type, _frame_param_arg(p))
+             for p in params], fbs, recv_value=recv_value)
 
     stmts = [LetStatement(name="__f", type_annotation=None, value=frame_init,
                           mutable=True)]
@@ -5751,20 +6150,30 @@ def _make_driver(fb: _FrameBuilder, mode, fbs):
             # and that is what used to happen; but once `Result<Int, Box<any
             # Error>>` became move-only there was no retain to reach for, and a
             # move is what this always was.
-            read = MemberAccess(object=Identifier(name="__f"), member="__result")
-            read.frame_place_read = True
-            if _enc_unwraps(fb.result_enc):
-                read = ForceUnwrap(expr=read)
-                read.frame_place_read = True
-            stmts.append(LetStatement(name="__res", type_annotation=None,
-                                      value=read))
-            if _enc_cleanup(fb.result_enc):
-                slot = MemberAccess(object=Identifier(name="__f"),
+            # Census R6. On a migrated slot the read and the give-up are ONE
+            # call: `take()` empties the slot as the value leaves it, so the
+            # `__saw_forget` that used to follow has nothing left to do.
+            if _enc_is_slot(fb.result_enc):
+                read = _slot_op(MemberAccess(object=Identifier(name="__f"),
+                                             member="__result"), "take")
+                stmts.append(LetStatement(name="__res", type_annotation=None,
+                                          value=read))
+            else:
+                read = MemberAccess(object=Identifier(name="__f"),
                                     member="__result")
-                slot.frame_place_read = True
-                stmts.append(ExpressionStatement(expression=FunctionCall(
-                    name="__saw_forget",
-                    arguments=[Argument(name=None, value=slot)])))
+                read.frame_place_read = True
+                if _enc_unwraps(fb.result_enc):
+                    read = ForceUnwrap(expr=read)
+                    read.frame_place_read = True
+                stmts.append(LetStatement(name="__res", type_annotation=None,
+                                          value=read))
+                if _enc_cleanup(fb.result_enc):
+                    slot = MemberAccess(object=Identifier(name="__f"),
+                                        member="__result")
+                    slot.frame_place_read = True
+                    stmts.append(ExpressionStatement(expression=FunctionCall(
+                        name="__saw_forget",
+                        arguments=[Argument(name=None, value=slot)])))
             final = MoveExpr(variable="__res")
 
     # design 88: a reference param flows through the driver AS a raw pointer (the
@@ -5982,8 +6391,10 @@ def _make_spawn_helper(fb: _FrameBuilder, fbs, helper_name=None):
                          target_type=SawType(TypeKind.POINTER,
                                              inner_type=SawType(TypeKind.BOOL)))))
 
-    frame_init = _build_frame_init(fb, [_frame_param_arg(p) for p in params], fbs,
-                                   cellp_value=Identifier(name="__cellp"))
+    frame_init = _build_frame_init(
+        fb, [_seed_field(fb, p.name, p.type, _frame_param_arg(p))
+             for p in params], fbs,
+        cellp_value=Identifier(name="__cellp"))
     box_ty = SawType(TypeKind.EXISTENTIAL, existential_trait="Resumable")
     box_make = MethodCall(
         object=Identifier(name="Box", type_args=[box_ty]),

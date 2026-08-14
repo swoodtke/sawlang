@@ -121,6 +121,14 @@ IMPORT_REQUIRED_STD_MODULES = {
 # declarations are kept — the rest of the leaf is excluded as usual, which is
 # what keeps `Slot` out of a program that never asked for it.
 COMPILER_EMITTED_STD_SYMBOLS = {"Poll", "Resumable"}
+# The std module holding the frame vocabulary. `Poll` and `Resumable` are
+# carved out of its exclusion by name above, because every program's frames
+# reference them and no user program competes for those names. `Slot` is NOT:
+# it is a name user programs do use, and taking it away from them is exactly
+# what `examples/std_gated_name_redefined_by_user.saw` pins against. So the
+# module is pulled into codegen WHOLE, by the compile that needs it — see
+# `compute_std_codegen_exclusions`' `force_leaves`.
+FRAME_STD_MODULE = "compiler.frame"
 # Symbols carved out of an otherwise-prelude std file (the file stays prelude
 # for its other symbols; only these named ones require an import).
 IMPORT_REQUIRED_STD_SYMBOLS = {
@@ -546,7 +554,7 @@ def _strip_line_comments(text: str) -> str:
     return '\n'.join(out)
 
 
-def compute_std_codegen_exclusions(builtin_ns, import_asts):
+def compute_std_codegen_exclusions(builtin_ns, import_asts, force_leaves=()):
     """design 82 Part B — which std modules are compiled into THIS program.
 
     Prelude std modules are always compiled. An import-required std module is
@@ -606,6 +614,13 @@ def compute_std_codegen_exclusions(builtin_ns, import_asts):
     compiled = {leaf for leaf in all_leaves
                 if leaf not in IMPORT_REQUIRED_STD_MODULES}
     compiled |= (imported & all_leaves)
+    # …plus any leaf this compile needs whether or not the source names it.
+    # `std.compiler.frame` is the case that exists: a coroutine frame's storage
+    # is a `Slot<T>` and the transform writes those calls into a module the
+    # reference scan above cannot read, because they are not in the source at
+    # all. Forcing the LEAF rather than carving out the SYMBOL is what keeps
+    # `Slot` available to user programs that never drive anything.
+    compiled |= (set(force_leaves) & all_leaves)
 
     # Precompile a word matcher per leaf's CODE-BEARING symbols.
     leaf_patterns = {}
@@ -641,6 +656,15 @@ def compute_std_codegen_exclusions(builtin_ns, import_asts):
         # NAME bound would make a user `enum Poll` an ambiguity against a
         # module they never imported.
         excluded_symbols -= decl_only.get(leaf, set())
+    # A FORCED leaf is compiled but still reserves no name. Its declarations are
+    # in the program because the compiler emits references to them, and those
+    # references are synthesized — they never go through the merged namespace —
+    # so binding the names there would only take them away from user code.
+    # `std.compiler.frame` is the case: a driven program gets `Slot`'s layout
+    # and methods, and a driven program that declares its OWN `Slot` keeps it.
+    for leaf in (set(force_leaves) & set(all_leaves)):
+        excluded_symbols |= (file_keys.get(leaf, file_symbols.get(leaf, set()))
+                             - _kept(leaf))
     return excluded_leaves, excluded_symbols
 
 
@@ -1077,8 +1101,13 @@ def _prepare_codegen(source_path: str, entry_ast, entry_source: str, verbose: bo
     # does not use them — so a user type named e.g. `IoError`/`File` never
     # collides with the (uncompiled) std one.
     import_asts = [entry_ast] + list(module_map.values())
+    # The coroutine transform has already run when `post_transform` is set, so
+    # the AST being checked here holds `Slot<T>` frame fields and the
+    # `put`/`take`/`value`/`clear` calls that go with them. That is the one
+    # thing the source-reference scan cannot see, so it is stated.
     excluded_std_leaves, excluded_std_symbols = compute_std_codegen_exclusions(
-        builtin_ns, import_asts)
+        builtin_ns, import_asts,
+        force_leaves=(FRAME_STD_MODULE,) if post_transform else ())
     if excluded_std_leaves:
         builtin_ast = _filter_std_ast(builtin_ast, excluded_std_leaves)
 
@@ -1299,8 +1328,17 @@ def _prepare_codegen(source_path: str, entry_ast, entry_source: str, verbose: bo
     # file, which is exactly what the re-entry's AST reuse above makes possible.
     if not places_lowered:
         from place_uses import transform_place_uses
-        place_asts = [reentry_builtin_ast] + list(module_map.values()) + [entry_ast]
-        if transform_place_uses(place_asts, merged_ns, reporter):
+        # On the POST-TRANSFORM run only the entry AST has new place uses — the
+        # `Slot.value()` lends the coroutine transform just emitted. std and the
+        # imported modules were lowered on the first run and are unchanged, and
+        # re-entering them would `uncheck` them a second time, throwing away
+        # conclusions the first pass reached under monomorphizations this pass
+        # is not inside.
+        place_asts = ([entry_ast] if post_transform
+                      else [reentry_builtin_ast] + list(module_map.values())
+                      + [entry_ast])
+        if transform_place_uses(place_asts, merged_ns, reporter,
+                                uncheck_after=not post_transform):
             if reporter.has_errors():
                 reporter.print_all()
                 sys.exit(1)
@@ -1357,6 +1395,15 @@ def _prepare_codegen(source_path: str, entry_ast, entry_source: str, verbose: bo
         if changed:
             if verbose:
                 print("  Applied coroutine transform; re-checking...")
+            # design 218 stage 1: the re-entry re-runs the PLACE lowering.
+            # A frame's storage is a `Slot<T>` and the transform reads it with
+            # `value()`, which is a `borrows` accessor — an ordinary place use,
+            # and place uses become window calls in the pass above. The
+            # transform emits its output AFTER that pass has run, so without
+            # this the generated calls reach codegen unlowered and it reports
+            # the accessor undefined. Lowering is idempotent: an already-
+            # lowered use is a window call, not a place use, so the pass finds
+            # nothing to do in every module but the one just rewritten.
             return _prepare_codegen(source_path, entry_ast, entry_source, verbose,
                                     object_only, target_triple, freestanding,
                                     module_paths, runtime_build,
@@ -1365,7 +1412,7 @@ def _prepare_codegen(source_path: str, entry_ast, entry_source: str, verbose: bo
                                     parsed={'module_map': module_map,
                                             'module_sources': module_sources,
                                             'builtin_ast': reentry_builtin_ast},
-                                    places_lowered=True,
+                                    places_lowered=False,
                                     no_hidden_alloc=no_hidden_alloc,
                                     runtime_provider=runtime_provider)
 

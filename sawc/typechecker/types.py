@@ -2810,8 +2810,36 @@ class TypeUtilsMixin:
         left operand); `node` is the AST node codegen will consult. A `move`
         source or a fresh temporary is already owned by the reader, so only a
         PLACE source is checked.
+
+        THE MARK IS ASSIGNED HERE, NOT ACCUMULATED (design 218 stage 1). This
+        is the only place `payload_needs_copy` is stamped, and the front half
+        runs more than once over one AST — so a pass that decides "no retain"
+        has to say so, or the previous pass's answer stands. It used to be safe
+        to just return, because the SOURCE never changed between passes; the
+        coroutine transform now rewrites a frame local into a `Slot.value()`
+        lend, which turns a plain local read into a place read (and, after the
+        place lowering, into an owned window temporary) — three different
+        answers for one node, of which only the last is right. The frame-read
+        case below is the deliberate exception, and says why.
         """
+        if (getattr(node, 'frame_place_read', False)
+                or getattr(source, 'frame_place_read', False)):
+            # A coroutine-frame field read on a LEGACY encoding carries the
+            # transform's own ownership bookkeeping: a `move` read hands the
+            # frame's reference over through `__saw_forget`, a non-`move` read
+            # is retained by codegen's frame-read path (design 124), and a
+            # `self_opt` field IS the optional, drop flag and all. The transform
+            # runs AFTER the type-check that already judged these reads in their
+            # original, un-projected form, and the whole program is then
+            # re-checked — so weighing in here would judge one read twice: a
+            # Copy payload would be retained a second time (a leak), and a
+            # NoCopy payload the frame is legitimately moving out would be
+            # rejected. The first pass's answer is the answer, so it is left
+            # exactly as it stands. (The mark rides the unwrap for a `o!` value
+            # read and the SOURCE for an `if let` / `??` over a frame field.)
+            return
         if source is None or not self._is_aliasing_expr(source):
+            node.payload_needs_copy = False
             return
         # A `borrows` accessor's result is judged by the PLACE rule instead
         # (`place_uses._value_read_ok`), which knows the element type, the
@@ -2822,26 +2850,20 @@ class TypeUtilsMixin:
         # there, and `let held = m["k"]!` retained twice against one release.
         # `v.get(i)!` never had the problem only because a MethodCall is not in
         # the aliasing set; the subscript spelling made the overlap reachable.
+        #
+        # CLEARED, not merely skipped (design 218 stage 1). The coroutine
+        # transform rewrites a frame local into a `Slot.value()` lend, so a
+        # source that was a plain local on the FIRST check is a place on the
+        # second — and the mark the first check left is exactly the double
+        # retain the paragraph above forbids, one pass later. The place rule is
+        # the authority for a place source at every pass, so it takes the mark
+        # away as well as declining to add one.
         if self._reads_a_place(source):
-            return
-        # A coroutine-frame field read carries the transform's own ownership
-        # bookkeeping: a `move` read hands the frame's reference over through
-        # `__saw_forget`, a non-`move` read is retained by codegen's frame-read
-        # path (design 124), and a `self_opt` field IS the optional, drop flag
-        # and all. The transform runs AFTER the type-check that already judged
-        # these reads in their original, un-projected form, and the whole program
-        # is then re-checked — so weighing in here would judge one read twice:
-        # a Copy payload would be retained a second time (a leak), and a
-        # NoCopy payload the frame is legitimately moving out would be rejected.
-        # (The mark rides the unwrap for a `o!` value read and the SOURCE for an
-        # `if let` / `??` over a frame field.)
-        if (getattr(node, 'frame_place_read', False)
-                or getattr(source, 'frame_place_read', False)):
+            node.payload_needs_copy = False
             return
         policy = self._payload_read_policy(payload_type)
-        if policy == 'retain':
-            node.payload_needs_copy = True
-        elif policy == 'nocopy':
+        node.payload_needs_copy = (policy == 'retain')
+        if policy == 'nocopy':
             # One policy, two refusals: the tier says "not silently duplicable",
             # and the CONFORMANCE says whether `.copy()` is among the ways out
             # (design 219 — the tier no longer carries that second answer).
