@@ -102,9 +102,22 @@ wanted() {
 # irdet's harness is written in Saw (design 155), so it is built before it runs.
 # `--all` and not the 40-example sample: design 141 found two nondeterministic
 # emission orders that a sample had been walking past for weeks.
+#
+# The VERDICT comes from irdet's structured `--jsonl` records, never from `$?`
+# (design 221 Part D). irdet's `main` suspends on every path, and until DF-220b
+# was fixed a suspending `main` never propagated its return value — so this lane
+# always read 0 and had never been able to fail. The status works now; reading
+# the records anyway is the contract, because a gate should not depend on the
+# bug it gates being fixed. `--plan` supplies the expected record count, which
+# is what catches a run that stopped early rather than disagreeing.
 run_irdet() {
     "$PY" sawc/sawc.py devtools/irdet/src/main.saw -o .build/irdetbin || return 1
-    ./.build/irdetbin --all
+    local records=".build/irdet-battery.jsonl"
+    local planned
+    rm -f "$records"
+    planned=$(./.build/irdetbin --plan --all | grep -c '\.saw$')
+    ./.build/irdetbin --all --jsonl "$records"
+    "$PY" tools/irdet_verdict.py "$records" --expect "$planned"
 }
 
 # The bench harness is Saw too (the third devtool). Its CHECKSUMS gate — the

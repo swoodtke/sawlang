@@ -49,6 +49,13 @@ def candidate_files(binary: str, args) -> list:
     Asked of the harness itself rather than recomputed here: which examples are
     negative tests is the harness's rule, and two implementations of it would be
     two rules. `--plan` prints the list it WOULD check and exits.
+
+    Judged on the OUTPUT, not the status (design 221 Part D). The status was
+    vacuous for the whole of this tool's life — irdet's `main` suspends, and a
+    suspending `main` never propagated its value (DF-220b), so `--plan` reported
+    0 whatever happened. It propagates now; the check stays on the output
+    because that is what this function actually needs to be true, and an empty
+    plan is the failure it was reaching for. A harness that died writes nothing.
     """
     argv = [binary, "--plan"]
     if args.all:
@@ -56,10 +63,12 @@ def candidate_files(binary: str, args) -> list:
     else:
         argv += ["-n", str(args.count)]
     r = subprocess.run(argv, cwd=REPO, capture_output=True, text=True)
-    if r.returncode != 0:
+    files = [ln.strip() for ln in r.stdout.splitlines()
+             if ln.strip().endswith(".saw")]
+    if not files:
         sys.stderr.write(r.stdout + r.stderr)
-        sys.exit("irdet_remote: the harness could not list its files")
-    return [ln.strip() for ln in r.stdout.splitlines() if ln.strip()]
+        sys.exit("irdet_remote: the harness listed no files to check")
+    return files
 
 
 def check_here(binary: str, files: list, jobs: int, verbose: bool) -> dict:

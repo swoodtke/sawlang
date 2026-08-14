@@ -69,6 +69,11 @@ IRDET_BIN := .build/irdetbin
 $(IRDET_BIN): devtools/irdet/src/main.saw
 	@python3 sawc/sawc.py devtools/irdet/src/main.saw -o $(IRDET_BIN)
 
+# These two are the INTERACTIVE spellings — you read the output. `make`'s own
+# exit status follows the binary's, which is honest again now that a suspending
+# `main` propagates its value (DF-220b). The GATE spelling is
+# `tools/battery.sh irdet`, which reads the `--jsonl` records instead, because a
+# gate should not depend on the bug it gates being fixed (design 221 Part D).
 irdet: $(IRDET_BIN)
 	@./$(IRDET_BIN)
 
