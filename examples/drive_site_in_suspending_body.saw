@@ -1,0 +1,43 @@
+// XFAIL: DF-218n an explicit `__saw_drive(f())` inside a body that ITSELF
+// suspends is an internal compiler error
+//
+// `__saw_drive` is design 44's test-only executor entry: it names a root and
+// runs it to completion. A body holding one may also call a suspending function
+// on its own account — here `main` drives `s()` and then calls `t()` — and that
+// makes `main` suspending too, so the coroutine transform rewrites its body
+// BEFORE `_rewrite_drive_sites` walks it. The drive site's argument is no longer
+// the `FunctionCall` that rewrite expects; it is whatever the transform left in
+// that position, and the compiler dies reading `.name` off it:
+//
+//   AttributeError: 'MemberAccess' object has no attribute 'name'
+//
+// PRE-EXISTING — reproduced unchanged on the design 218 stage-3 tree, and found
+// by stage 4 while writing coverage for the two `__result` encodings the
+// migration defers (`coro_result_array_and_closure.saw`, whose `main` is sync
+// for exactly this reason).
+//
+// The intended behavior is the one the source reads as: both roots run and the
+// program prints their results. A clean refusal ("`__saw_drive` may not appear
+// in a suspending body") would be a defensible ruling too, and the pin gets
+// rewritten if that is the answer — what is not defensible is the traceback.
+// EXPECT: success
+// EXPECT-OUTPUT:
+// 7
+// 8
+
+import std.task
+
+func s() -> Int {
+    task.yield_now()
+    7
+}
+
+func t() -> Int {
+    task.yield_now()
+    8
+}
+
+func main() {
+    print(__saw_drive(s()))
+    print(t())
+}

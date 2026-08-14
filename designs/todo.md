@@ -611,6 +611,19 @@ obligation-2 consumer sweep before dispatch. Gates 218 stages 1-2.
   `.build/scratch/s3_generic_noclosure.saw` (silent) and
   `.build/scratch/s3_generic_struct_self.saw` (ICE).
 
+- **DF-218n (ICE, PRE-EXISTING) — an explicit `__saw_drive(f())` inside a body
+  that ITSELF suspends dies in the drive-site rewrite.** `main` driving `s()`
+  and then calling `t()` on its own account makes `main` suspending, so the
+  coroutine transform rewrites its body before `_rewrite_drive_sites` walks it;
+  the drive site's argument is no longer the `FunctionCall` that rewrite reads,
+  and the compiler dies `AttributeError: 'MemberAccess' object has no attribute
+  'name'`. Reproduced unchanged on the stage-3 tree. The ruling it owes is which
+  answer is right — both roots run, or a clean "`__saw_drive` may not appear in
+  a suspending body" — since `__saw_drive` is design 44's test-only entry.
+  Found by design 218 stage 4 writing coverage for the two `__result`
+  encodings the migration defers.
+  PIN: `examples/drive_site_in_suspending_body.saw` (XFAIL)
+
 - **DESIGN 218 STAGE 3 LANDED (Aug 14) — closure envs, `[&self]`,
   `UnsafeRef`.** Census rows R4, R7, P1 and P2 migrated and 218a section 4
   landed whole. Terminal gate: the full tracked battery, every stage green —
