@@ -258,6 +258,27 @@ and comparing output shape).
 maximizes reuse but must not REQUIRE it — D4's fallback), TESTING.md,
 CLAUDE.md testing digest. Gate: full tracked battery.
 
+**Unit 4 gate: the full tracked battery, `SAW_PYTHON=.venv/bin/python
+tools/battery.sh`, no `--quick`.** 18/18 stages GREEN, 1933s total.
+`suite`: 1817 passed, 27 xfailed (unchanged from every earlier run this
+brief measured). `gmgate`: 51 programs across 2 lanes, 0 failing.
+`bootstrap`: both library suites + the two-target layout check, ok.
+`sos`: 32/32 across riscv32 + arm64. `irdet` itself printed `---> irdet ok
+(1130s)` — the battery TRUSTS THIS, and it is wrong: the same run's own
+stdout, three lines above the verdict, reads `969 file(s) VIOLATED THE
+REUSE INVARIANT`. This is the unit-3 exit-code finding caught in the act,
+inside this brief's own final gate, not a hypothetical — direct
+confirmation that `battery.sh`'s `irdet` stage provides no real signal
+today, independent of anything design 220 changed. Every OTHER stage's
+`ok` is a genuine exit-code-backed pass. Whether to make `run_irdet` in
+`battery.sh` parse its own stdout for a true verdict (mirroring
+`tools/irdet_remote.py`'s `check_here`, which already does exactly this
+and is unaffected) is a call left to the user: it is straightforward, but
+it would flip the `irdet` stage from always-green to red-until-the-
+node_id-leak-DF-is-fixed for every brief's battery run from here on, not
+only this one's — a wider-blast-radius decision than "ordering note"
+covers, so it is surfaced here rather than made unilaterally.
+
 ## Unit 0 findings (consumer sweep + measurements)
 
 **Consumer sweep.** Grepped every reader of `.build/` across the tree

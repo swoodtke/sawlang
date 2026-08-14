@@ -822,13 +822,26 @@ Three of its stages are about where the output goes:
 The test runner (`test_runner.py`) discovers every `.saw` file recursively,
 reads each file's directives, and then works in two stages that overlap.
 
-**The compile stage builds every test.** Build products land in `.build/`,
+**The compile stage builds every test.** Build products land under this
+invocation's own `.build/test_runner_<timestamp>_<pid>/` (design 220 D2),
 named after the test's path relative to `examples/`, so
-`examples/ffi/int_types.saw` becomes `.build/ffi_int_types`. Each compile
+`examples/ffi/int_types.saw` becomes `<run dir>/ffi_int_types`. Each compile
 writes to a unique temporary name and renames its products into place. Every
 verdict that needs no running program settles here: `EXPECT: error`,
 `EXPECT: object`, `EXPECT: docs`, and any test that failed to compile when it
 should have succeeded.
+
+On completion — pass or fail, since a red run still finished and is still fit
+to publish — the run directory is flipped onto `.build/test_runner_last` by
+an atomic symlink replace (never `ln -sfn`'s unlink-then-create, which has a
+window with no symlink at all): a reader resolves the symlink once and holds
+that path, so a run that republishes mid-read can never hand it a mix of two
+generations' files. The newest three generations are kept (an in-flight
+reader of the previous run, plus one more) and older ones pruned after each
+successful publish — which is also how a run killed mid-compile gets cleaned
+up: its directory was never added to the kept set, so the next successful run
+sweeps it like any other superseded generation. `make clean` still removes
+everything under `.build/`.
 
 **The execution stage runs the binaries the compile stage produced** and checks
 what they wrote, which covers `EXPECT: success` and `EXPECT: panic`. Each
@@ -863,6 +876,48 @@ they advance independently, since a binary's verdict lands a settle lag after
 its compile while later compiles are still running.
 
 See the `test_runner.py` source for the rest.
+
+### The reuse manifest and hardlink carry-forward (design 220)
+
+Every worker process in the persistent-worker pool (design 115) is spawned
+under its own randomly drawn `PYTHONHASHSEED` (never `0`, which would disable
+the randomization the whole scheme exists to keep observable), and a
+SUCCESS/PANIC compile that reaches the execution stage also emits its
+optimized LLVM IR (the same rendering `--emit-ir` alone would produce, not
+the always-on unoptimized debug sidecar `_emit_object` writes for every other
+caller of `compile_saw()`). Both are recorded, per file, in a plain
+tab-separated `manifest.tsv` at the root of the published run directory: the
+compiling worker's seed and the artifact's filename. A hash-order-dependent
+suite failure is then a `PYTHONHASHSEED=<recorded seed>` replay of that one
+worker.
+
+On the NEXT run, a file's artifact is reused (hardlinked into the new run
+directory, no recompile) instead of rebuilt when it is still FRESH: newer
+than every file and directory under `sawc/` (a deletion bumps no surviving
+file's mtime but does bump its parent directory's — that closes the hole a
+plain "newest changed file" scan would miss), newer than the installed
+llvmlite's own dist-info, newer than `test_runner.py` itself, and newer than
+the example file's own mtime. That bound is computed ONCE per run, not once
+per file. Touching one example invalidates exactly that file; touching
+anything under `sawc/` invalidates the whole corpus in one step. Reuse is
+scoped to SUCCESS/PANIC tests only — both are re-validated for real by the
+execution stage every run regardless of how the binary arrived, which is
+what makes trusting a carried-forward BINARY safe without also trusting a
+cached VERDICT. A COMPILES/OBJECT/ERROR/DOCS test settles at compile time
+with no such net, so those always compile fresh.
+
+`devtools/irdet` (the IR-determinism harness — see the IR determinism
+section in `CLAUDE.md`) reads this manifest through `test_runner_last`, so
+running the suite right before `irdet --all` lets most of the corpus skip
+one of its two compiles. Nothing about the manifest is trusted blindly: a
+byte mismatch against the manifest's artifact triggers a three-way verify
+(fresh recompiles at both seeds) that can only ever produce a red that names
+itself — true nondeterminism, a violated invariant (a stale stamp, or an
+in-process-vs-subprocess divergence), or a transient race — never a silent
+pass. A missing or absent manifest (a clean checkout, a generation from
+before this scheme, or `irdet` run with no prior suite run at all) makes
+every file take the pre-220 compile-both path — reuse is an optimization
+layered on top of the original check, never a precondition for it.
 
 ## Running Tests on a Second Machine
 

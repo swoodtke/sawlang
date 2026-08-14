@@ -45,6 +45,18 @@ fi
 #
 # `slow` stages are the ones --quick drops: minutes each, and each has its own
 # make target for when you want it alone.
+#
+# ORDERING NOTE (design 220 D4): `suite` runs before `irdet` in this list —
+# deliberately kept that way, not required. `suite` publishes
+# `.build/test_runner_last` with a manifest of optimized-IR artifacts;
+# `irdet --all` reuses one side of its byte-compare from that manifest when
+# it is fresh, which is cheapest right after `suite` just built it. Running
+# `irdet` alone (`tools/battery.sh irdet`), or any other stage ordering, is
+# still fully correct — D4's byte-compare + three-way verify catches a stale
+# or absent manifest as either "no reuse" (empty/missing manifest, today's
+# compile-both path) or a self-reporting "violated invariant" (a stale one),
+# never a false pass. Reordering these two stages trades reuse rate, never
+# correctness.
 STAGES=(
     "suite|no|the compiler test suite (zero UNCITED xfails is the bar)|$PY test_runner.py"
     "icebreadcrumb|no|an internal compiler error reports one located line|$PY tools/test_ice_breadcrumb.py"
@@ -109,7 +121,11 @@ wanted() {
 # always read 0 and had never been able to fail. The status works now; reading
 # the records anyway is the contract, because a gate should not depend on the
 # bug it gates being fixed. `--plan` supplies the expected record count, which
-# is what catches a run that stopped early rather than disagreeing.
+# is what catches a run that stopped early rather than disagreeing. Design 220
+# added a FOURTH record status, `invariant` (a reused suite artifact that a
+# fresh recompile at its own recorded seed does not reproduce);
+# `tools/irdet_verdict.py` fails on it exactly as it fails on `mismatch`, which
+# is what keeps a cache bug from ever reading as green.
 run_irdet() {
     "$PY" sawc/sawc.py devtools/irdet/src/main.saw -o .build/irdetbin || return 1
     local records=".build/irdet-battery.jsonl"

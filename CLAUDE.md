@@ -137,6 +137,24 @@ objects are built + cached under `.build/rt/` and auto-linked (delete
   orders that had sat in the tree unnoticed until two unrelated new
   examples reshuffled the sample onto one of them. Two machines:
   `./.venv/bin/python tools/irdet_remote.py --all --remote HOST:PORT`.
+  Design 220: `test_runner.py` gives every invocation its own
+  `.build/test_runner_<stamp>/`, atomically published to
+  `test_runner_last` (never `ln -sfn`'s unlink-then-create), with a
+  `manifest.tsv` recording each SUCCESS/PANIC compile's worker
+  `PYTHONHASHSEED` and its optimized-IR artifact — a hash-order failure
+  replays via `PYTHONHASHSEED=<recorded>`, an unchanged file's artifact
+  hardlinks forward instead of recompiling (freshness = newer than every
+  `sawc/` file+directory, the llvmlite install, and `test_runner.py`
+  itself), and `irdet` reuses one side of its byte-compare from that
+  manifest when `test_runner_last` is fresh — a mismatch there is never
+  trusted on its own; a three-way verify (fresh recompiles at both
+  seeds) sorts it into true nondeterminism, a violated invariant (never
+  absorbed into a nondeterminism report), or a transient race. Running
+  `suite` right before `irdet` maximizes reuse but is never required
+  (TESTING.md's "reuse manifest" section has the rest). A violated
+  invariant is a FOURTH `--jsonl` record status, `invariant`, which
+  `tools/irdet_verdict.py` fails on exactly as it fails on `mismatch` —
+  the battery's irdet lane reads records, never `$?` (design 221 D).
 - **THE GATE BATTERY is `tools/battery.sh`** (design 192 unit 5) — tracked,
   so a lane cannot quietly go missing the way it did while the battery was
   an untracked scratch file each session rewrote from this prose:
