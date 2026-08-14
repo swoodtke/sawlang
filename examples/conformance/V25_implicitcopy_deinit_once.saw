@@ -1,6 +1,6 @@
-// Conformance row V25 — deinit-once through an auto-ImplicitCopy struct copy (design 159 retain)
+// Conformance row V25 — deinit-once through an auto-Copy struct copy (design 159 retain)
 //
-// Design 159's retain: copying an AUTOMATIC ImplicitCopy struct retains each
+// Design 159's retain: copying an AUTOMATIC Copy struct retains each
 // owning member, so the shared String is torn down exactly once. Without the
 // retain this double-freed.
 // EXPECT: success

@@ -1,5 +1,5 @@
 // Design 40 item 5 (L10): the Err auto-wrap path has the same premature-free
-// hole. An owned ImplicitCopy String returned as the error must be retained
+// hole. An owned Copy String returned as the error must be retained
 // into the Err payload. The filler strings would reuse a prematurely-freed
 // buffer, corrupting `e`.
 // EXPECT: success

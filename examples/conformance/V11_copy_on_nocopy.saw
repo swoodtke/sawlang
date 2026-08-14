@@ -4,7 +4,7 @@
 // one. The existing Vector pin refuses it as a missing METHOD on a generic
 // bound; this is the direct refusal on the value.
 // EXPECT: error
-// EXPECT-ERROR-CONTAINS: is not Copy; `.copy()` requires a trivially-copyable, ImplicitCopy, or ExplicitCopy type
+// EXPECT-ERROR-CONTAINS: is not Copy; `.copy()` requires a trivially-copyable, Copy, or ExplicitCopy type
 
 func main() {
     let b = Box<Int>.make(5)

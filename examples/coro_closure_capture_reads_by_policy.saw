@@ -17,9 +17,9 @@
 // that over-moved here would double-free and one that over-copied would refuse.
 //
 //   c1  trivial, implicit capture
-//   c2  AUTO-ImplicitCopy struct, implicit capture — refused before this fix
-//   c3  AUTO-ImplicitCopy struct, explicit `[move b]` — refused too
-//   c4  declared ImplicitCopy (`Arc`), implicit capture: a RETAIN, so the
+//   c2  AUTO-Copy struct, implicit capture — refused before this fix
+//   c3  AUTO-Copy struct, explicit `[move b]` — refused too
+//   c4  declared Copy (`Arc`), implicit capture: a RETAIN, so the
 //       count reads 2 inside the closure and the frame's own field survives
 //   c5  ExplicitCopy (`Vector`), explicit `[move v]`: `.copy()` duplicates
 //   c6  NoCopy, explicit `[move r]` — the bogus refusal DF-217c is named for
@@ -87,7 +87,7 @@ func c1_driven() {
     f()
 }
 
-// c2 — auto-ImplicitCopy, implicit capture.
+// c2 — auto-Copy, implicit capture.
 func c2_plain() {
     let b = Bag(s: "b")
     let f = { print("c2 {b.s}") }
@@ -101,7 +101,7 @@ func c2_driven() {
     f()
 }
 
-// c3 — auto-ImplicitCopy, written capture spec.
+// c3 — auto-Copy, written capture spec.
 func c3_plain() {
     let b = Bag(s: "c")
     let f = { [move b] in print("c3 {b.s}") }
@@ -115,7 +115,7 @@ func c3_driven() {
     f()
 }
 
-// c4 — declared ImplicitCopy. The control: a retain, not a steal.
+// c4 — declared Copy. The control: a retain, not a steal.
 func c4_plain() {
     let a = Arc<Res>(value: res("a"))
     let f = { print("c4 inside {a.strong_count()}") }

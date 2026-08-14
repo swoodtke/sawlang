@@ -18,7 +18,7 @@
 // -- a struct value, written in place
 // 15
 // -1
-// -- an ImplicitCopy value, read out as a value
+// -- a Copy value, read out as a value
 // hello
 // hello
 // hello
@@ -69,7 +69,7 @@ func main() {
     print(c["k"]!.n)
     print((c["nope"] ?? Counter(n: -1)).n)
 
-    print("-- an ImplicitCopy value, read out as a value")
+    print("-- a Copy value, read out as a value")
     var s = Map<String, String>()
     let _ = s.insert("x", "hello")
     let held = s["x"]!

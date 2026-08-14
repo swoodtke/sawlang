@@ -25,7 +25,7 @@
 
 struct Res { name: String }
 
-extension Res: ImplicitCopy {
+extension Res: Copy {
     func copy(&self) -> Res {
         print("copy {self.name}")
         Res(name: self.name)

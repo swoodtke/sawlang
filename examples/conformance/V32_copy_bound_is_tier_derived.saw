@@ -1,13 +1,13 @@
 // Conformance row V32 — a Copy-family bound is satisfied by the DERIVED tier
 //
 // Bounds used to check DECLARED conformances while tiers were a separate
-// derivation, and the two had never met: `T: ImplicitCopy` rejected BOTH the
+// derivation, and the two had never met: `T: Copy` rejected BOTH the
 // trivial `Int` and an auto-tier `Bag { s: String }` — the very type design 139
 // says IS on that tier with no declaration owed. Design 219 unifies them, so
 // the bound asks the tier.
 //
-// Both spellings of the merged tier are checked here: `Copy` (the name it
-// keeps) and `ImplicitCopy` (the name that retires into it).
+// Every family on the merged tier is checked through the one bound: trivial,
+// the automatic (undeclared) tier, a declared retain hook, and a composite.
 // EXPECT: success
 // EXPECT-OUTPUT:
 // int 7
@@ -24,13 +24,13 @@ func take_copy<T: Copy>(x: T) -> T {
     a
 }
 
-func take_implicit<T: ImplicitCopy>(x: T) -> T {
+func take_implicit<T: Copy>(x: T) -> T {
     let a = x
     a
 }
 
 func main() {
-    // Trivial: bitwise. Was rejected by the ImplicitCopy bound before 219.
+    // Trivial: bitwise. Was rejected by the Copy bound before 219.
     print("int {take_copy<Int>(7)}")
 
     // The automatic tier (design 139/159): retains its String member.

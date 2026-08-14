@@ -5207,7 +5207,7 @@ class ExpressionsMixin:
         if reason is not None:
             self._error(
                 ErrorKind.TYPE_MISMATCH,
-                f"{what} type `{key_type}` must be copyable (trivial, ImplicitCopy, "
+                f"{what} type `{key_type}` must be copyable (trivial, Copy, "
                 f"or ExplicitCopy with retain semantics): `{key_type}` {reason}",
                 expr.line, expr.column)
 
@@ -7001,7 +7001,7 @@ class ExpressionsMixin:
         return None
 
     # Generic bounds that grant `.copy()` in an abstract generic body.
-    _COPY_BOUND_NAMES = frozenset({"Copy", "ImplicitCopy", "ExplicitCopy"})
+    _COPY_BOUND_NAMES = frozenset({"Copy", "ExplicitCopy"})
 
     # The two Copy-family questions, kept apart at the ABSTRACT side exactly as
     # `Namespace` keeps them apart for concrete types (design 219).
@@ -7010,7 +7010,7 @@ class ExpressionsMixin:
     # body may duplicate it with nothing written. `ExplicitCopy` is NOT one:
     # admitting it here is what let a ceremony-tier argument into a silently
     # copying body (S1 row 9d).
-    _SILENT_COPY_BOUND_NAMES = frozenset({"Copy", "ImplicitCopy"})
+    _SILENT_COPY_BOUND_NAMES = frozenset({"Copy"})
 
     def _bound_satisfied(self, concrete: SawType, bound: str) -> bool:
         """Whether `concrete` satisfies a single type-param `bound`.
@@ -7184,7 +7184,7 @@ class ExpressionsMixin:
         self._error(
             ErrorKind.CANNOT_COPY,
             f"type `{obj_type}` is not Copy; `.copy()` requires a trivially-copyable, "
-            f"ImplicitCopy, or ExplicitCopy type",
+            f"Copy, or ExplicitCopy type",
             expr.line, expr.column
         )
         return True, None

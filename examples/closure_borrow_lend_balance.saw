@@ -3,7 +3,7 @@
 // caller keeps ownership and drops it exactly once. No retain is taken (the
 // borrow owns nothing). The caller's env is released once at scope exit; the
 // captured Arc's payload deinits exactly once. (This exercises the fix for a
-// pre-existing leak the ImplicitCopy model surfaced: the lend must not clear the
+// pre-existing leak the Copy model surfaced: the lend must not clear the
 // caller's drop flag.)
 // EXPECT: success
 // EXPECT-OUTPUT:

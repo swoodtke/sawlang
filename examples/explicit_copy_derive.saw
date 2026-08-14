@@ -15,7 +15,7 @@ struct Inner {
     n: Int
 }
 
-extension Inner: ImplicitCopy {
+extension Inner: Copy {
     func copy(&self) -> Inner {
         print("inner copy called")
         Inner(n: self.n)

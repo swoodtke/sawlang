@@ -1112,14 +1112,16 @@ class Namespace:
     # =========================================================================
     # THE COPY-TIER TRAIT NAME (design 219 unit B4) — one funnel, two forms.
     #
-    # `Copy` and `ImplicitCopy` are ONE trait wearing two spellings while the
-    # rename lands: both DECLARE the silently-copyable tier, and every rule that
-    # asks "does this type name that tier?" must accept either. Before this
-    # constant existed the question was asked as a bare
-    # `type_conforms_to(name, "ImplicitCopy")` at a dozen scattered sites, which
-    # is exactly the position-quantified rule brief obligation 1 says to funnel:
-    # a site that missed the new spelling would not error, it would silently
-    # answer "not on the tier" and drop a retain.
+    # `Copy` is THE name of the silently-copyable tier; `ImplicitCopy` was the
+    # old spelling and no longer exists as a trait. Every rule that asks "does
+    # this type DECLARE that tier?" goes through here. The question used to be
+    # asked as a bare `type_conforms_to(name, "ImplicitCopy")` at a dozen
+    # scattered sites, which is exactly the position-quantified rule brief
+    # obligation 1 says to funnel: a site that missed the rename would not
+    # error, it would silently answer "not on the tier" and drop a retain.
+    # (`ImplicitCopy` is deliberately NOT accepted any more — with the builtin
+    # trait gone the name is available to user code, and a user trait of that
+    # name must not acquire tier semantics.)
     #
     # Two accessors because callers hold the question in two shapes:
     #   `declares_copy_tier(name)`  — the conformance LOOKUP form (searches
@@ -1135,12 +1137,11 @@ class Namespace:
     # Anything checking the copy-tier trait BY NAME goes through one of the two.
     # =========================================================================
 
-    COPY_TIER_TRAIT_NAMES = frozenset({"Copy", "ImplicitCopy"})
+    COPY_TIER_TRAIT_NAMES = frozenset({"Copy"})
 
     def declares_copy_tier(self, type_name: str) -> bool:
-        """Whether `type_name` DECLARES the silently-copyable tier under either
-        spelling (`Copy`, or the retiring `ImplicitCopy`). See the block comment
-        above for the caller list."""
+        """Whether `type_name` DECLARES the silently-copyable tier. See the
+        block comment above for the caller list."""
         return any(self.type_conforms_to(type_name, trait)
                    for trait in self.COPY_TIER_TRAIT_NAMES)
 
@@ -2162,14 +2163,13 @@ class Namespace:
 
         `Copy` is TIER-DERIVED (design 219): the merged silently-copyable tier,
         trivial and retain families alike, and nothing else — a type that copies
-        with ceremony no longer satisfies it. `ImplicitCopy` is the retiring
-        spelling of that same bound. `ExplicitCopy` is the wider duplicable
-        family (every Copy type, plus the declared conformers).
+        with ceremony no longer satisfies it. `ExplicitCopy` is the wider
+        duplicable family (every Copy type, plus the declared conformers).
         `Send`/`Sync` are structural marker traits (design 21 item 1);
         `Equatable` is structural too (auto-Copy set + declared conformers,
         design 32); every other trait bound is an ordinary conformance lookup.
         """
-        if bound in ("Copy", "ImplicitCopy"):
+        if bound == "Copy":
             return self.type_satisfies_copy_bound(saw_type)
         if bound == "ExplicitCopy":
             return self.type_satisfies_explicit_copy_bound(saw_type)

@@ -7,14 +7,14 @@
 // The refusal lands at the `copy()` declaration, not at the transfer: one
 // error at the root, and `silent` stays a legal `sync` function.
 // EXPECT: error
-// EXPECT-ERROR-CONTAINS: cannot suspend in the `ImplicitCopy` `copy()` of `Heavy`
+// EXPECT-ERROR-CONTAINS: cannot suspend in the `Copy` `copy()` of `Heavy`
 // EXPECT-ERROR-CONTAINS: compiler-inserted call sites
 
 import std.task.*
 
 struct Heavy { name: String, n: Int }
 
-extension Heavy: ImplicitCopy {
+extension Heavy: Copy {
     func copy(&self) -> Heavy {
         yield_now()
         Heavy(name: self.name, n: self.n + 1)

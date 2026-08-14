@@ -81,7 +81,7 @@ func main() {
     b[0][1].count += 10
     print("{b[0][1].count}")
 
-    // Value read of an ImplicitCopy field through two chained windows.
+    // Value read of a Copy field through two chained windows.
     let tag = b[0][1].tag
     print("{tag}")
 

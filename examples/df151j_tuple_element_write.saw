@@ -11,7 +11,7 @@
 //
 // Now they are one rule: the tuple index is a place, so the write lands in the
 // tuple's own storage and takes the same steps a struct-field write takes —
-// drop the live element FIRST, retain an ImplicitCopy RHS that is an existing
+// drop the live element FIRST, retain a Copy RHS that is an existing
 // binding, wrap a bare `T` into an opt-encoded slot, store.
 //
 // ORACLE. `LIVE` counts live `Res` values: `res()` bumps it, `Res.deinit` takes
@@ -148,7 +148,7 @@ func element_of_array_of_tuples() -> Int {
     a[0].0.n * 10 + a[1].0.n
 }
 
-// An RHS that is an existing ImplicitCopy binding is RETAINED, not aliased —
+// An RHS that is an existing Copy binding is RETAINED, not aliased —
 // the same rule the field and element paths follow. Both `held` and the tuple
 // element own a reference here, so the count reads 2 and each releases once.
 func implicit_copy_rhs_retains(k: Int) -> Int {

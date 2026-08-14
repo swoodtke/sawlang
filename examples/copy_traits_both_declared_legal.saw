@@ -2,8 +2,8 @@
 //
 // It used to be a compile error, and the reason was real while the two words
 // named two TIERS: a type on two tiers has no answer to "what does a transfer
-// cost". After the collapse they name different things — `Copy` (which
-// `ImplicitCopy` retires into) is the tier, `ExplicitCopy` is an ordinary trait
+// cost". After the collapse they name different things — `Copy` is the tier,
+// `ExplicitCopy` is an ordinary trait
 // every Copy-tier type satisfies anyway — so the second declaration is
 // redundant rather than contradictory, and there is nothing left to refuse.
 //
@@ -19,7 +19,7 @@ struct Buf {
     value: Int
 }
 
-extension Buf: ImplicitCopy, ExplicitCopy {
+extension Buf: Copy, ExplicitCopy {
     func copy(&self) -> Buf {
         Buf(value: self.value)
     }

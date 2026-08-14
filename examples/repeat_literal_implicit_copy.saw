@@ -1,4 +1,4 @@
-// Design 148 unit B: an ImplicitCopy element repeats by retaining, once per
+// Design 148 unit B: a Copy element repeats by retaining, once per
 // slot. The value is evaluated ONCE; slot 0 takes its reference and every later
 // slot takes a fresh one, so the array's teardown releases exactly as many as
 // were taken — no double free, no leak.
@@ -23,7 +23,7 @@ func main() {
     print(greetings.len())
 
     // A repeat of a binding rather than a call result: the binding stays valid,
-    // since ImplicitCopy transfers by retain.
+    // since Copy transfers by retain.
     let word = "built"
     let words = [word; 2]
     print(words[0])

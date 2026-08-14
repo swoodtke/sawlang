@@ -4,7 +4,7 @@
 // EXPECT-ERROR-CONTAINS: `v.swap(i, j)`
 //
 // DF-188f reached through a std type (audit row X40) — the reason the finding
-// was the batch's headline. `Data` has been ImplicitCopy since design 165 and
+// was the batch's headline. `Data` has been Copy since design 165 and
 // publishes `d[i]`, so the swap idiom below compiled, copied the receiver to
 // open the second window, and CORRUPTED the buffer: it printed `d0=1 d1=1`
 // where `d0=2 d1=1` was the answer. No diagnostic anywhere — the copy-policy

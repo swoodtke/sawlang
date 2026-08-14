@@ -3,7 +3,7 @@
 // materialized for inspection is copy-WITH-RETAIN and released symmetrically, so
 // no probe over-releases the key the set still owns.
 //
-// The key `AK` is ImplicitCopy and wraps an `Arc<Int>`, so its exact live count
+// The key `AK` is Copy and wraps an `Arc<Int>`, so its exact live count
 // is observable through `probe.strong_count()` — every stored key holds one
 // reference to the shared `probe` block, plus `probe` itself.
 // EXPECT: success
@@ -16,7 +16,7 @@
 // 1
 
 struct AK { id: Int, rc: Arc<Int> }
-extension AK: ImplicitCopy { func copy(&self) -> AK { AK(id: self.id, rc: self.rc.copy()) } }
+extension AK: Copy { func copy(&self) -> AK { AK(id: self.id, rc: self.rc.copy()) } }
 extension AK: Equatable { func equals(&self, other: AK) -> Bool { self.id == other.id } }
 extension AK: Hashable { func hash(&self, h: &var Hasher) { self.id.hash(&var h) } }
 

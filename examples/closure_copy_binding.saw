@@ -1,4 +1,4 @@
-// Design 73: an escaping closure is ImplicitCopy. Copying a closure binding
+// Design 73: an escaping closure is Copy. Copying a closure binding
 // (`let g = f`, no `move`) is legal again — both bindings stay valid and share
 // one refcounted heap env. The env's captured Arc is retained once (at closure
 // creation); the closure copy only bumps the ENV refcount, not the Arc. LIFO
@@ -22,7 +22,7 @@ func main() {
     let a = Arc<Res>(value: Res(id: 5))
     print(a.strong_count())        // 1
     let f = { a.strong_count() }   // env retains a -> strong 2
-    let g = f                      // ImplicitCopy: env refcount 2, Arc shared
+    let g = f                      // Copy: env refcount 2, Arc shared
     print(f())                     // 2
     print(g())                     // 2 (shares f's env)
     print(a.strong_count())        // 2 (the closure copy did not re-retain a)

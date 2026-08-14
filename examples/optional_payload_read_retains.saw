@@ -1,4 +1,4 @@
-// Design 131: a payload read out of a place is a VALUE READ, so an ImplicitCopy
+// Design 131: a payload read out of a place is a VALUE READ, so a Copy
 // payload is RETAINED at the extraction. Before this, every extraction form
 // handed back a non-owning alias — releasing the source then left the reader
 // pointing at freed bytes (DF-124b). Each of the four forms below reads the

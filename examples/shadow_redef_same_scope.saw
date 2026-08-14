@@ -48,7 +48,7 @@ func main() {
     let m = double(m)                 // 8
     print(m)                          // 8
 
-    // string (ImplicitCopy) derivation, same scope.
+    // string (Copy) derivation, same scope.
     let s = "hello"
     let s = "{s} world"
     print(s)                          // hello world

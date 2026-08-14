@@ -1612,7 +1612,7 @@ class CallsMixin:
                         raise ValueError(
                             f"cannot copy value of type `{struct_name}`: it is not Copy "
                             f"(owns a resource and has no copy()); use a copyable element "
-                            f"type or implement ImplicitCopy/ExplicitCopy"
+                            f"type or implement Copy/ExplicitCopy"
                         )
                 return obj_val
 

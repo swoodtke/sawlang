@@ -21,7 +21,7 @@
 // -- the absent path
 // absent
 // out of range
-// -- an ImplicitCopy payload reads out as a value
+// -- a Copy payload reads out as a value
 // hello
 // hello
 // hello
@@ -158,7 +158,7 @@ func main() {
         print("out of range")
     }
 
-    print("-- an ImplicitCopy payload reads out as a value")
+    print("-- a Copy payload reads out as a value")
     var l = Log(notes: Vector<Note>())
     l.notes.push(Note.Text(body: "hello"))
     let held = l.at(0)!

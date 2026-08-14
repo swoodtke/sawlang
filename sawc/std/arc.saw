@@ -6,7 +6,7 @@
 // RESERVED NOW as ABI (init 1 = the strong refs' collective weak) even though
 // `Weak` does not ship in v1 - retrofitting it would change this layout.
 //
-// Arc is `ImplicitCopy + Deinit`:
+// Arc is `Copy + Deinit`:
 //   - copy()  = retain: atomic add (monotonic) on strong.
 //   - deinit() = release: atomic sub (release) on strong; the thread that takes
 //     strong to 0 issues an acquire fence, runs the payload's drop glue in
@@ -131,10 +131,10 @@ extension Arc<T> {
     }
 }
 
-// Arc's copy policy is ImplicitCopy — a copy is a refcount bump — and its
+// Arc's copy policy is Copy — a copy is a refcount bump — and its
 // `deinit` lives inside that conformance (design 131: `Deinit` is the policy
 // hierarchy's base, inherited, never declared on its own).
-extension Arc<T>: ImplicitCopy {
+extension Arc<T>: Copy {
     public func deinit(&var self) unsafe {
         if let block = self.ptr {
             let strong_ptr = block as UnsafePointer<Int>

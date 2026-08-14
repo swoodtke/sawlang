@@ -1,5 +1,5 @@
-// An ImplicitCopy-tier enum matched by a plain local scrutinee: the match
-// must NOT consume it. ImplicitCopy reads are retain-copies by policy, so
+// A Copy-tier enum matched by a plain local scrutinee: the match
+// must NOT consume it. Copy reads are retain-copies by policy, so
 // each arm binding retains the payload and the scrutinee keeps ownership —
 // the payload is released exactly ONCE, when the scrutinee's own scope ends
 // (after `done`). Codegen's consume model used to be tier-blind (gated on
@@ -29,7 +29,7 @@ enum Holder {
     case Nothing
 }
 
-@synthesize extension Holder: ImplicitCopy {}
+@synthesize extension Holder: Copy {}
 
 func main() {
     let h = Holder.Full(a: Arc<Res>(value: Res(id: 9)))

@@ -1,6 +1,6 @@
 // Design 65 followup: Set algebra (union / intersection / difference) with
 // OWNING elements must keep exact refcount balance — no leaked snapshot element
-// refs. The element `AK` is ImplicitCopy wrapping an `Arc<Int>`, so the live
+// refs. The element `AK` is Copy wrapping an `Arc<Int>`, so the live
 // count is observable through `probe.strong_count()`.
 // EXPECT: success
 // EXPECT-OUTPUT:
@@ -12,7 +12,7 @@
 // 1
 
 struct AK { id: Int, rc: Arc<Int> }
-extension AK: ImplicitCopy { func copy(&self) -> AK { AK(id: self.id, rc: self.rc.copy()) } }
+extension AK: Copy { func copy(&self) -> AK { AK(id: self.id, rc: self.rc.copy()) } }
 extension AK: Equatable { func equals(&self, other: AK) -> Bool { self.id == other.id } }
 extension AK: Hashable { func hash(&self, h: &var Hasher) { self.id.hash(&var h) } }
 

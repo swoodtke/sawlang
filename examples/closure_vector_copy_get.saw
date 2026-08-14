@@ -1,5 +1,5 @@
 // Closures satisfy the umbrella `Copy` bound (design 77 item 3, DF-C2): an
-// escaping closure is ImplicitCopy (design 73), so `Vector<() -> Int>` is
+// escaping closure is Copy (design 73), so `Vector<() -> Int>` is
 // ExplicitCopy and its `.copy()`/`.get()` element-copy paths run the closure
 // env retain. Previously a clean compile error ("does not conform to Copy").
 // EXPECT: success

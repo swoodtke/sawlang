@@ -1,7 +1,7 @@
-// A ImplicitCopy value used as an array-literal element must have copy() invoked,
+// A Copy value used as an array-literal element must have copy() invoked,
 // just like a let-binding or call argument. Array construction is one of the
 // aggregate copy sites the value-transfer checkpoint now covers.
-// See todo_jul26.md must-fix #1 (ImplicitCopy copy() at aggregate sites).
+// See todo_jul26.md must-fix #1 (Copy copy() at aggregate sites).
 // EXPECT: success
 // EXPECT-OUTPUT:
 // copy called
@@ -13,7 +13,7 @@ struct RefCounted {
     value: Int
 }
 
-extension RefCounted: ImplicitCopy {
+extension RefCounted: Copy {
     func copy(&self) -> RefCounted {
         print("copy called")
         RefCounted(value: self.value)

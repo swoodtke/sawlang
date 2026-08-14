@@ -2,7 +2,7 @@
 //
 // Its signature was bare — `func get(&self, index: Int) -> T?`, no `T: Copy`
 // bound — and its body read the element through the raw buffer with no retain.
-// For an ImplicitCopy element the surrounding machinery balanced that; for a
+// For a Copy element the surrounding machinery balanced that; for a
 // NoCopy one there is no `copy()` to call, so the caller received an ALIAS it
 // then owned and dropped while the vector still held the same element. Two
 // lookups, two frees of one buffer, in safe code, with no `unsafe` anywhere.

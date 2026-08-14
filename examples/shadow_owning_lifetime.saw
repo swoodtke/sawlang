@@ -21,7 +21,7 @@ func main() {
     print(nums.len())            // 3 (outer still valid)
 
     // `if let x = x` unwrap, then the outer optional is used again. The payload
-    // is ImplicitCopy, so each binding RETAINS it (design 131) and the outer
+    // is Copy, so each binding RETAINS it (design 131) and the outer
     // optional keeps its own reference — which is exactly what the second
     // unwrap reads.
     let base = "ab"

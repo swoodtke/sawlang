@@ -1,12 +1,12 @@
-// Error: struct contains ImplicitCopy field but doesn't implement ImplicitCopy
+// Error: struct contains Copy field but doesn't implement Copy
 // EXPECT: error
-// EXPECT-ERROR-CONTAINS: contains ImplicitCopy field
+// EXPECT-ERROR-CONTAINS: contains Copy field
 
 struct RefCounted {
     count: Int
 }
 
-extension RefCounted: ImplicitCopy {
+extension RefCounted: Copy {
     func copy(&self) -> RefCounted {
         RefCounted(count: self.count + 1)
     }
@@ -14,7 +14,7 @@ extension RefCounted: ImplicitCopy {
     }
 }
 
-// Container contains a ImplicitCopy field but doesn't implement ImplicitCopy itself
+// Container contains a Copy field but doesn't implement Copy itself
 struct Container {
     data: RefCounted
 }

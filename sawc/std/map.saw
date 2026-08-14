@@ -315,7 +315,7 @@ extension Map<K: Hashable + Equatable, V, A: Allocator = GlobalAllocator> {
     /// `m["k"]!` panics, which is what the `!` promised.
     ///
     /// Reading the place out as a VALUE follows the value's copy tier (design
-    /// 131): trivial copies bitwise, `ImplicitCopy` retains, and
+    /// 131): trivial copies bitwise, `Copy` retains, and
     /// `ExplicitCopy`/`NoCopy` is refused with the ways out named.
     ///
     /// `get` is the same lend under a named spelling.
@@ -392,13 +392,13 @@ extension Map<K: Hashable + Equatable, V, A: Allocator = GlobalAllocator> {
 //
 // ELEMENT PASSING: keys and values are handed to the visitor BY VALUE, through
 // the same payload read `get`/`_get_value` make — the payload is read out of
-// the slot THROUGH the place (design 146), so an ImplicitCopy key/value is
+// the slot THROUGH the place (design 146), so a Copy key/value is
 // retained and a trivial one copied bitwise, and the copy is `move`d into the
 // closure. This is the "by value" fallback the brief anticipated: per-category
 // by-reference passing (`&K`/`&V` for ExplicitCopy/NoCopy elements) is not
 // cleanly expressible yet — there is no by-reference projection into an enum
 // payload — so the visitor is usable for every K/V that the map's `get` already
-// supports (the trivial and ImplicitCopy element types, i.e. Int/String keys
+// supports (the trivial and Copy element types, i.e. Int/String keys
 // and values).
 //
 // ORDER IS UNSPECIFIED: visitors walk the backing slot array, skipping Empty

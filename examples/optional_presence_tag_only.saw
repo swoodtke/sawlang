@@ -38,7 +38,7 @@ func main() {
     let e: Vector<Int>? = move elems
     print("explicit some={e.is_some()} none={e.is_none()}")
 
-    // ImplicitCopy: no retain either — the tag is not the payload.
+    // Copy: no retain either — the tag is not the payload.
     let i: String? = "x"
     print("implicit some={i.is_some()} none={i.is_none()}")
 

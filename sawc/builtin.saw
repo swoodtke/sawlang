@@ -20,9 +20,12 @@ trait Deinit {
 //
 // A DECLARED conformance has two forms, both meaningful:
 //
+//   @synthesize
 //   extension Point: Copy {}          // an ASSERTION: compiles iff the members
 //                                     // qualify, and keeps compiling only while
-//                                     // they do — a type-level API contract
+//                                     // they do — a type-level API contract.
+//                                     // The `@synthesize` marker is design 128's
+//                                     // standing gate on every derived body.
 //
 //   extension Arc<T>: Copy {          // THE RETAIN HOOK: the compiler calls this
 //       func copy(&self) -> Self {    // body at every silent transfer
@@ -38,14 +41,7 @@ trait Deinit {
 // of that contract the compiler enforces is `sync` (design 219 A1) — a
 // suspending `copy()` is refused at the conformance, because its suspension
 // would otherwise be invisible at every site the compiler inserts it.
-//
-// `ImplicitCopy` is the retiring spelling of this same tier and means exactly
-// `Copy`.
 trait Copy {
-    func copy(&self) -> Self
-}
-
-trait ImplicitCopy: Deinit {
     func copy(&self) -> Self
 }
 

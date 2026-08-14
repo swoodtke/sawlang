@@ -13,7 +13,7 @@
 struct RefCounted {
     value: Int
 }
-extension RefCounted: ImplicitCopy {
+extension RefCounted: Copy {
     func copy(&self) -> RefCounted {
         print("copy called")
         RefCounted(value: self.value)

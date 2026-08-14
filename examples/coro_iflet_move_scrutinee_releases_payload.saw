@@ -17,12 +17,12 @@
 // its oracle.
 //
 //   t1  the bug: NoCopy, non-spanning `if let v = move opt`
-//   t2  the same at the ImplicitCopy tier, where the payload is a refcount
+//   t2  the same at the Copy tier, where the payload is a refcount
 //   t3  the same nested inside an `if` branch of the driven body
 //   t4  control: `guard let v = move opt`, which SPLITS and so was always
 //       carried by `_store_binding_in_slot`'s read-policy funnel instead
 //   t5  control: a SPANNING `if let v = move opt` (DF-182c), same reason
-//   t6  control: a NON-move `if let v = opt` on an ImplicitCopy optional — the
+//   t6  control: a NON-move `if let v = opt` on a Copy optional — the
 //       source keeps its payload, so an over-eager fix double-releases here
 //   t7  control: `Optional.take()`, a call-shaped source the predicate could
 //       always answer for
@@ -89,7 +89,7 @@ func t1_driven() {
     if let v = move opt { print("t1 in {v.name}") }
 }
 
-// t2 — ImplicitCopy tier: the payload is an `Arc`, so the release is a refcount
+// t2 — Copy tier: the payload is an `Arc`, so the release is a refcount
 // drop and a missing one keeps the `Res` alive forever.
 func t2_plain() {
     var opt: Arc<Res>? = Arc<Res>(value: res("t2p"))

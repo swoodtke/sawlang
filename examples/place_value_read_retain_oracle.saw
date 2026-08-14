@@ -1,7 +1,7 @@
 // Reading a PLACE out as a value follows the element's copy tier (design 131's
 // table, applied where a place stops being storage).
 //
-// A trivial element copies bitwise, an ImplicitCopy element RETAINS at the
+// A trivial element copies bitwise, a Copy element RETAINS at the
 // read — so the vector keeps its own reference and each holder is destroyed
 // exactly once. `copy` and `deinit` print here, so the counts are the proof
 // rather than a claim about them.
@@ -24,7 +24,7 @@
 
 struct Res { name: String }
 
-extension Res: ImplicitCopy {
+extension Res: Copy {
     func copy(&self) -> Res {
         print("copy {self.name}")
         Res(name: self.name)
@@ -40,7 +40,7 @@ func main() {
     nums[1] = 30              // whole-element write through the place
     print("{nums[1]}")
 
-    // ---- ImplicitCopy elements ----
+    // ---- Copy elements ----
     var res = Vector<Res>()
     res.push(Res(name: "a"))
     res.push(Res(name: "b"))

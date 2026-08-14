@@ -1,5 +1,5 @@
-// Design 159: a struct whose owning members are all trivial/ImplicitCopy is
-// AUTOMATICALLY ImplicitCopy — no declared policy, by design. Copying one
+// Design 159: a struct whose owning members are all trivial/Copy is
+// AUTOMATICALLY Copy — no declared policy, by design. Copying one
 // RETAINS each refcounted member, so every transfer class below must balance.
 //
 // DF-151b: the tier was correct and the LOWERING was not. `copy_tier` had no
@@ -36,7 +36,7 @@
 // function that owned it finished, and `after` is a read of freed memory.
 //
 // The enum line's `during` counts ONE MORE retain since design 193 unit 1
-// (DF-190d): `match h2` on an ImplicitCopy-tier enum no longer consumes its
+// (DF-190d): `match h2` on a Copy-tier enum no longer consumes its
 // scrutinee, so the arm binding `t` takes a retain of its own and `h2` keeps
 // the reference it already had. `after == held` either way — the extra retain
 // is released at the arm's end — but the count DURING the arm now shows both
@@ -75,7 +75,7 @@ extension Res: NoCopy {
     func deinit(&var self) { print("deinit {self.id}") }
 }
 
-// An enum carrying an Arc. An enum cannot DECLARE ImplicitCopy at all, so its
+// An enum carrying an Arc. An enum cannot DECLARE Copy at all, so its
 // tier is structural by necessity — and an Arc makes every retain countable,
 // which a String field does not (no refcount is exposed on String).
 enum Holder {
@@ -85,7 +85,7 @@ enum Holder {
 
 // An UNDECLARED struct owning that enum. This is the shape that makes the
 // balance oracle bite: it needs no policy of its own (its owning member is
-// itself automatically ImplicitCopy), so both composites on the path carry the
+// itself automatically Copy), so both composites on the path carry the
 // undeclared tier, and the Arc underneath counts every retain along it.
 struct Wrap { h: Holder }
 
@@ -154,7 +154,7 @@ func site_tuple(n: Int) {
 func site_array(n: Int) {
     let a = P(name: "arr-{n}")
     // A repeat literal duplicates into every slot: legal exactly because the
-    // element copies for free, which the undeclared ImplicitCopy tier does.
+    // element copies for free, which the undeclared Copy tier does.
     let xs: [P; 3] = [a; 3]
     print("array {xs[0].name} {xs[2].name} {a.name}")
 }

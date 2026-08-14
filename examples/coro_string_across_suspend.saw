@@ -1,4 +1,4 @@
-// design 44 item 4: a String (ImplicitCopy, atomic-refcounted) held across a
+// design 44 item 4: a String (Copy, atomic-refcounted) held across a
 // suspension and returned as the result stays refcount-balanced. Driving the
 // frame 50000 times with stable completion is the balance oracle (a leak or a
 // double-release would crash or diverge). The String flows: created in state 0,

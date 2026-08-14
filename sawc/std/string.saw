@@ -879,7 +879,7 @@ extension String {
         }
         // `move` transfers ownership of the owned String into the Ok
         // payload. As of design 40 item 5 the plain `return candidate` also
-        // works (auto-wrap retains the ImplicitCopy value at the wrap site);
+        // works (auto-wrap retains the Copy value at the wrap site);
         // the explicit move is kept as the clearest intent — it consumes
         // `candidate` outright rather than retain-then-release.
         return move candidate               // valid: move the owned String out
@@ -891,7 +891,7 @@ extension String {
 
     // Iterate the raw bytes. Element type is Int8, matching `byte_at`. The
     // iterator holds its OWN retain on the String (the `s` field is an
-    // ImplicitCopy capture), so `for b in makeString().bytes()` keeps the bytes
+    // Copy capture), so `for b in makeString().bytes()` keeps the bytes
     // alive for the whole loop even though the temporary receiver is gone.
     public func bytes(&self) -> StringBytes {
         StringBytes(s: self, index: 0, length: self.len())
@@ -1024,7 +1024,7 @@ extension Utf8Error: Error {
 // String iterators (brief 38 item 2)
 // =============================================================================
 //
-// Both iterators store the source String by value. String is ImplicitCopy, so
+// Both iterators store the source String by value. String is Copy, so
 // the field initialization RETAINS it (refcount bump) and the struct's
 // synthesized deinit RELEASES it when the iterator dies. That independent retain
 // is what makes a temporary receiver safe: in `for c in makeString().chars()`

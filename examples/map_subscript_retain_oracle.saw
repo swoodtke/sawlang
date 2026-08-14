@@ -1,6 +1,6 @@
 // Every value read out of the map's subscript retains EXACTLY once.
 //
-// A place stops being storage at a value read, and an ImplicitCopy value is
+// A place stops being storage at a value read, and a Copy value is
 // retained there so the map keeps its own. The count is what matters: one
 // retain per read, none for a borrow, none for a presence test. `copy()` is
 // hand-written here purely so the retains print.
@@ -36,7 +36,7 @@
 
 struct Tag { n: Int }
 
-extension Tag: ImplicitCopy {
+extension Tag: Copy {
     func copy(&self) -> Tag {
         print("copy {self.n}")
         Tag(n: self.n)

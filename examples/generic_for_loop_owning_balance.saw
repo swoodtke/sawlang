@@ -12,7 +12,7 @@
 // 1
 
 struct W { rc: Arc<Int> }
-extension W: ImplicitCopy { func copy(&self) -> W { W(rc: self.rc.copy()) } }
+extension W: Copy { func copy(&self) -> W { W(rc: self.rc.copy()) } }
 
 func each_count<T: Copy>(v: &Vector<T>) -> Int {
     var n = 0

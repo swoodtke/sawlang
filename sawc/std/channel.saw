@@ -1,6 +1,6 @@
 // Channel<T: Send> - an unbounded MPMC message queue (design 21 item 6).
 //
-// Go-style: Channel is an ImplicitCopy HANDLE onto a shared, internally
+// Go-style: Channel is a Copy HANDLE onto a shared, internally
 // refcounted queue. Cloning the handle (copy() == refcount bump) shares the
 // same queue; the last handle to drop drains and frees it. `T: Send` is required
 // on the type itself, so only thread-safe payloads can be enqueued.
@@ -8,7 +8,7 @@
 // Shared block layout (allocated via __saw_rt_alloc, 16-aligned):
 //     [0,   64)  pthread_mutex_t   (conservative 64-byte slot; see mutex.saw)
 //     [64, 128)  pthread_cond_t    (conservative 64-byte slot; real max 48)
-//     [128,136)  refcount : i64    (handle count; ImplicitCopy/Deinit)
+//     [128,136)  refcount : i64    (handle count; Copy/Deinit)
 //     [136,144)  count    : i64    (queued elements; guards head/tail validity)
 //     [144,152)  head     : i8*    (first node; valid only while count > 0)
 //     [152,160)  tail     : i8*    (last node;  valid only while count > 0)
@@ -258,8 +258,8 @@ extension Channel<T: Send> {
 }
 
 // A Channel handle copies by retaining the shared block, so its policy is
-// ImplicitCopy and its `deinit` lives inside that conformance (design 131).
-extension Channel<T: Send>: ImplicitCopy {
+// Copy and its `deinit` lives inside that conformance (design 131).
+extension Channel<T: Send>: Copy {
     public func deinit(&var self) unsafe {
         if let block = self.block {
             let refcount = (block + 128) as UnsafePointer<Int>

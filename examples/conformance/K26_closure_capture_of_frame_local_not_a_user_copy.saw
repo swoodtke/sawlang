@@ -11,12 +11,12 @@
 //
 // `.copy()` is not a method every tier has. A NoCopy local captured `[move r]`
 // was refused with ``type `Res` is not Copy``, and so was an AUTOMATIC
-// ImplicitCopy struct (design 159's tier owes no declaration, so it declares no
+// Copy struct (design 159's tier owes no declaration, so it declares no
 // `copy` either) — both on programs whose non-suspending twins compile, both
 // followed by a spurious `capture of undefined variable` from the
 // materialization that never happened. DF-217c.
 //
-// The declared-ImplicitCopy row is the control the fix must not disturb: the
+// The declared-Copy row is the control the fix must not disturb: the
 // frame KEEPS its field, so the capture takes its own reference and the count
 // reads 2 inside the closure and 2 outside it, exactly as before.
 // EXPECT: success
@@ -55,7 +55,7 @@ func nocopy_capture() {
     f()
 }
 
-// Auto-ImplicitCopy, captured implicitly.
+// Auto-Copy, captured implicitly.
 func autoimplicit_capture() {
     let t = Tag(s: "tag")
     let f = { print("autoimplicit {t.s}") }
@@ -63,7 +63,7 @@ func autoimplicit_capture() {
     f()
 }
 
-// Declared ImplicitCopy: a retain, and the frame's own field survives it.
+// Declared Copy: a retain, and the frame's own field survives it.
 func arc_capture() {
     let a = Arc<Res>(value: res("a"))
     let f = { print("arc inside {a.strong_count()}") }

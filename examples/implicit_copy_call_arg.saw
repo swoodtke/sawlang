@@ -1,7 +1,7 @@
-// A ImplicitCopy value passed by value as a call argument must have copy() invoked,
+// A Copy value passed by value as a call argument must have copy() invoked,
 // just like a let-binding or assignment does. Today call args are bitwise-copied
 // and copy() never runs, so "copy called" is missing from the output.
-// See todo_jul26.md must-fix #1 (ImplicitCopy copy() invoked at only 3 of many
+// See todo_jul26.md must-fix #1 (Copy copy() invoked at only 3 of many
 // copy sites).
 // EXPECT: success
 // EXPECT-OUTPUT:
@@ -13,7 +13,7 @@ struct RefCounted {
     value: Int
 }
 
-extension RefCounted: ImplicitCopy {
+extension RefCounted: Copy {
     func copy(&self) -> RefCounted {
         print("copy called")
         RefCounted(value: self.value)

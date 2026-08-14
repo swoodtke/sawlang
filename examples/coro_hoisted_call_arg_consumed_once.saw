@@ -19,7 +19,7 @@
 //
 // The fix owes a position matrix of its own: which argument positions consume
 // (a by-value NoCopy or ExplicitCopy parameter) versus which do not (`&`/`&var`,
-// and an ImplicitCopy argument that retains). Left for its own dispatch.
+// and a Copy argument that retains). Left for its own dispatch.
 // EXPECT: success
 // EXPECT-OUTPUT:
 // sink r3

@@ -1777,12 +1777,12 @@ class CodeGenerator(ResultsMixin, MatchMixin, StructsMixin, CollectionsMixin, Ca
         # Register built-in generic enums (like Result<T, E>)
         self._register_builtin_enums()
 
-        # String is a compiler-known refcounted ImplicitCopy + Deinit type
+        # String is a compiler-known refcounted `Copy` + Deinit type
         # (retain = copy, release = deinit). Register conformances so cleanup
         # tracking and transfer-site copies fire; emit the runtime helpers and
         # String.copy()/String.deinit() before extern blocks so the stdlib's
         # `extern` declarations of __saw_string_* resolve to these definitions.
-        self.namespace.register_conformance("String", "ImplicitCopy")
+        self.namespace.register_conformance("String", "Copy")
         self.namespace.register_conformance("String", "Deinit")
         # Runtime seams must exist before the String runtime (which allocates via
         # saw_alloc) and before extern blocks (whose `extern func saw_alloc(...)`

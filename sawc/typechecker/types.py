@@ -4161,10 +4161,10 @@ class TypeUtilsMixin:
                 if self._is_implicit_copy_type(self._member_copy_type(field_type)):
                     self._error(
                         ErrorKind.CANNOT_COPY,
-                        f"struct `{struct_name}` contains ImplicitCopy field `{field_name}` of type `{field_type}` but does not implement ImplicitCopy",
+                        f"struct `{struct_name}` contains Copy field `{field_name}` of type `{field_type}` but does not implement Copy",
                         struct_info.line, struct_info.column,
                         hint=f"add `@synthesize extension {struct_name}: "
-                             f"ImplicitCopy {{}}` for a memberwise copy, or write "
+                             f"Copy {{}}` for a memberwise copy, or write "
                              f"`func copy(&self) -> {struct_name}` by hand"
                     )
                     break  # Only report once per struct

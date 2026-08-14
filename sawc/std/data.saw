@@ -4,7 +4,7 @@
 //! buffer whose lifetime the `Arc` runs. Copying a `Data` — or slicing one —
 //! retains that storage instead of duplicating it, and the bytes are separated
 //! lazily, at the first write that finds them shared. That is copy-on-write,
-//! and it is why `Data` is `ImplicitCopy`: a copy costs a refcount bump.
+//! and it is why `Data` is `Copy`: a copy costs a refcount bump.
 //!
 //! ```saw
 //! var a = Data(capacity: 4)
@@ -645,7 +645,7 @@ extension Data {
 ///
 /// `detached()` is the eager spelling for callers who want the bytes now.
 @synthesize
-extension Data: ImplicitCopy {}
+extension Data: Copy {}
 
 // =============================================================================
 // DataIterator — iteration that holds its storage
@@ -672,4 +672,4 @@ extension DataIterator: Iterator {
 // Copying an iterator retains the same bytes and keeps its own position — the
 // tier its `Data` field already carries.
 @synthesize
-extension DataIterator: ImplicitCopy {}
+extension DataIterator: Copy {}

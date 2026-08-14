@@ -70,7 +70,7 @@ class RegistrationMixin:
         # print can take any single argument
         # We'll handle it specially in check_function_call
         #
-        # Note: Built-in traits (Deinit, ImplicitCopy, NoCopy) are defined
+        # Note: Built-in traits (Deinit, Copy, NoCopy) are defined
         # in builtin.saw and loaded automatically by the compiler.
 
         # Register String as a pseudo-struct so it can be extended
@@ -82,12 +82,12 @@ class RegistrationMixin:
             column=0
         ))
 
-        # String is a compiler-known refcounted value type: ImplicitCopy (a copy
-        # is a refcount bump) + Deinit (release, free at zero). The copy/deinit
+        # String is a compiler-known refcounted value type: `Copy` (a copy is a
+        # refcount bump) + Deinit (release, free at zero). The copy/deinit
         # bodies are IR-level runtime helpers emitted by codegen, so the
         # conformance is registered here rather than declared in stdlib. This
         # drives value-transfer copy() insertion and scope-exit cleanup.
-        self.namespace.register_conformance("String", "ImplicitCopy")
+        self.namespace.register_conformance("String", "Copy")
         self.namespace.register_conformance("String", "Deinit")
         # String is Equatable builtin (design 32): content equality via the
         # hand-written `String.equals` in std/string.saw; `==` on String lowers
@@ -1638,7 +1638,7 @@ class RegistrationMixin:
     # adds no method, so it needs no `@synthesize`. The two copying policies
     # derive a payload-deep `copy` and are gated on the marker exactly as the
     # struct path gates its memberwise one.
-    _ENUM_POLICY_TRAITS = ("NoCopy", "Copy", "ImplicitCopy", "ExplicitCopy")
+    _ENUM_POLICY_TRAITS = ("NoCopy", "Copy", "ExplicitCopy")
 
     def _is_enum_derivable_optin(self, extension: Extension) -> bool:
         """Whether this enum extension is one of the EMPTY opt-in conformances
@@ -1856,7 +1856,7 @@ class RegistrationMixin:
     # Traits whose contract includes destruction: `Deinit` itself, and the three
     # copy policies that inherit from it. Declaring any of them obliges the type
     # to have a `deinit` — which, since design 128, the compiler supplies.
-    _RESOURCE_TRAITS = ("Deinit", "NoCopy", "Copy", "ImplicitCopy", "ExplicitCopy")
+    _RESOURCE_TRAITS = ("Deinit", "NoCopy", "Copy", "ExplicitCopy")
 
     def _synthesize_implicit_deinits(self, program: Program):
         """Give every resource-conforming type without a hand-written `deinit` a
@@ -1974,7 +1974,7 @@ class RegistrationMixin:
             f"`{name}` declares a deinit but no copy policy",
             extension.line, extension.column,
             hint=f"declare one of `extension {name}: NoCopy {{}}` (move-only), "
-                 f"`ExplicitCopy`, or `ImplicitCopy`, and put the `deinit` body "
+                 f"`ExplicitCopy`, or `Copy`, and put the `deinit` body "
                  f"inside it — every copy policy already requires `Deinit`",
             source_file=getattr(extension, 'source_file', None)
         )
@@ -2290,7 +2290,7 @@ class RegistrationMixin:
         # `@synthesize` that derives nothing is itself reported.
         derived_any = False
         declared_copy_policy = next(
-            (t for t in ("Copy", "ImplicitCopy", "ExplicitCopy")
+            (t for t in ("Copy", "ExplicitCopy")
              if t in extension.conformances), None)
         declares_copy_policy = declared_copy_policy is not None
         has_copy_method, already_derived = self._derivation_slot(
@@ -2477,7 +2477,7 @@ class RegistrationMixin:
                 f"`@synthesize` on `extension {extension.struct_name}` derives "
                 f"nothing",
                 extension.line, extension.column,
-                hint="the derivable conformances are ImplicitCopy/ExplicitCopy "
+                hint="the derivable conformances are Copy/ExplicitCopy "
                      "(`copy`), Equatable (`equals`), Comparable (`compare`), "
                      "Hashable (`hash`), Serialize (`serialize`) and "
                      "Deserialize (`deserialize`), each with no hand-written body",

@@ -1,6 +1,6 @@
 // Design 159: the STRICTER override. A struct whose owning members are all
-// compiler-handled ImplicitCopy — a String field, a closure field — is
-// AUTOMATICALLY ImplicitCopy and needs no declared policy. Declaring the
+// compiler-handled Copy — a String field, a closure field — is
+// AUTOMATICALLY Copy and needs no declared policy. Declaring the
 // stricter `NoCopy` on one anyway is legal, and is the API-discipline escape
 // hatch: it makes the type move-only even though nothing about its fields
 // requires that.

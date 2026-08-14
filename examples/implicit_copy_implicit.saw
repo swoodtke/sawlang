@@ -1,4 +1,4 @@
-// Test implicit copy() calls for ImplicitCopy types
+// Test implicit copy() calls for Copy types
 // EXPECT: success
 // EXPECT-OUTPUT:
 // copy called
@@ -7,7 +7,7 @@
 struct RefCounted {
     value: Int
 }
-extension RefCounted: ImplicitCopy {
+extension RefCounted: Copy {
     func copy(&self) -> RefCounted {
         print("copy called")
         RefCounted(value: self.value)

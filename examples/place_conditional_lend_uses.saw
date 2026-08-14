@@ -66,7 +66,7 @@ func main() {
     b.get(1)!.count += 10
     print("{b.get(1)!.count}")
 
-    // Value read of the optional place: design 131's table, so an ImplicitCopy
+    // Value read of the optional place: design 131's table, so a Copy
     // payload retains and the binding is the caller's own.
     if let c = b.get(1) {
         print("{c.tag}")

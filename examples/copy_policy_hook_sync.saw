@@ -16,12 +16,12 @@
 // deep copy 3
 
 struct Counted { tag: String, n: Int }
-extension Counted: ImplicitCopy {
+extension Counted: Copy {
     func copy(&self) -> Counted { Counted(tag: self.tag, n: self.n) }
 }
 
 struct Marked { tag: String, n: Int }
-extension Marked: ImplicitCopy {
+extension Marked: Copy {
     func copy(&self) sync -> Marked { Marked(tag: self.tag, n: self.n) }
 }
 

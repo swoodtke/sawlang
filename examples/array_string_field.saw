@@ -1,4 +1,4 @@
-// A fixed array of String is ImplicitCopy (design 33), but — like a scalar
+// A fixed array of String is Copy (design 33), but — like a scalar
 // String field — it does NOT force a containing struct to declare a copy
 // policy: per-element retain/release is compiler-handled. The struct copies
 // and the array's Strings stay valid.

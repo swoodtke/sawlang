@@ -4,7 +4,7 @@
 // drop count: a payload behind `Some` that never deinits (leak) or deinits
 // twice (use-after-free). Both containers get it exactly right — the `None`
 // elements drop nothing and each `Some` payload deinits once — and an
-// ImplicitCopy payload read out of a place is a real retain, so the value
+// Copy payload read out of a place is a real retain, so the value
 // outlives the container it came from.
 // EXPECT: success
 // EXPECT-OUTPUT:
@@ -56,7 +56,7 @@ func main() {
     let _ = move m
     print("-- map gone")
 
-    // An ImplicitCopy payload read out of an optional element RETAINS, so the
+    // A Copy payload read out of an optional element RETAINS, so the
     // reads stay valid after the vector is gone.
     var s = Vector<String?>()
     let text: String? = "alpha"

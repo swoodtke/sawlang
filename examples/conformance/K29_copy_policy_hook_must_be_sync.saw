@@ -8,14 +8,14 @@
 // invisibly invoked, so the refusal is one error at one line no matter how
 // many transfers the program contains.
 // EXPECT: error
-// EXPECT-ERROR-CONTAINS: cannot suspend in the `ImplicitCopy` `copy()` of `Heavy`
+// EXPECT-ERROR-CONTAINS: cannot suspend in the `Copy` `copy()` of `Heavy`
 // EXPECT-ERROR-CONTAINS: must be `sync`
 
 import std.task.*
 
 struct Heavy { name: String, n: Int }
 
-extension Heavy: ImplicitCopy {
+extension Heavy: Copy {
     func copy(&self) -> Heavy {
         yield_now()
         Heavy(name: self.name, n: self.n + 1)

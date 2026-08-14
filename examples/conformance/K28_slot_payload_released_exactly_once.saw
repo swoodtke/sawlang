@@ -84,7 +84,7 @@ func dropped_occupied() {
     s.put(res("r4"))
 }
 
-// ImplicitCopy: `put` takes its argument by value, so the ordinary transfer
+// Copy: `put` takes its argument by value, so the ordinary transfer
 // retains and the caller's own handle stays live. Nothing about the slot
 // changes the tier's arithmetic.
 func implicitcopy_tier() {

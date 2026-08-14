@@ -61,7 +61,7 @@ func main() {
     print(d.get(2)!)                // 3 — still untouched
 
     // try_detached is all-or-nothing: no Data that claims bytes it does not
-    // have. (Design 165 renamed the eager copy: `copy()` is the ImplicitCopy
+    // have. (Design 165 renamed the eager copy: `copy()` is the Copy
     // retain now, and the spelling that materializes bytes — the one that can
     // run out of allocator — says so.)
     __saw_rt_alloc_deny_after(0)

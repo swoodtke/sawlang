@@ -137,7 +137,7 @@ func guarded(tag: Int, k: Int) -> Int {
     }
 }
 
-// The arm's binding ESCAPES as the match's value. It is an ImplicitCopy payload,
+// The arm's binding ESCAPES as the match's value. It is a Copy payload,
 // so the read retains and the caller's handle stays live after the scrutinee is
 // gone: a count of exactly 1 says the value survived the match AND that the
 // scrutinee's own reference went with it.

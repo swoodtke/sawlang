@@ -9,7 +9,7 @@
 // `return None` typed itself against the cell and became the OUTER None, which
 // reads as "not finished" and made `join` force-unwrap nothing.
 //
-// A `String?` result carries the ImplicitCopy case through the same path: the
+// A `String?` result carries the Copy case through the same path: the
 // payload must survive the move out of the cell.
 // EXPECT: success
 // EXPECT-OUTPUT:
@@ -58,7 +58,7 @@ func main() {
     print("mt sum {sum}")
     print("mt absent {absent}")
 
-    // An ImplicitCopy payload out of the same cell.
+    // A Copy payload out of the same cell.
     var sg = TaskGroup()
     let t1 = sg.spawn(label(1))
     let t2 = sg.spawn(label(-1))

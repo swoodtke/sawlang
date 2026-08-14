@@ -7,7 +7,7 @@
 // silent alias — so the four rows are worth pinning together.
 //
 //   trivial       bare in, bare out
-//   ImplicitCopy  bare in (the argument transfer retains), bare out
+//   Copy  bare in (the argument transfer retains), bare out
 //   ExplicitCopy  `move` or `.copy()` at the call
 //   NoCopy        `move` only
 //

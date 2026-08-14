@@ -5,7 +5,7 @@
 // Before the fix the Arc pointer was truncated (garbage strong_count) and the
 // match then over/under-released.
 //
-// `Msg` is ImplicitCopy-tier (its payload's declared policy joins through), so
+// `Msg` is Copy-tier (its payload's declared policy joins through), so
 // since design 193 unit 1 (DF-190d) the match BORROWS rather than consumes:
 // `p` retains at extraction — the count rises to 3 inside the arm — and
 // releases at arm end, while `m` keeps its own reference to the very end of
@@ -19,7 +19,7 @@
 // 2
 
 struct Payload { tag: Int, handle: Arc<Int> }
-extension Payload: ImplicitCopy {
+extension Payload: Copy {
     func copy(&self) -> Payload { Payload(tag: self.tag, handle: self.handle.copy()) }
 }
 
@@ -32,7 +32,7 @@ func main() {
     let shared = Arc<Int>(value: 99)          // strong 1
     let m = Msg.Data(p: Payload(tag: 7, handle: shared.copy()))  // strong 2
     print(shared.strong_count())              // 2
-    match m {                                 // borrows m (ImplicitCopy tier)
+    match m {                                 // borrows m (Copy tier)
         case Data(p) -> {
             print(p.handle.strong_count())    // 3 — correct bytes, not garbage
         },                                    // p's retain released at arm end

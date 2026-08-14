@@ -1,6 +1,6 @@
-// Conformance row X33 — two exclusive windows on an AUTO-ImplicitCopy struct (String member)
+// Conformance row X33 — two exclusive windows on an AUTO-Copy struct (String member)
 //
-// The AUTOMATIC ImplicitCopy tier, which is what hid DF-188f: a receiver
+// The AUTOMATIC Copy tier, which is what hid DF-188f: a receiver
 // that copies for free had nothing for the copy-policy error to trip on, so
 // two windows in one call compiled and both writes went into copies. The
 // refusal is an exclusivity diagnostic on every tier now.

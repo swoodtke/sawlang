@@ -8,7 +8,7 @@
 // Both spellings that hoist a scrutinee are here, because the bug was in both:
 // `guard let` over a suspending call (the `__hoistN` temp) and `match` over one
 // (the `__matchN` temp). The payloads are ExplicitCopy, which is what puts the
-// store in consume mode; an ImplicitCopy payload retains instead and both slots
+// store in consume mode; a Copy payload retains instead and both slots
 // legitimately drop (DF-210b is the other side of that rule).
 //
 // The exit code IS the assertion: a double free here is a segfault, not a wrong

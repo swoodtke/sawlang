@@ -1,5 +1,5 @@
 // Design 40 item 5 (L10): the Optional Some auto-wrap path has the same hole.
-// An owned ImplicitCopy String returned where `String?` is expected must be
+// An owned Copy String returned where `String?` is expected must be
 // retained into the Some payload.
 // EXPECT: success
 // EXPECT-OUTPUT:

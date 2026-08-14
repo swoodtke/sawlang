@@ -13,7 +13,7 @@
 // ORACLE: `LIVE` counts live `Res` values, so each element is destroyed exactly
 // once — the wildcard element too, whose component the destructuring drops on
 // the spot. `df151f_tuple_drop_glue` covers the COPYABLE side of the same
-// lowering (an ImplicitCopy element read out of a frame-resident tuple must
+// lowering (a Copy element read out of a frame-resident tuple must
 // still retain, and its `destructured_across_suspend` says so).
 // EXPECT: success
 // EXPECT-OUTPUT:

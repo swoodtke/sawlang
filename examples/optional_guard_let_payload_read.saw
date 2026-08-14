@@ -15,7 +15,7 @@
 
 struct Tag { id: Int }
 
-extension Tag: ImplicitCopy {
+extension Tag: Copy {
     func copy(&self) -> Tag {
         print("copy")
         Tag(id: self.id)

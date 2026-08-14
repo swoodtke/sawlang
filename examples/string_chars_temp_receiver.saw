@@ -1,5 +1,5 @@
 // Iterator lifetime (brief 38 item 2): the chars()/bytes() iterators hold their
-// OWN retain on the source String (an ImplicitCopy capture in the iterator
+// OWN retain on the source String (a Copy capture in the iterator
 // struct). So iterating over a TEMPORARY receiver is safe — the temporary is
 // released as soon as chars() returns, but the iterator's reference keeps the
 // bytes alive for the whole loop. The hot loop also proves the retain is

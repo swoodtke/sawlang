@@ -755,7 +755,7 @@ class _PlaceUses:
     # miscompiled at the bound. Container copyability at ceremony-tier elements
     # is expressed where it belongs — as the CONTAINER'S own conformance, whose
     # body spells `buf[i].copy()`.
-    _COPY_PROVING_BOUNDS = frozenset({"Copy", "ImplicitCopy"})
+    _COPY_PROVING_BOUNDS = frozenset({"Copy"})
 
     def _value_read_ok(self, place) -> bool:
         """design 131's table at the one point a place becomes a value.

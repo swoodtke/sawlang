@@ -1,4 +1,4 @@
-// String is ImplicitCopy: it can be bound, re-bound, and passed to functions
+// String is Copy: it can be bound, re-bound, and passed to functions
 // freely WITHOUT `move`. Each transfer is a cheap refcount bump; the original
 // stays valid. Under an ExplicitCopy String these would all be move errors.
 // EXPECT: success

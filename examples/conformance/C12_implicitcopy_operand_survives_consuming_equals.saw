@@ -1,9 +1,9 @@
-// Conformance row C12 — an ImplicitCopy operand must survive a comparison
+// Conformance row C12 — a Copy operand must survive a comparison
 // whose conformance consumes `other`
 //
 // The guarantee this row states is the one every position of DF-216b is about:
 // comparing two values does not destroy either of them. `Held` is
-// auto-ImplicitCopy (one `String` field) and its hand-written `equals` does
+// auto-Copy (one `String` field) and its hand-written `equals` does
 // `move other`, which its by-value parameter entitles it to. The operator hands
 // over a loaded value and adds no retain, so each comparison releases a
 // reference nobody took — 200 of them and the process dies with SIGTRAP. The
@@ -12,12 +12,12 @@
 //
 // This is an EIGHTH position, past the seven DF-216b's class sweep probed: the
 // sweep tested NoCopy operands throughout, and the stopgap's tier condition
-// excludes ImplicitCopy on the stated grounds that retain semantics make the
+// excludes Copy on the stated grounds that retain semantics make the
 // borrow sound. They do not — the retain is not there. Whether the answer is to
 // widen the refusal, to retain at the lowering, or to take `other: &Self` (which
 // removes the callee's ability to consume at every tier at once) is a ruling,
 // so the row pins the PROPERTY rather than any one mechanism.
-// XFAIL: DF-216b a hand-written `equals` that consumes `other` over-releases an ImplicitCopy operand through the operator — the eighth matrix position, outside the stopgap's ExplicitCopy/NoCopy tier condition
+// XFAIL: DF-216b a hand-written `equals` that consumes `other` over-releases a Copy operand through the operator — the eighth matrix position, outside the stopgap's ExplicitCopy/NoCopy tier condition
 // EXPECT: success
 // EXPECT-OUTPUT:
 // before: a=ALPHA b=BRAVO

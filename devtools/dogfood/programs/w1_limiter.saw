@@ -29,7 +29,7 @@ struct Limiter {
 }
 
 @synthesize
-extension Limiter: ImplicitCopy {}
+extension Limiter: Copy {}
 
 extension Limiter {
     init(permits: Int) -> Limiter {

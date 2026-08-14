@@ -1,5 +1,5 @@
 // A closure satisfies a generic `T: Copy` bound directly (design 77 item 3):
-// an escaping closure is ImplicitCopy, so `.copy()` under the bound is a free
+// an escaping closure is Copy, so `.copy()` under the bound is a free
 // refcount bump and the original stays valid.
 // EXPECT: success
 // EXPECT-OUTPUT:
@@ -19,5 +19,5 @@ func main() {
     let b = pair.1
     print(a())          // 6
     print(b())          // 6
-    print(f())          // 6 (original still valid — ImplicitCopy)
+    print(f())          // 6 (original still valid — Copy)
 }

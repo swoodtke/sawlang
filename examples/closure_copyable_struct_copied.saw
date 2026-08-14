@@ -1,6 +1,6 @@
 // Design 73 closes the design-71 RESIDUAL GAP: an owning closure stored in a
 // COPYABLE struct, with the struct then copied N times. Because closures are
-// ImplicitCopy (refcounted env), each struct copy retains the closure's env; the
+// Copy (refcounted env), each struct copy retains the closure's env; the
 // destructor runs exactly once when the LAST struct owner drops. Under design 71
 // (closure = NoCopy, field excluded from containment) this double-freed.
 //
@@ -35,7 +35,7 @@ extension Res: NoCopy {
 }
 
 // A plain struct (no declared copy policy) holding a closure field: closures are
-// compiler-known ImplicitCopy, like String, so this does NOT force a policy.
+// compiler-known Copy, like String, so this does NOT force a policy.
 struct Holder { fn: () -> Int }
 
 func main() {

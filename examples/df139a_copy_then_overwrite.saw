@@ -9,7 +9,7 @@
 // released the value out from under the live copy, and the copy's own scope-exit
 // drop freed it a second time.
 //
-// The `Res` block is the drop-count oracle: a hand-written ImplicitCopy
+// The `Res` block is the drop-count oracle: a hand-written Copy
 // `copy`/`deinit` pair prints every retain and every release, so the counts are
 // checked rather than inferred. Before the fix the `copy 1` line was absent and
 // tag 1 was dropped twice.
@@ -110,7 +110,7 @@ func nested_field_shape() {
 // The drop-count oracle: every retain and every release is printed.
 struct Res { tag: Int }
 
-extension Res: ImplicitCopy {
+extension Res: Copy {
     func copy(&self) -> Res {
         print("oracle copy {self.tag}")
         Res(tag: self.tag)
@@ -123,7 +123,7 @@ extension Res: ImplicitCopy {
 struct Holder { r: Res }
 
 @synthesize
-extension Holder: ImplicitCopy {}
+extension Holder: Copy {}
 
 func oracle() {
     print("oracle start")

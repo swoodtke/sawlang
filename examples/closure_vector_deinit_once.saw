@@ -1,7 +1,7 @@
 // Exact-count balance for closures stored in a Vector, copied, and read back
 // (design 77 item 3, DF-C2). Each closure captures an Arc (retain into the
 // refcounted env). `.copy()` bumps each element's ENV refcount (the Arc is NOT
-// re-retained — the env is shared, ImplicitCopy semantics), and `.get()` reads
+// re-retained — the env is shared, Copy semantics), and `.get()` reads
 // an env-retaining copy out. When fs, dup, and the read-out copies all drop,
 // each unique env is released to zero exactly once, releasing its Arc once, so
 // the payload deinits exactly ONCE. A missing element-teardown would leak (no

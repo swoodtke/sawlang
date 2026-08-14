@@ -77,7 +77,7 @@ func main() {
     var e = Slot<Vector<Int>?>.of(value: move elems)
     print("explicit occupied: iflet={iflet_vec(&e)} guard={guardlet_vec(&e)}")
 
-    // ImplicitCopy — compiled before, but paid a retain for the tag.
+    // Copy — compiled before, but paid a retain for the tag.
     var i = Slot<String?>.of(value: "x")
     print("implicit occupied: iflet={iflet_str(&i)} guard={guardlet_str(&i)}")
     var ie = Slot<String?>.of(value: None)

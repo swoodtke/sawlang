@@ -1,5 +1,5 @@
 // Arc<T>: atomic reference-counted shared ownership.
-// ImplicitCopy retains (strong++); Deinit releases (strong--), and the last
+// Copy retains (strong++); Deinit releases (strong--), and the last
 // owner runs the payload's drop glue exactly once, then frees the block.
 // EXPECT: success
 // EXPECT-OUTPUT:

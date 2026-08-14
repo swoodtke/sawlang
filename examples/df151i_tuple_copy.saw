@@ -9,7 +9,7 @@
 //     let u = t          // cannot copy `(Vector<Int>, Int)` which implements
 //                        // ExplicitCopy — hint: use .copy() for a deep copy
 //     let u = t.copy()   // `(Vector<Int>, Int)` is not Copy; `.copy()` requires
-//                        // a trivially-copyable, ImplicitCopy or ExplicitCopy type
+//                        // a trivially-copyable, Copy or ExplicitCopy type
 //
 // The second was wrong on its own terms: `copy_tier` reports that tuple as
 // 'explicit', precisely the tier it claimed to require. Following the hint led
@@ -110,7 +110,7 @@ func element_deep_copy_retains(k: Int) -> Int {
     t.0.len() * 100 + a.len() * 10 + t.0.get(0)!.strong_count()
 }
 
-// An ImplicitCopy element copies at ITS tier — a refcount bump, not a duplicate
+// A Copy element copies at ITS tier — a refcount bump, not a duplicate
 // object. Two live owners, one release each.
 func arc_element_retains(k: Int) -> Int {
     let t = (res(tag: k), k)

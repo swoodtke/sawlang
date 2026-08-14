@@ -93,7 +93,7 @@ func explicit(n: Int) -> Int {
     }
 }
 
-// An ImplicitCopy payload: the move costs it the retain/release pair the copy
+// A Copy payload: the move costs it the retain/release pair the copy
 // used to take, and the balance has to come out the same.
 func implicit() -> Int {
     var held: String? = "abcd"

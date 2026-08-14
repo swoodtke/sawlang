@@ -41,7 +41,7 @@ func main() {
     c.get("x")!.count += 10
     print("window {c.get("x")!.count}")
 
-    // A value read of an ImplicitCopy field retains: the map keeps its own.
+    // A value read of a Copy field retains: the map keeps its own.
     let tag = c.get("x")!.tag
     print("retained tag-{tag} {c.get("x")!.tag}")
 
