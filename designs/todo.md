@@ -127,6 +127,13 @@ full write-ups are in the BRANCH's copy of this brief.
   the error, exit 1. The diagnostic and the funnel land in the
   DF-220a/b fix brief; LANGUAGE_SPEC gains the `main` rule.
 
+**THE FIX BRIEF IS AUTHORED + FULLY RULED:
+`designs/221-main-exit-and-compile-context.md`** (Aug 14; DF-220a fix A
+per-compile LLVM context + its twice-in-one-process gate lane, DF-220b
+entry-executor plumbing with the RULED root-cell + executor-side
+conversion, DF-220c's ruled `main` rule + one exit funnel, battery/
+irdet_remote honest-gate flips). Dispatches after 218 stage 4.
+
 Post-fix path: rebase the branch onto fixed main, re-run unit-2's N=20
 replay leg (currently blocked on DF-220a), re-gate (expect reuse GREEN
 and the irdet lane honestly red-capable), then integrate.
