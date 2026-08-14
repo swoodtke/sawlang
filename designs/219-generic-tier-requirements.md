@@ -314,6 +314,24 @@ discharge, declaration-derivation, the public-declaration rule) is untouched.
   `Bag { s: String }`, and stops admitting an `ExplicitCopy` argument (S1 row
   9d). `ExplicitCopy`'s tier dissolves into move-only.
 - **B3** — the trait declarations, the effect-matching rule, the bounds.
+
+**THE EFFECT-MATCHING RULE — RULED (wave B, B3), the answer 218a ruling 10
+deferred here, and it covers `Arc` and `UnsafeRef` alike: a conformer may be
+STRICTER in its effect slot than the requirement, never looser.** An
+`unsafe`-marked `copy(&self) -> Self` therefore satisfies the plain
+requirement. Two reasons, and they are the same reason from two directions:
+design 130 forces `unsafe` onto any function whose signature or body names an
+unsafe-typed value, so refusing the marker would make the trait unimplementable
+by exactly the types that need it (`UnsafeRef` holds a pointer); and the marker
+describes the BODY's domain, not the contract the caller relies on, so a
+conformer carrying one promises everything the requirement asked and more. This
+is why `Arc.copy()` has always compiled — `_check_trait_conformance`
+(registration.py) fires only in the REVERSE direction, a safe conformer of an
+`unsafe` requirement, which stays refused (conformance row U26). The `sync`
+axis reads identically: wave A's rule demands the stricter effect (`sync`) at a
+copy-policy conformance, and a conformer that is `sync` where the requirement
+did not ask is always fine. `extension UnsafeRef<T>: ExplicitCopy` is the
+landed instance.
 - **B4** — the WORD. `trait ImplicitCopy` deleted from `builtin.saw`; 166
   occurrences across 86 tracked `.saw` files renamed, plus 151 in `sawc/`'s own
   prose and ~120 across the docs. `Copy` did NOT gain `: Deinit` — the
