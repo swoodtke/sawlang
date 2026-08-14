@@ -151,7 +151,10 @@ objects are built + cached under `.build/rt/` and auto-linked (delete
   (`sawfuzz --quick`), `bench` (the warehouse benchmark — checksums GATE,
   timing report-only; devtools/bench/ + TESTING.md), `selfhostlex` (the
   selfhost lexer's own tests — the one tree the Aug-10 coverage sweep
-  found NO stage ran), then the slow four
+  found NO stage ran), then the slow five
+  `reemit` (design 221 A2: TWO compiles in ONE process, byte-comparing the
+  unopt IR, the OPTIMIZED IR and the object — the optimized IR is the
+  artifact DF-220a moved and the only one nothing checked),
   `irdet` (`--all`, whole corpus), `gmgate` (both lanes), `bootstrap`,
   `sos`. Every stage RUNS even after one fails; the exit code is the
   number of failing stages. Adding a lane means editing `STAGES`.

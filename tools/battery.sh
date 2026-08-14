@@ -61,6 +61,7 @@ STAGES=(
     "corodiff|no|coroutine twin parity: suspending vs non-suspending|$PY tools/corodiff.py --quick"
     "bench|no|warehouse benchmark: checksums gate, timing reports|__BENCH__"
     "selfhostlex|no|the selfhost lexer's own tests compile and pass|__SELFHOSTLEX__"
+    "reemit|yes|two compiles in ONE process emit identical unopt IR, opt IR and object|$PY tools/reemitdiff.py"
     "irdet|yes|IR determinism over the WHOLE corpus (not a sample)|__IRDET__"
     "gmgate|yes|ownership + concurrency oracles under Guard Malloc (macOS)|$PY tools/gmgate.py"
     "bootstrap|yes|Blade builds and tests Blade, stage0 through stage2|$PY tools/blade_bootstrap.py"

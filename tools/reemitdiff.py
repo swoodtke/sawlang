@@ -13,10 +13,21 @@ that restores std ahead of the entry file changes the order ids are allocated
 in.
 
 This tool compiles each example TWICE inside one interpreter and byte-compares
-the emitted `.ll` and `.o`. A name that depends on how much has been compiled
-before it fails here and nowhere else. The test runner's persistent workers
-(design 115/156) compile many files per process, so this is also the shape the
-suite actually runs in.
+THREE artifacts: the unoptimized `.ll` sidecar, the `.o`, and the OPTIMIZED IR.
+A name that depends on how much has been compiled before it fails here and
+nowhere else. The test runner's persistent workers (design 115/156) compile many
+files per process, so this is also the shape the suite actually runs in.
+
+The optimized IR is the third one because of DF-220a (design 221 unit A2), and
+it is worth saying why that bug survived a tool written for exactly its
+question. Every `binding.parse_assembly` of a compile used to land in LLVM's
+process-global `LLVMContext`, so a second in-process compile found its struct
+names already registered and got `.NNNN` uniquing suffixes throughout — in the
+optimized IR TEXT and nowhere else. The sidecar and the object were
+byte-identical. This tool compared exactly those two, reported `identical`, and
+was not in `tools/battery.sh`'s STAGES either. A gate that checks the artifacts
+that cannot move is not a gate. The optimized IR is never written to disk on any
+compile path, which is why it takes `compile_saw`'s returned codegen to reach.
 
 Usage:
     ./.venv/bin/python tools/reemitdiff.py [--all] [-j N] [pattern ...]
@@ -72,6 +83,14 @@ def _compile_flags(source_path):
 
 
 def _emit_once(source_path, out_path, flags):
+    """Compile once, and write the optimized IR beside the ordinary artifacts.
+
+    `<out>.opt.ll` is this tool's own file, not a compiler output: the optimized
+    IR exists only inside a compile, so the codegen `compile_saw` hands back is
+    asked for it here. Emitted AFTER the real compile so nothing about the run
+    under test changes — the extra parse lands in the same per-compile context
+    on both sides, so the two sides stay comparable.
+    """
     import sawc
 
     kwargs = dict(verbose=False, optimize="-O0" not in flags)
@@ -89,7 +108,10 @@ def _emit_once(source_path, out_path, flags):
         kwargs["target_triple"] = flags[flags.index("--target") + 1]
     if "--target-features" in flags:
         kwargs["target_features"] = flags[flags.index("--target-features") + 1]
-    sawc.compile_saw(source_path, out_path, **kwargs)
+    codegen = sawc.compile_saw(source_path, out_path, **kwargs)
+    if kwargs["optimize"]:
+        with open(out_path + ".opt.ll", "w") as f:
+            f.write(codegen.emit_ir(optimize=True))
 
 
 def check(source_path):
@@ -113,7 +135,7 @@ def check(source_path):
                 return (source_path, "skip", traceback.format_exc(limit=2))
             outs.append(out)
 
-        for suffix in (".ll", ".o", ""):
+        for suffix in (".ll", ".opt.ll", ".o", ""):
             a, b = outs[0] + suffix, outs[1] + suffix
             if not (os.path.exists(a) and os.path.exists(b)):
                 continue

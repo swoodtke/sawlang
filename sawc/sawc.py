@@ -1577,6 +1577,12 @@ def compile_saw(source_path: str, output_path: str, verbose: bool = False, objec
             declarations only, hosted std modules excluded, unlinked object output)
         no_hidden_alloc: If True, reject the allocations the compiler inserts
             that no source construct names (design 135)
+
+    Returns the `CodeGenerator` the compile ran on. Nothing in the CLI path
+    needs it; `tools/reemitdiff.py` does (design 221 unit A2), because the
+    OPTIMIZED IR is the one artifact of a compile that is never written to
+    disk — and it was the only one DF-220a's context bug moved, which is
+    exactly why the gate that should have caught it was green and blind.
     """
     # Freestanding and runtime-build both emit an unlinked object file; the
     # user (or the runtime-build cache machinery) owns linking.
@@ -1635,6 +1641,7 @@ def compile_saw(source_path: str, output_path: str, verbose: bool = False, objec
     _emit_object(codegen, source_path, output_path, verbose, object_only,
                  optimize, freestanding=freestanding,
                  runtime_provider=runtime_provider)
+    return codegen
 
 
 def emit_docs(source_path: str, output_path: str = None, verbose: bool = False,

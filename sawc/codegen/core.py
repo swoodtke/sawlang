@@ -196,6 +196,29 @@ class CodeGenerator(ResultsMixin, MatchMixin, StructsMixin, CollectionsMixin, Ca
         self.module = ir.Module(name="__saw_module", context=ir.Context())
         self.module.triple = self.triple
 
+        # ...and the LLVM-side twin of it (DF-220a). The paragraph above
+        # isolates llvmlite's PYTHON identified-type registry; this isolates
+        # LLVM's own. Every `binding.parse_assembly` of this compile lands here
+        # instead of in the process-global `LLVMContext`, whose named-struct
+        # registry is likewise never cleared.
+        #
+        # What the global context did: `StructType::setName` renames an
+        # ALREADY-REGISTERED name to `Name.<NamedStructTypesUniqueID++>`, and
+        # the ABI-layout queries below re-parse this compile's whole
+        # identified-type table on every call (~92 parses x ~45 types), so a
+        # SECOND in-process compile found every one of its struct names taken
+        # and got `.NNNN` suffixes throughout its optimized IR. Objects and the
+        # unoptimized sidecar were byte-identical — the divergence was the
+        # optimized IR text alone — but it broke design 115's bit-identity
+        # claim from compile 2 on, and it leaked ~45 types and ~4200 uniquings
+        # into a persistent worker per compile, permanently.
+        #
+        # Held on `self` because it must OUTLIVE every `ModuleRef` and
+        # `TargetMachine` this compile parses into it: llvmlite disposes a
+        # context when its last Python reference goes, and the module refs point
+        # into it.
+        self.llvm_context = binding.create_context()
+
         # Create target data for sizeof calculations
         target = binding.Target.from_triple(self.triple)
         target_machine = target.create_target_machine(
@@ -2077,23 +2100,45 @@ class CodeGenerator(ResultsMixin, MatchMixin, StructsMixin, CollectionsMixin, Ca
         return ir.Constant(self._get_llvm_type(saw), env[expr.name])
 
     # ---------------------------------------------------------------------
-    # ABI layout queries (design 115 re-entrancy).
+    # ABI layout queries (design 115 re-entrancy; DF-220a).
     #
     # `ir.Type.get_abi_size`/`get_abi_alignment` compute layout by rendering the
-    # type into a THROWAWAY module and parsing it. Called with no `context=`,
-    # llvmlite builds that module in its process-GLOBAL context, whose
-    # identified-type registry does NOT contain the struct bodies this compile
-    # registered in its own fresh `ir.Context()` (see `__init__`) — so an
-    # identified struct type renders as an undefined-type reference and the parse
-    # fails ("use of undefined type named ..."). Passing this compile's OWN
-    # module context makes the throwaway module self-contained. Route every ABI
-    # query through these helpers so the per-compile context stays correct.
+    # type into a THROWAWAY module and parsing it. Two contexts are in play and
+    # BOTH have to be this compile's:
+    #
+    #   * the llvmlite PYTHON `ir.Context`, which decides what the throwaway
+    #     module's text contains. Built with no context, it does not carry the
+    #     struct bodies this compile registered in its own fresh `ir.Context()`
+    #     (see `__init__`), so an identified struct renders as an undefined-type
+    #     reference and the parse fails ("use of undefined type named ...").
+    #   * the LLVM `LLVMContext` the parse lands in. `llvmlite.ir.Type`'s own
+    #     `_get_ll_global_value_type` accepts the first and hard-codes the
+    #     second to the process-global one — which is DF-220a, since each of a
+    #     compile's ~92 queries registers its whole ~45-type table there and
+    #     the next compile's names come back uniqued `Name.NNNN`.
+    #
+    # So sawc owns the query. `_ll_layout_type` is llvmlite's two lines with the
+    # context passed through; ROUTE EVERY LAYOUT QUERY THROUGH THE TWO HELPERS
+    # BELOW rather than calling `get_abi_size`/`get_abi_alignment` directly, or
+    # the parse escapes to the global context again.
+    def _ll_layout_type(self, llvm_type):
+        """This compile's LLVM `TypeRef` for `llvm_type`, for layout queries.
+
+        The probe module is disposed at the end of the `with`; the type it
+        interned belongs to `self.llvm_context` and outlives it, exactly as
+        llvmlite's own version relies on for the global context.
+        """
+        probe = ir.Module(context=self.module.context)
+        gv = ir.GlobalVariable(probe, llvm_type, name="__saw_layout_probe")
+        with binding.parse_assembly(str(probe),
+                                    context=self.llvm_context) as llmod:
+            return llmod.get_global_variable(gv.name).global_value_type
+
     def _abi_size(self, llvm_type) -> int:
-        return llvm_type.get_abi_size(self.target_data, context=self.module.context)
+        return self.target_data.get_abi_size(self._ll_layout_type(llvm_type))
 
     def _abi_align(self, llvm_type) -> int:
-        return llvm_type.get_abi_alignment(self.target_data,
-                                           context=self.module.context)
+        return self.target_data.get_abi_alignment(self._ll_layout_type(llvm_type))
 
     def _const_type_metric(self, saw_type, which):
         """The layout oracle `const_eval` calls for `sizeof`/`alignof`."""
@@ -3129,7 +3174,7 @@ class CodeGenerator(ResultsMixin, MatchMixin, StructsMixin, CollectionsMixin, Ca
         llvm_ir = str(self.module)
         if not optimize:
             return llvm_ir
-        mod = binding.parse_assembly(llvm_ir)
+        mod = binding.parse_assembly(llvm_ir, context=self.llvm_context)
         mod.verify()
         target_machine = self._make_target_machine()
         self._run_optimization_passes(mod, target_machine)
@@ -3144,8 +3189,8 @@ class CodeGenerator(ResultsMixin, MatchMixin, StructsMixin, CollectionsMixin, Ca
         """
         llvm_ir = str(self.module)
 
-        # Parse the IR
-        mod = binding.parse_assembly(llvm_ir)
+        # Parse the IR (into this compile's own context — see `__init__`)
+        mod = binding.parse_assembly(llvm_ir, context=self.llvm_context)
         mod.verify()
 
         # Create target machine (honours --target)
