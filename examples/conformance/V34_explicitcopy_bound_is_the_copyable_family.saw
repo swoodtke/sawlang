@@ -1,0 +1,41 @@
+// Conformance row V34 — `T: ExplicitCopy` is the whole DUPLICABLE family
+//
+// The other half of V33. `Copy` names what duplicates silently; `ExplicitCopy`
+// names what duplicates at all, with or without ceremony, and it is the bound
+// that licenses a spelled `.copy()` in the body. Every Copy-tier type satisfies
+// it — copying one for free is a valid way to answer `copy()` — so one bounded
+// body serves `Int`, `String` and `Vector<Int>` alike, and each lowers at its
+// own tier (bitwise, retain, real duplicate).
+// EXPECT: success
+// EXPECT-OUTPUT:
+// int 7 7
+// str hi hi
+// vec 2 2
+// bag b b
+
+struct Bag { s: String }
+
+// The bound is what makes `.copy()` spellable on an abstract `T`.
+func twice<T: ExplicitCopy>(x: &T) -> (T, T) {
+    (x.copy(), x.copy())
+}
+
+func main() {
+    let n = 7
+    let i = twice<Int>(&n)
+    print("int {i.0} {i.1}")
+
+    let text = "hi"
+    let s = twice<String>(&text)
+    print("str {s.0} {s.1}")
+
+    var v = Vector<Int>()
+    v.push(1)
+    v.push(2)
+    let pair = twice<Vector<Int>>(&v)
+    print("vec {pair.0.len()} {pair.1.len()}")
+
+    let bag = Bag(s: "b")
+    let b = twice<Bag>(&bag)
+    print("bag {b.0.s} {b.1.s}")
+}

@@ -4018,16 +4018,33 @@ class ExpressionsMixin:
                         concrete_type_name = resolved_arg.struct_name
                     elif resolved_arg.kind == TypeKind.ENUM:
                         concrete_type_name = resolved_arg.enum_name
-                    if bound == "Copy":
-                        # The umbrella Copy bound is satisfied structurally:
-                        # trivially-copyable types and ImplicitCopy/ExplicitCopy
-                        # conformers all qualify without declaring `: Copy`.
-                        if not self._type_satisfies_copy_bound(resolved_arg):
+                    if bound in self._COPY_BOUND_NAMES:
+                        # EVERY Copy-family bound goes through `_bound_satisfied`
+                        # (design 219). It used to be `Copy` alone, with
+                        # `ImplicitCopy` and `ExplicitCopy` falling through to the
+                        # raw conformance lookup below — which is why `T:
+                        # ImplicitCopy` rejected `Int` and an auto-tier struct:
+                        # a DECLARATION was demanded for a tier that owes none.
+                        # One entry point now answers all three, from the tier.
+                        if not self._bound_satisfied(resolved_arg, bound):
+                            if bound == "ExplicitCopy":
+                                hint = (f"add `@synthesize extension "
+                                        f"{concrete_type_name}: ExplicitCopy {{}}`"
+                                        if concrete_type_name else
+                                        "the type must be duplicable: on the "
+                                        "`Copy` tier, or declaring `ExplicitCopy`")
+                            else:
+                                hint = ("the `Copy` tier is what duplicates "
+                                        "silently — a trivially-copyable type, or "
+                                        "one whose members the compiler retains; a "
+                                        "type that copies only with a spelled "
+                                        "`.copy()` needs an `ExplicitCopy` bound "
+                                        "here instead")
                             self._error(
                                 ErrorKind.TYPE_MISMATCH,
-                                f"type `{resolved_arg}` does not satisfy the `Copy` bound",
+                                f"type `{resolved_arg}` does not satisfy the `{bound}` bound",
                                 expr.line, expr.column,
-                                hint="use a trivially-copyable type, or one implementing ImplicitCopy/ExplicitCopy"
+                                hint=hint
                             )
                     elif bound in ("Send", "Sync"):
                         # Send/Sync are structural marker traits (design 21 item 1),
@@ -6975,6 +6992,15 @@ class ExpressionsMixin:
     # Generic bounds that grant `.copy()` in an abstract generic body.
     _COPY_BOUND_NAMES = frozenset({"Copy", "ImplicitCopy", "ExplicitCopy"})
 
+    # The two Copy-family questions, kept apart at the ABSTRACT side exactly as
+    # `Namespace` keeps them apart for concrete types (design 219).
+    #
+    # SILENT — bounds proving the parameter is on the merged `Copy` tier, so a
+    # body may duplicate it with nothing written. `ExplicitCopy` is NOT one:
+    # admitting it here is what let a ceremony-tier argument into a silently
+    # copying body (S1 row 9d).
+    _SILENT_COPY_BOUND_NAMES = frozenset({"Copy", "ImplicitCopy"})
+
     def _bound_satisfied(self, concrete: SawType, bound: str) -> bool:
         """Whether `concrete` satisfies a single type-param `bound`.
 
@@ -6982,14 +7008,21 @@ class ExpressionsMixin:
         and codegen agree). An *abstract* type parameter still in scope is
         satisfied only by its own declared bounds: inside a generic body we
         cannot resolve it structurally, so `Vector<K>.copy()` is legal exactly
-        when `K` itself carries a `Copy`-family bound.
+        when `K` itself carries a bound that proves it.
+
+        The Copy family is the one place a bound is satisfied by a DIFFERENT
+        bound: the merged `Copy` tier answers to either of its two spellings,
+        and `ExplicitCopy` — the wider duplicable family — answers to any of the
+        three, because a silently copyable parameter is duplicable too.
         """
         type_params = getattr(self, 'current_type_params', {})
         if concrete.kind == TypeKind.STRUCT and concrete.struct_name in type_params:
             param_bounds = type_params.get(concrete.struct_name) or []
             if bound in param_bounds:
                 return True
-            if bound == "Copy":
+            if bound in self._SILENT_COPY_BOUND_NAMES:
+                return any(b in self._SILENT_COPY_BOUND_NAMES for b in param_bounds)
+            if bound == "ExplicitCopy":
                 return any(b in self._COPY_BOUND_NAMES for b in param_bounds)
             return False
         return self.namespace.type_satisfies_bound(concrete, bound)
@@ -7055,7 +7088,12 @@ class ExpressionsMixin:
         # `.copy()` duplicates it per element in index order; the result has the
         # same array type. (`[trivial; N]` was already handled above.)
         if obj_type.kind == TypeKind.ARRAY:
-            if self.namespace.type_satisfies_copy_bound(obj_type):
+            # The DUPLICABLE family, not the silent tier (design 219's predicate
+            # split): `.copy()` asks whether a copy EXISTS, which an ExplicitCopy
+            # element answers yes to. Asking the silent tier here would have
+            # refused `[Vector<Int>; 2].copy()` — the one spelling that is
+            # unambiguously the author's request for a duplicate.
+            if self.namespace.type_satisfies_explicit_copy_bound(obj_type):
                 expr.resolved_type = obj_type
                 return True, obj_type
             self._error(

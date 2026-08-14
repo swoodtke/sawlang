@@ -1,0 +1,48 @@
+// Conformance row V32 — a Copy-family bound is satisfied by the DERIVED tier
+//
+// Bounds used to check DECLARED conformances while tiers were a separate
+// derivation, and the two had never met: `T: ImplicitCopy` rejected BOTH the
+// trivial `Int` and an auto-tier `Bag { s: String }` — the very type design 139
+// says IS on that tier with no declaration owed. Design 219 unifies them, so
+// the bound asks the tier.
+//
+// Both spellings of the merged tier are checked here: `Copy` (the name it
+// keeps) and `ImplicitCopy` (the name that retires into it).
+// EXPECT: success
+// EXPECT-OUTPUT:
+// int 7
+// bag hello
+// str hi
+// arc 1
+// tuple 3
+
+// An auto-tier struct: all members Copy, no declaration written and none owed.
+struct Bag { s: String }
+
+func take_copy<T: Copy>(x: T) -> T {
+    let a = x
+    a
+}
+
+func take_implicit<T: ImplicitCopy>(x: T) -> T {
+    let a = x
+    a
+}
+
+func main() {
+    // Trivial: bitwise. Was rejected by the ImplicitCopy bound before 219.
+    print("int {take_copy<Int>(7)}")
+
+    // The automatic tier (design 139/159): retains its String member.
+    let b = take_implicit<Bag>(Bag(s: "hello"))
+    print("bag {b.s}")
+
+    // A declared retain-hook type on the same tier.
+    print("str {take_copy<String>("hi")}")
+    let a = take_implicit<Arc<Int>>(Arc<Int>(value: 5))
+    print("arc {a.strong_count()}")
+
+    // A composite joins its parts and stays on the tier.
+    let t = take_copy<(Int, String)>((3, "x"))
+    print("tuple {t.0}")
+}

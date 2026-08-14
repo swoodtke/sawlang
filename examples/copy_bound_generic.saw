@@ -1,6 +1,13 @@
-// A `T: Copy` bound grants `.copy()` in the body. Copy is satisfied by trivial
-// types (Int) and by ExplicitCopy structs; monomorphization emits the right
-// synthesis per instantiation (bitwise for Int, copy() call for the struct).
+// A `T: ExplicitCopy` bound grants `.copy()` in the body. It is the DUPLICABLE
+// family (design 219): satisfied by trivial types (Int), by every other type on
+// the silently-copyable `Copy` tier, and by ExplicitCopy structs;
+// monomorphization emits the right synthesis per instantiation (bitwise for
+// Int, a `copy()` call for the struct).
+//
+// The bound used to be `T: Copy`, which admitted the same arguments — and also
+// admitted an ExplicitCopy argument into bodies that duplicate `T` with nothing
+// written, which is the S1 row 9d miscompile. `Copy` now means the silent tier
+// alone, so a body that SPELLS `.copy()` says so in its signature.
 // EXPECT: success
 // EXPECT-OUTPUT:
 // 7
@@ -20,7 +27,7 @@ extension Vec: ExplicitCopy {
     }
 }
 
-func dup<T: Copy>(x: T) -> T {
+func dup<T: ExplicitCopy>(x: T) -> T {
     x.copy()
 }
 

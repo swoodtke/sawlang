@@ -3839,6 +3839,26 @@ class _FrameBuilder:
             return None
         return ns.read_policy(slot_type)
 
+    def _frame_slot_has_explicit_copy(self, name):
+        """Does frame slot `name` hold a type that is duplicable only with a
+        SPELLED `.copy()`?
+
+        Design 219 folded the ExplicitCopy tier's READ POLICY into 'nocopy' —
+        both refuse a silent duplicate, which is the only thing a read policy
+        answers. `_materialize_closure_captures` needs the other half of the old
+        answer (a `.copy()` exists, so the capture can take its own duplicate
+        instead of moving the frame's), and that is a question about the type's
+        CONFORMANCE, asked here.
+        """
+        slot_type = self._frame_slot_type(name)
+        if slot_type is None or self._tc is None:
+            return False
+        ns = (getattr(self._tc, '_entry_module_ns', None)
+              or getattr(self._tc, 'namespace', None))
+        if ns is None or not hasattr(ns, 'copy_tier'):
+            return False
+        return ns.copy_tier(slot_type) == 'explicit'
+
     def _goto(self, target):
         """Unconditional edge: set the state word and re-dispatch in the same
         resume call (loop back-edge / branch merge)."""
@@ -5088,7 +5108,17 @@ class _FrameBuilder:
             enc = self.encmap[name]
             slot_type = self._frame_slot_type(name)
             policy = self._frame_read_policy(name)
-            if policy == 'nocopy':
+            if policy == 'nocopy' and self._frame_slot_has_explicit_copy(name):
+                # Duplicable, but only with ceremony: `.copy()` is the spelling
+                # that gives the capture its own value and leaves the frame's
+                # intact. (Design 219 folded this tier's READ POLICY into
+                # 'nocopy'; the conformance is what still separates the two
+                # here, so the branch is keyed on it rather than on the policy.)
+                read = MethodCall(
+                    object=_read_field(name, enc, line, col),
+                    method_name="copy", arguments=[], line=line, column=col)
+                forget = None
+            elif policy == 'nocopy':
                 # No copy exists, and the author wrote `move`: the FRAME hands
                 # its own reference over. The paired `__saw_forget` is what
                 # keeps that from being a double-free at teardown — exactly the
@@ -5107,9 +5137,8 @@ class _FrameBuilder:
                                    saw_type=slot_type)
                 forget = None
             else:
-                # 'explicit', or no answer at all: `.copy()` is the spelling
-                # that duplicates an ExplicitCopy value, and an unknown slot
-                # type keeps the behavior it has always had.
+                # No answer at all: an unknown slot type keeps the behavior it
+                # has always had.
                 read = MethodCall(
                     object=_read_field(name, enc, line, col),
                     method_name="copy", arguments=[], line=line, column=col)

@@ -1,0 +1,28 @@
+// Conformance row V33 — an ExplicitCopy argument is REFUSED at a silent-copy
+// bound (the S1 row 9d miscompile becomes a clean call-site refusal)
+//
+// `T: Copy` used to admit the ExplicitCopy tier into a body that duplicates `T`
+// with no ceremony, so the body's silent re-bind lowered to a BITWISE copy of a
+// `Vector` — two owners of one buffer, and the second deinit tripped the
+// allocator. That was a miscompile, not a semantic worth preserving.
+//
+// Design 219: `Copy` names the silently-copyable tier only. A type that copies
+// with ceremony is refused where a silent copy would happen, at the call, with
+// the type named. `.copy()` at the call site is the way to pass one.
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: does not satisfy the `Copy` bound
+
+// The body silently re-binds `x` twice: legal only for the silent tier.
+func launder<T: Copy>(x: T) -> T {
+    let a = x
+    let b = x
+    let _ = a
+    b
+}
+
+func main() {
+    var v = Vector<Int>()
+    v.push(1)
+    let out = launder<Vector<Int>>(move v)
+    print(out.len())
+}

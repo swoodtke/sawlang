@@ -2668,14 +2668,18 @@ class TypeUtilsMixin:
         policy = self._payload_read_policy(payload_type)
         if policy == 'retain':
             node.payload_needs_copy = True
-        elif policy in ('nocopy', 'explicit'):
+        elif policy == 'nocopy':
+            # One policy, two refusals: the tier says "not silently duplicable",
+            # and the CONFORMANCE says whether `.copy()` is among the ways out
+            # (design 219 — the tier no longer carries that second answer).
+            duplicable = self._is_explicit_copy_type(payload_type)
             self._error(
                 ErrorKind.CANNOT_COPY,
                 f"cannot read the payload out of `{self._render_place(source)}` "
                 f"in {context}: `{payload_type}` implements "
-                f"{'NoCopy' if policy == 'nocopy' else 'ExplicitCopy'}",
+                f"{'ExplicitCopy' if duplicable else 'NoCopy'}",
                 line, column,
-                hint=self._payload_read_hint(source, policy)
+                hint=self._payload_read_hint(source, duplicable)
             )
 
     def _reads_a_place(self, expr: Expression) -> bool:
@@ -2697,11 +2701,15 @@ class TypeUtilsMixin:
         except Exception:
             return "the optional"
 
-    def _payload_read_hint(self, source: Expression, policy: str) -> str:
-        """The consuming spellings a refused payload read can be rewritten to."""
+    def _payload_read_hint(self, source: Expression, duplicable: bool) -> str:
+        """The consuming spellings a refused payload read can be rewritten to.
+
+        `duplicable` is whether the payload has an `ExplicitCopy` conformance,
+        which is what puts `.copy()` among the ways out (design 219).
+        """
         path = self._render_place(source)
         parts = []
-        if policy == 'explicit':
+        if duplicable:
             parts.append(f"`{path}!.copy()` for an explicit deep copy")
         if isinstance(source, Identifier):
             parts.append(f"`move {path}!` to transfer the whole binding")
@@ -4162,7 +4170,17 @@ class TypeUtilsMixin:
                     break  # Only report once per struct
 
     def _check_explicit_copy_containment(self):
-        """Check that structs containing ExplicitCopy fields declare ExplicitCopy or NoCopy."""
+        """A struct holding a field the compiler cannot duplicate SILENTLY must
+        declare its own copy policy (design 219's restatement).
+
+        The rule used to read "contains an ExplicitCopy field"; with the tier
+        collapse it reads "contains a field that is not on the merged `Copy`
+        tier" — same set of offenders, stated as the one question the tier
+        system now asks. A `NoCopy` field is caught by
+        `_check_no_copy_containment`, which runs the move-only half of the same
+        sentence; this one covers the fields that CAN be duplicated but only
+        with ceremony, and so cannot ride a silent memberwise copy.
+        """
         for struct_name, struct_info in self.namespace.structs.items():
             # design 62 G1: a compiler-synthesized coroutine frame is never
             # copied (constructed, resumed through `&var`, dropped in place), so
@@ -4250,17 +4268,22 @@ class TypeUtilsMixin:
                 break  # Only report once per enum
 
     def _check_copy_trait_exclusivity(self):
-        """ImplicitCopy and ExplicitCopy are mutually exclusive on one type."""
-        for struct_name in self.namespace.structs:
-            if (self.namespace.type_conforms_to(struct_name, "ImplicitCopy") and
-                self.namespace.type_conforms_to(struct_name, "ExplicitCopy")):
-                struct_info = self.namespace.structs[struct_name]
-                self._error(
-                    ErrorKind.CANNOT_COPY,
-                    f"type `{struct_name}` cannot implement both ImplicitCopy and ExplicitCopy",
-                    struct_info.line, struct_info.column,
-                    hint="pick one copy policy: ImplicitCopy (cheap, auto-invoked) or ExplicitCopy (deep, explicit `.copy()`)"
-                )
+        """DELETED by design 219 — the two are no longer alternatives.
+
+        The check existed because ImplicitCopy and ExplicitCopy named two TIERS,
+        and a type on two tiers has no answer to "what does a transfer cost".
+        After the collapse they name different things: `Copy` (which
+        `ImplicitCopy` retires into) is the tier, and `ExplicitCopy` is an
+        ordinary trait every Copy type satisfies anyway. Declaring both is
+        therefore redundant rather than contradictory — a `copy()` on a Copy
+        type is the same operation the compiler would have inserted — so there
+        is nothing left to refuse.
+
+        Kept as a named no-op rather than deleted at the call site: the pass
+        list is the readable census of what registration checks, and a removed
+        rule is worth reading in the place it used to run.
+        """
+        return
 
     def _check_derivable_copy(self):
         """A struct with a compiler-derived memberwise copy() cannot contain a

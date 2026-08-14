@@ -739,16 +739,23 @@ class _PlaceUses:
 
     # -- policy ------------------------------------------------------------
 
-    # The bounds that PROVE an abstract type may be duplicated. Each one gives
-    # every satisfying type a copy the compiler can emit — bitwise for a trivial
-    # one, a retain for ImplicitCopy, the type's own `copy()` for ExplicitCopy —
-    # so the read is legal for EVERY instantiation and the emission can wait for
-    # the instantiation to say which. Writing one of these is the author's
-    # consent to duplication, which is what a concrete site spells `.copy()`.
-    # An unbounded or `NoCopy`-bounded parameter proves nothing and is refused
-    # in the generic body, before any instantiation exists (DF-123b: no
+    # The bounds that PROVE an abstract type may be duplicated SILENTLY — which
+    # is what a place value read is. Each gives every satisfying type a copy the
+    # compiler emits with nothing written at the read (bitwise for a trivial
+    # instantiation, a retain for a refcounted one), so the read is legal for
+    # EVERY instantiation and the emission can wait for the instantiation to say
+    # which. An unbounded or `NoCopy`-bounded parameter proves nothing and is
+    # refused in the generic body, before any instantiation exists (DF-123b: no
     # post-monomorphization errors).
-    _COPY_PROVING_BOUNDS = frozenset({"Copy", "ImplicitCopy", "ExplicitCopy"})
+    #
+    # `ExplicitCopy` is NOT one of them (design 219, judgment site 2 — design 146
+    # yields). It proves only that a copy EXISTS, not that one may happen
+    # unwritten: admitting it here made `let e = v[i]` in a generic body lower to
+    # the ceremony tier's silent duplicate, which is the same admission S1 row 9d
+    # miscompiled at the bound. Container copyability at ceremony-tier elements
+    # is expressed where it belongs — as the CONTAINER'S own conformance, whose
+    # body spells `buf[i].copy()`.
+    _COPY_PROVING_BOUNDS = frozenset({"Copy", "ImplicitCopy"})
 
     def _value_read_ok(self, place) -> bool:
         """design 131's table at the one point a place becomes a value.

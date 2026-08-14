@@ -1,0 +1,39 @@
+// Declaring BOTH copy traits on one type is legal (design 219).
+//
+// It used to be a compile error, and the reason was real while the two words
+// named two TIERS: a type on two tiers has no answer to "what does a transfer
+// cost". After the collapse they name different things — `Copy` (which
+// `ImplicitCopy` retires into) is the tier, `ExplicitCopy` is an ordinary trait
+// every Copy-tier type satisfies anyway — so the second declaration is
+// redundant rather than contradictory, and there is nothing left to refuse.
+//
+// This file replaces `errors/explicit_copy_both_traits_error.saw`, whose rule
+// no longer exists.
+// EXPECT: success
+// EXPECT-OUTPUT:
+// 1
+// 1
+// 1
+
+struct Buf {
+    value: Int
+}
+
+extension Buf: ImplicitCopy, ExplicitCopy {
+    func copy(&self) -> Buf {
+        Buf(value: self.value)
+    }
+    func deinit(&var self) {
+    }
+}
+
+func main() {
+    let a = Buf(value: 1)
+    print(a.value)
+
+    // The silent transfer runs the hook; the spelled one calls the same body.
+    let b = a
+    print(b.value)
+    let c = a.copy()
+    print(c.value)
+}

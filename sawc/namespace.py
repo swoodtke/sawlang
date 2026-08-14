@@ -1251,29 +1251,62 @@ class Namespace:
             return all(len(fields) == 0 for fields in enum_sym.variants.values())
         return False
 
-    def type_satisfies_copy_bound(self, saw_type: SawType) -> bool:
-        """Whether a concrete type satisfies the umbrella `Copy` bound:
-        trivially copyable, or declaring ImplicitCopy / ExplicitCopy (or Copy)."""
+    # The two questions the copy vocabulary answers, kept apart (design 219).
+    #
+    # SILENTLY DUPLICABLE — the merged `Copy` tier: the compiler may duplicate
+    # the value at a transfer with nothing written at the site. 'free' (bitwise)
+    # and 'implicit' (retain) are one tier to every rule above codegen; which of
+    # the two a given type uses is an EMISSION detail and stays one.
+    #
+    # DUPLICABLE AT ALL — the `ExplicitCopy` CONFORMANCE: the value can be
+    # duplicated, possibly at the cost of a spelled `.copy()`. Every silently
+    # duplicable type is duplicable, so this is the wider family.
+    #
+    # Before 219 one predicate answered both, which is what let an ExplicitCopy
+    # argument into a silently-copying generic body (S1 row 9d: a `Vector` passed
+    # at `T: Copy` was duplicated BITWISE — two owners, one buffer).
+    _SILENT_COPY_TIERS = frozenset({'free', 'implicit'})
+
+    def is_silently_copyable(self, saw_type: SawType) -> bool:
+        """Whether `saw_type` is on the merged `Copy` tier — duplicated by the
+        compiler with no ceremony at the transfer site (design 219)."""
         if saw_type is None:
             return False
-        if self.is_trivially_copyable(saw_type):
+        return self.copy_tier(saw_type) in self._SILENT_COPY_TIERS
+
+    def type_satisfies_copy_bound(self, saw_type: SawType) -> bool:
+        """Whether a concrete type satisfies the merged `Copy` bound.
+
+        DERIVED-TIER, not declaration-gated (design 219 unit 1). Bounds used to
+        check declared conformances while tiers were a separate derivation, so
+        the two never met: `T: ImplicitCopy` rejected the trivial `Int` AND an
+        auto-tier `struct Bag { s: String }`, the very type design 139 says is
+        on that tier with no declaration owed. Asking the tier answers both.
+
+        An escaping closure lands here as tier 'implicit' (design 73: copying it
+        retains the refcounted heap env), and a fixed array `[T; N]` as its
+        element's tier (design 33) — both through `copy_tier`, so neither needs
+        a special case any more.
+        """
+        return self.is_silently_copyable(saw_type)
+
+    def type_satisfies_explicit_copy_bound(self, saw_type: SawType) -> bool:
+        """Whether a concrete type satisfies the `ExplicitCopy` bound — the
+        whole DUPLICABLE family (design 219).
+
+        Satisfied by every silently-copyable type (copying one for free is a
+        valid way to answer `copy()` — the blanket rule) and by anything
+        declaring the conformance. This is the bound that licenses a spelled
+        `.copy()` on an abstract `T`.
+        """
+        if saw_type is None:
+            return False
+        if self.is_silently_copyable(saw_type):
             return True
-        # An escaping closure IS ImplicitCopy (design 73): copying it retains the
-        # refcounted heap env (a no-op on a null env). It satisfies the umbrella
-        # `Copy` bound so `Vector<() -> Int>.copy()`/`.get()` work — codegen routes
-        # every element copy through the closure-env retain glue (design 77 item 3).
-        # Any function TYPE used as a stored value (a container element, a struct
-        # field) is escaping; the `escaping` bit is a typechecker resolution
-        # artifact not always present on the codegen-side type arg, so accept the
-        # FUNCTION kind uniformly (a non-escaping closure is parameter-only and
-        # never reaches this Copy-bound machinery).
-        if saw_type.kind == TypeKind.FUNCTION:
-            return True
-        # A fixed array `[T; N]` inherits T's copy class (design 33): it
-        # satisfies `Copy` iff its element type does.
         if saw_type.kind == TypeKind.ARRAY:
             return (saw_type.array_element_type is not None
-                    and self.type_satisfies_copy_bound(saw_type.array_element_type))
+                    and self.type_satisfies_explicit_copy_bound(
+                        saw_type.array_element_type))
         name = None
         if saw_type.kind == TypeKind.STRUCT:
             name = saw_type.struct_name
@@ -1283,8 +1316,8 @@ class Namespace:
             name = "String"
         if name is None:
             return False
-        return (self.type_conforms_to(name, "ImplicitCopy") or
-                self.type_conforms_to(name, "ExplicitCopy") or
+        return (self.type_conforms_to(name, "ExplicitCopy") or
+                self.type_conforms_to(name, "ImplicitCopy") or
                 self.type_conforms_to(name, "Copy"))
 
     # =========================================================================
@@ -1515,13 +1548,27 @@ class Namespace:
         return self.copy_tier(saw_type, _visiting)
 
     def declared_copy_tier(self, type_name: str) -> str:
-        """The tier a type NAME declares, or 'free' when it declares none."""
+        """The tier a type NAME declares, or 'free' when it declares none.
+
+        ORDER IS THE RULE, and it became load-bearing when design 219 deleted
+        the ImplicitCopy/ExplicitCopy exclusivity check: a type may now name
+        both, so one of them has to win. The TIER declaration does.
+        `ImplicitCopy` (which retires into `Copy`) says what a transfer costs;
+        `ExplicitCopy` says only that a copy exists, which is true of every
+        silently-copyable type anyway. So a type declaring both is on the silent
+        tier with a `copy()` its author also chose to expose by name, and the
+        second declaration adds nothing rather than downgrading the first.
+
+        `NoCopy` still outranks both: it is the deliberate opt-OUT, and the one
+        declaration whose whole purpose is to be stricter than what the members
+        would have derived.
+        """
         if self.type_conforms_to(type_name, "NoCopy"):
             return 'nocopy'
-        if self.type_conforms_to(type_name, "ExplicitCopy"):
-            return 'explicit'
         if self.type_conforms_to(type_name, "ImplicitCopy"):
             return 'implicit'
+        if self.type_conforms_to(type_name, "ExplicitCopy"):
+            return 'explicit'
         return 'free'
 
     def copy_tier(self, saw_type: SawType, _visiting=None) -> str:
@@ -1649,7 +1696,13 @@ class Namespace:
     _READ_POLICY_BY_TIER = {
         'free': 'trivial',
         'implicit': 'retain',
-        'explicit': 'explicit',
+        # design 219: the ExplicitCopy TIER dissolves into move-only. A value
+        # read out of storage its owner keeps is refused for both, and for the
+        # same reason — nothing here may duplicate the value unwritten. What
+        # separates them is only what the DIAGNOSTIC can offer, which is a
+        # question about the type's conformance (`.copy()` exists or it does
+        # not), asked at the refusal rather than carried as a second policy.
+        'explicit': 'nocopy',
         'nocopy': 'nocopy',
         # An opaque type parameter's tier is unknowable from the declaration and
         # each instantiation decides it. Sites that emit code substitute first
@@ -2067,13 +2120,19 @@ class Namespace:
     def type_satisfies_bound(self, saw_type: SawType, bound: str) -> bool:
         """Whether a concrete type satisfies a single type-parameter bound.
 
-        `Copy` is structural (trivially-copyable | ImplicitCopy | ExplicitCopy);
+        `Copy` is TIER-DERIVED (design 219): the merged silently-copyable tier,
+        trivial and retain families alike, and nothing else — a type that copies
+        with ceremony no longer satisfies it. `ImplicitCopy` is the retiring
+        spelling of that same bound. `ExplicitCopy` is the wider duplicable
+        family (every Copy type, plus the declared conformers).
         `Send`/`Sync` are structural marker traits (design 21 item 1);
         `Equatable` is structural too (auto-Copy set + declared conformers,
         design 32); every other trait bound is an ordinary conformance lookup.
         """
-        if bound == "Copy":
+        if bound in ("Copy", "ImplicitCopy"):
             return self.type_satisfies_copy_bound(saw_type)
+        if bound == "ExplicitCopy":
+            return self.type_satisfies_explicit_copy_bound(saw_type)
         if bound == "Equatable":
             return self.is_equatable(saw_type)
         if bound == "Comparable":
