@@ -263,21 +263,17 @@ A NoCopy `Vector` sorts end to end today, written from outside std.
   silently** — **FIXED** with 216a, by the same predicate. Found by the DF-216a
   ruling probes: it compiled to a raw pointer into a dead frame with no
   diagnostic, at the one site not enforcing the spec's own no-escape rule.
-- **DF-216g — a closure naming `self` inside a SUSPENDING method still ICEs, and
-  it wants a RULING.** The sync case landed (216 unit 1); this one did not,
-  because the coroutine transform moves the receiver behind the frame — inside a
-  resume body the name `self` IS the frame, so the capture takes the frame and
-  `self.n` is looked up in `__Frame_Counter_slow`. It ICEd before 216 as well
-  (with DF-216a's own message), so it is an uncovered case of that finding, not
-  a regression from its fix. The reason it is not a small follow-up: `__recv`
-  holds a POINTER to the receiver, so the closure wants to BORROW through it,
-  while the transform's existing answer for frame state
-  (`_materialize_closure_captures`) copies each captured frame local into a real
-  local ahead of the closure — a value snapshot, which contradicts the borrow
-  ruling and cannot work for a NoCopy receiver. Saw has no local reference
-  binding to materialize a borrow into, so the fix needs a decision about how a
-  coroutine frame lends its receiver to a closure. Pinned:
-  `examples/closure_captures_self_suspending.saw`.
+- **DF-216g — a closure naming `self` inside a SUSPENDING method ICEd** —
+  **FIXED** (design 218 stage 3). It needed the ruling it asked for: `__recv`
+  holds a POINTER to the receiver, the closure wants to BORROW through it, and
+  Saw has no local reference binding to materialize a borrow into — so the
+  transform's value-snapshot answer contradicted design 216's borrow ruling and
+  could not work for a NoCopy receiver at all. The frame vocabulary's
+  `UnsafeRef<T>` is the value that carries a receiver borrow into an env: the
+  frame holds one as `__recv`, the capture mints a second with `copy()`, and
+  `deref()` lends the referent as a place. `[&self]` / `[&var self]` is the
+  spelling a user writes for the same capture. Pin flipped:
+  `examples/closure_captures_self_suspending.saw`; conformance rows R38-R42.
 - **DF-216f — `Self` does not resolve in an extension method's PARAMETER type.**
   `func addFrom(&self, other: &Self)` on `extension Counter` reports ``argument
   `other` expects `&Self` but got `&Counter``` at the call site plus ``cannot
@@ -590,6 +586,37 @@ obligation-2 consumer sweep before dispatch. Gates 218 stages 1-2.
   EMBEDDED position of that shape. Repros
   `.build/scratch/s3_generic_noclosure.saw` (silent) and
   `.build/scratch/s3_generic_struct_self.saw` (ICE).
+
+- **DESIGN 218 STAGE 3 LANDED (Aug 14) — closure envs, `[&self]`,
+  `UnsafeRef`.** Census rows R4, R7, P1 and P2 migrated and 218a section 4
+  landed whole. Terminal gate: the full tracked battery, every stage green —
+  suite 1834 passed / 24 xfailed, `corodiff --all` (1566 pairs, 0 NEW
+  findings), `irdet --all` (1153 examples, byte-identical IR), lexdiff and
+  astdiff over 2050 tracked files, fuzz (150 mutants, 0 new), gmgate (51
+  programs), bootstrap, and sos (32 tests, riscv32 + arm64).
+
+  FLIPPED: `examples/closure_captures_self_suspending.saw` — DF-216g, the
+  finding the stage folds in whole. A closure naming `self` in a driven method
+  captures a second `UnsafeRef` handle minted with `copy()`; the frame keeps
+  `__recv` for its later resumes, so duplication is written where it happens.
+  Mode is the materialized binding's mutability, which is the same verdict the
+  pre-transform check reaches by a different mechanism.
+
+  DELETED: E6. NARROWED: E2, and the reason is measured rather than preferred
+  — the transform splices a DRIVE-SITE CAST into the CALLER's own body, so
+  deleting the flag outright holds an author to a rule about a pointer they
+  did not write. It survives for REWRITTEN bodies and stops covering the
+  declarations the transform AUTHORS, which now declare `unsafe` honestly and
+  are CHECKED (`unsafe_decl_checked`). NOT deleted: M1/M3 — stage 1's six
+  deferred census families keep the legacy encodings, and `_read_field`'s
+  legacy branch is what stamps the marks; what stage 3 removed is the `ref`
+  and `__recv` emitters, the two the migration owned.
+
+  Details, including the forwarding rule three sites needed
+  (`<handle>.p` beats `&` of a `deref()` window) and the nested-closure
+  handle chain, are in the 218 brief's STAGE 3 LANDED section. Four findings
+  filed: DF-218j (found by the stage), DF-218k/l/m (pre-existing contexts the
+  sync capture test covers and the suspending one cannot reach).
 
 - **DESIGN 218 STAGES 1 AND 2 LANDED (Aug 14).** Gate at both: full suite
   (1824 passed / 23 xfailed), `corodiff --all` (1566 pairs, 0 NEW findings)

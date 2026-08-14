@@ -2316,11 +2316,19 @@ construct in the owner and lend `&driver` down.
   Treat the ref-param half as caught now and SUSPECT in older builds: an escaping
   closure capturing a `&T` param used to compile to a raw pointer into a dead
   frame with no diagnostic.
-  **LIMITATION: the enclosing method must be `sync`.** Naming `self` in a closure
-  inside a SUSPENDING method still ICEs (DF-216g) — the coroutine transform moves
-  the receiver behind the task frame, so the body's `self` binds to the frame.
-  Read the field into a local ahead of the closure, or take the receiver as an
-  explicit closure parameter.
+  The capture can also be WRITTEN, behind a borrow sigil: `[&self]` and
+  `[&var self]` mean what the implicit one means and meet the same rule.
+  `[&var self]` needs a `&var self` receiver (a shared receiver has no exclusive
+  borrow to give); `[&self]` in a `&var self` method NARROWS to shared, and a
+  write through it is then refused as it would be in a `&self` method. Only the
+  `&` forms exist — `[self]` and `[move self]` are parse errors, because the
+  receiver's own mode decides the capture's.
+  The enclosing method may be sync OR SUSPENDING (design 218 stage 3 closed
+  DF-216g); both read the live receiver. Treat the suspending half as working
+  now and SUSPECT in older builds, where it was an ICE. GOTCHA in a suspending
+  body: the receiver is reached through a place window there, and two windows on
+  one move-only root in ONE assignment are refused (DF-218j), so write
+  `self.n += 10` rather than `self.n = self.n + 10` inside such a closure.
 - `guard` must exit (return/break/continue/panic).
 - Shadowing footgun (design 100/107): naming an inner binding after an outer one
   is an ERROR unless the inner DERIVES from the outer (its initializer mentions the

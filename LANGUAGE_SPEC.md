@@ -2828,12 +2828,37 @@ those, or take the receiver as an explicit closure parameter
 A **consuming** `self` receiver (declared without `&`) is an owned binding, not
 a borrow, so it is captured by value under the ordinary transfer rules.
 
-> **Limitation.** The enclosing method must be `sync`. Naming `self` in a
-> closure inside a **suspending** method is not supported yet (DF-216g): the
-> coroutine transform moves the receiver behind the task frame, and how a frame
-> lends its receiver to a closure is an open question. Read the field into a
-> local ahead of the closure, or take the receiver as an explicit closure
-> parameter.
+The capture may also be written out loud, behind a borrow sigil:
+
+```saw
+extension Counter {
+    func viaFree(&self) -> Int { run_int({ [&self] in self.n + 1 }) }
+    func bump(&var self) -> Int { run_int({ [&var self] in self.n += 10  self.n }) }
+}
+```
+
+`[&self]` and `[&var self]` mean exactly what the implicit capture means, and
+they meet the same non-escaping rule. `[&var self]` requires a `&var self`
+receiver: a shared receiver has no exclusive borrow to hand out, and asking for
+one names the working spelling.
+
+```saw
+extension Counter {
+    func read(&self) -> Int { run_int({ [&var self] in self.n + 1 }) }
+    // error: `[&var self]` needs a `&var self` receiver, and `read` takes
+    // `&self`: a shared borrow has no exclusive borrow to hand out
+}
+```
+
+The reverse narrows, and the narrowing has teeth: `[&self]` inside a
+`&var self` method captures the receiver **shared**, so a write through it is
+refused exactly as it would be in a `&self` method. `self` appears in a capture
+list only behind `&` or `&var` — `[self]` and `[move self]` are parse errors,
+since the receiver's own mode decides the capture's.
+
+The enclosing method may be `sync` or **suspending**; both compile and both read
+the live receiver. A driven method's receiver lives behind the task frame, and
+the frame lends it to the closure as a handle it duplicates for the purpose.
 
 **Call-site reference sigils:** the call site mirrors the parameter's reference
 spelling. `&x` lends immutably to a `&T` parameter; `&var x` lends mutably to a
