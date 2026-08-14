@@ -5270,6 +5270,19 @@ file, and sos/spec.md §5c states the three reasons there are.
   check for `set`-of-`str` iteration that reaches an emission list — the sweep
   catches instances, not the class.
 
+  **QUEUED (user, Aug 14) — rides the mech fix batch** (with the DF-153b
+  SYS_* rename + ElfSegFlag items), not its own brief. Shape decided:
+  taint-tracking "reaches emission" is not attempted; instead
+  deterministic-by-construction — `tools/test_set_iter.py`, an AST walker
+  over `sawc/` in the `tools/test_ast_graft.py` mold, new battery lane.
+  Any iteration over a syntactically-resolvable set (for/comprehension/
+  `join`/`list` of a `set()`, set literal, set comprehension, or set-typed
+  self-attribute) must be `sorted(...)` or carry an explicit
+  `# order-irrelevant` marker. Measured churn at queue time: ~107 `= set()`
+  decls in sawc, 11 iterations already sorted — a one-time classification
+  sweep of a few dozen sites. Earned by four instances of the class
+  (design 126's two, design 141's two), all one mechanism.
+
 ## Milestones
 - **App-1 Blade: DONE** (design 64 + 67; real resolver/lock/git/
   incremental/self-hosting bootstrap; `make blade-bootstrap`).
