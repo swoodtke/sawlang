@@ -3,14 +3,21 @@
 // whose body consumes `other`
 //
 // The seventh position of DF-216b's matrix, and the one the operator gate
-// cannot see: a generic body is checked ONCE with `T` abstract (tier
-// `abstract`, no conformance to inspect) and is not re-checked per
-// instantiation, so `Tag` never reaches the comparison chokepoint. Closing it
-// means judging the TYPE ARGUMENT where the `Equatable`/`Comparable` bound is
-// discharged, and that is six independent call-site checks today rather than
-// one funnel — a ruling, not a stopgap. `other: &Self` closes it by
-// construction along with the rest of the matrix.
-// XFAIL: DF-216b the comparison operators in a generic body reach a NoCopy conformer's consuming `equals`/`compare` at instantiation, and the operand type never reaches `_check_binary_op` — the stopgap gate covers the six concrete positions only
+// could not see: a generic body is checked ONCE with `T` abstract (tier
+// `abstract`, no conformance to inspect) and was not re-checked per
+// instantiation, so `Tag` never reached the comparison chokepoint.
+//
+// CLOSED by design 219 wave C. The objection was that judging the type ARGUMENT
+// meant six independent call-site checks rather than one funnel — and wave C
+// built that funnel for the copy tier, so the comparison rule rides it: the
+// body records what it NEEDS (`T`'s comparison must not consume its operand),
+// and the ONE discharge point runs DF-216b's existing transitive walk on the
+// concrete argument. `@synthesize`d conformers pass, `Map`'s Copy-gated keys
+// pass, and the refusal reports the same sentence the concrete positions do.
+//
+// Row C12 — the EIGHTH position, a Copy operand the stopgap's tier condition
+// excludes — stays open: it is a question about the tier condition itself, not
+// about where the type is known, and `other: &Self` is its fix.
 // EXPECT: error
 // EXPECT-ERROR-CONTAINS: takes `other` by value, but the operator passes a borrow
 

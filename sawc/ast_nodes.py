@@ -2090,6 +2090,13 @@ class Method(ASTNode):
     # the silent tier does). Inferred while the body is checked; discharged at
     # every call site. See `typechecker/tierreq.py`.
     tier_requirements: Optional[dict] = annotation(None)
+    # design 219 wave C, row C07: the COMPARISON requirement this body places on
+    # each type parameter — `{param_name: {trait: line}}` for each of
+    # `Equatable`/`Comparable` an operator in the body applies to a value of
+    # that parameter. The operand reaches `_check_binary_op` only as abstract
+    # `T`, so DF-216b's transitive query has nothing to walk; the call site
+    # walks the concrete argument instead.
+    comparison_requirements: Optional[dict] = annotation(None)
     # `unsafe func` / `unsafe init` (design 130): this method touches an unsafe
     # type. Declared, never inferred — the trigger rule checks the declaration
     # against the body rather than supplying it.
@@ -2223,6 +2230,8 @@ class Function(ASTNode):
     is_sync: bool = False
     # design 219 wave C: see `Method.tier_requirements`.
     tier_requirements: Optional[dict] = annotation(None)
+    # design 219 wave C, row C07: see `Method.comparison_requirements`.
+    comparison_requirements: Optional[dict] = annotation(None)
     # `unsafe func` declaration (design 130): see Method.is_unsafe.
     is_unsafe: bool = False
     # `borrows func` declaration (design 141): see Method.is_borrows.

@@ -1649,6 +1649,22 @@ class ExpressionsMixin:
         reached = self._consuming_comparison_conformer(operand_type, trait)
         if reached is None:
             return False
+        return self._report_consuming_comparison(
+            operand_type, tier, reached, trait, expr.op, expr.line, expr.column)
+
+    def _report_consuming_comparison(self, operand_type: SawType, tier: str,
+                                     reached: str, trait: str, op: str,
+                                     line: int, column: int,
+                                     source_file=None) -> bool:
+        """The DF-216b refusal itself, with the operand's verdict already
+        decided by the caller.
+
+        Split out so the GENERIC discharge (design 219 wave C, row C07) reports
+        the same sentence from the same words: the operand it judges is the
+        concrete TYPE ARGUMENT rather than an expression's resolved type, and
+        the anchor is the call rather than the operator, but the fact being
+        reported is identical and readers should not have to learn it twice.
+        """
         method_name, _ = self._COMPARISON_REQUIREMENT[trait]
         policy = 'NoCopy' if tier == 'nocopy' else 'ExplicitCopy'
         if reached == self._comparison_type_name(operand_type):
@@ -1664,13 +1680,14 @@ class ExpressionsMixin:
         self._error(
             ErrorKind.CANNOT_COPY,
             f"cannot compare values of type `{operand_type}` with "
-            f"`{expr.op}`: `{operand_type}` is {policy} and {clause}, "
+            f"`{op}`: `{operand_type}` is {policy} and {clause}, "
             f"but the operator passes a borrow — a conformance that consumes "
             f"`other` would release a value the caller still owns (DF-216b)",
-            expr.line, expr.column,
+            line, column,
             hint=f"call it directly with an explicit transfer — {outs} — or "
                  f"make the conformance `@synthesize`d; a synthesized body "
-                 f"never consumes its operand"
+                 f"never consumes its operand",
+            source_file=source_file,
         )
         return True
 
@@ -1881,7 +1898,12 @@ class ExpressionsMixin:
             # it is the right one: every comparison operator, in every position,
             # is gated here. See `_consuming_comparison_conformer` above.
             elif expr.op in ['==', '!=']:
-                self._refuse_consuming_comparison(expr, left_type, "Equatable")
+                # design 219 wave C (row C07): at an ABSTRACT operand there is
+                # no conformance to inspect, so the stopgap can only record
+                # what the body NEEDS and let the call site judge the argument.
+                if not self._tier_req_comparison(left_type, "Equatable",
+                                                 expr.line):
+                    self._refuse_consuming_comparison(expr, left_type, "Equatable")
             # Comparable gating (design 48): `< <= > >=` desugar to `compare()`.
             # Integer types and Float are ordered directly (Float keeps IEEE/NaN
             # semantics); raw pointers keep their historical address ordering;
@@ -1913,8 +1935,10 @@ class ExpressionsMixin:
                     else:
                         # DF-216b's stopgap for the ordering half — same
                         # chokepoint, same query, `compare` instead of `equals`.
-                        self._refuse_consuming_comparison(
-                            expr, left_type, "Comparable")
+                        if not self._tier_req_comparison(left_type, "Comparable",
+                                                         expr.line):
+                            self._refuse_consuming_comparison(
+                                expr, left_type, "Comparable")
             return SawType(TypeKind.BOOL)
         return None
 

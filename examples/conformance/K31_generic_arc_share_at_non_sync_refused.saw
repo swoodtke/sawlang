@@ -1,0 +1,53 @@
+// Conformance row K31 — an `Arc<T>` at a NON-Sync `T` cannot cross to a worker
+// thread, and the generic path does not launder it
+//
+// The row sweep S1 left uncovered. `Send` was proven sound at the abstract-`T`
+// boundary on all three axes (parameter, local, result); the SYNC axis was
+// never forced, and the copy tier had just been shown to launder through the
+// same boundary. This is the forcing shape.
+//
+// It holds, and the mechanism is worth recording because the message does not
+// name it: `Arc`'s own `Send` derivation is CONDITIONED on `T: Send + Sync`
+// TOGETHER (`arc.saw`: "an Arc shares its payload by construction"), so a
+// non-Sync payload makes the Arc itself non-Send and the MT frame gate refuses
+// it before any race is reachable. The diagnostic says "not `Send`" where the
+// underlying fact is "not `Sync`" — a wording paper-cut, not a soundness gap.
+//
+// The GENERIC twin below is refused too, by a gate that fires even earlier: a
+// multi-threaded `group.spawn` of a generic callee requires concrete type
+// arguments, so an abstract `T` never reaches the Send/Sync question at all.
+// Two independent refusals, no laundering — which is why this row asserts the
+// concrete message and documents the generic one rather than the reverse.
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: is not `Send`, so the task frame cannot cross to a worker thread
+
+import std.task.*
+
+// Interior mutability with no `UnsafeSync` declared: `Send` (a cell moves
+// fine), not `Sync` (two threads could write it at once).
+struct Cell {
+    cell: UnsafeMutableInterior<Int>
+}
+
+extension Cell {
+    public init(start: Int) unsafe -> Cell {
+        Cell(cell: UnsafeMutableInterior(start))
+    }
+    func _at(&self) unsafe -> UnsafePointer<Int> { self.cell.ptr() }
+    public func value(&self) unsafe -> Int { self._at()[0] }
+    public func bump(&self, by: Int) unsafe { self._at()[0] = self._at()[0] + by }
+}
+
+func bump_many(a: Arc<Cell>) unsafe -> Int {
+    a.bump(by: 1)
+    0
+}
+
+func main() unsafe {
+    let c = Arc<Cell>(value: Cell(start: 0))
+    var g = TaskGroup(threads: 2)
+    let a1 = c.copy()
+    let h1 = g.spawn(bump_many(a1))
+    h1.join()
+    print("value {c.value()}")
+}
