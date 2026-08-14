@@ -24,6 +24,43 @@ false green possible. Five units, unit 0 is the obligation-2 consumer
 sweep of the `.build/<stem>` layout flip. All decisions ruled; the units
 execute, they do not re-decide.
 
+**BUILT Aug 14, then HELD (user ruling): all five units complete and
+battery-gated (18/18) on branch `worktree-agent-a347ef517d8ff1a2e`
+(five commits, `67b880e2..62c5db34`, based on `44537555`; worktree kept).
+NOT integrated until DF-220a and DF-220b below are fixed.** The
+mechanism is proven — unchanged-tree suite compile stage 219.7s→22.3s at
+100% reuse; irdet's clean-reuse slice byte-identical — but 84.4% of
+artifacts fail the three-way verify on DF-220a, which makes reuse a net
+slowdown until it lands. Unit-0 sweep + measurements and both findings'
+full write-ups are in the BRANCH's copy of this brief.
+
+- **DF-220a — `compile_saw()` is not self-reproducible across calls in
+  ONE process** (seed-independent; 6-line repro in the branch brief).
+  Hypothesis: the `ast_nodes.py` `_NEXT_NODE_ID` global leaking into the
+  always-linked backtrace-table monomorphization (DF-164a sibling).
+  TODAY'S irdet is structurally blind to this class — two fresh processes
+  start the counter identically — so this is a hidden nondeterminism
+  family the 220 verify exposed on first contact. Obligation 4 before the
+  fix: name every global counter/id() source that can reach emitted IR,
+  not just this one. Design 115's bit-identity audit needs re-running as
+  part of the fix's gate.
+- **DF-220b — a suspending `main() -> Int` never propagates its return
+  value to the process exit status** (12-line repro; confirmed against
+  the unmodified pre-220 irdet binary). USER-FACING language bug: every
+  driven program exits 0. Consequence found live: the battery's irdet
+  lane trusts `$?` and so HAS NEVER BEEN ABLE TO FAIL — this brief's own
+  terminal battery printed "969 file(s) VIOLATED THE REUSE INVARIANT"
+  three lines above `irdet: ok`. Fix-on-discovery, queued directly after
+  218 stage 3 (the coro drive path is stage 3's surface). Obligation 4
+  sweep first: is it only `main`, or every driven root's return value /
+  every exit path (panic codes, spawn results)? The fix's landing ALSO
+  flips `battery.sh run_irdet` to parse irdet's structured output —
+  never `$?` — closing the vacuous-green gate hole.
+
+Post-fix path: rebase the branch onto fixed main, re-run unit-2's N=20
+replay leg (currently blocked on DF-220a), re-gate (expect reuse GREEN
+and the irdet lane honestly red-capable), then integrate.
+
 ## The next queue — designs 195-202 + 153 (ALL RULED Aug 10, awaiting dispatch)
 
 Every open ruling from the overnight run plus the parked backlog was
