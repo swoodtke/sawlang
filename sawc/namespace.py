@@ -1110,6 +1110,47 @@ class Namespace:
         return list(self.conformances[type_name].keys())
 
     # =========================================================================
+    # THE COPY-TIER TRAIT NAME (design 219 unit B4) — one funnel, two forms.
+    #
+    # `Copy` and `ImplicitCopy` are ONE trait wearing two spellings while the
+    # rename lands: both DECLARE the silently-copyable tier, and every rule that
+    # asks "does this type name that tier?" must accept either. Before this
+    # constant existed the question was asked as a bare
+    # `type_conforms_to(name, "ImplicitCopy")` at a dozen scattered sites, which
+    # is exactly the position-quantified rule brief obligation 1 says to funnel:
+    # a site that missed the new spelling would not error, it would silently
+    # answer "not on the tier" and drop a retain.
+    #
+    # Two accessors because callers hold the question in two shapes:
+    #   `declares_copy_tier(name)`  — the conformance LOOKUP form (searches
+    #     imported module namespaces too). Callers: `is_trivially_copyable`
+    #     (struct + enum disqualifier arms), `declared_copy_tier`,
+    #     `type_satisfies_explicit_copy_bound`, `_classify_enum_payload_field`,
+    #     and in the typechecker `_is_implicit_copy_type`, `_is_deinit_type`,
+    #     `_check_implicit_copy_containment`.
+    #   `names_copy_tier(conformances)` — the ALREADY-FETCHED form, for callers
+    #     holding a `get_conformances()` list. Callers: codegen's
+    #     `_get_cleanup_behavior`, `_generate_derived_copy_body`, and the
+    #     `.copy()` refusal in `calls.py`.
+    # Anything checking the copy-tier trait BY NAME goes through one of the two.
+    # =========================================================================
+
+    COPY_TIER_TRAIT_NAMES = frozenset({"Copy", "ImplicitCopy"})
+
+    def declares_copy_tier(self, type_name: str) -> bool:
+        """Whether `type_name` DECLARES the silently-copyable tier under either
+        spelling (`Copy`, or the retiring `ImplicitCopy`). See the block comment
+        above for the caller list."""
+        return any(self.type_conforms_to(type_name, trait)
+                   for trait in self.COPY_TIER_TRAIT_NAMES)
+
+    @classmethod
+    def names_copy_tier(cls, conformances) -> bool:
+        """The `declares_copy_tier` question over an already-fetched conformance
+        collection (`get_conformances()`), for codegen's hot paths."""
+        return any(trait in conformances for trait in cls.COPY_TIER_TRAIT_NAMES)
+
+    # =========================================================================
     # Copy-family bound satisfaction (shared by typechecker and codegen)
     #
     # These are the single source of truth for "does a concrete type satisfy a
@@ -1214,7 +1255,7 @@ class Namespace:
             # Any declared resource trait disqualifies triviality.
             if (self.type_conforms_to(name, "Deinit") or
                 self.type_conforms_to(name, "NoCopy") or
-                self.type_conforms_to(name, "ImplicitCopy") or
+                self.declares_copy_tier(name) or
                 self.type_conforms_to(name, "ExplicitCopy")):
                 return False
             struct_sym = self._lookup_struct_deep(name)
@@ -1242,7 +1283,7 @@ class Namespace:
                 return False
             if (self.type_conforms_to(name, "Deinit") or
                     self.type_conforms_to(name, "NoCopy") or
-                    self.type_conforms_to(name, "ImplicitCopy") or
+                    self.declares_copy_tier(name) or
                     self.type_conforms_to(name, "ExplicitCopy")):
                 return False
             enum_sym = self._lookup_enum_deep(name)
@@ -1317,8 +1358,7 @@ class Namespace:
         if name is None:
             return False
         return (self.type_conforms_to(name, "ExplicitCopy") or
-                self.type_conforms_to(name, "ImplicitCopy") or
-                self.type_conforms_to(name, "Copy"))
+                self.declares_copy_tier(name))
 
     # =========================================================================
     # The copy tier (design 139) — one transfer class per type.
@@ -1565,7 +1605,7 @@ class Namespace:
         """
         if self.type_conforms_to(type_name, "NoCopy"):
             return 'nocopy'
-        if self.type_conforms_to(type_name, "ImplicitCopy"):
+        if self.declares_copy_tier(type_name):
             return 'implicit'
         if self.type_conforms_to(type_name, "ExplicitCopy"):
             return 'explicit'
@@ -1856,7 +1896,7 @@ class Namespace:
             return self._payload_retainable(t.array_element_type, _visiting)
         if k == TypeKind.STRUCT:
             n = t.struct_name
-            if n is not None and self.type_conforms_to(n, "ImplicitCopy"):
+            if n is not None and self.declares_copy_tier(n):
                 return (True, True)
             # ExplicitCopy / NoCopy / Deinit struct: not cleanly retainable.
             return (False, False)

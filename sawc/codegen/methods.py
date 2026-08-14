@@ -272,7 +272,8 @@ class MethodsMixin:
                 field_val = self._emit_optional_deep_copy(field_val, field_type)
             # Does this field's type carry its own copy()? (ImplicitCopy or
             # ExplicitCopy). If so, invoke it; otherwise the load is a bitwise copy.
-            elif "ImplicitCopy" in conformances or "ExplicitCopy" in conformances:
+            elif (self.namespace.names_copy_tier(conformances)
+                  or "ExplicitCopy" in conformances):
                 copy_fn = self._field_copy_fn(field_type)
                 if copy_fn is None:
                     # The field's type declares a copy policy, so it HAS a

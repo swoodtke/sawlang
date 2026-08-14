@@ -1606,8 +1606,9 @@ class CallsMixin:
                     return obj_val
                 if struct_name is not None:
                     conformances = self.namespace.get_conformances(struct_name)
-                    if any(c in ("NoCopy", "ImplicitCopy", "ExplicitCopy", "Deinit")
-                           for c in conformances):
+                    if (self.namespace.names_copy_tier(conformances)
+                            or any(c in ("NoCopy", "ExplicitCopy", "Deinit")
+                                   for c in conformances)):
                         raise ValueError(
                             f"cannot copy value of type `{struct_name}`: it is not Copy "
                             f"(owns a resource and has no copy()); use a copyable element "

@@ -2505,8 +2505,8 @@ class TypeUtilsMixin:
         if type_name is None:
             return False
 
-        # Check if type conforms to ImplicitCopy
-        return self.namespace.type_conforms_to(type_name, "ImplicitCopy")
+        # Check if type declares the silent copy tier (either spelling).
+        return self.namespace.declares_copy_tier(type_name)
 
     def _is_explicit_copy_type(self, saw_type: SawType) -> bool:
         """Check if a type is ExplicitCopy (never implicitly duplicated; a
@@ -2566,7 +2566,7 @@ class TypeUtilsMixin:
         # NoCopy, ImplicitCopy and ExplicitCopy all inherit from Deinit
         return (self.namespace.type_conforms_to(type_name, "Deinit") or
                 self.namespace.type_conforms_to(type_name, "NoCopy") or
-                self.namespace.type_conforms_to(type_name, "ImplicitCopy") or
+                self.namespace.declares_copy_tier(type_name) or
                 self.namespace.type_conforms_to(type_name, "ExplicitCopy"))
 
     # Expression kinds that read a value out of *existing* owned storage,
@@ -4135,7 +4135,7 @@ class TypeUtilsMixin:
             # (NoCopy types can contain ImplicitCopy fields since they can't be
             # copied anyway; an ExplicitCopy struct copies the field explicitly
             # in its own copy().)
-            if (self.namespace.type_conforms_to(struct_name, "ImplicitCopy") or
+            if (self.namespace.declares_copy_tier(struct_name) or
                 self.namespace.type_conforms_to(struct_name, "ExplicitCopy") or
                 self.namespace.type_conforms_to(struct_name, "NoCopy")):
                 continue

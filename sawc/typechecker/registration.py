@@ -1638,7 +1638,7 @@ class RegistrationMixin:
     # adds no method, so it needs no `@synthesize`. The two copying policies
     # derive a payload-deep `copy` and are gated on the marker exactly as the
     # struct path gates its memberwise one.
-    _ENUM_POLICY_TRAITS = ("NoCopy", "ImplicitCopy", "ExplicitCopy")
+    _ENUM_POLICY_TRAITS = ("NoCopy", "Copy", "ImplicitCopy", "ExplicitCopy")
 
     def _is_enum_derivable_optin(self, extension: Extension) -> bool:
         """Whether this enum extension is one of the EMPTY opt-in conformances
@@ -1856,7 +1856,7 @@ class RegistrationMixin:
     # Traits whose contract includes destruction: `Deinit` itself, and the three
     # copy policies that inherit from it. Declaring any of them obliges the type
     # to have a `deinit` — which, since design 128, the compiler supplies.
-    _RESOURCE_TRAITS = ("Deinit", "NoCopy", "ImplicitCopy", "ExplicitCopy")
+    _RESOURCE_TRAITS = ("Deinit", "NoCopy", "Copy", "ImplicitCopy", "ExplicitCopy")
 
     def _synthesize_implicit_deinits(self, program: Program):
         """Give every resource-conforming type without a hand-written `deinit` a
@@ -2290,7 +2290,7 @@ class RegistrationMixin:
         # `@synthesize` that derives nothing is itself reported.
         derived_any = False
         declared_copy_policy = next(
-            (t for t in ("ImplicitCopy", "ExplicitCopy")
+            (t for t in ("Copy", "ImplicitCopy", "ExplicitCopy")
              if t in extension.conformances), None)
         declares_copy_policy = declared_copy_policy is not None
         has_copy_method, already_derived = self._derivation_slot(

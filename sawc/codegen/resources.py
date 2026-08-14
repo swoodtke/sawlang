@@ -222,7 +222,7 @@ class ResourcesMixin:
 
         if "NoCopy" in conformances:
             behavior = "no_copy"
-        elif "ImplicitCopy" in conformances:
+        elif self.namespace.names_copy_tier(conformances):
             behavior = "implicit_copy"
         elif self.namespace.is_structurally_implicit_copy(saw_type):
             # The UNDECLARED ImplicitCopy tier, structs and enums alike
