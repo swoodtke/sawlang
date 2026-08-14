@@ -12,12 +12,18 @@ The status works now. This still does not read it, and that is the point: a gate
 should not depend on the bug it gates being fixed. `--jsonl` is the same
 structured output `tools/irdet_remote.check_here` already trusts — one record per
 file, `{"kind": "file", "path", "status", "detail"}`, `status` one of
-`ok`/`skip`/`mismatch` (the three strings irdet's `Verdict.wire_name` documents
-as ABI).
+`ok`/`skip`/`mismatch`/`invariant` (the four strings irdet's `Verdict.wire_name`
+documents as ABI).
 
-Three ways to fail, and the last two are what make this more than a rename:
+Four ways to fail, and the last three are what make this more than a rename:
 
   * any `mismatch` record — a real determinism finding;
+  * any `invariant` record — design 220 D4's own failure category: a reused
+    suite artifact that a fresh recompile at its OWN recorded seed does not
+    reproduce (a stale staleness stamp, or an in-process-vs-subprocess
+    divergence). It is a SEPARATE status precisely so it is never absorbed into
+    a nondeterminism report, and it fails the lane for the same reason: a cache
+    bug may cost time, never a green;
   * NO `ok` record — every candidate skipped means nothing was verified, which
     is what an interpreter that cannot import llvmlite looks like;
   * fewer records than `--expect` — the run stopped early (a crash, a kill, a
@@ -45,8 +51,9 @@ def main() -> int:
               f"records at all, so nothing was checked")
         return 1
 
-    counts = {"ok": 0, "skip": 0, "mismatch": 0}
+    counts = {"ok": 0, "skip": 0, "mismatch": 0, "invariant": 0}
     mismatched = []
+    invariants = []
     malformed = 0
     with open(args.records, encoding="utf-8") as fh:
         for line in fh:
@@ -65,22 +72,29 @@ def main() -> int:
             if status == "mismatch":
                 mismatched.append((record.get("path", "<no path>"),
                                    record.get("detail", "")))
+            elif status == "invariant":
+                invariants.append((record.get("path", "<no path>"),
+                                   record.get("detail", "")))
 
     total = sum(counts.values())
     print(f"irdet_verdict: {total} record(s) — {counts['ok']} ok, "
-          f"{counts['skip']} skipped, {counts['mismatch']} MISMATCH"
+          f"{counts['skip']} skipped, {counts['mismatch']} MISMATCH, "
+          f"{counts['invariant']} VIOLATED INVARIANT"
           + (f", {malformed} malformed" if malformed else ""))
 
     failed = False
     for path, detail in mismatched:
         print(f"  MISMATCH {path}  ({detail})")
         failed = True
-    if counts["ok"] == 0 and not mismatched:
+    for path, detail in invariants:
+        print(f"  VIOLATED INVARIANT {path}  ({detail})")
+        failed = True
+    if counts["ok"] == 0 and not mismatched and not invariants:
         # Only when there is no other explanation. A run where EVERYTHING
-        # mismatched also has no `ok` record, and shouting "nothing was checked"
-        # over a page of findings names the wrong cause — which is exactly what
-        # this said the first time it was fed a deliberately nondeterministic
-        # compiler.
+        # mismatched (or violated the reuse invariant) also has no `ok` record,
+        # and shouting "nothing was checked" over a page of findings names the
+        # wrong cause — which is exactly what this said the first time it was
+        # fed a deliberately nondeterministic compiler.
         print("irdet_verdict: NOTHING WAS CHECKED — every candidate skipped, so "
               "this run verified nothing. Check that the interpreter running "
               "sawc can import llvmlite.")
