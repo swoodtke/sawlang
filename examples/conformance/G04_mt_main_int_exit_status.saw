@@ -5,8 +5,6 @@
 // own frame is still the ambient root, so the status must survive the crossing
 // unchanged — this row is the one that says the answer does not depend on which
 // engine ran the siblings.
-// XFAIL: DF-220b — the ambient entry executor drops main's result; the MT
-// engine makes no difference to it
 // EXPECT: success
 // EXPECT-EXIT: 7
 // EXPECT-OUTPUT: joined 1

@@ -866,6 +866,77 @@ def _reject_freestanding_macho(target_triple: str = None):
     sys.exit(1)
 
 
+MAIN_EXIT_FUNNEL = "__saw_main_exit_code"
+
+
+def _synthesize_main_exit_funnel(entry_ast):
+    """Give a `Result`-returning `main` its exit-status mapping, as an ordinary
+    Saw function in the entry module (design 221, DF-220c).
+
+    THE ONE PLACE the `Result` half of the mapping is written — `Ok(n)` is the
+    status, `Ok(())` is 0, and an `Err` renders the error and exits 1. Its two
+    callers are the two places a `Result` main's value becomes a status: the
+    ambient frame's `_store_result` (which must convert BEFORE the value reaches
+    the group-owned cell) and codegen's `_emit_main_exit` (the sync epilogue and
+    the single-frame executor). The `Void`/`Int` rows of the same table are the
+    C boundary itself and live in that codegen funnel; this is the layer above
+    it, and each row is written once.
+
+    Synthesized rather than written in std because `E` is the user's type: a
+    non-generic function over main's ACTUAL signature needs no bound, no
+    overload set and no monomorphization, and the requirement on `E` is then
+    exactly what the body uses — `print("{}", e)`, which is what `Error`
+    already promises and what an erased `Box<any Error>` satisfies through its
+    vtable.
+
+    Runs at the top of `_prepare_codegen`, which the place lowering and the
+    coroutine transform re-enter, so it checks for its own output first.
+    """
+    from ast_nodes import (Function, Parameter, Block, MatchExpr, MatchArm,
+                           Identifier, IntLiteral, StringInterpolation,
+                           FormatPlaceholder, FunctionCall,
+                           Argument, ExpressionStatement, SawType, TypeKind)
+
+    main = next((f for f in getattr(entry_ast, 'functions', [])
+                 if f.name == "main"), None)
+    if main is None or main.return_type is None or not main.return_type.is_result():
+        return
+    if any(f.name == MAIN_EXIT_FUNNEL for f in entry_ast.functions):
+        return
+
+    ok_type = main.return_type.unwrap_result_ok()
+    ok_is_void = ok_type is None or ok_type.kind == TypeKind.VOID
+    line, col = getattr(main, 'line', 0), getattr(main, 'column', 0)
+    src = getattr(main, 'source_file', "")
+
+    # `case Ok(__v) -> __v` — or `case Ok(_) -> 0` where there is no payload to
+    # bind, which is `Result<Void, E>`'s whole point.
+    ok_arm = MatchArm(variant_name="Ok",
+                      bindings=[] if ok_is_void else ["__v"],
+                      body=(IntLiteral(value=0) if ok_is_void
+                            else Identifier(name="__v")))
+    # The Err path renders through the value's own `Printable` surface — the
+    # format-argument spelling (design 137), so it allocates nothing and works
+    # under a denied allocator. Status 1: the error is not a number, and
+    # inventing one from it would be a mapping nobody asked for.
+    err_arm = MatchArm(
+        variant_name="Err", bindings=["__e"],
+        body=Block(statements=[ExpressionStatement(expression=FunctionCall(
+            name="print",
+            arguments=[Argument(name=None, value=StringInterpolation(
+                parts=["error: ", ""], expressions=[FormatPlaceholder()])),
+                Argument(name=None, value=Identifier(name="__e"))]))],
+            final_expr=IntLiteral(value=1)))
+
+    entry_ast.functions.append(Function(
+        name=MAIN_EXIT_FUNNEL,
+        parameters=[Parameter(name="__r", type=main.return_type)],
+        return_type=SawType(TypeKind.INT),
+        body=Block(statements=[], final_expr=MatchExpr(
+            matched_expr=Identifier(name="__r"), arms=[ok_arm, err_arm])),
+        is_synthesized=True, line=line, column=col, source_file=src))
+
+
 def _prepare_codegen(source_path: str, entry_ast, entry_source: str, verbose: bool = False, object_only: bool = False, target_triple: str = None, freestanding: bool = False, module_paths: dict = None, runtime_build: bool = False, docs_out: dict = None, post_transform: bool = False, target_features: str = None, parsed=None, places_lowered: bool = False, no_hidden_alloc: bool = False, runtime_provider: bool = False, builtins=None):
     """Resolve modules, load builtins, and type-check the whole program.
 
@@ -893,6 +964,8 @@ def _prepare_codegen(source_path: str, entry_ast, entry_source: str, verbose: bo
     """
     from module_resolver import ModuleInfo
     from ast_nodes import Program
+
+    _synthesize_main_exit_funnel(entry_ast)
 
     # Freestanding always emits an unlinked object file; the user owns linking.
     if freestanding:

@@ -6,8 +6,6 @@
 // that lives for the whole program. The erasure is what makes this a separate
 // row — the typed `__result` is unreachable once the frame is a
 // `Box<any Resumable>`, so the value has to travel out some other way.
-// XFAIL: DF-220b — the ambient entry executor enqueues main's frame with a
-// `__VoidCell`, so the typed result is unreachable after erasure
 // EXPECT: success
 // EXPECT-EXIT: 7
 // EXPECT-OUTPUT: spawned 3

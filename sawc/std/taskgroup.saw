@@ -1486,11 +1486,35 @@ func __saw_exec_run(term_group: Int, term_slot: Int, term_gen: Int) unsafe {
 // any straggler and drops main's box exactly once.
 func __saw_exec_run_root(rootbox: Box<any Resumable>) {
     var root = TaskGroup()
-    // `main` has no handle and no joinable result, so its cell is the empty one
-    // (design 134): every occupied slot carries a cell, with no special case for
-    // the root.
+    // A `Void` `main` has no handle and no joinable result, so its cell is the
+    // empty one (design 134): every occupied slot carries a cell, with no
+    // special case for the root.
     let _ = root.__enqueue(move rootbox, Box<any __TaskCell>.make(__VoidCell(__cancel: false)))
     __saw_exec_run(0, -1, 0)
+}
+
+// design 221 unit B3: the same entry for a `main` that RETURNS something. The
+// value is the process exit status and is already an `Int` by the time it
+// reaches the cell — the synthesized executor converts it on the way into the
+// frame's result slot — so there is exactly one non-void root entry rather
+// than one per `main` shape, and this file never has to name a user type.
+//
+// The caller builds the cell because the FRAME needs its address at
+// construction, before there is anything to hand a root entry; `cellp` is the
+// same raw pointer into `cellbox`'s payload that `__spawn_*` takes, and reading
+// it here is what keeps the read INSIDE the group's lifetime: `root`'s Deinit
+// at return drops the cell box, and after that the pointer addresses nothing.
+//
+// `?? 0` is unreachable in practice — the root ran to completion, so its slot
+// is occupied — and is the answer for the shape where it did not: a `main` that
+// never produced a value did not fail either.
+func __saw_exec_run_root_status(rootbox: Box<any Resumable>,
+                                cellbox: Box<any __TaskCell>,
+                                cellp: UnsafePointer<__ResultCell<Int>>) unsafe -> Int {
+    var root = TaskGroup()
+    let _ = root.__enqueue(move rootbox, move cellbox)
+    __saw_exec_run(0, -1, 0)
+    cellp[0].__result.take() ?? 0
 }
 
 // =============================================================================

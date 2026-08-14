@@ -722,6 +722,17 @@ DEFERRED_FAMILIES = (
     FAM_WINDOW_MOVE, FAM_RENDERED, FAM_SCRUTINEE_TEMP, FAM_SPAWN_CELL,
 )
 
+# design 221: the synthesized `main`-result -> exit-status mapping (Part C's
+# table for the two `Result` shapes). Written by `sawc._synthesize_main_exit_funnel`
+# whenever `main` returns a `Result`; called from the two places a `Result`
+# main's value is turned into a status — the ambient frame's `_store_result`
+# here, and codegen's `_emit_main_exit` for the sync and single-frame paths.
+MAIN_EXIT_FUNNEL = "__saw_main_exit_code"
+
+# design 221 unit B3: the std entry a NON-VOID ambient `main` rides. The void
+# twin (`__saw_exec_run_root`) is unchanged and is still what a `Void` main uses.
+EXEC_RUN_ROOT_STATUS = "__saw_exec_run_root_status"
+
 
 def _deferred_family(name, enc, address_taken=(), saw_type=None,
                      move_arg_receivers=(), rendered=()):
@@ -1618,7 +1629,18 @@ def _body_arms_io(body):
 
 class _FrameBuilder:
     def __init__(self, func, struct_name=None, tc=None, is_spawn_root=False,
-                 recv_saw_type=None):
+                 recv_saw_type=None, exit_status_root=False):
+        # design 221 unit B3 (DF-220b): `main`'s frame under the AMBIENT
+        # executor. It is a spawn root in the layout sense — its result and
+        # cancel word live in a group-owned cell it reaches through `__cellp`,
+        # because after erasure into a `Box<any Resumable>` nothing outside can
+        # read a typed slot — and its result is the process EXIT STATUS, an
+        # `Int`, whatever `main` was declared to return. The conversion happens
+        # on the way into the slot (`_store_result`), which is why the cell is
+        # always `__ResultCell<Int>` and std needs exactly one non-void root
+        # entry rather than one per `main` shape.
+        self.exit_status_root = exit_status_root
+        is_spawn_root = is_spawn_root or exit_status_root
         # design 52b item 2: a spawn-root frame forces its result opt-encoded
         # even for a POD return, so `TaskHandle<T>` uniformly holds a
         # `UnsafePointer<T?>` and `join` takes the value with the same
@@ -1722,6 +1744,14 @@ class _FrameBuilder:
         self._cur_line = getattr(func, 'line', 0) or 0
         self.ret = func.return_type or SawType(TypeKind.VOID)
         self.is_void = (self.ret.kind == TypeKind.VOID)
+        # design 221 unit B3: what `main` was DECLARED to return, kept so
+        # `_store_result` knows whether the value crossing into the slot needs
+        # the exit-code mapping. The slot itself is an `Int` from here on.
+        self.main_declared_ret = None
+        if exit_status_root:
+            self.main_declared_ret = self.ret
+            self.ret = SawType(TypeKind.INT)
+            self.is_void = False
         # DF-134a: does this frame ARM a reactor registration itself? Only a body
         # containing a literal `io_wait` does — a frame that merely embeds a
         # suspending callee never registers anything, and the callee's own frame
@@ -6283,7 +6313,17 @@ class _FrameBuilder:
         also retires `_result_store_value`'s DF-174b wrinkle: `put` takes a
         `T`, so a `return None` from a `-> T?` body is a `None` of `T?` with
         nothing to disambiguate.
+
+        Being the one place is also what lets the AMBIENT `main` frame convert
+        (design 221 unit B3): its slot holds the process exit status, so a
+        `Result`-returning `main` is mapped to an `Int` HERE, before the value
+        reaches the group-owned cell — the cell then always carries a plain
+        `Int` and std needs one non-void root entry rather than one per shape.
         """
+        if (self.exit_status_root and self.main_declared_ret is not None
+                and self.main_declared_ret.is_result()):
+            value = FunctionCall(name=MAIN_EXIT_FUNNEL,
+                                 arguments=[Argument(name=None, value=value)])
         if _enc_is_slot(self.result_enc):
             return ExpressionStatement(expression=_slot_op(
                 _self_field("__result"), "put",
@@ -6951,22 +6991,80 @@ def _make_ambient_entry_executor(fb: _FrameBuilder, fbs):
     entry executor `__saw_exec_run_root`, which enqueues it as the root member of the
     shared scheduler and drives main AND every task it spawns to completion. This is
     what makes a spawn run eagerly whenever main parks (the core design-89 fix). A
-    suspending main with NO spawn keeps the lighter single-frame executor above."""
-    frame_init = _build_frame_init(fb, [], fbs)
+    suspending main with NO spawn keeps the lighter single-frame executor above.
+
+    design 221 unit B3 (DF-220b): a NON-VOID `main` also gets a CELL. Erasure is
+    the whole difficulty — once the frame is a `Box<any Resumable>` its typed
+    `__result` is unreachable — and a cell is the executor's existing answer to
+    exactly that, since a spawned task's value has always travelled out through
+    one. So this builds the group-owned cell here (the same four statements
+    `_make_spawn_helper` builds), seeds the frame with its address, and hands
+    both to `__saw_exec_run_root_status`, which enqueues them and reads the cell
+    back out after quiescence — inside the group's lifetime, because the group's
+    Deinit drops the cell on the way out.
+
+    The cell is `__ResultCell<Int>` for every `main` shape: the frame stores the
+    EXIT STATUS, converted on the way into the slot (`_store_result`). A `Void`
+    main keeps the void path above, unchanged.
+    """
+    if not fb.exit_status_root:
+        frame_init = _build_frame_init(fb, [], fbs)
+        box_ty = SawType(TypeKind.EXISTENTIAL, existential_trait="Resumable")
+        box_make = MethodCall(
+            object=Identifier(name="Box", type_args=[box_ty]),
+            method_name="make",
+            arguments=[Argument(name=None, value=frame_init)])
+        call = FunctionCall(name="__saw_exec_run_root",
+                            arguments=[Argument(name=None, value=box_make)])
+        return _declare_unsafe(
+            Function(name="main", parameters=[], return_type=SawType(TypeKind.VOID),
+                     body=Block(statements=[ExpressionStatement(expression=call)],
+                                final_expr=None),
+                     is_synthesized=True,
+                     source_file=getattr(fb.func, 'source_file', "")),
+            _frame_init_names_unsafe(fb, fbs))
+
+    from ast_nodes import StructInit
+    cell_ptr = _cell_ptr_type(fb)
+    cell_init = StructInit(
+        struct_name="__ResultCell", type_args=[fb.ret],
+        field_inits=[("__result", NoneLiteral()),
+                     ("__cancel", BoolLiteral(value=False))])
+    cell_box_ty = SawType(TypeKind.EXISTENTIAL, existential_trait="__TaskCell")
+    stmts = [
+        LetStatement(name="__cbox", type_annotation=None, mutable=True,
+                     value=MethodCall(
+                         object=Identifier(name="Box", type_args=[cell_box_ty]),
+                         method_name="make",
+                         arguments=[Argument(name=None, value=cell_init)])),
+        LetStatement(name="__cdata", type_annotation=None, mutable=False,
+                     value=FunctionCall(name="__saw_box_data", arguments=[Argument(
+                         name=None, value=ReferenceExpr(
+                             expr=Identifier(name="__cbox"), mutable=False,
+                             in_argument_position=True))])),
+        LetStatement(name="__cellp", type_annotation=None, mutable=False,
+                     value=CastExpr(expr=Identifier(name="__cdata"),
+                                    target_type=cell_ptr)),
+    ]
+    frame_init = _build_frame_init(fb, [], fbs,
+                                   cellp_value=Identifier(name="__cellp"))
     box_ty = SawType(TypeKind.EXISTENTIAL, existential_trait="Resumable")
-    box_make = MethodCall(
-        object=Identifier(name="Box", type_args=[box_ty]),
-        method_name="make",
-        arguments=[Argument(name=None, value=frame_init)])
-    call = FunctionCall(name="__saw_exec_run_root",
-                        arguments=[Argument(name=None, value=box_make)])
+    stmts.append(LetStatement(
+        name="__box", type_annotation=None, mutable=True,
+        value=MethodCall(object=Identifier(name="Box", type_args=[box_ty]),
+                         method_name="make",
+                         arguments=[Argument(name=None, value=frame_init)])))
+    call = FunctionCall(name=EXEC_RUN_ROOT_STATUS, arguments=[
+        Argument(name=None, value=MoveExpr(variable="__box", path=None)),
+        Argument(name=None, value=MoveExpr(variable="__cbox", path=None)),
+        Argument(name=None, value=Identifier(name="__cellp")),
+    ])
     return _declare_unsafe(
-        Function(name="main", parameters=[], return_type=SawType(TypeKind.VOID),
-                 body=Block(statements=[ExpressionStatement(expression=call)],
-                            final_expr=None),
+        Function(name="main", parameters=[], return_type=fb.ret,
+                 body=Block(statements=stmts, final_expr=call),
                  is_synthesized=True,
                  source_file=getattr(fb.func, 'source_file', "")),
-        _frame_init_names_unsafe(fb, fbs))
+        True)
 
 
 def _make_driver(fb: _FrameBuilder, mode, fbs):
@@ -8140,9 +8238,18 @@ def transform_program(program, typechecker, imported_ast=None):
                 if _fc.name in spawn_roots:
                     dual_role_spawn_roots.add(_fc.name)
         dual_role_spawn_roots.update(n for n in spawn_roots if n in roots)
+    # design 221 unit B3: a suspending `main` that ALSO spawns rides the ambient
+    # executor, which erases its frame into a `Box<any Resumable>` — so a
+    # non-Void `main` needs the cell layout to get its result back out. Decided
+    # here, where the builder is made, because the layout is what changes.
+    _exit_status_main = (main_suspends and bool(spawn_roots)
+                         and "main" in closure
+                         and (funcs_by_name["main"].return_type is not None)
+                         and funcs_by_name["main"].return_type.kind != TypeKind.VOID)
     fbs = {n: _FrameBuilder(funcs_by_name[n], tc=typechecker,
                             is_spawn_root=(n in spawn_roots
-                                           and n not in dual_role_spawn_roots))
+                                           and n not in dual_role_spawn_roots),
+                            exit_status_root=(n == "main" and _exit_status_main))
            for n in closure}
     # design 158: every builder this pass creates, in one list, so the backtrace
     # table's frame indices can be assigned once at the end (see
