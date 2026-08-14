@@ -76,10 +76,10 @@ class StructsMixin:
         # Field initialization (original behavior)
         llvm_struct_type, field_order = self.struct_types[struct_name]
 
-        # Get field types for ImplicitCopy handling (use namespace)
+        # Get field types for Copy handling (use namespace)
         field_types = self.namespace.get_struct_fields(struct_name) or {}
 
-        # Create a map from field name to value, handling ImplicitCopy
+        # Create a map from field name to value, handling Copy
         field_values = {}
         for field_name, value_expr in expr.field_inits:
             value = self._generate_expression(value_expr)

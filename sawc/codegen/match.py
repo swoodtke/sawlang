@@ -135,8 +135,8 @@ class MatchMixin:
             scrut_saw = self._expr_type(expr.matched_expr)
         # WHICH ENUMS CONSUME (DF-190d). Consuming is a COPY-TIER rule, not an
         # "owns something" one, and this gate used to read `enum_has_owning`
-        # alone. An ImplicitCopy-tier enum (`enum Holder { case Full(a:
-        # Arc<Res>) }` + `@synthesize extension Holder: ImplicitCopy {}`) owns a
+        # alone. A Copy-tier enum (`enum Holder { case Full(a:
+        # Arc<Res>) }` + `@synthesize extension Holder: Copy {}`) owns a
         # refcounted payload and copies for FREE — so the typechecker does NOT
         # mark its scrutinee moved (design 193 u1 / DF-190a) and a second
         # `match h` is legal source. Codegen still handed the payload to the arm
@@ -148,7 +148,7 @@ class MatchMixin:
         # * CONSUME (owning tiers — NoCopy/ExplicitCopy, and anything whose tier
         #   is not knowable here): ownership passes to the arm bindings and the
         #   scrutinee's own drop is suppressed. Unchanged.
-        # * RETAIN (the ImplicitCopy tier): the match BORROWS. Each owning
+        # * RETAIN (the Copy tier): the match BORROWS. Each owning
         #   binding is retained at extraction and released at arm end, and the
         #   scrutinee keeps its own reference and drops at ITS scope end — one
         #   allocation, one release, and matching twice is fine.
@@ -345,7 +345,7 @@ class MatchMixin:
                             # reference, so the binding takes one of its OWN
                             # before the cleanup registration below releases it
                             # at arm end. This is design 131's value-read row
-                            # for the ImplicitCopy tier — the same retain
+                            # for the Copy tier — the same retain
                             # `let a = o!` takes out of an optional — applied at
                             # the one point an enum payload becomes a binding.
                             if retain_mode:
@@ -362,7 +362,7 @@ class MatchMixin:
                         # own drop is suppressed, so nothing else releases it. RELEASE
                         # it now (it is never read in the arm), using the inverse of
                         # the copy-with-retain that `Vector.get` took when this value
-                        # was read out of its slot: refcounted (ImplicitCopy) fields
+                        # was read out of its slot: refcounted (Copy) fields
                         # are released, a non-refcounted `Deinit` field (which the
                         # retain never bumped) is left untouched. This balances an
                         # owning String/Arc key in `Map._slot_state`'s `Occupied(_,_)`
@@ -385,7 +385,7 @@ class MatchMixin:
             else:
                 # Route the arm result through the value-transfer path (not a raw
                 # expression read): a bare owning binding that ESCAPES as the match
-                # value (`case A(s) -> s`, an ImplicitCopy String/Arc payload) must
+                # value (`case A(s) -> s`, a Copy String/Arc payload) must
                 # be RETAINED here, because the consume-mode arm cleanup below
                 # releases that same binding — without the retain the escaped value
                 # is freed out from under the match result (DF12). `move s` clears

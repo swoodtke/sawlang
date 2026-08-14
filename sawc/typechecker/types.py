@@ -2,7 +2,7 @@
 Type utility methods for the Saw type checker.
 
 This module provides mixin methods for type resolution, compatibility checking,
-and resource management trait detection (NoCopy, ImplicitCopy, Deinit).
+and resource management trait detection (NoCopy, Copy, Deinit).
 
 Usage:
     class TypeChecker(TypeUtilsMixin, ...):
@@ -38,12 +38,12 @@ class TypeUtilsMixin:
         _get_underlying_type: Get underlying primitive type for distinct types
         _types_compatible: Check if two types are compatible
         _is_no_copy_type: Check if type implements NoCopy
-        _is_implicit_copy_type: Check if type implements ImplicitCopy
+        _is_implicit_copy_type: Check if type implements Copy
         _is_deinit_type: Check if type implements Deinit
         _check_no_copy_return: Validate NoCopy types are moved when returned
         _check_integer_literal_range: Validate integer literal fits target type
         _check_no_copy_containment: Check structs with NoCopy fields implement NoCopy
-        _check_implicit_copy_containment: Check structs with ImplicitCopy fields implement ImplicitCopy
+        _check_implicit_copy_containment: Check structs with Copy fields implement Copy
         _check_deinit_containment: Check structs with Deinit fields implement Deinit
     """
 
@@ -480,7 +480,7 @@ class TypeUtilsMixin:
     # Compiler-known non-dispatchable marker traits: erasing them to `any` has
     # nothing to call. Send/Sync are structural markers; NoCopy is a pure marker
     # whose only resolved method is the inherited `deinit` (not a dispatch
-    # surface); Copy/ImplicitCopy/ExplicitCopy are Self-by-value anyway.
+    # surface); Copy/ExplicitCopy are Self-by-value anyway.
     _EXISTENTIAL_MARKER_TRAITS = {"Send", "Sync", "NoCopy"}
 
     def _validate_existential_type(self, t: Optional[SawType], line: int,
@@ -2499,19 +2499,19 @@ class TypeUtilsMixin:
                 "`&var group` down, or spawn into a group the caller owns.")
 
     def _is_implicit_copy_type(self, saw_type: SawType) -> bool:
-        """Check if a type implements ImplicitCopy."""
+        """Check if a type implements Copy."""
         if saw_type is None:
             return False
 
-        # An escaping closure is a compiler-known ImplicitCopy value (design 73):
+        # An escaping closure is a compiler-known Copy value (design 73):
         # copying it retains a refcounted heap env, the last owner's drop tears it
         # down exactly once. A non-escaping closure is a borrow (owns nothing) and
-        # is freely forwardable — not an ImplicitCopy transfer.
+        # is freely forwardable — not a Copy transfer.
         if saw_type.kind == TypeKind.FUNCTION:
             return bool(getattr(saw_type, 'func_is_escaping', False))
 
         # A fixed array `[T; N]` inherits T's copy class (design 33): it is
-        # ImplicitCopy iff its element type is (per-element implicit copy).
+        # Copy iff its element type is (per-element implicit copy).
         if saw_type.kind == TypeKind.ARRAY:
             return self._is_implicit_copy_type(saw_type.array_element_type)
 
@@ -2522,7 +2522,7 @@ class TypeUtilsMixin:
         elif saw_type.kind == TypeKind.ENUM:
             type_name = saw_type.enum_name
         elif saw_type.kind == TypeKind.STRING:
-            # String is a compiler-known refcounted ImplicitCopy type.
+            # String is a compiler-known refcounted Copy type.
             type_name = "String"
 
         if type_name is None:
@@ -2544,7 +2544,7 @@ class TypeUtilsMixin:
     def _is_trivially_copyable(self, saw_type: SawType) -> bool:
         """A type is trivially copyable iff it can be duplicated bitwise: all
         fields are trivially copyable, and it declares no resource trait
-        (Deinit / NoCopy / ImplicitCopy / ExplicitCopy). Such types auto-satisfy
+        (Deinit / NoCopy / Copy / ExplicitCopy). Such types auto-satisfy
         `Copy`; `.copy()` on them lowers to a bitwise copy.
 
         The structural logic lives on the namespace (`Namespace.is_trivially_copyable`)
@@ -2558,15 +2558,15 @@ class TypeUtilsMixin:
         return self.namespace.is_trivially_copyable(saw_type)
 
     def _type_satisfies_copy_bound(self, saw_type: SawType) -> bool:
-        """Whether a concrete type satisfies the umbrella `Copy` bound:
-        trivially copyable, or declaring ImplicitCopy / ExplicitCopy (or Copy).
+        """Whether a concrete type satisfies the merged `Copy` bound: on the
+        silently-copyable tier, derived or declared.
 
         Delegates to the shared namespace helper so codegen agrees.
         """
         return self.namespace.type_satisfies_copy_bound(saw_type)
 
     def _is_deinit_type(self, saw_type: SawType) -> bool:
-        """Check if a type implements Deinit (directly or through NoCopy/ImplicitCopy/ExplicitCopy)."""
+        """Check if a type implements Deinit (directly or through NoCopy/Copy/ExplicitCopy)."""
         if saw_type is None:
             return False
 
@@ -2585,8 +2585,10 @@ class TypeUtilsMixin:
         if type_name is None:
             return False
 
-        # Check if type conforms to Deinit (directly or via NoCopy/ImplicitCopy/ExplicitCopy)
-        # NoCopy, ImplicitCopy and ExplicitCopy all inherit from Deinit
+        # Check if type conforms to Deinit, directly or through a copy policy.
+        # `NoCopy` and `ExplicitCopy` inherit from Deinit; `Copy` does not name
+        # it as a supertrait, so it is asked for explicitly here — the
+        # membership is what this predicate means, not the ancestry.
         return (self.namespace.type_conforms_to(type_name, "Deinit") or
                 self.namespace.type_conforms_to(type_name, "NoCopy") or
                 self.namespace.declares_copy_tier(type_name) or
@@ -2595,7 +2597,7 @@ class TypeUtilsMixin:
     # Expression kinds that read a value out of *existing* owned storage,
     # as opposed to producing a freshly constructed temporary. Transferring
     # one of these leaves a live second owner behind, so these are exactly the
-    # sites where NoCopy move-discipline must be enforced and ImplicitCopy
+    # sites where NoCopy move-discipline must be enforced and Copy
     # `copy()` must be inserted. A struct/enum init, call result, or literal is
     # a fresh temporary and is *not* aliasing.
     _ALIASING_EXPR_TYPES = (Identifier, MemberAccess, ArrayIndex, TupleIndex)
@@ -2627,7 +2629,7 @@ class TypeUtilsMixin:
     # Every payload-extraction form (`o!`, the `??` left operand, an
     # `if let`/`guard let` binding) reads out of storage the source keeps. The
     # Copy family decides what that read costs, using the SAME table as every
-    # other read: trivial payloads copy bitwise, ImplicitCopy retains, and
+    # other read: trivial payloads copy bitwise, Copy retains, and
     # ExplicitCopy/NoCopy refuse and name the three consuming spellings.
     # ------------------------------------------------------------------
 
@@ -2668,7 +2670,7 @@ class TypeUtilsMixin:
         # receiver and which escape hatches that receiver actually publishes.
         # Both rules firing on one read is not a stricter check but a WRONG one:
         # `m["k"]` carries `place_struct` and is an `ArrayIndex`, so an
-        # ImplicitCopy value got `payload_needs_copy` here AND `place_value_read`
+        # Copy value got `payload_needs_copy` here AND `place_value_read`
         # there, and `let held = m["k"]!` retained twice against one release.
         # `v.get(i)!` never had the problem only because a MethodCall is not in
         # the aliasing set; the subscript spelling made the overlap reachable.
@@ -2681,7 +2683,7 @@ class TypeUtilsMixin:
         # and all. The transform runs AFTER the type-check that already judged
         # these reads in their original, un-projected form, and the whole program
         # is then re-checked — so weighing in here would judge one read twice:
-        # an ImplicitCopy payload would be retained a second time (a leak), and a
+        # a Copy payload would be retained a second time (a leak), and a
         # NoCopy payload the frame is legitimately moving out would be rejected.
         # (The mark rides the unwrap for a `o!` value read and the SOURCE for an
         # `if let` / `??` over a frame field.)
@@ -3138,7 +3140,7 @@ class TypeUtilsMixin:
         Every site where a value is copied or moved into a new home (let/var
         initializers, assignment RHS, call arguments, returns, struct-field
         initializers, array/tuple elements, enum payloads) routes through here.
-        It enforces NoCopy move-discipline and marks ImplicitCopy sites so codegen
+        It enforces NoCopy move-discipline and marks Copy sites so codegen
         inserts `copy()` uniformly.
 
         Behavior by the source expression and its resolved type:
@@ -3149,7 +3151,7 @@ class TypeUtilsMixin:
         - by-reference argument (`&x` / `&var x`): NOT a transfer; skipped.
         - NoCopy type read from an existing binding (identifier / field access /
           index): an error -- it must be `move`d. A fresh temporary is fine.
-        - ImplicitCopy type read from an existing binding: annotated
+        - Copy type read from an existing binding: annotated
           `expr.needs_copy = True` for codegen. A fresh temporary is fine.
         - anything else: no-op.
         """
@@ -3233,7 +3235,7 @@ class TypeUtilsMixin:
         # drops it. Stamp `closure_lend` so codegen does NOT clear the source's
         # drop flag (the default for a non-copied Identifier transfer); without
         # this the caller's env would leak (never dropped) — a pre-existing bug the
-        # ImplicitCopy model surfaces (design 73).
+        # Copy model surfaces (design 73).
         if (src_type.kind == TypeKind.FUNCTION
                 and getattr(src_type, 'func_is_escaping', False)
                 and target_type is not None
@@ -3287,7 +3289,7 @@ class TypeUtilsMixin:
 
         # design 139: ONE policy lookup decides this transfer. The chain used to
         # end in a bespoke owning-enum arm — a retain that fired only for a
-        # structurally-ImplicitCopy enum, and left every OTHER wrapper (an
+        # structurally-Copy enum, and left every OTHER wrapper (an
         # `Optional`, a tuple, a `Result`) with no tier at all, so a move-only
         # payload inside one fell past every arm to a silent bitwise alias that
         # double-dropped (DF-131a). The oracle folds that enum case into the
@@ -4054,7 +4056,7 @@ class TypeUtilsMixin:
             # Check each field
             for field_name, field_type in struct_info.fields.items():
                 # A closure FIELD never forces the struct NoCopy (design 73):
-                # closures are ImplicitCopy, so a closure-bearing struct copies by
+                # closures are Copy, so a closure-bearing struct copies by
                 # retaining the closure's env (handled like a String field below).
                 if field_type is not None and field_type.kind == TypeKind.FUNCTION:
                     continue
@@ -4152,10 +4154,10 @@ class TypeUtilsMixin:
             )
 
     def _check_implicit_copy_containment(self):
-        """Check that structs containing ImplicitCopy fields also implement a copy policy."""
+        """Check that structs containing Copy fields also implement a copy policy."""
         for struct_name, struct_info in self.namespace.structs.items():
             # Skip if struct already declares a copy policy or NoCopy.
-            # (NoCopy types can contain ImplicitCopy fields since they can't be
+            # (NoCopy types can contain Copy fields since they can't be
             # copied anyway; an ExplicitCopy struct copies the field explicitly
             # in its own copy().)
             if (self.namespace.declares_copy_tier(struct_name) or
@@ -4165,7 +4167,7 @@ class TypeUtilsMixin:
 
             # Check each field
             for field_name, field_type in struct_info.fields.items():
-                # String is a compiler-known ImplicitCopy value type; unlike a
+                # String is a compiler-known Copy value type; unlike a
                 # user Rc it does not force containing structs to opt in (a plain
                 # struct holding a String keeps the pre-refcount behavior:
                 # bitwise field, no imposed copy/deinit policy). A fixed array of
@@ -4174,7 +4176,7 @@ class TypeUtilsMixin:
                 # not force a policy any more than a scalar `String` field does.
                 if self._array_base_kind(field_type) == TypeKind.STRING:
                     continue
-                # A closure field is a compiler-known ImplicitCopy value (design
+                # A closure field is a compiler-known Copy value (design
                 # 73), exactly like String: its refcounted-env retain/release is
                 # compiler-handled, so it does not force the struct to opt into a
                 # copy policy. (A struct copy retains the closure env; struct drop
@@ -4216,7 +4218,7 @@ class TypeUtilsMixin:
                 continue
             # Skip if struct already declares ExplicitCopy or NoCopy.
             # (NoCopy types can contain ExplicitCopy fields since they can't be
-            # copied anyway.) ImplicitCopy is NOT sufficient: an ExplicitCopy
+            # copied anyway.) Copy is NOT sufficient: an ExplicitCopy
             # field cannot be cheaply/implicitly duplicated.
             if (self.namespace.type_conforms_to(struct_name, "ExplicitCopy") or
                 self.namespace.type_conforms_to(struct_name, "NoCopy")):
@@ -4244,12 +4246,12 @@ class TypeUtilsMixin:
         to name its transfer class since design 9, because the compiler knows how
         to DESTROY such a value but not whether the author wants it duplicated.
         An enum with the same payload was answering that question by itself —
-        silently, and only for the ImplicitCopy case; a `Vector` or `File`
+        silently, and only for the Copy case; a `Vector` or `File`
         payload got no tier at all and every transfer bitwise-aliased it.
 
         So the same question is now asked of enums, in the same words. Only the
         two OWNING tiers are demanded: an enum whose payloads are trivial or
-        ImplicitCopy keeps working undeclared, exactly as a String-field struct
+        Copy keeps working undeclared, exactly as a String-field struct
         does, because the compiler handles those transfers on its own.
 
         A GENERIC enum is judged on its declaration, where a payload of type `T`
@@ -4293,10 +4295,11 @@ class TypeUtilsMixin:
     def _check_copy_trait_exclusivity(self):
         """DELETED by design 219 — the two are no longer alternatives.
 
-        The check existed because ImplicitCopy and ExplicitCopy named two TIERS,
-        and a type on two tiers has no answer to "what does a transfer cost".
-        After the collapse they name different things: `Copy` (which
-        `ImplicitCopy` retires into) is the tier, and `ExplicitCopy` is an
+        The check existed because the two names (`ImplicitCopy` as it was then
+        spelled, and `ExplicitCopy`) named two TIERS, and a type on two tiers
+        has no answer to "what does a transfer cost".
+        After the collapse they name different things: `Copy` is the tier, and
+        `ExplicitCopy` is an
         ordinary trait every Copy type satisfies anyway. Declaring both is
         therefore redundant rather than contradictory — a `copy()` on a Copy
         type is the same operation the compiler would have inserted — so there

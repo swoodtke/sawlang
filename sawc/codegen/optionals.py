@@ -68,7 +68,7 @@ class OptionalsMixin:
 
         Design 40 item 5 (L10): the value escapes into the Some payload — a
         transfer site. Generate it through _gen_transfer_value so an owned
-        ImplicitCopy value auto-wrapped into `Some(...)` is retained, closing
+        Copy value auto-wrapped into `Some(...)` is retained, closing
         the same premature-free hole the Result Ok/Err auto-wrap had.
         """
         value = self._gen_transfer_value(expr.value)

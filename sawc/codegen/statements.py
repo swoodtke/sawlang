@@ -101,7 +101,7 @@ class StatementsMixin:
         """`let (a, b) = pair` / `var (x, y) = point` (design 63 T1d).
 
         Evaluate the source once and bind each component. When the source is a
-        bare Identifier (copy semantics — ImplicitCopy/POD), each owning
+        bare Identifier (copy semantics — Copy/POD), each owning
         component is retained via `_generate_copy` since the source stays live;
         a `move` source (or a fresh tuple) transfers without a retain."""
         value = self._generate_expression(stmt.value)
@@ -150,7 +150,7 @@ class StatementsMixin:
     def _generate_discard_let(self, stmt: LetStatement):
         """Design 53 / DF1: `let _ = expr` evaluates the RHS, takes ownership,
         and drops it at the end of THIS statement (immediately, like an unused
-        temporary) — no binding is created. An ImplicitCopy lvalue is copied so
+        temporary) — no binding is created. A Copy lvalue is copied so
         the source is untouched and the COPY is what gets released."""
         value = self._generate_expression(stmt.value)
         var_type = (self._resolve_type_alias(stmt.type_annotation)
@@ -352,7 +352,7 @@ class StatementsMixin:
         # Track variable type for resource management
         if var_type:
             self.variable_types[stmt.name] = var_type
-            # Track for cleanup if type implements Deinit/ImplicitCopy/NoCopy.
+            # Track for cleanup if type implements Deinit/Copy/NoCopy.
             # A `let`/`var` binding can be `move`d, so register it with a drop flag
             # (design 42) for conditional-move correctness.
             if self.cleanup_stack and self._needs_cleanup(var_type):
@@ -549,7 +549,7 @@ class StatementsMixin:
             field_saw = self._struct_field_saw_type(struct_name, stmt.target.member)
             if field_saw is not None and self._needs_cleanup(field_saw):
                 self._emit_drop_at(field_ptr, field_saw)
-            # ImplicitCopy retain when the RHS is an existing binding (mirrors the
+            # Copy retain when the RHS is an existing binding (mirrors the
             # variable- and array-element-assignment paths); NoCopy/ExplicitCopy
             # already moved at the value-transfer checkpoint.
             if (field_saw is not None
@@ -607,7 +607,7 @@ class StatementsMixin:
                     if elem_saw is not None and self._needs_cleanup(elem_saw):
                         self._emit_drop_at(elem_ptr, elem_saw)
                     # The incoming element is a transfer site: retain an
-                    # ImplicitCopy value copied from an existing binding (mirrors
+                    # Copy value copied from an existing binding (mirrors
                     # the Identifier-target path). NoCopy/ExplicitCopy already
                     # moved at the value-transfer checkpoint.
                     if elem_saw is not None and (
@@ -643,7 +643,7 @@ class StatementsMixin:
                     # is not a pointer to GEP through. Address the real storage
                     # instead, exactly as the Identifier branch does — the same
                     # bounds check, the same live-slot release, the same
-                    # ImplicitCopy retain — so the write lands in the field
+                    # Copy retain — so the write lands in the field
                     # rather than in a copy of it.
                     container_ptr = self._get_lvalue_pointer(container_expr)
                     pointee = container_ptr.type.pointee
@@ -747,7 +747,7 @@ class StatementsMixin:
         the same kind of storage: the slot always holds a LIVE value (a tuple is
         fully initialized at construction and partial moves are forbidden), so
         the overwritten element's drop glue runs BEFORE the store and it deinits
-        exactly once; an ImplicitCopy RHS that is an existing binding is
+        exactly once; a Copy RHS that is an existing binding is
         retained; a coroutine frame reading one of its own owned locals
         duplicates against the VALUE's type (design 124); a bare `T` into an
         opt-encoded slot wraps last.
@@ -769,7 +769,7 @@ class StatementsMixin:
                                        referent_saw):
         """Design 110 replacement-assignment store: release the old referent
         value at `referent_ptr`, then install `value`. Mirrors the plain-variable
-        and through-ref field-assignment paths (deinit old, ImplicitCopy-retain a
+        and through-ref field-assignment paths (deinit old, Copy-retain a
         plain-binding RHS, optional-wrap, store); `referent_ptr` already points at
         the caller's real storage, so the write lands in the caller's slot."""
         # A generic `&var T` param records the ABSTRACT `T` referent in
@@ -782,7 +782,7 @@ class StatementsMixin:
                 referent_saw, self.type_param_context)
         if referent_saw is not None and self._needs_cleanup(referent_saw):
             self._emit_drop_at(referent_ptr, referent_saw)
-        # An ImplicitCopy RHS that is an existing binding is retained (mirrors the
+        # A Copy RHS that is an existing binding is retained (mirrors the
         # variable/field/element paths); NoCopy/ExplicitCopy already moved at the
         # value-transfer checkpoint, and `move v`/temporaries are not Identifiers.
         if referent_saw is not None and (

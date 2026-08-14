@@ -533,7 +533,7 @@ class ResultsMixin:
 
         Design 40 item 5 (L10): the inner value escapes into the Ok payload —
         this is a transfer site. Generate it through _gen_transfer_value so an
-        owned ImplicitCopy value (`return s` where `s: String`) is retained
+        owned Copy value (`return s` where `s: String`) is retained
         exactly as a direct return would retain it. Without the retain, scope
         cleanup releases the local and frees the buffer the payload still points
         at (premature free). `return move s` still works: the MoveExpr inside is
@@ -554,7 +554,7 @@ class ResultsMixin:
         is returned from a function with return type Result<T, E>.
 
         The Err payload is a transfer site too (design 40 item 5): retain an
-        owned ImplicitCopy error value so scope cleanup does not free it early.
+        owned Copy error value so scope cleanup does not free it early.
         """
         value = self._gen_transfer_value(expr.value)
         return self._create_result_err_for_return(value, expr.result_type)

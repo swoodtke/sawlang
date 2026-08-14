@@ -304,7 +304,7 @@ class DeclarationsMixin:
         )
 
     def parse_trait(self, visibility: Visibility = Visibility.PRIVATE) -> Trait:
-        """Parse trait declaration: trait ImplicitCopy: Deinit { func copy(self) -> Self }"""
+        """Parse trait declaration: trait Copy: Deinit { func copy(self) -> Self }"""
         start = self.current()
         self.expect(TokenType.TRAIT)
 

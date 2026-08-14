@@ -1551,7 +1551,7 @@ class CallsMixin:
 
         # Array `.copy()` (design 33): a fixed array copies per element in index
         # order. `[trivial; N]` is a bitwise copy of the whole value; an array of
-        # ExplicitCopy/ImplicitCopy elements calls each element's copy(). The
+        # ExplicitCopy/Copy elements calls each element's copy(). The
         # receiver has no struct_name (it is an LLVM `[N x T]`), so intercept here
         # before the struct-copy path.
         if expr.method_name == "copy" and len(expr.arguments) == 0:
@@ -1588,7 +1588,7 @@ class CallsMixin:
         if expr.method_name == "copy" and len(expr.arguments) == 0:
             copy_mangled = self._mangle_method_name(struct_name, "copy") if struct_name else None
             if copy_mangled is None or copy_mangled not in self.functions:
-                # An escaping closure is ImplicitCopy (design 73): `.copy()` bumps
+                # An escaping closure is Copy (design 73): `.copy()` bumps
                 # the env refcount so the duplicate and the original each release
                 # exactly once (design 77 item 3). This is the element-copy path
                 # `Vector<() -> Int>.copy()` reaches via `buf[i].copy()`; without

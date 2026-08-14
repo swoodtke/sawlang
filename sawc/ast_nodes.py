@@ -2007,7 +2007,7 @@ class AssociatedType(ASTNode):
 
 @dataclass
 class Trait(ASTNode):
-    """Trait declaration: trait ImplicitCopy: Deinit { func copy(self) -> Self }"""
+    """Trait declaration: trait Copy: Deinit { func copy(self) -> Self }"""
     name: str
     methods: List[TraitMethod]  # Required method signatures
     associated_types: List[AssociatedType] = field(default_factory=list)
@@ -2077,7 +2077,7 @@ class Method(ASTNode):
     is_derived_deserialize: bool = False
     is_sync: bool = False  # True for a `sync func` method (checked suspension-free)
     # design 219 unit A1 (DF-217r): the copy-policy trait whose RETAIN HOOK this
-    # hand-written `copy()` is ("ImplicitCopy" / "ExplicitCopy"), stamped at
+    # hand-written `copy()` is ("Copy" / "ExplicitCopy"), stamped at
     # registration on the body an author wrote inside the conformance. The
     # compiler INSERTS calls to it at silent transfers, where no source construct
     # names a call, so it is a `sync` context: the effect pass reads this to give

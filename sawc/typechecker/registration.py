@@ -1716,7 +1716,7 @@ class RegistrationMixin:
         them to it. Declaring the policy is now how an owning enum is written,
         and `_check_enum_policy_declared` refuses a bare one.
 
-        `ImplicitCopy` and `ExplicitCopy` derive a payload-deep `copy` — None of
+        `Copy` and `ExplicitCopy` derive a payload-deep `copy` — None of
         the enum's business to write, since the active variant is chosen at
         runtime — so both take the `@synthesize` marker. `NoCopy` adds nothing
         to derive and takes none, matching `extension Holder: NoCopy {}`.
@@ -2277,7 +2277,7 @@ class RegistrationMixin:
 
         self._adopt_const_params(extension, struct_info)
 
-        # Memberwise `copy()` derivation: a struct declaring ImplicitCopy or
+        # Memberwise `copy()` derivation: a struct declaring Copy or
         # ExplicitCopy without a hand-written `copy` gets a compiler-synthesized
         # memberwise copy. We only register its signature here (so conformance
         # passes and callers type-check `.copy()`); the body is skipped by the

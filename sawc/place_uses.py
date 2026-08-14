@@ -35,7 +35,7 @@ are checked against a pinned `__R`, and a bare payload auto-wraps into it.
 
 **Value reads consult the copy policy** (design 131's table), because a value
 read is where a place stops being storage: reading `let s = v[i]` out of an
-ImplicitCopy element retains, and out of an ExplicitCopy/NoCopy element it is
+Copy element retains, and out of an ExplicitCopy/NoCopy element it is
 the same clean error the rest of the language gives, naming the same ways out.
 
 **The window's FLAVOR is decided here, per use site** (design 141 decision 3,

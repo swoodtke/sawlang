@@ -1112,16 +1112,15 @@ class Namespace:
     # =========================================================================
     # THE COPY-TIER TRAIT NAME (design 219 unit B4) — one funnel, two forms.
     #
-    # `Copy` is THE name of the silently-copyable tier; `ImplicitCopy` was the
-    # old spelling and no longer exists as a trait. Every rule that asks "does
-    # this type DECLARE that tier?" goes through here. The question used to be
-    # asked as a bare `type_conforms_to(name, "ImplicitCopy")` at a dozen
-    # scattered sites, which is exactly the position-quantified rule brief
+    # `Copy` is THE name of the silently-copyable tier. Every rule that asks
+    # "does this type DECLARE that tier?" goes through here. The question used
+    # to be asked as a bare `type_conforms_to(name, <the old spelling>)` at a
+    # dozen scattered sites, which is exactly the position-quantified rule brief
     # obligation 1 says to funnel: a site that missed the rename would not
     # error, it would silently answer "not on the tier" and drop a retain.
-    # (`ImplicitCopy` is deliberately NOT accepted any more — with the builtin
-    # trait gone the name is available to user code, and a user trait of that
-    # name must not acquire tier semantics.)
+    # The retired spelling is deliberately NOT accepted any more — with the
+    # builtin trait gone the name is available to user code, and a user trait
+    # of that name must not acquire tier semantics.
     #
     # Two accessors because callers hold the question in two shapes:
     #   `declares_copy_tier(name)`  — the conformance LOOKUP form (searches
@@ -1230,7 +1229,7 @@ class Namespace:
     def is_trivially_copyable(self, saw_type: SawType) -> bool:
         """A type is trivially copyable iff it can be duplicated bitwise: all
         fields are trivially copyable, and it declares no resource trait
-        (Deinit / NoCopy / ImplicitCopy / ExplicitCopy). Such types auto-satisfy
+        (Deinit / NoCopy / Copy / ExplicitCopy). Such types auto-satisfy
         `Copy`; `.copy()` on them lowers to a bitwise copy.
         """
         if saw_type is None:
@@ -1321,7 +1320,7 @@ class Namespace:
 
         DERIVED-TIER, not declaration-gated (design 219 unit 1). Bounds used to
         check declared conformances while tiers were a separate derivation, so
-        the two never met: `T: ImplicitCopy` rejected the trivial `Int` AND an
+        the two never met: `T: Copy` rejected the trivial `Int` AND an
         auto-tier `struct Bag { s: String }`, the very type design 139 says is
         on that tier with no declaration owed. Asking the tier answers both.
 
@@ -1592,9 +1591,9 @@ class Namespace:
         """The tier a type NAME declares, or 'free' when it declares none.
 
         ORDER IS THE RULE, and it became load-bearing when design 219 deleted
-        the ImplicitCopy/ExplicitCopy exclusivity check: a type may now name
+        the Copy/ExplicitCopy exclusivity check: a type may now name
         both, so one of them has to win. The TIER declaration does.
-        `ImplicitCopy` (which retires into `Copy`) says what a transfer costs;
+        `Copy` says what a transfer costs;
         `ExplicitCopy` says only that a copy exists, which is true of every
         silently-copyable type anyway. So a type declaring both is on the silent
         tier with a `copy()` its author also chose to expose by name, and the
@@ -1671,7 +1670,7 @@ class Namespace:
 
         The exact counterpart of `_enum_structural_copy_tier`, and the arm that
         was missing. A struct whose owning members are all trivial or
-        ImplicitCopy needs no declared policy — the containment checks exempt a
+        Copy needs no declared policy — the containment checks exempt a
         String field, a closure field and a fixed array of either, because the
         compiler handles those retains itself. That exemption is the whole
         point of the rule, but it left the TIER unanswered: this branch returned
@@ -1733,7 +1732,7 @@ class Namespace:
     # question: a policy built out of `_is_no_copy_type` / `_is_explicit_copy_type`
     # / `is_trivially_copyable`, a bare `copy_tier` comparison, and codegen's
     # `enum_has_owning` (which is not a tier at all). The last one is what made
-    # an ImplicitCopy enum's payload die at the first arm's end.
+    # a Copy enum's payload die at the first arm's end.
     _READ_POLICY_BY_TIER = {
         'free': 'trivial',
         'implicit': 'retain',
@@ -1762,10 +1761,10 @@ class Namespace:
         return self._READ_POLICY_BY_TIER.get(self.copy_tier(saw_type), 'trivial')
 
     def is_structurally_implicit_copy(self, saw_type: SawType, _visiting=None) -> bool:
-        """Is this composite ImplicitCopy WITHOUT declaring it (design 159)?
+        """Is this composite Copy WITHOUT declaring it (design 159)?
 
         True for an undeclared struct or enum whose owning members are all
-        trivial or ImplicitCopy — the automatic tier, which is by design and
+        trivial or Copy — the automatic tier, which is by design and
         user-ratified: no declaration is needed and none should be demanded.
         Copying such a value RETAINS each refcounted member, and codegen has
         always known how (`_generate_copy` falls through to the recursive
@@ -1817,15 +1816,15 @@ class Namespace:
         return {p.name: a for p, a in zip(params, args) if a is not None}
 
     def is_implicit_copy_enum(self, saw_type: SawType, _visiting=None) -> bool:
-        """Structural ImplicitCopy classification for enums (design 06 / DF12).
+        """Structural Copy classification for enums (design 06 / DF12).
 
         Enums cannot DECLARE a Copy-family conformance (only Equatable/Comparable/
         Hashable opt-in), so their copy tier is derived from their payloads — the
         same containment precedence a struct's fields impose. This predicate is
-        True iff the enum carries at least one OWNING (ImplicitCopy, e.g. `String`/
+        True iff the enum carries at least one OWNING (Copy, e.g. `String`/
         `Arc`) payload AND every payload is cleanly retainable — trivially copyable
-        (POD, bitwise) or itself ImplicitCopy. Such an enum copies by RETAINING its
-        active payload (a refcount bump), exactly like an ImplicitCopy struct.
+        (POD, bitwise) or itself Copy. Such an enum copies by RETAINING its
+        active payload (a refcount bump), exactly like a Copy struct.
 
         A payload that is ExplicitCopy/NoCopy (e.g. `Vector`/`File`/`Box<any …>`)
         makes this False: that enum is move-only and is NOT implicitly copied — it
@@ -1876,13 +1875,13 @@ class Namespace:
         return has_owning
 
     def _payload_retainable(self, t: SawType, _visiting):
-        """Classify an enum-payload field type for structural ImplicitCopy.
+        """Classify an enum-payload field type for structural Copy.
 
         Returns (retainable, owning): `retainable` is True when a copy of the enum
         can duplicate this field by a bitwise copy (POD) or a refcount retain
-        (ImplicitCopy); `owning` is True only for a refcounted (ImplicitCopy) field
+        (Copy); `owning` is True only for a refcounted (Copy) field
         — the presence of at least one is what makes the enclosing enum
-        ImplicitCopy rather than trivially copyable.
+        Copy rather than trivially copyable.
         """
         if t is None:
             return (False, False)

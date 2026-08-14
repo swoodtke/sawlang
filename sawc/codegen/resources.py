@@ -2,9 +2,9 @@
 Resource management utilities for the Saw code generator.
 
 This module provides mixin methods for handling resource cleanup, including:
-- Determining cleanup behavior for types (Deinit, ImplicitCopy, NoCopy)
+- Determining cleanup behavior for types (Deinit, Copy, NoCopy)
 - Generating deinit calls for proper destruction
-- Generating copy calls for ImplicitCopy types
+- Generating copy calls for Copy types
 - Managing scope-based cleanup for deterministic resource management
 
 Usage:
@@ -29,7 +29,7 @@ class ResourcesMixin:
         _get_cleanup_behavior: Determine how a type should be cleaned up
         _needs_cleanup: Check if a type requires cleanup
         _generate_deinit_call: Generate deinit() call for a variable
-        _generate_copy: Generate copy() call for ImplicitCopy types
+        _generate_copy: Generate copy() call for Copy types
         _needs_copy_for_struct_init: Check if struct field init needs copy
         _cleanup_scope: Clean up variables in a scope
         _cleanup_all_scopes: Clean up all scopes (for early return)
@@ -47,7 +47,7 @@ class ResourcesMixin:
         through the canonical mangler so it matches the registered symbol.)
         """
         if saw_type.kind == TypeKind.STRING:
-            # String is a compiler-known ImplicitCopy + Deinit type.
+            # String is a compiler-known Copy + Deinit type.
             return "String"
         if saw_type.kind == TypeKind.STRUCT:
             return saw_type.struct_name
@@ -196,7 +196,7 @@ class ResourcesMixin:
         - 'none': No special cleanup needed (plain types)
         - 'deinit': Type implements Deinit (or ExplicitCopy, which has a deinit
           and is never implicitly copied), call deinit() on drop
-        - 'implicit_copy': Type implements ImplicitCopy, call copy() on copy
+        - 'implicit_copy': Type implements Copy, call copy() on copy
         - 'no_copy': Type implements NoCopy, cannot be copied
 
         Results are cached in self.type_cleanup_behavior. The cache key carries
@@ -225,11 +225,11 @@ class ResourcesMixin:
         elif self.namespace.names_copy_tier(conformances):
             behavior = "implicit_copy"
         elif self.namespace.is_structurally_implicit_copy(saw_type):
-            # The UNDECLARED ImplicitCopy tier, structs and enums alike
-            # (design 159). An enum cannot declare ImplicitCopy at all, so an
+            # The UNDECLARED Copy tier, structs and enums alike
+            # (design 159). An enum cannot declare Copy at all, so an
             # owning-payload enum (`DepSource { PathDep(String) }`) has always
             # been classified here (DF12). A STRUCT whose owning members are
-            # all trivial/ImplicitCopy — `struct P { name: String }`, a struct
+            # all trivial/Copy — `struct P { name: String }`, a struct
             # holding a closure — is on exactly the same footing: the
             # containment checks deliberately exempt it from declaring a
             # policy, so the tier is automatic and this is the only place that
@@ -281,7 +281,7 @@ class ResourcesMixin:
         """Check if a type needs cleanup.
 
         A type needs cleanup if it declares a resource trait (Deinit / NoCopy /
-        ImplicitCopy / ExplicitCopy) OR -- even with no declared conformance --
+        Copy / ExplicitCopy) OR -- even with no declared conformance --
         it transitively holds a value needing cleanup:
         - a struct with a cleanup-needing field (brief 17);
         - an enum whose any variant carries a cleanup-needing payload field
@@ -557,7 +557,7 @@ class ResourcesMixin:
         """Drop the closure value stored at `ptr` (design 71/73).
 
         A closure value is `{ fn_ptr, env_ptr, dtor_ptr }`. An escaping closure is
-        ImplicitCopy over a refcounted heap env: dropping RELEASES one reference —
+        Copy over a refcounted heap env: dropping RELEASES one reference —
         it atomically decrements the env's leading refcount word and, only when
         this was the LAST owner (old count == 1), runs the carried env destructor
         (which releases owned captures and frees the heap block). A non-owning
@@ -787,7 +787,7 @@ class ResourcesMixin:
     # duplicate of an aggregate becomes a genuinely-owned independent copy whose
     # eventual drop is balanced. Used to copy-with-retain a struct/enum read out
     # of a container it stays in (e.g. a `Vector` slot via `.get()`): the whole
-    # value is not a clean ImplicitCopy (it may be a NoCopy enum like `MapSlot`),
+    # value is not a clean Copy (it may be a NoCopy enum like `MapSlot`),
     # but its owning FIELDS (String/Arc/nested owners) must each be retained so
     # the map still owns its live payload after the peek.
 
@@ -810,7 +810,7 @@ class ResourcesMixin:
         if not self._needs_cleanup(saw_type):
             return
         saw_type = self._retag_enum(saw_type)
-        # A leaf with its own copy() (ImplicitCopy String/Arc/user type): retain
+        # A leaf with its own copy() (Copy String/Arc/user type): retain
         # in place — copy() bumps the refcount and returns the (same-buffer)
         # value, which we store back.
         method_base = self._type_method_base(saw_type)
@@ -823,7 +823,7 @@ class ResourcesMixin:
                 self.builder.store(v2, ptr)
                 return
         if saw_type.kind == TypeKind.FUNCTION:
-            # An escaping closure is ImplicitCopy (design 73): retaining bumps its
+            # An escaping closure is Copy (design 73): retaining bumps its
             # heap env's refcount (a null-env/non-owning closure is a no-op).
             self._emit_closure_retain_at(ptr)
             return
@@ -964,7 +964,7 @@ class ResourcesMixin:
     def _emit_enum_deep_copy(self, value, saw_type: SawType):
         """Copy an enum VALUE payload-deep (design 139).
 
-        The derived body behind `@synthesize extension E: ImplicitCopy {}` /
+        The derived body behind `@synthesize extension E: Copy {}` /
         `: ExplicitCopy {}`. The active variant is a runtime choice, so the copy
         switches on the tag and duplicates only that variant's payload fields,
         each through `_emit_copy_value` — which means every field copies at ITS
@@ -1050,7 +1050,7 @@ class ResourcesMixin:
     # --- Release: the exact inverse of `_emit_retain_at` -----------------------
     #
     # Releases the value at `ptr` DOWN TO exactly what `_emit_retain_at` would
-    # have retained — i.e. only refcounted (ImplicitCopy) leaves and the owning
+    # have retained — i.e. only refcounted (Copy) leaves and the owning
     # fields reachable through them. Crucially it does NOT run the deinit of a
     # NoCopy-with-side-effect leaf (a `Deinit` struct that carries no refcount,
     # e.g. a `Val { id: Int }` counter): retain never bumped it (there is nothing
@@ -1064,7 +1064,7 @@ class ResourcesMixin:
         if not self._needs_cleanup(saw_type):
             return
         saw_type = self._retag_enum(saw_type)
-        # ImplicitCopy leaf (String/Arc/user copy()): retain bumped it, so release
+        # Copy leaf (String/Arc/user copy()): retain bumped it, so release
         # is its ordinary drop (refcount decrement).
         method_base = self._type_method_base(saw_type)
         if method_base is not None:
@@ -1073,7 +1073,7 @@ class ResourcesMixin:
                 self._emit_drop_at(ptr, saw_type)
                 return
         if saw_type.kind == TypeKind.FUNCTION:
-            # ImplicitCopy closure: release == drop (refcount decrement, teardown
+            # Copy closure: release == drop (refcount decrement, teardown
             # at zero) — the exact inverse of `_emit_closure_retain_at` (design 73).
             self._emit_closure_drop_at(ptr, saw_type)
             return
@@ -1206,16 +1206,16 @@ class ResourcesMixin:
         self.builder.position_at_end(cont_bb)
 
     def _generate_copy(self, value, saw_type: SawType):
-        """Generate a copy of a value, calling copy() for ImplicitCopy types.
+        """Generate a copy of a value, calling copy() for Copy types.
 
-        Returns the copied value (which may be the original for non-ImplicitCopy types).
+        Returns the copied value (which may be the original for non-Copy types).
 
-        For ImplicitCopy types, calls the copy(self) -> Self method.
+        For Copy types, calls the copy(self) -> Self method.
         For regular types, returns the original value (bitwise copy).
         For NoCopy types, raises an error (should be caught by typechecker).
         """
         # A fixed array `[T; N]` copies per element (design 33). Only reached
-        # implicitly for ImplicitCopy-element arrays (trivial arrays need no
+        # implicitly for Copy-element arrays (trivial arrays need no
         # copy; ExplicitCopy/NoCopy arrays are move-gated by the typechecker).
         # Resolve a generic type to the active monomorphization so the recursive
         # retain glue below can look up the concrete struct/enum layout.
@@ -1233,7 +1233,7 @@ class ResourcesMixin:
         if saw_type.kind == TypeKind.TUPLE:
             return self._emit_tuple_deep_copy(value, saw_type)
 
-        # An escaping closure is ImplicitCopy (design 73): copying it bumps the
+        # An escaping closure is Copy (design 73): copying it bumps the
         # shared heap env's refcount and returns the same (aliased) value. A
         # null-env / non-owning closure retains as a no-op. Non-escaping closures
         # are borrows — bitwise, no retain. (The escaping bit is reliable here:
@@ -1248,7 +1248,7 @@ class ResourcesMixin:
                 self._emit_closure_env_retain(env_ptr, dtor_ptr)
             return value
 
-        # A type with its own copy() method (ImplicitCopy String/Arc/user) — call
+        # A type with its own copy() method (Copy String/Arc/user) — call
         # it (a cheap refcount bump for String/Arc).
         type_name = self._type_method_base(saw_type)
         if type_name is not None:
@@ -1323,7 +1323,7 @@ class ResourcesMixin:
         The per-element building block for array `.copy()` / implicit array copy
         (design 33). Dispatches: nested array -> per-element copy; trivially
         copyable -> the value as-is (bitwise); a type with a real `copy()` method
-        (ImplicitCopy/ExplicitCopy, incl. String) -> a call to it. A resource
+        (Copy/ExplicitCopy, incl. String) -> a call to it. A resource
         type with no copy path never reaches here (the typechecker gates it).
         """
         if saw_type.kind == TypeKind.ARRAY:
@@ -1341,7 +1341,7 @@ class ResourcesMixin:
             if fn is not None:
                 return self.builder.call(fn, [value], name="elem_copy")
         # An aggregate with no copy() of its own but with OWNING fields — the
-        # undeclared ImplicitCopy tier (design 159). `_generate_copy` has always
+        # undeclared Copy tier (design 159). `_generate_copy` has always
         # had this fallthrough; the per-ELEMENT path did not, so `[p; 3]` on a
         # `struct P { name: String }` would have splatted one String into three
         # slots with no retain and released it three times. Same recursive
@@ -1395,7 +1395,7 @@ class ResourcesMixin:
     def _emit_array_deep_copy(self, value, saw_type: SawType):
         """Copy a fixed array `[T; N]` value element-by-element, in index order
         (design 33). Each element is duplicated through `_emit_copy_value`, so an
-        ExplicitCopy/ImplicitCopy element runs its own `copy()` and the result is
+        ExplicitCopy/Copy element runs its own `copy()` and the result is
         an independent array (mutating one leaves the other untouched; each owned
         element is released exactly once at its array's scope death)."""
         elem_type = saw_type.array_element_type
@@ -1439,12 +1439,12 @@ class ResourcesMixin:
         `needs_copy` annotation.
 
         The value-transfer checkpoint marks `expr.needs_copy = True` on any
-        ImplicitCopy value read out of an existing binding, so codegen invokes
+        Copy value read out of an existing binding, so codegen invokes
         `copy()` uniformly at every transfer site instead of re-deciding per
         site.
 
         Two transfer sites the typechecker checkpoint does NOT mark are also
-        handled here, because they alias an owned ImplicitCopy value that then
+        handled here, because they alias an owned Copy value that then
         escapes into a new home:
         - `self` (a `&self` borrow returned/passed on) — SelfExpr is not in the
           checkpoint's aliasing set;
@@ -1452,7 +1452,7 @@ class ResourcesMixin:
           that is a plain binding) — only function/method-body tails are
           checkpointed. Without the retain, the block's scope cleanup releases
           the local and frees the value before its consumer reads it.
-        For ImplicitCopy `copy()` == retain, so re-deriving the decision here
+        For Copy `copy()` == retain, so re-deriving the decision here
         (instead of relying solely on `needs_copy`) yields the same result at
         already-checkpointed sites and closes these two gaps. It never
         double-copies: `_generate_copy` is invoked at most once per transfer.
@@ -1486,7 +1486,7 @@ class ResourcesMixin:
             # `return v` written without an explicit `move`, which the language
             # permits). The source must therefore NOT be dropped at scope exit:
             # clear its drop flag (design 42) and mark it moved for the unflagged
-            # fallback path. An ImplicitCopy source took the `needs_copy` branch
+            # fallback path. A Copy source took the `needs_copy` branch
             # above (retain — the source stays live), so it never reaches here.
             name = value_expr.name
             flag = self.drop_flags.get(name)
@@ -1548,7 +1548,7 @@ class ResourcesMixin:
         if getattr(value_expr, 'frame_owning_read', False):
             return self._frame_read_needs_copy(value_expr)
         # `self` and inner-block tails aren't marked by the checkpoint; retain
-        # when they alias an ImplicitCopy value (copy() == cheap retain).
+        # when they alias a Copy value (copy() == cheap retain).
         if isinstance(value_expr, (Identifier, MemberAccess, ArrayIndex,
                                    TupleIndex, SelfExpr)):
             if getattr(value_expr, 'resolved_type', None) is None:
@@ -1572,14 +1572,14 @@ class ResourcesMixin:
             # FIELD by value bitwise-aliased its `String`, which was then released
             # by the receiver's drop while the container still owned it -> double
             # free (DF12). A whole-binding read (a bare `Identifier`) is NOT here:
-            # it may be a move, and an ImplicitCopy one is already caught above.
+            # it may be a move, and a Copy one is already caught above.
             if (isinstance(value_expr, (ArrayIndex, MemberAccess, TupleIndex))
                     and self._needs_cleanup(t)
                     and t.kind in (TypeKind.STRUCT, TypeKind.ENUM,
                                    TypeKind.OPTIONAL, TypeKind.TUPLE)):
                 return True
             # An escaping closure read out of a container slot (`buf[i]` inside
-            # `Vector<() -> Int>.get`, a closure struct FIELD) is ImplicitCopy —
+            # `Vector<() -> Int>.get`, a closure struct FIELD) is Copy —
             # its env must be retained so the read-out copy's later drop is
             # balanced. Without this the shared env was freed twice (design 77
             # item 3 follow-up: a use-after-free at teardown). A bare Identifier
@@ -1625,7 +1625,7 @@ class ResourcesMixin:
         """Whether a design-124-marked frame-field read must retain its payload.
 
         Mirrors the container-slot rules in `_transfer_needs_copy`, applied to the
-        UNWRAPPED payload type: retain an ImplicitCopy value (`copy()` == a
+        UNWRAPPED payload type: retain a Copy value (`copy()` == a
         refcount bump), an owning aggregate, or an escaping closure env. A NoCopy
         payload is never duplicated — it can only leave the frame through an
         explicit `move`, which takes the `__saw_forget` path instead.
@@ -1663,7 +1663,7 @@ class ResourcesMixin:
         """Check if a value expression needs copy() called during struct initialization.
 
         We need to call copy() when:
-        1. The field type implements ImplicitCopy
+        1. The field type implements Copy
         2. The value comes from an existing variable (Identifier) or field access (MemberAccess)
 
         We don't need copy() for:
@@ -1671,7 +1671,7 @@ class ResourcesMixin:
         - Literals (they don't have existing ownership)
         - Move expressions (ownership is transferred)
         """
-        # A field type is copy-on-init when it implements ImplicitCopy — OR when
+        # A field type is copy-on-init when it implements Copy — OR when
         # it is an aggregate with no whole-type copy() that still OWNS
         # cleanup-needing payloads (an `Optional<String>`, an owning-payload
         # tuple/struct/enum): initializing such a field from an existing binding

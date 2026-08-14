@@ -82,7 +82,7 @@ class ClosuresMixin:
         # Create environment struct type for captures
         env_ptr_type = ir.PointerType(ir.IntType(8))
         captures = expr.captures or []
-        # An ESCAPING closure heap-allocates its env and joins the ImplicitCopy
+        # An ESCAPING closure heap-allocates its env and joins the Copy
         # family (design 73): the env carries a leading atomic refcount word so a
         # copy bumps it and the last owner's drop releases captures + frees the
         # block, exactly once. The word only exists when there is a heap env
@@ -281,7 +281,7 @@ class ClosuresMixin:
         # borrowed and no retain/teardown is needed. An ESCAPING closure (design
         # 21b E1: bound/returned/passed to spawn) heap-allocates its env via
         # saw_alloc and transfers each capture in per the value-transfer rules:
-        # ImplicitCopy captures are retained (copy() == refcount bump); trivial
+        # Copy captures are retained (copy() == refcount bump); trivial
         # captures are copied bitwise. A generated env-destructor runs the
         # captures' drop glue exactly once and frees the block; for spawn the
         # trampoline invokes it on the task thread after the body returns.
@@ -338,10 +338,10 @@ class ClosuresMixin:
                             self.builder.store(ir.Constant(ir.IntType(1), 0), src_flag)
                         self.moved_variables.add(cap_name)
                 elif mode == 'copy' and cap_saw is not None:
-                    # Explicit deep copy (ExplicitCopy `.copy()` / ImplicitCopy retain).
+                    # Explicit deep copy (ExplicitCopy `.copy()` / Copy retain).
                     cap_value = self._emit_copy_value(cap_value, cap_saw)
                 elif escapes and cap_saw is not None:
-                    # Plain capture into a heap env: retain ImplicitCopy captures
+                    # Plain capture into a heap env: retain Copy captures
                     # (no-op for trivial types).
                     cap_value = self._generate_copy(cap_value, cap_saw)
                 self.builder.store(cap_value, field_ptr)
@@ -384,12 +384,12 @@ class ClosuresMixin:
         / design 73).
 
         Signature `void (i8* env)`: runs drop glue for each cleanup-needing
-        capture (releasing retained ImplicitCopy captures such as an `Arc`)
+        capture (releasing retained Copy captures such as an `Arc`)
         exactly once, then frees the heap env with `saw_dealloc`. It is the
         run-at-refcount-zero teardown: `_emit_closure_drop_at` (and the spawn
         trampoline) atomically decrement the env's leading refcount word and call
         this only when the LAST owner drops, so it runs exactly once regardless of
-        how many copies the ImplicitCopy closure spawned. `cap_off` is the field
+        how many copies the Copy closure spawned. `cap_off` is the field
         offset the captures start at (1 past the refcount word for a heap env).
         """
         i8 = ir.IntType(8)

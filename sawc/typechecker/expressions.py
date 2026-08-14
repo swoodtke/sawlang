@@ -1553,7 +1553,7 @@ class ExpressionsMixin:
                 saw_type.array_element_type, trait, _visiting)
         if kind not in (TypeKind.STRUCT, TypeKind.ENUM):
             # Primitives and `String` compare through builtin lowerings. std's
-            # `String.equals` is a real body, but `String` is ImplicitCopy —
+            # `String.equals` is a real body, but `String` is Copy —
             # the tier this rule does not reach — so it is not a hand-written
             # conformance in the sense that matters here.
             return None
@@ -1617,7 +1617,7 @@ class ExpressionsMixin:
         `a.compare(b)` is refused at the transfer checkpoint, `a > b` was not.
 
         THE TIER CONDITION IS NARROWER THAN SOUNDNESS, deliberately. An
-        ImplicitCopy operand is excluded because a checked call site accepts it
+        Copy operand is excluded because a checked call site accepts it
         — but the operator adds no retain at any tier, so a consuming body
         over-releases one of those too (conformance row C12 pins it, and the
         probe SIGTRAPs). Widening this to every non-trivial tier would refuse
@@ -4034,9 +4034,9 @@ class ExpressionsMixin:
                     if bound in self._COPY_BOUND_NAMES:
                         # EVERY Copy-family bound goes through `_bound_satisfied`
                         # (design 219). It used to be `Copy` alone, with
-                        # `ImplicitCopy` and `ExplicitCopy` falling through to the
+                        # `Copy` and `ExplicitCopy` falling through to the
                         # raw conformance lookup below — which is why `T:
-                        # ImplicitCopy` rejected `Int` and an auto-tier struct:
+                        # Copy` rejected `Int` and an auto-tier struct:
                         # a DECLARATION was demanded for a tier that owes none.
                         # One entry point now answers all three, from the tier.
                         if not self._bound_satisfied(resolved_arg, bound):
@@ -4474,7 +4474,7 @@ class ExpressionsMixin:
                 )
                 # design 131: the binding is a VALUE READ of the payload. Out of
                 # a place the scrutinee keeps, that read follows the copy policy
-                # — retain for ImplicitCopy, refused for ExplicitCopy/NoCopy
+                # — retain for Copy, refused for ExplicitCopy/NoCopy
                 # (`if let a = move o` is the consuming form). A fresh temporary
                 # scrutinee already handed its payload over and is unchanged.
                 self._check_payload_read(expr.optional_expr, inner_type, expr,
@@ -4768,14 +4768,14 @@ class ExpressionsMixin:
             return None
 
         # Every copy is a copy. A trivially-copyable element is duplicated
-        # bitwise and an ImplicitCopy one retains N times, both of which the
+        # bitwise and a Copy one retains N times, both of which the
         # value's own transfer checkpoint below accounts for. An ExplicitCopy or
         # NoCopy element cannot be: `move v` transfers ONE value and there is no
         # spelling for "and N-1 more", so the literal is refused by name rather
         # than quietly aliasing the same buffer N times.
         # "Copies are free" is a question about the TIER, so it goes to design
         # 139's oracle rather than to a conformance lookup (design 159). The
-        # conformance-based predicate could not see the UNDECLARED ImplicitCopy
+        # conformance-based predicate could not see the UNDECLARED Copy
         # tier, so `[p; 3]` on a `struct P { name: String }` was refused with a
         # diagnostic that called `P` ExplicitCopy — a policy it does not have
         # and could not be given, since such a struct is exempt from declaring
@@ -4785,8 +4785,9 @@ class ExpressionsMixin:
             if self._is_abstract_type_param(elem_type):
                 # An opaque type parameter has no copy policy — it has whatever
                 # its instantiation brings, and no bound expresses "copies are
-                # free": `Copy` admits ExplicitCopy, and `ImplicitCopy` excludes
-                # the POD types that are freer still. So the element type is
+                # BITWISE free", which is what a repeat literal wants: `Copy`
+                # admits the retain family, whose N-fold repeat is N retains
+                # rather than one memcpy. So the element type is
                 # concrete in v1 (DF-148a), and the message says that rather
                 # than naming a policy the parameter does not have.
                 self._error(
@@ -5184,7 +5185,7 @@ class ExpressionsMixin:
         """Return None if `key_type` may be a Map/Set KEY, else a short reason it
         cannot (design 65 followup, L19). A key is probed by COPY (hash / compare
         / slot inspection), so it must be copyable-with-retain in a balanced way:
-        a trivial/POD type (bitwise, no deinit), an ImplicitCopy type (refcount
+        a trivial/POD type (bitwise, no deinit), a Copy type (refcount
         bump), or an ExplicitCopy type (deep copy + symmetric deinit) all balance.
         A NoCopy type, or a `Deinit` type with no copy conformance (move-only,
         no refcount to retain), cannot — its probe copies would run the deinit and
@@ -6645,7 +6646,7 @@ class ExpressionsMixin:
                                           field_type: SawType) -> None:
         """A final `?...field` projection reads the field out BY VALUE (there is no
         `.copy()`/`move` spelling inside a chain), so the field must be freely
-        copyable — trivially copyable or ImplicitCopy. A move-only field (NoCopy,
+        copyable — trivially copyable or Copy. A move-only field (NoCopy,
         an owning Deinit type, or ExplicitCopy) is rejected (matching
         `Vector.get`'s copyable-element rule)."""
         if self._chain_field_freely_copyable(field_type):
@@ -6663,7 +6664,7 @@ class ExpressionsMixin:
 
     def _chain_field_freely_copyable(self, t: SawType) -> bool:
         """Whether a final-projection field type can be read out by value with no
-        `move`/`.copy()` — trivially copyable or ImplicitCopy at the leaves,
+        `move`/`.copy()` — trivially copyable or Copy at the leaves,
         recursing through Optional / tuple / array wrappers (so an `Optional<Point>`
         or `String?` final field is fine, an owning/NoCopy/ExplicitCopy one is
         not)."""
@@ -7060,7 +7061,7 @@ class ExpressionsMixin:
         """Handle a `.copy()` receiver. Returns (handled, result_type).
 
         handled=False means the receiver has a real copy() method
-        (ImplicitCopy/ExplicitCopy) and normal method dispatch should proceed.
+        (Copy/ExplicitCopy) and normal method dispatch should proceed.
         handled=True means this call was fully resolved here (trivial auto-Copy,
         a `T: Copy`-family bound, or a diagnostic on a non-Copy receiver).
         """
@@ -8398,7 +8399,7 @@ class ExpressionsMixin:
 
         # `.copy()` — the umbrella Copy operation. Handles auto-Copy of trivial
         # types and `.copy()` through a `T: Copy`-family bound. Types that carry
-        # a real copy() method (ImplicitCopy/ExplicitCopy) fall through to normal
+        # a real copy() method (Copy/ExplicitCopy) fall through to normal
         # method dispatch.
         if expr.method_name == "copy" and len(expr.arguments) == 0:
             handled, result = self._check_copy_call(expr, obj_type)
@@ -9349,7 +9350,7 @@ class ExpressionsMixin:
         # binding (matching through a `&T`/`&var T` binding stays a borrow; a
         # temporary has no binding to mark), an enum whose tier is an OWNING
         # one, carrying at least one payload the drop glue would touch. An
-        # ImplicitCopy-tier enum is NOT marked — its reads are retain-copies
+        # Copy-tier enum is NOT marked — its reads are retain-copies
         # by policy, and codegen agrees since design 193 unit 1: it BORROWS such
         # a scrutinee and retains each arm binding (DF-190d). Both gates ask the
         # one oracle, `Namespace.read_policy` over the copy tier.
@@ -10498,7 +10499,7 @@ class ExpressionsMixin:
         # source binding as moved-from (design 03/15/16/29). Borrow captures
         # (ref/ref_var) are not transfers and are skipped. This makes capture
         # rules literally the call-argument rules: plain capture of a
-        # NoCopy/ExplicitCopy is an error (demand `move`/`copy`); ImplicitCopy is
+        # NoCopy/ExplicitCopy is an error (demand `move`/`copy`); Copy is
         # retained; trivial is copied bitwise; `move`/`copy` are explicit.
         for cap_name in captures:
             mode = expr.capture_modes.get(cap_name, 'plain')

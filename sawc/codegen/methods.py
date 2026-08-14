@@ -227,7 +227,7 @@ class MethodsMixin:
         """Emit the body of a compiler-derived memberwise copy().
 
         Builds a fresh struct value from self's fields: POD fields are copied
-        bitwise, while fields whose type declares ImplicitCopy/ExplicitCopy have
+        bitwise, while fields whose type declares Copy/ExplicitCopy have
         their own copy() invoked. A NoCopy field is rejected by the typechecker
         (`_check_derivable_copy`) before reaching here.
 
@@ -270,7 +270,7 @@ class MethodsMixin:
                 field_val = self._emit_enum_deep_copy(field_val, enum_field)
             elif field_type is not None and field_type.kind == TypeKind.OPTIONAL:
                 field_val = self._emit_optional_deep_copy(field_val, field_type)
-            # Does this field's type carry its own copy()? (ImplicitCopy or
+            # Does this field's type carry its own copy()? (Copy or
             # ExplicitCopy). If so, invoke it; otherwise the load is a bitwise copy.
             elif (self.namespace.names_copy_tier(conformances)
                   or "ExplicitCopy" in conformances):
@@ -660,7 +660,7 @@ class MethodsMixin:
             # final_expr, not a statement, so it needs its own location set here).
             self._di_set_line(block.final_expr.line,
                               block.final_expr.column)
-            # Honor an ImplicitCopy `needs_copy` annotation on a tail-return final
+            # Honor a Copy `needs_copy` annotation on a tail-return final
             # expression (only the function/method body's final_expr is marked
             # by the value-transfer checkpoint, so other blocks are unaffected).
             result = self._gen_transfer_value(block.final_expr)

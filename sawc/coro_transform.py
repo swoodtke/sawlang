@@ -657,7 +657,7 @@ def _read_field(name, encoding, line=0, column=0, owning_read=False,
     would then re-judge, as an ordinary read out of somebody else's storage, a
     read whose ownership the transform has ALREADY settled on the pre-transform
     AST (which the typechecker saw, and annotated, as the plain local it was).
-    Judging it twice would double-retain an ImplicitCopy payload and reject a
+    Judging it twice would double-retain a Copy payload and reject a
     NoCopy one that the frame is legitimately moving out."""
     def _marked(node):
         node.frame_place_read = True
@@ -2646,7 +2646,7 @@ class _FrameBuilder:
         So the components come out through the ordinary `DestructuringLet`
         instead, over an explicit `move` of the source temp — the spelling whose
         codegen transfers rather than retains, and which therefore says the same
-        thing for a NoCopy element and an ImplicitCopy one. The source temp
+        thing for a NoCopy element and a Copy one. The source temp
         itself still takes the value with whatever semantics the SOURCE
         EXPRESSION has (a frame-field read retains, a call result moves), so
         `let (a, b) = t` keeps `t` live and its own reference exactly as it does
@@ -3824,7 +3824,7 @@ class _FrameBuilder:
         caller deciding for itself — DF-210a/b were `_store_binding_in_slot`
         moving or copying unconditionally, and DF-217c was the closure
         materialization spelling `.copy()` on every tier, which is a compile
-        error on a NoCopy value and on an AUTOMATIC-ImplicitCopy struct (design
+        error on a NoCopy value and on an AUTOMATIC-Copy struct (design
         159's tier owes no declaration, so it has no `copy` method to call).
         """
         slot_type = self._frame_slot_type(name)
@@ -4102,7 +4102,7 @@ class _FrameBuilder:
         ExplicitCopy one would have been dropped by both the field and the
         binding. DF-210b narrows the "when": design 182 made the move
         UNCONDITIONAL, and for a payload whose read only RETAINS (the
-        ImplicitCopy tier — an `Arc`, a `String`) the binding never held a
+        Copy tier — an `Arc`, a `String`) the binding never held a
         reference of its own to give, so the frame's release was one too many
         and the payload was destroyed while its source still pointed at it. The
         tier decides, through `_store_binding_in_slot` — the one authority both
@@ -4857,7 +4857,7 @@ class _FrameBuilder:
         # inside it is wrong. Instead materialize each captured frame local as a
         # real local (`let base = self.base!`) right before the closure and leave
         # the closure body untouched — codegen then captures the local by value
-        # (retain for ImplicitCopy) exactly as for ordinary code.
+        # (retain for Copy) exactly as for ordinary code.
         if isinstance(node, ClosureExpr):
             self._materialize_closure_captures(node)
             return node
@@ -5099,7 +5099,7 @@ class _FrameBuilder:
             # read-out-of-storage discipline as `Vector.get`" — but it never
             # asked, and `.copy()` is not a method every tier HAS. On a NoCopy
             # local explicitly captured `[move r]` it was `type `Res` is not
-            # Copy`, and on an AUTOMATIC-ImplicitCopy struct (design 159: the
+            # Copy`, and on an AUTOMATIC-Copy struct (design 159: the
             # tier that owes no declaration, so it declares no `copy` either) it
             # was `type `Bag` is not Copy` — both on programs whose
             # non-suspending twins compile, both followed by a spurious `capture
@@ -5699,7 +5699,7 @@ def _make_driver(fb: _FrameBuilder, mode, fbs):
             # frame's teardown does not release what the caller now owns.
             #
             # Design 139 is what forced the spelling. A retain would do for an
-            # ImplicitCopy result (a bump the frame's own release then undoes),
+            # Copy result (a bump the frame's own release then undoes),
             # and that is what used to happen; but once `Result<Int, Box<any
             # Error>>` became move-only there was no retain to reach for, and a
             # move is what this always was.

@@ -274,7 +274,7 @@ class TypeChecker(ExpressionsMixin, StatementsMixin, RegistrationMixin, TypeUtil
         # NoCopy fields after all conformances are registered.
         self._derived_copy_structs: set[str] = set()
         # Enums whose copy() is compiler-derived payload-deep (design 139): a
-        # declared `@synthesize extension E: ImplicitCopy|ExplicitCopy {}`.
+        # declared `@synthesize extension E: Copy|ExplicitCopy {}`.
         self._derived_copy_enums: set[str] = set()
         # Structs/enums whose equals() (==) is compiler-derived (design 32),
         # checked for non-Equatable fields/payloads after all conformances are
