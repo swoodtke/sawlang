@@ -14,7 +14,7 @@ K21-K25, design 210 units 1 and 5; S09, O12 and K26, the DF-217a/b/c fixes; O13,
 the DF-217l leak their sweep turned up; K29, design 219 unit A1 (renumbered
 from K27 at integration — the 218a spec pre-registered K27/K28); U28-U29 and
 V31, design 219 unit A2; K27-K28, design 218 unit 1; V32-V35, design 219 wave B;
-V36-V42, design 219 wave C.)
+V36-V44, K30 and U30, design 219 wave C.)
 
 ## How to read it
 
@@ -225,6 +225,8 @@ Claim source: spec 4 *The Copy Trait Family* + *Move-Only Types*; designs 34, 13
 | V40 | a generic COROUTINE gets the same judgement, BEFORE the transform runs | `V40_generic_coroutine_body_honors_copy_tier.saw` | 219 C1 — S1 row 8a. The post-transform re-check saw the same abstract `T` the first check saw, so "the generated code typechecks" was satisfied vacuously. The requirement is a property of the AUTHORED body |
 | V41 | control: branch-exclusive uses are ONE use per path, so the body stays move-only | `V41_branch_exclusive_uses_stay_move_only.saw` | 219 C1 — the false-positive class. `if a < b { b } else { a }` mentions each parameter twice and duplicates neither; a name-counting rule would have tightened three corpus generics. Correct because the inference asks design 15's dataflow, which has merged branches since it was written |
 | V42 | control: the duplicating body still works at every tier that can satisfy it | `V42_copy_argument_to_duplicating_body_runs.saw` | 219 C1 — the accept side. Primitives, `String`'s retain and design 139's AUTOMATIC tier all pass one bounded body, each duplicate lowering at its own tier. Without this row the refusal could be delivered by a rule that refuses generic duplication outright |
+| V43 | the `.copy()`-needs-a-bound rule over COMPOSITE receivers — `(T, Int)`, `T?`, `[T; N]`, nested | `V43_copy_call_needs_a_bound_through_wrappers.saw` | 219 C2 — DF-217q. The rule was written once, for a bare `T`, so every wrapper reached its own arm instead, and each of those reasons about the WRAPPER: the tuple arm's comment promised the tuple "settles at the instantiation" and nothing ever settled it. One funnel, gated on the abstract tier |
+| V44 | control: the bounded wrapper copies really work, at both duplicable tiers | `V44_bounded_wrapper_copy_runs.saw` | 219 C2 — the accept side, and the fix to the ARRAY arm the row found: `type_satisfies_explicit_copy_bound` answers from the tier alone, so `[T; 2]` under a declared `<T: ExplicitCopy>` came back False and the one spelling the bound exists to license was refused |
 
 ## Places (`borrows` / `lend`) — window discipline
 
@@ -284,6 +286,7 @@ Claim source: spec 10 *Unsafe Code*; designs 130, 136, 149, 188 u6
 | U27 | reaching an unsafe body through a safe trait call site | `U27_unsafe_body_via_safe_trait_call.saw` |  |
 | U28 | an owning VALUE READ out of a pointer place, unspelled | `U28_pointer_place_read_needs_move.saw` | 219 A2 — the read always transferred (codegen emits a raw load and hands the value on); the refusal now teaches the spelling that says so instead of naming the pointer binding |
 | U29 | `move ptr[i]` — the move-out family's fourth member, deinit-exact | `U29_pointer_place_move_out.saw` | 219 A2 — design 35's refusal is keyed on the place's ROOT, and a pointer place tracks no occupancy for a move-out to corrupt; the author keeps it true inside `unsafe`-declared code |
+| U30 | the signature rule derived PER INSTANCE: a generic at an unsafe type argument must declare `unsafe` | `U30_generic_instantiation_unsafe_signature.saw` | 219 C3 — DF-217k: the rule ran once with `T` abstract, and abstract `T` names no unsafe type, so an instantiation received and returned an unsafe value with an empty effect slot while the concrete twin was refused at its declaration. A monomorphized signature is a signature; the refusal anchors at the call, where the type argument is written |
 
 ## Always-on runtime checks
 
@@ -370,6 +373,7 @@ Claim source: spec 6 *Send and Sync* + *Cooperative tasks*; designs 75, 88, 103,
 | K26 | a closure's capture of a frame-resident local is a frame read judged by the copy tier, not a user `.copy()` | `K26_closure_capture_of_frame_local_not_a_user_copy.saw` | DF-217c — K24's guarantee at a third position. The materialization spelled `.copy()` on every tier without asking `read_policy`, so a NoCopy `[move r]` capture AND an automatic-Copy struct (design 159's tier declares no `copy`) were both refused on programs whose non-suspending twins compile |
 | K27 | a place window (`UnsafeRef.deref`, `Slot.value`) never spans a suspension | `K27_receiver_window_never_spans_suspend.saw` | 218 unit 1 — the invariant the frame vocabulary rests on, and it needs no new machinery: a `borrows` body is `sync` (the design-146 v1 fence), so a suspending call inside the window expression is the ordinary sync violation. The row exists because the transform will RELY on it, so it has to be a checked rule rather than an argument about what the ANF hoist happens to leave behind |
 | K28 | a `Slot<T>` payload is released exactly once, at every exit | `K28_slot_payload_released_exactly_once.saw` | 218 unit 1 — the property the module buys. A payload leaves by exactly four operations (`take`, `clear`, `put` onto an occupied slot, the synthesized deinit) and each updates the tag in the same body that moves or drops the payload, with the field private so there is no fifth way in. This replaces a theorem about EMISSION PAIRS — a read and a separate `__saw_forget` any site could mispair, which DF-206f, DF-210f and DF-217h each did — with one local property, checked here |
+| K30 | a generic container instantiated at a NoMove payload is itself NoMove, derived per instance | `K30_generic_container_of_pinned_is_pinned.saw` | 219 C3 — DF-217j: `Wrap<TaskGroup>` relocated a live group and died `force unwrap of None`, the abort design 188 exists to prevent, from safe code. The declared cascade stays the rule where a declaration site exists; a generic container has none (`Wrap<T>` cannot say `NoMove` without pinning `Wrap<Int>`), so the property is derived from the type argument exactly as the copy policy already was |
 | K29 | a suspending `copy()` on a declared copy-policy conformance is refused AT the conformance | `K29_copy_policy_hook_must_be_sync.saw` | 219 A1 — DF-217r: the retain hook is called at compiler-INSERTED sites, so its suspension was invisible to the effect census and ran inside a `sync`-declared function with no diagnostic. Checked once at the declaration, where the author can act on it. (Renumbered from K27 at integration; the 218a spec pre-registered K27/K28) |
 
 ## Visibility and module boundaries

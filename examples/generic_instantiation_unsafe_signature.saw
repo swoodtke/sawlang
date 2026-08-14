@@ -1,19 +1,17 @@
-// XFAIL: DF-217k the design-130 unsafe-signature rule skips monomorphized
-// signatures, so a generic function receives and returns an unsafe type
-// undeclared
+// DF-217k, FIXED by design 219 wave C: design 130's signature rule is DERIVED
+// per instance, so a generic instantiated at an unsafe type must say so.
 //
 // `idn<T>` at `T = UnsafePointer<Int8>` RECEIVES and RETURNS a value of unsafe
-// type and compiles with no `unsafe` in its effect slot; the concrete twin is
-// refused at the declaration ("function `idn` is not declared `unsafe`, but its
-// signature receives a value of unsafe type"). The instantiated signature is
-// the one a reader of the call site sees, and it lies about its domain.
+// type and used to compile with no `unsafe` in its effect slot; the concrete
+// twin was refused at the declaration all along. The instantiated signature is
+// the one a reader of the call site sees, and it was lying about its domain.
 //
-// Memory-safe as it stands — the caller rule still fires, which is why this is
+// Memory-safe as it stood — the caller rule still fired, which is why this was
 // declaration hygiene rather than a soundness hole — but design 130's whole
 // claim is that unsafety is TYPE-CARRIED and visible in the signature, and a
-// monomorphized signature is a signature. Same abstract-`T` boundary as
-// DF-217i/DF-217j: the rule runs once with `T` abstract and nothing re-judges
-// it at the concrete type argument.
+// monomorphized signature is a signature. The refusal anchors at the CALL,
+// where the type argument that makes the signature unsafe is written; the
+// template stays exempt when it was already unsafe on its own terms.
 // EXPECT: error
 // EXPECT-ERROR-CONTAINS: not declared `unsafe`
 

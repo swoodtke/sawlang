@@ -199,9 +199,13 @@ func optional_tuple_copy(k: Int) -> Int {
 // specific to this one — DF-151k, filed from this unit.
 
 // A tuple mentioning a type PARAMETER has no tier of its own — the
-// instantiation decides — so the arm lets it through and codegen settles it at
-// the monomorphization, exactly as `T?.copy()` already did.
-func dup<T>(p: (T, Int)) -> (T, Int) {
+// instantiation decides — and design 219 wave C is what decides it. The arm
+// used to let this through on the promise that codegen would settle it at the
+// monomorphization, and nothing ever did (DF-217q): unbounded, this
+// double-freed at a move-only `T`. The bound is the settlement, written where
+// every caller can see it, and `.copy()` then lowers at each instantiation's
+// own tier.
+func dup<T: ExplicitCopy>(p: (T, Int)) -> (T, Int) {
     return p.copy()
 }
 

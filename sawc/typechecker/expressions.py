@@ -3067,6 +3067,12 @@ class ExpressionsMixin:
         if callee_decl is not None:
             self._tier_record_obligation(callee_decl, type_params, type_map,
                                          display or "this call", line, column)
+            # design 219 wave C (DF-217k): the per-instance half of design
+            # 130's signature rule rides the same sites — it needs exactly the
+            # same (callee, type arguments) pair.
+            if getattr(callee_decl, 'param_types', None) is not None:
+                self._tier_check_instance_unsafe(
+                    callee_decl, display or "this call", type_map, line, column)
         for tp in type_params:
             resolved_arg = type_map.get(tp.name)
             if resolved_arg is None:
@@ -4178,6 +4184,8 @@ class ExpressionsMixin:
             self._tier_record_obligation(
                 func_info.ast_node, func_info.type_params, type_map,
                 f"`{expr.name}`", expr.line, expr.column)
+            self._tier_check_instance_unsafe(
+                func_info, f"`{expr.name}`", type_map, expr.line, expr.column)
             # design 70 (A5): record a deferred effect edge to this instantiation.
             # Materialized at finalize only if `expr.name`'s template is
             # effect-polymorphic (calls a method on a type-param receiver), so an
@@ -7105,6 +7113,36 @@ class ExpressionsMixin:
         """
         type_params = getattr(self, 'current_type_params', {})
 
+        # design 219 wave C (DF-217q): THE `.copy()`-needs-a-bound funnel, over
+        # every receiver shape. The gate below used to be the whole rule and it
+        # matched a BARE `T` only, so `(T, Int)`, `T?` and `[T; N]` reached
+        # their own wrapper arms — each of which reasons about the wrapper and
+        # not the parameter — and compiled unbounded.
+        #
+        # Gated on the ABSTRACT tier, which is true exactly when the answer
+        # depends on the type argument: a receiver that declares its own copy
+        # policy still answers for itself further down.
+        if self.namespace.copy_tier(obj_type) == 'abstract':
+            unbounded = self._tier_unbounded_copy_params(obj_type)
+            if unbounded:
+                name = unbounded[0]
+                what = (f"type parameter `{name}`"
+                        if obj_type.kind == TypeKind.STRUCT
+                        and obj_type.struct_name == name
+                        else f"`{obj_type}`, whose copy reaches the unbounded "
+                             f"type parameter `{name}`")
+                self._error(
+                    ErrorKind.CANNOT_COPY,
+                    f"cannot call `.copy()` on a value of unbounded {what}",
+                    expr.line, expr.column,
+                    hint=f"add the bound that says a copy exists: "
+                         f"`<{name}: ExplicitCopy>` for the whole duplicable "
+                         f"family, or `<{name}: Copy>` for the silent tier. "
+                         f"Without one, `.copy()` here would be a real copy for "
+                         f"some instantiations and a double free for others"
+                )
+                return True, None
+
         # Receiver is an opaque generic type parameter: allow .copy() only under
         # a Copy-family bound; the result is the type parameter itself.
         if obj_type.kind == TypeKind.STRUCT and obj_type.struct_name in type_params:
@@ -7145,7 +7183,14 @@ class ExpressionsMixin:
             # element answers yes to. Asking the silent tier here would have
             # refused `[Vector<Int>; 2].copy()` — the one spelling that is
             # unambiguously the author's request for a duplicate.
-            if self.namespace.type_satisfies_explicit_copy_bound(obj_type):
+            #
+            # An ABSTRACT element was vetted by the wrapper funnel above
+            # (DF-217q), which is bounds-aware where this predicate is not:
+            # `type_satisfies_explicit_copy_bound` answers from the tier alone,
+            # so `[T; 2]` under a declared `<T: ExplicitCopy>` came back False
+            # and the one spelling the bound exists to license was refused.
+            if (self.namespace.type_satisfies_explicit_copy_bound(obj_type)
+                    or self.namespace.copy_tier(obj_type) == 'abstract'):
                 expr.resolved_type = obj_type
                 return True, obj_type
             self._error(

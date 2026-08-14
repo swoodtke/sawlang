@@ -1,20 +1,19 @@
-// XFAIL: DF-217j the NoMove containment cascade is never derived per
-// instantiation, so a generic container relocates a pinned value and aborts
+// DF-217j, FIXED by design 219 wave C: the NoMove containment cascade is
+// DERIVED per instance, so a generic container over a pinned payload is pinned.
 //
 // `struct Wrap<T>` declares `NoCopy` and is instantiated at `TaskGroup`, which
-// is NoMove. `move w` compiles, and the spawn-move-spawn sequence below dies
-// `panic at taskgroup.saw: force unwrap of None` — exactly the abort design 188
-// exists to prevent, reached from safe code. The concrete twin `struct Wrap {
-// v: TaskGroup }` is refused AT THE DECLARATION with the cascade error and its
-// two-way hint (declare `NoMove` too, or hold the pinned value behind a `Box`).
+// is NoMove. `move w` used to compile, and the spawn-move-spawn sequence below
+// died `panic at taskgroup.saw: force unwrap of None` — exactly the abort
+// design 188 exists to prevent, reached from safe code.
 //
-// The COPY policy of `Wrap<Res>` IS monomorphized — a `Wrap` over a NoCopy
-// payload is refused correctly — so the machinery exists and the NoMove cascade
-// simply never meets it. Same abstract-`T` boundary as DF-217i, but a
-// type-DECLARATION rule rather than a transfer rule, which is why it sits
-// outside all three of the fix boundaries sweep S1 mapped.
+// The concrete twin `struct WrapC { v: TaskGroup }` is refused AT THE
+// DECLARATION, and that stays the rule for a type with a declaration site to
+// add the cascade at. A generic one has none: `Wrap<T>` cannot say `NoMove`
+// without pinning `Wrap<Int>` too. So the answer is the one the COPY policy
+// already gave (S1 row 4g) — a generic instance's structure is derived from its
+// arguments — and `Wrap<TaskGroup>` is pinned where `Wrap<Int>` is not.
 // EXPECT: error
-// EXPECT-ERROR-CONTAINS: NoMove
+// EXPECT-ERROR-CONTAINS: `Wrap<TaskGroup>` is `NoMove`
 
 import std.task.*
 

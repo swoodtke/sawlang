@@ -256,6 +256,39 @@ class TierRequirementsMixin:
         return "the value"
 
     # ------------------------------------------------------------------
+    # The `.copy()`-needs-a-bound funnel (DF-217q).
+    # ------------------------------------------------------------------
+
+    def _tier_unbounded_copy_params(self, saw_type: Optional[SawType]
+                                    ) -> List[str]:
+        """The type parameters a `.copy()` on `saw_type` would reach that no
+        copy-family bound covers — THE funnel for the declared-`ExplicitCopy`
+        rule, over EVERY receiver shape (DF-217q).
+
+        The rule used to be written once, for a BARE `T` receiver, so
+        `dup<T>(p: (T, Int)) { p.copy() }` compiled unbounded and double-freed
+        at a move-only argument. The wrapper arms each reasoned locally — the
+        tuple arm's own comment says a tuple mentioning a type parameter
+        "settles at the instantiation", and nothing ever settled it.
+
+        ONE call, at the top of `_check_copy_call`, covers the whole matrix:
+        bare `T`, `(T, Int)`, `T?`, `[T; N]`, `Vector<T>` and every nesting of
+        them, because the parameter walk is recursive and the caller gates on
+        `copy_tier(...) == 'abstract'` — which is true exactly when the answer
+        depends on the type argument. A receiver whose type DECLARES its own
+        copy policy (`Vector<T>`, a `Holder<T>: ExplicitCopy` with a
+        hand-written body) is not abstract, so it keeps answering for itself.
+        """
+        env = getattr(self, 'current_type_params', None) or {}
+        out: List[str] = []
+        for name in self._tier_abstract_params_in(saw_type):
+            bounds = [b.rsplit('.', 1)[-1] for b in (env.get(name) or [])]
+            if any(b in _COPY_FAMILY_BOUNDS for b in bounds):
+                continue
+            out.append(name)
+        return out
+
+    # ------------------------------------------------------------------
     # Definition side: the coverage rules.
     # ------------------------------------------------------------------
 
@@ -331,6 +364,7 @@ class TierRequirementsMixin:
         `FunctionSymbol.ast_node`, which registration fills for exactly the
         generic declarations this rule quantifies over.
         """
+        callee_decl = getattr(callee_decl, 'ast_node', callee_decl)
         if callee_decl is None or not type_params or not type_map:
             return
         env = dict(getattr(self, 'current_type_params', None) or {})
@@ -357,6 +391,50 @@ class TierRequirementsMixin:
             getattr(self, '_tier_req_decl', None),
             self._tier_current_source_file(),
         ))
+
+    def _tier_check_instance_unsafe(self, callee_sym, display: str,
+                                    type_map, line: int, column: int) -> None:
+        """Design 130's signature rule, DERIVED per INSTANCE (DF-217k).
+
+        A function whose signature RECEIVES or RETURNS a value of unsafe type is
+        declared `unsafe`. The rule ran once, with `T` abstract, so `idn<T>` at
+        `T = UnsafePointer<Int8>` received and returned an unsafe value with an
+        empty effect slot — while the concrete twin was refused at its
+        declaration. The instantiated signature is the one a reader of the call
+        site sees, and it was lying about its domain.
+
+        The anchor is the CALL, because that is where the type argument that
+        makes the signature unsafe is written; the TEMPLATE is exempt when it
+        was already unsafe on its own terms (the declaration check fired there).
+        """
+        if callee_sym is None or not type_map:
+            return
+        if getattr(callee_sym, 'is_unsafe', False):
+            return
+        decl = getattr(callee_sym, 'ast_node', None)
+        if decl is not None and self._unsafe_check_exempt(decl):
+            return
+        signature = list(callee_sym.param_types or []) + [callee_sym.return_type]
+        for t in signature:
+            if t is None:
+                continue
+            if self._first_unsafe_type(t) is not None:
+                continue           # unsafe before substitution: not ours to say
+            found = self._first_unsafe_type(t.substitute(type_map))
+            if found is None:
+                continue
+            self._error(
+                ErrorKind.TYPE_MISMATCH,
+                f"{display} is not declared `unsafe`, but this instantiation's "
+                f"signature names a value of unsafe type (`{found}`)",
+                line, column,
+                hint="declare the generic `unsafe` — calling an unsafe function "
+                     "from safe code needs no ceremony, so the marker costs its "
+                     "other instantiations nothing and buys every reader a "
+                     "signature that tells the truth. Or keep the unsafe type "
+                     "out of the type argument"
+            )
+            return
 
     def _tier_current_source_file(self) -> Optional[str]:
         for holder in (getattr(self, 'current_method', None),

@@ -1,0 +1,31 @@
+// Conformance row U30 — design 130's signature rule is derived PER INSTANCE, so
+// a generic instantiated at an unsafe type must declare `unsafe` (DF-217k)
+//
+// The rule ran once, with `T` abstract, and abstract `T` names no unsafe type —
+// so `idn<T>` at `T = UnsafePointer<Int8>` received and returned an unsafe
+// value with an empty effect slot, while the concrete twin was refused at its
+// declaration. Design 130's whole claim is that unsafety is TYPE-CARRIED and
+// visible in the signature, and a monomorphized signature is a signature.
+//
+// The refusal anchors at the CALL, where the type argument that makes the
+// signature unsafe is written. The control below is what keeps it a per-
+// instance rule: the same generic at `Int` is untouched.
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: not declared `unsafe`
+
+func idn<T>(x: T) -> T { move x }
+
+func make_ptr() unsafe -> UnsafePointer<Int8> {
+    0 as UnsafePointer<Int8>
+}
+
+func caller() unsafe -> Int {
+    // The control: a safe type argument leaves the rule silent.
+    let n = idn<Int>(7)
+    let p = idn(make_ptr())
+    n + (p as Int)
+}
+
+func main() {
+    print("n {caller()}")
+}

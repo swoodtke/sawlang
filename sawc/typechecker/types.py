@@ -2571,8 +2571,61 @@ class TypeUtilsMixin:
             name = saw_type.enum_name
         if name is None:
             return False
-        return self.namespace.type_conforms_to(
-            self._canonical_type_name(name), "NoMove")
+        if self.namespace.type_conforms_to(
+                self._canonical_type_name(name), "NoMove"):
+            return True
+        # design 219 wave C (DF-217j): the containment cascade, DERIVED per
+        # INSTANCE. `_check_no_move_declarations` makes a CONCRETE container
+        # declare the cascade, and that is the right rule for a type that has a
+        # declaration site to add it at. A generic one does not: `Wrap<T>`
+        # cannot say `NoMove` — that would pin `Wrap<Int>` too — so its template
+        # passed the declaration check with a `T` field and `Wrap<TaskGroup>`
+        # relocated a live group, aborting in `taskgroup.saw` (S1 row 4f2).
+        #
+        # The answer is the one the COPY policy already gives (S1 row 4g): a
+        # generic instance's structure is derived from its arguments. So an
+        # instantiated container is pinned exactly when a substituted member is
+        # — which is design 188's own sentence, "a value that cannot be
+        # relocated cannot be relocated inside something else either", applied
+        # where no declaration could have carried it.
+        if not saw_type.type_args:
+            return False
+        if name.startswith("__Frame_"):
+            # A coroutine frame is constructed, resumed by `&var` and dropped in
+            # place — never relocated. Same exemption the declaration check and
+            # the NoCopy containment check make (design 62 G1).
+            return False
+        return any(self._is_no_move_type(member, depth + 1)
+                   for member in self._instance_member_types(saw_type))
+
+    def _instance_member_types(self, saw_type: SawType):
+        """The member types of an INSTANTIATED generic struct/enum, with its
+        type arguments substituted in — the per-instance structure the copy
+        tier already derives (`_struct_structural_copy_tier`), reused here so
+        the NoMove cascade and the copy policy answer from one model."""
+        name = (saw_type.struct_name if saw_type.kind == TypeKind.STRUCT
+                else saw_type.enum_name)
+        struct_info = self.namespace.structs.get(name)
+        enum_info = None if struct_info is not None else self.namespace.enums.get(name)
+        info = struct_info or enum_info
+        if info is None:
+            return []
+        type_map = {tp.name: arg for tp, arg in
+                    zip(getattr(info, 'type_params', None) or [],
+                        saw_type.type_args or [])}
+        if not type_map:
+            return []
+        out = []
+        if struct_info is not None:
+            for field_type in struct_info.fields.values():
+                if field_type is not None:
+                    out.append(field_type.substitute(type_map))
+        else:
+            for payloads in enum_info.variants.values():
+                for _pname, ptype in (payloads or []):
+                    if ptype is not None:
+                        out.append(ptype.substitute(type_map))
+        return out
 
     def _no_move_scope_note(self, saw_type: SawType) -> str:
         """The extra sentence a refused move of a `TaskGroup` earns.

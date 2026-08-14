@@ -1,0 +1,33 @@
+// Conformance row K30 — a generic container instantiated at a NoMove payload is
+// itself NoMove, derived per instance (DF-217j)
+//
+// `Wrap<TaskGroup>` used to relocate a live group and die
+// `panic at taskgroup.saw: force unwrap of None` — the abort design 188 exists
+// to prevent, reached from safe code with no `unsafe` anywhere.
+//
+// The declared cascade stays the rule for a CONCRETE container: it has a
+// declaration site to add `NoMove` at. A generic one does not — `Wrap<T>`
+// cannot declare it without pinning `Wrap<Int>` too — so the property is
+// derived from the type argument, exactly as the copy policy already was.
+//
+// The control below is the other half: `Wrap<Int>` moves freely, which is what
+// makes this a per-instance derivation rather than a blanket ban on generic
+// containers.
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: `Wrap<TaskGroup>` is `NoMove`
+
+import std.task.*
+
+struct Wrap<T> { v: T }
+extension Wrap<T>: NoCopy {}
+
+func main() {
+    // The control: an unpinned payload keeps its container movable.
+    var i = Wrap<Int>(v: 7)
+    var i2 = move i
+    print("moved {i2.v}")
+
+    var w = Wrap<TaskGroup>(v: TaskGroup())
+    var w2 = move w
+    print("unreached {w2.v.is_empty()}")
+}

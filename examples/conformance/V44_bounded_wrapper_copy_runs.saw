@@ -1,0 +1,48 @@
+// Conformance row V44 — control: the bounded wrapper copies really work, at
+// both duplicable tiers
+//
+// The accept side of V43. `<T: ExplicitCopy>` is the whole DUPLICABLE family,
+// so one bounded body serves an `Int` element (bitwise), a `String` (retain)
+// and a `Vector<Int>` (a real deep copy) — each `.copy()` lowering at the
+// instantiation's own tier. Without this row the refusal could be delivered by
+// a rule that simply banned `.copy()` through a wrapper in generic code.
+// (Each helper returns an `Int`: a bound proves a copy EXISTS, and reading the
+// duplicate's `T` back out as a value is a separate question design 146 answers
+// — an abstract place read needs the SILENT tier, not this one.)
+// EXPECT: success
+// EXPECT-OUTPUT:
+// 12
+// 2
+// 2
+// 2
+
+func twice_tuple<T: ExplicitCopy>(p: (T, Int)) -> Int {
+    let q = p.copy()
+    q.1 + p.1
+}
+
+func len_of_copy<T: ExplicitCopy>(p: [T; 2]) -> Int {
+    let q = p.copy()
+    q.len()
+}
+
+func len_of_opt_copy<T: ExplicitCopy>(p: T?) -> Int {
+    let q = p.copy()
+    if q.is_some() { 2 } else { 0 }
+}
+
+func main() {
+    print(twice_tuple<Int>((3, 6)))
+    print(len_of_opt_copy<String>("hi"))
+
+    var v = Vector<Int>()
+    v.push(1)
+    var w = Vector<Int>()
+    w.push(2)
+    let arr: [Vector<Int>; 2] = [move v, move w]
+    print(len_of_copy<Vector<Int>>(move arr))
+
+    var u = Vector<Int>()
+    u.push(7)
+    print(len_of_opt_copy<Vector<Int>>(move u))
+}

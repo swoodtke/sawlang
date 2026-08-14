@@ -1,0 +1,39 @@
+// Conformance row V43 — the `.copy()`-needs-a-bound rule quantifies over
+// COMPOSITE receivers, not just a bare `T` (DF-217q)
+//
+// The rule was written once, for a bare type-parameter receiver, so every
+// wrapper reached its own arm instead — and each of those arms reasons about
+// the WRAPPER. The tuple arm's own comment said a tuple mentioning a type
+// parameter "settles at the instantiation"; nothing ever settled it, so
+// `dup<T>(p: (T, Int)) { p.copy() }` compiled unbounded and double-freed at a
+// move-only argument.
+//
+// One funnel now answers for every shape, gated on the ABSTRACT tier — true
+// exactly when the answer depends on the type argument. This row is the
+// position matrix: bare, tuple, optional, fixed array, and a nesting of two.
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: whose copy reaches the unbounded type parameter `T`
+
+func dup_tuple<T>(p: (T, Int)) -> Int {
+    let q = p.copy()
+    q.1
+}
+
+func dup_opt<T>(p: T?) -> Int {
+    let q = p.copy()
+    if q.is_some() { 1 } else { 0 }
+}
+
+func dup_arr<T>(p: [T; 2]) -> Int {
+    let q = p.copy()
+    q.len()
+}
+
+func dup_nested<T>(p: (T, Int)?) -> Int {
+    let q = p.copy()
+    if q.is_some() { 1 } else { 0 }
+}
+
+func main() {
+    print("unreached")
+}
