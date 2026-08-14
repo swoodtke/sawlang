@@ -1,0 +1,52 @@
+// Rendering a PLACE is a borrow, not a value read.
+//
+// `print("{v[0]}")` hands the element to `format(&self, into:)` and keeps
+// nothing, so the copy tier should not come into it at all — the same way
+// `v[0].method()` borrows through the window. The place system judges it a
+// VALUE READ instead, so a move-only element is refused outright:
+//
+//     error: `v[…]` lends a place of type `Res`, which is move-only —
+//     reading it out as a value would alias storage the container still owns
+//
+// No coroutine is involved (DF-218i). It surfaced through design 218 stage 1,
+// which makes a coroutine frame's locals places too: blade's `main` stopped
+// compiling at `case Err(e) -> fail("{e}", EXIT_FAILURE)`, one `Box<any Error>`
+// per command. Stage 1 holds that family back (`_migrated_enc`) so the
+// refusal reaches nobody through a frame; this row is the same refusal at the
+// spelling any Saw program can write.
+//
+// Both rendering positions are here — an interpolation operand and a
+// single-argument `print` of a Printable — plus the two controls that already
+// work: a field read out of the same place, and a `&self` method call on it.
+// XFAIL: DF-218i rendering a move-only place is judged a value read and refused
+// EXPECT: success
+// EXPECT-OUTPUT:
+// field 1
+// method 2
+// interpolated Res(1)
+// printed:
+// Res(1)
+
+struct Res { n: Int }
+extension Res: NoCopy {}
+extension Res: Printable {
+    func to_string(&self) -> String { "Res({self.n})" }
+    func format(&self, into: &var StringBuilder) { into.append(self.to_string()) }
+}
+extension Res {
+    func bump(&self) -> Int { self.n + 1 }
+}
+
+func main() {
+    var v = Vector<Res>()
+    v.push(Res(n: 1))
+
+    // The controls: a place hop and a `&self` call, both borrows today.
+    print("field {v[0].n}")
+    print("method {v[0].bump()}")
+
+    // The two rendering positions.
+    print("interpolated {v[0]}")
+    print("printed:")
+    print(v[0])
+}

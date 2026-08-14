@@ -666,7 +666,7 @@ def _slot_payload_ok(saw_type):
 
 
 def _migrated_enc(name, enc, address_taken=(), saw_type=None,
-                  move_arg_receivers=()):
+                  move_arg_receivers=(), rendered=()):
     """The encoding a frame field actually gets, given the one `_enc_of` picked
     from its type.
 
@@ -687,6 +687,14 @@ def _migrated_enc(name, enc, address_taken=(), saw_type=None,
         payload spelling: that pointer is exactly the `payload_ptr` section 4
         deferred, and it arrives with `UnsafeRef` in stage 3;
       * a SCRUTINEE temp (`__hoistN` / `__matchN`) — see `_SCRUTINEE_TEMPS`;
+      * a move-only or ExplicitCopy local read in a RENDERING position —
+        `print("{e}")`, `print(e)` (DF-218i). Rendering hands the value to
+        `format(&self, into:)` and never keeps it, but the place system judges
+        the read a VALUE READ and refuses a move-only element: `print("{v[0]}")`
+        on a `Vector<Res>` is the identical refusal with no coroutine anywhere,
+        which is why the fix belongs to the place system and not here. The
+        caller passes the names, already filtered by tier — the two Copy tiers
+        read out of a lend for free and migrate as usual;
       * a local a method call CONSUMES another local into — `v.push(move h)`
         (DF-218h). A slot read is a lend, so the call moves inside the window's
         closure, and a `move` of an ENCLOSING local from inside a closure body
@@ -700,7 +708,8 @@ def _migrated_enc(name, enc, address_taken=(), saw_type=None,
         that fixes both halves.
     """
     if (enc == "opt_closure" or name in address_taken
-            or name in move_arg_receivers or _is_scrutinee_temp(name)
+            or name in move_arg_receivers or name in rendered
+            or _is_scrutinee_temp(name)
             or not _slot_payload_ok(saw_type)):
         return enc
     return _SLOT_ENC_OF_LEGACY.get(enc, enc)
@@ -737,6 +746,47 @@ def _contains_move(node, depth=0):
     if isinstance(node, MoveExpr):
         return True
     return any(_contains_move(sub, depth + 1) for sub in child_nodes(node))
+
+
+# The calls that RENDER their argument instead of consuming it: they end in a
+# `format(&self, into:)` on the value. Design 135 gives `print` the same
+# single-argument Printable path an interpolation placeholder takes.
+_RENDERING_CALLS = ("print", "panic", "assert")
+
+
+def _collect_rendered_names(node, out, seen=None):
+    """Names whose WHOLE VALUE is rendered — an interpolation operand or an
+    argument of `print`/`panic`/`assert` that is a bare identifier.
+
+    See `_migrated_enc`: rendering is a borrow in every sense that matters (the
+    value is handed to `format(&self, into:)`), but the place system judges it
+    a VALUE READ, so a move-only element is refused there — `print("{v[0]}")`
+    on a `Vector<Res>` is the same refusal with no coroutine anywhere
+    (DF-218i).
+
+    A PROJECTION is not one of these: `"{got.id}"` renders the field, and a
+    field read out of a lend is an ordinary place hop the system serves. So the
+    walk takes the operand only when it is the name itself, which is exactly
+    the read that would be refused.
+    """
+    if seen is None:
+        seen = set()
+    if node is None or id(node) in seen:
+        return
+    seen.add(id(node))
+    for operand in _rendering_operands(node):
+        if isinstance(operand, Identifier):
+            out.add(operand.name)
+    for sub in child_nodes(node):
+        _collect_rendered_names(sub, out, seen)
+
+
+def _rendering_operands(node):
+    if isinstance(node, StringInterpolation):
+        return list(node.expressions or [])
+    if isinstance(node, FunctionCall) and node.name in _RENDERING_CALLS:
+        return [a.value for a in (node.arguments or [])]
+    return []
 
 
 def _place_root_name(expr):
@@ -3542,14 +3592,21 @@ class _FrameBuilder:
         # window's closure has no drop flag it can reach.
         move_recvs = set()
         _collect_move_arg_receivers(self.func.body, move_recvs)
+        # DF-218i: the names read in a rendering position, filtered to the two
+        # tiers the place system refuses to read out of a lend. See
+        # `_migrated_enc` — a Copy tier reads for free and migrates.
+        rendered_all = set()
+        _collect_rendered_names(self.func.body, rendered_all)
+        rendered = {n for n in rendered_all
+                    if self._frame_read_policy(n) in ('nocopy', 'explicit')}
 
         encmap = {}
         for p in self.params:
             encmap[p.name] = _migrated_enc(p.name, _enc_of(p.type), addressed,
-                                           p.type, move_recvs)
+                                           p.type, move_recvs, rendered)
         for lname, lt in self.frame_locals:
             encmap[lname] = _migrated_enc(lname, _enc_of(lt), addressed, lt,
-                                          move_recvs)
+                                          move_recvs, rendered)
         # design 62 G3: a DISCARDED cooperative `receive()` parks its value in a
         # `__rcvN` holder. Registered here so the ONE store funnel
         # (`_store_field`) can answer for it like any other owning field; no

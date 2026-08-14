@@ -392,6 +392,28 @@ obligation-2 consumer sweep before dispatch. Gates 218 stages 1-2.
   PIN: `examples/coro_generic_spawn_root_nested_suspending_call.saw`
   (XFAIL) + `tools/corodiff_known.txt`
 
+- **DF-218i (BOGUS-REFUSAL, PRE-EXISTING) — rendering a PLACE is judged a
+  value read, so a move-only element cannot be printed.** `print("{v[0]}")`
+  and `print(v[0])` on a `Vector<Res>` where `Res: NoCopy + Printable` are
+  refused with ``lends a place of type `Res`, which is move-only``, though
+  rendering hands the value to `format(&self, into:)` and keeps nothing — the
+  same borrow `v[0].method()` already gets. The two controls compile: a field
+  read out of the place, and a `&self` method call on it. MECHANISM: the
+  window lowering has one shape for a place used as a VALUE (the body returns
+  the element), and the rendering path is lowered in CODEGEN from that value
+  rather than as a `format` call inside the window — so `_value_read_ok`'s
+  table is asked a question rendering never poses. The fix is design 218's
+  ELABORATION PRINCIPLE again, as for DF-218a: desugar a rendering operand to
+  the `format(into:)` call it becomes, before the place lowering runs.
+  SURFACED BY design 218 stage 1, which makes a frame's locals places too:
+  blade's `main` stopped compiling at `case Err(e) -> fail("{e}",
+  EXIT_FAILURE)`, one `Box<any Error>` per command, and only the `bootstrap`
+  battery lane catches it. Stage 1 holds that family back — a move-only or
+  ExplicitCopy local whose WHOLE VALUE is a rendering operand keeps the legacy
+  encoding (`_migrated_enc`, the sixth deferred family; a projection like
+  `"{got.id}"` is an ordinary place hop and migrates).
+  PIN: `examples/place_rendering_operand_is_a_borrow.saw` (XFAIL)
+
 - **DF-218h (BOGUS-REFUSAL + a worse alternative, PRE-EXISTING) — a `move` of
   a LOCAL inside a place window is refused, and every capture spelling that
   lifts the refusal double-frees.** `v.push(move h)` where `v` is a place puts
@@ -501,7 +523,8 @@ obligation-2 consumer sweep before dispatch. Gates 218 stages 1-2.
   (`Slot<Void>` is a pointer to void llvmlite refuses); (d) fixed ARRAYS
   (`a[i] = v` writes through element storage — the same addressing class);
   (e) a local a method call CONSUMES another local into (`v.push(move h)`) —
-  DF-218h above, added at landing.
+  DF-218h above, added at landing; (f) a move-only or ExplicitCopy local whose
+  WHOLE VALUE is a rendering operand (`print("{e}")`) — DF-218i, likewise.
   Also found: the post-transform re-entry must RE-RUN the place lowering (the
   `value()` lends are emitted after that pass) and must NOT `uncheck` when it
   does (stripping the wraps the post-transform check inserted hands the next
