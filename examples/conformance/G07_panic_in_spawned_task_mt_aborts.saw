@@ -1,0 +1,22 @@
+// Conformance row G07 — a panic in a spawned task under `threads: N` aborts the
+// process
+//
+// The other end of the panic path: the panic happens on a worker thread, and
+// main's own return value never gets to overwrite the abort.
+// EXPECT: panic
+// EXPECT-PANIC-CONTAINS: panic at
+// EXPECT-PANIC-CONTAINS: task panicked
+
+import std.task.{yield_now}
+
+func work() -> Int {
+    yield_now()
+    panic("task panicked")
+}
+
+func main() -> Int {
+    var g = TaskGroup(threads: 2)
+    let h = g.spawn(work())
+    print("joined {h.join()}")
+    7
+}

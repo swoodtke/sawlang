@@ -1,0 +1,13 @@
+// Conformance row G01 — a sync `main() -> Int` returns its value as the
+// process exit status
+//
+// The control for the whole exit-status family: the sync path never builds a
+// coroutine frame, so it is the row every driven row below is compared against.
+// EXPECT: success
+// EXPECT-EXIT: 7
+// EXPECT-OUTPUT: sync-int
+
+func main() -> Int {
+    print("sync-int")
+    7
+}

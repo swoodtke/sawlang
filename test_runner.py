@@ -44,6 +44,14 @@ Test expectations are specified via comments in the source files:
                                 trailing whitespace stripped, since the directive
                                 comments cannot carry the JSON's indentation.
     // EXPECT: skip           - Skip this file (library modules, etc.)
+    // EXPECT-EXIT: n         - The run exits with EXACTLY status `n` (design 221
+                                / DF-220b: the process exit status is a
+                                user-visible contract of `main`'s return value,
+                                and `EXPECT: success` alone only ever asserted
+                                `rc == 0`). Success tests only; it satisfies the
+                                "a success test must assert something" rule on
+                                its own, because the status IS the assertion.
+                                A panicking run is `EXPECT: panic`, not this.
     // EXPECT-OUTPUT:         - Next lines are expected stdout (until next directive or code)
     // some output
     // more output
@@ -130,6 +138,10 @@ class TestCase:
     # error/panic/warning paths all had a CONTAINS twin; the success path did
     # not.
     expected_output_contains: List[str] = None  # '// EXPECT-OUTPUT-CONTAINS:'
+    # design 221: the exact process exit status. `EXPECT: success` asserts only
+    # `rc == 0`, which is precisely the assertion DF-220b's bug satisfied while
+    # throwing `main`'s value away.
+    expected_exit: Optional[int] = None  # '// EXPECT-EXIT: n'
     out_name: Optional[str] = None  # unique build-output stem; see `binary_stem`
 
     @property
@@ -189,6 +201,7 @@ def parse_test_metadata(file_path: Path) -> Optional[TestCase]:
     expected_warning_contains = []
     expect_no_warnings = False
     expected_output_contains = []
+    expected_exit = None
 
     with open(file_path, 'r') as f:
         in_output_block = False
@@ -227,6 +240,10 @@ def parse_test_metadata(file_path: Path) -> Optional[TestCase]:
             elif '// EXPECT-OBJECT-MAX-BYTES:' in line:
                 raw = line.split('// EXPECT-OBJECT-MAX-BYTES:')[1].strip()
                 object_max_bytes = int(raw.replace('_', ''))
+                in_output_block = False
+
+            elif '// EXPECT-EXIT:' in line:
+                expected_exit = int(line.split('// EXPECT-EXIT:')[1].strip())
                 in_output_block = False
 
             elif '// EXPECT-OUTPUT-CONTAINS:' in line:
@@ -304,7 +321,8 @@ def parse_test_metadata(file_path: Path) -> Optional[TestCase]:
         object_max_bytes=object_max_bytes,
         expected_warning_contains=expected_warning_contains,
         expect_no_warnings=expect_no_warnings,
-        expected_output_contains=expected_output_contains
+        expected_output_contains=expected_output_contains,
+        expected_exit=expected_exit
     )
 
 
@@ -653,13 +671,15 @@ def _died_silently_by_signal(rc: Optional[int], stdout: str, stderr: str) -> boo
 
 
 def run_executable(exe_path: Path, timeout: float = RUN_TIMEOUT_SECS
-                   ) -> tuple[bool, str, str, Optional[str]]:
+                   ) -> tuple[bool, Optional[int], str, str, Optional[str]]:
     """Run a compiled executable, retrying once if it dies silently by signal.
 
-    Returns `(success, stdout, stderr, note)`. `note` is None unless the run
-    was retried — DF-149b backstop (b). A silent retry could hide a real crash
-    behind a lucky second run, so the note is not optional decoration: callers
-    must print it, on a pass as well as a failure.
+    Returns `(success, rc, stdout, stderr, note)`. `rc` is the raw status the
+    child left (None when it never ran to completion), which `EXPECT-EXIT`
+    reads — `success` alone collapses every nonzero status into one verdict.
+    `note` is None unless the run was retried — DF-149b backstop (b). A silent
+    retry could hide a real crash behind a lucky second run, so the note is not
+    optional decoration: callers must print it, on a pass as well as a failure.
     """
     rc, stdout, stderr = _run_once(exe_path, timeout)
     note = None
@@ -684,7 +704,7 @@ def run_executable(exe_path: Path, timeout: float = RUN_TIMEOUT_SECS
                   + (f" (killed by signal {-rc})" if rc < 0 else "")
                   + " and wrote nothing")
 
-    return rc == 0, stdout, stderr, note
+    return rc == 0, rc, stdout, stderr, note
 
 
 def _kill_process_group(proc: subprocess.Popen) -> None:
@@ -833,9 +853,19 @@ def directive_shape_error(test: TestCase) -> Optional[str]:
     if test.expect_type is None:
         return "Missing '// EXPECT: success', '// EXPECT: error', or '// EXPECT: panic' directive"
     if (test.expect_type == ExpectType.SUCCESS and not test.expected_output
-            and not test.expected_output_contains):
+            and not test.expected_output_contains
+            and test.expected_exit is None):
         return ("Success test must have '// EXPECT-OUTPUT:' with expected "
-                "output, or at least one '// EXPECT-OUTPUT-CONTAINS:'")
+                "output, at least one '// EXPECT-OUTPUT-CONTAINS:', or an "
+                "'// EXPECT-EXIT:' status")
+    if (test.expected_exit is not None
+            and test.expect_type != ExpectType.SUCCESS):
+        # The status is only read on the success path. On any other verdict the
+        # directive would be silently ignored — the failure mode every other
+        # shape rule here exists to prevent.
+        return ("'// EXPECT-EXIT:' asserts the status of a RUN, so it belongs "
+                "with '// EXPECT: success'. A run that aborts is "
+                "'// EXPECT: panic'.")
     if test.expect_type == ExpectType.ERROR and not test.expected_error_contains:
         return "Error test must have at least one '// EXPECT-ERROR-CONTAINS:' directive"
     if test.expect_type == ExpectType.COMPILES and (
@@ -1052,7 +1082,7 @@ def execute_test(test: TestCase, exe_path: str) -> tuple[bool, str, Optional[str
     compile time. Returns `(passed, message, note)`, where `note` is anything the
     runner did that the reader must be told about even when the test passed.
     """
-    run_success, run_stdout, run_stderr, note = run_executable(Path(exe_path))
+    run_success, run_rc, run_stdout, run_stderr, note = run_executable(Path(exe_path))
 
     if test.expect_type == ExpectType.PANIC:
         if run_success:
@@ -1068,7 +1098,17 @@ def execute_test(test: TestCase, exe_path: str) -> tuple[bool, str, Optional[str
         return True, "Panicked as expected", note
 
     # ExpectType.SUCCESS
-    if not run_success:
+    if test.expected_exit is not None:
+        # design 221: the status IS the assertion, so it is judged before the
+        # generic "did it exit 0" verdict — a test asserting exit 7 must not be
+        # reported as an execution failure for having done exactly that.
+        if run_rc != test.expected_exit:
+            got = ("no status (the run never completed)" if run_rc is None
+                   else f"status {run_rc}"
+                   + (f" (killed by signal {-run_rc})" if run_rc < 0 else ""))
+            return False, (f"Expected exit status {test.expected_exit}, got "
+                           f"{got}\n{run_stderr[:500]}"), note
+    elif not run_success:
         return False, f"Execution failed:\n{run_stderr[:500]}", note
 
     # design 158: substring assertions on a successful run's stdout, checked IN

@@ -1,0 +1,27 @@
+// Conformance row G04 — a suspending `main() -> Int` over a `threads: N` group
+// returns its value as the process exit status
+//
+// The multi-threaded engine drains the same run queue from N OS workers. Main's
+// own frame is still the ambient root, so the status must survive the crossing
+// unchanged — this row is the one that says the answer does not depend on which
+// engine ran the siblings.
+// XFAIL: DF-220b — the ambient entry executor drops main's result; the MT
+// engine makes no difference to it
+// EXPECT: success
+// EXPECT-EXIT: 7
+// EXPECT-OUTPUT: joined 1
+
+import std.task.{yield_now}
+
+func work(n: Int) -> Int {
+    yield_now()
+    n + 1
+}
+
+func main() -> Int {
+    var g = TaskGroup(threads: 2)
+    let h = g.spawn(work(0))
+    yield_now()
+    print("joined {h.join()}")
+    7
+}

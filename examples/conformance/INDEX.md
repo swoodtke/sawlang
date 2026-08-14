@@ -15,7 +15,7 @@ the DF-217l leak their sweep turned up; K29, design 219 unit A1 (renumbered
 from K27 at integration — the 218a spec pre-registered K27/K28); U28-U29 and
 V31, design 219 unit A2; K27-K28, design 218 unit 1; V32-V35, design 219 wave B;
 V36-V47, K30, K31 and U30, design 219 wave C; R39-R42 and M36, design 218
-stage 3.)
+stage 3; G01-G15, design 221 unit B1.)
 
 ## How to read it
 
@@ -330,6 +330,28 @@ Claim source: spec 5 *Runtime Semantics and Traps* + *Integer Conversions*; desi
 | T25 | `Data` index out of range | `T25_data_index_oob.saw` |  |
 | T26 | joining an already-joined `TaskHandle` | `taskgroup_stale_handle_join.saw` |  |
 
+## `main`'s return type and the process exit status
+
+Claim source: spec 8 *Programs and Entry Points*; design 221 (DF-220b, DF-220c)
+
+| Row | Checks | Covered by | Ruling |
+|-----|--------|------------|--------|
+| G01 | a sync `main() -> Int` exits with its value | `G01_sync_main_int_exit_status.saw` |  |
+| G02 | a suspending `main() -> Int` exits with its value | `G02_suspending_main_int_exit_status.saw` |  |
+| G03 | a suspending `main() -> Int` that also SPAWNS (the ambient executor) exits with its value | `G03_ambient_main_int_exit_status.saw` |  |
+| G04 | the same over a `threads: N` group | `G04_mt_main_int_exit_status.saw` |  |
+| G05 | a suspending `main() -> Void` exits 0 | `G05_suspending_main_void_exit_zero.saw` |  |
+| G06 | a panic in a suspending `main` aborts | `G06_panic_in_suspending_main_aborts.saw` |  |
+| G07 | a panic in a spawned task under `threads: N` aborts | `G07_panic_in_spawned_task_mt_aborts.saw` |  |
+| G08 | a sync `main() -> Result<Int, E>` exits with the Ok payload | `G08_sync_main_result_ok_exit_status.saw` |  |
+| G09 | a failing `main() -> Result<Int, E>` renders the error and exits 1 | `G09_sync_main_result_err_exits_one.saw` |  |
+| G10 | a suspending `main() -> Result<Int, E>` exits with the Ok payload | `G10_suspending_main_result_ok_exit_status.saw` |  |
+| G11 | a failing suspending `main() -> Result<Void, E>` renders the error and exits 1 | `G11_suspending_main_result_void_err_exits_one.saw` |  |
+| G12 | `main() -> String` is refused, naming the four legal types | `G12_main_returning_string_refused.saw` |  |
+| G13 | `main() -> Bool` is refused | `G13_main_returning_bool_refused.saw` |  |
+| G14 | `main() -> Int?` is refused | `G14_main_returning_optional_refused.saw` |  |
+| G15 | an `Int` status wider than a byte truncates as POSIX truncates it | `G15_main_int_exit_status_truncates.saw` |  |
+
 ## A `Result` must not be silently discarded
 
 Claim source: spec 5 *Discarding a Result*; design 151
@@ -584,6 +606,13 @@ rows (R24, X15, X16, X20, U24, U25, K13). The last one closed:
 Obligation 3 asks a safety-surface brief for its rows FIRST, so a row that
 states a ruling the compiler has not been taught yet lands as a cited XFAIL and
 the unit that teaches it removes the marker.
+
+Open: **G02-G04, G08-G14** — design 221's exit-status and `main`-rule rows,
+written before the fix as obligation 3 asks. G02-G04 and G10-G11 cite DF-220b
+(both synthesized entry executors declare themselves Void and drop main's
+result); G08-G09 and G12-G14 cite DF-220c (`main`'s return type is
+unconstrained). G01, G05-G07 and G15 pass on the unfixed tree and are the
+controls the fix must not disturb.
 
 Open: **C12** — a Copy operand compared through a conformance that
 consumes `other` is over-released, and the stopgap's tier condition deliberately

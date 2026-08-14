@@ -138,6 +138,24 @@ Post-fix path: rebase the branch onto fixed main, re-run unit-2's N=20
 replay leg (currently blocked on DF-220a), re-gate (expect reuse GREEN
 and the irdet lane honestly red-capable), then integrate.
 
+- **DF-221a (NEW, found writing design 221's conformance row G11) — a
+  `Result` whose BOTH payloads are zero-sized is an ICE at the Err wrap.**
+  `struct Unreadable {}` + `func attempt() -> Result<Void, Unreadable> {
+  return Unreadable() }` (sync, no coroutine anywhere) reports
+  `internal compiler error ... (ResultErrWrap): Can't index at [0] in i32`.
+  Mechanism: the monomorphized Result enum lowers to the TAG ALONE when the
+  widest variant payload is 0 bytes, so `llvm_enum_type.elements[1]`
+  (results.py:470) does not exist. `_create_result_ok_for_return` already
+  has the guard it needs (`_is_void_payload`, results.py:505) but that test
+  asks whether each field is `VoidType`, and an EMPTY STRUCT is `{}`, not
+  void — so the Ok arm of this same Result is fine and only the Err arm
+  ICEs. Give the error type one field and everything works
+  (`.build/scratch/probe221_rvoid_sync.saw`, verified both ways).
+  Unrelated to design 221's mechanism: it is the zero-sized-payload enum
+  lowering, and it reaches `_extract_result_err_value` too. Row G11 uses a
+  one-field error on purpose; a fix wants its own sweep of the tag-only
+  enum path (create + extract, Ok + Err, every arity).
+
 ## Design 222 — the safe async rewrite (AUTHORED Aug 14, dispatches after 218 stage 4)
 
 `designs/222-safe-async-rewrite.md`. PROTOTYPE brief, user-directed: the

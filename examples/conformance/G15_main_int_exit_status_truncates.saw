@@ -1,0 +1,15 @@
+// Conformance row G15 — a `main() -> Int` status wider than a byte truncates
+// where POSIX truncates it
+//
+// `wait(2)` carries eight bits of status, so 300 is observed as 44. That
+// narrowing is the platform's, not Saw's: the compiler passes the value to the
+// C entry unchanged and the kernel keeps the low byte. The row exists so the
+// behavior is written down rather than discovered.
+// EXPECT: success
+// EXPECT-EXIT: 44
+// EXPECT-OUTPUT: wide
+
+func main() -> Int {
+    print("wide")
+    300
+}

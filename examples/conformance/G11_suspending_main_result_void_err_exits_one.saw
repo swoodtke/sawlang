@@ -1,0 +1,30 @@
+// Conformance row G11 — a suspending `main() -> Result<Void, E>` that fails
+// renders the error and exits 1
+//
+// `Result<Void, E>` is the "this can fail but has no number to report" shape —
+// the return type most command-line programs actually want. Its Ok side is 0
+// and its Err side is G09's rule, over the entry executor rather than the sync
+// epilogue.
+// XFAIL: DF-220b — the entry executor drops main's result, so the Err never
+// reaches DF-220c's mapping
+// EXPECT: success
+// EXPECT-EXIT: 1
+// EXPECT-OUTPUT-CONTAINS: config unreadable
+
+import std.task.{yield_now}
+
+// The error carries a field on purpose: an EMPTY error struct makes the whole
+// `Result<Void, E>` zero-sized, which is DF-221a's separate ICE and not what
+// this row is about.
+struct Unreadable { errno: Int }
+
+extension Unreadable: Printable {
+    func format(&self, into: &var StringBuilder) { into.append("config unreadable") }
+}
+
+extension Unreadable: Error {}
+
+func main() -> Result<Void, Unreadable> {
+    yield_now()
+    return Unreadable(errno: 13)
+}

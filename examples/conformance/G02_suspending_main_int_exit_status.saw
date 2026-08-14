@@ -1,0 +1,20 @@
+// Conformance row G02 — a SUSPENDING `main() -> Int` returns its value as the
+// process exit status
+//
+// A suspending `main` is replaced by a synthesized entry executor that drives
+// main's frame to completion. The value lands in the frame's `__result` slot;
+// the executor has to read it back out, exactly as every non-main driven root's
+// driver already does.
+// XFAIL: DF-220b — the single-frame entry executor declares itself Void and
+// drops main's result; every driven program exits 0
+// EXPECT: success
+// EXPECT-EXIT: 7
+// EXPECT-OUTPUT: susp-int
+
+import std.task.{yield_now}
+
+func main() -> Int {
+    yield_now()
+    print("susp-int")
+    7
+}

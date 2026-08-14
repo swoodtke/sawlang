@@ -1,0 +1,27 @@
+// Conformance row G10 — a SUSPENDING `main() -> Result<Int, E>` exits with the
+// Ok payload
+//
+// The Result shape crossing the entry executor. Two things have to hold at
+// once here: the frame's result must reach the executor (G02's rule), and the
+// executor must map an Ok payload to a status (G08's rule).
+// XFAIL: DF-220b — the entry executor drops main's result before DF-220c's
+// mapping ever gets to see it
+// EXPECT: success
+// EXPECT-EXIT: 5
+// EXPECT-OUTPUT: susp-res-ok
+
+import std.task.{yield_now}
+
+enum Oops { case Bad }
+
+extension Oops: Printable {
+    func format(&self, into: &var StringBuilder) { into.append("bad") }
+}
+
+extension Oops: Error {}
+
+func main() -> Result<Int, Oops> {
+    yield_now()
+    print("susp-res-ok")
+    return 5
+}

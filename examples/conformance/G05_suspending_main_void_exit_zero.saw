@@ -1,0 +1,17 @@
+// Conformance row G05 — a suspending `main() -> Void` exits 0
+//
+// The negative half of the family: a `Void` main has no value to carry, so its
+// status is 0 and nothing may leak into it. Kept as its own row because the
+// `Void` frame has no `__result` slot at all — it is the shape the executors
+// were written for, and it must stay exactly as it is while the others gain a
+// result path.
+// EXPECT: success
+// EXPECT-EXIT: 0
+// EXPECT-OUTPUT: susp-void
+
+import std.task.{yield_now}
+
+func main() {
+    yield_now()
+    print("susp-void")
+}
