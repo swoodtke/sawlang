@@ -1496,19 +1496,34 @@ class ResourcesMixin:
         return self._maybe_autowrap_optional(value_expr, value)
 
     def _maybe_autowrap_optional(self, value_expr, value):
-        """DF3 (design 57): if the typechecker recorded a one-level `T -> T?`
-        call-site auto-wrap on `value_expr`, construct the `{ i1 is_some, T }`
-        optional around the already-materialized (and move/copy-resolved)
-        `value`. Otherwise return `value` unchanged."""
+        """Build the call-site auto-wrap the typechecker recorded on
+        `value_expr`, around the already-materialized (and move/copy-resolved)
+        `value`. Returns `value` unchanged when there is none.
+
+        Two marks, applied INNER FIRST, because a `Result<T?, E>` fed a bare
+        `T` carries both (`_arg_result_wrap_ok`): the Optional wrap makes the
+        Ok payload, then the Result wrap makes the Result. The name keeps its
+        design-57 spelling because every caller asks the same question — "does
+        this transfer owe a wrapper" — and there is exactly one place to ask
+        it."""
         opt_type = getattr(value_expr, 'autowrap_to_optional', None)
-        if opt_type is None:
+        if opt_type is not None:
+            opt_llvm = self._get_llvm_type(opt_type)
+            opt_val = ir.Constant(opt_llvm, ir.Undefined)
+            opt_val = self.builder.insert_value(
+                opt_val, ir.Constant(ir.IntType(1), 1), 0, name="autowrap_some")
+            value = self.builder.insert_value(opt_val, value, 1,
+                                              name="autowrap_val")
+        res_type = getattr(value_expr, 'autowrap_to_result', None)
+        if res_type is None:
             return value
-        opt_llvm = self._get_llvm_type(opt_type)
-        opt_val = ir.Constant(opt_llvm, ir.Undefined)
-        opt_val = self.builder.insert_value(
-            opt_val, ir.Constant(ir.IntType(1), 1), 0, name="autowrap_some")
-        opt_val = self.builder.insert_value(opt_val, value, 1, name="autowrap_val")
-        return opt_val
+        # DF-218f: the same wrap at the other payload kind. The two builders are
+        # the ones `ResultOkWrap` / `ResultErrWrap` use at the return position,
+        # so an argument-edge Result is laid out by the same code that lays out
+        # a returned one.
+        if getattr(value_expr, 'autowrap_result_err', False):
+            return self._create_result_err_for_return(value, res_type)
+        return self._create_result_ok_for_return(value, res_type)
 
     def _transfer_needs_copy(self, value_expr) -> bool:
         """Whether transferring `value_expr` into a new owner must copy/retain."""

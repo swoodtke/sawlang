@@ -517,6 +517,22 @@ out: `(held as UInt8) | (Perm.Exec as UInt8)`.
 
 ### Errors as Values
 
+A `Result` is built by writing the value where one is wanted. There is no
+`Ok(x)` or `Err(e)` to spell, and the rule holds in every declared slot — a
+return, a call argument, a struct field, a collection element:
+
+```saw
+func record(entry: Result<Int, String>) { ... }
+
+record(42)                                       // Ok
+record("bad row")                                // Err
+let rows: Vector<Result<Int, String>> = [1, 2]   // two Ok elements
+```
+
+The one case that needs a hand-written variant is `Result<T, E>` where `T` and
+`E` are the same type: nothing distinguishes the two sides, so it is a compile
+error rather than a guess.
+
 Every `Error` is `Printable`. Returning `Result<T, Box<any Error>>` lets a
 function return any error type without writing a union by hand: the concrete
 error is boxed and its exact type hidden behind `any Error` at the return

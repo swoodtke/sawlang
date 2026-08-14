@@ -1,0 +1,99 @@
+// Conformance rows E12 + O15 — a payload value auto-wraps at the ARGUMENT
+// position, at both payload kinds
+//
+// The guarantee: a bare `T` written where a `T?` or a `Result<T, E>` is wanted
+// IS that value in its wrapper. Saw has no `Some(x)` or `Ok(x)` constructor to
+// write instead — the wrap IS the constructor — so a position where it does not
+// fire is a position where the type cannot be built at all.
+//
+// The row exists because the two payload kinds disagreed about ONE position.
+// Optional wrapped at every argument spelling; `Result` wrapped only on the way
+// out of a function, so `takes(5)` against `func takes(v: Result<Int, String>)`
+// was ``argument `v` expects `Result<Int, String>` but got `Int` `` with no
+// spelling that works (DF-218f). Fixed by extending the argument-position
+// funnel — `_arg_type_ok`, the one predicate every argument spelling asks —
+// rather than by teaching each spelling separately.
+//
+// The positions below are that funnel's spellings, each at both payload kinds:
+// positional argument, labeled argument, method argument, struct-literal field,
+// collection-literal element, and a defaulted parameter's own default value.
+// The Err side rides along at the same position, and the `Result<T?, E>` row is
+// the double wrap (into the Optional first, then into the Result) that DF-140d
+// established for the return position.
+// EXPECT: success
+// EXPECT-OUTPUT:
+// positional ok=5 some=5
+// labeled ok=6 some=6
+// method ok=7 some=7
+// field ok=3 some=3
+// element ok=9 some=9
+// default ok=1 some=1
+// err side=oops
+// double wrap=4
+// owned payload=held
+
+struct Holder { r: Result<Int, String>, o: Int? }
+
+func show_r(v: Result<Int, String>) -> String {
+    match v { case Ok(n) -> "{n}", case Err(e) -> e }
+}
+
+func show_o(v: Int?) -> String {
+    if let n = v { "{n}" } else { "none" }
+}
+
+func pair(r: Result<Int, String>, o: Int?) -> String {
+    "ok={show_r(r)} some={show_o(o)}"
+}
+
+func labeled(tag: String, r: Result<Int, String>, o: Int?) -> String {
+    "{tag} {pair(r, o)}"
+}
+
+func defaulted(r: Result<Int, String> = 1, o: Int? = 1) -> String {
+    pair(r, o)
+}
+
+extension Holder {
+    func with(&self, r: Result<Int, String>, o: Int?) -> String {
+        pair(r, o)
+    }
+}
+
+// The `Result<T?, E>` double wrap: a bare `Int` becomes `Ok(Some(4))`.
+func show_double(v: Result<Int?, String>) -> String {
+    match v {
+        case Ok(inner) -> if let n = inner { "{n}" } else { "none" },
+        case Err(e) -> e
+    }
+}
+
+// An OWNED payload at the argument edge: the wrap is a transfer site, so the
+// string must arrive intact rather than as an alias of a freed buffer.
+func show_owned(v: Result<String, Int>) -> String {
+    match v { case Ok(s) -> s, case Err(n) -> "{n}" }
+}
+
+func main() {
+    print("positional {pair(5, 5)}")
+    let lbl = "labeled"
+    print("{labeled(tag: lbl, r: 6, o: 6)}")
+
+    let h = Holder(r: 3, o: 3)
+    print("method {h.with(r: 7, o: 7)}")
+    print("field {pair(h.r, h.o)}")
+
+    let rs: Vector<Result<Int, String>> = [9]
+    let os: Vector<Int?> = [9]
+    print("element {pair(rs[0], os[0])}")
+
+    print("default {defaulted()}")
+
+    // The Err side of the same position: `String` is this Result's E.
+    let boom = "oops"
+    print("err side={show_r(boom)}")
+    print("double wrap={show_double(4)}")
+
+    let owned = "held"
+    print("owned payload={show_owned(owned)}")
+}

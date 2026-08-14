@@ -2509,19 +2509,38 @@ class ExpressionsMixin:
         return "<" + ", ".join(parts) + ">"
 
     def _arg_type_ok(self, arg_value, arg_type, expected_type, allow_wrap=True):
-        """Argument-position type check with DF3 call-site optional auto-wrap
-        (design 57). Returns True if a value of `arg_type` may be passed where
-        `expected_type` is wanted, recording a one-level `T -> T?` wrap on
-        `arg_value` (an AST node) when that is what makes it compatible — so
-        codegen constructs `Some(x)` at the argument edge.
+        """THE argument-position type check, with the call-site auto-wrap for
+        BOTH payload kinds. Returns True if a value of `arg_type` may be passed
+        where `expected_type` is wanted, recording on `arg_value` (an AST node)
+        the wrap that makes it compatible — so codegen constructs `Some(x)` or
+        `Ok(x)` at the argument edge.
 
-        Ordering: this runs AFTER overload resolution (design 55 rule 1 already
-        preferred an exact match over an optional-wrap), then injects the wrap
-        at the argument-passing edge (the design-30 return machinery is
-        untouched). Only ONE level (`T -> T?`, never `T -> T??`). `allow_wrap`
-        is False at a generic-instantiation boundary: a bare type parameter that
-        substitutes to an optional does NOT auto-wrap — wrapping must be explicit
-        there.
+        ENTRY POINTS — every spelling of "a value arrives in a declared slot by
+        being written next to it" (process rule 1). They all ask this one
+        predicate, which is why extending the rule to `Result` (DF-218f) was a
+        change here and nowhere else:
+          * `_check_function_call` / `_check_module_function_call` /
+            `_check_method_call`'s free-function arm — positional and labeled
+            call arguments alike (the label binding runs first and hands this
+            the mapped parameter);
+          * `_check_method_call`'s method arm and the trait-method arm;
+          * `visit_StructInit` and the module-qualified struct-init arm — a
+            struct literal's field values;
+          * `_check_enum_init` — an enum payload;
+          * the collection-literal element check;
+          * `statements._check_default_value` — a defaulted parameter's own
+            default;
+          * `places._check_window_args` — an argument passed through a place
+            window;
+          * overload resolution, with `arg_value=None`, which is why the marks
+            are CLEARED at entry: a candidate that loses must leave none behind.
+
+        Ordering: the wrap is decided AFTER overload resolution (design 55 rule
+        1 already preferred an exact match over a wrapped one), and injected at
+        the argument-passing edge — the design-30 return machinery is untouched.
+        Only ONE level in either direction (`T -> T?`, never `T -> T??`).
+        `allow_wrap` is False at a generic-instantiation boundary: a bare type
+        parameter that substitutes to a wrapper does NOT auto-wrap.
         """
         # Clear any wrap decided by an earlier candidate before deciding again.
         # (`autowrap_to_optional` is a declared field since design 126 R1, so the
@@ -2529,8 +2548,14 @@ class ExpressionsMixin:
         # never was.)
         if arg_value is not None:
             arg_value.autowrap_to_optional = None
+            arg_value.autowrap_to_result = None
+            arg_value.autowrap_result_err = False
         if arg_type is None or expected_type is None:
             return True
+        if (expected_type.is_result() and not arg_type.is_result()
+                and not self._types_compatible(arg_type, expected_type)):
+            return self._arg_result_wrap_ok(arg_value, arg_type, expected_type,
+                                            allow_wrap)
         # A bare `None` argument to an optional parameter: annotate the literal
         # with the concrete optional type so codegen can build the None value
         # (call-argument None was previously untyped — same fix struct-field
@@ -2556,6 +2581,69 @@ class ExpressionsMixin:
             return False  # no auto-wrap across a generic-instantiation boundary
         if arg_value is not None:
             arg_value.autowrap_to_optional = expected_type
+        return True
+
+    def _arg_result_wrap_ok(self, arg_value, arg_type, expected_type,
+                            allow_wrap) -> bool:
+        """The `Result` half of the argument-position auto-wrap (DF-218f).
+
+        RULED (user, Aug 14): `Result` gains the argument position `Optional`
+        already had. The asymmetry was unprincipled — a bare value wrapped on
+        the way OUT of a function and not on the way IN to one, and since Saw
+        spells no `Ok(x)` constructor the argument position had no working
+        spelling at all. `func put(&var self, value: T)` at `T = Result<…>` is
+        how design 218 met it, but the wart is the user's.
+
+        Same shape as the return position (`statements._check_return`), because
+        it is the same question: `T` goes to Ok, `E` goes to Err, a `T` that is
+        ALSO an `E` is the design-30 ambiguity and is refused, and a
+        `Result<T?, E>` fed a bare `T` takes the DF-140d double wrap — into the
+        Optional first, then into the Result — which is why both marks can ride
+        one node.
+
+        NOT here, deliberately: the ERASING wrap (`Result<T, Box<any Error>>`
+        fed a concrete error). It needs the allocator and the concrete type the
+        `ErasedErrWrap` node carries, which is a node the argument edge has no
+        way to hold today — the mark carries a type, not a construction. The
+        return position keeps it; an argument still writes the erasure itself.
+        """
+        if arg_type.kind == TypeKind.NEVER:
+            return True                 # a diverging expression fits any home
+        ok_type = expected_type.unwrap_result_ok()
+        err_type = expected_type.unwrap_result_err()
+        if ok_type is None or err_type is None:
+            return False
+        # A bare `None` reaches Ok only through an optional Ok type, and it is
+        # compatible with everything by the none-literal rule — so it is asked
+        # about first, exactly as the return position asks (DF-140d).
+        if arg_type.is_none_literal():
+            if not ok_type.is_optional():
+                return False
+            if not allow_wrap:
+                return False
+            if arg_value is not None:
+                self._annotate_none_in_expr(arg_value, ok_type)
+                arg_value.autowrap_to_result = expected_type
+            return True
+        fits_ok = self._types_compatible(arg_type, ok_type)
+        fits_err = self._types_compatible(arg_type, err_type)
+        if fits_ok and fits_err:
+            return False                # design 30: ambiguous, no silent pick
+        if not (fits_ok or fits_err):
+            return False
+        if not allow_wrap:
+            return False
+        # The DF-140d shape: `Result<T?, E>` fed a bare `T` fits by the same
+        # `T -> T?` rule that admits it anywhere else, so the payload is one
+        # wrap short of what the Ok slot holds. `_prepare_ok_payload` supplies
+        # it as an AST node at the return position; here the mark does.
+        double = (fits_ok and ok_type.is_optional()
+                  and not arg_type.is_optional())
+        if arg_value is not None:
+            if double:
+                arg_value.autowrap_to_optional = ok_type
+            arg_value.autowrap_to_result = expected_type
+            arg_value.autowrap_result_err = bool(fits_err)
         return True
 
     def _df3_allow_wrap(self, declared_type, tp_names=None):
@@ -4810,8 +4898,12 @@ class ExpressionsMixin:
         codegen builds `Some(x)` from. `target` is the element's own type when
         nothing declared one, in which case there is nothing to wrap and this is
         the plain compatibility test it always was.
+
+        DF-218f: `Result` is a slot type here for the same reason, so the
+        funnel is asked about it too — `let rs: Vector<Result<Int, E>> = [9]`
+        had no working spelling before, since Saw writes no `Ok(9)`.
         """
-        if target is not None and target.is_optional():
+        if target is not None and (target.is_optional() or target.is_result()):
             return self._arg_type_ok(element, elem_type, target)
         return self._types_compatible(elem_type, target)
 

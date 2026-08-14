@@ -675,6 +675,10 @@ func parse(s: String) -> Result<Int, ParseError> {
     if bad { return ParseError(...) }   // auto-wrapped Err
     return 42                            // auto-wrapped Ok
 }
+record(42)                               // and in ARGUMENT position, same rule
+let rows: Vector<Result<Int, String>> = [1, 2]   // …and every declared slot
+// There is no `Ok(x)`/`Err(e)` to write: the wrap IS the construction. `T == E`
+// is the one ambiguity, and it is a compile error — spell the variant then.
 try! f()   try? f()   try f() catch { fallback }
 try { let a = try f(); let b = try g() } catch {
     match error { case ParseError(e) -> ..., case IoError(e) -> ... }

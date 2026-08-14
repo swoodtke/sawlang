@@ -108,6 +108,14 @@ class StructsMixin:
                 # `String?` field hit it just the same (DF-151c).
                 value = self._generate_copy_for_dest(value, field_type)
 
+            # DF-218f: a bare payload written into a `Result`-typed field. The
+            # optional wrap two blocks down is decided from the LLVM SHAPE,
+            # which cannot see this one — a Result is an enum, not `{i1, T}` —
+            # so the typechecker's mark is what carries it, and the shared
+            # builder applies the `Result<T?, E>` double wrap in order.
+            if getattr(value_expr, 'autowrap_to_result', None) is not None:
+                value = self._maybe_autowrap_optional(value_expr, value)
+
             field_values[field_name] = value
 
         # Build the struct value in the correct field order

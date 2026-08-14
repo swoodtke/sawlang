@@ -341,6 +341,7 @@ Claim source: spec 5 *Discarding a Result*; design 151
 | E09 | `try!` consumes; the `T` it yields is freely droppable | `result_discard_legal.saw` |  |
 | E10 | `try!` whose `T` is itself a `Result`, then dropped | `result_discard_try_payload_error.saw` |  |
 | E11 | an Optional return is still freely discardable | `result_discard_legal.saw` |  |
+| E12 | a bare payload auto-wraps into a `Result` at the ARGUMENT position — every spelling the funnel serves, Err side and `Result<T?, E>` double wrap included | `E12_autowrap_at_the_argument_position.saw` | DF-218f — `Result` wrapped on the way OUT of a function and not on the way IN to one, and Saw spells no `Ok(x)`, so the position had no working spelling at all. RULED (user, Aug 14): extend the argument-position funnel, which is `_arg_type_ok` and nothing else. The erasing wrap (`Result<T, Box<any Error>>` fed a concrete error) is still return-position-only: it needs the allocator and concrete type an `ErasedErrWrap` node carries, and the argument mark carries a type |
 
 ## Concurrency safety
 
@@ -497,6 +498,7 @@ Claim source: spec 3 *Optionals*; designs 111, 131, 174, 187, 218
 | O12 | an `if let` binding out of a `move` scrutinee releases its payload once INSIDE a coroutine | `O12_iflet_move_binding_released_in_coroutine.saw` | DF-217b — codegen read the ownership off the AST shape (`isinstance(src, MoveExpr)`), and the coroutine transform's rewrite is what deletes that shape; a `self_opt` frame field reads back as a plain `MemberAccess`, so every driven function leaked the payload with no suspension near either binding |
 | O13 | `if let _` / `guard let _` over a `move` scrutinee releases the payload it discards | `O13_wildcard_optional_binding_releases_moved_payload.saw` | DF-217l — design 111's `_` rider dropped only a fresh-TEMPORARY payload, so a `move` scrutinee (which retires the source binding just as completely) leaked, with no coroutine involved at all. Found sweeping O12's predicate |
 | O14 | a presence test is TIER-INDEPENDENT — same question, same answer, every copy tier, at all three scrutinee spellings | `O14_presence_test_is_tier_independent.saw` | DF-218a — the guarantee was position-dependent, not universal: an UNCONDITIONAL lend of an optional-TYPED place (`Slot<T>.value()` at `T = Res?`) fell through to the value-read path, so a NoCopy payload could not be presence-tested AT ALL and a Copy tier paid a retain for an answer that never reads the payload. Fixed by design 218's ELABORATION PRINCIPLE — the position desugars to `is_some()` rather than growing a fourth classification arm. The row spans all three spellings because the split between them is the thing worth auditing: the conditional lend keeps its own lowering, where the `?` is the window's presence rather than a value |
+| O15 | the Optional half of E12 — the parity control the asymmetry was measured against | `E12_autowrap_at_the_argument_position.saw` | DF-218f — every argument spelling in that file carries both payload kinds side by side, which is what makes "the two agree" auditable rather than asserted |
 
 ## Freestanding and `--no-hidden-alloc`
 

@@ -787,6 +787,16 @@ class Expression(ASTNode):
     #   autowrap_to_optional -- a bare `T` passed where `T?` is expected: holds
     #                           the FULL `T?` type codegen builds around the
     #                           value (design 57 DF3); None = no wrap
+    #   autowrap_to_result   -- the same at the other payload kind (DF-218f): a
+    #                           bare `T` (or `E`) passed where `Result<T, E>` is
+    #                           expected, holding the FULL Result type.
+    #                           `autowrap_result_err` says WHICH side, since
+    #                           the type alone cannot when `T` and `E` differ
+    #                           only by position. Both may ride WITH
+    #                           `autowrap_to_optional`: `Result<T?, E>` fed a
+    #                           bare `T` is the double wrap DF-140d settled for
+    #                           the return position, and codegen applies them
+    #                           inner-first
     #   expected_type        -- the type pushed down from context, kept for
     #                           literals/collection literals that need it
     #   needs_copy           -- the move checker decided this operand is copied
@@ -825,6 +835,8 @@ class Expression(ASTNode):
     #                           field access, and only the typechecker can tell
     #                           the two apart.
     autowrap_to_optional: Optional['SawType'] = annotation(None)
+    autowrap_to_result: Optional['SawType'] = annotation(None)
+    autowrap_result_err: bool = annotation(False)
     expected_type: Optional['SawType'] = annotation(None)
     needs_copy: bool = annotation(False)
     closure_lend: bool = annotation(False)

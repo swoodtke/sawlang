@@ -1634,6 +1634,26 @@ optional too, so `m.insert("y", 7)` on a `Map<String, Int?>` wraps exactly as a
 written `Int?` parameter does. Move/copy semantics are unchanged (the wrap
 consumes the argument exactly as an explicit `Some(x)` would).
 
+**Call-site `Result` auto-wrap.** The same rule at the other payload kind, in
+the same positions: a bare `T` becomes `Ok`, a bare `E` becomes `Err`, and a
+`T` that is also the `E` is the ambiguity error described under *Auto-Wrap
+Returns*.
+
+```saw
+func record(entry: Result<Int, String>) { … }
+
+record(42)        // Ok(value: 42)
+record("bad row") // Err(error: "bad row")
+
+let rows: Vector<Result<Int, String>> = [1, 2]   // two Ok elements
+```
+
+A `Result<T?, E>` fed a bare `T` takes both wraps, innermost first:
+`record_opt(4)` against `Result<Int?, String>` is `Ok(Some(4))`. Argument
+position does not erase: a concrete error passed where
+`Result<T, Box<any Error>>` is declared must be written as an explicit `Err`
+value, since the erasure needs the allocator the return position supplies.
+
 ### Traits
 
 Trait definitions, conformance via `extension Type: Trait`, conformance
@@ -3923,7 +3943,14 @@ func read_file(path: String) -> Result<String, IoError> {
 }
 ```
 
-### Auto-Wrap Returns
+### Auto-Wrap
+
+Saw has no `Ok(x)` or `Err(e)` constructor to write: the wrap IS the
+construction, and it fires wherever a value lands in a declared `Result` slot.
+Returns are shown here; the argument positions (call arguments at every form,
+struct-literal fields, enum payloads, collection-literal elements, defaulted
+parameters) follow the same table and are described under *Call-site `Result`
+auto-wrap*.
 
 In functions returning `Result<T, E>`, values are automatically wrapped:
 
