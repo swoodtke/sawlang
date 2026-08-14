@@ -76,6 +76,7 @@ import re
 import sys
 import json
 import shutil
+import random
 import signal
 import subprocess
 import itertools
@@ -186,6 +187,11 @@ STATUS_SYMBOLS = {
 # Marker for a test that compiled and is queued for execution. It is not a
 # verdict — that comes when the binary runs.
 COMPILED_SYMBOL = f"{Colors.DIM}·{Colors.RESET}"
+# Marker for a test whose binary was HARDLINKED forward from the previous
+# run instead of recompiled (design 220 D3) — still queued for execution the
+# same as a fresh compile, just visibly distinguished so a reuse rate is
+# readable straight out of the suite's own progress lines.
+REUSED_SYMBOL = f"{Colors.DIM}↻{Colors.RESET}"
 
 
 def parse_test_metadata(file_path: Path) -> Optional[TestCase]:
@@ -509,12 +515,21 @@ def compile_saw_in_process(file_path: Path, output_path: Path,
     lets error tests (examples/errors/) run in-process without losing assertion
     fidelity. `compile_saw` signals failure by `sys.exit(1)` (parse/type/codegen
     errors) which surfaces here as SystemExit.
+
+    Always requests the optimized-IR sidecar (design 220 D5): cheap relative
+    to the rest of a compile (unit 0 measured +3.2%), and it is what makes a
+    SUCCESS/PANIC compile's `.ll` a candidate for the reuse manifest at all —
+    see `compile_test`'s `_manifest_fields`.
     """
     kwargs = _parse_compile_flags(compile_flags or [])
     if kwargs is None:
         # A flag the in-process path does not model: compile via subprocess so
-        # the result is exactly the CLI's, never a silent divergence.
+        # the result is exactly the CLI's, never a silent divergence. No
+        # optimized sidecar either way — the CLI has no flag for it, so this
+        # falls outside the manifest (design 220 D4's existing carve-out for
+        # unmodeled COMPILE-FLAGS).
         return compile_saw_file(file_path, output_path, compile_flags)
+    kwargs['emit_optimized_ir'] = True
 
     buf = io.StringIO()
     ok = True
@@ -676,6 +691,199 @@ def publish_run(build_root: Path, run_name: str) -> List[str]:
             shutil.rmtree(entry, ignore_errors=True)
             pruned.append(entry.name)
     return pruned
+
+
+def resolve_last(build_root: Path) -> Optional[Path]:
+    """The run directory `test_runner_last` currently names, or `None` if the
+    symlink is absent (no completed run yet — a clean checkout, or every past
+    run was killed before publishing). Resolved ONCE per invocation and held,
+    per design 220 D2: a reader that re-resolved the symlink partway through
+    would see a NEWER run flip underneath it if one happened to land
+    mid-read, mixing two generations' artifacts in one decision.
+    """
+    link = build_root / LAST_LINK_NAME
+    if not link.is_symlink():
+        return None
+    target = os.readlink(link)
+    resolved = build_root / target
+    return resolved if resolved.is_dir() else None
+
+
+# ---------------------------------------------------------------------------
+# The reuse manifest + staleness (design 220 D1/D3).
+#
+# Per compiled SUCCESS/PANIC test: which worker seed produced its optimized
+# `.ll`, the artifact's filename (relative to the run directory — carried
+# forward or not, it always ends up at `<run_dir>/<stem>.ll`), and the
+# artifact's own mtime, recorded for a human reading the manifest rather than
+# consumed by any freshness DECISION here (a decision always re-stats the
+# real file; see `try_carry_forward`). A plain tab-separated text file, not
+# JSON: this is a private contract between test_runner.py and irdet, and Saw
+# has no JSON parser to keep in sync with a format nothing else needs.
+# ---------------------------------------------------------------------------
+
+MANIFEST_FILENAME = 'manifest.tsv'
+
+
+@dataclass
+class ManifestEntry:
+    seed: int
+    ll_name: str     # filename only; always directly under the run dir
+    mtime: float      # the artifact's own mtime — informational (see above)
+
+
+def read_manifest(run_dir: Optional[Path]) -> dict:
+    """`{repo-relative path: ManifestEntry}`, or `{}` if `run_dir` is `None`
+    or carries no manifest (a pre-design-220-unit-2 generation, or a run that
+    produced no in-process compiles at all — `--sequential`/`--subprocess`).
+    A malformed line is skipped rather than failing the read: the worst a bad
+    line costs is one fewer carry-forward hit, never a wrong one, since
+    `try_carry_forward` re-verifies everything it uses this dict for.
+    """
+    if run_dir is None:
+        return {}
+    entries = {}
+    try:
+        with open(run_dir / MANIFEST_FILENAME, 'r', encoding='utf-8') as f:
+            for line in f:
+                line = line.rstrip('\n')
+                if not line or line.startswith('#'):
+                    continue
+                parts = line.split('\t')
+                if len(parts) != 4:
+                    continue
+                rel_path, seed_s, ll_name, mtime_s = parts
+                try:
+                    entries[rel_path] = ManifestEntry(int(seed_s), ll_name, float(mtime_s))
+                except ValueError:
+                    continue
+    except OSError:
+        return {}
+    return entries
+
+
+def write_manifest(run_dir: Path, entries: dict, global_max_mtime: float) -> None:
+    lines = [
+        "# design 220 suite manifest v1: path\\tseed\\tll_name\\tmtime",
+        f"# global_max_input_mtime\t{global_max_mtime!r}",
+    ]
+    for rel_path in sorted(entries):
+        e = entries[rel_path]
+        lines.append(f"{rel_path}\t{e.seed}\t{e.ll_name}\t{e.mtime!r}")
+    (run_dir / MANIFEST_FILENAME).write_text('\n'.join(lines) + '\n', encoding='utf-8')
+
+
+def _llvmlite_dist_info_mtime() -> Optional[float]:
+    """The installed llvmlite's own staleness input (design 220 D3(b)): IR
+    depends on the llvmlite version, and a venv upgrade touches no repo file.
+    Best-effort — an unusual venv layout just loses this one input, and only
+    in the SAFE direction (more files look stale than strictly need to; never
+    the reverse, since it can only ever RAISE the global bound)."""
+    try:
+        import llvmlite
+        pkg_dir = Path(llvmlite.__file__).resolve().parent
+        candidates = sorted(pkg_dir.parent.glob('llvmlite-*.dist-info'))
+        target = candidates[-1] if candidates else pkg_dir
+        return target.stat().st_mtime
+    except Exception:
+        return None
+
+
+def compute_global_max_input_mtime() -> float:
+    """Design 220 D3: the part of "every input" that is the SAME for every
+    file in the run — every file and directory under `sawc/` (a deletion
+    bumps no surviving file's mtime but does bump its parent directory's),
+    the llvmlite install, and `test_runner.py` itself. Computed once per run,
+    never per file: `try_carry_forward` compares this ONE number against each
+    candidate's own artifact and source mtimes.
+    """
+    latest = 0.0
+    for root, _dirs, files in os.walk(REPO_ROOT / 'sawc'):
+        try:
+            latest = max(latest, os.stat(root).st_mtime)
+        except OSError:
+            pass
+        for name in files:
+            try:
+                latest = max(latest, os.stat(os.path.join(root, name)).st_mtime)
+            except OSError:
+                pass
+    try:
+        latest = max(latest, (REPO_ROOT / 'test_runner.py').stat().st_mtime)
+    except OSError:
+        pass
+    dist_info_mtime = _llvmlite_dist_info_mtime()
+    if dist_info_mtime is not None:
+        latest = max(latest, dist_info_mtime)
+    return latest
+
+
+def try_carry_forward(test: TestCase, run_dir: Path, prev_run_dir: Optional[Path],
+                      prev_manifest: dict, global_max_mtime: float
+                      ) -> Optional[CompileOutcome]:
+    """Hardlink a still-fresh artifact forward instead of recompiling (design
+    220 D3), or `None` if this test must compile for real.
+
+    Deliberately scoped to SUCCESS/PANIC only. Both are re-validated for real
+    by the execution stage EVERY run, however their binary arrived — which is
+    what makes trusting a carried-forward BINARY safe without also trusting a
+    cached VERDICT. A COMPILES/OBJECT/ERROR/DOCS test settles at compile time
+    with no such net (nothing re-runs it to catch a wrong reuse), so those
+    always compile fresh, same as before design 220. Fewer files get to skip
+    compiling than "every file with an artifact" would allow, in exchange for
+    never caching a verdict this run did not itself just prove.
+    """
+    if test.expect_type not in (ExpectType.SUCCESS, ExpectType.PANIC):
+        return None
+    if prev_run_dir is None:
+        return None
+    entry = prev_manifest.get(repo_path(test))
+    if entry is None:
+        return None
+
+    prev_exe = prev_run_dir / test.binary_stem
+    prev_ll = Path(str(prev_exe) + '.ll')
+    try:
+        artifact_mtime = prev_ll.stat().st_mtime
+        source_mtime = test.path.stat().st_mtime
+    except OSError:
+        return None
+    if not (artifact_mtime > global_max_mtime and artifact_mtime > source_mtime):
+        return None
+
+    exe_path = run_dir / test.binary_stem
+    exe_path.parent.mkdir(parents=True, exist_ok=True)
+    placed = set()
+    placed_paths = []
+    for suffix in _PRODUCT_SUFFIXES:
+        src = Path(str(prev_exe) + suffix)
+        if not src.exists():
+            continue
+        dst = Path(str(exe_path) + suffix)
+        try:
+            os.link(src, dst)
+        except OSError:
+            # Cross-device, permission, whatever — fall back to a real
+            # compile rather than leave a half-carried-forward stem behind.
+            for p in placed_paths:
+                try:
+                    p.unlink()
+                except OSError:
+                    pass
+            return None
+        placed.add(suffix)
+        placed_paths.append(dst)
+
+    outcome = _to_run(exe_path, placed,
+                      manifest=(entry.seed, f"{test.binary_stem}.ll", artifact_mtime))
+    if outcome.settled:
+        # No executable among what the previous generation had for this
+        # stem — should not happen for a manifest entry that recorded a
+        # SUCCESS/PANIC compile, but `_to_run` already knows how to say so;
+        # no reason to duplicate that judgment here. Compile for real.
+        return None
+    outcome.reused = True
+    return outcome
 
 
 # Hard wall-clock cap on a single test's RUN phase. Generous vs. the
@@ -913,11 +1121,25 @@ class CompileOutcome:
     `settled` means the verdict is final and no binary will be run; `passed`
     and `msg` are then the test's result. Otherwise the test compiled and
     `exe_path` names the binary the execution stage runs once it has settled.
+
+    The `manifest_*` fields (design 220 D1/D3) are populated only for a
+    SUCCESS/PANIC outcome that carries a fresh optimized-IR artifact —
+    either a real in-process compile under a known worker seed, or a
+    carry-forward hit that copied a previous entry forward unchanged
+    (`reused=True` marks that case, purely for progress-line/reuse-rate
+    reporting; it changes no behavior). `None` means "no manifest entry for
+    this test": the sequential/`--subprocess` paths, anything that fell back
+    to a subprocess compile, and every non-SUCCESS/PANIC expect type all
+    leave these unset.
     """
     settled: bool
     passed: bool = False
     msg: str = ""
     exe_path: Optional[str] = None
+    manifest_seed: Optional[int] = None
+    manifest_ll_name: Optional[str] = None
+    manifest_mtime: Optional[float] = None
+    reused: bool = False
 
 
 def directive_shape_error(test: TestCase) -> Optional[str]:
@@ -967,7 +1189,8 @@ def directive_shape_error(test: TestCase) -> Optional[str]:
 
 
 def compile_test(test: TestCase, compile_fn=None,
-                 run_dir: Optional[Path] = None) -> CompileOutcome:
+                 run_dir: Optional[Path] = None,
+                 seed: Optional[int] = None) -> CompileOutcome:
     """COMPILE STAGE: compile one test, and judge everything that needs no
     execution.
 
@@ -983,6 +1206,14 @@ def compile_test(test: TestCase, compile_fn=None,
     for any caller that has not been updated to pass one (there are none
     left in this file, but `compile_test` is small and public enough that a
     silent `None` should still do something sane rather than crash).
+
+    `seed` is the calling worker's own PYTHONHASHSEED (design 220 D1), known
+    only on the persistent-worker path. When set, a SUCCESS/PANIC compile
+    that placed the optimized `.ll` sidecar (`compile_saw_in_process` always
+    requests one) stamps it onto the returned `CompileOutcome` as a manifest
+    entry; every other path leaves the manifest fields unset, which is what
+    keeps them out of the reuse manifest (design 220 D4's "no fresh artifact"
+    carve-out already covers exactly this set).
     """
     if compile_fn is None:
         compile_fn = compile_saw_file
@@ -1018,6 +1249,21 @@ def compile_test(test: TestCase, compile_fn=None,
     compile_success, compile_stdout, compile_stderr, placed = compile_into_place(
         compile_fn, test, exe_path)
 
+    def _manifest_fields():
+        # design 220 D1/D3: only meaningful when a worker seed is known AND
+        # this compile actually placed the optimized `.ll` sidecar — the
+        # subprocess-fallback path (an unmodeled `// COMPILE-FLAGS:`) never
+        # requests one, which is what keeps those tests out of the manifest
+        # (D4's existing "no fresh artifact" carve-out).
+        if seed is None or '.ll' not in placed:
+            return None
+        ll_path = Path(str(exe_path) + '.ll')
+        try:
+            mtime = ll_path.stat().st_mtime
+        except OSError:
+            return None
+        return (seed, ll_path.name, mtime)
+
     if test.expect_type == ExpectType.ERROR:
         # Should fail to compile — decided entirely here.
         if compile_success:
@@ -1052,7 +1298,7 @@ def compile_test(test: TestCase, compile_fn=None,
             msg = f"Compilation failed (expected to compile):\n{compile_stderr[:500]}"
             return CompileOutcome(True, False, msg)
 
-        return _to_run(exe_path, placed)
+        return _to_run(exe_path, placed, _manifest_fields())
 
     elif test.expect_type == ExpectType.OBJECT:
         # Compile to an object file (e.g. --freestanding / -c) and inspect its
@@ -1125,7 +1371,7 @@ def compile_test(test: TestCase, compile_fn=None,
         if warn_outcome is not None:
             return warn_outcome
 
-        return _to_run(exe_path, placed)
+        return _to_run(exe_path, placed, _manifest_fields())
 
 
 def _check_warnings(test: TestCase, output: str) -> Optional[CompileOutcome]:
@@ -1141,7 +1387,8 @@ def _check_warnings(test: TestCase, output: str) -> Optional[CompileOutcome]:
     return None
 
 
-def _to_run(exe_path: Path, placed: set) -> CompileOutcome:
+def _to_run(exe_path: Path, placed: set,
+           manifest: Optional[tuple] = None) -> CompileOutcome:
     """Queue a compiled test for execution, first proving there is something
     to run.
 
@@ -1151,6 +1398,11 @@ def _to_run(exe_path: Path, placed: set) -> CompileOutcome:
     on it. Separating the stages is what makes that reachable. The test is on what
     THIS compile placed, not on whether a file exists, because a stale binary
     satisfies `exists()` perfectly well.
+
+    `manifest`, when given, is `(seed, ll_name, mtime)` (design 220 D1/D3) —
+    attached onto the returned outcome so `_on_compiled` can fold it into the
+    run's manifest without every caller of `_to_run` re-deriving the same
+    three fields.
     """
     if '' not in placed:
         return CompileOutcome(True, False, (
@@ -1158,7 +1410,10 @@ def _to_run(exe_path: Path, placed: set) -> CompileOutcome:
             f"{exe_path}. A test that runs must produce a binary; check its "
             f"'// COMPILE-FLAGS:' for a flag (-c, --freestanding) that emits "
             f"an object instead, and mark it '// EXPECT: object' if so."))
-    return CompileOutcome(settled=False, exe_path=str(exe_path))
+    outcome = CompileOutcome(settled=False, exe_path=str(exe_path))
+    if manifest is not None:
+        outcome.manifest_seed, outcome.manifest_ll_name, outcome.manifest_mtime = manifest
+    return outcome
 
 
 def execute_test(test: TestCase, exe_path: str) -> tuple[bool, str, Optional[str]]:
@@ -1384,7 +1639,7 @@ def resolve_status(test: TestCase, raw_passed: bool, msg: str) -> tuple[TestStat
 _WORKER_DONE = None  # sentinel: no more work, exit the loop
 
 
-def _worker_loop(conn, verbose: bool, run_dir: Path):
+def _worker_loop(conn, verbose: bool, run_dir: Path, seed: int):
     """Persistent worker body: import sawc + build the builtin namespace once,
     then COMPILE tasks in-process until the sentinel arrives. A worker never
     executes a test binary — that happens back in the main process, on the
@@ -1396,6 +1651,13 @@ def _worker_loop(conn, verbose: bool, run_dir: Path):
     `.build/test_runner_<stamp>/` (design 220 D2) — a `Path` crosses the
     spawn boundary fine (it is picklable), and stays constant for the
     worker's whole lifetime, so it is passed once here rather than per task.
+
+    `seed` is the PYTHONHASHSEED this worker's OWN interpreter was spawned
+    under (design 220 D1) — set in the parent's environment right before
+    `Process.start()`, so it is already in effect by the time this function
+    runs; passed explicitly too, both so `compile_test` can stamp it onto a
+    manifest entry without this process re-reading its own environment, and
+    so the recorded value can never drift from what the spawn actually used.
     """
     _init_in_process(verbose)
     try:
@@ -1404,39 +1666,69 @@ def _worker_loop(conn, verbose: bool, run_dir: Path):
             if task is _WORKER_DONE:
                 break
             index, test = task
-            conn.send((index, compile_test(test, compile_saw_in_process, run_dir)))
+            outcome = compile_test(test, compile_saw_in_process, run_dir, seed)
+            conn.send((index, outcome))
     except (EOFError, KeyboardInterrupt):
         pass
     finally:
         conn.close()
 
 
-def _compile_parallel_in_process(tests, num_workers, verbose, on_result, run_dir: Path):
-    """COMPILE-STAGE driver: compile `tests` across `num_workers` persistent
-    workers.
+def _compile_parallel_in_process(tasks, num_workers, verbose, on_result, run_dir: Path):
+    """COMPILE-STAGE driver: compile `tasks` (a list of `(index, TestCase)`
+    pairs — the caller has already carved out any carry-forward hits, see
+    `run_tests_locally`) across `num_workers` persistent workers.
 
-    Returns a `CompileOutcome` list aligned with `tests`. `on_result(index,
-    outcome)` is called on the main process as each compile finishes, for live
-    progress. A worker that dies mid-task (e.g. an LLVM-level abort on a
-    compiler bug) leaves its task's slot filled with a synthesized settled
-    failure, so the run never hangs and never silently drops a test."""
+    `on_result(index, outcome)` is called on the main process as each compile
+    finishes, for live progress. A worker that dies mid-task (e.g. an
+    LLVM-level abort on a compiler bug) leaves its task's slot filled with a
+    synthesized settled failure, so the run never hangs and never silently
+    drops a test.
+
+    Design 220 D1: each worker is spawned under its OWN randomly drawn
+    PYTHONHASHSEED. `multiprocessing`'s spawn start method has no per-Process
+    `env=` override, so the only way to hand a child a distinct environment is
+    to mutate the PARENT's `os.environ` right before that child's `.start()`
+    — safe here because every `.start()` in this loop runs sequentially, on
+    the main thread, before any compiling begins. The parent's own
+    environment is restored once every worker is up, so nothing after this
+    loop (a subprocess-fallback compile, a linker invocation) inherits a
+    leftover worker seed.
+    """
     ctx = multiprocessing.get_context('spawn')
-    results = [None] * len(tests)
-    tasks = iter(enumerate(tests))
+    task_iter = iter(tasks)
 
+    saved_hashseed = os.environ.get('PYTHONHASHSEED')
     conns, procs = [], []
-    for _ in range(min(num_workers, len(tests))):
+    for _ in range(min(num_workers, len(tasks))):
+        # 0 would DISABLE hash randomization, masking exactly the class of
+        # emission-order bug this whole scheme exists to keep reproducible
+        # (irdet's seed_a()/seed_b() carry the identical comment).
+        seed = random.randint(1, 2**31 - 1)
+        os.environ['PYTHONHASHSEED'] = str(seed)
         parent, child = ctx.Pipe()
-        p = ctx.Process(target=_worker_loop, args=(child, verbose, run_dir), daemon=True)
+        p = ctx.Process(target=_worker_loop, args=(child, verbose, run_dir, seed),
+                        daemon=True)
         p.start()
         child.close()  # only the worker holds the child end
         conns.append(parent)
         procs.append(p)
+    if saved_hashseed is None:
+        os.environ.pop('PYTHONHASHSEED', None)
+    else:
+        os.environ['PYTHONHASHSEED'] = saved_hashseed
+
+    # `index` in every task/reply pair is the GLOBAL index into the caller's
+    # original `tests` list (not a position within THIS call's `tasks`, which
+    # may be a strict subset once carry-forward has carved entries out) — so
+    # tracked as a set of outstanding global indices, not a `len(tasks)`-sized
+    # array a worker's reply could fall outside of.
+    pending = {index for index, _ in tasks}
 
     def feed(conn) -> bool:
         """Send the next task to `conn`; return False (and send the sentinel) if
         the work is exhausted."""
-        nxt = next(tasks, None)
+        nxt = next(task_iter, None)
         if nxt is None:
             conn.send(_WORKER_DONE)
             return False
@@ -1450,7 +1742,6 @@ def _compile_parallel_in_process(tests, num_workers, verbose, on_result, run_dir
         else:
             conn.close()
 
-    received = 0
     while active:
         for conn in multiprocessing.connection.wait(list(active)):
             try:
@@ -1459,8 +1750,7 @@ def _compile_parallel_in_process(tests, num_workers, verbose, on_result, run_dir
                 # Worker exited unexpectedly with a task outstanding.
                 active.discard(conn)
                 continue
-            results[index] = outcome
-            received += 1
+            pending.discard(index)
             on_result(index, outcome)
             if not feed(conn):
                 active.discard(conn)
@@ -1469,17 +1759,13 @@ def _compile_parallel_in_process(tests, num_workers, verbose, on_result, run_dir
     for p in procs:
         p.join()
 
-    # Fill any holes left by a crashed worker so the caller sees a definite,
-    # build-breaking result rather than a None.
-    if received != len(tests):
-        for i, slot in enumerate(results):
-            if slot is None:
-                results[i] = CompileOutcome(
-                    settled=True, passed=False,
-                    msg="worker process died during compilation "
-                        "(no result returned)")
-                on_result(i, results[i])
-    return results
+    # Anything still pending belongs to a worker that died mid-task (e.g. an
+    # LLVM-level abort) without ever replying — a definite, build-breaking
+    # result for it, rather than a test that silently vanishes from the run.
+    for index in pending:
+        on_result(index, CompileOutcome(
+            settled=True, passed=False,
+            msg="worker process died during compilation (no result returned)"))
 
 
 REPO_ROOT = Path(__file__).resolve().parent
@@ -1606,7 +1892,11 @@ def select_tests(args, examples_dir):
 
 
 def run_tests_locally(tests, args, in_process, compile_fn, jsonl=None,
-                      run_dir: Optional[Path] = None):
+                      run_dir: Optional[Path] = None,
+                      prev_run_dir: Optional[Path] = None,
+                      prev_manifest: Optional[dict] = None,
+                      global_max_mtime: float = 0.0,
+                      manifest_out: Optional[dict] = None):
     """Compile and run `tests` on THIS machine, returning one
     `(test, status, msg, note)` per test.
 
@@ -1615,12 +1905,40 @@ def run_tests_locally(tests, args, in_process, compile_fn, jsonl=None,
     again for whatever the worker did not answer for. `run_dir` is this
     invocation's `.build/test_runner_<stamp>/` (design 220 D2); every compile
     path below writes there instead of a flat `.build/`.
+
+    `prev_run_dir` / `prev_manifest` / `global_max_mtime` are design 220
+    D1/D3's carry-forward inputs (the previous generation's directory and
+    manifest, and this run's once-computed staleness bound); `manifest_out`
+    is the CALLER's dict, mutated in place with an entry for every test this
+    call resolves via carry-forward or a fresh in-process compile — a
+    `--remote` run's local share and its recovered-share call both write into
+    the same dict so `main()` gets one complete manifest either way.
     """
     if run_dir is None:
         run_dir = Path('.build')
+    if prev_manifest is None:
+        prev_manifest = {}
+    if manifest_out is None:
+        manifest_out = {}
     num_workers = args.jobs if args.jobs else os.cpu_count()
     if args.sequential:
         num_workers = 1
+
+    # design 220 D3: resolve carry-forward hits FIRST, in the main thread —
+    # a stat plus a couple of hardlinks per hit, fast enough to do serially
+    # before any worker spawns. Everything else below operates on `remaining`
+    # (the tests that still need a real compile); carry-forward hits are fed
+    # through `_on_compiled` directly, further down, so they share every
+    # printing/queueing/manifest-collection path a real compile uses.
+    carry_forward_hits = []   # (index, CompileOutcome)
+    remaining = []            # (index, TestCase)
+    for i, test in enumerate(tests):
+        outcome = try_carry_forward(test, run_dir, prev_run_dir, prev_manifest,
+                                    global_max_mtime)
+        if outcome is not None:
+            carry_forward_hits.append((i, outcome))
+        else:
+            remaining.append((i, test))
 
     # The execution side runs WIDER than the core count, because it is not CPU
     # work. The FIRST exec of a freshly written binary costs macOS ~0.4s of
@@ -1667,18 +1985,31 @@ def run_tests_locally(tests, args, in_process, compile_fn, jsonl=None,
             verdicts[0] += 1
             _settle(index, passed, msg, f"[{verdicts[0]}/{len(tests)}] ", note)
 
+    reused = [0]   # carry-forward hits, out of compiled[0] (design 220 D3)
+
     def _on_compiled(index, outcome):
-        """Called on the main thread as each compile finishes."""
+        """Called on the main thread as each compile finishes — including a
+        carry-forward "compile", which is just a hardlink and reaches here
+        the same way, so manifest collection and progress printing need only
+        one path each rather than a copy for each origin.
+        """
+        if outcome.manifest_seed is not None:
+            manifest_out[repo_path(tests[index])] = ManifestEntry(
+                seed=outcome.manifest_seed, ll_name=outcome.manifest_ll_name,
+                mtime=outcome.manifest_mtime)
         with print_lock:
             compiled[0] += 1
+            if outcome.reused:
+                reused[0] += 1
             if outcome.settled:
                 verdicts[0] += 1
                 _settle(index, outcome.passed, outcome.msg,
                         f"[{verdicts[0]}/{len(tests)}] ")
                 return
             queued[0] += 1
+            symbol = REUSED_SYMBOL if outcome.reused else COMPILED_SYMBOL
             print(f"{Colors.DIM}({compiled[0]}/{len(tests)}){Colors.RESET} "
-                  f"{COMPILED_SYMBOL} {tests[index].name}")
+                  f"{symbol} {tests[index].name}")
         # Pushed OUTSIDE the print lock: the settle deadline starts here, and
         # an execution worker taking the lock to report a verdict must never
         # be able to delay it.
@@ -1714,9 +2045,12 @@ def run_tests_locally(tests, args, in_process, compile_fn, jsonl=None,
     lag = settle_queue.lag
 
     t0 = time.monotonic()
+    reuse_note = (f"; {len(carry_forward_hits)} reused from the previous run"
+                 if carry_forward_hits else "")
     print(f"{Colors.BOLD}Compiling{Colors.RESET} {len(tests)} test(s) ({how}); "
           f"each binary runs {lag:g}s after it lands "
-          f"({'sequentially' if args.sequential else f'{run_workers} execution workers'}).")
+          f"({'sequentially' if args.sequential else f'{run_workers} execution workers'})"
+          f"{reuse_note}.")
     print(f"{Colors.DIM}(n/N) compiled   [n/N] verdict{Colors.RESET}\n")
 
     # Execution threads run CONCURRENTLY with the compiles (DF-156a); they park
@@ -1732,24 +2066,36 @@ def run_tests_locally(tests, args, in_process, compile_fn, jsonl=None,
             t.start()
 
     try:
+        # Carry-forward hits first — each is already a finished CompileOutcome
+        # (a hardlink, not a compile), so they go straight through the same
+        # funnel a real compile's result does.
+        for index, outcome in carry_forward_hits:
+            _on_compiled(index, outcome)
+
         if args.sequential:
             # Sequential. In-process still amortizes bootstrap: sawc is imported
-            # and the builtin namespace built once in THIS process.
+            # and the builtin namespace built once in THIS process. No per-worker
+            # seed here (there is only the one process, already running under
+            # whatever seed it started with) — design 220 D1 is scoped to the
+            # persistent-worker pool below, so a sequential run's compiles carry
+            # no manifest entry.
             if in_process:
                 _init_in_process(args.verbose)
-            for index, test in enumerate(tests):
+            for index, test in remaining:
                 _on_compiled(index, compile_test(test, compile_fn, run_dir))
         elif in_process:
             # PERSISTENT worker processes, each importing sawc + building the
             # builtin namespace once and then compiling many tests in-process.
-            _compile_parallel_in_process(tests, num_workers, args.verbose,
+            _compile_parallel_in_process(remaining, num_workers, args.verbose,
                                          _on_compiled, run_dir)
         else:
             # --subprocess: the pre-design-115 path. Each compile spawns a sawc.py
-            # subprocess, so threads (not processes) suffice to overlap them.
+            # subprocess, so threads (not processes) suffice to overlap them. No
+            # manifest entries here either — the CLI subprocess never requests
+            # the optimized-IR sidecar.
             with ThreadPoolExecutor(max_workers=num_workers) as executor:
                 futures = {executor.submit(compile_test, test, compile_fn, run_dir): i
-                           for i, test in enumerate(tests)}
+                           for i, test in remaining}
                 for future in as_completed(futures):
                     _on_compiled(futures[future], future.result())
     finally:
@@ -1760,7 +2106,11 @@ def run_tests_locally(tests, args, in_process, compile_fn, jsonl=None,
     t1 = time.monotonic()
     with print_lock:
         run_done = verdicts[0] - (len(tests) - queued[0])
-    print(f"\n{Colors.BOLD}Compiles complete{Colors.RESET} in {t1 - t0:.1f}s — "
+        reused_count = reused[0]
+    reuse_summary = (f" ({reused_count}/{compiled[0]} reused, "
+                     f"{100.0 * reused_count / compiled[0]:.0f}%)"
+                     if compiled[0] else "")
+    print(f"\n{Colors.BOLD}Compiles complete{Colors.RESET} in {t1 - t0:.1f}s{reuse_summary} — "
           f"{len(tests) - queued[0]} settled without running, "
           f"{queued[0]} binaries queued for execution "
           f"({run_done} of them already run).\n")
@@ -1799,7 +2149,11 @@ REMOTE_GRACE_FLOOR_SECS = 300.0
 
 
 def run_split(tests, args, in_process, compile_fn, jsonl, notes, origins,
-             run_dir: Optional[Path] = None):
+             run_dir: Optional[Path] = None,
+             prev_run_dir: Optional[Path] = None,
+             prev_manifest: Optional[dict] = None,
+             global_max_mtime: float = 0.0,
+             manifest_out: Optional[dict] = None):
     """Run `tests` across this machine and a worker, and return every verdict.
 
     The shape of this function is the design's hard requirement: nothing about
@@ -1817,7 +2171,8 @@ def run_split(tests, args, in_process, compile_fn, jsonl, notes, origins,
     def all_local(why):
         notes.append(why)
         results = run_tests_locally(tests, args, in_process, compile_fn, jsonl,
-                                    run_dir)
+                                    run_dir, prev_run_dir, prev_manifest,
+                                    global_max_mtime, manifest_out)
         for test, *_ in results:
             origins[repo_path(test)] = 'local'
         return results
@@ -1859,7 +2214,9 @@ def run_split(tests, args, in_process, compile_fn, jsonl, notes, origins,
 
     started = time.monotonic()
     results = run_tests_locally([by_path[k] for k in local_keys], args,
-                                in_process, compile_fn, jsonl, run_dir)
+                                in_process, compile_fn, jsonl, run_dir,
+                                prev_run_dir, prev_manifest, global_max_mtime,
+                                manifest_out)
     for test, *_ in results:
         origins[repo_path(test)] = 'local'
     local_seconds = time.monotonic() - started
@@ -1901,7 +2258,9 @@ def run_split(tests, args, in_process, compile_fn, jsonl, notes, origins,
         print(f"\n{Colors.YELLOW}{Colors.BOLD}The worker did not finish "
               f"{len(missing)} test(s) — running them here.{Colors.RESET}")
         recovered = run_tests_locally([by_path[k] for k in missing], args,
-                                      in_process, compile_fn, jsonl, run_dir)
+                                      in_process, compile_fn, jsonl, run_dir,
+                                      prev_run_dir, prev_manifest,
+                                      global_max_mtime, manifest_out)
         results.extend(recovered)
         for test, *_ in recovered:
             origins[repo_path(test)] = 'local (the worker did not answer)'
@@ -1938,15 +2297,28 @@ def main():
     run_dir = build_root / run_name
     run_dir.mkdir(parents=True)
 
+    # design 220 D1/D3: resolved ONCE, before this run's own flip can move
+    # `test_runner_last` — carry-forward reads a fixed prior generation for
+    # this whole invocation, never one that changes mid-run. Absent on a
+    # clean checkout or if every past run died before publishing, which is
+    # the "no manifest present" case D4 requires irdet to degrade cleanly on.
+    prev_run_dir = resolve_last(build_root)
+    prev_manifest = read_manifest(prev_run_dir)
+    global_max_mtime = compute_global_max_input_mtime()
+    manifest_out = {}
+
     jsonl = JsonlSink(args.jsonl)
     notes, origins = [], {}
     try:
         if args.remote:
             results = run_split(tests, args, in_process, compile_fn, jsonl,
-                                notes, origins, run_dir)
+                                notes, origins, run_dir, prev_run_dir,
+                                prev_manifest, global_max_mtime, manifest_out)
         else:
             results = run_tests_locally(tests, args, in_process, compile_fn,
-                                        jsonl, run_dir)
+                                        jsonl, run_dir, prev_run_dir,
+                                        prev_manifest, global_max_mtime,
+                                        manifest_out)
     finally:
         jsonl.close()
 
@@ -1956,6 +2328,12 @@ def main():
     all_passed = print_summary(results, args.verbose, origins=origins,
                                notes=notes)
 
+    # The manifest is written into the run directory BEFORE publish, so the
+    # generation `publish_run` flips onto `test_runner_last` already carries
+    # a complete, consistent manifest — never a window where the symlink
+    # points at a run whose manifest is still being written.
+    write_manifest(run_dir, manifest_out, global_max_mtime)
+
     # Publish LAST, after every verdict is in: reaching here means the run
     # completed (didn't crash, wasn't killed), which is the only thing that
     # makes this generation fit to publish — a red suite is still a completed
@@ -1963,7 +2341,8 @@ def main():
     # recent COMPLETED run rather than only the most recent green one.
     pruned = publish_run(build_root, run_name)
     pruned_note = f", pruned {len(pruned)} old generation(s)" if pruned else ""
-    print(f"Published {run_name} as {LAST_LINK_NAME}{pruned_note}.")
+    print(f"Published {run_name} as {LAST_LINK_NAME}{pruned_note} "
+          f"({len(manifest_out)} manifest entr{'y' if len(manifest_out) == 1 else 'ies'}).")
 
     return 0 if all_passed else 1
 

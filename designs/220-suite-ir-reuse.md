@@ -106,6 +106,48 @@ carry-forward (D3).** Gate: full suite green; a no-change second run reuses
 that file; touching a sawc file invalidates everything; a replay under a
 recorded seed reproduces its artifact byte-identically (spot-check N=20).
 
+**Unit 2 finding (STOP-DON'T-WORKAROUND, pre-existing compiler bug, not a
+regression from this brief's own code): the byte-identical-replay leg of the
+gate is BLOCKED.** `compile_saw()` is not self-reproducible across repeated
+calls in one process, independent of `PYTHONHASHSEED` and independent of the
+program compiled. Minimal repro: a 6-line one-struct program (`struct Point
+{ x: Int, y: Int } / func main() { ... }`), compiled twice via
+`compile_saw(..., emit_optimized_ir=True)` in the SAME process under a FIXED
+seed, emits two `.ll` files that differ — `%"Vector$2$$Opt$Box$1$$Any$Resumable$GlobalAllocator.4152"`
+in the first becomes `...GlobalAllocator.8430"` in the second (every
+reference to the type follows). That type is the always-linked
+backtrace/task-frame `Vector<Opt<Box<Any Resumable>>, GlobalAllocator>`
+(design 158), present in every program regardless of what it imports, so
+this is not corpus-dependent. The suffix numbers are identical across
+DIFFERENT programs and DIFFERENT seeds at the same "compile number in this
+process" (both a `printable_struct.saw` run and the 6-line repro produced
+`.4152` on their first in-process compile and `.8430` on their second) —
+confirming the driver is a per-process compile COUNT, not the seed and not
+the source. `sawc/ast_nodes.py`'s `_NEXT_NODE_ID` is a module-global counter
+that never resets within a process (by design, per its own docstring: it
+exists so a generated name never derives from Python's `id()`, "neither
+stable across runs... nor expressible in the eventual Saw port") — SOME
+identity computation reachable from that backtrace-table monomorphization
+still embeds a raw `node_id` in a mangled name, the same mechanism design
+168 unit 3 already fixed once for collection-literal temp names
+(`__collit_NNNNN` → positional naming, DF-164a) after finding it moved
+`%"__collit_14189"` to `%"__collit_29638"` between two same-process
+compiles. This is very likely a SIBLING of that fix at a different site,
+not a one-off (brief obligation 4) — a real fix should sweep for every
+remaining `node_id`-derived name, not patch this one call site. Confirmed
+NOT present in fresh single-process compiles (two independent `sawc.py`
+CLI invocations under the identical seed produce byte-identical output);
+the class is specific to design 115's persistent workers compiling more
+than one file per process, invisible to irdet's own methodology (always a
+fresh subprocess per compile) until design 220's replay/reuse needed
+cross-process byte identity for the first time. D4's three-way verify
+(unit 3) is explicitly designed for exactly this — a mismatch here lands as
+`fresh-A != artifact`, the "violated invariant" category, never a false
+pass — so it does not block unit 3's own correctness gate, only depresses
+the MEASURED reuse rate unit 3 reports until the underlying compiler bug is
+fixed separately. Not worked around here per policy; needs a DF number and
+its own fix dispatched outside this tooling-track brief.
+
 **Unit 3 — irdet consumes the manifest (D4).** The Saw-side change
 (devtools/irdet — it stays the Saw devtool; it reads the manifest, draws a
 differing seed, and gains the three-way verify). Gate: `irdet --all` green

@@ -1519,7 +1519,7 @@ def _prepare_codegen(source_path: str, entry_ast, entry_source: str, verbose: bo
 
 def _emit_object(codegen, source_path: str, output_path: str, verbose: bool,
                  object_only: bool, optimize: bool, freestanding: bool = False,
-                 runtime_provider: bool = False):
+                 runtime_provider: bool = False, emit_optimized_ir: bool = False):
     """Write the module's IR sidecar, compile to an object file, and (for
     executables) link it. Shared output tail for the compile pipeline.
 
@@ -1530,8 +1530,16 @@ def _emit_object(codegen, source_path: str, output_path: str, verbose: bool,
     construction, and a duplicated `match` arm produced one on day one —
     printed a raw Python traceback at the user, which is the exact failure
     this brief exists to end.
+
+    `emit_optimized_ir` (design 220 D5, default off — every existing caller is
+    byte-for-byte unaffected): the sidecar is UNOPTIMIZED pre-O1 IR by
+    default, written "for debugging" and read by nothing else in the tree.
+    `test_runner.py`'s in-process suite compiles pass True instead, so the
+    sidecar becomes the O1-optimized IR — the artifact irdet's own
+    `--emit-ir` compares (design 220 unit 0's finding: the two must match or
+    a reused artifact is not comparing what irdet would otherwise produce).
     """
-    llvm_ir = _run_llvm(codegen, lambda: codegen.emit_ir(optimize=False))
+    llvm_ir = _run_llvm(codegen, lambda: codegen.emit_ir(optimize=emit_optimized_ir))
 
     # Write LLVM IR to a sidecar file (for debugging)
     ir_path = output_path + ".ll"
@@ -1637,7 +1645,7 @@ def _emit_object(codegen, source_path: str, output_path: str, verbose: bool,
         print(f"Compiled {source_path} -> {output_path}")
 
 
-def compile_saw(source_path: str, output_path: str, verbose: bool = False, object_only: bool = False, optimize: bool = True, target_triple: str = None, freestanding: bool = False, module_paths: dict = None, runtime_build: bool = False, target_features: str = None, no_hidden_alloc: bool = False, runtime_provider: bool = False):
+def compile_saw(source_path: str, output_path: str, verbose: bool = False, object_only: bool = False, optimize: bool = True, target_triple: str = None, freestanding: bool = False, module_paths: dict = None, runtime_build: bool = False, target_features: str = None, no_hidden_alloc: bool = False, runtime_provider: bool = False, emit_optimized_ir: bool = False):
     """Compile a Saw source file to an executable or object file.
 
     A single file is just a module graph of size one, so there is one pipeline:
@@ -1656,12 +1664,18 @@ def compile_saw(source_path: str, output_path: str, verbose: bool = False, objec
             declarations only, hosted std modules excluded, unlinked object output)
         no_hidden_alloc: If True, reject the allocations the compiler inserts
             that no source construct names (design 135)
+        emit_optimized_ir: If True, the `.ll` sidecar is the O1-optimized IR
+            instead of the default unoptimized debug dump (design 220 D5) — an
+            internal knob for `test_runner.py`'s in-process suite compiles,
+            not exposed on the CLI (no other caller needs it).
 
     Returns the `CodeGenerator` the compile ran on. Nothing in the CLI path
     needs it; `tools/reemitdiff.py` does (design 221 unit A2), because the
     OPTIMIZED IR is the one artifact of a compile that is never written to
     disk — and it was the only one DF-220a's context bug moved, which is
     exactly why the gate that should have caught it was green and blind.
+    (`emit_optimized_ir` writes that same IR to the sidecar instead, which is
+    what makes a suite compile's `.ll` the artifact irdet can reuse.)
     """
     # Freestanding and runtime-build both emit an unlinked object file; the
     # user (or the runtime-build cache machinery) owns linking.
@@ -1719,7 +1733,8 @@ def compile_saw(source_path: str, output_path: str, verbose: bool = False, objec
 
     _emit_object(codegen, source_path, output_path, verbose, object_only,
                  optimize, freestanding=freestanding,
-                 runtime_provider=runtime_provider)
+                 runtime_provider=runtime_provider,
+                 emit_optimized_ir=emit_optimized_ir)
     return codegen
 
 
