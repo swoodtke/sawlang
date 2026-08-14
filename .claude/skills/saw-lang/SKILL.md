@@ -167,13 +167,16 @@ currently Map/Set: their `ExplicitCopy` is future work, `.copy()` on them is a
 compile error) is the declared opt-OUT: `move` only. **`ExplicitCopy`** is an
 ordinary synthesizable trait naming the DUPLICABLE family — every `Copy` type
 satisfies it, plus the declared conformers (Vector, whose conformance is
-bounded `T: Copy`). A type declaring `ExplicitCopy` and nothing else is
+bounded `T: ExplicitCopy`). A type declaring `ExplicitCopy` and nothing else is
 move-only: `move v` or `v.copy()` at every transfer.
 The two bounds differ: `<T: Copy>` admits only what duplicates silently,
 `<T: ExplicitCopy>` reads "duplicable, possibly with ceremony" and is what
 licenses a spelled `.copy()` on an abstract `T`. An `ExplicitCopy` argument
-does NOT satisfy `T: Copy`. Declaring both on one type is legal and redundant,
-not contradictory (the old exclusivity rule is gone).
+does NOT satisfy `T: Copy`. Declaring BOTH on one type is a COMPILE ERROR —
+they require the same `copy(&self) -> Self`, so the second conformance
+redefines it (``method `copy` is already defined for struct `T` with an
+indistinguishable signature``). Declare `Copy`; it already satisfies
+`T: ExplicitCopy`.
 **`NoMove` is a SEPARATE AXIS (design 188)** — relocation, not duplication. A
 `NoMove` value moves exactly once (constructor into binding): `move x` and
 `Optional.take` of one are compile errors, whole-referent replacement through
@@ -1926,7 +1929,7 @@ slab in std/slab.saw; `UnsafeMemory<T, Device|Normal>` for MMIO
   way. A cell-carrying `static` is never rodata, and it derives no `Sync`:
   the refusal names the missing declaration AND the blocking field. `Send`
   still derives (a cell moves fine). A cell is NoCopy as a VALUE, but a
-  cell FIELD contributes its `T`'s copy class — say `extension Counter:
+  cell FIELD contributes its `T`'s copy tier — say `extension Counter:
   NoCopy {}` yourself if a copy would be a bug, which is exactly what
   `Atomic` says (design 202). A DECLARED policy on the field's own type
   wins over the clause, so an `Atomic` field cascades `NoCopy` upward

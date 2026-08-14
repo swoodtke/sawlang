@@ -455,11 +455,14 @@ Four axes cross into the combo space:
   payload in place), tuple and nested-tuple destructuring, `_` discard, `??`
   RHS, three closure captures including one naming `self`, both place writes,
   `swap_out`, `Optional.take`.
-- **5 copy TIERS**, of which two WITNESS their own destruction: `nocopy`
+- **5 copy-behavior AXIS VALUES** (`tools/corodiff.py` spells them `Tier(...)`),
+  of which two WITNESS their own destruction: `nocopy`
   (`Res`, a hand-written deinit) and `tag` (a declared Copy struct over
   an `Arc<Res>` — a copy RETAINS, so the payload still dies exactly once, which
   is what makes a Copy over-release visible at all). `trivial`,
-  `implicit` and `explicit` carry the parity checks only.
+  `implicit` and `explicit` carry the parity checks only. The axis names
+  predate design 219's rename: `implicit` is the `Copy` tier, and `explicit` a
+  declared `ExplicitCopy` type.
 - **4 SUSPEND PLACEMENTS** — before the binding, after it, between bind and
   use, and inside the initializer itself.
 - **13 CONTEXTS** — a suspending `main`, a spawned task, a loop body, a closure,

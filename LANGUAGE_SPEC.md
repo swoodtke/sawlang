@@ -1065,7 +1065,7 @@ static SCRATCH: [Int8; 4096] = [0; 4096]     // zeroinitializer, in .bss
 // The length is part of the type. `[Int; 3]` is not a `[Int; 5]`, and passing
 // one where the other is expected is a compile error naming both.
 
-// A fixed array `[T; N]` inherits T's copy class (see The Copy Trait Family):
+// A fixed array `[T; N]` inherits T's copy tier (see The Copy Trait Family):
 // `[Int; 5]` is trivially copyable, so `let b = fixed` bitwise-copies it. An
 // array of `ExplicitCopy` elements is itself `ExplicitCopy` (move to transfer,
 // `.copy()` to duplicate per element); an array of `NoCopy` elements is
@@ -2293,7 +2293,8 @@ collections" claim: the cost of every transfer is readable at the use site.
   ceremony" and is the bound that licenses a spelled `.copy()` on an abstract
   `T`. A type declaring it and nothing else is move-only: every transfer needs
   `move`, every duplicate a visible `.copy()`. **Contract: may be
-  expensive/deep** — e.g. `Vector` (whose conformance is bounded `T: Copy`).
+  expensive/deep** — e.g. `Vector` (whose conformance is bounded
+  `T: ExplicitCopy`).
   `@synthesize extension T: ExplicitCopy {}` derives the memberwise body.
 - **`NoCopy` and `ExplicitCopy` extend `Deinit`**: they are declared as
   `trait NoCopy: Deinit` and `trait ExplicitCopy: Deinit` in the builtin
@@ -2315,12 +2316,24 @@ collections" claim: the cost of every transfer is readable at the use site.
 
   `T: Deinit` remains legal as a generic bound; only the conformance form is
   gone.
-- **Declaring both `Copy` and `ExplicitCopy` is legal.** It used to be a
-  compile error, back when the two words named two tiers and a type on two
-  tiers had no answer to "what does a transfer cost". They name different
-  things now, so the second declaration is redundant rather than
-  contradictory: `Copy` says what a transfer costs, `ExplicitCopy` says only
-  that a duplicate exists, which is true of every `Copy` type anyway.
+- **A type declares one of them, not both.** Both traits require the same
+  method, `copy(&self) -> Self`, so a second conformance redeclares a method
+  the type already has:
+
+  ```saw
+  @synthesize
+  extension Ticket: Copy {}
+
+  @synthesize
+  extension Ticket: ExplicitCopy {}
+  // error: method `copy` is already defined for struct `Ticket` with an
+  //        indistinguishable signature
+  //   hint: overloads must differ in arity or parameter types
+  ```
+
+  Declare `Copy` when transfers are silent. Every `Copy` type already
+  satisfies an `ExplicitCopy` bound, so the second declaration would add
+  nothing even if it compiled.
 - **A hand-written `copy()` must be `sync`.** The `copy()` body
   inside a copy-policy conformance is the retain hook: the compiler calls it at
   transfer sites the source never spells, so a suspension inside it would
@@ -2453,7 +2466,7 @@ retaining a refcount and not copying at all there is no such choice to make, so
 the compiler does not ask for one.
 
 **Fixed arrays.** A fixed array `[T; N]` is treated as an anonymous struct with
-`N` uniform fields: it inherits T's copy class. `[trivial; N]` copies bitwise;
+`N` uniform fields: it inherits T's copy tier. `[trivial; N]` copies bitwise;
 `[Copy; N]` copies implicitly per element (each element's `copy()`);
 `[ExplicitCopy; N]` is move-by-default and `arr.copy()` duplicates element-by-
 element in index order; `[NoCopy; N]` is move-only. Owned elements are released
@@ -3528,7 +3541,8 @@ ONE INLINE WORD beside its payload: `os_unfair_lock` on macOS, a futex on Linux,
 and zero means unlocked on both. It is `NoCopy`, allocates nothing and frees
 nothing. Rather than a returned lock guard, `lock` takes a non-escaping closure
 and runs it with `&var` access to the guarded payload under the lock — the lock
-is always released on the way out. `get()` snapshots the payload (`T: Copy`).
+is always released on the way out. `get()` snapshots the payload
+(`T: ExplicitCopy`).
 
 ```saw
 // lock<R>(body: (&var T) sync -> R) -> R — the body's own result comes back out
@@ -3587,9 +3601,9 @@ stdlib.
 custom copy behavior or cleanup when going out of scope. This enables reference
 counting (like `String` and `Arc<T>`), deep-copy owning types (like
 `Vector`), scope-bound cleanup of a raw resource (like file handles), and
-move-only types. Conformance
-is always declared through an `extension` (`extension T: Trait`); there is no
-struct-header conformance syntax. The family is `Copy` (the silent tier),
+move-only types. `NoCopy`, `ExplicitCopy` and a DECLARED `Copy` are written as
+an `extension` (`extension T: Trait`); there is no struct-header conformance
+syntax, and a derived `Copy` is written nowhere. The family is `Copy` (the silent tier),
 `NoCopy` (the move-only opt-out) and `ExplicitCopy` (the duplicable family),
 over `Deinit`; see [The Copy Trait Family](#the-copy-trait-family) above for
 the transfer-site rules.
@@ -4819,9 +4833,10 @@ element borrow may then span a suspension: the method holds `&self` for its
 whole run, so the Law of Exclusivity forbids any `&var self`, and therefore any
 `push` and its reallocation, from reaching the buffer under a live borrow.
 
-`iter`, `enumerated` and `VectorIterator` keep `T: Copy`. Theirs is a real
-constraint rather than an inherited one: `next()` hands the consumer an element
-it owns, which is a copy at the source.
+`iter` and `enumerated` keep `T: Copy`; `VectorIterator` and
+`EnumeratedIterator` conform to `Iterator` under `T: ExplicitCopy`. Theirs is a
+real constraint rather than an inherited one: `next()` hands the consumer an
+element it owns, which is a copy at the source.
 
 ### `Vector.sort` / `sort_by`
 
@@ -6497,7 +6512,7 @@ static HITS: Counter
 compiler-known about `Atomic` is its ATOMICITY, which no library can express.
 
 A cell is `NoCopy` as a value — copying one makes a second, independent cell —
-but a cell FIELD contributes its `T`'s copy class to whatever holds it, rather
+but a cell FIELD contributes its `T`'s copy tier to whatever holds it, rather
 than cascading `NoCopy` onto it. The container states its own policy, so a
 wrapper that wants to be move-only says `extension Counter: NoCopy {}` in a line
 the reader can see. `Atomic<Int>` is one such wrapper and does say it (below);
@@ -6653,7 +6668,7 @@ func workers() -> Int {              // a safe function: no `unsafe` anywhere
 - `set(value: T)` publishes, once. **Panics** if a value is already present, or
   if another thread is publishing at that instant. Racing setters resolve
   through a compare-exchange: the first wins, every loser panics.
-- `get() -> T` returns the published value (`T: Copy`). **Panics** if nothing
+- `get() -> T` returns the published value (`T: ExplicitCopy`). **Panics** if nothing
   has been published yet.
 - `try_get() -> T?` is the inspectable twin — `None` while unset.
 - `is_set() -> Bool` is a debugging aid; the answer can be stale before it is
@@ -6686,7 +6701,8 @@ evaluation, macros, and compile-time reflection are planned.
 **Status: implemented.** Generic functions, structs, and enums; `T: Trait`
 bounds (including the built-in `T: Copy` and `T: ExplicitCopy`
 bounds); generic extensions, including **bounded** extensions
-(`extension Vector<T: Copy>: ExplicitCopy { ... }`, used in the stdlib).
+(`extension Vector<T: ExplicitCopy, A: Allocator = GlobalAllocator>:
+ExplicitCopy { ... }`, used in the stdlib).
 
 Implementation notes:
 - **Monomorphization**: each instantiation is a distinct specialized function/
@@ -8624,7 +8640,7 @@ On the `try_make` failure path the value is cleanly `deinit`'d at scope exit
 (never leaked). `make` places the value with the placement-move primitive
 (`ptr[0] = move value`) and, on allocator failure, panics. Payload access:
 
-- `value()` returns a copy of the payload (bounded `T: Copy`).
+- `value()` returns a copy of the payload (bounded `T: ExplicitCopy`).
 - **Method forwarding** (like `Arc`): an immutable `&self` method on the payload
   struct is callable through the Box — `b.peek()` forwards to the payload's
   `peek`. A `&var self` payload method is rejected (aliased mutation of

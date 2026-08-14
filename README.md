@@ -1651,7 +1651,7 @@ suite.
 
 | Aspect | Rust | Saw |
 |--------|------|-----|
-| Transfer default | Move everything | Trivial types copy; owning types move (Copy trait family) |
+| Transfer default | Move everything | `Copy` types duplicate silently (POD, `String`, `Arc`, `Data`, and any struct whose members are all `Copy`); everything else moves |
 | Mutability | `let mut` | `var` |
 | Optionals | `Option<T>` | `T?` (postfix) |
 | References | `&T`, `&mut T` | `&T`, `&var T` |

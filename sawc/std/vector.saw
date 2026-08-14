@@ -663,8 +663,8 @@ extension Vector<T: Copy, A: Allocator = GlobalAllocator> {
     // (design 53). Mirrors `iter()`/VectorIterator's bounds; `T: Copy` because
     // each element is produced by value.
     /// Returns an iterator yielding `(index, element)` pairs. The iterator follows
-    /// the bounds of `iter()`. Because elements are yielded by value, the type `T`
-    /// must implement `Copy`.
+    /// the bounds of `iter()`. Because elements are yielded by value, `T` must
+    /// be `Copy`.
     public func enumerated(&self) unsafe -> EnumeratedIterator<T> {
         EnumeratedIterator<T>(buffer: self.buffer, length: self.length, index: 0)
     }
