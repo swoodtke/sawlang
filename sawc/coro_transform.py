@@ -1745,11 +1745,17 @@ class _FrameBuilder:
             self.recv_pointee = pointee if self.has_recv else None
             self.recv_type = (_unsaferef_type(pointee)
                               if self.has_recv else None)
+            # design 222 unit 2: the DRIVER's parameter type. The address still
+            # crosses at the same place; what the CALLER writes is a reference.
+            self.recv_ref_type = (SawType(TypeKind.REFERENCE, inner_type=pointee,
+                                          reference_mutable=False)
+                                  if self.has_recv else None)
         else:
             self.name = func.name
             self.recv_type = None
             self.recv_ptr_type = None
             self.recv_pointee = None
+            self.recv_ref_type = None
         self.frame_name = f"__Frame_{self.name}"
         # design 158: the name a logical backtrace frame PRINTS. The frame key is
         # a mangled monomorphization symbol; a reader wants the source spelling,
@@ -6838,12 +6844,22 @@ def _frame_param_arg(p):
     flag AND the frame drops its field, double-dropping the value (a real
     use-after-free on a refcounted payload). Passing the param as a `move`
     clears the wrapper param's drop responsibility so the frame is the sole
-    owner (dropped exactly once at frame teardown). Reference params never own,
-    so they stay a plain borrow-forward.
+    owner (dropped exactly once at frame teardown).
+
+    A REFERENCE param is where the address is taken (design 222 unit 2). The
+    parameter is a `&T`/`&var T` now — the drive site hands the driver an
+    ordinary reference and writes no pointer — so the driver forwards it
+    (design 106) and casts, inside its own `unsafe`-declared body, into the
+    pointer the frame's handle is built over. The crossing did not move; it
+    moved INTO the generated declaration, out of the body somebody else wrote.
     """
     from ast_nodes import MoveExpr as _Move
     if getattr(p.type, 'kind', None) == TypeKind.REFERENCE:
-        return Identifier(name=p.name)
+        return CastExpr(
+            expr=ReferenceExpr(expr=Identifier(name=p.name),
+                               mutable=bool(p.type.reference_mutable),
+                               in_argument_position=True),
+            target_type=_ref_ptr_type(p.type))
     return _Move(variable=p.name, path=None)
 
 
@@ -7138,9 +7154,14 @@ def _make_driver(fb: _FrameBuilder, mode, fbs):
     steps: `func __saw_drive_steps_<f>(<params>) -> Int { ...; count Pendings; __n }`
     """
     params = fb.params
-    # A method driver takes the receiver first, as an `UnsafePointer<Struct>`
-    # (design 42's `&T`->pointer bridge is what the drive site supplies).
-    recv_value = Identifier(name="__recv") if fb.has_recv else None
+    # A method driver takes the receiver first, as a `&Struct` (design 222 unit
+    # 2) — forwarded and cast here, so the frame's handle is built over the same
+    # address it always was and the drive site names no pointer.
+    recv_value = (CastExpr(expr=ReferenceExpr(expr=Identifier(name="__recv"),
+                                              mutable=False,
+                                              in_argument_position=True),
+                           target_type=fb.recv_ptr_type)
+                  if fb.has_recv else None)
     frame_init = _build_frame_init(
         fb, [_seed_field(fb, p.name, p.type, _frame_param_arg(p))
              for p in params], fbs, recv_value=recv_value)
@@ -7186,20 +7207,26 @@ def _make_driver(fb: _FrameBuilder, mode, fbs):
         ret = fb.ret
         final = _read_frame_result(fb, stmts)
 
-    # design 88: a reference param flows through the driver AS a raw pointer (the
-    # drive site casts `&var x` -> `UnsafePointer<T>`), seeding the frame's pointer
-    # field directly. Its inner type follows the reference (mutability preserved).
-    driver_params = [Parameter(name=p.name,
-                               type=(_ref_ptr_type(p.type)
-                                     if fb.encmap.get(p.name) == "ref" else p.type))
+    # design 88, as design 222 unit 2 leaves it: a reference param flows through
+    # the driver AS A REFERENCE. The drive site writes `&var x` and nothing more;
+    # the driver forwards it and casts inside its own body, where the `unsafe`
+    # declaration that owns the crossing already is.
+    driver_params = [Parameter(name=p.name, type=p.type,
+                               is_reference=(p.type.kind == TypeKind.REFERENCE),
+                               reference_mutable=bool(
+                                   p.type.kind == TypeKind.REFERENCE
+                                   and p.type.reference_mutable))
                      for p in params]
     if fb.has_recv:
-        # The driver's own parameter stays a RAW pointer: the drive site casts
-        # `&recv` at the call, and the handle is built inside `_build_frame_init`
-        # where the frame is. Wrapping at the boundary instead would move the
-        # construction out of the transform and into every caller.
-        driver_params = [Parameter(name="__recv",
-                                   type=fb.recv_ptr_type)] + driver_params
+        # And the receiver likewise (design 222 unit 2). The drive site used to
+        # splice `(&c) as UnsafeConstPointer<C>` into the CALLER's own body — a
+        # pointer in a function whose author never wrote one, which is what kept
+        # E2 alive after stage 3. It writes `&c` now; `recv_ref_type` is that
+        # reference, `_build_frame_init` still gets the pointer, and the cast
+        # between them happens here.
+        driver_params = [Parameter(name="__recv", type=fb.recv_ref_type,
+                                   is_reference=True, reference_mutable=False)
+                         ] + driver_params
     # The driver names a raw pointer when its own signature does (a receiver, a
     # reference parameter the drive site addressed) — and also when merely
     # BUILDING the frame does, which reaches down the embedded call tree.
@@ -7215,15 +7242,18 @@ def _make_driver(fb: _FrameBuilder, mode, fbs):
 # spawn lowering (design 52b item 2)
 # --------------------------------------------------------------------------- #
 
-def _helper_param_type(fb: _FrameBuilder, p):
-    """The `__spawn_<f>` helper's parameter type for one of `f`'s parameters.
+def _helper_param(fb: _FrameBuilder, p):
+    """The `__spawn_<f>` helper's parameter for one of `f`'s parameters.
 
-    A reference parameter travels to the helper AS A RAW POINTER, exactly as it
-    travels to a `__saw_drive_<f>` driver (design 88, and design 201 in spawn
-    position): the spawn SITE casts `&var x` -> `UnsafePointer<T>`
-    (`_ref_arg_to_ptr`), the helper takes the pointer, and it seeds the frame's
-    `UnsafePointer<T>` field directly. Everything else keeps its own type."""
-    return _ref_ptr_type(p.type) if fb.encmap.get(p.name) == "ref" else p.type
+    A reference parameter travels to the helper AS A REFERENCE, exactly as it
+    travels to a `__saw_drive_<f>` driver (design 88, design 201 in spawn
+    position, design 222 unit 2 for the spelling): the spawn SITE writes
+    `&var x`, the helper takes `&var T`, and `_frame_param_arg` does the crossing
+    inside the helper's own `unsafe`-declared body. Everything else keeps its own
+    type."""
+    is_ref = getattr(p.type, 'kind', None) == TypeKind.REFERENCE
+    return Parameter(name=p.name, type=p.type, is_reference=is_ref,
+                     reference_mutable=bool(is_ref and p.type.reference_mutable))
 
 
 def _reject_spawn_frame_refs(fb: _FrameBuilder, fbs):
@@ -7334,7 +7364,8 @@ def _make_spawn_helper(fb: _FrameBuilder, fbs, helper_name=None):
     result and cancel slots, build f's frame around the cell address, erase both
     into boxes, and hand them to the group together:
 
-        func __spawn_f(__group: UnsafePointer<TaskGroup>, <params>) -> TaskHandle<T> {
+        func __spawn_f(__group: &TaskGroup, <params>) unsafe -> TaskHandle<T> {
+            let __gp    = (&__group) as UnsafePointer<TaskGroup>
             var __cbox  = Box<any __TaskCell>.make(__ResultCell<T>(__result: None,
                                                                    __cancel: false))
             let __cdata = __saw_box_data(&__cbox)
@@ -7342,9 +7373,9 @@ def _make_spawn_helper(fb: _FrameBuilder, fbs, helper_name=None):
             let __rp    = (&__cellp[0].__result) as UnsafePointer<T?>
             let __cp    = (&__cellp[0].__cancel) as UnsafePointer<Bool>
             var __box   = Box<any Resumable>.make(__Frame_f(<params>..., __cellp: __cellp))
-            let __slot  = __group[0].__enqueue(move __box, move __cbox)
-            let __gen   = __group[0].__gen_at(__slot)
-            TaskHandle<T>(result_ptr: __rp, cancel_ptr: __cp, group_ptr: __group,
+            let __slot  = __gp[0].__enqueue(move __box, move __cbox)
+            let __gen   = __gp[0].__gen_at(__slot)
+            TaskHandle<T>(result_ptr: __rp, cancel_ptr: __cp, group_ptr: __gp,
                           slot: __slot, generation: __gen)
         }
 
@@ -7386,7 +7417,24 @@ def _make_spawn_helper(fb: _FrameBuilder, fbs, helper_name=None):
             object=ArrayIndex(array_expr=Identifier(name="__cellp"), index=_int(0)),
             member=name)
 
+    tg_ptr = SawType(TypeKind.POINTER,
+                     inner_type=SawType(TypeKind.STRUCT, struct_name="TaskGroup"))
+    tg_ref = SawType(TypeKind.REFERENCE,
+                     inner_type=SawType(TypeKind.STRUCT, struct_name="TaskGroup"),
+                     reference_mutable=False)
+
     stmts = [
+        # design 222 unit 2: the helper's `__group` is a REFERENCE now (the spawn
+        # site writes `&group` and no cast), so the pointer the enqueue and the
+        # handle need is derived HERE, in the one declaration that says `unsafe`
+        # about it. Forwarding a received reference is design 106's ordinary
+        # spelling; the address is the same one the site used to take.
+        LetStatement(name="__gp", type_annotation=None, mutable=False,
+                     value=CastExpr(
+                         expr=ReferenceExpr(expr=Identifier(name="__group"),
+                                            mutable=False,
+                                            in_argument_position=True),
+                         target_type=tg_ptr)),
         LetStatement(name="__cbox", type_annotation=None, value=cell_box_make,
                      mutable=True),
         LetStatement(name="__cdata", type_annotation=None, mutable=False,
@@ -7421,14 +7469,11 @@ def _make_spawn_helper(fb: _FrameBuilder, fbs, helper_name=None):
         method_name="make",
         arguments=[Argument(name=None, value=frame_init)])
 
-    tg_ptr = SawType(TypeKind.POINTER,
-                     inner_type=SawType(TypeKind.STRUCT, struct_name="TaskGroup"))
-
     stmts.extend([
         LetStatement(name="__box", type_annotation=None, value=box_make, mutable=True),
         LetStatement(name="__slot", type_annotation=None, mutable=False,
                      value=MethodCall(
-                         object=ArrayIndex(array_expr=Identifier(name="__group"), index=_int(0)),
+                         object=ArrayIndex(array_expr=Identifier(name="__gp"), index=_int(0)),
                          method_name="__enqueue",
                          arguments=[
                              Argument(name=None, value=MoveExpr(variable="__box", path=None)),
@@ -7437,7 +7482,7 @@ def _make_spawn_helper(fb: _FrameBuilder, fbs, helper_name=None):
         # handle outliving its task never addresses the task that replaced it.
         LetStatement(name="__gen", type_annotation=None, mutable=False,
                      value=MethodCall(
-                         object=ArrayIndex(array_expr=Identifier(name="__group"), index=_int(0)),
+                         object=ArrayIndex(array_expr=Identifier(name="__gp"), index=_int(0)),
                          method_name="__gen_at",
                          arguments=[Argument(name=None, value=Identifier(name="__slot"))])),
     ])
@@ -7445,16 +7490,17 @@ def _make_spawn_helper(fb: _FrameBuilder, fbs, helper_name=None):
         handle = StructInit(
             struct_name="VoidTaskHandle", type_args=None,
             field_inits=[("cancel_ptr", Identifier(name="__cp")),
-                         ("group_ptr", Identifier(name="__group")),
+                         ("group_ptr", Identifier(name="__gp")),
                          ("slot", Identifier(name="__slot")),
                          ("generation", Identifier(name="__gen"))])
         ret_type = SawType(TypeKind.STRUCT, struct_name="VoidTaskHandle")
-        helper_params = [Parameter(name="__group", type=tg_ptr)] + \
-                        [Parameter(name=p.name, type=_helper_param_type(fb, p))
-                         for p in params]
-        # The helper takes the group by raw pointer and hands the cell's
-        # `__cancel` address to the handle: unsafe by signature and by body,
-        # in every shape (the trusted design-134 cell plumbing).
+        helper_params = [Parameter(name="__group", type=tg_ref,
+                                   is_reference=True,
+                                   reference_mutable=False)] + \
+                        [_helper_param(fb, p) for p in params]
+        # The helper hands the cell's `__cancel` address to the handle and casts
+        # its group reference to the pointer the queue wants: unsafe by body in
+        # every shape (the trusted design-134 cell plumbing).
         return _declare_unsafe(
             Function(name=helper_name, parameters=helper_params,
                      return_type=ret_type,
@@ -7465,13 +7511,13 @@ def _make_spawn_helper(fb: _FrameBuilder, fbs, helper_name=None):
         struct_name="TaskHandle", type_args=[T],
         field_inits=[("result_ptr", Identifier(name="__rp")),
                      ("cancel_ptr", Identifier(name="__cp")),
-                     ("group_ptr", Identifier(name="__group")),
+                     ("group_ptr", Identifier(name="__gp")),
                      ("slot", Identifier(name="__slot")),
                      ("generation", Identifier(name="__gen"))])
     ret_type = SawType(TypeKind.STRUCT, struct_name="TaskHandle", type_args=[T])
-    helper_params = [Parameter(name="__group", type=tg_ptr)] + \
-                    [Parameter(name=p.name, type=_helper_param_type(fb, p))
-                     for p in params]
+    helper_params = [Parameter(name="__group", type=tg_ref,
+                               is_reference=True, reference_mutable=False)] + \
+                    [_helper_param(fb, p) for p in params]
     return _declare_unsafe(
         Function(name=helper_name, parameters=helper_params,
                  return_type=ret_type,
@@ -7629,18 +7675,22 @@ def _labeled_call_rule(node):
 
 
 def _spawn_site_rule(node):
-    """Rewrite `group.spawn(f(args))` -> `__spawn_f((&group) as
-    UnsafePointer<TaskGroup>, args...)`. The site was stamped with `spawn_root`
-    by the typechecker."""
+    """Rewrite `group.spawn(f(args))` -> `__spawn_f(&group, args...)`. The site
+    was stamped with `spawn_root` by the typechecker.
+
+    design 222 unit 2: the group crosses as a REFERENCE. This one site was 158 of
+    the 166 files unit 0 measured under E2 — every program that spawns a task got
+    `(&group) as UnsafeConstPointer<TaskGroup>` spliced into the body it wrote,
+    and then owed an `unsafe` declaration for a pointer nobody typed. `&group` is
+    what the author would have written; `__spawn_<f>` takes it and does the
+    crossing in its own `unsafe`-declared body."""
     if (isinstance(node, MethodCall) and node.method_name == "spawn"
             and getattr(node, 'spawn_root', None)):
         root = node.spawn_root
         group = node.object
         inner = node.arguments[0].value  # the f(args) call
-        tg_ptr = SawType(TypeKind.POINTER,
-                         inner_type=SawType(TypeKind.STRUCT, struct_name="TaskGroup"))
-        group_ptr = CastExpr(
-            expr=ReferenceExpr(expr=group, mutable=False), target_type=tg_ptr)
+        group_ptr = ReferenceExpr(expr=group, mutable=False,
+                                  in_argument_position=True)
         call = FunctionCall(
             name=f"__spawn_{root}",
             arguments=([Argument(name=None, value=group_ptr)]
@@ -7663,18 +7713,17 @@ def _rewrite_spawn_sites(node):
 # --------------------------------------------------------------------------- #
 
 def _ref_arg_to_ptr(arg):
-    """design 88 (D6): a reference argument `&x` / `&var x` at a drive site is
-    passed to the driver AS a raw pointer into the referent's storage (the same
-    &T->pointer bridge the method receiver uses). The driver seeds the frame's
-    `UnsafePointer<T>` field from it, and the frame reads/mutates the caller's
-    value through it across suspensions. A non-reference argument is unchanged."""
-    rt = getattr(arg.value, 'resolved_type', None)
-    if rt is None or rt.kind != TypeKind.REFERENCE:
-        return arg
-    ptr_type = SawType(TypeKind.POINTER, inner_type=rt.inner_type,
-                       pointer_mutable=bool(rt.reference_mutable))
-    return Argument(name=arg.name,
-                    value=CastExpr(expr=arg.value, target_type=ptr_type))
+    """design 88 (D6): a reference argument `&x` / `&var x` at a drive or spawn
+    site travels to the driver/helper AS A REFERENCE — unchanged, design 222
+    unit 2.
+
+    It used to be cast to a raw pointer HERE, in the caller's own body, which is
+    census row C of unit 0's inventory: the third construction that made a plain
+    `func main()` name an `UnsafePointer` its author never wrote. The cast now
+    lives in the generated declaration (`_frame_param_arg`), which says `unsafe`
+    and is held to it. Kept as a named identity so the two rewrite sites keep
+    reading as one decision, and so this docstring has somewhere to live."""
+    return arg
 
 
 def _rewrite_drive_sites(node, roots):
@@ -7699,17 +7748,15 @@ def _rewrite_drive_sites(node, roots):
                 return node
             recv_type = getattr(inner.object, 'resolved_type', None)
             struct_name = getattr(recv_type, 'struct_name', None)
-            # design 74 (A5-rest, shape 2): preserve the receiver's type args so a
-            # generic-struct receiver (`Holder<Int>`) casts to
-            # `UnsafePointer<Holder<Int>>` — matching the frame's `__recv` pointee.
-            recv_args = getattr(recv_type, 'type_args', None)
-            ptr_type = SawType(TypeKind.POINTER,
-                               inner_type=SawType(TypeKind.STRUCT,
-                                                  struct_name=struct_name,
-                                                  type_args=recv_args))
-            recv_ptr = CastExpr(
-                expr=ReferenceExpr(expr=inner.object, mutable=False),
-                target_type=ptr_type)
+            # design 222 unit 2: the receiver is passed as an ORDINARY REFERENCE.
+            # This site is 10 of unit 0's 166 E2 files — `(&c) as
+            # UnsafeConstPointer<C>` spliced into a body whose author wrote no
+            # pointer — and the reference is the spelling that says the same
+            # thing in a language the author already writes. The driver
+            # (`_make_driver`) does the crossing, in a declaration that carries
+            # the `unsafe` marker for it.
+            recv_ptr = ReferenceExpr(expr=inner.object, mutable=False,
+                                     in_argument_position=True)
             # design 95: name the driver by the resolved-signature frame key so an
             # overloaded method's driver matches its frame.
             node.name = prefix + _method_frame_key(

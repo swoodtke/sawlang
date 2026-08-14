@@ -164,6 +164,48 @@ unsafe type — and the design-130 rule runs on rewritten bodies with zero
 exemption. This is the unit that makes "rewrite async functions safely"
 literally true for user code.
 
+### UNIT 2 LANDED (Aug 14) — the reference-parameter driver, and E2's coverage measures ZERO
+
+The brief's first-preference candidate, and it took no fallback. All three of
+unit 0's constructs stop casting at the CALL and start declaring a REFERENCE at
+the callee — the same move design 201 already made for a spawned frame's
+reference parameter, applied to the other two positions:
+
+| construct | before (in the author's body) | after |
+|---|---|---|
+| A spawn site | `__spawn_f((&group) as UnsafeConstPointer<TaskGroup>, …)` | `__spawn_f(&group, …)`; `__spawn_f(__group: &TaskGroup, …)` derives `__gp` in its own body |
+| B drive site | `__saw_drive_C_m((&c) as UnsafeConstPointer<C>, …)` | `__saw_drive_C_m(&c, …)`; the driver takes `__recv: &C` (`recv_ref_type`) and casts at `_build_frame_init` |
+| C reference argument | `f((&var x) as UnsafePointer<T>)` | `f(&var x)`; the driver/helper parameter keeps `&var T` and `_frame_param_arg` casts |
+
+Nothing about the ADDRESS moved — the same pointer is taken over the same
+storage, at the same moment. What moved is WHOSE DECLARATION owns it: out of a
+body the transform rewrote, into the one it authored, which since stage 3 says
+`unsafe` honestly and is held to it (`unsafe_decl_checked`). That is the whole
+architecture in one edit — the crossing is not hidden, it is attributed.
+
+**Acceptance, measured the same way unit 0 was.** E2 off, whole corpus (1548
+files): **6 diagnose, and they are exactly unit 0's 6 pre-existing first-pass
+rows.** E2's coverage of rewritten bodies is 166 → **0**. The full suite is green
+WITH THE FLAG OFF (1854 / 25 xfailed), which is the flip's real gate — the flag
+is now dead code, and deleting it in unit 4 changes no behaviour.
+
+Two things a reviewer should look at, both deliberate:
+
+- **The receiver reference is SHARED (`&c`), not `&var c`, and that mirrors what
+  the cast did** (`ReferenceExpr(mutable=False)` in both the drive-site and
+  spawn-site constructions before this unit). Keeping it shared is what makes
+  this a zero-delta change for a `let` receiver, which the corpus has. The frame
+  still mutates through the handle — legal, because the driver is the
+  `unsafe`-declared declaration that owns the crossing, and design 88's D6
+  confinement says the caller executes nothing while parked on the drive. The
+  honest alternative is to mirror the method's own `self_mutable`, which would
+  make the call site's borrow say what the callee does; it needs a receiver-
+  mutability lookup at the rewrite and would demand `var` receivers the corpus
+  does not currently write. Flagged rather than done.
+- **The spawn helper takes `&TaskGroup` and re-derives the pointer** rather than
+  taking `&var TaskGroup` and calling `__enqueue` (a `&var self` method) through
+  the reference. Same reason and the same zero-delta property.
+
 **Unit 3 — the wake latch.** Expected hardest; the reactor wakeup cast may
 be genuinely unsafe (a pointer that outlives the frame's checked scope,
 handed to the reactor). Permitted outcomes, in order of preference: a safe
