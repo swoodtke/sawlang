@@ -423,11 +423,117 @@ users who touch an `UnsafeRef` carry the obligation via their own declared
 `unsafe` — design 130's contract, applied uniformly to compiler and user
 alike. Details + consequences in 218a's RULINGS header.
 
-## What stays trusted (the explicit list)
+## What stays trusted — THE FINAL LIST (ratified, design 218 stage 4)
 
-The `Slot` implementation and any unit-5 unchecked variant; the executor and
-reactor (already Saw, already seam-frozen); the state-machine resume dispatch;
-`rt/shim.c`'s three bodies; `sos/rt/common_c/support.c`. Everything else that
-is generated must pass the ordinary checks. This list is the brief's most
-important artifact — additions to it are design decisions, not implementation
-details.
+This list is the brief's most important artifact: additions to it are design
+decisions, not implementation details. The sketch it replaces said "the `Slot`
+implementation and any unit-5 unchecked variant; the executor and reactor; the
+state-machine resume dispatch; `rt/shim.c`'s three bodies;
+`sos/rt/common_c/support.c`". Stages 1-4 measured what the migration actually
+left behind, and the ratified list is BOTH more precise and shorter in the one
+place that matters — `Slot` is not on it.
+
+**1. `UnsafeRef<T>`'s VALIDITY argument: the referent outlives every `deref()`.**
+The one genuinely manual item. It holds because the transform constructs a
+handle only over storage the drive structure keeps alive: `__recv` and the
+`ref`-encoded fields point at a driven frame's referent, which outlives the
+drive by design 88's confinement, and a SPAWNED frame — the one construct that
+breaks the outlives-by-construction argument — rejects references outright
+(`_reject_spawn_frame_refs`). Construction is funnelled through
+`_unsaferef_init`, whose docstring names its four entry points, so the surface
+to review is that list and not every pointer expression in the file. The
+obligation is CARRIED by design 130's marking rule rather than by a check: a
+declaration touching one says `unsafe`, and since stage 3 the transform's own
+declarations say it honestly and are held to it (`unsafe_decl_checked`).
+
+**2. The spawn CELL plumbing — census S11, R8, P4.** `__cellp` and the `__rp` /
+`__cp` pointers the spawn helper derives from it, plus the `_result_place` /
+`_cancel_place` derefs that read through it. Design 134's stable heap slot: the
+cell outlives the frame on purpose, which is exactly what lets the frame box be
+released the moment the task completes. Consequence recorded with it — a spawn
+root's `__result` keeps design 44's legacy encoding (its slot is IN the cell,
+not in the frame), so it is the one `__saw_forget` family that is trusted rather
+than deferred (`FAM_SPAWN_CELL`).
+
+**3. The reactor token — census P3.** `__io_tok`, which is
+`(&self.__wake) as UnsafePointer<Int> as Int`: the address of a word inside a
+frame the scheduler keeps alive for exactly as long as it is parked (design 91).
+Retiring it needs a safe cell wrapper for the wake word, which is future work
+and not promised here.
+
+**4. The DRIVE-SITE CAST** the transform splices into the CALLER's own body
+(`__saw_drive_C_slow((&c) as UnsafeConstPointer<C>)`). This is why E2 narrowed
+rather than deleted at stage 3: the pointer is in a body whose author did not
+write it, so holding that author to design 130's rule would be E1's provenance
+error in a second place.
+
+**5. The state-machine resume dispatch** — the `__state` switch and the
+`Poll` protocol between a frame and its driver. It claims no ownership; what is
+trusted is that the state numbering and the drive loop agree.
+
+**6. The executor and the reactor**, already Saw and already seam-frozen
+(designs 113/117), and **`rt/shim.c`'s three bodies** and
+**`sos/rt/common_c/support.c`**.
+
+**7. Any unit-5 unchecked `Slot` variant**, if measurement ever demands one.
+None exists today.
+
+**NOT on the list, and the distinction is load-bearing:**
+
+- **`Slot<T>` itself.** 218a section 2's finding, confirmed by the migration:
+  `Slot` names no unsafe type, so the checker judges it like any user type and
+  the exactly-once property is a local one (four exits, each moving the tag in
+  the same body it moves or drops the payload, over a private field). What the
+  transform must get right is OCCUPANCY, and a wrong proof PANICS — loud, not
+  unsafe. The one caveat is DF-217i's: the module is a generic whose abstract
+  body the checker does not hold to the least-permissive tier, so until unit 1.5
+  lands its correctness rests on review plus conformance row K28.
+- **The deferred families' legacy drop-flag bookkeeping.** Six families plus the
+  two scrutinee-temp rows keep design 44's `opt` encoding, so a consuming read
+  and its `__saw_forget` are still two statements — the shape DF-206f, DF-210f
+  and DF-217h each mispaired. That is UNMIGRATED, not trusted: every surviving
+  emission names the family holding it back, `tools/test_forget_purge.py` fails
+  on one that does not, and each goes when its family does.
+- **The permanent `post_transform` exemptions** (E1 hidden-alloc, E3 extension
+  scoping, E4 the shadowed-qualifier warning, E5 the prelude gate). Each is a
+  PROVENANCE rule — the gate judges what an author wrote, and the transform's
+  output has no author — not a claim that generated code is above a check.
+
+Everything else that is generated passes the ordinary checks.
+
+## STAGE 4 LANDED (Aug 14) — teardown, the forget purge, the ledger
+
+Census D1-D3 and the ratification above. `release`'s body is a `clear()` loop
+over the migrated fields (D2, landed with stage 1) and the eager call at every
+Done exit survives on 218a's ruling that design 124's timing requires it (D3).
+D1 is the purge, and it landed in the adapted form the lead ruled, because §9's
+"emission count hits ZERO (grep-gated)" was written before the deferred families
+existed:
+
+**Every `__saw_forget` the transform emits goes through ONE funnel that will not
+emit without naming the deferred family holding its field back.** The family and
+the encoding are one decision, made in one place (`_deferred_family`) and
+recorded per field at `prepare`; a forget on a MIGRATED field raises, since that
+pairing is precisely what `take()` made unrepresentable. `forgetgate`
+(`tools/test_forget_purge.py`) is the gate: one emission site, every call cited,
+the family set the documented one, and — the rule a grep cannot state — the
+funnel provably REFUSES an uncited family.
+
+Accounting: four scattered emission constructions collapse to one; ZERO were
+deleted, because all four are live and the trace says which family reaches each.
+Measured over the full suite, the frame-field funnel fires 31 times and the three
+`__result` sites fire never — but a fixed-array return reaches all three and a
+closure return reaches two, which is a corpus gap
+(`examples/coro_result_array_and_closure.saw` closes it) rather than dead code.
+
+D4/D5 (cancel, panic) needed no migration and are no longer S3-PENDING: unit 0's
+corodiff carries three cancel contexts and a panic context with their own oracle
+classes (a cancelled task may not free a frame slot twice; a panic aborts without
+unwinding, so nothing is released), and `corodiff --all` gated every stage.
+
+M1/M3 did not retire, as stage 3 recorded: they are stamped by `_read_field`'s
+legacy branch, which is alive for exactly the deferred families. They go with the
+last of them, in the same landing that deletes the forget funnel and this gate.
+
+One finding, pre-existing and filed rather than worked around: DF-218n, an
+explicit `__saw_drive(f())` inside a body that itself suspends is an ICE.

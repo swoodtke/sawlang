@@ -304,6 +304,22 @@ each test tree: `blade/tests` and `libs/*/tests` run inside `bootstrap`
 compiled. `selfhostlex` closes that: each `selfhost/lexer/tests/*.saw`
 is compiled and run, exit 0 = pass, same contract as `blade test`.
 
+### The forgetgate stage
+
+Design 218 stage 4's exit criterion, mechanized. `__saw_forget(<place>)` clears
+an optional field's drop flag without reading the payload, so it is correct only
+when it is paired with exactly one prior consuming read — a two-statement
+obligation DF-206f, DF-210f and DF-217h each got wrong. The Slot migration
+replaced that pair with `take()` on every field it moved, and the fields it did
+NOT move are the six deferred census families plus the two scrutinee-temp rows.
+
+So the criterion is not "zero emissions" (that would mean zero deferrals) but
+zero UNCITED ones, and `tools/test_forget_purge.py` checks three things: the
+transform spells `__saw_forget` in exactly one place, `_forget_call`; every call
+to it passes a family from `DEFERRED_FAMILIES`; and the funnel provably REFUSES
+an unknown family, which the gate asserts by calling it with one. A new deferral
+is a design decision and needs the gate file in the diff.
+
 ### The bench stage
 
 `bench` compiles and runs `devtools/bench/warehouse/` (driver:

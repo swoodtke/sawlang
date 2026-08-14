@@ -902,6 +902,18 @@ exemption/mark deletions. Census rows per stage:
 | **3 — closure envs, `[&self]`, Receiver** | R4, R7, P1, P2, section 4 (parser + typechecker + transform) | **flips `closure_captures_self_suspending.saw`**; E6 deletes; E2 narrows to cell/reactor plumbing; M1/M3 delete (last `_read_field` emitter goes) | lexdiff/astdiff (grammar change); the 216 conformance rows R30/R35-37; P5/P8/P8b shapes as tests |
 | **4 — teardown & the forget purge** | D1-D3, R8/P3/P4 trusted-list ratification | `__saw_forget` emission count hits ZERO in the transform (grep-gated); `__release` body = `clear()` loop | full battery incl. gmgate/bootstrap/sos; the trusted list in the 218 brief updated to its final form |
 
+**Stage 4's exit criterion was ADAPTED at dispatch (lead, Aug 14), and the row
+above is superseded on one word.** "Emission count hits ZERO" was written before
+stages 1-3 measured the SIX deferred census families (`opt_closure`,
+address-taken locals, `Void`, fixed arrays, DF-218h's window-move, DF-218i's
+rendering operand) and the two scrutinee-temp rows where the DF-210f forget
+deliberately stays. A legacy encoding is exactly a field that still owes its
+forget, so zero emissions would mean zero deferrals. The criterion as landed:
+**zero emissions OUTSIDE those named deferrals, each survivor citing its family,
+gate-checked** — `tools/test_forget_purge.py`, the `forgetgate` battery lane.
+The citation is an argument the emission funnel refuses to go without, not a
+comment. See the brief's STAGE 4 LANDED section.
+
 Dispatch: stages 1-2 are ONE implementer (same funnels — `_read_field`,
 `_store_binding_in_slot`, the temp machinery all interlock; splitting them
 concurrently would collide in worktree merges). Stage 3 is separately

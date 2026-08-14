@@ -6381,7 +6381,18 @@ class _FrameBuilder:
     def _release_seq(self):
         """The body of `release`: drop every owned field in reverse declaration
         order (LIFO, matching both ordinary scope exit and the struct teardown in
-        codegen/resources.py)."""
+        codegen/resources.py).
+
+        CENSUS D2/D3 (design 218 stage 4). D3 asked whether `release` survives
+        the migration at all, and 218a's answer — ratified — is that it does:
+        design 124 requires the drop to happen EAGERLY at Done, and structural
+        deinit only covers box death, so the explicit early call stays. What
+        migrated is the BODY. The migrated fields are one safe `clear()` each,
+        the legacy assignment survives only for the fields a deferred family
+        holds back (`_deferred_family`) and goes with the last of them, and the
+        TaskGroup placeholder is not a deferral at all — a NoMove value's
+        position is fixed at birth, so occupancy is structural and the overwrite
+        IS the join (218a ruling 5)."""
         seq = []
         # DF-134a: drop a reactor registration this frame armed and never had
         # dropped. It runs FIRST, ahead of the field drops, so the fd is still
@@ -6410,6 +6421,12 @@ class _FrameBuilder:
                 seq.append(ExpressionStatement(expression=_slot_op(
                     _self_field(name), "clear")))
             elif _enc_cleanup(enc):
+                # The legacy drop-flag clear, for a field
+                # `self.defer_families[name]` holds back. Design 44's
+                # convention: writing `None` over the tag IS the drop, and the
+                # box's later memberwise teardown finds nothing — which the
+                # `Slot` branch above gets from the type instead of from the
+                # convention holding at every site.
                 seq.append(AssignStatement(target=_self_field(name),
                                            value=NoneLiteral()))
             elif enc == "plain" and _is_taskgroup(t):

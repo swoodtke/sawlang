@@ -624,6 +624,40 @@ obligation-2 consumer sweep before dispatch. Gates 218 stages 1-2.
   encodings the migration defers.
   PIN: `examples/drive_site_in_suspending_body.saw` (XFAIL)
 
+- **DESIGN 218 STAGE 4 LANDED (Aug 14) — teardown, the forget purge, the
+  trusted-list ratification. THE SLOT MIGRATION IS COMPLETE.** Census rows
+  D1-D3 plus R8/P3/P4. Details in the 218 brief's STAGE 4 LANDED section and
+  its rewritten trusted list.
+
+  THE PURGE, in the adapted form the lead ruled (218a §9's "emission count hits
+  ZERO" pre-dates the deferred families): every `__saw_forget` goes through ONE
+  funnel that refuses to emit without naming the deferred family holding its
+  field back, and `forgetgate` (`tools/test_forget_purge.py`) checks it — one
+  emission site, every call cited, the family set the documented one, and the
+  funnel provably refusing an uncited family. Four scattered constructions
+  collapsed to one; NONE were deleted, because all four are live and a trace
+  says which family reaches each.
+
+  THE TRUSTED LIST is ratified to its final form, and it is shorter in the one
+  place that matters: `Slot<T>` is NOT on it (it names no unsafe type, so the
+  checker judges it). What is: `UnsafeRef`'s validity argument, the design-134
+  spawn cell (R8/P4), the design-91 reactor token (P3), the drive-site cast, the
+  resume dispatch, the executor/reactor, the two C files. Named as NOT trusted,
+  so the lists cannot blur: the deferred families' legacy bookkeeping, which is
+  unmigrated rather than trusted, and the permanent provenance exemptions.
+
+  D4/D5 (cancel, panic) needed no migration and stop being S3-PENDING —
+  corodiff carries three cancel contexts and a panic context with their own
+  oracle classes, and `corodiff --all` gated every stage. M1/M3 still do not
+  retire: `_read_field`'s legacy branch stamps them and it is alive for exactly
+  the deferred families, so they go in the landing that deletes the funnel.
+
+  Coverage the trace found missing and this stage added: the three `__result`
+  emission sites fire ZERO times across the suite, because nothing in the corpus
+  returned a fixed array or a closure from a driven function
+  (`examples/coro_result_array_and_closure.saw`). One finding filed, pre-existing
+  and reproduced on the stage-3 tree: DF-218n.
+
 - **DESIGN 218 STAGE 3 LANDED (Aug 14) — closure envs, `[&self]`,
   `UnsafeRef`.** Census rows R4, R7, P1 and P2 migrated and 218a section 4
   landed whole. Terminal gate: the full tracked battery, every stage green —
