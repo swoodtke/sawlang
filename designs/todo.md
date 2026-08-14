@@ -358,6 +358,23 @@ obligation-2 consumer sweep before dispatch. Gates 218 stages 1-2.
   in the same position works. Pin + sawfuzz_known entry owed at the next
   pin batch. Sibling wart, same parse family: `move <method call>` in
   argument position is a parse error rather than a `move` diagnostic.
+- **DF-218e (BOGUS-REFUSAL, pre-existing) — a GENERIC function used as a
+  SPAWN root cannot contain a nested suspending call.** `g.spawn(gworker(7))`
+  where `gworker<T>` calls a suspending `mk()` reports `undefined function
+  mk` at the author's own line, then an undefined-variable cascade for the
+  binding it feeds: the callee has been consumed by the transform (frame +
+  driver, plain function removed) while the generic template's body still
+  names it. Boundary probed four ways and only this cell fails — non-generic
+  spawn + nested call, generic spawn suspending only by `yield_now()` (sweep
+  S1 row p08c), and the same generic body driven through the AMBIENT entry
+  all compile and run. So it is the SPAWN path's handling of a generic root.
+  Found by corodiff's new generic-driven-function axis (design 218 stage 1's
+  opening rider) on its first run. Obligation 4 sweep owed at fix time:
+  generic spawn roots that are METHODS, MT spawn, and a generic root whose
+  nested callee is itself generic.
+  PIN: `examples/coro_generic_spawn_root_nested_suspending_call.saw`
+  (XFAIL) + `tools/corodiff_known.txt`
+
 - **QUEUED: the Rust-ism docs sweep** (user, Aug 13, after the Sync-doc
   catch) — audit LANGUAGE_SPEC/skill/README/builtin.saw doc comments for
   concepts described via RUST mechanisms rather than Saw's: Send/Sync

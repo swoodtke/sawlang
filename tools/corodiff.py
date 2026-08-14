@@ -851,6 +851,46 @@ def w_mt_spawn(body):
     )
 
 
+# The generic-driven-function wrappers share this body: a generic suspending
+# function carrying an abstract-`T` cell across the whole combo body, with the
+# instantiation supplying a deinit witness so the exactly-once oracle can read
+# that cell.
+#
+# WHY THE AXIS EXISTS. Every other context drives a CONCRETE frame. Sweep S1
+# row p08c showed that a generic driven function's frame is judged by the
+# post-transform re-check at its ABSTRACT form, where the tier is unknown and
+# the permissive answer is the one that comes back (DF-217i). A frame-storage
+# spelling that is wrong only at a concrete tier is therefore invisible to the
+# concrete contexts' twin parity AND to the re-check — the generic drive is the
+# one place both oracles are weak at once, so it gets its own axis value.
+def _gworker(body):
+    return (
+        "func gworker<T>(seed: T) -> Int {\n" + _indent(body, 4) + "\n"
+        f"    {CLOSED}\n"
+        "    let _ = move seed\n"
+        "    0\n"
+        "}\n"
+    )
+
+
+def w_generic_spawn(body):
+    return _gworker(body) + (
+        "\nfunc main() {\n"
+        "    var g = TaskGroup()\n"
+        "    let h = g.spawn(gworker(mk_res(9)))\n"
+        '    print("joined {h.join()}")\n'
+        "}\n"
+    )
+
+
+def w_generic_ambient(body):
+    return _gworker(body) + (
+        "\nfunc main() {\n"
+        '    print("returned {gworker(mk_res(9))}")\n'
+        "}\n"
+    )
+
+
 def observe_cancel(lines):
     """Insert a cancellation observation point after the body's first suspend.
 
@@ -929,6 +969,18 @@ CONTEXTS = [
                  "(`scope closedNEW t1` is real output), so no comparison of "
                  "stdout is meaningful here — the witness counts, which are "
                  "read out of the text rather than off line boundaries, are"),
+    Context("generic_spawn", w_generic_spawn, oracle_class="generic",
+            void_return="return 0",
+            note="a GENERIC driven function, spawned, instantiated at the "
+                 "NoCopy witness — sweep S1 row p08c's shape: the frame holds "
+                 "an abstract-T cell the post-transform re-check judges "
+                 "permissively (DF-217i), so the twin parity is the only "
+                 "oracle on it"),
+    Context("generic_ambient", w_generic_ambient, oracle_class="generic",
+            void_return="return 0",
+            note="the same generic driven function reached through the "
+                 "AMBIENT entry executor instead of spawn — the other of the "
+                 "two ways a generic frame gets driven"),
 ]
 
 CONTEXT_BY_NAME = {c.name: c for c in CONTEXTS}

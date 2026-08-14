@@ -1,0 +1,45 @@
+// XFAIL: DF-218e a GENERIC function spawned as a task cannot contain a nested
+// suspending call — the callee is reported undefined at the user's own line
+//
+// `g.spawn(gworker(7))` where `gworker<T>` suspends only by `yield_now()`
+// compiles and runs (sweep S1 row p08c). Give the same generic body a nested
+// suspending CALL and the compiler reports `undefined function mk` at the call
+// site the author wrote, followed by an undefined-variable cascade for the
+// binding it feeds. The callee has been consumed by the coroutine transform
+// (it became a frame plus a driver, and the plain function was removed) while
+// the generic template's body still names it.
+//
+// The boundary, probed four ways — only the fourth cell fails:
+//   - non-generic spawn root + nested suspending call     compiles, runs
+//   - generic spawn root, suspends only by `yield_now()`  compiles, runs
+//   - generic driven through the AMBIENT entry (called
+//     straight from `main`) + nested suspending call      compiles, runs
+//   - generic SPAWN root + nested suspending call         REFUSED
+//
+// So it is the spawn path's handling of a generic root, not generic driving
+// and not nested calls. Found by corodiff's generic-driven-function axis
+// (design 218 stage 1's opening rider); the fix owes the sweep obligation 4
+// asks for, over spawn roots that are generic methods and over MT spawn.
+// EXPECT: success
+// EXPECT-OUTPUT:
+// v 1
+// joined 0
+import std.task.{yield_now}
+
+func mk(id: Int) -> Int {
+    yield_now()
+    id
+}
+
+func gworker<T>(seed: T) -> Int {
+    let v1 = mk(1)
+    print("v {v1}")
+    let _ = move seed
+    0
+}
+
+func main() {
+    var g = TaskGroup()
+    let h = g.spawn(gworker(7))
+    print("joined {h.join()}")
+}

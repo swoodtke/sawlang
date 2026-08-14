@@ -183,3 +183,15 @@ DF-217p-2026-08-13	DEINIT-ORDER: swap_out/in_rhs @ loop
 DF-217p-2026-08-13	DEINIT-ORDER: tuple_destructure/after @ loop
 DF-217p-2026-08-13	DEINIT-ORDER: tuple_destructure/before @ loop
 DF-217p-2026-08-13	DEINIT-ORDER: tuple_destructure/between @ loop
+
+# DF-218e (reported 2026-08-14) — the FIRST finding of the generic-driven
+# axis, and pre-existing: a GENERIC function used as a SPAWN root cannot
+# contain a nested suspending call. The callee is consumed by the transform
+# (frame + driver, plain function removed) while the generic template's body
+# still names it, so the re-check reports `undefined function <callee>` at the
+# author's own line plus an undefined-variable cascade for the binding it
+# feeds. Only the spawn cell fails: non-generic spawn + nested call, generic
+# spawn suspending only by `yield_now()`, and the same generic body driven
+# through the AMBIENT entry all compile and run.
+# PIN: examples/coro_generic_spawn_root_nested_suspending_call.saw
+DF-218e-2026-08-14	BOGUS-REFUSAL: error: undefined function `X`
