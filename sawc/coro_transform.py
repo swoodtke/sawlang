@@ -3568,20 +3568,16 @@ class _FrameBuilder:
             # on design 218's trusted list — so it keeps the legacy encoding.
             self.result_enc = "opt"
         else:
-            # CENSUS ROWS R5/R6 ARE DEFERRED, and the reason is a language
-            # asymmetry rather than a preference (DF-218f): a result store
-            # relies on ASSIGNMENT auto-wrap — `return v.len()` from a
-            # `-> Result<Int, E>` body stores a bare `Int` and the assignment
-            # wraps it `Ok` — and `put` takes its value as a CALL ARGUMENT,
-            # where auto-wrap to `Result` does not happen (it does for
-            # `Optional`, which is what makes this an asymmetry and not a
-            # missing feature). Migrating the slot would need the transform to
-            # re-derive the wrap it is supposed to be inheriting, which is the
-            # decides-vs-lowers shape design 218 exists to remove. So
-            # `__result` keeps the optional encoding until the auto-wrap
-            # ruling lands, and `_sub_result_read` / the driver's move-out keep
-            # their paired `__saw_forget`.
-            self.result_enc = _enc_of(self.ret)
+            # CENSUS ROWS R5/R6 (design 218 stage 2). What stopped them in
+            # stage 1 was a language asymmetry rather than anything about
+            # frames: a result store rides auto-wrap (`return v.len()` from a
+            # `-> Result<Int, E>` body stores a bare `Int`), `put` takes its
+            # value as a CALL ARGUMENT, and `Result` did not wrap there. It
+            # does now (DF-218f), so the transform stays dumb — `put(v)` just
+            # works — and `_sub_result_read` and the driver's move-out give up
+            # their paired `__saw_forget` with the row.
+            self.result_enc = _migrated_enc(
+                "__result", _enc_of(self.ret), addressed, self.ret, move_recvs)
         self.encmap = encmap
 
         fields = []
