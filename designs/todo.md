@@ -413,9 +413,33 @@ obligation-2 consumer sweep before dispatch. Gates 218 stages 1-2.
   double free.
   PIN: `examples/place_window_move_arg_consumes_local.saw` (XFAIL)
 
-- **DESIGN 218 STAGE 1 LANDED (Aug 14) — both blockers RULED and fixed.**
-  See the stage-1 commits. Kept below for the record: the obstacles, their
-  rulings, and the census families that proved wrong-shaped.
+- **DESIGN 218 STAGES 1 AND 2 LANDED (Aug 14).** Gate at both: full suite
+  (1824 passed / 23 xfailed), `corodiff --all` (1566 pairs, 0 NEW findings)
+  and `irdet --all` (1149 examples, byte-identical IR).
+
+  STAGE 2 flipped SIX pins — the DF-217h five (`coro_hoisted_call_arg`,
+  `_push_arg`, `_struct_init_arg`, `_tuple_element`, `_coalesce_rhs`) plus
+  the seventeen-row DF-217h block in `tools/corodiff_known.txt`, removed as
+  stale in the same landing. The transform's single-use temps are `Slot`s
+  whose one read is `take()`, and `__result` joined them (census R5/R6) once
+  DF-218f made `put(v)` work.
+
+  TWO STAGE-2 ROWS DID NOT MIGRATE, each measured rather than preferred:
+  (f) the SCRUTINEE temps `__hoistN`/`__matchN` (T1/T3) — their reader
+  consumes only when the binding it feeds does, and neither answer is
+  spellable: `take()` on a non-consuming dispatch leaks (the binding's scope
+  is a CFG block the split reaches from elsewhere and its cleanup never
+  runs), `value()` is refused for a move-only payload because a NAMED `if
+  let` binding over an optional-typed lend is a value read — the half of
+  DF-218a its `_`-only desugar left open. The DF-210f forget therefore
+  STAYS, for exactly those two. (g) `__anfN!` — an unwrapped consuming temp
+  keeps its borrow, because unwrapping leaves the optional as a temporary
+  nobody registers and the SYNC twin of that shape leaks outright
+  (DF-217m). `examples/coro_hoisted_receiver_temp_released_once.saw` is
+  half-fixed and re-pinned on DF-217m accordingly.
+
+  Kept below for the record: the stage-1 obstacles, their rulings, and the
+  census families that proved wrong-shaped.
   The migration was built end to end (working patch, `.build/stage1-wip.patch`
   in the stage-1 worktree; 1813 of 1817 green, four failures, none of them
   cosmetic). What works is not in doubt: every owning frame LOCAL and PARAM
