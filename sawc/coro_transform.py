@@ -694,56 +694,61 @@ def _enc_is_slot(enc):
     return enc in ("slot", "slot_self", "slot_closure")
 
 
-def _slot_payload_ok(saw_type):
-    """Whether a frame field of this type may become a `Slot<T>` in stage 1.
+# --------------------------------------------------------------------------- #
+# THE DEFERRED CENSUS FAMILIES (design 218 stages 1-4)
+# --------------------------------------------------------------------------- #
+#
+# A field that does NOT migrate to `Slot<T>` keeps the legacy drop-flag encoding
+# — and with it the read-plus-`__saw_forget` pairing stage 4 exists to purge.
+# The two facts are one fact, so they are decided in one place: `_deferred_family`
+# answers WHICH family holds a field back, `_migrated_enc` turns that answer into
+# an encoding, and `_FrameBuilder.prepare` records it per field so the forget
+# funnel (`_forget_stmt`) can CITE it rather than a comment claiming it.
+#
+# Naming the family is what makes the purge auditable: an emission whose family
+# is `None` is an UNCITED forget, which is the thing stage 4 promises does not
+# exist (`tools/test_forget_purge.py` is the gate).
+FAM_OPT_CLOSURE = "opt_closure"          # (a) a frame-resident closure
+FAM_ADDRESSED = "address-taken"          # (b) `&x`, a nested receiver, a ref arg
+FAM_VOID = "void-payload"                # (c) `Slot<Void>` is unbuildable
+FAM_FIXED_ARRAY = "fixed-array"          # (d) `a[i] = v` addresses the element
+FAM_WINDOW_MOVE = "window-move"          # (e) DF-218h
+FAM_RENDERED = "rendering-operand"       # (f) DF-218i
+FAM_SCRUTINEE_TEMP = "scrutinee-temp"    # T1/T3 — the DF-210f forget lives here
+FAM_SPAWN_CELL = "spawn-cell"            # the design-134 cell: TRUSTED, not deferred
 
-    Two shapes stay on the legacy encoding, each for a reason that belongs to a
-    later stage rather than to taste:
-
-      * `Void` — `Slot<Void>` puts a `Void?` in a struct field, and a pointer to
-        void is not a type llvmlite will build. A Void local carries nothing to
-        release, so the slot buys nothing either;
-      * a FIXED ARRAY — `a[i] = v` writes through the element's storage, which
-        is addressing the local, the same class as the `&x` deferrals above.
-        The write lands inside a `value()` window whose flavor the place system
-        picks, and an array element assignment through a lend is stage 3's
-        addressability work, not stage 1's.
-    """
-    if saw_type is None:
-        return False
-    return saw_type.kind not in (TypeKind.VOID, TypeKind.ARRAY)
+DEFERRED_FAMILIES = (
+    FAM_OPT_CLOSURE, FAM_ADDRESSED, FAM_VOID, FAM_FIXED_ARRAY,
+    FAM_WINDOW_MOVE, FAM_RENDERED, FAM_SCRUTINEE_TEMP, FAM_SPAWN_CELL,
+)
 
 
-def _migrated_enc(name, enc, address_taken=(), saw_type=None,
-                  move_arg_receivers=(), rendered=()):
-    """The encoding a frame field actually gets, given the one `_enc_of` picked
-    from its type.
+def _deferred_family(name, enc, address_taken=(), saw_type=None,
+                     move_arg_receivers=(), rendered=()):
+    """Which deferred family holds this frame field back from `Slot<T>`, or
+    `None` if it migrates. THE authority on the question — `_migrated_enc` turns
+    this answer into an encoding and `_forget_stmt` cites it.
 
-    Every owning field migrates to `Slot<T>` except four families, each held
-    back by a LATER stage that owns the mechanism, not by preference:
+    Order matters only for the report: a field can qualify twice (an addressed
+    closure), and the first answer is the one cited.
+
+    Every owning field migrates except these, each held back by a mechanism a
+    later brief owns, none by preference:
 
       * `opt_closure` — a frame-resident closure is CALLED, and the rewrite
         spells that as an indirect call on the field. A `Slot`'s occupant is
         reached by `value()`, and calling the result directly is not
         expressible (`self.f.value()()` parses as a tuple), so the migration
         owes a materialized local — which needs a statement slot the
-        expression rewrite does not always have. Stage 3 owns the closure-env
-        work and this row goes with it;
+        expression rewrite does not always have. A function-typed `__result` is
+        held by the same rule, and its motivation does not reach: nothing calls
+        a result field. It waits with the family rather than splitting it;
       * a local whose ADDRESS the transform takes — the receiver of a nested
         suspending method call (census P1) and a `ref` argument to a
         sub-frame (census S9's ref half, 218a ruling 7). Both seed a raw
         pointer INTO the local's storage, and a `Slot` has no addressable
-        payload spelling: that pointer is exactly the `payload_ptr` section 4
-        deferred, and it arrives with `UnsafeRef` in stage 3;
-      * a SCRUTINEE temp (`__hoistN` / `__matchN`) — see `_SCRUTINEE_TEMPS`;
-      * a move-only or ExplicitCopy local read in a RENDERING position —
-        `print("{e}")`, `print(e)` (DF-218i). Rendering hands the value to
-        `format(&self, into:)` and never keeps it, but the place system judges
-        the read a VALUE READ and refuses a move-only element: `print("{v[0]}")`
-        on a `Vector<Res>` is the identical refusal with no coroutine anywhere,
-        which is why the fix belongs to the place system and not here. The
-        caller passes the names, already filtered by tier — the two Copy tiers
-        read out of a lend for free and migrate as usual;
+        payload spelling: that pointer is exactly the `payload_ptr` 218a
+        section 4 deferred;
       * a local a method call CONSUMES another local into — `v.push(move h)`
         (DF-218h). A slot read is a lend, so the call moves inside the window's
         closure, and a `move` of an ENCLOSING local from inside a closure body
@@ -754,14 +759,60 @@ def _migrated_enc(name, enc, address_taken=(), saw_type=None,
         `[&var h]` one alike, produced a DOUBLE FREE instead, because the
         enclosing frame drops `h` again at scope end. The refusal is the
         protective behavior and this row waits for the closure move-out design
-        that fixes both halves.
-    """
-    if (enc == "opt_closure" or name in address_taken
-            or name in move_arg_receivers or name in rendered
-            or _is_scrutinee_temp(name)
-            or not _slot_payload_ok(saw_type)):
-        return enc
-    return _SLOT_ENC_OF_LEGACY.get(enc, enc)
+        that fixes both halves;
+      * a move-only or ExplicitCopy local read in a RENDERING position —
+        `print("{e}")`, `print(e)` (DF-218i). Rendering hands the value to
+        `format(&self, into:)` and never keeps it, but the place system judges
+        the read a VALUE READ and refuses a move-only element: `print("{v[0]}")`
+        on a `Vector<Res>` is the identical refusal with no coroutine anywhere,
+        which is why the fix belongs to the place system and not here. The
+        caller passes the names, already filtered by tier — the two Copy tiers
+        read out of a lend for free and migrate as usual;
+      * a SCRUTINEE temp (`__hoistN` / `__matchN`) — see `_SCRUTINEE_TEMPS`.
+        This is the one family whose forget is the TRANSFORM's own (DF-210f)
+        rather than a rewritten `move`;
+      * `Void` — `Slot<Void>` puts a `Void?` in a struct field, and a pointer
+        to void is not a type llvmlite will build. A Void local carries nothing
+        to release, so the slot buys nothing either;
+      * a FIXED ARRAY — `a[i] = v` writes through the element's storage, which
+        is addressing the local, the same class as the `&x` family. The write
+        would land inside a `value()` window whose flavor the place system
+        picks, and an array element assignment through a lend is the same
+        addressability work."""
+    if enc == "opt_closure":
+        return FAM_OPT_CLOSURE
+    if name in address_taken:
+        return FAM_ADDRESSED
+    if name in move_arg_receivers:
+        return FAM_WINDOW_MOVE
+    if name in rendered:
+        return FAM_RENDERED
+    if _is_scrutinee_temp(name):
+        return FAM_SCRUTINEE_TEMP
+    if saw_type is None or saw_type.kind == TypeKind.VOID:
+        # An unknown payload type is the same answer as `Void` for the same
+        # reason: there is no `Slot<T>` to build. Neither carries anything to
+        # release, so the legacy encoding costs nothing but its own bookkeeping.
+        return FAM_VOID
+    if saw_type.kind == TypeKind.ARRAY:
+        return FAM_FIXED_ARRAY
+    return None
+
+
+def _migrated_enc(name, enc, address_taken=(), saw_type=None,
+                  move_arg_receivers=(), rendered=()):
+    """`(encoding, deferred family)` for a frame field, given the one `_enc_of`
+    picked from its type: `Slot<T>` and `None`, unless `_deferred_family` (which
+    carries the reasons) names a family that holds it back.
+
+    The two come back TOGETHER because they are one decision. Stage 4's purge
+    rests on it: a legacy encoding is exactly a field whose family is named, and
+    `_forget_stmt` refuses to emit for a field with no name to cite."""
+    fam = _deferred_family(name, enc, address_taken, saw_type,
+                           move_arg_receivers, rendered)
+    if fam is not None:
+        return enc, fam
+    return _SLOT_ENC_OF_LEGACY.get(enc, enc), None
 
 
 def _collect_move_arg_receivers(node, out, seen=None):
@@ -1277,6 +1328,48 @@ def _close_embed_marks(decls):
     for d in decls:
         closed(d)
     return cleared[0]
+
+
+# --------------------------------------------------------------------------- #
+# THE FORGET FUNNEL — census D1, and design 218 stage 4's purge
+# --------------------------------------------------------------------------- #
+#
+# `__saw_forget(<place>)` clears an optional field's None/Some tag WITHOUT
+# reading the payload. It is correct only when it is paired with exactly one
+# prior consuming read, and DF-206f, DF-210f and DF-217h are three sites that
+# got the pairing wrong. Stage 1 replaced the pair with `Slot.take()`, which is
+# the read and the tag clear in ONE method body, so on a migrated field the
+# state "consumed but still flagged live" is not representable.
+#
+# THE PURGE, exactly as stage 4 lands it. 218a section 9 wrote the exit
+# criterion as "emission count hits ZERO", which pre-dates the deferred families
+# stages 1-3 measured. The honest form, and what the gate checks:
+#
+#   * every `__saw_forget` this file emits goes through `_forget_call`, which is
+#     the only place in `sawc/` that spells the name;
+#   * `_forget_call` will not emit without a FAMILY — one of `DEFERRED_FAMILIES`
+#     — so an emission cites the deferral that kept its field on the legacy
+#     encoding, and an emission on a MIGRATED field is a hard error;
+#   * `tools/test_forget_purge.py` (the `forgetgate` battery lane) fails on any
+#     other spelling and on any citation that is not a named family.
+#
+# There are FOUR call sites, and all four are the same shape — a field whose
+# family is recorded, or a `__result` whose family is `result_defer_family`.
+# They all retire together with the last deferred family; nothing else keeps
+# them alive.
+def _forget_call(place, family):
+    """`__saw_forget(<place>)`, cited with the deferred family that owns it.
+
+    ENTRY POINTS (obligation 1): `_FrameBuilder._forget_stmt` (every frame-field
+    forget — the rewritten `move`, and the DF-210f scrutinee-temp clears in
+    `_optbind_dispatch` and `_split_match`), and the three `__result` sites —
+    `_emit_nested_call`'s two arms and `_make_driver`'s move-out."""
+    if family not in DEFERRED_FAMILIES:
+        raise CoroTransformError(
+            f"internal: uncited `__saw_forget` (family {family!r} is not one "
+            f"of design 218's deferred census families)")
+    return ExpressionStatement(expression=FunctionCall(
+        name="__saw_forget", arguments=[Argument(name=None, value=place)]))
 
 
 def _sub_result_read(sub: str, result_enc):
@@ -3666,21 +3759,31 @@ class _FrameBuilder:
                     if self._frame_read_policy(n) in ('nocopy', 'explicit')}
 
         encmap = {}
+        # design 218 stage 4: the family that held a field back from `Slot<T>`,
+        # recorded beside the encoding it produced. `_forget_stmt` reads it, so
+        # every surviving `__saw_forget` names the deferral it belongs to
+        # instead of a comment asserting one.
+        defer_families = {}
+
+        def _record(nm, base_enc, ty, movers=(), rends=()):
+            enc, fam = _migrated_enc(nm, base_enc, addressed, ty, movers, rends)
+            encmap[nm] = enc
+            if fam is not None:
+                defer_families[nm] = fam
+
         for p in self.params:
-            encmap[p.name] = _migrated_enc(p.name, _enc_of(p.type), addressed,
-                                           p.type, move_recvs, rendered)
+            _record(p.name, _enc_of(p.type), p.type, move_recvs, rendered)
         for lname, lt in self.frame_locals:
-            encmap[lname] = _migrated_enc(lname, _enc_of(lt), addressed, lt,
-                                          move_recvs, rendered)
+            _record(lname, _enc_of(lt), lt, move_recvs, rendered)
         # design 62 G3: a DISCARDED cooperative `receive()` parks its value in a
         # `__rcvN` holder. Registered here so the ONE store funnel
         # (`_store_field`) can answer for it like any other owning field; no
         # source name can collide with it.
         for rc in self.recv_calls:
             if rc['target'] is None:
-                encmap[f"__rcv{rc['idx']}"] = _migrated_enc(
-                    f"__rcv{rc['idx']}", _enc_of(rc['elem_type']), addressed,
-                    rc['elem_type'])
+                _record(f"__rcv{rc['idx']}", _enc_of(rc['elem_type']),
+                        rc['elem_type'])
+        self.result_defer_family = None
         if self.is_void:
             self.result_enc = "plain"
         elif self.force_opt_result:
@@ -3689,6 +3792,7 @@ class _FrameBuilder:
             # lives in the group-owned CELL, not in the frame, and the cell is
             # on design 218's trusted list — so it keeps the legacy encoding.
             self.result_enc = "opt"
+            self.result_defer_family = FAM_SPAWN_CELL
         else:
             # CENSUS ROWS R5/R6 (design 218 stage 2). What stopped them in
             # stage 1 was a language asymmetry rather than anything about
@@ -3698,9 +3802,10 @@ class _FrameBuilder:
             # does now (DF-218f), so the transform stays dumb — `put(v)` just
             # works — and `_sub_result_read` and the driver's move-out give up
             # their paired `__saw_forget` with the row.
-            self.result_enc = _migrated_enc(
+            self.result_enc, self.result_defer_family = _migrated_enc(
                 "__result", _enc_of(self.ret), addressed, self.ret, move_recvs)
         self.encmap = encmap
+        self.defer_families = defer_families
 
         fields = []
         if self.has_recv:
@@ -5335,12 +5440,15 @@ class _FrameBuilder:
                 res = _sub_result_read(sub, callee_fb.result_enc)
                 # Store first (loads the value), THEN clear the sub-frame's drop
                 # flag so its teardown won't double-drop the moved-out result.
+                # Census R5. A migrated result gives its claim up inside
+                # `take()`; the pair survives for the callee return types the
+                # deferred families still hold back (measured: a fixed-array
+                # return, a closure return).
                 done_body.append(self._store_result(res))
                 if _enc_cleanup(callee_fb.result_enc):
-                    done_body.append(ExpressionStatement(expression=FunctionCall(
-                        name="__saw_forget", arguments=[Argument(name=None,
-                            value=MemberAccess(object=_self_field(sub),
-                                               member="__result"))])))
+                    done_body.append(_forget_call(
+                        MemberAccess(object=_self_field(sub), member="__result"),
+                        callee_fb.result_defer_family))
             # design 124: this is a `return g(...)` tail — the coroutine ends here,
             # so it is a Done exit like any other and owes the same eager release.
             done_body.append(self._release_call())
@@ -5354,10 +5462,10 @@ class _FrameBuilder:
                 res = _sub_result_read(sub, callee_fb.result_enc)
                 done_body.append(self._store_field(target, res))
                 if _enc_cleanup(callee_fb.result_enc):
-                    done_body.append(ExpressionStatement(expression=FunctionCall(
-                        name="__saw_forget", arguments=[Argument(name=None,
-                            value=MemberAccess(object=_self_field(sub),
-                                               member="__result"))])))
+                    # Census R5, the non-tail arm — same pairing, same survivors.
+                    done_body.append(_forget_call(
+                        MemberAccess(object=_self_field(sub), member="__result"),
+                        callee_fb.result_defer_family))
             elif (target is None and not callee_fb.is_void
                   and _enc_owns(callee_fb.result_enc)):
                 # design 124: a DISCARDED nested result (`let _ = g()` / a bare
@@ -5550,8 +5658,22 @@ class _FrameBuilder:
     #   * nested non-spanning if/while/for/match blocks lowered in place.
 
     def _forget_stmt(self, name):
-        return ExpressionStatement(expression=FunctionCall(
-            name="__saw_forget", arguments=[Argument(name=None, value=_self_field(name))]))
+        """A `__saw_forget` on frame field `name`, CITED with the family that
+        kept the field off `Slot<T>` — the one entry the frame-field half of the
+        purge has (see `_forget_call`).
+
+        Raises if the field has no family, and that is the point: a forget on a
+        MIGRATED field would be the mispairing the whole design exists to make
+        unrepresentable, so the emission refuses rather than emitting one."""
+        family = self.defer_families.get(name)
+        if family is None:
+            raise CoroTransformError(
+                f"internal: `__saw_forget` on `{name}`, which is not held back "
+                f"by any deferred census family (design 218 stage 4). A "
+                f"migrated field gives its claim up in `take()`.",
+                getattr(self.func, 'line', 0), getattr(self.func, 'column', 0),
+                getattr(self.func, 'source_file', None))
+        return _forget_call(_self_field(name), family)
 
     def _forgets(self, names):
         return [self._forget_stmt(n) for n in names]
@@ -6820,9 +6942,7 @@ def _make_driver(fb: _FrameBuilder, mode, fbs):
                     slot = MemberAccess(object=Identifier(name="__f"),
                                         member="__result")
                     slot.frame_place_read = True
-                    stmts.append(ExpressionStatement(expression=FunctionCall(
-                        name="__saw_forget",
-                        arguments=[Argument(name=None, value=slot)])))
+                    stmts.append(_forget_call(slot, fb.result_defer_family))
             final = MoveExpr(variable="__res")
 
     # design 88: a reference param flows through the driver AS a raw pointer (the
