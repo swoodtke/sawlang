@@ -121,13 +121,16 @@ IMPORT_REQUIRED_STD_MODULES = {
 # declarations are kept — the rest of the leaf is excluded as usual, which is
 # what keeps `Slot` out of a program that never asked for it.
 COMPILER_EMITTED_STD_SYMBOLS = {"Poll", "Resumable"}
-# The std module holding the frame vocabulary. `Poll` and `Resumable` are
-# carved out of its exclusion by name above, because every program's frames
-# reference them and no user program competes for those names. `Slot` is NOT:
-# it is a name user programs do use, and taking it away from them is exactly
-# what `examples/std_gated_name_redefined_by_user.saw` pins against. So the
-# module is pulled into codegen WHOLE, by the compile that needs it — see
-# `compute_std_codegen_exclusions`' `force_leaves`.
+# The std module holding the frame vocabulary. `Slot` is not on the list above,
+# and cannot be: a frame is MADE of slots, so keeping one declaration would
+# keep a type with no methods. The whole leaf is pulled into codegen instead, by
+# the compile that needs it — see `compute_std_codegen_exclusions`'
+# `force_leaves`. What keeps that from taking the name `Slot` away from user
+# code is not exclusion but IDENTITY (DF-218g): std's `Slot` is
+# `Slot$m$std_compiler_frame` in every table the compiler keys by type, so a
+# user `struct Slot` or `enum Slot` is a different type that happens to share a
+# spelling — design 144's whole point, applied to a std name for the first
+# time. See `type_identity.COMPILER_EMITTED_STD_TYPES`.
 FRAME_STD_MODULE = "compiler.frame"
 # Symbols carved out of an otherwise-prelude std file (the file stays prelude
 # for its other symbols; only these named ones require an import).
@@ -376,7 +379,8 @@ def build_builtin_namespace(verbose: bool = False, freestanding: bool = False,
     # design 82 Part B: build the (std-file -> {symbol names}) map from the AST's
     # source_file provenance, so an `import std.<module>` can re-expose exactly
     # that module's symbols and the "did you mean import" hint can name the owner.
-    from type_identity import is_qualified, std_leaf as _leaf_of
+    from type_identity import (is_qualified, std_leaf as _leaf_of,
+                               COMPILER_EMITTED_STD_TYPES)
 
     # Design 204: a std file's PRIVATE type is not part of its module's
     # surface. It stays registered (compiler-known, and its own file's bodies
@@ -416,8 +420,14 @@ def build_builtin_namespace(verbose: bool = False, freestanding: bool = False,
             # A qualified identity marks a std file's PRIVATE type, which is
             # not part of the module's surface — except for a compiler-emitted
             # one, which is qualified so a synthesized reference cannot be
-            # shadowed and is public precisely so it can be imported.
-            if is_qualified(identity) and d.name not in COMPILER_EMITTED_STD_SYMBOLS:
+            # shadowed and is public precisely so it can be imported. That set
+            # is `type_identity`'s, not the exclusion list beside it: the two
+            # answer different questions (which PUBLIC std types carry an
+            # identity, versus which declarations survive their leaf's
+            # exclusion) and design 218's `Slot` is in the first and not the
+            # second.
+            if (is_qualified(identity)
+                    and d.name not in COMPILER_EMITTED_STD_TYPES):
                 continue
             std_file_symbols.setdefault(leaf, set()).add(d.name)
             std_symbol_file.setdefault(d.name, leaf)
@@ -618,8 +628,9 @@ def compute_std_codegen_exclusions(builtin_ns, import_asts, force_leaves=()):
     # `std.compiler.frame` is the case that exists: a coroutine frame's storage
     # is a `Slot<T>` and the transform writes those calls into a module the
     # reference scan above cannot read, because they are not in the source at
-    # all. Forcing the LEAF rather than carving out the SYMBOL is what keeps
-    # `Slot` available to user programs that never drive anything.
+    # all. The LEAF is forced rather than a symbol carved out of it, because a
+    # frame uses the whole vocabulary — and a program that drives nothing still
+    # gets none of it.
     compiled |= (set(force_leaves) & all_leaves)
 
     # Precompile a word matcher per leaf's CODE-BEARING symbols.
@@ -656,15 +667,6 @@ def compute_std_codegen_exclusions(builtin_ns, import_asts, force_leaves=()):
         # NAME bound would make a user `enum Poll` an ambiguity against a
         # module they never imported.
         excluded_symbols -= decl_only.get(leaf, set())
-    # A FORCED leaf is compiled but still reserves no name. Its declarations are
-    # in the program because the compiler emits references to them, and those
-    # references are synthesized — they never go through the merged namespace —
-    # so binding the names there would only take them away from user code.
-    # `std.compiler.frame` is the case: a driven program gets `Slot`'s layout
-    # and methods, and a driven program that declares its OWN `Slot` keeps it.
-    for leaf in (set(force_leaves) & set(all_leaves)):
-        excluded_symbols |= (file_keys.get(leaf, file_symbols.get(leaf, set()))
-                             - _kept(leaf))
     return excluded_leaves, excluded_symbols
 
 

@@ -569,7 +569,13 @@ def _ref_ptr_type(ref_type):
 # temps, census rows T1-T5, which stage 2 owns. See `_is_stage2_temp`.
 # --------------------------------------------------------------------------- #
 
-SLOT_STRUCT_NAME = "Slot"
+# The design-144 IDENTITY of `std.compiler.frame`'s `Slot`, for the same reason
+# `POLL_IDENTITY` above is: every reference here is SYNTHESIZED and must reach
+# std's declaration whatever the module it lands in declares. `Slot` is the
+# harder case — it is a name user programs use, and DF-218g is what happens
+# when a bare-name reference meets a user `struct Slot` (silent capture) or a
+# user `enum Slot` (`internal compiler error: Undefined enum: Slot`).
+SLOT_STRUCT_NAME = _type_identity("Slot", ("<std>", "compiler.frame"))
 
 _SLOT_ENC_OF_LEGACY = {"opt": "slot", "self_opt": "slot_self",
                        "opt_closure": "slot_closure"}

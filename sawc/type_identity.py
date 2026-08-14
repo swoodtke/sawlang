@@ -156,7 +156,17 @@ def is_std_module(module: Optional[Tuple[str, ...]]) -> bool:
 # user `enum Poll` simply rebinds the spelling to its OWN identity instead of
 # colliding. `Resumable` needs none of this — a trait and a user's struct or
 # enum of the same name live in different tables and never meet.
-COMPILER_EMITTED_STD_TYPES = {"Poll"}
+#
+# `Slot` and `UnsafeRef` joined them at design 218 stage 1 (DF-218g), which is
+# what turned this from a reference rule into a COMPILATION rule. Since a
+# driven program's frames are made of slots, `std.compiler.frame` is compiled
+# into every one of them whether or not the source imports it — and `Slot` is a
+# name user programs really do use. Design 82's exclusion cannot be the answer
+# (a type the compiler must always emit cannot be excluded), so the identity
+# is: std's `Slot` is `Slot$m$std_compiler_frame` from its declaration all the
+# way to its LLVM symbols, and the bare name stays the user's to spend on a
+# struct or an enum of their own.
+COMPILER_EMITTED_STD_TYPES = {"Poll", "Slot", "UnsafeRef"}
 
 
 def qualifies(module: Optional[Tuple[str, ...]], private: bool = False,
