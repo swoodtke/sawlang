@@ -392,14 +392,37 @@ obligation-2 consumer sweep before dispatch. Gates 218 stages 1-2.
   PIN: `examples/coro_generic_spawn_root_nested_suspending_call.saw`
   (XFAIL) + `tools/corodiff_known.txt`
 
-- **DESIGN 218 STAGE 1 IS BLOCKED — two obstacles, both needing a ruling.**
+- **DF-218h (BOGUS-REFUSAL + a worse alternative, PRE-EXISTING) — a `move` of
+  a LOCAL inside a place window is refused, and every capture spelling that
+  lifts the refusal double-frees.** `v.push(move h)` where `v` is a place puts
+  the author's `move h` inside the closure the window lowering writes, and a
+  `move` of an ENCLOSING local from inside a closure body has no way to clear
+  that local's drop flag. The refusal is ``cannot copy value of type `Res`
+  which implements NoCopy``, anchored at a receiver that copies nothing —
+  DF-169h's family (that one is the `&var`-argument half; this is the by-value
+  half). MEASURED, and the reason it is not a capture-list patch: adding
+  `[move h]` to the synthesized closure compiles and deinits TWICE, and so
+  does `[&var h]`; the hole is not confined to synthesized closures either —
+  a hand-written `run({ [move h] in sink(move h) })` compiles today and
+  double-frees (`.build/scratch/movecap.saw`). So the refusal is the
+  protective behavior and the fix is a closure move-out design that answers
+  both halves. Found by design 218 stage 1: a frame local is a `Slot` now, so
+  `pending.push(move h)` in a driven body became a window call and irdet
+  stopped compiling — stage 1 holds that family back (`_migrated_enc`, the
+  fifth deferred family) rather than shipping either the refusal or the
+  double free.
+  PIN: `examples/place_window_move_arg_consumes_local.saw` (XFAIL)
+
+- **DESIGN 218 STAGE 1 LANDED (Aug 14) — both blockers RULED and fixed.**
+  See the stage-1 commits. Kept below for the record: the obstacles, their
+  rulings, and the census families that proved wrong-shaped.
   The migration was built end to end (working patch, `.build/stage1-wip.patch`
   in the stage-1 worktree; 1813 of 1817 green, four failures, none of them
   cosmetic). What works is not in doubt: every owning frame LOCAL and PARAM
   becomes a `Slot<T>`, stores are `put`, move-reads are `take()`, non-move
   reads are `value()` lends, `__release` is a `clear()` loop, `Slot<T>.of` /
   `Slot<T>.empty()` seed the frame, and the paired `__saw_forget`s vanish with
-  each converted row. The two things that stop it landing:
+  each converted row. The two things that stopped it landing:
 
   - **DF-218g — the frame vocabulary cannot be compiled into every driven
     program without taking the name `Slot` from user code.** Generated frames
@@ -442,7 +465,7 @@ obligation-2 consumer sweep before dispatch. Gates 218 stages 1-2.
     `Ok(e)` constructor AST (this extends a list that gets desugared
     wholesale, not a mechanism we deepen).
 
-  Recorded with them, from building it: FOUR census families proved
+  Recorded with them, from building it: FIVE census families proved
   wrong-shaped against reality and are deferred with reasons, not preference.
   (a) `opt_closure` — a frame closure is CALLED, and calling the result of a
   lend is not expressible (`self.f.value()()` parses as a tuple), so it owes a
@@ -452,11 +475,22 @@ obligation-2 consumer sweep before dispatch. Gates 218 stages 1-2.
   `p?.x = v` head — because a `Slot` has no addressable payload spelling, which
   is exactly the `payload_ptr` 218a §4 deferred; (c) `Void` payloads
   (`Slot<Void>` is a pointer to void llvmlite refuses); (d) fixed ARRAYS
-  (`a[i] = v` writes through element storage — the same addressing class).
+  (`a[i] = v` writes through element storage — the same addressing class);
+  (e) a local a method call CONSUMES another local into (`v.push(move h)`) —
+  DF-218h above, added at landing.
   Also found: the post-transform re-entry must RE-RUN the place lowering (the
   `value()` lends are emitted after that pass) and must NOT `uncheck` when it
   does (stripping the wraps the post-transform check inserted hands the next
   check `cannot assign Int to field of type Result<Int, IoError>?`).
+
+  Landed with two more mechanisms the build turned up, both recorded in the
+  commits: design 210's embed contract gains a SECOND kind of graft
+  (`frame_slot_op` — re-checkable anywhere rather than pre-answered, because a
+  `value()` lend becomes a window call only after the checker stamps
+  `place_struct` on it), and `_check_payload_read` ASSIGNS
+  `payload_needs_copy` instead of only adding it, because one node's source is
+  a plain local on the first check and a place on the second and only the last
+  answer is right.
 
 - **DF-218b AMENDMENT (measured, Aug 14): the one-line flavor fix LEAKS.**
   Teaching `place_uses._method_mutates` that `Optional.take` is `&var self`

@@ -1,0 +1,93 @@
+// A `move` of a LOCAL inside a place window should consume it, once.
+//
+// `v.push(move h)` where `v` is a PLACE puts the author's `move h` inside the
+// closure the window lowering writes, and a `move` of an ENCLOSING local from
+// inside a closure body has no way to clear that local's drop flag. Today the
+// checker refuses it — ``cannot copy value of type `Res` which implements
+// NoCopy``, anchored at a receiver that copies nothing — which is the
+// PROTECTIVE answer: both ways of making it compile that were tried, a
+// `[move h]` capture spec on the synthesized closure and a `[&var h]` one,
+// produced a DOUBLE FREE instead (each id deinits twice: once where the
+// container drops it and once where the enclosing scope does).
+//
+// The refusal is not confined to synthesized closures. A hand-written one has
+// it too, which is the same hole from the other side and the reason the fix is
+// a design rather than a capture-list patch:
+//
+//     let h = Res(id: 1)
+//     run({ [move h] in sink(move h) })     // compiles; deinits TWICE
+//
+// Sibling of DF-169h, the `&var`-argument half. Found by design 218 stage 1: a
+// frame local is a `Slot` now, so `pending.push(move h)` in a driven body
+// became a window call and irdet stopped compiling — the migration holds that
+// family back (`_migrated_enc`) until this is decided, so the driven row below
+// compiles today and is here to stay green through the fix.
+//
+// ORACLE: each id is constructed once and deinits once.
+// XFAIL: DF-218h a `move` of a local inside a place window is refused, and the
+// capture spellings that lift the refusal double-free
+// EXPECT: success
+// EXPECT-OUTPUT:
+// driven len 2
+// deinit 5
+// deinit 4
+// direct len 1
+// deinit 1
+// binding len 2
+// deinit 3
+// deinit 2
+import std.task.*
+import std.compiler.frame.{Slot}
+
+struct Res { id: Int }
+extension Res: NoCopy {
+    func deinit(&var self) { print("deinit {self.id}") }
+}
+
+// The shape the migration held back: `pending` is a frame local, so a `Slot`
+// read would make `pending.push(move h)` a window call. Compiles today.
+func driven_row() -> Int {
+    var wave = Vector<Res>()
+    wave.push(Res(id: 4))
+    wave.push(Res(id: 5))
+    var pending = Vector<Res>()
+    yield_now()
+    while wave.len() > 0 {
+        if let h = wave.pop() {
+            pending.push(move h)
+        }
+    }
+    pending.len()
+}
+
+// The user-level shape, with no coroutine anywhere: a `Slot` is an ordinary
+// place, so `s.value()` lends and the push moves into the window.
+func direct_row() {
+    var s = Slot<Vector<Res>>.empty()
+    s.put(Vector<Res>())
+    let h = Res(id: 1)
+    s.value().push(move h)
+    print("direct len {s.value().len()}")
+    s.clear()
+}
+
+func binding_row() {
+    var s = Slot<Vector<Res>>.empty()
+    s.put(Vector<Res>())
+    var wave = Vector<Res>()
+    wave.push(Res(id: 2))
+    wave.push(Res(id: 3))
+    while wave.len() > 0 {
+        if let h = wave.pop() {
+            s.value().push(move h)
+        }
+    }
+    print("binding len {s.value().len()}")
+    s.clear()
+}
+
+func main() {
+    print("driven len {__saw_drive(driven_row())}")
+    direct_row()
+    binding_row()
+}

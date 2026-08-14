@@ -626,11 +626,12 @@ def _slot_payload_ok(saw_type):
     return saw_type.kind not in (TypeKind.VOID, TypeKind.ARRAY)
 
 
-def _migrated_enc(name, enc, address_taken=(), saw_type=None):
+def _migrated_enc(name, enc, address_taken=(), saw_type=None,
+                  move_arg_receivers=()):
     """The encoding a frame field actually gets, given the one `_enc_of` picked
     from its type.
 
-    Every owning field migrates to `Slot<T>` except three families, each held
+    Every owning field migrates to `Slot<T>` except four families, each held
     back by a LATER stage that owns the mechanism, not by preference:
 
       * the transform's own hoisted temps (T1-T5) — stage 2, see
@@ -647,12 +648,57 @@ def _migrated_enc(name, enc, address_taken=(), saw_type=None):
         sub-frame (census S9's ref half, 218a ruling 7). Both seed a raw
         pointer INTO the local's storage, and a `Slot` has no addressable
         payload spelling: that pointer is exactly the `payload_ptr` section 4
-        deferred, and it arrives with `UnsafeRef` in stage 3.
+        deferred, and it arrives with `UnsafeRef` in stage 3;
+      * a local a method call CONSUMES another local into — `v.push(move h)`
+        (DF-218h). A slot read is a lend, so the call moves inside the window's
+        closure, and a `move` of an ENCLOSING local from inside a closure body
+        has no way to clear that local's drop flag: the checker refuses it
+        (``cannot copy value of type `Res` which implements NoCopy``, anchored
+        at a receiver that copies nothing — DF-169h's family) and every way of
+        making it compile that was tried, a `[move h]` capture and a
+        `[&var h]` one alike, produced a DOUBLE FREE instead, because the
+        enclosing frame drops `h` again at scope end. The refusal is the
+        protective behavior and this row waits for the closure move-out design
+        that fixes both halves.
     """
     if (_is_stage2_temp(name) or enc == "opt_closure" or name in address_taken
+            or name in move_arg_receivers
             or not _slot_payload_ok(saw_type)):
         return enc
     return _SLOT_ENC_OF_LEGACY.get(enc, enc)
+
+
+def _collect_move_arg_receivers(node, out, seen=None):
+    """Names used as the RECEIVER of a method call that CONSUMES an argument.
+
+    The DF-218h family (see `_migrated_enc`). Conservative twice over: the
+    receiver is taken by its place ROOT, so `pending.items.push(move h)`
+    holds `pending` back as well, and the moved argument is not checked for
+    whether it is itself a frame local (where the move would lower to a
+    `take()` and be fine). A missed migration costs a legacy encoding; a missed
+    EXCLUSION costs a program that stopped compiling.
+    """
+    if seen is None:
+        seen = set()
+    if node is None or id(node) in seen:
+        return
+    seen.add(id(node))
+    if isinstance(node, MethodCall):
+        args = list(getattr(node, 'arguments', None) or [])
+        if any(_contains_move(a.value) for a in args):
+            root = _place_root_name(node.object)
+            if root is not None:
+                out.add(root)
+    for sub in child_nodes(node):
+        _collect_move_arg_receivers(sub, out, seen)
+
+
+def _contains_move(node, depth=0):
+    if node is None or depth > 64:
+        return False
+    if isinstance(node, MoveExpr):
+        return True
+    return any(_contains_move(sub, depth + 1) for sub in child_nodes(node))
 
 
 def _place_root_name(expr):
@@ -3439,13 +3485,19 @@ class _FrameBuilder:
                 if isinstance(getattr(a, 'value', None), ReferenceExpr):
                     _addressed_add(a.value)
         self._address_taken = addressed
+        # DF-218h: the locals a method call consumes another local into. See
+        # `_migrated_enc` — a slot read is a lend, and a `move` inside the
+        # window's closure has no drop flag it can reach.
+        move_recvs = set()
+        _collect_move_arg_receivers(self.func.body, move_recvs)
 
         encmap = {}
         for p in self.params:
             encmap[p.name] = _migrated_enc(p.name, _enc_of(p.type), addressed,
-                                           p.type)
+                                           p.type, move_recvs)
         for lname, lt in self.frame_locals:
-            encmap[lname] = _migrated_enc(lname, _enc_of(lt), addressed, lt)
+            encmap[lname] = _migrated_enc(lname, _enc_of(lt), addressed, lt,
+                                          move_recvs)
         # design 62 G3: a DISCARDED cooperative `receive()` parks its value in a
         # `__rcvN` holder. Registered here so the ONE store funnel
         # (`_store_field`) can answer for it like any other owning field; no
