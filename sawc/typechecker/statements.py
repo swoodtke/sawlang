@@ -2062,8 +2062,16 @@ class StatementsMixin:
         and tuple hops and fixed-array elements do, while an index into a
         heap-backed container (`Vector`) goes through a pointer the copy shares
         and DOES persist, so those are left alone.
+
+        The transform's exemption here is E6 (design 218a §6), and it DELETES
+        at stage 3: transform-emitted closures and env rewrites trip this
+        source-shape heuristic today, but once capture materialization emits
+        ordinary checked code — and `[&self]` writes go through `UnsafeRef`
+        windows the place system judges — the generated closures must PASS the
+        real check rather than skip it.
         """
-        if not self._closure_scopes or getattr(self, 'post_transform', False):
+        if not self._closure_scopes or getattr(
+                self, 'exempt_lost_write_to_capture', False):
             return None
         # Peel the target to its root binding, remembering the hops on the way
         # so we can tell an in-storage write from one that goes through a

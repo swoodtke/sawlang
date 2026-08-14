@@ -216,6 +216,40 @@ class TypeChecker(ExpressionsMixin, StatementsMixin, RegistrationMixin, TypeUtil
         # trigger rule therefore judges the SOURCE program, on the first pass
         # only; everything the transform adds is synthesized and exempt anyway.
         self.post_transform = post_transform
+        # ---------------------------------------------------------------- #
+        # THE POST-TRANSFORM EXEMPTIONS, ONE FLAG PER GATE (design 218a §6).
+        #
+        # `post_transform` used to BE the exemption: one bool relaxing six
+        # unrelated gates, each justified on its own terms and none of them
+        # named, so nothing stopped a seventh gate from being swept in
+        # unaudited. Splitting it does not change behaviour by one bit — every
+        # flag is `post_transform` today — but it makes each relaxation a thing
+        # with a name, a docstring at its read site, and a disposition:
+        #
+        #   E1 exempt_hidden_alloc          PERMANENT (provenance, not safety)
+        #   E2 exempt_unsafe_trigger        DELETES at stage 3 (218a ruling 1:
+        #                                   resume methods that bind an
+        #                                   `UnsafeRef` declare `unsafe`)
+        #   E3 exempt_ext_scope             PERMANENT (source-level rule)
+        #   E4 exempt_shadowed_qualifier    PERMANENT (warnings describe source)
+        #   E5 exempt_prelude_gate          PERMANENT (source-level rule)
+        #   E6 exempt_lost_write_to_capture DELETES at stage 3 (generated
+        #                                   closures must pass the real check)
+        #
+        # (E7 is the parameter threading through `sawc.py`; it follows this
+        # split mechanically, since every flag is derived here.)
+        #
+        # NONE of them is an OWNERSHIP exemption. Those ride per-node marks the
+        # transform stamps (`frame_place_read`, `frame_move_read`,
+        # `frame_owning_read`), and they are what the migration to `Slot<T>`
+        # actually deletes — a distinction the single bool made easy to lose.
+        # ---------------------------------------------------------------- #
+        self.exempt_hidden_alloc = post_transform
+        self.exempt_unsafe_trigger = post_transform
+        self.exempt_ext_scope = post_transform
+        self.exempt_shadowed_qualifier = post_transform
+        self.exempt_prelude_gate = post_transform
+        self.exempt_lost_write_to_capture = post_transform
         # Freestanding profile (design 19/20): gates hosted-only facilities such
         # as Float formatting in print (dtoa is not available without libc).
         self.freestanding = freestanding
@@ -644,12 +678,16 @@ class TypeChecker(ExpressionsMixin, StatementsMixin, RegistrationMixin, TypeUtil
         interpolation anywhere in `sawc/std/` or `builtin.saw`), and the
         coroutine transform's output is compiler-authored by construction — a
         spawned task's frame box is the `spawn` the user did write, counted once
-        at its call site rather than again at every rewritten hop."""
+        at its call site rather than again at every rewritten hop.
+
+        E1 (design 218a §6), and PERMANENT: a provenance rule, not a soundness
+        gate. Re-counting the same construct after the rewrite would
+        double-report it."""
         if not self.no_hidden_alloc:
             return False
         if getattr(self, '_checking_builtins', False):
             return False
-        if self.post_transform or self._in_synthesized_context():
+        if self.exempt_hidden_alloc or self._in_synthesized_context():
             return False
         if self._accessor_vis_module()[:1] == ("<std>",):
             return False
@@ -830,8 +868,16 @@ class TypeChecker(ExpressionsMixin, StatementsMixin, RegistrationMixin, TypeUtil
         """Compiler-synthesized bodies are exempt from the trigger rule: the
         coroutine transform's frames and the derived copy/equals/compare/hash
         bodies traffic in whatever their source type holds, and there is no
-        declaration for an author to mark."""
-        return (self.post_transform
+        declaration for an author to mark.
+
+        E2 (design 218a §6), and it DELETES at stage 3. Resume bodies name
+        `UnsafePointer` today — `__recv`, the `ref`-encoded locals, `__cellp`,
+        `__io_tok` — so every driven method's resume would owe an `unsafe`
+        declaration it does not carry. Ruling 1 answers that by making the
+        declaration honest instead of exempting it: once `UnsafeRef<T>`
+        replaces those raw pointers, the generated resume says `unsafe` and
+        satisfies design 130's rule rather than dodging it."""
+        return (self.exempt_unsafe_trigger
                 or getattr(node, 'is_synthesized', False)
                 or getattr(node, 'is_derived_copy', False)
                 or getattr(node, 'is_derived_equals', False)
@@ -936,7 +982,10 @@ class TypeChecker(ExpressionsMixin, StatementsMixin, RegistrationMixin, TypeUtil
         # The coroutine transform re-checks its own output, splicing bodies from
         # every module into one AST — provenance no longer describes an import
         # graph there. The rule is a source-level one, like the unsafe trigger.
-        if self.post_transform or self._in_synthesized_context():
+        #
+        # E3 (design 218a §6), and PERMANENT: checked correctly on pass 1, and
+        # the splice cannot reconstruct an import graph it has already merged.
+        if self.exempt_ext_scope or self._in_synthesized_context():
             return True
         if getattr(method_info, 'satisfies_trait', False):
             return True
@@ -1000,10 +1049,13 @@ class TypeChecker(ExpressionsMixin, StatementsMixin, RegistrationMixin, TypeUtil
         warning category. Emitted where a binding TAKES the name of a visible
         module qualifier — the declaration, not the later use that trips over
         it. Off unless the flag asks for it; the use-site error is what fires
-        unconditionally."""
+        unconditionally.
+
+        E4 (design 218a §6), and PERMANENT: a warning describes what an author
+        wrote, and the transform's bindings are not written by anyone."""
         if getattr(self, '_checking_builtins', False):
             return
-        if self.post_transform or self._in_synthesized_context():
+        if self.exempt_shadowed_qualifier or self._in_synthesized_context():
             return
         module_sym = self._shadowed_qualifier(name)
         if module_sym is None:
@@ -1365,8 +1417,8 @@ class TypeChecker(ExpressionsMixin, StatementsMixin, RegistrationMixin, TypeUtil
     #     because an import bound it; gating it would refuse the legal form.
     #   * `_checking_builtins` -- std's own bodies name std types by
     #     construction.
-    #   * `post_transform` -- the re-check after the coroutine transform reads
-    #     an AST whose synthesized frames hold std types in fields.
+    #   * `exempt_prelude_gate` -- the re-check after the coroutine transform
+    #     reads an AST whose synthesized frames hold std types in fields.
     #   * `_in_synthesized_context` -- compiler-generated declarations.
     def _gate_written_type(self, written, depth: int = 0) -> None:
         """Run the prelude gate over every node of a WRITTEN type.
@@ -1389,9 +1441,13 @@ class TypeChecker(ExpressionsMixin, StatementsMixin, RegistrationMixin, TypeUtil
             self._gate_written_type(child, depth + 1)
 
     def _gate_exempt(self) -> bool:
-        """The three whole-pass exemptions the prelude gate honours."""
+        """The three whole-pass exemptions the prelude gate honours.
+
+        The transform's own is E5 (design 218a §6), and PERMANENT: a
+        source-level rule in the same class as E3, since a synthesized frame
+        holds `TaskGroup` and `Box` in fields no import mentions."""
         return bool(getattr(self, '_checking_builtins', False)
-                    or getattr(self, 'post_transform', False)
+                    or getattr(self, 'exempt_prelude_gate', False)
                     or self._in_synthesized_context())
 
     def _gate_resolved_type(self, saw_type) -> None:
