@@ -1,0 +1,66 @@
+// Design 216: switching the closure methods to `&T` elements does NOT trade
+// away suspending transforms. A `(&T) -> U` closure parameter carries no `sync`
+// constraint — which is why `map`/`each`/`fold` lend out of the buffer directly
+// instead of going through `with_ref`, whose body IS `sync` for its own
+// scoped-window reasons.
+//
+// The element borrow spans a suspension here. That is sound for the same reason
+// the place window is: the method holds `&self` for its whole run, so the Law of
+// Exclusivity forbids any `&var self` — and therefore any `push` and its
+// reallocation — from reaching the buffer underneath a live element borrow.
+//
+// (The suspension is written as a call to a suspending helper rather than a bare
+// `yield_now()` in the closure body: a suspending call in a nested/expression
+// position inside a closure is a coroutine-transform limitation that predates
+// this change and is unrelated to the element's spelling.)
+// EXPECT: success
+// EXPECT-OUTPUT:
+// mapped 20
+// mapped 40
+// mapped 60
+// each saw 3
+// folded 60
+
+import std.task.*
+
+func slow_double(n: Int) -> Int {
+    yield_now()
+    n * 2
+}
+
+func slow_show(n: Int) {
+    yield_now()
+    print("mapped {n}")
+}
+
+func slow_add(a: Int, b: Int) -> Int {
+    yield_now()
+    a + b
+}
+
+func traverse() -> Int {
+    var v = Vector<Int>()
+    v.push(10)
+    v.push(20)
+    v.push(30)
+
+    // A suspending transform.
+    let doubled = v.map<Int>({ n in slow_double(n) })
+    doubled.each({ d in slow_show(d) })
+
+    // A suspending `each` body, with a borrow capture across the suspension.
+    var seen = 0
+    v.each({ [&var seen] n in seen = slow_add(seen, 1) })
+    print("each saw {seen}")
+
+    // A suspending fold.
+    let total = v.fold<Int>(0, { acc, n in slow_add(acc, n) })
+    print("folded {total}")
+    total
+}
+
+func main() {
+    var g = TaskGroup()
+    let t = g.spawn(traverse())
+    let _ = t.join()
+}

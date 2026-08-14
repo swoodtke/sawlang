@@ -1,0 +1,64 @@
+// Design 216: `Vector.each`/`map`/`fold`/`each_indexed` carry NO copy bound.
+// The element is LENT to the closure as a `&T`, so a move-only element type
+// iterates, maps and folds like any other — the question that started the
+// brief: a `Vector<Job>` where `Job` owns a handle could not be visited at all.
+//
+// The vector still owns every element afterwards: `deinit` runs exactly once
+// per element at scope end, after all four traversals, which the trailing
+// "drop Job ..." lines prove.
+// EXPECT: success
+// EXPECT-OUTPUT:
+// each: alpha
+// each: beta
+// each: gamma
+// map: ALPHA/5
+// map: BETA/4
+// map: GAMMA/5
+// fold: 14
+// idx 0 = alpha
+// idx 1 = beta
+// idx 2 = gamma
+// still 3 elements
+// drop alpha
+// drop beta
+// drop gamma
+
+struct Job {
+    name: String
+}
+
+extension Job: NoCopy {
+    func deinit(&var self) {
+        print("drop {self.name}")
+    }
+}
+
+extension Job {
+    func label(&self) -> String {
+        "{self.name.to_uppercase()}/{self.name.len()}"
+    }
+}
+
+func main() {
+    var jobs = Vector<Job>()
+    jobs.push(Job(name: "alpha"))
+    jobs.push(Job(name: "beta"))
+    jobs.push(Job(name: "gamma"))
+
+    // each: the element arrives as `&Job`, method calls work through it.
+    jobs.each { j in print("each: {j.name}") }
+
+    // map: a NoCopy element transformed into an owned Vector<String>.
+    let labels = jobs.map<String> { j in j.label() }
+    labels.each { l in print("map: {l}") }
+
+    // fold: the accumulator is threaded by value, the element by reference.
+    let total = jobs.fold<Int>(0) { acc, j in acc + j.name.len() }
+    print("fold: {total}")
+
+    // each_indexed: same rule, with the index beside the borrow.
+    jobs.each_indexed { i, j in print("idx {i} = {j.name}") }
+
+    // Nothing was consumed by any of the four.
+    print("still {jobs.len()} elements")
+}

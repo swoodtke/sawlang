@@ -528,43 +528,34 @@ extension Vector<T: Copy, A: Allocator = GlobalAllocator> {
 //   var sum = 0
 //   vec.each { [&var sum] in sum += $0 }   // mutates the REAL sum
 //
-// COPY-FAMILY / BOUND: each element is handed to the closure BY VALUE (the
-// signatures take `T`, not `&T`). Extraction reuses `get`, which returns `T?`
-// — a value copy of the element per T's copy class (ImplicitCopy retains,
-// trivial copies bitwise). The extracted element is then `move`d into the
-// closure, so there is exactly ONE copy per visit and NEVER a silent duplicate
-// of an ExplicitCopy element. Handing an owned `T` to a by-value closure
-// parameter is a copy at the source, so this API is bound to `T: Copy` — the
-// same bound `Vector`'s own `.copy()` carries. A `Vector<File>` (NoCopy
-// element) therefore cannot call `each`/`map`/`fold`; a future by-reference
-// (`(&T)`) overload would lift that, but is out of scope here.
-extension Vector<T: Copy, A: Allocator = GlobalAllocator> {
-    // Create an iterator over this vector's elements (`for x in v.iter()`).
-    //
-    // `T: Copy` — the SAME bound `each`/`map`/`enumerated` carry, and for the
-    // same reason: `next()` hands the consumer an OWNED element, which is a
-    // copy at the source. Unbounded, `next()` returned a bitwise duplicate of
-    // the slot, so an owning element (`Vector<String>`, `Vector<Vector<..>>`,
-    // `Vector<File>`) was owned by BOTH the loop variable and the vector and
-    // deinit'd twice (design 122 unit A). This follows the `StringBytes`/
-    // `StringChars` model — an iterator yields values the consumer owns
-    // outright, with their own retain — rather than a scoped-borrow shape:
-    // a borrow iterator would have to hold the container borrowed for the
-    // whole loop, which is exactly what `with_ref`/`with_var_ref` already
-    // offer per element, and it is where a NoCopy element type is reached.
-    /// Returns an iterator over the vector's elements (`for x in v.iter()`).
-    /// Each element is yielded as an owned copy, which is what requires
-    /// `T: Copy`.
-    public func iter(&self) unsafe -> VectorIterator<T> {
-        VectorIterator<T>(buffer: self.buffer, length: self.length, index: 0)
-    }
-
-    /// Iterates over each element in order, passing it to the provided function.
-    public func each(&self, body: (T) -> Void) {
+// COPY-FAMILY / BOUND (design 216): the CLOSURE methods take their element BY
+// REFERENCE (`&T`), so they carry NO copy bound at all and work over every
+// element type — `Vector<File>`, `Vector<Job>`, `Vector<Vector<Int>>`. The
+// element is lent where it sits and the closure borrows it for the call; the
+// vector still owns it afterwards. Reading a `&T` binding yields the value, so
+// `{ $0 * 2 }` and `{ $0.to_string() }` are unaffected by the switch — what
+// changes is FORWARDING: a closure handing its element to another `&T`
+// parameter writes `&n`, not `n`.
+//
+// The bodies lend out of the buffer directly rather than going through
+// `with_ref`, which declares its body `sync` for its own scoped-window reasons.
+// A `(&T) -> U` closure parameter carries no such constraint, so a SUSPENDING
+// transform works — that is why these are not written in terms of `with_ref`.
+// The borrow spans the closure call and the vector is held `&self` for the
+// whole method, so the Law of Exclusivity is what forbids a `push` (and its
+// reallocation) from reaching the buffer underneath a live element borrow.
+//
+// `iter`/`enumerated`/`VectorIterator` keep `T: Copy` — see the bounded
+// extension below; theirs is a real constraint, not an inherited one.
+extension Vector<T, A: Allocator = GlobalAllocator> {
+    /// Iterates over each element in order, lending it to `body` as a `&T`.
+    /// Carries no copy bound: the element is borrowed where it sits, never
+    /// copied out, so a move-only element type iterates like any other.
+    public func each(&self, body: (&T) -> Void) unsafe {
         var i = 0
         while i < self.length {
-            if let elem = self.get(i) {
-                body(move elem)
+            if let buf = self.buffer {
+                body(&buf[i])
             }
             i = i + 1
         }
@@ -576,23 +567,21 @@ extension Vector<T: Copy, A: Allocator = GlobalAllocator> {
     // explicitly at the call site (`v.map<String>(...)`). The output element
     // type carries no `Copy` bound: each transformed value is `move`d straight
     // into the result (exactly one placement per element, never a silent copy),
-    // and the result is `move`d out. The `T: Copy` bound is inherited from the
-    // extension for the same reason `each` needs it: an element is handed to the
-    // closure BY VALUE, which is a copy at the source (see the COPY-FAMILY note
-    // above).
+    // and the result is `move`d out. Since design 216 the INPUT element carries
+    // none either — `transform` borrows it.
     // Panics on allocator exhaustion, through `push` (design 123, infallible
     // tier). It used to drop transformed values on the floor and hand back a
     // short result vector.
     /// Applies `transform` to each element to return a new `Vector<U>`, where the
-    /// output type `U` must be explicitly specified at the call site. Because
-    /// elements are passed to the closure by value, `T` must satisfy the `Copy`
-    /// bound. The function panics on allocator exhaustion.
-    public func map<U>(&self, transform: (T) -> U) -> Vector<U, A> {
+    /// output type `U` must be explicitly specified at the call site. The element
+    /// is lent to `transform` as a `&T`, so no copy bound is required of `T`. The
+    /// function panics on allocator exhaustion.
+    public func map<U>(&self, transform: (&T) -> U) unsafe -> Vector<U, A> {
         var result = Vector<U, A>()
         var i = 0
         while i < self.length {
-            if let elem = self.get(i) {
-                result.push(transform(move elem))
+            if let buf = self.buffer {
+                result.push(transform(&buf[i]))
             }
             i = i + 1
         }
@@ -604,39 +593,62 @@ extension Vector<T: Copy, A: Allocator = GlobalAllocator> {
     // `Acc` is supplied explicitly (`v.fold<Int>(0, ...)`). The accumulator is
     // `move`d in and out of `combine` on each step, so an `ExplicitCopy`
     // accumulator is threaded without a silent duplicate; a trivial accumulator
-    // (e.g. `Int`) moves bitwise. `T: Copy` is again inherited for by-value
-    // element access. (The accumulator param is named `Acc`, not `A`, because
-    // `A` is now the extension's allocator type parameter — brief 37.)
+    // (e.g. `Int`) moves bitwise. The ELEMENT is lent by reference (design 216).
+    // (The accumulator param is named `Acc`, not `A`, because `A` is now the
+    // extension's allocator type parameter — brief 37.)
     /// Performs a left fold by threading an accumulator through the elements using
     /// the `combine` function. The caller provides an initial value and an explicit
     /// type parameter for the accumulator. The accumulator is moved into and out of
-    /// the `combine` closure at each step.
-    public func fold<Acc>(&self, initial: Acc, combine: (Acc, T) -> Acc) -> Acc {
+    /// the `combine` closure at each step; the element is lent to it as a `&T`.
+    public func fold<Acc>(&self, initial: Acc, combine: (Acc, &T) -> Acc) unsafe -> Acc {
         var acc = move initial
         var i = 0
         while i < self.length {
-            if let elem = self.get(i) {
-                acc = combine(move acc, move elem)
+            if let buf = self.buffer {
+                acc = combine(move acc, &buf[i])
             }
             i = i + 1
         }
         move acc
     }
 
-    // Visit each element with its index, passing `(index, element)` to `body`
+    // Visit each element with its index, passing `(index, &element)` to `body`
     // (design 53). The closure twin of `enumerated()`: same non-escaping
-    // discipline and same by-value / `T: Copy` element rule as `each`.
-    /// Iterates through each element, passing the index and the element to the
-    /// closure. The closure must be non-escaping, and `T` must implement `Copy`
-    /// because elements are passed by value.
-    public func each_indexed(&self, body: (Int, T) -> Void) {
+    // discipline and, since design 216, the same by-reference element rule as
+    // `each`.
+    /// Iterates through each element, passing the index and a `&T` borrow of the
+    /// element to the closure. The closure must be non-escaping; no copy bound is
+    /// required of `T`.
+    public func each_indexed(&self, body: (Int, &T) -> Void) unsafe {
         var i = 0
         while i < self.length {
-            if let elem = self.get(i) {
-                body(i, move elem)
+            if let buf = self.buffer {
+                body(i, &buf[i])
             }
             i = i + 1
         }
+    }
+}
+
+extension Vector<T: Copy, A: Allocator = GlobalAllocator> {
+    // Create an iterator over this vector's elements (`for x in v.iter()`).
+    //
+    // `T: Copy` — a REAL constraint, and since design 216 no longer shared with
+    // the closure methods: `next()` hands the consumer an OWNED element, which
+    // is a copy at the source. Unbounded, `next()` returned a bitwise duplicate
+    // of the slot, so an owning element (`Vector<String>`, `Vector<Vector<..>>`,
+    // `Vector<File>`) was owned by BOTH the loop variable and the vector and
+    // deinit'd twice (design 122 unit A). This follows the `StringBytes`/
+    // `StringChars` model — an iterator yields values the consumer owns
+    // outright, with their own retain — rather than a scoped-borrow shape:
+    // a borrow iterator would have to hold the container borrowed for the
+    // whole loop, which is exactly what `with_ref`/`with_var_ref` already
+    // offer per element, and where `each`/`map` reach a NoCopy element type.
+    /// Returns an iterator over the vector's elements (`for x in v.iter()`).
+    /// Each element is yielded as an owned copy, which is what requires
+    /// `T: Copy`.
+    public func iter(&self) unsafe -> VectorIterator<T> {
+        VectorIterator<T>(buffer: self.buffer, length: self.length, index: 0)
     }
 
     // A concrete iterator yielding `(index, element)` pairs for `for` loops

@@ -1,0 +1,51 @@
+// Design 216 + 219 judgment site 2: iterating a `Vector<Vector<Int>>`.
+//
+// The inner element is an `ExplicitCopy` `Vector<Int>`, so the OLD by-value
+// `each` reached it only because a `T: Copy` bound admitted the ceremony tier
+// into a silently-copying body. Under design 219 that admission retires — and
+// this shape keeps working because the element is BORROWED, not read out:
+// `each` lends a `&Vector<Int>` and the inner `each` runs on the borrow.
+//
+// This is the shape enforcement would otherwise break, so it is pinned here.
+// EXPECT: success
+// EXPECT-OUTPUT:
+// row: 1 2 3
+// row: 4 5
+// row:
+// grand total 15
+// rows 3
+
+func main() {
+    var rows = Vector<Vector<Int>>()
+
+    var a = Vector<Int>()
+    a.push(1)
+    a.push(2)
+    a.push(3)
+    rows.push(move a)
+
+    var b = Vector<Int>()
+    b.push(4)
+    b.push(5)
+    rows.push(move b)
+
+    rows.push(Vector<Int>())
+
+    // Nested `each` over borrowed inner vectors.
+    rows.each { row in
+        var line = StringBuilder()
+        row.each { [&var line] n in
+            line.append(" {n}")
+        }
+        print("row:{line.build()}")
+    }
+
+    // fold over the borrowed rows, folding each row in turn.
+    let grand = rows.fold<Int>(0) { acc, row in
+        acc + row.fold<Int>(0) { inner, n in inner + n }
+    }
+    print("grand total {grand}")
+
+    // Nothing was copied out: the outer vector still owns all three rows.
+    print("rows {rows.len()}")
+}

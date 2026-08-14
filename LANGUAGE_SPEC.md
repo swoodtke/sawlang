@@ -4769,6 +4769,36 @@ names, so nothing is spent encoding names and schema evolution is a v1 non-goal.
   parameter yet (DF-169e), so a value is read back through its own type,
   `LockEntry.deserialize(from: &var dec)`.
 
+### `Vector.each` / `map` / `fold` / `each_indexed`
+
+**Status: implemented** (`designs/216-vector-copy-bounds.md`). The four closure
+methods carry **no copy bound**. Each lends the element to the closure as a
+`&T`, so the vector still owns it afterwards and a move-only element type
+traverses like any other:
+
+```saw
+var jobs = Vector<Job>()        // Job is NoCopy
+jobs.push(Job(name: "alpha"))
+
+jobs.each { j in print(j.name) }            // borrows the element
+let labels = jobs.map<String> { j in j.label() }
+let total  = jobs.fold<Int>(0) { acc, j in acc + j.name.len() }
+```
+
+Reading a `&T` binding yields the value, so `{ $0 * 2 }` and `{ $0.to_string() }`
+are written exactly as before. What the reference spelling changes is
+**forwarding**: a closure handing its element to another `&T` parameter writes
+`&n`, not `n`.
+
+The closure parameter is not `sync`, so a **suspending** transform works. The
+element borrow may then span a suspension: the method holds `&self` for its
+whole run, so the Law of Exclusivity forbids any `&var self`, and therefore any
+`push` and its reallocation, from reaching the buffer under a live borrow.
+
+`iter`, `enumerated` and `VectorIterator` keep `T: Copy`. Theirs is a real
+constraint rather than an inherited one: `next()` hands the consumer an element
+it owns, which is a copy at the source.
+
 ### `Vector.sort` / `sort_by`
 
 **Status: implemented** (`designs/48-ord-hash.md`). In-place **insertion sort**
@@ -4778,9 +4808,10 @@ names, so nothing is spent encoding names and schema evolution is a v1 non-goal.
 - `sort_by(&var self, compare: (T, T) -> Ordering)` on `Vector<T: Copy>` — the
   comparator is a **non-escaping** closure parameter.
 - Element *movement* uses byte-level `swap` (refcount-neutral, never a copy);
-  *comparison* reads elements by value through `get`, so both are bound to
-  `T: Copy` (the `Vector.each` precedent). No ExplicitCopy element is ever
-  silently duplicated.
+  *comparison* reads both elements by value through `get`, which is what binds
+  them to `T: Copy`. No ExplicitCopy element is ever silently duplicated.
+  Lifting this bound needs `Comparable`/`Equatable` to take `other: &Self`
+  (DF-216b), so it stays where the closure methods no longer are.
 
 ### `Map<K: Hashable + Equatable, V, A: Allocator = GlobalAllocator>`
 
@@ -6655,14 +6686,15 @@ own generic type parameters, *in addition to* the type's own — the canonical
 case being a transform whose output type is independent of the element type:
 
 ```saw
-extension Vector<T: Copy, A: Allocator = GlobalAllocator> {
+extension Vector<T, A: Allocator = GlobalAllocator> {
     // `U` is a METHOD-level type parameter, distinct from the element type `T`
-    // and the allocator `A` (which the result vector inherits).
-    func map<U>(&self, transform: (T) -> U) -> Vector<U, A> { /* ... */ }
+    // and the allocator `A` (which the result vector inherits). The element is
+    // lent as a `&T`, so the extension carries no copy bound.
+    func map<U>(&self, transform: (&T) -> U) unsafe -> Vector<U, A> { /* ... */ }
 
     // `Acc` is the accumulator type (named `Acc`, not `A`, since `A` is now
     // the extension's allocator type parameter).
-    func fold<Acc>(&self, initial: Acc, combine: (Acc, T) -> Acc) -> Acc { /* ... */ }
+    func fold<Acc>(&self, initial: Acc, combine: (Acc, &T) -> Acc) unsafe -> Acc { /* ... */ }
 }
 
 var v = Vector<Int>()

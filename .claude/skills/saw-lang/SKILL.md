@@ -578,8 +578,20 @@ var scratch: [Int8; 256] = [0; 256] // REPEAT literal: N copies of one value
   unspecified — sort `keys()` for determinism.
 - Iterate: `m.each { k, v in ... }`, `each_key`, `keys()/values()`
   snapshots (Copy elements); `v.iter()`, `v.enumerated()` (for-in),
-  `each`/`map<U>`/`fold<A>` closures; Set algebra:
+  `each`/`map<U>`/`fold<A>`/`each_indexed` closures; Set algebra:
   union/intersection/difference/is_subset (elements `T: Copy`).
+- **Vector's four CLOSURE methods carry NO copy bound (design 216)** —
+  `each`, `map<U>`, `fold<Acc>` and `each_indexed` lend the element as a
+  `&T`, so a `Vector<File>`/`Vector<Job>` traverses, maps and folds like
+  any other. Reading the binding yields the value, so `{ $0 * 2 }` and
+  `{ $0.to_string() }` are unchanged; what needs the sigil is FORWARDING —
+  a closure passing its element to another `&T` parameter writes `&n`.
+  The closure is not `sync`, so a suspending transform works (the borrow
+  spans the suspend; `&self` is held for the whole call, so exclusivity
+  forbids the `push` that would reallocate under it). `iter`/`enumerated`
+  KEEP `T: Copy` — `next()` hands out an element the consumer owns, which
+  is a real copy at the source (design 122). `sort`/`sort_by` keep theirs
+  too, blocked on `Comparable` taking `other: &Self` (DF-216b).
 - A tuple index is a bare integer that never eats a following `.`, so a
   projection continues past it (design 161): `t.0.name`, `t.0.name.len()`,
   `pair.0.x`, and `t.0.1` as two index hops (not the float `0.1`). Works
