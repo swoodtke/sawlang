@@ -801,6 +801,20 @@ all.
   user files was tried and does NOT fix it (reverted, unlanded).
   **Unit 7 STOPPED and reported** rather than worked around: the fix touches
   the embed/registration path that `gmgate`/`bootstrap`/`sos` all ride.
+  **RULED (user, Aug 13): OPTION 1 — STAMP THE SPLICE.** The spliced subtree
+  carries fully-resolved identities BEFORE it lands in the entry AST: extend
+  design 210's `embed_preserved` machinery to the TYPE-ANNOTATION positions
+  it misses (DF-210c's "not fully annotated" list is the starting census —
+  obligation 1: the position list is the matrix), stamped in the PROVIDER's
+  context; the re-check consults stamps. Third application of the identity
+  pattern (the Poll fix; the elaboration principle's provenance invariant),
+  and it builds a piece of 218's midpoint contract early — unit 1.5's mono
+  instances are the next splice-shaped consumer and inherit the fix free.
+  Rejected: teaching the entry-side re-check a resolve-as-if-elsewhere mode
+  (per-consumer ongoing cost). Deliverables: the annotation census, the
+  stamping, the pin flip, DF-210c partially discharged and its entry
+  updated. **DISPATCH AFTER 219 WAVE B LANDS** (touches the transform's
+  splice path).
   Original text (superseded where it says "closure" and "second identity"):
 
   **DF-212b (BLOCKED unit 4 as designed) — a closure literal argument to a
