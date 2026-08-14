@@ -54,6 +54,48 @@ list — no grep-derived inventory). Take stage 4's ratified trusted list
 alongside. Output: the definitive item list for units 1-3, recorded in this
 brief.
 
+### UNIT 0 LANDED (Aug 14) — the measured inventory, and it corrects the brief
+
+Method: `self.exempt_unsafe_trigger = False`, then compile all 1547 corpus
+programs (`examples/` + `examples/conformance/`, each with its own
+`COMPILE-FLAGS`) and collect every design-130 trigger diagnostic; then the SAME
+file set with E2 restored, and subtract. Probes:
+`.build/scratch/probe_e2_corpus.py` + `probe_e2_categorize.py` (gitignored).
+
+- E2 off: **172** files diagnose. E2 on: **6** (`U04`/`U05`/`U06`/`U27`/`U30` +
+  `generic_instantiation_unsafe_signature` — the design-130 rows that MEAN to
+  fail, all first-pass). **Net E2 coverage: 166 files.**
+
+| # | construct | emission site | files | the type the user body names |
+|---|-----------|---------------|-------|------------------------------|
+| A | spawn-site group cast | `_spawn_site_rule`, coro_transform.py:7578 | 158 | `UnsafeConstPointer<TaskGroup>` |
+| B | drive-site receiver cast | `_rewrite_drive_sites`, :7646 | 10 | `UnsafeConstPointer<Recv>` |
+| C | reference-argument cast | `_ref_arg_to_ptr`, :7613 (called from BOTH A and B) | 2 | `UnsafePointer<T>` |
+
+**Three corrections to the brief's predicted list, all in the same direction —
+E2 is smaller than the brief thought, and unit 2 is bigger.**
+
+1. **The brief's item 1 is a FAMILY of three, not one cast.** The drive-site
+   receiver cast is the shape the stage-3 commit named, but it is 10 of 166
+   files. The dominant construct is the SPAWN site's `(&group) as
+   UnsafeConstPointer<TaskGroup>` — 158 files, and every one of them a program
+   whose author wrote `group.spawn(worker(n))` and nothing else. Both funnel
+   reference ARGUMENTS through `_ref_arg_to_ptr`, which is the third.
+2. **The brief's item 2 (the cell plumbing) is NOT E2 coverage.** Zero files
+   diagnose `__cellp`. `_result_place` / `_cancel_place` are read only from
+   `resume` / `is_cancelled` / `release` / the spawn helper — declarations the
+   transform AUTHORS, which since stage 3 carry `unsafe_decl_checked` and
+   declare `unsafe` honestly. The cell is trusted-list item 2; it does not
+   block E2's deletion.
+3. **The brief's item 3 (the wake latch) is NOT E2 coverage either**, for the
+   same reason: `__io_tok`'s `(&self.__wake) as UnsafePointer<Int>` lives in
+   `resume`, which declares `unsafe`.
+
+**Consequence for the unit order.** Unit 2 alone is E2's blocker; units 1 and 3
+are trusted-LIST work (they shrink what stage 4 ratified), not E2 work. They are
+built in the brief's order anyway, and each reports its own acceptance
+measurement.
+
 **Unit 1 — the safe cell.** A typed cell abstraction in
 `std.compiler.frame` (the DF-218g identity mechanism already makes this
 module's types compile into every driven program without claiming bare
