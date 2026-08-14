@@ -7,6 +7,23 @@ items need a probe before being treated as real work.
 Historical/landed recaps: designs/todo_aug1-aug9.md (split Aug 9);
 older history is in this file's git log (pruned Jul 30).
 
+## Design 220 — recorded-seed suite compiles, per-run artifacts, irdet reuse
+(AUTHORED + RULED Aug 14, queued behind 218 stages 1-2 integration)
+
+`designs/220-suite-ir-reuse.md`. Suite workers get random RECORDED
+`PYTHONHASHSEED`s (per-worker — design 115 makes compiles in-process, so
+per-compile is impossible), making hash-order flakes replayable for the
+first time; the runner writes per-run output dirs published by atomic
+symlink flip (`test_runner_last`), pruned to K=3; artifacts carry an
+mtime staleness stamp with the three known holes closed (deletions via
+dir mtimes, the llvmlite dist-info, test_runner.py itself); irdet --all
+reuses fresh suite IR and compiles only the second side (~half its
+measured 755s), with a three-way verify on any mismatch that reports a
+stale/divergent artifact as its OWN failure — no silent healing, no
+false green possible. Five units, unit 0 is the obligation-2 consumer
+sweep of the `.build/<stem>` layout flip. All decisions ruled; the units
+execute, they do not re-decide.
+
 ## The next queue — designs 195-202 + 153 (ALL RULED Aug 10, awaiting dispatch)
 
 Every open ruling from the overnight run plus the parked backlog was
@@ -5268,7 +5285,8 @@ file, and sos/spec.md §5c states the three reasons there are.
   wall** on the dev Mac. That is affordable once per brief and not once per
   commit, which is exactly the split. Still open as a cheaper guard: a static
   check for `set`-of-`str` iteration that reaches an emission list — the sweep
-  catches instances, not the class.
+  catches instances, not the class. The sweep's COST side is design 220's
+  target (suite-IR reuse halves the --all gate in the steady state).
 
   **QUEUED (user, Aug 14) — rides the mech fix batch** (with the DF-153b
   SYS_* rename + ElfSegFlag items), not its own brief. Shape decided:
