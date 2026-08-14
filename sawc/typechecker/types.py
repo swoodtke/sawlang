@@ -580,7 +580,8 @@ class TypeUtilsMixin:
                 self._error(
                     ErrorKind.UNKNOWN_TYPE,
                     f"unknown trait `{trait_name}` in `any {trait_name}`",
-                    line, column)
+                    line, column,
+                    hint=self._retired_trait_hint(trait_name))
             return
 
         if trait.name in reported:
@@ -1081,7 +1082,29 @@ class TypeUtilsMixin:
             f"unknown trait `{bound}` in the bound on type parameter "
             f"`{tp.name}`",
             line, column,
-            hint="a type parameter's bound must name a trait that is in scope")
+            hint=self._retired_trait_hint(bound)
+                 or "a type parameter's bound must name a trait that is in scope")
+
+    # THE RETIRED TRAIT NAMES (design 219 unit B4) — one table, one helper.
+    #
+    # A name the language used to define and no longer does deserves better than
+    # "unknown trait": the author wrote something that WAS correct, and the fix
+    # is a word. Every unknown-trait diagnostic asks this first — the two type
+    # parameter-bound sites in `expressions.py`, the bound site above, the `any
+    # Trait` erasure site, the method-dispatch site, and the conformance-header
+    # site in `registration.py` — so the hint cannot appear at some of the
+    # positions a retired name can be written in and not the rest.
+    _RETIRED_TRAIT_HINTS = {
+        "ImplicitCopy": "`ImplicitCopy` was merged into `Copy` (design 219) — "
+                        "write `Copy`",
+    }
+
+    def _retired_trait_hint(self, name):
+        """The teaching hint for a trait name the language retired, or None.
+
+        Callers: every `unknown trait` diagnostic. See the table above.
+        """
+        return self._RETIRED_TRAIT_HINTS.get((name or "").rsplit('.', 1)[-1])
 
     # ------------------------------------------------------- design 136 (unit B)
 

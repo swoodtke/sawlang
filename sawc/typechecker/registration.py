@@ -2768,7 +2768,8 @@ class RegistrationMixin:
                         self._error(
                             ErrorKind.UNDEFINED_VARIABLE,
                             f"unknown trait `{trait_name}`",
-                            extension.line, extension.column
+                            extension.line, extension.column,
+                            hint=self._retired_trait_hint(trait_name)
                         )
                         continue
                 else:
@@ -2784,7 +2785,8 @@ class RegistrationMixin:
                     self._error(
                         ErrorKind.UNDEFINED_VARIABLE,
                         f"unknown trait `{trait_name}`",
-                        extension.line, extension.column
+                        extension.line, extension.column,
+                        hint=self._retired_trait_hint(trait_name)
                     )
                     continue
 

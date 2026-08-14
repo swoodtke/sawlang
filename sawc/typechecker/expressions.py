@@ -3055,7 +3055,8 @@ class ExpressionsMixin:
                     self._error(
                         ErrorKind.UNDEFINED_VARIABLE,
                         f"unknown trait `{bound}` in type parameter bound",
-                        line, column)
+                        line, column,
+                        hint=self._retired_trait_hint(bound))
                     continue
                 # THE Copy family goes through `_bound_satisfied` like every
                 # other bound (design 219). This site used to special-case
@@ -4021,7 +4022,8 @@ class ExpressionsMixin:
                         self._error(
                             ErrorKind.UNDEFINED_VARIABLE,
                             f"unknown trait `{bound}` in type parameter bound",
-                            expr.line, expr.column
+                            expr.line, expr.column,
+                            hint=self._retired_trait_hint(bound)
                         )
                         continue
                     concrete_type_name = None
@@ -7479,7 +7481,8 @@ class ExpressionsMixin:
         trait = self.get_trait_info(trait_name)
         if trait is None:
             self._error(ErrorKind.UNKNOWN_TYPE,
-                        f"unknown trait `{trait_name}`", expr.line, expr.column)
+                        f"unknown trait `{trait_name}`", expr.line, expr.column,
+                        hint=self._retired_trait_hint(trait_name))
             return None
         tmethod = trait.methods.get(expr.method_name)
         if tmethod is None:
