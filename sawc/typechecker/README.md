@@ -4,7 +4,7 @@
 
 ## Overview
 
-The `typechecker` module performs type checking and semantic analysis on the Saw AST. It validates type correctness, resolves symbols, checks trait conformance, and enforces resource management rules (the Copy trait family — `NoCopy`, `ImplicitCopy`, `ExplicitCopy`, `Deinit`) plus the Law of Exclusivity on `&var` paths. Value copies/moves all funnel through one value-transfer checkpoint. The implementation uses a mixin-based architecture where the main `TypeChecker` class inherits from multiple focused mixin classes.
+The `typechecker` module performs type checking and semantic analysis on the Saw AST. It validates type correctness, resolves symbols, checks trait conformance, and enforces resource management rules (the Copy trait family — `NoCopy`, `Copy`, `ExplicitCopy`, `Deinit`) plus the Law of Exclusivity on `&var` paths. Value copies/moves all funnel through one value-transfer checkpoint. The implementation uses a mixin-based architecture where the main `TypeChecker` class inherits from multiple focused mixin classes.
 
 ## Architecture
 
@@ -67,19 +67,19 @@ Type resolution, compatibility checking, and resource trait detection.
 | `_get_underlying_type(saw_type)` | Get underlying primitive for distinct types |
 | `_types_compatible(expected, actual)` | Check if types are compatible |
 | `_is_no_copy_type(saw_type)` | Check if type implements NoCopy |
-| `_is_implicit_copy_type(saw_type)` | Check if type implements ImplicitCopy |
+| `_is_implicit_copy_type(saw_type)` | Check if type implements Copy |
 | `_is_explicit_copy_type(saw_type)` | Check if type implements ExplicitCopy |
 | `_is_deinit_type(saw_type)` | Check if type implements Deinit |
 | `_check_operand_agreement(left, right, ...)` | **The single operand-agreement checkpoint (design 195 rule 1).** All typed operands of an operation have the SAME type; implicit promotion happens from bare integer literals and nowhere else. Its docstring NAMES its six entry points (arithmetic, `%`, the wrapping trio, the bitwise `& \| ^`, the comparisons, compound assignment, range bounds) and the one deliberate non-entry (the shifts, whose right operand is a count rather than a peer). |
 | `_adopt_bare_literal_operand(expr, l, r)` | The carve-out applied: a bare integer literal operand adopts the other operand's type through `_apply_literal_expected_type`, so it is range-checked at the literal, materialized at the adopted width, and reached through a leading `-`. |
-| `_check_value_transfer(expr, target, ...)` | **The single value-transfer checkpoint.** Every copy/move site (let/var, assignment RHS, call args, returns, struct fields, array/tuple/enum payloads) funnels through here: enforces `NoCopy`/`ExplicitCopy` move-discipline and marks `ImplicitCopy` sites so codegen inserts `copy()`. (Use-after-move dataflow beyond let/var is a documented gap.) |
+| `_check_value_transfer(expr, target, ...)` | **The single value-transfer checkpoint.** Every copy/move site (let/var, assignment RHS, call args, returns, struct fields, array/tuple/enum payloads) funnels through here: enforces `NoCopy`/`ExplicitCopy` move-discipline and marks `Copy` sites so codegen inserts `copy()`. (Use-after-move dataflow beyond let/var is a documented gap.) |
 | `_check_call_exclusivity(values, ...)` | **The single Law-of-Exclusivity checkpoint for a call.** A `&var` (or `&var self` receiver) path must be disjoint from every other by-reference/moved path in the same call; by-value args are snapshots and not collected. The access set holds the receiver, the `&`/`&var` arguments, the `move`s, an `o.take()` receiver, a closure argument's borrow captures, and — since design 199 — every `&`/`&var` a NESTED call in the argument list creates, because an argument's borrow extends over the whole call expression. Its docstring NAMES its fifteen entry points in `expressions.py`. |
-| `_check_copy_trait_exclusivity()` | Enforce that a type does not declare both `ImplicitCopy` and `ExplicitCopy` |
+| `_check_copy_trait_exclusivity()` | A named no-op since design 219 — declaring both `Copy` and `ExplicitCopy` is legal now, and the tombstone keeps the deleted rule readable where it used to run |
 | `_build_access_path(expr)` | Build the root+projection access path used by the exclusivity check |
 | `_check_no_copy_return(expr, type)` | Validate NoCopy types are moved on return |
 | `_check_integer_literal_range(value, type)` | Validate integer fits target type |
 | `_check_no_copy_containment(struct)` | Check NoCopy field containment rules |
-| `_check_implicit_copy_containment(struct)` | Check ImplicitCopy field containment rules |
+| `_check_implicit_copy_containment(struct)` | Check Copy field containment rules |
 | `_check_explicit_copy_containment(struct)` | Check ExplicitCopy field containment rules |
 | `_check_deinit_containment(struct)` | Check Deinit field containment rules |
 
@@ -175,8 +175,9 @@ def _check_expression(self, expr):
 
 ### Phase 2: Validation
 1. Check trait conformance for extensions
-2. Check `ImplicitCopy`/`ExplicitCopy` mutual exclusivity
-3. Check containment rules (NoCopy, ImplicitCopy, ExplicitCopy, Deinit)
+2. (the `Copy`/`ExplicitCopy` exclusivity check ran here until design 219
+   deleted the rule)
+3. Check containment rules (NoCopy, Copy, ExplicitCopy, Deinit)
 4. Check function bodies (generic bodies are checked once, abstractly, against
    their bounds — with return-type reconciliation and bound-aware method
    resolution deferred to instantiation)

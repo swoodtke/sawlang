@@ -157,13 +157,23 @@ print("{#file}:{#line} - msg")  // #file/#line/#function: definition-site consts
   the header.) Prelude/std names are not bindings for this rule.
 
 ## Ownership (the part that bites)
-Copy tiers: trivial/POD = implicit bitwise copy; `ImplicitCopy`
-(String, Arc, Data, escaping closures) = free refcount bump; `ExplicitCopy`
-(Vector, and a conformance bounded `T: Copy`)
-= must `move v` or `v.copy()` at every transfer; `NoCopy` (File, Mutex, Box,
-StringBuilder, TcpListener/TcpStream, Command, TaskGroup, SpinLock, Once,
-Atomic — and currently Map/Set: their `ExplicitCopy` is future work, `.copy()`
-on them is a compile error) = `move` only.
+THREE WORDS, one job each (design 219). **`Copy`** is THE silently-copyable
+tier: trivial/POD (bitwise) and the refcounted family (String, Arc, Data,
+escaping closures — a free bump) are one tier, and which of the two a type uses
+is a codegen detail no rule above it sees. It is DERIVED, not declared — see the
+automatic tier below. **`NoCopy`** (File, Mutex, Box, StringBuilder,
+TcpListener/TcpStream, Command, TaskGroup, SpinLock, Once, Atomic — and
+currently Map/Set: their `ExplicitCopy` is future work, `.copy()` on them is a
+compile error) is the declared opt-OUT: `move` only. **`ExplicitCopy`** is an
+ordinary synthesizable trait naming the DUPLICABLE family — every `Copy` type
+satisfies it, plus the declared conformers (Vector, whose conformance is
+bounded `T: Copy`). A type declaring `ExplicitCopy` and nothing else is
+move-only: `move v` or `v.copy()` at every transfer.
+The two bounds differ: `<T: Copy>` admits only what duplicates silently,
+`<T: ExplicitCopy>` reads "duplicable, possibly with ceremony" and is what
+licenses a spelled `.copy()` on an abstract `T`. An `ExplicitCopy` argument
+does NOT satisfy `T: Copy`. Declaring both on one type is legal and redundant,
+not contradictory (the old exclusivity rule is gone).
 **`NoMove` is a SEPARATE AXIS (design 188)** — relocation, not duplication. A
 `NoMove` value moves exactly once (constructor into binding): `move x` and
 `Optional.take` of one are compile errors, whole-referent replacement through
@@ -175,7 +185,7 @@ handle over pinned storage. Not a generic bound. `TaskGroup` conforms: a group
 is a SCOPE (design 124) whose Deinit joins where it was born, so `move group`
 used to compile and abort in the runtime.
 **`Data` MOVED OFF the NoCopy list (design 165)** and is now the COPY-ON-WRITE
-member of the ImplicitCopy tier: a `Data` is a window (offset + length) onto
+member of the Copy tier: a `Data` is a window (offset + length) onto
 `Arc`-owned storage, `let b = a` and `a.copy()` are retains, and the bytes
 separate at the first write that finds them shared. Value semantics hold — no
 mutation is ever visible through another `Data` — so `move` on a `Data` still
@@ -207,9 +217,9 @@ extension Holder: ExplicitCopy {}               // memberwise deep .copy()
 ```
 Both bodies are EMPTY — the `deinit` is synthesized either way. Only the copy
 policy is your call.
-**THE AUTOMATIC ImplicitCopy TIER (design 159) — the other half of that rule.**
-A struct or enum whose owning members are all trivial/ImplicitCopy IS
-ImplicitCopy, with no declaration written and none owed. Its copy RETAINS each
+**THE AUTOMATIC Copy TIER (design 159) — the other half of that rule.**
+A struct or enum whose owning members are all trivial/Copy IS
+Copy, with no declaration written and none owed. Its copy RETAINS each
 refcounted member; the last owner's drop releases each exactly once. So
 `struct P { name: String }` compiles bare and `let b = a` is a free retain that
 leaves both live — this is deliberate and stays implicit.
@@ -220,9 +230,9 @@ let b = a                        // free retain; `a` and `b` are both live
 What puts a type on this tier WITHOUT owing a declaration is the member set the
 compiler retains for you: a `String` field, an escaping-closure field, a `[T; N]`
 of either, and another struct/enum already on this tier. A field of a DECLARED
-ImplicitCopy type is NOT one of them — an `Arc<T>` field triggers the ordinary
-containment error (``contains ImplicitCopy field `tag` of type `Arc<Res>` but
-does not implement ImplicitCopy``), so `Arc` in the tier list above means Arc
+Copy type is NOT one of them — an `Arc<T>` field triggers the ordinary
+containment error (``contains Copy field `tag` of type `Arc<Res>` but
+does not implement Copy``), so `Arc` in the tier list above means Arc
 ITSELF, not a struct holding one.
 Declaring the STRICTER `NoCopy` on such a type is legal and is the
 API-discipline escape hatch — `extension Ticket: NoCopy {}` makes a type that
@@ -239,7 +249,7 @@ extension Reel: NoCopy {}
 extension Bag: ExplicitCopy {}   // payload-deep copy() over the ACTIVE variant
 ```
 **A HAND-WRITTEN `copy()` IS THE RETAIN HOOK, AND MUST BE `sync`** (design 219).
-A `copy()` body inside an ImplicitCopy/ExplicitCopy conformance is called at
+A `copy()` body inside a Copy/ExplicitCopy conformance is called at
 transfer sites no source construct names, so a suspending one is refused AT the
 conformance ("a copy-policy `copy()` runs at compiler-inserted call sites and
 must be `sync`"). You need not write `sync` — a body that never suspends
@@ -342,7 +352,7 @@ var u = w.copy()       // explicit duplicate
   whole-referent REPLACEMENT `x = v` (design 110 — uniform across functions,
   `&var self` methods via `self = v`, and closures; matches Swift `inout`).
   `x = v` is legal exactly when `v` type-checks as `var x: T = v`: the RHS takes
-  the ordinary transfer checkpoint (fresh temp needs nothing, ImplicitCopy copies,
+  the ordinary transfer checkpoint (fresh temp needs nothing, Copy copies,
   ExplicitCopy/NoCopy need `move v`/`.copy()` — the `move` consumes the CALLEE's
   local); the old referent deinits once and the new value installs, caller's
   binding stays valid. STILL banned: `x = v` through an immutable `&T`
@@ -477,7 +487,7 @@ var u = w.copy()       // explicit duplicate
   promise the window keeps). `lend` may not be in a LOOP, so a body that has to
   SEARCH splits in two: a plain function finds the index, the accessor lends it
   (`libs/toml`'s `_section_index` beside `section`). VALUE READS out of a place
-  follow design 131's table: retain for ImplicitCopy, clean error for
+  follow design 131's table: retain for Copy, clean error for
   ExplicitCopy/NoCopy naming `with_ref` / `swap_out`.
   **An arm of a borrowing `match` may LEND ITS PAYLOAD BINDING** (design 146,
   DF-146d) — how a slot-enum container gets an accessor at all:
@@ -553,7 +563,7 @@ var scratch: [Int8; 256] = [0; 256] // REPEAT literal: N copies of one value
   below); the value expression runs EXACTLY ONCE and is copied
   into every slot. `[0; 4096]` lowers to one zeroinitializer store (a memset);
   anything else splat-loops. Elements must copy for FREE — trivial or
-  ImplicitCopy — since there is nowhere to write the `.copy()` an ExplicitCopy
+  Copy — since there is nowhere to write the `.copy()` an ExplicitCopy
   value needs (`[v; 3]` on a `Vector<Int>` is a clean error naming the policy),
   and a generic `[t; N]` is refused for the same reason (no bound yet says
   "copies for free"). Statics take one: `static BUF: [Int8; 4096] = [0; 4096]`
@@ -605,7 +615,7 @@ var scratch: [Int8; 256] = [0; 256] // REPEAT literal: N copies of one value
   rejects all of them exactly as `let h` rejects `h.v.push(x)`. Exclusivity
   is by PATH like a field's: `f(&var t.0, &t.1)` is two disjoint elements and
   compiles, `f(&var t.0, &t.0)` is the violation. A value READ follows the
-  copy tier (`let e = t.0` retains an ImplicitCopy element, errors on an
+  copy tier (`let e = t.0` retains a Copy element, errors on an
   ExplicitCopy/NoCopy one). Until this landed every write through a tuple
   element was a SILENT NO-OP, so treat one as fine now and suspect in older
   builds.
@@ -648,7 +658,7 @@ if let (a, b) = optPair { }          // tuple over Optional tuple
   use-after-move error, exactly like a second `move s`. Matching
   through a `&`/`&var` binding or a place stays a borrow (no consume);
   keep an ExplicitCopy value with `match s.copy()`.
-  An **ImplicitCopy-tier enum is a BORROW instead**: each binding takes a retain
+  A **Copy-tier enum is a BORROW instead**: each binding takes a retain
   of the payload and releases it at the arm's end, the scrutinee keeps its own
   reference and drops at ITS scope end, and matching one twice is fine. So an
   `Arc` payload's `strong_count()` reads one HIGHER inside the arm than outside
@@ -759,7 +769,7 @@ if err.is<IoErr>() { if let io = err.take<IoErr>() { retry(io) } }  // downcast
   payload's copy tier decides the read — same table as everywhere else. BORROW
   (`o!.m()`, `&o!`, `o!.field`, a `?.` hop) is always free. A VALUE READ
   (`let a = o!`, a by-value arg, a return, an operand) is bitwise for trivial,
-  a RETAIN for ImplicitCopy (the optional keeps its own reference — so
+  a RETAIN for Copy (the optional keeps its own reference — so
   `var o: String? = "v"; let a = o!; o = None; print(a)` prints `v`), and a
   clean ERROR for ExplicitCopy/NoCopy naming the consuming spellings. `a ?? b`
   yields an owned value, so both arms follow the value-read row. Two consuming
@@ -849,7 +859,7 @@ if err.is<IoErr>() { if let io = err.take<IoErr>() { retry(io) } }  // downcast
   which renders through a synthesized `to_string()` — `print("{}", p)` streams
   the same bytes into stack scratch. Everything the SOURCE names is untouched:
   `Vector.push`, a collection literal, `Box.make`, `spawn` (env included), a
-  written `Box<any Error>` and its erased-error auto-wrap, an ImplicitCopy
+  written `Box<any Error>` and its erased-error auto-wrap, a Copy
   transfer. Orthogonal to `--freestanding` (a slab-backed kernel may want real
   `String`s) and combines with it — the SOS kernel gate builds under both. Full
   site-by-site table: LANGUAGE_SPEC "No hidden allocations".
@@ -949,7 +959,7 @@ v.map<String>({ $0.to_string() })   // the closure's return; explicit still wins
   explicit instantiation if needed.
 - **`@synthesize` (design 128) — a WRITTEN empty conformance derives its body
   only under the marker**; a bare one is a compile error. Applies to
-  ImplicitCopy/ExplicitCopy (`copy`), Equatable (`equals`), Comparable
+  Copy/ExplicitCopy (`copy`), Equatable (`equals`), Comparable
   (`compare`), Hashable (`hash`), structs and enums alike:
   ```saw
   @synthesize
@@ -991,7 +1001,7 @@ v.map<String>({ $0.to_string() })   // the closure's return; explicit still wins
   struct fields, enum payloads and tuple elements alike. TWO shapes are NOT yet
   covered and still corrupt silently: the operators inside a GENERIC body under
   a `T: Equatable`/`T: Comparable` bound instantiated at such a type (the body
-  is checked once with `T` abstract), and an ImplicitCopy operand — the operator
+  is checked once with `T` abstract), and a Copy operand — the operator
   adds no retain at any tier, so a consuming `equals` on a `struct Held { name:
   String }` over-releases and 200 comparisons SIGTRAP. **THE RULE THAT KEEPS YOU
   OUT OF ALL OF IT: a comparison body READS `other`, never `move`s it.** A
@@ -2202,7 +2212,7 @@ construct in the owner and lend `&driver` down.
   enum. Import-scoped lookup and the orphan rule apply unchanged. The ONE
   difference: no `init` — the cases are the constructors, and writing one is a
   clean error naming a static method as the way to compute which case to build.
-- An escaping closure (bound/returned/stored/`spawn`) is **ImplicitCopy**
+- An escaping closure (bound/returned/stored/`spawn`) is **Copy**
   over a refcounted heap env (like String/Arc): `let g = f` is a free
   refcount bump (both valid), and the captures are torn down exactly once
   when the last owner drops. Copying a struct/`Vector` that holds a
@@ -2296,7 +2306,7 @@ construct in the owner and lend `&driver` down.
   Reach the element THROUGH it: `v[i].count += 1`, `v[i] = fresh`
   (whole-element write, old element deinits once), `v[i].method()`,
   `f(&var v[i])`. Taking it OUT as a value (`let e = v[i]`) follows the copy
-  tier: bitwise for trivial, RETAIN for ImplicitCopy, clean ERROR for
+  tier: bitwise for trivial, RETAIN for Copy, clean ERROR for
   ExplicitCopy/NoCopy. Both `v[i]` and `d[i]` PANIC out of range.
   **`Vector.get(i)` is the `None`-returning twin** — a conditional lend, the
   same lowering: `if let e = v.get(i)` is a value read (so the copy tier

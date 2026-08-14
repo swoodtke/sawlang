@@ -884,22 +884,28 @@ wherever an import bound the qualifier.
 
 Saw provides deterministic memory management without garbage collection:
 
-- **The Copy trait family**: trivial types copy bitwise. `ImplicitCopy` types
-  (like `String`, `Arc` and `Data`) copy cheaply on every transfer as a refcount
-  bump.
-  `ExplicitCopy` types (like `Vector`) never copy implicitly: you `move` to
-  transfer them or `.copy()` to duplicate. `NoCopy` types (like `File`, `Mutex`,
-  and for now `Map`/`Set`) can only be moved. A struct that owns such a field
+- **Three words carry transfer semantics.** `Copy` is the tier the compiler may
+  duplicate with nothing written at the site: trivial types (copied bitwise) and
+  the refcounted ones (`String`, `Arc`, `Data` — a cheap bump) are one tier, and
+  which of the two a value uses is a code-generation detail. `NoCopy` types
+  (like `File`, `Mutex`, and for now `Map`/`Set`) can only be moved.
+  `ExplicitCopy` names the wider family that can be duplicated at all, possibly
+  at the cost of a spelled `.copy()` — every `Copy` type satisfies it, and a type
+  declaring it alone (like `Vector`) never copies implicitly.
+  A struct that owns such a field
   picks its own policy — `extension Holder: NoCopy {}` for move-only, or
   `@synthesize extension Holder: ExplicitCopy {}` for a memberwise deep copy.
   That is the one thing the compiler will not guess for you. An enum carrying
   such a payload picks a policy the same way, and its derived `copy()` is
-  payload-deep over the active variant. Writing the `copy()` body yourself is
+  payload-deep over the active variant. Writing a `copy()` body inside a `Copy`
+  conformance is
   how `Arc` is built, in ordinary Saw: the compiler calls it at transfer sites
   nothing in the source names, so it must not suspend, and a suspending one is
-  refused at the conformance rather than at an invisible call.
-- **A type whose owning members are all trivial or `ImplicitCopy` is
-  `ImplicitCopy` itself**, with no declaration written and none required. So
+  refused at the conformance rather than at an invisible call. That same
+  invisibility makes a heavy body a performance footgun — cheap and infallible
+  is the expected shape.
+- **A type whose owning members are all trivial or `Copy` is
+  `Copy` itself**, with no declaration written and none required. So
   `struct Ticket { code: String }` compiles bare, and `let b = a` is a refcount
   bump that leaves both bindings live. Declaring the stricter `NoCopy` on such a
   type is legal, and is how you make something move-only that could have been
@@ -937,7 +943,7 @@ Saw provides deterministic memory management without garbage collection:
 - **Reading a payload out of an optional obeys the same table.** `o!`, the left
   operand of `??`, and an `if let` binding all name storage the optional still
   owns, so the payload's tier decides what the read costs. Borrowing in place
-  (`o!.len()`) is free; a value read retains an `ImplicitCopy` payload and is
+  (`o!.len()`) is free; a value read retains a `Copy` payload and is
   refused for `ExplicitCopy`/`NoCopy`. The consuming reads are `move o!`, which
   retires the whole binding, and `o.take()`, which writes `None` back into the
   place and hands you the payload — including out of a struct field.

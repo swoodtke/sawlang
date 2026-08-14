@@ -81,7 +81,7 @@ Resource management: cleanup, deinit, and copy behavior.
 | `_get_cleanup_behavior(saw_type)` | Returns "deinit", "implicit_copy", "no_copy", or "none". `ExplicitCopy` types map to "deinit" (they have a deinit and are never implicitly copied — the typechecker enforces `move`/`.copy()`). |
 | `_needs_cleanup(saw_type)` | Check if type needs cleanup on scope exit |
 | `_generate_deinit_call(var_name, var_type)` | Generate call to deinit method |
-| `_generate_copy(value, saw_type)` | Generate a call to `copy()` (for `ImplicitCopy` at transfer sites, and for explicit `.copy()` on `ImplicitCopy`/`ExplicitCopy` types) |
+| `_generate_copy(value, saw_type)` | Generate a call to `copy()` (for `Copy` at transfer sites, and for explicit `.copy()` on `Copy`/`ExplicitCopy` types) |
 | `_cleanup_scope(scope_vars)` | Clean up variables in a scope |
 | `_cleanup_all_scopes()` | Clean up all scopes (for return statements) |
 | `_needs_copy_for_struct_init(expr, field_type)` | Check if field needs copying |

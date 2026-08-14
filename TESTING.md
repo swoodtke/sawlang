@@ -456,9 +456,9 @@ Four axes cross into the combo space:
   RHS, three closure captures including one naming `self`, both place writes,
   `swap_out`, `Optional.take`.
 - **5 copy TIERS**, of which two WITNESS their own destruction: `nocopy`
-  (`Res`, a hand-written deinit) and `tag` (a declared ImplicitCopy struct over
+  (`Res`, a hand-written deinit) and `tag` (a declared Copy struct over
   an `Arc<Res>` — a copy RETAINS, so the payload still dies exactly once, which
-  is what makes an ImplicitCopy over-release visible at all). `trivial`,
+  is what makes a Copy over-release visible at all). `trivial`,
   `implicit` and `explicit` carry the parity checks only.
 - **4 SUSPEND PLACEMENTS** — before the binding, after it, between bind and
   use, and inside the initializer itself.

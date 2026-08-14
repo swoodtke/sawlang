@@ -61,7 +61,7 @@ reference material states facts.
 | suspending / sync function | async/await, coroutine-colored |
 | task (cooperative unit), thread (OS unit) | goroutine, fiber, green thread |
 | driven / spawned (how a frame executes) | scheduled, awaited |
-| move, implicit copy, `.copy()`; the tiers: trivial, ImplicitCopy, ExplicitCopy, NoCopy | clone, deep copy (unless literally `_deep_copy`) |
+| move, implicit copy, `.copy()`; the three words: `Copy` (the silent tier), `NoCopy`, `ExplicitCopy` | clone, deep copy (unless literally `_deep_copy`); ImplicitCopy (retired) |
 | deterministic destruction, `Deinit`, "deinits" | destructor, RAII (except when comparing to C++), finalizer |
 | reference `&T` / `&var T` (parameter-only) | borrow checker (Rust's term; Saw: "exclusivity"), pointer (reserve for Unsafe*) |
 | Law of Exclusivity | aliasing rules |

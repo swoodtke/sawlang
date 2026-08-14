@@ -710,7 +710,7 @@ division libcalls (`__divdi3`) on a 32-bit chip. Consequently:
 `String` is an **immutable, reference-counted byte string**. A `String` value is
 a single pointer; copying one (binding it, passing it, storing it) is a cheap
 refcount bump, and the buffer is freed deterministically when the last owner
-goes away. Because it is `ImplicitCopy + Deinit`, strings flow through the
+goes away. Because it is `Copy + Deinit`, strings flow through the
 language with no `move` discipline — `greet(s)` does not consume `s`.
 
 - **Representation.** One heap block `{ refcount, len, bytes…, NUL }`; the value
@@ -816,7 +816,7 @@ language with no `move` discipline — `greet(s)` does not consume `s`.
 `Data` is a **copy-on-write byte buffer**: a window (an offset and a length)
 onto storage an `Arc` owns. Copying a `Data` retains that storage rather than
 duplicating it, and the bytes separate at the first write that finds them
-shared. It is `ImplicitCopy`, so byte buffers flow through the language with no
+shared. It is `Copy`, so byte buffers flow through the language with no
 `move` discipline, and a copy costs a refcount bump. It lives in `std.data` and
 needs an import.
 
@@ -846,7 +846,7 @@ shared until written.
   storage and narrows the window; `None` means the bounds were invalid. The
   slice is an independent value, so writing either it or its source separates
   the bytes first.
-- **`copy()` is lazy; `detached()` is eager.** `copy()` is the `ImplicitCopy`
+- **`copy()` is lazy; `detached()` is eager.** `copy()` is the `Copy`
   retain and cannot fail. `detached()` materializes the bytes into a buffer
   sized to `len()`, which is what to reach for when a small slice would
   otherwise keep a large buffer alive; it panics if the allocator refuses, and
@@ -996,7 +996,7 @@ pair.x.push(2)                      // the named spelling reaches the same slot
 // apart; a tuple index is static.)
 //
 // A value READ out of an element follows the copy tier, like any other place:
-// `let e = t.0` is bitwise for a trivial element, a retain for ImplicitCopy, and
+// `let e = t.0` is bitwise for a trivial element, a retain for Copy, and
 // a clean error for ExplicitCopy/NoCopy naming `move`/`.copy()`.
 
 // An ANNOTATED tuple literal is checked against the declared element types, so
@@ -1009,7 +1009,7 @@ let narrow: (Int8, Int) = (5, 1)    // `5` adopts Int8, range-checked here
 
 // Tuple destructuring (design 63 — implemented). Irrefutable only: bindings,
 // per-position `_` discard, and nested tuples. The whole source is consumed
-// (owning components move out; a bare ImplicitCopy/POD source is copied).
+// (owning components move out; a bare Copy/POD source is copied).
 let (a, b) = point            // a = 10, b = 20
 var (mx, my) = (1, 2)         // mutable bindings
 let (first, _) = point        // discard the second component
@@ -1052,7 +1052,7 @@ var half: [UInt8; REGION_SIZE / 2] = [0; REGION_SIZE / 2]
 
 // An all-zero repeat lowers to a single zeroinitializer store; other values
 // lower to a splat loop. Elements must copy for free — trivially copyable or
-// ImplicitCopy — because a repeat makes N copies and there is nowhere to write
+// Copy — because a repeat makes N copies and there is nowhere to write
 // the `.copy()` an ExplicitCopy value needs:
 //
 //   let rows = [v; 3]   // v: Vector<Int>
@@ -1224,7 +1224,7 @@ binding that held the enum is moved-from afterward. A later use, including a
 second `match`, is a use-after-move error, the same error a second `move s`
 gives. Matching through a `&`/`&var` parameter or a place borrows instead and
 consumes nothing; to keep an ExplicitCopy value past the match, write
-`match s.copy()`. Enums whose payloads are trivial or ImplicitCopy are not
+`match s.copy()`. Enums whose payloads are trivial or Copy are not
 consumed.
 
 ```saw
@@ -1242,7 +1242,7 @@ match s {
 match s { ... }   // error: use of moved variable `s`
 ```
 
-An ImplicitCopy-tier enum is matched as a borrow instead. Each binding takes a
+A Copy-tier enum is matched as a borrow instead. Each binding takes a
 retain of the payload and releases it when the arm ends; the scrutinee keeps
 its own reference and drops at the end of its own scope. Matching one twice is
 allowed, and reading `strong_count()` inside an arm shows both owners.
@@ -1252,7 +1252,7 @@ enum Holder {
     case Full(a: Arc<Res>),
     case Nothing
 }
-@synthesize extension Holder: ImplicitCopy {}
+@synthesize extension Holder: Copy {}
 
 let h = Holder.Full(a: Arc<Res>(value: Res(id: 9)))
 match h { case Full(a) -> first(a), case Nothing -> () }
@@ -1540,7 +1540,7 @@ still owns, so the read is governed by the payload's entry in
 [the Copy trait family](#the-copy-trait-family) table, with no exemption for any
 extraction form:
 
-| Use of the place | trivial | ImplicitCopy | ExplicitCopy | NoCopy |
+| Use of the place | trivial | Copy | ExplicitCopy | NoCopy |
 |---|---|---|---|---|
 | Borrow in place (`o!.m()`, `&o!`, `o!.field`, a `?.` hop) | ok | ok | ok | ok |
 | Value read (`let a = o!`, by-value argument, return, operand) | bitwise | retain | error | error |
@@ -1549,7 +1549,7 @@ extraction form:
 | `o.take()` | ok | ok | ok | ok |
 
 A borrow reads the payload where it sits and costs nothing. A value read makes a
-second owner, so an `ImplicitCopy` payload is retained at the extraction and the
+second owner, so a `Copy` payload is retained at the extraction and the
 optional keeps its own reference:
 
 ```saw
@@ -1695,9 +1695,9 @@ trait Iterator {
 }
 
 // Interface inheritance (supertraits)
-trait ImplicitCopy: Deinit {
+trait ExplicitCopy: Deinit {
     func copy(&self) -> Self
-    // ImplicitCopy implies Deinit; the deinit itself is synthesized
+    // ExplicitCopy implies Deinit; the deinit itself is synthesized
 }
 ```
 
@@ -2253,47 +2253,56 @@ destruction is deterministic and LIFO at scope exit.
 
 ### The Copy Trait Family
 
-**Status: implemented.** Saw's transfer semantics are governed by one umbrella
-trait, `Copy`, with two mutually-exclusive policy subtraits deciding *when* the
-compiler may duplicate a value. This replaces the earlier "copy by default,
-explicit move" framing and the never-implemented "deep copy for collections"
-claim: the cost of every transfer is now readable at the use site.
+**Status: implemented.** Three words carry Saw's transfer semantics, one job
+each. `Copy` is the tier of values the compiler may duplicate silently.
+`NoCopy` is the opt-out that makes a type move-only. `ExplicitCopy` is an
+ordinary trait naming the wider family of values that can be duplicated at all,
+possibly at the cost of a spelled `.copy()`. This replaces the earlier "copy by
+default, explicit move" framing and the never-implemented "deep copy for
+collections" claim: the cost of every transfer is readable at the use site.
 
-```
-                Copy                 "this type can be duplicated" (func copy(&self) -> Self)
-               /    \
-     ImplicitCopy    ExplicitCopy    policy: WHEN the compiler may call copy()
-```
-
-- **Trivial types auto-conform to `Copy`.** A type all of whose fields are
-  trivially copyable, with no `Deinit` and no declared copy policy, is copied
-  bitwise. `Int`, `Bool`, `Float`, POD structs/tuples, and fixed arrays of such
-  are in this class. `x.copy()` on them compiles to a bitwise copy.
-- **`ImplicitCopy`** — the compiler invokes `copy()` automatically at every
-  transfer site (binding, assignment, argument, return, aggregate element).
-  **Contract: cheap, O(1)-ish** — e.g. a refcount bump. `String`, `Arc` and
-  `Data` are `ImplicitCopy`. `Data`'s copy is a retain of shared storage; the
-  bytes separate at the first write that finds them shared, so the copy stays
-  O(1) without giving up value semantics (see [Data](#data)).
-- **`ExplicitCopy`** — the compiler *never* copies implicitly; a transfer out of
-  an existing binding requires `move`, and duplication is always a visible
-  `v.copy()`. **Contract: may be expensive/deep** — e.g. `Vector` (whose
-  conformance is bounded `T: Copy`).
-  Enforcement is the value-transfer checkpoint (the same machinery that backs
-  `NoCopy`).
+- **`Copy` is DERIVED, not declared.** A type whose owning members are all
+  `Copy` is `Copy`, with no declaration written and none asked for. That covers
+  the trivially-copyable (POD) types — `Int`, `Bool`, `Float`, POD
+  structs/tuples, fixed arrays of such — and the refcounted ones: `String`,
+  `Arc` and `Data` are `Copy`, and so is `struct Ticket { code: String }`.
+  Whether a given type duplicates bitwise or by retaining a refcount is an
+  emission detail, and no rule above code generation distinguishes the two.
+  `Data`'s copy is a retain of shared storage; the bytes separate at the first
+  write that finds them shared, so the copy stays O(1) without giving up value
+  semantics (see [Data](#data)).
+- **A DECLARED `Copy` conformance has two forms.** The empty one is an
+  assertion — `@synthesize extension Point: Copy {}` compiles only while the
+  members qualify, which makes it a type-level API contract. The one with a
+  `copy()` body is the retain hook: the compiler calls that body at every silent
+  transfer. `Arc` and `Channel` are built on it, in ordinary Saw rather than
+  compiler magic, which is what lets you write your own `Arc`-alike.
+- **The retain hook is a performance footgun, and stating that is the whole
+  contract.** The body runs at transfer sites no source construct names, so a
+  heavy one costs on every silent copy. Cheap and infallible is the expected
+  shape. The compiler enforces one part of it, `sync` (below); the rest is the
+  author's documented choice.
 - **`NoCopy`** — never duplicable, on purpose (`File`, `Mutex`, `Box`,
   `SpinLock`, `Once`, [`Atomic`](#atomicint) — a copy of any of those is a
   second, independent piece of state; currently also `Map`/`Set`, whose
-  `ExplicitCopy` conformance is future work). Move-only.
-- **Every declared policy trait extends `Deinit`**: `ImplicitCopy`,
-  `ExplicitCopy`, and `NoCopy` are declared as `trait ImplicitCopy: Deinit` etc.
-  in the builtin prelude. A type opts into a policy because it manages a
-  resource, and managing a resource means having a destructor, so the
-  trivially-copyable tier is exactly the destructor-free tier. The `deinit`
-  itself is synthesized (see [Synthesized destruction](#synthesized-destruction));
-  declaring the policy is all you write.
+  `ExplicitCopy` conformance is future work). Move-only, and it is the
+  declaration that overrides what the members would have derived.
+- **`ExplicitCopy`** — the trait that says a duplicate exists and is spelled.
+  Every `Copy` type satisfies it, since duplicating one for free is a valid way
+  to answer `copy()`, so `<T: ExplicitCopy>` reads as "duplicable, possibly with
+  ceremony" and is the bound that licenses a spelled `.copy()` on an abstract
+  `T`. A type declaring it and nothing else is move-only: every transfer needs
+  `move`, every duplicate a visible `.copy()`. **Contract: may be
+  expensive/deep** — e.g. `Vector` (whose conformance is bounded `T: Copy`).
+  `@synthesize extension T: ExplicitCopy {}` derives the memberwise body.
+- **`NoCopy` and `ExplicitCopy` extend `Deinit`**: they are declared as
+  `trait NoCopy: Deinit` and `trait ExplicitCopy: Deinit` in the builtin
+  prelude. A type opts into one because it manages a resource, and managing a
+  resource means having a destructor. The `deinit` itself is synthesized (see
+  [Synthesized destruction](#synthesized-destruction)); declaring the policy is
+  all you write.
 - **`Deinit` is not declarable on its own.** `extension T: Deinit {...}` is a
-  compile error naming the three policies. A type that declared only `Deinit`
+  compile error naming the copy policies. A type that declared only `Deinit`
   had a destructor and no transfer rule, so `let s = r` fell through every arm
   of the checkpoint and both halves ran `deinit`. A hand-written `deinit` body
   goes inside the policy conformance, where the requirement is inherited:
@@ -2306,8 +2315,13 @@ claim: the cost of every transfer is now readable at the use site.
 
   `T: Deinit` remains legal as a generic bound; only the conformance form is
   gone.
-- **`ImplicitCopy` and `ExplicitCopy` are mutually exclusive** on one type.
-- **A hand-written `copy()` must be `sync`** (design 219). The `copy()` body
+- **Declaring both `Copy` and `ExplicitCopy` is legal.** It used to be a
+  compile error, back when the two words named two tiers and a type on two
+  tiers had no answer to "what does a transfer cost". They name different
+  things now, so the second declaration is redundant rather than
+  contradictory: `Copy` says what a transfer costs, `ExplicitCopy` says only
+  that a duplicate exists, which is true of every `Copy` type anyway.
+- **A hand-written `copy()` must be `sync`.** The `copy()` body
   inside a copy-policy conformance is the retain hook: the compiler calls it at
   transfer sites the source never spells, so a suspension inside it would
   suspend a function that declared itself `sync` with nothing on the page to
@@ -2315,7 +2329,7 @@ claim: the cost of every transfer is now readable at the use site.
   author can act on it:
 
   ```
-  error: cannot suspend in the `ImplicitCopy` `copy()` of `Heavy`: method
+  error: cannot suspend in the `Copy` `copy()` of `Heavy`: method
          `Heavy.copy` calls yield_now (`Heavy.copy` suspends at line 8)
   hint: a copy-policy `copy()` runs at compiler-inserted call sites and must be
         `sync` ...
@@ -2337,18 +2351,21 @@ var v = Vector<Int>(capacity: 4)
 var w = move v            // ownership transferred; v no longer valid
 var u = w.copy()          // explicit, independent deep copy
 
-// ImplicitCopy (String): copies are implicit refcount bumps, no `move` needed
+// Copy (String): copies are implicit refcount bumps, no `move` needed
 let s1 = "hello"
 let s2 = s1               // both valid; cheap retain
 ```
 
-**The `T: Copy` generic bound** grants `.copy()` in a generic body and is
-satisfied by trivial | `ImplicitCopy` | `ExplicitCopy` types; monomorphization
-synthesizes the right tier per instantiation. Narrower `T: ImplicitCopy` /
-`T: ExplicitCopy` bounds also work. An unbounded `T` does **not** get `.copy()`.
+**The two bounds ask different questions.** `T: Copy` admits exactly the
+silently-copyable tier: a body under it may duplicate the value with nothing
+written at the site. `T: ExplicitCopy` admits the whole duplicable family, so
+it grants `.copy()` and nothing more — an `ExplicitCopy` argument does not
+satisfy `T: Copy`, because a body that copies it silently would be spending a
+deep copy the caller cannot see. Monomorphization emits the right operation per
+instantiation. An unbounded `T` gets neither.
 
 ```saw
-func dup<T: Copy>(x: T) -> T {
+func dup<T: ExplicitCopy>(x: &T) -> T {
     x.copy()
 }
 ```
@@ -2364,7 +2381,7 @@ instantiation. Where the read is legal, the copy is emitted at the
 instantiation, alongside the matching drop, so the concrete tier decides which
 copy it is.
 
-**Derivation & containment.** A struct declaring `ExplicitCopy`/`ImplicitCopy`
+**Derivation & containment.** A struct declaring `ExplicitCopy`/`Copy`
 can have its `copy()` derived memberwise (POD fields bitwise, copy-policy fields
 via their own `copy()`), but the derivation is opt-in: mark the extension
 `@synthesize`, or write `copy()` by hand. See
@@ -2387,8 +2404,8 @@ compiler errors with a hint otherwise. Containment looks *through* array- and
 optional-typed fields: a struct holding a `[NoCopy; N]` or a `File?` field is
 move-only and must declare `NoCopy`, exactly as for a scalar `NoCopy` field.
 
-**The automatic `ImplicitCopy` tier.** A struct or enum whose owning members are
-all trivial or `ImplicitCopy` *is* `ImplicitCopy`, with no declaration written
+**The automatic `Copy` tier.** A struct or enum whose owning members are
+all trivial or `Copy` *is* `Copy`, with no declaration written
 and none required. Copying such a value retains each refcounted member, and the
 last owner's drop releases each one exactly once.
 
@@ -2406,12 +2423,12 @@ func main() {
 The members that put a type on this tier without owing a declaration are the
 ones whose retain and release the compiler handles itself: a `String` field, an
 escaping closure field, a fixed array of either, and another struct or enum
-already on this tier. A field of a *declared* `ImplicitCopy` type is not one of
+already on this tier. A field of a *declared* `Copy` type is not one of
 them — an `Arc<T>` field makes the containment rule apply as usual:
 
 ```
-struct `Carrier` contains ImplicitCopy field `tag` of type `Arc<Res>` but does
-not implement ImplicitCopy
+struct `Carrier` contains Copy field `tag` of type `Arc<Res>` but does
+not implement Copy
 ```
 
 Declaring the stricter `NoCopy` on a type that would be on this tier is legal,
@@ -2437,7 +2454,7 @@ the compiler does not ask for one.
 
 **Fixed arrays.** A fixed array `[T; N]` is treated as an anonymous struct with
 `N` uniform fields: it inherits T's copy class. `[trivial; N]` copies bitwise;
-`[ImplicitCopy; N]` copies implicitly per element (each element's `copy()`);
+`[Copy; N]` copies implicitly per element (each element's `copy()`);
 `[ExplicitCopy; N]` is move-by-default and `arr.copy()` duplicates element-by-
 element in index order; `[NoCopy; N]` is move-only. Owned elements are released
 in **reverse index order** at scope death, composing with the enclosing struct/
@@ -2488,7 +2505,7 @@ a.push(3)               // t.0 still holds 2 elements
 **Enums declare a policy too.** An enum carrying an `ExplicitCopy` or `NoCopy`
 payload names its transfer class the way a struct with such a field does, and a
 bare one is the same error with the same hints. An enum whose payloads are only
-trivial or `ImplicitCopy` needs no declaration, exactly as a `String`-field
+trivial or `Copy` needs no declaration, exactly as a `String`-field
 struct needs none.
 
 ```saw
@@ -2546,7 +2563,7 @@ let borrowed = file    // Error! Cannot copy NoCopy type 'FileHandle'
 let owned = move file  // Ok, ownership transferred
 ```
 
-See [Resource Management Interfaces](#resource-management-traits) for the full `Deinit`/`ImplicitCopy`/`ExplicitCopy`/`NoCopy` hierarchy.
+See [Resource Management Interfaces](#resource-management-traits) for the full `Deinit`/`Copy`/`ExplicitCopy`/`NoCopy` hierarchy.
 
 ### Reference Types
 
@@ -2593,7 +2610,7 @@ process(original)  // original is copied, unchanged
   function/method reference parameter — and `self = v` in a `&var self` method —
   *replaces* the referent in place. It is legal exactly when `v` would type-check
   against `var x: T = v`: the RHS goes through the ordinary value-transfer
-  checkpoint (a fresh temporary needs nothing; an `ImplicitCopy` binding copies
+  checkpoint (a fresh temporary needs nothing; a `Copy` binding copies
   implicitly; an `ExplicitCopy`/`NoCopy` binding needs `move v` / `.copy()`, and
   the `move` consumes the *callee's* local). The old referent value deinits
   exactly once, then the new value installs; the caller's binding is never
@@ -3251,12 +3268,12 @@ value, returning it, using it as an operand. That is governed by the element's
 entry in [the Copy trait family](#the-copy-trait-family) table, exactly as an
 optional payload is ([Payload reads](#payload-reads-the-place-rule)):
 
-| Use of the place | trivial | ImplicitCopy | ExplicitCopy | NoCopy |
+| Use of the place | trivial | Copy | ExplicitCopy | NoCopy |
 |---|---|---|---|---|
 | Borrow (`v[i].m()`, `&v[i]`, `v[i].field`) | ok | ok | ok | ok |
 | Value read (`let e = v[i]`, by-value argument, return) | bitwise | retain | error | error |
 
-An `ImplicitCopy` element is retained at the read, so the container keeps its own
+A `Copy` element is retained at the read, so the container keeps its own
 reference and both are destroyed once. An `ExplicitCopy` or `NoCopy` element is
 never duplicated implicitly, and the error names the ways out — `with_ref` to
 borrow it in place, `swap_out` to move it out.
@@ -3487,7 +3504,7 @@ walking past a live entry touches no refcount.
 **Status: implemented.** `Arc<T>` (atomic reference counting) and
 `Box<T, A>` (owned heap allocation) are in the stdlib. Saw is **Arc-only** —
 there is no single-threaded `Rc<T>` (decided in design 16): the atomic refcount
-is the one shared-ownership primitive. `Arc` is `ImplicitCopy + Deinit`
+is the one shared-ownership primitive. `Arc` is `Copy + Deinit`
 (retain on copy, release on drop; the last owner runs the payload's `deinit`
 exactly once), built on the same machinery as `String`.
 
@@ -3570,10 +3587,10 @@ custom copy behavior or cleanup when going out of scope. This enables reference
 counting (like `String` and `Arc<T>`), deep-copy owning types (like
 `Vector`), RAII patterns (like file handles), and move-only types. Conformance
 is always declared through an `extension` (`extension T: Trait`); there is no
-struct-header conformance syntax. The full family is `Copy`
-(umbrella) → `ImplicitCopy` / `ExplicitCopy` policies, plus `Deinit` and
-`NoCopy`; see [The Copy Trait Family](#the-copy-trait-family) above for the
-transfer-site rules.
+struct-header conformance syntax. The family is `Copy` (the silent tier),
+`NoCopy` (the move-only opt-out) and `ExplicitCopy` (the duplicable family),
+over `Deinit`; see [The Copy Trait Family](#the-copy-trait-family) above for
+the transfer-site rules.
 
 #### The Deinit Interface
 
@@ -3590,32 +3607,33 @@ You rarely write the body. Any struct or enum that owns something gets a
 memberwise `deinit` synthesized from its fields, so a hand-written one is for
 raw resources only; see [Synthesized destruction](#synthesized-destruction).
 
-`Deinit` is never conformed to directly. It is the base every copy policy
-inherits, so a hand-written body goes inside `NoCopy`, `ExplicitCopy`, or
-`ImplicitCopy` — see [The Copy trait family](#the-copy-trait-family). As a
-generic bound (`T: Deinit`) it works like any other trait.
+`Deinit` is never conformed to directly. A hand-written body goes inside the
+type's copy policy — `NoCopy`, `ExplicitCopy`, or `Copy` — see
+[The Copy trait family](#the-copy-trait-family). As a generic bound
+(`T: Deinit`) it works like any other trait.
 
 **Important:** Manual `deinit()` calls are not allowed. Calling `obj.deinit()` is a compile-time error to prevent double-free and use-after-free bugs. For early cleanup, use a nested scope or `move` the value to a consuming function.
 
-#### The ImplicitCopy Interface
+#### The Copy Interface
 
 ```saw
-// Interface inheritance: ImplicitCopy requires Deinit
-trait ImplicitCopy: Deinit {
+trait Copy {
     func copy(&self) -> Self
 }
 ```
 
-Types implementing `ImplicitCopy` use the `copy()` method instead of memcpy at
-every transfer site (the copy is implicit and must be cheap by contract). This
-enables reference counting; the conformance is declared in the extension:
+Most `Copy` types never write this conformance: the tier is derived from the
+members. Declaring it with a `copy()` body installs the retain hook, and the
+compiler calls that body instead of a memcpy at every transfer site. The hook
+is how reference counting is written in ordinary Saw, and its cost lands at
+sites the source does not name, so it must be cheap:
 
 ```saw
 struct Arc<T> {
     ptr: *ArcInner<T>  // Points to { refcount: Int, value: T }
 }
 
-extension Arc<T>: ImplicitCopy {
+extension Arc<T>: Copy {
     func copy(&self) -> Arc<T> {
         self.ptr.refcount += 1
         Arc(ptr: self.ptr)
@@ -3640,15 +3658,15 @@ let b = a            // copy() called, refcount = 2
 #### The ExplicitCopy Interface (Deep-Copy Owning Types)
 
 ```saw
-// ExplicitCopy also requires Deinit; mutually exclusive with ImplicitCopy
+// ExplicitCopy also requires Deinit
 trait ExplicitCopy: Deinit {
     func copy(&self) -> Self
 }
 ```
 
-Types implementing `ExplicitCopy` are **never** copied implicitly — the
-compiler demands `move` at a transfer out of an existing binding, and any
-duplication is a visible `v.copy()`. This is the policy for expensive,
+A type declaring `ExplicitCopy` and nothing else is **never** copied
+implicitly — the compiler demands `move` at a transfer out of an existing
+binding, and any duplication is a visible `v.copy()`. This is the policy for expensive,
 resource-owning types such as `Vector` — today the only conforming std type
 (`Map`/`Set` remain `NoCopy` pending their `copy()`). Enforcement reuses the
 `NoCopy` value-transfer checkpoint, with its own diagnostic:
@@ -3766,7 +3784,7 @@ no projection machinery, and no blessing for self-referential values.
 | Kind | Transfer (`let b = a`) | `.copy()` | Cleanup |
 |------|------------------------|-----------|---------|
 | trivial / POD (auto-`Copy`) | implicit bitwise copy | bitwise | none |
-| `ImplicitCopy` | implicit `copy()` (cheap) | yes | `deinit()` |
+| `Copy` | implicit `copy()` (cheap) | yes | `deinit()` |
 | `ExplicitCopy` | **error** — needs `move` | yes (visible) | `deinit()` |
 | `NoCopy` | **error** — needs `move` | no | `deinit()` |
 
@@ -3797,7 +3815,11 @@ extension Connection: NoCopy {}
 The containment rules are:
 - **NoCopy containment**: If any field is `NoCopy`, the struct must be `NoCopy`
 - **ExplicitCopy containment**: If any field is `ExplicitCopy`, the struct must declare `ExplicitCopy` (or `NoCopy`)
-- **ImplicitCopy containment**: If any field is `ImplicitCopy` (and none are `NoCopy`/`ExplicitCopy`), the struct must be `ImplicitCopy`
+- **Copy containment**: If any field's type *declares* `Copy` — an `Arc<T>`, a
+  user retain-hook type — and none is `NoCopy`/`ExplicitCopy`, the struct must
+  declare `Copy` too. Fields the compiler retains on its own (a `String`, a
+  closure, a fixed array of either) are exempt: they put the struct on the
+  automatic tier, which owes no declaration
 - **NoMove containment**: If any field is `NoMove`, the struct must declare
   `NoMove` (and therefore `NoCopy`)
 
@@ -3837,10 +3859,10 @@ extension Connection: NoCopy {
 There is only ever one `deinit` per type. Writing one replaces the synthesized
 body; it does not add a second pass.
 
-**In struct initialization**: When initializing a struct, `copy()` is automatically called on any `ImplicitCopy` fields that come from existing variables:
+**In struct initialization**: When initializing a struct, `copy()` is automatically called on any `Copy` fields that come from existing variables:
 
 ```saw
-extension Container: ImplicitCopy {
+extension Container: Copy {
     func copy(&self) -> Container {
         Container(data: self.data)  // Compiler calls self.data.copy()
     }
@@ -4565,7 +4587,7 @@ Two conditions must both hold for the refusal:
 
 - The operand's copy tier is **ExplicitCopy or NoCopy** — the tiers where a
   checked call site could not have passed the value without writing `move` or
-  `.copy()`. An ImplicitCopy or trivial operand is unaffected, so a hand-written
+  `.copy()`. A Copy or trivial operand is unaffected, so a hand-written
   `equals` on an ordinary value type keeps its operators.
 - The comparison **reaches a hand-written body**, directly or through the
   members, enum payloads, tuple elements, optional payloads and array elements
@@ -4604,7 +4626,7 @@ operator:
   the bound is discharged at a move-only conformer with a consuming body. A
   generic body is checked once with `T` abstract, so the operand type never
   reaches the check.
-- On an ImplicitCopy operand. The operator passes the operand without a retain,
+- On a Copy operand. The operator passes the operand without a retain,
   so a body that consumes it releases a reference the caller still holds. The
   refusal above does not cover this tier.
 
@@ -4835,7 +4857,7 @@ Vector-backed linear-scan `Map` was **retired** in design 54; there is now one
   a value through the window (`m.get(k)!.method()`) or take it out with `remove`.
 - **Keys must be copyable-with-retain** (design 65): the container probes keys BY
   COPY (hash / compare / slot inspection), so a KEY must be trivial/POD,
-  `ImplicitCopy` (String, `Arc<T>`), or `ExplicitCopy` — a **NoCopy** key, or a
+  `Copy` (String, `Arc<T>`), or `ExplicitCopy` — a **NoCopy** key, or a
   `Deinit`-only move-only key, is a clean compile error. VALUES have no such
   restriction (a NoCopy value is fine — it is moved, never probe-copied). A
   **payload-free enum is trivial/POD** and so is a legal key: it is a bare tag,
@@ -4855,7 +4877,7 @@ Vector-backed linear-scan `Map` was **retired** in design 54; there is now one
 thin wrapper over `Map<T, SetMark>` (a zero-field unit value), so there is one
 hash implementation to trust. `Set` is **NoCopy**; order is **UNSPECIFIED**
 (sort a `to_vector()` snapshot for deterministic output). Elements inherit the
-Map **key** rule: they must be copyable-with-retain (trivial/POD, `ImplicitCopy`,
+Map **key** rule: they must be copyable-with-retain (trivial/POD, `Copy`,
 or `ExplicitCopy`) — a NoCopy / move-only-Deinit element is a compile error.
 
 - Core: `insert(v) -> Bool` (true iff newly inserted), `remove(v) -> Bool`,
@@ -4875,7 +4897,7 @@ cannot borrow the map, so iteration is not an Iterator-over-a-borrow. Two forms:
   borrow discipline as `Vector.sort_by`/`withCString`:
   `each(body: (K, V) -> Void)`, `each_key((K) -> Void)`, `each_value((V) -> Void)`.
   Keys/values are handed to the closure **by value**, so a visitor works for a
-  trivial or `ImplicitCopy` key/value type. Empty/Tombstone slots are skipped. **Order is
+  trivial or `Copy` key/value type. Empty/Tombstone slots are skipped. **Order is
   UNSPECIFIED** (table/bucket order, not insertion order) — sort a `keys()`
   snapshot for deterministic output. Mutating the map inside its own visitor is a
   static Law-of-Exclusivity error (iterator invalidation caught at compile time).
@@ -4952,7 +4974,7 @@ multiple threads (design 75) — carrying the coroutine transform, suspending
   thread boundary is safe exactly when moving its contents is. Explicit
   conformance (`extension X: Send`) is rejected — derivation only, no
   unsafe-impl story in v1.
-- **`Arc<T>`** — atomic reference-counted shared ownership (`ImplicitCopy +
+- **`Arc<T>`** — atomic reference-counted shared ownership (`Copy +
   Deinit`). One control block `{ i64 strong, i64 weak, T payload }` taken from
   the `__saw_rt_alloc` seam;
   the weak count is reserved now as ABI (init 1) even though `Weak` does not ship
@@ -4970,13 +4992,13 @@ multiple threads (design 75) — carrying the coroutine transform, suspending
   (self-deadlock on re-lock). The pthread opaque buffer is a conservative
   64-byte slot (real sizes: macOS 64, glibc/x86_64 40, glibc/aarch64 48),
   initialized via `pthread_mutex_init` — never a hardcoded platform struct.
-- **Escaping-closure heap environments — `ImplicitCopy`, refcounted env**
+- **Escaping-closure heap environments — `Copy`, refcounted env**
   (design 71 + 73) — a closure used in value position (bound, returned, stored,
   or passed to `spawn`) outlives its creating frame, so its captured environment
   comes from the allocator instead of the stack. Captures are **moved in at
-  creation** (ImplicitCopy retained, trivial copied bitwise; a `move` capture
+  creation** (Copy retained, trivial copied bitwise; a `move` capture
   takes ownership); the creating frame does not release a moved-in capture early.
-  **An escaping closure is an `ImplicitCopy` value** (the family of `String` and
+  **An escaping closure is a `Copy` value** (the family of `String` and
   `Arc`): its heap env leads with an **atomic refcount word**, the closure
   representation is `{ fn_ptr, env_ptr, dtor_ptr }`, and the env is immutable and
   shared. Copying a closure — `let g = f`, a struct/`Vector`/field copy, passing
@@ -5022,7 +5044,7 @@ multiple threads (design 75) — carrying the coroutine transform, suspending
   a fixed-array element — but not an index into a heap-backed container such as
   `Vector`, whose buffer the copy shares with the original.
 - **A closure satisfies the generic `Copy` bound** (design 77 DF-C2). Because an
-  escaping closure is `ImplicitCopy`, a container element type of closures is
+  escaping closure is `Copy`, a container element type of closures is
   copyable: `Vector<() -> Int>` is `ExplicitCopy`, and `.copy()`/`.get()` each
   retain the element env exactly once (balanced deinit through copy-and-read).
 - **A `return` inside a closure returns from the CLOSURE**, and is checked
@@ -5065,7 +5087,7 @@ multiple threads (design 75) — carrying the coroutine transform, suspending
   a non-`Send` result is refused at the `spawn`. `Task<T>` is `NoCopy + Deinit`:
   `join` blocks for the result; dropping an unjoined `Task` **joins** it
   (structured concurrency — a task's lifetime is a value's lifetime).
-- **`Channel<T: Send>`** — an `ImplicitCopy` handle onto a shared, internally
+- **`Channel<T: Send>`** — a `Copy` handle onto a shared, internally
   refcounted unbounded MPMC queue (cloning the handle shares the queue; the last
   handle drains and frees it). Guarded by an internal pthread mutex + condvar
   (conservative 64-byte condvar slot; real `pthread_cond_t` is ≤48 bytes),
@@ -5578,7 +5600,7 @@ let task = spawn {
 }
 let result = task.join()         // Task<Int>: NoCopy; deinit joins if unjoined
 
-// Channels: ImplicitCopy handles onto a shared queue
+// Channels: Copy handles onto a shared queue
 let ch = Channel<Int>()          // Channel<T: Send>
 let producer = spawn {
     ch.send(move 42)
@@ -6646,7 +6668,7 @@ evaluation, macros, and compile-time reflection are planned.
 ### Generics
 
 **Status: implemented.** Generic functions, structs, and enums; `T: Trait`
-bounds (including the built-in `T: Copy` / `ImplicitCopy` / `ExplicitCopy`
+bounds (including the built-in `T: Copy` and `T: ExplicitCopy`
 bounds); generic extensions, including **bounded** extensions
 (`extension Vector<T: Copy>: ExplicitCopy { ... }`, used in the stdlib).
 
@@ -7870,7 +7892,7 @@ Five traits derive a body, each from the declaration order of the type's fields
 
 | Trait | Derived method | Body |
 |---|---|---|
-| `ImplicitCopy` / `ExplicitCopy` | `copy` | memberwise; POD fields bitwise, policy fields via their own `copy`. For an enum, payload-deep over the active variant |
+| `Copy` / `ExplicitCopy` | `copy` | memberwise; POD fields bitwise, policy fields via their own `copy`. For an enum, payload-deep over the active variant |
 | `Equatable` | `equals` | memberwise `&&`; payload-deep for enums |
 | `Comparable` | `compare` | lexicographic in declaration order |
 | `Hashable` | `hash` | streams exactly the fields `==` compares |
@@ -8189,7 +8211,7 @@ assignment to a live binding. Its exact contract:
   at `ptr + i` by a raw store. `value` is *consumed* — the same value-transfer
   checkpoint that governs `move`/`.copy()` applies at the store, so the source
   is not usable afterward (a non-`Copy` source must be `move`d in; an
-  `ImplicitCopy` source is retained by the checkpoint as usual).
+  `Copy` source is retained by the checkpoint as usual).
 - **No destination release.** Unlike `x = value` on a live binding — which first
   runs the old value's `deinit` — a placement write does **not** deinit whatever
   bytes currently occupy the slot. It assumes the slot is **uninitialized**.
@@ -8236,7 +8258,7 @@ public func pop(&var self) unsafe -> T? {
   read is refused, and the diagnostic names the spelling:
   ``this read transfers ownership — spell it `move buf[index]` ``. An
   `ExplicitCopy` element has a second answer, `ptr[i].copy()`, which duplicates
-  the element and leaves the slot occupied. A trivial or `ImplicitCopy` element
+  the element and leaves the slot occupied. A trivial or `Copy` element
   reads as a copy with no spelling, exactly as it does elsewhere.
 - **The pointer binding is untouched.** `move ptr[i]` retires no binding: the
   pointer is the place's base, not the value transferred, and it stays usable
@@ -8505,7 +8527,7 @@ The classification below covers every allocation `sawc` emits.
 | Existential box | `Box<any Shape>.make(v)` | yes | allowed |
 | Collection literal | `[a, b]`, `{k: v}`, `{a, b}` | yes: the literal names the collection | allowed |
 | `TaskGroup(threads: N)` control block | the call | yes | allowed |
-| Implicit `copy()` at a transfer | passing an `ImplicitCopy` value | yes: the type declares that policy (a refcount bump for `String`, `Arc`, a closure environment) | allowed |
+| Implicit `copy()` at a transfer | passing a `Copy` value | yes: the type declares that policy (a refcount bump for `String`, `Arc`, a closure environment) | allowed |
 | `x.to_string()` | the call | yes: it returns a `String` | allowed |
 | `&concrete` to `&any Trait` | passing to an existential reference | — | never allocates: a static vtable is attached |
 | Optional and `Result` auto-wrap | `return 42` from a `Result`-returning function | — | never allocates: an inline tagged value |
