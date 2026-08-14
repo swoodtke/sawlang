@@ -238,6 +238,15 @@ it a copy and stamped a retain while the vector released nothing. Found by
 A/B'ing the sweep's IR, FIXED by the spelling, pinned by
 `examples/vector_pop_refcount_exact.saw`.
 
+**DF-219b (found by wave B, pre-existing, unfiled until now) — a suspending
+call in a nested/expression position INSIDE A CLOSURE BODY is refused**
+(`yield_now()` directly in a `map` transform closure; the ANF hoist does not
+descend into closure literals). Confirmed pre-B1 by stash-and-reproduce.
+Workaround: a suspending helper (documented in
+`examples/vector_closure_suspending_transform.saw`). A new POSITION FAMILY
+for the design-120 matrix — the S2 sweep never probed inside closure bodies;
+joins the 120-matrix fix brief (DF-217f/g family) as its own row set.
+
 **WAVE B LANDED (Aug 13) — the tier collapse and the vocabulary, ahead of
 wave C's inference/discharge.** B1: design 216's closure rework (`&T`
 elements, no copy bound). B2: `Copy` becomes the merged silent tier and only
