@@ -72,8 +72,10 @@ Test expectations are specified via comments in the source files:
 """
 
 import os
+import re
 import sys
 import json
+import shutil
 import signal
 import subprocess
 import itertools
@@ -146,11 +148,13 @@ class TestCase:
 
     @property
     def binary_stem(self) -> str:
-        """The name this test's build products get under `.build/`.
+        """The name this test's build products get under this run's build
+        directory (`.build/test_runner_<stamp>/`, design 220 D2 — a flat
+        `.build/` before that).
 
         `name` (the file stem) is NOT unique: `examples/int_types.saw` and
-        `examples/ffi/int_types.saw` share one. Two tests writing `.build/foo`,
-        `.build/foo.o` and `.build/foo.ll` concurrently race over all three —
+        `examples/ffi/int_types.saw` share one. Two tests writing `<dir>/foo`,
+        `<dir>/foo.o` and `<dir>/foo.ll` concurrently race over all three —
         and once compilation is a separate PHASE from execution, the second
         compile simply overwrites the first and both tests execute the same
         binary. `discover_tests` therefore hands every test a stem derived from
@@ -590,16 +594,88 @@ def compile_into_place(compile_fn, test: TestCase, exe_path: Path
     return ok, out, err, placed
 
 
-def sweep_stale_temp_products(build_dir: Path) -> None:
-    """Delete compile products stranded under `.tmp-…` by an interrupted run."""
-    if not build_dir.is_dir():
-        return
-    for entry in build_dir.iterdir():
-        if entry.name.startswith(_TMP_PREFIX) and entry.is_file():
-            try:
-                entry.unlink()
-            except OSError:
-                pass
+# ---------------------------------------------------------------------------
+# Per-run output directories + atomic publish (design 220 D2).
+#
+# Every invocation of this file gets its own `.build/test_runner_<stamp>/`
+# rather than sharing one flat `.build/`. A run that dies mid-compile leaves
+# its half-written products stranded in ITS OWN directory — nothing under
+# the currently PUBLISHED run is ever touched — which is what makes the old
+# `sweep_stale_temp_products` (deleting `.tmp-…` leftovers from an
+# interrupted run before starting a new one) unnecessary: a fresh directory
+# has nothing to sweep. `compile_into_place`'s unique-temp-name-then-rename
+# trick (DF-149b backstop (a)) is unchanged and still needed WITHIN a run.
+#
+# Publishing is a symlink flip, never `ln -sfn` (which is unlink-then-create
+# and exposes a window with no `test_runner_last` at all): a distinctly named
+# temporary symlink is created pointing at the run directory's bare NAME
+# (relative — so `test_runner_last` stays valid if `.build/` is ever moved),
+# then `os.replace` renames it over `test_runner_last` atomically. A reader
+# either sees the old target or the new one, never neither.
+# ---------------------------------------------------------------------------
+
+RUN_DIR_PREFIX = 'test_runner_'
+RUN_DIR_RE = re.compile(r'^test_runner_(\d+)_(\d+)$')
+LAST_LINK_NAME = 'test_runner_last'
+HISTORY_FILENAME = 'test_runner_history.txt'
+# How many past generations a successful publish keeps (D2). Covers any
+# reader that resolved the PREVIOUS `test_runner_last` a moment before this
+# run's flip (design 220 D2's "in-flight reader" case) and gives unit 2's
+# hardlink carry-forward a previous generation to carry unchanged files
+# forward from. Not the retention knob for `.ll` disk pressure — that is K
+# itself, per D5's fallback ("if disk is obnoxious, retention can drop to
+# K=1"), changed here if it is ever needed.
+KEEP_GENERATIONS = 3
+
+
+def make_run_stamp() -> str:
+    """A directory name unique to this invocation: `test_runner_<epoch>_<pid>`.
+
+    Timestamp alone is not enough (two runs started in the same second on a
+    fast machine collide); pid alone is not enough (pids recycle). Together
+    they are unique in practice, and the embedded epoch gives prune a
+    recency ordering without having to stat anything.
+    """
+    return f"{RUN_DIR_PREFIX}{int(time.time())}_{os.getpid()}"
+
+
+def publish_run(build_root: Path, run_name: str) -> List[str]:
+    """Atomically flip `test_runner_last` to `run_name`, record it in the
+    history ledger, and prune every run directory the ledger does not name.
+
+    Returns the names pruned. A directory that was never recorded here —
+    because its run crashed before reaching this call — is pruned exactly
+    like a superseded old generation: it is simply absent from the ledger
+    `publish_run` is about to write, so the sweep below removes it the same
+    way it removes anything else outside the kept window. That is D2's
+    "pruned as an unflipped orphan by the next run", with no separate
+    orphan-detection path to keep in sync with this one.
+    """
+    last = build_root / LAST_LINK_NAME
+    tmp = build_root / f"{LAST_LINK_NAME}.tmp"
+    if os.path.lexists(tmp):
+        os.unlink(tmp)
+    os.symlink(run_name, tmp)   # relative target: just the run dir's name
+    os.replace(tmp, last)       # atomic rename over the previous symlink
+
+    history_path = build_root / HISTORY_FILENAME
+    entries = []
+    if history_path.exists():
+        entries = [ln.strip() for ln in
+                  history_path.read_text(encoding='utf-8').splitlines()
+                  if ln.strip()]
+    entries.append(run_name)
+    entries = entries[-KEEP_GENERATIONS:]
+    history_path.write_text('\n'.join(entries) + '\n', encoding='utf-8')
+
+    keep = set(entries)
+    pruned = []
+    for entry in build_root.iterdir():
+        if (entry.is_dir() and not entry.is_symlink()
+                and RUN_DIR_RE.match(entry.name) and entry.name not in keep):
+            shutil.rmtree(entry, ignore_errors=True)
+            pruned.append(entry.name)
+    return pruned
 
 
 # Hard wall-clock cap on a single test's RUN phase. Generous vs. the
@@ -890,7 +966,8 @@ def directive_shape_error(test: TestCase) -> Optional[str]:
     return None
 
 
-def compile_test(test: TestCase, compile_fn=None) -> CompileOutcome:
+def compile_test(test: TestCase, compile_fn=None,
+                 run_dir: Optional[Path] = None) -> CompileOutcome:
     """COMPILE STAGE: compile one test, and judge everything that needs no
     execution.
 
@@ -899,9 +976,18 @@ def compile_test(test: TestCase, compile_fn=None) -> CompileOutcome:
     (`compile_saw_file`). The persistent-worker path passes the in-process
     compiler (`compile_saw_in_process`) instead. Everything else — `nm`
     inspection, docs comparison — is identical either way.
+
+    `run_dir` is this invocation's own `.build/test_runner_<stamp>/` (design
+    220 D2); build products land there instead of a flat `.build/`, so two
+    invocations never race over the same path. Defaults to `.build/` itself
+    for any caller that has not been updated to pass one (there are none
+    left in this file, but `compile_test` is small and public enough that a
+    silent `None` should still do something sane rather than crash).
     """
     if compile_fn is None:
         compile_fn = compile_saw_file
+    if run_dir is None:
+        run_dir = Path('.build')
 
     shape_error = directive_shape_error(test)
     if shape_error is not None:
@@ -925,8 +1011,8 @@ def compile_test(test: TestCase, compile_fn=None) -> CompileOutcome:
             return CompileOutcome(True, False, msg)
         return CompileOutcome(True, True, "Docs as expected")
 
-    exe_path = Path('.build') / test.binary_stem
-    exe_path.parent.mkdir(exist_ok=True)
+    exe_path = run_dir / test.binary_stem
+    exe_path.parent.mkdir(parents=True, exist_ok=True)
 
     # Compile
     compile_success, compile_stdout, compile_stderr, placed = compile_into_place(
@@ -1298,7 +1384,7 @@ def resolve_status(test: TestCase, raw_passed: bool, msg: str) -> tuple[TestStat
 _WORKER_DONE = None  # sentinel: no more work, exit the loop
 
 
-def _worker_loop(conn, verbose: bool):
+def _worker_loop(conn, verbose: bool, run_dir: Path):
     """Persistent worker body: import sawc + build the builtin namespace once,
     then COMPILE tasks in-process until the sentinel arrives. A worker never
     executes a test binary — that happens back in the main process, on the
@@ -1306,7 +1392,11 @@ def _worker_loop(conn, verbose: bool):
 
     Each task is `(index, TestCase)`; each reply is `(index, CompileOutcome)`.
     The index lets the main process match a reply to its test without shipping
-    the (already-known) TestCase back."""
+    the (already-known) TestCase back. `run_dir` is this invocation's
+    `.build/test_runner_<stamp>/` (design 220 D2) — a `Path` crosses the
+    spawn boundary fine (it is picklable), and stays constant for the
+    worker's whole lifetime, so it is passed once here rather than per task.
+    """
     _init_in_process(verbose)
     try:
         while True:
@@ -1314,14 +1404,14 @@ def _worker_loop(conn, verbose: bool):
             if task is _WORKER_DONE:
                 break
             index, test = task
-            conn.send((index, compile_test(test, compile_saw_in_process)))
+            conn.send((index, compile_test(test, compile_saw_in_process, run_dir)))
     except (EOFError, KeyboardInterrupt):
         pass
     finally:
         conn.close()
 
 
-def _compile_parallel_in_process(tests, num_workers, verbose, on_result):
+def _compile_parallel_in_process(tests, num_workers, verbose, on_result, run_dir: Path):
     """COMPILE-STAGE driver: compile `tests` across `num_workers` persistent
     workers.
 
@@ -1337,7 +1427,7 @@ def _compile_parallel_in_process(tests, num_workers, verbose, on_result):
     conns, procs = [], []
     for _ in range(min(num_workers, len(tests))):
         parent, child = ctx.Pipe()
-        p = ctx.Process(target=_worker_loop, args=(child, verbose), daemon=True)
+        p = ctx.Process(target=_worker_loop, args=(child, verbose, run_dir), daemon=True)
         p.start()
         child.close()  # only the worker holds the child end
         conns.append(parent)
@@ -1515,14 +1605,19 @@ def select_tests(args, examples_dir):
     return tests
 
 
-def run_tests_locally(tests, args, in_process, compile_fn, jsonl=None):
+def run_tests_locally(tests, args, in_process, compile_fn, jsonl=None,
+                      run_dir: Optional[Path] = None):
     """Compile and run `tests` on THIS machine, returning one
     `(test, status, msg, note)` per test.
 
     This is the whole pre-design-160 runner, unchanged in what it does and now
     callable more than once: a `--remote` run calls it for the local shard, and
-    again for whatever the worker did not answer for.
+    again for whatever the worker did not answer for. `run_dir` is this
+    invocation's `.build/test_runner_<stamp>/` (design 220 D2); every compile
+    path below writes there instead of a flat `.build/`.
     """
+    if run_dir is None:
+        run_dir = Path('.build')
     num_workers = args.jobs if args.jobs else os.cpu_count()
     if args.sequential:
         num_workers = 1
@@ -1643,17 +1738,17 @@ def run_tests_locally(tests, args, in_process, compile_fn, jsonl=None):
             if in_process:
                 _init_in_process(args.verbose)
             for index, test in enumerate(tests):
-                _on_compiled(index, compile_test(test, compile_fn))
+                _on_compiled(index, compile_test(test, compile_fn, run_dir))
         elif in_process:
             # PERSISTENT worker processes, each importing sawc + building the
             # builtin namespace once and then compiling many tests in-process.
             _compile_parallel_in_process(tests, num_workers, args.verbose,
-                                         _on_compiled)
+                                         _on_compiled, run_dir)
         else:
             # --subprocess: the pre-design-115 path. Each compile spawns a sawc.py
             # subprocess, so threads (not processes) suffice to overlap them.
             with ThreadPoolExecutor(max_workers=num_workers) as executor:
-                futures = {executor.submit(compile_test, test, compile_fn): i
+                futures = {executor.submit(compile_test, test, compile_fn, run_dir): i
                            for i, test in enumerate(tests)}
                 for future in as_completed(futures):
                     _on_compiled(futures[future], future.result())
@@ -1703,13 +1798,17 @@ def run_tests_locally(tests, args, in_process, compile_fn, jsonl=None):
 REMOTE_GRACE_FLOOR_SECS = 300.0
 
 
-def run_split(tests, args, in_process, compile_fn, jsonl, notes, origins):
+def run_split(tests, args, in_process, compile_fn, jsonl, notes, origins,
+             run_dir: Optional[Path] = None):
     """Run `tests` across this machine and a worker, and return every verdict.
 
     The shape of this function is the design's hard requirement: nothing about
     the worker may cost the run a verdict. Each step that can fail — resolving
     the token, reaching the worker, packing the tree, streaming results —
-    appends a note and falls back to running the work here.
+    appends a note and falls back to running the work here. Remote-compiled
+    tests never populate `run_dir`: design 220 D3 excludes remote-sharded
+    files from the manifest rather than trusting artifacts that never
+    touched the local tree.
     """
     sys.path.insert(0, str(REPO_ROOT / 'tools'))
     import worker_client
@@ -1717,7 +1816,8 @@ def run_split(tests, args, in_process, compile_fn, jsonl, notes, origins):
 
     def all_local(why):
         notes.append(why)
-        results = run_tests_locally(tests, args, in_process, compile_fn, jsonl)
+        results = run_tests_locally(tests, args, in_process, compile_fn, jsonl,
+                                    run_dir)
         for test, *_ in results:
             origins[repo_path(test)] = 'local'
         return results
@@ -1759,7 +1859,7 @@ def run_split(tests, args, in_process, compile_fn, jsonl, notes, origins):
 
     started = time.monotonic()
     results = run_tests_locally([by_path[k] for k in local_keys], args,
-                                in_process, compile_fn, jsonl)
+                                in_process, compile_fn, jsonl, run_dir)
     for test, *_ in results:
         origins[repo_path(test)] = 'local'
     local_seconds = time.monotonic() - started
@@ -1801,7 +1901,7 @@ def run_split(tests, args, in_process, compile_fn, jsonl, notes, origins):
         print(f"\n{Colors.YELLOW}{Colors.BOLD}The worker did not finish "
               f"{len(missing)} test(s) — running them here.{Colors.RESET}")
         recovered = run_tests_locally([by_path[k] for k in missing], args,
-                                      in_process, compile_fn, jsonl)
+                                      in_process, compile_fn, jsonl, run_dir)
         results.extend(recovered)
         for test, *_ in recovered:
             origins[repo_path(test)] = 'local (the worker did not answer)'
@@ -1817,7 +1917,6 @@ def main():
     compile_fn = compile_saw_in_process if in_process else compile_saw_file
 
     examples_dir = REPO_ROOT / 'examples'
-    sweep_stale_temp_products(Path('.build'))
 
     print(f"{Colors.BLUE}{Colors.BOLD}Discovering tests...{Colors.RESET}")
     tests = select_tests(args, examples_dir)
@@ -1830,15 +1929,24 @@ def main():
         print("No tests found!")
         return 1
 
+    # design 220 D2: every invocation gets its own build directory, published
+    # by an atomic symlink flip once it completes — never a flat `.build/`
+    # that two overlapping invocations, or a killed run, could leave torn.
+    build_root = Path('.build')
+    build_root.mkdir(exist_ok=True)
+    run_name = make_run_stamp()
+    run_dir = build_root / run_name
+    run_dir.mkdir(parents=True)
+
     jsonl = JsonlSink(args.jsonl)
     notes, origins = [], {}
     try:
         if args.remote:
             results = run_split(tests, args, in_process, compile_fn, jsonl,
-                                notes, origins)
+                                notes, origins, run_dir)
         else:
             results = run_tests_locally(tests, args, in_process, compile_fn,
-                                        jsonl)
+                                        jsonl, run_dir)
     finally:
         jsonl.close()
 
@@ -1847,6 +1955,15 @@ def main():
     # Print summary
     all_passed = print_summary(results, args.verbose, origins=origins,
                                notes=notes)
+
+    # Publish LAST, after every verdict is in: reaching here means the run
+    # completed (didn't crash, wasn't killed), which is the only thing that
+    # makes this generation fit to publish — a red suite is still a completed
+    # one and still publishes, so `test_runner_last` always reflects the most
+    # recent COMPLETED run rather than only the most recent green one.
+    pruned = publish_run(build_root, run_name)
+    pruned_note = f", pruned {len(pruned)} old generation(s)" if pruned else ""
+    print(f"Published {run_name} as {LAST_LINK_NAME}{pruned_note}.")
 
     return 0 if all_passed else 1
 
