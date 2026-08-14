@@ -1,8 +1,8 @@
 # Design 219 — generic tier requirements: inference, discharge, and the DF-217i ruling
 
-**Status: DIRECTION RULED (user, Aug 13 2026); brief authored same day; owes
-its obligation-2 consumer sweep before dispatch. This IS the DF-217i fix
-direction, and it gates design 218 stages 1-2.**
+**Status: WAVES A, B AND C LANDED (Aug 14 2026). This WAS the DF-217i fix, and
+it has discharged design 218's gate — including the DF-217j enforcement
+dependency stages 1-2 named.**
 
 ## The hole (evidence: sweep S1, 30 probes, `.build/scratch/sweep_absT/`)
 
@@ -300,6 +300,72 @@ over-tightens three corpus sites (named in the report).
 Sequencing: before or with design 218 stages 1-2 (it is their gate); unit 3
 also discharges 218's DF-217j dependency (the `Slot<TaskGroup>` refusal
 becomes compiler-enforced).
+
+## WAVE C LANDED (Aug 14) — the DF-217i fix
+
+Requirement inference, call-site discharge, the two per-instance declaration
+derivations and the public-declaration rule, in four commits on one worktree
+branch, full suite green at each. Suite 1794/31 -> 1813/27: fourteen new
+conformance rows, five pins flipped (DF-217i, DF-217j, DF-217k, DF-217q and
+C07/DF-216b's seventh position).
+
+- **C1** — the model, SIMPLER than the brief anticipated. Two rungs computed
+  once at the definition (`move` / `copy`), discharged at each call against the
+  argument's derived tier. **The move checker IS the inference**: an
+  abstract-tier transfer of a whole owned binding marks it moved PROVISIONALLY,
+  and design 15's dataflow — which has had branch merges, loop-carried
+  detection and per-binding identity since it was written — decides. Nothing
+  uses the binding again, it was a move; something does, it was a duplicate.
+  That is why branch-exclusive use stays move-only without the new code knowing
+  what an `if` is, and it is why the named false-positive class needed no
+  special handling. A name-COUNTING rule was never viable. A PROJECTION read
+  never gets the benefit of the doubt (no partial move exists), which is what
+  catches the field getter the sweep added as DF-217i EXTENDED — a shape that
+  mentions nothing twice.
+  Four entry points, all pre-existing chokepoints; discharge is one funnel,
+  DEFERRED to finalize because declaration order is not call order and because
+  a requirement PROPAGATES (a fixpoint — S1 row 10's six deinits).
+  The generic path also gained the RETURN transfer check it never had.
+- **C2** — DF-217q's funnel, gated on the ABSTRACT tier, which is true exactly
+  when the answer depends on the type argument. The recursive parameter walk
+  covers the ratified matrix by construction. It found a second hole while its
+  accept side was being written: the ARRAY arm's predicate is not bounds-aware,
+  so `[T; 2]` under a declared `<T: ExplicitCopy>` was refused.
+- **C3** — the two derivations. NoMove containment now derives per instance,
+  through the same member-substitution the structural tier derivation uses; the
+  DECLARED cascade stays the rule wherever a declaration site exists, and a
+  generic container has none (`Wrap<T>` cannot say `NoMove` without pinning
+  `Wrap<Int>`). Design 130's signature rule rides the discharge sites unchanged
+  — it needs exactly the (callee, type arguments) pair C1 already collects.
+  **This discharges design 218's DF-217j enforcement dependency:
+  `Slot<TaskGroup>` is a compile error.**
+- **C4 — the delegated ruling taken as HARD-REQUIRE**, and extended to `public`
+  METHODS (design 80 makes members private-by-default, so the keyword is a
+  deliberate publication). THE PUBLIC-GENERIC FIX LIST IS EMPTY: zero sites in
+  `examples/` or std were newly refused, and the reason is structural — the
+  public generic idiom is forwarding, and forwarding moves. What the rule DID
+  find was a false positive of C1's own, live and invisible until a rule strong
+  enough to error reached the position: the tail-expression transfer check runs
+  after the body scope is popped, so std's `let result = body(...)` / `result`
+  looked like a read out of storage it does not own. A warning would have
+  printed that into the noise floor and std would have carried a wrong bound.
+- **C5** — the Sync forcing row: NO FINDING. `Arc`'s `Send` derivation is
+  conditioned on `T: Send + Sync` together, so a non-Sync payload makes the Arc
+  non-Send and the MT frame gate refuses it; the generic twin is refused earlier
+  by the concrete-type-arguments gate. The diagnostic says "not `Send`" where
+  the fact is "not `Sync`" — recorded in row K31 as a wording paper-cut.
+- **C07 CLOSED**, on C1's funnel rather than at `&Self`. The 216b stopgap's
+  objection was that judging the type argument meant six bound-check sites
+  rather than one funnel; wave C built the funnel, so the comparison rule became
+  a SECOND requirement axis on the same table, discharged by running DF-216b's
+  existing transitive walk on the concrete argument. The tier condition is
+  untouched, so `@synthesize`d conformers and `Map`'s Copy-gated keys still
+  pass. Row C12 stays open — it is a question about that tier condition, not
+  about where the type is known.
+
+Carried forward: the public-declaration rule is written for free functions and
+`public` methods; an extension's OWN type parameters are judged when the
+extension is, and a generic STRUCT's published surface is not separately gated.
 
 ## WAVE B LANDED (Aug 13)
 

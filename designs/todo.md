@@ -218,9 +218,20 @@ spellings that reach it. The sweep also found:
   PIN: `examples/generic_method_type_arg_inference.saw` (all four method
   spellings beside the working free-function control)
 
-## Design 219 — generic tier requirements (DIRECTION RULED Aug 13; the DF-217i fix)
+## Design 219 — generic tier requirements (LANDED Aug 14; the DF-217i fix)
 
 Brief: `designs/219-generic-tier-requirements.md`.
+
+**WAVE C LANDED (Aug 14) — the DF-217i fix itself.** Requirement inference at
+the definition, discharge at the call, the two per-instance declaration
+derivations, and the public-declaration rule taken as HARD-REQUIRE. Suite
+1794/31 -> 1813/27: fourteen conformance rows, five pins flipped —
+**DF-217i, DF-217j, DF-217k, DF-217q and C07 (DF-216b's seventh position) are
+FIXED**, and 218's DF-217j enforcement dependency is discharged
+(`Slot<TaskGroup>` is a compile error). The public-generic fix list came back
+EMPTY. Details, including the C5 Sync verdict (no finding) and the false
+positive the public rule found in C1's own return handling, in the brief's
+WAVE C LANDED note.
 
 **WAVE A LANDED (Aug 13) — the two self-contained ratified rules, ahead of the
 collapse/inference waves.** A1: a copy-policy `copy()` must be `sync`, checked
@@ -246,6 +257,22 @@ Workaround: a suspending helper (documented in
 `examples/vector_closure_suspending_transform.saw`). A new POSITION FAMILY
 for the design-120 matrix — the S2 sweep never probed inside closure bodies;
 joins the 120-matrix fix brief (DF-217f/g family) as its own row set.
+
+**DF-219c (BOGUS-REFUSAL, found by wave C's C5 probe; pre-existing) — the
+spawn CAPTURE audit is not bound-aware, so a `<T: Send>` bound does not let a
+generic body spawn a closure capturing a value of type `T`.**
+`spawn { ... a1 ... }` where `a1: Arc<T>` inside `fan_out<T: Send>` is refused
+`cannot `spawn`: captured `a1` of type `Arc<T>` is not `Send``, identically
+with and without the bound: the capture audit falls through `is_send`'s
+opaque-type-parameter path, which returns False for any unresolved `T`. The
+spawn RESULT position has a `_names_type_param` bypass for exactly this reason
+(`expressions.py`); captures have none. Not a soundness hole — it over-rejects
+— but it makes `Send`-bounded generic fan-out unwritable, and the asymmetry
+between two positions of one rule is the obligation-1 shape. Evidence:
+`.build/scratch/wavec/probeA3`/`probeA4`. Adjacent, not filed as its own DF:
+the diagnostic for a non-Sync `Arc` payload says "not `Send`" (true, via
+`Arc<T: Send + Sync>`) where the actionable fact is "not `Sync`" — recorded in
+conformance row K31.
 
 **WAVE B LANDED (Aug 13) — the tier collapse and the vocabulary, ahead of
 wave C's inference/discharge.** B1: design 216's closure rework (`&T`
@@ -583,7 +610,13 @@ DF-217e) is untouched and still open.
    closure-collision fix), DF-210c, DF-193c, DF-204a/b. Caveat: ~126 of ~185
    DF ids were classified from their opening sentence only.
 
-1c. **DF-217i (SOUNDNESS, lead-found + verified Aug 13) — a generic body
+1c. **DF-217i — FIXED (design 219 wave C, Aug 14), and with it the whole S1
+   family below: DF-217j, DF-217k, DF-217q and row C07. Kept for the sweep
+   evidence, which is the map wave C was built against.** The requirement is
+   inferred once at the definition and discharged at every call; the two
+   declaration rules derive per instance. Rows V36-V47, K30, K31, U30.
+
+   **DF-217i (SOUNDNESS, lead-found + verified Aug 13) — a generic body
    evades the copy-tier rules; instantiation never re-checks.** An UNBOUNDED
    `func launder<T>(x: T)` whose body binds `x` twice (`let y = x; let z =
    x`) compiles — no Copy bound demanded, no move checkpoint applied to the
