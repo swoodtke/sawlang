@@ -2192,6 +2192,25 @@ construct in the owner and lend `&driver` down.
   `move f` still transfers ownership. A closure also satisfies the generic
   `Copy` bound, so `Vector<() -> Int>` is copyable — `.copy()`/`.get()` each
   retain the element env exactly once (deinit-once through copy).
+- **A `return` in a closure returns FROM THE CLOSURE** (design 213), checked
+  against the closure's own return type — the enclosing function's signature has
+  no say. So a `(Int) sync -> Void` closure can `return` early to skip an
+  element, and a `(Int) -> Int` one can `return 99` while the function around it
+  returns a `String`. Errors follow the same boundary: `try` inside a closure
+  propagates out of the CLOSURE (so the closure's return type must be the
+  `Result`), and an enclosing `try {} catch {}` does NOT extend into a closure
+  body — give the closure its own. The return type comes from the slot the
+  closure is passed to; with no expected type the `return`s are checked against
+  each other, and a body whose every path returns types as what it returns
+  rather than `Void`. Until this landed all of it was read off whichever
+  function lexically contained the closure (and, in a suspending body, off the
+  coroutine frame's `Poll`), so treat closure `return` as working now and
+  SUSPECT in older builds. Corpus note: the codebase's own idiom is still the
+  value-expression tail (`if`/`match` as the closure's last expression) — a
+  census of all 2003 tracked `.saw` files found zero closure `return`s — so
+  reach for `return` when it reads better, not by default.
+  One gap remains (DF-213b): a closure declared `-> Result<T, E>` does not
+  auto-wrap its TAIL value the way a named function does. Write `return v`.
 - **Writing to a by-value capture is a compile error** (design 132). The env is
   immutable and each plain/`move`/`copy` capture is loaded into a per-call
   local, so `{ n = n + 1  n }` would count in a copy that dies with the call.

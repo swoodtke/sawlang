@@ -4994,6 +4994,32 @@ multiple threads (design 75) — carrying the coroutine transform, suspending
   escaping closure is `ImplicitCopy`, a container element type of closures is
   copyable: `Vector<() -> Int>` is `ExplicitCopy`, and `.copy()`/`.get()` each
   retain the element env exactly once (balanced deinit through copy-and-read).
+- **A `return` inside a closure returns from the CLOSURE**, and is checked
+  against the closure's own return type. A closure is a callable, so control
+  leaving its body leaves that body; the enclosing function's signature has no
+  say. This is what lets a closure take an early exit:
+
+  ```saw
+  func each_sync(body: (Int) sync -> Void) { body(1)  body(-2)  body(3) }
+
+  func report(v: &Vector<Int>) -> String {
+      each_sync({ e in
+          if e < 0 { return }      // skip this element; `report` keeps going
+          print("saw {e}")
+      })
+      "done"
+  }
+  ```
+
+  The closure's return type comes from the slot it is passed to when there is
+  one, and from the body when there is not — with no expected type, the
+  `return`s are checked against each other and against the tail expression, so
+  a body whose every path returns still types as what it returns rather than
+  `Void`. An error raised inside a closure follows the same boundary: `try`
+  propagates out of the CLOSURE, so it needs the closure's return type to be a
+  `Result`, and a `try {} catch {}` written in the enclosing function does not
+  extend into a closure body (that catch belongs to a frame the closure's error
+  path never reaches — write the closure its own).
 - **`Arc<T>` payload method forwarding** — an immutable `&self` method on the
   payload `T` is callable through the `Arc` (`arc.method(...)`): the call borrows
   the control block's payload slot. Sound because a live strong reference pins
