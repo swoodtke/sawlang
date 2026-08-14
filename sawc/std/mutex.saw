@@ -93,8 +93,9 @@ extension Mutex<T> {
     /// shared.lock({ &var n in n = n + 1 })     // R = Void; nothing to return
     /// ```
     ///
-    /// `lock` is on `&self` (interior mutability) so it composes with Arc's
-    /// immutable-borrow forwarding.
+    /// `lock` is on `&self` (interior mutability), so `Arc`'s payload method
+    /// forwarding passes it through; a `&var self` method would be refused
+    /// there.
     ///
     /// NON-REENTRANT: locking a mutex this thread already holds is a program
     /// bug. `body` is a `sync` function type (design 22), so suspending inside
