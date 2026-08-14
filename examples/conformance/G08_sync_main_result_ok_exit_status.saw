@@ -4,8 +4,6 @@
 // `Result` is how a program says "here is my status, and here is what went
 // wrong if it did". The Ok side is the ordinary answer: the payload IS the
 // status, exactly as a bare `Int` main's value is.
-// XFAIL: DF-220c — `main`'s return type is unconstrained and a Result main
-// emits a struct-return `@main` against a C ABI expecting int
 // EXPECT: success
 // EXPECT-EXIT: 5
 // EXPECT-OUTPUT: res-ok

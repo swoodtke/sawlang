@@ -195,7 +195,15 @@ class ResultsMixin:
                     err_value, erase['concrete'], erase['trait'], erase['allocator'])
             caller_result = self._create_result_err_for_return(err_value)
             self._cleanup_all_scopes()
-            self.builder.ret(caller_result)
+            # design 221 unit B4: a `try` inside `main` is a RETURN, and the
+            # third position that leaves the C entry — the funnel's own sweep
+            # of `builder.ret` sites turned it up. Unrouted, it emitted
+            # `ret {i32, [8 x i8]}` out of an `i32` function and llvmlite
+            # refused the module.
+            if self._is_c_entry(func):
+                self._emit_main_exit_return(caller_result)
+            else:
+                self.builder.ret(caller_result)
 
         # OK block - continue with unwrapped value
         self.builder.position_at_end(ok_bb)

@@ -5,8 +5,6 @@
 // the return type most command-line programs actually want. Its Ok side is 0
 // and its Err side is G09's rule, over the entry executor rather than the sync
 // epilogue.
-// XFAIL: DF-220b — the entry executor drops main's result, so the Err never
-// reaches DF-220c's mapping
 // EXPECT: success
 // EXPECT-EXIT: 1
 // EXPECT-OUTPUT-CONTAINS: config unreadable

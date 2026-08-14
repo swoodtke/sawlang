@@ -1,0 +1,29 @@
+// Conformance row G18 — a `main() -> Result<Void, E>` that succeeds exits 0
+//
+// The Ok side of the shape most command-line programs want: this can fail, and
+// when it does not there is no number to report. `Ok(())` is 0, which is the
+// one row of the mapping with nothing to carry.
+// EXPECT: success
+// EXPECT-EXIT: 0
+// EXPECT-OUTPUT: wrote it
+
+struct Unreadable { errno: Int }
+
+extension Unreadable: Printable {
+    func format(&self, into: &var StringBuilder) { into.append("config unreadable") }
+}
+
+extension Unreadable: Error {}
+
+func store(ok: Bool) -> Result<Void, Unreadable> {
+    if not ok {
+        return Unreadable(errno: 13)
+    }
+    return
+}
+
+func main() -> Result<Void, Unreadable> {
+    try store(true)
+    print("wrote it")
+    return
+}

@@ -1,0 +1,36 @@
+// Conformance row G16 — a bare `try` in `main` propagates to the exit status
+//
+// The third position a value leaves `main` from, beside the tail expression and
+// a written `return`: `try` builds the Err itself and returns it. It emitted
+// `ret {i32, [8 x i8]}` out of an `i32` function until design 221's funnel swept
+// the return sites, so the row exists to keep the position covered.
+// EXPECT: success
+// EXPECT-EXIT: 1
+// EXPECT-OUTPUT-CONTAINS: a = 10
+// EXPECT-OUTPUT-CONTAINS: no such shelf: 9
+
+struct Missing { shelf: Int }
+
+extension Missing: Printable {
+    func format(&self, into: &var StringBuilder) {
+        into.append("no such shelf: ")
+        into.append(self.shelf)
+    }
+}
+
+extension Missing: Error {}
+
+func lookup(n: Int) -> Result<Int, Missing> {
+    if n > 2 {
+        return Missing(shelf: n)
+    }
+    return n * 10
+}
+
+func main() -> Result<Int, Missing> {
+    let a = try lookup(1)
+    print("a = {a}")
+    let b = try lookup(9)
+    print("unreached {b}")
+    return 0
+}

@@ -5,8 +5,6 @@
 // so it renders through the error's own `Printable` surface and the process
 // exits 1. Anything else would either invent a status the program never chose
 // or throw the cause away.
-// XFAIL: DF-220c — `main`'s return type is unconstrained; nothing renders the
-// Err and the struct-return `@main` leaves an ABI-garbage status
 // EXPECT: success
 // EXPECT-EXIT: 1
 // EXPECT-OUTPUT-CONTAINS: no such shelf: 3

@@ -15,7 +15,8 @@ the DF-217l leak their sweep turned up; K29, design 219 unit A1 (renumbered
 from K27 at integration — the 218a spec pre-registered K27/K28); U28-U29 and
 V31, design 219 unit A2; K27-K28, design 218 unit 1; V32-V35, design 219 wave B;
 V36-V47, K30, K31 and U30, design 219 wave C; R39-R42 and M36, design 218
-stage 3; G01-G15, design 221 unit B1.)
+stage 3; G01-G15, design 221 unit B1; G16-G18, design 221 unit B4's return-site
+sweep.)
 
 ## How to read it
 
@@ -351,6 +352,9 @@ Claim source: spec 8 *Programs and Entry Points*; design 221 (DF-220b, DF-220c)
 | G13 | `main() -> Bool` is refused | `G13_main_returning_bool_refused.saw` |  |
 | G14 | `main() -> Int?` is refused | `G14_main_returning_optional_refused.saw` |  |
 | G15 | an `Int` status wider than a byte truncates as POSIX truncates it | `G15_main_int_exit_status_truncates.saw` |  |
+| G16 | a bare `try` in `main` propagates to the exit status (the third exit position) | `G16_try_propagates_out_of_main.saw` |  |
+| G17 | a written `return` inside `main` sets the exit status (the second) | `G17_early_return_from_main.saw` |  |
+| G18 | a `main() -> Result<Void, E>` that succeeds exits 0 | `G18_main_result_void_ok_exit_zero.saw` |  |
 
 ## A `Result` must not be silently discarded
 
@@ -607,12 +611,12 @@ Obligation 3 asks a safety-surface brief for its rows FIRST, so a row that
 states a ruling the compiler has not been taught yet lands as a cited XFAIL and
 the unit that teaches it removes the marker.
 
-Open: **G02-G04, G08-G14** — design 221's exit-status and `main`-rule rows,
-written before the fix as obligation 3 asks. G02-G04 and G10-G11 cite DF-220b
-(both synthesized entry executors declare themselves Void and drop main's
-result); G08-G09 and G12-G14 cite DF-220c (`main`'s return type is
-unconstrained). G01, G05-G07 and G15 pass on the unfixed tree and are the
-controls the fix must not disturb.
+Closed: **G02-G04, G08-G14** — design 221's exit-status and `main`-rule rows,
+written before the fix as obligation 3 asks. G02 flipped with unit B2 (the
+single-frame executor), G03-G04 with unit B3 (the ambient root's cell), G12-G14
+with unit C (the `main` rule), and G08-G11 with unit B4 (the exit funnel). G01,
+G05-G07 and G15 passed on the unfixed tree and were the controls the fix had to
+leave alone.
 
 Open: **C12** — a Copy operand compared through a conformance that
 consumes `other` is over-released, and the stopgap's tier condition deliberately

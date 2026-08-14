@@ -575,15 +575,21 @@ class MethodsMixin:
         # instantiation took the value-returning branch below and tried to build
         # an `undef` of void (design 132 unit C / DF-123b).
         returns_void = isinstance(llvm_func.function_type.return_type, ir.VoidType)
+        is_entry = self._is_c_entry(llvm_func)
         if func.return_type.kind == TypeKind.VOID or returns_void:
             if not self.builder.block.is_terminated:
                 # Cleanup parameter scope before return
                 self._cleanup_all_scopes()
-                # For main(), return 0 instead of void
-                if func.name == "main" and not returns_void:
-                    self.builder.ret(ir.Constant(ir.IntType(32), 0))
+                # design 221 unit B4: a `Void` main still exits 0, through the
+                # funnel that answers for every other shape too.
+                if is_entry:
+                    self._emit_main_exit_return(None)
                 else:
                     self.builder.ret_void()
+        elif is_entry:
+            if not self.builder.block.is_terminated:
+                self._cleanup_all_scopes()
+                self._emit_main_exit_return(result)
         else:
             if not self.builder.block.is_terminated:
                 # Cleanup parameter scope before return

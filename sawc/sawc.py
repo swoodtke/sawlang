@@ -911,8 +911,10 @@ def _synthesize_main_exit_funnel(entry_ast):
 
     # `case Ok(__v) -> __v` — or `case Ok(_) -> 0` where there is no payload to
     # bind, which is `Result<Void, E>`'s whole point.
+    # `case Ok(_) -> 0` for `Result<Void, E>`: the variant still HAS a payload
+    # slot (of type `Void`), so the wildcard is the binding, not its absence.
     ok_arm = MatchArm(variant_name="Ok",
-                      bindings=[] if ok_is_void else ["__v"],
+                      bindings=["_"] if ok_is_void else ["__v"],
                       body=(IntLiteral(value=0, line=line, column=col) if ok_is_void
                             else Identifier(name="__v", line=line, column=col)))
     # The Err path renders through the value's own `Printable` surface — the

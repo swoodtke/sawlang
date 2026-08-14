@@ -988,6 +988,12 @@ class StatementsMixin:
         self._cleanup_all_scopes()
 
         # Now return
+        # design 221 unit B4: a `return` inside `main` crosses to the C entry's
+        # `i32` through the one funnel, exactly as the fall-through epilogue
+        # does — the value's shape decides, not the position it left from.
+        if self._is_c_entry(self.builder.function):
+            self._emit_main_exit_return(value)
+            return
         if value is not None:
             ret_type = self.builder.function.function_type.return_type
             if isinstance(ret_type, ir.VoidType):

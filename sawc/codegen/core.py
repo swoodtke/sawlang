@@ -2375,6 +2375,63 @@ class CodeGenerator(ResultsMixin, MatchMixin, StructsMixin, CollectionsMixin, Ca
 
     # _estimate_type_size is now in codegen_types.py (TypesMixin)
 
+    # design 221 unit B4 (DF-220b + DF-220c): the exit funnel.
+    MAIN_EXIT_FUNNEL = "__saw_main_exit_code"
+
+    def _is_c_entry(self, llvm_func) -> bool:
+        """Whether `llvm_func` is the emitted C entry — the one function whose
+        LLVM signature the compiler writes rather than reads off the source."""
+        return (llvm_func is not None and llvm_func.name == "main"
+                and isinstance(llvm_func.function_type.return_type, ir.IntType)
+                and llvm_func.function_type.return_type.width == 32
+                and len(llvm_func.function_type.args) == 2)
+
+    def _emit_main_exit_return(self, value):
+        """Return `value` from `main` as the process exit status.
+
+        THE ONE PLACE a `main` result becomes the C entry's `i32`, for every
+        shape `main` can take. ENTRY POINTS (obligation 1): the fall-through
+        epilogue of `main` (`codegen/methods.py:_generate_function`) and every
+        `return` inside it (`codegen/statements.py:_generate_return_statement`).
+        Both synthesized entry executors arrive here too, because each IS the
+        emitted `main` — the single-frame one carrying whatever the user's
+        `main` returned, the ambient one carrying the `Int` its cell produced.
+
+        The mapping (design 221 Part C):
+
+            Void      -> 0
+            Int       -> the value
+            Ok(())    -> 0        via `__saw_main_exit_code`
+            Ok(n)     -> n        via `__saw_main_exit_code`
+            Err(e)    -> render the error, 1   via `__saw_main_exit_code`
+
+        The `Result` rows are a layer up, in the synthesized Saw funnel, because
+        the ambient executor must apply them BEFORE its value reaches the cell
+        (design 221 unit B3) and a rule written twice is a rule that drifts.
+        This is the C boundary: it does the two rows that ARE the boundary, and
+        calls that funnel for the two that are not.
+
+        Narrowing to `i32` is the C entry's signature, not a policy: `wait(2)`
+        carries eight bits, so 300 is observed as 44 whatever we do here. The
+        truncation is left to the platform and only the width is matched.
+        """
+        i32 = ir.IntType(32)
+        saw = self.current_return_type
+        if value is None or saw is None or saw.kind == TypeKind.VOID:
+            self.builder.ret(ir.Constant(i32, 0))
+            return
+        if saw.is_result():
+            funnel = self.functions.get(self.MAIN_EXIT_FUNNEL)
+            if funnel is None:
+                raise ValueError(
+                    f"`main` returns `{saw}` but its exit-status funnel "
+                    f"`{self.MAIN_EXIT_FUNNEL}` was not synthesized")
+            value = self.builder.call(funnel, [value], name="exit_status")
+        if value.type != i32:
+            value = (self.builder.trunc(value, i32) if value.type.width > 32
+                     else self.builder.sext(value, i32))
+        self.builder.ret(value)
+
     def _mark_noalias_params(self, llvm_func, saw_types, arg_offset=0):
         """Mark `&var` (mutable-reference) parameters `noalias`.
 
@@ -2440,8 +2497,14 @@ class CodeGenerator(ResultsMixin, MatchMixin, StructsMixin, CollectionsMixin, Ca
         else:
             return_type = self._get_llvm_type(func.return_type)
 
-        # Main function should return int for proper exit code
-        if func_name == "main" and func.return_type.kind == TypeKind.VOID:
+        # The C entry returns `int`, WHATEVER `main` was declared to return
+        # (design 221 unit B4). It used to be overridden only for `Void`, so a
+        # `main` returning anything else was emitted as declared: `-> Int` got
+        # an `i64 @main` that worked by ABI accident on arm64 and x86-64, and
+        # `-> Result<Int, E>` got a struct-returning `@main` against a C ABI
+        # expecting `int`, which is DF-220c's stable-and-meaningless exit 138.
+        # `_emit_main_exit_return` is the other half: the value's own crossing.
+        if func_name == "main" and not func.parameters:
             return_type = ir.IntType(32)
 
         func_type = ir.FunctionType(return_type, param_types)

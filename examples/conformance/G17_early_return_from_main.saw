@@ -1,0 +1,18 @@
+// Conformance row G17 — a written `return` inside `main` sets the exit status
+//
+// The second exit position. The tail expression is the one every other row
+// happens to use, and a `return` from inside a branch leaves through different
+// code — so it is checked rather than assumed.
+// EXPECT: success
+// EXPECT-EXIT: 3
+// EXPECT-OUTPUT: early
+
+func main() -> Int {
+    for i in 0..5 {
+        if i == 2 {
+            print("early")
+            return i + 1
+        }
+    }
+    0
+}
