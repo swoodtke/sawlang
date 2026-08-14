@@ -917,6 +917,31 @@ v.map({ $0.to_string() })           // type args INFERRED (design 93): U from
 v.map<String>({ $0.to_string() })   // the closure's return; explicit still wins
 ```
 - `any` only behind `&`, `&var`, or `Box` (unsized otherwise).
+- **WHAT A GENERIC BODY REQUIRES IS INFERRED, and refused at the CALL (design
+  219 wave C).** One question per type parameter: does the body ever duplicate a
+  `T` with nothing written? If not — every use is a move — the body works at
+  every type including move-only ones, which is the common case because the
+  ordinary generic shape is forwarding. If it does, `T` must be on the `Copy`
+  tier and each call site is checked against the argument you passed:
+  ``error: `twice` requires `T` to be `Copy` — it binds `x` twice, at lines 2
+  and 3; `Res` is move-only``. The requirement PROPAGATES through forwarding
+  hops, and it covers generic methods (discharged against the RECEIVER's type
+  args) and generic coroutines.
+  - **Per PATH, not per mention.** `if a < b { b } else { a }` names each
+    parameter twice and duplicates neither. But a read out of storage the body
+    does not own — a field, a tuple element, an indexed place — is a duplicate
+    however few times the name appears (no partial move exists).
+  - **To duplicate on purpose: `<T: ExplicitCopy>` + a spelled `.copy()`.** The
+    bound is required for wrapper receivers too — `(T, Int)`, `T?`, `[T; N]`
+    and nestings all reach the same rule.
+  - **A `public` generic must DECLARE it** (write `<T: Copy>`): an inferred
+    requirement can tighten when the body is edited, which would break callers
+    with no signature change. Private/internal generics ride inference.
+    Declaring a bound the body EXCEEDS is also an error.
+  - **Two declaration rules derive PER INSTANCE**: a container at a `NoMove`
+    payload is `NoMove` (`Wrap<TaskGroup>` cannot move, `Wrap<Int>` can), and a
+    generic whose instantiated signature names an unsafe type must be declared
+    `unsafe`.
 - **EVERY primitive takes a user conformance** (design 176): `Int`, `UInt`, all
   eight fixed-width integers, `Bool`, `Float`, `String`. `extension UInt8:
   MyProto { ... }` declares, dispatches directly (`b.encoded()`), and satisfies

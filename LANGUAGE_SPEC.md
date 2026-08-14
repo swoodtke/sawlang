@@ -6915,6 +6915,72 @@ struct FixedBuf<N: Int> { len: Int }
 //   hint: to take a compile-time VALUE, write `const N: Int`
 ```
 
+#### What a generic body requires of its type parameters (design 219)
+
+A generic body is written once and runs at every type it is instantiated at, so
+the compiler asks one question about each type parameter while checking the
+body: **does this body ever duplicate a value of `T` with nothing written at the
+site?** There are two answers, and they are inferred, not declared.
+
+- **It does not** — every use is a move. The body works at every type,
+  move-only ones included. This is the common case, because the ordinary
+  generic shape is forwarding, and forwarding moves.
+- **It does** — the body needs `T` on the `Copy` tier, and each call site is
+  checked against the type argument you actually passed.
+
+The refusal lands at the CALL, names the requirement, and quotes the line in the
+body that caused it:
+
+```saw
+func twice<T>(x: T) -> Int {
+    let a = sink(x)
+    let b = sink(x)   // `x` is bound a second time here
+    a + b
+}
+
+twice(move r)
+// error: `twice` requires `T` to be `Copy` — it binds `x` twice, at lines 2
+//        and 3; `Res` is move-only
+```
+
+The rule is per PATH, not per mention. `if a < b { b } else { a }` names each
+parameter twice and duplicates neither, because no single path uses either one
+twice, so it stays available at every tier. A read out of storage the body does
+not own — a field, a tuple element, an indexed place — is always a duplicate,
+however few times the name appears: there is no partial move, so the source
+keeps its copy.
+
+The requirement travels. A generic that forwards its `T` to a callee needing
+`Copy` needs it too, and the refusal appears at ITS call site with the concrete
+type named.
+
+**Duplicating on purpose: declare `<T: ExplicitCopy>` and spell `.copy()`.**
+`.copy()` on a value whose type mentions an unbounded type parameter is refused
+at the definition, and that covers wrappers as well as a bare `T` — `(T, Int)`,
+`T?`, `[T; N]`, and nestings of them all reach the same rule:
+
+```saw
+func dup<T: ExplicitCopy>(p: (T, Int)) -> (T, Int) { p.copy() }
+```
+
+**A `public` generic must DECLARE what it requires.** Where the requirement is
+inferred, editing the body can tighten it — add a second bind and callers at
+move-only types break with no signature change. Inside a module that is a local
+matter; across a published API it is not, so a `public` generic whose body needs
+the `Copy` tier says so in its signature, and the compiler asks for it at the
+declaration. Declaring a bound the body then EXCEEDS is also an error:
+`<T: ExplicitCopy>` licenses a spelled `.copy()` and nothing more, so a body
+reading the value out unwritten would be a copy for some instantiations and an
+alias for others.
+
+**Two declaration rules are derived per instance**, since a generic has no
+declaration site that could state them for every argument at once:
+
+- a container instantiated at a `NoMove` payload is itself `NoMove`
+  (`Wrap<TaskGroup>` may not be relocated; `Wrap<Int>` may);
+- a generic whose instantiated signature names an unsafe type must be declared
+  `unsafe` (a monomorphized signature is a signature — see *Unsafe Code*).
+
 ### Compile-Time Evaluation
 
 **`static_assert` — implemented (design 53).** `const func`, macros, and

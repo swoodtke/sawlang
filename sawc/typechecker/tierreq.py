@@ -512,6 +512,10 @@ class TierRequirementsMixin:
         obligations = getattr(self, '_tier_obligations', None)
         if not obligations:
             return
+        # Consumed, so a second finalize (the module path and the whole-program
+        # path each call this, and a nested check can reach both) cannot report
+        # the same call twice.
+        self._tier_obligations = []
         # Propagate first, refuse second: a caller that ACQUIRES a requirement
         # by forwarding must have acquired it before its own callers are judged.
         for _ in range(len(obligations) + 2):
