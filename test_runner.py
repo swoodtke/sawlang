@@ -818,6 +818,55 @@ def compute_global_max_input_mtime() -> float:
     return latest
 
 
+def manifest_eligible(test: TestCase) -> bool:
+    """Whether this test's build products may enter the reuse manifest at all —
+    design 220 D4's "no fresh artifact" carve-out, written as the rule instead
+    of guessed at through a proxy.
+
+    THE one place the rule lives. Two entry points, and they MUST agree, because
+    an entry either side admits is an entry the other trusts: `compile_test`'s
+    `_manifest_fields`, which stamps an entry onto a fresh compile, and
+    `try_carry_forward`, which reuses one.
+
+    Both conditions were learned from the design-220 re-gate, where `irdet --all`
+    reported four VIOLATED INVARIANTs against an otherwise clean corpus.
+
+    **No `// COMPILE-FLAGS:`.** The manifest promises irdet the OPTIMIZED IR of
+    a plain default-flag compile, and a flagged test breaks that promise in one
+    of two ways depending on the flag. An UNMODELED flag (`--no-hidden-alloc`,
+    `-W`) falls back to a subprocess compile — which still writes a `.ll`,
+    because `_emit_object` writes the always-on UNOPTIMIZED debug sidecar for
+    every caller. The old gate asked "was a `.ll` placed?", saw one, and stamped
+    an entry pointing at unoptimized IR; irdet compared its own optimized
+    compile against it and correctly refused to call the difference
+    nondeterminism. A MODELED flag (`--module-path`) does produce the optimized
+    sidecar, but of a DIFFERENT compile than the one irdet reproduces — inert
+    today only because irdet's flag-less compile of those files happens to fail
+    and skip them, which is luck rather than a guarantee, and the same rule
+    retires both.
+
+    **Nothing asserted at COMPILE time.** `_check_warnings` judges the compile's
+    OUTPUT, and a carry-forward hit performs no compile and has no output, so
+    the assertion would silently not run — a test quietly checking less than it
+    says it does. (`directive_shape_error` needs no clause here: a shape error
+    settles the verdict before `_to_run` is ever reached, so such a test never
+    acquires an entry to carry forward, and editing a directive bumps the
+    source mtime, which fails the freshness test anyway.)
+
+    Runtime assertions — EXPECT-OUTPUT, EXPECT-OUTPUT-CONTAINS, EXPECT-EXIT, the
+    panic verdict — need no clause either: the execution stage re-checks them
+    every run whatever the binary's origin, which is the same reason reuse is
+    scoped to SUCCESS/PANIC in the first place.
+
+    Cost, measured on this corpus: 15 of 1190 eligible tests (1.3%).
+    """
+    if test.compile_flags:
+        return False
+    if test.expected_warning_contains or test.expect_no_warnings:
+        return False
+    return True
+
+
 def try_carry_forward(test: TestCase, run_dir: Path, prev_run_dir: Optional[Path],
                       prev_manifest: dict, global_max_mtime: float
                       ) -> Optional[CompileOutcome]:
@@ -834,6 +883,11 @@ def try_carry_forward(test: TestCase, run_dir: Path, prev_run_dir: Optional[Path
     never caching a verdict this run did not itself just prove.
     """
     if test.expect_type not in (ExpectType.SUCCESS, ExpectType.PANIC):
+        return None
+    if not manifest_eligible(test):
+        # Asked here as well as at the stamping site, not only there: a manifest
+        # written by an OLDER generation (or a future rule change) can name a
+        # test this rule now refuses, and reuse must follow today's rule.
         return None
     if prev_run_dir is None:
         return None
@@ -1250,12 +1304,14 @@ def compile_test(test: TestCase, compile_fn=None,
         compile_fn, test, exe_path)
 
     def _manifest_fields():
-        # design 220 D1/D3: only meaningful when a worker seed is known AND
-        # this compile actually placed the optimized `.ll` sidecar — the
-        # subprocess-fallback path (an unmodeled `// COMPILE-FLAGS:`) never
-        # requests one, which is what keeps those tests out of the manifest
-        # (D4's existing "no fresh artifact" carve-out).
-        if seed is None or '.ll' not in placed:
+        # design 220 D1/D3. Three conditions, and each rules out a different
+        # way of having no fresh artifact (D4's carve-out): no worker seed means
+        # this was not a persistent-worker in-process compile at all (the
+        # sequential and `--subprocess` paths); `manifest_eligible` is the rule
+        # about what the artifact WOULD be (see its docstring — it is what the
+        # re-gate's four VIOLATED INVARIANTs turned out to be); and `.ll` in
+        # `placed` is the fact that this particular compile did emit one.
+        if seed is None or not manifest_eligible(test) or '.ll' not in placed:
             return None
         ll_path = Path(str(exe_path) + '.ll')
         try:

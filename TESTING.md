@@ -906,6 +906,17 @@ what makes trusting a carried-forward BINARY safe without also trusting a
 cached VERDICT. A COMPILES/OBJECT/ERROR/DOCS test settles at compile time
 with no such net, so those always compile fresh.
 
+Two more kinds of test stay out of the manifest, both for the same underlying
+reason — the manifest promises the optimized IR of a plain default-flag
+compile, and only a test that IS one can keep that promise. A test carrying
+`// COMPILE-FLAGS:` compiles a different configuration than the one `irdet`
+reproduces (and an unmodeled flag falls back to a subprocess compile, whose
+`.ll` is the always-on unoptimized debug sidecar, not the optimized artifact).
+A test asserting something at COMPILE time — `// EXPECT-WARNING-CONTAINS:`,
+`// EXPECT-NO-WARNINGS` — is judged on the compile's output, which a reused
+binary does not have, so reusing it would silently skip the assertion. Together
+they are 15 of 1190 eligible tests.
+
 `devtools/irdet` (the IR-determinism harness — see the IR determinism
 section in `CLAUDE.md`) reads this manifest through `test_runner_last`, so
 running the suite right before `irdet --all` lets most of the corpus skip
