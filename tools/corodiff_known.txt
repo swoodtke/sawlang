@@ -36,32 +36,13 @@ DF-217f	ICE: error: internal compiler error at <src>:N:N (FunctionCall): Undefin
 # diagnostic covers the `??` LHS spelling S2 also filed.
 DF-217g	BOGUS-REFUSAL: error: coroutine transform: suspending call to `X` in `X` appears in a nested/expression position; only a top-level `X` or `X` statement is supported
 
-# DF-217h — the ANF hoist's temp for an owning value produced by a suspending
-# call in a CHILD position is consumed by the parent and dropped AGAIN at frame
-# teardown. `_anf_lift` emits a bare temp with no consume bookkeeping.
-#
-# THREE argument positions reach it here, and the `??` RHS is a position S2's
-# nine-row list does not carry: `v.set(i, f())`, `v.swap_out(i, f())`, and
-# `none() ?? f()`. The husk rows are the SECOND release reading storage that no
-# longer holds a live value — the empty-name deinit the tracker entry
-# describes. Every oracle class it can reach does: linear, loop, cancel,
-# teardown and MT alike, which is the evidence that it is a property of the
-# hoist and not of the context.
-DF-217h	DOUBLE-FREE: place_write_set/in_rhs @ cancel
-DF-217h	DOUBLE-FREE: place_write_set/in_rhs @ linear
-DF-217h	DOUBLE-FREE: place_write_set/in_rhs @ loop
-DF-217h	DOUBLE-FREE: place_write_set/in_rhs @ mt
-DF-217h	DOUBLE-FREE: place_write_set/in_rhs @ teardown
-DF-217h	DOUBLE-FREE: swap_out/in_rhs @ linear
-DF-217h	DOUBLE-FREE: swap_out/in_rhs @ loop
-DF-217h	HUSK-RELEASE: coalesce_rhs/in_rhs @ linear
-DF-217h	HUSK-RELEASE: coalesce_rhs/in_rhs @ loop
-DF-217h	STDOUT-PARITY: coalesce_rhs/in_rhs @ linear
-DF-217h	STDOUT-PARITY: coalesce_rhs/in_rhs @ loop
-DF-217h	STDOUT-PARITY: place_write_set/in_rhs @ linear
-DF-217h	STDOUT-PARITY: place_write_set/in_rhs @ loop
-DF-217h	STDOUT-PARITY: swap_out/in_rhs @ linear
-DF-217h	STDOUT-PARITY: swap_out/in_rhs @ loop
+# DF-217h's seventeen rows are GONE, removed by design 218 stage 2 (Aug 14) in
+# the landing that fixed them, exactly as an XPASS marker is. The ANF hoist's
+# temp is a `Slot` now and its one read is `take()`, so a value consumed by the
+# parent cannot also be dropped at teardown — the three argument positions the
+# matrix carried (`v.set(i, f())`, `v.swap_out(i, f())`, `none() ?? f()`) and
+# every oracle class they reached (linear, loop, cancel, teardown, MT) are
+# clean on a full `--all` run.
 
 # DF-216g — a closure naming `self` inside a SUSPENDING method ICEs: the
 # capture is judged pre-transform, where `self` is the receiver, and the
