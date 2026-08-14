@@ -2628,9 +2628,8 @@ process(original)  // original is copied, unchanged
   the `move` consumes the *callee's* local). The old referent value deinits
   exactly once, then the new value installs; the caller's binding is never
   invalidated and still owns a valid `T`. This unifies functions/methods with
-  closures, which already permitted `n = v` through a `&var`/`[&var]` parameter,
-  so the caller's binding is never invalidated and still owns a valid `T`. Two
-  exclusions keep their own diagnostics: (1)
+  closures, which already permitted `n = v` through a `&var`/`[&var]` parameter.
+  Two exclusions keep their own diagnostics: (1)
   assignment through an immutable `&T` is rejected (read-only); (2) the referent
   must be a **statically-known** type — a `&var any Trait` **erased** referent is
   rejected (behind the erasure the caller's slot is a concrete type, so a
@@ -3604,7 +3603,8 @@ counting (like `String` and `Arc<T>`), deep-copy owning types (like
 `Vector`), scope-bound cleanup of a raw resource (like file handles), and
 move-only types. `NoCopy`, `ExplicitCopy` and a DECLARED `Copy` are written as
 an `extension` (`extension T: Trait`); there is no struct-header conformance
-syntax, and a derived `Copy` is written nowhere. The family is `Copy` (the silent tier),
+syntax, and a derived `Copy` is written nowhere. The family is `Copy` (the
+silent tier),
 `NoCopy` (the move-only opt-out) and `ExplicitCopy` (the duplicable family),
 over `Deinit`; see [The Copy Trait Family](#the-copy-trait-family) above for
 the transfer-site rules.
