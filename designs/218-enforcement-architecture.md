@@ -353,6 +353,16 @@ cover (the port was always going to stop before codegen). Both sides of that:
   interface each ported phase is validated against. 218 does not compete with
   self-hosting; it defines its milestones.
 
+**SEQUENCING RE-AFFIRMED (user, Aug 13 night):** the ruled order B → wave C →
+stages 1-2 STANDS — an inversion (migration before the 217i fix, with a
+corodiff generic-axis rider as the interim net) and a concurrent plan were
+considered at the overnight checkpoint and declined; no deviation. Carried
+from that conversation regardless of sequencing: **stages 1-2's dispatch
+opens by adding the GENERIC-DRIVEN-FUNCTION axis to corodiff** (the S1 p08c
+parity shape + a NoCopy-instantiated generic coroutine with deinit
+witnesses) — the harness's one missing context, and the lane outlives the
+fix.
+
 ## Obligations mapping (design 190)
 
 - Obligation 1: `Slot<T>` IS the funnel for frame ownership — the entry-point
