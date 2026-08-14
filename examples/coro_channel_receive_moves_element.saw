@@ -1,0 +1,120 @@
+// A cooperative `receive()` in a DRIVEN body moves the element out of the
+// channel, at every copy tier.
+//
+// Design 218 stage 1, census row S10 — the migration's one feature flip. The
+// driven receive stored its element with a bare alias assignment that never
+// went through the store funnel, so the tier question was never asked: a
+// move-only or ExplicitCopy element was REFUSED (`cannot copy value of type
+// Vector<Int...>` at `file:0:0`, DF-218c), and a `Channel<Vector<Int>>` could
+// only be received from with the BLOCKING `recv()`. The store is
+// `slot.put(move __rvN)` now, which is what the received binding always meant.
+//
+// ORACLE, per tier. The NoCopy row counts constructions against deinits: one
+// `ctor` line, one `deinit` line, and the deinit lands inside the worker's
+// scope rather than at teardown. The Arc row reads `strong_count()` across the
+// hop — 1 after construction, 2 while the channel holds it, 2 inside the
+// worker, 1 after the task is joined — which says the move added no reference
+// and dropped none. The two ExplicitCopy rows (a user struct and `Vector<Int>`)
+// only have to compile and hand back their payload; before the flip neither
+// did.
+// EXPECT: success
+// EXPECT-OUTPUT:
+// nocopy ctor 7
+// nocopy got 7 seven
+// nocopy deinit 7 seven
+// nocopy join 7
+// explicit got 8 eight
+// explicit join 8
+// vector join 2
+// arc after ctor 1
+// arc after send 2
+// arc in worker 2
+// arc join 9
+// arc after join 1
+// arc deinit 9
+import std.channel.{Channel}
+
+struct Res { id: Int, tag: String }
+extension Res: NoCopy {
+    func deinit(&var self) { print("nocopy deinit {self.id} {self.tag}") }
+}
+
+struct Dup { id: Int, tag: String }
+@synthesize
+extension Dup: ExplicitCopy {}
+
+struct Held { id: Int }
+extension Held: NoCopy {
+    func deinit(&var self) { print("arc deinit {self.id}") }
+    func ident(&self) -> Int { self.id }
+}
+
+func nocopy_worker(ch: Channel<Res>) -> Int {
+    let got = ch.receive()
+    print("nocopy got {got.id} {got.tag}")
+    got.id
+}
+
+func explicit_worker(ch: Channel<Dup>) -> Int {
+    let got = ch.receive()
+    print("explicit got {got.id} {got.tag}")
+    got.id
+}
+
+func vector_worker(ch: Channel<Vector<Int>>) -> Int {
+    let v = ch.receive()
+    v.len()
+}
+
+func arc_worker(ch: Channel<Arc<Held>>) -> Int {
+    let a = ch.receive()
+    print("arc in worker {a.strong_count()}")
+    a.ident()
+}
+
+func nocopy_row() {
+    var group = TaskGroup()
+    let ch = Channel<Res>()
+    print("nocopy ctor 7")
+    ch.send(Res(id: 7, tag: "seven"))
+    let h = group.spawn(nocopy_worker(ch.copy()))
+    print("nocopy join {h.join()}")
+}
+
+func explicit_row() {
+    var group = TaskGroup()
+    let ch = Channel<Dup>()
+    ch.send(Dup(id: 8, tag: "eight"))
+    let h = group.spawn(explicit_worker(ch.copy()))
+    print("explicit join {h.join()}")
+}
+
+func vector_row() {
+    var group = TaskGroup()
+    let ch = Channel<Vector<Int>>()
+    var v = Vector<Int>()
+    v.push(1)
+    v.push(2)
+    ch.send(move v)
+    let h = group.spawn(vector_worker(ch.copy()))
+    print("vector join {h.join()}")
+}
+
+func arc_row() {
+    var group = TaskGroup()
+    let ch = Channel<Arc<Held>>()
+    let a = Arc<Held>(value: Held(id: 9))
+    print("arc after ctor {a.strong_count()}")
+    ch.send(a.copy())
+    print("arc after send {a.strong_count()}")
+    let h = group.spawn(arc_worker(ch.copy()))
+    print("arc join {h.join()}")
+    print("arc after join {a.strong_count()}")
+}
+
+func main() {
+    nocopy_row()
+    explicit_row()
+    vector_row()
+    arc_row()
+}
