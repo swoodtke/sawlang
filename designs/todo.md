@@ -650,7 +650,11 @@ obligation-2 consumer sweep before dispatch. Gates 218 stages 1-2.
   corodiff carries three cancel contexts and a panic context with their own
   oracle classes, and `corodiff --all` gated every stage. M1/M3 still do not
   retire: `_read_field`'s legacy branch stamps them and it is alive for exactly
-  the deferred families, so they go in the landing that deletes the funnel.
+  the deferred families, so they go in the landing that deletes the funnel. But
+  they are now UNDER THE GATE (lead's contract extension): each of the eight
+  surviving stamp sites names its deferral, and extending the gate deleted a
+  NINTH that was stamping the MIGRATED path — `move o!` asserting past design
+  131's "a payload read out of a call result is already yours".
 
   Coverage the trace found missing and this stage added: the three `__result`
   emission sites fire ZERO times across the suite, because nothing in the corpus

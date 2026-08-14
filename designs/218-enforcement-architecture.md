@@ -535,5 +535,17 @@ M1/M3 did not retire, as stage 3 recorded: they are stamped by `_read_field`'s
 legacy branch, which is alive for exactly the deferred families. They go with the
 last of them, in the same landing that deletes the forget funnel and this gate.
 
+**THE CITATION GATE COVERS THEM TOO (lead's stage-4 contract extension).** The
+same rule and the same script: every site stamping `frame_place_read` or
+`frame_owning_read` names the deferral keeping it alive, as a `DEFERRED:` comment
+the gate parses. The consumer side — the checkpoint's skip, codegen's retains —
+cites nothing, because it is the other half of the same mechanism and deletes
+with the emitters. EIGHT stamp sites survive with citations; the NINTH was
+deleted, and finding it is the argument for a gate over a comment sweep: `move
+o!` re-applies its `!` above whatever `_read_field` returned, and on a migrated
+field that is `self.o.take()` — an owned temporary, where design 131 already
+rules the payload read is the value being yours. The mark was asserting past a
+rule that answers correctly.
+
 One finding, pre-existing and filed rather than worked around: DF-218n, an
 explicit `__saw_drive(f())` inside a body that itself suspends is an ICE.

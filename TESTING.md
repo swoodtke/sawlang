@@ -320,6 +320,19 @@ to it passes a family from `DEFERRED_FAMILIES`; and the funnel provably REFUSES
 an unknown family, which the gate asserts by calling it with one. A new deferral
 is a design decision and needs the gate file in the diff.
 
+The same rule covers the M1/M3 ownership MARKS — `frame_place_read`, which tells
+the transfer checkpoint ownership is already settled here, and
+`frame_owning_read`, which asks codegen for a retain the checker never saw. Both
+are the transform asserting an answer instead of letting the language give one,
+both delete when the last emitter goes (218a section 6), and until then each
+stamp site carries a `DEFERRED:` comment naming the families that keep it alive.
+The consumer side cites nothing: it is the other half of the same mechanism.
+
+This is what a gate buys over a comment sweep. Extending it turned up a ninth
+stamp on the MIGRATED path — a `move o!` whose `!` sat above `self.o.take()`,
+asserting past a rule (design 131: a payload read out of a call result is
+already yours) that answers correctly on its own. It is deleted.
+
 ### The bench stage
 
 `bench` compiles and runs `devtools/bench/warehouse/` (driver:
