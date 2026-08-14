@@ -1,0 +1,49 @@
+// A generic declaration's TYPE PARAMETER may be spelled like a type the same
+// module declares. The parameter wins inside the declaration, and the type is
+// untouched outside it.
+//
+// This pins DF-212b's kind stamp against its own worst failure mode. A field
+// typed `Cmd` inside `Holder<Cmd>` is the PARAMETER; `SawType.substitute`
+// recognizes a parameter reference through the STRUCT arm (`if self.struct_name
+// in type_map`) and has no such arm for ENUM, because an enum name is nominal.
+// So stamping the field's kind to ENUM — which the enum `Cmd` below would
+// otherwise invite — makes monomorphization skip the field silently and
+// `Holder<Int>` carries an enum-typed one. `_stamp_annotation_kind` takes the
+// type-parameter names in scope for exactly this reason.
+//
+// Every form here compiled before the stamp landed and must keep compiling.
+// EXPECT: success
+// EXPECT-OUTPUT:
+// holder 7
+// holder s
+// slot 3
+// idn 9
+// cmd ok
+enum Cmd {
+    case Build
+}
+
+struct Holder<Cmd> { v: Cmd }
+
+enum Slot<Cmd> {
+    case Full(v: Cmd),
+    case Empty
+}
+
+func idn<Cmd>(v: Cmd) -> Cmd { v }
+
+func main() {
+    let h = Holder<Int>(v: 7)
+    print("holder {h.v}")
+    let g = Holder<String>(v: "s")
+    print("holder {g.v}")
+    let s = Slot<Int>.Full(v: 3)
+    match s {
+        case Full(n) -> print("slot {n}"),
+        case Empty -> print("empty")
+    }
+    print("idn {idn<Int>(9)}")
+    match Cmd.Build {
+        case Build -> print("cmd ok")
+    }
+}

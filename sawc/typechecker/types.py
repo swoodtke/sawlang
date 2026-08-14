@@ -98,7 +98,7 @@ class TypeUtilsMixin:
         "resolved_symbol", "target_symbol",
     ))
 
-    def _stamp_annotation_kind(self, written, here) -> None:
+    def _stamp_annotation_kind(self, written, here, type_params=()) -> None:
         """Correct a written annotation's KIND in place, in the DECLARING
         module's own view (DF-212b).
 
@@ -138,12 +138,23 @@ class TypeUtilsMixin:
         matters because the front half re-enters the same AST (the place
         lowering and the coroutine transform both do).
 
+        `type_params` is the set of TYPE-PARAMETER names in scope at this
+        annotation, and it is load-bearing rather than defensive. A parameter
+        may be spelled like a type this module declares — `struct Holder<Cmd>
+        { v: Cmd }` beside an `enum Cmd` — and the field's `Cmd` is then the
+        PARAMETER, not the enum. `SawType.substitute` matches a parameter
+        reference through the STRUCT arm (`if self.struct_name in type_map`)
+        and has no such arm for ENUM, since an enum name is nominal; flipping
+        the kind would make monomorphization silently skip the field and
+        `Holder<Int>` would carry an enum-typed one. Probed: without this the
+        program above stops compiling.
+
         ENTRY POINT (obligation 1): `_canonicalize_module_types` only, which is
         itself reached from `check_program` (single-file + the builtins) and
         `check_module` (per module). One walk, one context, one answer.
         """
         name = written.struct_name
-        if not name or '.' in name:
+        if not name or '.' in name or name in type_params:
             return
         ns = getattr(self, 'namespace', None)
         if ns is None:
@@ -199,7 +210,7 @@ class TypeUtilsMixin:
 
         seen = set()
 
-        def visit(obj, mod=None):
+        def visit(obj, mod=None, tparams=frozenset()):
             if obj is None or isinstance(obj, (str, int, float, bool)):
                 return
             key = id(obj)
@@ -213,8 +224,10 @@ class TypeUtilsMixin:
                     obj.struct_name = self._canonical_type_name(
                         obj.struct_name, here)
                     # DF-212b: the identity is settled, so settle the KIND too,
-                    # while this module's view is the one in force.
-                    self._stamp_annotation_kind(obj, here)
+                    # while this module's view is the one in force. `tparams`
+                    # keeps a parameter spelled like one of this module's types
+                    # out of it — that name is the PARAMETER.
+                    self._stamp_annotation_kind(obj, here, tparams)
                 if obj.enum_name:
                     obj.enum_name = self._canonical_type_name(
                         obj.enum_name, here)
@@ -224,21 +237,32 @@ class TypeUtilsMixin:
                 for child in (obj.element_types, obj.inner_type, obj.type_args,
                               obj.array_element_type, obj.param_types,
                               obj.func_return_type):
-                    visit(child, mod)
+                    visit(child, mod, tparams)
                 return
             if isinstance(obj, (list, tuple, set)):
                 for item in obj:
-                    visit(item, mod)
+                    visit(item, mod, tparams)
                 return
             if isinstance(obj, dict):
                 for item in obj.values():
-                    visit(item, mod)
+                    visit(item, mod, tparams)
                 return
             if dataclasses.is_dataclass(obj):
                 seen.add(key)
                 own_file = getattr(obj, 'source_file', None)
                 if own_file:
                     mod = self._vis_module_for_source(own_file)
+                # DF-212b: a generic declaration's parameters are in scope for
+                # everything under it, and they NEST (a generic method inside a
+                # generic extension). Accumulated on the way down so the kind
+                # stamp never mistakes `Cmd` in `struct Holder<Cmd>` for the
+                # module's `enum Cmd`.
+                own_params = getattr(obj, 'type_params', None)
+                if own_params:
+                    names = {tp.name for tp in own_params
+                             if getattr(tp, 'name', None)}
+                    if names:
+                        tparams = tparams | names
                 # A TRAIT reference spelled as a bare string, not a `SawType`:
                 # a type-parameter bound (`<T: Seed>`), a trait's parents, a
                 # declared conformance list. A trait carries an identity like
@@ -264,7 +288,7 @@ class TypeUtilsMixin:
                 for f in dataclasses.fields(obj):
                     if f.name in self._CANON_SKIP_FIELDS:
                         continue
-                    visit(getattr(obj, f.name, None), mod)
+                    visit(getattr(obj, f.name, None), mod, tparams)
                 return
 
         visit(module_ast)
