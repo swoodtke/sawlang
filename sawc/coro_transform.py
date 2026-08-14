@@ -1345,8 +1345,9 @@ def _close_embed_marks(decls):
 # criterion as "emission count hits ZERO", which pre-dates the deferred families
 # stages 1-3 measured. The honest form, and what the gate checks:
 #
-#   * every `__saw_forget` this file emits goes through `_forget_call`, which is
-#     the only place in `sawc/` that spells the name;
+#   * every `__saw_forget` this file emits goes through `_forget_call`, the only
+#     EMISSION site in `sawc/` (the builtin's registration, its typecheck and
+#     its lowering name it too — those are the consumer half);
 #   * `_forget_call` will not emit without a FAMILY — one of `DEFERRED_FAMILIES`
 #     — so an emission cites the deferral that kept its field on the legacy
 #     encoding, and an emission on a MIGRATED field is a hard error;
