@@ -119,10 +119,13 @@ full write-ups are in the BRANCH's copy of this brief.
   heap POINTER); `main() -> Result<Int, Oops>` emits a struct-return
   `@main` against a C ABI expecting int (exit 138); `-> Int` works by
   ABI accident (i64 vs i32) on arm64/x86-64. LANGUAGE_SPEC.md documents
-  no `main` rule at all. NEEDS A USER RULING at the fix brief: which
-  return types `main` may legally have (`-> Result` is the spelling
-  users will reach for once `-> Int` propagates) — then the diagnostic
-  and the one-funnel i32 conversion land together with DF-220b's fix.
+  no `main` rule at all. **RULED (user, Aug 14): `main` may return
+  exactly `Void`, `Int`, `Result<Void, E>`, or `Result<Int, E>`;
+  every other return type is a compile error naming the four.** Exit
+  mapping at ONE codegen funnel (with DF-220b's fix): Void → 0, Int →
+  the value (POSIX & 0xff), Ok(Void) → 0, Ok(n) → n, Err(e) → print
+  the error, exit 1. The diagnostic and the funnel land in the
+  DF-220a/b fix brief; LANGUAGE_SPEC gains the `main` rule.
 
 Post-fix path: rebase the branch onto fixed main, re-run unit-2's N=20
 replay leg (currently blocked on DF-220a), re-gate (expect reuse GREEN
