@@ -396,8 +396,14 @@ obligation-2 consumer sweep before dispatch. Gates 218 stages 1-2.
     same pin lists, reopened because the std struct is now present. This is
     the design-82 exclusion boundary meeting design 144 identity: exclusion is
     the language's answer to name reuse, and a type the compiler must always
-    emit cannot be excluded. Wants a ruling — a qualified codegen identity for
-    the frame types, or a name no user program competes for.
+    emit cannot be excluded. **RULED (user, Aug 14 morning): QUALIFIED CODEGEN
+    IDENTITY** — the frame module's types compile under their design-144
+    identity (`Slot$m$std_compiler_frame` as the codegen base symbol);
+    generated references, monomorphization keying, and method mangling all
+    resolve by identity, never bare name — the Poll mechanism extended from
+    references to the FULL compilation. User `Slot` (struct or enum) owns the
+    bare name completely. Name-reservation rejected (breaks design 82's
+    pinned promise; `__` names violate ruling 11's spellability).
   - **DF-218f — a CALL ARGUMENT does not auto-wrap to `Result`, while an
     assignment does.** `func takes(v: Result<Int, MyErr>)` refuses `takes(5)`
     ("argument `v` expects `Result<Int, MyErr>` but got `Int`"); the same
@@ -408,7 +414,16 @@ obligation-2 consumer sweep before dispatch. Gates 218 stages 1-2.
     (`return v.len()` from a `-> Result<Int, E>` body), and `put` takes its
     value as an argument, so migrating the slot would make the transform
     re-derive a wrap it is supposed to inherit. Repro
-    `.build/scratch/framecheck/f7.saw`.
+    `.build/scratch/framecheck/f7.saw`. **RULED (user, Aug 14 morning):
+    EXTEND AUTO-WRAP TO CALL ARGUMENTS** — Result gains the argument
+    position Optional already has (the asymmetry was unprincipled; any
+    hides-mistakes argument applies equally to positions the language
+    already accepts). Fixes the user-facing wart AND the __result rows in
+    one move; the transform stays dumb (`put(v)` just works). Conformance
+    rows owed for both payload kinds at the argument position; composes
+    with unit 4's planned elaboration of ALL wrap positions to explicit
+    `Ok(e)` constructor AST (this extends a list that gets desugared
+    wholesale, not a mechanism we deepen).
 
   Recorded with them, from building it: FOUR census families proved
   wrong-shaped against reality and are deferred with reasons, not preference.
