@@ -789,6 +789,65 @@ all.
   `sawc/std/taskgroup.saw` already uses. Superseded as unit 4's actual blocker
   by DF-212b below, which rules out passing a closure to the helper at all.
 
+- **DF-212b is FIXED (Aug 13).** The pin
+  (`examples/crossmodule_embed_type_identity.saw`) is EXPECT success, and the
+  census found the finding was a CLASS with TWO mechanisms, each with its own
+  position matrix test:
+  - **Unit 1 — the declaration annotation's KIND was never settled.** The two
+    `Cmd`s agreed on identity and disagreed on KIND: the expected side was the
+    struct FIELD's raw annotation, still carrying the parser's default
+    `TypeKind.STRUCT`. `_types_compatible` bridges that gap by ASKING A
+    NAMESPACE (`has_enum`), and the entry namespace reaches a provider's enum
+    only DEEP — so the identical pair of types answered True, True, True,
+    FALSE across the four comparisons a compile makes, the last one inside the
+    spliced body. `_stamp_annotation_kind` (typechecker/types.py) settles the
+    kind inside `_canonicalize_module_types`, the funnel that already settles
+    the design-144 NAME half per module, in place on the `SawType` objects the
+    symbol tables share. Matrix:
+    `examples/crossmodule_embed_annotation_positions.saw`.
+  - **Unit 2 — a TYPE-NAME head is not an opening.** `Cmd.Build`'s head names a
+    type, is never checked as an expression, and so carries no `resolved_type`;
+    design 210's `_close_embed_marks` read that absence as an opening and
+    cleared the enclosing subtree's marks, re-running DF-206e. Three shapes
+    failed and now pass — `take(Cmd.Build)`, `idn<Cmd>(Cmd.Build)`, and
+    `deeper.deep_value()`, the last being the ``undefined variable `builder```
+    shape `_check_preserved_embed`'s own docstring names. `_is_type_name_base`
+    (coro_transform.py) is the predicate, and it is the ABSENCE itself rather
+    than a fourth copy of the ~10 family-2 markers the three type-name ladders
+    stamp between them. Matrix:
+    `examples/crossmodule_embed_type_name_head.saw`.
+  - **Unit 3 — the stamp must not eat a TYPE PARAMETER's name.** A regression
+    unit 1 introduced, found by probing its own worst failure mode rather than
+    by a test: `struct Holder<Cmd> { v: Cmd }` beside an `enum Cmd` stopped
+    compiling. `SawType.substitute` recognizes a parameter reference through
+    the STRUCT arm and has none for ENUM (an enum name is nominal), so the flip
+    made monomorphization skip the field in silence. The walk now accumulates
+    the type-parameter names it descends through, and they nest. Pin:
+    `examples/generic_type_param_shadows_type_name.saw`, verified to pass both
+    BEFORE unit 1 and after unit 3.
+  Reuse verdict on `type_identity.py` (218 unit 1's Poll fix): NOT reused and
+  not needed — the identity half was already correct on both sides; the gap was
+  purely the kind. See DF-210c for what is still unstamped.
+  The original entry follows, unchanged.
+
+- **DF-212c (RECORDED, pre-existing, found while fixing DF-212b) — a generic
+  EXTENSION whose type parameter is spelled like a module type name loses every
+  method.**
+  ```saw
+  enum Cmd { case Build }
+  struct Holder<Cmd> { v: Cmd }
+  extension Holder<Cmd> { func get(&self) -> Cmd { self.v } }
+  h.get()   // error: type `Holder` has no method `get`   hint: no methods defined
+  ```
+  The struct, enum-payload and free-function forms of the same collision all
+  work (pinned by `examples/generic_type_param_shadows_type_name.saw`); only the
+  extension form does. Bisected to BOTH sides of DF-212b's landing — identical
+  failure before and after — so it is not that fix's doing and was left alone
+  under stop-don't-workaround. Suspicion: extension registration keys the
+  specialization on the canonicalized parameter name, which the collision maps
+  onto the enum's identity. The "no methods defined" hint says the extension
+  registered under a key the call site does not compute.
+
 - **DF-212b — RESTATED Aug 13 by design 213 units 5-7: the CLOSURE IS
   INCIDENTAL, and so is the "second identity" reading.** The minimized repro
   (`examples/crossmodule_embed_type_identity.saw` + `examples/modules/
@@ -1174,14 +1233,32 @@ Findings, all fixed:
   ever visibly broken, which is why the fix is ONE authority for both:
   `_store_binding_in_slot` asks `Namespace.read_policy` (design 193's funnel) and
   moves exactly when the read consumed. Both spellings balance now.
-- **DF-210c (RECORDED, no action) — the declaration-time AST is not FULLY
-  annotated.** Several node kinds carry no `resolved_type` — `StringInterpolation`
-  and its `FormatPlaceholder`s among them — so "declaration-time annotated" and
-  "fully annotated" are not yet the same statement. Design 210 does not need them
-  to be (`_close_embed_marks` un-marks any subtree holding one, and it takes the
-  ordinary path), but a future separate-compilation interface would, and the
-  astgraft gate does not catch it: it polices whether a stamped attribute is
-  DECLARED, not whether every node is stamped.
+- **DF-210c (PARTIALLY DISCHARGED Aug 13 by DF-212b) — the declaration-time AST
+  is not FULLY annotated.** Several node kinds carry no `resolved_type` —
+  `StringInterpolation` and its `FormatPlaceholder`s among them — so
+  "declaration-time annotated" and "fully annotated" are not yet the same
+  statement. Design 210 does not need them to be (`_close_embed_marks` un-marks
+  any subtree holding one, and it takes the ordinary path), but a future
+  separate-compilation interface would, and the astgraft gate does not catch it:
+  it polices whether a stamped attribute is DECLARED, not whether every node is
+  stamped.
+  DF-212b turned this from a note into a bug and closed the two positions that
+  bit. **NOW STAMPED**: (a) the KIND of a written type annotation, in the
+  declaring module's own view (`_stamp_annotation_kind`) — which covers the two
+  reachable ones of design 194's three RAW declaration slots, a struct FIELD's
+  type and an enum PAYLOAD's type, at every depth (bare, inside a generic
+  argument, inside an optional); (b) a member access's TYPE-NAME or
+  MODULE-QUALIFIER head, which is not stamped but is now correctly EXEMPT from
+  the closedness test (`_is_type_name_base`) — an exemption, not an annotation,
+  because the head is never asked anything either.
+  **STILL UNSTAMPED**, each verified by probe: `StringInterpolation` and
+  `FormatPlaceholder` (the original text's example — a subtree holding one still
+  takes the ordinary re-check path, which is sound and merely slower); the third
+  RAW declaration slot, a `type R = T` alias RHS, whose kind is stamped by the
+  same walk but which has NO reachable cross-module-embed repro, so the coverage
+  is claimed by construction rather than by a test; and the qualified SPELLING
+  in those same three slots, which `_stamp_annotation_kind` deliberately skips
+  (`'.' in name`) and which stays pinned by DF-194a's own xfail.
 - **DF-210d (RECORDED, no action) — `ForceUnwrap.frame_move_read` is stamped and
   declared but has no reader.** Its documented job ("the read is a transfer even
   for a NoCopy payload") is done by the `frame_place_read` early return in
