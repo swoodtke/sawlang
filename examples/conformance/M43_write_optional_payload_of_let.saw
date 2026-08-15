@@ -1,0 +1,21 @@
+// Conformance row M43 — writing the PAYLOAD of a `let` optional is refused
+//
+// An optional's payload lives inside the binding, so `o!.n = 5` on a `let o`
+// writes a `let` exactly as `p.x = 5` does. It compiled and printed 5: the
+// root walk that answers the field write broke at the `!` hop, one node short
+// of the binding it was looking for — the same one-hop-short mechanism as
+// DF-225j's array cells, on the other projection.
+//
+// Design 227 unit 3's merged walk is transparent through a payload projection
+// in both spellings, `!` and `?.`, which is what makes this row and M39 the
+// same rule at two roots.
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: cannot assign to field of immutable variable `o`
+
+struct Cell { n: Int }
+
+func main() {
+    let o: Cell? = Cell(n: 1)
+    o!.n = 5
+    print(o!.n)
+}

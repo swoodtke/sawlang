@@ -6,7 +6,7 @@ either a file in this directory or an existing `examples/` test that already
 asserts the same rule at the same position — this table is the record of which,
 and the dedup decisions are meant to be audited from it.
 
-**119 rows carry a file here; 198 are covered elsewhere.** (The audit's 247 plus
+**121 rows carry a file here; 198 are covered elsewhere.** (The audit's 247 plus
 the rows later briefs added: W02-W05, design 194 unit 4; W06-W19, design 195
 unit 1; X41-X45, design 199 unit 1; M31-M35, design 200 unit 1; V26-V30,
 design 202 unit 1; B09-B12, design 204 unit 1; K14-K20, design 201 unit 1;
@@ -17,7 +17,8 @@ V31, design 219 unit A2; K27-K28, design 218 unit 1; V32-V35, design 219 wave B;
 V36-V47, K30, K31 and U30, design 219 wave C; R39-R42 and M36, design 218
 stage 3; G01-G15, design 221 unit B1; G16-G18, design 221 unit B4's return-site
 sweep; K32, design 222 unit 1; K33-K39, design 223's suspending-method position
-matrix; M37-M42, design 227 unit 1.)
+matrix; M37-M42, design 227 unit 1, and M43-M44, the two siblings its unit-3
+walk closed.)
 
 ## How to read it
 
@@ -105,6 +106,8 @@ Claim source: spec 2 *Variables and Mutability* + 4 *Reference Types*; designs 4
 | M40 | `o?.n += v`, the compound spelling of design 111's chain assignment (DF-225l) | `M40_compound_chain_assign.saw` | 227 — the parser recognized an OptionalEvalExpr target on the plain branch only |
 | M41 | the indirection carve-out at every accessor spelling: `Vector`, `Map`'s `m[k]!`, a named accessor, `Data`, a nested chain | `M41_shared_self_indirection_carveout_spellings.saw` | 200 — the accept side of the DF-225g sweep's table, and design 227's must-not-flip pin |
 | M42 | a `&self` method writing an INLINE `[T; N]` element, both spellings | `M42_shared_self_inline_array_element.saw` | 200 — the refuse side of the same table; the pair the DF-225g scan mistook for a hole |
+| M43 | writing the PAYLOAD of a `let` optional (`o!.n = 5`) | `M43_write_optional_payload_of_let.saw` | 227 — the same one-hop-short walk as M37, on the payload projection |
+| M44 | a `&var self` method reached through an INLINE array element of a `let` root | `M44_var_self_call_through_inline_array_element.saw` | 227 — the RECEIVER half of DF-225j: the write spelling was refused and the method spelling ran |
 
 ## References are parameters only — they can never escape
 

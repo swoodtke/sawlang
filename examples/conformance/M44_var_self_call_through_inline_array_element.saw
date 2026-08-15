@@ -1,0 +1,29 @@
+// Conformance row M44 — a `&var self` method reached through an INLINE array
+// element of a `let` root is refused
+//
+// The receiver half of DF-225j. `h.cells[0].n = 5` and `h.cells[0].bump()` are
+// one mutation under two spellings, and the root question is the same one: the
+// element lives inside `h`, and `h` is immutable. The write spelling was
+// refused (row M37); the METHOD spelling ran, and the increment landed in the
+// caller's `let` — it printed 2.
+//
+// Both ask design 227 unit 3's one root walk now, so a mutation cannot pick a
+// spelling and get a different answer. The heap side is untouched: a
+// `&var self` call on a `Vector` element of a `let` root is still the place
+// system's exclusive-window refusal, naming the same root.
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: cannot call `&var self` method `bump` on immutable variable `h`
+
+struct Cell { n: Int }
+
+extension Cell {
+    func bump(&var self) { self.n = self.n + 1 }
+}
+
+struct Holder { cells: [Cell; 2] }
+
+func main() {
+    let h = Holder(cells: [Cell(n: 1), Cell(n: 2)])
+    h.cells[0].bump()
+    print(h.cells[0].n)
+}

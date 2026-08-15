@@ -1663,68 +1663,75 @@ class StatementsMixin:
                                          "a `guard let` binding",
                                          stmt.line, stmt.column)
 
-    def _assign_target_immutable_array(self, target):
-        """If an lvalue chain indexes into an immutable fixed array, return that
-        array's name; else None.
+    def _immutable_lvalue_root(self, target):
+        """`(name, VariableInfo)` when this lvalue reaches an IMMUTABLE root
+        binding — a `let`, a `for`/`if let` binding, or a shared `&` reference —
+        else None. THE root walk (design 227 unit 3).
 
-        Walks down through MemberAccess/TupleIndex/ArrayIndex nodes. The first
-        index into a `let`-bound fixed array (identifier container) is the
-        offending write — mirrors the bare `a[0] = x` element-mutability rule so
-        a field reached through such an element (`a[0].v = x`) is rejected the
-        same way.
+        It used to be two, each stopping one hop short of the other's territory
+        (DF-225j): `_assign_target_immutable_array` demanded a bare Identifier
+        container, so `h.arr[0] = 9` reached nothing, and
+        `_assign_target_immutable_struct_root` broke at the first ArrayIndex, so
+        `a[0].n += 5` reached nothing either. Between them, `let` immutability
+        of inline array storage was a property of the write's SHAPE — and two of
+        the gaps let a callee mutate the caller's array through a SHARED `&`
+        parameter.
+
+        One walk, transparent through the same hops `_self_storage_type` takes:
+        MemberAccess, TupleIndex, ForceUnwrap/BindOptional (an optional payload
+        is storage inside its binding, so `o!.n = 5` on a `let` is this rule
+        too) and ArrayIndex. Design 200's INDIRECTION CARVE-OUT is what the hop
+        types are for and it is untouched: an ArrayIndex continues the walk only
+        when its container is an INLINE `[T; N]`, so an element of a `Vector`,
+        a `Map`, a `Data` or an `UnsafePointer` stops it — that storage is not
+        inside the binding, the write reaches whoever owns the buffer, and the
+        place system owns those roots with a diagnostic of its own. Any OTHER
+        hop continues even when its type cannot be resolved, which keeps the
+        refusal conservative where the type walk goes dark.
+
+        Callers: `_reject_immutable_write_root` (the write-target funnel's sixth
+        question, which excludes a bare root of its own — see there), the two
+        `&var self` METHOD-CALL sites and `take()`'s receiver check, which ask
+        the same question about a receiver.
         """
-        expr = target
+        hops = []
+        node = target
         while True:
-            if isinstance(expr, MemberAccess):
-                expr = expr.object
-            elif isinstance(expr, TupleIndex):
-                expr = expr.tuple_expr
-            elif isinstance(expr, ArrayIndex):
-                container = expr.array_expr
-                if isinstance(container, Identifier):
-                    info = self.current_scope.lookup(container.name)
-                    if (info is not None and not info.mutable
-                            and info.type is not None
-                            and info.type.kind == TypeKind.ARRAY):
-                        return container.name
-                expr = container
-            else:
-                return None
-
-    def _assign_target_immutable_struct_root(self, target):
-        """Design 40 item 6 (L11): if a field-assignment lvalue is a chain of
-        MemberAccess/TupleIndex hops reaching a `let`-bound (immutable,
-        non-`&var`) variable, return that variable's name; else None.
-
-        Assigning to a field through an immutable binding
-        (`let p = Point(...); p.x = 5`, nested `p.inner.x = 5`) is rejected
-        just like element assignment on a `let` array. A TUPLE hop is one of
-        these: `let t = (v, 7)` then `t.0 = fresh` or `t.0.push(x)` is the same
-        write through the same `let` (DF-151j — the walk stopped at the tuple
-        projection, so both went unchecked). The walk stops at the first other
-        node: a `self` receiver (SelfExpr) is governed by `&self`/`&var self`,
-        and an array-element base is handled by the array rule — neither is a
-        `let`-binding question.
-        """
-        expr = target
-        while True:
-            if isinstance(expr, MemberAccess):
-                expr = expr.object
-            elif isinstance(expr, TupleIndex):
-                expr = expr.tuple_expr
+            if isinstance(node, MemberAccess):
+                hops.append(node)
+                node = node.object
+            elif isinstance(node, TupleIndex):
+                hops.append(node)
+                node = node.tuple_expr
+            elif isinstance(node, (ForceUnwrap, BindOptional)):
+                hops.append(node)
+                node = node.expr
+            elif isinstance(node, OptionalEvalExpr):
+                node = node.expr
+            elif isinstance(node, ArrayIndex):
+                hops.append(node)
+                node = node.array_expr
             else:
                 break
-        if isinstance(expr, Identifier):
-            info = self.current_scope.lookup(expr.name)
-            if info is None or info.mutable:
-                return None
-            # A `&var` reference parameter is a mutable path to the callee's
-            # value; an immutable `&` reference (or a plain `let`) is not.
-            if (info.type is not None and info.type.kind == TypeKind.REFERENCE
-                    and info.type.reference_mutable):
-                return None
-            return expr.name
-        return None
+        if not isinstance(node, Identifier):
+            # A `self` receiver (SelfExpr) is governed by `&self`/`&var self`,
+            # and anything else is not a binding question at all.
+            return None
+        info = self.current_scope.lookup(node.name)
+        if info is None or info.mutable:
+            return None
+        # A `&var` reference parameter is a mutable path to the caller's value;
+        # an immutable `&` reference (or a plain `let`) is not.
+        if (info.type is not None and info.type.kind == TypeKind.REFERENCE
+                and info.type.reference_mutable):
+            return None
+        current = info.type
+        for hop in reversed(hops):
+            hopped = self._hop_type(current, hop) if current is not None else None
+            if isinstance(hop, ArrayIndex) and hopped is None:
+                return None      # the design-200 carve-out: not inline storage
+            current = hopped
+        return (node.name, info)
 
     def _self_borrow_is_exclusive(self) -> bool:
         """Whether `self` is borrowed EXCLUSIVELY at the point being checked —
@@ -2299,6 +2306,19 @@ class StatementsMixin:
             return True
         return False
 
+    def _immutable_receiver_root(self, receiver):
+        """The immutable root a RECEIVER is reached through, by name, or None.
+
+        The mutation-through-a-receiver half of `_immutable_lvalue_root`: a
+        `&var self` method call, an exclusive place window, and `take()` all
+        write the receiver's storage, so each asks the same root question a
+        write target asks. Reaching one through an inline `[T; N]` element
+        (`h.cells[0].bump()`) went unchecked while the write spelling of the
+        same mutation was refused — the receiver side of DF-225j.
+        """
+        root = self._immutable_lvalue_root(receiver)
+        return root[0] if root is not None else None
+
     def _reject_immutable_write_root(self, target, line: int, column: int,
                                      compound: bool) -> bool:
         """Question 6 of `_check_write_target`: does this lvalue reach an
@@ -2309,8 +2329,16 @@ class StatementsMixin:
         immutable array `a`"); otherwise the noun follows the target's own
         shape, which is what makes `p.x = 5`, `t.0 = 5` and `h.arr[0] = 5` read
         as the different writes they are through the one immutable binding.
+
+        A write of the binding ITSELF (`x = v`, `x += v`) is NOT this rule: it
+        is the target-shape arms' own question, and they answer it with the
+        diagnostics the whole-binding write earns — "cannot assign to immutable
+        variable `x`" for a `let`, design 110's "cannot assign through immutable
+        reference `y`" for a `&T`, and the replacement checkpoint for a `&var`.
         """
-        root = self._write_target_immutable_root(target)
+        if isinstance(target, (Identifier, SelfExpr)):
+            return False
+        root = self._immutable_lvalue_root(target)
         if root is None:
             return False
         name, info = root
@@ -2331,28 +2359,6 @@ class StatementsMixin:
         self._error(ErrorKind.IMMUTABLE_ASSIGNMENT,
                     f"{verb} {what}", line, column, hint=hint)
         return True
-
-    def _write_target_immutable_root(self, target):
-        """`(name, VariableInfo)` when this lvalue reaches an immutable ROOT
-        binding THROUGH at least one hop, else None. Unit 3 of design 227 merges
-        the two walks this wraps; the message selection is
-        `_reject_immutable_write_root`'s.
-
-        A write of the binding ITSELF (`x = v`, `x += v`) is not this rule: it
-        is the target-shape arms' own question, and they answer it with the
-        diagnostics the whole-binding write earns — "cannot assign to immutable
-        variable `x`" for a `let`, design 110's "cannot assign through immutable
-        reference `y`" for a `&T`, and the replacement checkpoint for a `&var`.
-        """
-        if isinstance(target, (Identifier, SelfExpr)):
-            return None
-        imm_array = self._assign_target_immutable_array(target)
-        if imm_array is not None:
-            return (imm_array, self.current_scope.lookup(imm_array))
-        imm_root = self._assign_target_immutable_struct_root(target)
-        if imm_root is not None:
-            return (imm_root, self.current_scope.lookup(imm_root))
-        return None
 
     def _check_assign_statement(self, stmt: AssignStatement):
         """Check an assignment statement."""

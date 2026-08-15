@@ -3377,7 +3377,7 @@ class ExpressionsMixin:
         self._reject_var_self_call_on_shared_self(expr, method_info)
         # `&var self` method may not be called on an immutable binding (L11).
         if getattr(method_info, "self_mutable", False) and not method_info.is_init:
-            imm_root = self._assign_target_immutable_struct_root(expr.object)
+            imm_root = self._immutable_receiver_root(expr.object)
             if imm_root is not None:
                 self._error(
                     ErrorKind.IMMUTABLE_ASSIGNMENT,
@@ -6620,7 +6620,7 @@ class ExpressionsMixin:
                      "a temporary is already yours, so read it with `!`"
             )
             return None
-        imm_root = self._assign_target_immutable_struct_root(expr.object)
+        imm_root = self._immutable_receiver_root(expr.object)
         if imm_root is not None:
             self._error(
                 ErrorKind.IMMUTABLE_ASSIGNMENT,
@@ -9035,7 +9035,7 @@ class ExpressionsMixin:
         self._reject_var_self_call_on_shared_self(expr, method_info)
         if ((getattr(method_info, "self_mutable", False) or window_exclusive)
                 and not method_info.is_init):
-            imm_root = self._assign_target_immutable_struct_root(expr.object)
+            imm_root = self._immutable_receiver_root(expr.object)
             if imm_root is not None:
                 what = (f"open an exclusive place window on"
                         if window_exclusive
