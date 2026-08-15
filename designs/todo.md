@@ -634,6 +634,28 @@ sub-agents, one lead), not one lucky repro.
   use, or whether `()`/`Void` unification is the intended design and the
   compiler has the gap.
 
+## Design 226 — UnsafeFuncPointer<F> (DIRECTION + NAME RULED, user, Aug 15; brief unauthored)
+
+The DF-178c fix: entry points and C callbacks get a typed unsafe
+function pointer, WITHOUT making functions first-class values (that
+stays DF-172a's open question). Ruled: the type is
+`unsafe struct UnsafeFuncPointer<F>` (F a function type carrying the
+effect slot — sync only, a suspending body needs a frame a bare pointer
+cannot carry). TWO construction forms: (1) a ZERO-CAPTURE closure
+literal COERCES in UnsafeFuncPointer-expected position — its body is
+emitted under F's bare ABI (no env parameter; the Rust non-capturing
+coercion precedent) — zero-alloc by construction, no overload
+ambiguity, F inferred from context; any capture INCLUDING implicit
+ones (self, enclosing locals — the DF-216a lesson: count what the body
+names) refuses with a teaching diagnostic ("pass state through the arg
+parameter"); (2) a named, unambiguous, non-generic function (overload
+set >1 → annotate to select; generics refused v1). Kernel side:
+`create_thread(entry: UnsafeFuncPointer<(UInt) sync -> Never>, ...)`
+replaces the M2 image-entry stub; entry PC validated against the RX
+grant → FAULT per the faults ruling. Also unlocks hosted C-callback
+FFI. Small brief: parser/typechecker coercion + one codegen path +
+the sysapi overload; rides after the current queue.
+
 ## The next queue — designs 195-202 + 153 (ALL RULED Aug 10, awaiting dispatch)
 
 Every open ruling from the overnight run plus the parked backlog was
