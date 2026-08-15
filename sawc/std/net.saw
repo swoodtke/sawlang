@@ -44,8 +44,12 @@ extern "C" {
     func __saw_rt_tcp_connect_check(fd: Int, addr_be: Int, port: Int) -> Int
     func __saw_rt_tcp_read(fd: Int, buf: UnsafePointer<Int8>, len: Int) -> Int
     func __saw_rt_tcp_write(fd: Int, buf: UnsafePointer<Int8>, len: Int) -> Int
-    // The host errno -> portable SysError tag mapper (rt/*/net_os.saw); backs
-    // IoError.from_errno for the file/directory/env modules (design 117).
+    // The host errno -> portable SysError tag mapper (rt/*/net_os.saw). Its one
+    // std caller is `IoError.from_errno`, which has no callers of its own —
+    // file/directory/env build their errors from the tag their op returned. See
+    // that factory's note and DF-215e: rt/ABI.md calls this seam
+    // runtime-INTERNAL, so reading it at any distance from the failing op is the
+    // clobber the design-117 status convention exists to make impossible.
     func __saw_rt_last_syserror() -> Int
 
     // design 184: hostname resolution, and the ONLY seam in std that is
@@ -407,9 +411,16 @@ extension IoError {
         self.code
     }
 
-    // Public factory capturing the current failure as a portable SysError tag —
-    // the cross-module way for other hosted std modules (file/directory/env,
-    // design 92) to build an IoError right after a failing libc call.
+    // Capture the CURRENT failure as a portable SysError tag. VALID ONLY on the
+    // statement after a failing `__saw_rt_*` op: it reads the calling thread's
+    // errno through a seam rt/ABI.md documents as runtime-INTERNAL, and anything
+    // running in between clobbers it (the v1 `tcp_listen` bug — a `close()`
+    // between a failed `bind()` and the errno read).
+    //
+    // NO CALLERS, and the comment that used to sit here claimed the wrong job:
+    // file/directory/env build their errors with `of(syscall, -e)` on the tag
+    // their op already returned, which needs no errno read at all and has been
+    // the shape since design 117. Whether this factory should exist is DF-215e.
     public func from_errno(syscall: String) -> IoError {
         IoError(syscall: syscall, code: __saw_rt_last_syserror())
     }

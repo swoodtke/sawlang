@@ -1528,7 +1528,8 @@ Local Network access PER APP, so an unapproved binary gets
 a freshly `cc`-built C binary behaves identically. Every future net
 dogfood program on this machine will hit it.
 
-Four findings, all probe-reduced; evidence and repros in the brief:
+Four findings from the attempt, all probe-reduced (evidence and repros in the
+brief), plus one the DF-215a fix turned up:
 - ~~**DF-215a — std.net can name NO remote-connect failure.**~~ **CLOSED**
   (Aug 15). The five off-loopback errnos are mapped on both hosts to five
   new SysError tags (17-21), `IoError.errno()` is now `code()` because it
@@ -1541,6 +1542,15 @@ Four findings, all probe-reduced; evidence and repros in the brief:
   raw-backed `SysError` enum in std.net is the shape; it wants a ruling on what
   an unknown tag becomes, since `from(raw:) -> E?` answering `None` would hide
   the very cause this finding was about.
+- **DF-215e (OPEN, found while fixing DF-215a) — `IoError.from_errno` is a
+  public std factory over a seam rt/ABI.md calls runtime-INTERNAL.** It reads
+  errno through `__saw_rt_last_syserror`, which is sound only on the statement
+  after a failing `__saw_rt_*` op; a public entry point invites the read at
+  arbitrary distance, which is the v1 `tcp_listen` clobber the design-117 status
+  convention exists to make impossible. Zero callers, and its comment claimed a
+  job (backing file/directory/env) those modules stopped needing at 117. Comments
+  corrected; whether the factory should exist is a ruling, since deleting a
+  `public` std member is a surface change. `sawc/std/net.saw:413`.
 - **DF-215b — `move` of a frame local in a nested block's TAIL
   expression is refused in a suspending body.** 25-line repro, ready to
   become a cited pin; the diagnostic's advice does not apply.
