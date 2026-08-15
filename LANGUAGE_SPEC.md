@@ -5496,6 +5496,15 @@ anti-suspension boundary, so it is `sync`) plus `wake_reason(&self) sync -> Int`
   conformance), and a synthesized `__spawn_f` helper builds the frame, erases it
   into a `Box<any Resumable>`, enqueues it, and returns a typed handle. A `Void`
   task is fine too: it returns a result-less `VoidTaskHandle` (design 102 item 1).
+  `spawn` works through a shared reference to the group, and enqueueing mutates
+  the queue through it. That is safe for a different reason than `Channel.send`'s
+  (which is `Sync`, lock-backed for true parallelism): a `TaskGroup` is `NoMove`
+  and not `Send`, so it is pinned to its owning thread — every `spawn` and
+  `wait` runs on one thread, interleaved cooperatively, and mutation through
+  `&` cannot race. Under `threads: N` the worker handoff rides the group's
+  internal run-queue mutex; the user surface stays single-threaded. A task may
+  spawn siblings onto its own group while the group is being driven, and no
+  `var` binding is required.
 - **One function, several roles.** A function may be spawned, `__saw_drive`n and
   embedded as another frame's sub-frame in the same program. The spawn role
   reaches its result and cancel word through the group-owned cell (`__cellp`)

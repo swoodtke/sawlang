@@ -201,17 +201,23 @@ suite-verified. The unit-1 cell-write deferral is RATIFIED as
 FAM_WINDOW_MOVE/DF-218h family work. The unit-2 reference choice spun off
 as its own question:
 
-- **DQ-222a (design question, unruled) — generated call sites understate
-  mutation.** The drive/spawn rewrite emits `&group`/`&c` while the callee
-  mutates through the reference (zero-delta with the old cast, which was
-  equally `mutable=False` — nothing regressed). The honest stricter
-  spelling would demand `&var` at generated sites and therefore `var`
-  bindings on receivers the corpus writes as `let`. Tension: the
-  reader-visibility doctrine (call-site `&var` is load-bearing signal)
-  vs. "driving a suspending method" arguably being interior mutation the
-  way `&self` methods with executor state already are. Wants a ruling
-  session, not a fix agent; independent of the 222 branch by
-  construction.
+- **DQ-222a (RULED + CLOSED, user, Aug 15) — generated call sites keep
+  `&`; `spawn`'s mode is now a stated position, not an accident.** The
+  ruling session established: `spawn` is COMPILER SYNTAX with no
+  declaration, so the language had never taken a position on its mode.
+  Ruled: `spawn` works through a shared reference. The justification was
+  refined mid-ruling by the user's Sync question — TaskGroup is NOT in
+  the Sync class with Channel/Mutex/SpinLock (all UnsafeSync,
+  parallelism-safe by synchronization): it is NoCopy + NoMove and not
+  Send, so its `&self` surface cannot race because it is PINNED to its
+  owning thread (default engine has `lock: None`; the `threads: N`
+  run-queue mutex serves only the internal worker handoff). Two
+  different reasons `&`-mutation is safe, one class of "cannot race" —
+  and for a thread-pinned type, `&var`-tightening polices a hazard that
+  structurally cannot exist. LANGUAGE_SPEC's TaskGroup section now
+  states the mode and its reason. Optional internal-consistency cleanup
+  (generated sites mirroring a method's declared self-mode) noted as
+  riding any future transform touch; nothing else owed.
 
 ## Design 223 — suspending-method positions (AUTHORED Aug 14, two user questions open)
 
@@ -702,9 +708,17 @@ obligation-2 consumer sweep before dispatch. Gates 218 stages 1-2.
   coroutine transform rewrites its body before `_rewrite_drive_sites` walks it;
   the drive site's argument is no longer the `FunctionCall` that rewrite reads,
   and the compiler dies `AttributeError: 'MemberAccess' object has no attribute
-  'name'`. Reproduced unchanged on the stage-3 tree. The ruling it owes is which
-  answer is right — both roots run, or a clean "`__saw_drive` may not appear in
-  a suspending body" — since `__saw_drive` is design 44's test-only entry.
+  'name'`. Reproduced unchanged on the stage-3 tree.
+  **RULED (user, Aug 15): CLEAN REFUSAL** — `__saw_drive` may not appear in
+  a suspending body; the diagnostic teaches the blessed spelling ("this
+  body suspends; call `f()` directly — suspending calls embed here").
+  Grounds: `__saw_drive` is design 44's test-only entry, so the refusal
+  costs zero real programs, and both-roots-run would design non-ceding
+  nested-drive semantics (fairness, op-budget bypass) for a spelling only
+  tests write; if a deliberate sync-bubble capability is ever wanted it
+  gets its own designed spelling. Fix rides the 120-matrix ICE brief
+  (217f/g family — same statement-position rewrite territory); the pin's
+  EXPECT flips to the refusal text.
   Found by design 218 stage 4 writing coverage for the two `__result`
   encodings the migration defers.
   PIN: `examples/drive_site_in_suspending_body.saw` (XFAIL)
