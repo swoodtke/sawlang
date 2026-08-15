@@ -229,10 +229,20 @@ as its own question:
   OWED (ride the next conformance batch): (a) the same-thread
   `Arc<Box<TaskGroup>>` ACCEPT row — pins the capability so a future
   change cannot silently take it; (b) the MT-crossing refusal with the
-  real diagnostic; (c) `static` TaskGroup refusal. ANNOTATION: DF-219c
-  (spawn capture audit not bound-aware) is LOAD-BEARING for this whole
-  story — the MT spawn gate is the one fence; its bound-blindness is
-  now a soundness-adjacent gap, priority up a notch.
+  real diagnostic; (c) `static` TaskGroup refusal; (d) the Mutex tower
+  `Arc<Mutex<Box<TaskGroup>>>` refusal (probe_arc_tg9 — Mutex's
+  `T: Send` bound correctly computed, conformance withheld, refused).
+  ANNOTATION: DF-219c (spawn capture audit not bound-aware) is
+  LOAD-BEARING for this whole story — the MT spawn gate is the one
+  fence; its bound-blindness is now a soundness-adjacent gap, priority
+  up a notch. NARROWED Aug 15: probe_arc_tg9 shows the
+  conditional-conformance bound IS consulted for a typed PARAMETER on
+  the MT spawn path (this cell is green) — 219c's gap is elsewhere
+  (its filed shape: generic-bounded captures). Diagnostics-batch rider:
+  the MT refusal's hint suggests "Arc (and Mutex for mutation)" even
+  when refusing an `Arc<Mutex<...>>` — for a non-Send payload no
+  wrapper helps and the hint should say the payload itself must be
+  Send.
 
 - **DQ-222b (design question, unruled; found by the Aug-15 probes) —
   an Arc'd TaskGroup has refcount lifetime, not scope lifetime.**
