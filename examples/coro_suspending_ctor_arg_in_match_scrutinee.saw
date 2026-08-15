@@ -1,19 +1,15 @@
-// XFAIL: DF-217f a suspending call inside a constructor that IS a match
-// scrutinee reaches codegen unhoisted and ICEs (`Undefined function: mk_s`)
+// A suspending call inside a CONSTRUCTOR that is a `match` scrutinee — both
+// spellings, an enum case's labeled payload and a struct init.
 //
-// Sweep S2 rows a7/a8 and the corodiff lane's first new finding. The coro
-// transform's child-position funnel (`_uncond_children`) is entered from a
-// hand-enumerated set of statement classes, and a `match` scrutinee is not one
-// of them — so the suspending call in the scrutinee's constructor argument is
-// never lifted into a frame temp and codegen meets a call to a function the
-// transform has already split into resume bodies. Both constructor spellings
-// reach it: an enum case's labeled payload and a struct init.
-//
-// The sync twin of each shape compiles and runs, and hoisting the call by hand
-// (`let x = mk_s(1)` then `match Ev.Has(x: x) { ... }`) works — which is what
-// makes this a missing funnel entry rather than an unsupported position. Fixed
-// alongside the other statement-HEAD gaps (if/while conditions, `&&`/`||` LHS,
-// for-range bounds), which share the entry list.
+// DF-217f, closed by design 224. Sweep S2 rows a7/a8 and the corodiff lane's
+// first new finding. The scrutinee is a container HEAD, and no pass walked one:
+// the call was never lifted into a frame temp, so codegen met a call to a
+// function the transform had already split into resume bodies. Its own note
+// predicted the fix — "fixed alongside the other statement-HEAD gaps (if/while
+// conditions, for-range bounds), which share the entry list" — and that is what
+// `_hoist_container_heads` is. The scrutinee lifts to a `let`, the general ANF
+// hoist then linearizes the constructor's argument out of it, and the sync twin
+// this shape always had is what it compiles to.
 // EXPECT: success
 // EXPECT-OUTPUT:
 // val 1

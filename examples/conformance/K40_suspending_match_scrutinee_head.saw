@@ -1,8 +1,3 @@
-// XFAIL: DF-224a G1/G2 — a channel `receive()` in a `match` scrutinee is
-// neither embedded nor refused and spins at 100% CPU (the narrow scrutinee
-// hoist's predicate omits `is_chan_recv`, and `_collect_calls` never visits a
-// container head). Design 224 is the fix.
-//
 // Conformance row K40 — a suspension in a `match` SCRUTINEE embeds as a frame
 // and cedes to its siblings
 //

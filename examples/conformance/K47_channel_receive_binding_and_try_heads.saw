@@ -1,8 +1,3 @@
-// XFAIL: DF-224a G2 — the narrow hoists' predicate `_call_suspends_expr` omits
-// `is_chan_recv` while its ANF twin includes it, so a channel `receive()` in an
-// `if let`/`guard let`/`try` head is refused where it is expressible and spins
-// at 100% CPU where design 104 already split the binding. Design 224 is the fix.
-//
 // Conformance row K47 — a cooperative channel `receive()` reaches the
 // optional-binding and `try` heads on the same terms a suspending call does
 //

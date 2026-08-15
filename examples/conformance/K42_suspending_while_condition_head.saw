@@ -1,8 +1,3 @@
-// XFAIL: DF-224a G1 — `_collect_calls` never visits a container HEAD, so a
-// suspension in a `while` condition is neither embedded nor refused: a channel
-// `receive()` spins at 100% CPU and a free function / method is a codegen ICE.
-// Design 224 is the fix.
-//
 // Conformance row K42 — a suspension in a `while` CONDITION embeds, cedes, and
 // is RE-EVALUATED every iteration
 //

@@ -1,7 +1,3 @@
-// XFAIL: DF-224a G4 — `_classify_recv` has no `ReturnStatement` arm, so
-// `return ch.receive()` falls past every classifier and is refused as a nested
-// position. Design 224 is the fix.
-//
 // Conformance row K46 — `return <suspension>` is a suspension boundary for ALL
 // THREE suspension kinds, the channel receive included
 //

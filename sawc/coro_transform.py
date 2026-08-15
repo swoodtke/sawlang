@@ -149,7 +149,7 @@ from ast_nodes import (
     structural_fields,
 )
 from type_identity import type_identity as _type_identity
-from ast_walk import (child_nodes, control_blocks, map_nodes,
+from ast_walk import (child_nodes, control_blocks, control_heads, map_nodes,
                       pattern_binding_names)
 
 
@@ -1957,10 +1957,11 @@ class _FrameBuilder:
         return [let_stmt, s]
 
     def _hoist_cond(self, cond):
-        # Only the plain suspending call form is hoistable — a free function or a
-        # method on a concrete receiver (`_call_suspends_expr`, shared with the
-        # match and try hoists).
-        if self._call_suspends_expr(cond):
+        # The plain suspending-call form, of every kind: `_is_suspension_point`
+        # is THE predicate (design 224), shared with the match and try hoists and
+        # with the general ANF hoist. A subject that is not itself a call but
+        # CONTAINS a suspension is the head hoist's (`_hoist_container_heads`).
+        if self._is_suspension_point(cond):
             tmp = f"__hoist{self._hoist_ctr}"
             self._hoist_ctr += 1
             self._hoist_temps.add(tmp)          # DF-210f
@@ -2003,15 +2004,6 @@ class _FrameBuilder:
         for block in control_blocks(s):
             self._hoist_try_block(block)
 
-    def _call_suspends_expr(self, e):
-        """True if `e` is a suspending call — a free function in `_suspends` or a
-        suspending method on a concrete struct receiver."""
-        if isinstance(e, FunctionCall):
-            return e.name in self._suspends and not getattr(e, 'type_args', None)
-        if isinstance(e, MethodCall):
-            return self._method_call_suspends(e)
-        return False
-
     def _maybe_hoist_try(self, s):
         tnode = None
         if isinstance(s, LetStatement) and isinstance(s.value, TryExpr):
@@ -2021,7 +2013,7 @@ class _FrameBuilder:
             tnode = s.expression
         elif isinstance(s, ReturnStatement) and isinstance(s.value, TryExpr):
             tnode = s.value
-        if tnode is None or not self._call_suspends_expr(tnode.expr):
+        if tnode is None or not self._is_suspension_point(tnode.expr):
             return [s]
         inner = tnode.expr
         tmp = f"__trycall{self._try_ctr}"
@@ -2077,7 +2069,7 @@ class _FrameBuilder:
             m = s.value
         elif isinstance(s, ReturnStatement) and isinstance(s.value, MatchExpr):
             m = s.value
-        if m is None or not self._call_suspends_expr(m.matched_expr):
+        if m is None or not self._is_suspension_point(m.matched_expr):
             return [s]
         inner = m.matched_expr
         tmp = f"__match{self._match_ctr}"
@@ -2147,12 +2139,20 @@ class _FrameBuilder:
             if isinstance(s.value, self._ANF_CONDITIONAL):
                 return [s]
             s.value = self._anf(s.value, out, lift_self=False)
-        elif isinstance(s, AssignStatement):
+        elif isinstance(s, (AssignStatement, CompoundAssignStatement)):
             if isinstance(s.value, self._ANF_CONDITIONAL):
                 return [s]
             # An assignment RHS has no top-level supported form (unlike `let x =
             # call()` / `return call()`), so a suspending-call RHS is lifted too:
             # `x = s()` becomes `let __anfN = s(); x = __anfN`.
+            #
+            # design 224 (G3): a COMPOUND assignment takes the same arm, and its
+            # absence is why `n += slow()` was refused as a nested position while
+            # its `n = n + slow()` spelling worked. Lifting the RHS keeps the
+            # order that spelling has — the target is read where the operator is
+            # applied, AFTER the suspension the author wrote to its right — and
+            # gives design 227's chained `x?.n += slow()` the same arm, which it
+            # reaches through the read-modify-writeback it lowers to.
             s.value = self._anf(s.value, out, lift_self=True)
         elif isinstance(s, ReturnStatement):
             if s.value is not None and not isinstance(s.value, self._ANF_CONDITIONAL):
@@ -2189,7 +2189,7 @@ class _FrameBuilder:
         # Otherwise linearize the unconditional children first (evaluation order),
         # then lift this node if it is itself a buried suspending call.
         self._anf_children(expr, out)
-        if lift_self and self._is_suspending_call_node(expr):
+        if lift_self and self._is_suspension_point(expr):
             return self._anf_lift(expr, out)
         return expr
 
@@ -2318,7 +2318,7 @@ class _FrameBuilder:
             # binary op, …), even a SYNC one like `makeT(42).susp()`, is hoisted to
             # a temp so `&__anfN` is well-formed. A suspending receiver was already
             # lifted by `do` above (its temp is addressable).
-            if self._is_suspending_call_node(expr) and not self._is_addressable(obj):
+            if self._is_suspension_point(expr) and not self._is_addressable(obj):
                 return self._anf_lift(obj, out)
             return obj
         self._map_uncond_children(expr, do, receiver_hook=receiver_hook)
@@ -2375,10 +2375,38 @@ class _FrameBuilder:
             # subject itself before this dispatch ever sees one.
             expr.expr = fn(expr.expr)
 
-    def _is_suspending_call_node(self, expr):
-        """True if `expr` is a suspending call node the transform can lift to a
-        top-level temp: a suspending free-function call, a blocking-extern call, a
-        suspending method call, or a cooperative channel `receive()`."""
+    def _is_suspension_point(self, expr):
+        """THE question "is `expr` itself a suspension point?" — one definition,
+        all four kinds the transform lowers: a suspending free-function call, a
+        blocking-extern call (design 103's offload), a suspending METHOD call
+        (design 84/223), and a cooperative channel `receive()` (design 62 G3).
+
+        There were TWO of these (DF-224a's G2), and they disagreed: the one the
+        narrow hoists asked omitted the channel receive and the blocking extern,
+        while the one the general ANF hoist asked included both. So the shapes
+        only a narrow hoist reaches — an `if let`/`guard let` subject, a `match`
+        scrutinee, a `try!`/`try`/`try?` subject — were refused for a receive
+        where they are perfectly expressible, and where design 104 had already
+        CFG-split the binding they were not refused either: the receive lowered
+        as a plain call whose `yield_now` no-ops, a 100%-CPU spin.
+
+        A GENERIC free-function call answers False on purpose: its instantiation
+        is not monomorphized at a nested position (design 70 A5-rest), and
+        `_classify_call` raises for it by name rather than letting a hoist lift
+        it into a temp nothing can drive.
+
+        ENTRY POINTS (obligation 1 — a funnel names its entries):
+          * `_hoist_cond` — the `if let`/`guard let` subject hoist (design 62 G2)
+          * `_maybe_hoist_match` — the `match` scrutinee hoist (design 96)
+          * `_maybe_hoist_try` — the `try!`/`try`/`try?` subject hoist (design 92)
+          * `_anf` / `_anf_children` — the general expression-position hoist
+            (design 120), including the receiver-addressability hook
+
+        NOT an entry point, and deliberately: `_spans_suspension` asks the
+        TRANSITIVE question ("does this subtree contain one?") and adds the
+        suspend PRIMITIVES (`__saw_suspend`/`yield_now`/`sleep`), which are
+        statements rather than values and so are never lifted to a temp.
+        """
         if isinstance(expr, FunctionCall):
             if getattr(expr, 'type_args', None):
                 return False
@@ -2671,6 +2699,18 @@ class _FrameBuilder:
             lowered = self._lower_optchain_assign(s.expression)
             if lowered is not None:
                 return [lowered]
+        # design 224 (G3): a COMPOUND assignment's RHS. `n += (a ?? slow())` has
+        # no branch shape of its own to lower into — a per-arm `n += …` would
+        # read the target on each path — so the conditional is lifted whole to a
+        # preceding temp and the operator applies to that. `_vc_lift_here` does
+        # both cases: the value IS a conditional, or merely contains one.
+        if (isinstance(s, CompoundAssignStatement) and s.value is not None
+                and self._spans_suspension(s.value)):
+            pre = []
+            s.value = self._vc_lift_here(s.value, pre)
+            if pre:
+                return pre + [s]
+            return [s]
         # design 133 unit B (DF-125a): the statement's value is not itself a
         # conditional, but one is BURIED in it (`f(a ?? slow())`,
         # `return 1 + (a ?? slow())`, `not (a && slow())`). Lift each buried
@@ -2843,6 +2883,149 @@ class _FrameBuilder:
             f"coroutine transform: unsupported value-position conditional in "
             f"`{self.name}`", getattr(cond, 'line', 0), getattr(cond, 'column', 0),
             source_file=self.src_file)
+
+    # ------------------------------------------------------------------ #
+    # design 224: the CONTAINER HEAD slots
+    # ------------------------------------------------------------------ #
+    #
+    # A container's head is the expression it evaluates OUTSIDE every one of its
+    # blocks (`ast_walk.control_heads` is the enumeration; `control_blocks` is
+    # the other half). Every pass above walks blocks; none walked heads, so a
+    # suspension in one was neither embedded nor refused — DF-224a's six
+    # silent-hang cells, measured at 100% CPU because a `Channel.receive()`
+    # lowered as a plain call spins in a `try_receive` + `yield_now` loop whose
+    # `yield_now` has no frame to park in.
+    #
+    # FIVE of the six heads are evaluated ONCE, unconditionally, before the
+    # container branches — which is precisely the `let x = <expr>` position the
+    # existing machinery already drives. So the answer for them is a lift, and
+    # the cells become WORKING rather than refusing. The sixth, a `while`
+    # CONDITION, is evaluated before EVERY iteration, so a lift above the loop
+    # would freeze it on the first answer; it is rewritten into the loop body
+    # instead (see `_while_head_into_body`), which needs only `break` — machinery
+    # the CFG walk has had since design 96.
+    #
+    # Runs AFTER `_lower_value_conditionals` (whose branch lowering MAKES
+    # statement-position containers, and a value `if` with a suspending condition
+    # produces one with a spanning head) and BEFORE `_anf_hoist` (which then
+    # linearizes whatever the lifted `let` still buries). Each lifted `let` is
+    # emitted THROUGH `_vc_stmt`, so a head that is itself a short-circuit
+    # (`if a && slow()`) is lowered to the branch shape exactly as the same
+    # expression in `let` position would be — the guard survives the lift.
+
+    def _hoist_container_heads(self):
+        """Lift every suspension-spanning container HEAD into a preceding driven
+        statement, so the suspension lands where the state split can express it.
+
+        THE INVARIANT this establishes, which `_collect_calls` then checks: after
+        this pass no statement-position container has a head that spans a
+        suspension. A head that still does is refused there, never descended
+        past."""
+        self._head_ctr = 0
+        self._head_block(self.func.body)
+
+    def _head_block(self, block):
+        new_stmts = []
+        for s in block.statements:
+            new_stmts.extend(self._head_stmt(s))
+        block.statements = new_stmts
+        for s in block.statements:
+            for b in control_blocks(s):
+                self._head_block(b)
+
+    def _head_stmt(self, s):
+        """Return the replacement statement list for `s`."""
+        heads = [(owner, field) for (owner, field) in control_heads(s)
+                 if self._spans_suspension(getattr(owner, field))]
+        if not heads:
+            return [s]
+        ctrl = s.expression if isinstance(s, ExpressionStatement) else s
+        if isinstance(ctrl, WhileExpr):
+            return [self._while_head_into_body(s, ctrl)]
+        out = []
+        for owner, field in heads:
+            setattr(owner, field, self._head_lift(getattr(owner, field), out))
+        # The lifts can themselves BE containers (`_vc_stmt` lowers a
+        # short-circuit head into an `if`), whose own heads are this pass's job
+        # too. Terminating: each round replaces a spanning head with a plain
+        # name, and a `let`'s value is not a head.
+        settled = []
+        for st in out:
+            settled.extend(self._head_stmt(st))
+        return settled + [s]
+
+    def _head_lift(self, head, out):
+        """Replace `head` with a read of a preceding `let __headN = <head>`,
+        appending the statement(s) to `out`.
+
+        A `for` RANGE is the one head that is not a value — `let r = 0..n` names
+        no type — so its ENDPOINTS are lifted instead, in source order. A left
+        endpoint that is merely side-effecting (not suspending) is lifted beside
+        a suspending right one for DF-133a's reason: leaving it in place would
+        move its evaluation AFTER the suspension the author wrote to its right.
+        """
+        if isinstance(head, RangeExpr):
+            if self._spans_suspension(head.end):
+                if not self._anf_is_pure(head.start):
+                    head.start = self._head_lift(head.start, out)
+                head.end = self._head_lift(head.end, out)
+            elif self._spans_suspension(head.start):
+                head.start = self._head_lift(head.start, out)
+            return head
+        tmp = f"__head{self._head_ctr}"
+        self._head_ctr += 1
+        # DF-210f: an optional-binding subject lifted here is read once, by the
+        # dispatch `_optbind_dispatch` builds, exactly as the design-62 and
+        # design-96 hoists' temps are.
+        self._hoist_temps.add(tmp)
+        line = getattr(head, 'line', 0) or 0
+        col = getattr(head, 'column', 0) or 0
+        t = getattr(head, 'resolved_type', None)
+        out.extend(self._vc_stmt(LetStatement(
+            name=tmp, type_annotation=None, value=head, mutable=False,
+            line=line, column=col)))
+        ident = Identifier(name=tmp, line=line, column=col)
+        # Carry the head's own type so the temp's frame field is typed exactly
+        # (frame-local typing, call classification and codegen all read it).
+        ident.resolved_type = t
+        return ident
+
+    def _while_head_into_body(self, s, w):
+        """Rewrite a `while <cond> { body }` whose CONDITION spans a suspension
+        into the conditionless loop whose first act is to evaluate it:
+
+            while {
+                let __headN = <cond>
+                if __headN { <body> } else { break }
+            }
+
+        The condition is evaluated once per iteration, where the author wrote
+        it, so a `continue` in the body re-evaluates it (it jumps to the loop
+        top, which is now the `let`) and a `break` in the body still leaves the
+        loop. Lifting it to a preceding `let` — the answer for every other head
+        — would evaluate it ONCE and run the loop on that answer forever.
+
+        Nothing new is needed downstream: `_split_while` already lowers the
+        conditionless form (design 52), `_split_if` already carries `loop_ctx`
+        into both branches, and `break` has been a state goto since design 96.
+        """
+        cond = w.condition
+        line = getattr(cond, 'line', 0) or 0
+        col = getattr(cond, 'column', 0) or 0
+        pre = []
+        ident = self._head_lift(cond, pre)
+        gate = IfExpr(
+            condition=ident, then_branch=w.body,
+            else_branch=Block(
+                statements=[BreakStatement(line=line, column=col)],
+                final_expr=None),
+            line=line, column=col)
+        w.condition = None
+        w.body = Block(
+            statements=pre + [ExpressionStatement(expression=gate,
+                                                  line=line, column=col)],
+            final_expr=None)
+        return s
 
     # ------------------------------------------------------------------ #
     # DF-151a: one frame field per BINDING, not per NAME
@@ -3766,6 +3949,20 @@ class _FrameBuilder:
             # driven body — reject cleanly (anchored, naming the workaround) rather
             # than lower it in place and trip a confusing sync-violation later.
             self._reject_suspending_method_call(s)
+            # design 224 (G1): a container's HEAD — the expression it evaluates
+            # outside every one of its blocks — is checked BEFORE the descent
+            # into those blocks. `_hoist_container_heads` lifted every spanning
+            # head into a preceding driven statement, so one that still spans
+            # here is a position nothing can express, and saying so is the whole
+            # point: this walk used to step straight past a head into the blocks,
+            # and a `Channel.receive()` in a `match` scrutinee was then neither
+            # embedded NOR refused. The enumeration lives in `ast_walk`
+            # (`control_heads` / `CONTAINER_HEADS`) beside `control_blocks`, so a
+            # new container cannot add a head this walk silently skips.
+            for owner, field in control_heads(s):
+                head = getattr(owner, field)
+                if self._spans_suspension(head):
+                    self._reject_container_head(head)
             # PER-CONTAINER semantics, so this one keeps its own dispatch rather
             # than `ast_walk.control_blocks`: an `if let`/`guard let` is
             # descended only when design 104 marked it `_coro_split`, and a
@@ -3864,6 +4061,16 @@ class _FrameBuilder:
         # before the ANF hoist (which lifts the arm-value suspend) and before
         # `_mark_optional_binding_splits` (which splits the `if let` a `??` forms).
         self._lower_value_conditionals()
+        # design 224: lift a suspension-spanning CONTAINER HEAD — an `if`/`while`
+        # condition, a `for` range, a `match` scrutinee, an `if let`/`guard let`
+        # subject — into a preceding driven statement (a `while` condition moves
+        # INTO the loop body instead, since it runs per iteration). Every pass
+        # above walks a container's BLOCKS; none walked its head, so a suspension
+        # there was neither embedded nor refused (DF-224a). Runs AFTER the
+        # value-conditional lowering, whose branch shape MAKES statement-position
+        # containers with spanning heads, and BEFORE the ANF hoist, which then
+        # linearizes whatever the lifted `let` still buries.
+        self._hoist_container_heads()
         # design 120: the general ANF hoist. Lift any BURIED suspending call (an
         # argument, receiver, operand, literal element, interpolation, or a `try!`
         # over a suspend) out of an unconditional expression position into
@@ -4219,11 +4426,22 @@ class _FrameBuilder:
 
     def _classify_recv(self, stmt):
         """design 62 G3: if `stmt` is a top-level cooperative `ch.receive()`
-        boundary, return {receiver, target, elem_type}; else None. Supported
-        forms: `let v = ch.receive()` and a bare `ch.receive()` statement. The
-        call lowers inline to the try_receive+yield_now loop (no callee frame)."""
+        boundary, return {receiver, target, elem_type, ret}; else None. Supported
+        forms mirror the free-function and method classifiers': `let v =
+        ch.receive()`, a bare `ch.receive()` / `let _ = ch.receive()` discard,
+        and — after design-83 tail normalization — `return ch.receive()`, whose
+        received value is this frame's `__result`. The call lowers inline to the
+        try_receive+yield_now loop (no callee frame).
+
+        DF-224a's G4 was that last arm's absence. `_classify_call` and
+        `_classify_method_call` both take a `ReturnStatement` and this one did
+        not, so `return ch.receive()` — the shape a `-> T` worker's tail
+        normalizes INTO — fell past all three classifiers to the last-resort
+        rejector and was refused as "a nested/expression position" for a
+        statement that is not nested at all."""
         mc = None
         target = None
+        is_ret = False
         if isinstance(stmt, LetStatement) and isinstance(stmt.value, MethodCall):
             mc = stmt.value
             # DF-206a, third classifier: `let _ = ch.receive()` is a DISCARD, so
@@ -4238,6 +4456,9 @@ class _FrameBuilder:
         elif (isinstance(stmt, ExpressionStatement)
               and isinstance(stmt.expression, MethodCall)):
             mc = stmt.expression
+        elif isinstance(stmt, ReturnStatement) and isinstance(stmt.value, MethodCall):
+            mc = stmt.value
+            is_ret = True
         if mc is None or not getattr(mc, 'is_chan_recv', False):
             return None
         elem_type = getattr(mc, 'resolved_type', None)
@@ -4245,7 +4466,8 @@ class _FrameBuilder:
             raise CoroTransformError(
                 f"coroutine transform: `receive()` in `{self.name}` has no "
                 f"resolved element type", mc.line, mc.column)
-        return {'receiver': mc.object, 'target': target, 'elem_type': elem_type}
+        return {'receiver': mc.object, 'target': target, 'elem_type': elem_type,
+                'ret': is_ret}
 
     # ------------------------------------------------------------------ #
     # design 103 (A6): blocking-extern offload
@@ -4350,6 +4572,26 @@ class _FrameBuilder:
                 f"embedding). Drive the method directly with "
                 f"`__saw_drive(recv.{mc.method_name}(...))`, or wrap the call in a "
                 f"nested free function and call that.")
+
+    def _reject_container_head(self, head):
+        """A container HEAD that still spans a suspension when `_collect_calls`
+        runs (design 224). `_hoist_container_heads` lifts every one it can, which
+        is every one a `let` could host, so reaching here means the head is a
+        shape no position expresses — and the ONE thing it must not do is fall
+        through into the container's blocks, which is what left DF-224a's cells
+        spinning.
+
+        Delegates to `_reject_buried_suspend_call`, which anchors at the offending
+        call and names its kind; the raise below is the honest floor for a head
+        that spans by some measure that scan does not recognise."""
+        self._reject_buried_suspend_call(head)
+        raise CoroTransformError(
+            f"coroutine transform: the head of this control-flow construct in "
+            f"`{self.name}` contains a suspension the state split cannot "
+            f"express; bind it to its own `let` before the construct and use "
+            f"the binding",
+            getattr(head, 'line', 0) or 0, getattr(head, 'column', 0) or 0,
+            source_file=self.src_file)
 
     def _reject_erased_reference_param(self, p):
         """A `&any Trait` parameter of a suspending function — refused HERE, at
@@ -5692,7 +5934,11 @@ class _FrameBuilder:
         `yield_now` inside. On each visit: try a non-blocking `try_receive`; on a
         value, store it (into the `let v` target or a discard holder) and set the
         completion flag; on empty, suspend (wake 0 = channel-yield) and retry when
-        the executor reschedules the task."""
+        the executor reschedules the task.
+
+        design 224 (G4): a `return ch.receive()` tail ends the coroutine with the
+        received value as this frame's `__result`, exactly as a `return g(...)`
+        free-function tail and a `return recv.m(...)` method tail already do."""
         idx = rc['idx']
         have = f"__have{idx}"
         target = rc['target'] if rc['target'] is not None else f"__rcv{idx}"
@@ -5743,6 +5989,19 @@ class _FrameBuilder:
         self.cur = yield_b
         self._suspend_to(_int(0), header)
         self.cur = after
+        if rc.get('ret') and not self.is_void:
+            # The value is in the `__rcvN` holder (a `return` names no target),
+            # and this frame's result is what it is for. `move` hands the
+            # holder's own reference over — the paired `__saw_forget` keeps the
+            # frame's teardown from dropping it a second time — which is the
+            # same transfer `return move v` of an owning local makes.
+            forgets = []
+            mv = MoveExpr(variable=target, path=None,
+                          line=self._cur_line or 0, column=0)
+            mv.resolved_type = rc['elem_type']
+            cap_lets, value = self._rewrite_hosting(mv, forgets)
+            self._emit(cap_lets)
+            self._done(value, forgets)
 
     def _emit_nested_call(self, info, loop_ctx):
         """Embed the callee frame (once) and drive it across the caller's own

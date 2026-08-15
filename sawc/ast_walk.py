@@ -164,6 +164,57 @@ def control_blocks(stmt):
     return [b for b in out if isinstance(b, Block)]
 
 
+# The OTHER half of a container: the expression it evaluates outside every one
+# of its blocks. `control_blocks` above enumerates the blocks; a walk that has
+# both has seen the whole construct, and one that has only the blocks walks past
+# the head in silence — which is exactly what DF-224a found (a `Channel.receive()`
+# in a `match` scrutinee or an `if`/`while` condition was neither embedded into
+# the coroutine frame nor refused, and spun at 100% CPU forever).
+#
+# SIX slots, and the pairing with `CONTAINER_KINDS` is deliberate: every
+# container listed there is listed here too, either with its head or with the
+# note that it has none. `TryCatchExpr` and `TryExpr` are the two with none —
+# a `try { … } catch { … }` evaluates blocks and nothing else, and a `try <expr>`
+# is a LEAF statement whose subject the ordinary expression walks already reach.
+CONTAINER_HEADS = (
+    "IfExpr (condition)", "IfLetExpr (subject)", "WhileExpr (condition)",
+    "ForLoop (iterable)", "MatchExpr (scrutinee)", "GuardLetStatement (subject)",
+    "TryCatchExpr (none)", "TryExpr (none — a leaf statement's subject)",
+)
+
+
+def control_heads(stmt):
+    """Every HEAD expression the control-flow construct in `stmt` owns, as
+    `(owner, field_name)` pairs so a caller can REWRITE the slot in place.
+
+    Takes a STATEMENT, exactly as `control_blocks` does (an `ExpressionStatement`
+    is unwrapped to its expression), and returns a list, empty for a leaf
+    statement and for a container with no head. See `CONTAINER_HEADS`.
+
+    A conditionless `while { … }` has no condition to return, so the list is
+    empty for it — the absence is a fact about that loop, not a missing row.
+
+    ENTRY POINTS (obligation 1 — a funnel names its entries):
+      * coro_transform.py `_hoist_container_heads` — lifts a suspension-spanning
+        head into a preceding driven `let`, which is what makes the head slots
+        work at all.
+      * coro_transform.py `_collect_calls` — the backstop: a head that STILL
+        spans a suspension after that hoist is refused, never descended past.
+    """
+    ctrl = stmt.expression if isinstance(stmt, ExpressionStatement) else stmt
+    out = []
+    if isinstance(ctrl, (IfExpr, WhileExpr)):
+        out.append((ctrl, 'condition'))
+    elif isinstance(ctrl, (IfLetExpr, GuardLetStatement)):
+        out.append((ctrl, 'optional_expr'))
+    elif isinstance(ctrl, ForLoop):
+        out.append((ctrl, 'iterable'))
+    elif isinstance(ctrl, MatchExpr):
+        out.append((ctrl, 'matched_expr'))
+    return [(owner, field) for (owner, field) in out
+            if getattr(owner, field, None) is not None]
+
+
 # --------------------------------------------------------------------------- #
 # the bindings a pattern introduces
 # --------------------------------------------------------------------------- #

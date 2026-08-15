@@ -1,7 +1,3 @@
-// XFAIL: DF-224a G3 — `CompoundAssignStatement` is missing from the ANF hoist's
-// statement dispatch, so `n += slow()` in a suspending body is refused as a
-// nested position. Design 224 is the fix.
-//
 // Conformance row K45 — a suspension in a COMPOUND ASSIGNMENT's RHS embeds as a
 // frame and cedes to its siblings
 //
