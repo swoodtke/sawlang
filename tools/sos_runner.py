@@ -105,6 +105,12 @@ FAULT_ROOT_PKG = os.path.join(TESTS_DIR, "faulting-root")
 # through an op number.
 THREAD_BASICS_PKG = os.path.join(TESTS_DIR, "thread-basics")
 THREAD_PREEMPT_PKG = os.path.join(TESTS_DIR, "thread-preempt")
+# design 178 M2 unit 3: two more, for the Event and Waiter objects. Same
+# reasoning — a process that makes Events reaches the kernel through the `sos`
+# module and never through an op number, so the test is written the way a real
+# one would be.
+EVENT_BASICS_PKG = os.path.join(TESTS_DIR, "event-basics")
+EVENT_WAKE_PKG = os.path.join(TESTS_DIR, "event-wake")
 
 QEMU_TIMEOUT_S = 10
 
@@ -195,6 +201,7 @@ def expectations(arch):
         "three": f"0x{3:0{width}x}",
         "four": f"0x{4:0{width}x}",
         "five": f"0x{5:0{width}x}",
+        "seven": f"0x{7:0{width}x}",
         "prio": f"0x{0x01010100:0{width}x}",
         "irq_line": f"0x{arch['selftest_line']:0{width}x}",
     }
@@ -503,8 +510,13 @@ TEST_CASES = [
                        "SOS threads: joined a=11 b=22",
                        # The ratified Process teardown, reported: three handles
                        # (System, Process, the initial Thread) plus the two the
-                       # process made, and three thread slots.
-                       "SOS: process teardown handles={five} threads={three}"],
+                       # process made, and three thread slots. The two trailing
+                       # counts arrived with M2 unit 3 and are asserted here too
+                       # — a process that made no Event and no Waiter must
+                       # report none, which is the null row of the same claim
+                       # the Event cases below make with real objects.
+                       "SOS: process teardown handles={five} threads={three} "
+                       "events={zero} waiters={zero}"],
         "expect_clean_exit": True,
     },
     {
@@ -554,6 +566,77 @@ TEST_CASES = [
         "expect_out": ["SOS M1: entering U-mode",
                        "SOS: process fault: bad handle",
                        "SOS: process teardown handles={three} threads={one}"],
+        "expect_clean_exit": False,
+        "expect_status": EXIT_PROCESS_FAULT,
+    },
+    # --- design 178 M2 unit 3: the Event and Waiter objects -----------------
+    # Three claims, and the split between the first two is deliberate: what an
+    # Event ACCUMULATES and what a Waiter REPORTS is one question, and whether a
+    # wait PARKS is another. Testing them together would let a scheduling bug
+    # hide behind an accumulation bug and the other way round.
+    {
+        # Level-triggered attach (§2.2), OR and saturating-sum accumulation
+        # (§2.4), and the key identifying WHICH of several attachments became
+        # ready. One thread, no timer: every wait here answers immediately, and
+        # a wait that did not would park the only thread in the system, which
+        # the kernel reports as the deadlock it is — so a regression fails in
+        # microseconds rather than at the timeout.
+        "name": "event_basics",
+        "src": os.path.join(KERNEL_DIR, "main.saw"),
+        "root_pkg": EVENT_BASICS_PKG,
+        "expect_out": ["{banner}",
+                       # The signal came BEFORE the wait and was not lost.
+                       "SOS events: signal-then-wait key=11 signalled=1 word=4",
+                       # A second attachment on the same Waiter, told apart by
+                       # its key alone.
+                       "SOS events: second key=22 signalled=1 word=8",
+                       # 1 | 2 | 1 is 3, which is what a flag set answers and a
+                       # counter does not.
+                       "SOS events: or key=11 word=3",
+                       # Removed from the wait set, still an Event.
+                       "SOS events: detached word=8",
+                       # Five signals of one, counted; then two of the largest
+                       # word there is, which SATURATE instead of wrapping back
+                       # through zero — the value that means "not ready".
+                       "SOS events: counting key=33 n=5 saturated=1",
+                       "SOS events: done",
+                       # Teardown reports the two new object kinds: three events
+                       # and one waiter, beside seven handles and one thread.
+                       "SOS: process teardown handles={seven} threads={one} "
+                       "events={three} waiters={one}"],
+        "expect_clean_exit": True,
+    },
+    {
+        # THE PARK AND THE WAKE. Read from the ORDER: the middle line is written
+        # by a thread that could only have run because the first one blocked,
+        # since this kernel arms no timer and `start` does not switch. The line
+        # after it carries the key back out of the woken thread's frame, which
+        # is unit 2's block-on-wait substrate answering a syscall it did not
+        # answer when the call was made.
+        "name": "event_wake",
+        "src": os.path.join(KERNEL_DIR, "main.saw"),
+        "root_pkg": EVENT_WAKE_PKG,
+        "expect_out": ["{banner}",
+                       "SOS wake: worker started, parking",
+                       "SOS wake: worker signalling",
+                       "SOS wake: woke key=77 signalled=1 word=5",
+                       "SOS wake: joined worker=99"],
+        "expect_clean_exit": True,
+    },
+    {
+        # THE FAULT CASE: attaching something that is not a waitable. A payload
+        # rather than a root server, for the reason `umode_bad_handle` is one —
+        # `Waiter.add` takes an `&Event` and the typed layer has no way to build
+        # one from a word, so this is not a thing a Saw process can spell. The
+        # teardown line is the second half: the Waiter the process DID make goes
+        # back to the kernel's slab.
+        "name": "umode_not_waitable",
+        "src": os.path.join(TESTS_DIR, "umode.saw"),
+        "asm": "payload_notwaitable.S",
+        "expect_out": ["SOS M1: entering U-mode",
+                       "SOS: process fault: not a waitable",
+                       "SOS: process teardown handles={four} threads={one} "
+                       "events={zero} waiters={one}"],
         "expect_clean_exit": False,
         "expect_status": EXIT_PROCESS_FAULT,
     },
