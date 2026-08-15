@@ -177,3 +177,35 @@ so the real kernel boots exactly as it did.
 Channels + ReplyHandle IPC; MemoryObject/Mapping + multi-process loading;
 SMP + IntrSpinLock; priorities; FP in userspace; the vDSO true-mapping
 upgrade; big-endian anything.
+
+## M3 memory notes (Aug 15 conversation, user + lead — seed for the M3 sketch)
+
+PMP facts that shape MemoryObject/Mapping, established in conversation
+after unit 1's DF-178b work:
+
+- **The kernel costs ZERO slots.** M-mode is unchecked by PMP (absent
+  L-bit entries) — exception entry always reaches kernel code/stacks —
+  and S/U default-deny protects kernel memory with no entry at all.
+  L-bit hardening (kernel code RO even from M-mode) is an optional 1-2
+  entries, not architecture.
+- **Slots are per-hart, reloaded at context switch** — the 16-entry
+  budget is the RUNNING process's concurrent-region cap, not a
+  system-wide partition. Switch cost: a dozen CSR writes.
+- **The region model** (user-proposed, fits): contiguous image layout
+  code|rodata|rw, TOR-chained = ~4 entries per process (base + 3);
+  stack at the RW edge gets overflow faults free from default-deny;
+  +1 NAPOT entry per granted device window (driver processes only).
+- **Shared memory needs no MMU** under switch-reload: 1 entry in each
+  sharer's loaded set. The real PMP limit is NO TRANSLATION — one
+  physical address for every sharer — so Mapping ADDRESSES ARE
+  KERNEL-ASSIGNED (returned from map, never process-chosen).
+- **Portable contract = the PMP floor**: page-granular (G may be
+  page-size on real silicon — byte-tight grants are not portable),
+  identity-mapped, contiguous objects. Translation hardware (arm64's
+  MMU today, an ESP32-P4-style minimal MMU someday) is a HAL bonus
+  behind the same seam, never the contract.
+- **Open for the M3 sketch**: (a) heap growth under contiguity —
+  per-process arenas sized at spawn vs grow-by-relocation;
+  (b) the documented per-process mapping cap (candidate 8), with
+  over-cap map() a FAULT per the ratified faults rule
+  (caller-checkable against a documented cap).
