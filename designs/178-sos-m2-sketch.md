@@ -206,6 +206,15 @@ which rule applies. `umode_bad_calls` therefore asserts the opposite of what it
 asserted the day before, and both payloads say so. What is left as a status is
 `NoResource` — a full slab, which a caller could not have known.
 
+**Naming, ruled at review (user, Aug 15).** An op table or a rights set is named
+for the spec §2 OBJECT it belongs to, spelled out, plus §5.7's own suffix:
+`SystemOp` / `ProcessOp` / `ThreadOp`, `SystemRight` / `ProcessRight` /
+`ThreadRight`. No abbreviated object prefix — the four characters `Sys` saves in
+a file nobody types into cost every reader the question of whether it means the
+System object or the syscall. The rule extends to anything else named after an
+object, and `sos/kernel/abi/`'s module docstring carries it so the next object
+kind cannot drift.
+
 **Two ops per object, and derivation doing work.** System gained `SelfProcess`;
 Process has `CreateThread` / `SelfThread` / `Exit` / `GetStatus`; Thread has
 `Start` / `Join` / `Exit` / `Yield`. Root's boot register is still ONE handle

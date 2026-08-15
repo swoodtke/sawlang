@@ -257,7 +257,7 @@ Findings the unit produced:
   2. A `-> Never` call in some VALUE positions emits IR LLVM rejects. Two
      instances, both from `sos/kernel/core/lib.saw`: as the first arm of a value
      `match` it poisons the phi's type (``'%calltmp.3' defined with type
-     '%SysResult' but expected 'i32'``), and as the TAIL of a struct-returning
+     '%SyscallResult' but expected 'i32'``), and as the TAIL of a struct-returning
      function it emits `ret void %calltmp` (``value doesn't match function
      result type``).
 
@@ -272,7 +272,7 @@ Findings the unit produced:
 
   The workarounds in tree, each commented with this number: `fault_result`,
   one wrapper whose trailing `while { }` carries the divergence up to a
-  `SysResult` signature; an `if let` + diverging tail where a `guard` belongs;
+  `SyscallResult` signature; an `if let` + diverging tail where a `guard` belongs;
   and an explicit `while { }` after a `-> Never` call in three `-> Never`
   bodies whose tails would otherwise be calls.
 
