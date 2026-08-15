@@ -409,6 +409,13 @@ class TypeChecker(ExpressionsMixin, StatementsMixin, RegistrationMixin, TypeUtil
         # design 45: the suspending METHODS the effect fixpoint settled on,
         # handed back by the coroutine transform for its own second pass.
         self._suspending_methods_set: Optional[set] = None
+        # design 223: the same census under design 206's SHARPER question —
+        # which methods REALLY suspend, as against the conservative set above,
+        # which also holds the ones that "suspend" only because they call
+        # through a non-`sync` function value (`Vector.map`). The transform
+        # decides whether an un-nameable call site is REFUSED from this one; the
+        # difference between the two sets is exactly the calls that must not be.
+        self._really_suspending_methods_set: Optional[set] = None
 
         # design 204: the source file of the declaration currently being
         # REGISTERED, for `_type_lookup_module`. Registration resolves a
