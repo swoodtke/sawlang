@@ -16,7 +16,7 @@ from ast_nodes import (
     BreakStatement, ContinueStatement, ExpressionStatement,
     WhileExpr, ForLoop, RangeExpr,
     Identifier, MemberAccess, ArrayIndex, TupleIndex, MoveExpr, IntLiteral,
-    ForceUnwrap,
+    ForceUnwrap, BindOptional, OptionalEvalExpr,
     FunctionCall, StructInit, SelfExpr, ClosureExpr,
     IfExpr, IfLetExpr, MatchExpr, MethodCall,
     SawType, TypeKind,
@@ -1950,6 +1950,11 @@ class StatementsMixin:
         Bare `self` yields the RECEIVER's own type: the walk took no hop, so
         the storage in hand is the whole receiver. Callers that must tell that
         case apart (DF-176b's field form does) test for `SelfExpr` first.
+
+        A `?.` hop is an optional payload projection exactly as `!` is, so
+        `BindOptional` walks like `ForceUnwrap` (DF-225k): `self.c?.n = 99` and
+        `self.c!.n = 99` name one field of one payload inside the receiver, and
+        one of them used to be a silent no-op while the other was refused.
         """
         hops = []
         node = target
@@ -1962,8 +1967,10 @@ class StatementsMixin:
             elif isinstance(node, TupleIndex):
                 hops.append(node)
                 node = node.tuple_expr
-            elif isinstance(node, ForceUnwrap):
+            elif isinstance(node, (ForceUnwrap, BindOptional)):
                 hops.append(node)
+                node = node.expr
+            elif isinstance(node, OptionalEvalExpr):
                 node = node.expr
             elif isinstance(node, ArrayIndex):
                 hops.append(node)
@@ -1988,7 +1995,7 @@ class StatementsMixin:
         if container.kind == TypeKind.REFERENCE and container.inner_type:
             container = self._resolve_type_alias(container.inner_type)
 
-        if isinstance(hop, ForceUnwrap):
+        if isinstance(hop, (ForceUnwrap, BindOptional)):
             return (container.inner_type
                     if container.kind == TypeKind.OPTIONAL else None)
 
@@ -2220,53 +2227,153 @@ class StatementsMixin:
             self._report_task_borrow(borrow, 'write', line, column,
                                      root=path[0])
 
-    def _check_assign_statement(self, stmt: AssignStatement):
-        """Check an assignment statement."""
-        # An immutable static rejects any write whose root is it — whole
-        # (`S = x`), field (`S.f = x`), or element (`S[i] = x`) (design 41). The
-        # rule keys on assignment; interior-mutable METHOD calls
-        # (`S.fetch_add(1)`) are the sanctioned mutation path and are untouched.
-        static_root = self._assign_target_static_root(stmt.target)
+    def _check_write_target(self, target, line: int, column: int, *,
+                            compound: bool = False, value=None,
+                            node=None, rhs_moves: bool = False,
+                            rhs_what: str = "this assignment",
+                            immutable_root: bool = True) -> bool:
+        """THE guard prelude every WRITE takes before its target-shape check.
+
+        A write's target answers six questions before anything cares what SHAPE
+        it is, and until design 227 each writing statement asked its own
+        subset — which is how `b.n += grow(b: &var b)` came to silently lose
+        `grow`'s write (DF-225i: the compound statement was design 193 unit 4's
+        unnamed third entry point) and how `self.c?.n = 99` came to be a silent
+        no-op in a `&self` method (DF-225k: the chain-assign path never asked
+        the shared-self rule at all). The questions, in this order:
+
+          1. an immutable module `static` root (design 41);
+          2. a by-value closure capture (design 132 unit A);
+          3. storage reached through a `&self` receiver (DF-175a);
+          4. a root a spawned task is borrowing (design 189);
+          5. the Law of Exclusivity against the right-hand side (design 193
+             unit 4) — compound is the sharper half, since it READS the target
+             as well as writing it;
+          6. an immutable ROOT binding (`let`, or a shared `&`).
+
+        ENTRY POINTS (obligation 1 — a funnel names its entries):
+          * `_check_assign_statement` — `x = v` in every target shape.
+          * `_check_compound_assign_statement` — `x += v` likewise.
+          * `_check_optional_chain_assign` — `x?.y = v` and `x?.y += v`
+            (expressions.py), which passes `immutable_root=False`: design 111's
+            `_check_chain_assign_head_mutable` owns that one question there,
+            with a diagnostic that names the chain, and asking it twice would
+            report the same immutable root twice.
+          * `_check_place_target_assign` — `m[k]! = v` / `c.slot(i) = v`. It is
+            an ARM of `_check_assign_statement` rather than a statement entry of
+            its own, so it inherits this call; nothing else reaches it.
+
+        Returns True when a guard REFUSED the write and the caller should stop.
+        """
+        static_root = self._assign_target_static_root(target)
         if static_root is not None:
+            verb = "use compound assignment on" if compound else "assign to"
             self._error(
                 ErrorKind.IMMUTABLE_ASSIGNMENT,
-                f"cannot assign to static `{static_root}`: statics are immutable",
-                stmt.line, stmt.column,
+                f"cannot {verb} static `{static_root}`: statics are immutable",
+                line, column,
                 hint="use an interior-synchronized type (`Atomic<Int>`, "
                      "`SpinLock<T>`) and mutate through its methods, or declare "
                      "it `unsafe static var` and own the serialization argument"
             )
-            return
+            return True
 
+        if self._reject_capture_write(target, line, column):
+            return True
+
+        if self._reject_shared_self_write(target, line, column,
+                                          compound=compound):
+            return True
+
+        # Asked before the target's subexpressions are checked so the diagnostic
+        # names the WRITE rather than the read of the path it walks through.
+        self._check_task_borrow_write(target, line, column)
+
+        if value is not None:
+            self._check_write_rhs_exclusivity(
+                self._build_access_path(target), value, node,
+                rhs_what, moves=rhs_moves)
+
+        if immutable_root and self._reject_immutable_write_root(
+                target, line, column, compound):
+            return True
+        return False
+
+    def _reject_immutable_write_root(self, target, line: int, column: int,
+                                     compound: bool) -> bool:
+        """Question 6 of `_check_write_target`: does this lvalue reach an
+        immutable ROOT binding — a `let`, or a shared `&` reference?
+
+        The diagnostic names the root and what was written through it. A root
+        that is itself a fixed array keeps design 39's wording ("element of
+        immutable array `a`"); otherwise the noun follows the target's own
+        shape, which is what makes `p.x = 5`, `t.0 = 5` and `h.arr[0] = 5` read
+        as the different writes they are through the one immutable binding.
+        """
+        root = self._write_target_immutable_root(target)
+        if root is None:
+            return False
+        name, info = root
+        verb = "cannot use compound assignment on" if compound else "cannot assign to"
+        if (info is not None and info.type is not None
+                and self._resolve_type_alias(info.type).kind == TypeKind.ARRAY):
+            what = f"element of immutable array `{name}`"
+        elif isinstance(target, MemberAccess):
+            what = f"field of immutable variable `{name}`"
+        else:
+            what = f"element of immutable variable `{name}`"
+        if (info is not None and info.type is not None
+                and info.type.kind == TypeKind.REFERENCE):
+            hint = ("an immutable `&` reference is read-only — take `&var` to "
+                    "write through it")
+        else:
+            hint = "consider using `var` instead of `let` to make it mutable"
+        self._error(ErrorKind.IMMUTABLE_ASSIGNMENT,
+                    f"{verb} {what}", line, column, hint=hint)
+        return True
+
+    def _write_target_immutable_root(self, target):
+        """`(name, VariableInfo)` when this lvalue reaches an immutable ROOT
+        binding THROUGH at least one hop, else None. Unit 3 of design 227 merges
+        the two walks this wraps; the message selection is
+        `_reject_immutable_write_root`'s.
+
+        A write of the binding ITSELF (`x = v`, `x += v`) is not this rule: it
+        is the target-shape arms' own question, and they answer it with the
+        diagnostics the whole-binding write earns — "cannot assign to immutable
+        variable `x`" for a `let`, design 110's "cannot assign through immutable
+        reference `y`" for a `&T`, and the replacement checkpoint for a `&var`.
+        """
+        if isinstance(target, (Identifier, SelfExpr)):
+            return None
+        imm_array = self._assign_target_immutable_array(target)
+        if imm_array is not None:
+            return (imm_array, self.current_scope.lookup(imm_array))
+        imm_root = self._assign_target_immutable_struct_root(target)
+        if imm_root is not None:
+            return (imm_root, self.current_scope.lookup(imm_root))
+        return None
+
+    def _check_assign_statement(self, stmt: AssignStatement):
+        """Check an assignment statement."""
         # design 149: a whole-value write to an `unsafe static var`. A static is
         # not a scope binding, so the Identifier path below would call it
         # undefined; and the write needs no destruction of the old value, which
-        # is what v1's trivially-destructible restriction buys.
+        # is what v1's trivially-destructible restriction buys. Asked ahead of
+        # the funnel's own static question, which is about the IMMUTABLE ones.
         if isinstance(stmt.target, Identifier):
             mutable_static = self._mutable_static_symbol(stmt.target.name)
             if mutable_static is not None:
                 self._check_static_var_assign(stmt, mutable_static)
                 return
 
-        # A write to a by-value closure capture is discarded (design 132 unit A).
-        if self._reject_capture_write(stmt.target, stmt.line, stmt.column):
+        # design 227: the write-target funnel — static root, capture write,
+        # shared-self write, task-borrow write, RHS exclusivity, immutable root.
+        if self._check_write_target(stmt.target, stmt.line, stmt.column,
+                                    value=stmt.value, node=stmt,
+                                    rhs_moves=False,
+                                    rhs_what="this assignment"):
             return
-
-        # A write through a `&self` receiver is discarded, or worse (DF-175a).
-        if self._reject_shared_self_write(stmt.target, stmt.line, stmt.column):
-            return
-
-        # design 189: writing a root a spawned task borrows — shared or
-        # exclusive, since a writer excludes both. Asked before the target's
-        # subexpressions are checked so the diagnostic names the WRITE rather
-        # than the read of the path it happens to walk through.
-        self._check_task_borrow_write(stmt.target, stmt.line, stmt.column)
-
-        # design 193 unit 4: the Law of Exclusivity between the written path and
-        # the right-hand side, asked ONCE here rather than in each of the target
-        # shapes below. The optional-chain spelling of the same statement has
-        # been asking it since design 111.
-        self._check_assign_rhs_exclusivity(stmt)
 
         # Handle both simple variable assignment and field assignment
         if isinstance(stmt.target, Identifier):
@@ -2322,30 +2429,8 @@ class StatementsMixin:
             self._revive_binding(var_info)
 
         elif isinstance(stmt.target, MemberAccess):
-            # Field assignment: obj.field = value
-            # Mutability: assigning through a `let` array element
-            # (`a[0].v = x`, `a[i].inner.v = x`) is rejected exactly like a bare
-            # `a[0] = x` element write (design 39 item 1).
-            imm_array = self._assign_target_immutable_array(stmt.target)
-            if imm_array is not None:
-                self._error(
-                    ErrorKind.IMMUTABLE_ASSIGNMENT,
-                    f"cannot assign to element of immutable array `{imm_array}`",
-                    stmt.line, stmt.column,
-                    hint="consider using `var` instead of `let` to make it mutable"
-                )
-            else:
-                # Design 40 item 6 (L11): field assignment through an immutable
-                # `let` (or `&`) binding is rejected, mirroring the array rule.
-                imm_root = self._assign_target_immutable_struct_root(stmt.target)
-                if imm_root is not None:
-                    self._error(
-                        ErrorKind.IMMUTABLE_ASSIGNMENT,
-                        f"cannot assign to field of immutable variable `{imm_root}`",
-                        stmt.line, stmt.column,
-                        hint="consider using `var` instead of `let` to make it mutable"
-                    )
-
+            # Field assignment: obj.field = value. Mutability (design 39 item 1
+            # + design 40 item 6) was asked by the funnel above.
             obj_type = self._check_expression(stmt.target.object)
             if not obj_type:
                 return
@@ -2430,27 +2515,9 @@ class StatementsMixin:
 
         elif isinstance(stmt.target, TupleIndex):
             # WHOLE-ELEMENT TUPLE WRITE `t.0 = fresh` (DF-151j). A tuple index is
-            # a place like a struct field, so it takes the same mutability
-            # questions in the same order — an immutable array element on the
-            # way down, then an immutable `let`/`&` root — before the value side.
-            imm_array = self._assign_target_immutable_array(stmt.target)
-            if imm_array is not None:
-                self._error(
-                    ErrorKind.IMMUTABLE_ASSIGNMENT,
-                    f"cannot assign to element of immutable array `{imm_array}`",
-                    stmt.line, stmt.column,
-                    hint="consider using `var` instead of `let` to make it mutable"
-                )
-            else:
-                imm_root = self._assign_target_immutable_struct_root(stmt.target)
-                if imm_root is not None:
-                    self._error(
-                        ErrorKind.IMMUTABLE_ASSIGNMENT,
-                        f"cannot assign to element of immutable variable `{imm_root}`",
-                        stmt.line, stmt.column,
-                        hint="consider using `var` instead of `let` to make it mutable"
-                    )
-
+            # a place like a struct field, so it took the same mutability
+            # questions in the funnel above — an immutable array element on the
+            # way down, then an immutable `let`/`&` root.
             tuple_type = self._check_expression(stmt.target.tuple_expr)
             if not tuple_type:
                 return
@@ -2762,32 +2829,16 @@ class StatementsMixin:
         - Mutable struct fields (if the struct binding is mutable)
         - Mutable array elements (if the array binding is mutable)
         """
-        # An immutable static rejects `S += 1` and friends for the same reason as
-        # a plain assignment (design 41). An `unsafe static var` takes one.
-        static_root = self._assign_target_static_root(stmt.target)
-        if static_root is not None:
-            self._error(
-                ErrorKind.IMMUTABLE_ASSIGNMENT,
-                f"cannot assign to static `{static_root}`: statics are immutable",
-                stmt.line, stmt.column,
-                hint="use an interior-synchronized type (`Atomic<Int>`, "
-                     "`SpinLock<T>`) and mutate through its methods, or declare "
-                     "it `unsafe static var` and own the serialization argument"
-            )
+        # design 227: the same funnel the plain assignment takes. `x += v` is
+        # `x = x + v`, so every guard applies — and TWO of them were missing
+        # here: the Law of Exclusivity against the RHS (DF-225i, which lost the
+        # callee's write outright) and the immutable-array walk (DF-225j's
+        # compound rows, where only a bare `a[i]` container was protected).
+        if self._check_write_target(stmt.target, stmt.line, stmt.column,
+                                    compound=True, value=stmt.value, node=stmt,
+                                    rhs_moves=False,
+                                    rhs_what="this compound assignment"):
             return
-
-        # `n += 1` on a by-value capture is the same discarded write.
-        if self._reject_capture_write(stmt.target, stmt.line, stmt.column):
-            return
-
-        # `self.hits += 1` in a `&self` method is the same discarded write
-        # (DF-175a) — the plain-assignment form asks the same question.
-        if self._reject_shared_self_write(stmt.target, stmt.line, stmt.column,
-                                          compound=True):
-            return
-
-        # design 189: `n += 1` is a write of `n` like any other.
-        self._check_task_borrow_write(stmt.target, stmt.line, stmt.column)
 
         # Get target type
         target_type = self._check_expression(stmt.target)
@@ -2831,36 +2882,10 @@ class StatementsMixin:
             if var_info.type.kind == TypeKind.REFERENCE:
                 target_type = var_info.type.inner_type
 
-        elif isinstance(stmt.target, MemberAccess):
-            # Check that the chain's ROOT binding is mutable. This used to look
-            # only at an Identifier base, so a hop of any kind hid the question:
-            # `p.inner.x += 1` and — once a tuple index became a place —
-            # `t.0.n += 1` on a `let` root went unchecked (DF-151j). The walk is
-            # the one plain assignment already uses, so `p.inner.x += 1` and
-            # `p.inner.x = v` now agree.
-            imm_root = self._assign_target_immutable_struct_root(stmt.target)
-            if imm_root is not None:
-                self._error(
-                    ErrorKind.IMMUTABLE_ASSIGNMENT,
-                    f"cannot use compound assignment on field of immutable variable `{imm_root}`",
-                    stmt.line, stmt.column
-                )
-                return
-
-        elif isinstance(stmt.target, TupleIndex):
-            # `t.0 += 1` — the same root question a field compound assignment
-            # asks (DF-151j).
-            imm_root = self._assign_target_immutable_struct_root(stmt.target)
-            if imm_root is not None:
-                self._error(
-                    ErrorKind.IMMUTABLE_ASSIGNMENT,
-                    f"cannot use compound assignment on element of immutable variable `{imm_root}`",
-                    stmt.line, stmt.column
-                )
-                return
-
         elif isinstance(stmt.target, ArrayIndex):
-            # Check if array is mutable
+            # The root question was the funnel's (DF-151j, DF-225j); this is the
+            # alias case it cannot see — a `type Grid = [Int; 3]` binding, whose
+            # DECLARED type is an alias rather than an array.
             if isinstance(stmt.target.array_expr, Identifier):
                 arr_info = self.current_scope.lookup(stmt.target.array_expr.name)
                 if arr_info and not arr_info.mutable:

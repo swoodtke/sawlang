@@ -6911,12 +6911,26 @@ class ExpressionsMixin:
         field_type = self._check_expression(spine)
         if field_type is None:
             return None
-        # Mutability: the chain head must be a mutable place (a `var` or a
-        # `&var`-reachable path). Exclusivity: the written root must not overlap a
-        # borrow in the RHS.
+        # design 227: a chain assignment is a WRITE, so it takes the write-target
+        # funnel like every other one — which is how DF-225k closed. `self.c?.n
+        # = 99` in a `&self` method used to reach nothing at all: the head check
+        # below defers a `self` root to "governed by `&var self`", and until the
+        # funnel was here nothing downstream governed it, so the write landed in
+        # the receiver's copy and vanished.
+        #
+        # `immutable_root=False` — design 111's `_check_chain_assign_head_mutable`
+        # owns that question here, with a diagnostic that names the chain.
+        # Exclusivity DOES come from the funnel, moves included: a chain writes
+        # THROUGH a payload it does not revive.
         root_path = self._build_access_path(spine)
+        self._check_write_target(spine, expr.line, expr.column,
+                                 compound=getattr(expr, 'op', None) is not None,
+                                 value=expr.value, node=expr, rhs_moves=True,
+                                 rhs_what="this optional-chain assignment",
+                                 immutable_root=False)
+        # Mutability: the chain head must be a mutable place (a `var` or a
+        # `&var`-reachable path).
         self._check_chain_assign_head_mutable(spine, root_path, expr)
-        self._check_chain_assign_exclusivity(root_path, expr.value, expr)
         # RHS follows ordinary assignment transfer rules against the field type,
         # including optional-None propagation onto a bare `None` RHS.
         value_type = self._check_expression(expr.value)
@@ -6996,25 +7010,31 @@ class ExpressionsMixin:
             expr.line, expr.column,
             hint="consider using `var` instead of `let` to make it mutable")
 
-    def _check_chain_assign_exclusivity(self, root_path, value, expr) -> None:
-        """The Law on an optional-chain assignment's written root."""
-        self._check_write_rhs_exclusivity(root_path, value, expr,
-                                          "this optional-chain assignment")
-
     def _check_write_rhs_exclusivity(self, root_path, value, expr,
                                      what: str, moves: bool = True) -> None:
         """Law of Exclusivity on a WRITTEN path: the statement writes the root,
         so its right-hand side may not also borrow (`&`/`&var`) or `move` an
         overlapping path.
 
-        THE funnel for the write-plus-borrow shape. Two entry points, both in
-        this file, and they used to be one — an optional-chain assignment
-        (`_check_chain_assign_exclusivity`, design 111) and a plain assignment
-        (`_check_assign_rhs_exclusivity`, design 193 unit 4). `p.x = f(&var p)`
-        compiled while `p?.x = f(&var p)` was refused, which made the rule a
-        property of the SPELLING rather than of the write: the callee's
-        mutations to `p` are made and then clobbered by the assignment that
-        follows, the same lost write design 188 refused between two windows.
+        Question 5 of `_check_write_target` (design 227), and reached ONLY
+        through it — which is the point. It used to have two callers of its own,
+        an optional-chain assignment (design 111) and a plain assignment (design
+        193 unit 4), and `p.x = f(&var p)` compiled while `p?.x = f(&var p)` was
+        refused, making the rule a property of the SPELLING rather than of the
+        write: the callee's mutations to `p` are made and then clobbered by the
+        assignment that follows, the same lost write design 188 refused between
+        two windows. Design 193 unified those two and left a THIRD spelling
+        unasked — `p.x += f(&var p)` (DF-225i), whose overlap is worse still,
+        since a compound assignment reads the target as well as writing it.
+
+        `moves` is the one thing the entry points disagree about, and the
+        funnel's callers pass it. An assignment (plain or compound) REVIVES its
+        target (design 15 rule 3), so `acc = combine(move acc, move elem)` —
+        std `Vector.fold`, and the accumulator idiom generally — hands ownership
+        to the callee and takes a fresh value back with no aliasing in it, and
+        moving a root then writing a FIELD of it is a different statement that
+        is already a use-after-move. A CHAIN assignment writes through a payload
+        it does not revive, so that entry point asks about moves too.
 
         On `ast_walk.child_nodes` (design 193 unit 3). The hand-rolled walk this
         replaced descended a list's direct node items but stepped over TUPLES,
@@ -7057,25 +7077,6 @@ class ExpressionsMixin:
                          "borrow a disjoint path")
                 return
             stack.extend(child_nodes(cur))
-
-    def _check_assign_rhs_exclusivity(self, stmt) -> None:
-        """The Law on a plain assignment's written path (design 193 unit 4).
-
-        One call, ahead of the target-shape dispatch, so every assignment form
-        (variable, field, tuple element, array element, replacement through a
-        `&var`) is covered by construction rather than form by form.
-
-        BORROWS only, not `move`s: an assignment REVIVES its target (design 15
-        rule 3), so `acc = combine(move acc, move elem)` — std `Vector.fold`,
-        and the accumulator idiom generally — hands ownership to the callee and
-        takes a fresh value back, with no aliasing anywhere in it. Moving a
-        root and then writing a FIELD of it is a different statement and is
-        already a use-after-move. A chain assignment writes THROUGH a payload it
-        does not revive, which is why that entry point keeps asking about moves.
-        """
-        self._check_write_rhs_exclusivity(
-            self._build_access_path(stmt.target), stmt.value, stmt,
-            "this assignment", moves=False)
 
     def _make_specialization_key(self, type_args: List[SawType]) -> tuple:
         """The shared definition — see `ast_nodes.specialization_key`. This was

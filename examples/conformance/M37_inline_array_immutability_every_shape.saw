@@ -20,7 +20,7 @@
 // heap-reaching hop (a `Vector`/`Map`/`Data` element, an `UnsafePointer`
 // pointee) stops the walk, because the storage is not inside the binding.
 // Rows M41 and M32 are that side.
-// XFAIL: DF-225j `let`-immutability of inline array storage is shape-dependent — eight of these twelve cells compile and write a `let` (design 227 units 2-3)
+// XFAIL: DF-225j `let`-immutability of inline array storage is shape-dependent — the four `h.arr[i]` cells (an array reached through a FIELD) still compile and write a `let` (design 227 unit 3)
 // EXPECT: error
 // EXPECT-ERROR-CONTAINS: cannot assign to element of immutable array `bare_p`
 // EXPECT-ERROR-CONTAINS: cannot use compound assignment on element of immutable array `bare_c`

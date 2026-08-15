@@ -13,7 +13,6 @@
 // exclusive borrow — and it compiled, silently losing `grow`'s write (it
 // printed 3, not 4). The plain twin has been refused with the full teaching
 // diagnostic since design 193.
-// XFAIL: DF-225i compound assignment skips design 193 unit 4's write-path RHS-exclusivity check (design 227 unit 2)
 // EXPECT: error
 // EXPECT-ERROR-CONTAINS: `bp` is written by this assignment while also being accessed in the right-hand side
 // EXPECT-ERROR-CONTAINS: `bc` is written by this compound assignment while also being accessed in the right-hand side

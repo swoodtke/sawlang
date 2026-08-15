@@ -14,7 +14,6 @@
 //
 // The way out is the one every other spelling names: declare the method
 // `&var self`.
-// XFAIL: DF-225k `self.c?.n = 99` in a `&self` method is a silent no-op — the chain-assign path never asks the shared-self rule (design 227 unit 2)
 // EXPECT: error
 // EXPECT-ERROR-CONTAINS: cannot assign to storage reached through a `&self` receiver
 
