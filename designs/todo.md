@@ -210,6 +210,30 @@ as its own question:
   session, not a fix agent; independent of the 222 branch by
   construction.
 
+## Design 223 — suspending-method positions (AUTHORED Aug 14, two user questions open)
+
+`designs/223-suspending-method-positions.md`, from the DF-218k/l/m
+obligation-4 sweep (probes `.build/scratch/sweep218klm/`, gitignored).
+The trio is TWO mechanisms and a ~10-cell class, SEVEN cells silently
+sync: `_method_call_owner` is a two-valued name-keyed classifier whose
+None means both "not suspending" and "inexpressible", and all seven
+consumers incl. both rejectors read it as the former; the closure walk's
+definition-side skip misaligns with it (four symptom shapes from one
+hole); DF-218k is the method-table strip vs the conformance re-check.
+The typechecker's effect graph is EXACT throughout — only the transform
+disagrees. Blast radius zero WITH the reason: every existing enum/generic
+coro test drives from the ROOT position, which works; the embedded
+position had zero corpus coverage. Fix = a three-valued funnel
+(UNSUPPORTED raises, never degrades), gsm-table keying reused, matrix ×
+three properties (compiles / frame symbol in IR / interleave) as the
+test plan. AWAITING: the cell policy confirmation + the closure-body
+axis disposition (brief §Open questions). Also filed by the sweep:
+DF-218o (qualified yield lost in generic clone), DF-218p (cross-module
+generic literal doesn't substitute — plain mono bug), DF-218q
+(unanchored &any refusal in spawned body); cell K falsifies DF-206d's
+"not live" in the over-inclusion direction (a std name collision forces
+a frame onto sync user code).
+
 ## The next queue — designs 195-202 + 153 (ALL RULED Aug 10, awaiting dispatch)
 
 Every open ruling from the overnight run plus the parked backlog was
