@@ -248,6 +248,7 @@ one is the same error. Same two spellings, same empty bodies:
 ```saw
 enum Reel { case Loaded(t: Tape), case Empty }   // Tape is NoCopy
 extension Reel: NoCopy {}
+enum Bag { case Full(t: Vector<Int>), case Empty }   // Vector<Int> is ExplicitCopy
 @synthesize
 extension Bag: ExplicitCopy {}   // copy() over the ACTIVE variant's payload
 ```
@@ -1406,7 +1407,8 @@ dump_tasks()                // every live task's logical backtrace (std.task)
       let h = handles.pop()!     // pop moves the handle out — yours to join
       total += h.join()
   }
-  ``` `cancel_addr()` pins its slot (a raw address must stay
+  ```
+  `cancel_addr()` pins its slot (a raw address must stay
   valid), giving up reuse for that one slot. Suspending calls yield
   IMPLICITLY when they park (a task doing I/O never needs `yield_now`); `yield_now`
   (design 114: `import std.task.*` — no longer prelude) is now needed only where the
@@ -1790,8 +1792,8 @@ import mymodule as mm       // aliasing; `module`/`public`/`package`/`parent`
   until you import `codec` yourself. So `public` on an extension means what
   it means everywhere else — importers of my module get this — and the
   calling-it-without-the-import error names the module to add
-  (``type `Data` has no method `u16_at` in scope here`` / ``add `import
-  bmod```). std is ONE scoping domain (its files extend each other's types
+  (```type `Data` has no method `u16_at` in scope here``` / ```add `import
+  bmod` ```). std is ONE scoping domain (its files extend each other's types
   on purpose), so nothing about std method calls changes. Two imported
   modules may extend one type with the same method name: different
   signatures overload normally, identical ones are an ambiguity error AT THE
@@ -1877,7 +1879,7 @@ import mymodule as mm       // aliasing; `module`/`public`/`package`/`parent`
   should have had; the usual face is `Result<T, IoError>` in a return type.
   GOTCHA (DF-194a): the qualified spelling does NOT yet work in a struct field,
   an enum payload or a `type` alias — those three annotations keep the dot into
-  type comparison (``field `p` expects type `data.Data` but got `Data```). Use
+  type comparison (```field `p` expects type `data.Data` but got `Data` ```). Use
   `import std.data.{Data}` in those positions.
 - Visibility: `public`, `public(package)`, `public(parent)`, private
   default. Package layout: `src/lib.saw` ← `import <pkgname>` (Blade
