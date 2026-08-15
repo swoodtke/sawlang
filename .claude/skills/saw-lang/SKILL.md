@@ -1312,7 +1312,16 @@ dump_tasks()                // every live task's logical backtrace (std.task)
   OVERLOADED — `write(s: String)` for text and `write(bytes: Data)` for binary;
   both suspend and both are drivable from a spawned worker (design 95 keys the two
   overloads' driven frames by resolved signature, so a worker may call BOTH back
-  to back). `IoError: Error` (errno- shaped) — interpolate it (`"{e}"`).
+  to back). `IoError: Error` — interpolate it (`"{e}"`) for the whole story:
+  `io error: connect failed (host unreachable)`. It carries the failing op's name
+  plus a PORTABLE TAG, one small named set each host runtime maps its own errnos
+  onto, so a failure reads the same everywhere. `e.code()` is that tag and is
+  **NOT an OS errno** (tag 16 is the catch-all `Other`, errno 16 is `EBUSY`); it
+  was spelled `errno()` until DF-215a, where the difference bit. The raw platform
+  number is not carried across the seam at all, by design. The five off-loopback
+  causes — host/network unreachable, timed out, host/network down — were unmapped
+  until Aug 15, so a pre-fix build says `(other error)` for EVERY remote dial
+  failure.
   accept/read/read_into/write/connect all OBSERVE cooperative cancellation at their
   internal park — including a task ALREADY parked on a permanently-idle fd (design
   102 item 2): a peer's `handle.cancel()` or a `cancel_addr` write rouses the parked

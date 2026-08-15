@@ -163,6 +163,11 @@ vocabulary.
 | 14  | Invalid             | EINVAL                                     |
 | 15  | Exhausted           | EMFILE / ENFILE / ENOMEM / ENOSPC          |
 | 16  | Other               | any other errno                            |
+| 17  | HostUnreachable     | EHOSTUNREACH                               |
+| 18  | NetUnreachable      | ENETUNREACH                                |
+| 19  | TimedOut            | ETIMEDOUT                                  |
+| 20  | HostDown            | EHOSTDOWN                                  |
+| 21  | NetDown             | ENETDOWN                                   |
 
 `IsConnected` (3) and `InProgress` (2) exist so a re-issued nonblocking
 `connect()` can be classified (done / still-connecting / failed) without an errno
@@ -175,6 +180,27 @@ level (`IoError.of(syscall, tag)`); the observable behavior and the *shape* of
 the error text are unchanged — the parenthetical is now the tag's human name
 (`"io error: mkdir failed (not found)"`) rather than a raw errno number (no test
 observed the number).
+
+**Tags 17-21 were added by DF-215a (Aug 15), and they are what the paragraph
+above promises.** The v2 map named sixteen errnos and none of the five that can
+only happen OFF LOOPBACK, so `Other` was not rare at all — it was every remote
+dial failure, and `io error: connect failed (other error)` was the whole of what
+std.net could say about one while the cause sat in errno and was discarded. The
+addition is what "map the common failure errnos to named tags" means for a
+program that leaves the machine; it is not a new mechanism.
+
+**Why widening this table is ADDITIVE rather than an ABI change.** No existing
+tag is renumbered — `Other` keeps 16, which is why the five sit after it instead
+of beside their neighbours. Nothing about a seam's SIGNATURE moves, so
+`runtime_abi.py`'s machine check (arity and width) and `make abidoc`'s symbol-set
+check both see exactly what they saw before. And the compatibility question has
+one answer in each direction: a runtime that never returns 17-21 is still
+correct, and a consumer that does not know them degrades to the text it prints
+today, because every consumer of a tag reads it through a total mapping with a
+catch-all (std's `sys_error_name` ends in `case _ -> "other error"`). What WOULD
+be an ABI change is reusing or renumbering a tag, and a future addition should
+take the next free number for the same reason. The SOS `SosStatus` enum is a
+SEPARATE contract (sos/spec.md §5.7 says so in as many words) and is untouched.
 
 ### `__saw_rt_last_syserror() -> word`
 Read the calling thread's errno and return the portable SysError TAG. This is the
@@ -678,6 +704,7 @@ Changes since v2, additive but for the one removal noted:
 | 132    | `__saw_rt_fs_{open,read,write,lseek,opendir}`                  |
 | 182    | `__saw_rt_proc_{exit_fd,wait_fd,try_wait,release}` — the zero-thread child wait |
 | 187    | `__saw_rt_proc_wait` **REMOVED**: its last caller (`Command.output`) went cooperative, so the v1 blocking reap has none. A runtime that still exports it is harmless; one that does not is complete |
+| DF-215a | SysError tags 17-21 (`HostUnreachable`/`NetUnreachable`/`TimedOut`/`HostDown`/`NetDown`) — the five off-loopback errnos the map omitted. No symbol, no signature, no renumbering; see the tag table above |
 
 ## The compiler → executor entry-point boundary (design 118, stage 1: map + carve)
 

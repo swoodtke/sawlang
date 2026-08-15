@@ -32,7 +32,14 @@ enum SysError: UInt8 {
     case AddrInUse = 13,
     case Invalid = 14,
     case Exhausted = 15,
-    case Other = 16
+    case Other = 16,
+    // The REMOTE-reach failures (DF-215a). `Other` keeps 16 — the numbers are
+    // frozen — so these sit after it rather than beside their neighbours.
+    case HostUnreachable = 17,
+    case NetUnreachable = 18,
+    case TimedOut = 19,
+    case HostDown = 20,
+    case NetDown = 21
 }
 
 // Linux errno numbers.
@@ -49,11 +56,16 @@ static ENOSPC: Int = 28
 static EPIPE: Int = 32
 static EAGAIN: Int = 11        // == EWOULDBLOCK
 static EADDRINUSE: Int = 98
+static ENETDOWN: Int = 100
+static ENETUNREACH: Int = 101
 static ECONNABORTED: Int = 103
 static ECONNRESET: Int = 104
 static EISCONN: Int = 106
 static ENOTCONN: Int = 107
+static ETIMEDOUT: Int = 110
 static ECONNREFUSED: Int = 111
+static EHOSTDOWN: Int = 112
+static EHOSTUNREACH: Int = 113
 static EALREADY: Int = 114
 static EINPROGRESS: Int = 115
 
@@ -99,6 +111,16 @@ func rt_last_syserror() -> Int {
         SysError.Invalid
     } else if e == EMFILE || e == ENFILE || e == ENOMEM || e == ENOSPC {
         SysError.Exhausted
+    } else if e == EHOSTUNREACH {
+        SysError.HostUnreachable
+    } else if e == ENETUNREACH {
+        SysError.NetUnreachable
+    } else if e == ETIMEDOUT {
+        SysError.TimedOut
+    } else if e == EHOSTDOWN {
+        SysError.HostDown
+    } else if e == ENETDOWN {
+        SysError.NetDown
     } else {
         SysError.Other
     }

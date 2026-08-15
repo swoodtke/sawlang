@@ -35,7 +35,14 @@ enum SysError: UInt8 {
     case AddrInUse = 13,
     case Invalid = 14,
     case Exhausted = 15,
-    case Other = 16
+    case Other = 16,
+    // The REMOTE-reach failures (DF-215a). `Other` keeps 16 — the numbers are
+    // frozen — so these sit after it rather than beside their neighbours.
+    case HostUnreachable = 17,
+    case NetUnreachable = 18,
+    case TimedOut = 19,
+    case HostDown = 20,
+    case NetDown = 21
 }
 
 // macOS errno numbers.
@@ -54,11 +61,16 @@ static EAGAIN: Int = 35        // == EWOULDBLOCK
 static EINPROGRESS: Int = 36
 static EALREADY: Int = 37
 static EADDRINUSE: Int = 48
+static ENETDOWN: Int = 50
+static ENETUNREACH: Int = 51
 static ECONNABORTED: Int = 53
 static ECONNRESET: Int = 54
 static EISCONN: Int = 56
 static ENOTCONN: Int = 57
+static ETIMEDOUT: Int = 60
 static ECONNREFUSED: Int = 61
+static EHOSTDOWN: Int = 64
+static EHOSTUNREACH: Int = 65
 
 // sockaddr_in prefix (macOS): { u8 sin_len = 16; u8 sin_family = AF_INET }.
 static SIN_LEN: Int8 = 16
@@ -104,6 +116,16 @@ func rt_last_syserror() -> Int {
         SysError.Invalid
     } else if e == EMFILE || e == ENFILE || e == ENOMEM || e == ENOSPC {
         SysError.Exhausted
+    } else if e == EHOSTUNREACH {
+        SysError.HostUnreachable
+    } else if e == ENETUNREACH {
+        SysError.NetUnreachable
+    } else if e == ETIMEDOUT {
+        SysError.TimedOut
+    } else if e == EHOSTDOWN {
+        SysError.HostDown
+    } else if e == ENETDOWN {
+        SysError.NetDown
     } else {
         SysError.Other
     }

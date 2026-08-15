@@ -380,13 +380,30 @@ func sys_error_name(tag: Int) -> String {
         case 13 -> "address in use",
         case 14 -> "invalid argument",
         case 15 -> "resources exhausted",
+        // The REMOTE-reach failures (DF-215a). Every one of these can only
+        // happen off loopback, which is why the suite never produced one and
+        // why all five read as "other error" until the map named them.
+        case 17 -> "host unreachable",
+        case 18 -> "network unreachable",
+        case 19 -> "timed out",
+        case 20 -> "host is down",
+        case 21 -> "network is down",
         case _ -> "other error"
     }
 }
 
 extension IoError {
-    // The portable SysError tag of the failure (design 117; rt/ABI.md).
-    public func errno(&self) -> Int {
+    // The portable SysError TAG of the failure — the small fixed tag space in
+    // rt/ABI.md, and NOT an OS errno. The two are different numbering systems
+    // that overlap: tag 16 is `Other`, errno 16 is `EBUSY`.
+    //
+    // This was spelled `errno()` until DF-215a, where a reader took the 16 it
+    // returned for a real errno. The raw OS number is not carried across the
+    // seam at all, and deliberately (design 117): a failing op returns ONE word
+    // holding its result or `-tag`, which is what makes the convention map onto
+    // the SOS `(status, value)` pair — and SOS has no errno to put in it. So the
+    // honest fix is the name. `format` renders the same tag as its human word.
+    public func code(&self) -> Int {
         self.code
     }
 

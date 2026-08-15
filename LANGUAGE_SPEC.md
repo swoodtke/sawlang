@@ -6146,7 +6146,13 @@ one's `Deinit` closes its fd exactly once (the move checkpoint prevents
 use-after-close, `NoCopy` prevents double-close). Suspension is hidden INSIDE the
 methods — `accept` / `read` / `connect` register the fd with the reactor and park
 the task internally, so the caller writes an ordinary method call with no `io_wait`
-in sight. Errors are `IoError` (conforms to `Error`, errno-shaped).
+in sight. Errors are `IoError`: the failing operation's name plus a portable
+failure tag, conforming to `Error` so `"{e}"` renders it as
+`io error: connect failed (host unreachable)`. Each host runtime maps its own
+errno numbers onto one small named set of tags, so the same failure reads the
+same on every host. `e.code()` returns that tag, which is not an OS errno; there
+is no accessor for the raw platform number, because the runtime ABI does not
+carry one across the seam.
 
 ```saw
 // A cooperative echo, entirely over the safe owning API. Failable ops return

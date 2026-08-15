@@ -742,6 +742,12 @@ on a worker thread and the task parks: sibling tasks keep running while it is in
 flight. A name that does not resolve is an `Err(IoError)` naming it. IPv6 is not
 resolved yet. See the [std.net section of the spec](LANGUAGE_SPEC.md).
 
+An `IoError` says which operation failed and why: `"{e}"` renders
+`io error: connect failed (host unreachable)`. The cause is a portable tag, one
+small named set that each host runtime maps its own errno numbers onto, so the
+same failure reads the same on macOS and on Linux. `e.code()` returns the tag.
+It is not an OS errno, and there is no accessor for the platform number.
+
 ### The Copy Trait Family
 
 The cost of a transfer is readable at the point where it happens. The tiers and

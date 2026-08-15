@@ -75,7 +75,14 @@ enum SysError: UInt8 {
     case AddrInUse = 13,
     case Invalid = 14,
     case Exhausted = 15,
-    case Other = 16
+    case Other = 16,
+    // The REMOTE-reach failures (DF-215a). `Other` keeps 16 — the numbers are
+    // frozen — so these sit after it rather than beside their neighbours.
+    case HostUnreachable = 17,
+    case NetUnreachable = 18,
+    case TimedOut = 19,
+    case HostDown = 20,
+    case NetDown = 21
 }
 
 // waitpid(2)'s "do not block" option — 1 on both hosts.
