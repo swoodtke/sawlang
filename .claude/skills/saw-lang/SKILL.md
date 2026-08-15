@@ -1241,6 +1241,28 @@ dump_tasks()                // every live task's logical backtrace (std.task)
   state via `Arc`/`Mutex`/`Channel`. Test MT
   code on counts/sums, NEVER on interleaving. Cross-task cancel:
   `handle.cancel_addr() -> Int` (a Send address a canceller task sets).
+- **SHARING A TYPE THAT OWNS RAW MEMORY: two levels, one assertion each**
+  (LANGUAGE_SPEC "A raw buffer shared across threads"). The pointer field does
+  NOT poison the type — `Vector` is the precedent — so write the struct plain
+  and mark only the methods that reach THROUGH it `unsafe`. LEVEL 1 (behind a
+  lock): one `extension Buf: UnsafeSend {}`, owing four things (the memory is
+  heap-only, nothing in the type is thread-affine, `deinit` is sound from any
+  thread, no unsynchronized sibling reaches the same region) — and
+  `Arc<Mutex<Buf>>` then composes mechanically, because `extension Mutex<T:
+  Send>: UnsafeSync {}` ignites and `Arc<T: Send + Sync>` follows. LEVEL 2
+  (atomics or a `SpinLock` INSIDE the type + `extension Buf: UnsafeSync {}`):
+  for lock-free sharing and for the `static` position, since a static must be
+  Sync and an interior cell is what blocks the derivation; the obligation is the
+  WHOLE `&self` surface being race-free under true parallelism, jointly. Two
+  rules pick the level: a lock converts Send INTO Sync and does nothing else (it
+  serializes simultaneity, it cannot un-migrate — which is why its conformance
+  is BOUNDED on `T: Send`, so a `Mutex<Box<TaskGroup>>` is not Sync), and
+  NOTHING upgrades a non-Send type to Send except the type's own declaration —
+  no wrapper multiplies, `Arc`/`Mutex`/`Box` are each Send/Sync exactly when
+  their contents are. When neither assertion is honest, send the OPERATION
+  instead: the value stays with one task and peers name operations on it over a
+  `Channel` (remote operation, not shared access), which works for every type
+  because the message is what has to be Send.
 - `spawn { … } -> Task<T>` checks BOTH directions of the thread crossing
   (design 193): every capture must be `Send` on the way in, and `T` must be
   `Send` on the way back, since the task computes the result on its own thread

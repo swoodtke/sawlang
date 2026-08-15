@@ -6396,6 +6396,283 @@ an existential are both clean errors pointing at the property. These are two
 builtin traits, not a user-definable unsafe-trait feature. The
 [orphan rule](#conformance-coherence-the-orphan-rule) applies unchanged.
 
+### A raw buffer shared across threads
+
+**Status: implemented.** A type that owns raw memory — a pointer into the heap,
+a mapped region, an inline byte array it hands addresses out of — becomes
+shareable in one of two ways, and which one you want depends on where the
+synchronization lives. Both start from the same fact: the raw pointer does not
+poison the type.
+
+#### Level 1: the buffer behind a lock
+
+**Write the type as an ordinary safe struct.** A field of unsafe type does not
+make the struct unsafe. Unsafety is not transitive
+([Unsafe Code](#unsafe-code--unsafe-types-and-the-functions-that-touch-them)),
+and `Vector` is the precedent: it holds an `UnsafePointer` and is a safe type
+you pass, store and return with no ceremony. Only the methods that reach
+*through* the pointer carry the `unsafe` effect, and each one owes total
+soundness — a function whose parameters are all safe types must be sound for
+every input it can be handed, so `push` below bounds-checks and panics rather
+than trusting its caller.
+
+```saw
+import std.mutex.{Mutex}
+
+static SAMPLE_CAPACITY: Int = 64
+
+struct SampleBuffer {
+    bytes: UnsafePointer<UInt8>,
+    filled: Int
+}
+
+extension SampleBuffer: NoCopy {
+    func deinit(&var self) unsafe {
+        GlobalAllocator().dealloc(self.bytes as UnsafePointer<Int8>, SAMPLE_CAPACITY, 1)
+    }
+}
+
+extension SampleBuffer {
+    init() unsafe -> SampleBuffer {
+        guard let block = GlobalAllocator().alloc(SAMPLE_CAPACITY, 1) else {
+            panic("SampleBuffer: allocation failed")
+        }
+        SampleBuffer(bytes: block as UnsafePointer<UInt8>, filled: 0)
+    }
+
+    func len(&self) -> Int { self.filled }            // safe: never names the pointer
+
+    func push(&var self, sample: UInt8) unsafe {
+        if self.filled >= SAMPLE_CAPACITY { panic("SampleBuffer.push: buffer is full") }
+        self.bytes[self.filled] = sample
+        self.filled = self.filled + 1
+    }
+
+    func sum(&self) unsafe -> Int {
+        var total = 0
+        for i in 0..self.filled {
+            total += self.bytes[i] as Int
+        }
+        total
+    }
+}
+```
+
+`len` is not `unsafe`. It reads an `Int` field and never names the pointer, so
+the trigger rule never fires — non-transitivity seen from inside the type.
+
+**Assert `UnsafeSend` once.** `UnsafePointer` is neither `Send` nor `Sync`, so
+structural derivation stops at the `bytes` field and `SampleBuffer` derives
+neither. Moving one to another thread is safe anyway, for reasons the
+derivation cannot read off the fields, so the type says so:
+
+```saw
+extension SampleBuffer: UnsafeSend {}
+```
+
+That one line carries four obligations, and they are the review checklist:
+
+1. **The memory is heap-only.** What the pointer addresses outlives the thread
+   that allocated it. A pointer into a stack frame or into thread-local storage
+   fails here, and no lock repairs it.
+2. **Nothing in the type is thread-affine.** No cached thread id, no handle
+   valid on one thread only, no state whose meaning depends on which thread
+   reads it.
+3. **`deinit` is sound from any thread.** The last owner frees the region, and
+   which thread that turns out to be is not knowable at the declaration.
+4. **No unsynchronized sibling reaches the same region.** The assertion is
+   about *this* value's exclusive claim on its bytes; a second pointer to the
+   same allocation, held somewhere else and written without coordination,
+   voids it.
+
+**`Arc<Mutex<T>>` composes from there.** The standard library's conformances are
+conditional, so the one assertion propagates: `extension Mutex<T: Send>:
+UnsafeSync {}` now holds, `Mutex<SampleBuffer>` derives `Send` from its cells,
+and `extension Arc<T: Send + Sync>: UnsafeSend {}` and its `UnsafeSync` twin
+then make the handle safe to copy into a worker.
+
+```saw
+func record(shared: Arc<Mutex<SampleBuffer>>, sample: UInt8) {
+    shared.lock({ &var buf in buf.push(sample) })
+}
+
+func main() {
+    let shared = Arc<Mutex<SampleBuffer>>(value: Mutex<SampleBuffer>(value: SampleBuffer()))
+    var workers = TaskGroup(threads: 2)
+    let left = workers.spawn(record(shared.copy(), 3))
+    let right = workers.spawn(record(shared.copy(), 4))
+    left.join()
+    right.join()
+    print("{} samples, sum {}", shared.lock({ &var buf in buf.len() }),
+                                shared.lock({ &var buf in buf.sum() }))
+    // prints: 2 samples, sum 7
+}
+```
+
+Delete the `UnsafeSend` line and the spawn is refused at the function that would
+have crossed:
+
+```
+error: cannot spawn `record` into a multi-threaded `TaskGroup(threads: ...)`:
+       parameter `shared` of type `Arc<Mutex<SampleBuffer>>` is not `Send`, so
+       the task frame cannot cross to a worker thread. Share thread-safe state
+       via `Arc` (and `Mutex` for mutation) or a `Channel` instead of moving it
+       in.
+```
+
+#### Level 2: synchronization inside the type
+
+Level 1 buys thread safety with an outer lock: every access serializes, and the
+value is `Sync` only for as long as it sits inside the `Mutex`. Put the
+synchronization inside the type instead when you want lock-free sharing, or when
+the type itself has to be `Sync` — which is what the `static` position requires
+([Module-level statics](#module-level-statics)), and what an interior cell
+blocks.
+
+The obligation is bigger than Level 1's and is worth stating before the code:
+**every `&self` method must be race-free under true parallelism**, jointly —
+any two of them may run at the same instant on the same value. Level 1 gets
+that from the lock. Here you owe it method by method.
+
+```saw
+static REGION_BYTES: Int = 4096
+static CHUNK_BYTES: Int = 16
+
+struct BumpArena {
+    region: UnsafeMutableInterior<[UInt8; REGION_BYTES]>,
+    next: Atomic<Int>
+}
+
+extension BumpArena: NoCopy {}
+extension BumpArena: UnsafeSync {}
+
+extension BumpArena {
+    func _base(&self) unsafe -> UnsafePointer<UInt8> {
+        self.region.ptr() as UnsafePointer<UInt8>
+    }
+
+    /// Claims `count` bytes and returns their offset, or `None` when the region
+    /// is spent. Never hands out a reference into the region.
+    func take(&self, count: Int) unsafe -> Int? {
+        let start = self.next.fetch_add(count)
+        if start + count > REGION_BYTES { return None }
+        for i in 0..count {
+            self._base()[start + i] = 0
+        }
+        start
+    }
+}
+
+static SCRATCH: BumpArena          // zero is an empty arena; no initializer owed
+
+func claim(rounds: Int) -> Int {
+    var taken = 0
+    for _ in 0..rounds {
+        if let _ = SCRATCH.take(CHUNK_BYTES) { taken += 1 }
+    }
+    taken
+}
+
+func main() {
+    var workers = TaskGroup(threads: 2)
+    let left = workers.spawn(claim(100))
+    let right = workers.spawn(claim(100))
+    print("claimed {} chunks", left.join() + right.join())
+    // prints: claimed 200 chunks
+}
+```
+
+`take` is the whole argument: one `fetch_add` decides an offset, no two callers
+can be handed the same one, and the region is written only inside the range that
+call just won. The cell is what makes the mutation reach the caller's storage
+through a `&self` receiver ([Interior mutability](#interior-mutability)), and it
+is also what blocks `Sync`, which is why the assertion is legal here at all.
+Without it the `static` is refused, and the diagnostic names the field that
+blocked the derivation and the line to add:
+
+```
+error: static `SCRATCH` has non-Sync type `BumpArena`; statics must be Sync
+       (shared across all tasks)
+  hint: ... `BumpArena` carries an interior cell (design 186), so it derives no
+        `Sync`: field `region` of type `UnsafeMutableInterior<[UInt8; 4096]>` is
+        mutable through a shared borrow, which the derivation cannot reason
+        about. If the synchronization is real but invisible to the compiler, say
+        so — `extension BumpArena: UnsafeSync {}`, beside the type, where it can
+        be audited.
+```
+
+#### The two rules, and the fallback
+
+**A lock converts `Send` into `Sync`, and nothing more.** A mutex serializes
+simultaneity: two threads may hold the handle, never the payload at once. It
+does not un-migrate anything, so the payload must still be safe to *move*
+between threads on its own. That is why the standard library's conformance is
+bounded rather than unconditional:
+
+```saw
+extension Mutex<T: Send>: UnsafeSync {}
+```
+
+The bound is re-checked at every instantiation, so a `Mutex` over a payload that
+is not `Send` is not `Sync`, and the `Arc` around it is not `Send` either:
+
+```saw
+// `Box<TaskGroup>` is not `Send`
+func poke(shared: Arc<Mutex<Box<TaskGroup>>>) -> Int { shared.strong_count() }
+// error: cannot spawn `poke` into a multi-threaded `TaskGroup(threads: ...)`:
+//        parameter `shared` of type `Arc<Mutex<Box<TaskGroup, GlobalAllocator>>>`
+//        is not `Send`, ...
+```
+
+**Nothing upgrades a non-`Send` type to `Send` except the type's own design.**
+No wrapper does it. `Arc`, `Mutex`, `Box` and a struct field are each
+`Send`/`Sync` exactly when their contents are, and stacking them multiplies
+nothing — which is what the refusal above is showing. The only thing that
+changes the answer is a declared `UnsafeSend`/`UnsafeSync` on the type itself,
+written beside the type under the orphan rule, where a reviewer will find it.
+
+**When neither assertion is honest, send the operation instead of the value.**
+This works for every type, including ones that could never be `Send`: the value
+stays with one task, and everybody else names an operation on it. The request
+crosses, the buffer does not, and no assertion is owed by anybody. (Continuing
+the `SampleBuffer` above, with no `UnsafeSend` on it — the `import` line joins
+the ones at the top of the file.)
+
+```saw
+import std.channel.{Channel}
+
+enum Request {
+    case Record(sample: UInt8)
+}
+
+func feed(inbox: Channel<Request>, sample: UInt8) {
+    inbox.send(Request.Record(sample: sample))
+}
+
+func main() {
+    var buf = SampleBuffer()           // owned here, shared with nobody
+    let inbox = Channel<Request>()
+    var senders = TaskGroup()
+    let left = senders.spawn(feed(inbox.copy(), 3))
+    let right = senders.spawn(feed(inbox.copy(), 4))
+    for _ in 0..2 {
+        let request = inbox.receive()
+        match request {
+            case Record(sample) -> buf.push(sample)
+        }
+    }
+    left.join()
+    right.join()
+    print("sum {}", buf.sum())
+    // prints: sum 7
+}
+```
+
+`Request` is `Send` because a `UInt8` is. That is the whole cost of the pattern,
+and it is why it always works: remote operation is not shared access, so the
+thread-safety question moves off the buffer and onto the messages, where it is
+usually trivial.
+
 ### Module-level statics
 
 **Status: implemented (design 41).** A `static` is a module-level
