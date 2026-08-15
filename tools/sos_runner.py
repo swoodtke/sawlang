@@ -129,6 +129,11 @@ ARCHES = [
         "features": "+m,+a,+c",
         "hex_width": 8,
         "root_entry": 0x80200000,
+        # The line `hal.irq_raise_selftest_line()` raises (design 178 M2 unit
+        # 1). It is per-machine because WHAT a board can interrupt itself with
+        # is: this one has no software trigger, so the HAL makes the console
+        # interrupt, on the line this board wires it to.
+        "selftest_line": 10,
     },
     {
         "name": "arm64",
@@ -137,13 +142,21 @@ ARCHES = [
         # `-cpu cortex-a53` (design 162 decision 3): ubiquitous, EL1
         # well-exercised. `-semihosting` is what makes SYS_EXIT carry a status
         # code — see sos/hal/arm64/kernel/sink.c for why not PSCI.
-        "qemu_args": ["-M", "virt", "-cpu", "cortex-a53", "-semihosting"],
+        # `gic-version=2` is PINNED rather than defaulted (design 178 M2 unit
+        # 1): the HAL programs a v2 controller, which is what this machine has
+        # given us so far, and a newer emulator changing its default would swap
+        # the hardware under a kernel that cannot say so.
+        "qemu_args": ["-M", "virt,gic-version=2", "-cpu", "cortex-a53",
+                      "-semihosting"],
         # The base aarch64 triple already has everything this kernel uses, and
         # there is no ABI variant to select.
         "cc_args": [],
         "features": None,
         "hex_width": 16,
         "root_entry": 0x40200000,
+        # This controller HAS a software trigger, so the selftest line is a
+        # software-generated one and no device is involved.
+        "selftest_line": 5,
     },
 ]
 
@@ -168,9 +181,11 @@ def expectations(arch):
     return {
         "banner": f"SOS M1: kernel up on {arch['name']}",
         "entry": f"0x{arch['root_entry']:0{width}x}",
+        "zero": f"0x{0:0{width}x}",
         "one": f"0x{1:0{width}x}",
         "two": f"0x{2:0{width}x}",
         "prio": f"0x{0x01010100:0{width}x}",
+        "irq_line": f"0x{arch['selftest_line']:0{width}x}",
     }
 
 
@@ -188,6 +203,13 @@ ARCH_WORDS = [
     "sifive", "ns16550", "csr", "m-mode", "u-mode",
     "esr_el", "elr_el", "far_el", "vbar", "ttbr", "sctlr", "tcr_el", "mair",
     "pl011", "psci", "semihost", " svc ", "el0", "el1",
+    # Design 178 M2 unit 1 brought two more classes of machine name within
+    # reach of the arch-free kernel — the interrupt controllers and the timers
+    # — so the scan learns them at the same time as the code that could leak
+    # them. Each is spelled tightly enough not to fire on English: `gic` alone
+    # would match "magic", which the loader's own diagnostics say.
+    "plic", "clint", "gicd", "gicc", "gicv", "sgir", "mtimecmp",
+    "cntp", "cntfrq", "sstc", "mtimer",
 ]
 
 # ANSI colors (matched to test_runner.py's style; disabled when not a TTY).
@@ -317,6 +339,57 @@ TEST_CASES = [
         "expect_out": "SOS M1: entering U-mode",
         "expect_clean_exit": False,
         "expect_status": PAYLOAD_CHECKS_PASSED,
+    },
+    # --- design 178 M2 unit 1: interrupts -----------------------------------
+    # Three claims, one per case, and each is read from the ORDER of the
+    # transcript rather than from any single line: a tick lands in the
+    # arch-free hook once user mode is running; a tick that comes due in the
+    # kernel is not taken there; and a device line goes round the interrupt
+    # controller's claim/complete cycle. All three run the same spinning
+    # payload, which shuts the machine down cleanly when it is done — so a
+    # kernel that wedged in its handler shows up as a timeout, not a pass.
+    {
+        "name": "timer_tick",
+        "src": os.path.join(TESTS_DIR, "timer.saw"),
+        "asm": "payload_spin.S",
+        # The tick count comes from the kernel's counter and the address from
+        # the interrupted frame, so both halves of "a tick was taken from user
+        # mode" are in the line. The address itself is the payload's and is not
+        # asserted — what matters is that the kernel had already left.
+        "expect_out": ["SOS M2: timer armed",
+                       "SOS M2: entering U-mode",
+                       "SOS: timer tick {one} at ",
+                       "SOS: timer tick {two} at "],
+        "expect_clean_exit": True,
+    },
+    {
+        "name": "timer_masked_in_kernel",
+        "src": os.path.join(TESTS_DIR, "timer_mask.saw"),
+        "asm": "payload_spin.S",
+        # design 178 D2. The middle line is the whole case: the kernel spun
+        # until the timer was DUE, and the tick counter is still zero — so the
+        # interrupt was pending and untaken while the kernel ran. The tick
+        # arrives after the entry to user mode, and ordered matching is what
+        # makes "after" an assertion.
+        "expect_out": ["SOS M2: kernel section begin",
+                       "SOS M2: kernel section end, timer expired, "
+                       "ticks taken={zero}",
+                       "SOS M2: entering U-mode",
+                       "SOS: timer tick {one} at "],
+        "expect_clean_exit": True,
+    },
+    {
+        "name": "external_irq",
+        "src": os.path.join(TESTS_DIR, "extirq.saw"),
+        "asm": "payload_spin.S",
+        # The line is raised in the kernel and serviced in user mode, which is
+        # the same masking claim the case above makes about the timer — and
+        # the line number crossing from the raise to the hook is what says the
+        # controller's claim gave back the line that was raised.
+        "expect_out": ["SOS M2: raised external irq {irq_line}",
+                       "SOS M2: entering U-mode",
+                       "SOS: external irq {irq_line}"],
+        "expect_clean_exit": True,
     },
     # --- design 140 unit B: the sosimg format and the kernel's loader -------
     # These images are assembled by hand (sos/tests/<arch>/payload_*.S), so they
