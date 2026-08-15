@@ -217,7 +217,35 @@ as its own question:
   structurally cannot exist. LANGUAGE_SPEC's TaskGroup section now
   states the mode and its reason. Optional internal-consistency cleanup
   (generated sites mirroring a method's declared self-mode) noted as
-  riding any future transform touch; nothing else owed.
+  riding any future transform touch.
+  **Follow-up probes (Aug 15, `.build/scratch/probe_arc_tg*.saw`,
+  gitignored): `Arc<Box<TaskGroup>>` WORKS same-thread** — NoMove permits
+  in-place construction into the Box ("build the value where it has to
+  live"), Box/Arc handles move freely, ran at strong=2 — and the
+  `threads: N` spawn gate REFUSES it crossing (clean diagnostic: not
+  `Send`, structural through Box). So thread-pinning is enforced by
+  Send/Sync propagation + the MT spawn gate, NOT by NoMove/Arc
+  unreachability (an earlier claim here, corrected). CONFORMANCE ROWS
+  OWED (ride the next conformance batch): (a) the same-thread
+  `Arc<Box<TaskGroup>>` ACCEPT row — pins the capability so a future
+  change cannot silently take it; (b) the MT-crossing refusal with the
+  real diagnostic; (c) `static` TaskGroup refusal. ANNOTATION: DF-219c
+  (spawn capture audit not bound-aware) is LOAD-BEARING for this whole
+  story — the MT spawn gate is the one fence; its bound-blindness is
+  now a soundness-adjacent gap, priority up a notch.
+
+- **DQ-222b (design question, unruled; found by the Aug-15 probes) —
+  an Arc'd TaskGroup has refcount lifetime, not scope lifetime.**
+  Design 124 says a group IS a scope (eager teardown, children joined
+  where the group was born; the NoMove diagnostic cites exactly this),
+  but `Arc<Box<TaskGroup>>` runs the group's deinit wherever the LAST
+  handle drops — deterministic and memory-safe (stable address, one
+  thread), yet the nursery's structured-concurrency reading is relaxed:
+  children may outlive the lexical scope that spawned them. Intended
+  capability or hole? If hole, the fix direction is a NoMove-like fence
+  on Box/Arc payloads (a "pinned-to-scope" property distinct from both
+  NoMove and Send); if intended, design 124's docs say so and row (a)
+  above doubles as its pin.
 
 ## Design 223 — suspending-method positions (AUTHORED Aug 14, two user questions open)
 
@@ -238,7 +266,11 @@ three properties (compiles / frame symbol in IR / interleave) as the
 test plan. AWAITING: the cell policy confirmation + the closure-body
 axis disposition (brief §Open questions). Also filed by the sweep:
 DF-218o (qualified yield lost in generic clone), DF-218p (cross-module
-generic literal doesn't substitute — plain mono bug), DF-218q
+generic literal doesn't substitute — plain mono bug; **WIDENED Aug 15:
+also reaches std/prelude types through ANY qualifier** —
+`arc.Arc<Int>(value: 5)` → "argument `value` expects `T` but got
+`Int`", probe_diag_b — so the blast radius is every qualified generic
+construction, not an obscure cross-module case), DF-218q
 (unanchored &any refusal in spawned body); cell K falsifies DF-206d's
 "not live" in the over-inclusion direction (a std name collision forces
 a frame onto sync user code).
@@ -2062,7 +2094,14 @@ Both belong to ONE subsystem (executor park/drive paths) — candidate
 small brief 206 alongside/ahead of 201, same surface discipline. The
 rest of the wave's triage (std ergonomics batch: String→Data, File.write
 overload, temp dirs, zero-pad; diagnostics batch: for-in .iter() hint +
-cascade, transfer-error anchor at the read site, generic-ctor cascade;
+cascade, transfer-error anchor at the read site, generic-ctor cascade,
+PLUS two Aug-15 additions (probes `.build/scratch/probe_diag_a.saw` +
+the arc probes): (i) a failed STATIC-METHOD resolution on a generic
+type head falls back to "undefined variable `Vector`" — the head is
+re-read as a value and the real error (no such static) is masked; cost
+the lead three probe rounds live; (ii) a QUALIFIED generic static call
+`arc.Arc<Int>.make(5)` is a PARSE error ("Unexpected token: DOT") —
+the qualified generic head never reaches resolution at all;
 skill/README edits: Atomic prelude line, build-and-return idiom, generic
 CONSTRUCTORS excluded from inference, String.split unconfirmed-in-spec;
 open probe: Vector<TaskHandle> dynamic-join spelling) lands with the
