@@ -15,6 +15,59 @@ line per brief + one per done-file), created with the next split.
 Next split (aug10-aug14 + INDEX.md) queued behind design 223's
 integration.
 
+## Design 178 M2 unit 1 — trap/timer/interrupt-controller HAL (BUILT Aug 15,
+branch PARKED for user review per SOS policy)
+
+`designs/178-sos-m2-sketch.md` carries what landed. In one line: both HALs
+grew a periodic timer and their board's interrupt controller behind ONE
+seam, `ktrap` grew an interrupt arm ahead of the fault/syscall ones, and
+`sos/kernel/core/` grew the two arch-free hooks the scheduler and the
+Interrupt object will fill. `make sos-test` is 38 cases (19 per machine).
+D2 is enforced by the two machines rather than intended by the kernel, so
+`IntrSpinLock` (spec §9b) is still unbuilt and still not needed. C floor
+135 -> 140 code lines, every added line an instruction with no Saw
+spelling. Out of scope and NOT built: Thread/Process, the scheduler,
+Event/Waiter, the Interrupt object.
+
+Findings the unit produced:
+
+- **DF-178a — a `///` doc comment cannot document an `extern` declaration.**
+  Inside `extern "C" { ... }` it is ``doc comment is not followed by a
+  documentable declaration``, so a C seam's contract has to be written as a
+  plain `//` comment beside the declaration it describes. The documentable
+  list (LANGUAGE_SPEC "Doc comments") covers func/struct/enum/trait/
+  extension/type/static, fields, cases, methods and inits — an `extern` func
+  is none of them. It is exactly the position a HAL wants documented: the
+  arm64 kernel HAL now declares four timer seams whose docstrings had to be
+  demoted, and `--emit-docs` cannot see them at all. Small, clean-error,
+  not blocking; the fix is adding `extern` functions to the attachable set.
+
+- **DF-178b — user mode on Profile A runs ~3000x slower under QEMU than on
+  Profile B, and the cause is the GRANT GRANULARITY, not the architecture.**
+  Measured both ways with one payload (a two-instruction register loop, 20M
+  iterations): 62.6s under the four-byte-granular PMP grant every unit-A
+  harness case uses, 0.02s under a page-aligned grant of the same bytes.
+  ~0.3M iterations/s vs ~500M. The emulator's address translation caches a
+  PAGE, and a sub-page protection region defeats it, so every instruction
+  fetch takes the slow path. Consequences: the M2 payloads are sized per
+  profile (300k iterations vs 100M) and each says so; anything that wants
+  user code to RUN on Profile A — the scheduler unit's preemption proof, a
+  userspace driver loop — should expect this and consider page-aligning
+  `.payload` in `virt.ld` (which would make the grant page-aligned at both
+  ends and cost a few KiB of padding). An emulator artifact, not hardware,
+  and not a Saw or SOS bug.
+
+- **DF-172d, third sighting.** A binary expression still cannot wrap across
+  lines unless brackets already enclose it, and the shapes that hit it here
+  are the ones the finding predicts: OR-ing named descriptor bits, and
+  composing a 64-bit value out of two 32-bit halves. Same family, worth
+  recording because it is now the third independent brief to pay it: a
+  postfix `.method()` on the line AFTER a closing `)` does not parse either
+  (`UnsafeMemory<...>(\n  addr)\n  .write(v)`), since the newline after the
+  bracket ends the statement — the fix is a `let` for the receiver, which
+  reads better anyway, but it is the same "wrapping a long expression is
+  where Saw's newline rule bites" story.
+
 ## Design 220 — recorded-seed suite compiles, per-run artifacts, irdet reuse
 (AUTHORED + RULED Aug 14, queued behind 218 stages 1-2 integration)
 

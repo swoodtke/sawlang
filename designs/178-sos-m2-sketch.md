@@ -108,6 +108,70 @@ Event/Waiter → Interrupt object + the userspace UART echo proof → spec
 updates + the M2 test set (both arches, sos_runner grows again). Every
 unit per-arch-gated like M1b; SOS policy: branch parks for user review.
 
+## UNIT 1 — trap / timer / interrupt controller (BUILT Aug 15, branch PARKED)
+
+The first real M2 dispatch, and the foundation the next three units stand on.
+Both profiles, gated together, 38 harness cases.
+
+**The seam.** Each HAL gained twelve names and the kernel reaches interrupts
+through those and nothing else: `is_interrupt(cause)`, `IRQ_NONE`, `IRQ_TIMER`,
+`intc_init`, `irq_unmask`, `irq_mask`, `irq_claim(cause)`, `irq_complete(line)`,
+`timer_start(period_us)`, `timer_rearm`, `timer_pending`, and
+`irq_raise_selftest_line`. `fault_pc` became `trap_pc` — the value never was
+fault-specific and the tick path reports it. Both `ABI.md` files carry the
+table and what each machine does differently.
+
+**One funnel, two hooks (obligation 1).** `ktrap` decides interrupt / fault /
+syscall IN THAT ORDER — an interrupt is not the running program's business and
+its instruction has not run, so it must never reach the syscall return path,
+which steps the saved PC. An interrupt goes to `service_irq`, the single
+arch-free entry: claim the line, rearm the timer OR mask the device line (spec
+§9), run the hook, complete. The hooks are `on_timer_tick(frame)` — where the
+scheduler's timeslice accounting goes — and `on_external_irq(line)` — where the
+Interrupt object will mark itself ready. Both are empty of policy today and say
+in their docstrings what they must not grow into: they run with interrupts
+masked, so their length IS interrupt latency.
+
+**D2 is enforced by the machines, not intended by the kernel.** Profile A never
+sets the global interrupt enable, and its architecture delivers to a lower
+privilege mode regardless of it — so that bit staying clear IS "user mode only",
+and a wrongly-arrived interrupt hits the mode witness and the kernel-bug path.
+Profile B masks at EL1 throughout, unmasks only in the SPSR the user-mode return
+loads, and routes all four current-EL vectors to the kernel-bug path. Neither
+kernel needs a critical section; `IntrSpinLock` (§9b) stays unbuilt and unneeded.
+
+**What each machine does differently**, because the seam hides it and a porter
+should not have to rediscover it: Profile A's timer is a memory-mapped core-local
+comparator that is NOT one of its controller's sources (so `IRQ_TIMER` there is a
+number one past the last real source, and `irq_complete` does nothing for it),
+its counter is 64 bits on a 32-bit machine (carry-safe read, all-ones-first write
+order), and a line is masked by PRIORITY because that controller ignores a
+completion for a disabled source. Profile B's timer IS a controller line, so
+every tick runs the ordinary claim/complete cycle; its controller version is
+pinned on the emulator command line rather than defaulted; and its interrupt
+vector calls `ktrap` with a cause the syndrome register cannot hold.
+
+**The proof** (`make sos-test`, 19 cases per machine): `timer_tick` — armed,
+into user mode, tick 1 and tick 2 land in the arch-free hook with the
+interrupted user-mode address on each line; `timer_masked_in_kernel` — the
+kernel spins until the timer is DUE, reports `ticks taken=0`, and the tick
+arrives only after the entry to user mode (D2, read from the order);
+`external_irq` — a line raised in the kernel, claimed, masked and completed in
+user mode, which is the only coverage Profile A's controller gets since its
+timer never reaches it.
+
+**C floor: 135 to 140 code lines.** One line on Profile A (the interrupt-class
+mask register), four on Profile B (its timer is system registers, one
+instruction each) — reason 1 in every case. Everything else is Saw: both
+controllers, the comparator arithmetic, the periods, the policy. Assembly: +13
+lines on Profile B (an interrupt vector entry that shares the frame save, now a
+macro, and the return path with the syscall entry), none on Profile A, whose
+trap entry already handled every trap from user mode.
+
+**Not built here, deliberately:** Thread/Process, the scheduler, Event/Waiter,
+the Interrupt object — the next three units. `sos/kernel/main.saw` arms no timer,
+so the real kernel boots exactly as it did.
+
 ## Explicitly out (M3+ candidates)
 
 Channels + ReplyHandle IPC; MemoryObject/Mapping + multi-process loading;
