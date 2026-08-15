@@ -5092,8 +5092,11 @@ multiple threads (design 75) — carrying the coroutine transform, suspending
   DF-182e). A container's buffer pointer is its own bookkeeping, and `&var`
   access to it goes through the Law of Exclusivity, so moving one across a
   thread boundary is safe exactly when moving its contents is. Explicit
-  conformance (`extension X: Send`) is rejected — derivation only, no
-  unsafe-impl story in v1.
+  conformance to the bare traits (`extension X: Send`) is rejected —
+  derivation is structural; a type asserting what the compiler cannot
+  see declares `UnsafeSend`/`UnsafeSync` instead (design 186; see the
+  `UnsafeSync / UnsafeSend` section), the same declared-unsafety
+  mechanism as everywhere else.
 - **`Arc<T>`** — atomic reference-counted shared ownership (`Copy +
   Deinit`). One control block `{ i64 strong, i64 weak, T payload }` taken from
   the `__saw_rt_alloc` seam;

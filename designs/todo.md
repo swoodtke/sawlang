@@ -394,6 +394,33 @@ suspending-method set is the CONSERVATIVE one, so UNSUPPORTED and
 promotion had to be gated on design 206's `really_suspending` or an
 ordinary `v.map({ n in slow(n) })` is refused.
 
+## DF-224a/b — silent hangs on the MAIN task's wake path (filed Aug 15,
+## found by the docs dispatch's cookbook probes; design 224 = the
+## unauthored fix-family brief)
+
+Both violate "never silently block" (designs 96/101/104), and per
+obligation 4 they are PRESUMED ONE CLASS until swept: a suspension
+point on the MAIN task whose wake/coverage path is incomplete, reached
+from two directions. Repros rescued to `.build/scratch/ck13.saw` /
+`ck15.saw` (GITIGNORED — promote to cited pins at fix time).
+
+- **DF-224a — a suspending call as a `match` SCRUTINEE in `main`
+  compiles and HANGS.** `match inbox.receive() { ... }` in `main`
+  never receives; the two-step `let r = inbox.receive()` + `match r`
+  works. The NEIGHBORING shape gets a clean refusal
+  (`total += inbox.receive()` → "suspending call ... in a
+  nested/expression position"), so the transform's main-coverage has
+  the scrutinee position falling through it — a 223-adjacent
+  position-matrix hole, but on the MAIN/refusal path rather than the
+  method classifier.
+- **DF-224b — `Channel.receive()` on the main task is never woken by
+  a `send` from a `threads: N` worker.** Identical program with
+  `TaskGroup()` runs; with `TaskGroup(threads: 2)` it hangs. Any
+  MT producer with main consuming is affected. This is why the
+  cookbook's Channel-fallback example is single-group and makes no
+  cross-OS-thread claim — the honest stronger version is blocked on
+  this fix.
+
 ## The next queue — designs 195-202 + 153 (ALL RULED Aug 10, awaiting dispatch)
 
 Every open ruling from the overnight run plus the parked backlog was
