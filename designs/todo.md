@@ -42,20 +42,37 @@ Findings the unit produced:
   demoted, and `--emit-docs` cannot see them at all. Small, clean-error,
   not blocking; the fix is adding `extern` functions to the attachable set.
 
-- **DF-178b — user mode on Profile A runs ~3000x slower under QEMU than on
-  Profile B, and the cause is the GRANT GRANULARITY, not the architecture.**
-  Measured both ways with one payload (a two-instruction register loop, 20M
-  iterations): 62.6s under the four-byte-granular PMP grant every unit-A
-  harness case uses, 0.02s under a page-aligned grant of the same bytes.
-  ~0.3M iterations/s vs ~500M. The emulator's address translation caches a
-  PAGE, and a sub-page protection region defeats it, so every instruction
-  fetch takes the slow path. Consequences: the M2 payloads are sized per
-  profile (300k iterations vs 100M) and each says so; anything that wants
-  user code to RUN on Profile A — the scheduler unit's preemption proof, a
-  userspace driver loop — should expect this and consider page-aligning
-  `.payload` in `virt.ld` (which would make the grant page-aligned at both
-  ends and cost a few KiB of padding). An emulator artifact, not hardware,
-  and not a Saw or SOS bug.
+- **DF-178b — FIXED (user-approved rider, same branch). User mode on Profile A
+  ran ~2000x slower under QEMU than on Profile B, and the cause was one
+  missing round-up in a linker script.** Found while sizing the M2 payloads,
+  fixed by page-aligning the END of `.payload` in
+  `sos/hal/riscv32/kernel/virt.ld` — the START already was, and Profile B's
+  script already rounded both.
+
+  MECHANISM, and it is worth stating precisely because the number invites the
+  wrong conclusion: QEMU's softmmu caches address translations one PAGE at a
+  time. A PMP region that covers only part of a page cannot be cached as a
+  page, so every access to that page takes the slow path — a full walk plus a
+  PMP check per instruction fetch. The kernel's grant ran from a page-aligned
+  start to `align_up(payload_end, 4)`, so the payload's LAST page was always
+  partial and the loop always ran there. This is a TCG softmmu artifact and
+  nothing else: real silicon checks PMP in the pipeline at no per-access cost,
+  and hardware never had this penalty.
+
+  MEASURED, one payload (a two-instruction user-mode register loop, 20M
+  iterations), same kernel, same grant code, only the linker line differing:
+  **62.6s before, 0.03s after** (~0.3M iterations/s to ~1.4G). The three M2
+  interrupt cases went from ~0.95s each to 0.06-0.07s, and both profiles'
+  payloads now spin the SAME 100M count at the same order of speed
+  (0.06-0.07s riscv32, 0.10-0.12s arm64, whole case including startup).
+
+  WHAT DID NOT CHANGE: the byte-tight PMP capability. This aligns one section
+  and removes no check — a grant still says exactly [base, top) at four-byte
+  granularity, the loader still validates every segment, and the pages between
+  `_payload_start` and `_payload_end` belong to `.payload` alone (`.data` ends
+  before the section's opening ALIGN, `.bss` starts after the new closing one),
+  so granting the whole span reaches nothing else. Cost: under 4 KiB of zero
+  padding in a kernel image.
 
 - **DF-172d, third sighting.** A binary expression still cannot wrap across
   lines unless brackets already enclose it, and the shapes that hit it here
