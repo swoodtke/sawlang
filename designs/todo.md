@@ -398,28 +398,57 @@ ordinary `v.map({ n in slow(n) })` is refused.
 ## found by the docs dispatch's cookbook probes; design 224 = the
 ## unauthored fix-family brief)
 
-Both violate "never silently block" (designs 96/101/104), and per
-obligation 4 they are PRESUMED ONE CLASS until swept: a suspension
-point on the MAIN task whose wake/coverage path is incomplete, reached
-from two directions. Repros rescued to `.build/scratch/ck13.saw` /
-`ck15.saw` (GITIGNORED — promote to cited pins at fix time).
+**SWEEP RUN (Aug 15, `.build/scratch/sweep224/RESULTS.md` + probes,
+GITIGNORED): both hypotheses FALSIFIED as stated — TWO briefs, not one
+class.** Neither is main-specific. Repros ck13/ck15 + the full
+matrices in the scratch dir; promote to cited pins at fix time.
 
-- **DF-224a — a suspending call as a `match` SCRUTINEE in `main`
-  compiles and HANGS.** `match inbox.receive() { ... }` in `main`
-  never receives; the two-step `let r = inbox.receive()` + `match r`
-  works. The NEIGHBORING shape gets a clean refusal
-  (`total += inbox.receive()` → "suspending call ... in a
-  nested/expression position"), so the transform's main-coverage has
-  the scrutinee position falling through it — a 223-adjacent
-  position-matrix hole, but on the MAIN/refusal path rather than the
-  method classifier.
-- **DF-224b — `Channel.receive()` on the main task is never woken by
-  a `send` from a `threads: N` worker.** Identical program with
-  `TaskGroup()` runs; with `TaskGroup(threads: 2)` it hangs. Any
-  MT producer with main consuming is affected. This is why the
-  cookbook's Channel-fallback example is single-group and makes no
-  cross-OS-thread claim — the honest stronger version is blocked on
-  this fix.
+- **DF-224a — FOUR independent coverage gaps in coro_transform, six
+  SILENT-HANG cells.** A `Channel.receive()` in a match SCRUTINEE, an
+  if/while CONDITION, a for RANGE, or an `&&`/`||` condition RHS is
+  neither embedded nor refused — it lowers as a plain call whose
+  `yield_now` no-ops → 100%-CPU spin (measured; identical in main and
+  spawned bodies). The same cells with a free fn/method are codegen
+  ICEs (loud, same mechanism). Gaps: G1 `_collect_calls` never visits
+  container HEAD expressions (:3732-3798 — its own docstring asserts
+  the opposite invariant); G2 the narrow-hoist predicate
+  `_call_suspends_expr` (:2005) OMITS `is_chan_recv` while its ANF
+  twin `_is_suspending_call_node` (:2377) includes it — two
+  disagreeing suspension predicates in one file; G3
+  CompoundAssignStatement missing from `_anf_stmt` (:2138); G4
+  `_classify_recv` lacks the ReturnStatement arm its free-fn twin
+  has (:4210 vs :4121). Fix brief (design 224, unauthored, NO ruling
+  needed): ONE suspension predicate for all three kinds with named
+  entry points + a head-slot enumeration beside the container list
+  (obligation 1); test plan = the sweep's position matrix × three
+  suspension kinds × main+spawned. Riders: the compound-assign
+  refusal blames `if let` the author never wrote (:4463); five
+  matrix cells (if let/guard let/try!/try/try?) UNKNOWN, blocked by
+  DF-224c.
+- **DF-224b — NOT a wake bug: `TaskGroup(threads: N)` is FORK-JOIN by
+  construction (design 75) and has NO workers outside a join/Deinit
+  drain.** MT groups never register with the ambient scheduler
+  (taskgroup.saw:457-460, :588-591 says so outright); `__drain_mt`
+  spawns AND joins its workers inside one call (:661-700). The general
+  invariant (wake matrix, 15 cells): NOTHING outside join/Deinit makes
+  an MT group run — main receiving, an ST-group task receiving, main
+  sleeping all see zero MT progress; same-MT-group receive/send works
+  (both inside the drain); the 21b `spawn{}` thread engine in the same
+  position works (the live-pool precedent). RULING OWED (design 225):
+  fork-join is the CONTRACT (fix = diagnostic on a cooperative park
+  that cannot be satisfied + docs caveat) vs live pool (workers start
+  at first spawn; the drain-time invariants at :50-53 and the unlocked
+  slot trio at :492-505 must be re-derived — much larger).
+- **DF-224c (NEW) — `Channel<T?>.send(v: T)` call-site auto-wrap
+  (design 176) is a codegen ICE inside a frame-transformed body**
+  (`Type of #2 arg mismatch: {i1, i64} != i64`), fine in main. Same
+  for Result payloads. The auto-wrap-position × driven-body family
+  again (DF-218f's neighborhood). Repro sweep224/g/.
+- Also from the sweep: `devtools/dogfood/programs/` is compiled by NO
+  battery stage (swept clean by hand this once — all 7 run);
+  `w1_limiter.saw:18-26`'s hazard comment documents a bug design 206
+  closed (does not reproduce, four shapes probed) and its workaround
+  is now misinformation — comment cleanup owed.
 
 ## The next queue — designs 195-202 + 153 (ALL RULED Aug 10, awaiting dispatch)
 
