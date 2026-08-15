@@ -181,6 +181,23 @@ narrows, item 3 gains the argument. **Landing is the lead's call** — the two
 things to scrutinize are unit 2's shared-vs-`&var` reference choice at the
 drive/spawn site and unit 1's deferred cell write.
 
+**INTEGRATED to main (user go, Aug 14)** — seven commits cherry-picked,
+suite-verified. The unit-1 cell-write deferral is RATIFIED as
+FAM_WINDOW_MOVE/DF-218h family work. The unit-2 reference choice spun off
+as its own question:
+
+- **DQ-222a (design question, unruled) — generated call sites understate
+  mutation.** The drive/spawn rewrite emits `&group`/`&c` while the callee
+  mutates through the reference (zero-delta with the old cast, which was
+  equally `mutable=False` — nothing regressed). The honest stricter
+  spelling would demand `&var` at generated sites and therefore `var`
+  bindings on receivers the corpus writes as `let`. Tension: the
+  reader-visibility doctrine (call-site `&var` is load-bearing signal)
+  vs. "driving a suspending method" arguably being interior mutation the
+  way `&self` methods with executor state already are. Wants a ruling
+  session, not a fix agent; independent of the 222 branch by
+  construction.
+
 ## The next queue — designs 195-202 + 153 (ALL RULED Aug 10, awaiting dispatch)
 
 Every open ruling from the overnight run plus the parked backlog was
