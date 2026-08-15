@@ -1562,10 +1562,11 @@ path the field is read, the operator applied and the result written back, and on
 a None head neither the write nor the RHS runs. Every compound operator is
 available (`+= -= *= /= %= &= |= ^= <<= >>=`), the operand rules are the compound
 statement's (both integer operands agree in width and signedness; a bare literal
-adopts the field's type), and the result is the same `Void?`. One boundary: a
-compound assignment whose RHS SUSPENDS is refused with a clean error in a
-suspending body, chain or no chain — the plain spelling `x?.y = stream.read()`
-takes one.
+adopts the field's type), and the result is the same `Void?`. A SUSPENDING RHS
+works in either spelling (design 224): `x?.y += stream.read()` runs the read only
+on the non-None path, exactly as `x?.y = stream.read()` does. Builds before
+design 224 refused both the chained compound form and the plain `n += slow()`
+it lowers through.
 
 The head may be a **place** — a conditional lend, in either spelling:
 
@@ -5469,6 +5470,36 @@ Observable rules:
   to its own statement, which is that same branch shape, so the operand the LHS
   decides against still never runs. A blocking `extern` call (below) rides the
   same rewrite, including when it is buried in a larger expression.
+- **Container head position (design 224).** A control-flow construct also
+  evaluates one expression OUTSIDE all of its blocks, and a suspending call may
+  sit there too: an `if` or `while` condition, a `for` range (either endpoint),
+  a `match` scrutinee, an `if let`/`guard let` subject, and an `&&`/`||` RHS
+  inside any of them. Five of the six heads are evaluated once, before the
+  construct branches, so each is lifted to a binding ahead of it. A `while`
+  condition is evaluated before EVERY iteration, so it is lifted to the top of
+  the loop body instead: the loop runs as many times as the condition's
+  successive answers say, a `continue` re-evaluates it, and a `break` in the
+  body still leaves the loop.
+  ```saw
+  func drain(ch: Channel<Int>, tally: Channel<Int>) -> Int {
+      var served = 0
+      while ch.receive() > 0 {       // the condition suspends, once per iteration
+          served += tally.receive()  // a compound assignment's RHS suspends
+      }
+      return ch.receive()            // and so does a `return` of a receive
+  }
+  ```
+  A compound assignment's RHS and a `return` of a cooperative
+  `Channel.receive()` take the same rewrite. Before design 224 none
+  of these positions was embedded OR refused, which is the one outcome the
+  cooperative contract does not allow: a channel receive there spun at 100% CPU
+  and never completed, and a suspending free function or method reached codegen
+  as a call to a body the transform had already split into resume bodies. Treat
+  all of it as working now and SUSPECT in older builds.
+  One boundary stays: a `while` in VALUE position whose condition suspends is
+  refused with a clean error at the call, because a value `while` produces its
+  result through a `break <value>` and a value-producing `break` out of a
+  suspension-spanning loop is itself unsupported (below).
 - **Error handling across a suspension (design 196).** Every spelling of the
   error surface works in a body that suspends, at the same tiers it works in a
   sync one.

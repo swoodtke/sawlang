@@ -800,10 +800,12 @@ if err.is<IoErr>() { if let io = err.take<IoErr>() { retry(io) } }  // downcast
   A SUSPENDING hop works (design 120): `o?.read()` runs the hop only
   when every earlier hop is non-None, a multi-hop chain peels one hop at a time,
   and a chained assignment with a suspending RHS writes only on the non-None path.
-  Still rejected: a chained assignment through MORE THAN ONE hop whose RHS suspends
-  (`a?.b?.c = s.read()` — `if let` the inner optional first), and a COMPOUND one
-  whose RHS suspends at all (`x?.n += s.read()`, the same refusal `n += s.read()`
-  takes — bind the RHS first). `?.` indexing is unsupported.
+  The COMPOUND spelling takes a suspending RHS too since design 224
+  (`x?.n += s.read()` runs the read only on the non-None path, exactly as
+  `x?.n = s.read()` does); it was refused until Aug 15, along with the plain
+  `n += s.read()` it lowers through. Still rejected: a chained assignment
+  through MORE THAN ONE hop whose RHS suspends (`a?.b?.c = s.read()` — `if let`
+  the inner optional first). `?.` indexing is unsupported.
 - **PAYLOAD READS ARE PLACES (design 131).** `o!`, the `??` left operand, and an
   `if let`/`guard let` binding all name storage the optional still owns, so the
   payload's copy tier decides the read — same table as everywhere else. BORROW
@@ -1569,7 +1571,21 @@ dump_tasks()                // every live task's logical backtrace (std.task)
   its statement: `f(a ?? slow())`, `return 1 + (a ?? slow())`,
   `not (a && slow())`, `g(f(a ?? slow()))` and the blocking-extern versions of
   each all transform now (the whole short-circuit is lifted to its own statement
-  first), and the RHS still runs only when the LHS does not decide. Still a clean,
+  first), and the RHS still runs only when the LHS does not decide.
+  **A CONTAINER'S HEAD IS A POSITION TOO (design 224)** — the expression a
+  construct evaluates outside all of its blocks: an `if`/`while` CONDITION, a
+  `for` RANGE (either endpoint), a `match` SCRUTINEE, an `if let`/`guard let`
+  SUBJECT, and an `&&`/`||` RHS inside any of them. A `while` condition suspends
+  once per ITERATION, where it is written, so `while ch.receive() > 0 { … }`
+  drains a channel and a `continue` re-evaluates it. A compound assignment's RHS
+  (`n += slow()`, and its chained spelling `x?.n += slow()`) and a
+  `return ch.receive()` take the same rewrite. Every one of these was neither
+  embedded nor refused until Aug 15 — a channel receive SPUN at 100% CPU and
+  never returned, a free function or method was a codegen ICE — so treat them as
+  working now and SUSPECT in older builds. One boundary: a VALUE-position
+  `while` whose condition suspends is a clean error (its result comes out of a
+  `break <value>`, which a suspension-spanning loop does not support).
+  Still a clean,
   user-anchored compile error (NOT a silent block): a suspension-spanning `if let`/
   `guard let` with a TUPLE pattern; a suspending `try { } catch { }` block whose try
   body raises TWO OR MORE distinct error types (below); and a NESTED generic call

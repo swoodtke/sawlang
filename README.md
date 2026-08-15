@@ -653,6 +653,20 @@ func report() -> Int {
 The short-circuit keeps its guard wherever it sits. In the `return` above the
 `??` is nested inside a `+`, and `work(7)` still runs only on the `None` path.
 
+A control-flow construct's own head expression is a position like any other: an
+`if` or `while` condition, a `for` range, a `match` scrutinee, an `if let`
+subject. A `while` condition suspends once per iteration, where it is written.
+
+```saw
+func drain(ch: Channel<Int>) -> Int {
+    var served = 0
+    while ch.receive() > 0 {   // one cooperative receive per iteration
+        served += 1
+    }
+    return served
+}
+```
+
 A suspension the transform cannot place is a compile error naming the site, not
 a silent blocking call.
 

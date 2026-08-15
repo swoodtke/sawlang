@@ -583,8 +583,16 @@ GITIGNORED): both hypotheses FALSIFIED as stated — TWO briefs, not one
 class.** Neither is main-specific. Repros ck13/ck15 + the full
 matrices in the scratch dir; promote to cited pins at fix time.
 
-- **DF-224a — FOUR independent coverage gaps in coro_transform, six
-  SILENT-HANG cells.** A `Channel.receive()` in a match SCRUTINEE, an
+- **DF-224a — CLOSED by design 224 (landed Aug 15). All four gaps, one
+  landing; every cell of the 135-probe matrix works, none refuses. Rider
+  DF-217f closed with it (a suspending call in a constructor that IS a match
+  scrutinee was the head gap under another name). The only boundary left is a
+  VALUE-position `while` whose condition suspends, refused cleanly and pinned
+  in `examples/errors/coro_value_while_suspending_condition.saw` — a value
+  `while` yields through `break <value>`, which a suspension-spanning loop
+  does not support, so the refusal is that limit's and not the head rule's.
+  Original finding below.** FOUR independent coverage gaps in coro_transform,
+  six SILENT-HANG cells. A `Channel.receive()` in a match SCRUTINEE, an
   if/while CONDITION, a for RANGE, or an `&&`/`||` condition RHS is
   neither embedded nor refused — it lowers as a plain call whose
   `yield_now` no-ops → 100%-CPU spin (measured; identical in main and
@@ -1768,13 +1776,18 @@ DF-217e) is untouched and still open.
    findings/). Re-confirmed DF-217a (now ALSO reproduces on ExplicitCopy,
    not just NoCopy) and DF-217b (across taskgroup/loop contexts). TWO NEW,
    both lead-verified against clean control twins:
-   - **DF-217f (ICE)** — a suspending call as a LABELED enum-constructor
+   - **DF-217f (ICE) — CLOSED by design 224 (Aug 15).** The scrutinee is a
+     container HEAD and no pass walked one; the head hoist lifts it and the
+     ANF hoist then linearizes the constructor's argument out of the lifted
+     `let`. Its own pin predicted this ("fixed alongside the other
+     statement-HEAD gaps, which share the entry list"). Original: a suspending
+     call as a LABELED enum-constructor
      argument that is itself a `match` scrutinee:
      `internal compiler error ... (FunctionCall): Undefined function: mk_s`.
      All four tiers, three contexts. Repro:
      `coro_diff/findings/NEW_enum_ctor_labeled_arg_suspending_call_ICE.saw`.
      PIN: `examples/coro_suspending_ctor_arg_in_match_scrutinee.saw` (both
-     the enum-ctor and the struct-init sibling)
+     the enum-ctor and the struct-init sibling), now a passing test
    - **DF-217g (BOGUS-REFUSAL)** — a suspending call as a TUPLE-LITERAL
      element in a destructuring let (`let (a,b) = (mk_s(1), mk_s(2))`) is
      refused with the nested/expression-position error, contradicting design
