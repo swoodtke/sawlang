@@ -1,10 +1,16 @@
 # Design 222 — the safe async rewrite: retiring E2 into a named verified-unsafe core
 
-**Status: AUTHORED Aug 14 (user-directed), PROTOTYPE brief. Dispatches
-immediately after 218 stage 4 integrates** — stage 4 rewrites the exact
-target surface (teardown/cancel/panic paths, `__release` bodies) and
-ratifies the R8/P3/P4 trusted list, which is this brief's unit-0 work
-inventory. Cutting a branch earlier would redo the cancel-path half.
+**Status: PROTOTYPE BUILT Aug 14, all four units, awaiting the lead's review.**
+Six commits on a worktree branch off 53faae34. E2 IS DELETED and the corpus
+compiles with zero reads of it. Each unit carries its own record below, with the
+measurement that justified it; the two units that could not do what the brief
+asked say so with numbers rather than adjectives. The landing decision is the
+lead's — see "What review decides afterward", which the units sharpened.
+
+Authored Aug 14 (user-directed) and deliberately sequenced after 218 stage 4 —
+stage 4 rewrote the exact target surface (teardown/cancel/panic paths,
+`__release` bodies) and ratified the R8/P3/P4 trusted list this brief's unit 0
+consumes.
 
 ## The goal
 
@@ -22,7 +28,12 @@ and report — the landing decision happens at review, not inside the
 dispatch. A unit that works cleanly is still committed per-unit with green
 suites so the branch is integrable if review says land.
 
-## Where E2 stands after stage 3 (unit 0 re-verifies on post-stage-4 main)
+## Where E2 stands after stage 3 (SUPERSEDED — unit 0's measurement is below)
+
+*Kept as authored, because two of its three predictions were wrong and the way
+they were wrong is the brief's most useful finding: items 2 and 3 were never E2
+coverage at all, and item 1 was one member of a family of three whose dominant
+member (the spawn site) the brief did not name.*
 
 Stage 3 split E2's coverage: declarations the transform AUTHORS are now
 CHECKED (`unsafe_decl_checked` — the transform computes `is_unsafe` from
@@ -320,3 +331,39 @@ Whether the prototype lands as-is, lands with changes, or feeds a redesign;
 and the ratification of whatever the verified-unsafe core contains. Items
 expected to need rulings: unit 2's spelling choice if the preference order
 fails, and unit 3's core entry if the latch resists wrapping.
+
+**Terminal gate: `tools/battery.sh`, 20 stages GREEN in 2181s** (suite 1854/25,
+icebreadcrumb, lexdiff, astdiff, astgraft, ircontract, preludegate, abidoc,
+bttable, fuzz, corodiff, bench, selfhostlex, reemit, irdet `--all`, gmgate both
+lanes, bootstrap stage0→stage2 + libs, sos 32 tests across riscv32 + arm64).
+
+**The four things the build says review should actually weigh** (the implementer's
+own list, ordered by how much they could change the answer):
+
+1. **Unit 2's SHARED reference at the drive and spawn sites.** `&c` and `&group`
+   reproduce exactly what the cast's `mutable=False` did, which is what makes the
+   change zero-delta for a `let` receiver. But the frame MUTATES through both, so
+   the call site's borrow understates what the callee does. The stricter forms —
+   a `&var` receiver mirroring the method's `self_mutable`, a `&var TaskGroup`
+   helper calling `__enqueue` through the reference — are honest and would demand
+   `var` bindings the corpus does not currently write. This is a language-design
+   question (does a generated call site have to tell the truth about mutation, or
+   only about the crossing?), not an implementation preference, which is why it
+   is flagged rather than taken.
+2. **Unit 1's deferred result WRITE.** The cell's reads migrated; the write
+   forwards `<handle>.p` because a place window is a closure and the stored value
+   names the frame's locals. It is a genuine member of the window-move family
+   (`FAM_WINDOW_MOVE` / DF-218h) with three named breaking programs as evidence,
+   not a shortcut — but a reviewer should confirm they agree the deferral is the
+   family's and not this brief's.
+3. **Whether "verified-unsafe core" should mean what unit 3 made it mean.** The
+   latch entry is a written argument plus an *explicitly rejected* wrapper. That
+   is a stronger artifact than the sketch asked for, and it sets a bar: an entry
+   is not on the list because nobody tried, it is on the list because the
+   alternative was built and found to launder. If review wants that bar for the
+   other entries, items 1, 2 and 5-7 have not been held to it.
+4. **The ratification itself.** Item 4 retiring is a real shrink of what the
+   compiler asks to be trusted; item 3 growing an argument is not a shrink. The
+   list's SIZE did not change much. Whether that counts as the brief's goal met
+   depends on whether "trust these N named constructs for these written reasons"
+   was about N or about the reasons.
