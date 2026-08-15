@@ -1529,10 +1529,18 @@ a freshly `cc`-built C binary behaves identically. Every future net
 dogfood program on this machine will hit it.
 
 Four findings, all probe-reduced; evidence and repros in the brief:
-- **DF-215a — std.net can name NO remote-connect failure.** Five errnos
-  unmapped, all collapsing to "other error" with the cause discarded;
-  the suite never leaves loopback, which is why it went unseen.
-  **Land first** — small fix, and it is what made the session long.
+- ~~**DF-215a — std.net can name NO remote-connect failure.**~~ **CLOSED**
+  (Aug 15). The five off-loopback errnos are mapped on both hosts to five
+  new SysError tags (17-21), `IoError.errno()` is now `code()` because it
+  never returned an errno, and `examples/net_unroutable_connect_names_the_cause.saw`
+  is the suite's first test that leaves loopback. Widening the tag table is
+  additive, not an ABI change — the reading that licenses it is written into
+  rt/ABI.md beside the table. REMAINDER (the other half of the Aug-4 stdlib
+  review's M14, not fixed here): `code()` still hands back a bare `Int`, so a
+  caller branching on the cause cannot `match` it exhaustively. A public
+  raw-backed `SysError` enum in std.net is the shape; it wants a ruling on what
+  an unknown tag becomes, since `from(raw:) -> E?` answering `None` would hide
+  the very cause this finding was about.
 - **DF-215b — `move` of a frame local in a nested block's TAIL
   expression is refused in a suspending body.** 25-line repro, ready to
   become a cited pin; the diagnostic's advice does not apply.
@@ -1540,7 +1548,7 @@ Four findings, all probe-reduced; evidence and repros in the brief:
   `{` in a literal opens an interpolation.
 - **DF-215d — the wrapped `&&` (DF-172d) re-confirmed.**
 
-Port blockers, staged A-F in the brief: DF-215a first; **std.json — tool
+Port blockers, staged A-F in the brief: DF-215a DONE; **std.json — tool
 use is where hand-rolled JSON stops working, making this its third
 consumer and the first that cannot route around it**; incremental line
 reads for streaming; a `TcpStream` read deadline; and **a line-editing

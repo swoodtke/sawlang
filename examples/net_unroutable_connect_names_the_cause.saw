@@ -1,0 +1,82 @@
+// DF-215a: an off-loopback connect failure NAMES its cause. The errno -> portable
+// SysError map (rt/*/net_os.saw) omitted EHOSTUNREACH, ENETUNREACH, ETIMEDOUT,
+// EHOSTDOWN and ENETDOWN — which is to say every failure that can only happen off
+// loopback — so all five collapsed to `Other` and every remote dial failed with
+// `io error: connect failed (other error)`, the cause sitting in errno and
+// discarded.
+//
+// The rest of the net suite is 100% loopback and socketpair, which is exactly why
+// this went unseen; this test is the one that leaves it.
+//
+// WHAT IS ASSERTED, and why it is written this way. Which reserved address the
+// local routing table refuses OUTRIGHT is a property of the machine, not of Saw
+// (on macOS 0.0.0.0/8 is refused at once with EHOSTUNREACH; a host with a default
+// route may instead accept the dial and let it time out minutes later). So the
+// per-target lines are diagnostics, environment-dependent by nature, and the
+// assertion is the property that must hold on every machine: NO immediate failure
+// falls through to "other error".
+//
+// It is BOUNDED BY CONSTRUCTION. The dial seam never waits — it answers with the
+// connecting fd (the EINPROGRESS case included) or with the tag — so a target this
+// machine happens to route is abandoned in the same microsecond rather than parked
+// on. Nothing here can hang, whatever the routing table says.
+// EXPECT: success
+// EXPECT-OUTPUT-CONTAINS: unroutable connect: no immediate failure fell through to "other error"
+
+import std.net.{TcpStream}
+
+extern "C" {
+    // The design-117 dial seam (rt/ABI.md): the connecting fd (>= 0) or a
+    // NEGATED SysError tag. Declared here rather than reached through std.net,
+    // whose raw layer is private, because the point is to learn whether the
+    // failure is IMMEDIATE before the public path is asked for its answer.
+    func __saw_rt_tcp_connect_start(addr_be: Int, port: Int) -> Int
+    func close(fd: Int32) -> Int32
+}
+
+static SYS_OTHER: Int = 16       // rt/ABI.md's catch-all tag — the bug's signature
+static DISCARD_PORT: Int = 9     // discard/9: nothing to listen, nothing to refuse
+
+// Four octets as the `sockaddr_in.sin_addr` word. The octets sit in memory in
+// the order they are written, so on a little-endian host — the only kind the
+// hosted runtime builds for — the FIRST octet is the low byte.
+func ipv4(a: Int, b: Int, c: Int, d: Int) -> Int {
+    a | (b << 8) | (c << 16) | (d << 24)
+}
+
+// Probe one target. Answers 1 when its immediate failure fell through to the
+// unnamed `Other`, 0 otherwise — the count the verdict sums.
+func probe(host: String, addr: Int) -> Int {
+    let fd = __saw_rt_tcp_connect_start(addr, DISCARD_PORT)
+    if fd >= 0 {
+        // This machine routes the address, so there is no immediate cause to
+        // name. Abandon the dial: waiting on it is what would be unbounded.
+        let _ = close(fd as Int32)
+        print("{}: dialled — this machine has a route, nothing to name", host)
+        return 0
+    }
+    // An immediate failure. The same seam decides `TcpStream.connect`'s answer,
+    // so the public path settles without parking too — and what it prints is
+    // exactly what a caller reads.
+    match TcpStream.connect(host, DISCARD_PORT) {
+        case Ok(_) -> print("{}: UNEXPECTED ok", host),
+        case Err(e) -> print("{}: {}", host, e)
+    }
+    if -fd == SYS_OTHER {
+        return 1
+    }
+    return 0
+}
+
+func main() {
+    var unnamed = 0
+    unnamed = unnamed + probe("0.0.0.1", ipv4(0, 0, 0, 1))          // "this network"
+    unnamed = unnamed + probe("240.0.0.1", ipv4(240, 0, 0, 1))      // reserved, class E
+    unnamed = unnamed + probe("192.0.2.1", ipv4(192, 0, 2, 1))      // TEST-NET-1
+    if unnamed == 0 {
+        print("unroutable connect: no immediate failure fell through to \"other error\"")
+    } else {
+        print("unroutable connect: {} immediate failures fell through to \"other error\"",
+              unnamed)
+    }
+}

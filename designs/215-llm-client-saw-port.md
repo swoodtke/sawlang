@@ -150,7 +150,35 @@ it, and because it is indistinguishable from a real bug until you know.
 
 ## Findings from the Saw attempt — the port's starting material
 
-### DF-215a — std.net cannot name any remote-connect failure
+### DF-215a — std.net cannot name any remote-connect failure — CLOSED (Aug 15)
+
+**What landed.** Both host maps gained the five errnos, under five new SysError
+tags: `HostUnreachable` (17), `NetUnreachable` (18), `TimedOut` (19), `HostDown`
+(20), `NetDown` (21), with `Other` keeping 16 because the numbers are frozen.
+std renders them "host unreachable", "network unreachable", "timed out", "host
+is down", "network is down". `examples/net_unroutable_connect_names_the_cause.saw`
+is the coverage the second half of this finding asked for — the first test in the
+suite that leaves loopback.
+
+**Was widening the tag table an ABI change?** No, and the reading is now written
+into rt/ABI.md beside the table: nothing is renumbered, no seam signature moves
+(the machine check compares arity and width), a runtime that never returns 17-21
+stays correct, and a consumer that does not know them degrades to the text it
+printed before, because every tag consumer reads through a total mapping with a
+catch-all. The document already named this as the intended mechanism — "diagnostic
+richness is instead achieved by mapping the common failure errnos to named tags"
+— so the addition is that promise being kept for a program that leaves the
+machine, not a new mechanism. SOS's `SosStatus` is a separate contract and is
+untouched.
+
+**The `errno()` ruling: renamed to `code()`.** Carrying the real errno needs the
+seam to carry it, and the seam deliberately cannot: a failing op returns ONE word
+holding its result or `-tag`, which is what maps onto the SOS `(status, value)`
+pair, and SOS has no errno to put in it. Adding a second accessor seam would undo
+design 117's minimization to buy a number that does not exist on one of the four
+intended runtimes. So the fix is the name, and the docstring now states outright
+that the value is a portable tag and not an OS errno. The accessor had no callers
+in the tree, and the Aug-4 stdlib review had already filed the same rename (M14).
 
 `rt_last_syserror` (`sawc/rt/host_macos/net_os.saw:75-111`) maps sixteen errnos
 and omits `EHOSTUNREACH` (65), `ENETUNREACH` (51), `ETIMEDOUT` (60),
@@ -234,8 +262,8 @@ argument for fixing the parse rather than the documentation.
    ruling on it separately.
 4. **A read deadline on `TcpStream`** (design 214 item 7): a server that accepts
    and never answers parks the task forever.
-5. **DF-215a**, first — debugging a network client whose every remote failure
-   says "other error" is what made this session long.
+5. ~~**DF-215a**, first~~ — LANDED Aug 15. Debugging a network client whose every
+   remote failure says "other error" is what made this session long.
 
 `std.env` (argv + variables) and `std.string` were adequate; the one gap there
 was a multi-byte `index_of`, which the attempt supplies as a local
@@ -243,7 +271,7 @@ was a multi-byte `index_of`, which the attempt supplies as a local
 
 ## Staging
 
-- **A — one-shot.** Essentially done. Land DF-215a first so failures are
+- **A — one-shot.** Essentially done; DF-215a landed Aug 15, so failures are
   legible.
 - **B — `/v1/models` + model auto-pick.** Needs array scanning, or std.json.
 - **C — streaming.** Needs item 2.
@@ -272,5 +300,7 @@ was a multi-byte `index_of`, which the attempt supplies as a local
 - Does 215 wait for std.json or hand-roll it? The attempt proves hand-rolling
   works; the question is whether a second hand-rolled JSON codec in the tree is
   a cost worth paying to keep the port unblocked.
-- Should `IoError.errno()` be renamed, or return the real OS errno with the tag
-  exposed separately?
+- ~~Should `IoError.errno()` be renamed, or return the real OS errno with the tag
+  exposed separately?~~ ANSWERED Aug 15: renamed to `code()`. The raw errno cannot
+  reach std without a new seam, and the one-word status convention is what makes
+  the ABI fit SOS — see the DF-215a section.
