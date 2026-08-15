@@ -244,18 +244,24 @@ as its own question:
   wrapper helps and the hint should say the payload itself must be
   Send.
 
-- **DQ-222b (design question, unruled; found by the Aug-15 probes) —
-  an Arc'd TaskGroup has refcount lifetime, not scope lifetime.**
-  Design 124 says a group IS a scope (eager teardown, children joined
-  where the group was born; the NoMove diagnostic cites exactly this),
-  but `Arc<Box<TaskGroup>>` runs the group's deinit wherever the LAST
-  handle drops — deterministic and memory-safe (stable address, one
-  thread), yet the nursery's structured-concurrency reading is relaxed:
-  children may outlive the lexical scope that spawned them. Intended
-  capability or hole? If hole, the fix direction is a NoMove-like fence
-  on Box/Arc payloads (a "pinned-to-scope" property distinct from both
-  NoMove and Send); if intended, design 124's docs say so and row (a)
-  above doubles as its pin.
+- **DQ-222b (RULED + CLOSED, user, Aug 15) — a heap-owned TaskGroup is
+  INTENDED; the scope a group defines is its OWNERSHIP EXTENT, not a
+  lexical block.** The ruling session reduced the question to its true
+  residue before ruling: heap ownership changes neither whether the
+  join happens (guaranteed), nor whether it can hang (a stack group's
+  scope-end join already blocks on a never-completing task — deinit
+  DRIVES to completion, taskgroup.saw:913-925, cancellation is
+  handle-driven not automatic), nor determinism (the Arc is non-Send,
+  all handles on one thread, last release is a fixed deterministic
+  program point) — only the LEGIBILITY of where the join-and-drive
+  runs (dataflow-determined, not readable off block structure).
+  Ruled working-as-intended; the legibility cost is a documentation
+  problem and LANGUAGE_SPEC's TaskGroup section now carries the
+  paragraph (ownership-extent reading, last-release drives remaining
+  tasks, cancel() as the early-out). Row (a) of the owed conformance
+  rows doubles as the capability pin. The "scope-pinned" fence stays
+  available behind a real finding if dogfooding ever shows the
+  wandering join point biting.
 
 ## Design 223 — suspending-method positions (AUTHORED Aug 14, two user questions open)
 

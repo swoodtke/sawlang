@@ -5505,6 +5505,18 @@ anti-suspension boundary, so it is `sync`) plus `wake_reason(&self) sync -> Int`
   internal run-queue mutex; the user surface stays single-threaded. A task may
   spawn siblings onto its own group while the group is being driven, and no
   `var` binding is required.
+  A group joins its children where its OWNER drops, and the owner may live on
+  the heap: `NoMove` forbids relocating an established group, not constructing
+  one directly into a `Box` (`Box<TaskGroup>.make(TaskGroup())`), and a
+  `Box`- or `Arc`-owned group is intended — the scope a group defines for its
+  tasks is its ownership extent, not a lexical block. The join point is
+  deterministic in every case (deinit at the final owner's release, on the
+  owning thread), but for a heap-owned group it is dataflow-determined: the
+  function releasing the last handle drives the group's remaining tasks to
+  completion there, whether or not its text mentions the group. A task that
+  never completes blocks that join wherever it is — the same property a
+  stack-local group's scope-end join already has; `TaskHandle.cancel()` is the
+  tool for ending one early.
 - **One function, several roles.** A function may be spawned, `__saw_drive`n and
   embedded as another frame's sub-frame in the same program. The spawn role
   reaches its result and cancel word through the group-owned cell (`__cellp`)
