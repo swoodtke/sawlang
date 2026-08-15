@@ -256,6 +256,99 @@ it. No idle loop: with no external wake source, "nothing runnable" is a genuine
 deadlock in M2 and is reported as one; the wait-for-interrupt loop arrives with
 the first object that can be signalled from outside.
 
+## UNIT 3 — Event and Waiter (BUILT Aug 15, branch PARKED)
+
+D5 as ratified, no deviations. Both profiles, 25 harness cases each, 50 total.
+
+**Five object kinds where there were three, and the dispatch did not move.** An
+Event and a Waiter cost one `struct`, one `allows`, one arm in `dispatch` and
+one op table each — which is the claim §3 has been making since M1, tested for
+the first time by objects that are neither singletons nor scheduler internals.
+The handle table, the typed-handle construction after validation, the per-kind
+rights scoping and the ratified teardown all took them with no shape change.
+
+**Level-triggered is an ABSENCE, and that is the implementation.** Nothing
+records that a waiter has been told about a ready event, so `Wait` SCANS the
+attachment set for a non-zero word. Three ratified sentences fall out of that
+one decision rather than being coded separately: a signal that lands before
+anyone waits is not lost (§2.2's no-lost-edges), an event still ready after one
+waiter has been woken is still ready for the next, and attaching an
+ALREADY-ready handle reports it immediately — which is the order "signal, then
+attach, then wait" that an edge design drops on the floor. An edge-triggered
+Waiter would have needed a reported-flag per attachment and would have lost the
+first of them.
+
+**§2.4's saturation is a correctness requirement, not a nicety**, and it is
+worth stating why in one place: zero is what "not ready" MEANS, so a counting
+event that wrapped would go quiet exactly when its producer was fastest. The sum
+uses the wrapping add and a carry test; the OR mode saturates by being
+idempotent.
+
+**The result shape cost the ABI a second value register.** §2.2 ratifies
+`wait() -> (key, readiness)` and one out-parameter carries one word, so both
+kernel HALs gained `syscall_return_pair` (Saw) and both user stubs gained
+`sos_syscall1_pair` (C, 11 lines each, reason 1 — the trap instruction and its
+register pinning). It is a SEPARATE entry point rather than a wider
+`syscall_return`, and the reason is a calling convention: the second value
+register is an ARGUMENT register inbound, declared input-only by every other
+op's stub, so a kernel writing it unasked would break a constraint the compiler
+schedules around. The key is handed back unread — §2.2's point is that a word
+can encode the waiting task's identity — and readiness is a MASK, with one bit
+defined because M2 has one waitable.
+
+**One funnel for a syscall's answer (obligation 1).** `write_result` is now the
+only place an answer reaches a frame, and its docstring names its three entry
+points: the return path, a joiner wake, a waiter wake. Two of the three write
+for a caller that was answered by nobody when it blocked, which is the invariant
+the parking protocol rests on — exactly one write per syscall, or the saved PC
+steps twice on the profile that steps it at all. **Waitability is the second
+funnel**: `waitable_slot` decides in ONE exhaustive match both whether a kind
+can be attached and whether the holder may, because which enum a rights word is
+read against is decided by the kind — the two questions are one question, and
+every case is spelled out so the next waitable kind cannot be added silently.
+
+**Creation authority answers a §12 open pin.** `CreateEvent` / `CreateWaiter`
+are Process ops on their own rights bits, so the Process handle IS the factory
+capability rather than a quota — §3's derivation rule instead of a new
+mechanism. A quota stays additive: a field on the process slot, checked where
+`NoResource` is returned today.
+
+**Faults, per the ruling**, with two new tags: `NotWaitable` (attaching
+something that is not) and `BadArg` (a creation mode that is not a mode).
+Attaching an already-attached handle and removing one this Waiter does not hold
+are `BadState`. Every one is a mistake only the caller could have made.
+
+**The proof, per machine.** `event_basics` is one thread and no timer, so
+nothing in it is about scheduling: signal-then-wait answers with the right key,
+a second attachment is told apart by its key alone, `1|2|1` is 3, five counted
+signals are 5, and two signals of the largest word there is saturate instead of
+wrapping. `event_wake` is the parking half and is read as an ORDER — the
+worker's line lands BETWEEN the initial thread's "parking" and its "woke",
+which it could only do if the first thread blocked, since that kernel arms no
+timer and `start` does not switch. `umode_not_waitable` is a hand-written
+payload, for the same reason `umode_bad_handle` is one: `Waiter.add` takes an
+`&Event`, so attaching the System object is not a thing a Saw process can spell
+— the typed layer's guarantee putting the kernel's own validation test at the
+raw altitude.
+
+**How two threads of one process share a kernel object**, since `event_wake` is
+the first program that needs to: not by passing a handle word, which the ruled
+typed layer makes unspellable, but by parking the `Event` VALUE in the process's
+own memory. The kernel is not involved — the handle TABLE is the process's and
+both threads were already inside it.
+
+**Native floor: assembly unchanged at 268 code lines, C 166 -> 194** — one
+function per profile, fourteen lines each, reason 1, exactly the unit-2 shape:
+an ABI that grew a register grew the stub that names it, and nothing else.
+**No new findings**:
+DF-178d cost one more `-> Never` wrapper (`fault_slot`) and DF-178e was avoided
+by naming two `UInt` constants, both cited in the code rather than refiled.
+
+**Not built here, deliberately:** the Interrupt object and the userspace UART
+echo proof — the next unit, and the one that turns `pick_next`'s deadlock report
+into an idle loop, since an Interrupt is the first readiness that arrives from
+outside the set of runnable threads.
+
 ## Explicitly out (M3+ candidates)
 
 Channels + ReplyHandle IPC; MemoryObject/Mapping + multi-process loading;

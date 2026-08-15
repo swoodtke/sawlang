@@ -265,6 +265,27 @@ Findings the unit produced:
   do. Small, clean-error, and it lands on the most ordinary shape there is:
   reading a Result with a fallback.
 
+## Design 178 M2 unit 3 — Event and Waiter (BUILT Aug 15, branch PARKED for
+user review per SOS policy)
+
+`designs/178-sos-m2-sketch.md` carries what landed. In one line: D5 as ratified
+— an Event that accumulates by OR or by saturating sum and never blocks, a
+Waiter whose level-triggered readiness is a SCAN rather than a maintained queue,
+both as ordinary §2 rows with op tables, kind-scoped rights, dispatch arms and
+the ratified teardown; creation authority answers spec §12's open pin by living
+on the Process handle; and §2.2's `(key, readiness)` result cost the ABI a
+second value register on both profiles. `make sos-test` is 50 cases (25 per
+machine). Native floor: assembly unchanged at 268 code lines, C 166 -> 194 (one
+`sos_syscall1_pair` per profile, fourteen lines each, reason 1). Out of scope
+and NOT built: the
+Interrupt object and the userspace UART echo proof, which is also what turns the
+scheduler's deadlock report into an idle loop.
+
+NO NEW FINDINGS. Two known ones were re-encountered and cited in place rather
+than refiled: DF-178d cost one more `-> Never` wrapper (`fault_slot`, beside
+`fault_result`), and DF-178e was avoided ahead of time by naming two `UInt`
+constants for the `match` default values.
+
 ## Design 220 — recorded-seed suite compiles, per-run artifacts, irdet reuse
 (AUTHORED + RULED Aug 14, queued behind 218 stages 1-2 integration)
 
