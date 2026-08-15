@@ -1480,6 +1480,7 @@ let three: String??? = None             // by induction
 let len: Int? = user?.profile?.bio?.len()   // multi-hop, method final
 let id: Int? = makeUser()?.id               // call-result head
 user?.name = "Ada"                          // chained assignment (writes in place)
+user?.visits += 1                           // and its compound spelling
 
 // Unwrap with default
 let value = maybe ?? 0
@@ -1555,6 +1556,16 @@ consumed via optional binding, **not** a `!= nil` comparison —
 `guard let _ = x?.y = v else { … }` (design 111 blesses `_` as the `if let` /
 `guard let` bound pattern: evaluate and test the Optional, bind nothing, drop the
 payload immediately).
+
+The **compound spelling** `x?.y += v` writes the same storage: on the non-None
+path the field is read, the operator applied and the result written back, and on
+a None head neither the write nor the RHS runs. Every compound operator is
+available (`+= -= *= /= %= &= |= ^= <<= >>=`), the operand rules are the compound
+statement's (both integer operands agree in width and signedness; a bare literal
+adopts the field's type), and the result is the same `Void?`. One boundary: a
+compound assignment whose RHS SUSPENDS is refused with a clean error in a
+suspending body, chain or no chain — the plain spelling `x?.y = stream.read()`
+takes one.
 
 The head may be a **place** — a conditional lend, in either spelling:
 

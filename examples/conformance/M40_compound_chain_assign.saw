@@ -11,7 +11,6 @@
 // Both halves of the contract are pinned here: the write lands on the Some
 // path, and on the None path neither the write NOR the right-hand side runs
 // (the call that would bump `calls` is skipped, exactly as it is for `=`).
-// XFAIL: DF-225l `o?.n += 5` is a parse error while `o?.n = 5` works — the parser's OptionalEvalExpr hoist (design 227 unit 4)
 // EXPECT: success
 // EXPECT-OUTPUT: some 6 calls 1
 // EXPECT-OUTPUT: empty calls 1

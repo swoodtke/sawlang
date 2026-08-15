@@ -193,26 +193,43 @@ class StatementsMixin:
         start_pos = self.pos
         target_expr = self.parse_expression()
 
-        # Check if this is a regular assignment
-        if self.match(TokenType.ASSIGN):
-            self.advance()  # consume '='
-            value_expr = self.parse_expression()
-
-            # Optional-chain assignment `x?.y = v` (design 111): the target is an
-            # OptionalEvalExpr. It becomes an OptionalChainAssign expression (type
-            # `Void?`) wrapped in an ExpressionStatement — statement position
-            # discards the `Void?` silently.
-            if isinstance(target_expr, OptionalEvalExpr):
+        # Optional-chain assignment `x?.y = v` / `x?.y += v` (design 111 +
+        # design 227 unit 4): the target is an OptionalEvalExpr, and which
+        # operator follows decides the OP, not whether the statement is a chain
+        # assignment at all. Recognized ABOVE the plain/compound split, which is
+        # where it used to sit on the plain branch only — so `o?.n += 5` was
+        # "Invalid compound assignment target", a message about the shape of a
+        # target that is fine (DF-225l). It becomes an OptionalChainAssign
+        # expression (type `Void?`) wrapped in an ExpressionStatement —
+        # statement position discards the `Void?` silently.
+        if isinstance(target_expr, OptionalEvalExpr):
+            chain_op = None
+            chain_write = False
+            if self.match(TokenType.ASSIGN):
+                self.advance()  # consume '='
+                chain_write = True
+            elif self.current().type in COMPOUND_ASSIGN_OPS:
+                chain_op = COMPOUND_ASSIGN_OPS[self.current().type]
+                self.advance()  # consume the compound operator
+                chain_write = True
+            if chain_write:
+                value_expr = self.parse_expression()
                 return ExpressionStatement(
                     expression=OptionalChainAssign(
                         target=target_expr,
                         value=value_expr,
+                        op=chain_op,
                         line=target_expr.line,
                         column=target_expr.column,
                     ),
                     line=target_expr.line,
                     column=target_expr.column,
                 )
+
+        # Check if this is a regular assignment
+        if self.match(TokenType.ASSIGN):
+            self.advance()  # consume '='
+            value_expr = self.parse_expression()
 
             # Validate that target is assignable (Identifier, MemberAccess,
             # TupleIndex, ArrayIndex, or `self` — design 110 `&var self`

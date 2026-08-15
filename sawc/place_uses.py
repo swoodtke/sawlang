@@ -551,8 +551,16 @@ class _PlaceUses:
         name = self._fresh()
         node.value = self._value(node.value)
         target = self._replace_bind(node.target.expr, bind, name)
-        write = AssignStatement(target=target, value=node.value,
-                                line=node.line, column=node.column)
+        chain_op = getattr(node, 'op', None)
+        if chain_op is not None:
+            # `m[k]?.f += v` (design 227 unit 4): the window's body is the
+            # compound write, exactly as it is the plain one.
+            write = CompoundAssignStatement(target=target, op=chain_op,
+                                            value=node.value,
+                                            line=node.line, column=node.column)
+        else:
+            write = AssignStatement(target=target, value=node.value,
+                                    line=node.line, column=node.column)
         # A nested place inside the rewritten target or the RHS.
         write = self._stmt(write)
         if want == 'bool':

@@ -790,12 +790,20 @@ if err.is<IoErr>() { if let io = err.take<IoErr>() { retry(io) } }  // downcast
   — `move`/`.copy()` for ExplicitCopy/NoCopy); it types `Void?` (discard in
   statement position; consume "did it write" via `guard let _ = x?.y = v else {}`
   — `_` is blessed as an `if let`/`guard let` pattern that binds nothing + drops
-  the payload). A SUSPENDING hop works (design 120): `o?.read()` runs the hop only
+  the payload). The COMPOUND spelling `x?.y += v` writes the same storage
+  (design 227): the field is read, the operator applied and the result written
+  back on the non-None path, and a None head runs neither the write nor the RHS.
+  Every compound operator works, a place head does (`m[k]?.n += 1` writes inside
+  the window), and the operand rules are the compound statement's — both integer
+  operands agree, a bare literal adopts the field's width. It was a parse error
+  until Aug 15, so treat it as working now and SUSPECT in older builds.
+  A SUSPENDING hop works (design 120): `o?.read()` runs the hop only
   when every earlier hop is non-None, a multi-hop chain peels one hop at a time,
   and a chained assignment with a suspending RHS writes only on the non-None path.
   Still rejected: a chained assignment through MORE THAN ONE hop whose RHS suspends
-  (`a?.b?.c = s.read()` — `if let` the inner optional first). `?.` indexing is
-  unsupported.
+  (`a?.b?.c = s.read()` — `if let` the inner optional first), and a COMPOUND one
+  whose RHS suspends at all (`x?.n += s.read()`, the same refusal `n += s.read()`
+  takes — bind the RHS first). `?.` indexing is unsupported.
 - **PAYLOAD READS ARE PLACES (design 131).** `o!`, the `??` left operand, and an
   `if let`/`guard let` binding all name storage the optional still owns, so the
   payload's copy tier decides the read — same table as everywhere else. BORROW

@@ -2905,7 +2905,20 @@ class StatementsMixin:
                         )
                         return
 
-        # Check that operator is valid for the types
+        self._check_compound_operands(stmt.target, stmt.value, target_type,
+                                      value_type, stmt.op, stmt.line,
+                                      stmt.column)
+
+    def _check_compound_operands(self, target, value, target_type, value_type,
+                                 op: str, line: int, column: int) -> None:
+        """The OPERATOR half of a compound assignment: is `op` applicable to
+        these two operand types, and do they agree?
+
+        Shared by the compound STATEMENT and the compound optional-chain
+        assignment `x?.y += v` (design 227 unit 4), which means the same thing
+        about the same storage and therefore takes the same operand rules — the
+        alternative being a second copy that drifts.
+        """
         target_underlying = self._get_underlying_type(target_type)
         value_underlying = self._get_underlying_type(value_type)
 
@@ -2922,11 +2935,11 @@ class StatementsMixin:
         # EXCLUDED with the shifts: a count is not a peer (matrix row 6).
         def _agree() -> bool:
             return self._check_operand_agreement(
-                stmt.target, stmt.value, target_type, value_type,
-                f"operator `{stmt.op}=`", stmt.line, stmt.column,
+                target, value, target_type, value_type,
+                f"operator `{op}=`", line, column,
                 left_label="target", right_label="value")
 
-        if stmt.op in ['+', '-', '*', '/']:
+        if op in ['+', '-', '*', '/']:
             # These work on integers and floats
             if target_underlying.kind in int_kinds and value_underlying.kind in int_kinds:
                 _agree()
@@ -2935,10 +2948,10 @@ class StatementsMixin:
             else:
                 self._error(
                     ErrorKind.TYPE_MISMATCH,
-                    f"operator `{stmt.op}=` cannot be applied to `{target_type}` and `{value_type}`",
-                    stmt.line, stmt.column
+                    f"operator `{op}=` cannot be applied to `{target_type}` and `{value_type}`",
+                    line, column
                 )
-        elif stmt.op == '%':
+        elif op == '%':
             # Modulo only works on integers
             if target_underlying.kind in int_kinds and value_underlying.kind in int_kinds:
                 _agree()
@@ -2946,18 +2959,18 @@ class StatementsMixin:
                 self._error(
                     ErrorKind.TYPE_MISMATCH,
                     f"operator `%=` requires integer operands, got `{target_type}` and `{value_type}`",
-                    stmt.line, stmt.column
+                    line, column
                 )
-        elif stmt.op in ['&', '|', '^', '<<', '>>']:
+        elif op in ['&', '|', '^', '<<', '>>']:
             # Bitwise compound assignments (design 50): integer operands only.
             if target_underlying.kind in int_kinds and value_underlying.kind in int_kinds:
-                if stmt.op in ('&', '|', '^'):
+                if op in ('&', '|', '^'):
                     _agree()
             else:
                 self._error(
                     ErrorKind.TYPE_MISMATCH,
-                    f"operator `{stmt.op}=` requires integer operands, got `{target_type}` and `{value_type}`",
-                    stmt.line, stmt.column
+                    f"operator `{op}=` requires integer operands, got `{target_type}` and `{value_type}`",
+                    line, column
                 )
 
     def _check_return_statement(self, stmt: ReturnStatement):

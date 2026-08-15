@@ -136,6 +136,7 @@ from ast_nodes import (
     CastExpr, ReferenceExpr, RangeExpr, ForLoop, MoveExpr,
     BreakStatement, ContinueStatement,
     ExpressionStatement, LetStatement, AssignStatement, WhileExpr,
+    CompoundAssignStatement,
     GuardLetStatement, TryExpr, TryCatchExpr,
     Function, Struct, StructField, Enum, EnumVariant, Extension, Method,
     Parameter, SawType, TypeKind, Visibility, ClosureExpr, CaptureSpec,
@@ -2726,8 +2727,17 @@ class _FrameBuilder:
                                 mutable=True, line=line, column=col)
         # __wpN.field... = value   (spine with the `?.` hop -> __wpN)
         write_target = self._replace_bindopt(spine, wp_ident(), [])
-        mutate = AssignStatement(target=write_target, value=oca.value,
-                                 line=line, column=col)
+        chain_op = getattr(oca, 'op', None)
+        if chain_op is not None:
+            # `x?.y += <suspending>` (design 227 unit 4): the mutation of the
+            # copied-out payload is the compound one; everything else about the
+            # None-guarded read-modify-writeback is unchanged.
+            mutate = CompoundAssignStatement(target=write_target, op=chain_op,
+                                             value=oca.value,
+                                             line=line, column=col)
+        else:
+            mutate = AssignStatement(target=write_target, value=oca.value,
+                                     line=line, column=col)
         # recv = OptionalWrap(__wpN)   (whole-payload writeback, auto-Some)
         writeback = AssignStatement(
             target=_copy.deepcopy(receiver),

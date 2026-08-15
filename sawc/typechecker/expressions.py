@@ -6887,10 +6887,15 @@ class ExpressionsMixin:
         return self._is_trivially_copyable(t)
 
     def _check_optional_chain_assign(self, expr: OptionalChainAssign) -> Optional[SawType]:
-        """`x?.y = v` (design 111). Writes the RHS through the chain into the
-        payload FIELD in place iff every optional hop is non-None; the RHS is
-        skipped entirely on short-circuit (codegen). Types to `Void?` — `None` =
-        skipped, `Some(unit)` = written."""
+        """`x?.y = v` (design 111) and `x?.y += v` (design 227 unit 4). Writes
+        the RHS through the chain into the payload FIELD in place iff every
+        optional hop is non-None; the RHS is skipped entirely on short-circuit
+        (codegen). Types to `Void?` — `None` = skipped, `Some(unit)` = written.
+
+        The compound spelling reads the field and applies the operator on the
+        written path only, so it takes the operand rules of the compound
+        STATEMENT (`_check_compound_operands`) where the plain one takes the
+        assignment transfer rules."""
         target = expr.target
         if not isinstance(target, OptionalEvalExpr):
             self._error(
@@ -6931,6 +6936,18 @@ class ExpressionsMixin:
         # Mutability: the chain head must be a mutable place (a `var` or a
         # `&var`-reachable path).
         self._check_chain_assign_head_mutable(spine, root_path, expr)
+        chain_op = getattr(expr, 'op', None)
+        if chain_op is not None:
+            # `x?.y += v` — the field is read and written, so the value side is
+            # the compound statement's, not the assignment's. A bare RHS literal
+            # adopts the FIELD's fixed-width type first (design 87).
+            self._apply_literal_expected_type(expr.value, field_type)
+            value_type = self._check_expression(expr.value)
+            if value_type is not None:
+                self._check_compound_operands(spine, expr.value, field_type,
+                                              value_type, chain_op,
+                                              expr.line, expr.column)
+            return SawType(TypeKind.OPTIONAL, inner_type=SawType(TypeKind.VOID))
         # RHS follows ordinary assignment transfer rules against the field type,
         # including optional-None propagation onto a bare `None` RHS.
         value_type = self._check_expression(expr.value)

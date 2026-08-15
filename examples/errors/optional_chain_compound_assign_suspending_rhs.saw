@@ -1,0 +1,34 @@
+// Design 227 unit 4, the boundary: a COMPOUND chained assignment whose RHS
+// SUSPENDS is refused CLEANLY — never a silent block, which is the contract
+// every unsupported suspension position keeps.
+//
+// It is not a chain limitation. `n += s(99)` on a plain local is refused in a
+// suspending body for the same reason (DF-224a's G3: CompoundAssignStatement
+// is missing from the transform's `_anf_stmt`), and the compound chain
+// assignment reaches that same statement through the transform's None-guarded
+// read-modify-writeback. The PLAIN spelling `x?.y = s(99)` works
+// (`expr_suspend_optchain_assign.saw`), so this is G3's boundary and not this
+// spelling's.
+//
+// Design 224 fixes G3; when it does, this file becomes the success twin of
+// `expr_suspend_optchain_assign.saw` (write `local?.x += s(99)`, expect 100).
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: appears in a nested/expression position
+
+struct Point { x: Int, y: Int }
+
+func s(n: Int) -> Int {
+    __saw_suspend()
+    n
+}
+
+func doassign(o: Point?) -> Int {
+    var local = o
+    local?.x += s(99)
+    if let p = local { return p.x }
+    return -1
+}
+
+func main() {
+    print(__saw_drive(doassign(Point(x: 1, y: 2))))
+}

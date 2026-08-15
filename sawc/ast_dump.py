@@ -957,7 +957,11 @@ class ASTDumper:
             self._dedent()
 
         elif isinstance(expr, OptionalChainAssign):
-            self._emit(f"OptionalChainAssign")
+            # The compound spelling `x?.y += v` is the same node with an `op`
+            # (design 227 unit 4), and the dump has to say which write it is.
+            op = getattr(expr, 'op', None)
+            self._emit("OptionalChainAssign" if op is None
+                       else f"OptionalChainAssign op={op}")
             self._indent()
             self._emit("target:")
             self._indent()

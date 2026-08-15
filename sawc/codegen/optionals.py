@@ -565,7 +565,13 @@ class OptionalsMixin:
     def _generate_optional_chain_assign(self, expr: OptionalChainAssign):
         """Lower `x?.y = v` (design 111): write the RHS through the payload field
         in place iff every optional hop is non-None; skip the RHS entirely on
-        short-circuit. Yields `Void?` — Some(unit) written, None skipped."""
+        short-circuit. Yields `Void?` — Some(unit) written, None skipped.
+
+        `expr.op` is the COMPOUND spelling `x?.y += v` (design 227 unit 4): the
+        field is loaded, the operator applied and the result stored back, all on
+        the all-some path — so the None path still evaluates no RHS and stores
+        nothing. Nothing is dropped or retained there: a compound target is a
+        number."""
         target = expr.target
         head, segments = self._flatten_optional_chain(target.expr)
         result_llvm = ir.LiteralStructType([ir.IntType(1), ir.IntType(8)])
@@ -587,6 +593,16 @@ class OptionalsMixin:
                 field_ptr, field_saw, _ = self._chain_field_gep(base_ptr, node.member)
                 if field_saw is not None:
                     field_saw = self._substitute_saw_type(field_saw, self.type_param_context)
+                chain_op = getattr(expr, 'op', None)
+                if chain_op is not None:
+                    # Read-modify-write, RHS generated HERE (all-some path only).
+                    current = self.builder.load(field_ptr, name="chainw_cur")
+                    rhs = self._generate_expression(expr.value)
+                    self.builder.store(
+                        self._apply_compound_op(chain_op, current, rhs,
+                                                self._int_is_signed(node)),
+                        field_ptr)
+                    continue
                 # RHS is generated HERE, on the all-some path only.
                 value = self._generate_expression(expr.value)
                 if field_saw is not None and self._needs_cleanup(field_saw):

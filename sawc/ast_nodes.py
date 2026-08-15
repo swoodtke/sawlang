@@ -1370,9 +1370,15 @@ class OptionalChainAssign(Expression):
     """Chained assignment `x?.y = v` (design 111). `target` is an OptionalEvalExpr
     whose final segment is a payload FIELD; writes the RHS through the chain in
     place iff every optional hop is non-None. Types to `Void?` (None = skipped,
-    Some(unit) = written); silently discardable in statement position."""
+    Some(unit) = written); silently discardable in statement position.
+
+    `op` carries the COMPOUND spelling `x?.y += v` (design 227 unit 4): the
+    operator without its `=`, or None for a plain write. It means the same
+    thing about the same storage — read the field, apply, write back — on the
+    non-None path only, so the None path still evaluates no RHS."""
     target: Expression
     value: Expression
+    op: Optional[str] = None
 
 
 @dataclass

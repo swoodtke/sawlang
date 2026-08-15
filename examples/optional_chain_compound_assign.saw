@@ -1,0 +1,83 @@
+// Design 227 unit 4 (DF-225l): the COMPOUND spelling of design 111's chained
+// assignment, `x?.y += v`. It means the same thing about the same storage as
+// `x?.y = v` — read the field, apply, write back, on the non-None path only —
+// and it used to be a parse error, because the parser recognized an
+// OptionalEvalExpr target on the plain branch alone.
+//
+// The positions here are the plain form's: a one-hop chain, a longer chain, a
+// PLACE head (the `Map` subscript's conditional lend, where the write is the
+// window's body), a fixed-width field a bare literal adopts, the other
+// operators, and the None head that evaluates neither the write nor the RHS.
+// EXPECT: success
+// EXPECT-OUTPUT:
+// 6
+// 77
+// 0
+// 12
+// 1
+// 30
+// 9
+// 2
+// counted
+
+static RHS_CALLS: Atomic<Int> = Atomic(0)
+
+struct Point { x: Int, y: Int }
+struct Holder { p: Point }
+struct Small { b: Int8 }
+
+func rhs(v: Int) -> Int {
+    RHS_CALLS.fetch_add(1)
+    return v
+}
+
+// Consume the `Void?` result of a compound chained assignment.
+func bumpGuard(p: Point?) -> Bool {
+    var local = p
+    guard let _ = local?.x = 5 else { return false }
+    return true
+}
+
+func main() {
+    // One hop.
+    var op: Point? = Point(x: 1, y: 2)
+    op?.x += 5
+    print(op!.x)                 // 6
+
+    // Longer chain: `var?.field.field += v`.
+    var oh: Holder? = Holder(p: Point(x: 70, y: 20))
+    oh?.p.x += 7
+    print(oh!.p.x)               // 77
+
+    // None head: the write AND the RHS are both skipped.
+    var none_op: Point? = None
+    none_op?.x += rhs(5)
+    print(RHS_CALLS.load())      // 0
+
+    // Present head: the RHS is evaluated exactly once.
+    op?.x += rhs(6)
+    print(op!.x)                 // 12
+    print(RHS_CALLS.load())      // 1
+
+    // A PLACE head — the Map subscript's conditional lend. The compound write
+    // is the window's body, exactly as the plain one is.
+    var scores = {"a": Point(x: 10, y: 0)}
+    scores["a"]?.x += 20
+    print(scores["a"]!.x)        // 30
+
+    // A fixed-width field: the bare literal adopts `Int8` (design 87).
+    var os: Small? = Small(b: 1)
+    os?.b += 8
+    print(os!.b)                 // 9
+
+    // The other operators reach the same lowering.
+    var ot: Point? = Point(x: 5, y: 0)
+    ot?.x *= 4
+    ot?.x -= 2
+    ot?.x /= 9
+    ot?.x %= 3
+    print(ot!.x)                 // 2
+
+    // The `Void?` result is consumable exactly as the plain form's is.
+    if bumpGuard(Point(x: 0, y: 0)) { print("counted") }
+}

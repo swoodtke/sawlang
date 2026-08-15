@@ -100,6 +100,7 @@ let result = maybe ?? 0
 // Optional chaining — multi-hop fields + methods; result is `U?` (flattened)
 let len = user?.profile?.name?.len()
 user?.profile?.name = "Ada"   // chained assignment writes in place (`Void?`)
+user?.visits += 1             // compound spelling; a None head writes nothing
 ```
 
 ### Error Handling with Result
