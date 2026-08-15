@@ -15,6 +15,66 @@ line per brief + one per done-file), created with the next split.
 Next split (aug10-aug14 + INDEX.md) queued behind design 223's
 integration.
 
+## DF-225g — SAFETY: `self.field[i] += v` inside a `&self` method writes
+## the CALLER's storage silently, no diagnostic (filed Aug 15, doc-sync
+## correctness scan round 2, LEAD-VERIFIED)
+
+**Highest-priority finding of the scan — a real, silent Law-of-Exclusivity
+hole, not a doc bug.** LANGUAGE_SPEC.md's own "A `&self` method may not
+write its receiver" section (§4 Memory Management, `Status: implemented`)
+documents FOUR spellings of the rule and shows each one refused: a direct
+field write (`self.hits = self.hits + 1`), a `&var self.<field>`
+projection, a `&var self` method call reached through a field
+(`self.cells.push(9)`), and a **place-window compound assignment**
+(`self.grid[0] += 100`, captioned `// error: cannot write through a place
+window on storage reached through a &self receiver`). The first three are
+genuinely enforced (verified). The fourth is NOT — it compiles clean and
+the write lands, visibly, in the caller's storage:
+
+```saw
+struct Board { grid: Vector<Int> }
+
+@synthesize
+extension Board: ExplicitCopy {}
+
+extension Board {
+    func bump(&self) {
+        self.grid[0] += 100
+    }
+}
+
+func main() {
+    let b = Board(grid: [1, 2, 3])
+    b.bump()
+    print(b.grid.get(0)!)   // prints 101 — mutated through a `&self` (shared) receiver
+}
+```
+
+Lead-reproduced independently (`.build/scratch/docsync2/verify_spec_a_safety.saw`):
+compiles with no error, runs, prints `101`. A `let`-bound `b` (no `var`
+needed to observe it) had its storage mutated through a call that only
+borrowed it `&self` — the exact hazard the surrounding prose warns about
+for the sibling `self.cells.push(9)` case, which IS caught.
+
+MECHANISM (obligation 4): the place-window write-through-receiver check
+apparently covers `&var self` METHOD CALLS reached through a field
+(`self.cells.push(9)`) but not COMPOUND ASSIGNMENT through a place-window
+ACCESSOR reached through a field (`self.grid[0] += v`, where `Vector.[]`
+is a `borrows` accessor) — i.e. the check that classifies "does this
+expression open an exclusive place-window on receiver-owned storage" does
+not fire for an index-assignment target the way it fires for a method-call
+receiver. Likely siblings, UNPROBED: `self.map[k] = v` / `self.map[k]!.x
++= 1` (Map's `[]` is the same `borrows` shape per LANGUAGE_SPEC's Map
+section), and any other stdlib `borrows` accessor reached through a
+`&self`-receiver field with a compound-assignment or whole-value-write use
+site.
+
+This needs a compiler brief, not a doc edit — the doc's claim is the
+INTENDED behavior (and matches the three enforced sibling spellings); the
+compiler has the gap. Left the LANGUAGE_SPEC.md example exactly as
+written (it correctly states intent) per doc-sync doctrine: code is buggy,
+not the doc.
+
 ## Design 178 M2 unit 1 — trap/timer/interrupt-controller HAL (BUILT Aug 15,
 branch PARKED for user review per SOS policy)
 
@@ -454,6 +514,125 @@ matrices in the scratch dir; promote to cited pins at fix time.
   `w1_limiter.saw:18-26`'s hazard comment documents a bug design 206
   closed (does not reproduce, four shapes probed) and its workaround
   is now misinformation — comment cleanup owed.
+
+## DF-225a-f — six compiler findings surfaced by the doc-sync correctness
+## scan round 2 (filed Aug 15; reconstructing LANGUAGE_SPEC.md examples
+## against the real compiler, not grep — every example is a free fuzz
+## input the sweep never asked for)
+
+None of these are doc bugs — each is the compiler doing something the
+doc-sync scan's reconstruction probes did not expect while verifying an
+otherwise-correct LANGUAGE_SPEC.md example. Two (a, b) are ICEs (an
+unhandled exception surfacing as `internal compiler error: ...` instead
+of a clean diagnostic — the sawfuzz oracle's exact bar), which per
+obligation 4 are PRESUMED a class until swept properly; the corroborating
+positions below are from three independent probes (two different
+sub-agents, one lead), not one lucky repro.
+
+- **DF-225a — declaring a user `extern "C"` function under a name the
+  compiler ALSO declares internally in codegen (`printf`, `abort`,
+  `snprintf`, `strcpy`, `strcat` — `sawc/codegen/core.py` lines
+  459/463/471/478/485) crashes codegen with `internal compiler error:
+  <name>`, no location, even when the function is never called.**
+  Reproduces in a bare one-declaration file, no import needed:
+  `extern "C" { func printf(format: UnsafeConstPointer<Int8>, ...) -> Int }`
+  alone ICEs; renaming to any non-colliding name (`myprintf`) compiles
+  clean. Contrast: colliding with a std-declared extern (`malloc`, which
+  `sawc/std/{file,directory,env,process}.saw` all declare with a
+  DIFFERENT signature) gives a clean `function 'malloc' is defined
+  multiple times with different signatures` — so the ordinary
+  multi-declaration check works fine; only the codegen-internal names
+  bypass it entirely and reach llvmlite's redeclaration path unguarded.
+  Motivating case: LANGUAGE_SPEC.md's "C FFI" section (`Status:
+  implemented`) used exactly `printf` in its worked example, which
+  therefore ICE'd regardless of the (separately real, separately fixed)
+  `malloc(size: UInt)` signature bug beside it — the doc-sync fix
+  swapped the example to `puts`, sidestepping the collision rather than
+  masking it.
+- **DF-225b — referencing an undefined struct name ICEs
+  (`internal compiler error: Undefined struct: <Name>`, no location)
+  in at least two independent positions, never a clean "undefined type"
+  diagnostic:** an enum case's payload field type
+  (`enum Reel { case Loaded(t: Tape), case Empty }` with `Tape` never
+  declared — found independently reconstructing LANGUAGE_SPEC.md block
+  72, L2594), and a `sizeof<>` type argument
+  (`static_assert(sizeof<UartRegs>() == 0x1C, ...)` with `UartRegs`
+  declared only much later in a different section — LANGUAGE_SPEC.md
+  L7480). Every OTHER undefined-name context hit during the same sweep
+  (undefined module, undefined trait, unknown attribute, undefined
+  function/variable) gives sawc's normal located `error: ...` — these
+  two are the exceptions, which is exactly the "two positions, presumed
+  a class" shape obligation 4 asks a fix brief to sweep before
+  dispatch (other likely positions, unswept: a trait method's
+  parameter/return type, a `type` alias RHS, a generic bound).
+- **DF-225c (NEEDS A RULING, not a doc fix) — `Float64` cannot be produced
+  by any literal, cast, or arithmetic, contradicting LANGUAGE_SPEC.md's own
+  "`Float` // Alias for `Float64`" claim (lines 669-670, 690-692, stated as
+  `implemented`).** `let x: Float64 = 1.0` fails with `cannot assign
+  'Float' to variable of type 'Float64'`; `(1.0) as Float64` fails with
+  `cannot cast 'Float' to 'Float64'`; two `Float64` operands refuse `+=`;
+  `Float64` has no `Printable` conformance. `Float` and `Float64`
+  type-check as two distinct, non-interconvertible types today — either the
+  alias direction regressed, or it was never wired up on the
+  literal/cast/arithmetic/Printable paths. CORROBORATED at scale, two
+  independent probes: falsifies LANGUAGE_SPEC.md's Type System `Point`
+  example (line 146, block 4) AND, at wider scope, the identical `Point`
+  example reused in "Type Extensions" (line ~2158, block 58) — substituting
+  `Float64` throughout either produces double-digit cascading errors;
+  substituting `Float` compiles and runs clean both times. Two readings:
+  (1) `Float64` should be wired as a true alias and the compiler has the
+  gap (the doc's own design intent, matching its own primitive-types
+  table); (2) the doc is describing an aspiration that was never built and
+  every `Float64` mention should read `Float`. Left every LANGUAGE_SPEC.md
+  `Float64` occurrence UNCHANGED pending this ruling — this is exactly the
+  "spec promises X, compiler does Y, X is plausibly the design" case the
+  doc-sync doctrine says not to decide alone.
+- **DF-225d — an extension method on a PRIMITIVE that returns bare
+  `self` fails type-check against its own declared return type with a
+  message naming the identical type on both sides**:
+  `extension UInt8 { func encoded(&self) -> UInt8 { self } }` →
+  `error: method 'encoded' should return 'UInt8' but returns 'UInt8'`.
+  Substituting a literal (`5u8`) for `self` compiles clean, isolating it
+  to `self`'s inferred type inside a primitive extension not unifying
+  with the primitive type it visibly is. Falsifies LANGUAGE_SPEC.md's
+  "Conformances on primitives" worked example (block 153, L5051).
+- **DF-225e (needs a ruling, not a bug per se) — a bare `import <name>`
+  with no `std.` prefix silently resolves into `sawc/std/<name>.saw`
+  when the name happens to collide with a real std leaf module.**
+  `sawc/module_resolver.py`'s search-path list always includes `std/`,
+  even for a non-`std.`-prefixed import, so `import data` (intending an
+  unrelated user module) double-compiles `sawc/std/data.saw` alongside
+  any real `import std.data`, producing a pile of "defined multiple
+  times" errors rather than the clean "two imports bind the qualifier
+  `data`" diagnostic LANGUAGE_SPEC.md documents for exactly this
+  scenario (L7986-7990). Two readings, no evidence either way of
+  original intent: (1) the doc is right and `std/` should never be on a
+  bare import's search path, only `std.`-prefixed ones; (2) the
+  fallback is deliberate (some blessed same-name-as-std-leaf
+  configuration) and the doc's example is an accidental collision with
+  a broader mechanism it didn't anticipate.
+- **DF-225f (minor, compiler-robustness) — `@section(".vector_table")`
+  on a mach-O target aborts the PROCESS via a raw LLVM fatal error
+  (`LLVM ERROR: ... invalid section specifier ...`, exit -6), not a
+  sawc-formatted diagnostic.** LANGUAGE_SPEC.md (L8412-8418) documents
+  mach-O needing the `SEG,sect` section-name form instead of ELF's bare
+  name but doesn't claim what happens if you get it wrong; a reader on
+  macOS who copies the ELF-shaped form as written hits an LLVM crash
+  instead of a compiler error naming the fix.
+- **DF-225h (needs a ruling) — a bare `()` does not unify with `Void` as a
+  match arm's "do nothing" value, though LANGUAGE_SPEC.md uses exactly that
+  spelling three times** (`case Empty -> ()` / `case Nothing -> ()` twice,
+  §4 Memory Management's NoCopy-enum and Copy-enum match examples, each
+  beside a sibling arm calling a Void function). Lead-reproduced:
+  `case _ -> ()` beside `case 1 -> use()` (`use` returning `Void`) gives
+  `match arms have incompatible types: 'Void' and 'TUPLE'`
+  (`.build/scratch/docsync2/verify_spec_a_voidtuple.saw`) — `()` type-checks
+  as a genuine, distinct empty-tuple value, not a `Void` spelling, in this
+  compiler. `case _ -> {}` (empty block) compiles clean in the identical
+  position (`verify_spec_a_voidtuple2.saw`), so a working spelling exists;
+  the question is which one LANGUAGE_SPEC.md's three occurrences should
+  use, or whether `()`/`Void` unification is the intended design and the
+  compiler has the gap.
 
 ## The next queue — designs 195-202 + 153 (ALL RULED Aug 10, awaiting dispatch)
 
