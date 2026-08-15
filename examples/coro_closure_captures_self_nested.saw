@@ -12,16 +12,21 @@
 // A NoCopy receiver is here for the reason it is in the sync test: a value
 // snapshot would have demanded of `self` a copy policy no receiver ever owed.
 //
-// Three of the sync test's contexts are ABSENT, each blocked before any closure
-// is reached and each recorded as its own finding: a suspending method in a
-// trait CONFORMANCE (DF-218k), a suspending method on an ENUM extension
-// (DF-218l), and a suspending method on a GENERIC struct reached from a driven
-// body (DF-218m). All three reproduce with no closure in the body.
+// Three of the sync test's contexts were ABSENT when this was written, each
+// blocked before any closure was reached and each recorded as its own finding:
+// a suspending method in a trait CONFORMANCE (DF-218k), a suspending method on
+// an ENUM extension (DF-218l), and a suspending method on a GENERIC struct
+// reached from a driven body (DF-218m). Design 223 closed all three, so they
+// are here now — which is what makes this test cover the capture funnel's whole
+// reach rather than the part that happened to compile.
 // EXPECT: success
 // EXPECT-OUTPUT:
 // 33
 // hi Ada
 // 15
+// hey Ada
+// red!
+// 12
 
 import std.task.*
 
@@ -43,16 +48,54 @@ struct Person { n: String }
 
 extension Person {
     // A closure calling a `&self` METHOD on the receiver, not just reading a
-    // field: the hop goes through the same window. (The trait-CONFORMANCE
-    // spelling of this is unavailable for an unrelated reason — a suspending
-    // conformance method is refused with a "does not implement" diagnostic,
-    // DF-218k, with no closure in the repro.)
+    // field: the hop goes through the same window.
     func greet(&self) -> String {
         yield_now()
         run_str({ "hi {self.name()}" })
     }
 
     func name(&self) -> String { self.n }
+}
+
+trait Hailer {
+    func hail(&self) -> String
+}
+
+// The same capture inside a method that SATISFIES a trait requirement. The
+// transform keeps the authored method where the conformance can still see it
+// and builds the frame from a copy (design 223 unit 2).
+extension Person: Hailer {
+    func hail(&self) -> String {
+        yield_now()
+        run_str({ "hey {self.name()}" })
+    }
+}
+
+enum Shade { case Dark, case Light }
+
+// An ENUM receiver: `self` is the scrutinee inside the closure, so the capture
+// has to reach a receiver the frame holds by handle exactly as a struct's is.
+extension Shade {
+    func shout(&self) -> String {
+        yield_now()
+        run_str({
+            match self {
+                case Dark -> "red!",
+                case Light -> "white!"
+            }
+        })
+    }
+}
+
+struct Cell<T> { v: T, n: Int }
+
+// A GENERIC struct receiver, reached from a driven body. The frame is built for
+// the concrete instantiation, so the captured `self` is a `Cell<String>`.
+extension Cell<T> {
+    func doubled(&self) -> Int {
+        yield_now()
+        run_int({ self.n * 2 })
+    }
 }
 
 struct Counter { n: Int }
@@ -75,4 +118,12 @@ func main() {
 
     var c = Counter(n: 5)
     print("{}", c.bump())
+
+    print("{}", p.hail())
+
+    let s = Shade.Dark
+    print("{}", s.shout())
+
+    let cell = Cell<String>(v: "x", n: 6)
+    print("{}", cell.doubled())
 }

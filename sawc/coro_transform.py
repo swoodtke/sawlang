@@ -8123,6 +8123,69 @@ def _promote_nested_generic_calls(program, funcs_by_name, seed_names, typechecke
     return promoted_all
 
 
+def _conformance_required_names(all_traits):
+    """{trait name -> the method names it declares}, read off the AST.
+
+    Off the AST rather than through `get_trait_info` because the namespace is
+    reset by the time the transform runs, and a trait declaration is a plain
+    list of signatures — nothing here needs resolution. Every declared name
+    counts, DEFAULT-BODIED ones included: a conformance that OVERRIDES a
+    defaulted requirement and then has its override removed silently falls back
+    to the default, which is a wrong answer rather than a diagnostic.
+    """
+    out = {}
+    for t in all_traits:
+        names = out.setdefault(_type_identity_of_trait(t), set())
+        names.update(m.name for m in (getattr(t, 'methods', None) or []))
+        # `t.name` too: an extension's `conformances` hold the name as WRITTEN,
+        # and design 144's identity is a separate string.
+        out.setdefault(t.name, set()).update(names)
+    return out
+
+
+def _type_identity_of_trait(t):
+    return getattr(t, 'type_identity', "") or t.name
+
+
+def _strip_driven_method(ext, mast, required_by_conformance):
+    """THE one place a transformed method leaves its extension (design 223 M3).
+
+    A driven or embedded method's body is REWRITTEN IN PLACE by its frame
+    builder — hoisted, ANF-normalized, and finally replaced by a resume state
+    machine — so the method the extension still holds is not the method the
+    author wrote, and it has to go. Except that removing it can break the
+    extension's own declaration: the program is re-typechecked after the
+    transform, and an `extension Person: Greeter` with no `greet` left in it
+    does not implement `Greeter`. That is DF-218k, reported at the extension,
+    about a method plainly written there.
+
+    So the strip REFUSES to remove a method the extension's conformances
+    require. The caller pairs that refusal with the other half — building the
+    frame from a COPY, which is exactly what an IMPORTED method has always
+    done — so the extension keeps the method the author wrote and the frame
+    gets its own AST to destroy. Entry-module and cross-module converge on one
+    answer: the original method stays, as dead code its call sites no longer
+    reach.
+
+    Returns True if the method was removed.
+    """
+    if _method_is_conformance_required(ext, mast, required_by_conformance):
+        return False
+    ext.methods = [m for m in ext.methods if m is not mast]
+    return True
+
+
+def _method_is_conformance_required(ext, mast, required_by_conformance):
+    """Does one of `ext`'s declared trait conformances name `mast`?"""
+    name = getattr(mast, 'name', None)
+    if name is None:
+        return False
+    for tname in (getattr(ext, 'conformances', None) or []):
+        if name in required_by_conformance.get(tname, ()):
+            return True
+    return False
+
+
 def _promote_nested_generic_methods(program, funcs_by_name, seed_names, all_exts,
                                     susp_methods, really_susp_methods,
                                     typechecker):
@@ -8329,6 +8392,12 @@ def transform_program(program, typechecker, imported_ast=None):
     # (its calls were all rewritten to the embedded drive). Generic-struct / method-
     # generic methods stay unsupported (rejected at the call site).
     _entry_ext_ids = {e.node_id for e in program.extensions}
+    # design 223 unit 2: what the strip may NOT remove. Every trait in the
+    # compilation unit, by the two names an extension's `conformances` list can
+    # hold — see `_conformance_required_names`.
+    _required_by_conformance = _conformance_required_names(
+        list(getattr(program, 'traits', None) or [])
+        + list(getattr(imported_ast, 'traits', None) or []))
     _imported_exts = ([e for e in getattr(imported_ast, 'extensions', [])
                        if e.node_id not in _entry_ext_ids] if imported_ast is not None else [])
     _all_exts = list(program.extensions) + _imported_exts
@@ -8738,7 +8807,15 @@ def transform_program(program, typechecker, imported_ast=None):
             sname, mast.name, getattr(mast, 'mangled_symbol', None))
         if fbkey in fbs:
             continue
-        if ext.node_id not in _entry_ext_ids and fbkey not in gsm_recv_types:
+        # design 223 unit 2: the copy is owed for a SECOND reason, and the two
+        # are one rule. `_strip_driven_method` refuses to remove a method the
+        # extension's conformances require, so that method stays in the AST —
+        # and a frame built from it in place would leave a half-lowered state
+        # machine where the author's `greet` used to be.
+        if ((ext.node_id not in _entry_ext_ids
+             or _method_is_conformance_required(ext, mast,
+                                                _required_by_conformance))
+                and fbkey not in gsm_recv_types):
             # design 146: a frame builder REWRITES the body it is handed — it
             # hoists, ANF-normalizes and finally splits it into resume states —
             # and an imported method's body is std's own AST. That AST is now
@@ -8902,6 +8979,14 @@ def transform_program(program, typechecker, imported_ast=None):
                 f"(design 74 A5-rest); monomorphize the receiver at the drive site",
                 method_ast.line, method_ast.column,
                 source_file=getattr(method_ast, 'source_file', None))
+        if _method_is_conformance_required(ext, method_ast,
+                                           _required_by_conformance):
+            # design 223 unit 2: the DRIVE-ROOT face of the same rule. The frame
+            # builder rewrites the body it is handed, and this one has to stay
+            # in its extension for the conformance to keep holding — so it gets
+            # its own copy, exactly as an imported method does.
+            import copy as _copy
+            method_ast = _copy.deepcopy(method_ast)
         if ext.node_id in _entry_ext_ids:
             _instrument_loop_backedges(method_ast)   # design 127
         mfb = _FrameBuilder(method_ast, struct_name=struct_name, tc=typechecker)
@@ -8922,9 +9007,11 @@ def transform_program(program, typechecker, imported_ast=None):
             _rewrite_drive_sites(m.body, roots)
 
 
-    # Strip driven methods from their extensions (replaced by frame + resume).
+    # Strip driven methods from their extensions (replaced by frame + resume) —
+    # through the ONE funnel that knows when a strip would break the extension's
+    # own declaration (design 223 unit 2 / DF-218k).
     for ext, method_ast in removed_methods:
-        ext.methods = [m for m in ext.methods if m is not method_ast]
+        _strip_driven_method(ext, method_ast, _required_by_conformance)
 
     # design 84/89: an embedded imported method body may reference a module-level
     # `static` private to its own module (`TcpListener.accept` names

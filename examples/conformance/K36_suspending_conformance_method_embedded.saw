@@ -15,7 +15,6 @@
 //
 // Three properties: compiles; both frames are in the IR; the tasks interleave.
 //
-// XFAIL: DF-218k a suspending method in a trait CONFORMANCE is stripped from its extension by the transform and the post-transform re-typecheck then reports the conformance as unimplemented
 // EXPECT: success
 // EXPECT-IR-CONTAINS: __Frame_Person_greet
 // EXPECT-IR-CONTAINS: __Frame_Shade_label

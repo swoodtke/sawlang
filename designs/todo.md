@@ -731,6 +731,15 @@ obligation-2 consumer sweep before dispatch. Gates 218 stages 1-2.
   while its SYNC twin compiles (the sync capture lowering opens no window).
   PIN: `examples/place_two_windows_one_nocopy_root.saw` (XFAIL)
 
+- **DF-218k/l/m and DF-223a FIXED (design 223 units 1 and 2, Aug 15).** One
+  classifier, three-valued, replacing `_method_call_owner`; its definition-side
+  twin aligned in the same commit; and the strip routed through a funnel that
+  refuses to remove a method a conformance requires. Rows K33-K36, K39 pass
+  (frame symbol in the IR AND the two-task interleave, per row).
+  `examples/coro_closure_captures_self_nested.saw` gained back the three
+  contexts it had recorded as unreachable. The four originals follow, kept for
+  the mechanism each recorded.
+
 - **DF-218k (BOGUS-REFUSAL + wrong diagnostic, PRE-EXISTING) — a SUSPENDING
   method in a trait CONFORMANCE is reported as not implementing the
   requirement.** `extension Person: Greeter { func greet(&self) -> String {
