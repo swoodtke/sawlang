@@ -98,6 +98,14 @@ TOML_SRC = os.path.join(REPO_ROOT, "libs", "toml", "src")
 SEMVER_SRC = os.path.join(REPO_ROOT, "libs", "semver", "src")
 ROOT_PKG = os.path.join(REPO_ROOT, "sos", "root")
 FAULT_ROOT_PKG = os.path.join(TESTS_DIR, "faulting-root")
+# design 178 M2 unit 2: three root servers that exercise Thread and Process
+# objects. They are real Blade packages for the same reason sos/root is — a
+# process that makes threads should go through the pipeline every SOS process
+# goes through, and should reach the kernel through the `sos` module and never
+# through an op number.
+THREAD_BASICS_PKG = os.path.join(TESTS_DIR, "thread-basics")
+THREAD_PREEMPT_PKG = os.path.join(TESTS_DIR, "thread-preempt")
+THREAD_FAULT_PKG = os.path.join(TESTS_DIR, "thread-fault")
 
 QEMU_TIMEOUT_S = 10
 
@@ -474,6 +482,67 @@ TEST_CASES = [
                        # Also design 137 formatting with no allocator present.
                        "SOS root: boot handle 1"],
         "expect_clean_exit": True,
+    },
+    # --- design 178 M2 unit 2: Thread and Process objects + the scheduler ----
+    # Three claims, one per case, and the three root servers are real Blade
+    # packages that reach the kernel through the `sos` module — so what is under
+    # test is the object surface a process actually has, not an op number
+    # written into an assembler payload.
+    {
+        # (a) + (c): create two threads, start them, join them for THEIR OWN
+        # exit values — and, in between, cooperative alternation. The kernel
+        # here arms NO timer, so nothing can take the processor away and the
+        # eight-character run is exactly eight `yield` calls in a row. That one
+        # substring is the strongest form the claim has: any missed switch, any
+        # extra one, and it is not `ABABABAB`.
+        "name": "thread_basics",
+        "src": os.path.join(KERNEL_DIR, "main.saw"),
+        "root_pkg": THREAD_BASICS_PKG,
+        "expect_out": ["{banner}",
+                       "SOS threads: two workers, status word 0",
+                       "ABABABAB",
+                       "SOS threads: joined a=11 b=22",
+                       # The ratified Process teardown, reported: three handles
+                       # (System, Process, the initial Thread) plus the two the
+                       # process made, and three thread slots.
+                       "SOS: process teardown handles={five} threads={three}"],
+        "expect_clean_exit": True,
+    },
+    {
+        # (b) PREEMPTION. The same shape with the yields REMOVED and the timer
+        # armed: two workers that print and then spin, making no call that could
+        # give the processor up. Every alternation in the transcript is the
+        # scheduler taking it away at a tick, which is the whole of design 178
+        # D3 that a cooperative test cannot show.
+        #
+        # The root's own banner is deliberately NOT asserted: it is written a
+        # byte per syscall while the kernel is still narrating its first ticks,
+        # so the two interleave mid-word on the console. That is real and
+        # harmless — a shared serial port with no locking — but it is not
+        # something a substring can match. The tick narration stops after four,
+        # so everything below is written in the quiet that follows.
+        "name": "thread_preempt",
+        "src": os.path.join(TESTS_DIR, "threads_timer.saw"),
+        "root_pkg": THREAD_PREEMPT_PKG,
+        "expect_out": ["SOS M2: preemptive kernel up on",
+                       "A", "B", "A", "B", "A", "B",
+                       "SOS preempt: joined a=33 b=44"],
+        "expect_clean_exit": True,
+    },
+    {
+        # (d) THE FAULTS RULING, on a handle the process never held. It ends the
+        # process; the kernel reports the reason, reports the teardown, and
+        # stops the machine with its OWN exit code. A kernel that answered with
+        # a status instead would let this root print `UNREACHABLE` and shut down
+        # cleanly, which the status assertion catches.
+        "name": "thread_fault",
+        "src": os.path.join(KERNEL_DIR, "main.saw"),
+        "root_pkg": THREAD_FAULT_PKG,
+        "expect_out": ["SOS fault: joining a thread handle we never held",
+                       "SOS: process fault: bad handle",
+                       "SOS: process teardown handles={three} threads={one}"],
+        "expect_clean_exit": False,
+        "expect_status": EXIT_PROCESS_FAULT,
     },
     {
         # The grant has to hold against a root that is merely WRONG, not just
