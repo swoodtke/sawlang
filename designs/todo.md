@@ -24,10 +24,22 @@ false green possible. Five units, unit 0 is the obligation-2 consumer
 sweep of the `.build/<stem>` layout flip. All decisions ruled; the units
 execute, they do not re-decide.
 
-**BUILT Aug 14, then HELD (user ruling): all five units complete and
+**INTEGRATED Aug 14 (`7230b049..a858b74e`, eight commits) after the hold
+resolved: design 221 fixed both blockers, the branch was rebased and
+RE-GATED (battery 20/20; the brief's Re-gate section carries the full
+numbers), and the post-integration suite is green at 1854/25. Measured
+payoff: irdet --all 429s with reuse vs 796s without (46.1% saving, 99.1%
+reuse, 0 mismatch/0 invariant); unchanged-tree suite compile stage
+324s→25.6s; N=20 recorded-seed replay 20/20 byte-identical. Two
+composition fixes rode the re-gate: irdet_verdict.py learned the
+`invariant` status, and `manifest_eligible` excludes subprocess-fallback
+and warning-asserting tests from reuse (the 1.3% whose reuse cost
+coverage). Historical hold record follows.**
+
+BUILT Aug 14, then HELD (user ruling): all five units complete and
 battery-gated (18/18) on branch `worktree-agent-a347ef517d8ff1a2e`
 (five commits, `67b880e2..62c5db34`, based on `44537555`; worktree kept).
-NOT integrated until DF-220a and DF-220b below are fixed.** The
+NOT integrated until DF-220a and DF-220b below are fixed. The
 mechanism is proven — unchanged-tree suite compile stage 219.7s→22.3s at
 100% reuse; irdet's clean-reuse slice byte-identical — but 84.4% of
 artifacts fail the three-way verify on DF-220a, which makes reuse a net
