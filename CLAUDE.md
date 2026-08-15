@@ -266,8 +266,8 @@ Four BRIEF OBLIGATIONS (1-3 from design 190's Aug-9 quality analysis;
    several enclosing bindings a closure body's scope must carry.)
 
 ## Language state (orientation digest — details in spec/skill)
-Landed through design 161 (Aug 6; 152-155, 157 and 158 are briefs, not yet
-built): full trait system (default bodies,
+Landed through design 161 (Aug 6; 152, 154 and 157 are briefs, not yet
+built — 155 and 158 landed Aug 7-8): full trait system (default bodies,
 `any Trait` existentials, Equatable/Comparable/Hashable/Printable/
 Error), overloading + labeled arguments (lenient model), generics with
 default type params + default VALUES that drive inference (108) +

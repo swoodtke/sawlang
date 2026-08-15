@@ -9,10 +9,13 @@ and peer-death classes; `Unknown` stays a userspace mapping artifact.
 D2's cost sentence is the recorded M3 tripwire: syscall latency bounds
 interrupt latency — re-examine when any M3 syscall grows a loop.
 The deliverable ladder below is now the M2 plan of record; every unit
-per-arch-gated, branch parked for user review per SOS policy. First
-dispatch: design 158 (the task-dump pin, unit c before interrupt
-bring-up), firing at design 223's integration — its unit 1 shares
-coro_transform with the in-flight 223 agent.**
+per-arch-gated, branch parked for user review per SOS policy.
+CORRECTION (Aug 15): pin 1 is ALREADY SATISFIED — design 158 landed
+Aug 8 whole (the `__saw_bt_table` blob, tools/lldb_saw.py, the
+in-process post-panic dump hosted + freestanding; the `bttable`
+battery lane is its gate). The sketch's "first M2-track dispatch"
+phrasing predated that landing by a day. The first REAL M2 dispatch is
+therefore the trap/timer/interrupt-controller HAL unit.**
 
 **Original sketch header (Aug 7):** M1+M1b+172 are landed: one arch-free
 kernel, two HALs, typed handles / SosStatus / kind-scoped rights, sosimg v3,
