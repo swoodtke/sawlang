@@ -3,8 +3,10 @@
 **Status: AUTHORED Aug 14 from the DF-218k/l/m obligation-4 sweep
 (probes + full matrix: `.build/scratch/sweep218klm/`, GITIGNORED — this
 brief carries what the fix needs; the matrix below IS the test plan).
-Two open questions for the user at the end; everything else is decided
-by the sweep's evidence.**
+FULLY RULED (user, Aug 14 night): question 1 = work-where-the-mechanism-
+exists (existential dispatch refuses cleanly, own DF); question 2 = the
+closure-body axis joins the DF-219b family brief, 223 does not touch it.
+Dispatched.**
 
 ## The finding, in one sentence
 
