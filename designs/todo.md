@@ -1143,7 +1143,28 @@ obligation-2 consumer sweep before dispatch. Gates 218 stages 1-2.
   nothing upgrades !Send→Send except the type's own design; the
   universal fallback for any type is Channel-to-owner (remote
   operation, not shared access). Natural neighbor of the Rust-ism
-  sweep above — same files, could be one dispatch.
+  sweep above — same files, could be one dispatch. **DISPATCHED
+  Aug 15 (one Opus agent, both parts), in flight.**
+
+- **QUEUED: the doc-sync correctness scan, round 2** (user, Aug 15;
+  SONNET by design — the fresh-reader-as-instrument logic, and every
+  claim is oracle-checkable). Design 138 ran this Aug 6; ~85 designs
+  landed since, and the Aug-15 design-158 staleness (three documents
+  agreed with each other and disagreed with the tree) is the motivating
+  incident. Scope: README.md, CLAUDE.md (the orientation digest — it
+  may be a summary but must not be WRONG), LANGUAGE_SPEC.md, the
+  saw-lang skill, all verified AGAINST THE CODE: every example
+  compiles/runs as shown, CLI flag lists match sawc.py's argparse,
+  stdlib/prelude surface lists match std/ and the actual gate, feature
+  and status claims (built/not-built, "the ONLY", counts) match the
+  tree, skill cheat-sheet spellings compile. Doctrine: where the CODE
+  is authoritative (flags, surfaces, example behavior) the agent FIXES
+  the doc; where the DOC may be stating intent the compiler fails
+  (spec promises X, compiler does Y) it is a DF FINDING — report,
+  never decide. SEQUENCED AFTER the in-flight docs dispatch integrates
+  (it is rewriting the same files; scanning mid-rewrite audits stale
+  text). Compile evidence required for every finding, per the sweep
+  standard.
 
 ## Design 218 unit 0 LANDED (Aug 13) — corodiff is a battery lane; three new DFs
 
