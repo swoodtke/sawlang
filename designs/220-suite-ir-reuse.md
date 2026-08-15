@@ -1,6 +1,9 @@
 # Design 220 — recorded-seed suite compiles, per-run artifacts, irdet reuse
 
-**Status: RULED (user, Aug 14), queued behind 218 stages 1-2 integration.**
+**Status: RULED (user, Aug 14). BUILT, then HELD on two findings, then
+RE-GATED on `53faae34` once design 221 fixed them — see "Re-gate" below for
+the rebase, the numbers, and one finding of the re-gate's own that is fixed
+here. Awaiting user review for integration.**
 Tooling-track brief (test_runner + irdet + battery contract; borders designs
 115, 155, 156, 160). Every decision below was made in conversation with the
 user on Aug 14; the units execute, they do not re-decide.
@@ -106,7 +109,9 @@ carry-forward (D3).** Gate: full suite green; a no-change second run reuses
 that file; touching a sawc file invalidates everything; a replay under a
 recorded seed reproduces its artifact byte-identically (spot-check N=20).
 
-**Unit 2 finding (STOP-DON'T-WORKAROUND, pre-existing compiler bug, not a
+**Unit 2 finding — FIXED by design 221 Part A (DF-220a); the mechanism named
+below is REFUTED, see the tracker. Kept as written because the re-gate is
+read against it.** **(STOP-DON'T-WORKAROUND, pre-existing compiler bug, not a
 regression from this brief's own code): the byte-identical-replay leg of the
 gate is BLOCKED.** `compile_saw()` is not self-reproducible across repeated
 calls in one process, independent of `PYTHONHASHSEED` and independent of the
@@ -156,8 +161,9 @@ artifact produces the invariant-violation category, not a nondeterminism
 report and not a pass; `irdet --all` with NO manifest present behaves
 exactly as today.
 
-**Unit 3 finding (STOP-DON'T-WORKAROUND, pre-existing compiler bug, more
-severe than unit 2's and PREDATES design 220 entirely): `irdet`'s process
+**Unit 3 finding — FIXED by design 221 Parts B/C/D (DF-220b, and DF-220c which
+the sweep it triggered found). (STOP-DON'T-WORKAROUND, pre-existing compiler
+bug, more severe than unit 2's and PREDATES design 220 entirely): `irdet`'s process
 exit code is not functional and never has been — the `irdet`/`irdet-all`
 battery gate has been VACUOUSLY GREEN since design 155 ported the harness to
 Saw.** Minimal repro (12 lines, no design-220 code involved):
@@ -278,6 +284,123 @@ it would flip the `irdet` stage from always-green to red-until-the-
 node_id-leak-DF-is-fixed for every brief's battery run from here on, not
 only this one's — a wider-blast-radius decision than "ordering note"
 covers, so it is surfaced here rather than made unilaterally.
+
+## Re-gate (Aug 14, on `53faae34` — after design 221)
+
+The branch was HELD on the two findings above. Design 221 fixed all three DFs
+they became (DF-220a's per-compile `LLVMContext`, DF-220b's entry executors,
+DF-220c's `main` rule), and this section is the re-gate that follows. Every
+number below is this machine, this evening, suite lock held.
+
+**Rebase: five units onto main, two conflicts.** `sawc/sawc.py` — 221 made
+`compile_saw` RETURN its codegen (`tools/reemitdiff.py` needs the optimized
+module, the one artifact never written to disk) while this brief added
+`emit_optimized_ir`. Both kept: they are orthogonal halves of the same fact,
+one handing the optimized IR to a caller and the other writing it to the
+sidecar. `tools/battery.sh` — 221 rewrote `run_irdet` to read `--jsonl`
+records through `tools/irdet_verdict.py` instead of `$?`, which is this
+brief's own unit-3 finding acted on; main's version kept, this branch's
+now-obsolete KNOWN GAP paragraph dropped (same paragraph removed from
+CLAUDE.md), the D4 stage-ordering note applied unchanged above main's
+20-stage list. `test_runner.py` (221's `EXPECT-EXIT`),
+`devtools/irdet/src/main.saw`, `TESTING.md` and `tools/irdet_remote.py`
+merged clean.
+
+**A composition gap the rebase did not surface, found by reading.**
+`tools/irdet_verdict.py` landed with 221 while this branch was parked, so it
+knows `ok`/`skip`/`mismatch`; design 220 emits a FOURTH status, `invariant`.
+An invariant record counted toward the total and failed nothing — 221 Part D's
+vacuous-green shape arriving from the other side. It now fails the lane
+exactly as `mismatch` does.
+
+**Unit 2's blocked leg, run: 20/20 byte-identical.** Twenty manifest entries
+drawn round-robin across all ten recorded worker seeds, each recompiled in a
+fresh subprocess under its recorded `PYTHONHASHSEED` and byte-compared
+against the artifact the suite produced IN-PROCESS. Every one identical.
+Cross-process byte identity — the property design 115's audit claimed and
+DF-220a had silently broken from each worker's second compile on — holds.
+
+**Unit 1/2 gates, re-run.** Full suite green four times (1853 passed, 25
+xfailed, main's baseline unchanged). Unchanged tree: **1159/1159 eligible
+artifacts reused, 100%**, compile stage **324.1s → 25.6s**. Touching one
+example invalidates exactly that file (1173/1174 reused, the one `·` in the
+progress lines is `hello`). Touching a `sawc/` file invalidates the whole
+corpus (0/1174). Prune keeps K=3 ("pruned 1 old generation(s)").
+
+**Unit 3 gate, re-run at full scale: the VIOLATED INVARIANT backlog is
+GONE.** `irdet --all` against a fresh 1159-entry manifest: 1169 examples
+checked, 70 skipped, **0 mismatches, 0 invariant violations**,
+**1159/1169 (99.1%) reused**, and the binary's exit status is now real (0),
+with `irdet_verdict.py` agreeing off the records. The 84.4% backlog was
+DF-220a suffix churn exactly as diagnosed.
+
+**The saving, measured both ways on the same machine an hour apart:**
+
+| | wall time |
+|---|---|
+| `irdet --all`, manifest hidden (every file compiles both sides — the pre-220 path) | **796.0s** |
+| `irdet --all`, fresh manifest, 99.1% reuse | **429.0s** |
+
+**367s saved, 46.1%** — "roughly half cost in the steady state" realized, and
+the fallback path costs exactly what it always did. (The earlier 1041s figure
+in the unit-3 gate above was the DF-220a-degraded run paying THREE compiles
+for 84% of the corpus; it is not a baseline for anything.)
+
+**Deliberate corruption (mandatory), re-run:** `examples/hello.saw`'s recorded
+artifact appended with a garbage comment line, irdet re-run on it alone —
+`VIOLATED INVARIANT: examples/hello.saw (recorded artifact is 25073 byte(s);
+a fresh recompile at its own seed (1872740428) is 25031 byte(s))`, binary exit
+1, `irdet_verdict.py` exit 1. Its own category, never a nondeterminism report,
+never a pass — and now with a status and a record that both say so.
+
+**No-manifest fallback (mandatory), re-run against the PRE-220 binary.**
+`.build/test_runner_last` stashed, the same two files checked by this binary
+and by one built from main's (pre-220) `main.saw`. Same verdict, same exit
+status, and the diff is two lines: the added
+`irdet: no suite manifest -- every file compiles fresh both sides, as before
+design 220` notice, and `compiled 2 example(s) under` where pre-220 said
+`compiled 2 example(s) twice under` — the summary no longer promises "twice"
+because it is no longer always true. Nothing else moved.
+
+### The re-gate's own finding, fixed here: the manifest's gate was a proxy
+
+The first full re-gate run came back with 0 mismatches and **4 VIOLATED
+INVARIANTs**, every one with the artifact LARGER than the fresh recompile —
+the size direction that says "unoptimized IR". `_manifest_fields` gated on
+`'.ll' in placed`, intending "did this compile emit the OPTIMIZED sidecar?".
+It cannot mean that: `_emit_object` writes a `.ll` for every caller, the
+always-on unoptimized debug dump. A test whose `// COMPILE-FLAGS:` the
+in-process path does not model falls back to a subprocess compile, places that
+unoptimized sidecar, and was stamped into the manifest.
+
+Presumed a class and swept (obligation 4). The mechanism is "the manifest's
+gate is a proxy for its rule rather than the rule", and it reaches three
+positions, all confirmed by census against the live corpus:
+
+- unmodeled `COMPILE-FLAGS` (`--no-hidden-alloc`, `-W`) → an UNOPTIMIZED
+  artifact recorded. **4 files** — exactly the four irdet named;
+- modeled `COMPILE-FLAGS` (`--module-path`) → the optimized artifact of a
+  DIFFERENT compile than irdet reproduces. **10 files**, inert today only
+  because irdet's flag-less compile of them fails and skips the file. Luck,
+  not a guarantee;
+- carry-forward reaching a test that asserts at COMPILE time. **2 files.**
+  `_check_warnings` judges the compile's output and a reused binary has no
+  compile, so `import150_warn_shadowed_qualifier`'s three
+  `EXPECT-WARNING-CONTAINS` assertions did not run on any reuse run of this
+  re-gate. The one member that cost coverage rather than time.
+
+Fix: `manifest_eligible(test)` — ONE predicate, docstring naming its two
+entry points (`_manifest_fields` stamps, `try_carry_forward` consumes), which
+states the rule D4 already specified in prose: no `COMPILE-FLAGS`, nothing
+asserted at compile time. Asked at both ends on purpose, because a manifest
+written by an older generation can name a test today's rule refuses.
+`directive_shape_error` needs no clause (a shape error settles before
+`_to_run`, so such a test never acquires an entry) and neither do the runtime
+assertions (`EXPECT-OUTPUT`, `EXPECT-OUTPUT-CONTAINS`, `EXPECT-EXIT`, the
+panic verdict), which the execution stage re-checks every run whatever the
+binary's origin — the same reason reuse is SUCCESS/PANIC scoped at all. Cost:
+**15 of 1190 eligible tests, 1.3%**, and it is what took the re-gate from four
+violations to zero.
 
 ## Unit 0 findings (consumer sweep + measurements)
 
