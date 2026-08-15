@@ -105,7 +105,6 @@ FAULT_ROOT_PKG = os.path.join(TESTS_DIR, "faulting-root")
 # through an op number.
 THREAD_BASICS_PKG = os.path.join(TESTS_DIR, "thread-basics")
 THREAD_PREEMPT_PKG = os.path.join(TESTS_DIR, "thread-preempt")
-THREAD_FAULT_PKG = os.path.join(TESTS_DIR, "thread-fault")
 
 QEMU_TIMEOUT_S = 10
 
@@ -541,13 +540,18 @@ TEST_CASES = [
     {
         # (d) THE FAULTS RULING, on a handle the process never held. It ends the
         # process; the kernel reports the reason, reports the teardown, and
-        # stops the machine with its OWN exit code. A kernel that answered with
-        # a status instead would let this root print `UNREACHABLE` and shut down
-        # cleanly, which the status assertion catches.
-        "name": "thread_fault",
-        "src": os.path.join(KERNEL_DIR, "main.saw"),
-        "root_pkg": THREAD_FAULT_PKG,
-        "expect_out": ["SOS fault: joining a thread handle we never held",
+        # stops the machine with its OWN exit code.
+        #
+        # IT IS A PAYLOAD RATHER THAN A ROOT SERVER, and that is the second
+        # review round showing up in the harness: the `sos` module's typed layer
+        # has no way to build a `Thread` from a word, so a handle the process
+        # was never given is not a thing a Saw program can spell. The test of
+        # the kernel's validation therefore lives at the altitude where raw
+        # handles legitimately live, beside `umode_bad_calls`.
+        "name": "umode_bad_handle",
+        "src": os.path.join(TESTS_DIR, "umode.saw"),
+        "asm": "payload_badhandle.S",
+        "expect_out": ["SOS M1: entering U-mode",
                        "SOS: process fault: bad handle",
                        "SOS: process teardown handles={three} threads={one}"],
         "expect_clean_exit": False,
