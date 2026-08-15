@@ -243,9 +243,9 @@ type instead of carrying a bare integer and a comment.
 ### Traits, Default Methods, and Dynamic Dispatch
 
 Conform via `extension Type: Trait`. Trait methods may carry a **default body**.
-Any object-safe trait can also be used as a trait object (`any Trait`, called
-an existential in the language spec) for runtime dynamic dispatch, held behind
-explicit ownership (`&any Trait` or `Box<any Trait>`):
+An object-safe trait also has an **existential** form, `any Trait`, which
+dispatches dynamically and is held behind explicit ownership (`&any Trait` or
+`Box<any Trait>`):
 
 ```saw
 trait Greeter {
@@ -754,7 +754,7 @@ let b = a              // trivial type: implicit copy, both valid
 
 var v: Vector<Int> = [1, 2, 3]
 var w = move v         // owning type: ownership transferred, v invalid
-var u = w.copy()       // explicit, independent deep copy
+var u = w.copy()       // explicit, independent duplicate (its own buffer)
 
 let s1 = "hi"
 let s2 = s1            // String: cheap implicit refcount bump, both valid
@@ -940,10 +940,10 @@ Saw provides deterministic memory management without garbage collection:
   declaring it alone (like `Vector`) never copies implicitly.
   A struct that owns such a field
   picks its own policy — `extension Holder: NoCopy {}` for move-only, or
-  `@synthesize extension Holder: ExplicitCopy {}` for a memberwise deep copy.
+  `@synthesize extension Holder: ExplicitCopy {}` for a memberwise `copy()`.
   That is the one thing the compiler will not guess for you. An enum carrying
-  such a payload picks a policy the same way, and its derived `copy()` is
-  payload-deep over the active variant. Writing a `copy()` body inside a `Copy`
+  such a payload picks a policy the same way, and its derived `copy()` copies
+  the active variant's payload. Writing a `copy()` body inside a `Copy`
   conformance is
   how `Arc` is built, in ordinary Saw: the compiler calls it at transfer sites
   nothing in the source names, so it must not suspend, and a suspending one is
@@ -1092,7 +1092,7 @@ Saw provides deterministic memory management without garbage collection:
   enclosing method must be `sync`; the suspending case is not supported yet.
 - **Reference types** (`&T`, `&var T`) for borrowing, checked for exclusivity at
   compile time.
-- **The Law of Exclusivity**: a `&var` (mutable) reference must not overlap any
+- **The Law of Exclusivity**: a `&var` (exclusive) reference must not overlap any
   other reference reaching the same value for as long as it is live. It is fully
   static, with no lifetimes to write. A call argument's reference is live for the
   whole call expression, nested calls included, so `sink(&var p.x, reset(&var
@@ -1162,7 +1162,7 @@ Saw provides deterministic memory management without garbage collection:
   else path) and one that would narrow or flip sign is refused.
 
 ```saw
-// Mutable reference parameter (the call site mirrors the parameter's sigil;
+// Exclusive reference parameter (the call site mirrors the parameter's sigil;
 // mutate via compound assignment, mutating methods, or whole-referent
 // replacement `x = v` — the same rule holds for `self = v` in a `&var self`
 // method and for a closure's `&var` parameter)

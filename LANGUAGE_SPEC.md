@@ -1197,12 +1197,12 @@ extension Point {
         Point(x: magnitude, y: magnitude)
     }
 
-    // Instance method (immutable reference to self)
+    // Instance method (shared reference to self)
     func magnitude(&self) -> Float64 {
         (self.x * self.x + self.y * self.y).sqrt()
     }
 
-    // Mutating method (mutable reference to self)
+    // Mutating method (exclusive reference to self)
     func translate(&var self, dx: Float64, dy: Float64) {
         self.x += dx
         self.y += dy
@@ -1740,14 +1740,14 @@ trait Display {
     func display(&self) -> String
 }
 
-// Interface implementation via extension
+// Conformance via extension
 extension Point: Display {
     func display(&self) -> String {
         "({self.x}, {self.y})"
     }
 }
 
-// Interface bounds
+// Trait bounds
 func print_all<T: Display>(items: &Vector<T>) {
     for item in items.iter() {
         print(item.display())
@@ -1763,7 +1763,7 @@ trait Iterator {
     func next(&var self) -> Self.Item?
 }
 
-// Interface inheritance (supertraits)
+// Trait refinement (supertraits)
 trait ExplicitCopy: Deinit {
     func copy(&self) -> Self
     // ExplicitCopy implies Deinit; the deinit itself is synthesized
@@ -2158,12 +2158,12 @@ bodies below use stdlib methods (`.sqrt()`, `.cos()`) that are *(illustrative)*.
 ```saw
 // Add methods to struct types
 extension Point {
-    // Immutable method (reference to self)
+    // Read-only method (shared reference to self)
     func distance_from_origin(&self) -> Float64 {
         (self.x * self.x + self.y * self.y).sqrt()
     }
 
-    // Mutable method (mutable reference to self)
+    // Mutating method (exclusive reference to self)
     func scale(&var self, factor: Float64) {
         self.x *= factor
         self.y *= factor
@@ -2202,14 +2202,14 @@ extension Int {
 //     var is_empty: Bool { self.len() == 0 }
 // }
 
-// Interface conformance via extension IS implemented:
+// Trait conformance via extension IS implemented:
 extension Point: Display {
     func display(&self) -> String { "({self.x}, {self.y})" }
 }
 ```
 
 **Key Features:**
-- Methods use `&self` (immutable reference) or `&var self` (mutable reference).
+- Methods use `&self` (shared reference) or `&var self` (exclusive reference).
   Both receivers are borrows and the sigil says so; a bare `var self` is a
   compile error pointing at `&var self`
 - Custom `init` methods return the struct type
@@ -2361,9 +2361,9 @@ collections" claim: the cost of every transfer is readable at the use site.
   to answer `copy()`, so `<T: ExplicitCopy>` reads as "duplicable, possibly with
   ceremony" and is the bound that licenses a spelled `.copy()` on an abstract
   `T`. A type declaring it and nothing else is move-only: every transfer needs
-  `move`, every duplicate a visible `.copy()`. **Contract: may be
-  expensive/deep** — e.g. `Vector` (whose conformance is bounded
-  `T: ExplicitCopy`).
+  `move`, every duplicate a visible `.copy()`. **Contract: the duplicate may be
+  expensive, and reaches every owned member** — e.g. `Vector` (whose conformance
+  is bounded `T: ExplicitCopy`).
   `@synthesize extension T: ExplicitCopy {}` derives the memberwise body.
 - **`NoCopy` and `ExplicitCopy` extend `Deinit`**: they are declared as
   `trait NoCopy: Deinit` and `trait ExplicitCopy: Deinit` in the builtin
@@ -2431,7 +2431,7 @@ let b = a
 // ExplicitCopy (e.g. Vector): transfer needs `move`, duplication needs .copy()
 var v = Vector<Int>(capacity: 4)
 var w = move v            // ownership transferred; v no longer valid
-var u = w.copy()          // explicit, independent deep copy
+var u = w.copy()          // explicit, independent duplicate (its own buffer)
 
 // Copy (String): copies are implicit refcount bumps, no `move` needed
 let s1 = "hello"
@@ -2443,7 +2443,7 @@ silently-copyable tier: a body under it may duplicate the value with nothing
 written at the site. `T: ExplicitCopy` admits the whole duplicable family, so
 it grants `.copy()` and nothing more — an `ExplicitCopy` argument does not
 satisfy `T: Copy`, because a body that copies it silently would be spending a
-deep copy the caller cannot see. Monomorphization emits the right operation per
+duplication the caller cannot see. Monomorphization emits the right operation per
 instantiation. An unbounded `T` gets neither.
 
 ```saw
@@ -2477,7 +2477,7 @@ struct Snapshot {
 }
 
 @synthesize
-extension Snapshot: ExplicitCopy {}   // memberwise deep copy + synthesized deinit
+extension Snapshot: ExplicitCopy {}   // memberwise copy() + synthesized deinit
 ```
 
 Containment is explicit, never inferred: a struct with
@@ -2604,7 +2604,7 @@ enum Bag {
 }
 
 @synthesize
-extension Bag: ExplicitCopy {}  // payload-deep copy()
+extension Bag: ExplicitCopy {}  // copy() over the active variant's payload
 ```
 
 The derived enum `copy()` switches on the active variant and duplicates only
@@ -2645,14 +2645,14 @@ let borrowed = file    // Error! Cannot copy NoCopy type 'FileHandle'
 let owned = move file  // Ok, ownership transferred
 ```
 
-See [Resource Management Interfaces](#resource-management-traits) for the full `Deinit`/`Copy`/`ExplicitCopy`/`NoCopy` hierarchy.
+See [Resource Management Traits](#resource-management-traits) for the full `Deinit`/`Copy`/`ExplicitCopy`/`NoCopy` hierarchy.
 
 ### Reference Types
 
 **Status: implemented.** Reference types (`&T` and `&var T`) allow passing values by reference without copying. References are only valid as function/method parameters and cannot escape. Mutation through a `&var` reference is done with compound assignment (`x += 1`), mutating methods, or — as of design 110 — whole-referent *replacement* assignment `x = v` (the same rule closures already followed; see below). Some example bodies below use planned stdlib methods (`push_str`, `String.from`) and are *(illustrative)*.
 
 ```saw
-// &T - immutable reference (read-only access)
+// &T - shared reference (read-only access)
 func print_length(s: &String) {
     print(s.len())  // Can read through reference
 }
@@ -2660,7 +2660,7 @@ func print_length(s: &String) {
 let msg = "Hello"
 print_length(&msg)  // Pass reference with &
 
-// &var T - mutable reference (allows modification)
+// &var T - exclusive reference (allows modification)
 func append_greeting(s: &var String) {
     s.push_str(", world!")  // Can mutate through reference
 }
@@ -2687,7 +2687,7 @@ process(original)  // original is copied, unchanged
 
 **Reference Semantics:**
 - References auto-dereference on read: `x` where `x: &Int` gives the `Int` value
-- Mutable references allow compound assignment: `x += 1` where `x: &var Int`
+- An exclusive reference allows compound assignment: `x += 1` where `x: &var Int`
 - **Whole-referent replacement (design 110):** `x = v` through a `&var T`
   function/method reference parameter — and `self = v` in a `&var self` method —
   *replaces* the referent in place. It is legal exactly when `v` would type-check
@@ -2699,7 +2699,7 @@ process(original)  // original is copied, unchanged
   invalidated and still owns a valid `T`. This unifies functions/methods with
   closures, which already permitted `n = v` through a `&var`/`[&var]` parameter.
   Two exclusions keep their own diagnostics: (1)
-  assignment through an immutable `&T` is rejected (read-only); (2) the referent
+  assignment through a shared `&T` is rejected (read-only); (2) the referent
   must be a **statically-known** type — a `&var any Trait` **erased** referent is
   rejected (behind the erasure the caller's slot is a concrete type, so a
   differently-typed store would corrupt it), with a specific error pointing at
@@ -2973,17 +2973,17 @@ the task's life, so a forwarded reference never outlives the storage it names.
 Methods use reference syntax for self:
 ```saw
 extension Point {
-    func magnitude(&self) -> Float64 { ... }      // Immutable reference
-    func translate(&var self, dx: Float64) { ... } // Mutable reference
+    func magnitude(&self) -> Float64 { ... }      // Shared reference
+    func translate(&var self, dx: Float64) { ... } // Exclusive reference
 }
 ```
 
 **The Law of Exclusivity (many readers XOR one writer):**
-In a single call, an access path passed *mutably* — a `&var` argument, or the
-receiver of a `&var self` method — must be **disjoint** from every other
-by-reference path in that call. Immutable `&` paths may overlap each other
-freely: with no writer in the call, the shared storage is immutable for the
-callee's duration, so the aliasing is unobservable. A `move` argument may not
+In a single call, an access path passed *exclusively* — a `&var` argument, or
+the receiver of a `&var self` method — must be **disjoint** from every other
+by-reference path in that call. Shared `&` paths may overlap each other
+freely: with no writer in the call, the shared storage does not change for the
+callee's duration, so the overlap is unobservable. A `move` argument may not
 alias any reference argument in the same call.
 
 ```saw
@@ -2998,7 +2998,7 @@ var p = Point(x: 1, y: 2)
 f(&var p, &p.x)       // error: `p` overlaps its field `p.x`
 f(&var p.x, &p.y)     // ok: disjoint fields (the rule is path-disjointness,
                       //     not one reference per variable)
-g(&x, &x)             // ok when both parameters are immutable `&` (shared reads)
+g(&x, &x)             // ok when both parameters are shared `&` (two readers)
 ```
 
 This check is **fully static** and needs no lifetimes or runtime flags.
@@ -3689,12 +3689,12 @@ deadlocks). Prefer a `Channel` where a task would otherwise wait.
 `RwLock` (multiple readers XOR single writer) is planned; it is not yet in the
 stdlib.
 
-### Resource Management Interfaces
+### Resource Management Traits
 
 **Status: implemented.** Saw provides a hierarchy of traits for types that need
 custom copy behavior or cleanup when going out of scope. This enables reference
-counting (like `String` and `Arc<T>`), deep-copy owning types (like
-`Vector`), scope-bound cleanup of a raw resource (like file handles), and
+counting (like `String` and `Arc<T>`), owning types that duplicate their storage
+(like `Vector`), scope-bound cleanup of a raw resource (like file handles), and
 move-only types. `NoCopy`, `ExplicitCopy` and a DECLARED `Copy` are written as
 an `extension` (`extension T: Trait`); there is no struct-header conformance
 syntax, and a derived `Copy` is written nowhere. The family is `Copy` (the
@@ -3703,7 +3703,7 @@ silent tier),
 over `Deinit`; see [The Copy Trait Family](#the-copy-trait-family) above for
 the transfer-site rules.
 
-#### The Deinit Interface
+#### The Deinit trait
 
 ```saw
 // Called automatically when a value goes out of scope
@@ -3725,7 +3725,7 @@ type's copy policy — `NoCopy`, `ExplicitCopy`, or `Copy` — see
 
 **Important:** Manual `deinit()` calls are not allowed. Calling `obj.deinit()` is a compile-time error to prevent double-free and use-after-free bugs. For early cleanup, use a nested scope or `move` the value to a consuming function.
 
-#### The Copy Interface
+#### The Copy trait
 
 ```saw
 trait Copy {
@@ -3766,7 +3766,7 @@ let b = a            // copy() called, refcount = 2
 // end of scope: a.deinit() → refcount = 0, freed
 ```
 
-#### The ExplicitCopy Interface (Deep-Copy Owning Types)
+#### The ExplicitCopy trait (owning types that duplicate)
 
 ```saw
 // ExplicitCopy also requires Deinit
@@ -3784,27 +3784,27 @@ resource-owning types such as `Vector` — today the only conforming std type
 
 ```saw
 extension Buf: ExplicitCopy {
-    func copy(&self) -> Buf { /* deep copy */ }
+    func copy(&self) -> Buf { /* duplicate the buffer */ }
     func deinit(&var self) { /* free buffer */ }
 }
 
 var a = makeBuf()
 var b = a          // Error: cannot copy value of type `Buf` which implements
                    //        ExplicitCopy — use .copy() or `move`
-var c = a.copy()   // Ok: explicit, independent deep copy
+var c = a.copy()   // Ok: explicit, independent duplicate
 var d = move a     // Ok: ownership transferred, a no longer valid
 ```
 
-#### The NoCopy Interface (Move-Only Types)
+#### The NoCopy trait (move-only types)
 
 ```saw
-// Interface inheritance: NoCopy requires Deinit
+// Trait refinement: NoCopy requires Deinit
 trait NoCopy: Deinit {
     // Marker trait - no methods
 }
 ```
 
-Types implementing `NoCopy` cannot be copied—only moved. The compiler errors on assignment; use `move` to transfer ownership:
+A type conforming to `NoCopy` cannot be copied—only moved. The compiler errors on assignment; use `move` to transfer ownership:
 
 ```saw
 struct File {
@@ -3824,7 +3824,7 @@ use(f)           // Error: f was moved
 // h.deinit() called at scope exit, file closed
 ```
 
-#### The `NoMove` Interface (Pinned Types)
+#### The `NoMove` trait (pinned types)
 
 **Status: implemented (design 188).** Duplication and relocation are separate
 axes. The four tiers above answer "may this value be duplicated, and at what
@@ -5193,7 +5193,7 @@ multiple threads (design 75) — carrying the coroutine transform, suspending
   `Result`, and a `try {} catch {}` written in the enclosing function does not
   extend into a closure body (that catch belongs to a frame the closure's error
   path never reaches — write the closure its own).
-- **`Arc<T>` payload method forwarding** — an immutable `&self` method on the
+- **`Arc<T>` payload method forwarding** — a `&self` method on the
   payload `T` is callable through the `Arc` (`arc.method(...)`): the call borrows
   the control block's payload slot. Sound because a live strong reference pins
   the payload. A `&var self` payload method is rejected (aliased mutation — use
@@ -5889,7 +5889,7 @@ func job() -> Int {
 #### A group is a scope, and cannot be moved
 
 `TaskGroup` is `NoCopy` and, since design 188, `NoMove` (see
-[The `NoMove` Interface](#the-nomove-interface-pinned-types)). A group's
+[The `NoMove` trait](#the-nomove-trait-pinned-types)). A group's
 `Deinit` structured-joins its children where the group was born, and every
 spawned frame reaches its group through that address, so a group that moved
 would join in one place and be driven from another:
@@ -6686,7 +6686,7 @@ a `Counter` over a cell of a plain word does not have to.
 interior-synchronized primitive — the sanctioned way to mutate global
 state. It is const-initializable (`Atomic(0)`), usable as a `static` and
 as a struct field, and holds an interior cell, so it declares `UnsafeSync`
-rather than deriving `Sync`. Its methods take an immutable `&self` — the
+rather than deriving `Sync`. Its methods take a shared `&self` — the
 mutation is interior, which is exactly what lets an immutable static be
 updated; the no-`static mut` rule keys on assignment, not on these
 method calls.
@@ -8153,7 +8153,7 @@ Five traits derive a body, each from the declaration order of the type's fields
 
 | Trait | Derived method | Body |
 |---|---|---|
-| `Copy` / `ExplicitCopy` | `copy` | memberwise; POD fields bitwise, policy fields via their own `copy`. For an enum, payload-deep over the active variant |
+| `Copy` / `ExplicitCopy` | `copy` | memberwise; POD fields bitwise, policy fields via their own `copy`. For an enum, over the active variant's payload |
 | `Equatable` | `equals` | memberwise `&&`; payload-deep for enums |
 | `Comparable` | `compare` | lexicographic in declaration order |
 | `Hashable` | `hash` | streams exactly the fields `==` compares |
@@ -8871,7 +8871,7 @@ On the `try_make` failure path the value is cleanly `deinit`'d at scope exit
 (`ptr[0] = move value`) and, on allocator failure, panics. Payload access:
 
 - `value()` returns a copy of the payload (bounded `T: ExplicitCopy`).
-- **Method forwarding** (like `Arc`): an immutable `&self` method on the payload
+- **Method forwarding** (like `Arc`): a `&self` method on the payload
   struct is callable through the Box — `b.peek()` forwards to the payload's
   `peek`. A `&var self` payload method is rejected (aliased mutation of
   owned-through-a-handle state is what a `Mutex` payload exists to make safe).

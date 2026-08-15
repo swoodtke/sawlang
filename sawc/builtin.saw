@@ -61,7 +61,7 @@ trait ExplicitCopy: Deinit {
 }
 
 // NoCopy trait - marker for move-only types that cannot be copied
-// Implementing NoCopy requires also implementing Deinit
+// Conforming to NoCopy requires conforming to Deinit too
 trait NoCopy: Deinit {
     // Marker trait - no additional methods
 }
@@ -251,7 +251,7 @@ trait Error: Printable {
 // Saw has no shared references in flight, so Sync is not about `&` travelling:
 // a plain `&` never crosses a spawn, and a single-threaded group never consults
 // Sync at all. It is consulted where handles and statics CREATE parallel shared
-// access — an `Arc` clone sent across a spawn in a `threads: N` group (which is
+// access — an `Arc` copy sent across a spawn in a `threads: N` group (which is
 // why `Arc<T: Send + Sync>` demands it), a lock (`Mutex` and `SpinLock` are Sync
 // BECAUSE they serialize), and a `static`, which every thread can reach (the
 // `unsafe static var` exemption is the escape hatch that proves the rule).
@@ -366,7 +366,7 @@ extension UnsafeMutableInterior<T>: NoCopy {}
 // bodies here exist only so the methods type-check — they are never called,
 // every call site is intercepted, and a body that somehow ran would be a
 // compiler bug rather than a wrong answer, which is what the panics say. All
-// methods take `&self` (an immutable borrow): the mutation is interior, which
+// methods take `&self` (a shared borrow): the mutation is interior, which
 // is exactly what lets an immutable static be updated.
 //
 // design 186: the interior mutability is a real CELL now rather than a name the

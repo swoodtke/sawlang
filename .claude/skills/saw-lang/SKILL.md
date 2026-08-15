@@ -249,7 +249,7 @@ one is the same error. Same two spellings, same empty bodies:
 enum Reel { case Loaded(t: Tape), case Empty }   // Tape is NoCopy
 extension Reel: NoCopy {}
 @synthesize
-extension Bag: ExplicitCopy {}   // payload-deep copy() over the ACTIVE variant
+extension Bag: ExplicitCopy {}   // copy() over the ACTIVE variant's payload
 ```
 **A HAND-WRITTEN `copy()` IS THE RETAIN HOOK, AND MUST BE `sync`** (design 219).
 A `copy()` body inside a Copy/ExplicitCopy conformance is called at
@@ -2108,8 +2108,8 @@ something about its BODY); taking it as a value yields the plain type.
 **A CONFORMER OF AN `unsafe` REQUIREMENT MUST DECLARE IT (design 188)** — a
 safe-declared body satisfying `func peek(&self) unsafe -> Int` is a clean error
 at the conformance, since a caller reaching it through the requirement is
-promised the unsafe contract. The reverse stays legal: an `unsafe`-declared impl
-of a SAFE requirement is the redundant form above.
+promised the unsafe contract. The reverse stays legal: an `unsafe`-declared body
+satisfying a SAFE requirement is the redundant form above.
 **Closures: judged on their SIGNATURE, and they INHERIT the enclosing domain.**
 `v.with_ref(0) { e in e + 1 }` sees only `&T` and stays safe even though
 `with_ref` is unsafe. A closure whose signature names an unsafe type carries
