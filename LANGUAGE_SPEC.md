@@ -977,7 +977,7 @@ The compiler treats the text as opaque — Markdown is the convention, not a rul
 //! Spans of time.
 
 /// A span of time, held as whole nanoseconds.
-struct Duration {
+struct Span {
     /// Nanoseconds in the span.
     public nanos: UInt64
 }
@@ -1747,20 +1747,20 @@ extension Point: Display {
     }
 }
 
-// Trait bounds
-func print_all<T: Display>(items: &Vector<T>) {
+// Trait bounds (a place read inside a generic body needs a Copy bound)
+func print_all<T: Display + Copy>(items: &Vector<T>) {
     for item in items.iter() {
         print(item.display())
     }
 }
 
 // Multiple bounds (implemented) — require several traits with `+`
-func process<T: Display + Equatable>(item: T)
+func process<T: Display + Equatable>(item: T) { ... }
 
 // Associated types
 trait Iterator {
     type Item
-    func next(&var self) -> Self.Item?
+    func next(&var self) -> Item?
 }
 
 // Trait refinement (supertraits)
@@ -2670,7 +2670,7 @@ append_greeting(&var msg)  // &var mirrors the &var parameter
 print(msg)  // "Hello, world!"
 
 // Multiple reference parameters.
-func swap<T>(a: &var T, b: &var T) { /* ... */ }
+func swap<T>(a: &var T, b: &var T) { ... }
 
 var x = 1
 var y = 2
@@ -3784,8 +3784,8 @@ resource-owning types such as `Vector` — today the only conforming std type
 
 ```saw
 extension Buf: ExplicitCopy {
-    func copy(&self) -> Buf { /* duplicate the buffer */ }
-    func deinit(&var self) { /* free buffer */ }
+    func copy(&self) -> Buf { ... }    // duplicate the buffer
+    func deinit(&var self) { ... }     // free buffer
 }
 
 var a = makeBuf()
@@ -5777,15 +5777,15 @@ that drives nothing is compiled exactly as before.
 
 ```saw
 // Spawn a task (escaping closure; every capture must be Send)
-let task = spawn {
+var task = spawn {
     heavy_computation()          // returns Int
 }
 let result = task.join()         // Task<Int>: NoCopy; deinit joins if unjoined
 
 // Channels: Copy handles onto a shared queue
 let ch = Channel<Int>()          // Channel<T: Send>
-let producer = spawn {
-    ch.send(move 42)
+var producer = spawn {
+    ch.send(42)
     true
 }
 let got = ch.recv()              // blocks the calling thread (thread-per-task
@@ -5854,7 +5854,10 @@ func orchestrate(base: Int) -> Int {
 // shared queue. Every value a spawned frame carries across a suspension must be
 // Send (params, across-suspend locals, and the result). Assert on counts/sums,
 // never on the (nondeterministic) interleaving.
-func square(n: Int) -> Int { yield_now(); n * n }
+func square(n: Int) -> Int {
+    yield_now()
+    n * n
+}
 func parallel() -> Int {
     var group = TaskGroup(threads: 4)     // 4 workers; `TaskGroup(threads: 1)` and
     let a = group.spawn(square(3))        //   `TaskGroup()` stay single-threaded
@@ -6069,7 +6072,7 @@ the place it is parked, innermost frame first.
 import std.task.{dump_tasks}
 
 func read_header(s: TcpStream) -> Data { try! s.read() }
-func handle(s: TcpStream) -> Int { read_header(s).len() }
+func handle(s: TcpStream) -> Int { read_header(move s).len() }
 ```
 
 ```
@@ -7192,11 +7195,11 @@ extension Vector<T, A: Allocator = GlobalAllocator> {
     // `U` is a METHOD-level type parameter, distinct from the element type `T`
     // and the allocator `A` (which the result vector inherits). The element is
     // lent as a `&T`, so the extension carries no copy bound.
-    func map<U>(&self, transform: (&T) -> U) unsafe -> Vector<U, A> { /* ... */ }
+    func map<U>(&self, transform: (&T) -> U) unsafe -> Vector<U, A> { ... }
 
     // `Acc` is the accumulator type (named `Acc`, not `A`, since `A` is now
     // the extension's allocator type parameter).
-    func fold<Acc>(&self, initial: Acc, combine: (Acc, &T) -> Acc) unsafe -> Acc { /* ... */ }
+    func fold<Acc>(&self, initial: Acc, combine: (Acc, &T) -> Acc) unsafe -> Acc { ... }
 }
 
 var v = Vector<Int>()
@@ -7246,7 +7249,7 @@ defaults). A reference site may then omit that (and every following) argument,
 and it is filled from the default:
 
 ```saw
-struct Vector<T, A: Allocator = GlobalAllocator> { /* ... */ }
+struct Vector<T, A: Allocator = GlobalAllocator> { ... }
 
 var xs = Vector<Int>()           // A defaults to GlobalAllocator
 var ys = Vector<Int, GlobalAllocator>()   // identical type to `xs`
@@ -7814,10 +7817,11 @@ Not all of std is auto-visible. The **prelude** — the names usable without an
   a prelude builtin and a `Duration` is the only thing it takes.
 
 Everything else in std is **import-required**: `File`, `Directory`, `Path`,
-`Data`, `Channel`, `Mutex`, `Instant`, `IoError`, `Utf8Error`, the
+`Data`, `Channel`, `Mutex`, `SpinLock`, `Once`, `Instant`, `IoError`, `Utf8Error`, the
 whole `net` surface (`TcpListener`/`TcpStream`), `yield_now` (std.task —
 design 114), `FixedBuf`/`FixedStringBuilder` (std.fixedbuf),
-`CborEncoder`/`CborDecoder` (std.cbor), and the
+`CborEncoder`/`CborDecoder` (std.cbor), `SlabHead` and the slab free
+functions (std.slab), and the
 `process`/`env`/`time` contents. These stay compiler-known for codegen but are not injected into a
 user namespace without an import of its module. A bare reference to one is a
 clean error ("`TcpStream` is not in the prelude and must be imported") naming
@@ -8314,8 +8318,8 @@ spelling is `UnsafePointer<T>` / `UnsafeConstPointer<T>`.)
 ```saw
 // Declare external C functions
 extern "C" {
-    func printf(format: UnsafeConstPointer<Int8>, ...) -> Int
-    func malloc(size: UInt) -> UnsafePointer<Int8>?
+    func puts(s: UnsafeConstPointer<Int8>) -> Int
+    func malloc(size: Int) -> UnsafePointer<Int8>?
     func free(ptr: UnsafePointer<Int8>)
 }
 
@@ -8946,8 +8950,8 @@ declares `unsafe` in its effect slot.
 
 **Status: implemented — public type parameter, `GlobalAllocator` default.** Alloc-layer
 stdlib types (`Vector`, `Map`, `Data`, `StringBuilder`, `Arc`, ...) obtain memory
-through the `Allocator` trait — `alloc(&self, size: Int, align: Int) ->
-UnsafePointer<Int8>?` and `dealloc(&self, ptr, size, align)` — rather than
+through the `Allocator` trait — `alloc(&self, size: Int, align: Int) unsafe ->
+UnsafePointer<Int8>?` and `dealloc(&self, ptr, size, align) unsafe` — rather than
 calling the `__saw_rt_alloc` / `__saw_rt_dealloc` seams directly. `GlobalAllocator` is a zero-field
 unit struct that wraps the seams; because it is zero-sized, `GlobalAllocator().alloc(...)`
 monomorphizes to a direct seam call with no allocator value materialized at
@@ -8963,8 +8967,8 @@ zero-field unit struct conforming to `Allocator`:
 ```saw
 struct MySlab {}
 extension MySlab: Allocator {
-    func alloc(&self, size: Int, align: Int) -> UnsafePointer<Int8>? { /* ... */ }
-    func dealloc(&self, ptr: UnsafePointer<Int8>, size: Int, align: Int) { /* ... */ }
+    func alloc(&self, size: Int, align: Int) unsafe -> UnsafePointer<Int8>? { ... }
+    func dealloc(&self, ptr: UnsafePointer<Int8>, size: Int, align: Int) unsafe { ... }
 }
 
 var v = Vector<Int, MySlab>()   // grow/deinit route through MySlab; A().alloc is
@@ -9269,14 +9273,19 @@ sawc <source.saw> [options]
   --ids        With --emit-ast, include each node's stable node_id. Off by
                default: ids are stable within a run but carry no
                cross-implementation meaning, so the canonical dump omits them.
+  --emit-frame-layout
+               Emit the coroutine frame layout report as JSON instead of code:
+               per monomorphized frame, its size, alignment, and every field's
+               offset. Writes to -o, else stdout. Analysis only.
+  --emit-bt-table
+               Emit the logical task-backtrace table as JSON instead of code:
+               per monomorphized frame, the name/file it prints and the source
+               line or embedded child for each resume state. Writes to -o,
+               else stdout. Analysis only; the table itself is always linked.
 ```
 
 Optimization: by default `sawc` runs an O1-style pass pipeline (allocas hoisted
 to the entry block, mem2reg, etc.); `-O0` turns it off for debugging raw output.
-
-Known limitation: `--emit-ir` does **not** load the stdlib builtins, so it fails
-on programs that use `String`/`Vector`/`Result` and similar. Use a full compile
-(or `-c`) for those.
 
 ## Appendix A: Keywords
 
@@ -9300,8 +9309,11 @@ would collide with user code for no gain.
 The `loop` and `ref` reservations are RETIRED (design 55): `loop` was redundant
 with `while { }` (the infinite-loop idiom), and `ref` never had a design — a
 future by-reference match binding would reuse the `&` sigil vocabulary — so both
-are freed as ordinary identifiers. `do` and `defer` stay reserved (cheap
-insurance for plausible futures).
+are freed as ordinary identifiers. `do` and `defer` were never lexer
+keywords to begin with; they stay PLANNED reservations (cheap insurance for
+plausible futures) — not yet enforced, so `let do = 5` compiles today, but
+earmarked so a future design does not have to fight existing code for the
+name.
 
 ```
 Reserved (lexer keywords — never usable as identifiers):
