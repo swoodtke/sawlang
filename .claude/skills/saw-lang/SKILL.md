@@ -1462,7 +1462,35 @@ dump_tasks()                // every live task's logical backtrace (std.task)
   (`Holder<Int>`, design 74 shape 2), make NESTED suspending generic
   calls from a driven body (design 74 shape 3), and drive/nest generic templates
   defined in ANOTHER module (design 104 item 2, shape 4 — the pristine-template
-  capture is shared across every module in the compilation unit). A suspending
+  capture is shared across every module in the compilation unit).
+- **A SUSPENDING METHOD WORKS ON EVERY RECEIVER SHAPE, at the embedded position
+  as well as the drive root (design 223).** A plain struct, an ENUM extension, a
+  GENERIC struct (`Box2<String>`), a method-level generic (`h.wrap<String>(v)`),
+  and a method that SATISFIES A TRAIT REQUIREMENT — entry-module and
+  cross-module alike:
+  ```saw
+  extension Color { func label(&self) -> String { yield_now()  "red" } }
+  extension Box2<T> { func describe(&self) -> String { yield_now()  "boxed" } }
+  extension Person: Greeter { func greet(&self) -> String { yield_now()  self.n } }
+  ```
+  Treat all five as working now and SUSPECT in older builds, where the failures
+  were not alike: the enum receiver was a codegen ICE, the generic-struct
+  receiver in an embedded body compiled as an ORDINARY FUNCTION that printed the
+  right answer and never suspended, the method-level generic was a raw
+  `KeyError`, and the conformance method was reported as not implementing the
+  requirement it plainly implements.
+  **The one refusal: `any Trait` DISPATCH to a suspending body.** A suspending
+  call embeds the callee's frame by value, so it needs the frame at compile
+  time, and an erased receiver carries a vtable word instead — so
+  `func shout(g: &any Greeter) -> String { g.greet() }` against a suspending
+  `Person.greet` is a clean error at the dispatch. Call the method on the
+  concrete type, or take the receiver as a generic `<T: Greeter>`. (In older
+  builds this compiled and the `yield_now()` ran outside any frame, where it is
+  a no-op.) A `&any Trait` PARAMETER of a suspending function is refused for the
+  neighbouring reason: a reference that spans a suspension is held in the frame
+  as a handle to its referent, and an erased referent has no size — take a
+  `Box<any Trait>` or a generic bound.
+- A suspending
   METHOD call in a
   driven/spawned body embeds as a driven sub-frame in EVERY control-flow
   position — a plain statement, an `if`/`else` branch, a `match` arm

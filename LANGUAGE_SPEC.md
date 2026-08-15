@@ -5356,15 +5356,53 @@ Observable rules:
   context that calls an instantiation which suspends is the normal sync
   violation, reported **at the call site**, naming the instantiation and the full
   suspension path (e.g. `run$1$Slow → Slow.step → __saw_suspend`). Trait-object
-  (`any Trait`) dispatch is unaffected: its effect follows the **declared** trait
-  method signature (a `sync` trait method stays sync-callable through `any`), not
+  (`any Trait`) dispatch takes its effect from the **declared** trait method
+  signature (a `sync` trait method stays sync-callable through `any`), not from
   a per-instantiation re-inference — erasure has no concrete `T` to re-infer.
+  **A suspending conformance body may not be reached through `any Trait`.** A
+  suspending call embeds the callee's frame by value, so the caller must know at
+  compile time which body it is embedding, and an erased receiver carries a
+  vtable word instead. Dispatching through `any Trait` to a trait method that
+  some type implements with a suspending body is a compile error at the
+  dispatch:
+
+  ```saw
+  trait Greeter { func greet(&self) -> String }
+
+  extension Person: Greeter {
+      func greet(&self) -> String { yield_now()  self.n }
+  }
+
+  func shout(g: &any Greeter) -> String {
+      g.greet()
+      // error: cannot dispatch through `any Greeter` to `greet`: `Person`
+      //   implements it with a SUSPENDING body, and a suspending call needs
+      //   the callee's frame at compile time — dynamic dispatch has only a
+      //   vtable word, so there is no frame to embed and nothing to drive
+  }
+  ```
+
+  The two ways to write it: call the method on the concrete type, or take the
+  receiver as a generic `<T: Greeter>`, which monomorphizes and keeps the frame
+  identity. Treat this as refused now and SUSPECT in older builds, where it
+  compiled, ran, printed the right answer and never suspended — no frame was
+  built anywhere in the program, so the `yield_now()` inside the conformance
+  body ran outside a frame, where it is a no-op.
   Driven methods on *generic structs* (`__saw_drive(b.run())` for `b: Holder<Int>`,
   design 74 shape 2) and *nested suspending generic calls* from a driven body
   (design 74 shape 3) are also supported: a generic-struct method is monomorphized
   over the struct's type params so the frame's receiver pointer gets a concrete
   layout, and a nested suspending generic call is promoted to a concrete spliced
   callee embedded as a sub-frame by value (keyed by its mangled instantiation).
+  The generic-struct method embeds from an ordinary driven body as well as from
+  a `__saw_drive` root — the instantiation is built at either position — and so
+  do the other two receiver shapes a method can have: a method on an **enum**
+  extension, and a method that **satisfies a trait requirement**. All three work
+  in the entry module and across a module boundary. In builds before design 223
+  the enum receiver was a codegen failure, the generic-struct receiver in the
+  embedded position compiled as an ordinary function that never suspended, and a
+  suspending conformance method was reported as not implementing the requirement
+  it plainly implements.
   The defining module does not matter (design 104 item 2, shape 4): the
   pristine-template capture spans every module checked in the compilation unit, so a
   generic suspending free function or generic-struct method defined in module A is

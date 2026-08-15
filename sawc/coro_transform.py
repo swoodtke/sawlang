@@ -1581,7 +1581,12 @@ def _suspending_method_target(mc, tc):
         method call at statement level).
       * `_FrameBuilder._reject_buried_suspend_call` — rejector 2 (an expression
         position no hoist lifted).
-      * `_rewrite_drive_sites` — `__saw_drive(recv.m(...))` -> the driver's name.
+      * `_rewrite_drive_sites` — `__saw_drive(recv.m(...))` -> the driver's
+        name. The one entry point that does NOT ask this question and reads the
+        owner off the call directly, deliberately: an EXPLICITLY driven method
+        is a root, so it need not be in the suspending set at all (design 44's
+        `__saw_drive` drives whatever it is handed), and asking "does this
+        suspend?" there would answer about a different thing.
       * `transform_program._scan_method_callees` — the structural discovery of
         callee frames to build. Enqueues EMBED only: a frame it cannot name is
         a frame it cannot build, and the rejectors are what report that.
