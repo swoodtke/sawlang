@@ -162,19 +162,24 @@ and the irdet lane honestly red-capable), then integrate.
   one-field error on purpose; a fix wants its own sweep of the tag-only
   enum path (create + extract, Ok + Err, every arity).
 
-## Design 222 — the safe async rewrite (AUTHORED Aug 14, dispatches after 218 stage 4)
+## Design 222 — the safe async rewrite (PROTOTYPE BUILT Aug 14, awaiting review)
 
-`designs/222-safe-async-rewrite.md`. PROTOTYPE brief, user-directed: the
-transform's output becomes ordinary checked Saw and E2 DELETES — whatever
-resists lands in a NAMED verified-unsafe core with per-item impossibility
-arguments (218a §7 style). Unit 0 derives the work list by measurement
-(E2 off, corpus errors categorized) + stage 4's ratified trusted list;
-unit 1 safe cell in std.compiler.frame (DF-218g identity mechanism);
-unit 2 the safe drive-site spelling (empties E2's rewritten-bodies
-coverage); unit 3 the wake latch (safe wrapper or a written core entry);
-unit 4 E2's read site goes. Landing decided at review. Deliberately
-sequenced behind stage 4 — it rewrites the teardown/cancel surface and
-ratifies the trusted list this brief consumes.
+`designs/222-safe-async-rewrite.md` carries the per-unit records. All four
+units built on a worktree branch; E2 is DELETED and the corpus compiles with
+zero reads of it. The headline: unit 0 measured E2's surviving coverage at
+166 files and THREE constructs, all of them a pointer cast the transform
+spliced into somebody else's body (the spawn site was 158 of them, not the
+drive site the stage-3 commit named), and the cell/latch the brief predicted
+were never E2's at all. Unit 2 moved those three crossings into the
+generated driver / spawn helper — the call sites write `&group` and `&c` —
+which emptied the flag. Unit 1 gave the spawn cell the `UnsafeRef` treatment
+(the result WRITE stays raw, deferred to FAM_WINDOW_MOVE with measured
+evidence); unit 3 built the wake-latch wrapper, ran it, and REFUSED it for
+laundering the obligation, so the latch is a core entry with a four-part
+traced argument. Trusted list: item 4 (the drive-site cast) retires, item 2
+narrows, item 3 gains the argument. **Landing is the lead's call** — the two
+things to scrutinize are unit 2's shared-vs-`&var` reference choice at the
+drive/spawn site and unit 1's deferred cell write.
 
 ## The next queue — designs 195-202 + 153 (ALL RULED Aug 10, awaiting dispatch)
 

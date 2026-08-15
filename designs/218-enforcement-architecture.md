@@ -446,26 +446,65 @@ obligation is CARRIED by design 130's marking rule rather than by a check: a
 declaration touching one says `unsafe`, and since stage 3 the transform's own
 declarations say it honestly and are held to it (`unsafe_decl_checked`).
 
-**2. The spawn CELL plumbing — census S11, R8, P4.** `__cellp` and the `__rp` /
-`__cp` pointers the spawn helper derives from it, plus the `_result_place` /
-`_cancel_place` derefs that read through it. Design 134's stable heap slot: the
-cell outlives the frame on purpose, which is exactly what lets the frame box be
-released the moment the task completes. Consequence recorded with it — a spawn
-root's `__result` keeps design 44's legacy encoding (its slot is IN the cell,
-not in the frame), so it is the one `__saw_forget` family that is trusted rather
-than deferred (`FAM_SPAWN_CELL`).
+**2. The spawn CELL plumbing — census S11, R8, P4. NARROWED by design 222 unit
+1.** The frame's `__cellp` is an `UnsafeRef<__ResultCell<T>>` now, minted through
+`_unsaferef_init` and read through `deref()`, so the cancel reads and the handle
+itself have folded into item 1's argument — this entry no longer carries a
+separate one for them. What remains genuinely its own: the `__rp` / `__cp`
+pointers the spawn helper derives for the `TaskHandle`, and the result WRITE,
+which forwards `<handle>.p` because a place window is a closure and the stored
+value is what a frame's locals feed (`FAM_WINDOW_MOVE` / DF-218h — it migrates
+with that family, not on its own). Design 134's stable heap slot is the standing
+reason: the cell outlives the frame on purpose, which is exactly what lets the
+frame box be released the moment the task completes. Consequence recorded with it
+— a spawn root's `__result` keeps design 44's legacy encoding (its slot is IN the
+cell, not in the frame), so it is the one `__saw_forget` family that is trusted
+rather than deferred (`FAM_SPAWN_CELL`).
 
-**3. The reactor token — census P3.** `__io_tok`, which is
+**3. The reactor token — census P3. THE ONE ENTRY DESIGN 222 ADDS AN ARGUMENT
+TO, and the only one it could not shrink.** `__io_tok`, which is
 `(&self.__wake) as UnsafePointer<Int> as Int`: the address of a word inside a
 frame the scheduler keeps alive for exactly as long as it is parked (design 91).
-Retiring it needs a safe cell wrapper for the wake word, which is future work
-and not promised here.
+Design 222 unit 3 replaced the old "retiring it needs a safe cell wrapper, which
+is future work" line with a traced argument, because the wrapper turned out to be
+AVAILABLE and wrong:
 
-**4. The DRIVE-SITE CAST** the transform splices into the CALLER's own body
-(`__saw_drive_C_slow((&c) as UnsafeConstPointer<C>)`). This is why E2 narrowed
-rather than deleted at stage 3: the pointer is in a body whose author did not
-write it, so holding that author to design 130's rule would be E1's provenance
-error in a second place.
+- The address **leaves the type system as an integer** and lives in KERNEL memory
+  (a kqueue `udata`, an epoll `data.u64`), through the `Int` token the frozen
+  `__saw_rt_reactor_register` seam takes.
+- The **write side is the runtime's poll**, in another module and on another
+  thread, rebuilding a pointer from that integer with no provenance:
+  `rt_reactor_poll` does `let tokptr = ud as UnsafePointer<Int>; tokptr[0] = 0`.
+- Validity extends over the **registration**, which is not a lexical extent — the
+  frame's box holds the address stable (design 134), one-shot rearm stops a fired
+  event re-firing, and DF-134a's `release` unregisters what an exiting frame left
+  armed.
+- In an MT group the store is **unsynchronized** against the executor's reads: the
+  poll runs outside the queue lock by design, with a bounded timeout and a
+  persistent latch word so a fire racing a park is caught on the next scan.
+
+`func wake_token(word: &var Int) unsafe -> Int` compiles and its caller needs no
+`unsafe` (probed and run). That is the refusal, not the fallback: it would delete
+the obligation from every signature while the address still escapes, and design
+130's own premise — a function with all-safe parameters must be sound for every
+input — is what it breaks. An `UnsafeRef<Int>` field would not launder but would
+state the wrong theorem ("the referent outlives every `deref()`"; nobody derefs),
+and the field must stay an `Int` to reach the frozen seam anyway. So `resume` is
+unconditionally `unsafe` because of this site, and the argument above is what
+that buys.
+
+**4. ~~The DRIVE-SITE CAST~~ — RETIRED by design 222 unit 2. NOT trusted; not
+anything.** Stage 3 listed it because the transform spliced
+`__saw_drive_C_slow((&c) as UnsafeConstPointer<C>)` into a body whose author
+wrote no pointer. Unit 0 measured the family that entry actually named: 166
+corpus files, and the drive-site receiver was 10 of them — the SPAWN site's
+`(&group) as UnsafeConstPointer<TaskGroup>` was 158, and a reference argument's
+cast was the third. Unit 2 moved all three crossings out of the rewritten body
+and into the generated driver / spawn helper, which declare `unsafe` and are held
+to it: the call sites write `&c` and `&group`, references an author could have
+written. Nothing about the address moved — only whose declaration owns it. E2
+deletes with this entry (unit 4), so design 130's rule now runs on every
+declaration in the post-transform AST with no exemption.
 
 **5. The state-machine resume dispatch** — the `__state` switch and the
 `Poll` protocol between a frame and its driver. It claims no ownership; what is
@@ -498,6 +537,10 @@ None exists today.
   scoping, E4 the shadowed-qualifier warning, E5 the prelude gate). Each is a
   PROVENANCE rule — the gate judges what an author wrote, and the transform's
   output has no author — not a claim that generated code is above a check.
+  **E2 is no longer among them (design 222 unit 4): the design-130 unsafe trigger
+  rule has no post-transform exemption at all.** The corpus compiles with zero
+  reads of the flag, and the surviving four are the four that were always
+  provenance rather than safety.
 
 Everything else that is generated passes the ordinary checks.
 

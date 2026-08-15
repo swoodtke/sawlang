@@ -2135,8 +2135,11 @@ class Method(ASTNode):
     # trigger rule anyway. Its producer decided `is_unsafe` from what the
     # declaration actually touches, so a wrong answer must be an error rather
     # than a thing `is_synthesized` waves through — which is what retiring the
-    # E2 whole-pass exemption means. Set by the coroutine transform on the
-    # declarations it emits; see `_needs_unsafe_decl`.
+    # E2 whole-pass exemption means (and design 222 unit 4 retired it: there is
+    # no post-transform unsafe exemption left, so this bit is what separates a
+    # declaration the transform ANSWERED FOR from a derived body nobody can
+    # mark). Set by the coroutine transform on the declarations it emits; see
+    # `_needs_unsafe_decl`.
     unsafe_decl_checked: bool = False
     # `borrows` (design 141): this method yields a PLACE of `return_type` for a
     # window rather than a value. Its body lends exactly once per path; the

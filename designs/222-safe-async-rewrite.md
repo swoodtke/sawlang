@@ -266,6 +266,43 @@ from 218a §6. The corpus compiles with zero E2 reads. Gate: full suite,
 corodiff --quick + the generic axis, irdet --all, then the full tracked
 battery.
 
+### UNIT 4 LANDED (Aug 14) — the flag is gone, and the core list is three entries
+
+`exempt_unsafe_trigger` is deleted: the field, its read in
+`_unsafe_check_exempt`, and its row in the exemption table. Grep for it returns
+nothing. `_unsafe_check_exempt` keeps ONE reason — the derived bodies
+(copy/equals/compare/hash), which have no declaration for an author to mark — and
+`unsafe_decl_checked` still overrides it. The design-130 trigger rule runs on
+every declaration in the post-transform AST, authored and rewritten alike.
+
+**THE VERIFIED-UNSAFE CORE, as built.** Recorded in
+`designs/218-enforcement-architecture.md`'s ratified section and cross-cited from
+218a §6:
+
+| # | entry | what design 222 did to it |
+|---|-------|---------------------------|
+| 1 | `UnsafeRef<T>`'s validity argument | unchanged, and it absorbed part of item 2 |
+| 2 | the spawn cell plumbing | NARROWED — the frame's handle and every cell READ are `UnsafeRef` + `deref()` now; what is left is the helper's `__rp`/`__cp` and the result WRITE, deferred to `FAM_WINDOW_MOVE` |
+| 3 | the reactor wake latch | the ONE entry this brief adds an argument to: four traced facts, and a wrapper built, run and refused |
+| 4 | ~~the drive-site cast~~ | **RETIRED** — unit 2 moved all three crossings into declarations that say `unsafe`; the entry is not narrowed, it is gone |
+| 5-7 | resume dispatch, executor/reactor/shims, a future unit-5 `Slot` variant | untouched |
+
+**Obligation 2 (consumer sweep) for unit 2's contract flip.** What changes for
+anything reading transform output: a drive/spawn site's argument is now a
+`ReferenceExpr` where it was a `CastExpr` over one, and the driver/helper
+parameter is a reference type where it was a pointer. Surveyed and clear —
+`--emit-frame-layout` reports FIELDS (unchanged: the frame still stores
+`UnsafeRef`/pointer), irdet compares emitted IR (the same address, taken at the
+same place, so the IR is equivalent, and `irdet --all` gates it), the forget
+funnel and its citation gate read frame fields rather than call arguments, and
+the AST-graft lane checks attribute declarations rather than node shapes. The
+one REAL consequence is that the post-transform re-check now sees an ordinary
+borrow at the call: the receiver and the group are borrowed SHARED for the
+duration of the call. That is strictly more checking than the cast admitted, the
+whole corpus passes it, and the stricter forms (a `&var` receiver mirroring
+`self_mutable`, a `&var TaskGroup` helper) are named in unit 2's record as
+review items rather than taken.
+
 ## Constraints
 
 - The six deferred 218 census families and the two scrutinee-temp rows keep

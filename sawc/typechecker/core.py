@@ -227,28 +227,33 @@ class TypeChecker(ExpressionsMixin, StatementsMixin, RegistrationMixin, TypeUtil
         # with a name, a docstring at its read site, and a disposition:
         #
         #   E1 exempt_hidden_alloc          PERMANENT (provenance, not safety)
-        #   E2 exempt_unsafe_trigger        NARROWED at stage 3 to the bodies
-        #                                   the transform REWRITES; the ones it
-        #                                   AUTHORS declare honestly instead
         #   E3 exempt_ext_scope             PERMANENT (source-level rule)
         #   E4 exempt_shadowed_qualifier    PERMANENT (warnings describe source)
         #   E5 exempt_prelude_gate          PERMANENT (source-level rule)
         #
-        # E6 (design 132's lost-write rule) is GONE as of stage 3, which is what
-        # the split was for: the closures the transform emits are ordinary
-        # checked code now, so they pass the real check.
+        # E6 (design 132's lost-write rule) went at stage 3, which is what the
+        # split was for: the closures the transform emits are ordinary checked
+        # code now, so they pass the real check.
         #
-        # E2 did NOT delete outright, and the reason is measured rather than
-        # preferred. 218a ruling 1 expected the offenders to be generated resume
-        # methods, which now declare `unsafe` and SATISFY the rule
-        # (`unsafe_decl_checked` — see `_unsafe_check_exempt`). But the transform
-        # also splices a DRIVE-SITE CAST into the caller's own body: a plain
-        # `func main()` calling a suspending method gets
-        # `__saw_drive_C_slow((&c) as UnsafeConstPointer<C>)`, and holding the
-        # author to a rule about a pointer they did not write is E1's provenance
-        # error in a second place. So the flag survives for REWRITTEN bodies,
-        # on the same terms as E1/E3/E5, and stops covering the declarations the
-        # transform is the author of.
+        # E2 (design 130's unsafe trigger rule) is GONE as of design 222 unit 4,
+        # and the three units before it are why. Stage 3 could only NARROW it:
+        # the declarations the transform AUTHORS declare `unsafe` honestly
+        # (`unsafe_decl_checked` — see `_unsafe_check_exempt`), but it also
+        # spliced pointer CASTS into bodies somebody else wrote — a spawn site's
+        # `(&group) as UnsafeConstPointer<TaskGroup>`, a drive site's receiver
+        # cast, a reference argument's — 166 corpus files' worth, measured. Unit
+        # 2 moved all three crossings out of the rewritten body and into the
+        # generated declaration that already says `unsafe` about them: the call
+        # sites write `&group` and `&c`, ordinary references an author could have
+        # written. So there is nothing left to excuse. The design-130 rule now
+        # runs on EVERY declaration in the post-transform AST, authored and
+        # rewritten alike, with no exemption at all.
+        #
+        # What the transform genuinely cannot express safely is a NAMED list with
+        # written arguments, in the design 218 brief's ratified section — not a
+        # flag. Its one addition from this work is the design-91 wake latch
+        # (design 222 unit 3), whose wrapper was built, run, and refused for
+        # laundering the obligation out of every signature.
         #
         # (E7 is the parameter threading through `sawc.py`; it follows this
         # split mechanically, since every flag is derived here.)
@@ -259,7 +264,6 @@ class TypeChecker(ExpressionsMixin, StatementsMixin, RegistrationMixin, TypeUtil
         # actually deletes — a distinction the single bool made easy to lose.
         # ---------------------------------------------------------------- #
         self.exempt_hidden_alloc = post_transform
-        self.exempt_unsafe_trigger = post_transform
         self.exempt_ext_scope = post_transform
         self.exempt_shadowed_qualifier = post_transform
         self.exempt_prelude_gate = post_transform
@@ -933,27 +937,26 @@ class TypeChecker(ExpressionsMixin, StatementsMixin, RegistrationMixin, TypeUtil
     def _unsafe_check_exempt(self, node) -> bool:
         """Whether the design-130 trigger rule looks away from this declaration.
 
-        Two standing reasons, both about AUTHORSHIP. The DERIVED bodies
+        ONE standing reason, and it is about AUTHORSHIP: the DERIVED bodies
         (copy/equals/compare/hash) traffic in whatever their source type holds
-        and have no declaration for an author to mark. `exempt_unsafe_trigger`
-        (E2) covers the post-transform pass, where a body may name a pointer its
-        author never wrote — the drive-site cast the transform splices into a
-        plain caller is the shape, and holding the author to a rule about it is
-        E1's provenance error in a second place. See the exemption table in
-        `__init__`.
+        and have no declaration for an author to mark. The post-transform PASS is
+        no longer a reason — E2 is deleted (design 222 unit 4), so a rewritten
+        user body is held to the rule exactly as its pre-transform self was. It
+        can be, because since unit 2 the transform splices no pointer into it:
+        a drive site writes `&c`, a spawn site writes `&group`, and the crossing
+        happens inside the generated driver or helper.
 
-        `unsafe_decl_checked` OVERRIDES both, and is design 218 stage 3's move:
-        a declaration the coroutine transform AUTHORS carries the transform's
-        own answer about what it touches, and is judged like any hand-written
-        one. A resume body names unsafe types by construction (the `__io_tok`
-        latch casts `&self.__wake`, a method frame binds an `UnsafeRef`, a spawn
-        root reaches its cell through a raw pointer), so it SAYS `unsafe` and
-        satisfies the rule rather than being excused from it — and a wrong
-        answer is a compile error on generated code."""
+        `unsafe_decl_checked` OVERRIDES the derived-body reason, and is design
+        218 stage 3's move: a declaration the coroutine transform AUTHORS carries
+        the transform's own answer about what it touches, and is judged like any
+        hand-written one. A resume body names unsafe types by construction (the
+        `__io_tok` latch casts `&self.__wake`, a method frame binds an
+        `UnsafeRef`, a spawn root reaches its cell through one), so it SAYS
+        `unsafe` and satisfies the rule rather than being excused from it — and a
+        wrong answer is a compile error on generated code."""
         if getattr(node, 'unsafe_decl_checked', False):
             return False
-        return (self.exempt_unsafe_trigger
-                or getattr(node, 'is_synthesized', False)
+        return (getattr(node, 'is_synthesized', False)
                 or getattr(node, 'is_derived_copy', False)
                 or getattr(node, 'is_derived_equals', False)
                 or getattr(node, 'is_derived_compare', False)
