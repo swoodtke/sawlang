@@ -172,6 +172,81 @@ trap entry already handled every trap from user mode.
 the Interrupt object — the next three units. `sos/kernel/main.saw` arms no timer,
 so the real kernel boots exactly as it did.
 
+## UNIT 2 — Thread / Process objects + the scheduler (BUILT Aug 15, branch PARKED)
+
+D3 and D4 as ratified, over unit 1's tick. Both profiles, 22 harness cases each,
+44 total.
+
+**The trap frame IS the thread context, and that is the whole context switch.**
+A thread's saved registers are the frame the HAL's trap entry already wrote on
+the way in and read on the way out, so a switch is `ktrap` RETURNING A DIFFERENT
+FRAME ADDRESS than it was called with. One switch point; at the user-return
+boundary by construction, which is D2 enforced by the shape rather than
+promised; no half-saved state to protect, because the kernel never holds one.
+Entering user mode for the FIRST time is the same operation with a frame nothing
+has run in, so `enter_user` — a context built by zeroing thirty registers in
+assembly — is gone from both HALs, replaced by `frame_init` (Saw) and
+`resume_frame` (a mode select and a branch into the trap entry's own restore
+path). Each machine already had a "current thread" register to carry the frame
+between traps and neither needed a new one: `mscratch` on Profile A, `SP_EL1` on
+Profile B.
+
+**One way into user mode.** `kcore.start_process` reifies a program as a Process
+with one Thread and resumes its frame; the loader reaches it with a root image,
+and the four harness kernels that grant a hand-written payload its own bytes
+reach it with theirs. A kernel that could enter user mode WITHOUT a Process
+would be a kernel with syscalls no handle table answers, which is what M1 was.
+
+**The faults ruling, applied whole.** BadHandle, BadOp and AccessDenied are gone
+from `SosStatus` — they are `FaultReason` tags now, keeping their numbers — and
+meeting one terminates the process while the kernel stays up to report it and
+the ratified teardown (close all handles, free every thread and frame). It had
+to be uniform: an unbound handle names no KIND, so there is no op table to ask
+which rule applies. `umode_bad_calls` therefore asserts the opposite of what it
+asserted the day before, and both payloads say so. What is left as a status is
+`NoResource` — a full slab, which a caller could not have known.
+
+**Two ops per object, and derivation doing work.** System gained `SelfProcess`;
+Process has `CreateThread` / `SelfThread` / `Exit` / `GetStatus`; Thread has
+`Start` / `Join` / `Exit` / `Yield`. Root's boot register is still ONE handle
+wide and everything else arrives through it, which is §3's derivation rule
+earning its place rather than being quoted. `Process.Kill` and `CreateProcess`
+are deliberately absent: with one process the first is `Exit` under a second
+name and the second has nothing to load, and an op whose only reachable use is
+degenerate is an op nothing tests.
+
+**The proof, per machine.** `thread_basics` boots under a kernel that arms NO
+timer: two workers print and yield, and the transcript reads `ABABABAB` — one
+substring, eight switches, nothing but a `yield` able to cause any of them —
+then joins both for 11 and 22, each worker's own value. `thread_preempt` is the
+same shape with the yields REMOVED and the tick armed: `BABABABABABABABA` on
+Profile A, `AABBAABABABABABB` on Profile B, sixteen switches nobody asked for.
+`thread_fault` joins a handle it never held and is terminated for it, reported,
+torn down, exit status 5.
+
+**The native floor: assembly 342 to 268 code lines, C 140 to 166, total 482 to
+434.** The assembly went DOWN because a context built in Saw needs no
+register-clearing prologue in either HAL. The C went UP by exactly one function
+per profile — `sos_syscall3`, three arguments in and the value register back out
+through a pointer, because the ops that answer with a value need one and the C
+ABI the Saw side declares against has no aggregate return. Reason 1 in both
+cases, and the diet's direction is unchanged.
+
+**Three findings, filed rather than worked around silently: DF-178c** (a process
+cannot name a function's address, so `create_thread` has no entry a Saw program
+can compute — the M2 API answers it with an image-entry overload and the real
+fix is DF-172a's reason 3), **DF-178d** (a `-> Never` call is not accepted as a
+`guard ... else` exit and emits malformed IR in some value positions), and
+**DF-178e** (a bare literal does not adopt an annotated type through a `match`).
+
+**Not built here, deliberately:** Event and Waiter — the wait/wake SUBSTRATE is
+in (block, joiner lists, a wake that writes the sleeper's syscall return exactly
+once) and the objects that will attach to it are the next unit. No priorities:
+D3 keeps the §7 map a loader artifact, and the kernel still parses and reports
+it. No idle loop: with no external wake source, "nothing runnable" is a genuine
+deadlock in M2 and is reported as one; the wait-for-interrupt loop arrives with
+the first object that can be signalled from outside.
+
 ## Explicitly out (M3+ candidates)
 
 Channels + ReplyHandle IPC; MemoryObject/Mapping + multi-process loading;

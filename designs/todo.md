@@ -202,6 +202,91 @@ Findings the unit produced:
   reads better anyway, but it is the same "wrapping a long expression is
   where Saw's newline rule bites" story.
 
+## Design 178 M2 unit 2 — Thread/Process objects + the scheduler (BUILT Aug 15,
+branch PARKED for user review per SOS policy)
+
+`designs/178-sos-m2-sketch.md` carries what landed. In one line: the trap frame
+became the THREAD CONTEXT, so a context switch is `ktrap` returning a different
+frame address and there is no second path; `kcore.start_process` is the one way
+into user mode; Thread and Process are real objects with op tables, rights and
+the ratified teardown; the scheduler is round-robin over a ready queue with the
+timeslice charged in unit 1's tick hook; and design 178's faults ruling landed
+whole, so BadHandle/BadOp/AccessDenied are `FaultReason` tags rather than
+statuses. `make sos-test` is 44 cases (22 per machine). Native floor: assembly
+342 -> 268 code lines (a context built in Saw needs no register-clearing
+prologue), C 140 -> 166 (one `sos_syscall3` per profile, for the ops that answer
+with a value). Out of scope and NOT built: Event/Waiter (the wait/wake substrate
+is in, the objects are not), the Interrupt object, priorities, an idle loop.
+
+Findings the unit produced:
+
+- **DF-178c — a process cannot name a function's address, so it cannot give a
+  thread an entry point.** `Process.create_thread(entry:stack_top:arg:)` wants
+  a code address and Saw has no way to produce one: a named function is not a
+  value (``undefined variable `worker` `` for `let f: () sync -> Void = worker`),
+  an `extern`-declared symbol is not either (same error), and `@export` on a
+  static emits a definition rather than a reference. This is design 172's
+  REASON 3 (DF-172a, "the only open language gap") reaching a USER-FACING
+  kernel API rather than four HAL accessor bodies — every SOS process that
+  wants a second thread hits it, not just the runtime authors.
+
+  WHAT M2 DOES ABOUT IT: a second `create_thread(stack_top:arg:)` overload that
+  starts the thread at the process's own IMAGE ENTRY, which is the one entry a
+  Saw process can name because the kernel already knows it. The entry then has
+  to work out which thread it is running as; the harness's two thread images do
+  it with a parked handle that doubles as a "have I run yet" witness. That is a
+  real API, not a workaround — a spawn-at-entry model is what several small
+  systems use — but it is narrower than the op, and the op keeps the address
+  form for a process with a C leaf.
+
+  THE FIX IS DF-172a's: some way to name a linker symbol's address. A function
+  pointer type would do it for this case (`let f: () sync -> Void = worker`,
+  then `(f) as UInt`), and would also close the four HAL accessors.
+
+- **DF-178d — a `-> Never` CALL is not accepted everywhere a diverging tail
+  is, and in some value positions it emits malformed IR.** Two shapes, both hit
+  writing the kernel's fault paths, both worked around at the site with a
+  citation:
+
+  1. `guard let x = ... else { fault_process(p, r) }` where `fault_process` is
+     declared `-> Never` is ``'guard' else block must exit the scope (return,
+     break, or continue)``. A conditionless `while { }` in the else IS accepted,
+     and so is `panic(...)` — so the check knows two spellings of divergence and
+     not the one design 177 made first-class. `return <Never call>` is worse: an
+     `internal compiler error at ...(ReturnStatement)`.
+  2. A `-> Never` call in some VALUE positions emits IR LLVM rejects. Two
+     instances, both from `sos/kernel/core/lib.saw`: as the first arm of a value
+     `match` it poisons the phi's type (``'%calltmp.3' defined with type
+     '%SysResult' but expected 'i32'``), and as the TAIL of a struct-returning
+     function it emits `ret void %calltmp` (``value doesn't match function
+     result type``).
+
+  ISOLATION IS OWED. Thirty-line standalone repros of each shape COMPILE —
+  including a three-field struct return, an `unsafe` caller, an `unsafe`
+  callee, a `-> Never` whose own body reaches divergence through another one,
+  and a Never arm in a value match — so the trigger involves more of the
+  surrounding module than the shape alone. The two IR errors above are exact
+  and reproduce on the real file; a fix brief should start by bisecting
+  `system_op` / `dispatch` in `sos/kernel/core/lib.saw` at commit b4ac74d9
+  rather than from a repro that does not exist yet.
+
+  The workarounds in tree, each commented with this number: `fault_result`,
+  one wrapper whose trailing `while { }` carries the divergence up to a
+  `SysResult` signature; an `if let` + diverging tail where a `guard` belongs;
+  and an explicit `while { }` after a `-> Never` call in three `-> Never`
+  bodies whose tails would otherwise be calls.
+
+- **DF-178e — a bare literal does not adopt an annotated type through a
+  `match`.** `let ra: UInt = match a.join() { case Ok(v) -> v, case Err(_) -> 0 }`
+  is ``the match arms have no common type: `UInt` and `Int` `` — the annotation
+  does not reach the arms, so the `0` stays platform `Int` and the merge fails.
+  Design 195 says a bare literal adopts a fixed-width EXPECTED type "wherever
+  one is in force" and lists if/match arms; an annotation on the BINDING is
+  evidently not one of the places that force propagates from. The workaround is
+  a named `UInt` constant per default value, which is what the two thread images
+  do. Small, clean-error, and it lands on the most ordinary shape there is:
+  reading a Result with a fallback.
+
 ## Design 220 — recorded-seed suite compiles, per-run artifacts, irdet reuse
 (AUTHORED + RULED Aug 14, queued behind 218 stages 1-2 integration)
 

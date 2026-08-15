@@ -524,8 +524,17 @@ TEST_CASES = [
         "name": "thread_preempt",
         "src": os.path.join(TESTS_DIR, "threads_timer.saw"),
         "root_pkg": THREAD_PREEMPT_PKG,
+        #
+        # THE ALTERNATION IS ASSERTED AS DIRECTION CHANGES, not as a fixed
+        # sequence, and that is not a weakening. WHICH worker runs first depends
+        # on where the first tick lands relative to the two `start` calls, so a
+        # sequence starting `A` fails half the time on a claim it was never
+        # making. `AB` then `BA` then `AB` says the processor crossed between
+        # the two threads at least three times, whoever went first — and a run
+        # with no preemption at all reads `AAAAAAAABBBBBBBB`, which has one `AB`
+        # in it and no `BA` after it.
         "expect_out": ["SOS M2: preemptive kernel up on",
-                       "A", "B", "A", "B", "A", "B",
+                       "AB", "BA", "AB",
                        "SOS preempt: joined a=33 b=44"],
         "expect_clean_exit": True,
     },
