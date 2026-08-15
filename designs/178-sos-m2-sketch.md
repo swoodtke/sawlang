@@ -1,10 +1,17 @@
-# Design 178 — SOS M2 SKETCH (for discussion, NOT approved)
+# Design 178 — SOS M2 SKETCH (slicing RULED, agenda in progress)
 
-**Status: SKETCH (Aug 7). M1+M1b+172 are landed: one arch-free kernel, two
-HALs, typed handles / SosStatus / kind-scoped rights, sosimg v3, the C floor
-at 207 stated-reason lines. This document proposes M2's SCOPE for the user
-conversation — the decisions section is the agenda, not a ruling. Standing
-pins that shape it are cited from ratified spec sections.**
+**Status: OPTION A RULED (user, Aug 15) — M2 is the concurrent kernel:
+interrupts + timers + threads + scheduler + Event + Waiter; channels and
+memory objects are M3. The D1-D6 agenda below is being taken with the user;
+each item's ruling is recorded inline as it lands. Design 158 (the task-dump
+pin, unit c before interrupt bring-up) dispatches at 223's integration —
+its unit 1 shares coro_transform with the in-flight 223 agent.**
+
+**Original sketch header (Aug 7):** M1+M1b+172 are landed: one arch-free
+kernel, two HALs, typed handles / SosStatus / kind-scoped rights, sosimg v3,
+the C floor at 207 stated-reason lines. This document proposes M2's SCOPE
+for the user conversation — the decisions section is the agenda, not a
+ruling. Standing pins that shape it are cited from ratified spec sections.
 
 ## The three candidate slicings
 
