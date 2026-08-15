@@ -16,7 +16,6 @@
 // one that does not has none. A method's OWN effect answer, where the compiler
 // has one, outranks a name that agrees with std's.
 //
-// XFAIL: DF-206d the std suspending-method table is keyed by NAME PAIR, so a user type and method sharing a std pair is compiled into a coroutine frame it needs none of — recorded as "not live" when 206 landed, and probed live by design 223's sweep
 // EXPECT: success
 // EXPECT-IR-CONTAINS: __Frame_Tick_wait
 // EXPECT-IR-ABSENT: __Frame_TcpStream_read

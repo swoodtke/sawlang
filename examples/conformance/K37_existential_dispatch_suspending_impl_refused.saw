@@ -16,7 +16,6 @@
 // it does not. This is the second half. The refusal names the design that is
 // owed, and it is ANCHORED at the dispatch the author wrote.
 //
-// XFAIL: DF-223b an existential dispatch to a suspending conformance body is recorded as a merely-conservative suspension source, so no frame is built anywhere and the `yield_now()` runs outside a frame as a no-op — silently sync, no diagnostic
 // EXPECT: error
 // EXPECT-ERROR-CONTAINS: dispatch through `any Greeter`
 // EXPECT-ERROR-CONTAINS: DF-223b

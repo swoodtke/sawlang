@@ -242,6 +242,22 @@ class EffectsMixin:
         # resolved_type_args, short, line). Materialized into real edges (after
         # building the instantiation) only when the template is effect-polymorphic.
         self._poly_call_edges: List[Any] = []
+        # design 223 unit 3 (DF-223b). A frame is a COMPILE-TIME identity — the
+        # caller embeds the callee's frame by value — and dynamic dispatch has
+        # none, so a suspending conformance body reached through `any Trait` can
+        # neither be embedded nor driven. It was not refused either: the dispatch
+        # is a merely-CONSERVATIVE suspension source (`really_suspending`
+        # excludes it, exactly as it excludes a call through a closure), so no
+        # frame was built anywhere in the program and the `yield_now()` inside
+        # the impl ran outside a frame, where it is a no-op.
+        #
+        # Deciding it needs the fixpoint, which has not run when a dispatch is
+        # checked — so the two halves are recorded here and joined in
+        # `finalize_effects`:
+        #   * every existential dispatch SITE, for the anchor;
+        #   * every (trait, method) a conformance implements, for the answer.
+        self._existential_dispatch_sites: List[Any] = []
+        self._trait_impl_nodes: Dict[Any, Any] = {}
 
     def _effect_record_driven(self, name: str, mode: str):
         self._driven_roots.setdefault(name, set()).add(mode)
@@ -838,6 +854,47 @@ class EffectsMixin:
         for node in nodes.values():
             if node.sync_reason and node.suspends:
                 self._report_sync_violation(node)
+
+        self._report_existential_suspend_dispatch(really_suspending(nodes))
+
+    def _report_existential_suspend_dispatch(self, really):
+        """design 223 unit 3 (DF-223b): refuse a dispatch through `any Trait` to
+        a trait method some conformance implements with a SUSPENDING body.
+
+        The refusal is the whole answer this brief has for that cell, and the
+        reason is structural rather than temporary: the caller of a suspending
+        method embeds the callee's FRAME BY VALUE, so it must know at compile
+        time which body it is embedding, and a vtable word is exactly the thing
+        that withholds that. Making it work is a design (three candidate answers
+        are written out at DF-223b), not a fix.
+
+        What it replaces is worse than a refusal: no frame was built anywhere,
+        so the `yield_now()` inside the impl ran outside any frame — where it is
+        a no-op — and the program compiled, printed the right answer and never
+        ceded to a sibling. Anchored at the DISPATCH, which is the line an
+        author can act on.
+        """
+        for trait_name, method_name, line, column, src in \
+                self._existential_dispatch_sites:
+            impls = self._trait_impl_nodes.get((trait_name, method_name), ())
+            for node_id, owner in impls:
+                if not really.get(node_id):
+                    continue
+                self.reporter.error(
+                    ErrorKind.TYPE_MISMATCH,
+                    f"cannot dispatch through `any {trait_name}` to "
+                    f"`{method_name}`: `{owner}` implements it with a "
+                    f"SUSPENDING body, and a suspending call needs the callee's "
+                    f"frame at compile time — dynamic dispatch has only a vtable "
+                    f"word, so there is no frame to embed and nothing to drive",
+                    line, column,
+                    hint=f"call `{method_name}` on the concrete type, or take "
+                         f"the receiver as a generic `<T: {trait_name}>` (which "
+                         f"monomorphizes and keeps the frame identity). Erasing "
+                         f"a suspending method is unimplemented by design, not "
+                         f"by accident — see DF-223b",
+                    source_file=src)
+                break
 
     def _report_sync_violation(self, node: SuspendNode):
         hops, susp_short, susp_line = self._effect_path(node)

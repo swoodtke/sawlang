@@ -7767,6 +7767,13 @@ class ExpressionsMixin:
         if not getattr(tmethod, 'is_sync', False):
             self._effect_direct_source(
                 f"a call through `any {trait_name}` dispatch", expr.line)
+            # design 223 unit 3 (DF-223b): …and that source is CONSERVATIVE, so
+            # it never makes a frame. Record the site; `finalize_effects` refuses
+            # it if some conformance's body really suspends, once the fixpoint
+            # can say so.
+            self._existential_dispatch_sites.append(
+                (trait_name, expr.method_name, expr.line, expr.column,
+                 self._get_current_source_file()))
         expr.existential_dispatch = trait_name
         return tmethod.return_type
 

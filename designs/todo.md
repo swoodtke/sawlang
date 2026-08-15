@@ -309,6 +309,21 @@ findings the rows filed: DF-223a (cell G's unanchored KeyError) and
 DF-223b (cell C2/C3 — the existential dispatch design 223 refuses, with
 the design it is owed written out).
 
+**UNITS 1-3 LANDED (Aug 15).** Unit 1 = the three-valued
+`_suspending_method_target` + `_promote_nested_generic_methods` (the
+method twin of design 74 shape 3) + M2's definition-side alignment, one
+commit. Unit 2 = `_strip_driven_method`, which refuses to remove a
+method a conformance requires and builds that frame from a copy — the
+same answer cross-module already gave. Unit 3 = the diagnostics: an ICE
+breadcrumb naming the classifier/closure-walk agreement invariant, the
+closure-body message that stops naming `if let`, the `&any Trait`
+parameter refused at the parameter, and DF-223b's anchored refusal.
+All seven rows pass, DF-218k/l/m, DF-206d, DF-218q and DF-223a closed,
+DF-223b open as a DESIGN. One thing the sweep did not predict: the
+suspending-method set is the CONSERVATIVE one, so UNSUPPORTED and
+promotion had to be gated on design 206's `really_suspending` or an
+ordinary `v.map({ n in slow(n) })` is refused.
+
 ## The next queue — designs 195-202 + 153 (ALL RULED Aug 10, awaiting dispatch)
 
 Every open ruling from the overnight run plus the parked backlog was
@@ -739,6 +754,15 @@ obligation-2 consumer sweep before dispatch. Gates 218 stages 1-2.
   `examples/coro_closure_captures_self_nested.saw` gained back the three
   contexts it had recorded as unreachable. The four originals follow, kept for
   the mechanism each recorded.
+
+- **DF-223b RULED AND REFUSED (design 223 unit 3, Aug 15)** — the cell is a
+  clean, anchored compile error naming the DF; the DESIGN it is owed is still
+  open (see the DF-223b entry above). **DF-218q CLOSED with it**: the
+  unanchored `:0:0` refusal of a `&any Trait` parameter in a spawned body was
+  the post-transform re-typecheck refusing a frame field the transform
+  synthesized (`UnsafeRef<any Greeter>` — an unsized pointee). The transform
+  refuses it itself now, at the PARAMETER the author wrote, naming the two
+  spellings that work.
 
 - **DF-218k (BOGUS-REFUSAL + wrong diagnostic, PRE-EXISTING) — a SUSPENDING
   method in a trait CONFORMANCE is reported as not implementing the
@@ -2150,6 +2174,22 @@ Of the rest, two fixed here:
   suspending call embeds "in any EXPRESSION position" (design 120). Bind and
   return is the workaround (`examples/channel_receive_in_main.saw` does).
   Small: G3 needs the same ANF hoist the other suspending calls got.
+- **DF-206d CLOSED (design 223 unit 3, Aug 15) — it was live, in the
+  over-inclusion direction.** Design 223's cell K probed the predicted shape
+  and found it real: a user `extension TcpStream { func read(&self) -> Int }`
+  that suspends nothing was compiled into a full coroutine frame — state
+  machine, heap frame, drive loop — because its name pair matched std's. The
+  fix is not the typed key the note guessed at (design 144/204 exempt std's
+  PUBLIC type names from qualification, so std's `TcpStream` and a user's
+  entry-module one share one identity string and a typed key separates
+  nothing): it is that a method's OWN effect answer, where this graph has one,
+  outranks a name that agrees with std's. A std-seeded pair is dropped when
+  every declaration of it is a NON-std extension this graph judges
+  non-suspending; if std also declares the pair, the seed stays, because std's
+  answer is the one this graph cannot compute. Row K38 pins it in the IR, in
+  both directions.
+  The ORIGINAL note follows.
+
 - **DF-206d (OBSERVATION, no action) — the effect graph's std seam is keyed by
   NAME in the transform and by `node_id` in the typechecker.** Design 84's
   `_std_suspending_methods` is a set of `(struct, method)` name pairs, so a user

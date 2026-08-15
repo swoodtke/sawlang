@@ -3952,6 +3952,7 @@ class _FrameBuilder:
                 defer_families[nm] = fam
 
         for p in self.params:
+            self._reject_erased_reference_param(p)
             _record(p.name, _enc_of(p.type), p.type, move_recvs, rendered)
         for lname, lt in self.frame_locals:
             _record(lname, _enc_of(lt), lt, move_recvs, rendered)
@@ -4335,6 +4336,53 @@ class _FrameBuilder:
                 f"`__saw_drive(recv.{mc.method_name}(...))`, or wrap the call in a "
                 f"nested free function and call that.")
 
+    def _reject_erased_reference_param(self, p):
+        """A `&any Trait` parameter of a suspending function — refused HERE, at
+        the parameter the author wrote (design 223 unit 3).
+
+        design 88 gives a reference parameter a frame-resident handle
+        (`UnsafeRef<T>`) so it can span a suspension, and `T` for an erased
+        reference is `any Trait`, which is unsized: the synthesized field is
+        `UnsafeRef<any Greeter>`, and the post-transform re-typecheck refuses it
+        with design 51's ``any Greeter` is unsized and cannot be used by value
+        here` — anchored at `0:0`, in a declaration the compiler wrote, about a
+        rule the author did not break. Same limit, said at the parameter, with
+        what to do instead.
+        """
+        pt = getattr(p, 'type', None)
+        if (pt is None or getattr(pt, 'kind', None) != TypeKind.REFERENCE
+                or pt.inner_type is None
+                or pt.inner_type.kind != TypeKind.EXISTENTIAL):
+            return
+        tn = pt.inner_type.existential_trait or "Trait"
+        raise CoroTransformError(
+            f"coroutine transform: `{p.name}: &any {tn}` cannot be a parameter "
+            f"of the suspending function `{self.display_name}`. A reference "
+            f"that spans a suspension is held in the frame as a handle to its "
+            f"referent (design 88), and an erased referent has no size for the "
+            f"frame to name. Take an owned `Box<any {tn}>` instead, or make the "
+            f"parameter a concrete type / a generic `<T: {tn}>`.",
+            getattr(p, 'line', 0) or getattr(self.func, 'line', 0) or 0,
+            getattr(p, 'column', 0) or 0,
+            source_file=self.src_file)
+
+    def _suspend_in_closure_message(self, what):
+        """THE message for a suspension inside a CLOSURE LITERAL's body.
+
+        design 223 unit 3. This shape used to be reported as "appears in a
+        control-flow branch the state split cannot express (an `if let`/`guard
+        let` body)" — a diagnostic naming two constructs the program does not
+        contain, about a closure the author can see. The limit is real and
+        documented (a closure body is not driven; LANGUAGE_SPEC's closure-body
+        section), so this says THAT, with the two spellings that work.
+        """
+        return (f"coroutine transform: the suspending call {what} appears "
+                f"inside a CLOSURE BODY in driven `{self.name}`, and a closure "
+                f"body is not driven — its suspension has no frame to park in. "
+                f"Call it outside the closure and pass the result in, or move "
+                f"the whole closure body into a named function the driven body "
+                f"calls.")
+
     def _reject_buried_suspend_call(self, stmt):
         """A suspending call in a position the flat state split cannot express —
         inside a larger expression, a method-call receiver, or a control-flow
@@ -4353,7 +4401,15 @@ class _FrameBuilder:
         — so flagging method calls here rejects only genuinely inexpressible shapes."""
         found = []
 
-        def scan(n):
+        def scan(n, in_closure=False):
+            # design 223 unit 3: WHERE the offending call sits decides what the
+            # author is told. A suspension inside a CLOSURE LITERAL's body is a
+            # different shape from one in an `if let` branch — the closure body
+            # is not driven at all (LANGUAGE_SPEC's closure-body limit) — and
+            # telling its author to "restructure to a plain `if`/`else`" names a
+            # construct that is not in their program.
+            if isinstance(n, ClosureExpr):
+                in_closure = True
             if isinstance(n, FunctionCall) and (
                     n.name in self._suspends or n.name in _SUSPEND_CALLS):
                 found.append(("fn", n))
@@ -4373,15 +4429,22 @@ class _FrameBuilder:
             # the CFG walk cannot split (an `if let`/`guard let` body). Reject with
             # the same workaround the top-level buried-method rejection names.
             elif isinstance(n, MethodCall) and self._method_call_suspends(n):
-                found.append(("method", n))
+                found.append(("method", n, in_closure))
             if isinstance(n, ASTNode):
                 for c in _child_nodes(n):
-                    scan(c)
+                    scan(c, in_closure)
 
         scan(stmt)
         if found:
-            kind, g = found[0]
+            entry = found[0]
+            kind, g = entry[0], entry[1]
             if kind == "method":
+                if entry[2]:
+                    raise CoroTransformError(
+                        self._suspend_in_closure_message(
+                            f"`{_suspending_method_target(g, self._tc).owner or '?'}"
+                            f".{g.method_name}(...)`"),
+                        g.line, g.column, source_file=self.src_file)
                 tgt = _suspending_method_target(g, self._tc)
                 if tgt.kind == 'unsupported':
                     # design 223: the frame could not be NAMED, which is a
@@ -5672,7 +5735,7 @@ class _FrameBuilder:
         the callee's wake reason and returns Pending (staying in the drive block);
         on Done it captures the callee's result and re-dispatches past the call."""
         fbs = self._fbs
-        callee_fb = fbs[info['callee']]
+        callee_fb = self._callee_fb(info)
         sub = info['sub']
         target = info['target']
         is_ret = info.get('ret', False)
@@ -5786,11 +5849,35 @@ class _FrameBuilder:
             self._term.add(drive)
             self.cur = after
 
+    def _callee_fb(self, info):
+        """The frame builder this call site embeds, or a clean ANCHORED failure.
+
+        design 223 unit 3. `fbs[info['callee']]` was a bare subscript, so a call
+        the classifier said it could embed and the closure walk did not build a
+        frame for surfaced as a raw Python `KeyError: 'Holder_wrap'` — no
+        breadcrumb, no source anchor, no name for the shape (DF-223a). Units 1
+        and 2 close the two ways that could happen; this is what the THIRD one
+        will look like when it is found, and it names the invariant it broke so
+        the next reader does not have to reconstruct it from a dict key.
+        """
+        fb = self._fbs.get(info['callee'])
+        if fb is None:
+            raise CoroTransformError(
+                f"internal compiler error: the coroutine transform classified "
+                f"this call as embeddable into `{self.name}` under the frame "
+                f"key `{info['callee']}`, but no such frame was built. The "
+                f"call-site classifier (`_suspending_method_target`) and the "
+                f"closure walk that builds frames must agree on every key; "
+                f"this is a compiler bug, not a problem with this code.",
+                info.get('line', 0) or self._cur_line, 0,
+                source_file=self.src_file)
+        return fb
+
     def _build_sub_frame(self, info, fbs):
         """Construct the embedded callee frame from the call's arguments (the
         arrival state). Returns statements: `self.__subN = __Frame_g(args...)`
         plus any drop-flag clears for args moved out of the caller frame."""
-        callee_fb = fbs[info['callee']]
+        callee_fb = self._callee_fb(info)
         forgets = []
         arg_vals = []
         cap_lets = []
@@ -8462,16 +8549,44 @@ def transform_program(program, typechecker, imported_ast=None):
     # exactly as it was: refusing on a conservative answer would reject a
     # perfectly ordinary `v.map({ ... })`.
     from typechecker.effects import really_suspending as _really_suspending
+    from type_identity import std_leaf as _std_leaf
     _really = _really_suspending(_nodes_for_methods)
     really_suspending_methods = set()
+    # DF-206d, probed live by design 223's cell K. `_std_suspending_methods` is
+    # a set of NAME PAIRS — std bodies belong to a different typechecker, so
+    # their effect nodes are absent from this graph and a name is all that
+    # crosses. A user `extension TcpStream { func read(&self) -> Int }` that
+    # suspends nothing therefore matched std's `("TcpStream", "read")` and was
+    # compiled into a coroutine frame: a state machine, a heap frame and a drive
+    # loop around a body that returns `self.n + 1`.
+    #
+    # A method's OWN effect answer outranks a name that agrees with std's. So
+    # the pairs a NON-std extension declares and this graph judges are collected
+    # here, and a std-seeded pair is dropped when every declaration of it is one
+    # of those and says "no". If std ALSO declares the pair (the user extended
+    # `Map`, say, and std's own `Map` extension is in the compilation unit) the
+    # seed stays — std's answer is the one this graph cannot compute, and
+    # keeping it is the conservative direction.
+    _answered_locally = {}
+    _declared_by_std = set()
     for ext in _all_exts:
         sname = getattr(ext, 'struct_name', None)
+        is_std = _std_leaf(getattr(ext, 'source_file', None)) is not None
         for m in ext.methods:
             node = _nodes_for_methods.get(m.node_id)
             if node is not None and node.suspends:
                 suspending_methods.add((sname, m.name))
             if _really.get(m.node_id):
                 really_suspending_methods.add((sname, m.name))
+            if is_std:
+                _declared_by_std.add((sname, m.name))
+            elif node is not None:
+                _answered_locally[(sname, m.name)] = (
+                    _answered_locally.get((sname, m.name), False)
+                    or node.suspends)
+    for _pair, _suspends in _answered_locally.items():
+        if not _suspends and _pair not in _declared_by_std:
+            suspending_methods.discard(_pair)
     typechecker._suspending_methods_set = suspending_methods
     typechecker._really_suspending_methods_set = really_suspending_methods
 

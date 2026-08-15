@@ -92,6 +92,18 @@ class StatementsMixin:
             for tp in extension.type_params:
                 self.current_type_params[tp.name] = tp.bounds
 
+        # design 223 unit 3 (DF-223b): remember which trait requirements this
+        # extension's methods satisfy, so `finalize_effects` can ask whether a
+        # trait method reached through `any Trait` has a SUSPENDING body
+        # anywhere. Recorded here because this is where a conformance and its
+        # method ASTs are both in hand; the answer needs the fixpoint, which has
+        # not run yet.
+        for _tname in (getattr(extension, 'conformances', None) or []):
+            for _m in extension.methods:
+                self._trait_impl_nodes.setdefault(
+                    (_tname, _m.name), []).append(
+                        (_m.node_id, extension.struct_name))
+
         try:
             for method in extension.methods:
                 self._check_method(extension.struct_name, method, type_subst)
