@@ -425,7 +425,12 @@ matrices in the scratch dir; promote to cited pins at fix time.
   refusal blames `if let` the author never wrote (:4463); five
   matrix cells (if let/guard let/try!/try/try?) UNKNOWN, blocked by
   DF-224c.
-- **DF-224b — NOT a wake bug: `TaskGroup(threads: N)` is FORK-JOIN by
+- **DF-224b — RULED (user, Aug 15): design 225, the LIVE POOL — see
+  `designs/225-taskgroup-live-pool.md` (direction ruled on the
+  api-expected-not-easy doctrine + the family-consistency and
+  fresh-writer evidence; sub-decision agenda D-a..D-f pending a ruling
+  session; sequenced AFTER design 224's transform fix). Original
+  finding: NOT a wake bug — `TaskGroup(threads: N)` is FORK-JOIN by
   construction (design 75) and has NO workers outside a join/Deinit
   drain.** MT groups never register with the ambient scheduler
   (taskgroup.saw:457-460, :588-591 says so outright); `__drain_mt`
