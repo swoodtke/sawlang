@@ -89,48 +89,26 @@ FIXED (the snippet now shows the inline field and points at the
 heap-case paragraph). All three checks fire on compound paths for this
 rule (statements.py:2785, place_uses.py:235 handles both classes).
 
-**BUT the sweep's census found FOUR NEW findings — two SOUNDNESS — the
-hypothesized class operating on OTHER rules. Design 227 = the
-write-target funnel brief (unauthored, FRONT OF THE COMPILER QUEUE):**
+**The sweep's census found FOUR NEW findings — two SOUNDNESS — the
+hypothesized class operating on OTHER rules: DF-225i (compound assign
+skipped design 193's write-path RHS exclusivity, losing the callee's
+write), DF-225j (`let`-immutability of INLINE array storage was
+shape-dependent, incl. two cells writing the caller's array through a
+SHARED `&` parameter), DF-225k (`self.c?.n = 99` at `&self` was a silent
+no-op) and DF-225l (`o?.n += 5` was a parse error).**
 
-- **DF-225i (SOUNDNESS) — compound assign skips design-193's write-path
-  RHS exclusivity.** `b.n += grow(b: &var b)` compiles and SILENTLY
-  LOSES grow's write (p21 prints 3; the plain twin p20 is refused with
-  the full teaching diagnostic). statements.py:2269 calls the check;
-  :2756 (compound) does not — and the check's own docstring claims
-  covered-by-construction with two named entry points; compound is the
-  unnamed third. Strictly worse than plain: compound also READS the
-  target.
-- **DF-225j (SOUNDNESS) — `let`-immutability of INLINE array storage is
-  shape-dependent.** Only literal `ident[i]` is protected; `a[0].n`
-  (compound), `a[0].0` (compound), `a[0][0]` (both), `h.arr[0]` (both)
-  all write a `let` — and the sharpest cells: a callee mutates the
-  caller's inline array through a SHARED `&` PARAMETER (p54/p60), the
-  exact storage class the `&self` spelling refuses. Mechanism: the two
-  lvalue-root walks each stop one hop short
-  (`_assign_target_immutable_array` :1666 needs a bare Identifier;
-  `_assign_target_immutable_struct_root` :1694 breaks at ArrayIndex);
-  the plain rows are NOT compound-specific. CONSUMER SWEEP OWED before
-  the fix (who writes `h.arr[0]` through a shared root today) — unit 0
-  of 227.
-- **DF-225k — `self.c?.n = 99` in a `&self` method is a SILENT NO-OP**
-  (p50 prints 1; the `!` sibling is refused).
-  `_check_chain_assign_head_mutable` (expressions.py:6965) defers
-  SelfExpr to "governed by &var self" and nothing governs it —
-  DF-175a's vanishing-write class, fifth spelling.
-- **DF-225l — `o?.n += 5` is a parse error while `o?.n = 5` works**
-  (parser/statements.py:205 routes OptionalEvalExpr only on the plain
-  branch) — the fourth "compound branch forgot X" sighting, in the
-  parser.
-
-227's funnel shape (from the sweep): extract `_check_assign_statement`'s
-guard prelude (:2229-2269) into ONE `_check_write_target(target, ...,
-compound:)` with named entry points (assign, compound, chain-assign,
-place-target) — subsumes 225i, 225j's compound rows, 225k; merge the two
-root walks into one ArrayIndex-transparent walk (225j's plain rows);
-225l is a parser hoist; 224a-G3 stays in the transform (independent).
-Test plan = the sweep's matrices; the section-1 accept/refuse table are
-regression pins that must NOT flip (M31/M32 territory).
+**ALL FOUR FIXED — `designs/227-write-target-funnel.md` (BUILT Aug 15,
+branch awaiting cherry-pick).** One `_check_write_target` funnel with
+four named entry points, one ArrayIndex-transparent root walk keeping
+design 200's indirection carve-out, and the parser hoist that makes
+`x?.y += v` a chain assignment. Unit 0's consumer census: ZERO in-tree
+writes relied on the DF-225j hole (96 chained-index writes, 26 with a
+non-mutable root, every one of them stopping at a pointer, a heap
+container or a static). Merging the walks turned up two siblings the
+sweep had not probed, both verified writing a `let` before the fix: a
+`let` optional's payload (`o!.n = 5`) and a `&var self` call through an
+inline array element (`h.cells[0].bump()`). Rows M37-M44; the carve-out
+accept/refuse table is pinned by M41/M42.
 
 ## Design 178 M2 unit 1 — trap/timer/interrupt-controller HAL (BUILT Aug 15,
 branch PARKED for user review per SOS policy)
@@ -626,7 +604,12 @@ matrices in the scratch dir; promote to cited pins at fix time.
   suspension kinds × main+spawned. Riders: the compound-assign
   refusal blames `if let` the author never wrote (:4463); five
   matrix cells (if let/guard let/try!/try/try?) UNKNOWN, blocked by
-  DF-224c.
+  DF-224c. G3 RIDER (design 227): the compound optional-chain assignment
+  `x?.n += s.read()` reaches the same missing arm through the transform's
+  read-modify-writeback, and is pinned as a clean refusal in
+  `examples/errors/optional_chain_compound_assign_suspending_rhs.saw` —
+  the fix converts that file into the success twin of
+  `expr_suspend_optchain_assign.saw`.
 - **DF-224b — RULED (user, Aug 15): design 225, the LIVE POOL — see
   `designs/225-taskgroup-live-pool.md` (direction ruled on the
   api-expected-not-easy doctrine + the family-consistency and
