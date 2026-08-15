@@ -7,7 +7,12 @@ items need a probe before being treated as real work.
 Historical/landed recaps: designs/done_<range>.md files
 (done_aug1-aug9.md, split Aug 9; renamed from todo_ Aug 15 — an archive
 of finished work is a "done" file); older history is in this file's git
-log (pruned Jul 30). Next split (aug10-aug14) queued behind design 223's
+log (pruned Jul 30). Archive format (ruled Aug 15): done files are
+VERBATIM moves, never rewritten (pre-Aug-12 tracker entries are often
+the SOLE record of DF mechanisms/rulings/corrections — grep the brief
+before deleting anything); navigation lives in designs/INDEX.md (one
+line per brief + one per done-file), created with the next split.
+Next split (aug10-aug14 + INDEX.md) queued behind design 223's
 integration.
 
 ## Design 220 — recorded-seed suite compiles, per-run artifacts, irdet reuse
