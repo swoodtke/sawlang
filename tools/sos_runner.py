@@ -85,9 +85,10 @@ SOSABI_MODULE = f"sosabi={SOSABI_DIR}"
 
 RT_COMMON_C_DIR = os.path.join(REPO_ROOT, "sos", "rt", "common_c")
 
-# sos/tests/<arch>/payload_badcall.S shuts down with this when all of its own
-# checks passed. Kept in step with the `.equ EXPECTED_CODE` there.
-PAYLOAD_CHECKS_PASSED = 7
+# `ExitCode.ProcessFault` in sos/kernel/core/lib.saw: what the machine exits
+# with when the kernel TERMINATES a process for a caller error it could have
+# checked (design 178's faults ruling). Kept in step with that enum.
+EXIT_PROCESS_FAULT = 5
 
 # Root-server packages. These are real Blade packages built by Blade — the
 # whole point of unit C is that root goes through the same package pipeline any
@@ -184,6 +185,9 @@ def expectations(arch):
         "zero": f"0x{0:0{width}x}",
         "one": f"0x{1:0{width}x}",
         "two": f"0x{2:0{width}x}",
+        "three": f"0x{3:0{width}x}",
+        "four": f"0x{4:0{width}x}",
+        "five": f"0x{5:0{width}x}",
         "prio": f"0x{0x01010100:0{width}x}",
         "irq_line": f"0x{arch['selftest_line']:0{width}x}",
     }
@@ -328,17 +332,21 @@ TEST_CASES = [
         "expect_clean_exit": False,
     },
     {
-        # A caller's mistake is an ERROR, not a fault: an unknown op and an
-        # unknown handle each come back as a status word and the process runs
-        # on. The payload checks all three statuses itself and shuts down with
-        # PAYLOAD_CHECKS_PASSED only if every one matched, so the emulator's
-        # exit code IS the assertion.
+        # design 178's faults ruling (Aug 15), which REVERSED this case: a
+        # caller's mistake is a FAULT, not a status. The payload makes a good
+        # call (the '!' proves the round trip resumed) and then an op the
+        # System object does not have, which terminates it — so the transcript
+        # is the ruling in three lines, in order, and the exit status is the
+        # kernel's own `ExitCode.ProcessFault` rather than anything the process
+        # chose. The teardown line is what says the KERNEL stayed up to report.
         "name": "umode_bad_calls",
         "src": os.path.join(TESTS_DIR, "umode.saw"),
         "asm": "payload_badcall.S",
-        "expect_out": "SOS M1: entering U-mode",
+        "expect_out": ["SOS M1: entering U-mode", "!",
+                       "SOS: process fault: bad op",
+                       "SOS: process teardown handles={three} threads={one}"],
         "expect_clean_exit": False,
-        "expect_status": PAYLOAD_CHECKS_PASSED,
+        "expect_status": EXIT_PROCESS_FAULT,
     },
     # --- design 178 M2 unit 1: interrupts -----------------------------------
     # Three claims, one per case, and each is read from the ORDER of the
