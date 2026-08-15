@@ -1,0 +1,31 @@
+// Conformance row M42 — a `&self` method may not write an INLINE `[T; N]`
+// element of its receiver, in either spelling
+//
+// The refuse side of the design-200 carve-out table (row M41 is the accept
+// side), and the pair the DF-225g scan mistook for a hole: the spec's `Board`
+// snippet means an inline `[Cell; 9]` field, whose elements travel with the
+// `&self` copy — so the write either vanishes or, in a `borrows` body where the
+// receiver travels by pointer, mutates a value the caller holds immutably.
+//
+// Both spellings are refused, and this row exists to keep them refused: design
+// 227 rewrote the write-target guards these two writes pass through, and a
+// carve-out flip in either direction would show up here first. The accessor
+// spelling of the same rule (a `borrows` field type, seven positions) is row
+// M31.
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: cannot assign to storage reached through a `&self` receiver
+// EXPECT-ERROR-CONTAINS: cannot use compound assignment on storage reached through a `&self` receiver
+
+struct Board { grid: [Int; 3] }
+
+extension Board {
+    func stamp(&self) { self.grid[0] = 100 }
+    func bump(&self) { self.grid[0] += 100 }
+}
+
+func main() {
+    let b = Board(grid: [1, 2, 3])
+    b.stamp()
+    b.bump()
+    print(b.grid[0])
+}

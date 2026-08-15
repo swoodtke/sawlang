@@ -6,7 +6,7 @@ either a file in this directory or an existing `examples/` test that already
 asserts the same rule at the same position — this table is the record of which,
 and the dedup decisions are meant to be audited from it.
 
-**113 rows carry a file here; 198 are covered elsewhere.** (The audit's 247 plus
+**119 rows carry a file here; 198 are covered elsewhere.** (The audit's 247 plus
 the rows later briefs added: W02-W05, design 194 unit 4; W06-W19, design 195
 unit 1; X41-X45, design 199 unit 1; M31-M35, design 200 unit 1; V26-V30,
 design 202 unit 1; B09-B12, design 204 unit 1; K14-K20, design 201 unit 1;
@@ -17,7 +17,7 @@ V31, design 219 unit A2; K27-K28, design 218 unit 1; V32-V35, design 219 wave B;
 V36-V47, K30, K31 and U30, design 219 wave C; R39-R42 and M36, design 218
 stage 3; G01-G15, design 221 unit B1; G16-G18, design 221 unit B4's return-site
 sweep; K32, design 222 unit 1; K33-K39, design 223's suspending-method position
-matrix.)
+matrix; M37-M42, design 227 unit 1.)
 
 ## How to read it
 
@@ -99,6 +99,12 @@ Claim source: spec 2 *Variables and Mutability* + 4 *Reference Types*; designs 4
 | M34 | a `#lend_var`-gated place write, exclusive specialization only | `M34_lend_var_gated_place_write.saw` | 200 — ratified with M33; the gate picks the flavor that pays |
 | M35 | the same inline-field window write declared `&var self` | `M35_var_self_place_window_write.saw` | 200 — the fix M31's diagnostic names |
 | M36 | a `[&self]` capture NARROWS a `&var self` receiver, and the body's write is refused | `M36_shared_self_capture_refuses_write.saw` | 218 §4 — the capture mode joins the rule, through one funnel (`_self_borrow_is_exclusive`) the five write-through-`self` sites share |
+| M37 | `let` immutability of INLINE array storage at every write shape — six shapes × plain/compound (DF-225j) | `M37_inline_array_immutability_every_shape.saw` | 227 — two lvalue-root walks each stopped one hop short, so eight of the twelve cells wrote a `let`; one ArrayIndex-transparent walk answers them all |
+| M38 | a COMPOUND assignment's RHS may not borrow the path it writes (DF-225i) | `M38_compound_assign_rhs_exclusivity.saw` | 227 — design 193 unit 4's check had an unnamed third entry point; compound also READS the target, so the overlap is read+write |
+| M39 | an optional-CHAIN assignment through a `&self` receiver is refused (DF-225k) | `M39_chain_assign_through_shared_self.saw` | 227 — DF-175a's vanishing write, fifth spelling: the chain path deferred `self` to "governed by `&var self`" and nothing governed it |
+| M40 | `o?.n += v`, the compound spelling of design 111's chain assignment (DF-225l) | `M40_compound_chain_assign.saw` | 227 — the parser recognized an OptionalEvalExpr target on the plain branch only |
+| M41 | the indirection carve-out at every accessor spelling: `Vector`, `Map`'s `m[k]!`, a named accessor, `Data`, a nested chain | `M41_shared_self_indirection_carveout_spellings.saw` | 200 — the accept side of the DF-225g sweep's table, and design 227's must-not-flip pin |
+| M42 | a `&self` method writing an INLINE `[T; N]` element, both spellings | `M42_shared_self_inline_array_element.saw` | 200 — the refuse side of the same table; the pair the DF-225g scan mistook for a hole |
 
 ## References are parameters only — they can never escape
 

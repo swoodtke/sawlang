@@ -1,0 +1,123 @@
+// Conformance row M41 — the design-200 indirection carve-out, at every accessor
+// spelling
+//
+// M32 pins the carve-out for `Vector`'s subscript. This is the rest of the
+// table the DF-225g sweep probed, and it is the must-not-flip side of design
+// 227: a write through storage the `&self` copy only POINTS AT reaches the
+// caller's bytes, so it is honest and stays legal — whatever spelling gets
+// there, and whether the write is plain or compound.
+//
+// Five accessors, ten writes: `Vector`'s subscript, `Map`'s forced conditional
+// lend (`m[k]!`), a hand-written NAMED accessor over a `Vector`, `Data`'s
+// copy-on-write element, and a NESTED chain through two heap containers. Each
+// lends out of a heap buffer the copy shares, so none of them is inside the
+// receiver's own bytes — which is exactly the distinction row M42's refusals
+// draw from the other side, on INLINE `[T; N]` storage.
+// EXPECT: success
+// EXPECT-OUTPUT: vector 101
+// EXPECT-OUTPUT: map 101
+// EXPECT-OUTPUT: named 101
+// EXPECT-OUTPUT: data 6
+// EXPECT-OUTPUT: nested 101
+
+import std.data.*
+
+struct Board { grid: Vector<Int> }
+
+@synthesize
+extension Board: ExplicitCopy {}
+
+extension Board {
+    func stamp(&self) { self.grid[0] = 100 }
+    func bump(&self) { self.grid[0] += 1 }
+    func head(&self) -> Int { self.grid.get(0)! }
+}
+
+struct Reg { m: Map<String, Int> }
+
+extension Reg: NoCopy {}
+
+extension Reg {
+    func stamp(&self) { self.m["a"]! = 100 }
+    func bump(&self) { self.m["a"]! += 1 }
+    func at(&self) -> Int { self.m["a"]! }
+}
+
+struct Slotted { cells: Vector<Int> }
+
+extension Slotted: NoCopy {}
+
+extension Slotted {
+    public func slot(&self, i: Int) borrows -> Int {
+        if i < 0 || i >= self.cells.len() { panic("Slotted.slot: out of range") }
+        lend self.cells[i]
+    }
+}
+
+struct Owner { s: Slotted }
+
+extension Owner: NoCopy {}
+
+extension Owner {
+    func stamp(&self) { self.s.slot(0) = 100 }
+    func bump(&self) { self.s.slot(0) += 1 }
+    func at(&self) -> Int { self.s.slot(0) }
+}
+
+struct Buf { d: Data }
+
+extension Buf: NoCopy {}
+
+extension Buf {
+    func bump(&self) { self.d[0] += 5 }
+    func at(&self) -> UInt8 { self.d.get(0)! }
+}
+
+struct Cell { n: Int }
+struct Row { cells: Vector<Cell> }
+
+@synthesize
+extension Cell: ExplicitCopy {}
+@synthesize
+extension Row: ExplicitCopy {}
+
+struct Grid { rows: Vector<Row> }
+
+@synthesize
+extension Grid: ExplicitCopy {}
+
+extension Grid {
+    func bump(&self) { self.rows[0].cells[0].n += 100 }
+    func at(&self) -> Int { self.rows.get(0)!.cells.get(0)!.n }
+}
+
+func main() {
+    let b = Board(grid: [1, 2, 3])
+    b.stamp()
+    b.bump()
+    print("vector {b.head()}")
+
+    let seed = {"a": 1}
+    let r = Reg(m: move seed)
+    r.stamp()
+    r.bump()
+    print("map {r.at()}")
+
+    let inner = Slotted(cells: [1, 2, 3])
+    let o = Owner(s: move inner)
+    o.stamp()
+    o.bump()
+    print("named {o.at()}")
+
+    var raw = Data()
+    raw.push(1)
+    raw.push(2)
+    let buf = Buf(d: move raw)
+    buf.bump()
+    print("data {buf.at()}")
+
+    let row = Row(cells: [Cell(n: 1)])
+    let g = Grid(rows: [move row])
+    g.bump()
+    print("nested {g.at()}")
+}

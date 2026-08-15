@@ -1,0 +1,43 @@
+// Conformance row M38 — a COMPOUND assignment's right-hand side may not borrow
+// the path it writes (DF-225i)
+//
+// Design 193 unit 4's rule: an assignment WRITES its target and its RHS runs
+// first, so a `&var` in the RHS reaching the written root means the callee's
+// writes are made and then overwritten. `_check_assign_rhs_exclusivity` states
+// it "one call, ahead of the target-shape dispatch, so every assignment form is
+// covered by construction" — and the compound statement, a second entry point
+// nobody named, never called it.
+//
+// Compound is the WORSE half of the pair: `bc.n += grow(b: &var bc)` reads the
+// target as well as writing it, so the overlap is a read AND a write against an
+// exclusive borrow — and it compiled, silently losing `grow`'s write (it
+// printed 3, not 4). The plain twin has been refused with the full teaching
+// diagnostic since design 193.
+// XFAIL: DF-225i compound assignment skips design 193 unit 4's write-path RHS-exclusivity check (design 227 unit 2)
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: `bp` is written by this assignment while also being accessed in the right-hand side
+// EXPECT-ERROR-CONTAINS: `bc` is written by this compound assignment while also being accessed in the right-hand side
+
+struct Box2 { n: Int }
+
+func grow(b: &var Box2) -> Int {
+    b.n = b.n + 1
+    return b.n
+}
+
+func plain() -> Int {
+    var bp = Box2(n: 1)
+    bp.n = grow(b: &var bp)
+    return bp.n
+}
+
+func compound() -> Int {
+    var bc = Box2(n: 1)
+    bc.n += grow(b: &var bc)
+    return bc.n
+}
+
+func main() {
+    print(plain())
+    print(compound())
+}

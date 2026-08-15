@@ -1,0 +1,34 @@
+// Conformance row M39 — an optional-CHAIN assignment through a `&self` receiver
+// is refused (DF-225k)
+//
+// The fifth spelling of DF-175a's vanishing write, and the one nothing asked
+// about: `self.c?.n = 99` in a `&self` method writes an optional payload that
+// lives inside the receiver, so the write lands in the callee's copy and is
+// discarded when the method returns — it compiled, ran, and printed 1.
+//
+// `_check_chain_assign_head_mutable` deferred a `self` root to "governed by
+// `&var self`, like an ordinary field write", and nothing downstream governed
+// it: the chain path never asked the shared-self rule at all. The `!` sibling
+// (`self.c!.n = 99`, same storage, same method) has been refused all along,
+// which is what makes this a shape gap rather than a ruling.
+//
+// The way out is the one every other spelling names: declare the method
+// `&var self`.
+// XFAIL: DF-225k `self.c?.n = 99` in a `&self` method is a silent no-op — the chain-assign path never asks the shared-self rule (design 227 unit 2)
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: cannot assign to storage reached through a `&self` receiver
+
+struct Cell { n: Int }
+struct Holder { c: Cell? }
+
+extension Holder {
+    func bump(&self) {
+        self.c?.n = 99
+    }
+}
+
+func main() {
+    let h = Holder(c: Cell(n: 1))
+    h.bump()
+    print(h.c!.n)
+}

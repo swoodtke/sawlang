@@ -1,0 +1,120 @@
+// Conformance row M37 — `let` immutability of INLINE array storage holds at
+// every WRITE SHAPE (DF-225j)
+//
+// A `let` binding cannot be mutated. Reaching the storage through an inline
+// `[T; N]` element does not change that answer, and neither does the shape of
+// the write that gets there — a bare element, a field of an element, a tuple
+// element of an element, an element of a nested array, an element of an array
+// FIELD, and the same through a SHARED `&T` parameter are one rule at twelve
+// positions.
+//
+// They were not. Only the literal `ident[i]` container was protected: two
+// lvalue-root walks each stopped one hop short (`_assign_target_immutable_array`
+// wanted a bare Identifier container, `_assign_target_immutable_struct_root`
+// broke at the first ArrayIndex), so eight of the twelve cells below compiled
+// and mutated a `let` — including the two sharpest, where a callee writes the
+// CALLER's inline array through a shared `&Holder` parameter, the exact storage
+// class the `&self` spelling refuses (row M42).
+//
+// The design-200 indirection carve-out is NOT this rule and is untouched: a
+// heap-reaching hop (a `Vector`/`Map`/`Data` element, an `UnsafePointer`
+// pointee) stops the walk, because the storage is not inside the binding.
+// Rows M41 and M32 are that side.
+// XFAIL: DF-225j `let`-immutability of inline array storage is shape-dependent — eight of these twelve cells compile and write a `let` (design 227 units 2-3)
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: cannot assign to element of immutable array `bare_p`
+// EXPECT-ERROR-CONTAINS: cannot use compound assignment on element of immutable array `bare_c`
+// EXPECT-ERROR-CONTAINS: cannot assign to element of immutable array `cell_p`
+// EXPECT-ERROR-CONTAINS: cannot use compound assignment on element of immutable array `cell_c`
+// EXPECT-ERROR-CONTAINS: cannot assign to element of immutable array `tup_p`
+// EXPECT-ERROR-CONTAINS: cannot use compound assignment on element of immutable array `tup_c`
+// EXPECT-ERROR-CONTAINS: cannot assign to element of immutable array `nest_p`
+// EXPECT-ERROR-CONTAINS: cannot use compound assignment on element of immutable array `nest_c`
+// EXPECT-ERROR-CONTAINS: cannot assign to element of immutable variable `hold_p`
+// EXPECT-ERROR-CONTAINS: cannot use compound assignment on element of immutable variable `hold_c`
+// EXPECT-ERROR-CONTAINS: cannot assign to element of immutable variable `shared_p`
+// EXPECT-ERROR-CONTAINS: cannot use compound assignment on element of immutable variable `shared_c`
+
+struct Cell { n: Int }
+struct Holder { arr: [Int; 3] }
+
+// 1-2: the bare element — the one cell that was always protected.
+func bare_plain() {
+    let bare_p: [Int; 3] = [1, 2, 3]
+    bare_p[0] = 9
+}
+
+func bare_compound() {
+    let bare_c: [Int; 3] = [1, 2, 3]
+    bare_c[0] += 9
+}
+
+// 3-4: a FIELD of an element.
+func cell_plain() {
+    let cell_p: [Cell; 2] = [Cell(n: 1), Cell(n: 2)]
+    cell_p[0].n = 5
+}
+
+func cell_compound() {
+    let cell_c: [Cell; 2] = [Cell(n: 1), Cell(n: 2)]
+    cell_c[0].n += 5
+}
+
+// 5-6: a TUPLE ELEMENT of an element.
+func tuple_plain() {
+    let tup_p: [(Int, Int); 2] = [(1, 2), (3, 4)]
+    tup_p[0].0 = 9
+}
+
+func tuple_compound() {
+    let tup_c: [(Int, Int); 2] = [(1, 2), (3, 4)]
+    tup_c[0].0 += 9
+}
+
+// 7-8: an element of a NESTED array.
+func nested_plain() {
+    let nest_p: [[Int; 2]; 2] = [[1, 2], [3, 4]]
+    nest_p[0][0] = 9
+}
+
+func nested_compound() {
+    let nest_c: [[Int; 2]; 2] = [[1, 2], [3, 4]]
+    nest_c[0][0] += 9
+}
+
+// 9-10: an element of an array FIELD — the container is no longer a bare name.
+func field_plain() {
+    let hold_p = Holder(arr: [1, 2, 3])
+    hold_p.arr[0] = 9
+}
+
+func field_compound() {
+    let hold_c = Holder(arr: [1, 2, 3])
+    hold_c.arr[0] += 9
+}
+
+// 11-12: the same through a SHARED `&` parameter — the callee writing the
+// caller's inline array.
+func through_shared_plain(shared_p: &Holder) {
+    shared_p.arr[0] = 9
+}
+
+func through_shared_compound(shared_c: &Holder) {
+    shared_c.arr[0] += 9
+}
+
+func main() {
+    bare_plain()
+    bare_compound()
+    cell_plain()
+    cell_compound()
+    tuple_plain()
+    tuple_compound()
+    nested_plain()
+    nested_compound()
+    field_plain()
+    field_compound()
+    let h = Holder(arr: [1, 2, 3])
+    through_shared_plain(shared_p: &h)
+    through_shared_compound(shared_c: &h)
+}
