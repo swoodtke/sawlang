@@ -20,30 +20,35 @@ sawc/              # Compiler: Python + llvmlite
                    # IN SAW here — common/ (os_ops.saw = status-carrying tcp/fs/
                    # env ops) + host_macos/ + host_linux/ (reactor.saw kqueue/
                    # epoll, net_os.saw errno->SysError) (.saw, --runtime-build)
-                   # + shim.c (3 FFI-blocked bodies: write/panic, thread_spawn+
-                   # offload thunk, set_nonblocking). Built + cached under
-                   # .build/rt/, auto-linked for hosted builds. Design 117: the
-                   # reactor is now Saw too (instance-based); the compiler only
-                   # synthesizes the process-global __saw_reactor getter.
+                   # + shim.c (FFI-blocked bodies, grown past the original
+                   # three — DF-113a/b/c: write/panic, open_flags, getaddrinfo
+                   # helpers, environ get/set, thread_spawn+offload thunk,
+                   # set_nonblocking — plus DF-186c's Linux-only futex lock).
+                   # Built + cached under .build/rt/, auto-linked for hosted
+                   # builds. Design 117: the reactor is now Saw too
+                   # (instance-based); the compiler only synthesizes the
+                   # process-global __saw_reactor getter.
 examples/          # Compiler test suite programs (test_runner.py)
 blade/             # Blade package manager (written in Saw)
 libs/              # Real Saw library packages (semver, toml)
 tools/blade_bootstrap.py  # Self-hosting bootstrap loop
 designs/           # Design briefs + todo.md tracker
 sos/               # SOS microkernel (design 140). spec.md is authoritative.
-  kernel/          #   virt.ld + main.saw + core/lib.saw — the module EVERY
-                   #   kernel image shares (drivers, trap frame, ktrap, the
+  kernel/          #   main.saw + core/lib.saw — the module EVERY kernel
+                   #   image shares (drivers, trap frame, ktrap, the
                    #   object-op dispatch, the sosimg loader)
   kernel/abi/      #   KERNEL-INTERNAL: every op number/right/status, in one
                    #   place, shared by the dispatch and the wrappers below
   kernel/sysapi/   #   the PUBLIC `sos` module the kernel EXPORTS to userspace
                    #   (vDSO discipline: numbers are not ABI). Typed Saw +
                    #   @export'd C surface; a process depends on this only
-  hal/riscv32/     #   the ONLY arch-aware code: kernel/ (boot.S trap entry,
-                   #   board sinks, PMP) + user/ (the ecall stub, and since
-                   #   design 172 part 2 nothing else), each with an ABI.md.
-                   #   M1b (PARKED branch, user review pending) adds hal/arm64/
-                   #   and MOVES virt.ld + root.ld into the per-arch HALs
+  hal/riscv32/     #   the arch-aware code, one dir per arch (riscv32 +
+  hal/arm64/       #   arm64, landed by design 162/M1b): kernel/ (boot.S trap
+                   #   entry, board sinks, PMP, virt.ld) + user/ (the ecall
+                   #   stub — design 172 part 2 left nothing else in
+                   #   syscall.c — plus root.ld), each with an ABI.md.
+                   #   virt.ld/root.ld live per-arch here, not under kernel/
+                   #   or root/
   rt/common/       #   `sosrt`: THE SOS RUNTIME, arch-free + role-free Saw —
                    #   the four `__saw_rt_*` seams + the bump arena, over two
                    #   per-side hooks, plus hex/ascii helpers. Kernel + every
@@ -74,14 +79,14 @@ activated first.
 ## Compiler usage (dev)
 ```bash
 ./.venv/bin/python sawc/sawc.py <src.saw> [-o out] [-v] [-c]
-    [--emit-ir] [--emit-ast] [--emit-docs] [--emit-docs-all] [-O0]
-    [--emit-frame-layout]
+    [--emit-ir] [--emit-ast] [--ids] [--emit-docs] [--emit-docs-all] [-O0]
+    [--emit-frame-layout] [--emit-bt-table]
     [--target TRIPLE] [--target-features FEATURES]
     [--module-path NAME=DIR]
     [--freestanding] [--runtime-build] [--runtime-provider]
     [--no-hidden-alloc] [-W NAME | -W all]
 ```
-That is the complete flag set (`sawc.py:1274-1345`); `-o` defaults to
+That is the complete flag set (`sawc.py:1774-1876`); `-o` defaults to
 `.build/<source>`. `--no-hidden-alloc` (design 135) rejects the
 allocations the compiler inserts that no source construct names.
 `-W` (design 150) enables a warning category (repeatable, `-W all` for
@@ -160,16 +165,16 @@ objects are built + cached under `.build/rt/` and auto-linked (delete
   an untracked scratch file each session rewrote from this prose:
   ```bash
   SAW_PYTHON=/path/to/main/.venv/bin/python tools/battery.sh   # from a worktree
-  tools/battery.sh --quick        # skips irdet/gmgate/bootstrap/sos
+  tools/battery.sh --quick        # skips reemit/irdet/gmgate/bootstrap/sos
   tools/battery.sh suite fuzz     # named stages
   tools/battery.sh --list
   ```
   Stages: `suite`, `icebreadcrumb`, `lexdiff`, `astdiff`, `astgraft`,
-  `ircontract`, `preludegate`, `abidoc`, `bttable`, `fuzz`
-  (`sawfuzz --quick`), `bench` (the warehouse benchmark — checksums GATE,
-  timing report-only; devtools/bench/ + TESTING.md), `selfhostlex` (the
-  selfhost lexer's own tests — the one tree the Aug-10 coverage sweep
-  found NO stage ran), then the slow five
+  `forgetgate`, `ircontract`, `preludegate`, `stdtypes`, `abidoc`, `bttable`,
+  `fuzz` (`sawfuzz --quick`), `corodiff` (`--quick`), `bench` (the warehouse
+  benchmark — checksums GATE, timing report-only; devtools/bench/ +
+  TESTING.md), `selfhostlex` (the selfhost lexer's own tests — the one tree
+  the Aug-10 coverage sweep found NO stage ran), then the slow five
   `reemit` (design 221 A2: TWO compiles in ONE process, byte-comparing the
   unopt IR, the OPTIMIZED IR and the object — the optimized IR is the
   artifact DF-220a moved and the only one nothing checked),
@@ -249,8 +254,8 @@ Four BRIEF OBLIGATIONS (1-3 from design 190's Aug-9 quality analysis;
    eager→lazy, flag semantics — surveys "who relies on the old behavior"
    (grep + one paragraph) before dispatch. (The DF-182f irdet fork-bomb:
    cooperative `run()` deleted a throttle irdet relied on; loadavg >700.)
-3. **A safety-surface brief writes its conformance rows first.** Once
-   design 191 lands, a brief touching a safety guarantee adds/updates its
+3. **A safety-surface brief writes its conformance rows first.** Since
+   design 191 landed, a brief touching a safety guarantee adds/updates its
    `examples/conformance/` rows as its FIRST unit.
 4. **A DF finding is presumed to be a CLASS until a sweep says otherwise.**
    Before a DF's fix is dispatched, name the MECHANISM that produced it (a
