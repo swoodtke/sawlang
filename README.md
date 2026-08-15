@@ -230,7 +230,7 @@ byte with exactly the values written above, and it can cross an ABI boundary:
 
 ```saw
 let raw = SysError.NoMemory as UInt8      // 12; total, the enum is its tag
-if let e = SysError.from(raw: byte) {     // partial; None on an unknown value
+if let e = SysError.from(raw: raw) {      // partial; None on an unknown value
     print("decoded {e}")
 }
 ```
@@ -350,7 +350,7 @@ that documents nothing is a compile error rather than a silent drop.
 //! Spans of time.
 
 /// A span of time, held as whole nanoseconds.
-struct Duration {
+struct Span {
     /// Nanoseconds in the span.
     public nanos: UInt64
 }
@@ -859,7 +859,7 @@ it in a type you own.
 ```saw
 // mymodule.saw
 public struct Config {
-    name: String
+    public name: String
 }
 
 public func load() -> Config {
@@ -1489,8 +1489,13 @@ Options:
   -v                 Verbose output
   --emit-ir          Output LLVM IR only
   --emit-ast         Dump the typed AST for debugging
+  --ids              With --emit-ast, include each node's stable node_id
   --emit-docs        Emit documentation JSON instead of code
   --emit-docs-all    Same, keeping private fields, methods, and inits
+  --emit-frame-layout
+                     Emit the coroutine frame layout report as JSON instead of
+                     code: per monomorphized frame, its size, alignment, and
+                     field offsets
   --emit-bt-table    Decode the linked task-backtrace table as JSON: per
                      coroutine frame, the source line each resume state parks
                      on or the embedded callee it is inside
