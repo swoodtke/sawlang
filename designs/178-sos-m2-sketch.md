@@ -1,11 +1,18 @@
 # Design 178 — SOS M2 SKETCH (slicing RULED, agenda in progress)
 
-**Status: OPTION A RULED (user, Aug 15) — M2 is the concurrent kernel:
+**Status: FULLY RULED (user, Aug 15). Option A — the concurrent kernel:
 interrupts + timers + threads + scheduler + Event + Waiter; channels and
-memory objects are M3. The D1-D6 agenda below is being taken with the user;
-each item's ruling is recorded inline as it lands. Design 158 (the task-dump
-pin, unit c before interrupt bring-up) dispatches at 223's integration —
-its unit 1 shares coro_transform with the in-flight 223 agent.**
+memory objects are M3. D1-D6 RATIFIED AS WRITTEN, plus the carried
+fault-don't-status item: BadHandle, BadOp and AccessDenied ALL become
+faults — none survives as a status; statuses are reserved for exhaustion
+and peer-death classes; `Unknown` stays a userspace mapping artifact.
+D2's cost sentence is the recorded M3 tripwire: syscall latency bounds
+interrupt latency — re-examine when any M3 syscall grows a loop.
+The deliverable ladder below is now the M2 plan of record; every unit
+per-arch-gated, branch parked for user review per SOS policy. First
+dispatch: design 158 (the task-dump pin, unit c before interrupt
+bring-up), firing at design 223's integration — its unit 1 shares
+coro_transform with the in-flight 223 agent.**
 
 **Original sketch header (Aug 7):** M1+M1b+172 are landed: one arch-free
 kernel, two HALs, typed handles / SosStatus / kind-scoped rights, sosimg v3,
