@@ -1,0 +1,118 @@
+// XFAIL: DF-224a G1/G2 — a channel `receive()` in a `match` scrutinee is
+// neither embedded nor refused and spins at 100% CPU (the narrow scrutinee
+// hoist's predicate omits `is_chan_recv`, and `_collect_calls` never visits a
+// container head). Design 224 is the fix.
+//
+// Conformance row K40 — a suspension in a `match` SCRUTINEE embeds as a frame
+// and cedes to its siblings
+//
+// A container's HEAD slot is the expression it evaluates OUTSIDE any of its
+// blocks: an `if`/`while` condition, a `for` range, a `match` scrutinee, an
+// `if let`/`guard let` subject. The coroutine transform's nested-call walk
+// descended into the BLOCKS and never visited a head, so a suspension in one
+// was neither embedded NOR refused — the cooperative contract's third outcome,
+// which designs 96/101/104 say does not exist ("embeds at any depth, or errors
+// cleanly — never silently blocks").
+//
+// THREE properties, because the first two alone pass on a broken cell:
+//   1. it compiles;
+//   2. the callee really became a frame (`__Frame_gate` in the emitted IR);
+//   3. two tasks INTERLEAVE (A1 B1 A2 B2) and the channel receiver COMPLETES.
+//      A silently-sync scrutinee computes the right answer in the wrong order
+//      (A1 A2 B1 B2), and a channel `receive()` lowered as a plain call spins
+//      at 100% CPU forever — the runner's timeout is the oracle for that half.
+//
+// EXPECT: success
+// EXPECT-IR-CONTAINS: __Frame_gate
+// EXPECT-OUTPUT:
+// A1
+// B1
+// A2
+// B2
+// scrutinee 22
+
+import std.task.*
+import std.channel.{Channel}
+
+struct Src { ch: Channel<Int> }
+
+@synthesize
+extension Src: Copy {}
+
+extension Src {
+    func next(&self) -> Int {
+        let v = self.ch.receive()
+        return v
+    }
+}
+
+func gate(tag: String) -> Int {
+    print("{tag}1")
+    yield_now()
+    print("{tag}2")
+    return 3
+}
+
+// The `yield_now()` is LOAD-BEARING, not decoration: without it the executor
+// may run the feeder to completion before the receiver's first `try_receive`,
+// which succeeds immediately and never parks — and the row then passes on a
+// broken cell (the confound the DF-224a sweep hit in its own first pass).
+// Ceding here forces the receive to be a real cooperative park.
+func feed(ch: Channel<Int>, v: Int) {
+    yield_now()
+    ch.send(v)
+}
+
+// kind 1 — a suspending FREE FUNCTION in the scrutinee
+func work(tag: String) -> Int {
+    var seen = 0
+    match gate(tag) {
+        case 3 -> { seen = 3 },
+        case _ -> { seen = 0 }
+    }
+    return seen
+}
+
+// kind 2 — a cooperative channel `receive()` in the scrutinee
+func recv_scrut(ch: Channel<Int>) -> Int {
+    var seen = 0
+    match ch.receive() {
+        case 7 -> { seen = 7 },
+        case _ -> { seen = 0 }
+    }
+    return seen
+}
+
+// kind 3 — a suspending METHOD in the scrutinee
+func method_scrut(src: Src) -> Int {
+    var seen = 0
+    match src.next() {
+        case 9 -> { seen = 9 },
+        case _ -> { seen = 0 }
+    }
+    return seen
+}
+
+func main() {
+    var g = TaskGroup()
+    let a = g.spawn(work("A"))
+    let b = g.spawn(work("B"))
+    let ra = a.join()
+    let rb = b.join()
+
+    // The receiver is spawned BEFORE the feeder, so its `receive()` genuinely
+    // has to park and hand the executor to a sibling.
+    let ch = Channel<Int>()
+    let w = g.spawn(recv_scrut(ch.copy()))
+    let f = g.spawn(feed(ch.copy(), 7))
+    let rc = w.join()
+    f.join()
+
+    let mch = Channel<Int>()
+    let m = g.spawn(method_scrut(Src(ch: mch.copy())))
+    let f2 = g.spawn(feed(mch.copy(), 9))
+    let rm = m.join()
+    f2.join()
+
+    print("scrutinee {}", ra + rb + rc + rm)
+}

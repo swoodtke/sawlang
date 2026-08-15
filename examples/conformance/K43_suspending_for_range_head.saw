@@ -1,0 +1,107 @@
+// XFAIL: DF-224a G1 — `_collect_calls` never visits a container HEAD, so a
+// suspension in a `for` range is neither embedded nor refused: a channel
+// `receive()` spins at 100% CPU and a free function / method is a codegen ICE.
+// Design 224 is the fix.
+//
+// Conformance row K43 — a suspension in a `for` RANGE embeds as a frame and
+// cedes to its siblings
+//
+// K40's head-slot rule at the range position. A range's endpoints are evaluated
+// ONCE, at loop entry, so a suspension in one lifts to a preceding `let` exactly
+// as an `if` condition does — and BOTH endpoints are head slots, in source
+// order, which is what a lower bound that suspends checks.
+//
+// EXPECT: success
+// EXPECT-IR-CONTAINS: __Frame_gate
+// EXPECT-OUTPUT:
+// A1
+// B1
+// A2
+// B2
+// range 22
+
+import std.task.*
+import std.channel.{Channel}
+
+struct Src { ch: Channel<Int> }
+
+@synthesize
+extension Src: Copy {}
+
+extension Src {
+    func next(&self) -> Int {
+        let v = self.ch.receive()
+        return v
+    }
+}
+
+func gate(tag: String) -> Int {
+    print("{tag}1")
+    yield_now()
+    print("{tag}2")
+    return 3
+}
+
+// The `yield_now()`s are LOAD-BEARING (see K40): they force each receive to be
+// a real cooperative park rather than a `try_receive` that finds a queued value.
+func feed(ch: Channel<Int>, v: Int) {
+    yield_now()
+    ch.send(v)
+}
+
+func feed_two(ch: Channel<Int>) {
+    yield_now()
+    ch.send(2)
+    yield_now()
+    ch.send(11)
+}
+
+// kind 1 — a suspending FREE FUNCTION as the range's upper bound
+func work(tag: String) -> Int {
+    var n = 0
+    for _ in 0..gate(tag) {
+        n += 1
+    }
+    return n
+}
+
+// kind 2 — a cooperative channel `receive()` as the upper bound
+func recv_range(ch: Channel<Int>) -> Int {
+    var n = 0
+    for _ in 0..ch.receive() {
+        n += 1
+    }
+    return n
+}
+
+// kind 3 — a suspending METHOD in BOTH endpoints: the lower bound is evaluated
+// first, so the two hoists must keep source order (2..11 is nine iterations)
+func method_range(src: Src) -> Int {
+    var n = 0
+    for _ in src.next()..src.next() {
+        n += 1
+    }
+    return n
+}
+
+func main() {
+    var g = TaskGroup()
+    let a = g.spawn(work("A"))
+    let b = g.spawn(work("B"))
+    let ra = a.join()
+    let rb = b.join()
+
+    let ch = Channel<Int>()
+    let w = g.spawn(recv_range(ch.copy()))
+    let f = g.spawn(feed(ch.copy(), 7))
+    let rc = w.join()
+    f.join()
+
+    let mch = Channel<Int>()
+    let m = g.spawn(method_range(Src(ch: mch.copy())))
+    let f2 = g.spawn(feed_two(mch.copy()))
+    let rm = m.join()
+    f2.join()
+
+    print("range {}", ra + rb + rc + rm)
+}

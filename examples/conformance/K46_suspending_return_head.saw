@@ -1,0 +1,90 @@
+// XFAIL: DF-224a G4 — `_classify_recv` has no `ReturnStatement` arm, so
+// `return ch.receive()` falls past every classifier and is refused as a nested
+// position. Design 224 is the fix.
+//
+// Conformance row K46 — `return <suspension>` is a suspension boundary for ALL
+// THREE suspension kinds, the channel receive included
+//
+// The transform's three top-level classifiers answer the same question about
+// the same three statement shapes — a `let`, a bare expression, and a `return`.
+// The free-function one and the method one took all three; the cooperative
+// `receive()` one took only the first two, so `return ch.receive()` fell past
+// every classifier to the last-resort rejector and was refused as "a nested
+// position" for a statement that is not nested at all. Same missing arm, in a
+// tail position the design-83 normalization makes very common.
+//
+// EXPECT: success
+// EXPECT-IR-CONTAINS: __Frame_gate
+// EXPECT-OUTPUT:
+// A1
+// B1
+// A2
+// B2
+// return 19
+
+import std.task.*
+import std.channel.{Channel}
+
+struct Src { ch: Channel<Int> }
+
+@synthesize
+extension Src: Copy {}
+
+extension Src {
+    func next(&self) -> Int {
+        let v = self.ch.receive()
+        return v
+    }
+}
+
+func gate(tag: String) -> Int {
+    print("{tag}1")
+    yield_now()
+    print("{tag}2")
+    return 3
+}
+
+// The `yield_now()` is LOAD-BEARING (see K40): without it the feeder may finish
+// before the receiver's first `try_receive`, which then never parks and the row
+// passes on a broken cell.
+func feed(ch: Channel<Int>, v: Int) {
+    yield_now()
+    ch.send(v)
+}
+
+// kind 1 — a suspending FREE FUNCTION in return position
+func work(tag: String) -> Int {
+    return gate(tag)
+}
+
+// kind 2 — a cooperative channel `receive()` in return position
+func recv_return(ch: Channel<Int>) -> Int {
+    return ch.receive()
+}
+
+// kind 3 — a suspending METHOD in return position
+func method_return(src: Src) -> Int {
+    return src.next()
+}
+
+func main() {
+    var g = TaskGroup()
+    let a = g.spawn(work("A"))
+    let b = g.spawn(work("B"))
+    let ra = a.join()
+    let rb = b.join()
+
+    let ch = Channel<Int>()
+    let w = g.spawn(recv_return(ch.copy()))
+    let f = g.spawn(feed(ch.copy(), 7))
+    let rc = w.join()
+    f.join()
+
+    let mch = Channel<Int>()
+    let m = g.spawn(method_return(Src(ch: mch.copy())))
+    let f2 = g.spawn(feed(mch.copy(), 6))
+    let rm = m.join()
+    f2.join()
+
+    print("return {}", ra + rb + rc + rm)
+}

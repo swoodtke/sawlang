@@ -1,0 +1,119 @@
+// XFAIL: DF-224a G3 — `CompoundAssignStatement` is missing from the ANF hoist's
+// statement dispatch, so `n += slow()` in a suspending body is refused as a
+// nested position. Design 224 is the fix.
+//
+// Conformance row K45 — a suspension in a COMPOUND ASSIGNMENT's RHS embeds as a
+// frame and cedes to its siblings
+//
+// `n += slow()` is `n = n + slow()` with the target written once, and the plain
+// spelling has embedded since design 120. The compound one did not: the ANF
+// hoist's statement dispatch listed `let`, `=`, `return` and a bare expression
+// and simply had no arm for a compound assignment, so the RHS's suspension was
+// left buried and the last-resort rejector refused the statement. Design 227's
+// chained compound `x?.n += slow()` reaches the same missing arm through its
+// read-modify-writeback, which is why the two flip together.
+//
+// THREE properties (see K40): compiles; the callee is a frame; the two tasks
+// interleave and the channel receiver completes.
+//
+// EXPECT: success
+// EXPECT-IR-CONTAINS: __Frame_gate
+// EXPECT-OUTPUT:
+// A1
+// B1
+// A2
+// B2
+// compound 22
+// chain 100
+
+import std.task.*
+import std.channel.{Channel}
+
+struct Src { ch: Channel<Int> }
+
+@synthesize
+extension Src: Copy {}
+
+extension Src {
+    func next(&self) -> Int {
+        let v = self.ch.receive()
+        return v
+    }
+}
+
+struct Point { x: Int, y: Int }
+
+func gate(tag: String) -> Int {
+    print("{tag}1")
+    yield_now()
+    print("{tag}2")
+    return 3
+}
+
+// The `yield_now()` is LOAD-BEARING (see K40): without it the feeder may finish
+// before the receiver's first `try_receive`, which then never parks and the row
+// passes on a broken cell.
+func feed(ch: Channel<Int>, v: Int) {
+    yield_now()
+    ch.send(v)
+}
+
+// kind 1 — a suspending FREE FUNCTION as the `+=` RHS
+func work(tag: String) -> Int {
+    var total = 0
+    total += gate(tag)
+    return total
+}
+
+// kind 2 — a cooperative channel `receive()` as the `+=` RHS
+func recv_compound(ch: Channel<Int>) -> Int {
+    var total = 0
+    total += ch.receive()
+    return total
+}
+
+// kind 3 — a suspending METHOD as a `*=` RHS (every compound operator, not
+// just `+=`)
+func method_compound(src: Src) -> Int {
+    var total = 1
+    total *= src.next()
+    return total
+}
+
+// design 227's rider: the chained compound assignment writes the payload field
+// in place, and its RHS suspends on the non-None path
+func chain_compound(o: Point?, ch: Channel<Int>) -> Int {
+    var local = o
+    local?.x += ch.receive()
+    if let p = local { return p.x }
+    return -1
+}
+
+func main() {
+    var g = TaskGroup()
+    let a = g.spawn(work("A"))
+    let b = g.spawn(work("B"))
+    let ra = a.join()
+    let rb = b.join()
+
+    let ch = Channel<Int>()
+    let w = g.spawn(recv_compound(ch.copy()))
+    let f = g.spawn(feed(ch.copy(), 7))
+    let rc = w.join()
+    f.join()
+
+    let mch = Channel<Int>()
+    let m = g.spawn(method_compound(Src(ch: mch.copy())))
+    let f2 = g.spawn(feed(mch.copy(), 9))
+    let rm = m.join()
+    f2.join()
+
+    print("compound {}", ra + rb + rc + rm)
+
+    let cch = Channel<Int>()
+    let c = g.spawn(chain_compound(Point(x: 1, y: 2), cch.copy()))
+    let f3 = g.spawn(feed(cch.copy(), 99))
+    let rch = c.join()
+    f3.join()
+    print("chain {}", rch)
+}

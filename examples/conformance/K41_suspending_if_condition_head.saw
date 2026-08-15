@@ -1,0 +1,104 @@
+// XFAIL: DF-224a G1 — `_collect_calls` never visits a container HEAD, so a
+// suspension in an `if` condition is neither embedded nor refused: a channel
+// `receive()` spins at 100% CPU and a free function / method is a codegen ICE
+// naming the callee the transform stripped. Design 224 is the fix.
+//
+// Conformance row K41 — a suspension in an `if` CONDITION embeds as a frame and
+// cedes to its siblings
+//
+// K40's head-slot rule at the condition position. An `if` condition is
+// evaluated exactly once, unconditionally, before either branch, so a
+// suspension there is the same shape a `let` already hosts — and it was the
+// one head the CFG splitter reached without the nested-call walk ever having
+// classified it. Nesting is part of the row: the head of an `if` INSIDE
+// another `if`, and inside a `for` body, take the same walk.
+//
+// THREE properties (see K40): compiles; the callee is a frame; the two tasks
+// interleave and the channel receiver completes rather than spinning.
+//
+// EXPECT: success
+// EXPECT-IR-CONTAINS: __Frame_gate
+// EXPECT-OUTPUT:
+// A1
+// B1
+// A2
+// B2
+// condition 22
+
+import std.task.*
+import std.channel.{Channel}
+
+struct Src { ch: Channel<Int> }
+
+@synthesize
+extension Src: Copy {}
+
+extension Src {
+    func next(&self) -> Int {
+        let v = self.ch.receive()
+        return v
+    }
+}
+
+func gate(tag: String) -> Int {
+    print("{tag}1")
+    yield_now()
+    print("{tag}2")
+    return 3
+}
+
+// The `yield_now()` is LOAD-BEARING (see K40): without it the feeder may finish
+// before the receiver's first `try_receive`, which then never parks and the row
+// passes on a broken cell.
+func feed(ch: Channel<Int>, v: Int) {
+    yield_now()
+    ch.send(v)
+}
+
+// kind 1 — a suspending FREE FUNCTION in the condition
+func work(tag: String) -> Int {
+    var seen = 0
+    if gate(tag) > 0 { seen = 3 }
+    return seen
+}
+
+// kind 2 — a cooperative channel `receive()` in the condition, NESTED inside
+// another `if` (the walk has to reach a head at every depth, not just the top)
+func recv_cond(ch: Channel<Int>) -> Int {
+    var seen = 0
+    if seen == 0 {
+        if ch.receive() > 0 { seen = 7 }
+    }
+    return seen
+}
+
+// kind 3 — a suspending METHOD in the condition of an `if` inside a loop BODY
+func method_cond(src: Src) -> Int {
+    var seen = 0
+    for _ in 0..1 {
+        if src.next() > 0 { seen = 12 }
+    }
+    return seen
+}
+
+func main() {
+    var g = TaskGroup()
+    let a = g.spawn(work("A"))
+    let b = g.spawn(work("B"))
+    let ra = a.join()
+    let rb = b.join()
+
+    let ch = Channel<Int>()
+    let w = g.spawn(recv_cond(ch.copy()))
+    let f = g.spawn(feed(ch.copy(), 7))
+    let rc = w.join()
+    f.join()
+
+    let mch = Channel<Int>()
+    let m = g.spawn(method_cond(Src(ch: mch.copy())))
+    let f2 = g.spawn(feed(mch.copy(), 9))
+    let rm = m.join()
+    f2.join()
+
+    print("condition {}", ra + rb + rc + rm)
+}

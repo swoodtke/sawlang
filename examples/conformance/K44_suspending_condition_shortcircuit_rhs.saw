@@ -1,0 +1,121 @@
+// XFAIL: DF-224a G1 — `_collect_calls` never visits a container HEAD, so the
+// `&&`/`||` inside one never reaches design 120's stage-2 lowering: a channel
+// `receive()` in the RHS spins at 100% CPU and a free function / method is a
+// codegen ICE. Design 224 is the fix.
+//
+// Conformance row K44 — a suspension in the `&&`/`||` RHS of a CONDITION cedes,
+// and the short-circuit still skips it
+//
+// Design 120 stage 2 lowers a suspension-spanning `&&`/`||` to the branch shape
+// so the RHS runs only on the path that needs it — but only where the operator
+// is a statement's VALUE. In a container's head slot it was neither lowered nor
+// refused, which is K40's gap composed with this one: the head lift has to
+// happen FIRST so the ordinary stage-2 lowering can see the operator, and the
+// guarantee it must preserve is the one the whole construct exists for.
+//
+// FOUR properties: compiles; the callee is a frame; the tasks interleave and
+// the channel receiver completes; and the SKIPPED side never runs — the
+// short-circuit cases receive from a channel NOBODY FEEDS, so a lift that
+// hoisted the RHS above its guard would park forever instead of returning.
+//
+// EXPECT: success
+// EXPECT-IR-CONTAINS: __Frame_gate
+// EXPECT-OUTPUT:
+// A1
+// B1
+// A2
+// B2
+// shortcircuit 27
+
+import std.task.*
+import std.channel.{Channel}
+
+struct Src { ch: Channel<Int> }
+
+@synthesize
+extension Src: Copy {}
+
+extension Src {
+    func next(&self) -> Int {
+        let v = self.ch.receive()
+        return v
+    }
+}
+
+func gate(tag: String) -> Int {
+    print("{tag}1")
+    yield_now()
+    print("{tag}2")
+    return 3
+}
+
+// The `yield_now()` is LOAD-BEARING (see K40): without it the feeder may finish
+// before the receiver's first `try_receive`, which then never parks and the row
+// passes on a broken cell.
+func feed(ch: Channel<Int>, v: Int) {
+    yield_now()
+    ch.send(v)
+}
+
+// kind 1 — a suspending FREE FUNCTION as the `&&` RHS
+func work(tag: String) -> Int {
+    var seen = 0
+    if tag.len() > 0 && gate(tag) > 0 { seen = 3 }
+    return seen
+}
+
+// kind 2 — a cooperative channel `receive()` as the `||` RHS
+func recv_or(ch: Channel<Int>) -> Int {
+    var seen = 0
+    if seen == 99 || ch.receive() > 0 { seen = 7 }
+    return seen
+}
+
+// kind 3 — a suspending METHOD as the `&&` RHS
+func method_and(src: Src) -> Int {
+    var seen = 0
+    if 1 > 0 && src.next() > 0 { seen = 9 }
+    return seen
+}
+
+// the short-circuit halves: `ch` is never fed, so reaching the receive at all
+// is an unbounded park
+func skip_and(flag: Bool, ch: Channel<Int>) -> Int {
+    var seen = 99
+    if flag && ch.receive() > 0 { seen = 1 } else { seen = 0 }
+    return seen
+}
+
+func skip_or(flag: Bool, ch: Channel<Int>) -> Int {
+    var seen = 99
+    if flag || ch.receive() > 0 { seen = 5 } else { seen = 0 }
+    return seen
+}
+
+func main() {
+    var g = TaskGroup()
+    let a = g.spawn(work("A"))
+    let b = g.spawn(work("B"))
+    let ra = a.join()
+    let rb = b.join()
+
+    let ch = Channel<Int>()
+    let w = g.spawn(recv_or(ch.copy()))
+    let f = g.spawn(feed(ch.copy(), 7))
+    let rc = w.join()
+    f.join()
+
+    let mch = Channel<Int>()
+    let m = g.spawn(method_and(Src(ch: mch.copy())))
+    let f2 = g.spawn(feed(mch.copy(), 9))
+    let rm = m.join()
+    f2.join()
+
+    let dry = Channel<Int>()
+    let sa = g.spawn(skip_and(false, dry.copy()))
+    let so = g.spawn(skip_or(true, dry.copy()))
+    let rsa = sa.join()
+    let rso = so.join()
+
+    print("shortcircuit {}", ra + rb + rc + rm + rsa + rso)
+}

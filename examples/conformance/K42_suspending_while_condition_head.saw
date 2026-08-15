@@ -1,0 +1,120 @@
+// XFAIL: DF-224a G1 — `_collect_calls` never visits a container HEAD, so a
+// suspension in a `while` condition is neither embedded nor refused: a channel
+// `receive()` spins at 100% CPU and a free function / method is a codegen ICE.
+// Design 224 is the fix.
+//
+// Conformance row K42 — a suspension in a `while` CONDITION embeds, cedes, and
+// is RE-EVALUATED every iteration
+//
+// The one head slot that is not evaluated once: a `while` condition runs before
+// every iteration, so the fix that serves `if`/`for`/`match` — lift the head to
+// a preceding `let` — would be a miscompile here (the first answer would decide
+// the loop forever). The row therefore carries a FOURTH property beside K40's
+// three: the loop must run exactly as many times as the condition's successive
+// answers say, which a hoisted-once condition cannot produce.
+//
+// EXPECT: success
+// EXPECT-IR-CONTAINS: __Frame_gate
+// EXPECT-OUTPUT:
+// A0
+// B0
+// A1
+// B1
+// A2
+// B2
+// while 9
+
+import std.task.*
+import std.channel.{Channel}
+
+struct Src { ch: Channel<Int> }
+
+@synthesize
+extension Src: Copy {}
+
+extension Src {
+    func next(&self) -> Int {
+        let v = self.ch.receive()
+        return v
+    }
+}
+
+func gate(tag: String, n: Int) -> Bool {
+    print("{tag}{n}")
+    yield_now()
+    return n < 2
+}
+
+// The `yield_now()`s are LOAD-BEARING (see K40): they force every one of the
+// receiver's receives to be a real cooperative park rather than a `try_receive`
+// that happens to find a value already queued.
+func feed_run(ch: Channel<Int>) {
+    yield_now()
+    ch.send(3)
+    yield_now()
+    ch.send(2)
+    yield_now()
+    ch.send(1)
+    yield_now()
+    ch.send(0)
+}
+
+func feed_two(ch: Channel<Int>) {
+    yield_now()
+    ch.send(5)
+    yield_now()
+    ch.send(4)
+    yield_now()
+    ch.send(0)
+}
+
+// kind 1 — a suspending FREE FUNCTION in the condition; the loop ends when the
+// condition says so, three prints in, not on its first answer
+func work(tag: String) -> Int {
+    var n = 0
+    while gate(tag, n) {
+        n += 1
+    }
+    return n
+}
+
+// kind 2 — a cooperative channel `receive()` in the condition: four values in,
+// three iterations out
+func drain(ch: Channel<Int>) -> Int {
+    var n = 0
+    while ch.receive() > 0 {
+        n += 1
+    }
+    return n
+}
+
+// kind 3 — a suspending METHOD in the condition
+func drain_method(src: Src) -> Int {
+    var n = 0
+    while src.next() > 0 {
+        n += 1
+    }
+    return n
+}
+
+func main() {
+    var g = TaskGroup()
+    let a = g.spawn(work("A"))
+    let b = g.spawn(work("B"))
+    let ra = a.join()
+    let rb = b.join()
+
+    let ch = Channel<Int>()
+    let w = g.spawn(drain(ch.copy()))
+    let f = g.spawn(feed_run(ch.copy()))
+    let rc = w.join()
+    f.join()
+
+    let mch = Channel<Int>()
+    let m = g.spawn(drain_method(Src(ch: mch.copy())))
+    let f2 = g.spawn(feed_two(mch.copy()))
+    let rm = m.join()
+    f2.join()
+
+    print("while {}", ra + rb + rc + rm)
+}

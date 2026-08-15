@@ -1,0 +1,120 @@
+// XFAIL: DF-224a G2 — the narrow hoists' predicate `_call_suspends_expr` omits
+// `is_chan_recv` while its ANF twin includes it, so a channel `receive()` in an
+// `if let`/`guard let`/`try` head is refused where it is expressible and spins
+// at 100% CPU where design 104 already split the binding. Design 224 is the fix.
+//
+// Conformance row K47 — a cooperative channel `receive()` reaches the
+// optional-binding and `try` heads on the same terms a suspending call does
+//
+// Three narrow hoists lift a suspension out of a head the state split cannot
+// host: the `if let`/`guard let` subject (design 62 G2), the `match` scrutinee
+// (design 96) and the `try!`/`try`/`try?` subject (design 92). All three asked
+// ONE predicate whether the expression suspends, and that predicate knew about
+// a suspending free function and a suspending method and NOT about a channel
+// `receive()` — while its twin, the general ANF hoist's, knew about all three.
+// Two disagreeing definitions of "is this a suspension" in one file: the shapes
+// only the narrow hoists reach were refused where they were expressible, and
+// silently spun where design 104 had already split the binding.
+//
+// EXPECT: success
+// EXPECT-IR-CONTAINS: __Frame_relay
+// EXPECT-OUTPUT:
+// A1
+// B1
+// A2
+// B2
+// heads 40
+
+import std.task.*
+import std.channel.{Channel}
+
+enum Boom { case Bad }
+
+extension Boom: Printable {
+    func format(&self, into: &var StringBuilder) { into.append("bad") }
+}
+
+extension Boom: Error {}
+
+func relay(tag: String, v: Int) -> Int? {
+    print("{tag}1")
+    yield_now()
+    print("{tag}2")
+    return v
+}
+
+// The `yield_now()`s are LOAD-BEARING (see K40): without them the feeder may
+// finish before the receiver's first `try_receive`, which then never parks and
+// the row passes on a broken cell.
+func feed_opt(ch: Channel<Int?>, v: Int?) {
+    yield_now()
+    ch.send(v)
+}
+
+func feed_res(ch: Channel<Result<Int, Boom>>, v: Result<Int, Boom>) {
+    yield_now()
+    ch.send(v)
+}
+
+func mk_res(v: Int) -> Result<Int, Boom> {
+    return v
+}
+
+func work(tag: String) -> Int {
+    var seen = 0
+    if let v = relay(tag, 3) { seen = v }
+    return seen
+}
+
+// the `if let` subject, with a body that ALSO suspends — design 104 splits the
+// binding, which is exactly when the subject slot stopped being visited at all
+func iflet_head(ch: Channel<Int?>) -> Int {
+    var seen = 0
+    if let v = ch.receive() {
+        yield_now()
+        seen = v
+    }
+    return seen
+}
+
+// the `guard let` subject
+func guardlet_head(ch: Channel<Int?>) -> Int {
+    guard let v = ch.receive() else { return 0 }
+    return v
+}
+
+// the `try!` subject
+func try_head(ch: Channel<Result<Int, Boom>>) -> Int {
+    let v = try! ch.receive()
+    return v
+}
+
+func main() {
+    var g = TaskGroup()
+    let a = g.spawn(work("A"))
+    let b = g.spawn(work("B"))
+    let ra = a.join()
+    let rb = b.join()
+
+    let three: Int? = 3
+    let och = Channel<Int?>()
+    let w1 = g.spawn(iflet_head(och.copy()))
+    let f1 = g.spawn(feed_opt(och.copy(), three))
+    let r1 = w1.join()
+    f1.join()
+
+    let five: Int? = 5
+    let och2 = Channel<Int?>()
+    let w2 = g.spawn(guardlet_head(och2.copy()))
+    let f2 = g.spawn(feed_opt(och2.copy(), five))
+    let r2 = w2.join()
+    f2.join()
+
+    let rch = Channel<Result<Int, Boom>>()
+    let w3 = g.spawn(try_head(rch.copy()))
+    let f3 = g.spawn(feed_res(rch.copy(), mk_res(26)))
+    let r3 = w3.join()
+    f3.join()
+
+    print("heads {}", ra + rb + r1 + r2 + r3)
+}
