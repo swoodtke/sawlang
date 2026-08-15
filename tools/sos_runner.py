@@ -208,8 +208,8 @@ ARCH_WORDS = [
     # — so the scan learns them at the same time as the code that could leak
     # them. Each is spelled tightly enough not to fire on English: `gic` alone
     # would match "magic", which the loader's own diagnostics say.
-    "plic", "clint", "gicd", "gicc", "gicv", "sgir", "mtimecmp",
-    "cntp", "cntfrq", "sstc", "mtimer",
+    "plic", "clint", "gicd", "gicc", "gicv", "sgir",
+    "mtime", "cntp", "cntfrq", "sstc",
 ]
 
 # ANSI colors (matched to test_runner.py's style; disabled when not a TTY).
