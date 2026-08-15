@@ -956,6 +956,31 @@ obligation-2 consumer sweep before dispatch. Gates 218 stages 1-2.
   `T: Copy` semantics post-219. Dispatch AFTER wave B lands (it is
   rewriting the same docs; avoid conflicts).
 
+- **QUEUED: the thread-sharing cookbook** (user, Aug 15, out of the
+  DQ-222a probe session) — a LANGUAGE_SPEC section (+ a saw-lang skill
+  digest line) answering "how do I build a type holding raw memory that
+  multiple threads can safely share", which today is scattered across
+  design 130's rules, builtin.saw's trait comments, and the
+  Mutex/Arc/SpinLock sources. Content, all probe-verified Aug 15
+  (`.build/scratch/probe_sendbuf.saw` + `probe_arc_tg8/9.saw`,
+  GITIGNORED — the doc's examples must be rebuilt as compiling spec
+  examples): the TWO-LEVEL recipe — Level 1: plain safe struct owning
+  the buffer (raw pointer does not poison the type, Vector precedent;
+  reaching methods carry `unsafe` + owe total soundness), ONE
+  `UnsafeSend` assertion with its four obligations (heap-only, nothing
+  thread-affine, deinit sound from any thread, no unsynchronized
+  siblings), then `Arc<Mutex<T>>` composes mechanically (`Mutex<T:
+  Send>: UnsafeSync` ignites, ran end-to-end under `threads: 2`);
+  Level 2: internal atomics/SpinLock + `UnsafeSync` (obligation: the
+  whole `&self` surface race-free under true parallelism) for
+  lock-free sharing and `static` position (design 149 gate). Plus the
+  two theorems worth stating: a mutex converts Send→Sync (serializes
+  simultaneity, cannot un-migrate — why its Sync is bounded), and
+  nothing upgrades !Send→Send except the type's own design; the
+  universal fallback for any type is Channel-to-owner (remote
+  operation, not shared access). Natural neighbor of the Rust-ism
+  sweep above — same files, could be one dispatch.
+
 ## Design 218 unit 0 LANDED (Aug 13) — corodiff is a battery lane; three new DFs
 
 `tools/corodiff.py` (the coro differential harness, tracked), an 87-entry
