@@ -634,14 +634,24 @@ sub-agents, one lead), not one lucky repro.
   use, or whether `()`/`Void` unification is the intended design and the
   compiler has the gap.
 
-## Design 226 — UnsafeFuncPointer<F> (DIRECTION + NAME RULED, user, Aug 15; brief unauthored)
+## Design 226 — FuncPointer<F> (DIRECTION + NAME RULED, user, Aug 15; brief unauthored)
 
-The DF-178c fix: entry points and C callbacks get a typed unsafe
-function pointer, WITHOUT making functions first-class values (that
-stays DF-172a's open question). Ruled: the type is
-`unsafe struct UnsafeFuncPointer<F>` (F a function type carrying the
-effect slot — sync only, a suspending body needs a frame a bare pointer
-cannot carry). TWO construction forms: (1) a ZERO-CAPTURE closure
+The DF-178c fix: entry points and C callbacks get a typed function
+pointer, WITHOUT making functions first-class values (that stays
+DF-172a's open question). **RE-RULED (user, same day): the type is a
+SAFE `struct FuncPointer<F>`** — under closed construction every
+inhabitant is verified code of signature F, so possession and the
+indirect CALL are sound for every input (design 130's rule satisfied;
+code is immortal, so no dangling exists); APIs receiving one need no
+`unsafe` declaration. Unsafety is confined to the ONE forging member,
+`FuncPointer<F>.from_raw(addr) unsafe` (C-callback pointers arriving
+from FFI, loaders reading entry PCs) — unsafe automatically by 130's
+trigger rule since it binds a raw address; the Vector precedent
+applied properly. The kernel STILL range-checks the entry PC against
+the RX grant and faults (raw-ecall bypass defense — boundary checks
+and type safety each doing their own job). (F is a function type
+carrying the effect slot — sync only, a suspending body needs a frame
+a bare pointer cannot carry.) TWO construction forms: (1) a ZERO-CAPTURE closure
 literal COERCES in UnsafeFuncPointer-expected position — its body is
 emitted under F's bare ABI (no env parameter; the Rust non-capturing
 coercion precedent) — zero-alloc by construction, no overload
