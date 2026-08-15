@@ -75,6 +75,63 @@ compiler has the gap. Left the LANGUAGE_SPEC.md example exactly as
 written (it correctly states intent) per doc-sync doctrine: code is buggy,
 not the doc.
 
+**SWEEP VERDICT (Aug 15, obligation-4 mechanism sweep,
+`.build/scratch/sweep225g/RESULTS.md` + probes p01-p61, GITIGNORED):
+FALSIFIED — DF-225g is CLOSED as not-a-bug.** The plain-assign twin
+compiles identically (p01); the axis is design 200's ruled indirection
+carve-out, spec-documented (the "heap buffer" paragraph immediately
+below the snippet) and conformance-pinned (M32): a `Vector` field's
+elements live in its heap buffer, so writes through it at `&self` are
+ALLOWED; the refusal is for INLINE `[T; N]` storage — and the inline
+twin IS refused, both spellings (p04/p61). The scan's reading was
+induced by the spec snippet omitting `Board`'s field declaration —
+FIXED (the snippet now shows the inline field and points at the
+heap-case paragraph). All three checks fire on compound paths for this
+rule (statements.py:2785, place_uses.py:235 handles both classes).
+
+**BUT the sweep's census found FOUR NEW findings — two SOUNDNESS — the
+hypothesized class operating on OTHER rules. Design 227 = the
+write-target funnel brief (unauthored, FRONT OF THE COMPILER QUEUE):**
+
+- **DF-225i (SOUNDNESS) — compound assign skips design-193's write-path
+  RHS exclusivity.** `b.n += grow(b: &var b)` compiles and SILENTLY
+  LOSES grow's write (p21 prints 3; the plain twin p20 is refused with
+  the full teaching diagnostic). statements.py:2269 calls the check;
+  :2756 (compound) does not — and the check's own docstring claims
+  covered-by-construction with two named entry points; compound is the
+  unnamed third. Strictly worse than plain: compound also READS the
+  target.
+- **DF-225j (SOUNDNESS) — `let`-immutability of INLINE array storage is
+  shape-dependent.** Only literal `ident[i]` is protected; `a[0].n`
+  (compound), `a[0].0` (compound), `a[0][0]` (both), `h.arr[0]` (both)
+  all write a `let` — and the sharpest cells: a callee mutates the
+  caller's inline array through a SHARED `&` PARAMETER (p54/p60), the
+  exact storage class the `&self` spelling refuses. Mechanism: the two
+  lvalue-root walks each stop one hop short
+  (`_assign_target_immutable_array` :1666 needs a bare Identifier;
+  `_assign_target_immutable_struct_root` :1694 breaks at ArrayIndex);
+  the plain rows are NOT compound-specific. CONSUMER SWEEP OWED before
+  the fix (who writes `h.arr[0]` through a shared root today) — unit 0
+  of 227.
+- **DF-225k — `self.c?.n = 99` in a `&self` method is a SILENT NO-OP**
+  (p50 prints 1; the `!` sibling is refused).
+  `_check_chain_assign_head_mutable` (expressions.py:6965) defers
+  SelfExpr to "governed by &var self" and nothing governs it —
+  DF-175a's vanishing-write class, fifth spelling.
+- **DF-225l — `o?.n += 5` is a parse error while `o?.n = 5` works**
+  (parser/statements.py:205 routes OptionalEvalExpr only on the plain
+  branch) — the fourth "compound branch forgot X" sighting, in the
+  parser.
+
+227's funnel shape (from the sweep): extract `_check_assign_statement`'s
+guard prelude (:2229-2269) into ONE `_check_write_target(target, ...,
+compound:)` with named entry points (assign, compound, chain-assign,
+place-target) — subsumes 225i, 225j's compound rows, 225k; merge the two
+root walks into one ArrayIndex-transparent walk (225j's plain rows);
+225l is a parser hoist; 224a-G3 stays in the transform (independent).
+Test plan = the sweep's matrices; the section-1 accept/refuse table are
+regression pins that must NOT flip (M31/M32 territory).
+
 ## Design 178 M2 unit 1 — trap/timer/interrupt-controller HAL (BUILT Aug 15,
 branch PARKED for user review per SOS policy)
 

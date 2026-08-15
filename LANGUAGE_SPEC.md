@@ -2263,6 +2263,11 @@ The fourth spelling is a **place window**. Where a field's type publishes a
 `borrows` accessor, a write through it opens an exclusive window on the copy:
 
 ```saw
+struct Board {
+    grid: Grid          // Grid holds an INLINE [Cell; 9] — the refusal below
+}                       // is about inline storage; a Vector field is the
+                        // heap-buffer case the next paragraph ALLOWS
+
 extension Board {
     func bump(&self) {
         self.grid[0] += 100     // error: cannot write through a place window on
