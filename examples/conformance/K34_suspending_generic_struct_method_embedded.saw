@@ -18,7 +18,6 @@
 // method (`describe`) and a `&var self` one (`bump`), whose write must reach
 // the caller's storage through the frame's receiver handle.
 //
-// XFAIL: DF-218m a suspending method on a GENERIC struct reached from a driven body is compiled as a PLAIN function — no frame, no sub-frame, the suspension point inlined, and the right answer printed
 // EXPECT: success
 // EXPECT-IR-CONTAINS: __Frame_Box2_describe
 // EXPECT-IR-CONTAINS: __Frame_Counter_bump

@@ -12,12 +12,16 @@
 // cross-module one was silently sync, the conformance was refused entry-module
 // and compiled cross-module. One classifier, one answer.
 //
+// The frame names carry design 144's module-qualified type IDENTITY, which is
+// what a frame is named after — `Color$m$coro223`, not `Color`. That is the
+// identity codegen keys every table by, so asserting it is asserting the frame
+// belongs to the DEPENDENCY's type and not to a same-named one of ours.
+//
 // COMPILE-FLAGS: --module-path coro223={TESTDIR}/modules/coro223
-// XFAIL: DF-218l and DF-218m across a module boundary — the cross-module enum and generic-struct methods are SILENTLY SYNC (the entry-module enum is an ICE instead, one hole with two symptoms)
 // EXPECT: success
-// EXPECT-IR-CONTAINS: __Frame_Color_label
-// EXPECT-IR-CONTAINS: __Frame_Box2_describe
-// EXPECT-IR-CONTAINS: __Frame_Talker_greet
+// EXPECT-IR-CONTAINS: __Frame_Color$m$coro223_label
+// EXPECT-IR-CONTAINS: __Frame_Box2$m$coro223_describe
+// EXPECT-IR-CONTAINS: __Frame_Talker$m$coro223_greet
 // EXPECT-OUTPUT:
 // A1
 // B1

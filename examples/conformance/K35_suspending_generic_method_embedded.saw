@@ -12,7 +12,6 @@
 // Three properties: compiles; `__Frame_Holder_wrap` (at its instantiation) is
 // in the IR; the two tasks interleave.
 //
-// XFAIL: DF-223a a suspending METHOD-LEVEL generic on a concrete struct is classified as embeddable by its receiver and then skipped by the closure walk on its own `type_params`, so the embedding dies on an unanchored `internal compiler error: 'Holder_wrap'`
 // EXPECT: success
 // EXPECT-IR-CONTAINS: __Frame_Holder_wrap
 // EXPECT-OUTPUT:

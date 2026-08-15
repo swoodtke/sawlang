@@ -1539,6 +1539,16 @@ class MethodCall(Expression):
     # `group.spawn(f(...))`: the spawned root's name, consumed by the coroutine
     # transform to build f's frame.
     spawn_root: Optional[str] = annotation(None)
+    # design 223 unit 1: the FRAME KEY of the suspending method this call embeds,
+    # when naming it took a monomorphization the call site does not spell — a
+    # method on a generic struct (`Box2<String>.describe`) or a method-level
+    # generic (`Holder.wrap<String>`). Stamped by
+    # `coro_transform._promote_nested_generic_methods`, which built the
+    # instantiation; read by `_suspending_method_target`, which otherwise cannot
+    # tell a generic receiver it CAN name from one it cannot. An unstamped
+    # generic receiver is the classifier's UNSUPPORTED answer, and UNSUPPORTED
+    # raises rather than degrading to a plain call.
+    coro_frame_key: Optional[str] = annotation(None)
     # --- UnsafeMemory method plan (design 81/112) ---
     um_method: Optional[str] = annotation(None)
     um_scalar_type: Optional['SawType'] = annotation(None)

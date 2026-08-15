@@ -17,7 +17,6 @@
 //      the right label, in the right order, and simply never yields — the run
 //      prints A1 A2 B1 B2 and every value assertion still passes.
 //
-// XFAIL: DF-218l a suspending method on an ENUM extension is a codegen ICE at the call site — the transform builds and strips the method's frame but never rewrites the caller, because the call-site classifier reads only `struct_name`
 // EXPECT: success
 // EXPECT-IR-CONTAINS: __Frame_Color_label
 // EXPECT-OUTPUT:

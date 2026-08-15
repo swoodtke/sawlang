@@ -127,6 +127,7 @@ against this schema, to be declared and listed here; never a graft.
 """
 
 import dataclasses
+from typing import NamedTuple, Optional
 from ast_nodes import (
     ASTNode, Expression, Statement, Block, Argument,
     Identifier, MemberAccess, SelfExpr, IntLiteral, BoolLiteral, NoneLiteral,
@@ -1527,34 +1528,134 @@ def _analyze_nesting(root_name, root_func, nodes):
 # per-function transform
 # --------------------------------------------------------------------------- #
 
-def _method_call_owner(mc):
-    """The name of the type whose method `mc` calls — the key half of a
-    suspending method's frame identity — or None when the call is not a shape
-    the transform can embed.
+class _MethodTarget(NamedTuple):
+    """The answer `_suspending_method_target` gives. THREE values, not two."""
+    kind: str                      # 'embed' | 'unsupported' | 'none'
+    frame_key: Optional[str]       # 'embed' only — the frame this call embeds
+    owner: Optional[str]           # the type the method belongs to, when known
+    is_static: bool
+    reason: Optional[str]          # 'unsupported' only — why it cannot be named
 
-    DF-184a: there are TWO shapes, and only one of them used to be read here. An
-    INSTANCE call carries its owner on the RECEIVER (`recv.m()`, so
-    `mc.object.resolved_type.struct_name`); a STATIC one has no receiver at all,
-    so the typechecker stamps the owner on the CALL. Keying off the receiver
-    alone meant a suspending static method was never discovered, never embedded,
-    and — for an entry-module one, whose original body IS stripped once the
-    closure walk reaches it through the effect edge — left a call to a method
-    that no longer existed.
+    @property
+    def suspends(self):
+        """Does this call SUSPEND? True for both answers that are not 'none' —
+        an inexpressible suspending call is still a suspending call, and that
+        is the whole of the bug this type exists to close."""
+        return self.kind != 'none'
 
-    A GENERIC receiver is excluded from both shapes: a value with type args
-    (`Holder<Int>`), or a type name written with them (`Vector<Int>.make()`).
-    The frame's `__recv` pointee / the callee's mangling would need the
-    instantiation, so the call site is rejected cleanly downstream instead.
+
+_NOT_SUSPENDING = _MethodTarget('none', None, None, False, None)
+
+
+def _suspending_method_target(mc, tc):
+    """THE call-site classifier for a suspending METHOD call (design 223 unit 1).
+
+    Three-valued, and the third value is the point:
+
+      * EMBED(frame_key)      — a suspending method whose frame this call site
+                                can name and embed.
+      * UNSUPPORTED(reason)   — a suspending method whose frame it CANNOT name.
+                                The caller's job is to RAISE. It must never
+                                degrade to a plain call: the callee's park would
+                                run outside any frame, where `yield_now` is a
+                                no-op, and the cooperative contract would be
+                                silently dropped on a program that compiles,
+                                runs and prints the right answer.
+      * NOT_SUSPENDING        — not a suspending method call at all.
+
+    This replaces `_method_call_owner`, whose single `None` meant BOTH of the
+    last two — and all seven consumers below read it as the last one, which is
+    how seven probed positions came to compile as plain sync calls (design 223's
+    finding; DF-218k/l/m and DF-223a are four faces of it).
+
+    ENTRY POINTS (every consumer; obligation 1 — this is the funnel):
+      * `_FrameBuilder._classify_method_call` — the nested-embedding classifier.
+        Embeds on EMBED; returns None on UNSUPPORTED so the rejection below
+        fires at the same statement.
+      * `_FrameBuilder._method_call_suspends` — "is this a suspension?", read by
+        the expression-position hoists and by `_reject_buried_suspend_call`.
+        True for EMBED *and* UNSUPPORTED.
+      * `_FrameBuilder._suspending_method_call` — the statement-shaped twin,
+        feeding the top-level rejector.
+      * `_FrameBuilder._reject_suspending_method_call` — rejector 1 (a buried
+        method call at statement level).
+      * `_FrameBuilder._reject_buried_suspend_call` — rejector 2 (an expression
+        position no hoist lifted).
+      * `_rewrite_drive_sites` — `__saw_drive(recv.m(...))` -> the driver's name.
+      * `transform_program._scan_method_callees` — the structural discovery of
+        callee frames to build. Enqueues EMBED only: a frame it cannot name is
+        a frame it cannot build, and the rejectors are what report that.
+
+    WHAT IT READS. An INSTANCE call carries its owner on the RECEIVER's resolved
+    type — `struct_name` for a struct and `enum_name` for an ENUM, which is the
+    one-word half of DF-218l (design 145 gave enums extensions, design 74 gives
+    methods frames, and this is where the two had not met). A STATIC call has no
+    receiver, so the typechecker stamps `static_receiver` on the call (DF-184a).
+
+    A GENERIC receiver or a method-level generic needs an INSTANTIATION to be
+    named at all, and the instantiation is not something a classifier can
+    conjure — `_promote_nested_generic_methods` builds it before any body is
+    lowered and stamps the resulting frame key on the call. So a stamped call is
+    EMBED whatever its type arguments look like, and an unstamped one whose
+    receiver or call carries type arguments is UNSUPPORTED. That keeps ONE
+    question here ("can I name this frame?") and leaves "can this frame be
+    built?" where the building happens.
     """
-    rt = getattr(mc.object, 'resolved_type', None)
-    sn = getattr(rt, 'struct_name', None) if rt else None
-    if sn is not None:
-        return None if getattr(rt, 'type_args', None) else sn
-    if not getattr(mc, 'is_static_method_call', False):
-        return None
-    if getattr(mc.object, 'type_args', None):
-        return None
-    return getattr(mc, 'static_receiver', None)
+    if getattr(mc, 'is_chan_recv', False):
+        # design 62 G3: a cooperative `receive()` lowers INLINE — it suspends
+        # and embeds nothing, so it is not this classifier's business.
+        return _NOT_SUSPENDING
+    susp = getattr(tc, '_suspending_methods_set', None) if tc is not None else None
+    if not susp:
+        return _NOT_SUSPENDING
+    is_static = bool(getattr(mc, 'is_static_method_call', False))
+    if is_static:
+        owner = getattr(mc, 'static_receiver', None)
+        recv_args = getattr(mc.object, 'type_args', None)
+    else:
+        rt = getattr(mc.object, 'resolved_type', None)
+        owner = ((getattr(rt, 'struct_name', None)
+                  or getattr(rt, 'enum_name', None)) if rt is not None else None)
+        recv_args = getattr(rt, 'type_args', None) if rt is not None else None
+    stamped = getattr(mc, 'coro_frame_key', None)
+    if stamped is not None:
+        return _MethodTarget('embed', stamped, owner, is_static, None)
+    if owner is None:
+        # No compile-time owner: an existential receiver, a type parameter, a
+        # primitive. Nothing here can name a frame, and nothing here KNOWS
+        # whether one is owed — the existential case is DF-223b, refused by the
+        # typechecker at the dispatch, where the trait is in hand.
+        return _NOT_SUSPENDING
+    if (owner, mc.method_name) not in susp:
+        return _NOT_SUSPENDING
+    if recv_args or getattr(mc, 'type_args', None):
+        # Un-nameable — but REFUSING is only right for a method that really
+        # suspends. The suspending-method set is the conservative one: it holds
+        # `Vector.map` and its siblings, which "suspend" solely by the rule that
+        # a call through a non-`sync` function value might (design 206's
+        # `really_suspending` excludes exactly those). Refusing on a merely
+        # conservative answer would reject `v.map({ n in slow(n) })` — where
+        # nothing in `map` itself suspends and the closure's own suspension is
+        # lowered on its own terms — so a conservative-only generic call keeps
+        # the pre-223 answer instead.
+        really = (getattr(tc, '_really_suspending_methods_set', None)
+                  if tc is not None else None) or set()
+        if (owner, mc.method_name) not in really:
+            return _NOT_SUSPENDING
+        if recv_args:
+            return _MethodTarget(
+                'unsupported', None, owner, is_static,
+                f"its receiver `{owner}<...>` is a generic instantiation this "
+                f"call site could not be monomorphized for")
+        return _MethodTarget(
+            'unsupported', None, owner, is_static,
+            f"it is a generic method (`{mc.method_name}<...>`) this call site "
+            f"could not be monomorphized for")
+    return _MethodTarget(
+        'embed',
+        _method_frame_key(owner, mc.method_name,
+                          getattr(mc, 'resolved_symbol', None)),
+        owner, is_static, None)
 
 
 def _method_call_is_static(mc):
@@ -4060,9 +4161,13 @@ class _FrameBuilder:
         """design 84: classify a nested suspending METHOD call boundary. Returns
         {callee: `{struct}_{method}`, args, target, ret, recv, recv_struct,
         recv_type_args, is_method} or None. Supported forms mirror the free-function
-        ones (let-bound / bare-discard / tail-return); the RECEIVER must be a plain
-        struct (a generic-struct receiver is left for `_reject_suspending_method_call`
-        to reject cleanly — the frame's `__recv` pointee would need the instantiation)."""
+        ones (let-bound / bare-discard / tail-return).
+
+        design 223: the RECEIVER question is `_suspending_method_target`'s, and
+        an UNSUPPORTED answer returns None from HERE so the rejector at the same
+        statement (`_reject_suspending_method_call`) raises. Returning None used
+        to mean "not a suspending call" as well, which is what let the
+        inexpressible shapes lower as plain calls."""
         mc = None
         if isinstance(stmt, LetStatement) and isinstance(stmt.value, MethodCall):
             mc = stmt.value
@@ -4082,22 +4187,18 @@ class _FrameBuilder:
             # ran, the frame's `__result` was never written, and `return
             # recv.m()` handed back a zeroed value.
             is_ret = True
-        if mc is None or getattr(mc, 'is_chan_recv', False):
+        if mc is None:
             return None
-        susp = getattr(self._tc, '_suspending_methods_set', None) if self._tc else None
-        if not susp:
+        # DF-184a: the classifier answers for a STATIC call too, whose `recv` is
+        # None — the sub-frame it embeds has no `__recv` to seed.
+        tgt = _suspending_method_target(mc, self._tc)
+        if tgt.kind != 'embed':
             return None
-        # DF-184a: `_method_call_owner` answers for a STATIC call too, whose
-        # `recv` is None — the sub-frame it embeds has no `__recv` to seed.
-        sname = _method_call_owner(mc)
-        if sname is None or (sname, mc.method_name) not in susp:
-            return None
-        is_static = _method_call_is_static(mc)
-        return {'callee': _method_frame_key(
-                    sname, mc.method_name, getattr(mc, 'resolved_symbol', None)),
+        return {'callee': tgt.frame_key,
                 'args': list(mc.arguments), 'target': target, 'ret': is_ret,
-                'recv': None if is_static else mc.object, 'recv_struct': sname,
-                'is_method': True, 'has_recv': not is_static,
+                'recv': None if tgt.is_static else mc.object,
+                'recv_struct': tgt.owner,
+                'is_method': True, 'has_recv': not tgt.is_static,
                 'line': getattr(mc, 'line', 0) or 0}
 
     def _classify_recv(self, stmt):
@@ -4183,50 +4284,56 @@ class _FrameBuilder:
         return {'call': fc, 'target': target, 'ret': is_ret}
 
     def _method_call_suspends(self, mc):
-        """design 84: True if `mc` is a call to a suspending method on a concrete
-        (non-generic) struct receiver — the shape embedded as a nested method
-        sub-frame."""
-        if getattr(mc, 'is_chan_recv', False):
-            return False
-        susp = getattr(self._tc, '_suspending_methods_set', None) if self._tc else None
-        if not susp:
-            return False
-        sname = _method_call_owner(mc)
-        return sname is not None and (sname, mc.method_name) in susp
+        """design 84 + 223: True if `mc` is a call to a suspending method — one
+        this frame can EMBED, or one it cannot NAME. Both are suspensions, and
+        the second is exactly what must not be answered `False`: the callers are
+        the expression-position hoists and `_reject_buried_suspend_call`, so a
+        `False` here is a suspension lowered in place as a plain call."""
+        return _suspending_method_target(mc, self._tc).suspends
 
     def _suspending_method_call(self, stmt):
         """If `stmt` is a top-level `let x = recv.m(args)` / bare `recv.m(args)`
-        whose method `m` on `recv`'s concrete struct type suspends, return the
-        MethodCall; else None. Consults the transform's (struct, method) suspend set
-        (design 74 shape 1)."""
+        whose method `m` suspends, return (MethodCall, target); else
+        (None, None). The target carries WHY when the frame cannot be named, so
+        the rejector can say so (design 223)."""
         mc = None
         if isinstance(stmt, LetStatement) and isinstance(stmt.value, MethodCall):
             mc = stmt.value
         elif (isinstance(stmt, ExpressionStatement)
               and isinstance(stmt.expression, MethodCall)):
             mc = stmt.expression
-        if mc is None or getattr(mc, 'is_chan_recv', False):
-            return None
-        susp = getattr(self._tc, '_suspending_methods_set', None) if self._tc else None
-        if not susp:
-            return None
-        sname = _method_call_owner(mc)
-        if sname is not None and (sname, mc.method_name) in susp:
-            return mc
-        return None
+        if mc is None:
+            return None, None
+        tgt = _suspending_method_target(mc, self._tc)
+        return (mc, tgt) if tgt.suspends else (None, None)
 
     def _reject_suspending_method_call(self, stmt):
-        mc = self._suspending_method_call(stmt)
+        mc, tgt = self._suspending_method_call(stmt)
         if mc is not None:
-            sname = _method_call_owner(mc) or "?"
             raise CoroTransformError(
-                f"coroutine transform: a buried suspending method call "
+                self._unembeddable_method_message(mc, tgt),
+                mc.line, mc.column, source_file=self.src_file)
+
+    def _unembeddable_method_message(self, mc, tgt):
+        """THE message for a suspending method call this frame cannot embed.
+
+        One text for both rejectors, because they refuse the same thing for the
+        same reason and used to word it two ways. When the classifier said
+        UNSUPPORTED it also said why, and that half is what design 223 added:
+        before it, the inexpressible shapes never reached a rejector at all."""
+        sname = (tgt.owner if tgt is not None and tgt.owner else "?")
+        if tgt is not None and tgt.reason:
+            return (f"coroutine transform: the suspending method call "
+                    f"`{sname}.{mc.method_name}(...)` inside driven `{self.name}` "
+                    f"cannot be embedded because {tgt.reason}. Drive the method "
+                    f"directly with `__saw_drive(recv.{mc.method_name}(...))`, or "
+                    f"wrap the call in a nested free function and call that.")
+        return (f"coroutine transform: a buried suspending method call "
                 f"`{sname}.{mc.method_name}(...)` inside driven `{self.name}` is not "
                 f"yet supported (design 74 A5-rest, shape 1: method sub-frame "
                 f"embedding). Drive the method directly with "
                 f"`__saw_drive(recv.{mc.method_name}(...))`, or wrap the call in a "
-                f"nested free function and call that.",
-                mc.line, mc.column, source_file=self.src_file)
+                f"nested free function and call that.")
 
     def _reject_buried_suspend_call(self, stmt):
         """A suspending call in a position the flat state split cannot express —
@@ -4275,7 +4382,16 @@ class _FrameBuilder:
         if found:
             kind, g = found[0]
             if kind == "method":
-                sname = _method_call_owner(g) or "?"
+                tgt = _suspending_method_target(g, self._tc)
+                if tgt.kind == 'unsupported':
+                    # design 223: the frame could not be NAMED, which is a
+                    # different refusal from "this position cannot host one" —
+                    # say which, or the author restructures a branch that was
+                    # never the problem.
+                    raise CoroTransformError(
+                        self._unembeddable_method_message(g, tgt),
+                        g.line, g.column, source_file=self.src_file)
+                sname = tgt.owner or "?"
                 raise CoroTransformError(
                     f"coroutine transform: a buried suspending method call "
                     f"`{sname}.{g.method_name}(...)` inside driven `{self.name}` "
@@ -7775,7 +7891,7 @@ def _rewrite_drive_sites(node, roots):
             # takes the arguments alone.
             if _method_call_is_static(inner):
                 node.name = prefix + _method_frame_key(
-                    _method_call_owner(inner), inner.method_name,
+                    getattr(inner, 'static_receiver', None), inner.method_name,
                     getattr(inner, 'resolved_symbol', None))
                 node.arguments = [_ref_arg_to_ptr(a) for a in inner.arguments]
                 return node
@@ -8007,6 +8123,171 @@ def _promote_nested_generic_calls(program, funcs_by_name, seed_names, typechecke
     return promoted_all
 
 
+def _promote_nested_generic_methods(program, funcs_by_name, seed_names, all_exts,
+                                    susp_methods, really_susp_methods,
+                                    typechecker):
+    """design 223 unit 1: give the EMBEDDED position the instantiation the DRIVE
+    position already gets.
+
+    `__saw_drive(b.describe())` on a `Box2<String>` works because the
+    typechecker monomorphizes the method for the concrete receiver AT THE DRIVE
+    SITE (`_drive_generic_struct_method`) and hands the transform a
+    per-instantiation clone plus the concrete receiver type. The same call
+    reached from a body that is already a frame had no such site, so there was
+    no clone, no frame key, and — before this brief — no diagnostic either: the
+    call fell out of the classifier and lowered as a plain sync call (DF-218m).
+    A method-level generic on a concrete struct had the mirror-image hole, and
+    failed louder (DF-223a's raw `KeyError`), because its RECEIVER was nameable
+    and only its method was not.
+
+    So this walks every body a driven root can reach and, for each suspending
+    method call whose frame needs an instantiation to be named, builds that
+    instantiation and STAMPS the resulting frame key on the call. It is the
+    method twin of `_promote_nested_generic_calls` (design 74 shape 3) and runs
+    beside it, before any body is lowered.
+
+    Returns {frame_key: (owner, clone, extension, concrete receiver SawType)}
+    for the GENERIC-STRUCT clones, which live nowhere in the AST — they are not
+    spliceable onto a plain extension, since their `self` is `Box2<String>` — so
+    the caller registers them with the method tables itself. A method-level
+    generic's clone IS spliced onto its own extension by `_build_method_mono`,
+    exactly as the drive path splices it, and needs nothing here.
+
+    What it does NOT do is decide whether the instantiation suspends: that
+    answer comes from `susp_methods`, which is keyed by the TEMPLATE. A method
+    whose template suspends is treated as suspending at every instantiation —
+    over-approximating in the safe direction, and the same answer both rejectors
+    have always used.
+    """
+    from codegen.mangle import mangle_named
+    out = {}
+    pristine_gs = getattr(typechecker, '_pristine_generic_struct_methods', None) or {}
+    pristine_m = getattr(typechecker, '_pristine_generic_methods', None) or {}
+    if not pristine_gs and not pristine_m:
+        return out
+    # Resolve + register under the entry module's symbol scope: the namespace was
+    # reset after `check_module` returned, exactly as for the free-function twin.
+    entry_ns = getattr(typechecker, "_entry_module_ns", None)
+    saved_ns = getattr(typechecker, "namespace", None)
+    if entry_ns is not None:
+        typechecker.namespace = entry_ns
+
+    methods_by_owner = {}
+    for ext in all_exts:
+        sname = getattr(ext, 'struct_name', None)
+        for m in ext.methods:
+            methods_by_owner.setdefault((sname, m.name), (m, ext))
+
+    def resolved_args_of(type_args):
+        out_args = []
+        for a in type_args or []:
+            try:
+                out_args.append(typechecker._resolve_type(a))
+            except Exception:
+                out_args.append(a)
+        return out_args
+
+    def promote_generic_struct(mc, owner, recv_args):
+        entry = pristine_gs.get((owner, mc.method_name))
+        if entry is None:
+            return None
+        pristine, ext = entry
+        method_tps = getattr(pristine, 'type_params', None) or []
+        method_args = resolved_args_of(mc.type_args) if method_tps else []
+        if len(method_args) != len(method_tps):
+            return None
+        struct_args = list(recv_args)
+        mono_name = mangle_named(mc.method_name, struct_args + method_args)
+        concrete_recv = SawType(TypeKind.STRUCT, struct_name=owner,
+                                type_args=struct_args)
+        typechecker._effect_queue_generic_struct_method_mono(
+            owner, mc.method_name, struct_args, method_args, mono_name,
+            concrete_recv)
+        typechecker._build_generic_struct_method_mono(
+            owner, mc.method_name, struct_args, method_args, mono_name)
+        recv_type, clone = typechecker._driven_generic_struct_methods.get(
+            (owner, mono_name), (None, None))
+        if clone is None:
+            return None
+        key = _method_frame_key(owner, mono_name,
+                                getattr(clone, 'mangled_symbol', None))
+        out[key] = (owner, clone, ext, recv_type or concrete_recv)
+        mc.coro_frame_key = key
+        return clone
+
+    def promote_generic_method(mc, owner):
+        entry = pristine_m.get((owner, mc.method_name))
+        if entry is None:
+            return None
+        _pristine, ext = entry
+        args = resolved_args_of(mc.type_args)
+        mono_name = mangle_named(mc.method_name, args)
+        typechecker._build_method_mono(owner, mc.method_name, args, mono_name)
+        clone = next((m for m in ext.methods
+                      if getattr(m, 'name', None) == mono_name), None)
+        if clone is None:
+            return None
+        mc.coro_frame_key = _method_frame_key(
+            owner, mono_name, getattr(clone, 'mangled_symbol', None))
+        return clone
+
+    def scan(body, enqueue):
+        for mc in _iter_method_calls(body):
+            if getattr(mc, 'is_chan_recv', False) or mc.coro_frame_key is not None:
+                continue
+            if getattr(mc, 'is_static_method_call', False):
+                owner = getattr(mc, 'static_receiver', None)
+                recv_args = getattr(mc.object, 'type_args', None)
+            else:
+                rt = getattr(mc.object, 'resolved_type', None)
+                owner = ((getattr(rt, 'struct_name', None)
+                          or getattr(rt, 'enum_name', None))
+                         if rt is not None else None)
+                recv_args = getattr(rt, 'type_args', None) if rt is not None else None
+            if owner is None or (owner, mc.method_name) not in susp_methods:
+                continue
+            if recv_args or getattr(mc, 'type_args', None):
+                # Only a method that REALLY suspends earns an instantiation.
+                # `Vector.map` is in the suspending set by the conservative
+                # closure-call rule alone; monomorphizing it would put a frame
+                # around a body that suspends nothing.
+                if (owner, mc.method_name) not in really_susp_methods:
+                    continue
+                clone = (promote_generic_struct(mc, owner, recv_args)
+                         if recv_args else promote_generic_method(mc, owner))
+            else:
+                # Nameable as it stands — follow it, so a generic call BELOW an
+                # ordinary suspending method is promoted too (the depth the
+                # free-function twin reaches only through its own promotions).
+                found = methods_by_owner.get((owner, mc.method_name))
+                clone = found[0] if found is not None else None
+            if clone is not None and getattr(clone, 'body', None) is not None:
+                enqueue(clone.body)
+        for fc in _iter_function_calls(body):
+            callee = funcs_by_name.get(fc.name)
+            if callee is not None and getattr(callee, 'body', None) is not None:
+                enqueue(callee.body)
+
+    seen_bodies = set()
+    work = []
+
+    def enqueue(body):
+        if id(body) not in seen_bodies:
+            seen_bodies.add(id(body))
+            work.append(body)
+
+    for name in seed_names:
+        f = funcs_by_name.get(name)
+        if f is not None and getattr(f, 'body', None) is not None:
+            enqueue(f.body)
+    while work:
+        scan(work.pop(), enqueue)
+
+    if entry_ns is not None:
+        typechecker.namespace = saved_ns
+    return out
+
+
 def _assign_bt_indices(frame_structs, builders):
     """design 158: fix the backtrace table's frame ORDER and patch each frame's
     `bt_desc` literal to its index.
@@ -8104,13 +8385,26 @@ def transform_program(program, typechecker, imported_ast=None):
     # eventual lift; until then this is the honest rejection.
     _nodes_for_methods = getattr(typechecker, "_suspend_nodes", {})
     suspending_methods = set(getattr(typechecker, "_std_suspending_methods", set()))
+    # design 223: the same census, asked design 206's SHARPER question — does
+    # this method REALLY suspend (reach a cooperative primitive), or does it only
+    # "suspend" by the conservative rule that a call through a non-`sync`
+    # function value might? The two sets differ on `Vector.map` and friends, and
+    # the difference decides whether an un-nameable call site is REFUSED or left
+    # exactly as it was: refusing on a conservative answer would reject a
+    # perfectly ordinary `v.map({ ... })`.
+    from typechecker.effects import really_suspending as _really_suspending
+    _really = _really_suspending(_nodes_for_methods)
+    really_suspending_methods = set()
     for ext in _all_exts:
         sname = getattr(ext, 'struct_name', None)
         for m in ext.methods:
             node = _nodes_for_methods.get(m.node_id)
             if node is not None and node.suspends:
                 suspending_methods.add((sname, m.name))
+            if _really.get(m.node_id):
+                really_suspending_methods.add((sname, m.name))
     typechecker._suspending_methods_set = suspending_methods
+    typechecker._really_suspending_methods_set = really_suspending_methods
 
     new_structs = []
     new_enums = []
@@ -8137,6 +8431,16 @@ def transform_program(program, typechecker, imported_ast=None):
         seed_names.append("main")
     promoted = _promote_nested_generic_calls(
         program, funcs_by_name, seed_names, typechecker)
+    # design 223 unit 1: the METHOD twin of that promotion. A suspending method
+    # whose frame identity needs an instantiation — one on a generic struct, or
+    # a method-level generic — gets that instantiation built here and its frame
+    # key stamped on the call, so `_suspending_method_target` can NAME it. What
+    # is not promoted stays UNSUPPORTED and is refused at the call site; what is
+    # promoted on a GENERIC STRUCT lives in no extension (its `self` is
+    # `Box2<String>`), so it is registered with the method tables below.
+    promoted_methods = _promote_nested_generic_methods(
+        program, funcs_by_name, seed_names, _all_exts, suspending_methods,
+        really_suspending_methods, typechecker)
 
     # The driven closure: every suspending entry-module free function reachable
     # from a driven root through suspending-call edges. Each becomes a frame +
@@ -8160,7 +8464,17 @@ def transform_program(program, typechecker, imported_ast=None):
             methods_by_id[m.node_id] = (sname, m, ext)
             methods_by_key[_method_frame_key(
                 sname, m.name, getattr(m, 'mangled_symbol', None))] = m.node_id
-    _susp_methods_set = typechecker._suspending_methods_set
+    # design 223: a promoted GENERIC-STRUCT instantiation is a method AST that
+    # sits in no `ext.methods` list, so the loop above cannot see it. Register it
+    # under the frame key the call sites were stamped with — the same key
+    # `_scan_method_callees` will ask for — and remember its concrete receiver
+    # type, which is the one thing its frame builder needs that a plain method's
+    # does not.
+    gsm_recv_types = {}
+    for _key, (_owner, _clone, _ext, _recv_type) in promoted_methods.items():
+        methods_by_id[_clone.node_id] = (_owner, _clone, _ext)
+        methods_by_key[_key] = _clone.node_id
+        gsm_recv_types[_key] = _recv_type
 
     def _scan_method_callees(body):
         """Enqueue every nested suspending METHOD call in `body` (a std method's
@@ -8168,24 +8482,26 @@ def transform_program(program, typechecker, imported_ast=None):
         reach it — discover it structurally instead). Returns (method-id) work items."""
         out = []
         for mc in _iter_method_calls(body):
-            if getattr(mc, 'is_chan_recv', False):
-                continue
             # DF-184a: a STATIC call is discovered here too. In std it is the ONLY
             # way it is discovered — an imported method has no effect node in the
             # entry typechecker — and a static call that went unfound compiled its
             # callee untransformed, so a `blocking` extern inside it lowered to a
             # NAKED call with no offload and no diagnostic.
-            sn = _method_call_owner(mc)
-            if sn is None:
+            #
+            # design 223: EMBED only. A frame this walk cannot name is a frame it
+            # cannot build; the two rejectors are what report that, anchored at
+            # the user's call site, and enqueueing nothing here is what routes it
+            # to them instead of to a `KeyError` three phases later.
+            #
+            # design 95: the frame key resolves the exact overload via its
+            # resolved signature, so a call to `write(String)` finds the String
+            # frame and not whichever `write` was registered last.
+            tgt = _suspending_method_target(mc, typechecker)
+            if tgt.kind != 'embed':
                 continue
-            if (sn, mc.method_name) in _susp_methods_set:
-                # design 95: resolve the exact overload's frame via its resolved
-                # signature so a call to `write(String)` finds the String frame,
-                # not whichever `write` was registered last.
-                mid = methods_by_key.get(_method_frame_key(
-                    sn, mc.method_name, getattr(mc, 'resolved_symbol', None)))
-                if mid is not None:
-                    out.append(("method", mid))
+            mid = methods_by_key.get(tgt.frame_key)
+            if mid is not None:
+                out.append(("method", mid))
         return out
 
     def _body_has_chan_recv(body):
@@ -8310,8 +8626,20 @@ def transform_program(program, typechecker, imported_ast=None):
             # sub-frame are the SAME frame (neither is a spawn root), so let it
             # join the closure and share one, exactly as a free function in both
             # roles already did.
-            if (getattr(mast, 'type_params', None)
-                    or getattr(ext, 'type_params', None)):
+            #
+            # design 223 (M2, and it lands in the SAME commit as M1): this skip
+            # keys on the METHOD/EXTENSION's `type_params` while the call-site
+            # classifier keys on the RECEIVER, and the misalignment is why one
+            # hole showed four symptoms — an ICE, a silent sync call, a raw
+            # `KeyError` and a wrong-shaped diagnostic, depending on which end
+            # noticed first. Fixing the call site alone converts the silent
+            # cells into `KeyError`s (probed). The aligned rule: skip a TEMPLATE,
+            # which is what has no frame of its own; a monomorphized instance is
+            # exactly what `_promote_nested_generic_methods` built so that the
+            # call site COULD name it, so it is never skipped here.
+            if (not getattr(mast, 'is_mono_instance', False)
+                    and (getattr(mast, 'type_params', None)
+                         or getattr(ext, 'type_params', None))):
                 continue
             method_closure[key] = (sname, mast, ext)
             if getattr(mast, 'body', None) is not None:
@@ -8410,7 +8738,7 @@ def transform_program(program, typechecker, imported_ast=None):
             sname, mast.name, getattr(mast, 'mangled_symbol', None))
         if fbkey in fbs:
             continue
-        if ext.node_id not in _entry_ext_ids:
+        if ext.node_id not in _entry_ext_ids and fbkey not in gsm_recv_types:
             # design 146: a frame builder REWRITES the body it is handed — it
             # hoists, ANF-normalizes and finally splits it into resume states —
             # and an imported method's body is std's own AST. That AST is now
@@ -8423,7 +8751,13 @@ def transform_program(program, typechecker, imported_ast=None):
             # keeps the method the author wrote, as the note below intends.
             import copy as _copy
             mast = _copy.deepcopy(mast)
-        fbs[fbkey] = _FrameBuilder(mast, struct_name=sname, tc=typechecker)
+        # design 223: a promoted generic-struct instantiation carries the
+        # CONCRETE receiver type its frame's `__recv` must point at
+        # (`Box2<String>`, not `Box2`) — the same thing the drive-root path
+        # reads out of the `gsm` table below. Everything else about the frame is
+        # an ordinary method's.
+        fbs[fbkey] = _FrameBuilder(mast, struct_name=sname, tc=typechecker,
+                                   recv_saw_type=gsm_recv_types.get(fbkey))
         all_builders.append(fbs[fbkey])
         nested_method_fbs.append((fbkey, ext, mast))
     # Prepare ALL layouts (fn + method) before generating any resume, so a caller
