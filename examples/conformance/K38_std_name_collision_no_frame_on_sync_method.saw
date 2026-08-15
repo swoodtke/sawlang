@@ -1,0 +1,63 @@
+// Conformance row K38 — a user method whose (type, method) NAME pair collides
+// with a suspending std one is not given a frame
+//
+// std bodies are checked by a different typechecker, so the entry compile
+// carries their suspending methods in as a set of NAME PAIRS — the one place
+// the transform asks "does this method suspend?" by name rather than by
+// identity. A user `extension TcpStream { func read(&self) -> Int }` that
+// suspends nothing therefore matched `("TcpStream", "read")` and was compiled
+// into a coroutine frame: a state machine, a heap frame and a drive loop
+// around a body that returns `self.n + 1`. DF-206d predicted the shape and
+// recorded it as "not live"; it is live.
+//
+// The over-inclusion is invisible to every runtime assertion — the program
+// prints the right answer either way — so the row asserts the IR directly, in
+// both directions: the method that really suspends keeps its frame, and the
+// one that does not has none. A method's OWN effect answer, where the compiler
+// has one, outranks a name that agrees with std's.
+//
+// XFAIL: DF-206d the std suspending-method table is keyed by NAME PAIR, so a user type and method sharing a std pair is compiled into a coroutine frame it needs none of — recorded as "not live" when 206 landed, and probed live by design 223's sweep
+// EXPECT: success
+// EXPECT-IR-CONTAINS: __Frame_Tick_wait
+// EXPECT-IR-ABSENT: __Frame_TcpStream_read
+// EXPECT-OUTPUT:
+// A1
+// B1
+// A2 42 1
+// B2 42 1
+
+import std.task.*
+
+struct TcpStream { n: Int }
+
+extension TcpStream {
+    func read(&self) -> Int {
+        self.n + 1
+    }
+}
+
+struct Tick { n: Int }
+
+extension Tick {
+    func wait(&self) -> Int {
+        yield_now()
+        self.n
+    }
+}
+
+func work(tag: String) {
+    print("{tag}1")
+    let s = TcpStream(n: 41)
+    let t = Tick(n: 1)
+    let a = s.read()
+    let b = t.wait()
+    print("{tag}2 {a} {b}")
+}
+
+func main() {
+    var group = TaskGroup()
+    let a = group.spawn(work("A"))
+    let b = group.spawn(work("B"))
+    a.join()
+    b.join()
+}

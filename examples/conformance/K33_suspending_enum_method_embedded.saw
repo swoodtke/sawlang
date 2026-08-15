@@ -1,0 +1,56 @@
+// Conformance row K33 — a suspending method on an ENUM extension embeds as a
+// frame and cedes to its siblings
+//
+// The cooperative contract is a language guarantee, not a property of the
+// answer a program prints: designs 96/101/104 say a suspending call embeds at
+// any depth "or errors cleanly — never silently blocks". Design 145 gave enums
+// extensions with `&self` methods and design 74 gives methods frames, and the
+// two had not met — an enum receiver carries `enum_name`, the transform's
+// call-site classifier read only `struct_name`, and the call fell out of the
+// suspending set entirely.
+//
+// THREE properties, because the first two alone pass on a broken cell:
+//   1. it compiles;
+//   2. `__Frame_Color_label` is in the emitted IR — the method really became a
+//      coroutine frame rather than an ordinary function;
+//   3. two tasks INTERLEAVE (A1 B1 A2 B2). A silently-sync call site computes
+//      the right label, in the right order, and simply never yields — the run
+//      prints A1 A2 B1 B2 and every value assertion still passes.
+//
+// XFAIL: DF-218l a suspending method on an ENUM extension is a codegen ICE at the call site — the transform builds and strips the method's frame but never rewrites the caller, because the call-site classifier reads only `struct_name`
+// EXPECT: success
+// EXPECT-IR-CONTAINS: __Frame_Color_label
+// EXPECT-OUTPUT:
+// A1
+// B1
+// A2 red
+// B2 red
+
+import std.task.*
+
+enum Color { case Red, case Green }
+
+extension Color {
+    func label(&self) -> String {
+        yield_now()
+        match self {
+            case Red -> "red",
+            case Green -> "green"
+        }
+    }
+}
+
+func work(tag: String) {
+    print("{tag}1")
+    let c = Color.Red
+    let s = c.label()
+    print("{tag}2 {s}")
+}
+
+func main() {
+    var group = TaskGroup()
+    let a = group.spawn(work("A"))
+    let b = group.spawn(work("B"))
+    a.join()
+    b.join()
+}

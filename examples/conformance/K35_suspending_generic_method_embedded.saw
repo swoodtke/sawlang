@@ -1,0 +1,48 @@
+// Conformance row K35 — a suspending METHOD-LEVEL generic on a concrete struct
+// embeds as a frame
+//
+// The third keying shape, and the one whose failure was loudest: the receiver
+// `Holder` is concrete, so the call-site classifier named it happily and the
+// call was classified as embeddable — but the method AST it named still
+// carries `<T>`, so the closure walk skipped it and the embedding died on a
+// raw Python `KeyError: 'Holder_wrap'`, with no breadcrumb and no source
+// anchor. The frame identity has to be the MONOMORPHIZED method, exactly as
+// the drive-root path already keys it.
+//
+// Three properties: compiles; `__Frame_Holder_wrap` (at its instantiation) is
+// in the IR; the two tasks interleave.
+//
+// XFAIL: DF-223a a suspending METHOD-LEVEL generic on a concrete struct is classified as embeddable by its receiver and then skipped by the closure walk on its own `type_params`, so the embedding dies on an unanchored `internal compiler error: 'Holder_wrap'`
+// EXPECT: success
+// EXPECT-IR-CONTAINS: __Frame_Holder_wrap
+// EXPECT-OUTPUT:
+// A1
+// B1
+// A2 7
+// B2 7
+
+import std.task.*
+
+struct Holder { n: Int }
+
+extension Holder {
+    func wrap<T>(&self, v: T) -> Int {
+        yield_now()
+        self.n
+    }
+}
+
+func work(tag: String) {
+    print("{tag}1")
+    let h = Holder(n: 7)
+    let n = h.wrap<String>(tag)
+    print("{tag}2 {n}")
+}
+
+func main() {
+    var group = TaskGroup()
+    let a = group.spawn(work("A"))
+    let b = group.spawn(work("B"))
+    a.join()
+    b.join()
+}

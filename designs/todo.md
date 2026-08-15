@@ -296,6 +296,19 @@ construction, not an obscure cross-module case), DF-218q
 "not live" in the over-inclusion direction (a std name collision forces
 a frame onto sync user code).
 
+**UNIT 0 LANDED (rows first, obligation 3).** The matrix is
+`examples/conformance/` rows K33-K39, each asserting THREE properties —
+compiles, `__Frame_<owner>_<method>` in the emitted IR, and a two-task
+interleave (`A1 B1 A2 B2`) — all seven under cited XFAILs. The IR half
+needed a directive, so `test_runner.py` gained
+`// EXPECT-IR-CONTAINS:` / `// EXPECT-IR-ABSENT:` over the `.ll` sidecar
+a compile already leaves beside its binary: the cooperative contract is a
+claim about EMITTED CODE, and every runtime assertion is blind to it (a
+silently-sync call site computes the same value in the same order). Two
+findings the rows filed: DF-223a (cell G's unanchored KeyError) and
+DF-223b (cell C2/C3 — the existential dispatch design 223 refuses, with
+the design it is owed written out).
+
 ## The next queue — designs 195-202 + 153 (ALL RULED Aug 10, awaiting dispatch)
 
 Every open ruling from the overnight run plus the parked backlog was
@@ -775,6 +788,43 @@ obligation-2 consumer sweep before dispatch. Gates 218 stages 1-2.
   Found by design 218 stage 4 writing coverage for the two `__result`
   encodings the migration defers.
   PIN: `examples/drive_site_in_suspending_body.saw` (XFAIL)
+
+- **DF-223a (ICE, PRE-EXISTING) — a suspending METHOD-LEVEL generic on a
+  concrete struct is an unanchored `internal compiler error: 'Holder_wrap'`.**
+  `h.wrap<String>("x")` where `Holder.wrap<T>` suspends: the RECEIVER is
+  concrete, so the call-site classifier names it and the call is classified
+  embeddable; the method AST it names still carries `<T>`, so the closure walk
+  skips it on its own `type_params` and `fbs[<key>]` raises. The two ends of
+  the classifier key different things — the call site keys the RECEIVER, the
+  definition-side skip keys the METHOD — which is the mechanism design 223's
+  unit 1 targets, and why the two halves cannot be fixed apart. Found by
+  design 223's cell-G probe.
+  ROW: `examples/conformance/K35_suspending_generic_method_embedded.saw`
+
+- **DF-223b (SILENT WRONG BEHAVIOR, PRE-EXISTING — owed a DESIGN, not just a
+  fix) — an existential dispatch to a SUSPENDING conformance body never
+  suspends.** `func shout(g: &any Greeter) -> String { g.greet() }` against a
+  `Person.greet` whose body yields: the dispatch is recorded as a
+  merely-CONSERVATIVE suspension source (`really_suspending`'s gate excludes
+  it, exactly as it excludes a call through a closure), so `main` is never
+  wrapped in the entry executor, NO frame is built anywhere in the program,
+  and the `yield_now()` inside the impl runs outside a frame — where it is a
+  no-op. The program compiles, prints the right answer and holds the thread.
+  A `sync`-declared caller IS refused by name and line, so the effect graph
+  knows; only the lowering does not.
+  Design 223 makes it a CLEAN REFUSAL at the dispatch (its cell policy:
+  work-where-the-mechanism-exists, refuse where it does not) and this entry is
+  what the refusal cites. THE DESIGN IT IS OWED: a frame is a compile-time
+  identity — the caller embeds the callee's frame BY VALUE, so it must know at
+  compile time which body it embeds — and dynamic dispatch has none. Making it
+  work needs an answer to "how big is the frame behind this vtable word":
+  a boxed/erased frame reached through the vtable (a `Box<any Resumable>` the
+  callee mints, which costs an allocation per call and a second frame ABI), a
+  per-trait-method frame UNION over every conformer (whole-program, closed only
+  in a single compilation unit), or a rule that a suspending method may not be
+  a trait requirement at all (the smallest, and the one that keeps existentials
+  honest about what they erase). Wants a ruling session.
+  ROW: `examples/conformance/K37_existential_dispatch_suspending_impl_refused.saw`
 
 - **DESIGN 218 STAGE 4 LANDED (Aug 14) — teardown, the forget purge, the
   trusted-list ratification. THE SLOT MIGRATION IS COMPLETE.** Census rows

@@ -52,6 +52,23 @@ Test expectations are specified via comments in the source files:
                                 "a success test must assert something" rule on
                                 its own, because the status IS the assertion.
                                 A panicking run is `EXPECT: panic`, not this.
+    // EXPECT-IR-CONTAINS: text - The compile's optimized LLVM IR sidecar
+                                (`<binary>.ll`) contains `text`. Design 223: a
+                                cooperative-contract row has to assert that the
+                                suspending callee got a FRAME
+                                (`__Frame_<owner>_<method>`), not merely that
+                                the program printed the right answer — a
+                                silently-sync call site produces exactly the
+                                right answer and no frame. Success/compiles
+                                tests only; it is a compile-stage assertion, so
+                                it composes with EXPECT-OUTPUT rather than
+                                replacing it.
+    // EXPECT-IR-ABSENT: text  - The same sidecar does NOT contain `text`. The
+                                other half of the frame question: a body that
+                                does not suspend must not be given a frame, and
+                                over-inclusion is invisible to every runtime
+                                assertion because the program still prints the
+                                right answer.
     // EXPECT-OUTPUT:         - Next lines are expected stdout (until next directive or code)
     // some output
     // more output
@@ -145,6 +162,14 @@ class TestCase:
     # `rc == 0`, which is precisely the assertion DF-220b's bug satisfied while
     # throwing `main`'s value away.
     expected_exit: Optional[int] = None  # '// EXPECT-EXIT: n'
+    # design 223: a substring of the compile's optimized IR sidecar. The
+    # cooperative contract is a claim about the CODE THE COMPILER EMITTED — a
+    # suspending method call has to become an embedded frame — and every
+    # runtime assertion is blind to it: a silently-sync call site computes the
+    # same value, in the same order, and only stops interleaving with its
+    # siblings. `__Frame_<owner>_<method>` in the IR is the direct evidence.
+    expected_ir_contains: List[str] = None  # '// EXPECT-IR-CONTAINS:'
+    expected_ir_absent: List[str] = None  # '// EXPECT-IR-ABSENT:'
     out_name: Optional[str] = None  # unique build-output stem; see `binary_stem`
 
     @property
@@ -212,6 +237,8 @@ def parse_test_metadata(file_path: Path) -> Optional[TestCase]:
     expect_no_warnings = False
     expected_output_contains = []
     expected_exit = None
+    expected_ir_contains = []
+    expected_ir_absent = []
 
     with open(file_path, 'r') as f:
         in_output_block = False
@@ -254,6 +281,18 @@ def parse_test_metadata(file_path: Path) -> Optional[TestCase]:
 
             elif '// EXPECT-EXIT:' in line:
                 expected_exit = int(line.split('// EXPECT-EXIT:')[1].strip())
+                in_output_block = False
+
+            elif '// EXPECT-IR-CONTAINS:' in line:
+                ir_text = line.split('// EXPECT-IR-CONTAINS:')[1].strip()
+                if ir_text:
+                    expected_ir_contains.append(ir_text)
+                in_output_block = False
+
+            elif '// EXPECT-IR-ABSENT:' in line:
+                ir_text = line.split('// EXPECT-IR-ABSENT:')[1].strip()
+                if ir_text:
+                    expected_ir_absent.append(ir_text)
                 in_output_block = False
 
             elif '// EXPECT-OUTPUT-CONTAINS:' in line:
@@ -332,7 +371,9 @@ def parse_test_metadata(file_path: Path) -> Optional[TestCase]:
         expected_warning_contains=expected_warning_contains,
         expect_no_warnings=expect_no_warnings,
         expected_output_contains=expected_output_contains,
-        expected_exit=expected_exit
+        expected_exit=expected_exit,
+        expected_ir_contains=expected_ir_contains,
+        expected_ir_absent=expected_ir_absent
     )
 
 
@@ -1239,6 +1280,17 @@ def directive_shape_error(test: TestCase) -> Optional[str]:
                 "'// EXPECT-OBJECT-MAX-BYTES:' directive")
     if test.expect_type == ExpectType.DOCS and not test.expected_output:
         return "Docs test must have '// EXPECT-OUTPUT:' with the expected JSON"
+    if ((test.expected_ir_contains or test.expected_ir_absent)
+            and test.expect_type not in (ExpectType.SUCCESS,
+                                         ExpectType.COMPILES,
+                                         ExpectType.PANIC)):
+        # The sidecar only exists for a compile that produced code, and on any
+        # other verdict the directive would be silently ignored — the same
+        # failure mode every shape rule above exists to prevent.
+        return ("'// EXPECT-IR-CONTAINS:' / '// EXPECT-IR-ABSENT:' read the "
+                "compile's `.ll` sidecar, so they belong with "
+                "'// EXPECT: success', '// EXPECT: compiles' or "
+                "'// EXPECT: panic'.")
     return None
 
 
@@ -1345,6 +1397,9 @@ def compile_test(test: TestCase, compile_fn=None,
         warn_outcome = _check_warnings(test, compile_stdout + compile_stderr)
         if warn_outcome is not None:
             return warn_outcome
+        ir_outcome = _check_ir(test, exe_path, placed)
+        if ir_outcome is not None:
+            return ir_outcome
         return CompileOutcome(True, True, "Compiled as expected")
 
     elif test.expect_type == ExpectType.PANIC:
@@ -1353,6 +1408,10 @@ def compile_test(test: TestCase, compile_fn=None,
         if not compile_success:
             msg = f"Compilation failed (expected to compile):\n{compile_stderr[:500]}"
             return CompileOutcome(True, False, msg)
+
+        ir_outcome = _check_ir(test, exe_path, placed)
+        if ir_outcome is not None:
+            return ir_outcome
 
         return _to_run(exe_path, placed, _manifest_fields())
 
@@ -1427,7 +1486,47 @@ def compile_test(test: TestCase, compile_fn=None,
         if warn_outcome is not None:
             return warn_outcome
 
+        ir_outcome = _check_ir(test, exe_path, placed)
+        if ir_outcome is not None:
+            return ir_outcome
+
         return _to_run(exe_path, placed, _manifest_fields())
+
+
+def _check_ir(test: TestCase, exe_path: Path,
+              placed: set) -> Optional[CompileOutcome]:
+    """Judge a test's `// EXPECT-IR-CONTAINS:` directives, or None if they hold.
+
+    design 223. The sidecar `sawc` leaves beside the binary is the OPTIMIZED
+    module IR, so a symbol found here is one the emitted program really
+    carries. Which suffix it wears follows the output shape (`<out>.ll` for a
+    linked binary, `<out>.o.ll` for `-c` / `--freestanding`), and `placed` is
+    the authority on which this compile wrote — a stale sidecar from an earlier
+    run would answer the question just as readily.
+    """
+    if not test.expected_ir_contains and not test.expected_ir_absent:
+        return None
+    suffix = '.ll' if '.ll' in placed else ('.o.ll' if '.o.ll' in placed else None)
+    if suffix is None:
+        return CompileOutcome(True, False, (
+            "'// EXPECT-IR-CONTAINS:' needs the compile's `.ll` sidecar, and "
+            "this compile placed none."))
+    ll_path = Path(str(exe_path) + suffix)
+    try:
+        ir = ll_path.read_text()
+    except OSError as e:
+        return CompileOutcome(True, False, f"Could not read {ll_path.name}: {e}")
+    for expected in (test.expected_ir_contains or []):
+        if expected not in ir:
+            return CompileOutcome(True, False, (
+                f"Emitted IR should contain '{expected}' — it does not. "
+                f"({ll_path.name}, {len(ir)} bytes)"))
+    for absent in (test.expected_ir_absent or []):
+        if absent in ir:
+            return CompileOutcome(True, False, (
+                f"Emitted IR should NOT contain '{absent}' — it does. "
+                f"({ll_path.name}, {len(ir)} bytes)"))
+    return None
 
 
 def _check_warnings(test: TestCase, output: str) -> Optional[CompileOutcome]:

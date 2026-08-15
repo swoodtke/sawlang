@@ -1,0 +1,74 @@
+// Conformance row K36 — a suspending method that SATISFIES a trait
+// requirement still satisfies it after the transform
+//
+// The transform replaces a driven method's body with a frame plus a `resume`
+// state machine and STRIPS the original from its extension. The program is
+// then re-typechecked, and the extension it re-checks no longer implements the
+// conformance it declares — so `extension Person: Greeter { func greet(...) {
+// yield_now() ... } }` was reported as ``type `Person` does not implement
+// required method `greet` from trait `Greeter``, at the extension, about a
+// method plainly written there (DF-218k). The same conformance in an IMPORTED
+// module compiled, which is what made the strip the suspect.
+//
+// Both receiver kinds, because the strip is keyed on the extension and an enum
+// extension is one too: a struct conformance and an enum conformance.
+//
+// Three properties: compiles; both frames are in the IR; the tasks interleave.
+//
+// XFAIL: DF-218k a suspending method in a trait CONFORMANCE is stripped from its extension by the transform and the post-transform re-typecheck then reports the conformance as unimplemented
+// EXPECT: success
+// EXPECT-IR-CONTAINS: __Frame_Person_greet
+// EXPECT-IR-CONTAINS: __Frame_Shade_label
+// EXPECT-OUTPUT:
+// A1
+// B1
+// A2 A dark
+// B2 B dark
+
+import std.task.*
+
+trait Greeter {
+    func greet(&self) -> String
+}
+
+struct Person { n: String }
+
+extension Person: Greeter {
+    func greet(&self) -> String {
+        yield_now()
+        self.n
+    }
+}
+
+trait Labeled {
+    func label(&self) -> String
+}
+
+enum Shade { case Dark, case Light }
+
+extension Shade: Labeled {
+    func label(&self) -> String {
+        yield_now()
+        match self {
+            case Dark -> "dark",
+            case Light -> "light"
+        }
+    }
+}
+
+func work(tag: String) {
+    print("{tag}1")
+    let p = Person(n: tag)
+    let g = p.greet()
+    let s = Shade.Dark
+    let l = s.label()
+    print("{tag}2 {g} {l}")
+}
+
+func main() {
+    var group = TaskGroup()
+    let a = group.spawn(work("A"))
+    let b = group.spawn(work("B"))
+    a.join()
+    b.join()
+}

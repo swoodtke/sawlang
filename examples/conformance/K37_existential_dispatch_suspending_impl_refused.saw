@@ -1,0 +1,47 @@
+// Conformance row K37 — dispatching to a SUSPENDING conformance body through
+// `any Trait` is refused, not silently run to completion
+//
+// A frame is a compile-time identity: the caller embeds the callee's frame BY
+// VALUE, so it has to know at compile time which body it is embedding. Dynamic
+// dispatch has no such identity — the concrete type behind `&any Greeter` is a
+// vtable word — so there is nothing to embed and no design that says what
+// should be. What the compiler did instead was worse than refusing: the
+// existential dispatch was recorded as a merely-CONSERVATIVE suspension
+// source (the same treatment a call through a closure gets), no frame was
+// built anywhere in the program, and `yield_now()` inside the conformance body
+// ran outside any frame — where it is a no-op. The cooperative contract was
+// simply not applied, with no diagnostic.
+//
+// Design 223's ruling: work where the mechanism exists, refuse cleanly where
+// it does not. This is the second half. The refusal names the design that is
+// owed, and it is ANCHORED at the dispatch the author wrote.
+//
+// XFAIL: DF-223b an existential dispatch to a suspending conformance body is recorded as a merely-conservative suspension source, so no frame is built anywhere and the `yield_now()` runs outside a frame as a no-op — silently sync, no diagnostic
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: dispatch through `any Greeter`
+// EXPECT-ERROR-CONTAINS: DF-223b
+
+import std.task.*
+
+trait Greeter {
+    func greet(&self) -> String
+}
+
+struct Person { n: String }
+
+extension Person: Greeter {
+    func greet(&self) -> String {
+        yield_now()
+        self.n
+    }
+}
+
+func shout(g: &any Greeter) -> String {
+    g.greet()
+}
+
+func main() {
+    let p = Person(n: "ada")
+    let s = shout(&p)
+    print("{s}")
+}

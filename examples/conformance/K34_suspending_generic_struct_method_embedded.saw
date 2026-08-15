@@ -1,0 +1,67 @@
+// Conformance row K34 — a suspending method on a GENERIC struct embeds as a
+// frame at the EMBEDDED position, not only at the drive root
+//
+// Design 74 shape 2 says a generic struct's suspending method drives; the ROOT
+// position (`__saw_drive(b.run())`) has always worked, because the typechecker
+// monomorphizes the method for the concrete receiver there and hands the
+// transform a per-instantiation clone. The EMBEDDED position — the same call
+// reached from a body that is already a frame — had no such clone, so the
+// call-site classifier answered "not a suspending call" and the body was
+// compiled as a PLAIN function: no frame, no sub-frame field, the suspension
+// point compiled inline (DF-218m). It printed the right answer.
+//
+// Three properties: compiles; the per-instantiation frames are in the IR; the
+// two tasks INTERLEAVE. The third is the one that catches the silent cell —
+// every existing generic coroutine test drives from the root.
+//
+// Two receivers, because the receiver's own mode is a separate axis: a `&self`
+// method (`describe`) and a `&var self` one (`bump`), whose write must reach
+// the caller's storage through the frame's receiver handle.
+//
+// XFAIL: DF-218m a suspending method on a GENERIC struct reached from a driven body is compiled as a PLAIN function — no frame, no sub-frame, the suspension point inlined, and the right answer printed
+// EXPECT: success
+// EXPECT-IR-CONTAINS: __Frame_Box2_describe
+// EXPECT-IR-CONTAINS: __Frame_Counter_bump
+// EXPECT-OUTPUT:
+// A1
+// B1
+// A2 boxed 6
+// B2 boxed 6
+
+import std.task.*
+
+struct Box2<T> { v: T }
+
+extension Box2<T> {
+    func describe(&self) -> String {
+        yield_now()
+        "boxed"
+    }
+}
+
+struct Counter<T> { v: T, n: Int }
+
+extension Counter<T> {
+    func bump(&var self) -> Int {
+        yield_now()
+        self.n += 1
+        self.n
+    }
+}
+
+func work(tag: String) {
+    print("{tag}1")
+    let b = Box2<String>(v: tag)
+    let s = b.describe()
+    var c = Counter<String>(v: tag, n: 5)
+    let n = c.bump()
+    print("{tag}2 {s} {n}")
+}
+
+func main() {
+    var group = TaskGroup()
+    let a = group.spawn(work("A"))
+    let b = group.spawn(work("B"))
+    a.join()
+    b.join()
+}

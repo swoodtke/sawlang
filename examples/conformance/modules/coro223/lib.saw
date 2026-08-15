@@ -1,0 +1,40 @@
+// Helper module for conformance row K39 — the three receiver shapes design 223
+// makes embeddable, declared in a module the caller imports.
+//
+// EXPECT: skip
+
+import std.task.*
+
+public enum Color { case Red, case Green }
+
+public extension Color {
+    public func label(&self) -> String {
+        yield_now()
+        match self {
+            case Red -> "red",
+            case Green -> "green"
+        }
+    }
+}
+
+public struct Box2<T> { public v: T }
+
+public extension Box2<T> {
+    public func describe(&self) -> String {
+        yield_now()
+        "boxed"
+    }
+}
+
+public trait Greeter {
+    func greet(&self) -> String
+}
+
+public struct Talker { public n: String }
+
+public extension Talker: Greeter {
+    public func greet(&self) -> String {
+        yield_now()
+        self.n
+    }
+}
