@@ -61,13 +61,42 @@ driver, not the system. The ladder as discussed:
 4. THE GOAL: P4 + the net stack + ESP-Hosted driver to a C6
    companion. Protected build once the P4 HAL exists.
 
+STAGE 2 (user-approved Aug 16): SINGLE-CHIP WIFI VIA THE OSI-TABLE
+SHIM — the "FreeRTOS fakery" route, with an OPEN-SOURCE EXEMPLAR to
+pull from. Espressif's closed WiFi/BT blobs (static .a archives:
+libnet80211/libpp/libphy/libcoexist) call the OS through an
+`osi_funcs` table of ~100 function pointers (tasks, semaphores,
+queues, timers, DMA-capable alloc) plus a residue of direct externs
+(esp_timer_*, NVS for phy calibration, esp_fill_random, logging).
+esp-rs's `esp-wifi` crate IS this shim built for bare-metal Rust — no
+FreeRTOS, working WiFi+BLE, open source — so we reimplement known
+semantics over SOS primitives (tasks -> SOS threads, semaphores ->
+Events, queues -> M4 channels, timers -> M3 Timer, DMA alloc -> the
+alloc_memory attr), not reverse-engineer blob expectations. The blobs
+are STATICALLY LINKED, so step one is the UNDEFINED-SYMBOL HARVEST:
+link the blobs against our objects, and the undefined list — 
+partitioned osi-table vs direct-extern — IS the complete work spec
+before a line is written. Honest core risk: the blob's internal tasks
+assume priority-preemptive scheduling at ms-scale fidelity (SOS's
+scheduler is the structural advantage here — esp-rs had to build one
+from nothing), and timing bugs against closed code are slow to debug.
+Gnarly-bring-up work, not fan-out agent work.
+
+STAGE 3 (the stretch, and the payoff for the user's drawer of S3
+boards): ESP32-S3. The shim TRANSFERS (osi semantics are
+chip-agnostic; esp-wifi covers Xtensa), but the S3 additionally needs
+the two things that kept it off stage 1: the XTENSA CODEGEN SEAM
+(sawc emits .ll with the xtensa triple + hand-supplied datalayout;
+Espressif's LLVM fork lowers it — llvmlite never will) and an XTENSA
+HAL (windowed-register trap entry, PMS/World-Controller protection or
+the flat profile). Build the shim ONCE on the C6 where the toolchain
+already works; the S3 port then reuses it wholesale.
+
 Explicitly later: BLE host stack (GATT-peripheral-only is ~4-8k lines
 over HCI to the companion; SMP/crypto is the hard center — shim
 AES-CMAC/P-256 through C per the support.c precedent, never dogfood
 constant-time crypto in Saw first; developable HOSTED against BlueZ's
-virtual controller with zero hardware). ESP32-S3 (Xtensa) is OFF this
-path: wrong ISA for llvmlite (IR-into-Espressif's-LLVM-fork is the
-only route) and its radio stack is the closed blob. No dispatches
+virtual controller with zero hardware). No dispatches
 before M3 lands; net phase 1 is the natural first post-M3 brief.
 
 ## `while let` — QUEUED design candidate (user-approved Aug 16), BEHIND 230
