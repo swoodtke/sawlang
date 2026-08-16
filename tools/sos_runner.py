@@ -111,6 +111,9 @@ THREAD_PREEMPT_PKG = os.path.join(TESTS_DIR, "thread-preempt")
 # one would be.
 EVENT_BASICS_PKG = os.path.join(TESTS_DIR, "event-basics")
 EVENT_WAKE_PKG = os.path.join(TESTS_DIR, "event-wake")
+# rider 4: the one fault in this unit that a SAW process can reach, so the test
+# is written the way a real process would be rather than as a payload.
+EVENT_DUPKEY_PKG = os.path.join(TESTS_DIR, "event-dupkey")
 
 QEMU_TIMEOUT_S = 10
 
@@ -201,6 +204,7 @@ def expectations(arch):
         "three": f"0x{3:0{width}x}",
         "four": f"0x{4:0{width}x}",
         "five": f"0x{5:0{width}x}",
+        "six": f"0x{6:0{width}x}",
         "seven": f"0x{7:0{width}x}",
         "prio": f"0x{0x01010100:0{width}x}",
         "irq_line": f"0x{arch['selftest_line']:0{width}x}",
@@ -229,6 +233,25 @@ ARCH_WORDS = [
     "plic", "clint", "gicd", "gicc", "gicv", "sgir",
     "mtime", "cntp", "cntfrq", "sstc",
 ]
+
+# A token that is BURIED IN A LONGER ENGLISH WORD is not a leak — and the note
+# above turned out to be optimistic about how tight these spellings are. `plic`
+# is inside "duplicate", "explicit", "implicit", "complicated" and "replica";
+# design 178 M2 unit 3 rider 4 hit the first of those, and the check would
+# otherwise have dictated the kernel's vocabulary, which is exactly backwards
+# for a check that exists to police the kernel's DEPENDENCIES.
+#
+# THE RULE: a hit is suppressed only when the token has a letter on BOTH sides.
+# That is deliberately weaker than a word boundary, because the real usages are
+# prefixes and suffixes of longer identifiers — `mtimecmp`, `csrw`, `PLIC_BASE`,
+# `gicd_ctlr`, `cntfrq_el0` — and requiring a boundary on both sides would miss
+# every one of them. An arch token in the MIDDLE of an otherwise-alphabetic word
+# is English; at either END of one it is an identifier.
+def _is_english_embedding(line, token, at):
+    before = line[at - 1] if at > 0 else ""
+    after_index = at + len(token)
+    after = line[after_index] if after_index < len(line) else ""
+    return before.isalpha() and after.isalpha()
 
 # ANSI colors (matched to test_runner.py's style; disabled when not a TTY).
 _TTY = sys.stdout.isatty()
@@ -654,6 +677,31 @@ TEST_CASES = [
         "expect_clean_exit": False,
         "expect_status": EXIT_PROCESS_FAULT,
     },
+    {
+        # KEYS ARE UNIQUE PER WAITER (rider 4). Two Events, one key, and the
+        # second `add` terminates the process — the invariant that `remove(key)`
+        # and the wait record both rest on.
+        #
+        # A ROOT SERVER RATHER THAN A PAYLOAD, and it is the only fault case in
+        # this unit that can be one: the typed layer makes the others
+        # unspellable (no handle you were not given, no buffer you name), while
+        # a duplicate key is two real Events and two of the caller's own words,
+        # which no type can catch. So the check is the kernel's, and the test
+        # lives where a real process would hit it.
+        "name": "event_dupkey",
+        "src": os.path.join(KERNEL_DIR, "main.saw"),
+        "root_pkg": EVENT_DUPKEY_PKG,
+        "expect_out": ["{banner}",
+                       "SOS dupkey: first attach ok",
+                       "SOS: process fault: an attachment already uses that key",
+                       # Six handles — the three it was given plus a waiter and
+                       # two events — and both events and the waiter still go
+                       # back to their slabs.
+                       "SOS: process teardown handles={six} threads={one} "
+                       "events={two} waiters={one}"],
+        "expect_clean_exit": False,
+        "expect_status": EXIT_PROCESS_FAULT,
+    },
     # THE COPY-OUT FUNNEL'S TWO REJECTION ROWS. `Waiter.Wait` answers by writing
     # a record into memory the caller supplies — SOS's first
     # kernel-writes-userspace path — and the funnel that validates the
@@ -815,9 +863,14 @@ def _check_arch_free():
                 for lineno, line in enumerate(f, 1):
                     low = line.lower()
                     for word in ARCH_WORDS:
-                        if word in low:
-                            rel = os.path.relpath(src, REPO_ROOT)
-                            bad.append(f"{rel}:{lineno}: {word!r} in: {line.strip()}")
+                        at = low.find(word)
+                        while at >= 0:
+                            if not _is_english_embedding(low, word, at):
+                                rel = os.path.relpath(src, REPO_ROOT)
+                                bad.append(f"{rel}:{lineno}: {word!r} in: "
+                                           f"{line.strip()}")
+                                break
+                            at = low.find(word, at + 1)
     if bad:
         print(f"{RED}{BOLD}sos-test: architecture names in the arch-free kernel"
               f"{RESET}", file=sys.stderr)

@@ -444,6 +444,73 @@ though design 186's own diagnostic lists it among the things that do. Filed, and
 routed around in the open: the two sizes that wanted it are small functions with
 the reason written beside them.
 
+### Unit 3 rider 4 — `remove` names the attachment, not the waitable (ruled Aug 16, user)
+
+`WaiterOp.Remove` takes the KEY. Detaching edits the WAITER's own attachment
+table and never touches the waitable, so the authority it spends is the Waiter
+handle the dispatch already validated plus the key — asking for the waitable's
+handle as well would be asking for authority the operation does not use, and the
+old form spent an `EventRight.Wait` it had no business spending. It is also the
+only form that survives M3: once handles can be CLOSED, a closed waitable's
+stale attachment has no handle left to name it with, and a handle-based remove
+could never reach it. §2.2 carries the amendment.
+
+**The invariant it forces, now stated: KEYS ARE UNIQUE PER WAITER.** `Add` with
+a key the Waiter already uses is a FAULT (`DuplicateKey`). It has to be refused
+rather than tolerated because a duplicate makes two questions ambiguous at once
+— which attachment a `remove` names, and which one a wait answer came from — and
+the attacher chose both keys, so it is caller-checkable in the strongest sense.
+The attachment set is walked BY KEY for both operations, which is the same walk
+and therefore one place to be wrong.
+
+**Its test is the one fault case in this unit written in ordinary Saw**, and
+that is worth noticing rather than incidental. The others are hand-written
+payloads because the typed layer makes their mistakes unspellable — you cannot
+name a handle you were not given, and `wait` supplies its own buffer. A
+duplicate key is different: both Events are real and both keys are the caller's
+own words, so no type can catch it and the check must be the kernel's. The test
+therefore lives at the altitude a real process would hit it from.
+
+**A harness defect surfaced with it and was fixed rather than worked around.**
+The arch-free seam scan is substring-based, and `plic` is inside "duplicate" —
+also "explicit", "implicit", "complicated", "replica". A check that exists to
+police the kernel's DEPENDENCIES was about to dictate the kernel's VOCABULARY,
+which is backwards. The scan now suppresses a hit only when the token has a
+letter on BOTH sides: real leaks are prefixes or suffixes of longer identifiers
+(`mtimecmp`, `csrw`, `PLIC_BASE`, `gicd_ctlr`, `cntfrq_el0`) and all still fire,
+while a token buried mid-word is English. Verified against eighteen real leak
+spellings and seven English sentences before it was trusted.
+
+### Why `Waiter.add` is OVERLOADED per waitable kind, and not generic
+
+Recorded because the alternative is the obvious one and the reason it is refused
+is a LANGUAGE fact rather than a taste (ruled Aug 16, user).
+
+The tempting shape is `add<T: Waitable>(_ w: &T, key: UInt)` over a public
+`Waitable` trait. It cannot be that, because the requirement such a trait needs
+is one that PRODUCES A HANDLE — that is the only thing `add` wants from its
+argument — and under Saw's ORPHAN RULE a public trait in the `sos` module can be
+conformed by any module that owns a type. So any process could declare its own
+`struct Forged`, conform it, and return whatever handle word it liked from the
+requirement: a forged-handle door straight through the guarantee the typed layer
+exists to provide. Saw has no SEALED traits, so there is no way to publish the
+trait and withhold the ability to conform to it.
+
+Overloads have no such door and cost nothing here, because **kinds are a LIST**:
+Event now; Channel, Timer, Interrupt and ReplyHandle as they land; a method
+each. That is the same list-vs-matrix rule that pushed `create_event`'s MODE the
+other way — modes multiply (M3's Mapping has access × memory type), so a mode is
+a value, while kinds enumerate, so kinds are overloads.
+
+**The future shape, when it is earned:** a WITNESS-SEALED trait — the
+requirement returns a module-private type with no public constructor, so only
+`sos` can satisfy it and the trait is effectively sealed without language
+support. The trigger is a real consumer that is generic over waitables, which is
+M3 wait-library territory (a `HandlerGroup`-shaped dispatcher, §10). At that
+point the language question worth ruling is whether Saw wants sealed traits
+outright, since the witness idiom is a workaround for their absence and would
+read better spelled.
+
 ## Explicitly out (M3+ candidates)
 
 Channels + ReplyHandle IPC; MemoryObject/Mapping + multi-process loading;

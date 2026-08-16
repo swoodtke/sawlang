@@ -275,7 +275,9 @@ both as ordinary §2 rows with op tables, kind-scoped rights, dispatch arms and
 the ratified teardown; creation authority answers spec §12's open pin by living
 on the Process handle; and `Waiter.Wait` answers with a RECORD the kernel copies
 into a caller-supplied buffer through the kernel's one validated copy-out door.
-`make sos-test` is 54 cases (27 per machine). Native floor UNCHANGED — 268
+`Waiter.remove` names an attachment by its KEY (never the waitable), which
+forces keys to be unique per Waiter and makes a duplicate `add` a fault.
+`make sos-test` is 56 cases (28 per machine). Native floor UNCHANGED — 268
 assembly and 166 C code lines, a net-zero delta for the whole unit. Out of scope
 and NOT built: the Interrupt object and the userspace UART echo proof, which is
 also what turns the scheduler's deadlock report into an idle loop.
