@@ -586,19 +586,25 @@ TEST_CASES = [
         "root_pkg": EVENT_BASICS_PKG,
         "expect_out": ["{banner}",
                        # The signal came BEFORE the wait and was not lost.
-                       "SOS events: signal-then-wait key=11 signalled=1 word=4",
+                       # `at-wait` is read out of the RECORD the kernel copied
+                       # into the process's memory and `drained` out of the
+                       # following `receive`; they agree on every line below,
+                       # which is what says the record's payload is the real
+                       # accumulated word rather than a readiness flag.
+                       "SOS events: signal-then-wait key=11 at-wait=4 drained=4",
                        # A second attachment on the same Waiter, told apart by
                        # its key alone.
-                       "SOS events: second key=22 signalled=1 word=8",
+                       "SOS events: second key=22 at-wait=8 drained=8",
                        # 1 | 2 | 1 is 3, which is what a flag set answers and a
                        # counter does not.
-                       "SOS events: or key=11 word=3",
+                       "SOS events: or key=11 at-wait=3 drained=3",
                        # Removed from the wait set, still an Event.
                        "SOS events: detached word=8",
                        # Five signals of one, counted; then two of the largest
                        # word there is, which SATURATE instead of wrapping back
                        # through zero — the value that means "not ready".
-                       "SOS events: counting key=33 n=5 saturated=1",
+                       "SOS events: counting key=33 at-wait=5 drained=5 "
+                       "saturated=1",
                        "SOS events: done",
                        # Teardown reports the two new object kinds: three events
                        # and one waiter, beside seven handles and one thread.
@@ -610,16 +616,24 @@ TEST_CASES = [
         # THE PARK AND THE WAKE. Read from the ORDER: the middle line is written
         # by a thread that could only have run because the first one blocked,
         # since this kernel arms no timer and `start` does not switch. The line
-        # after it carries the key back out of the woken thread's frame, which
-        # is unit 2's block-on-wait substrate answering a syscall it did not
-        # answer when the call was made.
+        # after it carries the record back into the woken thread's own stack
+        # buffer, written by the SIGNALLING thread through the copy-out funnel —
+        # unit 2's block-on-wait substrate answering a syscall it did not answer
+        # when the call was made.
         "name": "event_wake",
         "src": os.path.join(KERNEL_DIR, "main.saw"),
         "root_pkg": EVENT_WAKE_PKG,
         "expect_out": ["{banner}",
                        "SOS wake: worker started, parking",
                        "SOS wake: worker signalling",
-                       "SOS wake: woke key=77 signalled=1 word=5",
+                       # The two numbers DIFFER on purpose and that gap is the
+                       # third claim: the worker signals five times, the FIRST
+                       # wakes the parked thread, so the record it copied out is
+                       # a SNAPSHOT reading 1 — and the other four land while
+                       # the woken thread is merely runnable, so the `receive`
+                       # after it drains 5. The record says what the wait was
+                       # woken for; `receive` says what has accumulated.
+                       "SOS wake: woke key=77 at-wait=1 drained=5",
                        "SOS wake: joined worker=99"],
         "expect_clean_exit": True,
     },
@@ -635,6 +649,45 @@ TEST_CASES = [
         "asm": "payload_notwaitable.S",
         "expect_out": ["SOS M1: entering U-mode",
                        "SOS: process fault: not a waitable",
+                       "SOS: process teardown handles={four} threads={one} "
+                       "events={zero} waiters={one}"],
+        "expect_clean_exit": False,
+        "expect_status": EXIT_PROCESS_FAULT,
+    },
+    # THE COPY-OUT FUNNEL'S TWO REJECTION ROWS. `Waiter.Wait` answers by writing
+    # a record into memory the caller supplies — SOS's first
+    # kernel-writes-userspace path — and the funnel that validates the
+    # destination is the only door. One case per row, because a funnel with a
+    # matrix owes its tests row by row.
+    #
+    # Both are payloads for the reason `umode_bad_handle` is one: the typed
+    # `Waiter.wait` supplies its own buffer out of its frame and never lets a
+    # caller name one, so neither mistake is a thing a Saw process can spell.
+    {
+        # ROW 1 — outside the process's writable memory. This payload has NO
+        # writable grant at all (umode.saw gives it its own bytes read+execute),
+        # so every address is outside its window and zero says so plainly.
+        "name": "umode_bad_wait_buffer",
+        "src": os.path.join(TESTS_DIR, "umode.saw"),
+        "asm": "payload_badbuffer.S",
+        "expect_out": ["SOS M1: entering U-mode",
+                       "SOS: process fault: buffer is not in the process's "
+                       "writable memory",
+                       "SOS: process teardown handles={four} threads={one} "
+                       "events={zero} waiters={one}"],
+        "expect_clean_exit": False,
+        "expect_status": EXIT_PROCESS_FAULT,
+    },
+    {
+        # ROW 2 — not word-aligned. The kernel writes machine words, so this is
+        # refused before the range is even looked at; the two cases are told
+        # apart by that ORDER, since this payload's address would fail the range
+        # check too.
+        "name": "umode_misaligned_wait_buffer",
+        "src": os.path.join(TESTS_DIR, "umode.saw"),
+        "asm": "payload_misalignbuf.S",
+        "expect_out": ["SOS M1: entering U-mode",
+                       "SOS: process fault: buffer is not word-aligned",
                        "SOS: process teardown handles={four} threads={one} "
                        "events={zero} waiters={one}"],
         "expect_clean_exit": False,

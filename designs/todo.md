@@ -273,18 +273,63 @@ user review per SOS policy)
 Waiter whose level-triggered readiness is a SCAN rather than a maintained queue,
 both as ordinary §2 rows with op tables, kind-scoped rights, dispatch arms and
 the ratified teardown; creation authority answers spec §12's open pin by living
-on the Process handle; and §2.2's `(key, readiness)` result cost the ABI a
-second value register on both profiles. `make sos-test` is 50 cases (25 per
-machine). Native floor: assembly unchanged at 268 code lines, C 166 -> 194 (one
-`sos_syscall1_pair` per profile, fourteen lines each, reason 1). Out of scope
-and NOT built: the
-Interrupt object and the userspace UART echo proof, which is also what turns the
-scheduler's deadlock report into an idle loop.
+on the Process handle; and `Waiter.Wait` answers with a RECORD the kernel copies
+into a caller-supplied buffer through the kernel's one validated copy-out door.
+`make sos-test` is 54 cases (27 per machine). Native floor UNCHANGED — 268
+assembly and 166 C code lines, a net-zero delta for the whole unit. Out of scope
+and NOT built: the Interrupt object and the userspace UART echo proof, which is
+also what turns the scheduler's deadlock report into an idle loop.
 
-NO NEW FINDINGS. Two known ones were re-encountered and cited in place rather
-than refiled: DF-178d cost one more `-> Never` wrapper (`fault_slot`, beside
-`fault_result`), and DF-178e was avoided ahead of time by naming two `UInt`
-constants for the `match` default values.
+Two known findings were re-encountered and cited in place rather than refiled:
+DF-178d cost one more `-> Never` wrapper (`fault_slot`, beside `fault_result`),
+and DF-178e was avoided ahead of time by naming two `UInt` constants for the
+`match` default values.
+
+- **DF-178f — `sizeof<T>()` does not fold in a static initializer.** Design 186
+  ruled a static initializer to be a CONSTANT EXPRESSION over "literals,
+  arithmetic and bitwise over them, `sizeof`/`alignof`, the integer limits, a
+  raw-backed enum case, an earlier module `static`" — and that list is the
+  compiler's OWN error hint, printed verbatim when it refuses one. But
+  `sizeof` is not in the folder:
+
+  ```saw
+  static WORDS: Int = 3
+  static A: Int = sizeof<UInt>()          // error: not a compile-time constant
+  static B: Int = 3 * sizeof<UInt>()      // error
+  static C: Int = WORDS * 8               // fine — an earlier static folds
+  static D: Int = WORDS * sizeof<UInt>()  // error
+  ```
+
+  So three of the four fail, the one that works is the one NOT naming `sizeof`,
+  and the diagnostic names `sizeof` as permitted while refusing it. The same
+  expression folds perfectly well in an ordinary body and in a `static_assert`
+  (`static_assert(sizeof<TrapFrame>() == FRAME_BYTES, ...)` is in the tree), so
+  this is the STATIC-INITIALIZER const evaluator missing a case the general one
+  has, not a limit on `sizeof`.
+
+  Where it bites: any size that is `N * word` — a wire record measured in
+  machine words, an alignment, a per-word stride. SOS unit 3 wanted two
+  (`wait_record_bytes`, `word_bytes`) and both became small functions with the
+  reason written beside them. Cheap to work around, and misleading precisely
+  because the error text says the opposite.
+
+  SWEPT (obligation 4), and the class is exactly two items wide. The mechanism
+  is "the static initializer's const evaluator implements a SUBSET of the const
+  expression grammar", so the whole of design 186's ruled list was put against a
+  static. Everything else on it folds:
+
+  | initializer | folds |
+  |---|---|
+  | a literal; arithmetic; bitwise `(1 << 12) - 1` | yes |
+  | an earlier module `static`, alone or under arithmetic | yes |
+  | `Int.max`, `UInt.max` | yes |
+  | a raw-backed enum case, and `Perm.Read \| Perm.Write` | yes |
+  | `sizeof<T>()` | **NO** |
+  | `alignof<T>()` | **NO** |
+
+  So the gap is the two SIZE OPERATORS and nothing else — a bounded fix (teach
+  the static-initializer evaluator the case the general const evaluator already
+  has) with a two-row test plan, not an open-ended audit.
 
 RIDER (ruled Aug 16, user): an ARGUMENT ENCODING IS API. `create_event(mode:)`
 replaces the method-per-mode pair — a method per mode stops scaling at M3's

@@ -284,17 +284,12 @@ event that wrapped would go quiet exactly when its producer was fastest. The sum
 uses the wrapping add and a carry test; the OR mode saturates by being
 idempotent.
 
-**The result shape cost the ABI a second value register.** §2.2 ratifies
-`wait() -> (key, readiness)` and one out-parameter carries one word, so both
-kernel HALs gained `syscall_return_pair` (Saw) and both user stubs gained
-`sos_syscall1_pair` (C, 11 lines each, reason 1 — the trap instruction and its
-register pinning). It is a SEPARATE entry point rather than a wider
-`syscall_return`, and the reason is a calling convention: the second value
-register is an ARGUMENT register inbound, declared input-only by every other
-op's stub, so a kernel writing it unasked would break a constraint the compiler
-schedules around. The key is handed back unread — §2.2's point is that a word
-can encode the waiting task's identity — and readiness is a MASK, with one bit
-defined because M2 has one waitable.
+**The result shape.** SUPERSEDED BY RIDER 3 (below): the unit first widened the
+ABI with a second value register and a `sos_syscall1_pair` per profile. The
+ruling replaced that with a validated copy-out, which is both the smaller ABI
+and the shape §2.1's message body needs anyway. What survives unchanged is the
+key: handed back unread, because §2.2's point is that a word can encode the
+waiting task's identity.
 
 **One funnel for a syscall's answer (obligation 1).** `write_result` is now the
 only place an answer reaches a frame, and its docstring names its three entry
@@ -337,12 +332,10 @@ typed layer makes unspellable, but by parking the `Event` VALUE in the process's
 own memory. The kernel is not involved — the handle TABLE is the process's and
 both threads were already inside it.
 
-**Native floor: assembly unchanged at 268 code lines, C 166 -> 194** — one
-function per profile, fourteen lines each, reason 1, exactly the unit-2 shape:
-an ABI that grew a register grew the stub that names it, and nothing else.
-**No new findings**:
-DF-178d cost one more `-> Never` wrapper (`fault_slot`) and DF-178e was avoided
-by naming two `UInt` constants, both cited in the code rather than refiled.
+**Native floor: UNCHANGED, 268 assembly and 166 C code lines** — the pair stubs
+that briefly took C to 194 are gone with rider 3, so the whole unit's native
+delta is zero. An object model grew by two kinds and the machine-specific code
+did not move.
 
 **Not built here, deliberately:** the Interrupt object and the userspace UART
 echo proof — the next unit, and the one that turns `pick_next`'s deadlock report
@@ -382,6 +375,74 @@ having on record:
   is a duplicate-`@export` error on `sos_rt_write` and `sos_rt_abort`, before
   any question of the undefined `sos_syscall1` it would also pull in. Probed
   directly.
+
+### Unit 3 rider 3 — the wait answer becomes a validated copy-out (ruled Aug 16, user)
+
+The unit's `(key, readiness)` register pair is REPLACED, and with it the two C
+stubs it needed. `Waiter.Wait` now takes a buffer and a capacity on the ordinary
+three-argument syscall shape, and the kernel COPIES OUT a record. **This is the
+one place a ratified spec section has changed** — §2.2 carries the amendment and
+cites this rider.
+
+**Why the record wins.** The KEY is universal and the PAYLOAD is not: a
+Channel's readiness is not a Timer's is not an Event's. A register pair would
+have had to be the union of every waitable's answer forever, and the register
+file is the one thing that cannot grow. So the shape is `key` word, `tag` word,
+payload words — the tag a raw-backed enum with an extensible space, the sizes
+and offsets public constants, one declaration serving the kernel that writes it
+and the `sos` module that decodes it (the re-export convention rider 2
+established, now covering records as well as argument enums).
+
+**The Event's payload is its accumulated word, and it is a SNAPSHOT.** That
+makes the common wait one syscall instead of two, and the `event_wake`
+transcript shows the seam honestly: the worker signals five times, the FIRST
+wakes the sleeper, so the record reads 1 and the following `receive` drains 5.
+Neither is wrong — the record says what the wait was woken FOR, `receive` says
+what has accumulated — and filling the record at resume instead would move a
+user-memory write away from the wake and buy nothing, since the count can go
+stale again before the thread reads it.
+
+**COPY-OUT IS A FUNNEL BUILT ON ITS FIRST USE (obligation 1)**, because the
+second use is already specified: §2.1's Channel `receive` is this operation with
+a bigger length. `copy_out(p, dst, src, bytes)` is the ONLY place the kernel
+dereferences a user address; it refuses a destination that is not word-aligned
+(`BadAlign`) or not inside the process's writable window (`BadBuffer`), and both
+are FAULTS — a process linked its own image and knows where its data is. Its
+docstring names its consumers: Waiter now, the Interrupt object's result next,
+M3's Channel body after. Two things follow from having exactly one door: the
+per-address-space mapping switch M3 needs is a one-place change, and the
+writable window is one field pair on the process rather than a check scattered
+per op.
+
+**The window comes from the loader**, which now records where a process's
+writable grants are (its `Write`-flagged segments, plus the stack it is given).
+The four harness kernels that grant a payload its own bytes read+execute pass
+NOTHING and get an empty window — which is the honest answer for a process with
+nowhere to receive a record, and is what makes the two fault payloads need no
+particular address.
+
+**AN UNKNOWN TAG PANICS** in the userspace decode rather than becoming an `Err`.
+The kernel wrote that tag, out of the same declaration the decode reads, so a
+tag userspace cannot name is a kernel/`sos` skew — a bug in the pair, not data
+from an untrusted source — and never-hide says it should be loud.
+
+**C delta: NET NEGATIVE, back to the pre-pair floor.** `sos_syscall1_pair` is
+deleted from both profiles and `syscall_return_pair` from both kernel HALs; C
+goes 194 -> 166 and assembly stays 268, so the whole unit's native delta is
+zero. The seam has the shape it had in M1, and an op whose answer does not fit a
+word grows a buffer argument rather than a register.
+
+**Proof: 27 cases per machine, 54 total.** The two new ones are the funnel's two
+rejection rows — a destination outside the writable window and one that is not
+word-aligned — each a payload, because the typed `Waiter.wait` supplies its own
+buffer out of its frame and never lets a caller name one. They are told apart by
+the CHECK ORDER (alignment first), which is stated in `copy_out_check` and
+asserted by the pair.
+
+**One finding: DF-178f** — `sizeof<T>()` does not fold in a static initializer,
+though design 186's own diagnostic lists it among the things that do. Filed, and
+routed around in the open: the two sizes that wanted it are small functions with
+the reason written beside them.
 
 ## Explicitly out (M3+ candidates)
 
