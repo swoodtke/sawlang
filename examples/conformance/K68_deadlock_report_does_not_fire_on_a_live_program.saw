@@ -1,0 +1,90 @@
+// Conformance row K68 — control: the deadlock report does NOT fire while
+// anything in the process could still run
+//
+// The other half of K67, and the more important half: an abort that fires on a
+// correct program is worse than the hang it replaces. Each round below is a
+// channel wait that IS satisfiable, by one of the sources the quiescent walk has
+// to account for, and every one of them must be observed as "something can run"
+// rather than as a deadlock:
+//
+//   * a SLEEPING sibling that will wake and send (a timer deadline);
+//   * a `spawn {}` THREAD-ENGINE task that will send (no run queue knows about
+//     one at all, which is why the walk counts them separately — K56 is this
+//     shape and was the case that would have broken first);
+//   * an MT-GROUP task that will send (a worker is off running it);
+//   * the OWNER THREAD itself, running ordinary program code on its way to the
+//     send. This is the sharpest one and the only one no run queue can show: a
+//     worker looking at its group sees one channel-parked task and nothing else,
+//     and the thread that will feed it is not a frame anywhere. An abort there
+//     would fire on a correct program.
+//
+// The waits are real parks, not races: each receiver is spawned before its
+// producer can have sent, and the producers make themselves late on purpose.
+// EXPECT: success
+// EXPECT-OUTPUT:
+// sleeper fed 1
+// thread fed 2
+// mt fed 3
+// busy owner fed 4
+
+import std.channel.{Channel}
+
+func waiter(ch: Channel<Int>) -> Int {
+    try! ch.receive()
+}
+
+func late_sender(ch: Channel<Int>, v: Int) -> Int {
+    sleep(Duration.ms(30))
+    try! ch.send(v)
+    0
+}
+
+// The thread-engine sender's delay, because a `spawn {}` closure body is not
+// driven and so may not suspend (LANGUAGE_SPEC's closure-body limit) — a `sleep`
+// inside one is a clean compile error. This is ordinary sync work on the task's
+// own OS thread, which is all the delay has to be.
+func spin(rounds: Int) sync -> Int {
+    var n = 0
+    var i = 0
+    while i < rounds {
+        n = (n * 31 + i) % 1000003
+        i = i + 1
+    }
+    return n
+}
+
+func main() {
+    // 1 — the only other live task is asleep.
+    var g = TaskGroup()
+    let ch1 = Channel<Int>()
+    let w1 = g.spawn(waiter(ch1.copy()))
+    let s1 = g.spawn(late_sender(ch1.copy(), 1))
+    let _ = s1.join()
+    print("sleeper fed {}", w1.join())
+
+    // 2 — the sender is a thread-engine task, invisible to every run queue.
+    let ch2 = Channel<Int>()
+    let feeder = ch2.copy()
+    var t = spawn {
+        let _ = spin(3000000)
+        try! feeder.send(2)
+    }
+    print("thread fed {}", try! ch2.receive())
+    let _ = t.join()
+
+    // 3 — the sender is a task of a multi-threaded group.
+    var mt = TaskGroup(threads: 2)
+    let ch3 = Channel<Int>()
+    let s3 = mt.spawn(late_sender(ch3.copy(), 3))
+    print("mt fed {}", try! ch3.receive())
+    let _ = s3.join()
+
+    // 4 — the RECEIVER is the MT task and the sender is this thread, which is
+    // busy. A worker sees one channel-parked task, nothing runnable, no io and
+    // no timer; what it must not conclude is that nothing can send.
+    let ch4 = Channel<Int>()
+    let w4 = mt.spawn(waiter(ch4.copy()))
+    let _ = spin(60000000)
+    try! ch4.send(4)
+    print("busy owner fed {}", w4.join())
+}

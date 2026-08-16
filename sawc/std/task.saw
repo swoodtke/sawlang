@@ -101,6 +101,10 @@ extension Task<T> {
         } else {
             if let h = self.handle {
                 PosixThread(handle: (h as UnsafePointer<Int>)[0]).join()
+                // design 230 unit B: the body is provably finished — the thread
+                // is joined — so the quiescent report may stop counting it as
+                // something this process could still run.
+                __saw_exec_thread_task_ended()
                 let result_ptr = (h + 16) as UnsafePointer<T>
                 // The control block is freed on the next line, so the result's
                 // ownership leaves it here (design 219 unit A2).
@@ -126,6 +130,7 @@ extension Task<T>: NoCopy {
         if not self.joined {
             if let h = self.handle {
                 PosixThread(handle: (h as UnsafePointer<Int>)[0]).join()
+                __saw_exec_thread_task_ended()   // design 230 unit B, as in `join`
                 let result_ptr = (h + 16) as UnsafePointer<T>
                 __saw_deinit_in_place(result_ptr)
                 GlobalAllocator().dealloc(h, 16 + sizeof<T>(), 16)

@@ -122,12 +122,16 @@ conditionless `while { guard let r = ... else { break } ... }`
 Result shape should be settled before the sugar's scope is pinned.
 Brief unauthored — author after 230 integrates.
 
-## Design 230 — channel waits become real parks (IN PROGRESS, Aug 16)
+## Design 230 — channel waits become real parks (BUILT Aug 16, awaiting
+## integration)
 
-Brief: `designs/230-channel-parks.md` (fully ruled). Units A (the park), B
-(the quiescent deadlock report, transferred from design 225 D-e) and C
-(explicit `close()` + `receive`/`send` -> `Result<T, ChannelError>`).
-Channel SELECT is the named successor and is NOT in scope.
+Brief: `designs/230-channel-parks.md` (fully ruled), which carries the built
+shape. Units landed A (the park), then C (explicit `close()` +
+`receive`/`send` -> `Result<T, ChannelError>`), then B (the quiescent
+deadlock report, transferred from design 225 D-e) — C ahead of B on purpose,
+since B's report has to name the cooperative path it is the backstop for.
+Conformance rows K63-K68. Channel SELECT is the named successor and was NOT
+built. Two findings filed rather than decided: DF-230a and DQ-230b, below.
 
 **Obligation-2 consumer sweep (run Aug 16, before any contract change).**
 `receive`/`send` -> `Result` and the new `close()` are behavioral-contract
@@ -163,7 +167,21 @@ flips, so every holder of the old contract was enumerated first:
   plus the design-123 infallible-tier table), README.md (one worked
   example), the saw-lang skill (the `recv`-vs-`receive` entry and the
   narrow-hoist section). `TESTING.md` and `rt/ABI.md` say nothing about the
-  contract.
+  contract. All updated; the new examples were compiled and run as written.
+
+**One soundness hole found and closed during unit B, worth recording because
+the walk looks complete without it.** The quiescent report enumerates every
+way code could still run, and the frame walk accounts for two of the three
+kinds of thread there are: WORKER threads (a mid-resume worker sets its
+slot's `active`, an idle one has nothing to run) and THREAD-ENGINE tasks (a
+counter, since no run queue knows about one). The third is the OWNER thread —
+the one that creates the groups and runs ordinary program code between its
+calls into the executor — and nothing about a run queue reveals whether it is
+computing or waiting. An MT worker holding a channel-parked task would have
+reported a deadlock while the owner was mid-computation on its way to the
+send. `__saw_exec_in_executor` is the fix: a depth counter entered by the
+ambient sweep, the single-frame park, an MT `join` and an MT `Deinit`, and
+the report requires it nonzero. K68's fourth round is the regression.
 
 ## DQ-230b — RULING OWED: `Channel.try_send` has two failure modes and one
 ## error type (filed Aug 16 by the design-230 dispatch, unit C)

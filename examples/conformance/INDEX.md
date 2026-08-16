@@ -6,7 +6,7 @@ either a file in this directory or an existing `examples/` test that already
 asserts the same rule at the same position — this table is the record of which,
 and the dedup decisions are meant to be audited from it.
 
-**410 rows: 315 carry a file here, 95 are covered elsewhere** (recounted Aug 16
+**412 rows: 317 carry a file here, 95 are covered elsewhere** (recounted Aug 16
 from the table itself — the audit-era "121 here, 198 elsewhere" had gone stale
 across the briefs listed below). (The audit's 247 plus
 the rows later briefs added: W02-W05, design 194 unit 4; W06-W19, design 195
@@ -21,7 +21,7 @@ stage 3; G01-G15, design 221 unit B1; G16-G18, design 221 unit B4's return-site
 sweep; K32, design 222 unit 1; K33-K39, design 223's suspending-method position
 matrix; M37-M42, design 227 unit 1, and M43-M44, the two siblings its unit-3
 walk closed; K40-K47, design 224's container-head position matrix; K48-K62,
-design 225's TaskGroup wake matrix; K63-K66, design 230 units A and C.)
+design 225's TaskGroup wake matrix; K63-K68, design 230 units A, B and C.)
 
 ## How to read it
 
@@ -461,6 +461,8 @@ Claim source: spec 6 *Send and Sync* + *Cooperative tasks*; designs 75, 88, 103,
 | K64 | closing a channel loses none of what is already queued | `K64_close_drains_before_it_reports_closed.saw` | 230 unit C — the Go drain-then-closed rule, and the classic mistake it is written against. It falls out of the ORDER inside `__try_receive_result` (take first, ask about closed second) rather than out of anything a consumer writes, so a regression would be silent: the consumer loop looks identical either way |
 | K65 | `close()` wakes a receiver that is ALREADY parked | `K65_close_wakes_a_parked_receiver.saw` | 230 unit C over unit A — a waiting receiver is parked, not spinning, so a close reaches it the same way a send does, by publishing the readiness word. Without that the close would be observed only by a receiver that had not started waiting, which is the opposite of the case it exists for |
 | K66 | a second `close()`, and a `send` after one, are reported as values | `K66_send_and_close_after_close_report.saw` | 230 unit C — idempotent WITHOUT being silent: two holders may both believe they are the last producer, so a losing close is `Err(Closed)` and safe to `let _ =`. The row also counts the queue afterwards, because the thing a refused send must never do is land anyway |
+| K67 | a quiescent channel deadlock is REPORTED, not waited out | `K67_quiescent_channel_deadlock_is_reported.saw` | 230 unit B — design 225's D-e, buildable at last: the state it keys on was unreachable while a channel wait suspended READY (DQ-225n), and unit A's park created it. Sound by elimination rather than heuristic — no ready or active frame, no io registration, no timer, no readiness word set, no unjoined `spawn {}` task — because a resume-counting heuristic cannot tell a permanent wait from design 127's force-yielded long computation |
+| K68 | control: the deadlock report does NOT fire while anything could still run | `K68_deadlock_report_does_not_fire_on_a_live_program.saw` | 230 unit B, and the half that matters more — an abort that fires on a correct program is worse than the hang it replaces. One satisfiable wait per source the walk must account for: a sleeping sibling, a `spawn {}` thread-engine task (which no run queue knows about at all, so the walk counts them separately), and an MT-group task |
 
 ## Visibility and module boundaries
 

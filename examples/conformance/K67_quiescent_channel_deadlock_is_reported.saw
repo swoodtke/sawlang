@@ -1,0 +1,39 @@
+// Conformance row K67 — a quiescent channel deadlock is REPORTED, not waited out
+//
+// Design 230 unit B, which is design 225's D-e finally buildable. The deliverable
+// was blocked because the state it keys on was unreachable: a channel wait
+// suspended READY, so `nothing runnable` never held and a report placed there
+// would have been dead code (DQ-225n). Unit A's park is what created the state.
+//
+// The report is SOUND BY CONSTRUCTION rather than heuristic, and that is the
+// property worth pinning. Publishing a channel's readiness word takes running
+// code, so the only question is whether any code in this process can run; the
+// walk answers it by elimination — no ready or active frame, no io registration,
+// no timer deadline, no readiness word already set, no unjoined `spawn {}` task.
+// Nothing here is a guess about the future and nothing counts resumes, which is
+// what design 225 ruled out: design 127's op budget force-yields a long
+// computation exactly the way a permanent wait presents, so a "resumed N times
+// with no progress" heuristic would abort correct programs.
+//
+// The task dump follows the panic line (design 158), so the reader is told which
+// task is parked and where, not merely that something is.
+// EXPECT: panic
+// EXPECT-PANIC-CONTAINS: deadlock: every task is waiting to receive from a channel
+// EXPECT-OUTPUT-CONTAINS: task group 1 slot 0 gen 1 channel-parked
+
+import std.channel.{Channel}
+
+// Nobody ever sends to `orders`, and nobody closes it — the forgotten `close()`,
+// which is the shape unit C's cooperative path exists to avoid and this backstop
+// exists to catch.
+func consume(orders: Channel<Int>) -> Int {
+    try! orders.receive()
+}
+
+func main() {
+    var g = TaskGroup()
+    let orders = Channel<Int>()
+    let h = g.spawn(consume(orders.copy()))
+    print("waiting")
+    print("never reached {}", h.join())
+}

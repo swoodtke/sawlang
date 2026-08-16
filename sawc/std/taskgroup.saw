@@ -298,6 +298,55 @@ func __saw_exec_flag_bound(deadline: Int, flag: Bool) sync -> Int {
     deadline
 }
 
+// design 230 unit B: how many `spawn {}` THREAD-ENGINE tasks might still be
+// running. The quiescent report needs it, because a thread-engine body is code
+// this process can still run and no group's run queue knows about one — K56 is
+// exactly that program (main parks on a channel a `spawn {}` task will feed).
+//
+// Bumped by spawn codegen at the launch and dropped by `Task.join` /
+// `Task.deinit` (std/task.saw), the two points that PROVE a body is finished.
+// Conservative on purpose: a finished-but-unjoined task keeps the count up,
+// which can only SUPPRESS a report, never raise a false one.
+static __saw_exec_thread_live: Atomic<Int> = Atomic(0)
+
+public func __saw_exec_thread_task_started() {
+    let _ = __saw_exec_thread_live.fetch_add(1)
+}
+
+public func __saw_exec_thread_task_ended() {
+    let _ = __saw_exec_thread_live.fetch_add(-1)
+}
+
+// design 230 unit B: how many OWNER threads are currently inside the executor,
+// unable to run any code of their own.
+//
+// This is the hole the frame walk cannot see, and it is exactly one thread wide.
+// Every thread in the process is one of three kinds. WORKER threads are fully
+// accounted by the walk (a mid-resume worker sets its slot's `active`, an idle
+// one has nothing to run). THREAD-ENGINE tasks are counted above. What is left
+// is the OWNER thread — the one that created the groups and runs ordinary
+// program code between its calls into the executor — and nothing about a run
+// queue reveals whether it is computing or waiting. An MT worker that reported a
+// deadlock while the owner was mid-computation would be aborting a correct
+// program, which is worse than the hang it replaces.
+//
+// A depth counter rather than a flag, because these nest: an outer sweep drives
+// a task that joins another. Entered by `__saw_exec_run` (the ambient sweep),
+// `__saw_exec_park_flag` (the single-frame drive), `__await_slot` (an MT join)
+// and `__shutdown_crew` (an MT `Deinit`) — every place an owner thread hands
+// itself to the executor and cannot come back until the executor lets it.
+// A second owner thread can only be a thread-engine task, which is counted
+// above and blocks the report on its own, so one counter is enough.
+static __saw_exec_in_executor: Atomic<Int> = Atomic(0)
+
+func __saw_exec_enter() {
+    let _ = __saw_exec_in_executor.fetch_add(1)
+}
+
+func __saw_exec_leave() {
+    let _ = __saw_exec_in_executor.fetch_add(-1)
+}
+
 // design 230: the publishing side's poke, called from `Channel._enqueue` once a
 // readiness word is published (and, since unit C, from `close`). A receiver
 // parked on that word is resumable the instant it is written, but an engine
@@ -373,8 +422,20 @@ func __saw_exec_park(wake: Int) {
 // that lands before the poll begins cannot be lost. The writer here is always
 // another thread — an MT worker or a `spawn {}` task — because a cooperative
 // sender would be a second frame and this drive has one.
-func __saw_exec_park_flag(wake: Int) {
+func __saw_exec_park_flag(wake: Int) unsafe {
+    // design 230 unit B: this thread is handing itself to the executor for the
+    // length of the park and can run nothing of its own until the word is set.
+    __saw_exec_enter()
+    __saw_exec_park_flag_loop(wake)
+    __saw_exec_leave()
+}
+
+func __saw_exec_park_flag_loop(wake: Int) unsafe {
     while not __park_flag_set(wake) {
+        // design 230 unit B: this drive's own frame is on no run queue, so the
+        // quiescent walk cannot see it — `true` is what tells the walk that the
+        // caller is itself a parked frame.
+        __saw_exec_check_quiescent(true)
         let _ = __saw_host_reactor().poll(__saw_exec_poll_ms(FLAG_POLL_NANOS))
     }
 }
@@ -766,6 +827,16 @@ extension TaskGroup {
         var i = 0
         while i < self.workers {
             var t = spawn { __saw_exec_worker(addr) }
+            // design 230 unit B: an executor WORKER is not a user task, so it is
+            // taken back out of the thread-engine live count spawn codegen just
+            // added it to. The count answers "could a `spawn {}` BODY still run
+            // and publish something"; a worker's body publishes nothing of its
+            // own — whatever it runs is a frame in this group, which the
+            // quiescent walk reads directly. Counting workers would mean an MT
+            // program could never report a deadlock, which is the case the
+            // report is most needed for. `__shutdown_crew` puts the count back
+            // ahead of the join that will drop it, so the pair stays balanced.
+            __saw_exec_thread_task_ended()
             self.crew.push(move t)
             i = i + 1
         }
@@ -879,6 +950,15 @@ extension TaskGroup {
     // so it cannot reach a worker — which is what makes waiting on the
     // run-queue condition variable safe: no worker is ever inside this.
     func __await_slot(&var self, slot: Int, generation: Int) unsafe {
+        // design 230 unit B: the owner is inside the executor for the whole wait
+        // — it cannot run a line of its own program until this task completes —
+        // which is what lets a worker of this group raise a deadlock report.
+        __saw_exec_enter()
+        self.__await_slot_inner(slot, generation)
+        __saw_exec_leave()
+    }
+
+    func __await_slot_inner(&var self, slot: Int, generation: Int) unsafe {
         if let cv = self.cond {
             if let lk = self.lock {
                 pthread_mutex_lock(lk)
@@ -1033,6 +1113,15 @@ extension TaskGroup {
         if not self.started {
             return
         }
+        // design 230 unit B: as in `__await_slot` — the owner is blocked in the
+        // worker joins below and can run nothing of its own until they return,
+        // so a worker holding a channel-parked task may report from here.
+        __saw_exec_enter()
+        self.__shutdown_crew_inner()
+        __saw_exec_leave()
+    }
+
+    func __shutdown_crew_inner(&var self) unsafe {
         self.__lock()
         self.stopping = true
         self.__notify()
@@ -1040,6 +1129,9 @@ extension TaskGroup {
         while self.crew.len() > 0 {
             if let ht = self.crew.pop() {
                 var h = move ht
+                // design 230 unit B: restore the count `__start_crew` took this
+                // worker out of, so the join below leaves it where it started.
+                __saw_exec_thread_task_started()
                 h.join()
             }
         }
@@ -1292,6 +1384,10 @@ func __saw_exec_worker(addr: Int) unsafe {
                         // is written by a thread that holds no group lock at all,
                         // so a wait on it could be lost outright.)
                         let _ = pthread_mutex_unlock(lk)
+                        // design 230 unit B: with the lock RELEASED — the walk
+                        // reads every group, this one included, and takes no
+                        // lock of its own.
+                        __saw_exec_check_quiescent(false)
                         let _ = __saw_host_reactor().poll(
                             __saw_exec_poll_ms(FLAG_POLL_NANOS))
                     } else {
@@ -1846,6 +1942,103 @@ func __saw_exec_wake_flags() unsafe -> Bool {
     woke
 }
 
+// =============================================================================
+// The quiescent deadlock report (design 230 unit B; design 225 D-e, transferred)
+// =============================================================================
+// THE ONE PLACE the report is decided and raised. Three entry points, each
+// reached only when its caller has nothing left to do and a readiness-word park
+// is the reason:
+//   * `__saw_exec_run` phase 2's flag branch — the ambient scheduler;
+//   * `__saw_exec_worker`'s flag branch — an MT worker, called with the group
+//     lock RELEASED (the walk below reads every group including this worker's
+//     own and takes no lock, so holding one here would be the deadlock);
+//   * `__saw_exec_park_flag` — the single-frame drive, whose own parked frame is
+//     on no run queue at all and so is passed in as `self_parked`.
+//
+// SOUND BY CONSTRUCTION, and the argument is worth writing down because the
+// per-channel version of the question is NOT decidable — "will a sender ever
+// exist for this channel" needs to know what code will run, and design 225's
+// D-e was blocked on exactly that. The quiescent state dissolves it: publishing
+// a channel's readiness word requires RUNNING CODE, so the report needs one
+// thing only, that no code in this process can run. Every way it could is
+// enumerated, and any one of them ends the walk:
+//   * a frame that is READY, or ACTIVE on some thread's stack;
+//   * a frame parked on IO — the reactor holds a registration that may fire;
+//   * a frame parked on a TIMER — its deadline will arrive;
+//   * a frame parked on a readiness word that is ALREADY SET — resumable now;
+//   * a `spawn {}` thread-engine task that has not been joined.
+// With none of those and at least one frame parked on a CLEAR readiness word,
+// nothing will ever run again and the wait can only end when the process does.
+//
+// The walk is the same UNSYNCHRONIZED snapshot `__saw_bt_dump` takes, over the
+// diagnostics list, which is the one that carries MT groups too. Unsynchronized
+// is fine for a report and not fine for an abort, so the state is confirmed
+// TWICE with a nap between: when it is real the second look is guaranteed
+// identical (by the argument above, nothing can change it), so the second look
+// costs a millisecond in the deadlock case and rules out a torn read in every
+// other.
+func __saw_exec_quiescent_now(self_parked: Bool) unsafe -> Bool {
+    if __saw_exec_thread_live.load() != 0 {
+        return false
+    }
+    // The owner thread must be inside the executor. Without this an MT worker
+    // could report while the owner was computing its way toward the send that
+    // would have ended the wait — see `__saw_exec_in_executor`.
+    if __saw_exec_in_executor.load() == 0 {
+        return false
+    }
+    var parked = self_parked
+    var cur = __saw_bt_head.load()
+    var seen = 0
+    while cur != 0 && seen < BT_MAX_GROUPS {
+        seen = seen + 1
+        let g = cur as UnsafePointer<TaskGroup>
+        let n = g[0].tasks.len()
+        var i = 0
+        while i < n {
+            let st = __saw_exec_slot_state(g, i)
+            if not st.done {
+                if st.active {
+                    return false
+                }
+                if __park_is_flag(st.remaining) {
+                    if __park_flag_set(st.remaining) {
+                        return false
+                    }
+                    parked = true
+                } else {
+                    // Ready (0), io (-1) or a timer (> 0): something can run.
+                    return false
+                }
+            }
+            i = i + 1
+        }
+        cur = g[0].bt_next
+    }
+    parked
+}
+
+// Set once, by whichever engine raises the report first. Two engines can reach
+// the state together and the process is ending either way; one report is the
+// readable one.
+static __saw_exec_reported: Atomic<Int> = Atomic(0)
+
+func __saw_exec_check_quiescent(self_parked: Bool) unsafe {
+    if not __saw_exec_quiescent_now(self_parked) {
+        return
+    }
+    __saw_exec_sleep_ns(BACKOFF_NANOS)
+    if not __saw_exec_quiescent_now(self_parked) {
+        return
+    }
+    if not __saw_exec_reported.compare_exchange(0, 1) {
+        return
+    }
+    // The panic path prints the task dump after this line (design 158), so the
+    // reader gets which task is parked on what without asking for it.
+    panic("deadlock: every task is waiting to receive from a channel, and nothing in this program can send. A channel has no sender count — every handle is the same handle — so a producer that is finished must say so with close(), and a receive on a closed, drained channel returns Err(Closed) instead of waiting")
+}
+
 // Pure-sleep advance: subtract the parked deadline from every sleeper so the
 // shortest wakes first. Skips frames active on the C stack.
 func __saw_exec_advance_sleep(deadline: Int) unsafe {
@@ -1879,6 +2072,16 @@ func __saw_exec_advance_sleep(deadline: Int) unsafe {
 // nested drive (task joins task; a nested group's Deinit) never re-enters a live
 // coroutine nor nests a second loop — it yields to the ONE scheduler.
 func __saw_exec_run(term_group: Int, term_slot: Int, term_gen: Int) unsafe {
+    // design 230 unit B: the sweeping thread is the OWNER thread, and while it
+    // is in here it runs no program code of its own — the one fact the frame
+    // walk cannot recover for itself. Nests (a task joins a task), which is why
+    // the counter is a depth.
+    __saw_exec_enter()
+    __saw_exec_run_inner(term_group, term_slot, term_gen)
+    __saw_exec_leave()
+}
+
+func __saw_exec_run_inner(term_group: Int, term_slot: Int, term_gen: Int) unsafe {
     while not __saw_exec_should_stop(term_group, term_slot, term_gen) {
         // Phase 1: resume every ready frame across all groups until none is ready
         // (re-checked from the head each pass, so a just-spawned frame is caught).
@@ -1981,6 +2184,7 @@ func __saw_exec_run(term_group: Int, term_slot: Int, term_gen: Int) unsafe {
             // or this is a deadlock (unit B's report sits here). Park in the
             // reactor so a `__saw_exec_chan_wake` poke ends the wait at once,
             // bounded so a poke that races the poll cannot be lost.
+            __saw_exec_check_quiescent(false)
             let _ = __saw_host_reactor().poll(__saw_exec_poll_ms(FLAG_POLL_NANOS))
         } else if deadline > 0 {
             // Pure-timer idle: every live frame is sleeping and none is on an fd.

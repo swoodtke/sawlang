@@ -1,9 +1,44 @@
 # Design 230 — channel waits become real parks
 
-**Status: DIRECTION RULED (user, Aug 16) — DQ-225n's option (a). Sequenced
+**Status: BUILT (Aug 16). Units landed A, then C, then B — C ahead of B
+deliberately, because unit B's report has to name the cooperative path it
+is the backstop for, and `close()` is that path. Conformance rows K63-K68.
+Two findings filed rather than decided here: DF-230a (a task suspended in
+`receive()` cannot be cancelled — pre-existing, and the fix wants a ruling
+on whether `ChannelError` grows a `Cancelled` case) and DQ-230b
+(`try_send` has two failure modes and one error slot).**
+
+**Direction RULED (user, Aug 16) — DQ-225n's option (a). Sequenced
 AFTER design 225's integration (it builds on the live pool's engines).
 One surface decision open (unit C). D-e's deadlock-report deliverable
 TRANSFERS here from 225 (recorded blocked-not-skipped there).**
+
+## What it looks like as built
+
+The wake word's NEGATIVE HALF is the vocabulary, rather than a new field on
+the frame: `-1` stays the io park, and every value below it is a park on a
+READINESS WORD, spelled as that word's negated address. The executor's whole
+rule is "resume the frame once the word it named is nonzero", so it needs no
+channel import, no channel-layout knowledge and no per-channel bookkeeping —
+and "a send wakes exactly the parked receivers of that channel" is true by
+construction, since no other frame's wake word names that address. The channel
+maintains the word under its own mutex at one place (`_publish_ready`);
+`__park_is_io` / `__park_is_flag` / `__park_flag_set` are the funnel every scan
+asks through.
+
+Measured on the DQ-225n probe trio, 3 wall seconds each: sole waiter 0.02s of
+CPU (was 100% of a core), MT waiter 0.033s (was 143%).
+
+Unit B's walk needed one thing the frame scan cannot recover. Of the three
+kinds of thread in the process, WORKERS are fully accounted (a mid-resume
+worker sets its slot's `active`; an idle one has nothing to run) and
+THREAD-ENGINE tasks are counted (no run queue knows about one). The third is
+the OWNER thread, which runs ordinary program code between its calls into the
+executor, and an MT worker holding a channel-parked task would have reported a
+deadlock while the owner was computing its way to the send.
+`__saw_exec_in_executor` closes it: a depth counter entered by the ambient
+sweep, the single-frame park, an MT `join` and an MT `Deinit`, with the report
+requiring it nonzero. Row K68 carries that case.
 
 ## The finding this fixes (DQ-225n, measured)
 

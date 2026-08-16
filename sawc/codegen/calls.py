@@ -2136,6 +2136,14 @@ class CallsMixin:
         # control-block layout to the pre-117 pthread_create-writes-the-slot form.
         handle = self.builder.call(self.functions["__saw_rt_thread_spawn"],
                                    [tramp, raw], name="task_handle")
+        # design 230 unit B: a `spawn {}` body is code this process can still run
+        # and no run queue knows about it, so the quiescent deadlock report has
+        # to count it. Bumped HERE (the launch) and dropped in `Task.join` /
+        # `Task.deinit`, which are the two points that prove a body is finished.
+        # Guarded on the symbol because the executor module is a hosted-only
+        # dependency, exactly as the `io_wait` fallback below is.
+        if "__saw_exec_thread_task_started" in self.functions:
+            self.builder.call(self.functions["__saw_exec_thread_task_started"], [])
         tid_word_slot = self.builder.bitcast(
             tid_slot, self.int_type.as_pointer(), name="task_tid_word")
         self.builder.store(handle, tid_word_slot)
