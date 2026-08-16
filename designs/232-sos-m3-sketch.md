@@ -145,14 +145,32 @@ pattern's third consumer), ELSE first unit of M4. Agenda item 9.
 
 ## The decisions agenda (the scoping session, in order)
 
-1. **Ratify the slicing** (A vs B/C; the unit ladder's order).
-2. **Child image provenance** — where does root get a child's image?
-   (a) BUNDLED: the sosimg grows multi-image support and root's image
-   carries its children's, loader-split at boot; (b) MEMORY-BASED:
-   CreateProcess takes a Memory the parent filled, kernel validates +
-   loads from it — more general, and the shape M4 program-loading
-   wants anyway. LEAN: (b) — it reuses the surface unit 4 builds, and
-   bundling would add an imgformat mechanism M4 then retires.
+1. **The slicing: RATIFIED (user, Aug 16)** — option A, the unit
+   ladder as ordered (with 1.5 and 5.5 in place).
+2. **Child image provenance: RULED (user, Aug 16) — the HYBRID.**
+   The STITCHER appends child images to the boot blob and records a
+   region table (offsets + lengths, nothing more); the KERNEL at boot
+   mints one Memory per region, delivered through boot_handles tagged
+   by region ordinal — it never interprets the bytes there; ROOT
+   correlates ordinals to its config (which image, which child, which
+   link range, devices, quotas) and calls `create_process(image:
+   Memory)`; the KERNEL is the ONLY sosimg parser, at create_process,
+   reusing the loader that loads root today — it re-validates
+   unconditionally (root MAY parse via the imgformat library for
+   diagnostics; nothing depends on it). One door from M3 static
+   children through M4 dynamic loading. Two small flags for the
+   CreateProcess brief: (i) a malformed image from root — fault or
+   status? LEAN: STATUS (`BadImage`) — image bytes are DATA on the
+   `from(raw:)` precedent (an unknown wire byte is data, never a
+   trap), and M4's dynamically-fetched images make that unambiguous;
+   (ii) image-region reclamation — after loading, the blob region is
+   dead bytes; LEAN: v1 accepts the waste (static systems, small
+   images), noted rather than engineered around.
+   THE BUILD-TIME CONSTRAINT the unit designs around: under the PMP
+   no-translation contract all processes share one physical address
+   space, so every child image is LINKED at a distinct base assigned
+   in config — blade/the stitcher emit per-child link addresses, and
+   create_process validates segments against the assigned range.
 3. **ClockType set for v1** (lean: Monotonic only; Boot/Realtime
    reserved in the enum, per the raw-backing wire idiom).
 4. **The arm() copy-in record layout** + its validation rules (the
