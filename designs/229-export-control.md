@@ -1,6 +1,18 @@
 # Design 229 — export control: imports stop being silently public
 
-**Status: SKETCH for discussion (Aug 16) — a language-surface change; the
+**Status: FULLY RULED (user, Aug 16). Proposal A adopted: imports become
+PRIVATE BY DEFAULT; the re-export spelling is `public import`, legal on
+EVERY import form — whole-module qualifier, selective `{A, B as C}`, and
+wildcard `.*` alike ("if the user wants it public why should we stop
+them"). NO migration census (user: small mechanical change when
+necessary — in-tree fallout is fixed as the suite surfaces it).
+Migration guidance for fallout: prefer the CONSUMER importing directly
+(design 142's direct-import doctrine states intent best); use `public
+import` only where the middle module is genuinely a facade (sos's
+user-encoding enums being the motivating case). Path walls (B) wait for
+demand. DISPATCHED.**
+
+**Original sketch (Aug 16) — a language-surface change; the
 user rules the default and the spelling. Motivated by the E/W unit-3
 finding: Saw's re-export is INDISCRIMINATE — everything a module imports
 is reachable through it (probe-proven: an importer of B names a type B
