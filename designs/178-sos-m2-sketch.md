@@ -573,3 +573,37 @@ after unit 1's DF-178b work:
    the protocol in the unit; unstated it is a flaky-test mystery.
 5. The Interrupt object consumes unit 3's copy-out funnel with its own
    WaitPayload variant, per the wait() redesign.
+
+## M3 TIME NOTES (Aug 16 conversation, user + lead — Clock/Timer as M3's
+## proposed FIRST unit)
+
+No Timer object exists (spec §2 ratifies the row; M2's "timers" were the
+kernel tick). M2 made it cheap: the per-arch timer seam, the tick hook,
+and the waitable pattern (slot arm + WaitPayload variant + Waiter.add
+overload) are all in place. USER-RULED API SHAPE:
+
+- `System.get_clock(type: ClockType.Monotonic) -> Clock` — time is a
+  GRANTED CAPABILITY. The sleeper strength: a virtual Clock handed to a
+  process gives virtual now() and virtual timers with zero code change —
+  design 214's deterministic-simulation seam at the kernel API layer;
+  the hosted executor's virtual-clock branch and this are twins.
+- `clock.create_timer() -> Timer` — the timer BINDS its clock/domain at
+  creation (Boot/Realtime later, each with its own step semantics);
+  ClockType is a public single-declaration enum per the
+  create_event(mode:) convention.
+- `clock.now() -> ns` (UInt64) — v1 a syscall via the COPY-OUT record
+  (64-bit on rv32 is two words); the vDSO true-mapping upgrade (already
+  on the M3+ list) is the named syscall-free future.
+- `timer.arm(relative_ns, interval:)` — kernel-side drift-free re-arm
+  (next = previous_fire + interval, the timerfd model); missed ticks
+  COALESCE into a fire count delivered as WaitPayload.Timer(fires:) —
+  the SaturatingSum machinery reused. Timer is directly waitable
+  (waitable_slot arm) per the spec row.
+- ABI wrinkle that seeds the next funnel: arm()'s 64-bit inputs exceed
+  rv32 argument registers → a validated COPY-IN record — the copy-out
+  funnel's mirror twin, which M3 IPC send needs anyway; Timer.arm is
+  its small first consumer exactly as wait() was for copy-out.
+- Also the process-sleep story: today a process cannot sleep at all
+  (wait blocks indefinitely); Timer closes that gap, which is why it
+  heads the M3 ladder ahead of IPC (whose select shape needs timeout
+  regardless — design 214's standing question).
