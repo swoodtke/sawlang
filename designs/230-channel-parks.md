@@ -38,16 +38,18 @@ Channel handles are Copy; live-sender counting is refcounting the runtime
 already does. Sender count → 0 means NO send can ever occur — the honest
 response is waking receivers with a CLOSED outcome (the Rust
 Disconnected / Go closed-channel model), converting a deadlock class
-into handleable errors. Requires a surface ruling, since `receive()`
-returns bare `T` today:
-  (i) PANIC on closed — never-hide, loudest, no signature change; a
-      closed channel is treated as a bug;
-  (ii) `receive() -> T?` — None = closed; quiet, composes with `if let`;
-  (iii) `receive() -> Result<T, ChannelClosed>` — the most explicit;
-      matches the never-hide doctrine's Result preference.
-Consumer sweep owed either way (every receive call site in tree adapts
-under ii/iii). Send-on-closed (receiver count → 0) is the symmetric
-question and should be ruled in the same breath.
+into handleable errors. **RULED (user, Aug 16): `receive() -> Result<T, ChannelError>`** — closed
+is a legitimate error, and the error type is an EXTENSIBLE enum because a
+future receive TIMEOUT is another legitimate case (`ChannelError` starts
+with `Closed`; `TimedOut` is the reserved next case — this is also the
+design-214 gap "receive-with-timeout on Channel" acquiring its surface,
+and the eventual timeout composes with the Clock/Timer M3 shape).
+`send()` follows the symmetric shape — `Result<Void, ChannelError>`,
+`Closed` when the receiver count is zero — recorded as the natural
+symmetric reading; the user may amend at dispatch if send-on-closed
+should differ. Consumer sweep is unit C's first step (every
+receive/send call site in tree adapts — `try`/`try!`/match per the
+never-hide doctrine).
 
 ## Gates
 
