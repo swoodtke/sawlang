@@ -895,6 +895,32 @@ and becomes a quota row like any other; and spec §5.7's deferred
 "quota-gated free creation" object-model note now has its seed — this
 ruling IS that brief starting.
 
+CHARGING (ruled, third round): ALWAYS THE CREATOR, NEVER TRANSFERRED.
+P1 creates a Memory, maps it, gives it to P2, P2 maps: P1 Memory=1
+Mapping=1, P2 Memory=0 Mapping=1. Three things make this the right
+rule, not just the simple one:
+
+- THE MAPPING CHARGE MATCHES THE HARDWARE: a mapping's real cost is a
+  slot in the MAPPER's PMP set (entries reload per-process), so
+  charging the mapper charges the process that physically consumes the
+  resource. Memory's slab entry charges its creator; each mapping
+  charges its mapper. The charge lands where the kernel resource sits.
+- DELEGATION IS NOT LAUNDERING: the classic charge-follows-handle
+  argument ("P2 exceeds its budget via P1 creating on its behalf")
+  describes delegation — P1 spends its OWN budget by choice, and the
+  invariant that matters survives: every process's spend is bounded by
+  its own table, so total slab pressure is bounded by the sum of
+  quotas. A broker process's big Memory quota IS its role description;
+  a P1 tricked into creating for others is a confused-deputy bug in P1,
+  not a kernel accounting failure.
+- THE ORPHAN RULE (the one edge this creates): creator dies while its
+  object is still held elsewhere — the charge is WRITTEN OFF with the
+  dead table, the object persists in the slab until its own handles and
+  mappings die, and the slab stays the global backstop. A quota bounds
+  LIVE CREATIONS BY A LIVE PROCESS; the slab is the truth. (Stated so
+  nobody writes naive credit-on-destroy bookkeeping that decrements a
+  dead process's row.)
+
 OPEN FLAGS for the scoping session: (a) does a CHILD keep AllocMemory,
 or is it root-only like the binds? (lean: stripped — root allocs and
 gives; a child that needs a buffer is given one, and heap stays the
@@ -903,13 +929,10 @@ process? (lean: allow, one MemoryMapping each); (c) boot_handles record
 layout + tag values; (d) op/right numbering; (e) spec §5.7's "become
 real objects in M3" line is AMENDED by this ruling (rights-gated ops,
 boot set stays one handle wide) — spec edit owed at M3, not before;
-(f) CHARGE-ON-TRANSFER reopens with quotas real: v1 stays clean
-(givable objects are root-minted and root is unlimited), but the moment
-M3+ IPC lets a CHILD send a handle over a channel, "charge stays with
-creator" vs "charge follows the handle" returns with teeth — flagged,
-not answered; (g) which kinds are counted in v1's table (events,
+(f) which kinds are counted in v1's table (events,
 waiters, threads, mappings, heap pages are the candidates; channels
-join when they exist); (h) soft-limit mechanism (the Event wiring
-above) in v1 or flagged; (i) a spec note owed: window+line confines the
+join when they exist); (g) soft-limit mechanism (the Event wiring
+above) in v1 or flagged; (h) a spec note owed: window+line confines the
 DRIVER, not a DMA-capable DEVICE — bus mastering needs an IOMMU, out of
-scope for the virt boards but said out loud.
+scope for the virt boards but said out loud. (The former
+charge-on-transfer flag is RULED — see CHARGING above.)
