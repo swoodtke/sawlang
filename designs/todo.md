@@ -15,7 +15,6 @@ line per brief + one per done-file), created with the next split.
 Next split (aug10-aug14 + INDEX.md) queued behind design 223's
 integration.
 
-<<<<<<< HEAD
 ## DF-229a — a selective import of a name a USER module does not have is
 ## silently accepted (filed Aug 16, design 229 implementation)
 
@@ -44,6 +43,46 @@ BEFORE dispatching on category, which is the shape the fix should take.
 Design 229 raises the stakes: a name the module imports but does not
 re-export now gets a precise refusal at the import, so the remaining silence
 reads as "that one is fine" when it is not.
+
+## DF-225o — `reemit` reported three DIVERGENT files under heavy load and none
+## on a quiet machine (observed Aug 16 by the design-225 terminal battery; the
+## compiler emitted different bytes twice in one process, so this is a
+## nondeterminism report, not a harness complaint)
+
+**What happened.** `tools/battery.sh reemit` over the whole corpus, running while
+another session's full battery had the machine at load 25-30, reported
+`identical: 1213  skipped: 468  DIVERGENT: 3` — `erased_downcast_error_retry`,
+`enum_policy_explicit_copy_deep` and `equatable_optional_string_synth`, one in
+each of shards 2, 4 and 6, all on the `.ll` artifact. Re-run immediately
+afterwards on the same tree: the three files alone are identical, shard 2 alone
+reports zero diffs, and the WHOLE corpus on a quiet machine reports
+`identical: 1216  DIVERGENT: 0`.
+
+**Why this is a finding and not a flake to wave off.** reemit's oracle is that
+compiling one file twice IN ONE PROCESS emits the same bytes. Load does not
+change what LLVM prints. What load changes is Python object ADDRESSES, and an
+address is what `id()`-based hashing keys on — so a `set` or `dict` of objects
+that do not define `__hash__`, iterated anywhere on the emission path, has an
+order that shifts with allocation history and memory pressure. That is exactly
+the class design 141 found twice and design 164/220 chased through the id
+allocators, and it is real nondeterminism in the compiler however rarely it
+shows.
+
+**What the fix owes.** Reproduce it deliberately rather than waiting for another
+loaded machine: run reemit under memory pressure, or instrument the emission
+walks to assert that every set/dict they iterate is either sorted or keyed on a
+stable value. The three files above are the starting sample and they have
+nothing obvious in common (an erased downcast, an enum copy policy, a
+synthesized Optional `equals`), which is itself informative — a shared
+mechanism upstream of all three is more likely than three bugs.
+
+**Not caused by design 225** as far as the evidence goes: the same tree is clean
+on a quiet machine, and 225's own change to `std/taskgroup.saw` is merged into
+every compile, so a determinism bug it introduced would not be load-sensitive.
+Filed by that brief because it observed it, not because it owns it.
+LEAD NOTE at integration: the queued set-of-str mech lane's scope WIDENS
+to cover `id()`-keyed object sets on emission paths — this finding is
+that lint's second customer.
 
 ## DQ-225n — RULING OWED: the deadlock report (design 225 D-e / unit 4) cannot
 ## be built as specified, because a cooperative CHANNEL WAIT IS NOT A PARK
