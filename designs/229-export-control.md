@@ -1,5 +1,47 @@
 # Design 229 — export control: imports stop being silently public
 
+**BUILT Aug 16, four commits, suite 1893 passed / 24 xfailed (baseline
+1883/24; ten tests are new, none flipped). Full tracked battery: 20 stages
+GREEN, including `irdet --all` (1032 records, zero mismatch), lexdiff and
+astdiff over 2124 tracked `.saw`, bootstrap, and sos (44 tests across
+riscv32 + arm64). What landed, against the proposal below:**
+
+- **Proposal A, whole.** An import binds names for the file that writes it.
+  An importer of M reaches what M declares `public` and what M
+  `public import`s, and nothing M merely imports — under all four spellings,
+  because reachability is the visibility chain: the bare name under
+  `import M.*`, the `{X}` selection, the qualified `M.X`, and the chain
+  `M.dep.X`. std is under the same rule (M's own `import std.data` is not on
+  M's surface); the prelude is untouched, and so is M's own view.
+- **ONE predicate decides it** — `Namespace.hidden_import`, whose docstring
+  names every entry (obligation 1): `_resolve_parts` under
+  `through_import=True` (the qualified reach, every hop), `check_module`'s
+  glob and selective branches (the bare reach), the two bare-name fallbacks
+  that scan imported namespaces, and `_import_hiding` for the diagnostic.
+- **`public import` on every form, each handing on what its own shape binds:**
+  the whole-module form re-exports the QUALIFIER (so `m.dep.X` reaches
+  through), the selective form the names it lists, the glob form the whole
+  vocabulary. RULING MADE HERE, and the one the motivating case needs: the
+  qualifier a SELECTIVE import also binds stays private even under `public
+  import` — publishing it beside the names would publish the module the
+  selection came from, which is exactly what a curated facade must not do.
+- **Migration (unit 0): the census was declined and the suite was the census.
+  ZERO fallout.** No tracked module reached a name through a module that only
+  imports it; blade, libs, devtools, selfhost and sos all built unchanged.
+- **The SOS wall is real.** `sos` (kernel/sysapi) now writes `public import
+  sosabi.{SosStatus}` — the one encoding a process is meant to write, since
+  every typed method returns `Result<_, SosStatus>` — and an ordinary import
+  for the op numbers, rights and handle aliases beside it. §5.7's "syscall
+  numbers are not ABI" is a mechanism now rather than a paragraph.
+  `sos/tests/thread-basics` names the tag through the export so the
+  guarantee has a running check.
+- **Conformance rows B13 (the wall, all four spellings in one file) and B14
+  (the control: `public import` re-exports, and a selective one does not
+  hand on its qualifier).**
+- **B (path walls) not built**, per the ruling. Filed DF-229a: a selective
+  import of a name a USER module does not have at all is silently accepted,
+  where std has reported it since design 150.
+
 **Status: FULLY RULED (user, Aug 16). Proposal A adopted: imports become
 PRIVATE BY DEFAULT; the re-export spelling is `public import`, legal on
 EVERY import form — whole-module qualifier, selective `{A, B as C}`, and
