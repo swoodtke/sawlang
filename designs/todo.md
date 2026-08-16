@@ -165,6 +165,37 @@ flips, so every holder of the old contract was enumerated first:
   narrow-hoist section). `TESTING.md` and `rt/ABI.md` say nothing about the
   contract.
 
+## DF-230a — a task suspended inside `Channel.receive()` cannot be CANCELLED
+## (filed Aug 16 by the design-230 dispatch; pre-existing, not introduced here)
+
+**OPEN.** `h.cancel()` on a task whose current suspension is a `receive()` never
+reaches the task: the receive loop is `try_receive` + park and has no
+`cancelled()` check, so the task waits for a value that will never arrive and
+the group's `Deinit` waits for the task. Pre-230 the same program spun at 100%
+of a core instead of parking, so nothing about the reachability changed — only
+the CPU it costs.
+
+Every other parking primitive in std observes cancellation: `std.net`'s
+accept/read/write re-check `cancelled()` at their park-loop top and return
+`Err(IoError)` (design 102), and design 180 unit 5 gave the timer half the same
+promptness. The channel is the one park with no such path, and the sanctioned
+workaround is to write the loop yourself with `try_receive`
+(`examples/taskgroup_cancel_receive.saw` is the idiom).
+
+Design 230 deliberately does NOT wake a cancelled channel waiter: with no
+`cancelled()` check in the loop, the resume finds nothing and parks again, which
+converts a quiet park into a promote/resume/re-park spin (`__saw_exec_wake_flags`
+records the reasoning). The task is unreachable either way; this way it costs
+nothing while it is.
+
+WHAT IT NEEDS, and why it is a RULING rather than a fix: `receive()` returns
+`Result<T, ChannelError>` since design 230, and the natural shape is a
+`Cancelled` case beside `Closed` — but the brief ruled the enum's contents
+(`Closed` now, `TimedOut` reserved) and a third case is a surface decision, not
+an implementation one. The alternative reading is that cancellation is not an
+error at all and the answer is a separate `receive_or_cancelled()`. Not decided
+here.
+
 ## DF-229a — a selective import of a name a USER module does not have is
 ## silently accepted (filed Aug 16, design 229 implementation)
 

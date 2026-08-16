@@ -83,7 +83,8 @@ class SuspendSource:
 # conservative "a call through a non-`sync` function value" one, which any
 # closure-taking call raises and which must NOT, on its own, wrap `main` in an
 # entry executor or pull a body into the coroutine transform's driven closure.
-REAL_SUSPEND_LABELS = ("yield_now", "sleep", "__saw_io_park", "io_wait")
+REAL_SUSPEND_LABELS = ("yield_now", "sleep", "__saw_io_park", "io_wait",
+                       "__saw_chan_park")
 
 
 def _is_real_source(source: SuspendSource) -> bool:

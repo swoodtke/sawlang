@@ -224,11 +224,20 @@ def _poll(variant):
 
 # The suspension-boundary intrinsics: `__saw_suspend` (test-only synthetic), and the
 # real primitives `yield_now()` (immediately re-ready) and `sleep(d)` (timed).
-_SUSPEND_CALLS = ("__saw_suspend", "yield_now", "sleep", "__saw_io_park", "io_wait")
+_SUSPEND_CALLS = ("__saw_suspend", "yield_now", "sleep", "__saw_io_park", "io_wait",
+                  "__saw_chan_park")
 
 # design 76 (A4): the IO-park wake reason. A negative sentinel distinct from the
-# `sleep(d)` (>0) and yield/channel-retry (0) reasons: the executor parks in the
-# reactor (kqueue/epoll) rather than sleeping or busy-requeuing.
+# `sleep(d)` (>0) and yield (0) reasons: the executor parks in the reactor
+# (kqueue/epoll) rather than sleeping or busy-requeuing.
+#
+# design 230 extends the negative half rather than adding a field: EVERY value
+# below -1 is a park on a READINESS WORD, spelled as that word's negated address,
+# and the executor's rule is "resume when the word this frame named is nonzero".
+# `__saw_chan_park(w)` is the suspension primitive that carries one; the word
+# comes from `Channel.__park_word()`, so the wake reason names the channel and a
+# send wakes exactly its own parked receivers. A readiness word is 8-aligned and
+# never at address 0, so it can never collide with IO_PARK_WAKE.
 IO_PARK_WAKE = -1
 
 
@@ -263,6 +272,12 @@ def _wake_expr(stmt):
                                                 value=fc.arguments[0].value)])
     if fc.name == "__saw_io_park":
         return _int(IO_PARK_WAKE)
+    if fc.name == "__saw_chan_park":
+        # design 230: the argument IS the wake reason — `Channel.__park_word()`
+        # already hands back the negated address of the channel's readiness word.
+        # Ordinary body code, so the caller rewrites its identifiers to frame
+        # fields exactly as it does for `sleep`'s span.
+        return fc.arguments[0].value
     return _int(0)
 
 
@@ -6021,7 +6036,19 @@ class _FrameBuilder:
         # Got a value -> back to header (which exits); still empty -> suspend.
         self._branch(_self_field(have), header, yield_b)
         self.cur = yield_b
-        self._suspend_to(_int(0), header)
+        # design 230: PARK on the channel instead of yielding READY. The wake
+        # reason is the negated address of this channel's readiness word, so the
+        # executor leaves the task alone until a send publishes it — the inline
+        # lowering and the reference body in `std/channel.saw` carry the same
+        # suspension, which is what keeps the body honest as the effect-inference
+        # source. Until 230 this was `_int(0)` and a sole waiter burned 100% of a
+        # core (DQ-225n). A fresh copy of the receiver: `recv_expr` is already
+        # placed in the `try_receive` call above, and an AST node may sit in one
+        # place only.
+        import copy as _copy
+        park_word = MethodCall(object=_copy.deepcopy(recv_expr),
+                               method_name="__park_word", arguments=[])
+        self._suspend_to(park_word, header)
         self.cur = after
         if rc.get('ret') and not self.is_void:
             # The value is in the `__rcvN` holder (a `return` names no target),

@@ -238,6 +238,81 @@ static NANOS_PER_MILLI: Int = 1000000
 static BACKOFF_NANOS: Int = 1000000
 static MT_POLL_CAP_NANOS: Int = 50000000
 
+// =============================================================================
+// The park word vocabulary (design 230)
+// =============================================================================
+// A frame's `__wake` — and its slot's `remaining`, which is a copy of it — is
+// ONE Int carrying four states. These predicates are the ONLY places that
+// encoding is spelled; every scan below asks through them, and a fifth state
+// would be added here and nowhere else.
+//
+//    > 0    a SLEEP deadline, in nanoseconds (design 180)
+//   == 0    READY — resume on the next sweep (`yield_now`, a budget yield)
+//   == -1   the IO PARK (design 76): the reactor holds a registration whose
+//           readiness event latches this frame's `__wake` word back to 0
+//    < -1   a PARK ON A READINESS WORD (design 230): the NEGATED ADDRESS of an
+//           `Int` somebody else owns, and the frame resumes once that word is
+//           nonzero. A readiness word is 8-aligned and never at address 0, so
+//           `-1` can never name one and the two negative states cannot collide.
+//           `Channel` is its first user (`Channel.__park_word`), and this is
+//           deliberately the layout-free spelling: the executor knows only
+//           "resume when the word this frame named is nonzero", so it needs no
+//           channel import, no channel-layout knowledge and no per-channel
+//           bookkeeping — and a send wakes exactly the receivers parked on THAT
+//           channel, since no other frame's wake word names that address.
+static WAKE_IO: Int = -1
+
+func __park_is_io(wake: Int) sync -> Bool { wake == WAKE_IO }
+
+func __park_is_flag(wake: Int) sync -> Bool { wake < WAKE_IO }
+
+// Read the readiness word a `__park_is_flag` wake reason names. Unsynchronized
+// by design, exactly as the design-91 `__wake` latch already is: the word is
+// written under its owner's own lock, a stale FALSE costs one more re-scan (and
+// every park on one is bounded), and a stale TRUE costs one resume that finds
+// nothing and re-parks. Neither can be wrong for long and neither can hang.
+func __park_flag_set(wake: Int) unsafe -> Bool {
+    let flag = (0 - wake) as UnsafePointer<Int>
+    flag[0] != 0
+}
+
+// design 230: the re-scan bound for a park on a readiness word. Short, because
+// it is the fallback a cross-thread handoff lands on when the sender's poke
+// misses; bounded at all, because the word's writer may be on another thread and
+// no engine may block on it forever.
+static FLAG_POLL_NANOS: Int = 1000000
+
+// design 230: cap a park's timeout while a readiness-word park is live. The word
+// has a writer on another thread, so no engine may block on anything longer than
+// the re-scan bound while one exists: "block indefinitely" (-1) becomes the
+// bound, a longer deadline is shortened to it, a shorter one is left alone. With
+// no such park in play the deadline passes through untouched, so every pre-230
+// park is unchanged.
+func __saw_exec_flag_bound(deadline: Int, flag: Bool) sync -> Int {
+    if not flag {
+        return deadline
+    }
+    if deadline < 0 || deadline > FLAG_POLL_NANOS {
+        return FLAG_POLL_NANOS
+    }
+    deadline
+}
+
+// design 230: the publishing side's poke, called from `Channel._enqueue` once a
+// readiness word is published (and, since unit C, from `close`). A receiver
+// parked on that word is resumable the instant it is written, but an engine
+// blocked elsewhere will not look until whatever it is blocked on returns —
+// every park on a readiness word is a bounded reactor poll, and this is what
+// ends one early. NEVER required for correctness: a poke that does not land
+// costs latency and can never cost a wake. Only pokes a reactor that ALREADY
+// exists, so a program doing no io pays neither an fd nor an allocation for its
+// channel traffic.
+public func __saw_exec_chan_wake() {
+    if __saw_reactor_instance.load() != 0 {
+        __saw_host_reactor().wake()
+    }
+}
+
 // design 118 stage 2: the executor's timer park, promoted from a codegen
 // intrinsic to a real Saw function over the `__saw_rt_sleep_ns` seam. NOT a
 // suspension source — the executor itself never suspends; it blocks the OS
@@ -280,8 +355,27 @@ func __saw_exec_poll_ms(ns: Int) -> Int {
 func __saw_exec_park(wake: Int) {
     if wake > 0 {
         __saw_exec_sleep_ns(wake)
-    } else if wake < 0 {
+    } else if __park_is_io(wake) {
         let _ = __saw_host_reactor().poll(-1)
+    } else if __park_is_flag(wake) {
+        __saw_exec_park_flag(wake)
+    }
+}
+
+// design 230: the single-frame drive's park on a READINESS WORD. Reached from a
+// suspending `main` with no cooperative spawns whose only suspension is a
+// channel receive (and from the test-only `__saw_drive`).
+//
+// There is no sibling to cede to on this path, so the frame's park is the
+// thread's: wait until the word its wake reason names is nonzero. The wait is a
+// REACTOR poll rather than a timer nap, so a `__saw_exec_chan_wake` poke from
+// whichever thread publishes the word ends it at once; it is BOUNDED, so a poke
+// that lands before the poll begins cannot be lost. The writer here is always
+// another thread — an MT worker or a `spawn {}` task — because a cooperative
+// sender would be a second frame and this drive has one.
+func __saw_exec_park_flag(wake: Int) {
+    while not __park_flag_set(wake) {
+        let _ = __saw_host_reactor().poll(__saw_exec_poll_ms(FLAG_POLL_NANOS))
     }
 }
 
@@ -1015,6 +1109,7 @@ func __saw_exec_worker(addr: Int) unsafe {
             var idx = -1
             var anyactive = false
             var anyio = false
+            var anyflag = false
             var minrem = -1
             var i = 0
             while i < n {
@@ -1028,8 +1123,23 @@ func __saw_exec_worker(addr: Int) unsafe {
                             if idx < 0 {
                                 idx = i
                             }
-                        } else if st.remaining < 0 {
+                        } else if __park_is_io(st.remaining) {
                             anyio = true          // design 76: io-parked
+                        } else if __park_is_flag(st.remaining) {
+                            // design 230: parked on a readiness word. PROMOTE it
+                            // here rather than in a second pass — the scan is
+                            // already under the lock and already holds the slot,
+                            // and a promoted frame is simply the next `idx`. No
+                            // cancel clause, for the reason `__saw_exec_wake_flags`
+                            // states.
+                            if __park_flag_set(st.remaining) {
+                                g[0].remaining.set(i, 0)
+                                if idx < 0 {
+                                    idx = i
+                                }
+                            } else {
+                                anyflag = true
+                            }
                         } else {
                             if minrem < 0 || st.remaining < minrem {
                                 minrem = st.remaining
@@ -1116,6 +1226,10 @@ func __saw_exec_worker(addr: Int) unsafe {
                         if tmo < 0 {
                             tmo = MT_POLL_CAP_NANOS
                         }
+                        // design 230: a readiness-word park beside the io one is
+                        // woken by a write this poll is not watching, so shorten
+                        // the cap to the re-scan bound while one is live.
+                        tmo = __saw_exec_flag_bound(tmo, anyflag)
                         let _ = pthread_mutex_unlock(lk)
                         let events = __saw_host_reactor().poll(__saw_exec_poll_ms(tmo))
                         pthread_mutex_lock(lk)
@@ -1124,7 +1238,7 @@ func __saw_exec_worker(addr: Int) unsafe {
                         while k < kn {
                             let st = __saw_exec_slot_state(g, k)
                             if not st.done {
-                                if st.remaining < 0 {
+                                if __park_is_io(st.remaining) {
                                     // design 102 item 2: wake a reactor-latched OR a
                                     // peer-cancelled io-parked frame (it re-checks
                                     // cancelled() and bails); non-cancelled parked
@@ -1135,8 +1249,13 @@ func __saw_exec_worker(addr: Int) unsafe {
                                     if wk {
                                         g[0].remaining.set(k, 0)
                                     }
-                                } else if st.remaining > 0 && events == 0 && minrem > 0 {
-                                    var nr = st.remaining - minrem
+                                } else if st.remaining > 0 && events == 0 && tmo > 0 {
+                                    // design 230: charge what the poll WAITED
+                                    // (`tmo`), not the earliest deadline — the
+                                    // flag bound may have cut it short, and
+                                    // crediting the full span would wake every
+                                    // sleeper early.
+                                    var nr = st.remaining - tmo
                                     if nr < 0 {
                                         nr = 0
                                     }
@@ -1159,6 +1278,22 @@ func __saw_exec_worker(addr: Int) unsafe {
                             // returns zero events).
                             __saw_exec_reactor_wake()
                         }
+                    } else if anyflag && minrem < 0 {
+                        // design 230: every live task of this group is parked on
+                        // a readiness word and none is sleeping. Nothing this
+                        // worker can do makes one ready — the writer is another
+                        // thread — so park in the reactor, where a
+                        // `__saw_exec_chan_wake` poke ends the wait at once, and
+                        // BOUNDED, so a poke that races the poll costs a re-scan
+                        // rather than the wake. The scan at the loop top is what
+                        // reads the word when this returns. (Deliberately NOT
+                        // the run-queue condition variable: its broadcasts all
+                        // happen under this group's lock, and a readiness word
+                        // is written by a thread that holds no group lock at all,
+                        // so a wait on it could be lost outright.)
+                        let _ = pthread_mutex_unlock(lk)
+                        let _ = __saw_host_reactor().poll(
+                            __saw_exec_poll_ms(FLAG_POLL_NANOS))
                     } else {
                         // Every live task is sleeping and none is in flight:
                         // advance the clock by the earliest deadline, then
@@ -1174,7 +1309,13 @@ func __saw_exec_worker(addr: Int) unsafe {
                         if minrem > 0 {
                             let _ = pthread_mutex_unlock(lk)
                             let before = __saw_rt_clock_monotonic_nanos()
-                            let _ = __saw_host_reactor().poll(__saw_exec_poll_ms(minrem))
+                            // design 230: shortened while a readiness-word park
+                            // is live. The elapsed measurement below charges
+                            // sleepers what actually passed, so a cut-short poll
+                            // needs nothing else said about it.
+                            let _ = __saw_host_reactor().poll(
+                                __saw_exec_poll_ms(
+                                    __saw_exec_flag_bound(minrem, anyflag)))
                             let took = __saw_rt_clock_monotonic_nanos() - before
                             if took > (0 as Int64) && took < (minrem as Int64) {
                                 spent = took as Int
@@ -1540,7 +1681,7 @@ func __saw_exec_wake_io(events: Int, deadline: Int) unsafe {
             let active_i = g[0].active.get(i)!
             if (not done_i) && (not active_i) {
                 let r = g[0].remaining.get(i)!
-                if r < 0 {
+                if __park_is_io(r) {
                     // Wake an io-parked frame the reactor latched (wake word >= 0)
                     // OR one a peer cancelled (design 102 item 2) — it re-checks
                     // cancelled() at its park-loop top and bails. Non-cancelled,
@@ -1583,7 +1724,7 @@ func __saw_exec_any_cancelled_io() unsafe -> Bool {
             let active_i = g[0].active.get(i)!
             if (not done_i) && (not active_i) {
                 let r = g[0].remaining.get(i)!
-                if r < 0 {
+                if __park_is_io(r) {
                     let c = g[0].tasks.with_var_ref<Bool>(i, { f in f!.is_cancelled() })
                     if c {
                         return true
@@ -1617,7 +1758,7 @@ func __saw_exec_any_latched_io() unsafe -> Bool {
             let active_i = g[0].active.get(i)!
             if (not done_i) && (not active_i) {
                 let r = g[0].remaining.get(i)!
-                if r < 0 {
+                if __park_is_io(r) {
                     let latched = g[0].tasks.with_var_ref<Bool>(i, { f in f!.wake_reason() >= 0 })
                     if latched {
                         return true
@@ -1668,6 +1809,43 @@ func __saw_exec_wake_cancelled_sleepers() unsafe -> Bool {
     woke
 }
 
+// design 230: the readiness-word half of what `__saw_exec_wake_io` is for the
+// reactor. Promote every frame parked on a word that has since become nonzero;
+// one whose word is still clear stays parked, which is what makes a send wake
+// the receivers of ITS channel and nobody else's. Returns whether anything was
+// promoted.
+//
+// DELIBERATELY NOT the io side's cancel clause. `__saw_exec_wake_io` also wakes
+// a CANCELLED parked frame, and that is sound there because every std.net park
+// loop re-checks `cancelled()` at its top and returns `Err`. `Channel.receive`
+// has no such check — cancellation awareness on a channel is written by the
+// USER, with `try_receive` (`examples/taskgroup_cancel_receive.saw`) — so waking
+// a cancelled channel waiter would resume it into a `try_receive` that finds
+// nothing and parks again, turning a quiet park into a promote/resume/re-park
+// spin. The task is unreachable either way (DF-230a records the gap); this at
+// least leaves it costing nothing.
+func __saw_exec_wake_flags() unsafe -> Bool {
+    var woke = false
+    var cur = __saw_exec_head.load()
+    while cur != 0 {
+        let g = cur as UnsafePointer<TaskGroup>
+        let n = g[0].tasks.len()
+        var i = 0
+        while i < n {
+            let st = __saw_exec_slot_state(g, i)
+            if (not st.done) && (not st.active) && __park_is_flag(st.remaining) {
+                if __park_flag_set(st.remaining) {
+                    g[0].remaining.set(i, 0)
+                    woke = true
+                }
+            }
+            i = i + 1
+        }
+        cur = g[0].next
+    }
+    woke
+}
+
 // Pure-sleep advance: subtract the parked deadline from every sleeper so the
 // shortest wakes first. Skips frames active on the C stack.
 func __saw_exec_advance_sleep(deadline: Int) unsafe {
@@ -1704,7 +1882,14 @@ func __saw_exec_run(term_group: Int, term_slot: Int, term_gen: Int) unsafe {
     while not __saw_exec_should_stop(term_group, term_slot, term_gen) {
         // Phase 1: resume every ready frame across all groups until none is ready
         // (re-checked from the head each pass, so a just-spawned frame is caught).
-        while __saw_exec_any_ready() {
+        //
+        // design 230: each pass PROMOTES first. A cooperative sender publishes
+        // the readiness word inside its own resume, so this is the step that
+        // turns a same-thread send into the receiver's next turn — and it runs
+        // per pass rather than per sweep, or a value sent by the last ready
+        // frame would wait for phase 2 to give up first. The `||` is ordered,
+        // not short-circuited away: the promote always runs.
+        while __saw_exec_wake_flags() || __saw_exec_any_ready() {
             var cur = __saw_exec_head.load()
             while cur != 0 {
                 let g = cur as UnsafePointer<TaskGroup>
@@ -1734,10 +1919,12 @@ func __saw_exec_run(term_group: Int, term_slot: Int, term_gen: Int) unsafe {
         if __saw_exec_should_stop(term_group, term_slot, term_gen) {
             return
         }
-        // Phase 2: nothing ready. Scan all groups for the earliest sleep deadline
-        // and whether any frame is io-parked, then park (reactor/timer).
+        // Phase 2: nothing ready. Scan all groups for the earliest sleep deadline,
+        // whether any frame is io-parked, and (design 230) whether any is parked
+        // on a readiness word, then park (reactor/timer/flag).
         var deadline = -1
         var io = false
+        var flag = false
         var anylive = false
         var cur2 = __saw_exec_head.load()
         while cur2 != 0 {
@@ -1748,8 +1935,10 @@ func __saw_exec_run(term_group: Int, term_slot: Int, term_gen: Int) unsafe {
                 let st = __saw_exec_slot_state(g, i)
                 if (not st.done) && (not st.active) {
                     anylive = true
-                    if st.remaining < 0 {
+                    if __park_is_io(st.remaining) {
                         io = true
+                    } else if __park_is_flag(st.remaining) {
+                        flag = true
                     } else if st.remaining > 0 {
                         if deadline < 0 || st.remaining < deadline {
                             deadline = st.remaining
@@ -1765,6 +1954,11 @@ func __saw_exec_run(term_group: Int, term_slot: Int, term_gen: Int) unsafe {
             // cede to it (reentrancy: never spin, never re-enter a live coroutine).
             return
         }
+        // design 230: a frame parked on a readiness word can be woken by a
+        // thread this sweep is not watching, so whatever it parks in below must
+        // be BOUNDED whenever one exists. `__saw_exec_flag_bound` is that cap
+        // applied to a deadline; the promote at the top of phase 1 is what reads
+        // the word when the park returns.
         if io {
             if __saw_exec_any_latched_io() || __saw_exec_any_cancelled_io() {
                 // A parked frame's event was already latched (consumed by an
@@ -1773,9 +1967,21 @@ func __saw_exec_run(term_group: Int, term_slot: Int, term_gen: Int) unsafe {
                 // instead of blocking in poll on an event that will never come.
                 __saw_exec_wake_io(1, deadline)
             } else {
-                let events = __saw_host_reactor().poll(__saw_exec_poll_ms(deadline))
-                __saw_exec_wake_io(events, deadline)
+                // The advance passed to `__saw_exec_wake_io` is what the poll
+                // actually WAITED, not what the sleepers asked for: a poll cut
+                // short by the flag bound has not earned the whole deadline.
+                let tmo = __saw_exec_flag_bound(deadline, flag)
+                let events = __saw_host_reactor().poll(__saw_exec_poll_ms(tmo))
+                __saw_exec_wake_io(events, tmo)
             }
+        } else if flag && deadline < 0 {
+            // Nothing but readiness-word parks. Nothing on this thread can
+            // publish one — a cooperative publisher would have been RUNNABLE and
+            // phase 1 would have run it — so the wake comes from another thread,
+            // or this is a deadlock (unit B's report sits here). Park in the
+            // reactor so a `__saw_exec_chan_wake` poke ends the wait at once,
+            // bounded so a poke that races the poll cannot be lost.
+            let _ = __saw_host_reactor().poll(__saw_exec_poll_ms(FLAG_POLL_NANOS))
         } else if deadline > 0 {
             // Pure-timer idle: every live frame is sleeping and none is on an fd.
             // design 180 unit 5: park in the REACTOR with the earliest deadline
@@ -1786,7 +1992,8 @@ func __saw_exec_run(term_group: Int, term_slot: Int, term_gen: Int) unsafe {
             // is observed at the poke instead of at the deadline.
             if not __saw_exec_wake_cancelled_sleepers() {
                 let before = __saw_rt_clock_monotonic_nanos()
-                let _ = __saw_host_reactor().poll(__saw_exec_poll_ms(deadline))
+                let _ = __saw_host_reactor().poll(
+                    __saw_exec_poll_ms(__saw_exec_flag_bound(deadline, flag)))
                 let spent = __saw_rt_clock_monotonic_nanos() - before
                 // Charge what actually passed, not what was asked for. A poll cut
                 // short by a reactor wake has not earned the whole span, and
@@ -2102,8 +2309,12 @@ func __bt_emit_status(g: UnsafePointer<TaskGroup>, slot: Int) unsafe {
         return
     }
     let remaining = g[0].remaining.get(slot)!
-    if remaining < 0 {
+    if __park_is_io(remaining) {
         __bt_emit("io-parked")
+    } else if __park_is_flag(remaining) {
+        // design 230: parked on a readiness word — today always a channel wait,
+        // which is what the dump should say to the reader looking for a deadlock.
+        __bt_emit("channel-parked")
     } else if remaining == 0 {
         __bt_emit("ready")
     } else {

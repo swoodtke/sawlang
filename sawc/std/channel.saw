@@ -12,7 +12,20 @@
 //     [136,144)  count    : i64    (queued elements; guards head/tail validity)
 //     [144,152)  head     : i8*    (first node; valid only while count > 0)
 //     [152,160)  tail     : i8*    (last node;  valid only while count > 0)
-// Total 160 bytes.
+//     [160,168)  ready    : i64    (design 230: the PARK READINESS WORD)
+// Total 168 bytes.
+//
+// THE READINESS WORD (design 230) is the whole of what the executor knows about
+// a channel. A task waiting for a message parks with the NEGATED ADDRESS of this
+// word as its wake reason, and every engine's rule is the same one sentence:
+// resume the frame when the word it named is nonzero. So the scheduler needs no
+// channel-layout knowledge, no channel import and no per-channel bookkeeping,
+// and a send wakes exactly the receivers parked on THAT channel — the ones whose
+// wake word names this block and no others.
+//
+// The invariant, maintained under the block's own mutex at every point that
+// changes it: `ready != 0` exactly when a receiver could make progress. Today
+// that is `count > 0`.
 //
 // Node layout (__saw_rt_alloc'd per send):
 //     [0, 8)              next  : i8*   (valid only for non-tail nodes)
@@ -66,7 +79,7 @@ extension Channel<T: Send> {
     /// every message, `recv` force-unwrapped a `None` and `receive` looped
     /// forever. `try_make` reports the failure instead.
     public init() unsafe -> Channel<T> {
-        if let block = GlobalAllocator().alloc(160, 16) {
+        if let block = GlobalAllocator().alloc(168, 16) {
             __saw_rt_pthread_mutex_init_default(block)
             let cond = (block + 64) as UnsafePointer<Int8>
             __saw_rt_pthread_cond_init_default(cond)
@@ -74,6 +87,8 @@ extension Channel<T: Send> {
             refcount[0] = 1
             let count = (block + 136) as UnsafePointer<Int>
             count[0] = 0
+            let ready = (block + 160) as UnsafePointer<Int>
+            ready[0] = 0
             Channel<T>(block: block)
         } else {
             panic("Channel(): allocation failed")
@@ -83,7 +98,7 @@ extension Channel<T: Send> {
     /// Creates a fresh empty channel, reporting allocator exhaustion as
     /// `Err(AllocError)`.
     public func try_make() unsafe -> Result<Channel<T>, AllocError> {
-        if let block = GlobalAllocator().alloc(160, 16) {
+        if let block = GlobalAllocator().alloc(168, 16) {
             __saw_rt_pthread_mutex_init_default(block)
             let cond = (block + 64) as UnsafePointer<Int8>
             __saw_rt_pthread_cond_init_default(cond)
@@ -91,9 +106,35 @@ extension Channel<T: Send> {
             refcount[0] = 1
             let count = (block + 136) as UnsafePointer<Int>
             count[0] = 0
+            let ready = (block + 160) as UnsafePointer<Int>
+            ready[0] = 0
             return Channel<T>(block: block)
         }
-        return AllocError(size: 160, align: 16)
+        return AllocError(size: 168, align: 16)
+    }
+
+    // design 230: the executor seam for a channel park. Hands back the wake
+    // reason a task waiting on THIS channel suspends with — the NEGATED ADDRESS
+    // of the block's readiness word. Negated because the executor's wake word is
+    // one Int carrying four states, and the negative half is where a park lives:
+    // -1 is the io park (design 76), and every value below it is a park on a
+    // readiness word at that address. A readiness word is 8-aligned and never at
+    // address 0, so the two can never collide.
+    //
+    // `public` for the design-204 reason, not because a program should name it:
+    // the coroutine transform's receive lowering emits this call, so its identity
+    // must stay the plain spelling `sawc/coro_transform.py` writes.
+    //
+    // The `None` block is unreachable (design 123 panics rather than build an
+    // inert channel). Answering 0 there degrades to the pre-230 behavior — wake
+    // reason 0 is "ready", so the task is rescheduled at once — rather than
+    // parking on an address that is not one.
+    public func __park_word(&self) unsafe sync -> Int {
+        if let block = self.block {
+            let ready = (block + 160) as UnsafePointer<Int>
+            return 0 - (ready as Int)
+        }
+        0
     }
 
     /// Enqueues a value, waking one blocked receiver.
@@ -119,6 +160,18 @@ extension Channel<T: Send> {
         return
     }
 
+    // design 230: THE ONE PLACE the readiness invariant is written. Every point
+    // that changes what a waiting receiver would find calls this with the
+    // block's mutex already held, so the executor's rule — "resume the frame
+    // whose wake word names this address once the word is nonzero" — can never
+    // drift from the queue's real state. Entry points: `_enqueue` (after the
+    // link) and `try_receive` / `recv` (after the unlink).
+    func _publish_ready(&self, block: UnsafePointer<Int8>) unsafe sync {
+        let count = (block + 136) as UnsafePointer<Int>
+        let ready = (block + 160) as UnsafePointer<Int>
+        ready[0] = count[0]
+    }
+
     // Internal: the enqueue itself. Returns whether the node was allocated and
     // linked; FALSE leaves the queue untouched (and `v`, unmoved, deinits at
     // this scope's exit rather than vanishing into a half-built node).
@@ -142,9 +195,18 @@ extension Channel<T: Send> {
                     tail_slot[0] = node
                 }
                 count[0] = count[0] + 1
+                self._publish_ready(block)
                 let cond = (block + 64) as UnsafePointer<Int8>
                 pthread_cond_signal(cond)
                 pthread_mutex_unlock(block)
+                // design 230: the readiness word is published, so a receiver
+                // parked on this channel is resumable — but an engine BLOCKED
+                // on another thread will not look until whatever it is blocked
+                // on returns. This poke ends that wait. It is never required
+                // for correctness (every channel park is bounded and re-scans);
+                // it is what keeps a cross-thread handoff at microseconds
+                // rather than at the re-scan bound.
+                __saw_exec_chan_wake()
                 return true
             }
             pthread_mutex_unlock(block)
@@ -182,6 +244,7 @@ extension Channel<T: Send> {
                 let node_next = node as UnsafePointer<UnsafePointer<Int8>>
                 head_slot[0] = node_next[0]
             }
+            self._publish_ready(block)
             GlobalAllocator().dealloc(node, 8 + sizeof<T>(), 16)
             pthread_mutex_unlock(block)
             return value
@@ -207,7 +270,13 @@ extension Channel<T: Send> {
             if let v = self.try_receive() {
                 return v
             }
-            yield_now()      // channel empty: suspend the task, retry when rescheduled
+            // design 230: PARK on this channel rather than yield READY. The wake
+            // reason names this channel's readiness word, so the executor leaves
+            // the task alone until a send publishes it: a waiting receiver costs
+            // no CPU, and a send wakes exactly the receivers of THIS channel.
+            // Until 230 this was `yield_now()`, which the scheduler re-queued as
+            // fast as it could spin — 100% of a core for a sole waiter.
+            __saw_chan_park(self.__park_word())
         }
         __got!               // unreachable (loop only exits via `return`)
     }
@@ -245,6 +314,7 @@ extension Channel<T: Send> {
                 let node_next = node as UnsafePointer<UnsafePointer<Int8>>
                 head_slot[0] = node_next[0]
             }
+            self._publish_ready(block)
             GlobalAllocator().dealloc(node, 8 + sizeof<T>(), 16)
             pthread_mutex_unlock(block)
             value
@@ -285,7 +355,7 @@ extension Channel<T: Send>: Copy {
                 let cond = (block + 64) as UnsafePointer<Int8>
                 pthread_cond_destroy(cond)
                 pthread_mutex_destroy(block)
-                GlobalAllocator().dealloc(block, 160, 16)
+                GlobalAllocator().dealloc(block, 168, 16)
             }
         }
     }

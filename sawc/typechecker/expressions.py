@@ -3677,6 +3677,24 @@ class ExpressionsMixin:
                     f"were given", expr.line, expr.column)
             self._effect_direct_source("__saw_io_park", expr.line)
             return SawType(TypeKind.VOID)
+        if expr.name == "__saw_chan_park":
+            # design 230: park on a READINESS WORD. Like `__saw_io_park` a
+            # suspension point and a transform state boundary, but it carries the
+            # word's NEGATED ADDRESS as its wake reason (the one argument), so the
+            # executor knows which frame to leave alone and what to watch for it.
+            # Emitted only by std/channel.saw's `receive()` and by the coroutine
+            # transform's inline receive lowering; reached as a plain call (no
+            # executor) it routes to the same `__saw_exec_park` the io fallback
+            # does. One `Int` argument.
+            if len(expr.arguments) != 1:
+                self._error(
+                    ErrorKind.WRONG_ARGUMENT_COUNT,
+                    f"`__saw_chan_park` takes one argument, but "
+                    f"{len(expr.arguments)} were given", expr.line, expr.column)
+            else:
+                self._check_expression(expr.arguments[0].value)
+            self._effect_direct_source("__saw_chan_park", expr.line)
+            return SawType(TypeKind.VOID)
         if expr.name == "io_wait":
             # design 76 (A4): the user-facing IO suspension point. `io_wait(fd,
             # write)` registers `fd` with the reactor for read (write==0) or write

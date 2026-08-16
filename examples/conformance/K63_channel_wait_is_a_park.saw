@@ -1,0 +1,59 @@
+// Conformance row K63 — a cooperative channel wait is a PARK, not a ready yield
+//
+// Design 230 unit A. Until it landed, `Channel.receive()` suspended with wake
+// reason 0 — READY — so the scheduler re-queued the waiter as fast as it could
+// spin: measured at 100% of a core for a sole waiter and 143% across two MT
+// workers (DQ-225n), and every state the deadlock report was supposed to key on
+// was unreachable because "nothing runnable" never held.
+//
+// CPU is not a thing a test suite can assert deterministically, so the row
+// asserts the OBSERVABLE the park is made of: the executor's own vocabulary.
+// A task waiting on an empty channel reports `channel-parked` in the task dump,
+// which is exactly the state that used to read `ready`. `watcher` runs while
+// `waiter` is parked — it could not have, before, without racing a task the
+// scheduler was resuming on every pass.
+//
+// The second half is the wake: the value main sends reaches the parked task, so
+// the park is a park and not a hang. TWO tasks are parked on two DIFFERENT
+// channels and are fed one at a time, in order, so a wake that reached the wrong
+// waiter — or the herd — would print out of order or hang.
+// EXPECT: success
+// EXPECT-OUTPUT-CONTAINS: saw tasks: 3 live (unsynchronized snapshot)
+// EXPECT-OUTPUT-CONTAINS:   task group 1 slot 0 gen 1 channel-parked
+// EXPECT-OUTPUT-CONTAINS:   task group 1 slot 1 gen 1 channel-parked
+// EXPECT-OUTPUT-CONTAINS:   task group 1 slot 2 gen 1 running
+// EXPECT-OUTPUT-CONTAINS: waiter 7
+// EXPECT-OUTPUT-CONTAINS: idle 9
+
+import std.channel.{Channel}
+import std.task.{dump_tasks}
+
+func waiter(ch: Channel<Int>) -> Int {
+    ch.receive()
+}
+
+// Parked on a SECOND channel, which is not fed until `waiter` has already been
+// woken and joined — so its park outlives the other channel's send.
+func idle(ch: Channel<Int>) -> Int {
+    ch.receive()
+}
+
+func watcher() -> Int {
+    sleep(Duration.ms(20))
+    dump_tasks()
+    0
+}
+
+func main() {
+    var g = TaskGroup()
+    let fed = Channel<Int>()
+    let never = Channel<Int>()
+    let a = g.spawn(waiter(fed.copy()))
+    let b = g.spawn(idle(never.copy()))
+    let w = g.spawn(watcher())
+    let _ = w.join()
+    fed.send(7)
+    print("waiter {}", a.join())
+    never.send(9)
+    print("idle {}", b.join())
+}

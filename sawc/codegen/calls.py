@@ -472,6 +472,15 @@ class CallsMixin:
         # honoured even without an executor.
         if expr.name in ("yield_now", "__saw_io_park"):
             return None
+        # design 230: `__saw_chan_park(word)` reached OUTSIDE a coroutine frame
+        # (the transform turns it into a state boundary inside one). With no
+        # executor to hand back to, wait on the readiness word for real — through
+        # the SAME Saw `__saw_exec_park` the io_wait fallback below uses, so the
+        # park policy stays in one place and out of synthesized IR.
+        if expr.name == "__saw_chan_park":
+            word = self._generate_expression(expr.arguments[0].value)
+            self.builder.call(self.functions["__saw_exec_park"], [word])
+            return None
         # design 76 (A4): `io_wait(fd, dir)` reached OUTSIDE a coroutine frame (the
         # transform rewrites it to register+park inside a driven/spawned body).
         # With no executor to hand back to, register the fd and block the thread in

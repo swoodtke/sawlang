@@ -37,7 +37,8 @@ BUILTIN_CALL_NAMES = frozenset({
     "io_wait", "io_unwait", "sizeof", "alignof",
     # compiler-internal intrinsics (also intercepted, also unreachable if
     # redeclared)
-    "__saw_test_suspend", "__saw_suspend", "__saw_io_park", "__saw_box_data",
+    "__saw_test_suspend", "__saw_suspend", "__saw_io_park", "__saw_chan_park",
+    "__saw_box_data",
     "__saw_blk_start", "__saw_blk_done", "__saw_blk_pipe_fd", "__saw_blk_take",
     "__saw_drive", "__saw_drive_steps", "__saw_deinit_in_place", "__saw_forget",
     "__saw_bt_table",
