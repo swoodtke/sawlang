@@ -920,9 +920,18 @@ extension TaskGroup {
     // This is a STRUCTURED JOIN and not a cancellation: `stopping` says "no more
     // work is coming", and a worker leaves only when it is set AND the group has
     // no live task left — so every child still runs to completion, exactly as
-    // the drain guaranteed. The reactor wake is for a worker parked in a long
-    // timer poll: without it, teardown would wait out somebody's `sleep`
-    // deadline before the worker noticed the flag.
+    // the drain guaranteed.
+    //
+    // The broadcast is the whole notification, and no reactor wake is owed
+    // beside it. Take the worker states one at a time: a worker mid-resume
+    // re-scans as soon as it finishes; one parked on the condition variable is
+    // exactly what the broadcast wakes; one in the back-off nap or the io poll
+    // is bounded (1 ms, 50 ms). The remaining state is a worker parked on a
+    // long TIMER poll — and that poll's deadline belongs to a live sleeper, so
+    // teardown has to wait for it either way and cutting the poll short would
+    // buy nothing. Worth stating because the obvious belt-and-braces wake is
+    // not free: it would create the process reactor (an fd and an allocation)
+    // for programs that do no io at all.
     //
     // Idempotent, and cheap on a group that never spawned: no pool was started,
     // so there is nothing to tell and nothing to join.
@@ -934,7 +943,6 @@ extension TaskGroup {
         self.stopping = true
         self.__notify()
         self.__unlock()
-        __saw_exec_reactor_wake()
         while self.crew.len() > 0 {
             if let ht = self.crew.pop() {
                 var h = move ht
