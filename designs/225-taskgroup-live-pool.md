@@ -111,6 +111,40 @@ TaskGroup section rewritten (the fork-join caveat dies; the ownership
 paragraph stays; D-f's delta stated); the cookbook's Channel fallback
 gains the cross-thread variant it could not honestly claim; skill digest.
 
+## D-f — the determinism delta, as unit 5 will state it (drafted in unit 0)
+
+MT execution order was never deterministic: design 75 said so from the start,
+and the standing test rule — assert on counts and sums, never on interleaving —
+is that statement's operational form. What the live pool widens is WHEN the
+nondeterminism is observable, not whether it exists.
+
+- **Before:** an MT group's tasks ran only INSIDE a `join()` or `Deinit` drain,
+  and the drain joined every worker before returning. So the owning thread saw
+  the group as a single atomic step: nothing of the group had happened before
+  the drain, and all of it had happened after. Order among the group's own tasks
+  was already unspecified; order relative to the owning thread was not, because
+  there was nothing to interleave with.
+- **After:** the workers run concurrently with the owning thread from the first
+  spawn, so a task's effects — a channel send, an `Arc<Mutex<T>>` update, a
+  print — become visible to the owning thread at an unspecified point between
+  the spawn and the join. That is the point of the change, and it is what
+  `spawn {}` and a cooperative group already did.
+
+Three things do NOT change, and the conformance rows say so: `join()` is still
+a barrier for the task it names (K58/K62), `Deinit` is still a barrier for the
+whole group (K59), and `TaskGroup()` / `threads: 1` are still the deterministic
+single-threaded engine (K60). What a program may rely on is therefore
+unchanged in kind: results through handles, and shared state through
+`Arc`/`Mutex`/`Channel`. What a program may NOT rely on — and could
+accidentally have relied on before — is that a `threads: N` group has not
+started yet.
+
+Consumer sweep (obligation 2), pre-done by the DF-224b matrix: the same-group
+cells were already green and stay green (K54/K55); the two tracked MT-channel
+examples and `corodiff`'s MT axis exercise exactly those cells; nothing in the
+tree reads an MT group's shared state between a spawn and its join, because
+until now there was never anything to read.
+
 ## Gates
 
 Per-unit suite; corodiff --all's MT axis + gmgate BOTH LANES at units 2-3

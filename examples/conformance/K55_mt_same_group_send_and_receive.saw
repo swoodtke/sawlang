@@ -1,0 +1,33 @@
+// Conformance row K55 — control: two tasks of ONE MT group, one sending and
+// one receiving
+//
+// The cell the DF-224b sweep found green, and the reason the finding was not a
+// wake bug: both frames are in the same run queue, so once anything drains it
+// the sender gets its turn and the receiver's spin ends. Under the live pool
+// they are simply both running, which is a different mechanism reaching the
+// same answer — so this row is the one that would catch a fix that made the
+// cross-group case work by breaking the within-group one.
+//
+// EXPECT: success
+// EXPECT-OUTPUT:
+// relayed 9
+
+import std.channel.{Channel}
+
+func feed(inbox: Channel<Int>, v: Int) {
+    inbox.send(v)
+}
+
+func consume(inbox: Channel<Int>) -> Int {
+    inbox.receive()
+}
+
+func main() {
+    let inbox = Channel<Int>()
+    var workers = TaskGroup(threads: 2)
+    let c = workers.spawn(consume(inbox.copy()))
+    let f = workers.spawn(feed(inbox.copy(), 9))
+    let got = c.join()
+    f.join()
+    print("relayed {}", got)
+}

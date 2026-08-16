@@ -1,0 +1,27 @@
+// Conformance row K62 — control: `join()` on an MT group returns the task's
+// RESULT, and the join is a full barrier
+//
+// The fork-join engine's actual product, kept as a must-not-regress row while
+// its scheduling contract is rewritten around it. Four tasks compute values on
+// worker threads and every result crosses back through the joining thread —
+// which is the property design 75 spent its worker join on, and the one a
+// worker pool that outlives each join has to keep by another argument.
+//
+// Asserted on the SUM, never on interleaving.
+//
+// EXPECT: success
+// EXPECT-OUTPUT:
+// total 30
+
+func square(n: Int) -> Int {
+    n * n
+}
+
+func main() {
+    var workers = TaskGroup(threads: 2)
+    let a = workers.spawn(square(1))
+    let b = workers.spawn(square(2))
+    let c = workers.spawn(square(3))
+    let d = workers.spawn(square(4))
+    print("total {}", a.join() + b.join() + c.join() + d.join())
+}

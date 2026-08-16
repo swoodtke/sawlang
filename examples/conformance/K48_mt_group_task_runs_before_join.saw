@@ -1,0 +1,53 @@
+// Conformance row K48 — a task spawned into a `threads: N` group RUNS before
+// anybody joins it
+//
+// The headline cell of the DF-224b wake matrix, and the shape two independent
+// fresh writers reached for within hours: spawn a producer into a
+// multi-threaded group, then read what it produced. Every other member of the
+// family already behaves this way — a cooperative group's tasks progress
+// whenever main suspends, and the 21b `spawn {}` engine is live by
+// construction — so `threads: N` was the ONLY fork-join member, and its
+// workers existed nowhere outside a `join()`/`Deinit` drain.
+//
+// The wait is BOUNDED on the wall clock so the row fails in two seconds
+// instead of hanging: `receive()` is a cooperative spin, so the pre-fix
+// behavior is a 100%-CPU wait that never ends, which is not a thing a test
+// suite can pin. `wait_for` is the same loop with a deadline.
+//
+// XFAIL: DF-224b `TaskGroup(threads: N)` is fork-join by construction, so no worker exists outside a join/Deinit drain — design 225 unit 2 makes them live at first spawn
+// EXPECT: success
+// EXPECT-OUTPUT:
+// main got 3
+
+import std.channel.{Channel}
+import std.task.*
+import std.time.{Instant}
+
+static WAIT_MS: UInt64 = 2000
+
+func feed(inbox: Channel<Int>, v: Int) {
+    inbox.send(v)
+}
+
+func wait_for(inbox: Channel<Int>) unsafe -> Int? {
+    let start = Instant.now()
+    while start.elapsed().as_millis() < WAIT_MS {
+        if let v = inbox.try_receive() {
+            return v
+        }
+        yield_now()
+    }
+    return None
+}
+
+func main() {
+    let inbox = Channel<Int>()
+    var workers = TaskGroup(threads: 2)
+    let h = workers.spawn(feed(inbox.copy(), 3))
+    if let v = wait_for(inbox.copy()) {
+        print("main got {}", v)
+    } else {
+        print("main timed out")
+    }
+    h.join()
+}

@@ -1,0 +1,28 @@
+// Conformance row K60 — control: `TaskGroup(threads: 1)` IS the cooperative
+// engine, and its tasks run whenever main cedes
+//
+// The boundary of the whole matrix. `threads: 1` and the default constructor
+// are the same engine (design 75 A2), which is why this program — byte for
+// byte K48 with a `1` in it — already answers. It is here so the live pool's
+// arrival cannot silently move the boundary: `threads: 2` becomes live, and
+// `threads: 1` stays the deterministic single-threaded interleaving programs
+// are allowed to reason about.
+//
+// EXPECT: success
+// EXPECT-OUTPUT:
+// main got 3
+
+import std.channel.{Channel}
+
+func feed(inbox: Channel<Int>, v: Int) {
+    inbox.send(v)
+}
+
+func main() {
+    let inbox = Channel<Int>()
+    var workers = TaskGroup(threads: 1)
+    let h = workers.spawn(feed(inbox.copy(), 3))
+    let got = inbox.receive()
+    h.join()
+    print("main got {}", got)
+}

@@ -1,0 +1,40 @@
+// Conformance row K51 — an MT group's tasks progress while main YIELDS
+//
+// K50's twin at the other park: `yield_now()` puts main back on the ambient
+// scheduler's ready list rather than on a timer, which is the shape a
+// poll-for-a-result loop takes. Pre-fix the two failed for one reason and the
+// pair is here so the fix cannot answer only the timer half — the MT group was
+// not in the ambient scheduler's list (`__enqueue` registers only when
+// `workers < 2`), so no amount of ceding by main could reach it.
+//
+// XFAIL: DF-224b an MT group never joins the ambient scheduler's list, so ceding from main reaches nothing of it — design 225 unit 2
+// EXPECT: success
+// EXPECT-OUTPUT:
+// ran while main yielded: 1
+
+import std.mutex.*
+import std.task.*
+import std.time.{Instant}
+
+static WAIT_MS: UInt64 = 2000
+
+func mark(flag: Arc<Mutex<Int>>) {
+    let _ = flag.lock({ &var c in
+        c = 1
+        c
+    })
+}
+
+func main() {
+    let flag = Arc<Mutex<Int>>(value: Mutex<Int>(value: 0))
+    var workers = TaskGroup(threads: 2)
+    let h = workers.spawn(mark(flag.copy()))
+    var seen = 0
+    let start = Instant.now()
+    while seen == 0 && start.elapsed().as_millis() < WAIT_MS {
+        seen = flag.lock({ &var c in c })
+        yield_now()
+    }
+    h.join()
+    print("ran while main yielded: {}", seen)
+}

@@ -1,0 +1,32 @@
+// Conformance row K59 — control: main receives after the MT group's SCOPE ends
+//
+// The `Deinit` half of K58. A group is a scope (design 124) and its teardown
+// structured-joins every child, so a task nobody joined by hand has still run
+// by the time the group's binding dies — which is what makes the never-joined
+// spawn a legitimate shape rather than a leak. The live pool redefines what
+// `Deinit` DOES (signal no-more-work, join the workers, then the design-124
+// eager teardown) and this row is the observable it may not change.
+//
+// EXPECT: success
+// EXPECT-OUTPUT:
+// main got 8
+
+import std.channel.{Channel}
+
+func feed(inbox: Channel<Int>, v: Int) {
+    inbox.send(v)
+}
+
+// No join at all: the group's `Deinit` at the end of this scope is the only
+// thing that makes the task run to completion.
+func run(inbox: Channel<Int>) {
+    var workers = TaskGroup(threads: 2)
+    let _ = workers.spawn(feed(inbox.copy(), 8))
+}
+
+func main() {
+    let inbox = Channel<Int>()
+    run(inbox.copy())
+    let got = inbox.receive()
+    print("main got {}", got)
+}

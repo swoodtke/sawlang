@@ -1,0 +1,28 @@
+// Conformance row K61 — control: a cooperative group's task feeds main's
+// receive with no join in between
+//
+// Design 89's ambient-liveness guarantee, stated as a row of this matrix
+// because it is the STANDARD the MT cells were judged against: a spawn runs
+// eagerly whenever the scheduler runs, not only at a join, which is what makes
+// a live accept-loop server work. `threads: N` was the one member of the
+// family that did not honour it. Any regression here would mean the live-pool
+// work broke the engine it was modelled on.
+//
+// EXPECT: success
+// EXPECT-OUTPUT:
+// main got 3
+
+import std.channel.{Channel}
+
+func feed(inbox: Channel<Int>, v: Int) {
+    inbox.send(v)
+}
+
+func main() {
+    let inbox = Channel<Int>()
+    var cooperative = TaskGroup()
+    let h = cooperative.spawn(feed(inbox.copy(), 3))
+    let got = inbox.receive()
+    h.join()
+    print("main got {}", got)
+}

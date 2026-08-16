@@ -1,0 +1,52 @@
+// Conformance row K53 — an MT group's workers persist ACROSS spawns, so work
+// enqueued later is picked up by workers already running
+//
+// The pool's lifetime, as opposed to any single task's. Main spawns four tasks
+// into a `threads: 2` group and then watches a shared counter reach four with
+// no join in between — so a worker that started for task 0 has to still be
+// there for task 3, and an enqueue that happens while workers are running has
+// to be seen by them. Pre-fix there was nothing to see it: enqueue was
+// main-thread-only by construction, since no worker was alive outside a drain.
+//
+// This is the row that makes the long-lived-group shape (a group spawned into
+// from a loop, joined much later or never) an honest one to write.
+//
+// XFAIL: DF-224b an MT group's workers do not outlive a drain, so nothing picks up work enqueued between joins — design 225 units 2 and 3
+// EXPECT: success
+// EXPECT-OUTPUT:
+// finished before any join: 4
+
+import std.mutex.*
+import std.task.*
+import std.time.{Instant}
+
+static WAIT_MS: UInt64 = 2000
+
+func bump(counter: Arc<Mutex<Int>>) {
+    let _ = counter.lock({ &var c in
+        c = c + 1
+        c
+    })
+}
+
+func main() {
+    let counter = Arc<Mutex<Int>>(value: Mutex<Int>(value: 0))
+    var workers = TaskGroup(threads: 2)
+    var handles = Vector<VoidTaskHandle>()
+    for _ in 0..4 {
+        handles.push(workers.spawn(bump(counter.copy())))
+    }
+    var seen = 0
+    let start = Instant.now()
+    while seen < 4 && start.elapsed().as_millis() < WAIT_MS {
+        seen = counter.lock({ &var c in c })
+        yield_now()
+    }
+    while handles.len() > 0 {
+        if let ht = handles.pop() {
+            var h = move ht
+            h.join()
+        }
+    }
+    print("finished before any join: {}", seen)
+}

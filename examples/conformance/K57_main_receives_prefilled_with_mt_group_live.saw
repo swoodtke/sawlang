@@ -1,0 +1,28 @@
+// Conformance row K57 — control: main receives a value that is ALREADY in the
+// channel while an MT group is live
+//
+// The isolating cell. Main's receive here depends on nothing the group does,
+// so it separates "main cannot receive while an MT group exists" from "an MT
+// group's tasks do not run" — the sweep needed it to rule the first out, and
+// the suite keeps it because a live pool adds real concurrency to main's own
+// path and this is the row that says main still reads its own channel.
+//
+// EXPECT: success
+// EXPECT-OUTPUT:
+// main got 2
+
+import std.channel.{Channel}
+
+func idle(n: Int) -> Int {
+    n
+}
+
+func main() {
+    let inbox = Channel<Int>()
+    inbox.send(2)
+    var workers = TaskGroup(threads: 2)
+    let h = workers.spawn(idle(1))
+    let got = inbox.receive()
+    let _ = h.join()
+    print("main got {}", got)
+}

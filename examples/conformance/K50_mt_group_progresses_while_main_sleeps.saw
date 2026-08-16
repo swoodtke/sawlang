@@ -1,0 +1,36 @@
+// Conformance row K50 — an MT group's tasks progress while main SLEEPS
+//
+// The cell that says the guarantee is about the group being LIVE, not about
+// any one wake path: main is not waiting on the worker at all here, it is
+// asleep on a timer, and the question is only whether the worker exists yet.
+// Measured pre-fix (the DF-224b sweep's `e/main_sleeploop_mt`): a 400 ms nap
+// elapsed with the worker never started, because `__drain_mt` spawns AND joins
+// its OS threads inside one call and nothing outside a join makes that call.
+//
+// The flag is an `Arc<Mutex<Int>>` — the sanctioned cross-thread share (row
+// K13) — and it is read once, after the nap, so nothing here depends on an
+// interleaving.
+//
+// XFAIL: DF-224b an MT group's workers are spawned and joined inside one `__drain_mt` call, so a nap in main starts none — design 225 unit 2
+// EXPECT: success
+// EXPECT-OUTPUT:
+// ran during the nap: 1
+
+import std.mutex.*
+
+func mark(flag: Arc<Mutex<Int>>) {
+    let _ = flag.lock({ &var c in
+        c = 1
+        c
+    })
+}
+
+func main() {
+    let flag = Arc<Mutex<Int>>(value: Mutex<Int>(value: 0))
+    var workers = TaskGroup(threads: 2)
+    let h = workers.spawn(mark(flag.copy()))
+    sleep(Duration.ms(300))
+    let seen = flag.lock({ &var c in c })
+    h.join()
+    print("ran during the nap: {}", seen)
+}
