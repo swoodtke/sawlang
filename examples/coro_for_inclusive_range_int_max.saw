@@ -1,0 +1,61 @@
+// An inclusive-range `for` in a driven body stops AT `Int.max` without
+// stepping past it — no phantom overflow panic.
+//
+// This is why DF-225m's fix is design 53's `RangeInclusive` shape (run the
+// body, then `if i == end` leave, else step) and not the one-character `<=`.
+// Saw's overflow checks are always on, so a driven `for i in a..=Int.max`
+// whose step ran unguarded would panic on the increment exactly where its sync
+// twin terminates — a twin divergence at the boundary, traded for the silent
+// wrong answer. Guarded, the step only runs when `i < end`.
+//
+// The exclusive form needs no guard (`i + 1` reaches `end` at most) and is here
+// as the control.
+//
+// EXPECT: success
+// EXPECT-OUTPUT:
+// inclusive 3 3
+// exclusive 2 2
+
+import std.task.*
+
+func inclusive_driven() -> Int {
+    var n = 0
+    for i in (Int.max - 2)..=Int.max {
+        n = n + 1
+        yield_now()
+    }
+    return n
+}
+
+func inclusive_plain() -> Int {
+    var n = 0
+    for i in (Int.max - 2)..=Int.max {
+        n = n + 1
+    }
+    return n
+}
+
+func exclusive_driven() -> Int {
+    var n = 0
+    for i in (Int.max - 2)..Int.max {
+        n = n + 1
+        yield_now()
+    }
+    return n
+}
+
+func exclusive_plain() -> Int {
+    var n = 0
+    for i in (Int.max - 2)..Int.max {
+        n = n + 1
+    }
+    return n
+}
+
+func main() {
+    var g = TaskGroup()
+    let a = g.spawn(inclusive_driven())
+    let b = g.spawn(exclusive_driven())
+    print("inclusive {} {}", a.join(), inclusive_plain())
+    print("exclusive {} {}", b.join(), exclusive_plain())
+}

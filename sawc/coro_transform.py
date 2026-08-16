@@ -5539,12 +5539,38 @@ class _FrameBuilder:
             self.cur = exit_b
 
     def _split_for(self, s, loop_ctx):
+        """State-split a range `for`, in BOTH range flavours (DF-225m).
+
+        THE INDUCTION VARIABLE IS THE FRAME FIELD here — there is no `Range` /
+        `RangeInclusive` iterator object in a driven body, because the loop's
+        state has to survive a suspension as plain frame slots. So this method
+        is the transform's own copy of builtin.saw's two `next()` bodies, and it
+        owes the same two answers they give:
+
+          * EXCLUSIVE `a..b` — header `i < end`, then `i = i + 1`. Unchanged;
+            `i + 1` can reach `end` at most, so it never overflows.
+          * INCLUSIVE `a..=b` — header `i <= end`, and the step is GUARDED:
+            run the body, then `if i == end` leave the loop, else `i = i + 1`.
+
+        The guard is design 53's `RangeInclusive` shape (yield `last`, latch
+        `done`, never step past it) rather than the one-character `<=` fix,
+        and it is not decoration: Saw's overflow checks are always on, so a
+        `for i in 0..=Int.max` whose step ran unguarded would PANIC on the
+        increment exactly where its sync twin terminates — trading DF-225m's
+        silent wrong answer for a twin divergence at the boundary. Guarded, the
+        step only runs when `i < end`, so `i + 1 <= end` always holds.
+
+        Until this read `is_inclusive` the header was a hard-coded `<`, so
+        every `for i in a..=b` in a driven body ran one iteration short and a
+        single-iteration `3..=3` ran none at all — silently, since the sync
+        twin of the same loop was right."""
         if not isinstance(s.iterable, RangeExpr):
             raise CoroTransformError(
                 f"coroutine transform: a suspension inside a `for` over a "
                 f"non-range iterable in `{self.name}` is not supported; "
                 f"use a `while` loop", s.line, s.column)
         var = s.variable
+        inclusive = bool(s.iterable.is_inclusive)
         end_name = f"__end_{var}"
         lo_forgets, hi_forgets = [], []
         lo_caps, lo = self._rewrite_hosting(s.iterable.start, lo_forgets)
@@ -5559,7 +5585,7 @@ class _FrameBuilder:
         exit_b = self._new_block()
         self._goto(header)
         self.cur = header
-        cond = BinaryOp(op="<", left=_self_field(var),
+        cond = BinaryOp(op="<=" if inclusive else "<", left=_self_field(var),
                         right=_self_field(end_name))
         self._branch(cond, body_b, exit_b)
         self.cur = body_b
@@ -5567,6 +5593,14 @@ class _FrameBuilder:
         if self.cur not in self._term:
             self._goto(incr)
         self.cur = incr
+        if inclusive:
+            # The last iteration leaves here, not through the header — so the
+            # step below is unreachable at `i == end` and cannot overflow.
+            step_b = self._new_block()
+            self._branch(BinaryOp(op="==", left=_self_field(var),
+                                  right=_self_field(end_name)),
+                         exit_b, step_b)
+            self.cur = step_b
         self._emit([AssignStatement(
             target=_self_field(var),
             value=BinaryOp(op="+", left=_self_field(var), right=_int(1)))])

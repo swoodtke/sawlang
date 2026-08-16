@@ -1,29 +1,52 @@
 // An INCLUSIVE-range `for` in a suspending body runs every iteration.
 //
-// `coro_transform.py`'s `_split_for` builds the loop header as a hard-coded
-// `i < end` and never reads `is_inclusive`, so every `for i in a..=b` the
-// transform drives runs one iteration short — and a single-iteration `3..=3`
-// runs zero times. The sync twin of the same loop is correct, which makes this
-// a twin divergence corodiff would have caught if its generator emitted `..=`
-// at all.
+// `coro_transform.py`'s `_split_for` is the transform's own copy of
+// `RangeInclusive.next()`: a driven body has no iterator object, only frame
+// slots, so the loop header and the step are written by hand there. They used
+// to be written for the EXCLUSIVE range only — a hard-coded `i < end` that
+// never read `is_inclusive` — so every `for i in a..=b` the transform drove ran
+// one iteration short, and a single-iteration `3..=3` ran none at all. Silently:
+// the sync twin of the same loop was right, which is what made this a twin
+// divergence rather than a visible break.
 //
-// Four shapes, all one mechanism: the drive root, an EMBEDDED suspending
-// callee, a loop whose BODY does not suspend inside a function that does, and
-// the single-iteration range. The sync control is what says the loop itself is
-// fine.
+// The rows below are DF-225m's obligation-4 sweep, one function per row, each
+// paired with the plain (undriven) twin of the same loop. Every line prints
+// `driven plain` and the two must agree.
 //
-// XFAIL: DF-225m the coroutine transform's `_split_for` hard-codes `i < end`, so an inclusive-range `for` in a driven body drops its last iteration
+//   1  literal bounds, spawned root
+//   2  variable upper bound
+//   3  module-`static` upper bound
+//   4  the loop lives in an EMBEDDED suspending callee
+//   5  the loop body does not suspend; the FUNCTION does (design 127's
+//      backedge instrumentation puts a yield in every driven loop body, which
+//      is why merely being inside a driven function is enough)
+//   6  single iteration `3..=3` — the loudest row: it used to run zero times
+//   7  empty `3..=2` — runs zero times, the one row that was already right
+//   8  nested `1..=2` x `1..=2`
+//   9  MT spawned root (`TaskGroup(threads: 2)`)
+//
+// Row 10 is the exclusive form, unchanged by the fix and here to say so.
+//
 // EXPECT: success
 // EXPECT-OUTPUT:
-// root 15
-// embedded 15
-// sync body 15
-// single 3
-// sync control 15
+// row1 15 15
+// row2 15 15
+// row3 15 15
+// row4 15 15
+// row5 15 15
+// row6 3 3
+// row7 0 0
+// row8 4 4
+// row9 15 15
+// row10 10 10
 
 import std.task.*
 
-func root() -> Int {
+static HI: Int = 5
+
+// --- row 1: literal bounds -------------------------------------------------
+
+func r1_driven() -> Int {
     var n = 0
     for i in 1..=5 {
         n = n + i
@@ -32,7 +55,57 @@ func root() -> Int {
     return n
 }
 
-func inner() -> Int {
+func r1_plain() -> Int {
+    var n = 0
+    for i in 1..=5 {
+        n = n + i
+    }
+    return n
+}
+
+// --- row 2: variable upper bound -------------------------------------------
+
+func r2_driven() -> Int {
+    let hi = 5
+    var n = 0
+    for i in 1..=hi {
+        n = n + i
+        yield_now()
+    }
+    return n
+}
+
+func r2_plain() -> Int {
+    let hi = 5
+    var n = 0
+    for i in 1..=hi {
+        n = n + i
+    }
+    return n
+}
+
+// --- row 3: module-`static` upper bound ------------------------------------
+
+func r3_driven() -> Int {
+    var n = 0
+    for i in 1..=HI {
+        n = n + i
+        yield_now()
+    }
+    return n
+}
+
+func r3_plain() -> Int {
+    var n = 0
+    for i in 1..=HI {
+        n = n + i
+    }
+    return n
+}
+
+// --- row 4: the loop is in an embedded suspending callee -------------------
+
+func r4_inner() -> Int {
     var n = 0
     for i in 1..=5 {
         n = n + i
@@ -41,13 +114,27 @@ func inner() -> Int {
     return n
 }
 
-func embedded() -> Int {
-    let r = inner()
+func r4_driven() -> Int {
+    let r = r4_inner()
     return r
 }
 
-// The loop body suspends nowhere; the FUNCTION does, which is enough.
-func sync_body() -> Int {
+func r4_inner_plain() -> Int {
+    var n = 0
+    for i in 1..=5 {
+        n = n + i
+    }
+    return n
+}
+
+func r4_plain() -> Int {
+    let r = r4_inner_plain()
+    return r
+}
+
+// --- row 5: the body suspends nowhere; the function does -------------------
+
+func r5_driven() -> Int {
     var n = 0
     yield_now()
     for i in 1..=5 {
@@ -56,7 +143,17 @@ func sync_body() -> Int {
     return n
 }
 
-func single() -> Int {
+func r5_plain() -> Int {
+    var n = 0
+    for i in 1..=5 {
+        n = n + i
+    }
+    return n
+}
+
+// --- row 6: a single-iteration range ---------------------------------------
+
+func r6_driven() -> Int {
     var n = 0
     for i in 3..=3 {
         n = n + i
@@ -65,7 +162,68 @@ func single() -> Int {
     return n
 }
 
-func sync_control() -> Int {
+func r6_plain() -> Int {
+    var n = 0
+    for i in 3..=3 {
+        n = n + i
+    }
+    return n
+}
+
+// --- row 7: an empty range -------------------------------------------------
+
+func r7_driven() -> Int {
+    var n = 0
+    for i in 3..=2 {
+        n = n + i
+        yield_now()
+    }
+    return n
+}
+
+func r7_plain() -> Int {
+    var n = 0
+    for i in 3..=2 {
+        n = n + i
+    }
+    return n
+}
+
+// --- row 8: nested inclusive ranges ----------------------------------------
+
+func r8_driven() -> Int {
+    var n = 0
+    for i in 1..=2 {
+        for j in 1..=2 {
+            n = n + 1
+            yield_now()
+        }
+    }
+    return n
+}
+
+func r8_plain() -> Int {
+    var n = 0
+    for i in 1..=2 {
+        for j in 1..=2 {
+            n = n + 1
+        }
+    }
+    return n
+}
+
+// --- row 9: MT spawned root ------------------------------------------------
+
+func r9_driven() -> Int {
+    var n = 0
+    for i in 1..=5 {
+        n = n + i
+        yield_now()
+    }
+    return n
+}
+
+func r9_plain() -> Int {
     var n = 0
     for i in 1..=5 {
         n = n + i
@@ -73,15 +231,48 @@ func sync_control() -> Int {
     return n
 }
 
+// --- row 10: the exclusive form, unchanged ---------------------------------
+
+func r10_driven() -> Int {
+    var n = 0
+    for i in 1..5 {
+        n = n + i
+        yield_now()
+    }
+    return n
+}
+
+func r10_plain() -> Int {
+    var n = 0
+    for i in 1..5 {
+        n = n + i
+    }
+    return n
+}
+
 func main() {
     var g = TaskGroup()
-    let a = g.spawn(root())
-    let b = g.spawn(embedded())
-    let c = g.spawn(sync_body())
-    let d = g.spawn(single())
-    print("root {}", a.join())
-    print("embedded {}", b.join())
-    print("sync body {}", c.join())
-    print("single {}", d.join())
-    print("sync control {}", sync_control())
+    let h1 = g.spawn(r1_driven())
+    let h2 = g.spawn(r2_driven())
+    let h3 = g.spawn(r3_driven())
+    let h4 = g.spawn(r4_driven())
+    let h5 = g.spawn(r5_driven())
+    let h6 = g.spawn(r6_driven())
+    let h7 = g.spawn(r7_driven())
+    let h8 = g.spawn(r8_driven())
+    let h10 = g.spawn(r10_driven())
+    print("row1 {} {}", h1.join(), r1_plain())
+    print("row2 {} {}", h2.join(), r2_plain())
+    print("row3 {} {}", h3.join(), r3_plain())
+    print("row4 {} {}", h4.join(), r4_plain())
+    print("row5 {} {}", h5.join(), r5_plain())
+    print("row6 {} {}", h6.join(), r6_plain())
+    print("row7 {} {}", h7.join(), r7_plain())
+    print("row8 {} {}", h8.join(), r8_plain())
+
+    var mt = TaskGroup(threads: 2)
+    let h9 = mt.spawn(r9_driven())
+    print("row9 {} {}", h9.join(), r9_plain())
+
+    print("row10 {} {}", h10.join(), r10_plain())
 }
