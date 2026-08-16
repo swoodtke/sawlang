@@ -16,18 +16,18 @@ extension Res: NoCopy { func deinit(&var self) { print(self.id) } }
 
 func worker(ch: Channel<Int>) -> Int {
     let held = Res(id: 77)       // deinit oracle
-    let first = ch.receive()     // gets the buffered 100
+    let first = try! ch.receive()     // gets the buffered 100
     if cancelled() {
         return first             // observe cancel; skip the second receive()
     }
-    let second = ch.receive()    // unreached (channel is empty here)
+    let second = try! ch.receive()    // unreached (channel is empty here)
     first + second
 }
 
 func main() {
     var group = TaskGroup()
     let ch = Channel<Int>()
-    ch.send(100)
+    try! ch.send(100)
     let h = group.spawn(worker(ch.copy()))
     h.cancel()          // set before the group is driven
     print(h.join())     // 100

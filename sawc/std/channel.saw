@@ -13,7 +13,8 @@
 //     [144,152)  head     : i8*    (first node; valid only while count > 0)
 //     [152,160)  tail     : i8*    (last node;  valid only while count > 0)
 //     [160,168)  ready    : i64    (design 230: the PARK READINESS WORD)
-// Total 168 bytes.
+//     [168,176)  closed   : i64    (design 230: set once by `close()`)
+// Total 176 bytes.
 //
 // THE READINESS WORD (design 230) is the whole of what the executor knows about
 // a channel. A task waiting for a message parks with the NEGATED ADDRESS of this
@@ -24,8 +25,15 @@
 // wake word names this block and no others.
 //
 // The invariant, maintained under the block's own mutex at every point that
-// changes it: `ready != 0` exactly when a receiver could make progress. Today
-// that is `count > 0`.
+// changes it: `ready != 0` exactly when a receiver could make progress —
+// `count > 0` (a message to take) or `closed` (an answer to give).
+//
+// DISCONNECTION IS EXPLICIT (design 230 unit C). A channel handle is a Copy
+// HANDLE and there is no Sender/Receiver role split, so "the last sender went
+// away" is not a countable thing: a waiting receiver's own handle keeps any
+// refcount nonzero forever. The Go pairing is the one that fits unified handles
+// — say so with `close()`, which any holder may call, and which every parked
+// receiver observes through the readiness word above.
 //
 // Node layout (__saw_rt_alloc'd per send):
 //     [0, 8)              next  : i8*   (valid only for non-tail nodes)
@@ -53,7 +61,46 @@ extern "C" {
     func pthread_mutex_destroy(m: UnsafePointer<Int8>) -> Int
     func pthread_cond_wait(c: UnsafePointer<Int8>, m: UnsafePointer<Int8>) -> Int
     func pthread_cond_signal(c: UnsafePointer<Int8>) -> Int
+    // design 230: `close()` must release EVERY thread blocked in `recv`, not one.
+    func pthread_cond_broadcast(c: UnsafePointer<Int8>) -> Int
     func pthread_cond_destroy(c: UnsafePointer<Int8>) -> Int
+}
+
+/// Why a channel operation could not be carried out.
+///
+/// `Closed` is reported by `receive` once a closed channel has been drained, and
+/// by `send` and `close` on a channel that is already closed. A timeout case is
+/// the reserved next one: a receive with a deadline is the other legitimate way
+/// one of these calls can fail to deliver, which is why the error is an enum
+/// rather than a bare `Closed` marker.
+public enum ChannelError {
+    /// The channel was closed with `close()`, and — for `receive` — drained.
+    case Closed
+}
+
+extension ChannelError {
+    /// A short description of the failure.
+    public func describe(&self) -> String {
+        match self {
+            case Closed -> "channel is closed"
+        }
+    }
+}
+
+extension ChannelError: Printable {
+    public func format(&self, into: &var StringBuilder) {
+        into.append(self.describe())
+    }
+}
+
+extension ChannelError: Error {}
+
+// The three ways an enqueue can end. Internal: `send` and `try_send` each map it
+// onto the error type they can carry, and neither exposes this name.
+enum __EnqueueOutcome {
+    case Sent
+    case Closed
+    case NoMemory
 }
 
 public struct Channel<T: Send> {
@@ -79,7 +126,7 @@ extension Channel<T: Send> {
     /// every message, `recv` force-unwrapped a `None` and `receive` looped
     /// forever. `try_make` reports the failure instead.
     public init() unsafe -> Channel<T> {
-        if let block = GlobalAllocator().alloc(168, 16) {
+        if let block = GlobalAllocator().alloc(176, 16) {
             __saw_rt_pthread_mutex_init_default(block)
             let cond = (block + 64) as UnsafePointer<Int8>
             __saw_rt_pthread_cond_init_default(cond)
@@ -89,6 +136,8 @@ extension Channel<T: Send> {
             count[0] = 0
             let ready = (block + 160) as UnsafePointer<Int>
             ready[0] = 0
+            let closed = (block + 168) as UnsafePointer<Int>
+            closed[0] = 0
             Channel<T>(block: block)
         } else {
             panic("Channel(): allocation failed")
@@ -98,7 +147,7 @@ extension Channel<T: Send> {
     /// Creates a fresh empty channel, reporting allocator exhaustion as
     /// `Err(AllocError)`.
     public func try_make() unsafe -> Result<Channel<T>, AllocError> {
-        if let block = GlobalAllocator().alloc(168, 16) {
+        if let block = GlobalAllocator().alloc(176, 16) {
             __saw_rt_pthread_mutex_init_default(block)
             let cond = (block + 64) as UnsafePointer<Int8>
             __saw_rt_pthread_cond_init_default(cond)
@@ -108,9 +157,11 @@ extension Channel<T: Send> {
             count[0] = 0
             let ready = (block + 160) as UnsafePointer<Int>
             ready[0] = 0
+            let closed = (block + 168) as UnsafePointer<Int>
+            closed[0] = 0
             return Channel<T>(block: block)
         }
-        return AllocError(size: 168, align: 16)
+        return AllocError(size: 176, align: 16)
     }
 
     // design 230: the executor seam for a channel park. Hands back the wake
@@ -137,27 +188,74 @@ extension Channel<T: Send> {
         0
     }
 
-    /// Enqueues a value, waking one blocked receiver.
+    /// Enqueues a value, waking the receivers waiting on this channel.
     ///
-    /// Ownership of `v` transfers to the channel. Panics if the queue node
-    /// cannot be allocated (design 123, infallible tier): this returned `Void`
-    /// and wrapped the whole enqueue in an unguarded `if let`, so on allocator
-    /// exhaustion the message was consumed, destroyed and never delivered —
-    /// with no signal to either end. `try_send` reports the failure instead.
-    public func send(&self, v: T) {
-        if not self._enqueue(move v) {
-            panic("Channel.send: allocation failed")
+    /// Ownership of `v` transfers to the channel. Returns `Err(Closed)` if the
+    /// channel has been closed, in which case the queue is unchanged and `v` is
+    /// dropped here — a closed channel takes no more messages, and the caller
+    /// finding out is the point.
+    ///
+    /// Panics if the queue node cannot be allocated (design 123, infallible
+    /// tier). That is a separate failure from `Closed` and stays a panic:
+    /// `try_send` is the spelling that reports it.
+    public func send(&self, v: T) -> Result<Void, ChannelError> {
+        match self._enqueue(move v) {
+            case Sent -> { return },
+            case Closed -> { return ChannelError.Closed },
+            case NoMemory -> { panic("Channel.send: allocation failed") }
         }
     }
 
     /// Enqueues a value, reporting allocator exhaustion as `Err(AllocError)`.
     ///
-    /// The queue is unchanged on `Err`; `v` is consumed either way.
+    /// The queue is unchanged on `Err`; `v` is consumed either way. Panics on a
+    /// CLOSED channel: this call exists to report one specific failure, the
+    /// allocator's, and it has nowhere to put a second — `send` is the spelling
+    /// that reports a closed channel as a value (DQ-230b asks whether the two
+    /// should be one error type).
     public func try_send(&self, v: T) -> Result<Void, AllocError> {
-        if not self._enqueue(move v) {
-            return AllocError(size: 8 + sizeof<T>(), align: 16)
+        match self._enqueue(move v) {
+            case Sent -> { return },
+            case Closed -> {
+                panic("Channel.try_send: channel is closed (use `send` to handle a closed channel)")
+            },
+            case NoMemory -> { return AllocError(size: 8 + sizeof<T>(), align: 16) }
         }
-        return
+    }
+
+    /// Closes the channel: no further message will be accepted, and every
+    /// receiver waiting on it is woken.
+    ///
+    /// Any holder may call it — a channel handle carries no sender/receiver
+    /// role, so there is nothing to close "from". By convention the producer
+    /// does, once it has sent its last message.
+    ///
+    /// Messages already queued are NOT lost: a receive drains what is there
+    /// before it reports `Closed`. Closing an already-closed channel returns
+    /// `Err(Closed)` rather than panicking, so a close that races another one is
+    /// a value to inspect and idempotent to ignore with `let _ =`.
+    public func close(&self) unsafe -> Result<Void, ChannelError> {
+        if let block = self.block {
+            pthread_mutex_lock(block)
+            let closed = (block + 168) as UnsafePointer<Int>
+            if closed[0] != 0 {
+                pthread_mutex_unlock(block)
+                return ChannelError.Closed
+            }
+            closed[0] = 1
+            // A closed channel is permanently READY: every parked receiver has
+            // an answer waiting for it, whether that is a drained message or the
+            // `Closed` itself.
+            self._publish_ready(block)
+            // BROADCAST, not signal: `close` releases every thread blocked in
+            // `recv`, where a send releases one because it added one message.
+            let cond = (block + 64) as UnsafePointer<Int8>
+            pthread_cond_broadcast(cond)
+            pthread_mutex_unlock(block)
+            __saw_exec_chan_wake()
+            return
+        }
+        return ChannelError.Closed
     }
 
     // design 230: THE ONE PLACE the readiness invariant is written. Every point
@@ -168,16 +266,44 @@ extension Channel<T: Send> {
     // link) and `try_receive` / `recv` (after the unlink).
     func _publish_ready(&self, block: UnsafePointer<Int8>) unsafe sync {
         let count = (block + 136) as UnsafePointer<Int>
+        let closed = (block + 168) as UnsafePointer<Int>
         let ready = (block + 160) as UnsafePointer<Int>
-        ready[0] = count[0]
+        if count[0] > 0 || closed[0] != 0 {
+            ready[0] = 1
+        } else {
+            ready[0] = 0
+        }
     }
 
-    // Internal: the enqueue itself. Returns whether the node was allocated and
-    // linked; FALSE leaves the queue untouched (and `v`, unmoved, deinits at
-    // this scope's exit rather than vanishing into a half-built node).
-    func _enqueue(&self, v: T) unsafe -> Bool {
+    // Internal: is this channel closed AND drained — the state in which a
+    // receiver has nothing left to wait for? Read under the block's mutex,
+    // because "closed" and "empty" have to be answered as ONE fact: a `close()`
+    // landing between two separate reads is exactly the race that would report
+    // Closed with a message still queued, losing it. Drain-then-closed is the
+    // rule, and this is where it is decided.
+    func _closed_and_drained(&self, block: UnsafePointer<Int8>) unsafe sync -> Bool {
+        let count = (block + 136) as UnsafePointer<Int>
+        let closed = (block + 168) as UnsafePointer<Int>
+        closed[0] != 0 && count[0] == 0
+    }
+
+    // Internal: the enqueue itself, and its three outcomes. Anything other than
+    // `Sent` leaves the queue untouched — and `v`, unmoved, deinits at this
+    // scope's exit rather than vanishing into a half-built node. The two callers
+    // (`send`, `try_send`) each report the pair they have somewhere to put, so
+    // the decision of what is an error lives at the API and the mechanism lives
+    // here.
+    func _enqueue(&self, v: T) unsafe -> __EnqueueOutcome {
         if let block = self.block {
             pthread_mutex_lock(block)
+            // The closed test is INSIDE the lock with the link, so a `close()`
+            // that races a send either wins outright (Closed, nothing queued) or
+            // loses outright (queued, and a receiver will drain it).
+            let closed = (block + 168) as UnsafePointer<Int>
+            if closed[0] != 0 {
+                pthread_mutex_unlock(block)
+                return __EnqueueOutcome.Closed
+            }
             // Allocate and fill a node { next, value }.
             if let node = GlobalAllocator().alloc(8 + sizeof<T>(), 16) {
                 let val_slot = (node + 8) as UnsafePointer<T>
@@ -207,12 +333,12 @@ extension Channel<T: Send> {
                 // it is what keeps a cross-thread handoff at microseconds
                 // rather than at the re-scan bound.
                 __saw_exec_chan_wake()
-                return true
+                return __EnqueueOutcome.Sent
             }
             pthread_mutex_unlock(block)
-            return false
+            return __EnqueueOutcome.NoMemory
         }
-        false
+        __EnqueueOutcome.NoMemory
     }
 
     // Non-blocking dequeue (design 52b): the head value if the queue is
@@ -252,33 +378,91 @@ extension Channel<T: Send> {
         return None
     }
 
-    // COOPERATIVE suspending receive (design 62 G3). The first-class packaging of
-    // the design-52b `try_receive()` + `yield_now()` loop: it dequeues a value if
-    // one is ready, else SUSPENDS THE TASK (not the thread) and is rescheduled by
-    // the executor — wake-on-send folded into yield-requeue (channel-yield wake
-    // reason). Distinct name from the 21b thread-engine `recv()` below (same
-    // signature `(&self) -> T`, so overloading — which can't differ by effect —
-    // cannot tell them apart). The coroutine transform (design 62) LOWERS a
+    // design 230: the ONE non-suspending step a cooperative receive is built out
+    // of. `Some(Ok(v))` when a message is ready, `Some(Err(Closed))` when the
+    // channel is closed AND drained, `None` when it is simply empty and open —
+    // which is the only answer that means "park".
+    //
+    // Shaped as an Optional so the coroutine transform's inline lowering stays
+    // the `if let` + store it has always been: the ONE thing that changed at the
+    // seam is what the binding carries. Drain-then-closed falls out of the order
+    // — a queued message is taken before the closed test is even asked, so
+    // closing a channel with messages in it loses none of them.
+    //
+    // `public` for the design-204 reason, not because a program should name it:
+    // the transform emits this call, so its identity must stay the plain
+    // spelling `sawc/coro_transform.py` writes.
+    public func __try_receive_result(&self) unsafe -> Result<T, ChannelError>? {
+        if let v = self.try_receive() {
+            return self._delivered(move v)
+        }
+        if let block = self.block {
+            pthread_mutex_lock(block)
+            let drained = self._closed_and_drained(block)
+            pthread_mutex_unlock(block)
+            if drained {
+                return self._closed()
+            }
+        }
+        None
+    }
+
+    // The two `Result` constructions above, each at the one position auto-wrap
+    // reaches: a RETURN whose declared type is the Result. Written out because
+    // the caller's own return type is `Result<T, ChannelError>?` and a bare value
+    // does not wrap through two layers.
+    func _delivered(&self, v: T) unsafe sync -> Result<T, ChannelError> {
+        return move v
+    }
+
+    func _closed(&self) unsafe sync -> Result<T, ChannelError> {
+        return ChannelError.Closed
+    }
+
+    /// Waits for the next message, suspending the TASK rather than the thread.
+    ///
+    /// Returns `Err(Closed)` once the channel has been closed and everything
+    /// already queued has been handed out — so a consumer loop ends when its
+    /// producer says it is done, instead of waiting for a message that will
+    /// never come.
+    ///
+    /// ```saw
+    /// while true {
+    ///     match inbox.receive() {
+    ///         case Ok(job) -> run(job),
+    ///         case Err(_) -> break
+    ///     }
+    /// }
+    /// ```
+    ///
+    /// A channel nobody closes and nobody sends to is a deadlock, and the
+    /// executor reports it as one rather than waiting forever.
+    //
+    // COOPERATIVE suspending receive (design 62 G3). Distinct name from the 21b
+    // thread-engine `recv()` below (overloading cannot differ by effect, so one
+    // name could not carry both). The coroutine transform (design 62) LOWERS a
     // `let v = ch.receive()` / `ch.receive()` call site INLINE into this loop
-    // against the caller's own frame; this body is the reference semantics and the
-    // effect-inference source (it reaches `yield_now`, so it — and any caller —
-    // suspends), and is never itself monomorphized (every call site is rewritten).
-    public func receive(&self) -> T {
-        var __got: T? = None
+    // against the caller's own frame; this body is the reference semantics and
+    // the effect-inference source, and is never itself monomorphized (every call
+    // site is rewritten). The two must agree step for step — that is what makes
+    // the body worth reading.
+    public func receive(&self) -> Result<T, ChannelError> {
+        var __got: Result<T, ChannelError>? = None
         var __done = false
         while not __done {
-            if let v = self.try_receive() {
-                return v
+            if let r = self.__try_receive_result() {
+                return move r
             }
             // design 230: PARK on this channel rather than yield READY. The wake
             // reason names this channel's readiness word, so the executor leaves
-            // the task alone until a send publishes it: a waiting receiver costs
-            // no CPU, and a send wakes exactly the receivers of THIS channel.
-            // Until 230 this was `yield_now()`, which the scheduler re-queued as
-            // fast as it could spin — 100% of a core for a sole waiter.
+            // the task alone until a send (or a close) publishes it: a waiting
+            // receiver costs no CPU, and a send wakes exactly the receivers of
+            // THIS channel. Until 230 this was `yield_now()`, which the scheduler
+            // re-queued as fast as it could spin — 100% of a core for a sole
+            // waiter.
             __saw_chan_park(self.__park_word())
         }
-        __got!               // unreachable (loop only exits via `return`)
+        move __got!          // unreachable (loop only exits via `return`)
     }
 
     /// Dequeues a value, blocking the CALLING THREAD while the queue is empty.
@@ -291,16 +475,28 @@ extension Channel<T: Send> {
     /// wait deadlocks the group rather than the caller. Nothing in the type system
     /// prevents the call today.
     ///
-    /// `receive()` is the cooperative twin and a drop-in replacement: same
-    /// signature, same result, but it suspends the TASK rather than the thread, so
-    /// siblings keep running and the sender gets its turn.
+    /// `receive()` is the cooperative twin: it suspends the TASK rather than the
+    /// thread, so siblings keep running and the sender gets its turn, and it
+    /// reports a closed channel as a value instead of panicking.
+    ///
+    /// Panics on a channel that is closed and drained. There is no error channel
+    /// in this signature to report it through, and blocking the thread forever on
+    /// a channel that has said it is finished is the outcome the panic exists to
+    /// replace.
     public func recv(&self) unsafe -> T {
         if let block = self.block {
             pthread_mutex_lock(block)
             let count = (block + 136) as UnsafePointer<Int>
+            let closed = (block + 168) as UnsafePointer<Int>
             let cond = (block + 64) as UnsafePointer<Int8>
-            while count[0] == 0 {
+            // design 230: `close()` broadcasts, so a blocked thread wakes here
+            // and leaves the loop with an empty queue rather than waiting on.
+            while count[0] == 0 && closed[0] == 0 {
                 pthread_cond_wait(cond, block)
+            }
+            if count[0] == 0 {
+                pthread_mutex_unlock(block)
+                panic("Channel.recv: channel is closed and drained")
             }
             let head_slot = (block + 144) as UnsafePointer<UnsafePointer<Int8>>
             let tail_slot = (block + 152) as UnsafePointer<UnsafePointer<Int8>>
@@ -355,7 +551,7 @@ extension Channel<T: Send>: Copy {
                 let cond = (block + 64) as UnsafePointer<Int8>
                 pthread_cond_destroy(cond)
                 pthread_mutex_destroy(block)
-                GlobalAllocator().dealloc(block, 168, 16)
+                GlobalAllocator().dealloc(block, 176, 16)
             }
         }
     }

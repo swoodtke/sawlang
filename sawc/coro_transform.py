@@ -6008,8 +6008,15 @@ class _FrameBuilder:
         # body: non-blocking attempt. `if let __rv = <recv>.try_receive() { ... }`
         # is non-spanning (try_receive never suspends), lowered in place here.
         self.cur = body_b
-        try_call = MethodCall(object=recv_expr, method_name="try_receive",
-                              arguments=[])
+        # design 230 unit C: the seam is `__try_receive_result`, whose Optional
+        # carries a `Result<T, ChannelError>` — `Some(Ok(v))` for a message,
+        # `Some(Err(Closed))` for a closed and drained channel, `None` only for
+        # "empty and open", which is the one answer that means park. The lowering
+        # is otherwise the `if let` + store it has always been: `elem_type` is
+        # `receive()`'s return type, so the holder, the store funnel and the
+        # `return` path all follow the seam without a special case.
+        try_call = MethodCall(object=recv_expr,
+                              method_name="__try_receive_result", arguments=[])
         # Census S10, and the migration's one FEATURE FLIP. The store used to
         # be a bare alias of the `if let` binding — it did not go through the
         # store funnel at all, so it was tier-BLIND, and the post-transform

@@ -12,7 +12,7 @@ import std.channel.{Channel}
 func producer(ch: Channel<Int>) -> Int {
     var i = 0
     while i < 3 {
-        ch.send(i + 1)   // 1, 2, 3
+        try! ch.send(i + 1)   // 1, 2, 3
         yield_now()
         i = i + 1
     }
@@ -23,7 +23,7 @@ func consumer(ch: Channel<Int>) -> Int {
     var sum = 0
     var got = 0
     while got < 3 {
-        let v = ch.receive()   // cooperative: suspends the task while empty
+        let v = try! ch.receive()   // cooperative: suspends the task while empty
         sum = sum + v
         got = got + 1
     }

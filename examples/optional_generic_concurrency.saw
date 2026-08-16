@@ -49,8 +49,8 @@ func main() {
     var ch = Channel<Int?>()
     let n: Int? = None
     let a: Int? = 7
-    ch.send(n)
-    ch.send(a)
+    try! ch.send(n)
+    try! ch.send(a)
 
     if let got = ch.try_receive() { print("t1 present {got ?? -1}") } else { print("t1 EMPTY") }
     if let got = ch.try_receive() { print("t2 present {got ?? -1}") } else { print("t2 EMPTY") }

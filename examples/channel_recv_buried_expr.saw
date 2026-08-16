@@ -8,14 +8,14 @@
 
 import std.channel.{Channel}
 func worker(ch: Channel<Int>) -> Int {
-    let x = ch.receive() + 1   // receive buried in a binary expression
+    let x = (try! ch.receive()) + 1   // receive buried in a binary expression
     return x
 }
 
 func main() {
     var group = TaskGroup()
     let ch = Channel<Int>()
-    ch.send(5)
+    try! ch.send(5)
     let h = group.spawn(worker(ch.copy()))
     print(h.join())            // 5 + 1 = 6
 }

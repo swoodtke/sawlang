@@ -18,26 +18,26 @@ enum TMsg {
 func produce(out: Channel<PMsg>) {
     var i = 1
     while i <= 5000 {
-        out.send(PMsg.Value(v: i))
+        try! out.send(PMsg.Value(v: i))
         i = i + 1
     }
-    out.send(PMsg.Done)
+    try! out.send(PMsg.Done)
 }
 
 func transform(inch: Channel<PMsg>, outch: Channel<TMsg>) {
     var h = 0
     var going = true
     while going {
-        let msg = inch.receive()
+        let msg = try! inch.receive()
         match msg {
             case Value(v) -> {
                 h = (h * 31 + v) % 1000000007
                 if v % 7 == 0 {
-                    outch.send(TMsg.Forwarded(v: v))
+                    try! outch.send(TMsg.Forwarded(v: v))
                 }
             },
             case Done -> {
-                outch.send(TMsg.Final(h: h))
+                try! outch.send(TMsg.Final(h: h))
                 going = false
             }
         }
@@ -49,7 +49,7 @@ func sink(inch: Channel<TMsg>) {
     var h = 0
     var going = true
     while going {
-        let msg = inch.receive()
+        let msg = try! inch.receive()
         match msg {
             case Forwarded(v) -> {
                 count = count + 1

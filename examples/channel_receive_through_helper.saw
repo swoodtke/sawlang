@@ -29,7 +29,7 @@ import std.task.*
 import std.channel.{Channel}
 
 func acquire(ch: Channel<Int>) {
-    let _ = ch.receive()
+    let _ = try! ch.receive()
 }
 
 func worker(id: Int, ch: Channel<Int>) {
@@ -37,12 +37,12 @@ func worker(id: Int, ch: Channel<Int>) {
     print("in {}", id)
     yield_now()
     print("out {}", id)
-    ch.send(1)
+    try! ch.send(1)
 }
 
 func main() {
     var ch = Channel<Int>()
-    ch.send(1)
+    try! ch.send(1)
     var group = TaskGroup()
     var k = 0
     while k < 2 {

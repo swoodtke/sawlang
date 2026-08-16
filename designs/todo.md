@@ -165,6 +165,34 @@ flips, so every holder of the old contract was enumerated first:
   narrow-hoist section). `TESTING.md` and `rt/ABI.md` say nothing about the
   contract.
 
+## DQ-230b — RULING OWED: `Channel.try_send` has two failure modes and one
+## error type (filed Aug 16 by the design-230 dispatch, unit C)
+
+**OPEN — surface decision, not a bug.** Design 230 gave `send` a second failure
+(`Err(ChannelError.Closed)`) beside the allocator one design 123 gave it
+(`panic`, with `try_send` as the reporting twin returning
+`Result<Void, AllocError>`). The two error sets are disjoint and `try_send` has
+one slot, so unit C left it PANICKING on a closed channel, with a message naming
+`send` as the spelling that reports one:
+
+```
+panic at channel.saw:NN: Channel.try_send: channel is closed (use `send` to
+handle a closed channel)
+```
+
+That is loud rather than silent, which is the part that mattered, and it invents
+no public type — but it is asymmetric: the same program state is a value through
+one door and fatal through the other. The brief ruled `ChannelError`'s cases
+(`Closed` now, `TimedOut` reserved) and did not reach `try_send`.
+
+The three readings worth weighing, none picked here: widen `try_send` to one
+error type covering both (an `AllocFailed` case on `ChannelError`, which puts an
+allocator concern in a channel-protocol enum); keep two types and let `try_send`
+return `Result<Void, Box<any Error>>` (erased, allocating, wrong for the
+denied-allocator case it exists for); or retire `try_send` on the grounds that a
+caller who cares about allocator refusal on a channel should say so once at
+`try_make`. One call site in tree (`examples/alloc_no_inert_objects.saw`).
+
 ## DF-230a — a task suspended inside `Channel.receive()` cannot be CANCELLED
 ## (filed Aug 16 by the design-230 dispatch; pre-existing, not introduced here)
 

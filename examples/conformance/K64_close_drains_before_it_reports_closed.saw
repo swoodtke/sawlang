@@ -1,0 +1,50 @@
+// Conformance row K64 — closing a channel loses none of what is already queued
+//
+// Design 230 unit C, and the classic mistake it is written against: a close that
+// discards the buffer turns "I am finished sending" into "throw away whatever you
+// had not read yet". The Go rule is drain-then-closed, and this pins it — three
+// messages are sent, the channel is closed with all three still queued, and the
+// consumer sees all three before it sees `Closed`.
+//
+// It falls out of the ORDER inside `__try_receive_result` (take first, ask about
+// closed second) rather than out of anything the consumer writes, which is why a
+// regression here would be silent: the consumer's loop looks identical either way.
+// EXPECT: success
+// EXPECT-OUTPUT:
+// got 1
+// got 2
+// got 3
+// closed
+// drained 3
+
+import std.channel.{Channel}
+
+func drain(ch: Channel<Int>) -> Int {
+    var n = 0
+    var going = true
+    while going {
+        match ch.receive() {
+            case Ok(v) -> {
+                print("got {}", v)
+                n = n + 1
+            },
+            case Err(_) -> {
+                print("closed")
+                going = false
+            }
+        }
+    }
+    return n
+}
+
+func main() {
+    var g = TaskGroup()
+    let ch = Channel<Int>()
+    try! ch.send(1)
+    try! ch.send(2)
+    try! ch.send(3)
+    // Closed with all three still in the queue, and BEFORE the consumer exists.
+    try! ch.close()
+    let h = g.spawn(drain(ch.copy()))
+    print("drained {}", h.join())
+}

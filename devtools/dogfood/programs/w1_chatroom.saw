@@ -27,10 +27,10 @@ func handle_client(
         for c in text.chars() {
             if c == 10 {
                 let msg = "{id}: {line.as_str()}"
-                ch0.send(msg)
-                ch1.send(msg)
-                ch2.send(msg)
-                ch3.send(msg)
+                try! ch0.send(msg)
+                try! ch1.send(msg)
+                try! ch2.send(msg)
+                try! ch3.send(msg)
                 received = received + 1
                 line.clear()
             } else {
@@ -42,11 +42,11 @@ func handle_client(
     var written = 0
     while written < 20 {
         let msg = match id {
-            case 0 -> ch0.receive(),
-            case 1 -> ch1.receive(),
-            case 2 -> ch2.receive(),
-            case 3 -> ch3.receive(),
-            case _ -> ch0.receive()
+            case 0 -> (try! ch0.receive()),
+            case 1 -> (try! ch1.receive()),
+            case 2 -> (try! ch2.receive()),
+            case 3 -> (try! ch3.receive()),
+            case _ -> (try! ch0.receive())
         }
         try! s.write("{msg}\n")
         written = written + 1

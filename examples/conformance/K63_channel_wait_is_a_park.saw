@@ -29,13 +29,13 @@ import std.channel.{Channel}
 import std.task.{dump_tasks}
 
 func waiter(ch: Channel<Int>) -> Int {
-    ch.receive()
+    try! ch.receive()
 }
 
 // Parked on a SECOND channel, which is not fed until `waiter` has already been
 // woken and joined — so its park outlives the other channel's send.
 func idle(ch: Channel<Int>) -> Int {
-    ch.receive()
+    try! ch.receive()
 }
 
 func watcher() -> Int {
@@ -52,8 +52,8 @@ func main() {
     let b = g.spawn(idle(never.copy()))
     let w = g.spawn(watcher())
     let _ = w.join()
-    fed.send(7)
+    try! fed.send(7)
     print("waiter {}", a.join())
-    never.send(9)
+    try! never.send(9)
     print("idle {}", b.join())
 }

@@ -15,14 +15,14 @@
 import std.channel.{Channel}
 
 func feed(inbox: Channel<Int>, v: Int) {
-    inbox.send(v)
+    try! inbox.send(v)
 }
 
 func main() {
     let inbox = Channel<Int>()
     var cooperative = TaskGroup()
     let h = cooperative.spawn(feed(inbox.copy(), 3))
-    let got = inbox.receive()
+    let got = try! inbox.receive()
     h.join()
     print("main got {}", got)
 }

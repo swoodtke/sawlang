@@ -17,8 +17,8 @@ import std.channel.{Channel}
 func main() {
     let inbox = Channel<Int>()
     let box = inbox.copy()
-    var t = spawn { box.send(4) }
-    let got = inbox.receive()
+    var t = spawn { try! box.send(4) }
+    let got = try! inbox.receive()
     let _ = t.join()
     print("main got {}", got)
 }

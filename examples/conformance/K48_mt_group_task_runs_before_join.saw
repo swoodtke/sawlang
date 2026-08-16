@@ -25,7 +25,7 @@ import std.time.{Instant}
 static WAIT_MS: UInt64 = 2000
 
 func feed(inbox: Channel<Int>, v: Int) {
-    inbox.send(v)
+    try! inbox.send(v)
 }
 
 func wait_for(inbox: Channel<Int>) unsafe -> Int? {

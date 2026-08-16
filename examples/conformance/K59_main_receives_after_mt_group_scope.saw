@@ -14,7 +14,7 @@
 import std.channel.{Channel}
 
 func feed(inbox: Channel<Int>, v: Int) {
-    inbox.send(v)
+    try! inbox.send(v)
 }
 
 // No join at all: the group's `Deinit` at the end of this scope is the only
@@ -27,6 +27,6 @@ func run(inbox: Channel<Int>) {
 func main() {
     let inbox = Channel<Int>()
     run(inbox.copy())
-    let got = inbox.receive()
+    let got = try! inbox.receive()
     print("main got {}", got)
 }

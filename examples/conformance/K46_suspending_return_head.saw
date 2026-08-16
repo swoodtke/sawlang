@@ -28,7 +28,7 @@ extension Src: Copy {}
 
 extension Src {
     func next(&self) -> Int {
-        let v = self.ch.receive()
+        let v = try! self.ch.receive()
         return v
     }
 }
@@ -45,7 +45,7 @@ func gate(tag: String) -> Int {
 // passes on a broken cell.
 func feed(ch: Channel<Int>, v: Int) {
     yield_now()
-    ch.send(v)
+    try! ch.send(v)
 }
 
 // kind 1 — a suspending FREE FUNCTION in return position
@@ -55,7 +55,7 @@ func work(tag: String) -> Int {
 
 // kind 2 — a cooperative channel `receive()` in return position
 func recv_return(ch: Channel<Int>) -> Int {
-    return ch.receive()
+    return (try! ch.receive())
 }
 
 // kind 3 — a suspending METHOD in return position

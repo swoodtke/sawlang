@@ -43,12 +43,17 @@ func relay(tag: String, v: Int) -> Int? {
 // the row passes on a broken cell.
 func feed_opt(ch: Channel<Int?>, v: Int?) {
     yield_now()
-    ch.send(v)
+    try! ch.send(v)
 }
 
 func feed_res(ch: Channel<Result<Int, Boom>>, v: Result<Int, Boom>) {
     yield_now()
-    ch.send(v)
+    try! ch.send(v)
+}
+
+func feed_int(ch: Channel<Int>, v: Int) {
+    yield_now()
+    try! ch.send(v)
 }
 
 func mk_res(v: Int) -> Result<Int, Boom> {
@@ -65,7 +70,7 @@ func work(tag: String) -> Int {
 // binding, which is exactly when the subject slot stopped being visited at all
 func iflet_head(ch: Channel<Int?>) -> Int {
     var seen = 0
-    if let v = ch.receive() {
+    if let v = (try! ch.receive()) {
         yield_now()
         seen = v
     }
@@ -74,23 +79,30 @@ func iflet_head(ch: Channel<Int?>) -> Int {
 
 // the `guard let` subject
 func guardlet_head(ch: Channel<Int?>) -> Int {
-    guard let v = ch.receive() else { return 0 }
+    guard let v = (try! ch.receive()) else { return 0 }
     return v
 }
 
 // the `try!` subject, and its two siblings: all three spellings go through one
-// hoist, so all three are pinned rather than argued from the shared arm
+// hoist, so all three are pinned rather than argued from the shared arm.
+//
+// design 230: `receive()` returns `Result<T, ChannelError>` itself now, so the
+// `try` heads have a subject without any help from the payload type. `try_head`
+// keeps the NESTED one (`Channel<Result<Int, Boom>>`, two wrappers, two peels)
+// because a doubled Result through the inline lowering is worth pinning; its two
+// siblings take the plain channel, where the `catch` arm and the `??` default
+// state the peeled type directly.
 func try_head(ch: Channel<Result<Int, Boom>>) -> Int {
-    let v = try! ch.receive()
-    return v
+    let v = try! ch.receive()      // peels ChannelError -> Result<Int, Boom>
+    return try! v                  // peels Boom -> Int
 }
 
-func trycatch_head(ch: Channel<Result<Int, Boom>>) -> Int {
+func trycatch_head(ch: Channel<Int>) -> Int {
     let v = try ch.receive() catch { 0 }
     return v
 }
 
-func tryopt_head(ch: Channel<Result<Int, Boom>>) -> Int {
+func tryopt_head(ch: Channel<Int>) -> Int {
     let o = try? ch.receive()
     return o ?? 0
 }
@@ -122,15 +134,15 @@ func main() {
     let r3 = w3.join()
     f3.join()
 
-    let rch2 = Channel<Result<Int, Boom>>()
+    let rch2 = Channel<Int>()
     let w4 = g.spawn(trycatch_head(rch2.copy()))
-    let f4 = g.spawn(feed_res(rch2.copy(), mk_res(11)))
+    let f4 = g.spawn(feed_int(rch2.copy(), 11))
     let r4 = w4.join()
     f4.join()
 
-    let rch3 = Channel<Result<Int, Boom>>()
+    let rch3 = Channel<Int>()
     let w5 = g.spawn(tryopt_head(rch3.copy()))
-    let f5 = g.spawn(feed_res(rch3.copy(), mk_res(13)))
+    let f5 = g.spawn(feed_int(rch3.copy(), 13))
     let r5 = w5.join()
     f5.join()
 

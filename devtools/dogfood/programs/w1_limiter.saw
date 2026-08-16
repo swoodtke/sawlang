@@ -36,7 +36,7 @@ extension Limiter {
         var ch = Channel<Int>()
         var i = 0
         while i < permits {
-            ch.send(1)
+            try! ch.send(1)
             i = i + 1
         }
         Limiter(tokens: ch)
@@ -50,7 +50,7 @@ func job(
     sum_cell: Arc<Mutex<Int>>,
     order: Arc<Mutex<Vector<Int>>>,
 ) {
-    let _ = limiter.tokens.receive()
+    let _ = try! limiter.tokens.receive()
 
     stats.lock({ s in
         s.in_flight = s.in_flight + 1
@@ -70,7 +70,7 @@ func job(
     stats.lock({ s in
         s.in_flight = s.in_flight - 1
     })
-    limiter.tokens.send(1)
+    try! limiter.tokens.send(1)
 
     sum_cell.lock({ s in
         s = s + result

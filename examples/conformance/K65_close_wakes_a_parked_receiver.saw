@@ -1,0 +1,40 @@
+// Conformance row K65 — `close()` wakes a receiver that is already parked
+//
+// Design 230 unit C over unit A's park. A receiver waiting on an empty channel
+// is PARKED, not spinning, so a close has to reach it the same way a send does —
+// through the channel's readiness word, which `close` publishes exactly as an
+// enqueue does. Without that the close would be observed only by a receiver that
+// had not started waiting yet, which is the opposite of the case it exists for:
+// the consumer is normally waiting when the producer finishes.
+//
+// `waiter` parks first (it is spawned first and the channel is empty), and
+// `closer` naps before closing so the park has happened by then. The row is
+// green only if the parked task RESUMES and reports `Closed`; a wake that never
+// arrives hangs, and one that arrives without the closed flag published loops.
+// EXPECT: success
+// EXPECT-OUTPUT:
+// waiter -1
+
+import std.channel.{Channel}
+
+func waiter(ch: Channel<Int>) -> Int {
+    match ch.receive() {
+        case Ok(v) -> v,
+        case Err(_) -> -1
+    }
+}
+
+func closer(ch: Channel<Int>) -> Int {
+    sleep(Duration.ms(20))
+    try! ch.close()
+    0
+}
+
+func main() {
+    var g = TaskGroup()
+    let ch = Channel<Int>()
+    let w = g.spawn(waiter(ch.copy()))
+    let c = g.spawn(closer(ch.copy()))
+    let _ = c.join()
+    print("waiter {}", w.join())
+}

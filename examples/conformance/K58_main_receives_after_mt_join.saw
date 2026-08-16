@@ -13,7 +13,7 @@
 import std.channel.{Channel}
 
 func feed(inbox: Channel<Int>, v: Int) {
-    inbox.send(v)
+    try! inbox.send(v)
 }
 
 func main() {
@@ -21,6 +21,6 @@ func main() {
     var workers = TaskGroup(threads: 2)
     let h = workers.spawn(feed(inbox.copy(), 6))
     h.join()
-    let got = inbox.receive()
+    let got = try! inbox.receive()
     print("main got {}", got)
 }

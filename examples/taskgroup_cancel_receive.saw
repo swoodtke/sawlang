@@ -37,8 +37,8 @@ func consumer(ch: Channel<Int>) -> Int {
 func main() {
     var group = TaskGroup()
     let ch = Channel<Int>()
-    ch.send(10)
-    ch.send(20)
+    try! ch.send(10)
+    try! ch.send(20)
     let h = group.spawn(consumer(ch.copy()))
     h.cancel()          // consumer drains 10, 20 then exits on empty+cancelled
     print(h.join())     // 30

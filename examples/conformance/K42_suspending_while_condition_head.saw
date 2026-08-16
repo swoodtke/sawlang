@@ -29,7 +29,7 @@ extension Src: Copy {}
 
 extension Src {
     func next(&self) -> Int {
-        let v = self.ch.receive()
+        let v = try! self.ch.receive()
         return v
     }
 }
@@ -45,22 +45,22 @@ func gate(tag: String, n: Int) -> Bool {
 // that happens to find a value already queued.
 func feed_run(ch: Channel<Int>) {
     yield_now()
-    ch.send(3)
+    try! ch.send(3)
     yield_now()
-    ch.send(2)
+    try! ch.send(2)
     yield_now()
-    ch.send(1)
+    try! ch.send(1)
     yield_now()
-    ch.send(0)
+    try! ch.send(0)
 }
 
 func feed_two(ch: Channel<Int>) {
     yield_now()
-    ch.send(5)
+    try! ch.send(5)
     yield_now()
-    ch.send(4)
+    try! ch.send(4)
     yield_now()
-    ch.send(0)
+    try! ch.send(0)
 }
 
 // kind 1 — a suspending FREE FUNCTION in the condition; the loop ends when the
@@ -77,7 +77,7 @@ func work(tag: String) -> Int {
 // three iterations out
 func drain(ch: Channel<Int>) -> Int {
     var n = 0
-    while ch.receive() > 0 {
+    while (try! ch.receive()) > 0 {
         n += 1
     }
     return n

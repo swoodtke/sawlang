@@ -32,7 +32,7 @@ extension Src: Copy {}
 
 extension Src {
     func next(&self) -> Int {
-        let v = self.ch.receive()
+        let v = try! self.ch.receive()
         return v
     }
 }
@@ -51,7 +51,7 @@ func gate(tag: String) -> Int {
 // passes on a broken cell.
 func feed(ch: Channel<Int>, v: Int) {
     yield_now()
-    ch.send(v)
+    try! ch.send(v)
 }
 
 // kind 1 — a suspending FREE FUNCTION as the `+=` RHS
@@ -64,7 +64,7 @@ func work(tag: String) -> Int {
 // kind 2 — a cooperative channel `receive()` as the `+=` RHS
 func recv_compound(ch: Channel<Int>) -> Int {
     var total = 0
-    total += ch.receive()
+    total += try! ch.receive()
     return total
 }
 
@@ -80,7 +80,7 @@ func method_compound(src: Src) -> Int {
 // in place, and its RHS suspends on the non-None path
 func chain_compound(o: Point?, ch: Channel<Int>) -> Int {
     var local = o
-    local?.x += ch.receive()
+    local?.x += try! ch.receive()
     if let p = local { return p.x }
     return -1
 }

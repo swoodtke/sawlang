@@ -25,7 +25,7 @@ extension Src: Copy {}
 
 extension Src {
     func next(&self) -> Int {
-        let v = self.ch.receive()
+        let v = try! self.ch.receive()
         return v
     }
 }
@@ -41,14 +41,14 @@ func gate(tag: String) -> Int {
 // a real cooperative park rather than a `try_receive` that finds a queued value.
 func feed(ch: Channel<Int>, v: Int) {
     yield_now()
-    ch.send(v)
+    try! ch.send(v)
 }
 
 func feed_two(ch: Channel<Int>) {
     yield_now()
-    ch.send(2)
+    try! ch.send(2)
     yield_now()
-    ch.send(11)
+    try! ch.send(11)
 }
 
 // kind 1 — a suspending FREE FUNCTION as the range's upper bound
@@ -63,7 +63,7 @@ func work(tag: String) -> Int {
 // kind 2 — a cooperative channel `receive()` as the upper bound
 func recv_range(ch: Channel<Int>) -> Int {
     var n = 0
-    for _ in 0..ch.receive() {
+    for _ in 0..(try! ch.receive()) {
         n += 1
     }
     return n

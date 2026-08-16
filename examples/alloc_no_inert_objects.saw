@@ -71,7 +71,7 @@ func main() {
     __saw_rt_alloc_deny_after(-1)
     match sent {
         case Ok(_) -> print("sent"),
-        case Err(_) -> ch.send(42)
+        case Err(_) -> { try! ch.send(42) }
     }
     print(ch.try_receive()!)            // 42 — the retry landed
 }

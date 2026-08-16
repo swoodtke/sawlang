@@ -13,12 +13,12 @@ import std.channel.*
 func inc(x: Int) -> Int { x + 1 }
 
 func consumer(ch: Channel<Int>) -> Int {
-    inc(ch.receive()) + ch.receive()   // takes 10 then 20
+    inc(try! ch.receive()) + (try! ch.receive())   // takes 10 then 20
 }
 
 func producer(ch: Channel<Int>) -> Int {
-    ch.send(10)
-    ch.send(20)
+    try! ch.send(10)
+    try! ch.send(20)
     0
 }
 

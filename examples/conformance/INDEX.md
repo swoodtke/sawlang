@@ -6,7 +6,7 @@ either a file in this directory or an existing `examples/` test that already
 asserts the same rule at the same position — this table is the record of which,
 and the dedup decisions are meant to be audited from it.
 
-**407 rows: 312 carry a file here, 95 are covered elsewhere** (recounted Aug 16
+**410 rows: 315 carry a file here, 95 are covered elsewhere** (recounted Aug 16
 from the table itself — the audit-era "121 here, 198 elsewhere" had gone stale
 across the briefs listed below). (The audit's 247 plus
 the rows later briefs added: W02-W05, design 194 unit 4; W06-W19, design 195
@@ -21,7 +21,7 @@ stage 3; G01-G15, design 221 unit B1; G16-G18, design 221 unit B4's return-site
 sweep; K32, design 222 unit 1; K33-K39, design 223's suspending-method position
 matrix; M37-M42, design 227 unit 1, and M43-M44, the two siblings its unit-3
 walk closed; K40-K47, design 224's container-head position matrix; K48-K62,
-design 225's TaskGroup wake matrix; K63, design 230 unit A.)
+design 225's TaskGroup wake matrix; K63-K66, design 230 units A and C.)
 
 ## How to read it
 
@@ -458,6 +458,9 @@ Claim source: spec 6 *Send and Sync* + *Cooperative tasks*; designs 75, 88, 103,
 | K61 | control: a cooperative group's task feeds main's receive with no join between | `K61_st_group_task_feeds_main_receive.saw` | 225 — design 89's ambient-liveness guarantee, stated here because it is the STANDARD the MT cells were judged against. A regression here would mean the live-pool work broke the engine it was modelled on |
 | K62 | control: `join()` on an MT group returns the task's RESULT, and the join is a full barrier | `K62_mt_join_returns_the_task_result.saw` | 225 — the fork-join engine's actual product, kept while its scheduling contract is rewritten around it. Asserted on the sum, never on interleaving |
 | K63 | a cooperative channel wait is a PARK with the channel's identity, not a ready yield | `K63_channel_wait_is_a_park.saw` | 230 unit A — `receive()` suspended with wake reason 0 (READY), so a waiter was re-queued as fast as the scheduler spun: 100% of a core for a sole waiter, 143% across two MT workers, and every state the deadlock report keys on unreachable (DQ-225n). CPU is not assertable in a suite, so the row asserts the executor's own vocabulary — the dump says `channel-parked` where it said `ready` — plus the wake reaching two waiters on two channels in order |
+| K64 | closing a channel loses none of what is already queued | `K64_close_drains_before_it_reports_closed.saw` | 230 unit C — the Go drain-then-closed rule, and the classic mistake it is written against. It falls out of the ORDER inside `__try_receive_result` (take first, ask about closed second) rather than out of anything a consumer writes, so a regression would be silent: the consumer loop looks identical either way |
+| K65 | `close()` wakes a receiver that is ALREADY parked | `K65_close_wakes_a_parked_receiver.saw` | 230 unit C over unit A — a waiting receiver is parked, not spinning, so a close reaches it the same way a send does, by publishing the readiness word. Without that the close would be observed only by a receiver that had not started waiting, which is the opposite of the case it exists for |
+| K66 | a second `close()`, and a `send` after one, are reported as values | `K66_send_and_close_after_close_report.saw` | 230 unit C — idempotent WITHOUT being silent: two holders may both believe they are the last producer, so a losing close is `Err(Closed)` and safe to `let _ =`. The row also counts the queue afterwards, because the thing a refused send must never do is land anyway |
 
 ## Visibility and module boundaries
 

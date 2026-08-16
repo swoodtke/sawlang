@@ -36,7 +36,7 @@ extension Src: Copy {}
 
 extension Src {
     func next(&self) -> Int {
-        let v = self.ch.receive()
+        let v = try! self.ch.receive()
         return v
     }
 }
@@ -55,7 +55,7 @@ func gate(tag: String) -> Int {
 // Ceding here forces the receive to be a real cooperative park.
 func feed(ch: Channel<Int>, v: Int) {
     yield_now()
-    ch.send(v)
+    try! ch.send(v)
 }
 
 // kind 1 — a suspending FREE FUNCTION in the scrutinee
@@ -71,7 +71,7 @@ func work(tag: String) -> Int {
 // kind 2 — a cooperative channel `receive()` in the scrutinee
 func recv_scrut(ch: Channel<Int>) -> Int {
     var seen = 0
-    match ch.receive() {
+    match (try! ch.receive()) {
         case 7 -> { seen = 7 },
         case _ -> { seen = 0 }
     }

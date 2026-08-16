@@ -15,11 +15,11 @@
 import std.channel.{Channel}
 
 func feed(inbox: Channel<Int>, v: Int) {
-    inbox.send(v)
+    try! inbox.send(v)
 }
 
 func consume(inbox: Channel<Int>) -> Int {
-    inbox.receive()
+    try! inbox.receive()
 }
 
 func main() {

@@ -25,7 +25,7 @@ import std.channel.{Channel}
 func producer(ch: Channel<Int>, n: Int) {
     yield_now()
     print("producing {n}")
-    ch.send(n)
+    try! ch.send(n)
 }
 
 // The reusable-wrapper shape: one frame between the caller and the receive.
@@ -34,7 +34,7 @@ func producer(ch: Channel<Int>, n: Int) {
 // a bare statement only, and a tail-position one is a clean anchored error
 // naming those two forms (DF-206c).
 func take_one(ch: Channel<Int>) -> Int {
-    let v = ch.receive()
+    let v = try! ch.receive()
     v
 }
 
@@ -44,7 +44,7 @@ func main() {
 
     let _ = group.spawn(producer(ch, 7))
     print("waiting")
-    let first = ch.receive()
+    let first = try! ch.receive()
     print("got {first}")
 
     let _ = group.spawn(producer(ch, 9))

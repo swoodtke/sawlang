@@ -42,7 +42,7 @@ static WAIT_MS: UInt64 = 10000
 // under MT.
 func produce(work: Channel<Int>) {
     for i in 1..=PER_PRODUCER {
-        work.send(i)
+        try! work.send(i)
     }
 }
 
@@ -53,12 +53,12 @@ func consume(work: Channel<Int>, out: Channel<Int>) -> Int {
     var sum = 0
     var running = true
     while running {
-        let v = work.receive()
+        let v = try! work.receive()
         if v == STOP {
             running = false
         } else {
             sum = sum + v
-            out.send(v)
+            try! out.send(v)
         }
     }
     return sum
@@ -109,7 +109,7 @@ func main() {
     // Every producer is done, so nothing more will arrive: one sentinel per
     // consumer retires the pair.
     for _ in 0..CONSUMERS {
-        work.send(STOP)
+        try! work.send(STOP)
     }
     let consumed = left.join() + right.join()
 

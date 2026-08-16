@@ -15,7 +15,7 @@ func main() {
     var producer = spawn {
         var i = 1
         while i <= 100 {
-            ch.send(i)
+            try! ch.send(i)
             i = i + 1
         }
         true

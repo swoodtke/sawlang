@@ -32,7 +32,7 @@ extension Src: Copy {}
 
 extension Src {
     func next(&self) -> Int {
-        let v = self.ch.receive()
+        let v = try! self.ch.receive()
         return v
     }
 }
@@ -49,7 +49,7 @@ func gate(tag: String) -> Int {
 // passes on a broken cell.
 func feed(ch: Channel<Int>, v: Int) {
     yield_now()
-    ch.send(v)
+    try! ch.send(v)
 }
 
 // kind 1 — a suspending FREE FUNCTION as the `&&` RHS
@@ -62,7 +62,7 @@ func work(tag: String) -> Int {
 // kind 2 — a cooperative channel `receive()` as the `||` RHS
 func recv_or(ch: Channel<Int>) -> Int {
     var seen = 0
-    if seen == 99 || ch.receive() > 0 { seen = 7 }
+    if seen == 99 || (try! ch.receive()) > 0 { seen = 7 }
     return seen
 }
 
@@ -77,13 +77,13 @@ func method_and(src: Src) -> Int {
 // is an unbounded park
 func skip_and(flag: Bool, ch: Channel<Int>) -> Int {
     var seen = 99
-    if flag && ch.receive() > 0 { seen = 1 } else { seen = 0 }
+    if flag && (try! ch.receive()) > 0 { seen = 1 } else { seen = 0 }
     return seen
 }
 
 func skip_or(flag: Bool, ch: Channel<Int>) -> Int {
     var seen = 99
-    if flag || ch.receive() > 0 { seen = 5 } else { seen = 0 }
+    if flag || (try! ch.receive()) > 0 { seen = 5 } else { seen = 0 }
     return seen
 }
 

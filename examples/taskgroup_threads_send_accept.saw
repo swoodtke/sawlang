@@ -17,7 +17,7 @@ func drain(ch: Channel<Int>, count: Int) -> Int {
     var sum = 0
     var got = 0
     while got < count {
-        let v = ch.receive()
+        let v = try! ch.receive()
         sum = sum + v
         got = got + 1
     }
@@ -29,8 +29,8 @@ func main() {
     let a = group.spawn(square(3))   // 9
     let b = group.spawn(square(5))   // 25
     let ch = Channel<Int>()
-    ch.send(10)
-    ch.send(16)
+    try! ch.send(10)
+    try! ch.send(16)
     let c = group.spawn(drain(ch.copy(), 2))   // 26
     print(a.join() + b.join() + c.join())      // 9 + 25 + 26 = 60
 }

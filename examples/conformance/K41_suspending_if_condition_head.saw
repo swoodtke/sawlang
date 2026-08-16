@@ -30,7 +30,7 @@ extension Src: Copy {}
 
 extension Src {
     func next(&self) -> Int {
-        let v = self.ch.receive()
+        let v = try! self.ch.receive()
         return v
     }
 }
@@ -47,7 +47,7 @@ func gate(tag: String) -> Int {
 // passes on a broken cell.
 func feed(ch: Channel<Int>, v: Int) {
     yield_now()
-    ch.send(v)
+    try! ch.send(v)
 }
 
 // kind 1 — a suspending FREE FUNCTION in the condition
@@ -62,7 +62,7 @@ func work(tag: String) -> Int {
 func recv_cond(ch: Channel<Int>) -> Int {
     var seen = 0
     if seen == 0 {
-        if ch.receive() > 0 { seen = 7 }
+        if (try! ch.receive()) > 0 { seen = 7 }
     }
     return seen
 }
