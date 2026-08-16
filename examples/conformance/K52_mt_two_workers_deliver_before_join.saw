@@ -11,7 +11,6 @@
 // Asserted on the SUM, never on arrival order: the two workers race and the
 // row would be a flake if it cared which value came first.
 //
-// XFAIL: DF-224b neither task of a `threads: N` group runs before a join, so two producers deliver no more than one does — design 225 unit 2
 // EXPECT: success
 // EXPECT-OUTPUT:
 // main got 30

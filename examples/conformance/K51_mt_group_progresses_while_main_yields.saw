@@ -7,7 +7,6 @@
 // not in the ambient scheduler's list (`__enqueue` registers only when
 // `workers < 2`), so no amount of ceding by main could reach it.
 //
-// XFAIL: DF-224b an MT group never joins the ambient scheduler's list, so ceding from main reaches nothing of it — design 225 unit 2
 // EXPECT: success
 // EXPECT-OUTPUT:
 // ran while main yielded: 1

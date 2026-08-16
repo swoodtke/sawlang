@@ -14,7 +14,6 @@
 // behavior is a 100%-CPU wait that never ends, which is not a thing a test
 // suite can pin. `wait_for` is the same loop with a deadline.
 //
-// XFAIL: DF-224b `TaskGroup(threads: N)` is fork-join by construction, so no worker exists outside a join/Deinit drain — design 225 unit 2 makes them live at first spawn
 // EXPECT: success
 // EXPECT-OUTPUT:
 // main got 3

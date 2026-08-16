@@ -11,7 +11,6 @@
 // This is the row that makes the long-lived-group shape (a group spawned into
 // from a loop, joined much later or never) an honest one to write.
 //
-// XFAIL: DF-224b an MT group's workers do not outlive a drain, so nothing picks up work enqueued between joins — design 225 units 2 and 3
 // EXPECT: success
 // EXPECT-OUTPUT:
 // finished before any join: 4

@@ -37,23 +37,54 @@
 // sharing in both is `Arc`/`Mutex`/`Channel` only (references never cross a spawn —
 // paper 18).
 //
-// MULTI-THREADED MODE (design 75 A2): `TaskGroup(threads: N)` (N>=2) runs a
-// fork-join drain — a mutex-protected SHARED run queue (the sanctioned "one
-// injector + N workers", simplicity over per-worker lock-free deques v1) drained
-// by N OS worker threads. A drain is triggered lazily by `join()` / Deinit; it
-// spawns N `Task<Int>` workers (via the 21b engine), each of which claims a
-// runnable frame under the lock, resumes it OUTSIDE the lock, and records the
-// outcome — then the drain joins all workers (a full barrier making every
-// `__result` visible). Frames move between threads only BETWEEN suspensions (a
-// claimed frame is owned by exactly one worker while it runs — paper 18's D6
-// confinement); the `active` flag enforces one-worker-per-frame. Enqueue is
-// main-thread-only (no worker is alive outside a drain), so the run queue never
-// resizes during a drain — `tasks` is only borrowed (`with_var_ref`) or cleared
-// in place (design 134's frame release) while workers run, never resized, and
-// the scheduler's bookkeeping vectors are mutated only under the lock. The slot
-// IDENTITY vectors (`gen`/`free`/`pin`) are the exception, reachable only from a
-// handle and therefore never touched while a worker is alive — see the
-// slot-identity trio below for why that holds.
+// MULTI-THREADED MODE (design 75 A2, rebuilt as a LIVE POOL by design 225):
+// `TaskGroup(threads: N)` (N>=2) runs a mutex-protected SHARED run queue (the
+// sanctioned "one injector + N workers", simplicity over per-worker lock-free
+// deques v1) served by N OS worker threads. The pool starts at the group's
+// FIRST spawn and lives until the group's `Deinit`, so an MT group's tasks run
+// concurrently with the thread that owns the group — the same thing every other
+// member of the family already did (`spawn {}` is live by construction, and a
+// cooperative group's tasks progress whenever its owner suspends).
+//
+// THE LOCKING DISCIPLINE, which is the whole of what makes that safe:
+//
+//   * ONE mutex (`lock`) guards EVERY read and write of the group's scheduler
+//     state — `tasks`, `cells`, `done`, `remaining`, `active`, and the slot
+//     IDENTITY trio `gen`/`free`/`pin` — plus `started`/`stopping`. There is no
+//     second class of field and no lock-free corner. The three entry points
+//     that take it on a caller's behalf are `__enqueue` (the spawning thread),
+//     the handle surface (`__stale_sync`/`__recycle_sync`/`__pin_sync`/
+//     `__await_slot`, the funnel `TaskHandle`/`VoidTaskHandle` reach it
+//     through) and `__saw_exec_worker` itself.
+//   * A CLAIM MOVES THE FRAME OUT OF ITS SLOT. Under the lock a worker sets
+//     `active` and `swap_out`s the frame box into a local, resumes it with the
+//     lock RELEASED, then puts it back and records the outcome under the lock
+//     again. So no borrow of a run-queue element is ever outstanding across an
+//     unlocked region, which is exactly what lets the queue GROW while workers
+//     run: a `push` may reallocate the vector's buffer and there is nothing
+//     pointing into it. It also states paper 18's D6 confinement as a fact
+//     about ownership rather than a flag — while a frame runs, its slot holds
+//     `None` and the running worker owns the box.
+//   * An MT group is enqueued into by its OWNER only. A spawned body cannot
+//     name the group it lives in (`&var group` is not `Send` and a task body
+//     has no way to reach the binding), so `__enqueue` has one thread. That is
+//     why `started` needs no CAS and why the crew vector needs no lock — but
+//     it is NOT why the queue is safe, because `free`/`gen` have a second
+//     writer in any worker that completes a task.
+//
+// THE TWO INVARIANTS DESIGN 225 RETIRED, recorded here because code elsewhere
+// was written against them: "enqueue is main-thread-only, so the run queue
+// never resizes during a drain" (it resizes whenever the owner spawns, and the
+// claim-by-move above is what replaced the argument), and "the slot identity
+// vectors are reachable only from a handle and therefore never touched while a
+// worker is alive" (a worker completing a `Void` task recycles its slot, so
+// `gen`/`free`/`pin` have concurrent writers and are under the lock like
+// everything else).
+//
+// Idle workers PARK on a condition variable beside the run-queue mutex rather
+// than spinning: `__enqueue` broadcasts after every push, and every resume
+// broadcasts its outcome, so a worker sleeps at zero cost until there is work
+// or the group is shutting down.
 
 extern "C" {
     // pthread mutex seam (resolves from libSystem/libc; init wrapper in codegen).
@@ -62,6 +93,16 @@ extern "C" {
     func pthread_mutex_lock(m: UnsafePointer<Int8>) -> Int
     func pthread_mutex_unlock(m: UnsafePointer<Int8>) -> Int
     func pthread_mutex_destroy(m: UnsafePointer<Int8>) -> Int
+
+    // design 225: the idle worker's park. Same seam std/channel.saw uses for
+    // its blocking `recv`, declared here because each std file is its own
+    // module. `broadcast` rather than `signal`: one push can make several
+    // parked workers runnable, and waking one too many costs a re-scan while
+    // waking one too few costs a worker.
+    func __saw_rt_pthread_cond_init_default(c: UnsafePointer<Int8>)
+    func pthread_cond_wait(c: UnsafePointer<Int8>, m: UnsafePointer<Int8>) -> Int
+    func pthread_cond_broadcast(c: UnsafePointer<Int8>) -> Int
+    func pthread_cond_destroy(c: UnsafePointer<Int8>) -> Int
 
     // design 117 / 118 stage 3: the INSTANCE-based IO reactor seams (kqueue on
     // macOS, epoll on Linux; bodies in sawc/rt/host_*/reactor.saw). All take the
@@ -347,6 +388,22 @@ public struct TaskGroup {
     gen: Vector<Int>
     free: Vector<Int>
     pin: Vector<Bool>
+    // design 225: the task-dump's view of a slot's frame, recorded at enqueue
+    // and cleared at completion — the frame TYPE's backtrace-table index
+    // (`Resumable.bt_desc`, -1 when the binary carries no table) and the frame
+    // box's payload ADDRESS (0 when the slot holds nothing).
+    //
+    // Both used to be read out of `tasks` at dump time, and neither can be any
+    // more: a worker CLAIMS a frame by moving its box out of the slot, so a
+    // running task — the state a dump most needs to show, and the state the
+    // dumping task is itself in — would have had no frame to walk. Recording
+    // them here is also what takes the dump's last unsynchronized read off the
+    // run queue: a box handle is two words and a torn read of one is a wild
+    // pointer, while these are single words that are correct or absent.
+    // Constant per task (a box does not move and a frame does not change type),
+    // so there is nothing to keep up to date between the two writes.
+    frame_desc: Vector<Int>
+    frame_addr: Vector<Int>
     // design 75 (A2): requested worker count. 0/1 => the single-threaded engine
     // (byte-identical to the pre-75 group); >=2 => the multi-threaded fork-join
     // drain (a mutex-protected shared queue drained by `workers` OS threads).
@@ -355,6 +412,21 @@ public struct TaskGroup {
     // std/mutex.saw for the conservative-size rationale). `None` for the
     // single-threaded engine — no lock is ever taken there.
     lock: UnsafePointer<Int8>?
+    // design 225: the idle workers' condition variable, in the SAME allocation
+    // as the mutex (at +64), because the two are one object — a condvar without
+    // its mutex is meaningless and a separate allocation would be a second way
+    // for one to exist without the other. `None` exactly when `lock` is.
+    cond: UnsafePointer<Int8>?
+    // design 225: has the pool been started, and has it been told to stop?
+    // Both under the run-queue lock. `started` flips once, at the first spawn
+    // (D-a: a group that never spawns costs no threads); `stopping` flips once,
+    // in `Deinit`, and a worker exits only when it is set AND no live task is
+    // left — which is what keeps teardown a structured join.
+    started: Bool
+    stopping: Bool
+    // design 225: the worker pool's 21b thread handles, joined at `Deinit`.
+    // Touched by the OWNING thread only (start and teardown), so no lock.
+    crew: Vector<Task<Void>>
     // design 89: intrusive ambient-scheduler list link. `next` = address of the
     // next registered single-threaded group (0 = end); `registered` = whether this
     // group is currently in the `__saw_exec_head` list. Set/cleared by
@@ -392,7 +464,10 @@ extension TaskGroup {
         let gn = Vector<Int>()
         let fr = Vector<Int>()
         let pn = Vector<Bool>()
-        TaskGroup(tasks: move t, cells: move c, done: move d, remaining: move r, active: move a, gen: move gn, free: move fr, pin: move pn, workers: 1, lock: None, next: 0, registered: false, bt_next: 0, bt_linked: false)
+        let fd = Vector<Int>()
+        let fa = Vector<Int>()
+        let cw = Vector<Task<Void>>()
+        TaskGroup(tasks: move t, cells: move c, done: move d, remaining: move r, active: move a, gen: move gn, free: move fr, pin: move pn, frame_desc: move fd, frame_addr: move fa, workers: 1, lock: None, cond: None, started: false, stopping: false, crew: move cw, next: 0, registered: false, bt_next: 0, bt_linked: false)
     }
 
     // design 75 (A2): opt in to multi-threaded execution with `n` worker threads.
@@ -418,22 +493,33 @@ extension TaskGroup {
         if w < 1 {
             w = 1
         }
+        let fd = Vector<Int>()
+        let fa = Vector<Int>()
+        let cw = Vector<Task<Void>>()
         var lk: UnsafePointer<Int8>? = None
+        var cv: UnsafePointer<Int8>? = None
         if w >= 2 {
             // Design 123: this used to leave `lk` None on allocator exhaustion,
             // and a multi-threaded group with no run-queue lock is INERT in the
-            // worst way — `__run_all` guards on the lock and does nothing, so
+            // worst way — every MT path guards on the lock and does nothing, so
             // not one spawned task runs, `Deinit` drops every frame unrun, and
             // `TaskHandle.join` then force-unwraps a result that was never
             // written. The group still reported `workers >= 2` throughout.
-            if let block = GlobalAllocator().alloc(64, 16) {
+            //
+            // Design 225: ONE 128-byte block holds both — the mutex at +0 and
+            // the condition variable at +64 (both conservative 64-byte slots;
+            // see std/mutex.saw). They are one object, so they are one
+            // allocation and one failure.
+            if let block = GlobalAllocator().alloc(128, 16) {
                 __saw_rt_pthread_mutex_init_default(block)
+                __saw_rt_pthread_cond_init_default(block + 64)
                 lk = block
+                cv = block + 64
             } else {
                 panic("TaskGroup(threads:): allocation failed")
             }
         }
-        TaskGroup(tasks: move t, cells: move c, done: move d, remaining: move r, active: move a, gen: move gn, free: move fr, pin: move pn, workers: w, lock: lk, next: 0, registered: false, bt_next: 0, bt_linked: false)
+        TaskGroup(tasks: move t, cells: move c, done: move d, remaining: move r, active: move a, gen: move gn, free: move fr, pin: move pn, frame_desc: move fd, frame_addr: move fa, workers: w, lock: lk, cond: cv, started: false, stopping: false, crew: move cw, next: 0, registered: false, bt_next: 0, bt_linked: false)
     }
 
     // The number of task slots this group currently holds (design 134): live
@@ -444,7 +530,39 @@ extension TaskGroup {
     /// tasks and completed tasks awaiting a join. This value tracks current
     /// concurrency rather than the total number of tasks spawned.
     public func count(&self) -> Int {
-        self.tasks.len() - self.free.len()
+        self.__lock()
+        let n = self.tasks.len() - self.free.len()
+        self.__unlock()
+        n
+    }
+
+    // ------------------------------------------------------------------------
+    // The run-queue lock (design 225). ONE mutex over the whole of a group's
+    // scheduler state; a no-op on the single-threaded engine, which has no lock
+    // to take and no second thread to take it against. Everything that touches
+    // that state goes through one of these — see the file header's locking
+    // discipline for the three entry points and why the claim moves the frame.
+    // ------------------------------------------------------------------------
+
+    func __lock(&self) unsafe {
+        if let lk = self.lock {
+            pthread_mutex_lock(lk)
+        }
+    }
+
+    func __unlock(&self) unsafe {
+        if let lk = self.lock {
+            let _ = pthread_mutex_unlock(lk)
+        }
+    }
+
+    // Wake every parked worker AND any thread waiting for a slot to finish.
+    // Called with the lock HELD, after any change that could make one of them
+    // runnable: a push, a resume's outcome, or the shutdown flag.
+    func __notify(&self) unsafe {
+        if let cv = self.cond {
+            let _ = pthread_cond_broadcast(cv)
+        }
     }
 
     // Enqueue an erased frame together with its result/cancel cell (compiler-
@@ -453,15 +571,43 @@ extension TaskGroup {
     // or the group tears down. Returns the slot index (the `TaskHandle` records it
     // for slot-precise `join`). A single-threaded group registers itself in the
     // ambient scheduler list on first enqueue (design 89) so the shared sweep can
-    // reach its frames; MT groups never register (they run their own worker pool).
+    // reach its frames; an MT group runs its own worker pool instead, and starts
+    // it HERE, at the first spawn (design 225 D-a — a group that never spawns
+    // costs no threads, matching the all-zero-static ethos).
     func __enqueue(&var self, task: Box<any Resumable>, cell: Box<any __TaskCell>) -> Int {
         if self.workers < 2 {
             self.__register()
         }
         // design 158: the diagnostics list takes EVERY group, so a task dump
         // sees MT tasks too. Same address discipline as `__register` — `&self`
-        // here is the group's final storage, and `Deinit` unlinks.
+        // here is the group's final storage, and `Deinit` unlinks. Outside the
+        // run-queue lock because no worker ever touches the `bt_*` fields.
         self.__bt_link()
+        self.__lock()
+        let slot = self.__place(move task, move cell)
+        // A parked worker is woken by this and not by the spawn that follows:
+        // the broadcast happens under the lock the worker parked on, so there
+        // is no window between "the work is visible" and "the wait is over".
+        self.__notify()
+        var start = false
+        if self.workers >= 2 && not self.started {
+            self.started = true
+            start = true
+        }
+        self.__unlock()
+        if start {
+            self.__start_crew()
+        }
+        slot
+    }
+
+    // The slot bookkeeping itself, with the run-queue lock ALREADY HELD.
+    func __place(&var self, task: Box<any Resumable>, cell: Box<any __TaskCell>) unsafe -> Int {
+        // design 225: the dump's view of this frame, read once here — the box
+        // does not move and the frame does not change type, so these two words
+        // stay true until the task completes, whichever thread is running it.
+        let fdesc = task.bt_desc()
+        let faddr = __saw_box_data(&task) as Int
         let t: Box<any Resumable>? = move task
         let c: Box<any __TaskCell>? = move cell
         // design 134: claim a RECLAIMED slot if there is one, else grow. A reused
@@ -480,28 +626,63 @@ extension TaskGroup {
             self.active.push(false)
             self.gen.push(1)     // generation 1: 0 names no task
             self.pin.push(false)
+            self.frame_desc.push(-1)
+            self.frame_addr.push(0)
         }
         self.tasks.set(slot, move t)
         self.cells.set(slot, move c)
         self.done.set(slot, false)
         self.remaining.set(slot, 0)
         self.active.set(slot, false)
+        self.frame_desc.set(slot, fdesc)
+        self.frame_addr.set(slot, faddr)
         slot
     }
 
+    // design 225 D-a: start the pool. Runs OUTSIDE the run-queue lock and on
+    // the owning thread only, exactly once per group — `started` was flipped
+    // under the lock by the enqueue that got here. Each worker gets the group's
+    // ADDRESS as a `Send` Int (the group is `NoMove`, so that address is good
+    // for the group's whole life).
+    func __start_crew(&var self) unsafe {
+        let addr = (&self) as UnsafePointer<TaskGroup> as Int
+        var i = 0
+        while i < self.workers {
+            var t = spawn { __saw_exec_worker(addr) }
+            self.crew.push(move t)
+            i = i + 1
+        }
+    }
+
     // ------------------------------------------------------------------------
-    // The slot-identity trio (design 134). These four — `__gen_at`, `__stale`,
-    // `__recycle`, `__pin` — read and write `gen`/`free`/`pin` WITHOUT the
-    // run-queue lock, unlike the rest of the group's bookkeeping. What makes
-    // that safe is that only a HANDLE reaches them, and a handle cannot leave
-    // the thread that made it: `TaskHandle`/`VoidTaskHandle` hold
-    // `UnsafePointer` fields, which are not `Send`, so a handle can never be
-    // moved into a spawned task. Their one caller on the executor side,
-    // `__saw_exec_should_stop`, runs on the joining thread — and that thread is
-    // blocked inside `__run_all`/`__drain_mt`, which joins every worker before
-    // returning, whenever an MT drain is in flight. So no worker is alive at any
-    // point these run. A future feature that lets a cancel handle cross threads
-    // has to put these under the lock.
+    // The slot-identity trio (design 134), UNDER THE LOCK since design 225.
+    //
+    // These four — `__gen_at`, `__stale`, `__recycle`, `__pin` — read and write
+    // `gen`/`free`/`pin`, and they used to do it with no lock at all. The
+    // argument for that was: only a HANDLE reaches them, a handle cannot leave
+    // the thread that made it (`TaskHandle`/`VoidTaskHandle` hold
+    // `UnsafePointer` fields, which are not `Send`), and whenever an MT drain
+    // was in flight the handle's thread was blocked inside it — so no worker
+    // was alive at any point these ran.
+    //
+    // THAT ARGUMENT IS GONE, and it did not merely weaken: BOTH halves failed.
+    // The pool now outlives every join, so a worker is alive at exactly the
+    // moments a handle is used; and the second writer is not the handle at all
+    // but the WORKER — `__complete` recycles the slot of any `Void` task it
+    // finishes, which advances `gen`, clears `cells` and pushes onto `free`
+    // while the owning thread may be popping `free` in `__place`. A re-derived
+    // lock-free version would have to make a slot's (index, generation) pair
+    // and its free-list membership move atomically together, which is a
+    // CAS-tagged free list — real machinery for no measured benefit, since
+    // every one of these calls is already adjacent to a lock acquisition.
+    //
+    // So they take the lock, and the four bodies below stay exactly as they
+    // were, callable with it HELD. The `_sync` wrappers beside them are the
+    // funnel that takes it, and its entry points are: `TaskHandle.join`,
+    // `.cancel`, `.cancel_addr` and the three `VoidTaskHandle` twins. The two
+    // callers that must NOT take it are `__complete` (a worker calls it holding
+    // the lock already) and `__saw_exec_should_stop`, whose group is always a
+    // single-threaded one — the ambient sweep never walks an MT group.
     // ------------------------------------------------------------------------
 
     // This slot's current generation — half of the (index, generation) pair every
@@ -545,6 +726,60 @@ extension TaskGroup {
         self.pin.set(slot, true)
     }
 
+    // ---- the handle-side funnel (design 225) --------------------------------
+    // The three above, each wrapped in the run-queue lock. Nothing else may
+    // call the raw forms from a handle.
+
+    func __stale_sync(&self, slot: Int, generation: Int) unsafe -> Bool {
+        self.__lock()
+        let s = self.__stale(slot, generation)
+        self.__unlock()
+        s
+    }
+
+    func __recycle_sync(&var self, slot: Int) unsafe {
+        self.__lock()
+        self.__recycle(slot)
+        // A recycle frees a slot the owning thread may reuse and retires a
+        // generation a worker's scan may read, so it is a state change like any
+        // other and the parked workers are told.
+        self.__notify()
+        self.__unlock()
+    }
+
+    func __pin_sync(&var self, slot: Int, generation: Int) unsafe {
+        self.__lock()
+        self.__pin(slot, generation)
+        self.__unlock()
+    }
+
+    // design 225 unit 3's shape, needed here: wait until `slot` is complete (or
+    // its generation has retired, which says the same thing about the task the
+    // caller asked about). The workers broadcast after every resume, so this
+    // sleeps at zero cost and wakes exactly when the answer can have changed.
+    //
+    // The waiter is always the group's OWNING thread — a handle is not `Send`,
+    // so it cannot reach a worker — which is what makes waiting on the
+    // run-queue condition variable safe: no worker is ever inside this.
+    func __await_slot(&var self, slot: Int, generation: Int) unsafe {
+        if let cv = self.cond {
+            if let lk = self.lock {
+                pthread_mutex_lock(lk)
+                var waiting = true
+                while waiting {
+                    if self.__stale(slot, generation) {
+                        waiting = false
+                    } else if self.done.get(slot)! {
+                        waiting = false
+                    } else {
+                        let _ = pthread_cond_wait(cv, lk)
+                    }
+                }
+                let _ = pthread_mutex_unlock(lk)
+            }
+        }
+    }
+
     // design 134: a task reached Done. Mark the slot and RELEASE ITS FRAME BOX
     // right here — the whole allocation, not just the values inside it. That is
     // the reclamation design 124 wanted (its item 3) and could not have: the box
@@ -566,6 +801,9 @@ extension TaskGroup {
         self.remaining.set(slot, 0)
         self.active.set(slot, false)
         self.tasks.set(slot, None)
+        // The frame is gone, so the dump's view of it goes with it (design 225).
+        self.frame_desc.set(slot, -1)
+        self.frame_addr.set(slot, 0)
         let keeps = self.cells.with_ref<Bool>(slot, { c in c!.__carries_result() })
         if not keeps {
             self.__recycle(slot)
@@ -653,53 +891,34 @@ extension TaskGroup {
         self.registered = false
     }
 
-    // Multi-threaded drain entry (design 75). Single-threaded groups no longer
-    // have a per-group executor: they route every drive through the AMBIENT
-    // scheduler (`__saw_exec_run`, below) so siblings across ALL groups interleave.
-    // This method now serves ONLY the MT fork-join drain (workers >= 2), called by
-    // an MT group's `join`/`Deinit`. Idempotent (a fully-drained group is a no-op).
-    func __run_all(&var self) unsafe {
-        if self.workers >= 2 {
-            if let _lk = self.lock {
-                self.__drain_mt()
-            }
-        }
-    }
-
-    // design 75 (A2): the multi-threaded fork-join drain. Spawn `workers` OS
-    // threads (via the 21b engine), each running `__saw_exec_worker` over this group's
-    // SHARED run queue, then join them all — the join is a full barrier, so every
-    // frame's `__result` is visible to the caller afterward. Idempotent: a group
-    // with no live tasks spawns nothing (so a second `join()` or Deinit after a
-    // full drain is a clean no-op). No task is pushed during a drain (enqueue is
-    // main-thread-only and the main thread is blocked here), so the run queue is
-    // size-stable and `tasks` is read-only while the workers run.
-    func __drain_mt(&var self) unsafe {
-        var live = 0
-        var c = 0
-        while c < self.tasks.len() {
-            if not self.done.get(c)! {
-                live = live + 1
-            }
-            c = c + 1
-        }
-        if live == 0 {
+    // design 225: retire the pool, which is what an MT group's `Deinit` does
+    // instead of the design-75 fork-join drain that used to live here.
+    //
+    // This is a STRUCTURED JOIN and not a cancellation: `stopping` says "no more
+    // work is coming", and a worker leaves only when it is set AND the group has
+    // no live task left — so every child still runs to completion, exactly as
+    // the drain guaranteed. The reactor wake is for a worker parked in a long
+    // timer poll: without it, teardown would wait out somebody's `sleep`
+    // deadline before the worker noticed the flag.
+    //
+    // Idempotent, and cheap on a group that never spawned: no pool was started,
+    // so there is nothing to tell and nothing to join.
+    func __shutdown_crew(&var self) unsafe {
+        if not self.started {
             return
         }
-        let addr = (&self) as UnsafePointer<TaskGroup> as Int
-        var handles = Vector<Task<Void>>()
-        var i = 0
-        while i < self.workers {
-            var t = spawn { __saw_exec_worker(addr) }
-            handles.push(move t)
-            i = i + 1
-        }
-        while handles.len() > 0 {
-            if let ht = handles.pop() {
+        self.__lock()
+        self.stopping = true
+        self.__notify()
+        self.__unlock()
+        __saw_exec_reactor_wake()
+        while self.crew.len() > 0 {
+            if let ht = self.crew.pop() {
                 var h = move ht
                 h.join()
             }
         }
+        self.started = false
     }
 }
 
@@ -732,13 +951,22 @@ func __saw_exec_finish_resume(g: UnsafePointer<TaskGroup>, idx: Int, oc: __Resum
     }
 }
 
-// design 75 (A2): one worker thread's body. Reconstruct the group pointer from the
-// address (Send-safe: an Int crosses the `spawn` boundary), then loop claiming and
-// resuming runnable frames until no live task remains. The mutex serializes queue
-// bookkeeping (done/remaining/active); `resume()` runs OUTSIDE the lock, so
-// distinct frames run in parallel while a claimed frame is owned by exactly one
-// worker (D6). Returns `Void` — a `Void` spawn body (design 102 item 1) needs no
-// result slot, so the old dummy-`Int` return is gone.
+// design 75 (A2), rebuilt by design 225: one worker thread's body. Reconstruct
+// the group pointer from the address (Send-safe: an Int crosses the `spawn`
+// boundary), then loop claiming and resuming runnable frames — for the group's
+// whole life, not for the length of one drain.
+//
+// The mutex serializes every touch of the group's scheduler state. A CLAIM MOVES
+// THE FRAME OUT OF ITS SLOT (`swap_out`) so the resume, which runs with the lock
+// released, holds no borrow into a vector the owning thread may grow underneath
+// it — see the file header. The frame goes back into its slot before the outcome
+// is recorded, so a done frame is released by `__complete` exactly as it always
+// was.
+//
+// The exits are the two the pool has: a worker leaves only when the group is
+// `stopping` AND nothing is live (structured join), and it PARKS on the run-queue
+// condition variable whenever the group has nothing at all to run (D-b). Returns
+// `Void` — a `Void` spawn body (design 102 item 1) needs no result slot.
 func __saw_exec_worker(addr: Int) unsafe {
     let g = addr as UnsafePointer<TaskGroup>
     // `g[0]` derefs the shared group through a raw pointer (this free function
@@ -747,6 +975,7 @@ func __saw_exec_worker(addr: Int) unsafe {
     // condition is hoisted to a marked `let` first (the marker prefixes an
     // expression, so it cannot sit under `not`).
     if let lk = g[0].lock {
+      if let cv = g[0].cond {
         var running = true
         while running {
             pthread_mutex_lock(lk)
@@ -780,27 +1009,58 @@ func __saw_exec_worker(addr: Int) unsafe {
                 i = i + 1
             }
             if live == 0 {
-                pthread_mutex_unlock(lk)
-                running = false
+                let stopping = g[0].stopping
+                if stopping {
+                    // Told to stop, and nothing left to finish: this is the only
+                    // way out of the loop, and it is what makes `Deinit` a
+                    // structured join rather than a cancellation.
+                    let _ = pthread_mutex_unlock(lk)
+                    running = false
+                } else {
+                    // IDLE (D-b): park until the owning thread spawns something
+                    // or tears the group down. `pthread_cond_wait` releases the
+                    // lock atomically, so there is no window between deciding to
+                    // wait and waiting; every state change that could end the
+                    // wait broadcasts under this same lock.
+                    let _ = pthread_cond_wait(cv, lk)
+                    let _ = pthread_mutex_unlock(lk)
+                }
             } else {
                 if idx >= 0 {
-                    // Claim frame `idx` (one worker owns it), resume OUTSIDE the lock.
+                    // Claim frame `idx`: mark the slot active and take the frame
+                    // box OUT of it, so the resume below owns the box outright
+                    // (paper 18's D6 confinement) and the run queue is free to
+                    // grow while it runs.
                     g[0].active.set(idx, true)
+                    var frame = g[0].tasks.swap_out(idx, None)
                     let _ = pthread_mutex_unlock(lk)
-                    let oc = g[0].tasks.with_var_ref<__ResumeOutcome>(idx, { f in
-                        match f!.resume() {
-                            case Pending -> __ResumeOutcome(done: false, wake: f!.wake_reason()),
-                            case Done -> __ResumeOutcome(done: true, wake: 0)
-                        }
-                    })
+                    let oc = match frame!.resume() {
+                        case Pending -> __ResumeOutcome(done: false, wake: frame!.wake_reason()),
+                        case Done -> __ResumeOutcome(done: true, wake: 0)
+                    }
                     pthread_mutex_lock(lk)
+                    // Back into its slot BEFORE the outcome is recorded, so the
+                    // Done path's `__complete` releases the box from the one
+                    // place that owns it.
+                    g[0].tasks.set(idx, move frame)
                     __saw_exec_finish_resume(g, idx, oc)
+                    let _ = pthread_cond_broadcast(cv)
                     let _ = pthread_mutex_unlock(lk)
+                    if oc.done {
+                        // A completion is what a joining thread and any parked
+                        // ambient scheduler are waiting for; the condvar covers
+                        // the first and the reactor wake the second.
+                        __saw_exec_reactor_wake()
+                    }
                 } else {
                     if anyactive {
                         // Nothing runnable, but a peer is mid-resume — it may make
-                        // a task ready. Back off briefly and re-scan (no cond var —
-                        // spin+nap keeps the executor free of lost-wakeup bugs).
+                        // a task ready. Back off briefly and re-scan. Deliberately
+                        // NOT the condition variable: the peer's broadcast would
+                        // serve, but a bounded nap also covers the states no
+                        // broadcast reports (a peer parked in a reactor poll), and
+                        // this is the one place where waiting a fixed millisecond
+                        // is cheaper than getting the wake matrix exactly right.
                         let _ = pthread_mutex_unlock(lk)
                         __saw_exec_sleep_ns(BACKOFF_NANOS)
                     } else if anyio {
@@ -816,6 +1076,11 @@ func __saw_exec_worker(addr: Int) unsafe {
                         // caught on the next scan. Advance sleepers only if the poll
                         // TIMED OUT (events == 0). The scan runs UNDER the lock, so
                         // the `with_var_ref` borrow never races a peer worker.
+                        //
+                        // design 225: the queue length is RE-READ after the lock is
+                        // retaken, because the owning thread may have spawned into
+                        // this group while the poll was blocked — the pre-poll `n`
+                        // is a lower bound now, not the length.
                         var tmo = minrem
                         if tmo < 0 {
                             tmo = MT_POLL_CAP_NANOS
@@ -823,8 +1088,9 @@ func __saw_exec_worker(addr: Int) unsafe {
                         let _ = pthread_mutex_unlock(lk)
                         let events = __saw_host_reactor().poll(__saw_exec_poll_ms(tmo))
                         pthread_mutex_lock(lk)
+                        let kn = g[0].tasks.len()
                         var k = 0
-                        while k < n {
+                        while k < kn {
                             let st = __saw_exec_slot_state(g, k)
                             if not st.done {
                                 if st.remaining < 0 {
@@ -848,7 +1114,20 @@ func __saw_exec_worker(addr: Int) unsafe {
                             }
                             k = k + 1
                         }
+                        let _ = pthread_cond_broadcast(cv)
                         let _ = pthread_mutex_unlock(lk)
+                        if events > 0 {
+                            // design 225: this poll consumed events out of a
+                            // reactor several threads share, and the tokens it
+                            // latched may belong to frames on ANOTHER thread —
+                            // the ambient scheduler's, which may be blocked in
+                            // an unbounded poll on the event this one just took.
+                            // The wake is what sends it back round to read its
+                            // own latch. A peer with nothing to find re-parks,
+                            // and does not wake anybody in turn (its own poll
+                            // returns zero events).
+                            __saw_exec_reactor_wake()
+                        }
                     } else {
                         // Every live task is sleeping and none is in flight:
                         // advance the clock by the earliest deadline, then
@@ -871,8 +1150,9 @@ func __saw_exec_worker(addr: Int) unsafe {
                             }
                             pthread_mutex_lock(lk)
                         }
+                        let jn = g[0].tasks.len()   // re-read: see the io branch
                         var j = 0
-                        while j < n {
+                        while j < jn {
                             let st = __saw_exec_slot_state(g, j)
                             if not st.done {
                                 if st.remaining > 0 {
@@ -896,11 +1176,13 @@ func __saw_exec_worker(addr: Int) unsafe {
                             }
                             j = j + 1
                         }
+                        let _ = pthread_cond_broadcast(cv)
                         let _ = pthread_mutex_unlock(lk)
                     }
                 }
             }
         }
+      }
     }
 }
 
@@ -912,8 +1194,10 @@ func __saw_exec_worker(addr: Int) unsafe {
 extension TaskGroup: NoCopy {
     public func deinit(&var self) unsafe {
         if self.workers >= 2 {
-            // MT: fork-join drain over this group's own queue (design 75).
-            self.__run_all()
+            // MT (design 225): tell the pool no more work is coming and join it.
+            // The workers finish every live task first, so this is the design-75
+            // structured join under new management, not a cancellation.
+            self.__shutdown_crew()
         } else {
             // design 89: ST structured join — drive the AMBIENT scheduler until
             // every frame OF THIS GROUP is done (siblings across other groups run
@@ -940,10 +1224,16 @@ extension TaskGroup: NoCopy {
             self.cells.set(s, None)
             s = s + 1
         }
-        // design 75 (A2): release the run-queue mutex (multi-threaded groups only).
+        // design 75 (A2) + 225: release the run-queue mutex AND its condition
+        // variable (multi-threaded groups only) — one 128-byte block, so one
+        // deallocation. Safe here because `__shutdown_crew` above joined every
+        // worker, so nothing is waiting on either.
         if let lk = self.lock {
+            if let cv = self.cond {
+                let _ = pthread_cond_destroy(cv)
+            }
             pthread_mutex_destroy(lk)
-            GlobalAllocator().dealloc(lk, 64, 16)
+            GlobalAllocator().dealloc(lk, 128, 16)
         }
     }
 }
@@ -996,12 +1286,16 @@ extension TaskHandle<T> {
     /// consumes the result and reclaims the task's slot in the group. Calling
     /// `join` more than once causes a panic.
     public func join(&self) unsafe -> T {
-        if self.group_ptr[0].__stale(self.slot, self.generation) {
+        if self.group_ptr[0].__stale_sync(self.slot, self.generation) {
             panic("TaskHandle.join: this task's result was already joined")
         }
         if self.group_ptr[0].workers >= 2 {
-            // MT: fork-join drain over the group's own queue (design 75).
-            self.group_ptr[0].__run_all()
+            // MT (design 225): the pool is already running this task, so a join
+            // WAITS for it rather than driving it — and waits at zero cost, on
+            // the run-queue condition variable a worker broadcasts after every
+            // resume. The workers stay alive afterwards, so a second join into
+            // the same group starts nothing.
+            self.group_ptr[0].__await_slot(self.slot, self.generation)
         } else {
             // design 89: drive the ambient scheduler until THIS frame's slot is
             // done. Reentrancy-safe — if the joining task is itself running on the
@@ -1010,7 +1304,7 @@ extension TaskHandle<T> {
             __saw_exec_run(self.group_ptr as Int, self.slot, self.generation)
         }
         let r = self.result_ptr[0].take()!
-        self.group_ptr[0].__recycle(self.slot)
+        self.group_ptr[0].__recycle_sync(self.slot)
         move r
     }
 
@@ -1025,7 +1319,7 @@ extension TaskHandle<T> {
     /// cancellation-aware wait to return through normal control flow. Cancelling a
     /// task that has already finished is a no-op.
     public func cancel(&self) unsafe {
-        if self.group_ptr[0].__stale(self.slot, self.generation) {
+        if self.group_ptr[0].__stale_sync(self.slot, self.generation) {
             return
         }
         self.cancel_ptr[0] = true
@@ -1052,7 +1346,7 @@ extension TaskHandle<T> {
     /// task's slot and gives up its reuse. A write that lands after the task has
     /// finished is defined and does nothing.
     public func cancel_addr(&self) unsafe -> Int {
-        self.group_ptr[0].__pin(self.slot, self.generation)
+        self.group_ptr[0].__pin_sync(self.slot, self.generation)
         self.cancel_ptr as Int
     }
 }
@@ -1090,11 +1384,11 @@ extension VoidTaskHandle {
     /// Waits until the task is done. Joining one that has already finished
     /// returns immediately.
     public func join(&self) unsafe {
-        if self.group_ptr[0].__stale(self.slot, self.generation) {
+        if self.group_ptr[0].__stale_sync(self.slot, self.generation) {
             return
         }
         if self.group_ptr[0].workers >= 2 {
-            self.group_ptr[0].__run_all()
+            self.group_ptr[0].__await_slot(self.slot, self.generation)
         } else {
             __saw_exec_run(self.group_ptr as Int, self.slot, self.generation)
         }
@@ -1104,7 +1398,7 @@ extension VoidTaskHandle {
     /// reclaimed, this function performs no operation. See `TaskHandle.cancel` for
     /// more information.
     public func cancel(&self) unsafe {
-        if self.group_ptr[0].__stale(self.slot, self.generation) {
+        if self.group_ptr[0].__stale_sync(self.slot, self.generation) {
             return
         }
         self.cancel_ptr[0] = true
@@ -1115,7 +1409,7 @@ extension VoidTaskHandle {
     /// Returns the cancel-flag address and pins the slot, exactly as
     /// `TaskHandle.cancel_addr` does.
     public func cancel_addr(&self) unsafe -> Int {
-        self.group_ptr[0].__pin(self.slot, self.generation)
+        self.group_ptr[0].__pin_sync(self.slot, self.generation)
         self.cancel_ptr as Int
     }
 }
@@ -1753,21 +2047,21 @@ func __bt_emit_stack(tbl: UnsafeConstPointer<UInt8>, index: Int, addr: Int) unsa
 
 // Is this slot holding a task that has not finished?
 //
-// Design 134 clears a completed task's frame box AND retires its slot, so these
-// two conditions together are what keeps a RECYCLED slot from being DECODED:
-// there is no frame at that index any more, and whatever the allocator did with
-// those bytes since is not a coroutine frame.
+// Design 134 clears a completed task's frame box AND retires its slot, so the
+// `done` flag is what keeps a RECYCLED slot from being counted: whatever the
+// allocator did with those bytes since is not a coroutine frame, and a slot that
+// is reused gets `done = false` again at the same moment it gets a frame.
+//
+// Design 225 dropped the second condition, "there is a frame box at that
+// index". A live pool's worker CLAIMS a frame by moving the box out of its slot
+// for the length of the resume, so an absent box now means "running on a worker"
+// as often as it means "gone" — and testing for one would have made every
+// running task vanish from the dump, which is the one state a dump most needs to
+// show (the dumping task is itself in it). What the walk reads instead is the
+// slot's recorded `frame_desc`/`frame_addr`, which the enqueue wrote and the
+// completion clears, and which a claim does not disturb.
 func __bt_slot_live(g: UnsafePointer<TaskGroup>, slot: Int) unsafe -> Bool {
-    if g[0].done.get(slot)! {
-        return false
-    }
-    g[0].tasks.with_ref<Bool>(slot, { t in
-        if let _ = t {
-            true
-        } else {
-            false
-        }
-    })
+    not g[0].done.get(slot)!
 }
 
 // Why this task is not running, in the executor's own vocabulary.
@@ -1854,13 +2148,14 @@ public func __saw_bt_dump() unsafe {
         __bt_emit(" ")
         __bt_emit_status(g, i)
         __bt_emit("\n")
-        // The frame's TYPE comes through the erased vtable (design 158
-        // `Resumable.bt_desc`); its ADDRESS is the box's data word.
-        let index = g[0].tasks.with_ref<Int>(i, { t in t!.bt_desc() })
-        let addr = g[0].tasks.with_ref<Int>(i, { t in
-            __saw_box_data(&t!) as Int
-        })
-        __bt_emit_stack(tbl, index, addr)
+        // The frame's TYPE and ADDRESS, recorded at enqueue (design 225) rather
+        // than read out of the box here: the box may be out of its slot, owned
+        // by whichever worker is resuming it, and a torn read of a two-word box
+        // handle from an unsynchronized walk is a wild pointer.
+        let addr = g[0].frame_addr.get(i)!
+        if addr != 0 {
+            __bt_emit_stack(tbl, g[0].frame_desc.get(i)!, addr)
+        }
     })
 }
 

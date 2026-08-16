@@ -8,7 +8,6 @@
 // The two engines have to compose, because a program that opts one group into
 // threads does not thereby opt out of the cooperative scheduler for the rest.
 //
-// XFAIL: DF-224b an MT group has no worker outside a join/Deinit drain, and an ST-group observer reaches it no better than main does — design 225 unit 2
 // EXPECT: success
 // EXPECT-OUTPUT:
 // consumer got 7
