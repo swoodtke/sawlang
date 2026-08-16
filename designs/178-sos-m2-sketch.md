@@ -763,3 +763,111 @@ overload) are all in place. USER-RULED API SHAPE:
   (wait blocks indefinitely); Timer closes that gap, which is why it
   heads the M3 ladder ahead of IPC (whose select shape needs timeout
   regardless — design 214's standing question).
+
+## M3 device-grant + memory-surface rulings (Aug 16 conversation, user +
+## lead — seed for the M3 sketch; supersedes the M2 grant and narrows the
+## memory notes above)
+
+THE MODEL: a "device" is POLICY IN ROOT, never a kernel type. The kernel
+offers primitives; root's board table (name -> windows + lines, one row
+per arch) and the child manifest (`devices = ["uart"]` — NAMES, so an
+image carries no physical address) decide who gets what. Devices are
+messy (multi-BAR, shared lines, MSI) in ways that are DATA problems in
+root's table and would be MECHANISM problems in a kernel bundle; seL4
+(caps separate, capDL bundles) and Genode (bundles in a userspace
+platform driver) both landed here. A kernel-visible bundle earns itself
+only at delegation (a PCI bus driver granting subsets onward) — not v1.
+
+THE OP SURFACE — three System ops, each behind its own SystemRight:
+
+- `system.bind_iomem(base, len) -> IoMemory` — BIND, not create: an
+  assertion of the right to use an immutable system resource, the same
+  verb and the same shape as the line bind. Checks: page-aligned base
+  and len; inside the board's MMIO ranges (RAM is never bindable this
+  way — a board fact the HAL already owns); NO OVERLAP with an existing
+  binding (`RegionBound`, LineBound's sibling — two writers on one
+  register page is two acks for one fire in memory clothing). Unbind is
+  handle death; the resource is eternal.
+- `system.bind_interrupt(line) -> Interrupt` — MOVES HOME at M3: the
+  line is a fact about the MACHINE, and in the give-model the binding
+  authority was never about the caller's process. `ProcessOp.
+  BindInterrupt` (op 6) and `ProcessRight.BindInterrupt` (bit 8192)
+  RETIRE rather than migrate; the M2 rename carried the verb, the move
+  carries it further. LineBound stays as the kernel backstop.
+- `system.alloc_memory(size, attr) -> Memory` — ALLOC, not bind: RAM is
+  fungible, so this one genuinely creates. `attr` is RW | RO, never X.
+
+STRIPPED-BY-CONSTRUCTION INVARIANT: every SystemRight above — plus
+`Shutdown` (a UART driver that can power off the machine is the same
+category of wrong) — is stripped from every derived System handle. A
+child keeps DebugPrint + SelfProcess. The guarantee rests on exactly two
+things §3 already commits to: attenuation is monotonic, and handles
+never duplicate — so THE FULL-RIGHTS SYSTEM HANDLE EXISTS ONCE, IN
+ROOT, FOREVER, and the whole bind/alloc surface is unreachable from
+everything below root, transitively, by construction.
+
+THE TYPES (names ruled): `Memory`, `IoMemory`, `MemoryMapping` — no
+`Object` suffix (it carried nothing). `IoMemory` has ONE op, `Map`, and
+its mappings carry device attributes BY CONSTRUCTION (nGnRE, PXN|UXN —
+there is nothing to ask for, so nothing to ask for wrongly). §2.3's
+"MemoryObject" prose is superseded by this section at M3.
+
+MAP: into the CALLER's own address space only (v1 — cross-space mapping
+is exactly the machinery the give-model avoids), and THE KERNEL ASSIGNS
+THE ADDRESS (returned, never chosen — already forced by the PMP
+no-translation note above). Returns a `MemoryMapping` with an explicit
+`unmap()`.
+
+DROP SEMANTICS (ruled, and deliberately inverted from RAII):
+
+- Dropping a `Memory`/`IoMemory` handle does NOT unmap — it makes the
+  region UNMAPPABLE from then on. The grant and the mapping have
+  separate lifetimes.
+- Dropping a `MemoryMapping` SEALS it: the mapping persists and can
+  never be unmapped (bounded by the process's life — address-space
+  teardown reclaims everything regardless). Rationale: under
+  DETERMINISTIC destruction, unmap-on-drop turns an accidentally-scoped
+  binding into a use-after-unmap fault at a surprising line; the
+  destructive operation must be explicit-only. Drop-means-sealed makes
+  the leak-shaped mistake SAFE instead of latent.
+
+DERIVED PROPERTY worth its own line: SHARED MEMORY WITHOUT DUPLICATE
+HANDLES. Root allocs, maps, `give`s the Memory handle onward; the child
+maps too. Both mappings persist; at every instant exactly ONE Memory
+handle exists — a token that travels, leaving mappings behind where it
+has been. §3's no-duplicate rule survives shared memory untouched. Do
+not "fix" this later by adding duplication.
+
+HANDLE DELIVERY: `give` is a launch-time kernel op moving a handle into
+the child's table (MOVE, never copy — after it, root cannot ack the
+child's interrupt or touch its registers, which is the isolation working
+in both directions). The child learns WHAT it holds via
+`system.boot_handles(&buffer)` — a copy-out op on the wait()-funnel
+precedent, answering tagged records {kind: Window/Interrupt/Memory,
+ordinal: manifest order, handle}. Names never cross the kernel;
+`_start(boot_handle)` stays one register wide forever. (The
+zero-mechanism alternative — grant order IS manifest order, pure
+convention — was considered and declined: it fails silently on
+disagreement where the record fails checkably.)
+
+NO QUOTA ACCOUNTING (ruled): these objects are defined at build time —
+the config IS the budget, the kernel's fixed slabs ARE the accounting,
+exhaustion is `NoResource`. This also closes the give-charging question
+(no per-process charge exists to move). Accepted trade, stated
+honestly: global slabs mean a buggy child spamming create_event exhausts
+a shared pool — fine for the static trusted-driver class; the spec's
+existing object-model-brief note covers the day that stops being true.
+
+OPEN FLAGS for the scoping session: (a) does a CHILD keep AllocMemory,
+or is it root-only like the binds? (lean: stripped — root allocs and
+gives, which is also what makes the no-quota argument airtight);
+(b) may one Memory map twice in one process? (lean: allow, one
+MemoryMapping each); (c) boot_handles record layout + tag values;
+(d) op/right numbering; (e) spec §5.7's "become real objects in M3"
+line is AMENDED by this ruling (rights-gated ops, boot set stays one
+handle wide) — spec edit owed at M3, not before; (f) the MemoryMapping
+count meets the PMP per-process region cap (candidate 8 above) — over-
+cap map() is a fault per the ratified faults rule; (g) a spec note owed:
+window+line confines the DRIVER, not a DMA-capable DEVICE — bus
+mastering needs an IOMMU, out of scope for the virt boards but said out
+loud.
