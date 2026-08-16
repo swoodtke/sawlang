@@ -160,7 +160,21 @@ public struct SosConfig {
     /// The spec §7 band -> level map, packed one byte per band, low byte first:
     /// background, low, normal, high.
     public prio_map: UInt
+    /// The MMIO window this image asks to be granted, and its size in bytes —
+    /// zero for a program that drives no device, which is every program that is
+    /// not a driver.
+    ///
+    /// PER MACHINE, because a device address is: the same driver source names
+    /// 0x1000_0000 on one board and 0x0900_0000 on another, so the window lives
+    /// in `[sos.<triple>]` beside the linker script rather than in `[sos]`.
+    public device_base: UInt
+    public device_len: UInt
 }
+
+/// What a `device-window` gets when the manifest does not say how big: one page
+/// on both profiles, which is the protection granularity of the coarser of the
+/// two and the smallest grant either can express.
+static DEFAULT_DEVICE_WINDOW_BYTES: UInt = 4096
 
 /// Defaults matching spec §7's initial map: apps cluster at levels 0-1 and
 /// levels 2-7 are headroom for drivers and services.
@@ -248,6 +262,8 @@ struct ToolchainFields {
     mabi: String?
     target_features: String?
     native: String?
+    device_window: String?
+    device_window_size: String?
 }
 
 func read_toolchain_fields(doc: &TomlDoc, index: Int) -> ToolchainFields {
@@ -261,8 +277,33 @@ func toolchain_fields_from(section: &TomlSection) -> ToolchainFields {
         mabi: section.get("mabi"),
         target_features: section.get("target-features"),
         native: section.get("native"),
+        device_window: section.get("device-window"),
+        device_window_size: section.get("device-window-size"),
     )
 }
+
+/// Read an address or a size out of the manifest: `0x`-prefixed hexadecimal, or
+/// plain decimal.
+///
+/// HEX IS ACCEPTED BECAUSE ADDRESSES ARE WRITTEN IN IT, and a manifest that had
+/// to spell 0x0900_0000 as 150994944 would be a manifest nobody could check
+/// against a datasheet. A value that parses as neither is an ERROR naming the
+/// key, never a zero — a silently-zero device window is an image that asks for
+/// a grant at address 0.
+func parse_manifest_word(raw: String, key: String) -> Result<UInt, SosError> {
+    if raw.starts_with("0x") {
+        guard let hex = raw.substring(HEX_PREFIX_LEN, raw.len()).to_uint(radix: 16) else {
+            return SosError(msg: "[sos] {key}: `{raw}` is not a hexadecimal number")
+        }
+        return hex
+    }
+    guard let dec = raw.to_uint() else {
+        return SosError(msg: "[sos] {key}: `{raw}` is not a number")
+    }
+    dec
+}
+
+static HEX_PREFIX_LEN: Int = 2      // "0x"
 
 /// Read the `[sos]` section of `<dir>/Saw.toml`. Returns None when the package
 /// has no `[sos]` section — an ordinary host package, built the ordinary way.
@@ -371,6 +412,23 @@ public func load_sos_config(dir: Path, requested: String = "") -> Result<SosConf
     // gets none. An explicit key always wins.
     let defaults = toolchain_defaults(target)
 
+    // THE DEVICE WINDOW (design 178's finale constraint 1). Absent for every
+    // program that is not a driver, which is why it defaults to nothing rather
+    // than to a size: zero bytes means the image asks for no grant, and the
+    // emitter writes no record.
+    var device_base: UInt = 0
+    var device_len: UInt = 0
+    if let window = toolchain.device_window {
+        device_base = try parse_manifest_word(window, "{section_name}.device-window")
+        let stated = toolchain.device_window_size ?? ""
+        if stated.is_empty() {
+            device_len = DEFAULT_DEVICE_WINDOW_BYTES
+        } else {
+            device_len = try parse_manifest_word(
+                stated, "{section_name}.device-window-size")
+        }
+    }
+
     // Typed local (DF-140d): returning the value directly would have to
     // auto-wrap twice — into the Optional and then into the Result — and that
     // is an internal compiler error.
@@ -382,6 +440,8 @@ public func load_sos_config(dir: Path, requested: String = "") -> Result<SosConf
         linker_script: linker_script,
         native: toolchain.native ?? "",
         prio_map: packed,
+        device_base: device_base,
+        device_len: device_len,
     )
     return found
 }
@@ -787,10 +847,39 @@ public func arch_for_target(target: String) -> Result<SosimgArch, SosError> {
 }
 
 /// Convert a linked ELF image into a sosimg carrying `prio_map`, tagged for
-/// `arch`.
-public func elf_to_sosimg(elf: &Data, prio_map: UInt, arch: SosimgArch) -> Result<Data, SosError> {
+/// `arch`, and asking for `device_len` bytes of MMIO at `device_base`.
+///
+/// A DEVICE WINDOW IS A SEGMENT RECORD WITH NO BYTES, which is what lets the
+/// kernel walk one table and find both kinds. It carries `SegFlag.Device`
+/// beside read and write, a `file_len` of zero, and the window's size as its
+/// `mem_len` — so a loader that ignores the flag would place nothing and grant
+/// a region it cannot reach, and one that reads it installs the window.
+/// `device_len` of zero means the program asked for none and no record is
+/// emitted at all.
+public func elf_to_sosimg(elf: &Data, prio_map: UInt, arch: SosimgArch,
+                          device_base: UInt = 0,
+                          device_len: UInt = 0) -> Result<Data, SosError> {
     let shape = try elf_shape(&elf)
     var segments = try collect_segments(&elf, &shape)
+
+    // LAST, after every loadable segment, so a reader that stops early has
+    // still seen the whole program.
+    if device_len != 0 {
+        segments.push(PlacedSeg(
+            elf_off: 0,
+            record: SosimgSeg(
+                load_addr: device_base as UInt64,
+                file_off: 0u32,
+                file_len: 0u32,
+                mem_len: try narrow(device_len, "device window size"),
+                flags: ((SegFlag.Read as UInt8) | (SegFlag.Write as UInt8)
+                        | (SegFlag.Device as UInt8)),
+                reserved0: 0u8,
+                reserved1: 0u8,
+                reserved2: 0u8,
+            ),
+        ))
+    }
 
     guard let entry_raw = shape.word_at(&elf, shape.entry_off) else {
         return SosError(msg: "truncated ELF header (no entry point)")
@@ -875,7 +964,8 @@ public func elf_to_sosimg(elf: &Data, prio_map: UInt, arch: SosimgArch) -> Resul
 /// Read `elf_path`, convert it, and write the image to `img_path`, tagged for
 /// the profile it was linked for.
 public func write_sosimg(elf_path: Path, img_path: Path, prio_map: UInt,
-                         arch: SosimgArch) -> Result<Int, SosError> {
+                         arch: SosimgArch, device_base: UInt = 0,
+                         device_len: UInt = 0) -> Result<Int, SosError> {
     var f = match File.open(elf_path) {
         case Ok(handle) -> move handle,
         case Err(e) -> { return SosError(msg: "could not open {elf_path.as_str()}: {e}") }
@@ -884,7 +974,7 @@ public func write_sosimg(elf_path: Path, img_path: Path, prio_map: UInt,
         case Ok(bytes) -> move bytes,
         case Err(e) -> { return SosError(msg: "could not read {elf_path.as_str()}: {e}") }
     }
-    let img = try elf_to_sosimg(&elf, prio_map, arch)
+    let img = try elf_to_sosimg(&elf, prio_map, arch, device_base, device_len)
     let size = img.len()
     let out = match File.create(img_path) {
         case Ok(handle) -> move handle,

@@ -54,6 +54,8 @@ import os
 import shutil
 import subprocess
 import sys
+import threading
+import time
 
 REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 SAWC = os.path.join(REPO_ROOT, "sawc", "sawc.py")
@@ -114,6 +116,41 @@ EVENT_WAKE_PKG = os.path.join(TESTS_DIR, "event-wake")
 # rider 4: the one fault in this unit that a SAW process can reach, so the test
 # is written the way a real process would be rather than as a payload.
 EVENT_DUPKEY_PKG = os.path.join(TESTS_DIR, "event-dupkey")
+# design 178 M2 unit 4: the Interrupt object and the milestone's proof. The two
+# echo packages are PER DEVICE rather than per architecture — a driver names its
+# device, and the two profiles have different UARTs — so each case names the
+# architecture it applies to and `_root_packages_for` builds only that one's.
+# The two fault packages are arch-free: both line numbers below mean the same
+# thing on either board.
+UART_ECHO_NS16550_PKG = os.path.join(TESTS_DIR, "uart-echo-ns16550")
+UART_ECHO_PL011_PKG = os.path.join(TESTS_DIR, "uart-echo-pl011")
+IRQ_BADLINE_PKG = os.path.join(TESTS_DIR, "irq-badline")
+IRQ_EARLYACK_PKG = os.path.join(TESTS_DIR, "irq-earlyack")
+
+# What the harness types at the guest's serial port for the echo cases, and what
+# it then expects to read back out of it.
+#
+# FOUR BYTES, NONE OF THEM SPECIAL. They avoid the emulator's own escape
+# character (a control byte) and they are a string that appears nowhere else in
+# any transcript, so finding them in the output means the driver put them there
+# — nothing echoes them on the way in, since the guest's serial input is a pipe
+# rather than a terminal.
+ECHO_INPUT = "Zq7#"
+
+# How long the harness waits before each byte it types.
+#
+# THE DELAY IS THE TEST, not a workaround. Handed the whole string up front, the
+# emulator buffers it before the guest's driver exists and every byte is already
+# waiting by the time the driver looks — which proves the echo and NOT the
+# interrupt path, since a driver that simply polled would pass. Withholding each
+# byte forces the driver to PARK, which leaves the kernel with nothing runnable,
+# which is what makes it wait for a wake from outside the set of runnable
+# threads. So one wake per byte, and the whole ladder is under test.
+#
+# It costs `len(ECHO_INPUT) * this` per echo case, well inside the QEMU timeout,
+# and a slower machine only makes the guest wait longer — which is what it is
+# supposed to do.
+SERIAL_TYPE_DELAY_S = 0.15
 
 QEMU_TIMEOUT_S = 10
 
@@ -741,6 +778,88 @@ TEST_CASES = [
         "expect_clean_exit": False,
         "expect_status": EXIT_PROCESS_FAULT,
     },
+    # --- design 178 M2 unit 4: the Interrupt object + the userspace UART echo -
+    # THE MILESTONE'S PROOF, and it is worth naming what each line of the
+    # transcript rules out. The harness types four bytes AT the guest's serial
+    # port and asserts they come back out of it AFTER the kernel's handover
+    # marker. For that to happen: the image's declared device window was granted
+    # (or the driver's first register read faults), the line was bound and
+    # unmasked (or nothing ever fires), the kernel's idle path noticed an
+    # interrupt with no thread runnable (or the kernel reports a deadlock in
+    # microseconds), the wait answer carried the right key and the line, the
+    # driver reached the receiver through the window, and the ack unmasked so
+    # the next byte could arrive. A missing byte leaves the driver parked and
+    # the case fails on the emulator's timeout rather than quietly.
+    #
+    # TWO CASES, ONE PER DEVICE. A driver names its device, so the two profiles
+    # get two packages, named for the chip; the line number in the last line is
+    # the board's and is asserted because it came back through the WAIT RECORD's
+    # payload rather than from the program's own constant.
+    {
+        "name": "uart_echo_ns16550",
+        "arches": ["riscv32"],
+        "src": os.path.join(KERNEL_DIR, "main.saw"),
+        "root_pkg": UART_ECHO_NS16550_PKG,
+        "stdin": ECHO_INPUT,
+        "expect_out": ["{banner}",
+                       # THREE segments: code, data, and the DEVICE WINDOW the
+                       # manifest declared — which is the grant being carried in
+                       # the image rather than in kernel logic.
+                       "root image ok segments={three}",
+                       "SOS: console handover",
+                       "SOS echo: driver up",
+                       ECHO_INPUT,
+                       "SOS echo: done 4 bytes on line 10"],
+        "expect_clean_exit": True,
+    },
+    {
+        "name": "uart_echo_pl011",
+        "arches": ["arm64"],
+        "src": os.path.join(KERNEL_DIR, "main.saw"),
+        "root_pkg": UART_ECHO_PL011_PKG,
+        "stdin": ECHO_INPUT,
+        "expect_out": ["{banner}",
+                       "root image ok segments={three}",
+                       "SOS: console handover",
+                       "SOS echo: driver up",
+                       ECHO_INPUT,
+                       "SOS echo: done 4 bytes on line 33"],
+        "expect_clean_exit": True,
+    },
+    # The Interrupt object's two caller-checkable refusals. Both are ROOT
+    # SERVERS rather than payloads, for rider 4's reason: a line number and an
+    # ack are ordinary things a Saw driver writes, so no type can catch either
+    # and the check has to be the kernel's — which puts the test at the altitude
+    # a real driver would hit it from. Both line numbers mean the same thing on
+    # either board, so one source serves both profiles.
+    {
+        "name": "irq_bad_line",
+        "src": os.path.join(KERNEL_DIR, "main.saw"),
+        "root_pkg": IRQ_BADLINE_PKG,
+        "expect_out": ["{banner}",
+                       "SOS badline: binding a line this board lacks",
+                       "SOS: process fault: argument outside its domain",
+                       "SOS: process teardown handles={three} threads={one} "
+                       "events={zero} waiters={zero} interrupts={zero}"],
+        "expect_clean_exit": False,
+        "expect_status": EXIT_PROCESS_FAULT,
+    },
+    {
+        "name": "irq_early_ack",
+        "src": os.path.join(KERNEL_DIR, "main.saw"),
+        "root_pkg": IRQ_EARLYACK_PKG,
+        # The teardown counts the Interrupt the process DID bind, and masking
+        # its line is part of the same reclaim — a device the dead process was
+        # driving must not be able to interrupt a kernel with nothing to
+        # deliver it to.
+        "expect_out": ["{banner}",
+                       "SOS earlyack: bound, acking without a fire",
+                       "SOS: process fault: object in the wrong state",
+                       "SOS: process teardown handles={four} threads={one} "
+                       "events={zero} waiters={zero} interrupts={one}"],
+        "expect_clean_exit": False,
+        "expect_status": EXIT_PROCESS_FAULT,
+    },
     {
         # The grant has to hold against a root that is merely WRONG, not just
         # against one that behaves.
@@ -1052,19 +1171,66 @@ def _build_elf(case, arch, shared_objs, lld, clang):
     return elf
 
 
-def _run_qemu(qemu, arch, elf):
+def _run_qemu(qemu, arch, elf, feed=None):
     """Run the ELF under QEMU with a hard timeout.
 
     Returns (exit_status, stdout, timed_out). A timeout is a hang — the whole
     point of the kernel-bug path is that faults never reach it.
+
+    SERIAL INPUT (design 178 M2 unit 4). `-nographic` wires the guest's console
+    UART to this process's stdin and stdout both, so a case with a `stdin` key
+    gets its bytes TYPED AT the guest — which is the only way to test a receive
+    driver, since nothing inside the guest can make its own UART receive.
+
+    The bytes go one at a time behind `SERIAL_TYPE_DELAY_S`, for the reason
+    stated there: withholding them is what makes the driver park and the kernel
+    idle, and a burst handed over at once would test neither.
+
+    THE PIPE IS MADE HERE rather than by `Popen(stdin=PIPE)`, because
+    `communicate()` closes the stdin it owns as soon as it is called — which
+    would shut the port before the first delayed byte and leave the guest
+    waiting forever for input that was never sent. That failure looks exactly
+    like a kernel that cannot wake, which is worth one comment to never debug
+    twice.
+
+    A case with NO input keeps stdin inherited, exactly as before — the pipe is
+    opened only where it is used, so nothing about the other cases changes.
     """
+    cmd = [qemu, *arch["qemu_args"], "-nographic", "-kernel", elf]
+    if feed is None:
+        try:
+            proc = subprocess.run(cmd, capture_output=True, text=True,
+                                  timeout=QEMU_TIMEOUT_S)
+            return proc.returncode, proc.stdout, False
+        except subprocess.TimeoutExpired as e:
+            return None, (e.stdout or (e.stdout and e.stdout.decode()) or ""), True
+
+    read_fd, write_fd = os.pipe()
+    proc = subprocess.Popen(cmd, stdin=read_fd, stdout=subprocess.PIPE,
+                            stderr=subprocess.PIPE, text=True)
+    os.close(read_fd)
+
+    def typist():
+        # Owns the write end for its whole life, including the closing — a
+        # second closer would be racing an fd number this process may already
+        # have reused.
+        try:
+            for ch in feed:
+                time.sleep(SERIAL_TYPE_DELAY_S)
+                os.write(write_fd, ch.encode())
+        except OSError:
+            pass                    # the guest stopped first; nothing to say
+        finally:
+            os.close(write_fd)
+
+    threading.Thread(target=typist, daemon=True).start()
     try:
-        proc = subprocess.run(
-            [qemu, *arch["qemu_args"], "-nographic", "-kernel", elf],
-            capture_output=True, text=True, timeout=QEMU_TIMEOUT_S)
-        return proc.returncode, proc.stdout, False
-    except subprocess.TimeoutExpired as e:
-        return None, (e.stdout or (e.stdout and e.stdout.decode()) or ""), True
+        out, _err = proc.communicate(timeout=QEMU_TIMEOUT_S)
+        return proc.returncode, out, False
+    except subprocess.TimeoutExpired:
+        proc.kill()
+        out, _err = proc.communicate()
+        return None, out, True
 
 
 def _check(case, arch, status, out, timed_out):
@@ -1119,10 +1285,21 @@ def _run_arch(arch, qemu, lld, clang, blade_bin):
               file=sys.stderr)
         return 0, len(TEST_CASES)
 
+    # design 158: a case may name the architectures it applies to. The default
+    # is EVERY architecture and stays that way — an arch list is a claim that
+    # the case is about something arch-specific, or that it is blocked on one,
+    # and each one says which in a comment beside it.
+    cases = [c for c in TEST_CASES
+             if arch["name"] in c.get("arches", (arch["name"],))]
+
     # Root packages are built by Blade, per architecture, so build them first —
-    # but only if some case actually needs one.
+    # but only if some case that RUNS HERE needs one. The arch filter is applied
+    # first because design 178 M2 unit 4 brought the first packages that are
+    # per-DEVICE: a driver names its device, so each echo package has a
+    # `[sos.<triple>]` section for one machine only and building it for the
+    # other is a refusal rather than wasted work.
     root_pkgs = []
-    for case in TEST_CASES:
+    for case in cases:
         if case.get("root_pkg") and case["root_pkg"] not in root_pkgs:
             root_pkgs.append(case["root_pkg"])
     if root_pkgs:
@@ -1131,21 +1308,14 @@ def _run_arch(arch, qemu, lld, clang, blade_bin):
                 image = _build_root_image(blade_bin, pkg, arch, clang)
                 size = os.path.getsize(image)
                 print(f"  {os.path.relpath(image, REPO_ROOT)}  ({size} bytes)")
-            for case in TEST_CASES:
+            for case in cases:
                 if case.get("root_pkg"):
                     holder = case.setdefault("_root_image", {})
                     holder[arch["name"]] = _root_image_path(case["root_pkg"], arch)
         except ToolError as e:
             print(f"{CROSS} failed to build a {arch['name']} root image\n{e}",
                   file=sys.stderr)
-            return 0, len(TEST_CASES)
-
-    # design 158: a case may name the architectures it applies to. The default
-    # is EVERY architecture and stays that way — an arch list is a claim that
-    # the case is about something arch-specific, or that it is blocked on one,
-    # and each one says which in a comment beside it.
-    cases = [c for c in TEST_CASES
-             if arch["name"] in c.get("arches", (arch["name"],))]
+            return 0, len(cases)
     passed = 0
     failed = 0
     for i, case in enumerate(cases, 1):
@@ -1158,7 +1328,7 @@ def _run_arch(arch, qemu, lld, clang, blade_bin):
                 print(f"    {line}")
             failed += 1
             continue
-        status, out, timed_out = _run_qemu(qemu, arch, elf)
+        status, out, timed_out = _run_qemu(qemu, arch, elf, case.get("stdin"))
         ok, reason = _check(case, arch, status, out, timed_out)
         if ok:
             print(f"[{i}/{len(cases)}] {CHECK} {name}")
