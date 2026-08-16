@@ -18,7 +18,7 @@
 // B1
 // A2
 // B2
-// heads 40
+// heads 64
 
 import std.task.*
 import std.channel.{Channel}
@@ -78,10 +78,21 @@ func guardlet_head(ch: Channel<Int?>) -> Int {
     return v
 }
 
-// the `try!` subject
+// the `try!` subject, and its two siblings: all three spellings go through one
+// hoist, so all three are pinned rather than argued from the shared arm
 func try_head(ch: Channel<Result<Int, Boom>>) -> Int {
     let v = try! ch.receive()
     return v
+}
+
+func trycatch_head(ch: Channel<Result<Int, Boom>>) -> Int {
+    let v = try ch.receive() catch { 0 }
+    return v
+}
+
+func tryopt_head(ch: Channel<Result<Int, Boom>>) -> Int {
+    let o = try? ch.receive()
+    return o ?? 0
 }
 
 func main() {
@@ -111,5 +122,17 @@ func main() {
     let r3 = w3.join()
     f3.join()
 
-    print("heads {}", ra + rb + r1 + r2 + r3)
+    let rch2 = Channel<Result<Int, Boom>>()
+    let w4 = g.spawn(trycatch_head(rch2.copy()))
+    let f4 = g.spawn(feed_res(rch2.copy(), mk_res(11)))
+    let r4 = w4.join()
+    f4.join()
+
+    let rch3 = Channel<Result<Int, Boom>>()
+    let w5 = g.spawn(tryopt_head(rch3.copy()))
+    let f5 = g.spawn(feed_res(rch3.copy(), mk_res(13)))
+    let r5 = w5.join()
+    f5.join()
+
+    print("heads {}", ra + rb + r1 + r2 + r3 + r4 + r5)
 }
