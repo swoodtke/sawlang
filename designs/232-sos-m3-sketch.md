@@ -73,14 +73,27 @@ everything ruled this week quietly assumes.
 
 ## Standing pins carried into M3
 
-1. **D2's tripwire FIRES in M3** (recorded in 178's header): "syscall
-   latency bounds interrupt latency — re-examine when any M3 syscall
-   grows a loop." CreateProcess's image copy IS a loop, and so is the
-   arm() copy-in validation. The session must answer whether v1 accepts
-   the latency (bounded by image size, uniprocessor, no hard-RT claim)
-   or M3 takes the preemptibility keystone (IntrSpinLock + interrupts
-   in kernel mode) early. LEAN: accept and DOCUMENT the bound; the
-   keystone stays M4/SMP where it was.
+1. **D2's tripwire FIRES in M3, and the answer is RULED (user, Aug
+   16): M3 TAKES KERNEL INTERRUPTIBILITY EARLY.** "Syscall latency
+   bounds interrupt latency — re-examine when any M3 syscall grows a
+   loop" — CreateProcess's image copy IS a loop, and so is the arm()
+   copy-in validation. Ruling: add interruptibility to (long) kernel
+   operations NOW, while the kernel surface is at its smallest — this
+   is a bug class to iron out early, not one to meet at SMP scale.
+   SMP itself WAITS FOR CHANNELS (meaningful concurrent actions to
+   exercise it with). The MECHANISM is the implementing brief's one
+   big open: (a) explicit PREEMPTION POINTS — interrupts stay masked
+   in kernel mode except at named points inside long loops where no
+   IRQ-shared invariant is in flight; the interrupt is taken,
+   serviced, and the op resumes. No IntrSpinLock needed, because a
+   point IS the assertion that state is consistent — auditable in a
+   kernel this size, and the placement rule ("no in-flight invariant
+   over state the IRQ path touches") is a reviewable sentence per
+   site. (b) full kernel preemption — interrupts unmasked throughout,
+   IntrSpinLock around every IRQ-shared structure. LEAN: (a) for M3;
+   (b) is what SMP forces anyway, and by then the point placements
+   are a map of exactly where the locks must go — the points become
+   documentation for the SMP conversion rather than waste.
 2. **D1 carries**: processes stay integer-only (no FP in userspace).
 3. **One core**; round-robin unchanged. The §7 band map stays a loader
    artifact (agenda item 10 confirms or moves it).
@@ -101,10 +114,16 @@ everything ruled this week quietly assumes.
    waitable_slot arm. Files collide with the finale's wait machinery
    (waitable_slot, WaitPayload) — never parallel with another SOS
    unit touching them.
-2. **CreateProcess** — second address space, image load, teardown
-   generalized (M2's close-all/free-owned per process), the idle/
-   deadlock report generalized to N processes. Child image provenance
-   per agenda item 2.
+1.5. **Kernel interruptibility** (pin 1's ruling) — the mechanism
+   (lean: preemption points), a synthetic long-op + selftest-line
+   proof on both arches, and the placement audit of every existing
+   loop (zero_bytes, the loader's segment walk, the PLIC/GIC reset
+   loops). Lands BEFORE CreateProcess so the image-copy loop is born
+   with its points rather than retrofitted.
+2. **CreateProcess** — second address space, image load (points from
+   unit 1.5 in its copy loop), teardown generalized (M2's close-all/
+   free-owned per process), the idle/deadlock report generalized to N
+   processes. Child image provenance per agenda item 2.
 3. **The launch flow** — `give` (move a handle into a child's table),
    `boot_handles` (tagged copy-out record), `_start(boot_handle)`
    unchanged.
@@ -146,18 +165,32 @@ pattern's third consumer), ELSE first unit of M4. Agenda item 9.
    (the quota is the POLICY cap; the PMP slot count is the PHYSICAL
    one; map() meeting the physical wall with quota headroom is a
    kernel bug to assert against, not a user-visible state).
-9. **Death notifications in M3 or M4** (unit 5.5 proposal above).
-10. **Scheduler**: round-robin survives N processes as-is, or does M3
-    owe the §7 band map? (lean: survives; bands are M4+.)
-11. **D2 tripwire disposition** (pin 1 above: accept-and-document vs
-    early keystone; lean: accept-and-document with a stated bound).
+9. **Death notifications: IN M3 (ruled Aug 16), unit 5.5.** The
+    user's read is right with one sharpening: it is not a new object
+    KIND — the existing Process object becomes the THIRD WAITABLE
+    (waitable_slot's pattern, Waiter.add(process:key:), a
+    WaitTag/WaitPayload.ProcessDeath variant carrying the exit
+    status/fault reason). The parent already holds the child's
+    Process handle from CreateProcess, which is what it attaches.
+    Two small semantics to pin in the brief: death is a TERMINAL
+    LEVEL (stays signaled — a waiter attaching after the death still
+    wakes, matching the level-triggered Waiter contract), and the
+    payload distinguishes clean exit from fault.
+10. **Scheduler: RULED (Aug 16)** — round-robin stays for M3; SMP
+    will require something more, designed when SMP arrives (after
+    channels, per pin 1).
+11. **D2 tripwire: RULED** — see pin 1 (kernel interruptibility in
+    M3, unit 1.5; SMP waits for channels).
 12. **Op/right numbering + §5.7 amendment wording** (178 flags d/e —
     mechanical, may be delegated to the implementing brief).
 
 ## Explicitly out (M4+ candidates)
 
 Channels + ReplyHandle IPC (with select-with-timeout via unit 1's
-Timer); the IOMMU driver + critical processes (round 4's architecture,
-resting on death notifications); priorities/§7 bands; SMP +
-IntrSpinLock; FP in userspace; vDSO true-mapping; program loading
-beyond root's children; big-endian anything.
+Timer); the IOMMU driver + critical processes (round 4's architecture;
+death notifications now land IN M3, so only the driver work remains);
+priorities/§7 bands; SMP + IntrSpinLock — EXPLICITLY SEQUENCED AFTER
+CHANNELS (ruled Aug 16: SMP wants meaningful concurrent actions to
+exercise, and unit 1.5's preemption-point map is its conversion
+guide); FP in userspace; vDSO true-mapping; program loading beyond
+root's children; big-endian anything.
