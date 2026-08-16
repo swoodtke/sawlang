@@ -124,9 +124,49 @@ everything ruled this week quietly assumes.
    unit 1.5 in its copy loop), teardown generalized (M2's close-all/
    free-owned per process), the idle/deadlock report generalized to N
    processes. Child image provenance per agenda item 2.
-3. **The launch flow** — `give` (move a handle into a child's table),
-   `boot_handles` (tagged copy-out record), `_start(boot_handle)`
-   unchanged.
+   **THE LIFECYCLE IS TWO-PHASE, INERT UNTIL STARTED (ruled Aug 16):**
+   `create_process(image: Memory)` populates the address space, RECORDS
+   the image's entry point and initial stack in the process slot (the
+   sosimg declares both — how root itself boots), and returns a
+   Process with NO thread. Root gives handles; then `process.start()`
+   mints and runs the FIRST thread at the recorded entry on the
+   recorded stack — root supplies neither, which is what keeps "root
+   never parses" airtight. The give-before-start ORDERING is the
+   soundness argument: boot_handles must answer completely at the
+   child's first instruction, and the start call IS the barrier that
+   makes a half-populated table unrepresentable, with no
+   synchronization invented. Subsequent threads are the child's own
+   CreateThread with stacks in its own memory, unchanged from M2.
+   A SECOND start() is a FAULT (broken code, the sharpened line).
+   start() with no System handle given is legal-but-doomed — a fully
+   sandboxed compute process is a feature, not an error to detect.
+   (Zircon's process_create/process_start is the precedent, including
+   the bootstrap-handle-at-start convention.)
+3. **The launch flow (shape ruled Aug 16)** — `give(handle, tag:)` on
+   the CHILD's Process handle, gated by the universal Transfer right:
+   MOVES the handle into a fresh child-table slot and RETURNS THE
+   CHILD-SIDE WORD; the tag is the giver's own word handed back unread
+   (the Waiter.add key precedent — the kernel is a courier, never an
+   interpreter; root and child agree on meaning through config +
+   manifest). Root passes the returned System-handle word to
+   `start(boot:)`, and `_start(boot_handle)` receives it in a0
+   unchanged from M2 — ONE register convention, everything else via
+   the record. **DELIVERY IS THE RETRIEVAL OP, NOT A BOOTINFO
+   SECTION**: `self_process()` then `proc.boot_handles(&buffer)`, a
+   copy-out on the wait() funnel answering `{tag, kind, handle}`
+   records. A bootinfo section written into the address space would
+   freeze a struct layout in raw memory as permanent ABI — the exact
+   disease the vDSO discipline exists to prevent (seL4's BootInfo
+   frame is the cautionary precedent; Zircon went message-based for
+   this reason) — where the copy-out record rides sysapi and evolves
+   with the kernel. Three pinned details: the op returns the TOTAL
+   count while filling to capacity (the child sizes its buffer
+   statically from its own manifest and asserts against skew);
+   `give` AFTER start() is REFUSED in v1 (the boot set freezes at
+   start, making boot_handles immutable and idempotent; dynamic
+   transfer is M4 IPC's job, over channels, to a process expecting
+   it); the op lives on Process, not System (the handles are process
+   state).
 4. **Memory/IoMemory/MemoryMapping + map** — the ruled surface;
    SystemRights + stripping; manifest `devices = [names]` over root's
    board table; the M2 loader grant retired (its NAPOT/nGnRE
