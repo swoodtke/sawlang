@@ -1305,19 +1305,21 @@ def _run_arch(arch, qemu, lld, clang, blade_bin):
     dirs = arch_dirs(arch)
     print(f"{BOLD}{arch['name']}{RESET}  ({arch['triple']}, {os.path.basename(qemu)} `virt`)")
 
+    # design 158: a case may name the architectures it applies to. The default
+    # is EVERY architecture and stays that way — an arch list is a claim that
+    # the case is about something arch-specific, or that it is blocked on one,
+    # and each one says which in a comment beside it. It is decided FIRST, so
+    # every "this whole architecture failed" count below is the number of cases
+    # that would have run here.
+    cases = [c for c in TEST_CASES
+             if arch["name"] in c.get("arches", (arch["name"],))]
+
     try:
         shared_objs = _build_shared(arch, clang)
     except ToolError as e:
         print(f"{CROSS} failed to build the {arch['name']} kernel HAL / runtime support\n{e}",
               file=sys.stderr)
-        return 0, len(TEST_CASES)
-
-    # design 158: a case may name the architectures it applies to. The default
-    # is EVERY architecture and stays that way — an arch list is a claim that
-    # the case is about something arch-specific, or that it is blocked on one,
-    # and each one says which in a comment beside it.
-    cases = [c for c in TEST_CASES
-             if arch["name"] in c.get("arches", (arch["name"],))]
+        return 0, len(cases)
 
     # Root packages are built by Blade, per architecture, so build them first —
     # but only if some case that RUNS HERE needs one. The arch filter is applied
