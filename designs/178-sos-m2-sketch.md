@@ -293,3 +293,28 @@ after unit 1's DF-178b work:
   (b) the documented per-process mapping cap (candidate 8), with
   over-cap map() a FAULT per the ratified faults rule
   (caller-checkable against a documented cap).
+
+## FINALE UNIT CONSTRAINTS (ruled in conversation, user, Aug 16 — the
+## Interrupt + userspace-UART-echo dispatch folds these in)
+
+1. **The UART MMIO grant is a STATIC BOOT-TIME DEVICE GRANT** — M1's
+   grant machinery extended by one declarative device window (named in
+   the root's image/boot config, not hardcoded in kernel logic), and
+   explicitly marked as the placeholder M3's Mapping retires (device
+   memory then = a MemoryObject with device attributes; this grant is
+   its migration case).
+2. **riscv32**: one PAGE-ALIGNED NAPOT PMP entry over the UART page
+   (virt NS16550, 0x1000_0000) — the DF-178b lesson applies literally
+   (a byte-tight device grant puts every register access on QEMU's
+   slow path).
+3. **arm64**: the EL0 mapping carries DEVICE memory attributes (nGnRE),
+   never Normal-cacheable — a cacheable PL011 mapping is a correctness
+   bug — plus device-memory access-size discipline (32-bit registers).
+4. **UART ownership handover protocol**: both machines have ONE console
+   UART and the kernel currently owns it (debug_print board sink).
+   After boot handover the kernel goes QUIET on the device — root
+   drives it — and the kernel reclaims only on panic, where
+   interleaving is acceptable because the test already failed. State
+   the protocol in the unit; unstated it is a flaky-test mystery.
+5. The Interrupt object consumes unit 3's copy-out funnel with its own
+   WaitPayload variant, per the wait() redesign.
