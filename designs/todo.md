@@ -52,7 +52,9 @@ Brief unauthored — author after 230 integrates.
 ## DF-229a — a selective import of a name a USER module does not have is
 ## silently accepted (filed Aug 16, design 229 implementation)
 
-**OPEN.** `import m.{NoSuchThing}` on a user module compiles clean — no
+**DISPATCHED (Aug 16, worktree agent, user-approved as an easy win;
+concurrent with 230 + DF-225m — disjoint files).** `import
+m.{NoSuchThing}` on a user module compiles clean — no
 error, no warning, and the name simply never binds, so the failure surfaces
 later (or not at all, if nothing uses it). std has had the diagnostic since
 design 150 (```error: `OpenMode` is not defined in `std.file`, hint:
