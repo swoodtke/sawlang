@@ -32,13 +32,33 @@ requires running code, and nothing can run — the eager-per-channel
 undecidability worry does not apply to the quiescent state. The report
 prints `dump_tasks()` (design 158) so the parked-on-what is visible.
 
-## Unit C — disconnection semantics (THE OPEN DECISION)
+## Unit C — disconnection semantics via EXPLICIT close() (user-corrected)
 
-Channel handles are Copy; live-sender counting is refcounting the runtime
-already does. Sender count → 0 means NO send can ever occur — the honest
-response is waking receivers with a CLOSED outcome (the Rust
-Disconnected / Go closed-channel model), converting a deadlock class
-into handleable errors. **RULED (user, Aug 16): `receive() -> Result<T, ChannelError>`** — closed
+**The refcount model does not work here and the user caught why: Saw's
+channels are UNIFIED Copy handles — no Sender/Receiver role split — so
+"sender count" is not a countable thing, and a waiting receiver's own
+handle keeps the count nonzero forever.** (The Rust disconnection model
+silently assumes Rust's split-role handles.) The mechanism is therefore
+the Go pairing: unified handles + EXPLICIT `close()`:
+
+- `close()` callable by ANY holder (typically the producer side, by
+  convention); sets the shared closed flag; IDEMPOTENT via the same
+  Result surface (a second close returns Err(Closed), no panic).
+- Close WAKES every parked receiver (and any parked sender, if the
+  channel is or becomes bounded).
+- Receive-after-close DRAINS buffered messages first, then Err(Closed)
+  (the Go drain-then-closed rule — pin it; losing buffered messages on
+  close is the classic mistake).
+- Send-after-close → Err(Closed).
+- NO automatic close on last-handle deinit (roles are uncountable —
+  the whole point); the forgot-to-close deadlock is exactly what UNIT
+  B's quiescent report catches. The layering is deliberate: close() is
+  the cooperative path, unit B the backstop.
+- Recorded as future work, not this brief: a split Sender<T>/Receiver<T>
+  surface (which would make disconnection automatic again) — a std
+  surface redesign to weigh on its own merits someday.
+
+The ruling converts a deadlock class into handleable errors. **RULED (user, Aug 16): `receive() -> Result<T, ChannelError>`** — closed
 is a legitimate error, and the error type is an EXTENSIBLE enum because a
 future receive TIMEOUT is another legitimate case (`ChannelError` starts
 with `Closed`; `TimedOut` is the reserved next case — this is also the
