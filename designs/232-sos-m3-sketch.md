@@ -167,14 +167,30 @@ everything ruled this week quietly assumes.
    disease the vDSO discipline exists to prevent (seL4's BootInfo
    frame is the cautionary precedent; Zircon went message-based for
    this reason) — where the copy-out record rides sysapi and evolves
-   with the kernel. Three pinned details: the op returns the TOTAL
-   count while filling to capacity (the child sizes its buffer
-   statically from its own manifest and asserts against skew);
-   `give` AFTER start() is REFUSED in v1 (the boot set freezes at
-   start, making boot_handles immutable and idempotent; dynamic
-   transfer is M4 IPC's job, over channels, to a process expecting
-   it); the op lives on Process, not System (the handles are process
-   state).
+   with the kernel. **boot_handles IS ONE-SHOT (user amendment, Aug
+   16): the record is a MESSAGE, received once, not a queryable
+   table.** The words in it are launch-time truth — once the child
+   drops or (M4) gives a handle onward, a re-answer would hand back
+   words naming dead or reused slots, repeating something that
+   stopped being true. The first successful call CONSUMES the record
+   (the kernel may reclaim the give-tag bookkeeping — it tracked the
+   tags for DELIVERY, not as a registry; ownership of the
+   bookkeeping transfers to the child with the read); a SECOND call
+   FAULTS (the child knows it already read — broken code). This is
+   Zircon's processargs shape exactly: a one-shot message off the
+   bootstrap channel, with the copy-out funnel standing in for the
+   channel receive. Pinned details: on success the op returns the
+   TOTAL count (the child, sized statically from its own manifest,
+   asserts count == expected); an INSUFFICIENT buffer FAULTS rather
+   than consuming-and-truncating — a mismatch is a stale child build
+   or a root misconfiguration, both broken-configuration cases that
+   deserve loud, and a driver that cannot receive its handles is
+   doomed regardless (flagged alternative: a too-small call answers
+   the needed count WITHOUT consuming, a sizing probe — take it only
+   if grace beats loudness here); `give` AFTER start() is REFUSED in
+   v1 (the boot set freezes at start; dynamic transfer is M4 IPC's
+   job, over channels, to a process expecting it); the op lives on
+   Process, not System (the handles are process state).
 4. **Memory/IoMemory/MemoryMapping + map** — the ruled surface;
    SystemRights + stripping; manifest `devices = [names]` over root's
    board table; the M2 loader grant retired (its NAPOT/nGnRE
