@@ -26,6 +26,29 @@ lifted from 178's seed flags. The Aug-16 seed rounds in designs/178
 are RULINGS the session does not reopen. Unit 0 = the deferred M2
 spec-recap (§11), dispatchable separately. [178, 232]
 
+## `while let` — QUEUED design candidate (user-approved Aug 16), BEHIND 230
+
+Ruled worth building in conversation (user + lead, Aug 16): the
+design-62 exclusion ("`while let` does not exist in the grammar",
+LANGUAGE_SPEC ~5812) predates any recurring consumer, and there are
+now two — the M3 boot drain loop every SOS process opens with
+(`next_boot_handle() -> BootHandleRecord?`, designs/232) and the
+Optional-yielding drain family generally (`Vector.pop`,
+`Channel.try_receive`, `Optional.take`; `for`-in over `iter()` is
+already the compiler-blessed version of this loop). Implementation is
+a THIN DELTA now: design 224 made the `while` condition a
+per-iteration suspension position and `if let`/`guard let` scrutinees
+already hoist suspending calls — `while let` composes from both.
+Scope sketch (from the conversation): binding rules are exactly
+`if let`'s, looped; scrutinee re-evaluates per iteration; suspending
+scrutinee joins 224's position matrix (obligation 1); value-position
+`while let` refused v1; Result sources compose via
+`while let x = try? f()`. The interim blessed spelling is
+conditionless `while { guard let r = ... else { break } ... }`
+(probe-verified). SEQUENCED BEHIND 230: channel receive's
+Result shape should be settled before the sugar's scope is pinned.
+Brief unauthored — author after 230 integrates.
+
 ## DF-229a — a selective import of a name a USER module does not have is
 ## silently accepted (filed Aug 16, design 229 implementation)
 
