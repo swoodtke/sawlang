@@ -1,0 +1,97 @@
+// design 225 unit 1 — the reactor's cross-thread wake, tested at the seam
+//
+// A plain OS thread must be able to rouse a parked reactor, and the wake must
+// reach EVERY thread parked in it, not one. That is what a live worker pool
+// needs: several threads poll ONE process-global reactor at once, and a wake
+// that stops at the first of them leaves the rest — including the thread
+// running the ambient cooperative scheduler on an unbounded poll — asleep on an
+// event that has already been consumed.
+//
+// This is a WHITE-BOX test of the `__saw_rt_reactor_*` seam (the executor's own
+// wrapper is `__saw_exec_reactor_wake`), because the property is about the
+// reactor and nothing above it. Three `spawn {}` threads park; main — which
+// never suspends, so it never touches the reactor itself — fires exactly ONE
+// wake and counts how many polls returned.
+//
+// Before this landed, the answer was one, and then zero forever: the wake pipe
+// was armed EV_ADD|EV_ONESHOT inside each poll, so the concurrent pollers
+// shared one knote, the first delivery deleted it, and every later wake reached
+// nobody at all.
+//
+// EXPECT: success
+// EXPECT-OUTPUT:
+// parked 3
+// one wake released 3
+// a wake with nobody parked is not lost: true
+
+import std.mutex.*
+import std.time.{Instant}
+
+extern "C" {
+    func __saw_rt_reactor_create() -> Int
+    func __saw_rt_reactor_poll(r: Int, timeout_ms: Int) -> Int
+    func __saw_rt_reactor_wake(r: Int)
+    func __saw_rt_sleep_ns(ns: UInt64)
+}
+
+static WAIT_MS: UInt64 = 5000
+static SETTLE_NS: UInt64 = 50000000
+
+// Announce arrival, park until woken, then announce departure. Both counters
+// are plain `Arc<Mutex<Int>>` — the sanctioned cross-thread share.
+func parker(r: Int, entered: Arc<Mutex<Int>>, left: Arc<Mutex<Int>>) {
+    let _ = entered.lock({ &var c in
+        c = c + 1
+        c
+    })
+    let _ = __saw_rt_reactor_poll(r, -1)
+    let _ = left.lock({ &var c in
+        c = c + 1
+        c
+    })
+}
+
+// Spin on a shared counter until it reaches `want`, or the deadline passes.
+// `main` here is deliberately NON-suspending (no `sleep`, no task), so that the
+// only reactor users in the program are the three parkers and the one poll at
+// the end — nothing of the executor is in the way of what is being measured.
+func await_count(counter: Arc<Mutex<Int>>, want: Int) -> Int {
+    let start = Instant.now()
+    var seen = counter.lock({ &var c in c })
+    while seen < want && start.elapsed().as_millis() < WAIT_MS {
+        __saw_rt_sleep_ns(SETTLE_NS)
+        seen = counter.lock({ &var c in c })
+    }
+    seen
+}
+
+func main() {
+    let r = __saw_rt_reactor_create()
+    let entered = Arc<Mutex<Int>>(value: Mutex<Int>(value: 0))
+    let left = Arc<Mutex<Int>>(value: Mutex<Int>(value: 0))
+
+    var a = spawn { parker(r, entered.copy(), left.copy()) }
+    var b = spawn { parker(r, entered.copy(), left.copy()) }
+    var c = spawn { parker(r, entered.copy(), left.copy()) }
+
+    print("parked {}", await_count(entered.copy(), 3))
+    // Let the three actually reach `kevent`. Landing the wake early would still
+    // be correct (the trigger stays pending), but then the test would not be
+    // measuring the broadcast it claims to measure.
+    __saw_rt_sleep_ns(SETTLE_NS)
+
+    __saw_rt_reactor_wake(r)
+    print("one wake released {}", await_count(left.copy(), 3))
+
+    a.join()
+    b.join()
+    c.join()
+
+    // The second property: a wake fired with NOTHING parked is not lost. The
+    // poll that follows must return on the pending trigger rather than sit out
+    // its whole timeout, which is what design 102's cancel path depends on.
+    __saw_rt_reactor_wake(r)
+    let before = Instant.now()
+    let _ = __saw_rt_reactor_poll(r, 2000)
+    print("a wake with nobody parked is not lost: {}", before.elapsed().as_millis() < 2000u64)
+}

@@ -1,43 +1,66 @@
-// The IO reactor (designs 76 / 91 / 102 / 117) — macOS (kqueue), authored in Saw.
+// The IO reactor (designs 76 / 91 / 102 / 117 / 225) — macOS (kqueue), authored in Saw.
 //
 // design 117: the reactor is an INSTANCE created through the ABI, not a process
 // global inside the runtime. `__saw_rt_reactor_create` allocates a Reactor
-// owning its kqueue fd + a nonblocking self-wake pipe; register/poll/wake/destroy
-// take the instance. The process-global singleton is now EXECUTOR policy (a
-// compiler-synthesized lazy getter), not runtime state — which is what dissolves
-// the DF-113d blocker: the poll event buffer is no longer a per-call STACK array
+// owning its kqueue fd + its wake source; register/poll/wake/destroy take the
+// instance. The process-global singleton is now EXECUTOR policy (the Saw
+// `__saw_host_reactor()`), not runtime state — which is what dissolves the
+// DF-113d blocker: the poll event buffer is no longer a per-call STACK array
 // Saw cannot express; each poll heap-allocates its own buffer (malloc/free), so
 // concurrent polls (MT groups) stay independent exactly as the pre-117 per-call
 // stack buffers were — no shared buffer, no poll mutex.
 //
-// The design-91 token contract, one-shot rearm, and the design-102 self-wake pipe
-// are preserved byte-for-byte from the pre-117 synthesized reactor.
+// The design-91 token contract and the one-shot rearm are preserved
+// byte-for-byte from the pre-117 synthesized reactor.
+//
+// design 225 unit 1 — THE WAKE IS A BROADCAST NOW, and it is EVFILT_USER
+// rather than a self-pipe. The seam (`__saw_rt_reactor_wake(r)`) is unchanged;
+// what changed is what it guarantees, because a live worker pool makes several
+// threads poll ONE reactor at once and the pipe could not serve them:
+//
+//   * The pipe read end was armed EV_ADD|EV_ONESHOT INSIDE each poll, so all
+//     concurrent pollers shared one knote. The first wake deleted it on
+//     delivery, and every LATER wake then reached NOBODY — the remaining
+//     pollers were blocked in `kevent` with no wake registration at all.
+//     Measured Aug 16 on three parked threads: one wake woke one, and the
+//     second and third wakes woke none.
+//   * EVFILT_USER is armed ONCE at create with EV_CLEAR and never deleted, so
+//     a blocked poller's registration cannot be consumed out from under it and
+//     every wake reaches somebody.
+//   * Reaching EVERYBODY is the CASCADE: the instance counts the threads
+//     currently blocked in `kevent`, and a poller that consumed a wake
+//     re-triggers it while any peer is still blocked. Each re-trigger releases
+//     exactly one more, and the chain ends when the last one out sees a zero
+//     count — so a wake costs one trigger per blocked poller and never spins.
+//     A re-trigger that races a poller re-entering is a spurious wake, which
+//     the scheduler answers by re-scanning and re-parking.
+//
+// Two properties the pipe had and this keeps: a wake with NO poller blocked is
+// not lost (EV_CLEAR leaves the trigger pending until the next `kevent`
+// delivers it once), and a consumed wake does not busy-fire (EV_CLEAR resets
+// the state as it delivers).
 
 extern "C" {
     func kqueue() -> Int32
     func kevent(kq: Int32, changelist: UnsafePointer<Int8>, nchanges: Int32, eventlist: UnsafePointer<Int8>, nevents: Int32, timeout: UnsafePointer<Int8>) -> Int32
-    func pipe(fds: UnsafePointer<Int8>) -> Int32
-    func read(fd: Int32, buf: UnsafePointer<Int8>, count: Int) -> Int
-    func write(fd: Int32, buf: UnsafePointer<Int8>, count: Int) -> Int
     func close(fd: Int32) -> Int32
+    func calloc(count: Int, size: Int) -> UnsafePointer<Int8>
     func malloc(size: Int) -> UnsafePointer<Int8>
     func free(ptr: UnsafePointer<Int8>)
-    // The nonblocking-socket seam (shim.c — DF-113c, variadic fcntl).
-    func __saw_rt_set_nonblocking(fd: Int) -> Int
 }
 
-// The reactor instance: kqueue fd + the self-wake pipe (design 102 item 2).
+// The reactor instance: the kqueue fd, plus the count of threads currently
+// blocked in `kevent` on it (the cascade's fuel — see the header). `calloc` is
+// what makes the counter start at zero: an all-zero `Atomic<Int>` IS
+// `Atomic(0)`, so there is no construction to write into raw storage.
 struct Reactor {
     fd: Int
-    wake_r: Int
-    wake_w: Int
+    waiters: Atomic<Int>
 }
 
-// pipe() writes fds[0]=read, fds[1]=write into two adjacent Int32s.
-struct PipeFds {
-    r: Int32
-    w: Int32
-}
+// `Atomic` is NoCopy (design 202), so the struct holding one states its policy.
+// A Reactor is only ever reached through its instance pointer anyway.
+extension Reactor: NoCopy {}
 
 // struct kevent { uintptr ident; i16 filter; u16 flags; u32 fflags; intptr data;
 //                 void* udata; } — 32 bytes, natural ABI (design 58 layout).
@@ -60,20 +83,26 @@ struct TimeSpec {
 static EV_ADD_ONESHOT: UInt16 = 0x0011
 // EV_DELETE (0x0002) — drop an armed registration that never fired (DF-134a).
 static EV_DELETE: UInt16 = 0x0002
+// EV_ADD (0x0001) | EV_CLEAR (0x0020) — the wake event's permanent arm.
+static EV_ADD_CLEAR: UInt16 = 0x0021
+// EVFILT_USER, and the fflag that fires an armed one.
+static EVFILT_USER: Int16 = -10
+static NOTE_TRIGGER: UInt32 = 0x01000000
+// The wake event's ident. Idents are keyed per FILTER, so this cannot collide
+// with a file descriptor watched under EVFILT_READ/EVFILT_WRITE.
+static WAKE_IDENT: Int = 1
 static POLL_EVENTS: Int = 64
 
 @export("__saw_rt_reactor_create")
 func rt_reactor_create() unsafe -> Int {
     let kfd = kqueue()
-    var fds = PipeFds(r: 0 as Int32, w: 0 as Int32)
-    pipe((&fds) as UnsafePointer<Int8>)
-    let _ = __saw_rt_set_nonblocking(fds.r as Int)
-    let _ = __saw_rt_set_nonblocking(fds.w as Int)
-    let raw = malloc(sizeof<Reactor>())
+    let raw = calloc(1, sizeof<Reactor>())
     let rp = raw as UnsafePointer<Reactor>
     rp[0].fd = kfd as Int
-    rp[0].wake_r = fds.r as Int
-    rp[0].wake_w = fds.w as Int
+    // Arm the wake event ONCE, for the instance's whole life (see the header).
+    var kev = KEvent(ident: WAKE_IDENT, filter: EVFILT_USER, flags: EV_ADD_CLEAR, fflags: 0 as UInt32, data: 0, udata: 0)
+    let nullp = 0 as UnsafePointer<Int8>
+    kevent(kfd as Int32, (&kev) as UnsafePointer<Int8>, 1, nullp, 0, nullp)
     raw as Int
 }
 
@@ -113,25 +142,38 @@ func rt_reactor_unregister(r: Int, fd: Int, w: Int) unsafe {
     kevent(kfd as Int32, (&kev) as UnsafePointer<Int8>, 1, nullp, 0, nullp)
 }
 
+// Fire the wake event. Factored out because the CASCADE fires it from inside
+// `poll` as well as `wake` firing it from another thread.
+func rt_reactor_trigger(kfd: Int) unsafe {
+    var kev = KEvent(ident: WAKE_IDENT, filter: EVFILT_USER, flags: 0 as UInt16, fflags: NOTE_TRIGGER, data: 0, udata: 0)
+    let nullp = 0 as UnsafePointer<Int8>
+    kevent(kfd as Int32, (&kev) as UnsafePointer<Int8>, 1, nullp, 0, nullp)
+}
+
 // Block in kevent up to `timeout_ms` (< 0 = forever); latch each ready event's
-// udata token word to 0 (ready) — precise per-frame wake (design 91) — then drain
-// the self-wake pipe. Returns the ready-event count. A per-call heap event buffer
-// keeps concurrent polls independent (design 117).
+// udata token word to 0 (ready) — precise per-frame wake (design 91) — and pass
+// a consumed wake on to the next blocked poller (design 225 unit 1). Returns
+// the ready-event count. A per-call heap event buffer keeps concurrent polls
+// independent (design 117).
 @export("__saw_rt_reactor_poll")
 func rt_reactor_poll(r: Int, timeout_ms: Int) unsafe -> Int {
     let rp = r as UnsafePointer<Reactor>
     let kfd = rp[0].fd
-    let wr = rp[0].wake_r
-    // Register the self-wake pipe read end one-shot (token 0 -> latch loop skips
-    // it, no frame falsely woken) so a `wake()` byte returns this poll promptly.
-    rt_reactor_register(r, wr, 0, 0)
     let buf = malloc(POLL_EVENTS * sizeof<KEvent>())
     var ts = TimeSpec(sec: timeout_ms / 1000, nsec: (timeout_ms % 1000) * 1000000)
     let tsp = if timeout_ms < 0 { 0 as UnsafePointer<Int8> } else { (&ts) as UnsafePointer<Int8> }
+    // Counted around the BLOCKING call only, so a peer's cascade decision sees
+    // exactly the threads that are actually parked.
+    let _ = rp[0].waiters.fetch_add(1)
     let n = kevent(kfd as Int32, 0 as UnsafePointer<Int8>, 0, buf, POLL_EVENTS as Int32, tsp)
+    let _ = rp[0].waiters.fetch_add(-1)
     let evs = buf as UnsafePointer<KEvent>
+    var woke = false
     var i = 0
     while i < (n as Int) {
+        if evs[i].filter == EVFILT_USER {
+            woke = true
+        }
         let ud = evs[i].udata
         if ud != 0 {
             let tokptr = ud as UnsafePointer<Int>
@@ -139,34 +181,29 @@ func rt_reactor_poll(r: Int, timeout_ms: Int) unsafe -> Int {
         }
         i = i + 1
     }
-    // Drain the self-wake pipe (nonblocking) so a level of readiness doesn't
-    // busy-fire the next poll. Reuse `buf` as the drain scratch, then free it.
-    var draining = true
-    while draining {
-        let rn = read(wr as Int32, buf, 64)
-        if rn <= 0 {
-            draining = false
+    free(buf)
+    // The cascade. This thread has already left the count, so a positive
+    // reading is a peer still blocked, and the re-trigger releases exactly one
+    // of them — which repeats until the last one out reads zero.
+    if woke {
+        if rp[0].waiters.load() > 0 {
+            rt_reactor_trigger(kfd)
         }
     }
-    free(buf)
     n as Int
 }
 
-// design 102 item 2: rouse a blocked poll by writing one byte to the self-wake
-// pipe write end.
+// design 102 item 2 / design 225 unit 1: rouse EVERY blocked poll. Callable
+// from any thread, including one the executor knows nothing about.
 @export("__saw_rt_reactor_wake")
 func rt_reactor_wake(r: Int) unsafe {
     let rp = r as UnsafePointer<Reactor>
-    let ww = rp[0].wake_w
-    var byte: Int8 = 1
-    write(ww as Int32, (&byte) as UnsafePointer<Int8>, 1)
+    rt_reactor_trigger(rp[0].fd)
 }
 
 @export("__saw_rt_reactor_destroy")
 func rt_reactor_destroy(r: Int) unsafe {
     let rp = r as UnsafePointer<Reactor>
     close(rp[0].fd as Int32)
-    close(rp[0].wake_r as Int32)
-    close(rp[0].wake_w as Int32)
     free(r as UnsafePointer<Int8>)
 }

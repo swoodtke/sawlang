@@ -115,7 +115,7 @@ into a short nap (DF-170a).
 Not interruptible: it returns when the span has elapsed and nothing can cut it
 short. The executor therefore parks in the reactor, not here, whenever it may
 need to abandon the wait — `__saw_rt_reactor_poll` takes the same deadline as
-its timeout and the design-102 self-wake pipe can rouse it. This seam is the
+its timeout and `__saw_rt_reactor_wake` can rouse it. This seam is the
 no-reactor fallback and the body behind a `sleep` reached outside any executor.
 
 ### `__saw_rt_clock_monotonic_nanos() -> Int64`
@@ -499,7 +499,7 @@ Restore the default budget (a genuine park already ceded).
 
 v2 makes the reactor an opaque INSTANCE created through the ABI, not process-global
 seam state. `__saw_rt_reactor_create()` allocates an instance owning its
-kqueue/epoll fd AND its self-wake pipe; register/poll/wake/destroy take the
+kqueue/epoll fd AND its wake source; register/poll/wake/destroy take the
 instance. This dissolves DF-113d (the poll event buffer was a per-call MT-safe
 STACK array Saw could not express): the reactor now lives in Saw
 (`rt/host_macos/reactor.saw` kqueue, `rt/host_linux/reactor.saw` epoll) and each
@@ -519,13 +519,28 @@ compiler-injected instance. (Through design 117 this was the compiler-synthesize
 TaskGroups poll from several worker threads concurrently. v1's poll used a
 per-call STACK event buffer, so concurrent polls were independent. v2 preserves
 this EXACTLY with a per-call HEAP event buffer (`malloc`/`free` inside `poll`) —
-no shared buffer, no poll mutex. The design-91 token contract, one-shot rearm, and
-the design-102 self-wake pipe are byte-identical to v1 (the net suite is the
-regression harness).
+no shared buffer, no poll mutex. The design-91 token contract and the one-shot
+rearm are byte-identical to v1 (the net suite is the regression harness).
+
+**The wake is a BROADCAST (design 225 unit 1).** No seam changed — the set, the
+names and the widths are exactly as v2 froze them — but `__saw_rt_reactor_wake`
+now guarantees that every thread parked in `poll` returns, not one of them, and
+the mechanism is a kqueue `EVFILT_USER` / a Linux `eventfd` in place of the
+design-102 self-wake pipe. The pipe could not serve a live worker pool: its read
+end was armed one-shot INSIDE each poll, so concurrent pollers shared one
+registration, the first delivery deleted it, and every LATER wake reached nobody
+at all (measured Aug 16 on three parked threads: one wake woke one, and the
+second and third woke none). The wake source is armed once at create and never
+deleted, so a blocked poller's registration cannot be consumed out from under
+it; reaching every poller is a cascade over a per-instance count of the threads
+currently blocked, so a wake costs one trigger per blocked poller and stops when
+the last one out reads zero. `examples/reactor_cross_thread_wake.saw` is the
+seam-level test.
 
 ### `__saw_rt_reactor_create() -> ptr`
-Create a reactor instance: a kqueue (macOS) / epoll (Linux) fd + a nonblocking
-self-wake pipe. Returns an opaque instance pointer (as a `word`).
+Create a reactor instance: a kqueue (macOS) / epoll (Linux) fd + its wake source
+(an armed `EVFILT_USER` event / a nonblocking `eventfd`). Returns an opaque
+instance pointer (as a `word`).
 
 ### `__saw_rt_reactor_register(r: ptr, fd: word, write: word, token: word) -> void`
 Arm **one-shot** readiness interest on `fd` in `r` for read (`write==0`) or write
@@ -558,20 +573,26 @@ Block in `kevent`/`epoll_wait` on `r` up to `timeout_ms` (`< 0` = forever). For
 EACH ready event, **LATCH its token word to 0 (ready)** — waking exactly the
 frame(s) that registered for that `(fd, direction)`. The latch is a persistent word
 (not an edge), so a poll that fires before the scheduler finished recording the
-park is never lost. Token `0` is skipped (the self-wake pipe registers with token
-0). Drains the self-wake pipe on return so a level of readiness does not busy-fire.
-The event buffer is a per-call heap allocation (concurrency pin above).
+park is never lost. Token `0` is skipped — it is the wake source's own token, and
+consuming one is what makes this poll re-post the wake to the next blocked
+poller (the cascade above) and clear the source so it does not busy-fire. The
+event buffer is a per-call heap allocation (concurrency pin above).
 
 ### `__saw_rt_reactor_wake(r: ptr) -> void`
-Write one byte to `r`'s self-wake pipe so a blocked `poll` returns promptly — the
-design-102 cancel-wake path (a `cancel()` on an already-io-parked task rouses the
-poll; the scheduler re-checks `cancelled()` and wakes the parked frame, which
-returns `Err(IoError)` at its loop top). A non-cancelled sibling parked on another
-idle fd stays parked (precise, no herd wake).
+Rouse EVERY thread blocked in `poll` on `r`, from any thread — including one the
+executor knows nothing about. Two callers' worth of contract: the design-102
+cancel-wake path (a `cancel()` on an already-io-parked task rouses the poll; the
+scheduler re-checks `cancelled()` and wakes the parked frame, which returns
+`Err(IoError)` at its loop top), and design 225's live worker pool, where a
+worker's progress has to reach an ambient scheduler parked on another thread. A
+wake fired with NOTHING parked is not lost: the source is state rather than an
+edge, so the next `poll` returns on it at once. Which FRAMES are woken is
+unchanged and still precise — a non-cancelled sibling parked on an idle fd stays
+parked; the broadcast is over pollers, not over frames.
 
 ### `__saw_rt_reactor_destroy(r: ptr) -> void`
-Close the instance's fd + pipe ends and free it. (Called by the singleton getter
-on the CAS-loser's spare; the process-lifetime instance itself is never destroyed.)
+Close the instance's fds and free it. (Called by the singleton getter on the
+CAS-loser's spare; the process-lifetime instance itself is never destroyed.)
 
 ## Threads — spawn/join (designs 21 / 117)
 

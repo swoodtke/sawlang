@@ -93,8 +93,8 @@ extern "C" {
     // Nanoseconds, read as unsigned, chunked to libc's bound inside the body.
     func __saw_rt_sleep_ns(ns: UInt64)
 
-    // design 180 unit 5: the monotonic clock, so a park that the reactor's
-    // self-wake pipe cut short charges its sleepers what actually elapsed
+    // design 180 unit 5: the monotonic clock, so a park that a reactor wake
+    // cut short charges its sleepers what actually elapsed
     // instead of the deadline it asked for. Same seam std.time reads; declared
     // here because each std file is its own module.
     func __saw_rt_clock_monotonic_nanos() -> Int64
@@ -1456,7 +1456,7 @@ func __saw_exec_run(term_group: Int, term_slot: Int, term_gen: Int) unsafe {
             // design 180 unit 5: park in the REACTOR with the earliest deadline
             // as the poll timeout rather than in `usleep`. Nothing is registered
             // here, so the poll is a pure timer — but a POKEABLE one, since the
-            // design-102 self-wake pipe reaches it and a `usleep` it could not.
+            // design-102 reactor wake reaches it and a `usleep` it could not.
             // That is the whole difference: a cancel arriving during a long nap
             // is observed at the poke instead of at the deadline.
             if not __saw_exec_wake_cancelled_sleepers() {
@@ -1464,7 +1464,7 @@ func __saw_exec_run(term_group: Int, term_slot: Int, term_gen: Int) unsafe {
                 let _ = __saw_host_reactor().poll(__saw_exec_poll_ms(deadline))
                 let spent = __saw_rt_clock_monotonic_nanos() - before
                 // Charge what actually passed, not what was asked for. A poll cut
-                // short by the self-wake pipe has not earned the whole span, and
+                // short by a reactor wake has not earned the whole span, and
                 // crediting it anyway would wake every sleeper early. Capped at
                 // the deadline so the earliest sleeper lands on zero, and floored
                 // at it if the clock reads backward, so the sweep always advances.
