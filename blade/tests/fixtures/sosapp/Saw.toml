@@ -8,3 +8,9 @@ target = "riscv32-unknown-none-elf"
 linker-script = "app.ld"
 native = "src/rt.c"
 priorities = { background = 0, low = 2, normal = 3, high = 7 }
+
+# design 178 M2 unit 4: a driver package DECLARES the MMIO window it wants
+# granted. Hex because addresses are written in hex; the size is stated here
+# rather than defaulted so the test covers both keys.
+device-window = "0x10000000"
+device-window-size = "0x2000"

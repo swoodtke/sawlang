@@ -22,6 +22,11 @@ func main() {
             // background 0, low 2, normal 3, high 7 -> low byte first.
             assert(cfg.prio_map == pack_priorities(0, 2, 3, 7), "prio_map packing")
             assert(cfg.prio_map == 0x07030200, "prio_map wire layout")
+            // The declared device window, both keys, parsed as HEX (design 178
+            // M2 unit 4). An address written in decimal would be a manifest
+            // nobody could check against a datasheet.
+            assert(cfg.device_base == 0x10000000, "device-window base")
+            assert(cfg.device_len == 0x2000, "device-window size")
         },
         case Err(e) -> panic("sosapp [sos] should parse: {e}")
     }
@@ -34,6 +39,10 @@ func main() {
             // spec §7's initial map: apps cluster at levels 0-1.
             assert(cfg.prio_map == pack_priorities(0, 1, 1, 1), "default band map")
             assert(cfg.native.is_empty(), "no native translation unit")
+            // NO device window, which is the answer for every program that is
+            // not a driver — and the direction that matters, since a spurious
+            // grant is the bug a default could introduce.
+            assert(cfg.device_len == 0, "no device window unless one is asked for")
         },
         case Err(e) -> panic("sosdefaults [sos] should parse: {e}")
     }
