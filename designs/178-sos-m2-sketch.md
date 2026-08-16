@@ -850,24 +850,66 @@ zero-mechanism alternative — grant order IS manifest order, pure
 convention — was considered and declined: it fails silently on
 disagreement where the record fails checkably.)
 
-NO QUOTA ACCOUNTING (ruled): these objects are defined at build time —
-the config IS the budget, the kernel's fixed slabs ARE the accounting,
-exhaustion is `NoResource`. This also closes the give-charging question
-(no per-process charge exists to move). Accepted trade, stated
-honestly: global slabs mean a buggy child spamming create_event exhausts
-a shared pool — fine for the static trusted-driver class; the spec's
-existing object-model-brief note covers the day that stops being true.
+TWO ALLOCATION CLASSES, TWO ACCOUNTING ANSWERS (ruled Aug 16, second
+round — the first round's blanket no-quota ruling was missing this
+distinction):
+
+- STATIC ROOT-MINTED GRANTS (IoMemory, Interrupt bindings, launch-time
+  Memory): NO accounting — these are defined at build time, the config
+  IS the budget, the fixed slabs ARE the backstop.
+- DYNAMIC SELF-SERVICE CREATION (events, waiters, channels, threads,
+  heap, mappings): a PER-PROCESS QUOTA, because this is exactly where a
+  bad actor meets a shared slab. Quotas restore the isolation global
+  slabs give up.
+
+THE QUOTA TABLE: per process, one row per counted kind, set by ROOT at
+launch from the child's manifest (the same policy home as devices),
+IMMUTABLE after start (v1 — mutable quotas need raise/lower ops nobody
+has asked for). Root is the explicitly-unlimited case. Config spelling:
+ABSENT = a small documented default; unlimited must be WRITTEN — the
+safe default is the bounded one. Charge on create, credit on destroy;
+process death reclaims everything, so the table zeroes itself.
+
+EXHAUSTION IS A STATUS, NOT A FAULT — decided against the letter of the
+faults rule, deliberately: quota exhaustion is technically
+caller-checkable (a process can count its own allocations), but
+faulting a server for hitting its event cap converts resource pressure
+into termination, the opposite of what quotas are for. Precedent
+agrees: alloc_event already answers slab exhaustion with `NoResource`.
+Add a DISTINCT `QuotaExceeded` beside it — "your budget" vs "system
+pressure" is a diagnostic distinction worth a status, and a process at
+its cap degrades gracefully (refuses a connection) instead of dying.
+
+HARD + SOFT: hard refuses with `QuotaExceeded`. Soft is NOT the rlimit
+reading (self-raisable-up-to-hard is pointless in a capability system —
+a process that could raise it might as well have been given the hard
+number); soft = a ROOT-NOTIFICATION THRESHOLD — crossing it signals an
+Event root attached at launch, so the launcher learns a child is
+nearing its cap and can log, restart, or widen at next launch.
+Telemetry with zero new mechanism. v1 may ship hard-only with soft
+flagged; the Event wiring is the natural extension, not a prerequisite.
+
+TWO UNIFICATIONS THIS BUYS: the per-process MAPPING cap the PMP notes
+demanded (candidate 8 — the 16-slot budget) stops being a special case
+and becomes a quota row like any other; and spec §5.7's deferred
+"quota-gated free creation" object-model note now has its seed — this
+ruling IS that brief starting.
 
 OPEN FLAGS for the scoping session: (a) does a CHILD keep AllocMemory,
 or is it root-only like the binds? (lean: stripped — root allocs and
-gives, which is also what makes the no-quota argument airtight);
-(b) may one Memory map twice in one process? (lean: allow, one
-MemoryMapping each); (c) boot_handles record layout + tag values;
-(d) op/right numbering; (e) spec §5.7's "become real objects in M3"
-line is AMENDED by this ruling (rights-gated ops, boot set stays one
-handle wide) — spec edit owed at M3, not before; (f) the MemoryMapping
-count meets the PMP per-process region cap (candidate 8 above) — over-
-cap map() is a fault per the ratified faults rule; (g) a spec note owed:
-window+line confines the DRIVER, not a DMA-capable DEVICE — bus
-mastering needs an IOMMU, out of scope for the virt boards but said out
-loud.
+gives; a child that needs a buffer is given one, and heap stays the
+child's quota-counted allocator); (b) may one Memory map twice in one
+process? (lean: allow, one MemoryMapping each); (c) boot_handles record
+layout + tag values; (d) op/right numbering; (e) spec §5.7's "become
+real objects in M3" line is AMENDED by this ruling (rights-gated ops,
+boot set stays one handle wide) — spec edit owed at M3, not before;
+(f) CHARGE-ON-TRANSFER reopens with quotas real: v1 stays clean
+(givable objects are root-minted and root is unlimited), but the moment
+M3+ IPC lets a CHILD send a handle over a channel, "charge stays with
+creator" vs "charge follows the handle" returns with teeth — flagged,
+not answered; (g) which kinds are counted in v1's table (events,
+waiters, threads, mappings, heap pages are the candidates; channels
+join when they exist); (h) soft-limit mechanism (the Event wiring
+above) in v1 or flagged; (i) a spec note owed: window+line confines the
+DRIVER, not a DMA-capable DEVICE — bus mastering needs an IOMMU, out of
+scope for the virt boards but said out loud.
