@@ -908,6 +908,32 @@ shadowed-qualifier` flags the declaration if you want to hear about it.
 symbol (`import m.{A as B}`). Visibility is scoped (`public(package)`,
 `public(parent)`).
 
+**Imports are private.** What an import binds is the file's, not its callers'.
+A module's surface is what it declares `public`, so importing `parser` reaches
+`parser`'s own public declarations and nothing `parser` imported — bare,
+selected, qualified and chained alike:
+
+```saw
+// parser.saw
+import wire.{Header}
+public func parse(bytes: &Data) -> Header { ... }
+
+// app.saw
+import parser
+func first(h: &parser.Header) -> Int { h.tag }
+// error: `Header` is not part of `parser`'s surface
+// hint: `Header` is imported by `parser` but not re-exported — add `public
+//       import` in `parser`, or import `wire` directly
+```
+
+`public import` hands it on, on every form: `public import wire` re-exports the
+qualifier (`parser.wire.Header`), `public import wire.{Header}` re-exports that
+one name, `public import wire.*` re-exports the module's whole vocabulary. A
+selective re-export publishes the names it lists and not the qualifier beside
+them, which is how a module publishes the types its callers need while the
+internals they sit next to stay unreachable. The module's own view of its
+imports is the same either way.
+
 **Member visibility**: struct fields and extension methods (including `init`)
 are private by default outside their defining module, and `public` marks the API
 surface. The standard library lives under the same gate: you reach its public

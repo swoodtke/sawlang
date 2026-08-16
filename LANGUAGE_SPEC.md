@@ -7611,10 +7611,11 @@ struct Config {
 ## 8. Module System
 
 **Status: implemented.** `import` (module, specific-symbol, and qualified
-forms), inline and external `module` declarations, `public` visibility, scoped
-visibility (`public(package)`, `public(parent)`), import aliasing (`as`, design
-53), glob imports (`import x.*`), and qualified access (`module.Type`) are all
-built. The `Saw.toml` package layout is handled by the Blade package manager.
+forms), `public import` re-export, inline and external `module` declarations,
+`public` visibility, scoped visibility (`public(package)`, `public(parent)`),
+import aliasing (`as`, design 53), glob imports (`import x.*`), and qualified
+access (`module.Type`) are all built. The `Saw.toml` package layout is handled
+by the Blade package manager.
 
 ### Module Declaration
 
@@ -7919,6 +7920,9 @@ other module.
 | `import std.file.*` | every public name of the module, bare |
 | `import std.file.{File, Path as P}` | `File` and `P` bare, plus the `file` qualifier |
 
+What an import binds is private to the file that writes it. Each form takes an
+optional `public` prefix to hand it on; see [Re-export](#re-export).
+
 **Whole module** binds the last path segment as a qualifier and exposes no bare
 names. Reach the module's contents through it:
 
@@ -7990,6 +7994,65 @@ hint: `import std.data.{Data}` selects it, `import std.data.*` takes the
       module's whole vocabulary bare, and `import std.data` lets you write
       `data.Data`
 ```
+
+#### Re-export
+
+An import binds names for the file that writes it. It does not put them on that
+module's surface. A module's surface is what it declares `public`, so an
+importer of `parser` reaches `parser`'s own public declarations and nothing
+`parser` merely imported:
+
+```saw
+// parser.saw
+import wire.{Header}
+
+public func parse(bytes: &Data) -> Header { ... }
+```
+
+```saw
+// app.saw
+import parser
+
+func first(h: &parser.Header) -> Int { h.tag }
+```
+
+```
+error: `Header` is not part of `parser`'s surface
+  --> app.saw:3:13
+hint: `Header` is imported by `parser` but not re-exported — add `public
+      import` in `parser`, or import `wire` directly
+```
+
+Reachability is the visibility chain, so every spelling gets the same answer:
+the bare name under `import parser.*`, the selection `import parser.{Header}`,
+the qualified `parser.Header`, and the chain `parser.wire.Header` are all
+refused. std is imported on the same terms — a module's `import std.data` is
+that module's, and `parser.data.Data` from outside is the same refusal.
+
+`public import` is the opt-in, and no form is refused it. Each hands on what
+its own shape binds:
+
+| Form | What an importer of this module reaches through it |
+|---|---|
+| `public import wire` | the qualifier: `parser.wire.Header` |
+| `public import wire.{Header}` | `Header`, bare and as `parser.Header` |
+| `public import wire.*` | every public name of `wire`, bare and qualified |
+
+A selective re-export hands on the names it lists. The qualifier it also binds
+— the one that reaches what it did not select — stays private, so `public
+import wire.{Header}` publishes `Header` without publishing the rest of `wire`.
+That is what a curated facade is made of: a module can publish the handful of
+types its callers need and keep the internals they sit beside unreachable.
+
+Two things a re-export does not change. The module's own view of its imports is
+the same either way: `public` on an import controls what flows through the
+module, not what the module sees. And it does not widen extension scope — a
+re-exported type keeps its own module's extensions, which travel with the type
+(see [Extension scoping](#extension-scoping-design-142)), and no other module's
+extensions come with it.
+
+`public(package) import` and the other scoped visibilities are not accepted;
+re-export is all or nothing.
 
 #### Qualifier bindings are weak
 

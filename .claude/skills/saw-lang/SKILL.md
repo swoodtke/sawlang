@@ -1755,6 +1755,7 @@ import std.net.{TcpListener, TcpStream}   // selective: those names bare + a `ne
 import std.file.*                          // glob: every public name of the module, BARE
 import std.file                            // whole module: QUALIFIED ONLY — `file.File`
 import mymodule as mm       // aliasing; `module`/`public`/`package`/`parent`
+public import wire.{Header}  // RE-EXPORT: `Header` joins THIS module's surface
 ```
 - **THREE IMPORT FORMS, and std takes the same three as any package
   (design 150).** `import std.time` binds the last segment as a QUALIFIER
@@ -1795,6 +1796,24 @@ import mymodule as mm       // aliasing; `module`/`public`/`package`/`parent`
 - Two imports binding ONE qualifier is an error AT THE IMPORT naming both
   paths; `as` fixes it. Any import form makes the module a DIRECT import, so
   choosing qualified access never loses its design-142 extensions.
+- **AN IMPORT IS PRIVATE (design 229).** What you import is YOURS, not your
+  callers'. An importer of your module reaches what you declare `public` and
+  what you `public import`, and NOTHING you merely imported — the bare name
+  under a glob, the `{X}` selection, the qualified `m.X` and the chain
+  `m.dep.X` are all refused, with a hint naming both fixes and the dependency
+  the name really lives in. std is under the same rule: your `import
+  std.data` is not on your surface. `public import` opts in, on every form —
+  `public import wire` re-exports the QUALIFIER (`m.wire.Header`), `public
+  import wire.{Header}` re-exports that NAME (and not the `wire` qualifier
+  it also binds for you, which is what makes a curated facade possible),
+  `public import wire.*` re-exports the whole vocabulary. Your own view of
+  your imports is unchanged either way, and a re-export widens no extension
+  scope (a re-exported type keeps its own module's inherent API and brings
+  nothing else).
+  **IDIOM**: prefer the CONSUMER importing the dependency directly — it
+  states intent and survives your refactor. Reach for `public import` only
+  when your module genuinely IS the facade for that dependency (a system-call
+  module publishing the encodings its callers must write).
 - **Utility methods belong on the receiver as extensions — including on
   types you don't own** (user idiom ruling, Aug 5). A helper that is
   *about* one value reads as a method: write `extension Data {
