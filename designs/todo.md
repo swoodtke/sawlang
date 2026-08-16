@@ -493,6 +493,43 @@ and DF-178e was avoided ahead of time by naming two `UInt` constants for the
   reason written beside them. Cheap to work around, and misleading precisely
   because the error text says the opposite.
 
+## Design 178 M2 unit 4 — the Interrupt object + the userspace UART echo
+(BUILT Aug 16, branch PARKED for user review per SOS policy) — M2 COMPLETE
+
+`designs/178-sos-m2-sketch.md` carries what landed, with both transcripts. In
+one line: D6 plus the five ruled finale constraints — an Interrupt object that
+binds an IRQ line to a waitable and acks through the handle, a device MMIO
+window the driver's own image DECLARES and the board authorizes, a stated
+console handover protocol (now spec §9a), and the milestone's proof: a
+userspace UART echo driver on both machines, with no driver code in the kernel.
+
+Four things worth knowing without opening the brief:
+
+- **The second waitable kind moved the attachment into a table of its own.** A
+  Waiter's set has to be one list, so per-kind lists would have made both `add`
+  and `remove` a matrix over kinds; what stays per-kind is four exhaustive
+  matches in one place, and a fifth waitable fails all four to compile.
+- **"Nothing runnable" stopped meaning deadlock**, and the kernel idles by
+  PARKING THE CORE AND POLLING rather than by taking the trap — so design 178's
+  D2 is exactly as it was and there is one service path with two ways in.
+- **`irq_raise_selftest_line` STAYS**, against unit 1's expectation: a line
+  raised in kernel mode and a line bound to NO Interrupt object are two kernel
+  behaviours reachable through nothing else.
+- **The harness delay is the test.** Feeding the whole string at once proves the
+  echo and not the interrupt path, since a polling driver would pass; one byte
+  at a time forces the park, the idle, and one wake per byte.
+
+`make sos-test` is 62 cases (31 per machine). NATIVE FLOOR: +1 C line per
+profile (`sos_wait_for_irq` — `wfi` is an instruction), assembly unchanged.
+
+NO NEW LANGUAGE FINDINGS. Three known ones were re-encountered and cited in
+place rather than refiled: DF-178d cost a third `-> Never` wrapper
+(`fault_waitable`, beside `fault_result` and `fault_slot`); DF-178f kept
+`wait_record_bytes` a function; and DF-172d (a binary expression does not wrap
+across a newline unless brackets already enclose it) turned a long
+`[UInt64; a + b + c]` static into a named descriptor count, which is the
+SIZE-IN-ONE-PLACE idiom and is better anyway.
+
   SWEPT (obligation 4), and the class is exactly two items wide. The mechanism
   is "the static initializer's const evaluator implements a SUBSET of the const
   expression grammar", so the whole of design 186's ruled list was put against a

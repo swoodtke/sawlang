@@ -511,6 +511,152 @@ point the language question worth ruling is whether Saw wants sealed traits
 outright, since the witness idiom is a workaround for their absence and would
 read better spelled.
 
+## UNIT 4 — the Interrupt object + the userspace UART echo (BUILT Aug 16, branch PARKED)
+
+D6 as ratified, plus the five finale constraints below. Both profiles, 31
+harness cases each, 62 total. **The milestone's proof:**
+
+```
+SOS M1: kernel up on riscv32 (QEMU virt)
+SOS: root image ok segments=0x00000003 entry=0x8020052a prio=0x01010100
+SOS: console handover
+SOS echo: driver up
+Zq7#
+SOS echo: done 4 bytes on line 10 after 4 wakes
+```
+
+```
+SOS M1: kernel up on arm64 (QEMU virt)
+SOS: root image ok segments=0x0000000000000003 entry=0x00000000402005f0 prio=0x0000000001010100
+SOS: console handover
+SOS echo: driver up
+Zq7#
+SOS echo: done 4 bytes on line 33 after 4 wakes
+```
+
+The harness types those four bytes AT the emulator's serial port and they come
+back out of it, echoed by a PROCESS. There is no driver in the kernel: its whole
+part is that it granted the register window the image declared, routed the line,
+and woke the thread, and none of those knows what a UART is.
+
+**THE SECOND WAITABLE KIND MOVED THE ATTACHMENT OUT OF THE WAITABLE.** Unit 3
+kept `waiter`/`key`/`link` on the Event, which is right at one kind and becomes a
+matrix at two: a Waiter's set has to be ONE list, because a wait scans it once
+and a `Remove` walks it once, so per-kind lists would have made rider 4's "the
+same walk, and therefore one place to be wrong" false at exactly two. An
+attachment is now a third object — (waiter, kind, target, key) — and each
+waitable keeps one back pointer, which is all the SIGNAL side ever asks. What
+varies per kind is FOUR SMALL FUNCTIONS IN ONE PLACE, each exhaustive over a
+`WaitableKind` enum only `waitable_slot` can produce: who is watching me, set
+who is watching me, am I ready, what does a record say. A fifth waitable fails
+all four to compile; a fifth non-waitable object kind costs them nothing.
+
+**"NOTHING RUNNABLE" STOPPED MEANING DEADLOCK**, which unit 3 predicted and this
+unit had to answer. An Interrupt is the first readiness that arrives from
+outside the set of runnable threads, so the same state now has two readings: it
+is IDLE if any line is bound and the ratified deadlock report otherwise. The
+rule is deliberately conservative — the kernel does not try to prove that a
+specific blocked thread is reachable by a specific line, because a wrong answer
+there only makes a hang slower to diagnose, and it never calls a real wait a
+deadlock.
+
+**THE IDLE PATH POLLS RATHER THAN TAKING THE TRAP, and that is what keeps D2
+untouched.** Interrupts are taken from user mode only, enforced by the machines;
+the kernel idles with them masked, so a line that arrives then is PENDING rather
+than delivered. `wait_for_irq` parks the core until one is pending (both
+machines wake from `wfi` whether or not the current level would take the
+interrupt), `irq_poll` asks the controller directly, and the same `deliver_line`
+services it either way. So the kernel still never takes an interrupt in kernel
+mode, and there is one service path with two ways in rather than two paths.
+
+**Finale constraint 1-3, the DEVICE GRANT.** `[sos.<triple>] device-window =
+"0x10000000"` in the driver package's manifest becomes a `SegFlag.Device` record
+in its `sosimg` — a segment with no bytes whose `mem_len` is the window's size —
+and the loader installs it through a new `hal.prot_device` instead of copying
+it. THE IMAGE DECLARES AND THE BOARD AUTHORIZES: each HAL publishes one window
+(the console's page) and an image naming anything else is a refused image, which
+is the strictest honest answer for M2 and the thing §2.5's Mapping replaces. The
+migration case is written down at the check.
+
+riscv32 spends ONE page-aligned NAPOT entry rather than a TOR pair — the DF-178b
+lesson applied literally (a byte-tight device region puts every register access
+on the emulator's slow path) and what keeps the four-region budget intact now
+that an image can want segments, a stack AND a window; a `static_assert` holds
+that budget. arm64 had to SPLIT ITS DEVICE BLOCK: the whole space below RAM was
+one 1 GiB block, and a block is not a grant unit, so granting EL0 the console's
+page would have granted every peripheral beside it. The block became a level-2
+table and the console's 2 MiB block a level-3 one, and the page carries
+`Device-nGnRE` with both no-execute bits — never Normal-cacheable, which is a
+correctness property and not a performance one.
+
+**Finale constraint 4, the HANDOVER PROTOCOL, is now spec §9a.** `start_process`
+writes one marker — `SOS: console handover` — as the last thing the kernel says
+on its own initiative; after it the process owns the device and the kernel
+writes only on a diagnostic path. Stated on `kcore`'s `Console` with the DEVICE
+half in each HAL's console section: what a second writer costs (a kernel byte
+lands BETWEEN two of the process's, never inside one, since each write is one
+store behind its own poll) and what the kernel never touches (the receive side,
+the interrupt-enable register, and on Profile B the control register — which is
+why a driver there has to enable the device itself).
+
+**Finale constraint 5** is the `WaitPayload.Interrupt(line:)` variant through
+unit 3's copy-out funnel. There is no fire COUNT because §9's mask-on-fire makes
+it always one; the LINE is what a dispatcher parked on several needs and cannot
+get any other way. Both existing Event programs had to answer for the new
+variant, which is the extensible tag space working as designed.
+
+**`irq_raise_selftest_line` STAYS**, and unit 1 expected it not to. The role it
+was built for is genuinely covered — the echo driver takes a real line round the
+whole claim / mask / complete cycle on both profiles — but two claims are
+reachable only through it, and both are the KERNEL's rather than a driver's: a
+line raised in kernel mode and serviced only after entry to user mode is D2 for
+a DEVICE line (where the timer case makes the same claim for a timer), and a
+line bound to no Interrupt object is the one path where `on_external_irq`
+reports and leaves the line masked. Scaffolding that became a test of the
+kernel's own behaviour.
+
+**THE HARNESS DELAY IS THE TEST.** Handed the whole string at once, the emulator
+buffers it before the driver exists and every byte is already waiting — which
+proves the echo and NOT the interrupt path, since a driver that merely polled
+would pass. Typed one byte at a time behind a delay, the driver must PARK, which
+leaves the kernel with nothing runnable, which is what makes it wait for a wake
+from outside the set of runnable threads: one wake per byte, and the whole
+ladder under test. Both transcripts above read `after 4 wakes` for that reason,
+and the count is reported rather than asserted, since it is the host's timing.
+
+**Two packages, one per DEVICE**, named for the chip rather than the machine: a
+driver IS its device, and the two profiles happen to have different UARTs. The
+same 16550 would want the same file on a different architecture, which is the
+honest axis. It cost one real bug worth recording: **the PL011's receive
+interrupt is a LATCH**, set when the FIFO level crosses the trigger rather than
+read off the FIFO, so the obvious bring-up sequence (enable, clear stale status,
+unmask) destroys the only edge an already-waiting byte will ever produce — the
+driver hung holding a byte. The fix is not to clear a device this driver owns
+from reset. The 16550 derives its status from the receiver and forgives the same
+sequence, which is exactly the kind of difference a per-device driver exists to
+hold.
+
+**Two fault cases, both ROOT SERVERS**, which is rider 4's distinction earning
+its second use: a LINE NUMBER and an ACK are ordinary things a Saw driver
+writes, so no type can catch either and the check has to be the kernel's — which
+puts the test at the altitude a real driver would hit it from. A line the board
+does not have is `BadArg`; an ack with no fire outstanding is `BadState`, and it
+is a fault rather than a tolerated no-op because the only way to learn about a
+fire is to be told, so an extra ack is a servicer that will ack the NEXT fire
+without servicing it.
+
+**Native floor: +1 C line per profile, assembly unchanged.**
+`sos_wait_for_irq` — `wfi` is an instruction and there is no Saw spelling for
+one. Everything else the unit added is Saw: the NAPOT encoding, two page tables
+and a memory-attribute index, the line validation, the poll, and both drivers.
+
+**Not built here, deliberately:** §9's combined `wait(ack:)` form, which is
+syscall-halving and not correctness (the echo runs the two calls separately and
+the transcript does not notice); a second bindable device, which needs M3's
+device pool root before the board's one-window whitelist stops being the honest
+answer; and `HandlerGroup` (§10), which is userspace runtime work rather than
+kernel surface.
+
 ## Explicitly out (M3+ candidates)
 
 Channels + ReplyHandle IPC; MemoryObject/Mapping + multi-process loading;
