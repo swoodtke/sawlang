@@ -194,10 +194,35 @@ public extension SosimgArch {
 /// without translating them. (ELF numbers them the other way round; Blade
 /// converts when it reads the linked image.) The backing is fixed-width because
 /// these values are the wire format, not an implementation detail — design 47.
+/// `Device` is NOT a permission, and that is the one thing to know about it: it
+/// says what KIND of grant the record is, and the R/W bits beside it still say
+/// what may be done with it. A device record carries NO BYTES (`file_len` is 0)
+/// and its `load_addr` is a hardware window rather than a place in the image's
+/// address space — so a loader must not copy it, must not place it inside the
+/// process's RAM region, and must map it with the target's device memory
+/// attributes rather than as ordinary memory.
+///
+/// WHY IT IS IN THE IMAGE AT ALL (design 178's finale constraint 1, ruled Aug
+/// 16, user). A driver's MMIO window is a fact about the PROGRAM — this program
+/// drives that device — so it is declared where the program's other facts are,
+/// and the kernel installs what the image asks for exactly as it does for a
+/// code segment. The alternative was a constant in kernel logic, which would
+/// have made "which process gets the UART" a kernel edit.
+///
+/// IT IS A PLACEHOLDER, and its migration case is written down: M3's MemoryObject
+/// / Mapping (spec §2.5) makes a device window a handle DERIVED from a device
+/// pool root, mapped by an op, revocable by closing the Mapping. This flag is
+/// what that replaces — a boot-time, image-declared, permanent grant of one
+/// window to the one process the kernel loads.
+///
+/// Bit 8 rather than 3, because 1/2/4 are a RISC-V PMP config's low three bits
+/// and the kernel installs those untranslated (see below); a fourth bit in that
+/// field would be the PMP `A` field's low bit.
 public enum SegFlag: UInt8 {
     case Read = 1,
     case Write = 2,
     case Execute = 4,
+    case Device = 8,
 }
 
 public extension SosimgHeader {
@@ -252,6 +277,15 @@ public extension SosimgSeg {
         self.has(SegFlag.Execute)
     }
 
+    /// Is this record a DEVICE WINDOW rather than a loadable segment?
+    ///
+    /// The two are told apart here and nowhere else, so a loader's device path
+    /// and its copy path are one decision rather than two tests that could
+    /// disagree.
+    public func is_device_grant(&self) -> Bool {
+        self.has(SegFlag.Device)
+    }
+
     /// A segment's memory image can never be smaller than its file image.
     public func mem_covers_file(&self) -> Bool {
         self.mem_len >= self.file_len
@@ -261,8 +295,17 @@ public extension SosimgSeg {
     /// neither read nor execute is not worth a region. (RISC-V additionally
     /// RESERVES the W-without-R PMP encoding, so on Profile A this is not just
     /// tidiness — it is a configuration the hardware does not define.)
+    ///
+    /// A DEVICE window is judged by the same rule plus one: registers are not
+    /// instructions, so an EXECUTABLE device grant is refused. Nothing about
+    /// device memory makes fetching from it meaningful, and one profile's
+    /// mapping cannot even express it (the kernel adds the no-execute bits
+    /// unconditionally), so an image asking for it has misdescribed itself.
     public func has_sane_perms(&self) -> Bool {
         if self.is_writable() && not self.is_readable() {
+            return false
+        }
+        if self.is_device_grant() && self.is_executable() {
             return false
         }
         self.is_readable() || self.is_executable()
