@@ -142,16 +142,24 @@ everything ruled this week quietly assumes.
    sandboxed compute process is a feature, not an error to detect.
    (Zircon's process_create/process_start is the precedent, including
    the bootstrap-handle-at-start convention.)
-3. **The launch flow (shape ruled Aug 16)** — `give(handle, tag:)` on
-   the CHILD's Process handle, gated by the universal Transfer right:
-   MOVES the handle into a fresh child-table slot and RETURNS THE
-   CHILD-SIDE WORD; the tag is the giver's own word handed back unread
+3. **The launch flow (shape ruled Aug 16; give-return AMENDED same
+   day)** — `give(handle, tag:)` on the CHILD's Process handle, gated
+   by the universal Transfer right: MOVES the handle into a fresh
+   child-table slot and returns ONLY ITS STATUS — the child-side word
+   is irrelevant to root (root can call no op through it), so nothing
+   returns it. THE TAG IS THE IDENTITY, and tags are the ONLY
+   cross-process vocabulary: the giver's own word handed back unread
    (the Waiter.add key precedent — the kernel is a courier, never an
    interpreter; root and child agree on meaning through config +
-   manifest). Root passes the returned System-handle word to
-   `start(boot:)`, and `_start(boot_handle)` receives it in a0
-   unchanged from M2 — ONE register convention, everything else via
-   the record. **DELIVERY IS THE RETRIEVAL OP, NOT A BOOTINFO
+   manifest). A DUPLICATE tag is REFUSED at the give (fault — an
+   identity naming two handles is broken config, caller-checkable,
+   and it would make the record a multimap and the boot lookup below
+   ambiguous). `start(boot_tag:)` completes the principle: the KERNEL
+   resolves the tag to the child-table word and puts it in a0, so
+   `_start(boot_handle)` is unchanged from M2 and root never sees a
+   child-relative word at any point. start() with NO boot_tag puts
+   the no-handle word in a0 — the sandboxed compute process stays a
+   feature. **DELIVERY IS THE RETRIEVAL OP, NOT A BOOTINFO
    SECTION**: `self_process()` then `proc.boot_handles(&buffer)`, a
    copy-out on the wait() funnel answering `{tag, kind, handle}`
    records. A bootinfo section written into the address space would
