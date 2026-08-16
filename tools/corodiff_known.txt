@@ -69,6 +69,21 @@ DF-217n-2026-08-13	LEAK: match_nobinding/before @ loop
 DF-217n-2026-08-13	LEAK: match_nobinding/between @ linear
 DF-217n-2026-08-13	LEAK: match_nobinding/between @ loop
 DF-217n-2026-08-13	LEAK: match_nobinding/in_rhs @ linear
+# The composite face at `linear`, same reading as the `@ loop` one below and
+# equally pre-existing (replayed on `taskgroup_spawn` with the pre-DF-225m
+# compiler, a context no range `for` reaches). It surfaced now only because
+# adding three contexts reshuffled `--quick`'s stratified sample onto the cell
+# — design 141's lesson about samples, arriving again.
+DF-217n-2026-08-13	STDOUT-PARITY: match_nobinding/in_rhs @ linear
+# The `in_rhs @ loop` cell, surfaced by the range-`for` contexts added with
+# DF-225m's fix. It is a LEDGER GAP, not something the new axis broke: both
+# rows reproduce on the pre-existing `loop_second_iter` (`while`) context with
+# the pre-DF-225m compiler — verified by replay. The STDOUT-PARITY row is the
+# composite face of the same leak: the CONTROL twin never releases `r1` at all
+# while the driven twin releases it (late, DF-217p), so the two multisets
+# differ instead of merely their order.
+DF-217n-2026-08-13	LEAK: match_nobinding/in_rhs @ loop
+DF-217n-2026-08-13	STDOUT-PARITY: match_nobinding/in_rhs @ loop
 
 # DF-217o (reported 2026-08-13) — NEW. A SPAWNED task body that contains
 # no suspension point cannot destructure a tuple:
@@ -164,6 +179,12 @@ DF-217p-2026-08-13	DEINIT-ORDER: swap_out/in_rhs @ loop
 DF-217p-2026-08-13	DEINIT-ORDER: tuple_destructure/after @ loop
 DF-217p-2026-08-13	DEINIT-ORDER: tuple_destructure/before @ loop
 DF-217p-2026-08-13	DEINIT-ORDER: tuple_destructure/between @ loop
+# Two more `in_rhs @ loop` cells of the same mechanism, surfaced by the
+# range-`for` contexts added with DF-225m's fix. Ledger gaps, not new bugs:
+# both reproduce on `loop_second_iter` with the pre-DF-225m compiler, which
+# never enters `_split_for` at all.
+DF-217p-2026-08-13	DEINIT-ORDER: match_consume/in_rhs @ loop
+DF-217p-2026-08-13	DEINIT-ORDER: match_nobinding/in_rhs @ loop
 
 # DF-218e (reported 2026-08-14) — the FIRST finding of the generic-driven
 # axis, and pre-existing: a GENERIC function used as a SPAWN root cannot

@@ -746,6 +746,58 @@ def w_loop_second_iter(body):
     )
 
 
+# THE RANGE-`for` LOOPS, both flavours (DF-225m).
+#
+# A `while` loop is the one loop shape the harness had, and it is the one shape
+# the coroutine transform does NOT rewrite: `_split_while` re-emits the author's
+# own condition, while `_split_for` HAND-WRITES the header and the step out of
+# frame slots, because a driven body has no `Range`/`RangeInclusive` object to
+# hold the iteration state across a suspension. So the whole range lowering —
+# the half of looping that has a compiler-authored control flow — sat outside
+# this instrument, and DF-225m (an inclusive `for` in a driven body dropping its
+# last iteration, silently, since the sync twin was right) lived there for as
+# long as it did because `grep '\.\.=' tools/corodiff.py` came back empty.
+#
+# THREE contexts, not one, because the inclusive lowering has three answers to
+# get wrong and only the first is a plain iteration count:
+#   * `..=` over two iterations — the ordinary shape.
+#   * `..=` over ONE — DF-225m's loudest row, which ran the body ZERO times.
+#   * `..` over two — the exclusive control, so a regression in the shared
+#     header/step code is attributable to a flavour rather than to `for`.
+# All three share `oracle_class="loop"` with `loop_second_iter`: the class names
+# a MECHANISM (a body that runs more than once), and keying the ledger on the
+# context name instead would have gone stale the moment this was added — which
+# is what the class comment on `Context` has said since design 218.
+def w_loop_for_inclusive(body):
+    return (
+        "func main() {\n"
+        "    for i in 1..=2 {\n" + _indent(body, 8) + "\n"
+        "    }\n"
+        f"    {CLOSED}\n"
+        "}\n"
+    )
+
+
+def w_loop_for_inclusive_once(body):
+    return (
+        "func main() {\n"
+        "    for i in 1..=1 {\n" + _indent(body, 8) + "\n"
+        "    }\n"
+        f"    {CLOSED}\n"
+        "}\n"
+    )
+
+
+def w_loop_for_exclusive(body):
+    return (
+        "func main() {\n"
+        "    for i in 0..2 {\n" + _indent(body, 8) + "\n"
+        "    }\n"
+        f"    {CLOSED}\n"
+        "}\n"
+    )
+
+
 def w_closure_from_driven(body):
     return (
         "func main() {\n"
@@ -928,6 +980,20 @@ CONTEXTS = [
             void_return="return 0"),
     Context("loop_second_iter", w_loop_second_iter, full_cross=True,
             oracle_class="loop"),
+    Context("loop_for_inclusive", w_loop_for_inclusive, full_cross=True,
+            oracle_class="loop",
+            note="`for i in 1..=2` — the transform HAND-WRITES a driven range "
+                 "loop's header and step out of frame slots, so unlike the "
+                 "`while` context this exercises compiler-authored control "
+                 "flow; DF-225m dropped the last iteration here"),
+    Context("loop_for_inclusive_once", w_loop_for_inclusive_once,
+            oracle_class="loop",
+            note="`for i in 1..=1` — a single-iteration inclusive range, "
+                 "DF-225m's loudest row: the driven body ran ZERO times"),
+    Context("loop_for_exclusive", w_loop_for_exclusive, oracle_class="loop",
+            note="`for i in 0..2` — the exclusive control beside the two "
+                 "inclusive contexts, so a regression in the shared header/step "
+                 "code is attributable to a range FLAVOUR, not to `for`"),
     Context("closure_from_driven", w_closure_from_driven, full_cross=True),
     Context("nested_block_tail", w_nested_block_tail),
     Context("method_driven", w_method_driven, has_self=True),
