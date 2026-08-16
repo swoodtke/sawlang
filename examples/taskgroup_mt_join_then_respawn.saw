@@ -1,0 +1,41 @@
+// design 225 unit 3 — the pool PERSISTS across joins.
+//
+// A join used to BE the pool: `__drain_mt` spawned `threads: N` OS threads,
+// drained the queue and joined them, so every join was a fresh pool and a
+// group's cost was proportional to how often it was joined. The pool now starts
+// at the first spawn and lives until `Deinit`, so this program — spawn, join,
+// spawn again into the same group, join again, three rounds — creates exactly
+// four OS threads in total rather than twelve.
+//
+// What the test can OBSERVE is the half that matters to a program: a group is
+// still usable after a join, and a task spawned into a group whose workers are
+// already parked runs without anything restarting them. That is the shape a
+// worker pool held in a long-lived structure takes.
+//
+// EXPECT: success
+// EXPECT-OUTPUT:
+// round 1: 9
+// round 2: 18
+// round 3: 27
+// slots held after three rounds: 0
+
+func step(base: Int) -> Int {
+    base + 1
+}
+
+func main() {
+    var pool = TaskGroup(threads: 4)
+    var round = 1
+    var base = 1
+    while round <= 3 {
+        let a = pool.spawn(step(base))
+        let b = pool.spawn(step(base + 1))
+        let c = pool.spawn(step(base + 2))
+        print("round {}: {}", round, a.join() + b.join() + c.join())
+        base = base + 3
+        round = round + 1
+    }
+    // Every result was joined, so every slot was reclaimed: a long-lived pool
+    // costs O(live) slots, not O(tasks ever spawned) (design 134).
+    print("slots held after three rounds: {}", pool.count())
+}

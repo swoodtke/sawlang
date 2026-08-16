@@ -1,0 +1,87 @@
+// An INCLUSIVE-range `for` in a suspending body runs every iteration.
+//
+// `coro_transform.py`'s `_split_for` builds the loop header as a hard-coded
+// `i < end` and never reads `is_inclusive`, so every `for i in a..=b` the
+// transform drives runs one iteration short — and a single-iteration `3..=3`
+// runs zero times. The sync twin of the same loop is correct, which makes this
+// a twin divergence corodiff would have caught if its generator emitted `..=`
+// at all.
+//
+// Four shapes, all one mechanism: the drive root, an EMBEDDED suspending
+// callee, a loop whose BODY does not suspend inside a function that does, and
+// the single-iteration range. The sync control is what says the loop itself is
+// fine.
+//
+// XFAIL: DF-225m the coroutine transform's `_split_for` hard-codes `i < end`, so an inclusive-range `for` in a driven body drops its last iteration
+// EXPECT: success
+// EXPECT-OUTPUT:
+// root 15
+// embedded 15
+// sync body 15
+// single 3
+// sync control 15
+
+import std.task.*
+
+func root() -> Int {
+    var n = 0
+    for i in 1..=5 {
+        n = n + i
+        yield_now()
+    }
+    return n
+}
+
+func inner() -> Int {
+    var n = 0
+    for i in 1..=5 {
+        n = n + i
+        yield_now()
+    }
+    return n
+}
+
+func embedded() -> Int {
+    let r = inner()
+    return r
+}
+
+// The loop body suspends nowhere; the FUNCTION does, which is enough.
+func sync_body() -> Int {
+    var n = 0
+    yield_now()
+    for i in 1..=5 {
+        n = n + i
+    }
+    return n
+}
+
+func single() -> Int {
+    var n = 0
+    for i in 3..=3 {
+        n = n + i
+        yield_now()
+    }
+    return n
+}
+
+func sync_control() -> Int {
+    var n = 0
+    for i in 1..=5 {
+        n = n + i
+    }
+    return n
+}
+
+func main() {
+    var g = TaskGroup()
+    let a = g.spawn(root())
+    let b = g.spawn(embedded())
+    let c = g.spawn(sync_body())
+    let d = g.spawn(single())
+    print("root {}", a.join())
+    print("embedded {}", b.join())
+    print("sync body {}", c.join())
+    print("single {}", d.join())
+    print("sync control {}", sync_control())
+}

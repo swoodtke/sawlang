@@ -65,12 +65,13 @@
 //     pointing into it. It also states paper 18's D6 confinement as a fact
 //     about ownership rather than a flag — while a frame runs, its slot holds
 //     `None` and the running worker owns the box.
-//   * An MT group is enqueued into by its OWNER only. A spawned body cannot
-//     name the group it lives in (`&var group` is not `Send` and a task body
-//     has no way to reach the binding), so `__enqueue` has one thread. That is
-//     why `started` needs no CAS and why the crew vector needs no lock — but
-//     it is NOT why the queue is safe, because `free`/`gen` have a second
-//     writer in any worker that completes a task.
+//   * An MT group is enqueued into by its OWNER only. A single-threaded group's
+//     task may be handed its own group as a `&TaskGroup` and spawn siblings
+//     onto it; an MT group's cannot, because a reference is not `Send` and the
+//     Send gate refuses it at the spawn (conformance row K19). So `__enqueue`
+//     has one thread. That is why `started` needs no CAS and why the crew
+//     vector needs no lock — but it is NOT why the queue is safe, because
+//     `free`/`gen` have a second writer in any worker that completes a task.
 //
 // THE TWO INVARIANTS DESIGN 225 RETIRED, recorded here because code elsewhere
 // was written against them: "enqueue is main-thread-only, so the run queue
@@ -85,6 +86,28 @@
 // than spinning: `__enqueue` broadcasts after every push, and every resume
 // broadcasts its outcome, so a worker sleeps at zero cost until there is work
 // or the group is shutting down.
+//
+// WHAT `join` AND `Deinit` MEAN NOW (design 225 unit 3), since the drain they
+// used to BE is gone:
+//
+//   * `handle.join()` WAITS for that one task and returns its result. It is not
+//     a drive and it starts nothing — the pool is already running the task —
+//     so it waits on the same condition variable the workers broadcast on, at
+//     no CPU cost, and the pool is untouched when it returns. Per-TASK, which
+//     is what the single-threaded engine has always meant by `join` and what
+//     the two engines now agree on; the old MT join drained the whole group as
+//     a side effect of how it was implemented, never as a promise.
+//   * The WORKERS PERSIST across it. A join used to be a pool — spawn N OS
+//     threads, drain, join them — so a group's thread cost was proportional to
+//     how often it was joined. Three rounds of spawn-join into one group now
+//     cost N threads in total instead of 3N.
+//   * `Deinit` = signal no-more-work, join the workers, then design 124's eager
+//     teardown, unchanged. It is still a STRUCTURED JOIN: `stopping` does not
+//     cancel anything, and a worker leaves only once nothing is live.
+//   * DQ-222b carries over unchanged: the scope a group defines is its
+//     OWNERSHIP EXTENT, not a lexical block, so a heap-owned group's pool
+//     starts at its first spawn and is joined wherever its last owner is
+//     released. Nothing here reads block structure.
 
 extern "C" {
     // pthread mutex seam (resolves from libSystem/libc; init wrapper in codegen).

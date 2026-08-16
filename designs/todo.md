@@ -44,6 +44,60 @@ Design 229 raises the stakes: a name the module imports but does not
 re-export now gets a precise refusal at the import, so the remaining silence
 reads as "that one is fine" when it is not.
 
+## DF-225m — SILENT WRONG ANSWER: an INCLUSIVE-range `for` in a suspending
+## body drops its last iteration (filed Aug 16, found by design 225 unit 3's
+## soak case; mechanism located, obligation-4 sweep run, NOT fixed here)
+
+**One line, and it is not a scheduler bug — `coro_transform.py:5562`
+(`_split_for`) builds the loop header condition as a hard-coded `<`:**
+
+```python
+cond = BinaryOp(op="<", left=_self_field(var), right=_self_field(end_name))
+```
+
+`s.iterable.is_inclusive` is never read, so every `for i in a..=b` inside a
+function the transform drives runs `b - a` times instead of `b - a + 1`. The
+sync twin of the same loop is correct, so this is a TWIN DIVERGENCE of exactly
+the kind corodiff exists to catch — and corodiff never caught it because the
+harness emits no `..=` at all (`grep '\.\.=' tools/corodiff.py` is empty). That
+coverage gap is half the finding: an inclusive range is not an exotic spelling.
+
+**Obligation-4 sweep (`.build/scratch/p_incl_sweep.saw`, 9 rows, all one
+mechanism — every row is wrong except the genuinely empty range):**
+
+| row | shape | got | want |
+|-----|-------|-----|------|
+| 1 | literal bounds, spawned root | 10 | 15 |
+| 2 | variable bound `1..=hi` | 10 | 15 |
+| 3 | module-`static` bound | 10 | 15 |
+| 4 | loop in an EMBEDDED suspending callee | 10 | 15 |
+| 5 | **loop body does not suspend; the FUNCTION does** | 10 | 15 |
+| 6 | single-iteration `3..=3` | 0 | 3 |
+| 7 | empty `3..=2` | 0 | 0 |
+| 8 | nested `1..=2` x `1..=2` | 1 | 4 |
+| 9 | MT spawned root | 10 | 15 |
+
+Row 5 is the sharp one: the body contains no suspension, and merely being
+inside a driven function is enough — the transform rewrites every range `for` in
+a driven body. Row 6 is the loudest: a single-iteration inclusive loop does not
+run AT ALL. Both engines, entry-module, embedded and MT alike; a `while` loop is
+unaffected and the exclusive `a..b` form is correct everywhere.
+
+**What the fix owes beyond the one-line `<=`.** Design 53 lowers an inclusive
+range through a `RangeInclusive` that is `Int.max`-SAFE, and a naive `i <= end`
+header reintroduces exactly the hazard that type exists to avoid: with Saw's
+always-on overflow checks, `for i in 0..=Int.max` in a driven body would trap on
+the increment where its sync twin terminates — trading a silent wrong answer for
+a twin divergence at the boundary. So the fix mirrors design 53's shape (run the
+body, then `if i == end break else i = i + 1`) rather than flipping the
+operator, and it lands with (a) `..=` added to corodiff's loop axis, so the
+harness can see this class at all, and (b) the sweep's nine rows as its test
+plan. Pinned by `examples/coro_for_inclusive_range_last_iteration.saw`.
+
+Deliberately NOT fixed inside design 225: it is a coroutine-transform bug found
+by an executor brief, and the `Int.max` question above is a real decision rather
+than a typo repair.
+
 ## DF-225g — SAFETY: `self.field[i] += v` inside a `&self` method writes
 ## the CALLER's storage silently, no diagnostic (filed Aug 15, doc-sync
 ## correctness scan round 2, LEAD-VERIFIED)

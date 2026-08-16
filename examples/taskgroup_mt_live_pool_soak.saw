@@ -1,0 +1,116 @@
+// design 225 unit 3 — the live pool under load: N producers, M consumers, and
+// main streaming results the whole time.
+//
+// Three producers push 100 values each into one channel; two consumers take
+// whatever they win, sum it and forward it on; main reads all 300 forwarded
+// values WHILE the pool runs, before joining anything. Five tasks over four
+// worker threads, so at least one is always waiting for a worker — which is the
+// state the claim/park/broadcast path has to get right, over and over, rather
+// than once.
+//
+// Three sums have to agree, and none of them depends on an interleaving: the
+// producers' total is 3 x (1+...+100), the consumers report between them what
+// they saw, and main reports what reached it. How the traffic SPLITS between
+// the two consumers is unspecified and nothing here looks at it — which is why
+// they stop on a sentinel rather than on a count. (A count split is the shape
+// this test was written with first, and it deadlocks by construction: the
+// consumer that loses the race waits for values its peer has already taken.)
+//
+// Every wait is bounded on the wall clock, so a scheduling bug that stalls the
+// pool fails this test in a few seconds with a message rather than hanging.
+// EXPECT: success
+// EXPECT-OUTPUT:
+// produced 15150
+// consumed 15150
+// main streamed 15150
+
+import std.channel.{Channel}
+import std.task.*
+import std.time.{Instant}
+
+static PER_PRODUCER: Int = 100
+static PRODUCERS: Int = 3
+static CONSUMERS: Int = 2
+static TOTAL: Int = 300
+static STOP: Int = -1
+static WAIT_MS: UInt64 = 10000
+
+// The exclusive form on purpose: `for i in 1..=PER_PRODUCER` in a driven body
+// silently drops its last iteration (DF-225m), which is what this test found.
+func produce(work: Channel<Int>) {
+    for i in 0..PER_PRODUCER {
+        work.send(i + 1)
+    }
+}
+
+// Take values until a sentinel arrives, summing and forwarding each one. Main
+// posts exactly one sentinel per consumer once every producer has finished, so
+// each consumer sees exactly one and no consumer can starve.
+func consume(work: Channel<Int>, out: Channel<Int>) -> Int {
+    var sum = 0
+    var running = true
+    while running {
+        let v = work.receive()
+        if v == STOP {
+            running = false
+        } else {
+            sum = sum + v
+            out.send(v)
+        }
+    }
+    return sum
+}
+
+// Main's own streaming read, bounded: a pool that stalls has to fail loudly
+// here instead of spinning until the harness kills it.
+func drain(out: Channel<Int>) unsafe -> Int {
+    var sum = 0
+    var got = 0
+    let start = Instant.now()
+    while got < TOTAL && start.elapsed().as_millis() < WAIT_MS {
+        if let v = out.try_receive() {
+            sum = sum + v
+            got = got + 1
+        } else {
+            yield_now()
+        }
+    }
+    if got < TOTAL {
+        print("main stalled after {} of {} values", got, TOTAL)
+    }
+    return sum
+}
+
+func main() {
+    let work = Channel<Int>()
+    let out = Channel<Int>()
+    var pool = TaskGroup(threads: 4)
+
+    var producers = Vector<VoidTaskHandle>()
+    for _ in 0..PRODUCERS {
+        producers.push(pool.spawn(produce(work.copy())))
+    }
+    let left = pool.spawn(consume(work.copy(), out.copy()))
+    let right = pool.spawn(consume(work.copy(), out.copy()))
+
+    // Main streams while the pool works — the whole point of the live pool, and
+    // a shape that could not be written before it.
+    let streamed = drain(out.copy())
+
+    while producers.len() > 0 {
+        if let ht = producers.pop() {
+            var h = move ht
+            h.join()
+        }
+    }
+    // Every producer is done, so nothing more will arrive: one sentinel per
+    // consumer retires the pair.
+    for _ in 0..CONSUMERS {
+        work.send(STOP)
+    }
+    let consumed = left.join() + right.join()
+
+    print("produced {}", PRODUCERS * (PER_PRODUCER * (PER_PRODUCER + 1) / 2))
+    print("consumed {}", consumed)
+    print("main streamed {}", streamed)
+}
