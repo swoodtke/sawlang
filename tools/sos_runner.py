@@ -126,6 +126,10 @@ UART_ECHO_NS16550_PKG = os.path.join(TESTS_DIR, "uart-echo-ns16550")
 UART_ECHO_PL011_PKG = os.path.join(TESTS_DIR, "uart-echo-pl011")
 IRQ_BADLINE_PKG = os.path.join(TESTS_DIR, "irq-badline")
 IRQ_EARLYACK_PKG = os.path.join(TESTS_DIR, "irq-earlyack")
+# The branch unit 4 did NOT change, pinned beside the one it did: with no line
+# bound, "nothing runnable" is still the deadlock the kernel has always
+# reported.
+WAIT_DEADLOCK_PKG = os.path.join(TESTS_DIR, "wait-deadlock")
 
 # What the harness types at the guest's serial port for the echo cases, and what
 # it then expects to read back out of it.
@@ -857,6 +861,29 @@ TEST_CASES = [
                        "SOS: process fault: object in the wrong state",
                        "SOS: process teardown handles={four} threads={one} "
                        "events={zero} waiters={zero} interrupts={one}"],
+        "expect_clean_exit": False,
+        "expect_status": EXIT_PROCESS_FAULT,
+    },
+    {
+        # NOTHING RUNNABLE, AND NOTHING THAT COULD EVER MAKE SOMETHING
+        # RUNNABLE. Unit 4 made this state conditional — with a bound IRQ line
+        # the kernel now idles instead of reporting — so the branch that did
+        # NOT change is pinned here, beside the echo case that proves the one
+        # that did. Without it, widening the idle rule could quietly swallow a
+        # real deadlock and turn every such bug into a harness timeout.
+        #
+        # It also protects an assumption `event_basics` relies on out loud: a
+        # wait there that stopped answering immediately would park the only
+        # thread in the system, and this is the report that makes that fail in
+        # microseconds rather than at the timeout.
+        "name": "wait_deadlock",
+        "src": os.path.join(KERNEL_DIR, "main.saw"),
+        "root_pkg": WAIT_DEADLOCK_PKG,
+        "expect_out": ["{banner}",
+                       "SOS deadlock: waiting for a signal nobody sends",
+                       "SOS: process fault: every thread blocked",
+                       "SOS: process teardown handles={five} threads={one} "
+                       "events={one} waiters={one} interrupts={zero}"],
         "expect_clean_exit": False,
         "expect_status": EXIT_PROCESS_FAULT,
     },
