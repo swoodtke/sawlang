@@ -15,6 +15,35 @@ line per brief + one per done-file), created with the next split.
 Next split (aug10-aug14 + INDEX.md) queued behind design 223's
 integration.
 
+## DF-229a — a selective import of a name a USER module does not have is
+## silently accepted (filed Aug 16, design 229 implementation)
+
+**OPEN.** `import m.{NoSuchThing}` on a user module compiles clean — no
+error, no warning, and the name simply never binds, so the failure surfaces
+later (or not at all, if nothing uses it). std has had the diagnostic since
+design 150 (```error: `OpenMode` is not defined in `std.file`, hint:
+available: File```); the user-module branch of `check_module`'s selective
+import just does not report the miss.
+
+Probe (`.build/scratch/probe_missing_selection.saw`, exit 0):
+```saw
+import d229mods.leaf.{Widget, NoSuchThing}
+func main() { print("{Widget(n: 1).n}") }
+```
+
+MECHANISM (obligation 4): the selective branch is a loop of
+`if <found in table X>: bind` arms with no `else` — a name matching none of
+struct/enum/function/static/trait falls off the end. The same shape hides two
+siblings, both UNPROBED: a selected name that IS in the module but is
+PRIVATE (each arm's `if sym.visibility == PUBLIC` has no else either), and a
+selected name that exists in a category the loop does not check. std's arm
+reports all three because it tests membership in a precomputed name set
+BEFORE dispatching on category, which is the shape the fix should take.
+
+Design 229 raises the stakes: a name the module imports but does not
+re-export now gets a precise refusal at the import, so the remaining silence
+reads as "that one is fine" when it is not.
+
 ## DF-225g — SAFETY: `self.field[i] += v` inside a `&self` method writes
 ## the CALLER's storage silently, no diagnostic (filed Aug 15, doc-sync
 ## correctness scan round 2, LEAD-VERIFIED)

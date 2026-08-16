@@ -425,8 +425,7 @@ class Namespace:
     # =========================================================================
     # Unified Resolution
     # =========================================================================
-
-    # =========================================================================
+    #
     # THE EXPORT GATE (design 229) — one predicate, named entry points.
     #
     # "Can an importer of module M reach the name X through M?" is a
@@ -436,17 +435,23 @@ class Namespace:
     #
     #   * `_resolve_parts` under `through_import=True` — THE qualified reach.
     #     Every `m.X`, every chain hop `m.q.X`, and every dotted `resolve()`
-    #     walk lands here; the typechecker's four member-access sites and its
-    #     two type-resolution sites all call `resolve(..., through_import=True)`
-    #     on the foreign namespace.
+    #     walk lands here; the typechecker's four member-access sites, its two
+    #     type-resolution sites and the qualified-trait lookup in
+    #     `registration.py` all call `resolve(..., through_import=True)` on the
+    #     foreign namespace, and the recursion sets it on each further hop.
     #   * `TypeChecker.check_module`'s glob and selective import branches — THE
     #     bare reach. A name M merely imports is not M's to hand on, so the copy
     #     skips it (glob) or refuses it with the teaching diagnostic
     #     (selective).
-    #   * `TypeChecker._cross_module_lookup` (typechecker/types.py) and
-    #     `_lookup_imported_function` (typechecker/expressions.py) — the two
-    #     bare-name fallbacks that scan imported namespaces for a name the
-    #     current one does not have.
+    #   * `TypeChecker._cross_module_lookup` (typechecker/types.py) and the
+    #     imported-function fallback in `_check_function_call`
+    #     (typechecker/expressions.py) — the two bare-name searches that scan
+    #     imported namespaces for a name the current one does not have.
+    #   * `TypeChecker._import_hiding`, which asks it of every module the file
+    #     imports so the DIAGNOSTIC can name the one that hid the name. Reached
+    #     from the design-194 written-type funnel (every position a type is
+    #     written) and from the two bare expression positions that write no
+    #     type — a struct init and a function call.
     #
     # A module's OWN view is never gated: `through_import` is False for the
     # namespace the code being checked lives in, which is what keeps design

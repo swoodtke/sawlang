@@ -4167,6 +4167,11 @@ class ExpressionsMixin:
                         expr.line, expr.column
                     )
                 return SawType(TypeKind.STRUCT, struct_name=expr.name)
+            # design 229: same teaching case as the struct-init path — a name a
+            # module this file imports has and does not re-export.
+            if self._report_bare_not_reexported(expr.name, expr.line,
+                                                expr.column):
+                return None
             self._error(
                 ErrorKind.UNDEFINED_FUNCTION,
                 f"undefined function `{expr.name}`",
@@ -6357,6 +6362,12 @@ class ExpressionsMixin:
             if fc is not None:
                 expr.as_function_call = fc
                 return self._check_function_call(fc)
+            # design 229: the name may be one a module this file imports has
+            # and does not hand on — a different mistake from an unknown name,
+            # and one with two fixes.
+            if self._report_bare_not_reexported(expr.struct_name, expr.line,
+                                                expr.column):
+                return None
             self._error(
                 ErrorKind.UNDEFINED_VARIABLE,
                 f"undefined struct `{expr.struct_name}`",
