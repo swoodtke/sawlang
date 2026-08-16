@@ -15,6 +15,17 @@ line per brief + one per done-file), created with the next split.
 Next split (aug10-aug14 + INDEX.md) queued behind design 223's
 integration.
 
+## SOS M3 — sketch AUTHORED (designs/232), scoping session PENDING
+
+M2 integrated + verified on main Aug 16. designs/232-sos-m3-sketch.md
+is the session's agenda: option A (the multiprocess kernel — Clock/
+Timer, CreateProcess, give/boot_handles, the ruled Memory/IoMemory
+surface, hard quotas; money shot = the echo driver as a CHILD launched
+from config) recommended over IPC-first; twelve agenda items, five
+lifted from 178's seed flags. The Aug-16 seed rounds in designs/178
+are RULINGS the session does not reopen. Unit 0 = the deferred M2
+spec-recap (§11), dispatchable separately. [178, 232]
+
 ## DF-229a — a selective import of a name a USER module does not have is
 ## silently accepted (filed Aug 16, design 229 implementation)
 
