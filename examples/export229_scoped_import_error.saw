@@ -1,0 +1,9 @@
+// Design 229: re-export is all-or-nothing. `public import` is the whole
+// spelling; a scoped visibility has nothing to scope on an import.
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: `public import` is the only re-export form
+public(package) import std.data
+
+func main() {
+    print("unreached")
+}

@@ -692,12 +692,21 @@ class Parser(ExpressionsMixin, StatementsMixin, DeclarationsMixin, TypeParsingMi
         elif self.match_ident("static_assert") and self.peek(1).type == TokenType.LPAREN:
             p.static_asserts.append(self.parse_static_assert())
         elif self.match(TokenType.PUBLIC):
-            # Could be public module or public declaration
+            # Could be public module, public import (design 229), or a public
+            # declaration.
             if self.peek(1).type == TokenType.IDENT and self.peek(1).value == "module":
                 p.module_decls.append(self.parse_module_decl())
+            elif self.peek(1).type == TokenType.IDENT and self.peek(1).value == "import":
+                self.advance()  # `public`
+                p.imports.append(self.parse_import(is_public=True))
             else:
                 # Parse visibility and then the declaration
                 visibility = self._parse_visibility()
+                if self.match_ident("import"):
+                    # design 229: re-export is all-or-nothing. A scoped
+                    # visibility on an import has no meaning to give it.
+                    self.error("`public import` is the only re-export form — "
+                               "a scoped visibility is not supported on an import")
                 unsafe = self._parse_unsafe_modifier()
                 if unsafe and not self.match(TokenType.STRUCT, TokenType.STATIC):
                     self._error_unsafe_prefix()
@@ -851,8 +860,13 @@ class Parser(ExpressionsMixin, StatementsMixin, DeclarationsMixin, TypeParsingMi
 
         return program
 
-    def parse_import(self) -> ImportDecl:
-        """Parse import declaration: import path.to.module or import path.{A, B}"""
+    def parse_import(self, is_public: bool = False) -> ImportDecl:
+        """Parse import declaration: import path.to.module or import path.{A, B}
+
+        `is_public` is design 229's re-export marker, set by the caller when the
+        line reads `public import`. Every form takes it — whole-module,
+        selective and glob — so each of the three `ImportDecl`s below carries it.
+        """
         start = self.current()
         self.expect_ident("import")
 
@@ -877,7 +891,8 @@ class Parser(ExpressionsMixin, StatementsMixin, DeclarationsMixin, TypeParsingMi
                     alias=None,
                     is_glob=True,
                     line=start.line,
-                    column=start.column
+                    column=start.column,
+                    is_public=is_public
                 )
 
             # Check for symbol set: import foo.{A, B as C} (design 53: per-symbol
@@ -932,7 +947,8 @@ class Parser(ExpressionsMixin, StatementsMixin, DeclarationsMixin, TypeParsingMi
                     is_glob=False,
                     line=start.line,
                     column=start.column,
-                    symbol_aliases=(symbol_aliases or None)
+                    symbol_aliases=(symbol_aliases or None),
+                    is_public=is_public
                 )
 
             # Regular path component
@@ -952,7 +968,8 @@ class Parser(ExpressionsMixin, StatementsMixin, DeclarationsMixin, TypeParsingMi
             alias=alias,
             is_glob=False,
             line=start.line,
-            column=start.column
+            column=start.column,
+            is_public=is_public
         )
 
     def parse_static_assert(self):

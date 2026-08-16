@@ -646,6 +646,11 @@ class ImportDecl:
     # local name, e.g. `import std.io.{Read as R}` -> {"Read": "R"}. A symbol
     # with no alias is absent here (imported under its own name).
     symbol_aliases: Optional[dict] = None
+    # `public import` (design 229): this import is RE-EXPORTED — what it binds
+    # joins this module's own surface, so an importer of this module reaches it
+    # through here. Legal on every form. False (the default) is the ordinary
+    # import, private to the module that writes it.
+    is_public: bool = False
 
 
 @dataclass

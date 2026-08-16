@@ -153,14 +153,17 @@ class ASTDumper:
             self._indent()
             for imp in prog.imports:
                 path = ".".join(imp.path)
+                # design 229: `public import` is a different declaration from
+                # `import` — it re-exports — so the dump has to show the marker.
+                vis = "public " if getattr(imp, 'is_public', False) else ""
                 if imp.is_glob:
-                    self._emit(f"import {path}.*")
+                    self._emit(f"{vis}import {path}.*")
                 elif imp.symbols:
-                    self._emit(f"import {path}.{{{', '.join(imp.symbols)}}}")
+                    self._emit(f"{vis}import {path}.{{{', '.join(imp.symbols)}}}")
                 elif imp.alias:
-                    self._emit(f"import {path} as {imp.alias}")
+                    self._emit(f"{vis}import {path} as {imp.alias}")
                 else:
-                    self._emit(f"import {path}")
+                    self._emit(f"{vis}import {path}")
             self._dedent()
             self._emit("]")
 
