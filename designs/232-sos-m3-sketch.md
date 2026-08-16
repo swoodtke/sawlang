@@ -160,37 +160,37 @@ everything ruled this week quietly assumes.
    child-relative word at any point. start() with NO boot_tag puts
    the no-handle word in a0 — the sandboxed compute process stays a
    feature. **DELIVERY IS THE RETRIEVAL OP, NOT A BOOTINFO
-   SECTION**: `self_process()` then `proc.boot_handles(&buffer)`, a
-   copy-out on the wait() funnel answering `{tag, kind, handle}`
-   records. A bootinfo section written into the address space would
+   SECTION**: a bootinfo section written into the address space would
    freeze a struct layout in raw memory as permanent ABI — the exact
    disease the vDSO discipline exists to prevent (seL4's BootInfo
    frame is the cautionary precedent; Zircon went message-based for
-   this reason) — where the copy-out record rides sysapi and evolves
-   with the kernel. **boot_handles IS ONE-SHOT (user amendment, Aug
-   16): the record is a MESSAGE, received once, not a queryable
-   table.** The words in it are launch-time truth — once the child
-   drops or (M4) gives a handle onward, a re-answer would hand back
-   words naming dead or reused slots, repeating something that
-   stopped being true. The first successful call CONSUMES the record
-   (the kernel may reclaim the give-tag bookkeeping — it tracked the
-   tags for DELIVERY, not as a registry; ownership of the
-   bookkeeping transfers to the child with the read); a SECOND call
-   FAULTS (the child knows it already read — broken code). This is
-   Zircon's processargs shape exactly: a one-shot message off the
-   bootstrap channel, with the copy-out funnel standing in for the
-   channel receive. Pinned details: on success the op returns the
-   TOTAL count (the child, sized statically from its own manifest,
-   asserts count == expected); an INSUFFICIENT buffer FAULTS rather
-   than consuming-and-truncating — a mismatch is a stale child build
-   or a root misconfiguration, both broken-configuration cases that
-   deserve loud, and a driver that cannot receive its handles is
-   doomed regardless (flagged alternative: a too-small call answers
-   the needed count WITHOUT consuming, a sizing probe — take it only
-   if grace beats loudness here); `give` AFTER start() is REFUSED in
-   v1 (the boot set freezes at start; dynamic transfer is M4 IPC's
-   job, over channels, to a process expecting it); the op lives on
-   Process, not System (the handles are process state).
+   this reason) — where a copy-out record rides sysapi and evolves
+   with the kernel. **THE OP IS AN ITERATOR (user, Aug 16, third
+   refinement — supersedes the batch-buffer + one-shot-call
+   shapes)**: `self_process()` then
+   `proc.next_boot_handle() -> BootHandleRecord?` — each successful
+   call hands out ONE `{tag, kind, handle}` record and CONSUMES it
+   (the kernel frees that entry's bookkeeping immediately — it
+   tracked tags for DELIVERY, not as a registry); EXHAUSTION IS
+   `None` AND STAYS `None` — asking again is a loop's termination
+   check, not broken code, so nothing here faults and nothing can be
+   lost or truncated. This dissolved the whole buffer question (no
+   capacity argument, no count protocol, no too-small policy) AND
+   the new kernel machinery: one record per call is exactly the
+   FIXED-SIZE record shape the wait() funnel already has — the
+   variable-length array copy-out is never built. Per-record
+   consumption is the no-stale-re-answer property at its natural
+   grain: a word handed out once is never re-answered after the
+   child drops or (M4) gives it onward. Records come back in give
+   order (deterministic for free; tags stay the identity, nothing
+   semantic rides on order), and the child asserts its drained count
+   against its manifest with no protocol owed. The child's boot
+   sequence is thereby literally a receive loop — the exact shape
+   M4's channel receive will have (Zircon's processargs message,
+   drained one record at a time). Unchanged: `give` AFTER start() is
+   REFUSED in v1 (the boot set freezes at start; dynamic transfer is
+   M4 IPC's job, over channels, to a process expecting it); the op
+   lives on Process, not System (the handles are process state).
 4. **Memory/IoMemory/MemoryMapping + map** — the ruled surface;
    SystemRights + stripping; manifest `devices = [names]` over root's
    board table; the M2 loader grant retired (its NAPOT/nGnRE
