@@ -79,3 +79,18 @@ flips from 100%-CPU hang to 0%-CPU park (unit A) and then to the report
 both lanes (executor state change); corodiff --all MT axis; soak case
 re-run; terminal full battery. STOP-DON'T-WORKAROUND doubly, as with
 225.
+
+## Named successor (noted Aug 16, unnumbered until scoped): CHANNEL SELECT
+
+The design-214 standing question resolves on this brief's substrate: once
+a wait is a park whose wake reason carries the channel's identity, a
+multi-channel park is the same mechanism with a list — park on
+{C1, C2, deadline}, wake with which-one. Ruled framing from the
+conversation: NO posix-select/epoll/kqueue wrapper ever — the reactor IS
+that wrapper and colorless tasks are its interface (the Go lesson);
+SELECT IS OVER CHANNELS ONLY, and everything heterogeneous (sockets,
+files, signals someday) adapts to channels via a pumping task. The
+timeout arm arrives free from ChannelError.TimedOut; the return shape
+should consult the SOS WaitResult { key, payload } — hosted select and
+the kernel Waiter converging on one vocabulary from both ends. Do not
+design it before this brief's park vocabulary is real.
