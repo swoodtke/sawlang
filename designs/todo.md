@@ -122,6 +122,49 @@ conditionless `while { guard let r = ... else { break } ... }`
 Result shape should be settled before the sugar's scope is pinned.
 Brief unauthored — author after 230 integrates.
 
+## Design 230 — channel waits become real parks (IN PROGRESS, Aug 16)
+
+Brief: `designs/230-channel-parks.md` (fully ruled). Units A (the park), B
+(the quiescent deadlock report, transferred from design 225 D-e) and C
+(explicit `close()` + `receive`/`send` -> `Result<T, ChannelError>`).
+Channel SELECT is the named successor and is NOT in scope.
+
+**Obligation-2 consumer sweep (run Aug 16, before any contract change).**
+`receive`/`send` -> `Result` and the new `close()` are behavioral-contract
+flips, so every holder of the old contract was enumerated first:
+
+- **Where channels are used at all:** `examples/` (~45 files) and
+  `devtools/dogfood/programs/` (3 files). `blade/`, `libs/`, `sos/`,
+  `sawc/rt/` and `tools/` have ZERO `std.Channel` use. (SOS's
+  `sos.Event.receive()` is a different type on the kernel's own wait/wake
+  ABI and already returns a `Result` — prior art, not a consumer.)
+- **`receive()` — ~50 call sites**, every one adapting to `try!`/`try`/
+  `match`. Two shapes are NOT a drop-in wrap and were re-authored rather
+  than sprinkled with `try!`: `K47_channel_receive_binding_and_try_heads`
+  receives from a `Channel<Int?>` into an `if let`/`guard let` head and from
+  a `Channel<Result<Int, Boom>>` into `try!` heads, so after the flip both
+  face a doubled wrapper (`Result<Int?, ChannelError>`,
+  `Result<Result<Int, Boom>, ChannelError>`) and need BOTH layers peeled.
+- **`send()` — ~45 call sites**, every one a bare statement today. Design
+  151 makes a discarded `Result` a compile error, so every one of them
+  becomes an error at the flip; adapted to `try!` where the failure is a
+  bug and `let _ =` only where the test is deliberately best-effort.
+- **Untouched surfaces:** `try_receive() -> T?` (9 sites),
+  `try_send() -> Result<Void, AllocError>` (1), `recv()` (1 site,
+  `examples/channel_pipeline.saw`) and `try_make()`. `recv()` is the
+  thread-blocking twin and out of the brief's scope; it gains only close
+  awareness (a closed, drained channel must not block its thread forever).
+- **Compiler side:** exactly ONE Channel-specific hook —
+  `typechecker/expressions.py` stamps `MethodCall.is_chan_recv`, consumed at
+  8 sites in `coro_transform.py` (the design-62 G3 inline lowering). That
+  is the funnel unit A's wake reason and unit C's `Result` both travel
+  through; nothing else in `sawc/` knows what a Channel is.
+- **Docs stating the old contract:** LANGUAGE_SPEC.md (two worked examples
+  plus the design-123 infallible-tier table), README.md (one worked
+  example), the saw-lang skill (the `recv`-vs-`receive` entry and the
+  narrow-hoist section). `TESTING.md` and `rt/ABI.md` say nothing about the
+  contract.
+
 ## DF-229a — a selective import of a name a USER module does not have is
 ## silently accepted (filed Aug 16, design 229 implementation)
 
@@ -246,7 +289,8 @@ fully ruled (park + quiescent report + explicit close() with
 `receive() -> Result<T, ChannelError>`); D-e's deliverable transferred
 there; the sender-count worry dissolved in the quiescent state and was
 CORRECTED for the per-channel case (unified Copy handles make roles
-uncountable — close() is the mechanism). Dispatches after 225 integrates.**
+uncountable — close() is the mechanism). Dispatches after 225 integrates.
+IN PROGRESS Aug 16 — see the design 230 entry at the top of this file.**
 
 ## DF-225m — SILENT WRONG ANSWER: an INCLUSIVE-range `for` in a suspending
 ## body drops its last iteration (filed Aug 16, found by design 225 unit 3's
