@@ -65,9 +65,10 @@ with `Closed`; `TimedOut` is the reserved next case — this is also the
 design-214 gap "receive-with-timeout on Channel" acquiring its surface,
 and the eventual timeout composes with the Clock/Timer M3 shape).
 `send()` follows the symmetric shape — `Result<Void, ChannelError>`,
-`Closed` when the receiver count is zero — recorded as the natural
-symmetric reading; the user may amend at dispatch if send-on-closed
-should differ. Consumer sweep is unit C's first step (every
+`Closed` after an explicit `close()` (NOT on any refcount — roles are
+uncountable with unified handles, the same correction unit C carries) —
+recorded as the natural symmetric reading; the user may amend at
+dispatch if send-on-closed should differ. Consumer sweep is unit C's first step (every
 receive/send call site in tree adapts — `try`/`try!`/match per the
 never-hide doctrine).
 
