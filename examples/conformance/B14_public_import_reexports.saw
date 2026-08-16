@@ -1,0 +1,26 @@
+// Conformance row B14 — `public import` re-exports, and a SELECTIVE one
+// publishes its names without publishing the qualifier beside them
+//
+// The control for B13, and the fence on the facade: `facade229` re-exports
+// `Header`, so the name reaches through it bare and qualified — while the
+// `wire229` qualifier it also binds for its own use stays unreachable, which
+// is what lets a module publish a curated few of a dependency's types.
+// COMPILE-FLAGS: --module-path wire229={TESTDIR}/modules/wire229 --module-path facade229={TESTDIR}/modules/facade229
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: `wire229` is not part of `facade229`'s surface
+// EXPECT-ERROR-CONTAINS: import `wire229` directly
+
+import facade229.{Header}
+import facade229
+
+// Re-exported: legal, both spellings.
+func tag_of(h: &Header) -> Int { h.tag }
+func tag_of_qualified(h: &facade229.Header) -> Int { h.tag }
+
+// Not re-exported: the qualifier the selective import bound for the facade.
+func through(h: &facade229.wire229.Header) -> Int { 0 }
+
+func main() {
+    let h = facade229.facade_make(tag: 4)
+    print("{tag_of(&h)} {tag_of_qualified(&h)}")
+}

@@ -1,0 +1,16 @@
+// Design 229: std is imported on the same terms as anything else. `wall` writes
+// `import std.data` for its own use, and that does not put `data` on its
+// surface — the prelude (design 82) is untouched, but nothing leaks through a
+// module that merely imported it.
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: `data` is not part of `export229_wall`'s surface
+// EXPECT-ERROR-CONTAINS: import `std.data` directly
+import modules.export229_wall
+
+func take(d: &export229_wall.data.Data) -> Int {
+    0
+}
+
+func main() {
+    print("{export229_wall.wall_make(n: 5).size}")
+}

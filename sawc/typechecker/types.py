@@ -439,6 +439,10 @@ class TypeUtilsMixin:
         for module_name, module_sym in self.namespace.modules.items():
             if not module_sym.namespace:
                 continue
+            # design 229: a module hands on its own surface. A name it merely
+            # imports is not found through it, bare any more than qualified.
+            if module_sym.namespace.hidden_import(name):
+                continue
             sym = lookup(module_sym.namespace)
             if sym is None or getattr(sym, 'visibility', None) == Visibility.PRIVATE:
                 continue
@@ -1423,19 +1427,32 @@ class TypeUtilsMixin:
                 simple_name = parts[-1]
                 module_parts = parts[:-1]
 
-                # Walk the module path to find the final namespace
+                # Walk the module path to find the final namespace. Design 229:
+                # every hop past the first reaches THROUGH a module, so a
+                # qualifier that module merely imported is not a hop this
+                # spelling may take.
                 current_ns = self.namespace
+                through_import = False
                 for part in module_parts:
+                    if through_import and current_ns.hidden_import(
+                            part, as_module=True):
+                        current_ns = None
+                        break
                     module_sym = current_ns.modules.get(part)
                     if module_sym and module_sym.namespace:
                         current_ns = module_sym.namespace
+                        through_import = True
                     else:
                         current_ns = None
                         break
 
                 if current_ns:
+                    # …and the name at the end of the walk is read off that
+                    # module's surface, not off what it merely imports.
                     symbol = current_ns.resolve(
-                        simple_name, check_visibility=True, accessor_module=self.namespace.module_path
+                        simple_name, check_visibility=True,
+                        accessor_module=self.namespace.module_path,
+                        through_import=through_import
                     )
                     if symbol:
                         # Design 144: the resolved reference carries the target's
@@ -1834,7 +1851,8 @@ class TypeUtilsMixin:
         if module_sym is None or not module_sym.namespace:
             return None
         return module_sym.namespace.resolve(
-            name, check_visibility=True, accessor_module=())
+            name, check_visibility=True, accessor_module=(),
+            through_import=True)
 
     def _qualified_enum_info(self, qualifier: str, name: str):
         """The enum `qualifier.name` names, or None."""

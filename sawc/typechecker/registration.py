@@ -2770,15 +2770,22 @@ class RegistrationMixin:
                 module_name, simple_trait_name = parts[0], parts[1]
                 module_sym = self.namespace.modules.get(module_name)
                 if module_sym and module_sym.namespace:
+                    # design 229: a trait reached through a module comes off
+                    # that module's surface like every other name.
                     trait_info = module_sym.namespace.resolve(
-                        simple_trait_name, check_visibility=True, accessor_module=self.namespace.module_path
+                        simple_trait_name, check_visibility=True,
+                        accessor_module=self.namespace.module_path,
+                        through_import=True
                     )
                     if trait_info is None or trait_info.kind != SymbolKind.TRAIT:
                         self._error(
                             ErrorKind.UNDEFINED_VARIABLE,
                             f"unknown trait `{trait_name}`",
                             extension.line, extension.column,
-                            hint=self._retired_trait_hint(trait_name)
+                            hint=(self._not_reexported_hint(
+                                      module_sym.namespace, simple_trait_name,
+                                      module_name)
+                                  or self._retired_trait_hint(trait_name))
                         )
                         continue
                 else:

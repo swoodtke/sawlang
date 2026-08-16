@@ -462,6 +462,8 @@ Claim source: spec 8 *Visibility* + *The prelude*; designs 80, 82, 142, 188 u7, 
 | B10 | two std FILES may each own one private type name (DF-153a) | `tools/test_std_private_type_names.py` | 204 — std-authoring-internal, so the vehicle is a compiler-level test, not a `.saw` row: it rebuilds the builtins over a std tree carrying a second private `State` and asserts both identities survive |
 | B11 | control: a user type named like a GATED std PUBLIC type (`IoError`, `File`) | `prelude_user_ioerror.saw` | 204 — the design-82 promise, already covered; listed here rather than copied |
 | B12 | control: a PRELUDE std type name stays reserved (`Vector`) | `B12_prelude_type_name_stays_reserved.saw` | 204 — the fence on the public surface: private-type freedom must not leak into it |
+| B13 | a name a module only IMPORTS is unreachable through it, in all four spellings (bare under a glob, `{X}` selection, `m.X`, chain `m.dep.X`) | `B13_import_is_not_reexport.saw` | 229 — was a DEVIATION (re-export was indiscriminate: everything a module imported was reachable through it, bare and qualified, at the same identity); private by default now |
+| B14 | control: `public import` re-exports, and a SELECTIVE one publishes its names without publishing the qualifier beside them | `B14_public_import_reexports.saw` | 229 — the fence on the facade: a curated re-export must not hand on the module it selected from |
 
 ## Integer width agreement
 

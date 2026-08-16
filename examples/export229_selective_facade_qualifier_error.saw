@@ -1,0 +1,16 @@
+// Design 229: a SELECTIVE `public import` hands on the names it listed and
+// nothing else. The qualifier it also binds is the facade's own convenience —
+// re-exporting that beside the names would hand on the whole dependency, which
+// is exactly what a selective facade exists to avoid.
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: `export229_leaf` is not part of `export229_facade`'s surface
+// EXPECT-ERROR-CONTAINS: import `modules.export229_leaf` directly
+import modules.export229_facade
+
+func limit(w: &export229_facade.export229_leaf.Widget) -> Int {
+    0
+}
+
+func main() {
+    print("{export229_facade.facade_make(n: 1).n}")
+}

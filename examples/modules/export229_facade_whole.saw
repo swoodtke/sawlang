@@ -1,0 +1,10 @@
+//! Design 229 fixture: the WHOLE-MODULE facade. It binds no bare name, so what
+//! it hands on is the qualifier — an importer reaches the dependency's surface
+//! through the chain.
+// EXPECT: skip
+
+public import modules.export229_leaf
+
+public func whole_make(n: Int) -> export229_leaf.Widget {
+    export229_leaf.leaf_make(n: n)
+}

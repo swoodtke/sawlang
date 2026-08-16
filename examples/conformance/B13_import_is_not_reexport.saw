@@ -1,0 +1,24 @@
+// Conformance row B13 — a name a module only IMPORTS is unreachable through it
+//
+// Design 229: an import is private. `wall229` imports `Header` from `wire229`
+// and declares nothing of it, so `Header` is not on `wall229`'s surface — and
+// reachability is the visibility chain, so all four spellings get the same
+// answer: the bare name under a glob, the `{X}` selection, the qualified
+// `wall229.Header`, and the chain `wall229.wire229.Header`.
+// COMPILE-FLAGS: --module-path wire229={TESTDIR}/modules/wire229 --module-path wall229={TESTDIR}/modules/wall229
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: `Header` is not part of `wall229`'s surface
+// EXPECT-ERROR-CONTAINS: `wire229` is not part of `wall229`'s surface
+// EXPECT-ERROR-CONTAINS: but not re-exported
+// EXPECT-ERROR-CONTAINS: import `wire229` directly
+
+import wall229.*
+import wall229.{Header}
+
+func bare(h: &Header) -> Int { 0 }
+func qualified(h: &wall229.Header) -> Int { 0 }
+func chained(h: &wall229.wire229.Header) -> Int { 0 }
+
+func main() {
+    print("{wall229.wall_seed()}")
+}

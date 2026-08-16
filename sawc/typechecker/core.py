@@ -1179,6 +1179,125 @@ class TypeChecker(ExpressionsMixin, StatementsMixin, RegistrationMixin, TypeUtil
                 f"(`import {path} as <name>`), or select `{member}` directly "
                 f"(`import {path}.{{{member}}}`)")
 
+    # ---------------------------------------------------------------- #
+    # Design 229's teaching case. A name refused because the module in hand
+    # only IMPORTS it is a different mistake from a name that does not exist,
+    # and it has two fixes — one at the module, one at the use site. Both are
+    # named, along with the dependency the name really lives in.
+    # ---------------------------------------------------------------- #
+    def _not_reexported_hint(self, source_ns, name, module_label
+                             ) -> Optional[str]:
+        """The hint for a reach `module_label` refuses under design 229, or
+        None when this is an ordinary missing name."""
+        if source_ns is None:
+            return None
+        origin = (source_ns.hidden_import(name)
+                  or source_ns.hidden_import(name, as_module=True))
+        if origin is None:
+            return None
+        return (f"`{name}` is imported by `{module_label}` but not re-exported "
+                f"— add `public import` in `{module_label}`, or import "
+                f"`{origin}` directly")
+
+    def _report_not_reexported(self, source_ns, name, module_label, at) -> bool:
+        """Report the refusal at `at` and return True, or return False when
+        `name` is not one design 229 hides."""
+        hint = self._not_reexported_hint(source_ns, name, module_label)
+        if hint is None:
+            return False
+        self._error(
+            ErrorKind.UNKNOWN_TYPE,
+            f"`{name}` is not part of `{module_label}`'s surface",
+            getattr(at, 'line', 0), getattr(at, 'column', 0),
+            hint=hint)
+        return True
+
+    def _import_hiding(self, name: str, as_module: bool = False):
+        """`(how this file spells the module, where the name really lives)` for
+        a module THIS file imports that binds `name` without re-exporting it.
+
+        The use-site half of design 229's diagnostic: the reader wrote a name
+        that a module they can see does have, and needs to be told that seeing
+        it is not reaching it. Both import shapes are searched — the qualifier
+        forms through `modules`, the glob form through `glob_sources`, which
+        binds no qualifier and would otherwise be unable to speak."""
+        ns = self.namespace
+        for qualifier, module_sym in ns.modules.items():
+            source_ns = getattr(module_sym, 'namespace', None)
+            if source_ns is None:
+                continue
+            origin = source_ns.hidden_import(name, as_module=as_module)
+            if origin is not None:
+                return (qualifier, origin)
+        for label, source_ns in getattr(ns, 'glob_sources', ()):
+            origin = source_ns.hidden_import(name, as_module=as_module)
+            if origin is not None:
+                return (label, origin)
+        return None
+
+    def _names_a_type_here(self, name: str) -> bool:
+        """Whether `name` already denotes a type in this module's own view."""
+        ns = self.namespace
+        if name in ns.directly_accessible:
+            return True
+        module = self._type_lookup_module()
+        return any(lookup(name, module) is not None
+                   for lookup in (ns.lookup_struct, ns.lookup_enum,
+                                  ns.lookup_trait, ns.lookup_type_alias))
+
+    def _report_bare_not_reexported(self, name: str, line: int,
+                                    column: int) -> bool:
+        """design 229 in a BARE position: the name is nowhere in this module's
+        view, and a module it imports is the reason. Returns True (and reports)
+        when that is what happened."""
+        if self._names_a_type_here(name):
+            return False
+        found = self._import_hiding(name)
+        if found is None:
+            return False
+        module_label, origin = found
+        self._error(
+            ErrorKind.UNKNOWN_TYPE,
+            f"`{name}` is not part of `{module_label}`'s surface",
+            line, column,
+            hint=f"`{name}` is imported by `{module_label}` but not "
+                 f"re-exported — add `public import` in `{module_label}`, or "
+                 f"import `{origin}` directly")
+        return True
+
+    def _report_qualified_not_reexported(self, written, line: int,
+                                         column: int) -> bool:
+        """design 229 in a QUALIFIED position: `mid.Widget`, or a chain hop
+        `mid.leaf.Widget`. Walks the qualifiers from this file's own view — the
+        first hop is this module's business, every hop after it reaches THROUGH
+        a module — and reports the first one the wall refuses."""
+        parts = written.split('.')
+        current_ns = self.namespace
+        through_import = False
+        for i, part in enumerate(parts):
+            last = (i == len(parts) - 1)
+            if through_import:
+                origin = current_ns.hidden_import(part, as_module=not last)
+                if origin is not None:
+                    label = '.'.join(parts[:i])
+                    self._error(
+                        ErrorKind.UNKNOWN_TYPE,
+                        f"`{part}` is not part of `{label}`'s surface",
+                        line, column,
+                        hint=f"`{part}` is imported by `{label}` but not "
+                             f"re-exported — add `public import` in `{label}`, "
+                             f"or import `{origin}` directly")
+                    return True
+            if last:
+                return False
+            module_sym = current_ns.modules.get(part)
+            source_ns = getattr(module_sym, 'namespace', None)
+            if source_ns is None:
+                return False
+            current_ns = source_ns
+            through_import = True
+        return False
+
     def _bind_module_qualifier(self, ns, imp, alias, path, source_ns):
         """Bind `alias` as a module qualifier in `ns` (design 150 pins 1, 3, 5).
 
@@ -1292,7 +1411,15 @@ class TypeChecker(ExpressionsMixin, StatementsMixin, RegistrationMixin, TypeUtil
                 hint="std modules are: " + ", ".join(sorted(file_symbols)))
             return None
 
+        # design 229: std is imported on the same terms as anything else — an
+        # ordinary `import std.data` is this file's, and only `public import`
+        # hands it on. The source path recorded is the one a reader would write.
+        std_source = "std." + leaf
+        is_public_import = bool(getattr(imp, 'is_public', False))
+
         def _expose(name, local):
+            if not is_public_import:
+                ns.note_private_import(local, std_source)
             # Register an aliased copy so the local name resolves to the symbol
             # (unaliased just un-gates the already-merged symbol).
             if local != name:
@@ -1347,9 +1474,14 @@ class TypeChecker(ExpressionsMixin, StatementsMixin, RegistrationMixin, TypeUtil
         # last path segment as a qualifier (`as Y` overrides). The glob form does
         # not, exactly as a user-module glob does not — it gave you the names.
         if not is_glob:
+            std_alias = getattr(imp, 'alias', None) or path[-1]
+            # design 229: the qualifier is re-exported by the whole-module form
+            # only; a selective import's qualifier stays this file's own (see
+            # the user-module branch of `check_module` for the reasoning).
+            if not is_public_import or imp.symbols:
+                ns.note_private_import(std_alias, std_source, as_module=True)
             self._bind_module_qualifier(
-                ns, imp,
-                alias=getattr(imp, 'alias', None) or path[-1],
+                ns, imp, alias=std_alias,
                 path=["std"] + path[1:],
                 source_ns=self._std_leaf_namespace(leaf, builtin_namespace))
         return leaf
@@ -1545,9 +1677,23 @@ class TypeChecker(ExpressionsMixin, StatementsMixin, RegistrationMixin, TypeUtil
         would print the same diagnostic three times.
         """
         name = saw_type.written_name
-        if not name or '.' in name:
+        if not name:
             return
         if self._gate_exempt():
+            return
+        if '.' in name:
+            # design 229 rides this funnel for the QUALIFIED spelling: the
+            # prelude has nothing to say about `mid.Widget`, but the export wall
+            # does, and every written type position passes through here.
+            if self._vis_module_for_source(saw_type.written_file)[:1] == ("<std>",):
+                return
+            key = (saw_type.written_file, name,
+                   saw_type.written_line, saw_type.written_column)
+            if key in self._gate_reported:
+                return
+            self._gate_reported.add(key)
+            self._report_qualified_not_reexported(
+                name, saw_type.written_line, saw_type.written_column)
             return
         # std's own declarations are REGISTERED inside a user compile — an
         # `import std.file.*` carries std.file's signatures along, and those name
@@ -1561,8 +1707,13 @@ class TypeChecker(ExpressionsMixin, StatementsMixin, RegistrationMixin, TypeUtil
         if key in self._gate_reported:
             return
         self._gate_reported.add(key)
-        self._std_name_gated(name, saw_type.written_line,
-                             saw_type.written_column)
+        if self._std_name_gated(name, saw_type.written_line,
+                                saw_type.written_column):
+            return
+        # design 229: not a gated std name — but perhaps a name a module this
+        # file imports has, and does not hand on.
+        self._report_bare_not_reexported(name, saw_type.written_line,
+                                         saw_type.written_column)
 
     def _vis_word(self, visibility: Visibility) -> str:
         return {
@@ -2217,6 +2368,14 @@ class TypeChecker(ExpressionsMixin, StatementsMixin, RegistrationMixin, TypeUtil
         # transitive dependency injects nothing.
         direct_imports: Set[Tuple[str, ...]] = set()
 
+        # Design 229: what an ordinary import binds here is this module's own
+        # business. `_note_import` records each binding against the path it came
+        # from unless the line said `public import`, and `Namespace.
+        # hidden_import` is what every reach from an importer then consults.
+        def _note_import(imp, name, source, as_module=False):
+            if not getattr(imp, 'is_public', False):
+                ns.note_private_import(name, source, as_module=as_module)
+
         # Process imports - register imported modules in this namespace
         for imp in getattr(module_ast, 'imports', []):
             imp_path = tuple(imp.path)
@@ -2247,30 +2406,41 @@ class TypeChecker(ExpressionsMixin, StatementsMixin, RegistrationMixin, TypeUtil
                 if base_path in checked_modules:
                     source_ast, source_ns = checked_modules[base_path]
                     glob_label = '.'.join(base_path) if base_path else "<entry>"
+                    ns.glob_sources.append((glob_label, source_ns))
+                    # Design 229: the glob takes the module's SURFACE — what it
+                    # declares public plus what it re-exports — never a name it
+                    # merely imports.
+                    def _glob_takes(nm):
+                        return source_ns.hidden_import(nm) is None
                     for name, ident, sym in source_ns.iter_structs():
-                        if sym.visibility == Visibility.PUBLIC:
+                        if sym.visibility == Visibility.PUBLIC and _glob_takes(name):
                             ns.register_struct(name, sym, source_label=glob_label)
                             ns.make_accessible(name)
+                            _note_import(imp, name, glob_label)
                             _import_conformances(ident, ident, source_ns)
                     for name, ident, sym in source_ns.iter_enums():
-                        if sym.visibility == Visibility.PUBLIC:
+                        if sym.visibility == Visibility.PUBLIC and _glob_takes(name):
                             ns.register_enum(name, sym, source_label=glob_label)
                             ns.make_accessible(name)
+                            _note_import(imp, name, glob_label)
                             _import_conformances(ident, ident, source_ns)
                     for name, sym in source_ns.functions.items():
-                        if sym.visibility == Visibility.PUBLIC:
+                        if sym.visibility == Visibility.PUBLIC and _glob_takes(name):
                             if name not in ns.functions:
                                 ns.register_function(name, sym)
                             ns.make_accessible(name)
+                            _note_import(imp, name, glob_label)
                     for name, _ident, sym in source_ns.iter_traits():
-                        if sym.visibility == Visibility.PUBLIC:
+                        if sym.visibility == Visibility.PUBLIC and _glob_takes(name):
                             ns.register_trait(name, sym, source_label=glob_label)
                             ns.make_accessible(name)
+                            _note_import(imp, name, glob_label)
                     for name, sym in source_ns.statics.items():
-                        if sym.visibility == Visibility.PUBLIC:
+                        if sym.visibility == Visibility.PUBLIC and _glob_takes(name):
                             if name not in ns.statics:
                                 ns.register_static(name, sym)
                             ns.make_accessible(name)
+                            _note_import(imp, name, glob_label)
             elif imp.symbols:
                 # import foo.{A, B} -> copy specific symbols to local namespace
                 direct_imports.add(imp_path)
@@ -2285,6 +2455,13 @@ class TypeChecker(ExpressionsMixin, StatementsMixin, RegistrationMixin, TypeUtil
                         # Copy the symbol from source to local namespace
                         sel_label = ('.'.join(imp_path) if imp_path
                                      else "<entry>")
+                        # Design 229: selecting a name the source module only
+                        # imports is refused HERE, at the import, where the fix
+                        # (either fix) can be stated.
+                        if self._report_not_reexported(
+                                source_ns, sym_name, sel_label, imp):
+                            continue
+                        _note_import(imp, local, sel_label)
                         sel_struct = source_ns.lookup_struct(sym_name)
                         sel_enum = (None if sel_struct is not None
                                     else source_ns.lookup_enum(sym_name))
@@ -2331,19 +2508,31 @@ class TypeChecker(ExpressionsMixin, StatementsMixin, RegistrationMixin, TypeUtil
                                                   source_label=sel_label)
                                 ns.make_accessible(local)
                     # The selective form ALSO binds the qualifier, for reaching
-                    # the names it did not select (design 150 pin 3).
+                    # the names it did not select (design 150 pin 3). That
+                    # qualifier is this module's convenience and stays private
+                    # even under `public import` (design 229): a selective
+                    # re-export hands on the names it NAMED, and re-exporting
+                    # the qualifier beside them would hand on the whole module.
+                    sel_alias = (imp.alias or (imp.path[-1] if imp.path else ""))
+                    ns.note_private_import(sel_alias, '.'.join(imp_path),
+                                           as_module=True)
                     self._bind_module_qualifier(
-                        ns, imp,
-                        alias=(imp.alias or (imp.path[-1] if imp.path else "")),
+                        ns, imp, alias=sel_alias,
                         path=list(imp_path), source_ns=source_ns)
             else:
                 # import foo.bar -> register module for qualified access
                 direct_imports.add(imp_path)
                 if imp_path in checked_modules:
                     _, source_ns = checked_modules[imp_path]
+                    # design 229: the whole-module form binds no bare name, so
+                    # its QUALIFIER is what `public import` re-exports — an
+                    # importer of this module then reaches the dependency's
+                    # surface through the chain.
+                    whole_alias = (imp.alias or (imp.path[-1] if imp.path else ""))
+                    _note_import(imp, whole_alias, '.'.join(imp_path),
+                                 as_module=True)
                     self._bind_module_qualifier(
-                        ns, imp,
-                        alias=(imp.alias or (imp.path[-1] if imp.path else "")),
+                        ns, imp, alias=whole_alias,
                         path=list(imp_path), source_ns=source_ns)
 
         # Handle external module declarations (`module foo`)

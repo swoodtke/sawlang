@@ -1,0 +1,15 @@
+// Design 229: the qualifier a module binds for its own use is not a hop an
+// importer may take. `wall` imports `export229_leaf`; reaching through the
+// chain is the same reach under a longer spelling.
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: `export229_leaf` is not part of `export229_wall`'s surface
+// EXPECT-ERROR-CONTAINS: import `modules.export229_leaf` directly
+import modules.export229_wall
+
+func size_of(w: &export229_wall.export229_leaf.Widget) -> Int {
+    0
+}
+
+func main() {
+    print("{export229_wall.wall_make(n: 4).size}")
+}

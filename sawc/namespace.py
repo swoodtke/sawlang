@@ -377,6 +377,22 @@ class Namespace:
         # label is supplied; used to name both sides of an ambiguity.
         self._provenance: Dict[str, str] = {}
 
+        # --- EXPORT CONTROL (design 229) -------------------------------------
+        # An import is PRIVATE BY DEFAULT. What an ordinary `import` binds here
+        # is this module's to use and nobody else's: an importer of this module
+        # reaches the names it DECLARES public and the ones it re-exports with
+        # `public import`, and nothing more. These two tables are what an
+        # ordinary import bound — the bare names, and the module qualifiers —
+        # each mapped to the path it came from, so a refused reach can name the
+        # dependency the reader should import directly.
+        self.import_private_names: Dict[str, str] = {}
+        self.import_private_modules: Dict[str, str] = {}
+        # The glob imports this namespace was built from: (label, source
+        # namespace). A glob binds no qualifier, so `modules` does not record it
+        # — and a bare name refused because the globbed module only imports it
+        # would otherwise have no way to say so.
+        self.glob_sources: List[Tuple[str, 'Namespace']] = []
+
         # --- the import gate's tables, wired in from outside (design 194 u1) --
         # Filled by `sawc.py` on the BUILTIN namespace once std has been parsed,
         # and read from there by the gate. They live on the namespace because
@@ -410,9 +426,58 @@ class Namespace:
     # Unified Resolution
     # =========================================================================
 
+    # =========================================================================
+    # THE EXPORT GATE (design 229) — one predicate, named entry points.
+    #
+    # "Can an importer of module M reach the name X through M?" is a
+    # position-quantified rule: it has to hold at every spelling that crosses a
+    # module boundary. There is one decision procedure, `hidden_import`, and it
+    # is asked from exactly these places:
+    #
+    #   * `_resolve_parts` under `through_import=True` — THE qualified reach.
+    #     Every `m.X`, every chain hop `m.q.X`, and every dotted `resolve()`
+    #     walk lands here; the typechecker's four member-access sites and its
+    #     two type-resolution sites all call `resolve(..., through_import=True)`
+    #     on the foreign namespace.
+    #   * `TypeChecker.check_module`'s glob and selective import branches — THE
+    #     bare reach. A name M merely imports is not M's to hand on, so the copy
+    #     skips it (glob) or refuses it with the teaching diagnostic
+    #     (selective).
+    #   * `TypeChecker._cross_module_lookup` (typechecker/types.py) and
+    #     `_lookup_imported_function` (typechecker/expressions.py) — the two
+    #     bare-name fallbacks that scan imported namespaces for a name the
+    #     current one does not have.
+    #
+    # A module's OWN view is never gated: `through_import` is False for the
+    # namespace the code being checked lives in, which is what keeps design
+    # 229 a rule about what flows THROUGH a module rather than what it sees.
+    # =========================================================================
+
+    def hidden_import(self, name: str, as_module: bool = False) -> Optional[str]:
+        """The path `name` was imported from, when THIS module merely imports it.
+
+        Returns the source path (`std.file`, `dep.wire`) for a name an ordinary
+        `import` bound here — the reach an importer must be refused, and the
+        dependency the diagnostic tells them to import directly. None when the
+        name is this module's own, was re-exported with `public import`, or is
+        not bound here at all.
+
+        `as_module` asks the question of a module QUALIFIER instead of a bare
+        name; the two live in different tables and a program may legitimately
+        use one spelling for both.
+        """
+        table = self.import_private_modules if as_module else self.import_private_names
+        return table.get(name)
+
+    def note_private_import(self, name: str, source: str, as_module: bool = False):
+        """Record that an ordinary (non-`public`) import bound `name` here."""
+        table = self.import_private_modules if as_module else self.import_private_names
+        table.setdefault(name, source)
+
     def resolve(self, path: str, check_access: bool = True,
                 check_visibility: bool = False,
-                accessor_module: Optional[Tuple[str, ...]] = None) -> Optional['Symbol']:
+                accessor_module: Optional[Tuple[str, ...]] = None,
+                through_import: bool = False) -> Optional['Symbol']:
         """
         Resolve a symbol path to its definition.
 
@@ -423,16 +488,20 @@ class Namespace:
             check_access: If True, verify the symbol is accessible (respects imports)
             check_visibility: If True, check visibility rules for cross-module access
             accessor_module: The module path of the code doing the lookup (for visibility)
+            through_import: True when the lookup reaches INTO this namespace
+                from a module that imports it — design 229's export gate, above.
 
         Returns:
             The resolved Symbol, or None if not found or not accessible
         """
         parts = path.split('.') if '.' in path else [path]
-        return self._resolve_parts(parts, check_access, check_visibility, accessor_module)
+        return self._resolve_parts(parts, check_access, check_visibility,
+                                   accessor_module, through_import)
 
     def _resolve_parts(self, parts: List[str], check_access: bool = True,
                        check_visibility: bool = False,
-                       accessor_module: Optional[Tuple[str, ...]] = None) -> Optional['Symbol']:
+                       accessor_module: Optional[Tuple[str, ...]] = None,
+                       through_import: bool = False) -> Optional['Symbol']:
         """Resolve a list of path components to a symbol.
 
         Args:
@@ -440,12 +509,20 @@ class Namespace:
             check_access: If True, verify the symbol is directly accessible (import checking)
             check_visibility: If True, check visibility rules for cross-module access
             accessor_module: The module path of the code doing the lookup
+            through_import: See `resolve`. Set on every hop INTO a module's
+                namespace, so a chain (`m.q.X`) is gated at each level.
         """
         if not parts:
             return None
 
         name = parts[0]
         remaining = parts[1:]
+
+        # Design 229: this namespace belongs to a module someone else imports,
+        # and `name` is one that module merely imports itself. It is not part of
+        # the surface, under either spelling.
+        if through_import and self.hidden_import(name, as_module=bool(remaining)):
+            return None
 
         # If there are remaining parts, first component must be a module
         if remaining:
@@ -462,10 +539,13 @@ class Namespace:
                     ):
                         return None  # Module not visible
                 if module.namespace:
-                    # Cross-module access - check visibility with accessor context
+                    # Cross-module access - check visibility with accessor
+                    # context, and the design-229 export gate: everything past
+                    # the first hop is being reached THROUGH a module.
                     return module.namespace._resolve_parts(
                         remaining, check_access=False, check_visibility=True,
-                        accessor_module=accessor_module or self.module_path
+                        accessor_module=accessor_module or self.module_path,
+                        through_import=True
                     )
             return None
 

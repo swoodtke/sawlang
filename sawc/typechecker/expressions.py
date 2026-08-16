@@ -4091,6 +4091,9 @@ class ExpressionsMixin:
             from namespace import SymbolKind
             for module_name, module_sym in self.namespace.modules.items():
                 if module_sym.namespace:
+                    # design 229: not through a module that merely imports it.
+                    if module_sym.namespace.hidden_import(expr.name):
+                        continue
                     sym = module_sym.namespace.lookup_function(expr.name)
                     if sym and sym.visibility == Visibility.PUBLIC:
                         self._error(
@@ -5828,13 +5831,17 @@ class ExpressionsMixin:
                 if inner_module_sym and inner_module_sym.namespace:
                     from namespace import SymbolKind
                     symbol = inner_module_sym.namespace.resolve(
-                        expr.member, check_visibility=True, accessor_module=()
+                        expr.member, check_visibility=True, accessor_module=(),
+                        through_import=True
                     )
                     if symbol is None:
                         self._error(
                             ErrorKind.UNDEFINED_VARIABLE,
                             f"module `{obj_type.module_name}` has no symbol `{expr.member}`",
-                            expr.line, expr.column
+                            expr.line, expr.column,
+                            hint=self._not_reexported_hint(
+                                inner_module_sym.namespace, expr.member,
+                                obj_type.module_name)
                         )
                         return None
                     if symbol.kind == SymbolKind.STRUCT:
@@ -5911,13 +5918,17 @@ class ExpressionsMixin:
             if module_sym and module_sym.namespace:
                 from namespace import SymbolKind
                 symbol = module_sym.namespace.resolve(
-                    expr.member, check_visibility=True, accessor_module=()
+                    expr.member, check_visibility=True, accessor_module=(),
+                    through_import=True
                 )
                 if symbol is None:
                     self._error(
                         ErrorKind.UNDEFINED_VARIABLE,
                         f"module `{expr.object.name}` has no symbol `{expr.member}`",
-                        expr.line, expr.column
+                        expr.line, expr.column,
+                        hint=self._not_reexported_hint(
+                            module_sym.namespace, expr.member,
+                            expr.object.name)
                     )
                     return None
                 if symbol.kind == SymbolKind.STATIC:
@@ -8495,13 +8506,17 @@ class ExpressionsMixin:
                     symbol = inner_module_sym.namespace.resolve(
                         expr.method_name,
                         check_visibility=True,
-                        accessor_module=self.namespace.module_path
+                        accessor_module=self.namespace.module_path,
+                        through_import=True
                     )
                     if symbol is None:
                         self._error(
                             ErrorKind.UNDEFINED_FUNCTION,
                             f"module `{obj_type.module_name}` has no function `{expr.method_name}`",
-                            expr.line, expr.column
+                            expr.line, expr.column,
+                            hint=self._not_reexported_hint(
+                                inner_module_sym.namespace, expr.method_name,
+                                obj_type.module_name)
                         )
                         return None
                     if symbol.kind == SymbolKind.FUNCTION:
@@ -8532,13 +8547,17 @@ class ExpressionsMixin:
                 symbol = module_sym.namespace.resolve(
                     expr.method_name,
                     check_visibility=True,
-                    accessor_module=self.namespace.module_path
+                    accessor_module=self.namespace.module_path,
+                    through_import=True
                 )
                 if symbol is None:
                     self._error(
                         ErrorKind.UNDEFINED_FUNCTION,
                         f"module `{expr.object.name}` has no function `{expr.method_name}`",
-                        expr.line, expr.column
+                        expr.line, expr.column,
+                        hint=self._not_reexported_hint(
+                            module_sym.namespace, expr.method_name,
+                            expr.object.name)
                     )
                     return None
                 if symbol.kind == SymbolKind.FUNCTION:

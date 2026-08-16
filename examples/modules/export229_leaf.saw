@@ -1,0 +1,27 @@
+//! Design 229 fixture: the module a wall and a facade both depend on. Nothing
+//! here is unusual — a public type, a public function, a public trait and a
+//! public static, so every table the export gate touches has a row.
+// EXPECT: skip
+
+public struct Widget {
+    public n: Int
+}
+
+public trait Labeled {
+    func label(&self) -> Int
+}
+
+public extension Widget: Labeled {
+    public func label(&self) -> Int { self.n }
+}
+
+public extension Widget {
+    // Inherent API: in scope wherever a `Widget` reaches, re-exported or not.
+    public func doubled(&self) -> Int { self.n * 2 }
+}
+
+public func leaf_make(n: Int) -> Widget {
+    Widget(n: n)
+}
+
+public static LEAF_LIMIT: Int = 9

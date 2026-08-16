@@ -1,0 +1,20 @@
+//! Design 229 fixture: a module that USES `export229_leaf` and hands none of it
+//! on. Its own view is the full one — it names `Widget` bare and reaches the
+//! rest through the `export229_leaf` qualifier — and an importer of this module
+//! gets `wall_make` and nothing else.
+// EXPECT: skip
+
+import modules.export229_leaf.{Widget, leaf_make}
+import std.data
+
+public struct Frame {
+    public size: Int
+}
+
+public func wall_make(n: Int) -> Frame {
+    // The module's own view of its imports is untouched by design 229.
+    let w: Widget = leaf_make(n: n)
+    var d = data.Data()
+    d.push(1)
+    Frame(size: w.n + d.len())
+}
