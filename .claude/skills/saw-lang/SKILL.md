@@ -1208,7 +1208,9 @@ func main() {
     print(a.join())        // structured join; group Deinit drains children
 }
 sleep(Duration.ms(200))     // cooperative; sync is the CHECKED negative effect
-ch.receive()                // cooperative channel receive (blocking twin: recv)
+try! ch.receive()           // cooperative receive -> Result<T, ChannelError>
+try! ch.send(1)             // ...and so do send/close (blocking twin: recv)
+let _ = ch.close()          // the producer says it is finished; idempotent
 handle.cancel(); if cancelled() { ... }   // cooperative cancellation
 dump_tasks()                // every live task's logical backtrace (std.task)
 ```
@@ -1305,8 +1307,51 @@ dump_tasks()                // every live task's logical backtrace (std.task)
   cooperative TaskGroup engine — don't mix per task. `Channel.recv` from a task is
   the worst version of mixing them: the block is unbounded and the thread it stops
   is the EXECUTOR's, so every sibling stops too — including the task that would
-  have sent the value, which turns the wait into a group deadlock. Use `receive`
-  (drop-in). Nothing rejects the call today (DF-181c).
+  have sent the value, which turns the wait into a group deadlock. Use `receive`.
+  Nothing rejects the call today (DF-181c).
+- **A CHANNEL WAIT IS A PARK, AND CHANNELS CLOSE EXPLICITLY (design 230).**
+  `receive() -> Result<T, ChannelError>`, `send`/`close ->
+  Result<Void, ChannelError>`, `enum ChannelError { case Closed }` (a receive
+  TIMEOUT is the reserved next case). The park is the mechanical half: a waiting
+  receiver costs 0% CPU and is woken by a send or a close ON ITS OWN CHANNEL —
+  before 230 it suspended READY and a sole waiter burned 100% of a core, so treat
+  a quiet channel wait as working now and SUSPECT in older builds.
+  `close()` is the part you have to WRITE. A handle carries no sender/receiver
+  role — every handle is the same handle, and a waiting receiver holds one too —
+  so nothing can work out that the producers are gone. Say so:
+  ```saw
+  func produce(orders: Channel<Order>, batch: Vector<Order>) {
+      for order in batch.iter() { try! orders.send(order) }
+      try! orders.close()              // ANY holder may; by convention the producer
+  }
+  func consume(orders: Channel<Order>) -> Int {
+      var handled = 0
+      var going = true
+      while going {
+          match orders.receive() {
+              case Ok(order) -> { fulfil(order)  handled = handled + 1 },
+              case Err(_) -> { going = false }   // closed AND drained
+          }
+      }
+      return handled
+  }
+  ```
+  Rules worth holding: close DRAINS first (a receive hands out everything already
+  queued before it reports `Closed`, so closing mid-flight loses nothing); a send
+  after close is `Err(Closed)` and does not enqueue; a SECOND close is
+  `Err(Closed)`, not a panic, so a lost race is `let _ =`-able without being
+  silent; there is NO automatic close at last-handle drop (that is the same
+  uncountability restated). Two more, easy to trip on: `try_send` PANICS on a
+  closed channel (one error slot, and the allocator owns it — DQ-230b), and
+  `receive` does NOT observe cancellation (DF-230a) — a cancellable wait is still
+  the hand-rolled `try_receive()` + `if cancelled()` loop.
+  FORGETTING `close()` IS A DEADLOCK, and the executor reports it instead of
+  hanging: every live task parked on a channel, nothing runnable, no io, no timer
+  and no unjoined `spawn {}` task means nothing can ever run, so the program
+  panics with `dump_tasks()` attached and each waiter marked `channel-parked`.
+  It is decided by elimination, never by watching a task fail to progress —
+  design 127's op budget makes a long computation present exactly like a
+  permanent wait.
 - Cooperative net (design 84, std.net, hosted-only): use the SAFE OWNING TYPES —
   `TcpListener` and `TcpStream` (both NoCopy, `Deinit` closes the fd exactly once).
   NO raw fds, NO pointers, NO `io_wait` in your code — suspension is hidden INSIDE
@@ -1597,10 +1642,12 @@ dump_tasks()                // every live task's logical backtrace (std.task)
   construct evaluates outside all of its blocks: an `if`/`while` CONDITION, a
   `for` RANGE (either endpoint), a `match` SCRUTINEE, an `if let`/`guard let`
   SUBJECT, and an `&&`/`||` RHS inside any of them. A `while` condition suspends
-  once per ITERATION, where it is written, so `while ch.receive() > 0 { … }`
+  once per ITERATION, where it is written, so `while try! ch.receive() > 0 { … }`
   drains a channel and a `continue` re-evaluates it. A compound assignment's RHS
   (`n += slow()`, and its chained spelling `x?.n += slow()`) and a
-  `return ch.receive()` take the same rewrite. Every one of these was neither
+  `return try! ch.receive()` take the same rewrite. (The `try!` is design 230's:
+  a receive answers `Result<T, ChannelError>`, and a `try!` subject is itself one
+  of these positions, so the two hoists compose.) Every one of these was neither
   embedded nor refused until Aug 15 — a channel receive SPUN at 100% CPU and
   never returned, a free function or method was a codegen ICE — so treat them as
   working now and SUSPECT in older builds. One boundary: a VALUE-position
@@ -1978,7 +2025,11 @@ and the PRIMARY surface for allocator-parameterized types (`Vector<T, A>`,
 `try_reserve`, `try_copy`, `try_make`, `try_append`, `try_append_char`,
 `try_append_bytes`, `try_insert`, `try_send`. `try_` is the ONE spelling (design
 123 renamed `Box.make_or` -> `try_make`; `Channel.try_receive` is unrelated — a
-non-blocking poll). A `try_` op is ALL-OR-NOTHING: on `Err`
+non-blocking poll). `Channel.send` is in the infallible tier for the ALLOCATOR
+question ONLY: its `Result<Void, ChannelError>` (design 230) reports a second,
+independent failure and the two never meet — a refused queue node panics, a
+closed channel is a value. `try_send` reports the allocator and PANICS on a
+closed channel (DQ-230b). A `try_` op is ALL-OR-NOTHING: on `Err`
 the container is untouched, every element still in it. Its argument is consumed
 either way — `try_reserve` FIRST when the value must survive a refusal.
 `AllocError` carries the refused `size`/`align` and is `Error + Printable`

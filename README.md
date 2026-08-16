@@ -664,7 +664,7 @@ subject. A `while` condition suspends once per iteration, where it is written.
 ```saw
 func drain(ch: Channel<Int>) -> Int {
     var served = 0
-    while ch.receive() > 0 {   // one cooperative receive per iteration
+    while try! ch.receive() > 0 {   // one cooperative receive per iteration
         served += 1
     }
     return served
@@ -693,6 +693,62 @@ like any other I/O, so the remaining tasks stay responsive. The signature can be
 any the C ABI carries, `read(fd, buf, n)` included; a pointer argument has to
 address the suspended frame or the heap, since the worker is still reading
 through it while the task is parked.
+
+### Channels Close Explicitly
+
+A channel handle carries no sender or receiver role — every handle is the same
+handle, and copying one shares the queue. So "the last sender went away" is not
+something the channel can work out: a receiver waiting on it holds a handle too.
+A producer says it is finished instead.
+
+```saw
+func produce(orders: Channel<Order>, batch: Vector<Order>) {
+    for order in batch.iter() {
+        try! orders.send(order)
+    }
+    try! orders.close()          // any holder may close; by convention the producer
+}
+
+func consume(orders: Channel<Order>) -> Int {
+    var handled = 0
+    var going = true
+    while going {
+        match orders.receive() {
+            case Ok(order) -> {
+                fulfil(order)
+                handled = handled + 1
+            },
+            case Err(_) -> { going = false }   // closed and drained
+        }
+    }
+    return handled
+}
+```
+
+Closing wakes every parked receiver. What is already queued is still delivered:
+a receive drains the queue and reports `Err(Closed)` only once it is empty, so
+closing a channel mid-flight loses no messages. A send after a close is
+`Err(Closed)` and does not enqueue; a second close is `Err(Closed)` rather than
+a panic, so a close that loses a race is safe to ignore with `let _ =` without
+being silent about it.
+
+Forgetting the `close()` is a deadlock, and the executor says so rather than
+waiting. When every live task is parked on a channel, nothing is runnable, no
+I/O is registered and no timer is pending, nothing in the process can ever run
+again — a channel needs running code to feed it. The program aborts with the
+task dump attached:
+
+```
+panic at taskgroup.saw:1977: deadlock: every task is waiting to receive from a
+channel, and nothing in this program can send. ...
+saw tasks: 1 live (as-of panic, unsynchronized)
+  task group 1 slot 0 gen 1 channel-parked
+    at worker.saw:5 in consume
+```
+
+The report is reached by elimination, never by watching a task fail to progress:
+a long computation and a permanent wait look identical from the outside, and an
+abort that fires on a correct program is worse than the hang it replaces.
 
 ### Task Backtraces
 
@@ -1426,10 +1482,13 @@ The standard library includes:
   the handle is the only strong owner and answers `None` when it is shared —
   the copy-on-write gate `Data` is built on.
 - **Mutex<T>**, **Channel<T>**, **Task<T>**, **TaskGroup** - Concurrency. A
-  channel has two receives, one per engine: `receive()` suspends the task and is
+  channel has two receives, one per engine: `receive()` parks the task and is
   what cooperative code wants; `recv()` blocks the calling thread and belongs to
   the `spawn`/`Task` engine. Calling `recv` from a task stops the executor
-  thread, and with it the task that would have sent the value. `Mutex<T>` is one
+  thread, and with it the task that would have sent the value. A waiting
+  `receive()` costs no CPU: the task is parked until a send on that same channel
+  wakes it. `send`, `receive` and `close` return a `Result<_, ChannelError>`;
+  see [Channels close explicitly](#channels-close-explicitly). `Mutex<T>` is one
   inline word beside its payload — no allocation, no `deinit`, and zero means
   unlocked, so `static REGISTRY: Mutex<Int>` needs no initializer.
 - **Once<T>** - A value written once and read many times. `static LIMITS:

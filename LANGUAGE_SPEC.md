@@ -5231,8 +5231,11 @@ multiple threads (design 75) — carrying the coroutine transform, suspending
   refcounted unbounded MPMC queue (cloning the handle shares the queue; the last
   handle drains and frees it). Guarded by an internal pthread mutex + condvar
   (conservative 64-byte condvar slot; real `pthread_cond_t` is ≤48 bytes),
-  initialized via `pthread_cond_init` — never a hardcoded struct. `send(v)`
-  enqueues under the lock and signals a waiter; `recv() -> T` blocks while empty.
+  initialized via `pthread_cond_init` — never a hardcoded struct.
+  `send(v) -> Result<Void, ChannelError>` enqueues under the lock and wakes the
+  receivers parked on that channel; `recv() -> T` blocks the calling thread while
+  empty. `close() -> Result<Void, ChannelError>` is how a producer says it is
+  finished (design 230, below): there is no sender count to derive it from.
   `T: Send` is enforced on the type at construction.
 
 The atomic-ordering runtime (`__saw_atomic_*`, per the String protocol) is
@@ -5483,10 +5486,10 @@ Observable rules:
   ```saw
   func drain(ch: Channel<Int>, tally: Channel<Int>) -> Int {
       var served = 0
-      while ch.receive() > 0 {       // the condition suspends, once per iteration
-          served += tally.receive()  // a compound assignment's RHS suspends
+      while try! ch.receive() > 0 {       // the condition suspends, once per iteration
+          served += try! tally.receive()  // a compound assignment's RHS suspends
       }
-      return ch.receive()            // and so does a `return` of a receive
+      return try! ch.receive()            // and so does a `return` of a receive
   }
   ```
   A compound assignment's RHS and a `return` of a cooperative
@@ -5726,14 +5729,24 @@ anti-suspension boundary, so it is `sync`) plus `wake_reason(&self) sync -> Int`
   that the loop it guards joins the frame's state machine (its variables become
   frame fields). Measured at 1.53x on a maximally tight arithmetic loop (200M
   iterations of an LCG step, arm64). Loops outside task bodies are untouched.
-- **Suspending channel receive (design 62 G3).** `Channel.receive() -> T` is the
-  first-class cooperative suspending receive: it dequeues a value if ready, else
-  suspends the *task* (not the thread) and is rescheduled when a value arrives
-  (channel-yield wake). The coro transform lowers each `let v = ch.receive()` /
-  `ch.receive()` call site INLINE into the `try_receive()` + `yield_now()` loop
-  against the caller's own frame (no callee frame — so no generic-method-frame
-  gap); `try_receive() -> T?` remains available for a hand-rolled cancellation-aware
-  loop (`if cancelled() { ... }`). NAMING: the cooperative method is `receive`;
+- **Suspending channel receive (design 62 G3, design 230).**
+  `Channel.receive() -> Result<T, ChannelError>` is the first-class cooperative
+  suspending receive: it dequeues a value if ready, else PARKS the *task* (not
+  the thread) until a send or a `close()` on that channel wakes it. The coro
+  transform lowers each `let v = ch.receive()` / `ch.receive()` call site INLINE
+  into a non-blocking-attempt + park loop against the caller's own frame (no
+  callee frame — so no generic-method-frame gap); `try_receive() -> T?` remains
+  available for a hand-rolled cancellation-aware loop (`if cancelled() { ... }`),
+  and is still the ONLY way to observe cancellation while waiting, because
+  `receive`'s own loop has no `cancelled()` check.
+  **The park carries the channel's identity.** The wake reason a parked frame
+  records is the negated address of a readiness word the channel maintains, so
+  the executor's rule is "resume the frame once the word it named is nonzero"
+  and a send wakes exactly the receivers of that channel. Until design 230 the
+  wait suspended READY and the scheduler re-queued it as fast as it could spin:
+  a sole waiter cost 100% of a core, two multi-threaded workers 143%. Treat a
+  0%-CPU channel wait as working now and SUSPECT in older builds.
+  NAMING: the cooperative method is `receive`;
   the 21b thread engine's blocking `recv` keeps its name and is untouched (same
   signature `(&self) -> T`, so overloading — which cannot differ by effect —
   cannot distinguish the two). A `receive()` buried in an expression position is
@@ -5741,8 +5754,74 @@ anti-suspension boundary, so it is `sync`) plus `wake_reason(&self) sync -> Int`
   ch.receive()` takes the two values left to right. **Never call `recv` from a
   cooperative task.** Its block is unbounded, and the thread it stops is the
   executor's — so every sibling task stops with it, including the one that would
-  have sent the value. `receive` is a drop-in replacement. Nothing rejects the
+  have sent the value. `receive` is the replacement. Nothing rejects the
   call today.
+- **Disconnection is EXPLICIT: `close()` (design 230).** A channel handle is a
+  unified `Copy` handle with no sender/receiver role split, so "the last sender
+  went away" is not something the type can count — a waiting receiver's own
+  handle keeps any refcount nonzero forever. Saying so is the mechanism:
+
+  ```saw
+  public func close(&self) -> Result<Void, ChannelError>
+  public func send(&self, v: T) -> Result<Void, ChannelError>
+  public func receive(&self) -> Result<T, ChannelError>
+
+  public enum ChannelError { case Closed }
+  ```
+
+  Any holder may call `close()`; by convention the producer does, after its last
+  message. Every parked receiver is woken. A receive DRAINS what is already
+  queued and only then reports `Err(Closed)`, so closing a channel with messages
+  in it loses none of them. A send after a close is `Err(Closed)` and does not
+  enqueue. A second close is `Err(Closed)` rather than a panic, so a close that
+  races another one is idempotent to ignore with `let _ =` without being silent.
+  `ChannelError` is an enum because a receive TIMEOUT is the other legitimate way
+  one of these calls can fail to deliver; that case is reserved, not yet built.
+
+  ```saw
+  func consume(orders: Channel<Order>) -> Int {
+      var handled = 0
+      var going = true
+      while going {
+          match orders.receive() {
+              case Ok(order) -> {
+                  fulfil(order)
+                  handled = handled + 1
+              },
+              case Err(_) -> { going = false }   // the producer closed the channel
+          }
+      }
+      return handled
+  }
+  ```
+
+  There is NO automatic close when the last handle drops, which is the same
+  point restated: roles are uncountable, so there is no last handle to key on.
+  A channel nobody closes and nobody sends to is a deadlock, and the executor
+  reports it (below) rather than waiting forever. A split
+  `Sender<T>`/`Receiver<T>` surface, which would make disconnection automatic
+  again, is recorded as future work.
+- **The quiescent deadlock report (design 230).** When every live task is parked
+  on a channel, no io is registered, no timer is pending, nothing is runnable and
+  no unjoined `spawn {}` task exists, nothing in the process can ever run again.
+  The executor reports that state and aborts, printing the task dump after the
+  panic line so the parked-on-what is visible:
+
+  ```
+  panic at taskgroup.saw:1977: deadlock: every task is waiting to receive from a
+  channel, and nothing in this program can send. ...
+  saw tasks: 1 live (as-of panic, unsynchronized)
+    task group 1 slot 0 gen 1 channel-parked
+      at worker.saw:5 in consume
+  ```
+
+  The report is decided by elimination, never by counting resumes: design 127's
+  op budget force-yields a long computation exactly the way a permanent wait
+  presents, so a "resumed N times with no progress" heuristic would abort correct
+  programs. The state is read twice with a nap between, because the walk is
+  unsynchronized and an abort is not a diagnostic. `close()` is the cooperative
+  path and this is the backstop; a program that closes its channels never reaches
+  it.
 
 **Multi-threaded execution — `TaskGroup(threads: N)` (design 75 A2, rebuilt as a
 live pool by design 225).** By default a `TaskGroup()` runs its children on ONE
@@ -5855,7 +5934,7 @@ let result = task.join()         // Task<Int>: NoCopy; deinit joins if unjoined
 // Channels: Copy handles onto a shared queue
 let ch = Channel<Int>()          // Channel<T: Send>
 var producer = spawn {
-    ch.send(42)
+    try! ch.send(42)             // send/receive/close report through Result
     true
 }
 let got = ch.recv()              // blocks the calling thread (thread-per-task
@@ -5897,19 +5976,32 @@ func handle(conn: TcpStream) -> Int {
 // The result is the one value that outlives the task: `join()` moves it out and
 // the caller owns it; an unjoined result drops once at group teardown.
 
-// Cooperative suspending receive over a Channel (design 62 G3):
+// Cooperative suspending receive over a Channel (design 62 G3, design 230). The
+// consumer runs until the producer closes the channel, which is what ends the
+// loop: a receive on a closed, drained channel is Err(Closed).
 func consumer(ch: Channel<Int>) -> Int {
     var sum = 0
-    var got = 0
-    while got < 3 {
-        let v = ch.receive()              // first-class cooperative receive:
-        sum = sum + v                     // suspends the task while the channel is
-        got = got + 1                     // empty, resumes when a value arrives
+    var going = true
+    while going {
+        match ch.receive() {
+            case Ok(v) -> { sum = sum + v },   // parked while the channel is
+            case Err(_) -> { going = false }   // empty, woken by a send or a close
+        }
     }
     return sum
 }
+
+func producer(ch: Channel<Int>) {
+    var i = 1
+    while i <= 3 {
+        try! ch.send(i)
+        i = i + 1
+    }
+    try! ch.close()                           // without this the consumer would
+}                                             // wait forever — see close(), above
 // (`try_receive() -> T?` is still available for a hand-rolled loop, e.g. a
-//  cancellation-aware `if cancelled() { ... }` on the empty branch.)
+//  cancellation-aware `if cancelled() { ... }` on the empty branch. It is the
+//  only way to observe cancellation while waiting: `receive` does not check.)
 
 // A TaskGroup may live in a SUSPENDING function's own frame (design 62 G1):
 func orchestrate(base: Int) -> Int {
@@ -6728,7 +6820,7 @@ enum Request {
 }
 
 func feed(inbox: Channel<Request>, sample: UInt8) {
-    inbox.send(Request.Record(sample: sample))
+    try! inbox.send(Request.Record(sample: sample))
 }
 
 func main() {
@@ -6738,7 +6830,7 @@ func main() {
     let left = senders.spawn(feed(inbox.copy(), 3))
     let right = senders.spawn(feed(inbox.copy(), 4))
     for _ in 0..2 {
-        let request = inbox.receive()
+        let request = try! inbox.receive()
         match request {
             case Record(sample) -> buf.push(sample)
         }
@@ -8253,7 +8345,7 @@ need one of the three [import forms](#imports).
 | `std.numeric` | the `Int` / `Float` extensions | yes (methods on primitives) |
 | `std.taskgroup` | `TaskGroup`, `TaskHandle<T>`, `VoidTaskHandle` | yes |
 | `std.task` | `yield_now`, `Task<T>` (the `spawn` handle) | no |
-| `std.channel` | `Channel<T>` | no |
+| `std.channel` | `Channel<T>`, `ChannelError` | no |
 | `std.mutex` / `std.spinlock` | `Mutex<T>`, `SpinLock<T>` | no |
 | `std.once` | `Once<T>` | no |
 | `std.data` | `Data` | no |
@@ -9182,6 +9274,12 @@ Every such operation has a **`try_`-prefixed twin** returning
 | `Map` / `Set` | `insert` | `try_insert` |
 | `Arc` / `Mutex` | `init(value:)` | `try_make` |
 | `Channel` | `init()`, `send` | `try_make`, `try_send` |
+
+`Channel.send` sits in the infallible tier for the ALLOCATOR question only. Its
+`Result<Void, ChannelError>` (design 230) reports a second, independent failure —
+the channel has been closed — and the two never meet: a refused queue node
+panics, a closed channel is a value. `try_send` reports the allocator's refusal
+and panics on a closed channel, having one error slot and no way to carry both.
 
 A `try_` operation is **all-or-nothing**: on `Err` the container is exactly as it
 was, with every element still in it. The `AllocError` carries the byte `size` and
