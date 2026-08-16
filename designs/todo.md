@@ -99,7 +99,7 @@ constant-time crypto in Saw first; developable HOSTED against BlueZ's
 virtual controller with zero hardware). No dispatches
 before M3 lands; net phase 1 is the natural first post-M3 brief.
 
-## `while let` — QUEUED design candidate (user-approved Aug 16), BEHIND 230
+## `while let` — brief AUTHORED (designs/233), 230 integrated, READY TO DISPATCH
 
 Ruled worth building in conversation (user + lead, Aug 16): the
 design-62 exclusion ("`while let` does not exist in the grammar",
