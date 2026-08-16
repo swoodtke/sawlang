@@ -58,6 +58,15 @@ print("{#file}:{#line} - msg")  // #file/#line/#function: definition-site consts
   is range-checked at the literal (`let b: UInt8 = 256` is a clean
   error). With no fixed-width expectation it stays platform `Int`
   (`let x = 5`); in a mixed binop it takes the other operand's TYPE.
+  **IDIOM (user ruling, Aug 16): no suffix where an expected type is in
+  force.** `static CR: UInt32 = 0x301u32` says the width twice — write
+  `0x301`; same in a param (`reg.write(0)`), a comparison against a typed
+  operand (`(fr & FLAG) == 0`), and a repeat literal (`[0; N]` under
+  `[UInt64; N]`). A suffix earns its keep only where the literal would
+  otherwise stay platform `Int`: a SUBEXPRESSION no expected type reaches —
+  `word.read() | (1u32 << n)` needs it (the `|` sees `Int` otherwise; a
+  shift passed DIRECTLY as the argument adopts and does not) — and a
+  64-bit constant on a 32-bit target with no annotation beside it.
 - **INTEGER OPERANDS MUST AGREE, and only bare literals promote (design
   195).** All typed operands of an operation have the SAME type: a binary
   operator, a comparison, a compound assignment or a range over two

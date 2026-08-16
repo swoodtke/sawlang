@@ -252,7 +252,7 @@ public extension SosimgHeader {
     /// check every segment against its own memory map — those are target
     /// decisions and stay with the target.
     public func is_wellformed(&self) -> Bool {
-        self.has_magic() && self.has_known_version() && self.seg_count > 0u8
+        self.has_magic() && self.has_known_version() && self.seg_count > 0
     }
 }
 
@@ -262,7 +262,7 @@ public extension SosimgSeg {
     /// The one place the mask arithmetic lives, so a bit test reads as a
     /// question about a permission rather than as an `&` against a constant.
     public func has(&self, flag: SegFlag) -> Bool {
-        (self.flags & (flag as UInt8)) != 0u8
+        (self.flags & (flag as UInt8)) != 0
     }
 
     public func is_readable(&self) -> Bool {
