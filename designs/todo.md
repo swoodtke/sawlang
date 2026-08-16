@@ -286,6 +286,20 @@ than refiled: DF-178d cost one more `-> Never` wrapper (`fault_slot`, beside
 `fault_result`), and DF-178e was avoided ahead of time by naming two `UInt`
 constants for the `match` default values.
 
+RIDER (ruled Aug 16, user): an ARGUMENT ENCODING IS API. `create_event(mode:)`
+replaces the method-per-mode pair — a method per mode stops scaling at M3's
+Mapping, where the modes multiply — and the `sos` module docstring now carries
+the line for Mapping to inherit: the vDSO discipline is about OP NUMBERS, not
+argument encodings, so an enum a process CHOOSES and passes is public
+single-declaration API while op numbers, rights bits, `ObjType` and
+`FaultReason` stay kernel-internal. One declaration serves both halves because
+Saw's imports RE-EXPORT. Two properties established by probe rather than
+assumption, both in the brief: the re-export is INDISCRIMINATE (so the split is
+held by what userspace is told to write, not by a wall — and `sosabi` was
+already on a process's module path transitively), and the enum cannot move the
+other way, because a kernel importing `sos` is a duplicate-`@export` error on
+the two runtime hooks both sides define.
+
 ## Design 220 — recorded-seed suite compiles, per-run artifacts, irdet reuse
 (AUTHORED + RULED Aug 14, queued behind 218 stages 1-2 integration)
 

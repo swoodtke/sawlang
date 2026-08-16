@@ -349,6 +349,40 @@ echo proof — the next unit, and the one that turns `pick_next`'s deadlock repo
 into an idle loop, since an Interrupt is the first readiness that arrives from
 outside the set of runnable threads.
 
+### Unit 3 rider — an argument encoding is API (ruled Aug 16, user)
+
+The unit first offered `create_event()` / `create_counting_event()` to keep
+`EventMode`'s wire value inside kernel-internal `sosabi`. **Reversed**: the mode
+is a value the CALLER chooses, so it is spelled as one —
+`create_event(mode: EventMode.SaturatingSum)`, with `EventMode.Or` as a default
+so the common call stays `create_event()`. A method per mode reads fine at two
+and stops scaling at the next object: M3's Mapping brings an access mode AND a
+memory type, and a method per combination is a matrix rather than a list.
+
+**The line, recorded in the `sos` module docstring for Mapping to inherit: the
+vDSO discipline is about OP NUMBERS, not argument encodings.** An enum whose
+values a process chooses and passes as a syscall argument is public,
+single-declaration API; op numbers, rights bits, `ObjType` and `FaultReason`
+stay kernel-internal, which is what keeps renumbering free.
+
+**Mechanism: Saw's imports RE-EXPORT, so one declaration serves both halves.**
+`sosabi` keeps the declaration the kernel's dispatch decodes, `sos` imports it,
+and a process writes `import sos.{EventMode}` — no redeclaration, no new module,
+no kernel change. Two things learned by probing rather than assuming, both worth
+having on record:
+
+- **The re-export is INDISCRIMINATE.** Everything a module imports is reachable
+  through it, op numbers included — and `sosabi` is on a process's module path
+  as a transitive dependency anyway. So the split above is held by what
+  userspace is TOLD to write, not by a wall. That was already true before this
+  rule; the rule only decides which side each family sits on.
+- **The enum cannot MOVE into `sos` instead.** A Saw import compiles the whole
+  module into the unit, and `sos` and the kernel HAL export the two runtime
+  hooks under the same C names for their two sides — so a kernel importing `sos`
+  is a duplicate-`@export` error on `sos_rt_write` and `sos_rt_abort`, before
+  any question of the undefined `sos_syscall1` it would also pull in. Probed
+  directly.
+
 ## Explicitly out (M3+ candidates)
 
 Channels + ReplyHandle IPC; MemoryObject/Mapping + multi-process loading;
