@@ -519,7 +519,7 @@ Four things worth knowing without opening the brief:
   echo and not the interrupt path, since a polling driver would pass; one byte
   at a time forces the park, the idle, and one wake per byte.
 
-`make sos-test` is 62 cases (31 per machine). NATIVE FLOOR: +1 C line per
+`make sos-test` is 64 cases (32 per machine). NATIVE FLOOR: +1 C line per
 profile (`sos_wait_for_irq` — `wfi` is an instruction), assembly unchanged.
 
 NO NEW LANGUAGE FINDINGS. Three known ones were re-encountered and cited in

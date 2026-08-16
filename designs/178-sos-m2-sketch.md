@@ -513,8 +513,8 @@ read better spelled.
 
 ## UNIT 4 — the Interrupt object + the userspace UART echo (BUILT Aug 16, branch PARKED)
 
-D6 as ratified, plus the five finale constraints below. Both profiles, 31
-harness cases each, 62 total. **The milestone's proof:**
+D6 as ratified, plus the five finale constraints below. Both profiles, 32
+harness cases each, 64 total. **The milestone's proof:**
 
 ```
 SOS M1: kernel up on riscv32 (QEMU virt)
@@ -644,6 +644,16 @@ does not have is `BadArg`; an ack with no fire outstanding is `BadState`, and it
 is a fault rather than a tolerated no-op because the only way to learn about a
 fire is to be told, so an extra ack is a servicer that will ack the NEXT fire
 without servicing it.
+
+**And a third case for the branch that did NOT change.** Making "nothing
+runnable" conditional left a rule with two answers and one test, which is a rule
+that can lose its other answer silently — widen the idle condition by accident
+and every real deadlock becomes a harness timeout with nothing to read. So a
+process that parks on an Event nobody will signal, having bound no line, is
+pinned to the ratified report. It was never covered before this unit either, and
+`event_basics` relies on it out loud: a wait there that stopped answering
+immediately parks the only thread in the system, and this report is what makes
+that fail in microseconds rather than at the emulator's timeout.
 
 **Native floor: +1 C line per profile, assembly unchanged.**
 `sos_wait_for_irq` — `wfi` is an instruction and there is no Saw spelling for
