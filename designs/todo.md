@@ -15,6 +15,7 @@ line per brief + one per done-file), created with the next split.
 Next split (aug10-aug14 + INDEX.md) queued behind design 223's
 integration.
 
+<<<<<<< HEAD
 ## DF-229a — a selective import of a name a USER module does not have is
 ## silently accepted (filed Aug 16, design 229 implementation)
 
@@ -43,6 +44,61 @@ BEFORE dispatching on category, which is the shape the fix should take.
 Design 229 raises the stakes: a name the module imports but does not
 re-export now gets a precise refusal at the import, so the remaining silence
 reads as "that one is fine" when it is not.
+
+## DQ-225n — RULING OWED: the deadlock report (design 225 D-e / unit 4) cannot
+## be built as specified, because a cooperative CHANNEL WAIT IS NOT A PARK
+## (filed Aug 16 by the design-225 dispatch, with measurement; unit 4 NOT built)
+
+Design 225 unit 4 asked for a report at "the ambient scheduler's
+nothing-runnable / nothing-parked / no-wake-source state". **That state is
+unreachable, and the states that are the real deadlocks are not decidable.**
+
+**Why unreachable.** `Channel.receive` is a `try_receive` + `yield_now` loop
+(std/channel.saw:203), so a task waiting on a channel suspends with wake reason
+0 — READY — and the scheduler requeues it at once. A wait that will never be
+satisfied is therefore INDISTINGUISHABLE, at the scheduler, from a task making
+progress: `__saw_exec_any_ready()` is true forever. Every other live state is
+accounted for (`remaining < 0` is an io park with a registration, `> 0` is a
+timer with a deadline), so `anylive && not io && deadline <= 0` cannot happen
+and a report placed there would be dead code.
+
+**Measured (`.build/scratch/d{1,2,3,4}_*.saw`, gitignored, 3 s bound each):**
+
+| shape | outcome | CPU |
+|-------|---------|-----|
+| main receives from a channel nobody feeds | hangs | 100% of a core |
+| an ST-group task does the same | hangs | 100% |
+| an MT-group task does the same | hangs | 143% (two workers) |
+| control: a task that only sleeps | exits 0 | 1% |
+
+**Why a heuristic is not a substitute.** "Resumed N times with no state change"
+would abort correct programs: design 127's op budget force-yields a pure-compute
+loop exactly the same way, so a long computation and a permanent channel wait
+present identically. An abort that fires on correct programs is worse than the
+hang.
+
+**What it needs first, and the ruling that is owed.** A channel wait must become
+a PARK WITH AN IDENTIFIABLE WAKE SOURCE — a distinct wake reason carrying the
+channel's identity, so the scheduler can ask "is there any live sender for this
+channel, in either engine, on any thread". That is a change to the wake
+vocabulary (`Resumable.wake_reason`, the transform's channel-receive lowering,
+and both engines' scan), and it buys more than the report: a channel wait would
+then cost 0% CPU instead of 100%, which is a bigger win than the diagnostic that
+motivated it. It also has a real design question inside it — the "no live
+sender" test needs a channel to know its sender count, which `Channel.copy()`
+already tracks, but a sender that has not been created yet is not a
+contradiction, so the predicate is "no live sender AND no task that could make
+one", which may not be decidable either.
+
+Sequenced AFTER design 225's remaining units; unit 4 is recorded in the brief as
+blocked rather than skipped.
+
+**RESOLVED (user, Aug 16): option (a) ruled — `designs/230-channel-parks.md`,
+fully ruled (park + quiescent report + explicit close() with
+`receive() -> Result<T, ChannelError>`); D-e's deliverable transferred
+there; the sender-count worry dissolved in the quiescent state and was
+CORRECTED for the per-channel case (unified Copy handles make roles
+uncountable — close() is the mechanism). Dispatches after 225 integrates.**
 
 ## DF-225m — SILENT WRONG ANSWER: an INCLUSIVE-range `for` in a suspending
 ## body drops its last iteration (filed Aug 16, found by design 225 unit 3's

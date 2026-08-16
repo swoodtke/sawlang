@@ -106,6 +106,26 @@ with the teaching text (both engines named). The ck15-shaped park that
 unit 2 makes wakeable no longer trips it; a genuinely unsatisfiable park
 does.
 
+> **UNIT 4 IS BLOCKED — NOT BUILT, RULING OWED (Aug 16, dispatch report).**
+> The state D-e names is UNREACHABLE, and the states that are the real
+> deadlocks are not decidable without a change to what a channel wait IS.
+> Evidence and the proposal are in the tracker under DQ-225n; the one-line
+> version: **a cooperative channel wait is not a park.** `Channel.receive`
+> loops on `try_receive` + `yield_now`, so a task waiting forever on a
+> channel reports `remaining == 0` — READY — and the scheduler resumes it
+> again immediately. Measured on the three deadlock shapes: main waiting on
+> a channel nobody feeds, an ST task doing the same, and an MT task doing
+> the same all spin at 100%-143% of a core indefinitely; a task that only
+> sleeps parks at 1% and exits. So the scheduler never observes
+> "nothing-runnable", and a report placed at that state would be dead code.
+> A progress heuristic ("resumed N times with no state change") is not an
+> acceptable substitute — a compute loop ceding through design 127's op
+> budget is indistinguishable from it, so the abort would fire on correct
+> programs. Building this needs the channel wait to become a park with an
+> IDENTIFIABLE wake source first; that is a design decision about the wake
+> vocabulary, not an executor detail, and it is exactly what
+> STOP-DON'T-WORKAROUND says to report.
+
 **Unit 5 — budgets (D-d) + docs.** Per-worker op budgets; LANGUAGE_SPEC's
 TaskGroup section rewritten (the fork-join caveat dies; the ownership
 paragraph stays; D-f's delta stated); the cookbook's Channel fallback
