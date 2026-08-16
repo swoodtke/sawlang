@@ -929,10 +929,47 @@ process? (lean: allow, one MemoryMapping each); (c) boot_handles record
 layout + tag values; (d) op/right numbering; (e) spec §5.7's "become
 real objects in M3" line is AMENDED by this ruling (rights-gated ops,
 boot set stays one handle wide) — spec edit owed at M3, not before;
-(f) which kinds are counted in v1's table (events,
-waiters, threads, mappings, heap pages are the candidates; channels
-join when they exist); (g) soft-limit mechanism (the Event wiring
-above) in v1 or flagged; (h) a spec note owed: window+line confines the
-DRIVER, not a DMA-capable DEVICE — bus mastering needs an IOMMU, out of
-scope for the virt boards but said out loud. (The former
-charge-on-transfer flag is RULED — see CHARGING above.)
+(The former charge-on-transfer, counted-kinds, soft-limit and DMA
+flags are all RULED — see CHARGING above and the FOURTH ROUND below.)
+
+FOURTH ROUND (Aug 16): THE FAULT LINE SHARPENED, SOFT LIMITS OUT, AND
+DMA GETS AN ARCHITECTURE.
+
+- THE FAULT-VS-STATUS LINE, RESTATED (user): a fault exists to punish
+  BROKEN CODE quickly and loudly — a programmer error is never
+  silently hidden (`let _ = channel.send(<bad data>)` FAULTS; a
+  discard cannot swallow a termination). An operation with a RUNTIME,
+  DYNAMIC aspect — allocation, quota'd creation — returns an ERROR:
+  correct code legitimately meets exhaustion. This resolves the
+  candidate-8 tension: over-cap map() is a dynamic resource condition
+  and answers `QuotaExceeded`, AMENDING the Aug-15 memory note's
+  "over-cap map() is a FAULT" phrasing above. The v1 counted-kinds
+  list stands as written (events, waiters, threads, mappings, heap
+  pages; channels when they exist) — grow it as needed.
+- SOFT LIMITS ARE OUT OF v1 (ruled): hard limits only, answering the
+  quota error. The Event-wiring sketch above survives as the future
+  shape, to land together with root's first management behaviors —
+  a warning nobody can act on is telemetry theater.
+- DMA CONFINEMENT (ruled) — an architecture, not just a gap note: a
+  USERSPACE IOMMU DRIVER manages device-memory bindings. It owns the
+  IOMMU hardware (a device like any other: window + line, granted by
+  root), and a DMA driver SENDS IT MEMORY TO USE — Memory handles over
+  IPC, creator-pays charging composing unchanged. TWO PREREQUISITES
+  this names for the ladder:
+  (1) PROCESS-DEATH NOTIFICATIONS — a waitable that fires when a
+      process dies (root's supervision wants this anyway) — so the
+      IOMMU driver can stop the dead process's device operations and
+      release its memory intelligently rather than by teardown.
+  (2) CRITICAL PROCESSES — the wrinkle is the IOMMU driver ITSELF
+      dying: its held memory would release while the device keeps
+      writing blindly. The answer is FAIL-STOP: a process marked
+      CRITICAL (by root, at launch) that exits FOR ANY REASON faults
+      the SYSTEM. ORDERING CONSTRAINT: the critical check runs AT THE
+      TOP of process teardown, BEFORE any resource release — the halt
+      must preempt the free, or the window it exists to close reopens
+      inside it. (Zircon's critical processes are the precedent, same
+      name. Restart-style supervision a la Minix is exactly the
+      blind-DMA hazard for this driver class — fail-stop is right.)
+  Until the IOMMU objects exist, DMA drivers are TCB members and the
+  spec §2.5 note says so; the virt-board consoles are non-DMA, so M2/
+  M3 scope stays honest.
