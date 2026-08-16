@@ -1,10 +1,16 @@
 // design 134: slot reuse holds for a MULTI-THREADED group too.
 //
-// The MT engine drains on demand rather than eagerly, so the wave shape is
-// "spawn four, join to drain, repeat". The reclamation is the same: a worker
-// records completion under the run-queue lock and `__complete` releases the
-// frame box and returns the slot there, so eight waves of four tasks occupy four
-// slots total rather than thirty-two.
+// Eight waves of four tasks occupy four slots in total rather than thirty-two: a
+// worker records completion under the run-queue lock, and `__complete` releases
+// the frame box and returns the slot right there.
+//
+// The wave joins EVERY handle it spawned. Design 225 made a `join()` on a
+// multi-threaded group mean what it means on a single-threaded one — wait for
+// THIS task — where the fork-join drain it replaced happened to complete the
+// whole group as a side effect of how it was built. This test used to join the
+// fourth handle and rely on that side effect, and it read `peak 5` afterwards:
+// one wave's stragglers were still holding their slots when the next wave
+// measured.
 //
 // Counts and sums only — never interleaving (MT tests must stay deterministic).
 // EXPECT: success
@@ -27,19 +33,21 @@ func main() {
     var peak = 0
     var wave = 0
     while wave < 8 {
+        var pending = Vector<VoidTaskHandle>()
         var i = 0
         while i < 4 {
-            let h = group.spawn(worker(1))
-            if i == 3 {
-                let held = group.count()
-                if held > peak {
-                    peak = held
-                }
-                // An MT join drains the whole group (design 75 fork-join), so
-                // every task in this wave is done when it returns.
+            pending.push(group.spawn(worker(1)))
+            i = i + 1
+        }
+        let held = group.count()
+        if held > peak {
+            peak = held
+        }
+        while pending.len() > 0 {
+            if let ht = pending.pop() {
+                var h = move ht
                 h.join()
             }
-            i = i + 1
         }
         wave = wave + 1
     }

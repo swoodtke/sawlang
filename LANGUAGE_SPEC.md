@@ -5626,11 +5626,12 @@ anti-suspension boundary, so it is `sync`) plus `wake_reason(&self) sync -> Int`
   not, so a cancel arriving mid-nap is observed then rather than at the deadline;
   a cancelled sleeper is made runnable and takes its cancel path on resume. The drive loop is `sync` (built from `resume`), which is what
   lets the group's `Deinit` run it. A multi-threaded `TaskGroup(threads: N)`
-  keeps its own worker-drained queue (design 75).
+  keeps its own queue and its own live worker pool instead (design 75/225).
 - **`TaskHandle<T>`** owns nothing. It records the task's `(slot, generation)` in
   its group plus raw pointers into that task's group-owned CELL, which holds the
   result and the cancel word (design 134). The cell is not part of the frame and
-  outlives it. `join()` drives the group then TAKES the result exactly once,
+  outlives it. `join()` drives the group (a multi-threaded group's pool is
+  already running it, so there it WAITS instead) then TAKES the result exactly once,
   leaving `None` behind, and the caller owns that value outright: it stays valid
   after the task is gone. Dropping an unjoined handle is fine — the result stays
   in the cell and is dropped once at group teardown, exactly-once either way.
@@ -5743,20 +5744,38 @@ anti-suspension boundary, so it is `sync`) plus `wake_reason(&self) sync -> Int`
   have sent the value. `receive` is a drop-in replacement. Nothing rejects the
   call today.
 
-**Multi-threaded execution — `TaskGroup(threads: N)` (design 75 A2).** By default a
-`TaskGroup()` runs its children on ONE thread (deterministic interleaving, above).
-`TaskGroup(threads: N)` (`N >= 2`) opts a group into a MULTI-THREADED executor: N OS
-worker threads drain a single mutex-protected SHARED run queue (the sanctioned
-"one injector + N workers" — simplicity over per-worker lock-free deques, v1).
-`TaskGroup()` and `TaskGroup(threads: 1)` stay byte-identical to the single-threaded
-engine (no threads, no lock).
-- **The drain is fork-join.** A drain is triggered lazily by `join()` / `Deinit`; it
-  spawns N workers, each of which repeatedly LOCKS the queue, claims the first
-  runnable frame (marking it active so no two workers touch one frame), UNLOCKS,
-  `resume()`s it OUTSIDE the lock, then re-locks to record the outcome. The drain
-  then joins all workers — an OS-level barrier that makes every frame's `__result`
-  visible before `join()` reads it. `join()` and `Deinit` remain exactly-once and
-  idempotent (a fully-drained group spawns nothing).
+**Multi-threaded execution — `TaskGroup(threads: N)` (design 75 A2, rebuilt as a
+live pool by design 225).** By default a `TaskGroup()` runs its children on ONE
+thread (deterministic interleaving, above). `TaskGroup(threads: N)` (`N >= 2`)
+opts a group into a MULTI-THREADED executor: N OS worker threads serve a single
+mutex-protected SHARED run queue (the sanctioned "one injector + N workers" —
+simplicity over per-worker lock-free deques, v1). `TaskGroup()` and
+`TaskGroup(threads: 1)` stay byte-identical to the single-threaded engine (no
+threads, no lock).
+- **The pool is live.** The N workers start at the group's FIRST spawn and run
+  until its `Deinit`, so a task spawned into a multi-threaded group begins
+  immediately and runs alongside the thread that owns the group. A worker LOCKS
+  the queue, claims the first runnable frame by moving its box out of the slot,
+  UNLOCKS, `resume()`s it, then re-locks to put it back and record the outcome;
+  an idle worker parks on a condition variable beside the queue lock at no CPU
+  cost, and a group that never spawns starts no thread.
+- **`join()` waits; `Deinit` retires the pool.** `handle.join()` waits for that
+  one task and returns its result, leaving the workers running — so repeated
+  spawn-and-join into one group costs N threads in total, not N per join. A
+  group's `Deinit` signals that no more work is coming, lets the workers finish
+  every live task, and joins them; that is the structured join, and it is still
+  exactly-once and idempotent.
+- **What is observable, and what changed.** Multi-threaded execution order was
+  never deterministic. What a live pool widens is WHEN that is visible: a task's
+  effects — a channel send, an `Arc<Mutex<T>>` update — now become visible to the
+  owning thread at an unspecified point between the spawn and the join, where
+  before nothing of a multi-threaded group had happened until a `join()` or
+  `Deinit` and all of it had happened after. Three things did not change:
+  `join()` is a barrier for the task it names, `Deinit` is a barrier for the
+  whole group, and `TaskGroup()` / `threads: 1` remain the deterministic
+  single-threaded engine. So a program may still rely on results through handles
+  and on shared state through `Arc`/`Mutex`/`Channel`; what it may not rely on is
+  a `threads: N` group not having started yet.
 - **Send-on-frames gate.** A frame spawned into a multi-threaded group is handed
   between workers, so every value it carries across a suspension — the spawned
   function's parameters, its across-suspension locals (and those of embedded callee
@@ -5768,6 +5787,10 @@ engine (no threads, no lock).
 - **D6 task confinement (paper 18).** A frame runs on ONE thread at a time; stealing
   moves frames between workers only BETWEEN suspensions. There are no migration
   guarantees beyond Send-correctness; `&var self` driven methods stay task-confined.
+- **Fairness across threads.** The op-count backstop is PER-THREAD: each worker,
+  and the thread running the ambient scheduler, gets its own count of
+  non-parking io ops before it is made to cede. The loop-backedge budget that
+  covers pure-compute tasks is frame-resident, so it is per-task already.
 - **Shared timer / cancellation.** Sleeps advance by the earliest deadline under the
   queue lock (a shared timer, no per-worker wheel). Cross-task cancellation:
   `TaskHandle.cancel_addr() -> Int` yields the `__cancel` word's address (a `Send`
@@ -6731,6 +6754,33 @@ func main() {
 and it is why it always works: remote operation is not shared access, so the
 thread-safety question moves off the buffer and onto the messages, where it is
 usually trivial.
+
+The senders can be on other threads. Change the one word and the program is a
+`threads: 2` group whose workers run while `main` is reading:
+
+```saw
+func main() {
+    var buf = SampleBuffer()           // still owned here, still shared with nobody
+    let inbox = Channel<Request>()
+    var senders = TaskGroup(threads: 2)
+    let left = senders.spawn(feed(inbox.copy(), 3))
+    let right = senders.spawn(feed(inbox.copy(), 4))
+    for _ in 0..2 {
+        let request = inbox.receive()  // arrives from a worker thread
+        match request {
+            case Record(sample) -> buf.push(sample)
+        }
+    }
+    left.join()
+    right.join()
+    print("sum {}", buf.sum())
+    // prints: sum 7
+}
+```
+
+`SampleBuffer` never becomes `Send` and never needs to: it stays on `main`'s
+thread and only `Request` crosses. Which sample arrives first is unspecified,
+which is why the program adds them.
 
 ### Module-level statics
 

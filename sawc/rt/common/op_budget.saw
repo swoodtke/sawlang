@@ -1,35 +1,97 @@
-// Cooperative-scheduler fairness backstop (design 89-c / 113b), authored in Saw.
+// Cooperative-scheduler fairness backstop (design 89-c / 113b / 225), in Saw.
 //
 // A task that keeps completing suspending io ops WITHOUT ever parking (an
 // always-ready socket) would otherwise monopolize the executor. Each such op
-// charges a process-global budget; when it hits zero the io primitive
-// force-yields once (the caller sees the `1`) and the budget resets. Op-count,
-// not wall-clock — deterministic + kernel-friendly.
+// charges a budget; when it hits zero the io primitive force-yields once (the
+// caller sees the `1`) and the budget resets. Op-count, not wall-clock —
+// deterministic and kernel-friendly.
 //
-// The counter is process-global; the synthesized seam used a non-atomic
-// load-then-store under monotonic ordering (benign shared budget across MT
-// workers). `Atomic<Int>` gives seq_cst load/store — stronger ordering, observ-
-// ably equivalent (the budget is a best-effort fairness hint, not a lock).
+// THE BUDGET IS PER-THREAD (design 225 D-d), and it used to be process-global.
+// That was defensible while an MT group only existed inside a fork-join drain:
+// the comment called it "a benign shared budget across MT workers", and the
+// drain was the only time there was more than one ticker. A LIVE worker pool
+// makes every worker and the thread running the ambient scheduler tick the same
+// counter for the whole life of the group, and a shared counter under N
+// tickers is not the backstop design 89-c specified — it force-yields each
+// task roughly N times too often, and one thread's reset discards another's
+// progress. Per-thread restores the specified behaviour exactly: each thread
+// gets 128 non-parking io ops before it is made to cede, whatever its peers
+// are doing.
+//
+// The other budget, design 127's LOOP-BACKEDGE counter, needed nothing: it is
+// FRAME-resident (`__saw_loop_budget`, a field of the coroutine frame), so it
+// is per-TASK already and a task is on exactly one thread at a time.
+//
+// The storage is pthread thread-specific data rather than a `_Thread_local`,
+// because these bodies are Saw and Saw has no thread-local storage — which is
+// the one thing worth knowing here. Both encodings are biased by one so that
+// the all-zero initial state means "unset": a pthread key may legitimately be
+// 0, and a thread that has never ticked reads a NULL value.
 
-// Default budget. `Atomic(128)` must be a literal in the static init, so the
-// 128 is repeated in BUDGET's initializer below — keep them in sync.
+extern "C" {
+    // pthread_key_t is `unsigned long` on macOS and `unsigned int` on glibc;
+    // both are passed in a register and both fit a platform word, so the key is
+    // modelled as `Int` and the create call is handed a zeroed 8-byte slot to
+    // write its 4 or 8 bytes into. NULL destructor: the value is an immediate,
+    // not an allocation.
+    func pthread_key_create(key: UnsafePointer<Int8>, dtor: UnsafePointer<Int8>) -> Int32
+    func pthread_key_delete(key: Int) -> Int32
+    func pthread_getspecific(key: Int) -> Int
+    func pthread_setspecific(key: Int, value: Int) -> Int32
+}
+
+// Default budget. `Atomic(0)` must be a literal in the static init, so the key
+// holder's initializer below repeats the 0 — the biasing is described above.
 static OP_BUDGET_DEFAULT: Int = 128
-static BUDGET: Atomic<Int> = Atomic(128)
+
+// The pthread key, created once and published by CAS, on the same pattern the
+// executor's reactor singleton uses: create, try to publish, and if somebody
+// else won, delete the spare and use theirs. Holds `key + 1`, so 0 means "no
+// key yet" and a genuine key of 0 is not mistaken for one.
+static OP_BUDGET_KEY: Atomic<Int> = Atomic(0)
+
+func op_budget_key() unsafe -> Int {
+    let cur = OP_BUDGET_KEY.load()
+    if cur != 0 {
+        return cur - 1
+    }
+    var fresh: Int = 0
+    pthread_key_create((&fresh) as UnsafePointer<Int8>, 0 as UnsafePointer<Int8>)
+    if OP_BUDGET_KEY.compare_exchange(0, fresh + 1) {
+        return fresh
+    }
+    pthread_key_delete(fresh)
+    OP_BUDGET_KEY.load() - 1
+}
+
+// This thread's remaining budget. A thread that has never ticked reads NULL and
+// starts at the default.
+func op_budget_get(key: Int) unsafe -> Int {
+    let raw = pthread_getspecific(key)
+    if raw == 0 {
+        return OP_BUDGET_DEFAULT
+    }
+    raw - 1
+}
+
+func op_budget_set(key: Int, value: Int) unsafe {
+    pthread_setspecific(key, value + 1)
+}
 
 @export("__saw_rt_op_budget_tick")
-func rt_op_budget_tick() -> Int {
-    let cur = BUDGET.load()
-    let nv = cur &- 1
+func rt_op_budget_tick() unsafe -> Int {
+    let key = op_budget_key()
+    let nv = op_budget_get(key) &- 1
     if nv <= 0 {
-        BUDGET.store(OP_BUDGET_DEFAULT)
+        op_budget_set(key, OP_BUDGET_DEFAULT)
         1
     } else {
-        BUDGET.store(nv)
+        op_budget_set(key, nv)
         0
     }
 }
 
 @export("__saw_rt_op_budget_reset")
-func rt_op_budget_reset() {
-    BUDGET.store(OP_BUDGET_DEFAULT)
+func rt_op_budget_reset() unsafe {
+    op_budget_set(op_budget_key(), OP_BUDGET_DEFAULT)
 }

@@ -594,9 +594,13 @@ a task's values deinit when the task finishes, so a long-lived group does not
 accumulate the resources of tasks that have already completed. The one value that
 outlives a task is its result, which `join()` hands to the caller.
 `TaskGroup(threads: N)` opts into running on multiple threads, with `Send` checked
-at every spawn; the default stays single-threaded and deterministic. A container
-is `Send` when its contents are, so a task may carry a `Vector<Int>`, a `Map`, a
-`Set`, a `Data` or a `StringBuilder` across a suspension on a worker thread.
+at every spawn; the default stays single-threaded and deterministic. Its N worker
+threads start at the group's first spawn and run until the group goes out of
+scope, so a task spawned into one begins immediately rather than at the next
+`join()`, and a `join()` waits for its own task without stopping the others.
+A container is `Send` when its contents are, so a task may carry a
+`Vector<Int>`, a `Map`, a `Set`, a `Data` or a `StringBuilder` across a
+suspension on a worker thread.
 
 The task's frame goes at completion too, along with the run-queue slot it
 occupied, so a group costs what is running rather than what has ever run. A

@@ -1239,10 +1239,22 @@ dump_tasks()                // every live task's logical backtrace (std.task)
   A constructor whose argument would scale past the u64 nanosecond range (about
   584 years) panics naming itself. A cancel arriving while a task is ASLEEP is
   observed promptly now, not at the end of the nap (the executor idles in the
-  reactor poll in every case, so the self-wake pipe reaches a pure-timer park).
+  reactor poll in every case, so the cross-thread wake reaches a pure-timer park).
 - `func f(...) sync -> T` promises no suspension (checked).
-- `TaskGroup(threads: N)` (design 75) opts into MULTI-THREADED execution (N OS
-  workers drain a shared queue). `TaskGroup()` / `threads: 1` stay single-threaded
+- **`TaskGroup(threads: N)` IS A LIVE POOL (design 75 + 225).** N OS workers over
+  a shared queue, started at the group's FIRST spawn and running until its
+  `Deinit` — so a task spawned into a multi-threaded group starts at once and
+  runs alongside the thread that owns the group, exactly as `spawn {}` and a
+  cooperative group's tasks already did. `handle.join()` WAITS for its one task
+  and leaves the pool running (three spawn-join rounds cost N threads, not 3N);
+  `Deinit` lets the workers finish every live task and joins them. Until Aug 16
+  it was FORK-JOIN — the workers existed only inside a `join()`/`Deinit`, so
+  reading a value a worker was supposed to send, before joining it, hung at 100%
+  CPU forever. Treat the live behavior as working now and SUSPECT in older
+  builds. The delta to hold onto: MT order was never deterministic, and what
+  widened is WHEN — a task's effects land at an unspecified point between the
+  spawn and the join. `join()` is still a barrier for its task, `Deinit` for the
+  group, and `TaskGroup()` / `threads: 1` stay single-threaded
   (byte-identical, deterministic interleaving). Into a multi-threaded group,
   every value a spawned frame carries across a suspension — params, across-suspend
   locals, AND the result type — must be `Send` (else a clean compile error naming
@@ -1336,7 +1348,7 @@ dump_tasks()                // every live task's logical backtrace (std.task)
   accept/read/read_into/write/connect all OBSERVE cooperative cancellation at their
   internal park — including a task ALREADY parked on a permanently-idle fd (design
   102 item 2): a peer's `handle.cancel()` or a `cancel_addr` write rouses the parked
-  task (the reactor has a self-wake pipe, and the scheduler wakes a parked frame it
+  task (the reactor has a cross-thread wake, and the scheduler wakes a parked frame it
   finds cancelled), it re-checks `cancelled()` at its loop top and returns
   `Err(IoError)` — so a cancelled idle-fd wait no longer hangs. A NON-cancelled
   sibling parked on another idle fd stays parked (precise, no herd wake). The
