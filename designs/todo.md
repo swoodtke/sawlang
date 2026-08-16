@@ -23,8 +23,11 @@ Timer, CreateProcess, give/boot_handles, the ruled Memory/IoMemory
 surface, hard quotas; money shot = the echo driver as a CHILD launched
 from config) recommended over IPC-first; twelve agenda items, five
 lifted from 178's seed flags. The Aug-16 seed rounds in designs/178
-are RULINGS the session does not reopen. Unit 0 = the deferred M2
-spec-recap (§11), dispatchable separately. [178, 232]
+are RULINGS the session does not reopen. Unit 0 (the deferred M2
+spec-recap) is BUILT, branch PARKED for user review per SOS policy:
+§11 is now the built/remaining ledger plus an M2 milestone entry, and
+the pre-M2 status text is flipped in §§2, 2.2, 3, 5.7, 5c, 7, 8, 9b
+and 12 — each verified against the code first. [178, 232]
 
 ## HARDWARE PATH — the ultimate goal: ESP32-P4 + a small TCP/IP stack
 ## in Saw (user-ruled direction, Aug 16; post-M3 track)
