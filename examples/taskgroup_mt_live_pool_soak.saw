@@ -35,11 +35,14 @@ static TOTAL: Int = 300
 static STOP: Int = -1
 static WAIT_MS: UInt64 = 10000
 
-// The exclusive form on purpose: `for i in 1..=PER_PRODUCER` in a driven body
-// silently drops its last iteration (DF-225m), which is what this test found.
+// The inclusive form, which is what this loop wanted to say all along: it was
+// written `0..PER_PRODUCER` sending `i + 1` only to dodge DF-225m, the
+// last-iteration drop this test found and which the transform's `_split_for`
+// no longer has. Spelled this way the soak also covers the fixed lowering
+// under MT.
 func produce(work: Channel<Int>) {
-    for i in 0..PER_PRODUCER {
-        work.send(i + 1)
+    for i in 1..=PER_PRODUCER {
+        work.send(i)
     }
 }
 

@@ -252,6 +252,14 @@ uncountable — close() is the mechanism). Dispatches after 225 integrates.**
 ## body drops its last iteration (filed Aug 16, found by design 225 unit 3's
 ## soak case; mechanism located, obligation-4 sweep run, NOT fixed here)
 
+**FIXED Aug 16 (`9d3ca7d8` the lowering + the nine rows, `48aac3a2` corodiff's
+`..=` axis).** Both halves as ruled below: the design-53 guarded step, not the
+naive `<=` (verified — the naive spelling panics `integer overflow` on
+`examples/coro_for_inclusive_range_int_max.saw`), and three range-`for`
+contexts on corodiff's loop axis. The pin lost its XFAIL and carries all nine
+rows beside their plain twins; the axis found four cells of DF-217n/DF-217p
+the ledger had never recorded, each replayed as pre-existing.
+
 **One line, and it is not a scheduler bug — `coro_transform.py:5562`
 (`_split_for`) builds the loop header condition as a hard-coded `<`:**
 
