@@ -26,6 +26,50 @@ lifted from 178's seed flags. The Aug-16 seed rounds in designs/178
 are RULINGS the session does not reopen. Unit 0 = the deferred M2
 spec-recap (§11), dispatchable separately. [178, 232]
 
+## HARDWARE PATH — the ultimate goal: ESP32-P4 + a small TCP/IP stack
+## in Saw (user-ruled direction, Aug 16; post-M3 track)
+
+The destination: SOS on real silicon — the ESP32-P4 (dual-core rv32,
+PMP for the protected build, the "minimal MMU" 178's memory notes
+already name as the HAL bonus behind the same seam) — running a Saw
+TCP/IP stack. The P4 is RADIO-LESS, which dissolves the FreeRTOS
+binary-blob entanglement: connectivity is a companion chip (C6 over
+SDIO/SPI, ESP-Hosted — an OPEN protocol reimplementable in Saw), so
+the radio becomes exactly what SOS's model wants — a window + IRQ + a
+driver process, and on protected SOS a WiFi driver crash kills the
+driver, not the system. The ladder as discussed:
+
+1. NET STACK PHASE 1 (post-M3; consumes Timer + device grant + the
+   driver pattern): wire vocabulary, ARP/IPv4/ICMP + a VIRTIO-NET
+   driver on QEMU virt — no hardware needed, doubles as M3's second
+   real driver, ping is the hello-world. ~2-3 dispatches.
+2. UDP + DHCP + DNS stub (~1-2 dispatches), then TCP — the hard 60%
+   (state machine, RTO, flow control; the test harness matters more
+   than the code: packet-level goldens + a QEMU harness conversing
+   with a real Linux peer as the differential oracle). ~3-5
+   dispatches. API mirrors std.net's TcpListener/TcpStream so hosted
+   code ports unchanged. Whole stack ~8-15k lines Saw (smoltcp/uIP
+   are the calibration points).
+3. FIRST SILICON: ESP32-C6 — cheapest bring-up (rv32 objects straight
+   from sawc, only the LINK uses IDF pieces; a new BOARD HAL under
+   the existing riscv32 arch: interrupt matrix + SYSTIMER + Espressif
+   UART swap in behind the seams). Optionally as the FLAT PROFILE
+   first: `[sos] profile = "flat"` — syscalls become direct calls by
+   swapping ONLY the bottom sysapi altitude (the vDSO discipline
+   makes this surgical); one source, two builds; faults degrade to
+   halt; the whole image is one trust domain, stated.
+4. THE GOAL: P4 + the net stack + ESP-Hosted driver to a C6
+   companion. Protected build once the P4 HAL exists.
+
+Explicitly later: BLE host stack (GATT-peripheral-only is ~4-8k lines
+over HCI to the companion; SMP/crypto is the hard center — shim
+AES-CMAC/P-256 through C per the support.c precedent, never dogfood
+constant-time crypto in Saw first; developable HOSTED against BlueZ's
+virtual controller with zero hardware). ESP32-S3 (Xtensa) is OFF this
+path: wrong ISA for llvmlite (IR-into-Espressif's-LLVM-fork is the
+only route) and its radio stack is the closed blob. No dispatches
+before M3 lands; net phase 1 is the natural first post-M3 brief.
+
 ## `while let` — QUEUED design candidate (user-approved Aug 16), BEHIND 230
 
 Ruled worth building in conversation (user + lead, Aug 16): the
