@@ -107,8 +107,14 @@ objects are built + cached under `.build/rt/` and auto-linked (delete
   before every commit — compiler changes can break kernel codegen and
   the suite alone does not cover sos/. An SOS-ONLY change (everything
   under sos/) gates on sos_runner ONLY — the compiler suite does not
-  exercise it. A change touching both gates on both. Terminal battery
-  obligations are unchanged (the battery runs everything regardless). XFAIL policy (user, Aug 7): a
+  exercise it. A change touching both gates on both. TERMINAL gates
+  scope the same way (user, Aug 17): a compiler branch owes the FULL
+  battery; an SOS-only branch owes `battery.sh suite sos` — the five
+  slow lanes are compiler oracles and test nothing such a branch
+  changed; the suite runs once because new .saw files (tests, pins)
+  join the corpus and must prove they behave. Harness edits
+  (tools/sos_runner.py) and examples/ pin files do not make a branch
+  a compiler branch. XFAIL policy (user, Aug 7): a
   `// XFAIL: reason` test is legal ONLY as a pin of a filed finding —
   the reason MUST cite the DF number, the body is the minimal repro
   with EXPECT directives stating the intended behavior (so the XPASS
