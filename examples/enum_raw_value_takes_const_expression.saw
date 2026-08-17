@@ -1,0 +1,61 @@
+// XFAIL: DF-232c a raw-backed enum's case value accepts an INTEGER LITERAL
+// only, so a flags enum cannot state its bits as shifts
+//
+// Found by design 232's Aug-17 review-pass rider, which rules that a bit-flag
+// value is spelled as a shift (`case ThreadCreate = 1 << 8`) rather than as an
+// absolute decimal. The spelling is a PARSE error, so the ruling is unwritable
+// for exactly the types it targets: every rights enum in `sos/kernel/abi/` and
+// `imgformat`'s `SegFlag`. Those keep their decimals, values unchanged.
+//
+// THE GRAMMAR ADMITS A LITERAL AND NOTHING ELSE, which three probes bracket:
+//
+//   case A = 1 << 0     Parse error: Expected 'case' keyword for enum variant
+//   case A = (1 << 0)   Parse error: Expected an integer literal for the enum
+//                       case's raw value
+//   case A = 2 * 4      Parse error: Expected 'case' keyword for enum variant
+//
+// So it is not the shift operator being rejected — no const ARITHMETIC parses in
+// this position at all.
+//
+// WHY THE EXPECTATION WAS REASONABLE: design 185 folds `& | ^ << >> ~` in const
+// positions and names a raw-backed enum's case value among what folds. That is
+// about USING a case value as a const operand — `Perm.Read | Perm.Write` folds
+// to a backing-typed constant — and says nothing about the case value's own
+// initializer, which has always been a bare literal. The two readings are easy
+// to conflate, and this file is where the difference is written down.
+//
+// WHAT A FIX IS: let this position take a const EXPRESSION, evaluated by the
+// same folder design 186 gives a static initializer and range-checked against
+// the backing afterwards. Design 145's rule that every case states its own value
+// (no auto-increment, so a reorder can never renumber an ABI) is untouched by
+// that — a folded `1 << 8` states its value exactly as `256` does, and states
+// WHICH BIT while doing it.
+//
+// NEIGHBOURING, AND NOT A BUG: even with the grammar opened, a shift used as a
+// COMPARISON operand still needs its width said. In
+// `(Right.Debug as UInt32) >= (1 << 8)` the parenthesized shift is a
+// subexpression no expected type reaches, so it stays platform `Int` and
+// design 195 refuses the mixed comparison; `(1u32 << 8)` is its spelling. That
+// is the documented rule rather than a defect, and it is why the abi's
+// `static_assert`s keep their decimals too.
+//
+// EXPECT: success
+// EXPECT-OUTPUT:
+// Read=1 Device=8
+// bit8=256
+
+enum SegFlag: UInt8 {
+    case Read = 1 << 0,
+    case Write = 1 << 1,
+    case Execute = 1 << 2,
+    case Device = 1 << 3,
+}
+
+enum Right: UInt32 {
+    case Debug = 1 << 8,
+}
+
+func main() {
+    print("Read={} Device={}", SegFlag.Read as UInt8, SegFlag.Device as UInt8)
+    print("bit8={}", Right.Debug as UInt32)
+}

@@ -14,13 +14,38 @@ rulings/corrections — grep the brief before deleting anything);
 navigation lives in designs/INDEX.md (one line per brief + one per
 done-file), created with the Aug-17 split.
 
+## DF-232c — a raw-backed enum's case value takes an INTEGER LITERAL only, so
+## a flags enum cannot state its bits as shifts (filed Aug 17, SOS M3 unit 1
+## review-pass rider)
+
+The Aug-17 ruling that a bit-flag value is spelled as a shift
+(`case ThreadCreate = 1 << 8`, not `= 256`) is UNWRITABLE for the types it
+targets: every rights enum in `sos/kernel/abi/` and `imgformat`'s `SegFlag`.
+`case A = 1 << 0` is `Parse error: Expected 'case' keyword for enum variant`;
+`case A = (1 << 0)` is `Expected an integer literal for the enum case's raw
+value`; and `case A = 2 * 4` is refused too — so it is the whole const-expression
+grammar that is absent here, not the shift operator. Design 185 folds `<<` in
+const positions and names a raw-backed enum's case value among what folds, but
+that is about USING a case value as a const operand (`Perm.Read | Perm.Write`),
+not about its own initializer. The fix is to let this position take a const
+EXPRESSION through design 186's static-initializer folder, range-checked against
+the backing afterwards; design 145's no-auto-increment rule is untouched, since a
+folded `1 << 8` states its value as exactly as `256` does and says which bit
+while doing it. Pinned by `examples/enum_raw_value_takes_const_expression.saw`.
+The sos/ enums keep their decimals meanwhile, values unchanged.
+NEIGHBOURING AND NOT A DEFECT: a parenthesized shift in a COMPARISON stays
+platform `Int` (design 195 promotes bare literals only, and a subexpression
+reaches no expected type), so `>= (1 << 8)` against a `UInt32` is refused and
+`(1u32 << 8)` is its spelling — which is why the abi `static_assert`s kept their
+decimals as well. [232]
+
 ## DF-232b — `type` cannot be a parameter name or LABEL, so a ruled API
 ## spelling was unwritable (filed Aug 17, SOS M3 unit 1)
 
 `func f(type: ClockType)` is `Parse error: Expected parameter name` —
 `type` introduces a distinct type alias, so it is a keyword and cannot
 name a binding. The user-ruled surface for design 232 unit 1 was
-`System.get_clock(type: ClockType.Monotonic)`; it is built as `kind:`,
+`System.clock_get(type: ClockType.Monotonic)`; it is built as `kind:`,
 which is the vocabulary the rest of SOS already uses
 (`ProcessStatusKind`, `WaitableKind`, `exit_kind`).
 Worth a decision rather than a silent rename: a label is not a binding
@@ -508,7 +533,7 @@ is in, the objects are not), the Interrupt object, priorities, an idle loop.
 Findings the unit produced:
 
 - **DF-178c — a process cannot name a function's address, so it cannot give a
-  thread an entry point.** `Process.create_thread(entry:stack_top:arg:)` wants
+  thread an entry point.** `Process.thread_create(entry:stack_top:arg:)` wants
   a code address and Saw has no way to produce one: a named function is not a
   value (``undefined variable `worker` `` for `let f: () sync -> Void = worker`),
   an `extern`-declared symbol is not either (same error), and `@export` on a
@@ -517,7 +542,7 @@ Findings the unit produced:
   kernel API rather than four HAL accessor bodies — every SOS process that
   wants a second thread hits it, not just the runtime authors.
 
-  WHAT M2 DOES ABOUT IT: a second `create_thread(stack_top:arg:)` overload that
+  WHAT M2 DOES ABOUT IT: a second `thread_create(stack_top:arg:)` overload that
   starts the thread at the process's own IMAGE ENTRY, which is the one entry a
   Saw process can name because the kernel already knows it. The entry then has
   to work out which thread it is running as; the harness's two thread images do
@@ -683,7 +708,7 @@ SIZE-IN-ONE-PLACE idiom and is better anyway.
   the static-initializer evaluator the case the general const evaluator already
   has) with a two-row test plan, not an open-ended audit.
 
-RIDER (ruled Aug 16, user): an ARGUMENT ENCODING IS API. `create_event(mode:)`
+RIDER (ruled Aug 16, user): an ARGUMENT ENCODING IS API. `event_create(mode:)`
 replaces the method-per-mode pair — a method per mode stops scaling at M3's
 Mapping, where the modes multiply — and the `sos` module docstring now carries
 the line for Mapping to inherit: the vDSO discipline is about OP NUMBERS, not
@@ -1220,7 +1245,7 @@ What landed beyond the brief's text, as decisions a reader may need:
 - Two positions the brief did not enumerate and the type wanted: a
   **`static`** initializer (a link-time constant, so a dispatch table is
   a static) and a **field call** (`TABLE.run(x)`, how a table is read).
-- Kernel adoption (`create_thread`) is still deferred to M3 unit 2 per
+- Kernel adoption (`thread_create`) is still deferred to M3 unit 2 per
   the brief; nothing under `sos/` was touched.
 
 - ~~**DF-226a — a closure body's TAIL never receives the expected RETURN

@@ -125,7 +125,7 @@ static_assert(sizeof<SosimgHeader>() == 24, "sosimg header must be exactly 24 by
 static_assert(sizeof<SosimgSeg>() == 24, "sosimg segment record must be exactly 24 bytes")
 
 /// 'S','O','S','I' as a little-endian word.
-public static SOSIMG_MAGIC: UInt32 = 0x49534F53
+public static SOSIMG_MAGIC: UInt32 = 0x4953_4F53
 
 /// Version 3 widened `entry` and `load_addr` to 64 bits, taking the header from
 /// 16 bytes to 24 and each record from 20 to 24.
@@ -140,7 +140,7 @@ public static SOSIMG_MAGIC: UInt32 = 0x49534F53
 public static SOSIMG_VERSION: UInt16 = 3
 
 /// The largest address a 32-bit loader can place.
-static WORD32_MAX: UInt64 = 0xFFFFFFFFu64
+static WORD32_MAX: UInt64 = 0xFFFF_FFFFu64
 static BYTES_PER_64BIT_WORD: Int = 8
 
 /// Can THIS build's machine word hold `v`?

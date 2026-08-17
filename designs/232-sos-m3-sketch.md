@@ -343,9 +343,9 @@ notes) is built unchanged; what follows is the decisions the implementation
 had to pin, recorded here because the brief delegated them.
 
 **The op/right numbering.** `ObjType.Clock = 7`, `ObjType.Timer = 8`.
-`SystemOp.GetClock = 3` behind a NEW `SystemRight.GetClock = 1024`.
-`ClockOp { Now = 0, CreateTimer = 1 }` over
-`ClockRight { Transfer = 1, Manage = 2, Read = 256, CreateTimer = 512 }`.
+`SystemOp.ClockGet = 3` behind a NEW `SystemRight.ClockGet = 1024`.
+`ClockOp { Now = 0, TimerCreate = 1 }` over
+`ClockRight { Transfer = 1, Manage = 2, Read = 256, TimerCreate = 512 }`.
 `TimerOp { Arm = 0, Disarm = 1 }` over
 `TimerRight { Transfer = 1, Manage = 2, Arm = 256, Wait = 512 }`.
 `WaitTag.Timer = 2`, `WaitPayload.Timer(fires:)`. Both new kinds withhold
@@ -355,13 +355,13 @@ gates BOTH `Arm` and `Disarm` on `WaiterRight.Attach`'s reasoning — a holder
 who may arm can silence a timer by arming it a century out, so splitting the
 pair would withhold nothing.
 
-**`get_clock` IS A GETTER, NOT A FACTORY.** It mints on first ask and returns
-the SAME handle thereafter, per (process, ClockType) — the `SelfProcess`
+**`clock_get` IS A GETTER, NOT A FACTORY.** It mints on first ask and returns
+the SAME handle thereafter, per (process, ClockType) — the `ProcessSelf`
 shape. A machine has one monotonic clock, so two Clock objects would be two
 names for one thing, which §3's no-duplicate rule exists to prevent; and an
 op that cannot allocate on repetition needs no quota row in unit 5.
 
-**`SystemRight.GetClock` is NOT in the stripped-by-construction set.** The
+**`SystemRight.ClockGet` is NOT in the stripped-by-construction set.** The
 device/memory rulings strip `Shutdown` and the bind/alloc rights from every
 derived System handle; a clock grants authority over nothing and every
 process needs to tell the time, so this bit travels. What the bit buys is the
@@ -455,7 +455,7 @@ because getting it wrong that way fails as a timeout rather than a report.
 `timer_interval`, `timer_deadlock`, `timer_badclock`, `timer_badrecord`),
 38 per architecture, 76 runs.
 
-**Two findings, neither worked around:**
+**Three findings, none worked around** (the third from the Aug-17 review pass):
 
 - **DF-232a** — a bare integer literal does not adopt the expected
   fixed-width type in PLAIN ASSIGNMENT position, and the mismatch is an
@@ -467,9 +467,52 @@ because getting it wrong that way fails as a timeout rather than a report.
   a core typechecker change and does not belong buried in a parked SOS
   branch.
 - **DF-232b** — `type` is a Saw keyword, so the ruled
-  `System.get_clock(type:)` spelling is unwritable. Built as `kind:`, which
+  `System.clock_get(type:)` spelling is unwritable. Built as `kind:`, which
   is the vocabulary this system already uses (`ProcessStatusKind`,
   `WaitableKind`).
+- **DF-232c** — a raw-backed enum's case value takes an INTEGER LITERAL only, so
+  the Aug-17 bit-flag ruling below is unwritable for the rights enums and
+  `SegFlag`. Not the shift operator: no const arithmetic parses in that position
+  (`(1 << 0)` and `2 * 4` are refused too). Design 185's fold covers USING a case
+  value as a const operand, not its own initializer. Pinned by
+  `examples/enum_raw_value_takes_const_expression.saw`; the enums keep decimals,
+  values unchanged.
+
+**REVIEW RIDER (ruled Aug 17, user) — an op reads `object_operation`.** The
+noun of the object kind an op concerns leads and the verb follows, so unit 1
+landed as `SystemOp.ClockGet` / `ClockOp.TimerCreate` rather than `GetClock` /
+`CreateTimer`, and the M2 ops were swept with it: `ProcessSelf`, `ThreadCreate`,
+`ThreadSelf`, `EventCreate`, `WaiterCreate`, `InterruptBind`, each with its
+mirroring right, typed method (`system.clock_get`, `proc.thread_create`) and C
+export (`sos_system_clock_get`). An op whose RECEIVER IS the object it concerns
+keeps the bare verb — `Arm`, `Ack`, `Wait`, `Signal`, `Join`, `Start`, `Exit`,
+`Yield`, `Now`, `Add`, `Remove`, `Shutdown`, `DebugPrint`, `GetStatus` — since
+there is no second noun to lead with, and a right naming a CAPABILITY rather
+than an op (`Transfer`, `Manage`, `Read`, `Control`, `Attach`) is untouched.
+NUMBERS DID NOT MOVE: this is spelling, and both arches' harness runs are what
+say so. The rule is recorded where the names live, in `sos/kernel/abi/`'s module
+docstring beside the Aug-15 family-naming rule, so the M3 units that add object
+kinds inherit it. THE AGENDA AND UNIT-LADDER SECTIONS ABOVE PREDATE THIS RULING
+and keep the spellings they were written with; the names built are the ones
+here, and a later unit takes its op names from `sos/kernel/abi/` rather than
+from the ladder.
+
+**REVIEW RIDER (ruled Aug 17, user) — NUMERIC LITERALS SAY THEIR MAGNITUDE.**
+A literal long enough that a reader would have to count digits takes `_`
+separators: decimal by thousands (`NS_PER_SECOND = 1_000_000_000`,
+`TIMER_MIN_LEAD_NS = 50_000`, the LCG constants in `thread-preempt`), hex by
+nibble-quads (`0x1000_0000`, `0x0200_BFF8`, and the arm64 descriptor bits
+`ATTR_PXN = 0x20_0000_0000_0000` / `ATTR_UXN = 0x40_0000_0000_0000`, which had
+been written as fourteen unbroken digits). Short ones are exempt — `4096`,
+`0x301`, `0x20` read at a glance — and a device-register mask stays HEX, since
+it is a datasheet field. Swept across `sos/` (kernel, hal, tests, root,
+imgformat, rt); VALUES ARE IDENTICAL, underscores only, which both arches'
+harness runs are what prove.
+The companion half of the ruling — a BIT-FLAG value spelled `1 << n` rather than
+as an absolute decimal — could not be built: the enum case-value grammar takes a
+literal and nothing else (DF-232c above). The rights enums and `SegFlag` keep
+their decimals until that is fixed, and the `static_assert` bit-8 floors keep
+theirs with them, so each file reads consistently rather than half-converted.
 
 ## Explicitly out (M4+ candidates)
 
