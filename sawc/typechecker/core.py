@@ -439,6 +439,11 @@ class TypeChecker(ExpressionsMixin, StatementsMixin, RegistrationMixin, TypeUtil
         # fires per resolution would print each diagnostic more than once.
         self._gate_reported: set = set()
 
+        # design 226: the same, for the `FuncPointer<F>` argument rule. Its own
+        # set because the two rules answer different questions about the same
+        # node and either may fire without the other.
+        self._funcpointer_reported: set = set()
+
         # Register built-in functions
         self._register_builtins()
 
@@ -1748,15 +1753,117 @@ class TypeChecker(ExpressionsMixin, StatementsMixin, RegistrationMixin, TypeUtil
         """
         if written is None or depth > 8:
             return
-        if self._gate_exempt():
-            return
-        self._gate_resolved_type(written)
+        # design 226 rides this walk for the `FuncPointer<F>` argument rule: it
+        # visits every node of every written type from the same four entries,
+        # which is exactly the quantifier that rule needs ("wherever a
+        # `FuncPointer<...>` is written"). It runs BEFORE the exemption below
+        # because the exemptions are about std's own SPELLINGS of gated names,
+        # and say nothing about whether an `F` is a sync function type.
+        self._check_funcpointer_arg(written)
+        if not self._gate_exempt():
+            self._gate_resolved_type(written)
         for child in (written.inner_type, written.array_element_type,
                       written.func_return_type):
             self._gate_written_type(child, depth + 1)
         for child in ((written.type_args or []) + (written.element_types or [])
                       + (written.param_types or [])):
             self._gate_written_type(child, depth + 1)
+
+    # ---------------------------------------------------------------- 226
+    # `FuncPointer<F>` — what an `F` may be.
+    #
+    # `F` is a function TYPE and it must be `sync`. The two halves of that come
+    # from two different places on purpose:
+    #
+    #   * FUNCTION-ness and `sync` are checked HERE, at the one walk every
+    #     written type passes through, because a bare address has nowhere to
+    #     keep the frame a suspending body runs out of — so a suspending `F` is
+    #     wrong at the TYPE, before anything constructs one.
+    #   * The design-136 rule (`unsafe` iff the signature names an unsafe type)
+    #     is NOT re-checked here. `_validate_fn_type_effect` already recurses
+    #     into `type_args`, so an `F` inside a `FuncPointer` written in any
+    #     declared position reaches the existing check unchanged. Copying the
+    #     rule would give one contract two implementations, which is what
+    #     design 136 spent a unit removing.
+    def _check_funcpointer_arg(self, t) -> None:
+        """Judge ONE written type node against the `FuncPointer<F>` rule."""
+        if (t is None or t.kind != TypeKind.STRUCT
+                or t.struct_name != "FuncPointer"):
+            return
+        if not t.written_name:
+            # A type the COMPILER built — resolution rebuilds every composite,
+            # so the same annotation arrives here again with its provenance
+            # stripped. The author wrote one spelling and owes one diagnostic;
+            # judge the written node and let its rebuilt copies pass. Same rule,
+            # same reason, as the prelude gate one method up.
+            return
+        args = t.type_args or []
+        if len(args) != 1:
+            self._funcpointer_error(
+                t,
+                f"`FuncPointer` takes exactly one type argument, but "
+                f"{len(args)} were given",
+                hint="write `FuncPointer<F>`, where `F` is a function type — "
+                     "e.g. `FuncPointer<(Int) sync -> Int>`")
+            return
+        f = args[0]
+        if self._funcpointer_arg_is_abstract(f):
+            # A type PARAMETER standing in for `F`. Nothing is decided yet; the
+            # instantiation is judged where its argument is written.
+            return
+        if f.kind != TypeKind.FUNCTION:
+            self._funcpointer_error(
+                t,
+                f"`FuncPointer`'s type argument must be a function type, but "
+                f"`{f}` is not",
+                hint="write the signature the address has — e.g. "
+                     "`FuncPointer<(Int) sync -> Int>`")
+            return
+        if not f.func_is_sync:
+            self._funcpointer_error(
+                t,
+                f"`FuncPointer`'s type argument must be `sync`, but `{f}` may "
+                f"suspend",
+                hint="a suspending body runs out of a frame and a bare code "
+                     "address has nowhere to keep one — write `sync` in the "
+                     "effect slot (`(Int) sync -> Int`), or pass a `TaskHandle` "
+                     "if the work really does suspend")
+
+    def _funcpointer_arg_is_abstract(self, f) -> bool:
+        """Is this `F` still a type PARAMETER rather than a chosen signature?
+
+        A generic body may name `FuncPointer<F>` with its own `F` — builtin.saw's
+        own extension does — and judging that spelling would reject the
+        declaration that defines the type. An unresolved bare name is treated as
+        a parameter: whatever it is, some other rule owns the name.
+        """
+        if f is None:
+            return True
+        if f.kind == TypeKind.TYPE_PARAM:
+            return True
+        if f.kind != TypeKind.STRUCT or not f.struct_name:
+            return False
+        name = f.struct_name
+        if name in (getattr(self, 'current_type_params', {}) or {}):
+            return True
+        if self.get_struct_info(name) is not None:
+            return False
+        if self.get_enum_info(name) is not None:
+            return False
+        if self.namespace.lookup_type_alias(name) is not None:
+            return False
+        return True
+
+    def _funcpointer_error(self, t, message: str, hint: str) -> None:
+        """Report one `FuncPointer<F>` violation, once per written position."""
+        line = t.written_line or getattr(t, 'line', 0) or 0
+        column = t.written_column or getattr(t, 'column', 0) or 1
+        key = (t.written_file, line, column, message)
+        if key in self._funcpointer_reported:
+            return
+        self._funcpointer_reported.add(key)
+        self._error(ErrorKind.TYPE_MISMATCH, message, line, column, hint=hint,
+                    source_file=(t.written_file or None))
 
     def _gate_exempt(self) -> bool:
         """The three whole-pass exemptions the prelude gate honours.

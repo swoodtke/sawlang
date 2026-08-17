@@ -175,6 +175,17 @@ class TypesMixin:
             # 0x18003000 is a 32-bit value under a riscv32 target).
             if saw_type.struct_name == "UnsafeMemory":
                 return self.int_type
+            # design 226: `FuncPointer<F>` is ONE WORD — the address of code
+            # whose signature is `F`. It lowers to `F`'s own BARE function
+            # pointer, the closure lowering below minus the environment: no
+            # `env_ptr` parameter, no `dtor_ptr` beside it. That is what makes
+            # it exactly a C function pointer at the ABI (the whole point of
+            # the type) and what makes the indirect call a plain `call`. The
+            # declared `{ addr: Int }` body is never materialized — the struct
+            # never monomorphizes, since every construction, every call and
+            # `from_raw` are intercepted.
+            if saw_type.struct_name == "FuncPointer":
+                return self._funcpointer_llvm_type(saw_type)
             # design 46: ReadOnly<T> / WriteOnly<T> are LAYOUT-TRANSPARENT field
             # markers — a `ReadOnly<UInt32>` field occupies exactly a `UInt32`,
             # so it lowers to the inner type's layout (no wrapper struct). This is
@@ -399,6 +410,47 @@ class TypesMixin:
             return self._ext_self_types(self.self_type_context)[0]
         else:
             raise ValueError(f"Unknown type: {saw_type}")
+
+    def _funcpointer_signature(self, saw_type: SawType):
+        """`F` out of a `FuncPointer<F>` SawType, substituted, or None.
+
+        THE ONE PLACE codegen unwraps the type (design 226). Substituting
+        against the active monomorphization context is what lets a
+        `FuncPointer<F>` written inside a generic body reach a concrete
+        signature — the same first step every other generic arm here takes.
+        """
+        if (saw_type is None or saw_type.kind != TypeKind.STRUCT
+                or saw_type.struct_name != "FuncPointer"):
+            return None
+        args = saw_type.type_args or []
+        if not args:
+            return None
+        f = self._substitute_saw_type(args[0], self.type_param_context)
+        return f if f is not None and f.kind == TypeKind.FUNCTION else None
+
+    def _funcpointer_llvm_fn_type(self, f: SawType) -> ir.FunctionType:
+        """The BARE LLVM function type of a `FuncPointer`'s signature `F`.
+
+        The closure lowering with the environment removed: parameters exactly
+        as written, no leading `env_ptr`. Read by the type lowering, by the
+        coerced-literal emission (which defines a function OF this type) and by
+        the indirect call (which calls THROUGH one), so the three cannot drift.
+        """
+        param_types = [self._get_llvm_type(t) for t in (f.param_types or [])]
+        if f.func_return_type and f.func_return_type.kind != TypeKind.VOID:
+            ret_type = self._get_llvm_type(f.func_return_type)
+        else:
+            ret_type = ir.VoidType()
+        return ir.FunctionType(ret_type, param_types)
+
+    def _funcpointer_llvm_type(self, saw_type: SawType) -> ir.Type:
+        """`FuncPointer<F>` as an LLVM type: a pointer to `F`'s bare function."""
+        f = self._funcpointer_signature(saw_type)
+        if f is None:
+            raise ValueError(
+                f"`FuncPointer` reached codegen without a function-type "
+                f"argument: {saw_type}")
+        return ir.PointerType(self._funcpointer_llvm_fn_type(f))
 
     def _resolve_type_alias(self, saw_type: SawType) -> SawType:
         """Resolve type aliases in a SawType.

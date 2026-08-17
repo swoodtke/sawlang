@@ -453,6 +453,50 @@ struct WriteOnly<T> {
     value: T
 }
 
+// =============================================================================
+// FuncPointer<F> — a typed function pointer (design 226)
+// =============================================================================
+
+// One word: the ADDRESS of compiled code whose signature is `F`. It is what an
+// entry point and a C callback need, and it is deliberately NOT first-class
+// functions — a `FuncPointer` has no environment, so it captures nothing,
+// allocates nothing, and is exactly a C function pointer at the ABI.
+//
+// `F` is a function TYPE and it must be `sync`. A suspending body runs out of a
+// frame and a bare address has nowhere to keep one, so a suspending `F` is a
+// clean error at the type — checked wherever a `FuncPointer<...>` is written.
+//
+// A SAFE type. Construction is CLOSED: a zero-capture closure literal COERCES
+// in `FuncPointer`-expected position, and a named, non-generic function may be
+// written there. Every inhabitant is therefore verified code of signature `F`,
+// and code is immortal, so no inhabitant can dangle — possession and the
+// indirect CALL are sound for every input (design 130's rule 7), which is why
+// an API receiving one owes no `unsafe` declaration. `from_raw` is the one
+// member that forges an inhabitant out of an address nothing verified, and it
+// is `unsafe` for the ordinary reason: its parameter names a raw pointer.
+//
+// Copy tier and thread safety both fall out of the one-word `addr` field below
+// with nothing declared: a code address is bitwise-copyable, so the type is
+// trivial, and `Send`/`Sync` derive structurally. Construction, the call and
+// `from_raw` are intercepted by the compiler; `addr` is the representation and
+// is never accessed at the source level.
+struct FuncPointer<F> {
+    addr: Int
+}
+
+extension FuncPointer<F> {
+    /// The function at `addr`, taken on faith to have signature `F`.
+    ///
+    /// For a C callback arriving through FFI, and for a loader reading an entry
+    /// PC out of an image — the two places an address exists before any
+    /// compiler has seen the code behind it. Calling the result runs whatever
+    /// is there under `F`'s ABI, so the caller owes the promise that the
+    /// address really is such a function.
+    public func from_raw(addr: UnsafePointer<UInt8>) unsafe -> FuncPointer<F> {
+        panic("FuncPointer.from_raw: not intercepted")
+    }
+}
+
 // The cooperative-task protocol — `Poll` and `Resumable` — lives in
 // `std/compiler/frame.saw` since design 218 unit 1. It is the frame
 // vocabulary, published beside `Slot` and `UnsafeRef` so that the signature a

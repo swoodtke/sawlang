@@ -1,0 +1,47 @@
+// Design 226 unit 1: the `FuncPointer<F>` type surface.
+//
+// A SAFE type whose one forging member is not: `from_raw` binds a raw address,
+// so design 130's trigger makes it `unsafe`, and the unsafety stops at the
+// wrapper that calls it. Everything else here is ordinary safe code holding an
+// ordinary value -- which is the point of the safe-type ruling.
+//
+// The copy tier and the thread-safety properties are DERIVED from the one-word
+// representation, with nothing declared: a code address copies bitwise (so
+// `let q = p` needs no ceremony and `Holder` owes no policy), and `Send`
+// follows the same way (so a task may take one).
+//
+// EXPECT: success
+// EXPECT-OUTPUT:
+// forged
+// copied
+// held
+// sent
+
+func forge(addr: Int) unsafe -> FuncPointer<(Int) sync -> Int> {
+    FuncPointer<(Int) sync -> Int>.from_raw(addr as UnsafePointer<UInt8>)
+}
+
+// No copy policy declared, and none owed: every member is trivial.
+struct Holder {
+    p: FuncPointer<(Int) sync -> Int>
+}
+
+func main() {
+    let p = forge(0)
+    print("forged")
+
+    let q = p                       // trivial: a bitwise copy, both live
+    let r = q
+    print("copied")
+
+    let h = Holder(p: r)            // a field, still no policy owed
+    let g = h
+    print("held")
+
+    var t = spawn {                 // `Send` derives -- a task may hold one
+        let inner = g.p
+        1
+    }
+    let _ = t.join()
+    print("sent")
+}

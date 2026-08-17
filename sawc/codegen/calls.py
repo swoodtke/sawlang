@@ -2415,6 +2415,19 @@ class CallsMixin:
 
     def _generate_static_method_call(self, expr: MethodCall, struct_name: str):
         """Generate a static method call: StructName.method(args)"""
+        # design 226: `FuncPointer<F>.from_raw(addr)` is the one FORGING member,
+        # and it is a cast — the address arrives as a raw pointer and leaves as
+        # a `FuncPointer<F>`, which lowers to a bare function pointer. Its Saw
+        # body is a `panic` that exists only so the signature type-checks (the
+        # `Atomic` precedent), so this interception is what makes the member
+        # real. Intercepted BEFORE the monomorphization below: the struct never
+        # specializes, because nothing ever reads its `addr` field.
+        if (struct_name == "FuncPointer" and expr.method_name == "from_raw"
+                and expr.arguments):
+            addr = self._generate_expression(expr.arguments[0].value)
+            return self.builder.bitcast(
+                addr, self._get_llvm_type(expr.resolved_type),
+                name="funcptr_from_raw")
         # A static method on a GENERIC struct is called with explicit type args
         # (`Vector<Int>.try_with_capacity(...)`). Monomorphize the struct for
         # those args — which also queues its extension methods, including this

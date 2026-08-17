@@ -1,0 +1,13 @@
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: `FuncPointer`'s type argument must be `sync`
+//
+// Design 226: `F` is SYNC-ONLY. A suspending body runs out of a frame the
+// scheduler owns, and a bare code address has nowhere to keep one -- so the
+// refusal is at the TYPE, before anything constructs an inhabitant. A function
+// type with no `sync` in its effect slot may suspend.
+
+struct Table {
+    handler: FuncPointer<(Int) -> Int>
+}
+
+func main() { print("unreached") }

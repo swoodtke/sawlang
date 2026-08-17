@@ -1,0 +1,11 @@
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: `FuncPointer`'s type argument must be a function type
+//
+// Design 226: `F` is a function TYPE. A `FuncPointer<Int>` would be a code
+// address with no signature to call it under, so the refusal is at the type,
+// wherever one is written -- this is a parameter, and the rule rides the walk
+// every written type passes through.
+
+func takes(p: FuncPointer<Int>) { }
+
+func main() { print("unreached") }
