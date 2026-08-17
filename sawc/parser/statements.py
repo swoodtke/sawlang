@@ -17,7 +17,8 @@ from ast_nodes import (
     GuardLetStatement, DestructuringLet, LendStatement,
     WhileExpr, ForLoop, BreakStatement, ContinueStatement,
     Identifier, MemberAccess, ArrayIndex, SelfExpr, TupleIndex,
-    OptionalEvalExpr, OptionalChainAssign, ForceUnwrap, MethodCall
+    OptionalEvalExpr, OptionalChainAssign, ForceUnwrap, MethodCall,
+    IfLetExpr,
 )
 
 # Compound assignment token to operator mapping
@@ -323,6 +324,12 @@ class StatementsMixin:
     def parse_while_statement(self) -> WhileExpr:
         start = self.advance()  # consume 'while'
 
+        # design 233: `while let x = SCRUT { ... }` — the drain loop's header
+        # spelling. `let`/`var` right after `while` is the only thing it can be
+        # (a condition never starts with either keyword), so no lookahead.
+        if self.match(TokenType.LET, TokenType.VAR):
+            return self._parse_while_let(start)
+
         # Condition is optional - if we see '{', it's an infinite loop
         condition = None
         if not self.match(TokenType.LBRACE):
@@ -340,6 +347,100 @@ class StatementsMixin:
             body=body,
             line=start.line,
             column=start.column
+        )
+
+    def _parse_while_let(self, start) -> WhileExpr:
+        """design 233: `while let x = SCRUT { BODY }` — the drain loop.
+
+        LOWERED HERE into the two constructs it means, so nothing about it is a
+        second implementation of anything:
+
+            while {                        # conditionless: the only way out is
+                if let x = SCRUT {         # the binding failing
+                    BODY
+                } else { break }
+            }
+
+        The scrutinee sits INSIDE the loop body, which is what makes this a
+        drain: it re-evaluates every iteration, and `continue` — the loop head —
+        re-runs it. Exhaustion (`None`) takes the else edge and leaves the loop.
+
+        OBLIGATION 1. The binding rules are `if let`'s because the node IS an
+        `if let`: the design-100 derived-shadow rule (`while let x = x.next()`
+        reads as derived, exactly as `if let x = x` does), the design-63 tuple
+        pattern, the design-131 payload-read tier, the design-62 G2 scrutinee
+        hoist and the design-104 CFG split all reach it through their own
+        existing entry points with no new position to keep in sync. This method
+        is the funnel's new entry point; `typechecker/expressions.py
+        _check_if_let_expr` is the funnel.
+
+        Both halves are MARKED — `IfLetExpr.while_let` and
+        `WhileExpr.is_while_let` — because the desugared tree no longer says
+        what the author wrote: diagnostics have to name `while let`, the
+        synthesized `else { break }` must not be reported as a branch the author
+        can retype, and value position has to be refusable.
+        """
+        mutable = self.current().type == TokenType.VAR
+        self.advance()  # consume 'let' or 'var'
+
+        # Tuple pattern over an Optional tuple (design 63), exactly as `if let`
+        # takes one: `while let (k, v) = pairs.pop()`.
+        pattern = None
+        name = ""
+        if self.match(TokenType.LPAREN):
+            pattern = self.parse_pattern()
+        else:
+            name_token = self.expect(
+                TokenType.IDENT, "Expected variable name after 'while let/var'")
+            name = name_token.value
+        self.expect(TokenType.ASSIGN, "Expected '=' in optional binding")
+
+        # Disable trailing closures — the `{` is the loop body.
+        saved_trailing = self.allow_trailing_closure
+        self.allow_trailing_closure = False
+        optional_expr = self.parse_expression()
+        self.allow_trailing_closure = saved_trailing
+
+        self.skip_newlines()
+        body = self.parse_block()
+
+        # There is no `else` clause: a `while let`'s absent case IS the loop
+        # exit, so an `else` would be asking for a branch that already has a
+        # meaning. Say that where it is written rather than letting the generic
+        # "unexpected token" land on it. Peek across newlines and rewind, so a
+        # loop with no `else` keeps the statement terminator the caller expects.
+        saved_pos = self.pos
+        self.skip_newlines()
+        if self.match(TokenType.ELSE):
+            self.error("`while let` has no `else` clause — the loop exits when "
+                       "the binding fails, so there is nothing for an `else` to "
+                       "mean. Use `if let ... else` for a one-shot branch, or "
+                       "put the exhausted case after the loop")
+        self.pos = saved_pos
+
+        binding = IfLetExpr(
+            name=name,
+            optional_expr=optional_expr,
+            mutable=mutable,
+            then_branch=body,
+            else_branch=Block(
+                statements=[BreakStatement(line=start.line,
+                                           column=start.column)],
+                final_expr=None, line=start.line, column=start.column),
+            line=start.line,
+            column=start.column,
+            pattern=pattern,
+            while_let=True,
+        )
+        return WhileExpr(
+            condition=None,
+            body=Block(
+                statements=[ExpressionStatement(
+                    expression=binding, line=start.line, column=start.column)],
+                final_expr=None, line=start.line, column=start.column),
+            line=start.line,
+            column=start.column,
+            is_while_let=True,
         )
 
     def parse_for_statement(self) -> ForLoop:

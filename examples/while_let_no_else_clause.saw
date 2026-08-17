@@ -1,0 +1,16 @@
+// Design 233: `while let` has NO `else` clause. The absent case IS the loop
+// exit, so an `else` would be asking for a branch that already has a meaning —
+// said where it is written rather than left to the generic "unexpected token".
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: `while let` has no `else` clause
+// EXPECT-ERROR-CONTAINS: Use `if let ... else` for a one-shot branch
+
+func opt(n: Int) sync -> Int? {
+    if n > 2 { return None }
+    return n
+}
+
+func main() {
+    var n = 0
+    while let x = opt(n) { n = n + 1 } else { print("done") }
+}

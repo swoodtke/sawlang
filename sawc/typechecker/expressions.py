@@ -4660,15 +4660,36 @@ class ExpressionsMixin:
             return then_type
 
     def _check_if_let_expr(self, expr: IfLetExpr) -> Optional[SawType]:
-        """Check an if let/var expression for optional binding."""
+        """Check an if let/var expression for optional binding.
+
+        THE OPTIONAL-BINDING FUNNEL (obligation 1). Every rule about what an
+        optional binding may bind lives here and nowhere else — the design-100
+        derived-shadow test, the design-63 tuple pattern, the design-131
+        payload-read tier — so a new spelling of the construct gets all of them
+        by routing through this method rather than by growing a copy.
+
+        ENTRY POINTS:
+          * `parser/expressions.py parse_if_expression` — `if let` / `if var`.
+          * `parser/statements.py _parse_while_let` — `while let` / `while var`
+            (design 233), which lowers to an `if let` whose synthesized `else`
+            is a `break`. `expr.while_let` marks those, and it exists for the
+            two things the desugared node can no longer say for itself: a
+            diagnostic must name what the author wrote, and the branch-type
+            merge must not judge an `else` the author never wrote.
+        (`guard let` is checked by `_check_guard_let_statement`, which repeats
+        the shape rather than this method's control flow but calls the same
+        three helpers.)
+        """
         from .core import VariableInfo, Scope
+        kw = "while let" if expr.while_let else "if let"
+        kw_a = "a `while let`" if expr.while_let else "an `if let`"
         optional_type = self._check_expression(expr.optional_expr)
         if optional_type is None:
             return None
         if optional_type.kind != TypeKind.OPTIONAL:
             self._error(
                 ErrorKind.TYPE_MISMATCH,
-                f"'if let' requires an optional type, got `{optional_type}`",
+                f"'{kw}' requires an optional type, got `{optional_type}`",
                 expr.line, expr.column
             )
             return None
@@ -4710,7 +4731,7 @@ class ExpressionsMixin:
                 # (`if let a = move o` is the consuming form). A fresh temporary
                 # scrutinee already handed its payload over and is unchanged.
                 self._check_payload_read(expr.optional_expr, inner_type, expr,
-                                         "an `if let` binding",
+                                         f"{kw_a} binding",
                                          expr.line, expr.column)
         # Move dataflow (design 15 rule 6): branches merge as union of the
         # non-diverging paths, from a shared entry state.
@@ -4737,6 +4758,12 @@ class ExpressionsMixin:
             if then_type is not None and then_type.kind == TypeKind.NEVER:
                 return else_type
             if else_type is not None and else_type.kind == TypeKind.NEVER:
+                return then_type
+            if expr.while_let:
+                # design 233: the `else` is the synthesized `break` that leaves
+                # the loop, not a branch the author wrote — there is no second
+                # value to merge with, and a `while let` yields nothing anyway
+                # (value position is refused in `_check_while_expr_as_expression`).
                 return then_type
             if then_type and else_type and not self._types_compatible(then_type, else_type):
                 self._error(

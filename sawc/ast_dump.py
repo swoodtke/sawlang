@@ -752,7 +752,11 @@ class ASTDumper:
 
         elif isinstance(expr, IfLetExpr):
             mut = "var" if expr.mutable else "let"
-            self._emit(f"IfLetExpr if {mut} {expr.name} =")
+            # design 233: a `while let`'s binding lowers to an `if let`, so the
+            # dump says which one the author wrote — otherwise the tree reads as
+            # a hand-written `if let … else { break }` nobody typed.
+            kw = "while" if expr.while_let else "if"
+            self._emit(f"IfLetExpr {kw} {mut} {expr.name} =")
             self._indent()
             self._emit("optional:")
             self._indent()
@@ -778,6 +782,11 @@ class ASTDumper:
                 self._indent()
                 self._dump_expression(expr.condition)
                 self._dedent()
+            elif expr.is_while_let:
+                # design 233: conditionless in the tree, but the author wrote a
+                # header binding — the `IfLetExpr` below carries it.
+                self._emit(f"WhileExpr (while let){result_type}")
+                self._indent()
             else:
                 self._emit(f"WhileExpr (infinite){result_type}")
                 self._indent()

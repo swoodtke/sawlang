@@ -1,0 +1,20 @@
+// Design 233: a `while let` produces no value in v1 — its result could only
+// come from `break <value>`, and the conditional-loop value story is not
+// reopened here. Refused where it is written, rather than typed as the
+// conditionless loop it lowers to (which would have reported "infinite while
+// loop used as expression must `break` with a value" about a loop nobody
+// wrote).
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: a `while let` loop produces no value and cannot be used as an expression
+// EXPECT-ERROR-CONTAINS: drain into a binding declared before the loop
+
+func opt(n: Int) sync -> Int? {
+    if n > 2 { return None }
+    return n
+}
+
+func main() {
+    var n = 0
+    let r = while let x = opt(n) { n = n + 1 }
+    print("{r}")
+}

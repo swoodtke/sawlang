@@ -1,0 +1,212 @@
+// Design 233: `while let` — the drain loop's header spelling. The scrutinee
+// re-evaluates every iteration, `None` ends the loop, and the binding rules are
+// `if let`'s because the binding IS an `if let` (the parser lowers the header
+// into a conditionless loop over `if let … else { break }`).
+// EXPECT: success
+// EXPECT-OUTPUT:
+// pop total 6
+// empty iterations 0
+// break/continue seen 8
+// derived 6
+// tuple 66
+// nested 36
+// whilevar 306
+// tryq acc=3 stopped at 3
+// wildcard rounds 3
+// nocopy ids 3
+// take 9
+// closure 6
+// generic 6
+// generic 6
+// after the loop 99
+
+struct Token { id: Int, label: String }
+extension Token: NoCopy {}
+
+struct Cursor { at: Int }
+
+extension Cursor {
+    func next(&var self) sync -> Int? {
+        self.at = self.at + 1
+        if self.at > 3 { return None }
+        return self.at
+    }
+    func next_pair(&var self) sync -> (Int, Int)? {
+        self.at = self.at + 1
+        if self.at > 3 { return None }
+        return (self.at, self.at * 10)
+    }
+}
+
+func fallible(n: Int) sync -> Result<Int, String> {
+    if n > 2 { return "exhausted" }
+    return n
+}
+
+// The canonical drain: `Vector.pop` yields `T?` and empties.
+func pop_drain() {
+    var v: Vector<Int> = [1, 2, 3]
+    var total = 0
+    while let x = v.pop() {
+        total = total + x
+    }
+    print("pop total {total}")
+}
+
+// Empty on entry: the scrutinee is evaluated once, yields None, body never runs.
+func empty_on_entry() {
+    var v: Vector<Int> = []
+    var n = 0
+    while let x = v.pop() { n = n + 1 }
+    print("empty iterations {n}")
+}
+
+// `break` leaves the loop; `continue` re-runs the SCRUTINEE (it is the head).
+func break_and_continue() {
+    var v: Vector<Int> = [1, 2, 3, 4, 5]
+    var seen = 0
+    while let x = v.pop() {
+        if x == 4 { continue }
+        if x == 2 { break }
+        seen = seen + x
+    }
+    print("break/continue seen {seen}")
+}
+
+// Design 100's derived-shadow rule, unchanged: the scrutinee MENTIONS the
+// shadowed outer binding, so the shadow is derived and legal.
+func derived_shadow() {
+    var c = Cursor(at: 0)
+    var total = 0
+    while let c = c.next() {
+        total = total + c
+    }
+    print("derived {total}")
+}
+
+// Design 63's tuple pattern, exactly where `if let` takes one.
+func tuple_pattern() {
+    var c = Cursor(at: 0)
+    var sum = 0
+    while let (a, b) = c.next_pair() {
+        sum = sum + a + b
+    }
+    print("tuple {sum}")
+}
+
+func nested() {
+    var outer = Cursor(at: 0)
+    var acc = 0
+    while let o = outer.next() {
+        var inner = Cursor(at: 0)
+        while let i = inner.next() {
+            acc = acc + o * i
+        }
+    }
+    print("nested {acc}")
+}
+
+// `while var` binds mutably, as `if var` does.
+func while_var() {
+    var c = Cursor(at: 0)
+    var total = 0
+    while var x = c.next() {
+        x = x + 100
+        total = total + x
+    }
+    print("whilevar {total}")
+}
+
+// A `Result` source composes through `try?`, which absorbs `Err` into
+// termination. There is no native Result form: the sugar is for drains.
+func result_source() {
+    var k = 0
+    var acc = 0
+    while let m = try? fallible(k) {
+        acc = acc + m
+        k = k + 1
+    }
+    print("tryq acc={acc} stopped at {k}")
+}
+
+// `while let _ =` tests the optional and binds nothing, as `if let _ =` does.
+func wildcard_binding() {
+    var c = Cursor(at: 0)
+    var rounds = 0
+    while let _ = c.next() {
+        rounds = rounds + 1
+    }
+    print("wildcard rounds {rounds}")
+}
+
+// A NoCopy payload needs no ceremony here: `pop()` hands the element over, so
+// the binding reads a FRESH TEMPORARY, which is the row design 131's table
+// leaves free. (A binding out of storage the scrutinee keeps is the row that
+// asks for `move`/`.copy()`/`take()`, and it asks a `while let` exactly as it
+// asks an `if let`.)
+func nocopy_payload() {
+    var toks: Vector<Token> = []
+    toks.push(Token(id: 1, label: "a"))
+    toks.push(Token(id: 2, label: "b"))
+    var ids = 0
+    while let t = toks.pop() {
+        ids = ids + t.id
+    }
+    print("nocopy ids {ids}")
+}
+
+// `Optional.take` is the third member of the drain family: it empties the slot,
+// so the loop runs once and then sees None.
+func take_drain() {
+    var slot: Token? = Token(id: 9, label: "z")
+    var taken = 0
+    while let t = slot.take() {
+        taken = taken + t.id
+    }
+    print("take {taken}")
+}
+
+// A closure body and a generic body are their own lowering paths (the second
+// is deep-copied per instantiation), so the desugar is run through both.
+func in_closure() {
+    let f = {
+        var c = Cursor(at: 0)
+        var total = 0
+        while let x = c.next() { total = total + x }
+        total
+    }
+    print("closure {f()}")
+}
+
+func in_generic<T>(seed: T) {
+    var c = Cursor(at: 0)
+    var total = 0
+    while let x = c.next() { total = total + x }
+    print("generic {total}")
+}
+
+// Control reaches the statement after the loop (the `break` the desugar
+// synthesizes leaves the LOOP, not the function).
+func falls_out() {
+    var v: Vector<Int> = [1]
+    while let x = v.pop() { }
+    print("after the loop 99")
+}
+
+func main() {
+    pop_drain()
+    empty_on_entry()
+    break_and_continue()
+    derived_shadow()
+    tuple_pattern()
+    nested()
+    while_var()
+    result_source()
+    wildcard_binding()
+    nocopy_payload()
+    take_drain()
+    in_closure()
+    in_generic(7)
+    in_generic("s")
+    falls_out()
+}

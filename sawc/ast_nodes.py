@@ -1621,6 +1621,14 @@ class IfLetExpr(Expression):
     then_branch: 'Block'
     else_branch: Optional['Block'] = None
     pattern: Optional['Pattern'] = None
+    # design 233: this `if let` IS a `while let`'s binding — the parser lowered
+    # `while let x = SCRUT { BODY }` to a conditionless loop over
+    # `if let x = SCRUT { BODY } else { break }`, so that every binding rule
+    # already written for `if let` governs `while let` by being the same code
+    # rather than a second copy. Set on the parser's own node, so it says what
+    # the AUTHOR wrote: diagnostics name `while let`, and the branch-merge
+    # (whose `else` is a synthesized `break` the author never wrote) is skipped.
+    while_let: bool = False
     # The coroutine transform CFG-split this binding across a suspension
     # (design 104 item 1 / design 126 R1).
     _coro_split: bool = annotation(False)
@@ -1899,6 +1907,13 @@ class WhileExpr(Expression):
     condition: Optional[Expression]  # None for infinite loop
     body: 'Block'
     result_type: Optional['SawType'] = None  # Set by typechecker for expression context
+    # design 233: this conditionless loop is a `while let`'s — its body is the
+    # single `if let … else { break }` the parser lowered the header into, and
+    # its exit edge is that binding failing. Carried so the construct can be
+    # REFUSED in value position (v1: its result could only come from
+    # `break <value>`, and the conditional-loop value story is unchanged) and so
+    # the AST dump names what the author wrote.
+    is_while_let: bool = False
     # design 177: does this loop DIVERGE? True for the conditionless
     # `while { ... }` whose body holds no `break` targeting it — nothing ever
     # takes the loop's exit edge, so the expression types `Never` exactly as

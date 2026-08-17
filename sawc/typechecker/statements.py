@@ -3208,6 +3208,24 @@ class StatementsMixin:
 
     def _check_while_expr_as_expression(self, expr: WhileExpr) -> Optional[SawType]:
         """Check a while loop expression and return its type."""
+        # design 233: a `while let` yields nothing in v1. Its result could only
+        # come from `break <value>`, which is the conditional-loop value story
+        # this brief deliberately did not reopen — and the desugared shape would
+        # otherwise be typed as the conditionless loop it lowers to, reporting
+        # "infinite while loop used as expression must `break` with a value"
+        # about a loop the author did not write. THE one value position for a
+        # while-loop expression, so nothing else needs the check.
+        if expr.is_while_let:
+            self._error(
+                ErrorKind.TYPE_MISMATCH,
+                "a `while let` loop produces no value and cannot be used as an "
+                "expression",
+                expr.line, expr.column,
+                hint="drain into a binding declared before the loop "
+                     "(`var out = ...` / `out.push(x)`), or use `for x in ...` "
+                     "when the source is an iterator"
+            )
+            return None
         # If condition is present, it must be a Bool
         if expr.condition:
             cond_type = self._check_expression(expr.condition)
