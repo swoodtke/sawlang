@@ -1273,6 +1273,18 @@ Saw provides deterministic memory management without garbage collection:
   of `??` are transfers, so an arm that widens losslessly is free
   (`if a > 0 { 11 } else { 7i16 }` in an `-> Int` function answers 7 on the
   else path) and one that would narrow or flip sign is refused.
+- **A function that does not return says so, and the compiler believes it
+  everywhere**: `func fault(code: Int) -> Never` diverges wherever `panic(...)`
+  does. An expression of type `Never` satisfies any expected type, because there
+  is no value to reconcile — so a diverging call works as a `guard ... else`
+  exit, a statement, an arm of a value `if`/`match` (the branch takes the other
+  arm's type), a `??` default, a `return` operand, an argument of another call,
+  and a function's tail whatever its declared return type. Code after one is
+  unreachable, and the callee's shape — overloaded, module-private, imported,
+  `extern "C"`, a method, a generic, a closure, an `any Trait` requirement —
+  changes nothing. A task body is the one place `Never` is refused: `join` on a
+  handle that can never complete would hang, so a forever-task is written
+  `-> Void` with a loop.
 
 ```saw
 // Exclusive reference parameter (the call site mirrors the parameter's sigil;

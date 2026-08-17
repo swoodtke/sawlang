@@ -51,6 +51,34 @@ print("{#file}:{#line} - msg")  // #file/#line/#function: definition-site consts
   `break` in a NESTED loop leaves the outer one diverging, and a `return` is not
   a break. **`while true {}` is EXCLUDED** and keeps its old typing — write the
   conditionless form when you mean "this never returns".
+- **A `-> Never` CALL diverges wherever `panic(...)` does (design 228).** One
+  rule: an expression of type `Never` satisfies any expected type, because there
+  is no value to reconcile. The positions, all of them:
+  ```saw
+  guard let e = find(id) else { fault(1) }        // a guard exit
+  if e.stale { fault(2) }                         // a statement
+  match k { case Missing -> { fault(3) },         // an arm — the match takes
+            case Ready -> { Reply(code: 0) } }    //   the other arm's type
+  cfg.port ?? fault(4)                            // a `??` default
+  return fault(5)                                 // a `return` operand
+  store(fault(6))                                 // an argument (`store` is
+                                                  //   never called)
+  func handle() -> Reply { fault(7) }             // a tail, at ANY return type
+  func onward() -> Never { fault(8) }             // …including `-> Never`
+  ```
+  The callee's shape is not a factor: plain, overloaded, module-private,
+  imported, `extern "C"`, extension method, static method, generic function or
+  method, closure, and `any Trait` requirement all behave alike, hosted and
+  freestanding. Treat all of it as working now and SUSPECT in older builds —
+  the guard exit was a clean refusal, `return <diverging>` and a diverging
+  ARGUMENT were compiler crashes (the latter for `panic` too), `o ?? panic(..)`
+  was refused, and a diverging arm or tail emitted invalid IR whenever the
+  callee was overloaded or module-private.
+  **A task body may not be `Never`**: `group.spawn(halt())`, `spawn { while {} }`
+  and `__saw_drive(halt())` are refused, since `join` on such a handle could
+  never return. Write a forever-task as `-> Void` with a loop and end it by
+  cancelling the task or breaking the loop. Calling a suspending `-> Never`
+  function directly is untouched.
 - Integer literals: `0xFF`, `0b1010`, `1_000_000`, fixed-width
   suffixes `255u8`/`1_000i32` (exact-typed, range-checked). A bare
   (unsuffixed) literal adopts a fixed-width EXPECTED type wherever one

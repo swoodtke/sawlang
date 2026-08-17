@@ -813,6 +813,93 @@ division libcalls (`__divdi3`) on a 32-bit chip. Consequently:
   checked arithmetic makes any narrow-width overflow a loud panic rather than a
   silent wrap. `Int64` is the escape hatch for a value wider than a 32-bit word.
 
+### Never
+
+`Never` is the bottom type: the type of an expression that does not produce a
+value because control never continues past it. Three expressions have it, and a
+call to a function declared `-> Never` is one of them:
+
+```saw
+func fault(code: Int) -> Never {          // declared: this call does not return
+    print("fault {code}")
+    while { }
+}
+
+panic("out of range")                     // the builtin
+while { }                                 // a break-less loop (Diverging loops)
+fault(7)                                  // a call to any `-> Never` function
+```
+
+**An expression of type `Never` satisfies any expected type.** There is no value
+to convert, so there is nothing to reconcile: the expression leaves, and
+whatever the surrounding code expected is never asked for. That one rule covers
+every position an expression can appear in.
+
+```saw
+func lookup(table: &Registry, id: Int) -> Entry {
+    guard let e = table.find(id) else { fault(1) }   // a `guard` exit
+    if e.stale { fault(2) }                          // a statement
+    return e
+}
+
+func status(e: &Entry) -> Reply {
+    match e.kind {
+        case Missing -> { fault(3) },                // an arm: the `match` takes
+        case Ready -> { Reply(code: 0) }             // the other arm's type
+    }
+}
+
+func port(cfg: &Config) -> Int {
+    cfg.port ?? fault(4)                             // a `??` default
+}
+
+func finish(e: &Entry) -> Int {
+    if e.ready { return e.code }
+    return fault(5)                                  // a `return` operand
+}
+
+func record(e: &Entry) -> Int {
+    if e.ready { return 0 }
+    store(fault(6))                                  // an argument: `store` is
+}                                                    // never called
+```
+
+The positions are: a `guard ... else` exit, a bare statement, an arm of a value
+`if` or `match` (in any arm position, at any result type), the tail expression
+of a function (whatever its declared return type), the operand of `return`, the
+default operand of `??`, and an argument of another call. A diverging tail also
+satisfies `-> Never` itself, so a `Never` function may end in a call to another
+one with nothing written after it.
+
+The rule does not depend on how the callee is written or reached. A plain
+function, one of an overload set, a module-private function called inside its
+own module, an imported public one, an `extern "C"` declaration, an extension
+method, a static method, a generic function or method, a closure, and a trait
+requirement reached through an `any Trait` existential all diverge on the same
+terms, in the hosted and freestanding profiles alike.
+
+**A task body may not be `Never`.** A task is a computation something later
+waits for, so `group.spawn(halt())`, `spawn { while { } }` and
+`__saw_drive(halt())` are refused at the call:
+
+```
+error: a task body may not be `Never`: `halt` never returns, so the task never
+completes and `join` on its handle could never return
+hint: a task is something to wait for, and a `Never` body gives it a result
+that cannot exist. Write a forever-task as `-> Void` with a loop —
+`func serve() { while { ... } }` — and end it by cancelling the task or
+breaking the loop
+```
+
+A `-> Never` function is otherwise unrestricted, including a suspending one
+called directly.
+
+`Never` is spellable wherever a return type is written, and only there: it is
+not a type values are stored at. A `-> Never` declaration lowers to a `void`
+symbol carrying LLVM's `noreturn`, which is the C `_start`/`abort` shape and
+what makes `@export`ing one usable as a bare-metal entry point (see
+[Interoperability](#10-interoperability)).
+
 ### String
 
 `String` is an **immutable, reference-counted byte string**. A `String` value is
