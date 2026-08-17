@@ -1,0 +1,29 @@
+// A raw-backed enum's case value folds literals and operators over them, and
+// refuses a name — DF-232c's deliberate boundary.
+//
+// A `static` (or another enum's case) resolves by stamping leaves against a
+// table `_collect_const_statics` builds in DECLARATION order. An enum's cases
+// are pinned by its own declaration, which is why every enum is read BEFORE any
+// static: a flag-enum static like `static RW: UInt8 = Perm.Read | Perm.Write`
+// needs the case numbers to already exist. Naming a static from a case value
+// would therefore be a forward reference into a table that has not been built,
+// so it is refused by name rather than half-supported.
+//
+// The refusal is also the ONLY error for this case. `raw_value` stays unfolded,
+// and registration's "needs an explicit value" check skips a case that wrote an
+// expression — saying a value is missing when the source plainly has one would
+// contradict the code the reader is looking at.
+//
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: raw value for case `A` of enum `Ref` is not a compile-time constant
+// EXPECT-ERROR-CONTAINS: It may not name a `static` or another enum's case
+
+static BASE: Int = 4
+
+enum Ref: UInt8 {
+    case A = BASE,
+}
+
+func main() {
+    print("{}", Ref.A as UInt8)
+}

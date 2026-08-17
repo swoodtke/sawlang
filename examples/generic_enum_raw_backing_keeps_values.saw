@@ -1,0 +1,41 @@
+// XFAIL: DF-232e a GENERIC raw-backed enum loses its declared tag values at
+// monomorphization and silently emits ordinals instead
+//
+// Found Aug 17 by DF-232c's consumer sweep over `EnumVariant.raw_value`, and
+// pre-existing — nothing about the const-expression grammar is involved, and
+// the literal spelling below fails exactly as an expression one would.
+//
+// `codegen/generics.py` rebuilds each `EnumVariant` with only `name` and
+// `associated_types`, dropping `raw_value`, and calls `_register_concrete_enum`
+// without `raw_type`. The concrete instantiation therefore has no backing at
+// all, so `codegen/core.py` falls back to `variant_tags[name] = i` — the
+// ordinal. `E<Int>.B` with `case B = 9` comes back as 1.
+//
+// SILENT is what makes it serious: a raw backing exists to pin an ABI number,
+// and this hands back a different number than the source states, with no
+// diagnostic at any phase. A non-generic `enum E: UInt8` is unaffected, which
+// is why the whole existing corpus passes.
+//
+// NEEDS A RULING, which is why it is filed rather than fixed. Two defensible
+// answers: carry `raw_value`/`raw_type` through the monomorphizer (they are
+// instantiation-independent, so this looks correct and small), or REFUSE a raw
+// backing on a generic enum outright, since design 145 never took the question
+// of what a per-instantiation ABI number would mean. The second is the
+// conservative reading of "declaring a backing says the numbers are ABI".
+//
+// EXPECT: success
+// EXPECT-OUTPUT:
+// b=9
+// a=7
+
+enum Tagged<T>: UInt8 {
+    case A = 7,
+    case B = 9,
+}
+
+func main() {
+    let b: Tagged<Int> = Tagged<Int>.B
+    print("b={}", b as UInt8)
+    let a: Tagged<Int> = Tagged<Int>.A
+    print("a={}", a as UInt8)
+}

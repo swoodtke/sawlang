@@ -588,6 +588,12 @@ class RegistrationMixin:
         by_value = {}
         for variant in enum.variants:
             if variant.raw_value is None:
+                # DF-232c: a case whose value was WRITTEN as an expression that
+                # did not fold already said so, at the expression, in
+                # `_fold_enum_raw_values`. Saying "needs an explicit value"
+                # about it too would contradict the source.
+                if getattr(variant, 'raw_value_expr', None) is not None:
+                    continue
                 self._error(
                     ErrorKind.TYPE_MISMATCH,
                     f"case `{variant.name}` of enum `{enum.name}` needs an "

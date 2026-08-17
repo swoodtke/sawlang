@@ -255,6 +255,7 @@ class DeclarationsMixin:
             # declared) or forbidden (none is) is the typechecker's call, so the
             # diagnostic can name the enum and the rule together.
             raw_value = None
+            raw_value_expr = None
             raw_line = 0
             raw_column = 0
             if self.match(TokenType.ASSIGN):
@@ -262,25 +263,37 @@ class DeclarationsMixin:
                 self.advance()
                 raw_line = assign_tok.line
                 raw_column = assign_tok.column
-                negative = False
-                if self.match(TokenType.MINUS):
-                    negative = True
+                # DF-232c: the slot takes a CONST EXPRESSION, so a flags enum
+                # can say which bit it means (`case ThreadCreate = 1 << 8`).
+                # Only a literal — bare or negated — is decoded here; anything
+                # else is kept as an expression and folded before registration
+                # by `_fold_enum_raw_values`, which is the earliest point the
+                # value is read. Keeping the literal fast path means the
+                # overwhelmingly common `case A = 0` costs no fold and behaves
+                # exactly as it did.
+                if (self.match(TokenType.INT)
+                        and self._raw_value_ends_at(1)):
+                    value_tok = self.advance()
+                    # DF-185a: through the shared decoder, not `int()`. An INT
+                    # token keeps its canonical text, prefix and all, so a hex
+                    # or binary raw value — `case Debug = 0x100`, the way a
+                    # wire table is actually written — died here as an uncaught
+                    # `invalid literal for int() with base 10: '0x100'`.
+                    raw_value = self._decode_int_literal(value_tok.value)
+                elif (self.match(TokenType.MINUS)
+                        and self.peek(1).type == TokenType.INT
+                        and self._raw_value_ends_at(2)):
                     self.advance()
-                value_tok = self.expect(
-                    TokenType.INT,
-                    "Expected an integer literal for the enum case's raw value")
-                # DF-185a: through the shared decoder, not `int()`. An INT
-                # token keeps its canonical text, prefix and all, so a hex or
-                # binary raw value — `case Debug = 0x100`, the way a wire table
-                # is actually written — died here as an uncaught
-                # `invalid literal for int() with base 10: '0x100'`.
-                magnitude = self._decode_int_literal(value_tok.value)
-                raw_value = -magnitude if negative else magnitude
+                    value_tok = self.advance()
+                    raw_value = -self._decode_int_literal(value_tok.value)
+                else:
+                    raw_value_expr = self.parse_expression()
 
             variants.append(EnumVariant(name=variant_name,
                                         associated_types=associated_types,
                                         doc=variant_doc,
                                         raw_value=raw_value,
+                                        raw_value_expr=raw_value_expr,
                                         raw_line=raw_line,
                                         raw_column=raw_column))
 
@@ -302,6 +315,20 @@ class DeclarationsMixin:
             source_file=self.source_file,
             raw_type=raw_type
         )
+
+    def _raw_value_ends_at(self, offset: int) -> bool:
+        """Would an enum raw value END at `offset` tokens from here (DF-232c)?
+
+        The literal fast path in `parse_enum` may only claim the tokens it sees
+        if nothing follows that could CONTINUE an expression — otherwise
+        `case A = 1 << 0` would take the `1` and leave `<< 0` to be mistaken for
+        the next variant, which is exactly the `Expected 'case' keyword` error
+        this finding was filed on. A variant ends at a comma, a newline, or the
+        enum's closing brace.
+        """
+        t = self.peek(offset).type
+        return t in (TokenType.COMMA, TokenType.NEWLINE, TokenType.RBRACE,
+                     TokenType.EOF)
 
     def parse_trait(self, visibility: Visibility = Visibility.PRIVATE) -> Trait:
         """Parse trait declaration: trait Copy: Deinit { func copy(self) -> Self }"""

@@ -2043,7 +2043,13 @@ class EnumVariant:
     # enum declares one, and absent otherwise — declaring a backing claims the
     # numbers are ABI, so nothing is auto-assigned.
     raw_value: Optional[int] = None
-    # Source position of the `= <int>`, for the duplicate-value diagnostic.
+    # DF-232c: the unfolded initializer, when the case's value is a const
+    # EXPRESSION rather than a literal (`case ThreadCreate = 1 << 8`). The
+    # parser fills exactly one of this and `raw_value`; the pre-registration
+    # pass `_fold_enum_raw_values` folds this one INTO `raw_value`, so every
+    # consumer downstream still reads a plain int and none of them changed.
+    raw_value_expr: Optional['Expression'] = None
+    # Source position of the `= <value>`, for the duplicate-value diagnostic.
     raw_line: int = 0
     raw_column: int = 0
 

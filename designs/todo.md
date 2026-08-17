@@ -141,30 +141,72 @@ first-class design-150 form, is what a shared kernel slab wants to read like, an
 writes correctly — proven cross-module, single-instance, in the unit-0 probe.
 [232, design 149/150]
 
-## DF-232c — a raw-backed enum's case value takes an INTEGER LITERAL only, so
-## a flags enum cannot state its bits as shifts (filed Aug 17, SOS M3 unit 1
-## review-pass rider)
+## ~~DF-232c — a raw-backed enum's case value takes an INTEGER LITERAL only~~
+## — **FIXED Aug 17** (filed Aug 17, SOS M3 unit 1 review-pass rider)
 
-The Aug-17 ruling that a bit-flag value is spelled as a shift
-(`case ThreadCreate = 1 << 8`, not `= 256`) is UNWRITABLE for the types it
-targets: every rights enum in `sos/kernel/abi/` and `imgformat`'s `SegFlag`.
-`case A = 1 << 0` is `Parse error: Expected 'case' keyword for enum variant`;
-`case A = (1 << 0)` is `Expected an integer literal for the enum case's raw
-value`; and `case A = 2 * 4` is refused too — so it is the whole const-expression
-grammar that is absent here, not the shift operator. Design 185 folds `<<` in
-const positions and names a raw-backed enum's case value among what folds, but
-that is about USING a case value as a const operand (`Perm.Read | Perm.Write`),
-not about its own initializer. The fix is to let this position take a const
-EXPRESSION through design 186's static-initializer folder, range-checked against
-the backing afterwards; design 145's no-auto-increment rule is untouched, since a
-folded `1 << 8` states its value as exactly as `256` does and says which bit
-while doing it. Pinned by `examples/enum_raw_value_takes_const_expression.saw`.
-The sos/ enums keep their decimals meanwhile, values unchanged.
-NEIGHBOURING AND NOT A DEFECT: a parenthesized shift in a COMPARISON stays
-platform `Int` (design 195 promotes bare literals only, and a subexpression
-reaches no expected type), so `>= (1 << 8)` against a `UInt32` is refused and
-`(1u32 << 8)` is its spelling — which is why the abi `static_assert`s kept their
-decimals as well. [232]
+The position now takes a const EXPRESSION. The parser keeps its literal fast
+path (a bare or negated INT that ENDS the variant — the common `case A = 0`,
+which costs no fold and behaves exactly as before) and otherwise parses an
+expression into a new declared `EnumVariant.raw_value_expr`;
+`_fold_enum_raw_values` folds it into `raw_value` through design 186's
+`const_eval`, at platform width.
+WHERE, and why it is the only workable seam: `raw_value` has TWELVE consumers
+across four phases, and the earliest is `_ast_enum_raw_values`, called by
+`_collect_const_statics` BEFORE registration so a flag-enum static
+(`static RW: UInt8 = Perm.Read | Perm.Write`) can see the numbers. Folding
+immediately ahead of that means every consumer still reads a plain int and
+none of them changed — including the range check against the backing, which
+is unchanged code running on the folded value.
+BOUNDARY, refused by name rather than half-supported: the expression may not
+name a `static` or another enum's case. Those resolve by stamping leaves
+against a table built in DECLARATION order, and all enums are read BEFORE any
+static precisely so the flag-static case works — so naming one from a case
+value is a forward reference into a table that does not exist yet. Its
+refusal is also the ONLY error for that case: registration's "needs an
+explicit value" check now skips a case that WROTE an expression, since
+telling the author a value is missing would contradict the line they are
+looking at.
+Design 145's no-auto-increment rule is untouched — a folded `1 << 8` states
+its value as exactly as `256` does.
+Tests: `examples/enum_raw_value_takes_const_expression.saw` (XFAIL flipped —
+shifts, `2 * 4`, hex, binary with separators, parenthesized, two operators,
+a signed backing with `-1` and `0 - 2`, plus design 185's other reading, the
+case value as a const OPERAND in a static),
+`examples/enum_raw_value_const_expression_out_of_range.saw` (`1 << 9` at
+`UInt8`) and `examples/enum_raw_value_const_expression_needs_constant.saw`.
+DEFERRED, deliberately: the sos/ enums are NOT flipped from decimals to
+shifts here — same reason as DF-232b, a concurrent agent is restructuring
+sos/kernel, and the flip is scheduled for after both branches land. Values
+are unchanged meanwhile.
+NEIGHBOURING AND NOT A DEFECT (unchanged by this): a parenthesized shift in a
+COMPARISON stays platform `Int` (design 195 promotes bare literals only, and
+a subexpression reaches no expected type), so `>= (1 << 8)` against a
+`UInt32` is refused and `(1u32 << 8)` is its spelling — which is why the abi
+`static_assert`s keep their decimals. [232]
+
+## DF-232e — a GENERIC raw-backed enum silently loses its declared tag values
+## at monomorphization and emits ORDINALS (found Aug 17 by DF-232c's sweep,
+## probed; pre-existing, unrelated to 232c's parse position)
+
+```saw
+enum E<T>: UInt8 { case A = 7, case B = 9, }
+let x: E<Int> = E<Int>.B
+print("{}", x as UInt8)     // prints 1, not 9
+```
+Compiles clean and prints the ORDINAL. `codegen/generics.py:452-466` rebuilds
+each `EnumVariant` with only `name` and `associated_types`, and calls
+`_register_concrete_enum` with no `raw_type` — so the concrete instantiation
+has no backing and `codegen/core.py:2348` falls to `variant_tags[name] = i`.
+SILENT is what makes it bad: a raw backing is the WIRE idiom, and this hands
+back a different number than the source states, with no diagnostic anywhere.
+Two candidate fixes, both plausible and neither obviously right, which is why
+this is filed rather than fixed: carry `raw_value`/`raw_type` through the
+monomorphizer (they are instantiation-independent, so this looks correct and
+small), or REFUSE a raw backing on a generic enum outright, since what a
+per-instantiation ABI number would even mean is a design question design 145
+never took. The second is the conservative read of "declaring a backing says
+the numbers are ABI". Needs a ruling. Pinned by
+`examples/generic_enum_raw_backing_keeps_values.saw`. [145, 232]
 
 ## ~~DF-232a — INTERNAL COMPILER ERROR: a bare integer literal does not
 ## adopt the expected fixed-width type in PLAIN ASSIGNMENT position~~

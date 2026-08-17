@@ -1584,6 +1584,21 @@ Three rules:
    auto-increments. Declaring a backing says the numbers are ABI, so reordering
    the cases cannot silently renumber them. An enum without a backing keeps
    compiler-assigned ordinals and is not castable.
+
+   The value is a **constant expression**, not only a literal, so a flag says
+   which bit it means. Literals (`0x100`, `0b1010`), and arithmetic, bitwise
+   and shift operators over them, all fold; the result is range-checked against
+   the backing exactly as a literal is. A folded `1 << 8` states its value as
+   exactly as `256` does, so rule 2 is unaffected. The expression may not name
+   a `static` or another enum's case — an enum's cases are fixed by its own
+   declaration, before either is known — and that is a clean error.
+
+```saw
+enum Right: UInt32 {
+    case Transfer = 1 << 0,
+    case Debug    = 1 << 8,
+}
+```
 3. **`as` goes one way.** The enum is its tag, so `e as UInt8` is total. The
    inverse is partial and is spelled `from(raw:)`:
 

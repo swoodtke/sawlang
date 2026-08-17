@@ -1,48 +1,60 @@
-// XFAIL: DF-232c a raw-backed enum's case value accepts an INTEGER LITERAL
-// only, so a flags enum cannot state its bits as shifts
+// A raw-backed enum's case value takes a CONST EXPRESSION, so a flags enum can
+// say which bit it means (DF-232c, filed Aug 17 by design 232's review pass).
 //
-// Found by design 232's Aug-17 review-pass rider, which rules that a bit-flag
-// value is spelled as a shift (`case ThreadCreate = 1 << 8`) rather than as an
-// absolute decimal. The spelling is a PARSE error, so the ruling is unwritable
-// for exactly the types it targets: every rights enum in `sos/kernel/abi/` and
-// `imgformat`'s `SegFlag`. Those keep their decimals, values unchanged.
+// The Aug-17 ruling that a bit-flag value is spelled as a shift
+// (`case ThreadCreate = 1 << 8`, not `= 256`) was unwritable for exactly the
+// types it targets — every rights enum in `sos/kernel/abi/` and `imgformat`'s
+// `SegFlag`. The grammar admitted a bare integer literal and nothing else, and
+// three probes bracketed it: `= 1 << 0` was `Expected 'case' keyword for enum
+// variant` (the parser took the `1` and met `<<` where the next variant should
+// start), `= (1 << 0)` was `Expected an integer literal for the enum case's raw
+// value`, and `= 2 * 4` failed like the first. So no const ARITHMETIC parsed in
+// the position at all.
 //
-// THE GRAMMAR ADMITS A LITERAL AND NOTHING ELSE, which three probes bracket:
+// Design 185 folds `& | ^ << >> ~` in const positions and names a raw-backed
+// case value among what folds — but that is about USING a case value as a const
+// operand (`Perm.Read | Perm.Write` in a static), not about the case's own
+// initializer. The two readings are easy to conflate; the `RW` static below
+// exercises the first and the enums exercise the second.
 //
-//   case A = 1 << 0     Parse error: Expected 'case' keyword for enum variant
-//   case A = (1 << 0)   Parse error: Expected an integer literal for the enum
-//                       case's raw value
-//   case A = 2 * 4      Parse error: Expected 'case' keyword for enum variant
+// HOW: the parser keeps its literal fast path (a bare or negated INT that ENDS
+// the variant, which is the overwhelmingly common `case A = 0` and costs no
+// fold) and otherwise parses an expression into `EnumVariant.raw_value_expr`.
+// `_fold_enum_raw_values` folds that into `raw_value` before registration —
+// specifically before `_ast_enum_raw_values`, which is the EARLIEST of the
+// twelve consumers of the field and runs pre-registration so a flag-enum static
+// can see the numbers. Folding at that seam means every consumer still reads a
+// plain int and none of them changed.
 //
-// So it is not the shift operator being rejected — no const ARITHMETIC parses in
-// this position at all.
+// Design 145's no-auto-increment rule is untouched: a folded `1 << 8` states
+// its value as exactly as `256` does, and says which bit while doing it. The
+// range check against the declared backing is unchanged and still runs on the
+// folded int — see enum_raw_value_const_expression_out_of_range.saw.
 //
-// WHY THE EXPECTATION WAS REASONABLE: design 185 folds `& | ^ << >> ~` in const
-// positions and names a raw-backed enum's case value among what folds. That is
-// about USING a case value as a const operand — `Perm.Read | Perm.Write` folds
-// to a backing-typed constant — and says nothing about the case value's own
-// initializer, which has always been a bare literal. The two readings are easy
-// to conflate, and this file is where the difference is written down.
+// WHAT DOES NOT FOLD, and why it is a refusal rather than a half-feature: a
+// `static` or another enum's case. Those resolve by stamping leaves against a
+// table built in DECLARATION order, and an enum's cases are pinned by its own
+// declaration — which is why all enums are read BEFORE any static. Naming one
+// would be a forward reference to a table that does not exist yet. Pinned by
+// enum_raw_value_const_expression_needs_constant.saw.
 //
-// WHAT A FIX IS: let this position take a const EXPRESSION, evaluated by the
-// same folder design 186 gives a static initializer and range-checked against
-// the backing afterwards. Design 145's rule that every case states its own value
-// (no auto-increment, so a reorder can never renumber an ABI) is untouched by
-// that — a folded `1 << 8` states its value exactly as `256` does, and states
-// WHICH BIT while doing it.
-//
-// NEIGHBOURING, AND NOT A BUG: even with the grammar opened, a shift used as a
+// NEIGHBOURING, AND NOT A BUG: even with the grammar open, a shift used as a
 // COMPARISON operand still needs its width said. In
 // `(Right.Debug as UInt32) >= (1 << 8)` the parenthesized shift is a
-// subexpression no expected type reaches, so it stays platform `Int` and
-// design 195 refuses the mixed comparison; `(1u32 << 8)` is its spelling. That
-// is the documented rule rather than a defect, and it is why the abi's
-// `static_assert`s keep their decimals too.
+// subexpression no expected type reaches, so it stays platform `Int` and design
+// 195 refuses the mixed comparison; `(1u32 << 8)` is its spelling. That is the
+// documented rule, and it is why the abi `static_assert`s keep their decimals.
 //
 // EXPECT: success
 // EXPECT-OUTPUT:
 // Read=1 Device=8
 // bit8=256
+// shift=1 2 4 8
+// arith=8 16 32
+// paren=64 combined=24
+// signed=-1 -2 0
+// static fold=3
+// from8=8
 
 enum SegFlag: UInt8 {
     case Read = 1 << 0,
@@ -55,7 +67,41 @@ enum Right: UInt32 {
     case Debug = 1 << 8,
 }
 
+// every const shape the position now accepts
+enum Shape: UInt8 {
+    case Mul = 2 * 4,          // arithmetic
+    case Hex = 0x10,           // hex literal (the pre-existing fast path)
+    case Bin = 0b10_0000,      // binary literal with group separators
+    case Paren = (1 << 6),     // parenthesized
+    case Combined = 1 << 3 | 1 << 4,   // two operators
+}
+
+// a SIGNED backing still takes a negative literal, and now an expression too
+enum Signed: Int8 {
+    case Neg = -1,
+    case NegExpr = 0 - 2,
+    case Zero = 0,
+}
+
+// design 185's OTHER reading: a case value used as a const OPERAND
+static RW: UInt8 = SegFlag.Read as UInt8 | SegFlag.Write as UInt8
+
 func main() {
     print("Read={} Device={}", SegFlag.Read as UInt8, SegFlag.Device as UInt8)
     print("bit8={}", Right.Debug as UInt32)
+    print("shift={} {} {} {}",
+          SegFlag.Read as UInt8, SegFlag.Write as UInt8,
+          SegFlag.Execute as UInt8, SegFlag.Device as UInt8)
+    print("arith={} {} {}",
+          Shape.Mul as UInt8, Shape.Hex as UInt8, Shape.Bin as UInt8)
+    print("paren={} combined={}",
+          Shape.Paren as UInt8, Shape.Combined as UInt8)
+    print("signed={} {} {}",
+          Signed.Neg as Int8, Signed.NegExpr as Int8, Signed.Zero as Int8)
+    print("static fold={}", RW)
+
+    // `from(raw:)` reads the folded value like any other
+    if let f = SegFlag.from(raw: 8u8) {
+        print("from8={}", f as UInt8)
+    }
 }

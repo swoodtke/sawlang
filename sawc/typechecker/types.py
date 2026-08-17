@@ -1812,6 +1812,10 @@ class TypeUtilsMixin:
         if table is None:
             table = {}
             self._const_static_decls = table
+        # DF-232c: fold any case value written as a const EXPRESSION into the
+        # plain int every later consumer reads. FIRST, because the very next
+        # line reads those ints.
+        self._fold_enum_raw_values(program)
         # A raw-backed enum's case values, read off the AST: registration has
         # not run, so `Perm.Read` has no symbol to resolve against yet, and a
         # flag-enum static (`static RW: UInt8 = Perm.Read | Perm.Write`) needs
@@ -1827,6 +1831,63 @@ class TypeUtilsMixin:
             if key in table:
                 continue
             table[key] = self._static_const_binding(static, module, raws)
+
+    def _fold_enum_raw_values(self, program) -> None:
+        """Fold every raw-backed enum case value written as a const EXPRESSION
+        into the plain int the rest of the compiler reads (DF-232c).
+
+        A flags enum wants to say WHICH BIT it means — `case ThreadCreate =
+        1 << 8`, not `= 256` — and design 185 already folds `<<` in const
+        positions. What it did not cover was a case value's OWN initializer,
+        which the grammar admitted as a bare integer literal and nothing else.
+
+        WHY HERE, and not later: `raw_value` is read by twelve consumers across
+        four phases, and the earliest is `_ast_enum_raw_values` — called by
+        `_collect_const_statics` BEFORE registration, so a flag-enum static
+        (`static RW: UInt8 = Perm.Read | Perm.Write`) can see the numbers.
+        Folding at this seam means every one of those consumers still reads a
+        plain int and none of them changed.
+
+        WHAT FOLDS: literals (hex and binary included), and arithmetic, bitwise
+        and shift operators over them, at platform width — `const_eval`'s
+        ordinary tier. NOT a `static` or another enum's case: those are
+        resolved by stamping leaves against a table built in DECLARATION order,
+        and an enum's cases are pinned by its own declaration, which is why
+        `_collect_const_statics` reads all enums BEFORE any static. Naming one
+        here would be a forward reference to a table that does not exist yet,
+        so it is refused by name rather than half-supported.
+
+        Design 145's no-auto-increment rule is untouched: a folded `1 << 8`
+        states its value as exactly as `256` does, and says which bit while
+        doing it. The range check against the declared backing is unchanged and
+        still runs at registration, on the folded int.
+        """
+        from const_eval import const_eval, ConstEvalError
+        for enum in getattr(program, 'enums', []) or []:
+            for variant in getattr(enum, 'variants', []) or []:
+                expr = getattr(variant, 'raw_value_expr', None)
+                if expr is None or variant.raw_value is not None:
+                    continue
+                try:
+                    value = const_eval(expr, width=self.platform_int_width)
+                except ConstEvalError:
+                    value = None
+                if isinstance(value, bool) or not isinstance(value, int):
+                    self._error(
+                        ErrorKind.TYPE_MISMATCH,
+                        f"raw value for case `{variant.name}` of enum "
+                        f"`{enum.name}` is not a compile-time constant",
+                        variant.raw_line, variant.raw_column,
+                        source_file=getattr(enum, 'source_file', None),
+                        hint="a case's raw value is an integer CONSTANT "
+                             "EXPRESSION: literals (`0x100`, `0b1010`) and "
+                             "arithmetic, bitwise and shift operators over "
+                             "them, so a flag is spelled `1 << 8`. It may not "
+                             "name a `static` or another enum's case — an "
+                             "enum's cases are fixed by its own declaration, "
+                             "before any of those are known")
+                    continue
+                variant.raw_value = value
 
     def _ast_enum_raw_values(self, program):
         """`{(enum name, case name): value}` for every raw-BACKED enum in this

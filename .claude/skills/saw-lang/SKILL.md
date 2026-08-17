@@ -133,9 +133,14 @@ print("{#file}:{#line} - msg")  // #file/#line/#function: definition-site consts
   **STYLE (user ruling, Aug 17): a BIT-FLAG value is spelled as a
   shift, never an absolute decimal.** In a rights/flags enum:
   `case ThreadCreate = 1 << 8`, not `= 256` — including the low bits
-  (`Transfer = 1 << 0`) for uniformity. Design 185 folds `<<` in const
-  positions (raw-backed case values included), so this is pure
-  spelling. HEX device-register masks (`0x20`, `0x301`) stay hex —
+  (`Transfer = 1 << 0`) for uniformity. WRITABLE since DF-232c (Aug 17):
+  a case value is a const EXPRESSION, so literals plus arithmetic,
+  bitwise and shift operators over them all fold, range-checked against
+  the backing afterwards. It may NOT name a `static` or another enum's
+  case (an enum's cases are fixed before either is known) — that is a
+  clean error. Before Aug 17 the whole shape was a PARSE error, so this
+  is SUSPECT in older builds; decimals were the workaround.
+  HEX device-register masks (`0x20`, `0x301`) stay hex —
   they mirror datasheet fields and carry a bit comment instead.
 - **INTEGER OPERANDS MUST AGREE, and only bare literals promote (design
   195).** All typed operands of an operation have the SAME type: a binary
