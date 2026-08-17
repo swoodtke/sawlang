@@ -5434,7 +5434,8 @@ class ExpressionsMixin:
         #      with the optional intact and each arm meets this rule on its own.
         #      A `Result` payload is NOT peeled: which of `Ok`/`Err` an untyped
         #      literal means is a genuine ambiguity where both are integers, and
-        #      that owes a ruling rather than a guess (filed as DF-226d).
+        #      that owes a ruling rather than a guess (filed as DF-226e, pinned
+        #      by `examples/result_slot_literal_adopts_payload_width.saw`).
         if (rt.kind == TypeKind.OPTIONAL and rt.inner_type is not None
                 and (isinstance(value_expr, (IntLiteral, TupleLiteral,
                                              ArrayLiteral, MapLiteral,
@@ -10924,8 +10925,8 @@ class ExpressionsMixin:
         # a fixed-width return stayed platform `Int` and reached codegen at the
         # wrong width (`ret i64` from an `i32` function), and an array literal
         # never learned it was a `Vector`. Routing through
-        # `_stamp_return_literal_types` — the SAME chokepoint
-        # `_check_function_body` calls — is what makes the two bodies one rule
+        # `_stamp_return_literal_types` — the SAME chokepoint `_check_function`
+        # and `_check_method` call — is what makes the two bodies one rule
         # rather than two that drift; it covers the tail expression, the arm
         # results inside it, and a top-level `return <literal>`.
         self._stamp_return_literal_types(expr.body, declared_ret)
