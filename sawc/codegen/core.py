@@ -899,6 +899,20 @@ class CodeGenerator(ResultsMixin, MatchMixin, StructsMixin, CollectionsMixin, Ca
             with b.if_then(b.icmp_signed('!=', rc, ir.Constant(word, -1))):
                 old = b.atomic_rmw('sub', rc_ptr, ir.Constant(word, 1),
                                    ordering='release')
+                # Over-release detector: a release that found the count already
+                # at (or below) zero is a refcount underflow — the platform
+                # allocator MAY eventually trap on the double free (macOS does,
+                # glibc does not), so the panic here is the one deterministic,
+                # platform-independent report. Fixed interned constant for the
+                # same no-recursion reason as the OOM panic above.
+                with b.if_then(b.icmp_signed('<', old, ir.Constant(word, 1))):
+                    _saved_builder = getattr(self, "builder", None)
+                    self.builder = b
+                    or_ptr, or_len = self._raw_bytes_ptr(
+                        "panic: over-release of a String reference "
+                        "(refcount underflow)\n")
+                    self.builder = _saved_builder
+                    b.call(saw_panic_fn, [or_ptr, or_len])
                 with b.if_then(b.icmp_signed('==', old, ir.Constant(word, 1))):
                     # last owner observed count->0: order every other thread's
                     # final reads before the free, then free the whole block.

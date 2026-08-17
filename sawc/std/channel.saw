@@ -530,6 +530,9 @@ extension Channel<T: Send>: Copy {
         if let block = self.block {
             let refcount = (block + 128) as UnsafePointer<Int>
             let old = __saw_atomic_sub_i64_release(refcount, 1)
+            if old < 1 {
+                panic("over-release of a Channel handle (refcount underflow)")
+            }
             if old == 1 {
                 // Last handle. Order other threads' final ops, then drain the
                 // queue (drop each remaining value, free each node) and tear the

@@ -6,9 +6,16 @@
 // auto-Copy (one `String` field) and its hand-written `equals` does
 // `move other`, which its by-value parameter entitles it to. The operator hands
 // over a loaded value and adds no retain, so each comparison releases a
-// reference nobody took — 200 of them and the process dies with SIGTRAP. The
-// identical body that READS `other` instead of consuming it survives (the
-// difference is exactly the `move`).
+// reference nobody took. HOW THIS FAILS IS PLATFORM-DEPENDENT, and the
+// Aug-17 refcount-underflow detector does not change that for THIS shape
+// (probed): the first over-release finds rc==1 and is indistinguishable at
+// the release site from a legitimate last-owner drop — it frees the
+// still-referenced storage, and every later release reads FREED memory, so
+// the detector sees allocator scribble, not zero. macOS's allocator SIGTRAPs
+// after enough iterations; glibc's tolerates it and the row XPASSes on Linux
+// hosts — the platform-conditional-marker ruling this row owes is still
+// open. The identical body that READS `other` instead of consuming it
+// survives (the difference is exactly the `move`).
 //
 // This is an EIGHTH position, past the seven DF-216b's class sweep probed: the
 // sweep tested NoCopy operands throughout, and the stopgap's tier condition

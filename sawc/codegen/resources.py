@@ -592,6 +592,17 @@ class ResourcesMixin:
             # last owner (old==1) acquires before running teardown + free.
             old = self.builder.atomic_rmw('sub', rc_ptr, ir.Constant(word, 1),
                                           ordering='release')
+            # Over-release detector (mirrors __saw_string_release): old at or
+            # below zero is a refcount underflow — panic deterministically
+            # instead of leaving detection to the platform allocator.
+            is_under = self.builder.icmp_signed("<", old, ir.Constant(word, 1),
+                                                name="env_over_release")
+            with self.builder.if_then(is_under):
+                or_ptr, or_len = self._raw_bytes_ptr(
+                    "panic: over-release of a closure environment "
+                    "(refcount underflow)\n")
+                self.builder.call(self.functions["__saw_rt_panic"],
+                                  [or_ptr, or_len])
             is_last = self.builder.icmp_signed("==", old, ir.Constant(word, 1),
                                                name="env_last_owner")
             with self.builder.if_then(is_last):
