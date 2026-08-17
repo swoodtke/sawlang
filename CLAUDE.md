@@ -101,8 +101,14 @@ objects are built + cached under `.build/rt/` and auto-linked (delete
 ## Testing
 - `make test` (venv active) or `./.venv/bin/python test_runner.py` —
   full compiler suite, ~1 min uncontended. Multi-pattern filter:
-  `./.venv/bin/python test_runner.py -f test_a,test_b`. Run the FULL
-  suite before every commit. XFAIL policy (user, Aug 7): a
+  `./.venv/bin/python test_runner.py -f test_a,test_b`.
+- **PER-COMMIT GATE POLICY (user, Aug 17):** a COMPILER change gates on
+  BOTH the full compiler suite AND `tools/sos_runner.py` (both arches)
+  before every commit — compiler changes can break kernel codegen and
+  the suite alone does not cover sos/. An SOS-ONLY change (everything
+  under sos/) gates on sos_runner ONLY — the compiler suite does not
+  exercise it. A change touching both gates on both. Terminal battery
+  obligations are unchanged (the battery runs everything regardless). XFAIL policy (user, Aug 7): a
   `// XFAIL: reason` test is legal ONLY as a pin of a filed finding —
   the reason MUST cite the DF number, the body is the minimal repro
   with EXPECT directives stating the intended behavior (so the XPASS
