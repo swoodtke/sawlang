@@ -1,0 +1,16 @@
+//! DF-229b fixture: a module that declares a distinct `type` alias and builds
+//! one. Its design-144 identity is `Steps$m$modules.df229b_alias_own`, which is
+//! the whole point — in a root module the identity and the spelling coincide
+//! and the bug cannot appear.
+// EXPECT: skip
+
+public type Steps = Int
+
+public func make_steps(n: Int) -> Steps {
+    let s: Steps = Steps(n)
+    s
+}
+
+public func widen(s: Steps) -> Int {
+    s as Int
+}

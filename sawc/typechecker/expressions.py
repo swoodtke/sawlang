@@ -277,7 +277,15 @@ class ExpressionsMixin:
             )
             return None
 
-        alias_type = SawType(TypeKind.STRUCT, struct_name=expr.name)
+        # DF-229b: by the design-144 IDENTITY, not the spelling. Every
+        # annotation naming this alias was rewritten to the identity by
+        # `_canonicalize_module_types`, so a type built from the spelling
+        # compares unequal to the very annotation it is being assigned to —
+        # `let s: Steps = Steps(n)` inside any non-root module was "cannot
+        # assign `Steps` to variable of type `Steps`". Spelling and identity
+        # coincide in a root module, which is why the single-file form worked.
+        alias_name = self._canonical_type_name(expr.name)
+        alias_type = SawType(TypeKind.STRUCT, struct_name=alias_name)
         underlying = self._resolve_type_alias(alias_type)
         # design 188 unit 1 (DF-188b, audit R50): the back-conversion is what
         # INHABITS an alias, so an alias over a reference is refused here too —
@@ -303,7 +311,7 @@ class ExpressionsMixin:
                 arg.value.line, arg.value.column
             )
             return None
-        expr.alias_construction = expr.name
+        expr.alias_construction = alias_name
         return alias_type
 
     def _stamp_enum_raw_value(self, expr, enum_info) -> None:
