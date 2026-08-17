@@ -1,0 +1,243 @@
+# Saw design index
+Navigation only. One line per design brief in `designs/` (number, file, the brief's own title), then the archived tracker done-files. Open work lives in `designs/todo.md`.
+- **01** — `01-safety-xfail-tests.md` — Safety XFAIL Test Suite
+- **02** — `02-typed-ast.md` — Typed AST: single source of type truth
+- **03** — `03-value-transfer-checkpoint.md` — Value-transfer checkpoint (copy/move enforcement)
+- **04** — `04-canonical-mangler.md` — One canonical name mangler
+- **05** — `05-codegen-memory-mechanics.md` — Codegen memory mechanics: allocas, passes, interpolation, div-zero
+- **06** — `06-copy-semantics.md` — Copy semantics
+- **07** — `07-string-model.md` — The String model
+- **08** — `08-var-exclusivity.md` — Exclusivity for `&var` references
+- **09** — `09-copy-trait-family.md` — Implement the `Copy` trait family
+- **10** — `10-exclusivity-check.md` — Static exclusivity check for `&var`
+- **11** — `11-refcounted-string.md` — Refcounted immutable String
+- **12** — `12-tech-debt-xfail-suite.md` — Tech-debt XFAIL suite
+- **13** — `13-doc-reconciliation.md` — Documentation reconciliation
+- **14** — `14-bounded-extension-monomorphization.md` — Honor bounds when monomorphizing extensions
+- **15** — `15-use-after-move-dataflow.md` — Use-after-move dataflow
+- **16** — `16-nonescaping-closures.md` — Non-escaping closures and reference captures
+- **17** — `17-aggregate-deinit.md` — Aggregate deinit (drop glue)
+- **18** — `18-async-await.md` — Async/await and the concurrency model
+- **19** — `19-freestanding-profile.md` — Freestanding profile and allocators
+- **20** — `20-freestanding-stage1.md` — Freestanding stage 1: runtime seams, --target, --freestanding
+- **21** — `21-concurrency-stage1.md` — Concurrency stage 1: Send/Sync, Arc, spawn, Channel, Mutex
+- **21b** — `21b-concurrency-stage1-remainder.md` — Concurrency stage 1 remainder: escaping closures, spawn, Channel
+- **22** — `22-sync-effect-prototype.md` — `sync` effect system prototype (the flip, investigated early)
+- **22** — `22-findings.md` — `sync` effect prototype: findings
+- **23** — `23-cleanup-family.md` — Cleanup family: enum payloads, if-let bindings, return-chain temps
+- **24** — `24-typechecker-family.md` — Typechecker family: generic-body deferred checks + effect-graph gaps
+- **25** — `25-codegen-crash-family.md` — Codegen crash family + noalias
+- **26** — `26-structural-family.md` — Structural family: module collisions, one pipeline, parser recovery, diagnostics
+- **27** — `27-followups-family.md` — Follow-ups family: symbol-object split, closure field inference, dead init branch
+- **28** — `28-allocator-stage3.md` — Allocator stage 3: trait, Global, internal threading
+- **29** — `29-nonescaping-closures-impl.md` — Non-escaping closures: implementation
+- **30** — `30-result-autowrap-union.md` — Result auto-wrap tie-break and error-union semantics
+- **31** — `31-integer-overflow.md` — Integer overflow: checked by default, explicit wrap operators
+- **32** — `32-equality.md` — Equality: Equatable mirroring the Copy family
+- **33** — `33-array-copy-class.md` — Fixed arrays inherit the element copy class
+- **34** — `34-callsite-ref-sigils.md` — Call-site reference sigils: `&x` / `&var x`, validated
+- **35** — `35-no-partial-moves.md` — Partial moves: forbidden on all structs
+- **36** — `36-generic-methods.md` — Generics family: generic methods + monomorphization recursion fixes
+- **37** — `37-allocator-stage4.md` — Allocator stage 4: default type parameters + public A
+- **38** — `38-string-stack.md` — String stack: API expansion, UTF-8 validation, StringBuilder
+- **39** — `39-array-mutation.md` — Array element mutation: field assignment + overwrite deinit
+- **40** — `40-cleanup-family.md` — Cleanup family: lookups, diagnostics, small gaps
+- **41** — `41-module-statics.md` — Module-level statics (+ Atomic<Int>) and the UInt division fix
+- **42** — `42-box-and-slab.md` — Box<T, A> and the slab allocator: the kernel idiom end to end
+- **43** — `43-coro-probe-findings.md` — LLVM coroutine viability probe: findings
+- **44** — `44-coro-transform.md` — Async stage 2a: the source-level coroutine transform
+- **45** — `45-async-runtime.md` — Async stage 2b: cooperative executor, suspending primitives, cancellation
+- **46** — `46-unsafe-memory.md` — UnsafeMemory<T, Use>: typed memory at fixed addresses (D12, DECIDED Jul 29 — LANDED)
+- **47** — `47-platform-int.md` — Platform-width Int/UInt (D13, DECIDED Jul 29 — LANDED)
+- **48** — `48-ord-hash.md` — Comparable + Hashable + HashMap (D14, DECIDED Jul 29)
+- **49** — `49-assert-blade-test.md` — panic/assert builtins + `blade test` (D15, DECIDED Jul 29)
+- **50** — `50-bitwise-hex.md` — T1a: bitwise operators + hex/binary literals
+- **51** — `51-any-trait.md` — `any Trait` existentials (D16, DECIDED Jul 29)
+- **52** — `52-async-multitask.md` — Async stage 2c: CFG split + the multi-task runtime
+- **52b** — `52b-taskgroup-runtime.md` — The multi-task runtime on TaskGroup (A1b remainder)
+- **53** — `53-ergonomics.md` — Ergonomics family (DECIDED Jul 29 — LANDED Jul 30)
+- **54** — `54-collections.md` — Collections family: Map unification, Set, collection literals (DECIDED Jul 29)
+- **55** — `55-overloading.md` — Function/method overloading, exact-match model (DECIDED Jul 29)
+- **56** — `56-printable-error-defaults.md` — Trait default bodies + Printable + Error (N1–N3, DECIDED Jul 29)
+- **57** — `57-blade-enablers.md` — Blade enablers: map iteration, parsing, DF3, std.time, Int/Float extensions (N4/N5/N7, DECIDED Jul 29)
+- **58** — `58-attributes-exports.md` — Attribute grammar + C-callable exports (N6, DECIDED Jul 29)
+- **59** — `59-small-fixes.md` — Small-fixes batch (queued Jul 30)
+- **60** — `60-stale-docs.md` — Stale-spec pass + README refresh (queued Jul 30)
+- **61** — `61-container-drop-fixes.md` — Container element-drop fixes: L14 + L15 joint, L16 (queued Jul 30)
+- **62** — `62-async-gaps.md` — Async v1 gaps: G1/G2/G3 from the 52b deferral list (queued Jul 30)
+- **63** — `63-patterns-bounds-cast.md` — Patterns (T1d) + bounds checks (T1b) + distinct-type cast + named tuples (DECIDED Jul 30)
+- **64** — `64-blade-deps.md` — Blade for real: dependencies, semver, lock, git, incremental (DECIDED Jul 30)
+- **65** — `65-copy-with-retain.md` — L17: enum/struct copy-with-retain + aggregate payload extraction (queued Jul 30)
+- **66** — `66-labeled-arguments.md` — Labeled arguments, lenient model (DECIDED Jul 30 — LANDED Jul 30)
+- **67** — `67-df-batch.md` — Blade dogfood bug batch: DF6–DF12 (queued Jul 30)
+- **68** — `68-cross-module-mono.md` — DF6(b)/DF9(c): cross-module monomorphization/receiver confusion (queued Jul 31)
+- **69** — `69-debug-info-ci.md` — Developer experience: debug info (T1f) + CI (queued Jul 31)
+- **70** — `70-effect-polymorphism.md` — A5: effect polymorphism (generic suspending functions) (queued Jul 31)
+- **71** — `71-closure-deinit.md` — Closure Deinit: env teardown at closure drop (queued Jul 31)
+- **72** — `72-small-ergonomics.md` — Small fixes: L12, L9, erased-error downcasting (queued Jul 31)
+- **73** — `73-refcounted-closures.md` — Closures become ImplicitCopy (refcounted env) (DECIDED Jul 31)
+- **74** — `74-a5-rest.md` — A5-rest: finish effect-polymorphism shapes + A8 anchors (queued Jul 31)
+- **75** — `75-work-stealing-executor.md` — A2: multi-threaded work-stealing executor + Send-on-frames (queued Jul 31)
+- **76** — `76-io-reactor.md` — A4 IO reactor + A6 blocking offload + A3 remainder (queued Jul 31)
+- **77** — `77-generics-closures-completion.md` — Generics & closures completion (queued Jul 31)
+- **78** — `78-sos-milestone1.md` — SOS milestone 1: boot to root server on QEMU (DECIDED Jul 31)
+- **79** — `79-sos-arm64-parity.md` — SOS M1b: arm64 EL1 boot parity + HAL extraction (DECIDED Jul 31)
+- **80** — `80-member-visibility.md` — Member visibility: fields + methods, std under the gate (DECIDED Jul 31)
+- **81** — `81-unsafe-surface.md` — Unsafe surface: `unsafe` marker + escape rules + with_ref (DECIDED Jul 31)
+- **82** — `82-std-per-file-visibility.md` — Close the std visibility gap: per-file std modules + prelude discipline (DECIDED Jul 31 / prelude added Aug 1)
+- **83** — `83-tail-nested-suspend.md` — Nested suspending call in tail/statement position (queued Jul 31)
+- **84** — `84-safe-net-api.md` — Safe net API: TcpListener/TcpStream owning types (DECIDED Jul 31)
+- **85** — `85-suspend-reentry-hang.md` — Runtime hang: second nested suspend after first parks (queued Jul 31)
+- **86** — `86-httpd-runtime-cleanup.md` — httpd-runtime cleanup: test-runner timeout, variadic libc audit, append-across-suspend (queued Aug 1)
+- **87** — `87-literal-coercion-typeid.md` — Consolidate fixed-width literal coercion + stable type-ids (DECIDED Aug 1)
+- **88** — `88-references-across-suspend.md` — References across suspension points (implement D6) (DECIDED Aug 1)
+- **89** — `89-executor-unification.md` — Executor unification: one ambient cooperative scheduler (DECIDED Aug 1)
+- **89b** — `89b-executor-unification-core.md` — b — Executor unification core (WORKTREE) (queued Aug 1)
+- **89c** — `89c-cooperative-budget.md` — c — Cooperative op-count budget (deferred from 89-b) (queued Aug 1)
+- **90** — `90-reactor-lost-wakeup.md` — Reactor lost-wakeup on the 2nd sequential connection (queued Aug 1)
+- **91** — `91-precise-reactor-wakeup.md` — Precise reactor wakeup (not wake-all) (queued Aug 1)
+- **92** — `92-no-silent-error-swallow.md` — Failable calls return Result: no silent error swallow (DECIDED Aug 1)
+- **93** — `93-generic-type-inference.md` — generic type-argument inference (landed Aug 2; brief backfilled)
+- **94** — `94-enum-result-payload-sizing.md` — enum/Result payload scratch sizing (OOB stack read) + land process module (queued Aug 2)
+- **95** — `95-driven-method-overload-keying.md` — Driven-method frames keyed by resolved signature (queued Aug 2)
+- **96** — `96-reactor-token-nesting-depth.md` — Reactor/coroutine token propagation past one nesting level (queued Aug 2)
+- **97** — `97-libs-blade-test-harness.md` — libs/semver + libs/toml `blade test` harness fix (queued Aug 2)
+- **98** — `98-source-location-literals.md` — `#file` / `#line` / `#function` source-location literals (queued Aug 2)
+- **99** — `99-interpolation-diagnostic-positions.md` — interpolation sub-expression source positions (bug, queued Aug 2)
+- **100** — `100-shadowing-rules.md` — shadowing: error unless derived from the shadowed binding (queued Aug 2)
+- **101** — `101-nested-if-driven-embedding.md` — DF7: suspending method under nested `if` in a driven loop silently blocks (queued Aug 2)
+- **102** — `102-runtime-edge-bugs.md` — runtime edge bugs: spawn-Void ICE + cancel wakes an io-parked task (queued Aug 2)
+- **103** — `103-blocking-extern-offload.md` — A6 runtime offload: `extern blocking` calls run in tasks (queued Aug 2)
+- **104** — `104-embedding-shapes.md` — coro embedding: if-let/guard-let bodies + the remaining generic shapes (queued Aug 2)
+- **105** — `105-inference-boundary.md` — generic inference: overloads, later-arg solve, labeled args (queued Aug 2)
+- **106** — `106-reference-forwarding.md` — reference forwarding: pass a received `&T`/`&var T` onward (queued Aug 2)
+- **107** — `107-shadowing-followups.md` — shadowing follow-ups: same-scope derived redefinition + for-loop vars (queued Aug 2)
+- **108** — `108-generic-default-value-ice.md` — ICE: generic parameter with a default VALUE (queued Aug 3)
+- **109** — `109-primitive-bound-check.md` — silently unchecked trait bounds for primitive type args (queued Aug 3)
+- **110** — `110-ref-replacement-assignment.md` — replacement assignment through `&var` references (queued Aug 3)
+- **111** — `111-optional-chaining.md` — full optional chaining (queued Aug 3, behind 110)
+- **112** — `112-sos-m0-qemu-target.md` — SOS M0: QEMU riscv32 target in the build (queued Aug 4)
+- **113** — `113-runtime-extraction.md` — runtime extraction: __saw_rt ABI + per-host runtime (queued Aug 4)
+- **113b** — `113b-rt-in-saw.md` — the runtime layer in Saw: export loosening + relocation (queued Aug 4)
+- **114** — `114-intrinsic-scoping.md` — intrinsic scoping + naming: std.task, __saw_* rename (queued Aug 4)
+- **115** — `115-test-runner-workers.md` — test runner: persistent compile workers (queued Aug 4)
+- **116** — `116-selfhost-lexer-pilot.md` — self-hosting pilot: the lexer in Saw (queued Aug 4)
+- **117** — `117-abi-v2-minimization.md` — runtime ABI v2: minimization (queued Aug 4)
+- **118** — `118-executor-in-saw.md` — the executor in Saw: Reactor/Thread traits (queued Aug 4)
+- **119** — `119-lexer-pilot-followups.md` — lexer-pilot follow-ups: text/numeric affordances + fidelity (queued Aug 4)
+- **120** — `120-expression-suspension.md` — suspension in expression position: chains, args, and beyond (queued Aug 4)
+- **121** — `121-doc-comments.md` — doc comments + --emit-docs (queued Aug 4)
+- **122** — `122-review-fix-batch.md` — Review-sweep fix batch (P0/P1 unambiguous fixes)
+- **123** — `123-std-alloc-failure-policy.md` — One answer to "the allocator said no" (std-wide policy pass)
+- **124** — `124-taskgroup-eager-teardown.md` — TaskGroup eager teardown (a group is a scope, not an extender)
+- **125** — `125-docs-consistency-sweep.md` — Docs consistency sweep + README catch-up
+- **126** — `126-preport-ast-contract.md` — Pre-port trio: declared AST contract, stable NodeIds, astdiff
+- **127** — `127-op-budget-compute-preemption.md` — Op-budget covers pure-compute loops (make the README claim true)
+- **128** — `128-deinit-copy-synthesis.md` — structural Deinit synthesis + @synthesize ExplicitCopy
+- **129** — `129-newlines-in-brackets.md` — newlines inside brackets
+- **130** — `130-unsafe-model.md` — the unsafe model, rebuilt (LANDED Aug 5)
+- **131** — `131-payload-read-ownership.md` — payload-read ownership: the policy-driven place rule
+- **132** — `132-review-fix-batch-2.md` — Review-fix batch 2 (overnight-agent findings)
+- **133** — `133-capability-completions.md` — capability completions: Arc method-generic forwarding + nested short-circuit suspension
+- **134** — `134-task-slot-lifecycle.md` — task slot lifecycle: reclaimable frames, O(live) groups
+- **135** — `135-no-hidden-alloc-flag.md` — `--no-hidden-alloc`: enforce the no-hidden-allocations claim
+- **136** — `136-unsafe-effect-slot.md` — `unsafe` moves to the declaration effect slot
+- **137** — `137-fixed-capacity-formatting.md` — fixed-capacity formatting: alloc-free panic, assert, and print
+- **138** — `138-readme-docs-pass.md` — the ALL-SOURCES docs consistency sweep
+- **139** — `139-enum-policy-tier.md` — the enum policy tier: no policy-exempt wrappers
+- **140** — `140-sos-m1-boot-to-root-server.md` — SOS M1: riscv32 boot-to-root-server
+- **141** — `141-borrows-lend-places.md` — `borrows` functions and `lend`: element places
+- **142** — `142-import-scoped-extensions.md` — extension visibility is import-scoped; conformance coherence
+- **143** — `143-blade-build-dirs.md` — Blade build-output directories + lockfile policy
+- **144** — `144-module-qualified-type-identity.md` — module-qualified type identity
+- **145** — `145-enum-methods-std-private-reach.md` — enums stop being second-class: methods, raw backing, and the std private-symbol reach
+- **146** — `146-places-completion.md` — places completion: front-end AST reuse, use sites, the P0 pair
+- **147** — `147-soundness-batch.md` — soundness batch: the decided DF backlog
+- **148** — `148-const-generics-repeat-literals.md` — const generics + repeat literals (DF-137a/b)
+- **149** — `149-runtime-authoring.md` — runtime authoring in Saw (DF-140g)
+- **150** — `150-rust-style-imports.md` — Rust-style imports: delete the std bare-exposure special case
+- **151** — `151-result-discard-error.md` — discarding a `Result` is an error; `let _ =` is the explicit discard
+- **152** — `152-warning-set.md` — the first `-W` warning set
+- **153** — `153-magic-values-to-backed-enums.md` — magic-value families become Int-backed enums
+- **154** — `154-atomic-backed-enum.md` — `Atomic<E>` over Int-backed enums
+- **155** — `155-irdet-in-saw.md` — irdet in Saw (first devtools port)
+- **156** — `156-two-stage-test-runner.md` — two-stage test runner (compile all, then execute all)
+- **157** — `157-test-runner-in-saw.md` — the test runner in Saw (devtools stage 2)
+- **158** — `158-task-backtrace.md` — logical task backtraces from coroutine frames
+- **159** — `159-implicit-tier-copy-fix.md` — the implicit-tier copy miscompile (DF-151b/DF-156b root cause)
+- **160** — `160-remote-test-worker.md` — remote test worker (sandboxed, no SSH)
+- **161** — `161-tuple-index-member-lex.md` — `t.0.name`: the tuple-index float-eating lex bug (DF-159a)
+- **162** — `162-sos-m1b-arm64.md` — SOS M1b: arm64 EL1 parity + the HAL extraction
+- **163** — `163-frame-overlay-investigation.md` — frame-overlay sizing: the investigation
+- **164** — `164-std-compile-cache-investigation.md` — per-module compile caching: the investigation
+- **165** — `165-data-cow-rebuild.md` — Data rebuilt as a CoW value type over Arc
+- **166** — `166-diagnostics-unification.md` — diagnostics unification
+- **167** — `167-compiler-hardening-sweep.md` — compiler hardening sweep
+- **168** — `168-compile-speed-batch.md` — the compile-speed batch
+- **169** — `169-serialize-cbor.md` — Serialize/Deserialize + std.cbor (RFC 8949)
+- **170** — `170-checked-casts.md` — checked integer casts: `as` panics, `from(_) -> T?`, `from(truncating:)`
+- **171** — `171-places-field-syntax-box-arc.md` — places get field syntax; Box/Arc payload access becomes a place
+- **172** — `172-sos-c-diet.md` — the SOS C diet: rewrite into Saw what is expressible today
+- **173** — `173-float-family.md` — the Float family: Float32/Float64 for real
+- **174** — `174-optional-generic-sweep.md` — investigation: the T = U? sweep
+- **175** — `175-lend-var-investigation.md` — investigation: `#lend_var`, flavor-aware borrows bodies
+- **176** — `176-places-optional-plumbing.md` — the places/optional plumbing batch
+- **177** — `177-while-never.md` — an infinite `while {}` with no exit types `Never`
+- **178** — `178-sos-m2-sketch.md` — SOS M2 SKETCH (slicing RULED, agenda in progress)
+- **179** — `179-lend-var-implementation.md` — `#lend_var`: implementation
+- **180** — `180-duration-sleep.md` — `sleep(Duration)`, and only that
+- **181** — `181-blocking-call-audit.md` — investigation: the blocking-call audit
+- **182** — `182-command-zero-thread.md` — Command without threads, and the two honest sentences
+- **183** — `183-offload-v2.md` — the offload story, made real (design 103 v2)
+- **184** — `184-hostname-resolution.md` — hostname resolution, offloaded from day one
+- **185** — `185-const-bitwise.md` — bitwise operators in const expressions (+ flag enums)
+- **186** — `186-unsafe-mutable-interior.md` — `UnsafeMutableInterior<T>`: interior mutability without the name list
+- **187** — `187-coro-fix-batch.md` — the coroutine fix batch (+ the 182 completion)
+- **188** — `188-safety-batch.md` — the safety-audit batch
+- **189** — `189-scoped-task-borrows.md` — scoped task borrows: the capture's extent is the task's life
+- **190** — `190-quality-program.md` — the quality program: analysis and the four-brief plan
+- **191** — `191-conformance-suite.md` — the standing conformance suite
+- **192** — `192-diagnostics-floor-and-oracles.md` — the diagnostics floor, the fuzzer, and the guarded lane
+- **193** — `193-checker-funnels.md` — checker funnels: close the position gaps, fix two confirmed holes
+- **194** — `194-contract-debt.md` — the typechecker→codegen contract debt
+- **195** — `195-integer-width-agreement.md` — integer width agreement: operands match, transfers widen
+- **196** — `196-coro-erased-errors-and-closures.md` — the coroutine transform meets erased errors and captures
+- **197** — `197-declaration-position-names.md` — declaration-position name resolution
+- **198** — `198-duplicate-match-arms.md` — an exact duplicate match arm is an error
+- **199** — `199-nested-call-refs-join-the-law.md` — nested-call references join the Law of Exclusivity
+- **200** — `200-receiver-copy-place-write.md` — the receiver-copy place write is an error
+- **201** — `201-spawn-reference-parameters.md` — spawn reference parameters ride the extent model
+- **202** — `202-atomic-move-only.md` — `Atomic` is move-only
+- **203** — `203-dogfood-program.md` — the dogfood program: naive implementers as instruments
+- **204** — `204-std-type-identity.md` — a private std type reserves nothing
+- **205** — `205-transfer-conversion-closes.md` — the platform pair converts by the book at transfers too
+- **206** — `206-executor-park-liveness.md` — the executor's park paths keep the eager-spawn promise
+- **207** — `207-constructor-inference.md` — constructors infer their type arguments
+- **208** — `208-implicit-enum-members.md` — implicit enum members: `.Bad` where the type is in force
+- **209** — `209-string-slices.md` — string slices: owning windows over immutable bytes
+- **210** — `210-annotated-embedding.md` — the embed carries its answers
+- **211** — `211-let-chains.md` — let-chains: `if let x = opt && cond`
+- **212** — `212-long-function-decomposition.md` — long-function decomposition sweep
+- **213** — `213-closure-return-and-identity.md` — closures: local `return` typing + the embed identity leak
+- **214** — `214-raft-simulation-dogfood.md` — Raft under deterministic simulation: the integration dogfood
+- **215** — `215-llm-client-saw-port.md` — the LLM client: a working Python reference, and the Saw port it exists for
+- **216** — `216-vector-copy-bounds.md` — lifting `T: Copy` off the Vector closure and sort APIs
+- **218** — `218-enforcement-architecture.md` — enforcement architecture: the compiler obeys its own unsafe contract
+- **218a** — `218a-slot-spec.md` — the frame primitive module: `Slot<T>` / `Receiver<T>` spec
+- **219** — `219-generic-tier-requirements.md` — generic tier requirements: inference, discharge, and the DF-217i ruling
+- **220** — `220-suite-ir-reuse.md` — recorded-seed suite compiles, per-run artifacts, irdet reuse
+- **221** — `221-main-exit-and-compile-context.md` — main's exit status, the `main` rule, and the per-compile LLVM context
+- **222** — `222-safe-async-rewrite.md` — the safe async rewrite: retiring E2 into a named verified-unsafe core
+- **223** — `223-suspending-method-positions.md` — suspending-method positions: one classifier, three-valued, never silent
+- **224** — `224-suspension-position-coverage.md` — suspension-position coverage: the six silent-hang cells
+- **225** — `225-taskgroup-live-pool.md` — TaskGroup(threads: N) becomes a live pool
+- **226** — `226-funcpointer.md` — `FuncPointer<F>`: a typed function pointer, not first-class functions
+- **227** — `227-write-target-funnel.md` — the write-target funnel: DF-225i/j/k/l
+- **228** — `228-never-contract.md` — the Never contract: one divergence question, asked everywhere
+- **229** — `229-export-control.md` — export control: imports stop being silently public
+- **230** — `230-channel-parks.md` — channel waits become real parks
+- **231** — `231-native-compiler.md` — the native compiler: readiness ledger + the VM staging sketch
+- **232** — `232-sos-m3-sketch.md` — SOS M3 SKETCH (agenda for the scoping session)
+- **233** — `233-while-let.md` — `while let`: the drain loop gets its header spelling
+- **archive** — `done_aug1-aug9.md` — Aug 1 – Aug 9, 2026 — landed/closed tracker recaps, archived at the Aug-9 split
+- **archive** — `done_aug10-aug17.md` — Aug 10 – Aug 17, 2026 — landed/closed tracker recaps, archived at the Aug-17 split
