@@ -1,0 +1,41 @@
+// Design 233 unit 2, the MT row: a `while let` whose scrutinee suspends, in a
+// task spawned onto a `threads: N` group. The loop's state machine is resumed
+// by a worker thread rather than the main one, and the drain has to hold
+// together across that.
+// EXPECT: success
+// EXPECT-OUTPUT:
+// 6
+// 12
+// 18
+
+import std.task.*
+
+struct Cursor { at: Int, limit: Int }
+
+extension Cursor {
+    func next_susp(&var self) -> Int? {
+        yield_now()
+        self.at = self.at + 1
+        if self.at > self.limit { return None }
+        return self.at
+    }
+}
+
+func mt_worker(scale: Int) -> Int {
+    var c = Cursor(at: 0, limit: 3)
+    var total = 0
+    while let x = c.next_susp() {
+        total = total + x * scale
+    }
+    total
+}
+
+func main() {
+    var group = TaskGroup(threads: 4)
+    let h1 = group.spawn(mt_worker(1))
+    let h2 = group.spawn(mt_worker(2))
+    let h3 = group.spawn(mt_worker(3))
+    print(h1.join())    // (1+2+3) * 1
+    print(h2.join())    // (1+2+3) * 2
+    print(h3.join())    // (1+2+3) * 3
+}

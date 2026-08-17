@@ -1,0 +1,53 @@
+// Design 233 unit 2: a `while let` whose BODY holds a suspending `try`/`catch`.
+// Both halves are state-splitting constructs, and the catch's error edge has to
+// land inside the loop rather than out of it.
+// EXPECT: success
+// EXPECT-OUTPUT:
+// driven 1080
+// spawned 1080
+
+import std.task.*
+
+struct Boom { code: Int }
+extension Boom: Printable {
+    func format(&self, into: &var StringBuilder) { into.append("Boom") }
+}
+extension Boom: Error {}
+
+struct Cursor { at: Int, limit: Int }
+
+extension Cursor {
+    func next_susp(&var self) -> Int? {
+        yield_now()
+        self.at = self.at + 1
+        if self.at > self.limit { return None }
+        return self.at
+    }
+}
+
+func risky(n: Int) -> Result<Int, Boom> {
+    yield_now()
+    if n == 2 { return Boom(code: n) }
+    return n * 10
+}
+
+func drain_with_try() -> Int {
+    var c = Cursor(at: 0, limit: 4)
+    var total = 0
+    while let x = c.next_susp() {
+        try {
+            let v = try risky(x)
+            total = total + v
+        } catch {
+            total = total + 1000
+        }
+    }
+    total
+}
+
+func main() {
+    print("driven {__saw_drive(drain_with_try())}")
+    var group = TaskGroup()
+    let h = group.spawn(drain_with_try())
+    print("spawned {h.join()}")
+}

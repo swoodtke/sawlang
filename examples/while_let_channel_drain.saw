@@ -1,0 +1,48 @@
+// Design 233 unit 2, the drain family's concurrency member: `Channel.try_receive`
+// yields `T?` and is the non-blocking half of the channel, so a `while let` over
+// it is the natural "take everything that is there right now" loop. The inner
+// drain does not itself suspend, so it stays an ordinary loop nested inside the
+// spanning one — its `break` targets itself, never the outer loop.
+// EXPECT: success
+// EXPECT-OUTPUT:
+// 3
+// 6
+
+import std.task.*
+import std.channel.{Channel}
+
+func producer(ch: Channel<Int>) -> Int {
+    var i = 0
+    while i < 3 {
+        try! ch.send(i + 1)   // 1, 2, 3
+        yield_now()
+        i = i + 1
+    }
+    return i
+}
+
+func consumer(ch: Channel<Int>) -> Int {
+    var sum = 0
+    var got = 0
+    while got < 3 {
+        var drained = 0
+        while let v = ch.try_receive() {
+            sum = sum + v
+            got = got + 1
+            drained = drained + 1
+        }
+        if drained == 0 {
+            yield_now()   // nothing queued: suspend and retry when rescheduled
+        }
+    }
+    return sum
+}
+
+func main() {
+    var group = TaskGroup()
+    let ch = Channel<Int>()
+    let hp = group.spawn(producer(ch.copy()))
+    let hc = group.spawn(consumer(ch.copy()))
+    print(hp.join())   // 3
+    print(hc.join())   // 1 + 2 + 3
+}

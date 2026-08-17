@@ -1,0 +1,141 @@
+// Design 233 unit 2: the suspension matrix. A `while let` puts its scrutinee
+// inside the loop body, so a suspending one rides the design-62 G2 scrutinee
+// hoist per iteration and the whole loop is one design-96 spanning loop —
+// which is why the `break` the desugar synthesizes needed DF-233a first.
+//
+// Every row runs in a DRIVEN body (`__saw_drive`) and a SPAWNED one; the two
+// are different resume drivers, so a row proven on one is not proven on both.
+// EXPECT: success
+// EXPECT-OUTPUT:
+// susp scrutinee 6
+// susp args 6
+// susp body 6
+// both 6
+// in if let 6
+// in match arm 6
+// nested 9
+// spawned 45
+// spawned 45
+
+import std.task.*
+
+struct Cursor { at: Int, limit: Int }
+
+extension Cursor {
+    func next_susp(&var self) -> Int? {
+        yield_now()
+        self.at = self.at + 1
+        if self.at > self.limit { return None }
+        return self.at
+    }
+    func next_sync(&var self) sync -> Int? {
+        self.at = self.at + 1
+        if self.at > self.limit { return None }
+        return self.at
+    }
+}
+
+func slow(n: Int) -> Int { yield_now()  return n }
+
+func at_most(v: Int, cap: Int) sync -> Int? {
+    if v > cap { return None }
+    return v
+}
+
+// ROW 1 — the scrutinee is a plain suspending call.
+func susp_scrutinee() -> Int {
+    var c = Cursor(at: 0, limit: 3)
+    var total = 0
+    while let x = c.next_susp() { total = total + x }
+    total
+}
+
+// ROW 2 — a SYNC scrutinee whose ARGUMENT suspends: the ANF hoist lifts the
+// argument into the loop body ahead of the binding, per iteration.
+func susp_args() -> Int {
+    var n = 0
+    var total = 0
+    while let x = at_most(slow(n), 3) {
+        total = total + x
+        n = n + 1
+    }
+    total
+}
+
+// ROW 3 — the BODY suspends and the scrutinee does not.
+func susp_body() -> Int {
+    var c = Cursor(at: 0, limit: 3)
+    var total = 0
+    while let x = c.next_sync() { total = total + slow(x) }
+    total
+}
+
+// ROW 4 — both.
+func susp_both() -> Int {
+    var c = Cursor(at: 0, limit: 3)
+    var total = 0
+    while let x = c.next_susp() { total = total + slow(x) }
+    total
+}
+
+// ROW 5 — inside an `if let`, a container that owns no loop of its own.
+func inside_if_let(seed: Int?) -> Int {
+    var total = 0
+    if let s = seed {
+        var c = Cursor(at: 0, limit: s)
+        while let x = c.next_susp() { total = total + x }
+    }
+    total
+}
+
+// ROW 6 — inside a `match` arm.
+func inside_match(k: Int) -> Int {
+    var total = 0
+    match k {
+        case 0 -> {
+            var c = Cursor(at: 0, limit: 3)
+            while let x = c.next_susp() { total = total + x }
+        },
+        case _ -> { total = -1 }
+    }
+    total
+}
+
+// ROW 7 — a suspending `while let` inside another one. Each loop owns its own
+// exit, so the inner `break` never reaches the outer loop.
+func nested_susp() -> Int {
+    var outer = Cursor(at: 0, limit: 2)
+    var acc = 0
+    while let o = outer.next_susp() {
+        var inner = Cursor(at: 0, limit: 2)
+        while let i = inner.next_susp() { acc = acc + o * i }
+    }
+    acc
+}
+
+// Every row again, as a SPAWNED task body.
+func spawned_all() -> Int {
+    let a = susp_scrutinee()
+    let b = susp_args()
+    let c = susp_body()
+    let d = susp_both()
+    let e = inside_if_let(3)
+    let f = inside_match(0)
+    let g = nested_susp()
+    a + b + c + d + e + f + g
+}
+
+func main() {
+    print("susp scrutinee {__saw_drive(susp_scrutinee())}")
+    print("susp args {__saw_drive(susp_args())}")
+    print("susp body {__saw_drive(susp_body())}")
+    print("both {__saw_drive(susp_both())}")
+    print("in if let {__saw_drive(inside_if_let(3))}")
+    print("in match arm {__saw_drive(inside_match(0))}")
+    print("nested {__saw_drive(nested_susp())}")
+    var group = TaskGroup()
+    let h1 = group.spawn(spawned_all())
+    let h2 = group.spawn(spawned_all())
+    print("spawned {h1.join()}")
+    print("spawned {h2.join()}")
+}

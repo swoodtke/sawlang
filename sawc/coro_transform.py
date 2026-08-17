@@ -3372,7 +3372,13 @@ class _FrameBuilder:
         the scope (a design-100 derived shadow) is likewise unsupported here and
         rejected, so no use is ever mis-renamed."""
         if getattr(node, 'pattern', None) is not None:
-            kind = "if let" if isinstance(node, IfLetExpr) else "guard let"
+            # design 233: a `while let` lowers to an `if let`, so ask the node
+            # which one the author wrote — the limit is inherited verbatim, and
+            # the message has to name the construct on the line.
+            if isinstance(node, IfLetExpr):
+                kind = "while let" if node.while_let else "if let"
+            else:
+                kind = "guard let"
             raise CoroTransformError(
                 f"coroutine transform: a tuple-pattern `{kind}` whose body spans a "
                 f"suspension in `{self.name}` is not supported; bind a single name "

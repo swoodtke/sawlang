@@ -1,0 +1,34 @@
+// Design 233 unit 2: a `while let` TUPLE pattern over a suspension inherits
+// `if let`'s limit verbatim — the coroutine transform renames a split binding to
+// one frame field, and a tuple pattern binds several. Refused cleanly, naming
+// the construct the author wrote (the node it lowers to is an `if let`) and the
+// way out. The sync tuple pattern is unaffected; see while_let_drain.saw.
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: a tuple-pattern `while let` whose body spans a suspension
+// EXPECT-ERROR-CONTAINS: bind a single name and destructure inside the body
+
+import std.task.*
+
+struct Cursor { at: Int, limit: Int }
+
+extension Cursor {
+    func next_pair(&var self) -> (Int, Int)? {
+        yield_now()
+        self.at = self.at + 1
+        if self.at > self.limit { return None }
+        return (self.at, self.at * 10)
+    }
+}
+
+func drain_pairs() -> Int {
+    var c = Cursor(at: 0, limit: 3)
+    var total = 0
+    while let (a, b) = c.next_pair() {
+        total = total + a + b
+    }
+    total
+}
+
+func main() {
+    print(__saw_drive(drain_pairs()))
+}
