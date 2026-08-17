@@ -1566,7 +1566,8 @@ What landed beyond the brief's text, as decisions a reader may need:
 ## DF-232h — a closure's TAIL expression does not auto-wrap into a declared
 ## `Result` return type, though its `return` does and though the OPTIONAL
 ## analogue works (found Aug 17 by DF-226e's fix, probed; RENUMBERED from the
-## branch's DF-232d at integration — the kcore split claimed d-g first)
+## branch's DF-232d at integration — the kcore split claimed d-g first;
+## SCHEDULED Aug 17 as a rider on design 234 unit 1, user)
 
 `run(f: { x in 12 })` against `(Int) sync -> Result<Int32, Bad>` is
 ``argument `f` expects `(Int) sync -> Result<Int32, Bad>` but got

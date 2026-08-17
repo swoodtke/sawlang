@@ -210,6 +210,12 @@ conformance rows lead unit 3.
   interpolation, match subject, `??` RHS), suspending body, inside
   try/catch blocks. Lands with the grammar in LANGUAGE_SPEC.md + skill.
   Usable immediately; changes no existing behavior.
+  RIDER (added Aug 17, user): **DF-232h** — a closure's TAIL expression does
+  not auto-wrap into a declared `Result` return type (its `return` does, and
+  the Optional analogue works). Same funnel area, and the flip multiplies
+  closures returning Results, so it lands here: fix the closure tail path to
+  reach the Result wrap, flip the cited pin
+  `examples/closure_tail_autowraps_result.saw`.
 - **Unit 2 — the error-type reshapes.** `IoError` restructures to kind +
   raw code per §2 (its own mini consumer sweep — net/file matchers and every
   `.code` reader); `IoErrorKind`'s starting vocabulary chosen from what the
