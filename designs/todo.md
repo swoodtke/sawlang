@@ -242,36 +242,13 @@ an implementation one. The alternative reading is that cancellation is not an
 error at all and the answer is a separate `receive_or_cancelled()`. Not decided
 here.
 
-## DF-229a — a selective import of a name a USER module does not have is
-## silently accepted (filed Aug 16, design 229 implementation)
+## DF-229a — CLOSED (Aug 16): the silent selective-import miss
 
-**DISPATCHED (Aug 16, worktree agent, user-approved as an easy win;
-concurrent with 230 + DF-225m — disjoint files).** `import
-m.{NoSuchThing}` on a user module compiles clean — no
-error, no warning, and the name simply never binds, so the failure surfaces
-later (or not at all, if nothing uses it). std has had the diagnostic since
-design 150 (```error: `OpenMode` is not defined in `std.file`, hint:
-available: File```); the user-module branch of `check_module`'s selective
-import just does not report the miss.
-
-Probe (`.build/scratch/probe_missing_selection.saw`, exit 0):
-```saw
-import d229mods.leaf.{Widget, NoSuchThing}
-func main() { print("{Widget(n: 1).n}") }
-```
-
-MECHANISM (obligation 4): the selective branch is a loop of
-`if <found in table X>: bind` arms with no `else` — a name matching none of
-struct/enum/function/static/trait falls off the end. The same shape hides two
-siblings, both UNPROBED: a selected name that IS in the module but is
-PRIVATE (each arm's `if sym.visibility == PUBLIC` has no else either), and a
-selected name that exists in a category the loop does not check. std's arm
-reports all three because it tests membership in a precomputed name set
-BEFORE dispatching on category, which is the shape the fix should take.
-
-Design 229 raises the stakes: a name the module imports but does not
-re-export now gets a precise refusal at the import, so the remaining silence
-reads as "that one is fine" when it is not.
+Fixed in f9b020e4 — the no-else bind loop became std's name-set-first
+funnel, covering all three predicted gaps (missing name, PRIVATE name,
+and the unchecked `type`-alias category); 2591d385 closes the DF-229b
+sibling it exposed, the design-144 alias back-conversion that built its
+type from the spelling.
 
 ## DF-225o — `reemit` reported three DIVERGENT files under heavy load and none
 ## on a quiet machine (observed Aug 16 by the design-225 terminal battery; the
