@@ -1,13 +1,19 @@
-// XFAIL: DF-216f `Self` does not resolve in an extension method's PARAMETER
-// type, while the RETURN position resolves fine in the same extension
+// `Self` resolves in an extension method's PARAMETER type (DF-216f).
 //
-// `func add_from(&self, other: &Self)` reports ``argument `other` expects
+// `func add_from(&self, other: &Self)` reported ``argument `other` expects
 // `&Self` but got `&Counter``` at the call site and ``cannot access member of
-// non-struct type `Self``` in the body, so the parameter's `Self` is left
-// unresolved on both sides of the call while `-> Self` two lines below it
-// works. Hit while wording DF-216a's fixit, which nearly taught the broken
-// spelling — the fixit names the concrete receiver type instead, which is a
-// workaround standing in for this fix.
+// non-struct type `Self``` in the body, while `-> Self` two lines below it
+// worked. Hit while wording DF-216a's fixit, which nearly taught the broken
+// spelling — the fixit names the concrete receiver type instead.
+//
+// FIXED, and the parameter-versus-return framing above turned out to be the
+// wrong axis: the real one is TOP-LEVEL versus NESTED. Every substitution site
+// tested for `Self` at the ROOT only, so `-> Self?` and `-> (Self, Int)` were
+// broken on the "working" side too. One recursive substitution
+// (`_substitute_self_type`, five named entry points) covers both sides and
+// every constructor; the position matrix is
+// `self_type_signature_positions.saw`. A GENERIC extension is excluded and
+// still refuses — DF-216r, pinned separately.
 // EXPECT: success
 // EXPECT-OUTPUT:
 // sum 3

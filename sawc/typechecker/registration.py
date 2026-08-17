@@ -2678,8 +2678,12 @@ class RegistrationMixin:
                 if p.name == "self" or p.type.kind == TypeKind.SELF:
                     param_types.append(self_type)
                 else:
-                    # Resolve type aliases and enum types
-                    param_types.append(self._resolve_type(p.type))
+                    # Resolve type aliases and enum types, then substitute any
+                    # NESTED `Self` — `&Self`, `Self?`, `Vector<Self>`,
+                    # `(Self, Int)`, `[Self; N]`. The root-only test above is
+                    # the whole of what used to happen here (DF-216f).
+                    param_types.append(self._substitute_self_type(
+                        self._resolve_type(p.type), self_type))
             param_names = [p.name for p in method.parameters]
 
             # For init methods, override return type to be the struct type
@@ -2690,8 +2694,12 @@ class RegistrationMixin:
             elif method.is_init:
                 return_type = self_type
             else:
-                # Resolve enum types (e.g., Result<T, E>) that are parsed as STRUCT
-                return_type = self._resolve_type(return_type)
+                # Resolve enum types (e.g., Result<T, E>) that are parsed as
+                # STRUCT, then substitute a NESTED `Self`: the root-only test
+                # above left `-> Self?` and `-> (Self, Int)` unresolved, which
+                # is the half of DF-216f the filing did not notice.
+                return_type = self._substitute_self_type(
+                    self._resolve_type(return_type), self_type)
 
             # Escaping roles (design 16/29): method parameter closure types
             # default non-escaping; return type is an escaping role.

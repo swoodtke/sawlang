@@ -1,0 +1,98 @@
+// `Self` in an extension method's signature, at every position it can be
+// written (DF-216f).
+//
+// The filing read the axis as parameter-versus-return: `other: &Self` failed
+// while `-> Self` two lines below it worked. The real axis is TOP-LEVEL versus
+// NESTED. Every site that substituted `Self` tested `t.kind == TypeKind.SELF`
+// at the ROOT and nowhere else, so a bare `Self` resolved in either position
+// and a `Self` under any type constructor resolved in neither — `-> Self?` and
+// `-> (Self, Int)` were broken exactly as `&Self` was, on the side the filing
+// called working.
+//
+// One recursive substitution now covers references, optionals, generic
+// arguments, tuples and arrays, on both sides of the signature, from the five
+// sites that each had the root-only test.
+//
+// A GENERIC extension is excluded and still refuses a nested `Self` — its
+// `Self` is argument-free by design, so there is nothing concrete to write into
+// a signature. Filed as DF-216r, pinned in
+// `examples/self_type_in_generic_extension.saw`.
+// EXPECT: success
+// EXPECT-OUTPUT:
+// ref 3
+// varref 5
+// value 3
+// optional 2
+// generic 3
+// tuple 4
+// array 3
+// bumped 2
+// maybe 4
+// pair 1 1
+// static 7
+// enum 1
+
+struct Counter { n: Int }
+
+extension Counter {
+    // Parameter positions: bare, and under each constructor.
+    func add_from(&self, other: &Self) -> Int { self.n + other.n }
+    func bump_from(&var self, other: &Self) { self.n = self.n + other.n }
+    func add_value(&self, other: Self) -> Int { self.n + other.n }
+    func add_opt(&self, other: Self?) -> Int { self.n + (other?.n ?? 0) }
+    func add_many(&self, rest: &Vector<Self>) -> Int { self.n + rest.len() }
+    func add_pair(&self, p: (Self, Int)) -> Int { self.n + p.0.n + p.1 }
+    func add_two(&self, xs: &[Self; 2]) -> Int { self.n + xs[0].n + xs[1].n }
+
+    // Return positions, bare and nested. The nested two were broken too.
+    func bumped(&self) -> Self { Counter(n: self.n + 1) }
+    func maybe(&self) -> Self? { Counter(n: self.n + 2) }
+    func split(&self) -> (Self, Int) { (Counter(n: self.n), 1) }
+
+    // A STATIC method's parameters — no receiver in the list, same rule.
+    func combine(a: Self, b: Self) -> Int { a.n + b.n }
+}
+
+enum Side { case Left, case Right }
+
+extension Side {
+    func agrees(&self, other: &Self) -> Int {
+        match self {
+            case Left -> match other { case Left -> 1, case Right -> 0 },
+            case Right -> match other { case Left -> 0, case Right -> 1 }
+        }
+    }
+}
+
+func main() {
+    let a = Counter(n: 1)
+    let b = Counter(n: 2)
+    print("ref {a.add_from(other: &b)}")
+
+    var c = Counter(n: 3)
+    c.bump_from(other: &b)
+    print("varref {c.n}")
+
+    print("value {a.add_value(other: Counter(n: 2))}")
+    print("optional {a.add_opt(other: Counter(n: 1))}")
+
+    var many: Vector<Counter> = []
+    many.push(Counter(n: 5))
+    many.push(Counter(n: 6))
+    print("generic {a.add_many(rest: &many)}")
+
+    print("tuple {a.add_pair(p: (Counter(n: 2), 1))}")
+
+    let two: [Counter; 2] = [Counter(n: 1), Counter(n: 1)]
+    print("array {a.add_two(xs: &two)}")
+
+    print("bumped {a.bumped().n}")
+    print("maybe {b.maybe()?.n ?? 0}")
+    let s = a.split()
+    print("pair {s.0.n} {s.1}")
+
+    print("static {Counter.combine(a: Counter(n: 3), b: Counter(n: 4))}")
+
+    let l = Side.Left
+    print("enum {l.agrees(other: &l)}")
+}

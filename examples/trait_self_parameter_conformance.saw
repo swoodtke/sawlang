@@ -1,0 +1,38 @@
+// A trait requirement whose PARAMETER is `Self`, satisfied by both spellings.
+//
+// DF-216f made `other: &Self` usable in an extension method, and the thing a
+// substitution fix can plausibly break is conformance MATCHING: the requirement
+// and the implementation may now be written differently and still have to be
+// the same signature. Both directions are pinned here — the impl written with
+// `Self`, and the impl written with the concrete type — because the checker
+// resolves the requirement's `Self` to the conforming type
+// (`_resolve_trait_type`) rather than comparing spellings.
+// EXPECT: success
+// EXPECT-OUTPUT: self-spelled 5
+// EXPECT-OUTPUT: concrete 6
+
+trait Merges {
+    func merge(&self, other: &Self) -> Int
+}
+
+struct A { n: Int }
+struct B { n: Int }
+
+// Written with `Self` — the spelling DF-216f unblocked.
+extension A: Merges {
+    func merge(&self, other: &Self) -> Int { self.n + other.n }
+}
+
+// Written with the concrete type — the spelling that already worked.
+extension B: Merges {
+    func merge(&self, other: &B) -> Int { self.n * other.n }
+}
+
+func main() {
+    let a1 = A(n: 2)
+    let a2 = A(n: 3)
+    print("self-spelled {a1.merge(other: &a2)}")
+    let b1 = B(n: 2)
+    let b2 = B(n: 3)
+    print("concrete {b1.merge(other: &b2)}")
+}

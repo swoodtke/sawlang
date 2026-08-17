@@ -1377,6 +1377,93 @@ class TypeUtilsMixin:
             filled.append(self._resolve_type(default))
         return filled
 
+    def _self_type_is_substitutable(self, self_type) -> bool:
+        """Is this extension's `Self` a type that may be written into a
+        signature (DF-216f)?
+
+        No, exactly when the extension is GENERIC and its `Self` came back
+        argument-free — `Wrap` for `extension Wrap<T>`. That spelling is
+        deliberate (see `_ext_self_type`), and it is usable as a receiver
+        because codegen resolves it through `self_type_context`; it is NOT
+        usable as a written parameter or return type, where the missing
+        arguments name a struct no monomorphization registered.
+        """
+        if self_type is None:
+            return False
+        if self_type.kind == TypeKind.STRUCT and self_type.struct_name:
+            info = self.get_struct_info(self_type.struct_name)
+        elif self_type.kind == TypeKind.ENUM and self_type.enum_name:
+            info = self.get_enum_info(self_type.enum_name)
+        else:
+            return True     # a primitive pseudo-struct has no parameters
+        type_params = getattr(info, 'type_params', None) if info else None
+        if not type_params:
+            return True
+        return bool(self_type.type_args)
+
+    def _substitute_self_type(self, t, concrete, depth: int = 0):
+        """Replace `Self` with the extension's concrete type ANYWHERE in `t`.
+
+        THE ONE `Self` substitution (DF-216f). Every site that needed one used
+        to test `t.kind == TypeKind.SELF` at the ROOT and nowhere else, so a
+        bare `Self` resolved and a `Self` under any type constructor resolved
+        nowhere. The filing read that as "parameters are broken, returns work";
+        the real axis is TOP-LEVEL versus NESTED, and it cuts across both sides
+        of the signature — `-> Self?` and `-> (Self, Int)` were broken exactly
+        as `other: &Self` was.
+
+        Entry points, all five, each of which had the root-only test:
+
+          - an extension method's registered PARAMETER types and its RETURN type
+            (`_register_extension`)
+          - the same two on the body side, where the parameter becomes a binding
+            and the return becomes the expected type (`_check_extension_method`)
+          - a parameter DEFAULT's expected type (`_check_parameter_defaults`)
+
+        Non-mutating, and it rebuilds through `dataclasses.replace` so every
+        other field of the node — a reference's mutability, a tuple's field
+        names, an array's length, a function type's effect bits — rides along
+        untouched. A tree with no `Self` in it comes back as the SAME object, so
+        this is free for the overwhelming majority of signatures.
+
+        INERT ON A GENERIC EXTENSION, deliberately. `_ext_self_type` returns an
+        ARGUMENT-FREE `Self` for one — `Wrap`, not `Wrap<T>` — because naming
+        the extension's own parameters as arguments makes a payload binding and
+        a `T` parameter resolve through different routes to two `T`s that do not
+        unify; codegen names the concrete monomorphization from
+        `self_type_context` instead. Substituting that bare name would put a
+        `Wrap` into a signature where only `Wrap$1$Int` exists, turning a clean
+        type error into `Undefined struct: Wrap`. So a nested `Self` inside a
+        generic extension stays unresolved and keeps its existing diagnostic;
+        see DF-216r.
+        """
+        if t is None or concrete is None or depth > 16:
+            return t
+        if depth == 0 and not self._self_type_is_substitutable(concrete):
+            return t
+        if t.kind == TypeKind.SELF:
+            return concrete
+        import dataclasses
+        repl = {}
+        for slot in ('inner_type', 'array_element_type', 'func_return_type'):
+            cur = getattr(t, slot, None)
+            if cur is None:
+                continue
+            new = self._substitute_self_type(cur, concrete, depth + 1)
+            if new is not cur:
+                repl[slot] = new
+        for slot in ('type_args', 'element_types', 'param_types'):
+            cur = getattr(t, slot, None)
+            if not cur:
+                continue
+            new = [self._substitute_self_type(c, concrete, depth + 1)
+                   for c in cur]
+            if any(a is not b for a, b in zip(new, cur)):
+                repl[slot] = new
+        if not repl:
+            return t
+        return dataclasses.replace(t, **repl)
+
     def _resolve_qualified_symbol(self, dotted_name: str):
         """THE module-qualifier walk: `(symbol, identity)` for `mod.Type`, or None.
 

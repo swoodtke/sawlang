@@ -266,6 +266,19 @@ class StatementsMixin:
                 # only did so for a qualified annotation, which is why the same
                 # parameter worked in a free function and not in a method.
                 param_type = self._resolve_type(param_type)
+            # A NESTED `Self` — `&Self`, `Self?`, `Vector<Self>` — reaches the
+            # BINDING here; the root-only test above covers only a bare one, so
+            # without this the body saw an unresolved `Self` and every member
+            # access on the parameter failed with "cannot access member of
+            # non-struct type `Self`" (DF-216f). WRITTEN BACK for the same
+            # reason the qualifier case above is: codegen reads the annotation
+            # off the AST to mangle the parameter, and a surviving `Self` there
+            # produced `Vector$2$$Self$GlobalAllocator` against the caller's
+            # `Vector$2$Counter$GlobalAllocator`.
+            substituted = self._substitute_self_type(param_type, self_type)
+            if substituted is not param_type:
+                param_type = substituted
+                param.type = param_type
             # Design 100: a method parameter shadowing a module-level `static`
             # is a flat error (`self` never collides with a static).
             if param.name != "self":
@@ -288,9 +301,17 @@ class StatementsMixin:
 
         # Determine expected return type first (needed for None propagation)
         expected_return = method.return_type
-        # Resolve Self in return type
+        # Resolve Self in return type — at the root, and nested inside it
+        # (`-> Self?`, `-> (Self, Int)`), which is the same rule (DF-216f).
         if expected_return.kind == TypeKind.SELF:
             expected_return = self_type
+        else:
+            substituted_return = self._substitute_self_type(
+                expected_return, self_type)
+            if substituted_return is not expected_return:
+                # Written back for codegen's benefit, as the parameter case is.
+                expected_return = substituted_return
+                method.return_type = expected_return
         if method.is_init:
             expected_return = self_type
 
@@ -709,7 +730,9 @@ class StatementsMixin:
                 pt = p.type
                 if pt is not None and pt.kind == TypeKind.SELF and self_type is not None:
                     pt = self_type
-                expected = self._resolve_type(pt) if pt is not None else None
+                expected = (self._substitute_self_type(
+                    self._resolve_type(pt), self_type)
+                    if pt is not None else None)
                 # Design 87: a bare default-value literal adopts the parameter's
                 # fixed-width int type (+ range check) before it is checked, so an
                 # out-of-range default (`x: Int8 = 200`) is a clean error and the

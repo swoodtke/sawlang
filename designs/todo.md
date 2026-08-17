@@ -1637,14 +1637,47 @@ A NoCopy `Vector` sorts end to end today, written from outside std.
   `deref()` lends the referent as a place. `[&self]` / `[&var self]` is the
   spelling a user writes for the same capture. Pin flipped:
   `examples/closure_captures_self_suspending.saw`; conformance rows R38-R42.
-- **DF-216f — `Self` does not resolve in an extension method's PARAMETER type.**
-  `func addFrom(&self, other: &Self)` on `extension Counter` reports ``argument
-  `other` expects `&Self` but got `&Counter``` at the call site plus ``cannot
-  access member of non-struct type `Self` `` in the body; the RETURN position
-  (`-> Self`) resolves fine in the same extension. Hit while wording DF-216a's
-  fixit, which nearly taught the broken spelling — the fixit names the concrete
-  receiver type instead. Repro: `.build/scratch/fa_self_type_positions.saw`.
-  PIN: `examples/self_type_in_extension_parameter.saw`
+- **DF-216f — CLOSED (Aug 17), and the filing's axis was wrong.** It read as
+  parameter-versus-return (`other: &Self` fails, `-> Self` works). The real
+  axis is TOP-LEVEL versus NESTED: every site that substituted `Self` tested
+  `t.kind == TypeKind.SELF` at the ROOT and nowhere else, so a bare `Self`
+  resolved in EITHER position and a `Self` under any constructor resolved in
+  NEITHER — `-> Self?` and `-> (Self, Int)` were broken on the side the filing
+  called working, which the matrix probe caught before the fix was written.
+  `_substitute_self_type` is the one recursive substitution, its docstring
+  naming its five entry points (registered parameter types and return type; the
+  body-side binding and expected return; a parameter default's expected type).
+  Non-mutating, rebuilding through `dataclasses.replace` so a reference's
+  mutability, a tuple's field names and an array's length ride along. The
+  body-side sites also WRITE BACK, as the module-qualifier case beside them
+  does, because codegen mangles the parameter off the AST — without it
+  `&Vector<Self>` emitted `Vector$2$$Self$GlobalAllocator` against the caller's
+  `Vector$2$Counter$GlobalAllocator`. Matrix:
+  `examples/self_type_signature_positions.saw` (12 rows: bare/`&`/`&var`/
+  optional/`Vector<>`/tuple/array parameters, bare and nested returns, a static
+  method's parameters, and an ENUM extension), plus
+  `examples/trait_self_parameter_conformance.saw` for the thing a substitution
+  fix can break — a requirement written with `Self` and an impl written either
+  way still match. PIN flipped:
+  `examples/self_type_in_extension_parameter.saw`. Gated on suite +
+  `sos_runner` both arches.
+- **DF-216r (COMPILER, filed Aug 17 by DF-216f's fix): `Self` in the signature
+  of a GENERIC extension's method does not resolve.** `extension Wrap<T> {
+  func same(&self, other: &Self) }` reports ``argument `other` expects `&Self`
+  but got `&Wrap<Int>``. DELIBERATELY excluded from DF-216f's fix rather than
+  missed: `_ext_self_type` returns an ARGUMENT-FREE `Self` for a generic
+  extension (`Wrap`, not `Wrap<T>`) because naming the extension's own
+  parameters as arguments makes a payload binding and a `T` parameter resolve
+  to two `T`s that do not unify — codegen names the concrete monomorphization
+  from `self_type_context` instead. That spelling is fine as a RECEIVER and
+  unusable as a written parameter type: substituting it puts a bare `Wrap` into
+  a signature where only `Wrap$1$Int` exists, and the clean error becomes
+  `internal compiler error: Undefined struct: Wrap` — verified by doing exactly
+  that, which is why `_substitute_self_type` carries an explicit
+  `_self_type_is_substitutable` guard. The fix wants `Self` inside a generic
+  extension to carry its instantiation, which is the `self_type_context`
+  question, not the substitution question. PIN:
+  `examples/self_type_in_generic_extension.saw` (XFAIL, cited).
 - **DF-216e — CLOSED (Aug 17), and it needed no new type: the ESCAPING BIT was
   missing at two positions.** The filing read the acceptance as a position
   heuristic that could not tell "the callee RUNS this closure" from "the callee
