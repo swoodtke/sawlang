@@ -1,0 +1,70 @@
+// Design 226 unit 3: the FFI round trip, both construction forms.
+//
+// `qsort(3)` is the C-callback shape the type exists for: libc takes a
+// `int (*)(const void *, const void *)` and CALLS BACK into our code, many
+// times, with pointers into our storage, reading our return value each time.
+// Nothing about that works unless a `FuncPointer` is a bare C function pointer
+// at the ABI -- one word, no environment travelling beside it, and the callee
+// emitted with `F`'s parameters and no hidden `env_ptr` in front of them.
+//
+// Both forms cross: a NAMED function sorts ascending, and a zero-capture
+// CLOSURE LITERAL, coerced in argument position, sorts descending. The
+// literal's body is emitted as its own bare function precisely so C can call
+// it -- an ordinary closure's body takes an environment pointer C would never
+// pass, and the first argument would be garbage.
+//
+// `F` carries `unsafe` because its signature names raw pointers (design 136),
+// and every function naming one is declared `unsafe` by the ordinary trigger
+// (design 130). The type itself stays SAFE: `main` holds nothing unsafe.
+//
+// EXPECT: success
+// EXPECT-OUTPUT:
+// ascending: 3 7 19 25 42
+// descending: 42 25 19 7 3
+
+extern "C" {
+    func qsort(base: UnsafePointer<Int32>, nmemb: UInt, size: UInt,
+               compar: FuncPointer<(UnsafeConstPointer<Int32>,
+                                    UnsafeConstPointer<Int32>) unsafe sync -> Int32>)
+}
+
+// Form 2: a named, non-generic, `sync` function. Its address is what C gets.
+func ascending(a: UnsafeConstPointer<Int32>,
+               b: UnsafeConstPointer<Int32>) unsafe sync -> Int32 {
+    let x = a[0]
+    let y = b[0]
+    if x < y { -1 } else if x > y { 1 } else { 0 }
+}
+
+func sort_ascending(arr: &var [Int32; 5]) unsafe {
+    qsort((&var arr[0]) as UnsafePointer<Int32>, 5, sizeof<Int32>(), ascending)
+}
+
+// Form 1: a zero-capture closure literal, coerced in ARGUMENT position.
+//
+// The `i32` suffixes are DF-226a, not the design: a closure body's tail never
+// receives the expected return type, so a bare `-1` here stays platform `Int`
+// and the literal must say its width itself. The finding pre-dates this brief
+// (nothing about a `FuncPointer` is involved) and is pinned by
+// `examples/closure_tail_adopts_expected_return_type.saw`; when it is fixed,
+// the suffixes come off and this test keeps passing.
+func sort_descending(arr: &var [Int32; 5]) unsafe {
+    qsort((&var arr[0]) as UnsafePointer<Int32>, 5, sizeof<Int32>(),
+          { a, b in
+              let x = a[0]
+              let y = b[0]
+              if x > y { -1i32 } else if x < y { 1i32 } else { 0i32 }
+          })
+}
+
+func show(label: String, arr: &[Int32; 5]) {
+    print("{label}: {arr[0]} {arr[1]} {arr[2]} {arr[3]} {arr[4]}")
+}
+
+func main() {
+    var arr: [Int32; 5] = [42, 7, 19, 3, 25]
+    sort_ascending(&var arr)
+    show("ascending", &arr)
+    sort_descending(&var arr)
+    show("descending", &arr)
+}

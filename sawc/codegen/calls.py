@@ -613,6 +613,18 @@ class CallsMixin:
         if expr.name in self.variables:
             closure_ptr = self.variables[expr.name]
             closure_val = self.builder.load(closure_ptr, name="closure")
+            # design 226: a `FuncPointer<F>` is a BARE function pointer, so the
+            # call is a plain indirect `call` — no env pointer prepended, no
+            # triple to unpack. That is the whole difference between the two
+            # callees at the ABI, and it is why the value is C-callable.
+            var_saw = self.variable_types.get(expr.name)
+            if self._funcpointer_signature(var_saw) is not None:
+                arg_vals = [self._gen_transfer_value(arg.value)
+                            for arg in expr.arguments]
+                return self.builder.call(
+                    closure_val,
+                    self._coerce_call_args(closure_val, arg_vals),
+                    name="funcptr_call")
             # Check if it's a closure struct { fn_ptr, env_ptr, dtor_ptr } (design 71)
             if isinstance(closure_val.type, ir.LiteralStructType) and len(closure_val.type.elements) == 3:
                 # Call the closure
@@ -2399,6 +2411,15 @@ class CallsMixin:
             object=expr.object, member=expr.method_name,
             line=expr.line, column=expr.column)
         closure_val = self._generate_expression(member)
+        # design 226: the field holds a bare `FuncPointer<F>`, so the loaded
+        # value IS the callee — nothing to unpack and no env to prepend. This
+        # is the `TABLE.run(x)` shape a dispatch table is read through.
+        if expr.funcpointer_target is not None:
+            arg_vals = [self._gen_transfer_value(arg.value)
+                        for arg in expr.arguments]
+            return self.builder.call(
+                closure_val, self._coerce_call_args(closure_val, arg_vals),
+                name="field_funcptr_call")
         # design 77 item 4: an opt-encoded closure frame field is stored as
         # `{ i1 is_some, closure }`; the closure is at element 1. (No None check —
         # a live coroutine state always assigned it before calling, mirroring the

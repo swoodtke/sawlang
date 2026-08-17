@@ -2267,6 +2267,16 @@ class TypeUtilsMixin:
         elif t.kind == TypeKind.ARRAY:
             self._stamp_escaping_roles(t.array_element_type, is_param=False, report_at=report_at)
         elif t.kind in (TypeKind.STRUCT, TypeKind.ENUM):
+            # design 226: a `FuncPointer<F>`'s argument is NOT a closure-value
+            # slot. `escaping` answers "may this closure outlive the frame that
+            # built it", and a code address outlives everything — there is no
+            # environment for the question to be about. Stamping it anyway put
+            # a word in the type's own rendering that the author never wrote
+            # and cannot write (`FuncPointer<(Int) sync escaping -> Int>` in
+            # every diagnostic), and left two spellings of one type differing
+            # in a bit.
+            if t.kind == TypeKind.STRUCT and t.struct_name == "FuncPointer":
+                return t
             for a in (t.type_args or []):
                 self._stamp_escaping_roles(a, is_param=False, report_at=report_at)
         return t

@@ -1,0 +1,12 @@
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: function pointer takes 1 argument(s), but 2 were given
+//
+// Design 226: calling a `FuncPointer<F>` is checked against `F` on the same
+// terms a closure value is checked against its own function type -- the arity
+// rule is the one already there, and it names the callee it is talking about
+// so the diagnostic does not call a function pointer a closure.
+
+func main() {
+    let p: FuncPointer<(Int) sync -> Int> = { n in n * 2 }
+    print("{p(1, 2)}")
+}

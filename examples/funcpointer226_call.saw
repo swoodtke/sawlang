@@ -1,0 +1,66 @@
+// Design 226 unit 3: calling a `FuncPointer<F>`.
+//
+// An ordinary call expression on the value, checked against `F` exactly as a
+// closure value is checked against its own function type -- same arity rule,
+// same structural (unlabeled) arguments, same value-transfer checkpoint. The
+// call is SAFE with no ceremony, which is the closed-construction argument
+// cashed out: whatever the pointer holds is verified code of signature `F`.
+//
+// The one difference is at the ABI and it is codegen's: a plain indirect
+// `call`, with no environment pointer prepended. This test is what proves the
+// coercion picked the right BODY in each position -- a wrong address or a
+// shifted argument register would print wrong numbers rather than fail to
+// compile.
+//
+// EXPECT: success
+// EXPECT-OUTPUT:
+// literal 15
+// named 10
+// static 4
+// field 35
+// field direct 35
+// parameter 15
+// nullary 99
+// void side effect
+// shorthand 42
+
+struct Table { handler: FuncPointer<(Int) sync -> Int> }
+
+static SLOT: FuncPointer<(Int) sync -> Int> = { n in n - 1 }
+
+func doubled(n: Int) sync -> Int { n * 2 }
+
+func apply(p: FuncPointer<(Int) sync -> Int>, n: Int) -> Int { p(n) }
+
+func main() {
+    let lit: FuncPointer<(Int) sync -> Int> = { n in n * 3 }
+    print("literal {lit(5)}")
+
+    let named: FuncPointer<(Int) sync -> Int> = doubled
+    print("named {named(5)}")
+
+    let s = SLOT
+    print("static {s(5)}")
+
+    // A field call, both spellings: read out to a local, and called in place.
+    // The second is how a dispatch table is read, so it is not an extra.
+    let t = Table(handler: { n in n * 7 })
+    let held = t.handler
+    print("field {held(5)}")
+    print("field direct {t.handler(5)}")
+
+    print("parameter {apply(lit, 5)}")
+
+    // No parameters, and a Void return -- the two degenerate signatures.
+    let nullary: FuncPointer<() sync -> Int> = { 99 }
+    print("nullary {nullary()}")
+
+    let sink: FuncPointer<(String) sync -> Void> = { m in print("void {m}") }
+    sink("side effect")
+
+    // Shorthand parameters build the bare signature the same way named ones
+    // do -- a separate path in the emission, since the names come from the
+    // shorthand count rather than from a parameter list.
+    let short: FuncPointer<(Int, Int) sync -> Int> = { $0 + $1 }
+    print("shorthand {short(40, 2)}")
+}

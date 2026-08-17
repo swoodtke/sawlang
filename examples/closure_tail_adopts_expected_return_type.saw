@@ -1,0 +1,43 @@
+// XFAIL: DF-226a a closure body's TAIL never receives the expected RETURN type,
+// so a bare literal there does not adopt it — a fixed-width return ICEs
+//
+// Found while writing design 226 unit 3's C-callback comparator, and PRE-DATING
+// it: nothing about a `FuncPointer` is involved. `_check_closure` pushes the
+// expected return type onto the body for exactly two shapes — an OPTIONAL (so a
+// bare `None` learns what it is a `None` of, DF-146c) and a NEVER tail — and
+// never calls `_apply_literal_expected_type` with it. That funnel is what gives
+// every other typed slot in the language its literal treatment, so a closure
+// tail is missing all of it at once.
+//
+// The mechanism reaches more than one position (obligation 4, probed):
+//   * FIXED-WIDTH ADOPTION, below — the tail stays platform `Int` and the
+//     closure is typed `(Int32) -> Int` against an expected `(Int32) -> Int32`.
+//     Codegen builds the body at the WRONG width and dies in the LLVM parser
+//     (`ret i64` from an `i32` function) or, one layer out, as a closure-triple
+//     type mismatch. An internal compiler error either way.
+//   * COLLECTION SHAPING — `runv({ x in [1, 2, 3] })` against
+//     `(Int) sync -> Vector<Int>` is a clean but wrong error, ``got `(Int) ->
+//     [Int; 3]` ``: with no expectation the array literal never becomes a
+//     Vector. Same missing call, milder symptom.
+// A suffixed literal works today (`1i32`), which is the shape design 226's
+// FFI test uses in the meantime.
+//
+// The fix is one call at the point the return context is already computed, but
+// it is a position-quantified rule and owes the sweep obligation 4 asks for:
+// the tail is one of several places a closure body meets an expected type
+// (arm results inside the tail, a `return` statement in the body, the
+// auto-wrap paths beside it).
+//
+// EXPECT: success
+// EXPECT-OUTPUT:
+// bare = 1
+// arms = 7
+
+func run(f: (Int32) sync -> Int32) -> Int32 { f(3) }
+
+func main() {
+    let bare = run({ x in 1 })
+    print("bare = {bare}")
+    let arms = run({ x in if x > 0 { 7 } else { 0 } })
+    print("arms = {arms}")
+}

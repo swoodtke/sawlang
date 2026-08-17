@@ -2220,6 +2220,13 @@ class TypeChecker(ExpressionsMixin, StatementsMixin, RegistrationMixin, TypeUtil
         k = resolved.kind
         if k in self._EXPORT_FN_SCALAR_KINDS:
             return True
+        # design 226: a `FuncPointer<F>` IS a C function pointer — one machine
+        # word, no environment beside it — so it marshals exactly as an
+        # `UnsafePointer<T>` does. This is what makes the C-callback shape
+        # expressible in both directions: an `@export`ed Saw function may
+        # RECEIVE a callback, and an offloaded extern may be handed one.
+        if self._funcpointer_signature(resolved) is not None:
+            return True
         if is_return and k in (TypeKind.VOID, TypeKind.NEVER):
             return True
         return False

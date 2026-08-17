@@ -1,0 +1,62 @@
+// Design 226: a `FuncPointer` is an ordinary value, so it travels through the
+// composites without anything written for it.
+//
+// The copy tier is trivial and `Send`/`Sync` derive, both from the one-word
+// representation -- so a generic `Cell<T>` holds one at `T`, an `Optional`
+// wraps one with no policy owed (design 139: a wrapper carries the tier of
+// what it wraps, and trivial is the weakest), and a `Vector` stores them with
+// no `ExplicitCopy` bound to satisfy. The `v.push({ ... })` line is the
+// coercion in argument position again, one generic layer down.
+//
+// The last section is the one that would break silently: a `FuncPointer` held
+// across a suspension lives in the coroutine FRAME, and the frame gates every
+// live value on `Send`. It derives, so the pointer rides through untouched --
+// the type is sync-only, and holding one across a suspend is a different
+// question from calling one during it.
+//
+// EXPECT: success
+// EXPECT-OUTPUT:
+// through a generic 42
+// through an optional 8
+// out of a vector 2 101
+// across a suspend 14
+
+import std.task.{yield_now}
+
+struct Cell<T> { v: T }
+
+func hold<T>(v: T) -> Cell<T> { Cell<T>(v: v) }
+
+func run_it(c: Cell<FuncPointer<(Int) sync -> Int>>, n: Int) -> Int {
+    let p = c.v
+    p(n)
+}
+
+func doubled(n: Int) sync -> Int { n * 2 }
+
+func worker() -> Int {
+    let p: FuncPointer<(Int) sync -> Int> = { n in n * 3 }
+    yield_now()
+    let q: FuncPointer<(Int) sync -> Int> = doubled
+    yield_now()
+    p(2) + q(4)
+}
+
+func main() {
+    let p: FuncPointer<(Int) sync -> Int> = doubled
+
+    let c = hold(p)
+    print("through a generic {run_it(c, 21)}")
+
+    let o: FuncPointer<(Int) sync -> Int>? = p
+    if let q = o { print("through an optional {q(4)}") }
+
+    var v: Vector<FuncPointer<(Int) sync -> Int>> = [p]
+    v.push({ n in n + 100 })
+    let first = v[0]
+    let second = v[1]
+    print("out of a vector {first(1)} {second(1)}")
+
+    var t = spawn { worker() }
+    print("across a suspend {t.join()}")
+}

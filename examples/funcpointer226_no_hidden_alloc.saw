@@ -1,0 +1,27 @@
+// Design 226: a coerced literal is ZERO-ALLOC BY CONSTRUCTION, and this is
+// the check that says so rather than the comment.
+//
+// `--no-hidden-alloc` (design 135) rejects the allocations the compiler
+// inserts that no source construct names, and an escaping closure's captured
+// environment is one of the three. A `FuncPointer` coercion cannot reach it:
+// the capture check refuses any capture, so there is no environment to
+// allocate, heap or otherwise. The pointer is a code address in a register.
+//
+// COMPILE-FLAGS: --no-hidden-alloc
+// EXPECT: success
+// EXPECT-OUTPUT:
+// 11
+
+struct Table { handler: FuncPointer<(Int) sync -> Int> }
+
+static SLOT: FuncPointer<(Int) sync -> Int> = { n in n * 4 }
+
+func doubled(n: Int) sync -> Int { n * 2 }
+
+func main() {
+    let a: FuncPointer<(Int) sync -> Int> = { n in n + 1 }
+    let b: FuncPointer<(Int) sync -> Int> = doubled
+    let t = Table(handler: SLOT)
+    let held = t.handler
+    print("{}", a(2) + b(2) + held(1))
+}

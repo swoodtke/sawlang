@@ -1530,6 +1530,10 @@ class MethodCall(Expression):
     existential_dispatch: Optional[str] = annotation(None)   # trait name, for `any Trait` vtable dispatch
     is_field_call: bool = annotation(False)                  # calling a closure-typed FIELD, not a method
     field_call_unwrap: bool = annotation(False)
+    # design 226: that field holds a `FuncPointer<F>` rather than a closure, so
+    # the call is a plain indirect one — nothing to unpack, no env to prepend.
+    # Holds the full `FuncPointer<F>` type; None for a closure-typed field.
+    funcpointer_target: Optional['SawType'] = annotation(None)
     array_builtin: Optional[str] = annotation(None)          # "len" | "swap" on a fixed array
     is_chan_recv: bool = annotation(False)                   # cooperative Channel.receive()
     # design 131: `o.take()` — `Optional.take(&var self) -> T?`. Swaps `None`

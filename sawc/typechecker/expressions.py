@@ -4110,8 +4110,18 @@ class ExpressionsMixin:
             self._check_expression(expr.arguments[0].value)
             return SawType(TypeKind.VOID)
         var_info = self.current_scope.lookup(expr.name)
-        if var_info and var_info.type.kind == TypeKind.FUNCTION:
-            func_type = var_info.type
+        # design 226: calling a `FuncPointer<F>` is an ordinary call expression
+        # on the value, checked against `F` exactly as a closure value is
+        # checked against its own function type — same arity rule, same
+        # structural (unlabeled) argument rule, same value-transfer checkpoint,
+        # same exclusivity check. The ONE difference is at the ABI, and that is
+        # codegen's: no environment travels with it.
+        fp_sig = (self._funcpointer_signature(var_info.type)
+                  if var_info is not None else None)
+        if var_info and (var_info.type.kind == TypeKind.FUNCTION
+                         or fp_sig is not None):
+            func_type = fp_sig if fp_sig is not None else var_info.type
+            callee = ("function pointer" if fp_sig is not None else "closure")
             # Design 66: closure/function-value types are STRUCTURAL — they carry
             # no parameter names, so a labeled call through one has nothing to
             # bind to.
@@ -4119,7 +4129,7 @@ class ExpressionsMixin:
                 self._error(
                     ErrorKind.TYPE_MISMATCH,
                     f"labeled arguments are not allowed when calling through the "
-                    f"closure value `{expr.name}` (closure types are structural)",
+                    f"{callee} value `{expr.name}` ({callee} types are structural)",
                     expr.line, expr.column)
                 return func_type.func_return_type or SawType(TypeKind.VOID)
             # design 22: a call through a function-typed value. If the value's
@@ -4130,7 +4140,7 @@ class ExpressionsMixin:
             if len(expr.arguments) != len(param_types):
                 self._error(
                     ErrorKind.WRONG_ARGUMENT_COUNT,
-                    f"closure takes {len(param_types)} argument(s), but {len(expr.arguments)} were given",
+                    f"{callee} takes {len(param_types)} argument(s), but {len(expr.arguments)} were given",
                     expr.line, expr.column
                 )
                 return return_type
@@ -9025,6 +9035,15 @@ class ExpressionsMixin:
                     field_type = field_type.substitute(type_subst)
                 if field_type.kind == TypeKind.FUNCTION:
                     return self._check_field_call(expr, field_type)
+                # design 226: the same, one wrapper out. A dispatch TABLE is
+                # the headline use of `FuncPointer`, and a table is a struct of
+                # them — `TABLE.run(x)` is how one is read. Checked against `F`
+                # by the same routine; codegen tells the two apart by the
+                # field's own type.
+                fp_field = self._funcpointer_signature(field_type)
+                if fp_field is not None:
+                    expr.funcpointer_target = field_type
+                    return self._check_field_call(expr, fp_field)
                 # design 77 item 4: an opt-encoded closure frame field
                 # (`f: (()->Int)?` on a synthesized `__Frame_*` struct) is called
                 # through `self.f` — force-unwrap to the closure and dispatch as an

@@ -1148,6 +1148,14 @@ class ASTDumper:
             return f"{self._expr_summary(expr.expr)} as {self._type_str(expr.target_type)}"
         elif isinstance(expr, MemberAccess):
             return f"{self._expr_summary(expr.object)}.{expr.member}"
+        elif isinstance(expr, ClosureExpr):
+            # design 226: a closure literal reaches an inline-summary position
+            # now that a `static` may hold one — a `FuncPointer` coercion is a
+            # link-time constant, so a dispatch table is a static. Summarized
+            # by ARITY, which is what distinguishes two of them at a glance;
+            # the body is never inlined here, matching every other composite.
+            n = len(expr.parameters) or expr.shorthand_param_count
+            return f"{{ {n} param(s) in ... }}"
         else:
             self.unknown.append(f"summary:{type(expr).__name__}")
             return f"<{type(expr).__name__}>"
