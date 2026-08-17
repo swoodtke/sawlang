@@ -1265,23 +1265,27 @@ What landed beyond the brief's text, as decisions a reader may need:
   `let v: Vector<Int>? = [1, 2, 3]` shapes instead of refusing. Regression
   test `examples/optional_slot_literal_adopts_payload_width.saw`.
 
-- **DF-226e (open, needs a ruling) — the `Result` half of DF-226d.** A bare
-  literal in a `Result` slot does not adopt either payload's width, so
-  `return 4` at `-> Result<Int32, E>` is a `ResultOkWrap` codegen ICE (and
-  the Err side the same). Not fixed with the optional peel because a Result
-  has TWO payloads: the rule wanted is probably "peel to the unique payload
-  that could adopt it, refuse the ambiguity with a clean error naming both",
-  and `Result<Int32, Int8>` is where that ruling is owed. Named and closure
-  bodies have it identically. Workaround: `return 4i32`. Pinned by
+- **DF-226e (RULED Aug 17, user; fix dispatch-ready) — the `Result` half of
+  DF-226d.** A bare literal in a `Result` slot does not adopt either payload's
+  width, so `return 4` at `-> Result<Int32, E>` is a `ResultOkWrap` codegen ICE
+  (and the Err side the same). Not fixed with the optional peel because a
+  Result has TWO payloads. RULING: peel to the unique payload that could adopt
+  the literal; where BOTH payloads could (`Result<Int32, Int8>`), refuse with a
+  clean error naming both payloads and requiring the explicit constructor —
+  `Ok(4)` / `Err(4)` — inside which the literal has exactly one payload slot
+  and adopts normally. Named and closure bodies have it identically.
+  Workaround meanwhile: `return 4i32`. Pinned by
   `examples/result_slot_literal_adopts_payload_width.saw`.
 
-- **DF-226f (open, minor) — a `static` of OPTIONAL type never auto-wraps its
-  initializer, at any width.** `static SLOT: Int? = 7` is ``static `SLOT`
-  has type `Int?` but its initializer has type `Int` ``, and always was; a
-  third mechanism (a missing wrap, not a missing expectation), so DF-226d
-  only changed which width the message names. Clean error, not an ICE. Worth
-  a ruling alongside DF-226e on whether an optional static is constructible
-  at all, given design 186's constant-expression tiers.
+- **DF-226f (RULED Aug 17, user; fix dispatch-ready) — a `static` of OPTIONAL
+  type never auto-wraps its initializer, at any width.** `static SLOT: Int? = 7`
+  is ``static `SLOT` has type `Int?` but its initializer has type `Int` ``, and
+  always was; a third mechanism (a missing wrap, not a missing expectation), so
+  DF-226d only changed which width the message names. Clean error, not an ICE.
+  RULING: an optional static is NONSENSICAL — the fix is a deliberate refusal
+  at the declaration (an error naming the rule, not the incidental
+  type-mismatch wording), covering wrapped, bare and `None` initializers alike;
+  auto-wrap is NOT added. Revisit only if a use case surfaces.
 
 - **DF-226c (v1 gap, deliberately not built) — construction form 2 accepts a
   BARE name, not a module-QUALIFIED one.** `import fpmod.{tripled}` then
@@ -3510,10 +3514,12 @@ DF-192e fixed, DF-192b/c/d/f/g pinned (DF-192d fixed since, by design 198).
   (`type M = Tag`, `m as Tag`) works. The projection `as` is design 63's
   sanctioned one-directional read toward the underlying, and `_check_cast_expr`
   reaches it through `_alias_ancestor_names`, which walks `is_struct()` chains
-  only. Two questions before a fix: whether an alias of an enum should exist at
-  all (an enum is already nominal, and a distinct alias of one has no stated
-  use), and if so whether the projection is the enum's or the alias's. NOT
-  fixed; no pin, since the matrix test constructs the alias and skips the
+  only. RULED Aug 17 (user): until a use case exists, a `type` alias whose
+  underlying is an ENUM is INVALID — a clean error at the alias declaration,
+  covering the direct form, an alias-of-alias chain ending at an enum, and
+  raw-backed enums; struct/primitive aliases unchanged. The DF-194a matrix
+  test's alias-construction row updates to the refusal. Fix dispatch-ready.
+  No pin was filed, since the matrix test constructs the alias and skips the
   projection with the reason written at the line.
 - **DF-193d (SPEC/IMPL, filed Aug 10 by 193 u7 — supersedes DF-188k's "general
   fix" line with a diagnosis; CLOSED Aug 10 by 194 u4): the prelude gate cannot
