@@ -1,0 +1,76 @@
+// The ARGUMENT positions of the design-195 widening rule, one row each.
+//
+// `int_widening_call_argument.saw` pins the two DF-195e names: a plain call
+// argument and a fixed-array element store. The mechanism was one thing — a
+// widening site holding an LLVM value with no source EXPRESSION threaded to it,
+// so `_widen_int_value` fell back to signed — and "call argument" is not one
+// site but ten callee kinds, each building its own argument list. This is the
+// matrix that says every one of them extends by the SOURCE's signedness.
+//
+// A `UInt32` holding 4000000000 has its high bit set, so a wrong extension is
+// visible as -294967296 rather than as a subtle difference.
+// EXPECT: success
+// EXPECT-OUTPUT:
+// 4000000000
+// 4000000000
+// 4000000000
+// 4000000000
+// 4000000000
+// 4000000000
+// 4000000000
+// 4000000000
+// 4000000000
+// 4000000000
+
+struct Widener { seen: Int }
+
+extension Widener {
+    func take(&self, n: Int) -> Int { n }
+    func lift(n: Int) -> Int { n }
+    func labelled(&self, first: Int, second: Int = 0) -> Int { first + second }
+}
+
+struct Rows { cells: [Int; 2] }
+
+func plain(n: Int) -> Int { n }
+
+func labelled(first: Int, second: Int = 0) -> Int { first + second }
+
+func generic<T>(n: T) -> T { n }
+
+func main() {
+    let u: UInt32 = 4000000000u32
+    let w = Widener(seen: 0)
+
+    // 1. a plain free-function argument
+    print(plain(u))
+    // 2. an instance-method argument
+    print(w.take(u))
+    // 3. a static-method argument
+    print(Widener.lift(u))
+    // 4. a LABELED argument, with a trailing default filled in beside it
+    print(labelled(first: u))
+    // 5. the method twin of the labeled call
+    print(w.labelled(first: u))
+    // 6. a generic function's argument, instantiated at `Int`
+    print(generic<Int>(u))
+    // 7. a closure call's argument
+    let through = { n: Int in n }
+    print(through(u))
+
+    // 8. a fixed-array element store, local root
+    var slots: [Int; 2] = [0; 2]
+    slots[0] = u
+    print(slots[0])
+
+    // 9. the same store through a struct FIELD's array
+    var rows = Rows(cells: [0; 2])
+    rows.cells[1] = u
+    print(rows.cells[1])
+
+    // 10. and an argument reached through a Vector, whose element slot is the
+    // callee's parameter
+    var v: Vector<Int> = []
+    v.push(u)
+    print(v[0])
+}

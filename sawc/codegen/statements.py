@@ -676,15 +676,17 @@ class StatementsMixin:
                     else:
                         raise ValueError(f"Unsupported container expression in assignment: {type(container_expr)}")
 
-            # Coerce value type if needed (e.g., Int -> Int8)
+            # Coerce value type if needed (e.g., Int -> Int8). The WIDEN goes
+            # through the design-195 funnel with the assigned expression's own
+            # type, so it extends by the SOURCE's signedness: this arm used to
+            # `sext` unconditionally, and `slots[0] = u` for a `UInt32 u` holding
+            # 4000000000 stored -294967296 into an `[Int; 2]` (DF-195e).
             elem_type = elem_ptr.type.pointee
             if isinstance(value.type, ir.IntType) and isinstance(elem_type, ir.IntType):
-                if value.type.width > elem_type.width:
-                    # Truncate larger int to smaller
-                    value = self.builder.trunc(value, elem_type, name="trunc")
-                elif value.type.width < elem_type.width:
-                    # Extend smaller int to larger (sign extend)
-                    value = self.builder.sext(value, elem_type, name="sext")
+                if value.type.width != elem_type.width:
+                    value = self._coerce_int_llvm(
+                        value, elem_type,
+                        getattr(stmt.value, 'resolved_type', None))
 
             # Wrap a bare `T` into `T?` when the SLOT is opt-encoded — the same
             # last step the variable and field assignment paths take, and the

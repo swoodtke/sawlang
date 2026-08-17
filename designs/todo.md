@@ -3905,19 +3905,26 @@ DF-192e fixed, DF-192b/c/d/f/g pinned (DF-192d fixed since, by design 198).
   test — re-authored on the way, because its third case asserted a `UInt8`
   into an `Int16`, which design 53 refuses at a transfer whether or not the
   pair is lossless. RESIDUAL: DF-195e.
-- **DF-195e (SOUNDNESS, residual of DF-195a, filed Aug 10 by 195 u3): two
-  implicit-widening positions still extend by SIGNED, because no source type
-  reaches them.** `_coerce_call_args` and the fixed-array element-assignment
-  path hold LLVM values with no source EXPRESSION threaded to them, so
-  `f(u32val)` into an `Int` parameter, and a store of an unsigned value into
-  a wider signed element, still sign-extend and answer negative. Same root
-  and same fix shape as DF-195a — thread the argument/element expression to
-  `_widen_int_value`, which already takes the type — and mechanical rather
-  than hard; left out of design 195 because `_coerce_call_args` has nine call
-  sites and the brief's own subject was operand agreement. The funnel's
-  docstring NAMES both positions, so the next reader of the rule finds them
-  without a census. PIN:
-  `examples/int_widening_call_argument.saw` (XFAIL, cited).
+- **DF-195e — CLOSED (Aug 17).** Two implicit-widening positions extended by
+  SIGNED because no source type reached them: `_coerce_call_args` and the
+  fixed-array element-assignment path held LLVM values with no source
+  EXPRESSION threaded to them, so `f(u32val)` into an `Int` parameter, and a
+  store of an unsigned value into a wider signed element, sign-extended and
+  answered negative. Fixed as the filing described — thread the expression to
+  `_widen_int_value`, which already took the type. `_emitted_arg_types` is the
+  one walk that builds the per-argument type list from the call expression
+  (plan order for a labeled call, `arguments` order otherwise, receiver/env
+  slots counted as `leading`), threaded through `_emit_call` to the funnel, so
+  the ten callee kinds share it instead of growing ten parallel loops.
+  Obligation 4: the mechanism is "a widening site with no source type", and a
+  census of every raw `sext` in codegen/ found ONE more — `UnsafeMemory.write`
+  coercing its value to the register width — fixed in the same landing; the
+  remaining raw extensions (`main`'s exit status, the two format paths, the
+  `as` cast lowering) each already test signedness or run under a
+  signed-only branch. PIN flipped:
+  `examples/int_widening_call_argument.saw`; the ten-row position matrix is
+  `examples/int_widening_argument_positions.saw`, every row of which printed
+  -294967296 against the pre-fix compiler.
 - **DF-195b (SOUNDNESS + a RULING OWED, filed Aug 10 by 195 u1's probes): a
   NARROWING transfer through a platform `Int` truncates silently.**
   `let n: Int = 300` followed by `let b: Int8 = n` prints `44`. Design 170

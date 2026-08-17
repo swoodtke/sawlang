@@ -11,10 +11,14 @@
 //   take(u)        // prints -294967296 for a UInt32 holding 4000000000
 //   slots[0] = u   // the same value, stored into an `[Int; 2]`
 //
-// Mechanical to close (thread the argument and element expressions through to
-// the funnel, which already takes the type); `_coerce_call_args` has nine call
-// sites, which is why it is a follow-up rather than part of design 195.
-// XFAIL: DF-195e a call argument and an array element store still widen by SIGNED, so an unsigned source sign-extends
+// Closed by threading the source expressions through to the funnel, which
+// already took the type. `_emitted_arg_types` builds the per-argument type list
+// from the call expression once — plan order for a labeled call, `arguments`
+// order otherwise, with the receiver/env slots counted as `leading` — so the ten
+// callee kinds that each build their own argument list share one walk rather
+// than growing ten parallel loops that could drift. The element store passes the
+// assigned expression's type straight to `_coerce_int_llvm`.
+// See `int_widening_argument_positions.saw` for the full position matrix.
 // EXPECT: success
 // EXPECT-OUTPUT:
 // 4000000000

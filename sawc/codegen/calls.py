@@ -173,9 +173,11 @@ class CallsMixin:
         - a `return` — `_coerce_ret_value`, which passes the returned expression
         - a struct FIELD initializer — `_coerce_field_int`, which has the field's
           own value expression
-        - a call ARGUMENT and a fixed-array ELEMENT store — `_coerce_call_args` and
-          the element-assignment path, which hold LLVM values with no source
-          expression threaded to them and so still fall back to signed (DF-195e)
+        - a call ARGUMENT — `_coerce_call_args`, whose `arg_types` list is built
+          by `_emitted_arg_types` from the very call expression the values came
+          from and threaded through `_emit_call`
+        - a fixed-array ELEMENT store — the element-assignment path, which passes
+          the assigned expression's type
         """
         if value.type.width >= to_llvm.width:
             return value
@@ -203,11 +205,17 @@ class CallsMixin:
             return self.builder.trunc(value, target, name="arg_trunc")
         return self._widen_int_value(value, target, from_type)
 
-    def _coerce_call_args(self, callee, args):
+    def _coerce_call_args(self, callee, args, arg_types=None):
         """Coerce integer call arguments to the callee's exact parameter widths
         (design 65 followup) — without it a bare int literal passed to a
         fixed-width param (`f(5)` with `f(x: Int8)`) ICE'd on the call verifier
-        (`i8 != i64`). Non-integer / same-width args pass through unchanged."""
+        (`i8 != i64`). Non-integer / same-width args pass through unchanged.
+
+        `arg_types` is the SOURCE Saw type of each emitted argument, aligned 1:1
+        with `args` (`_emitted_arg_types` builds it from the call expression).
+        A widening extends by that type's signedness (design 195); an entry that
+        is absent or None falls back to signed, which is what every position did
+        before DF-195e and is still right for a value no expression describes."""
         ftype = getattr(callee, 'function_type', None)
         if ftype is None:
             pointee = getattr(getattr(callee, 'type', None), 'pointee', None)
@@ -220,9 +228,43 @@ class CallsMixin:
             if (i < len(params) and isinstance(a.type, ir.IntType)
                     and isinstance(params[i], ir.IntType)
                     and a.type.width != params[i].width):
-                a = self._coerce_int_llvm(a, params[i])
+                from_type = (arg_types[i]
+                             if arg_types is not None and i < len(arg_types)
+                             else None)
+                a = self._coerce_int_llvm(a, params[i], from_type)
             out.append(a)
         return out
+
+    def _emitted_arg_types(self, expr, logical_defaults=None, leading=0):
+        """The SOURCE Saw type of each argument value a `_generate_*_call` just
+        built, in the order it built them (design 195 / DF-195e).
+
+        Every caller emits the same shape: `leading` values that are not source
+        arguments (a receiver, a closure env pointer), then the arguments in
+        PARAMETER order — by `expr.arg_plan` when the call is labeled, otherwise
+        by `expr.arguments` — then any trailing default-filled slots. This walks
+        that shape once so the ten call sites do not each grow a parallel loop
+        that could drift out of step with the values.
+
+        A slot whose type is unknown is None, and `_coerce_call_args` falls back
+        to signed there, exactly as before.
+        """
+        types = [None] * leading
+        plan = getattr(expr, 'arg_plan', None)
+        arguments = getattr(expr, 'arguments', None) or []
+        if plan is not None:
+            for p, ai in enumerate(plan):
+                if ai is not None:
+                    types.append(getattr(arguments[ai].value, 'resolved_type', None))
+                else:
+                    dflt = (logical_defaults[p]
+                            if logical_defaults is not None
+                            and p < len(logical_defaults) else None)
+                    types.append(getattr(dflt, 'resolved_type', None))
+            return types
+        for arg in arguments:
+            types.append(getattr(arg.value, 'resolved_type', None))
+        return types
 
     def _coerce_ret_value(self, value, value_expr=None):
         """Coerce an integer return value to the current function's declared
@@ -348,7 +390,8 @@ class CallsMixin:
         """
         callee = self.functions[inner.name]
         argv = self._coerce_call_args(
-            callee, [self._gen_transfer_value(a.value) for a in inner.arguments])
+            callee, [self._gen_transfer_value(a.value) for a in inner.arguments],
+            self._emitted_arg_types(inner))
         slot = self._BLK_SLOT
         i32 = ir.IntType(32)
         if argv:
@@ -601,13 +644,15 @@ class CallsMixin:
         resolved_symbol = expr.resolved_symbol
         if resolved_symbol is not None and resolved_symbol in self.functions:
             func = self.functions[resolved_symbol]
+            resolved_defaults = self.func_defaults.get(resolved_symbol) or []
             if expr.arg_plan is not None:
-                args = self._planned_arg_values(
-                    expr, self.func_defaults.get(resolved_symbol) or [])
+                args = self._planned_arg_values(expr, resolved_defaults)
             else:
                 args = [self._gen_transfer_value(arg.value) for arg in expr.arguments]
                 self._fill_func_defaults(args, resolved_symbol)
-            return self._emit_call(func, args, "calltmp")
+            return self._emit_call(
+                func, args, "calltmp",
+                arg_types=self._emitted_arg_types(expr, resolved_defaults))
 
         # Check if the name refers to a closure variable
         if expr.name in self.variables:
@@ -623,7 +668,8 @@ class CallsMixin:
                             for arg in expr.arguments]
                 return self.builder.call(
                     closure_val,
-                    self._coerce_call_args(closure_val, arg_vals),
+                    self._coerce_call_args(closure_val, arg_vals,
+                                           self._emitted_arg_types(expr)),
                     name="funcptr_call")
             # Check if it's a closure struct { fn_ptr, env_ptr, dtor_ptr } (design 71)
             if isinstance(closure_val.type, ir.LiteralStructType) and len(closure_val.type.elements) == 3:
@@ -631,8 +677,10 @@ class CallsMixin:
                 fn_ptr = self.builder.extract_value(closure_val, 0, name="fn_ptr")
                 env_ptr = self.builder.extract_value(closure_val, 1, name="env_ptr")
                 arg_vals = [self._gen_transfer_value(arg.value) for arg in expr.arguments]
-                return self._emit_call(fn_ptr, [env_ptr] + arg_vals,
-                                       "closure_call", closure_call=expr)
+                return self._emit_call(
+                    fn_ptr, [env_ptr] + arg_vals, "closure_call",
+                    closure_call=expr,
+                    arg_types=self._emitted_arg_types(expr, leading=1))
 
         # `A()` where `A` is a type parameter bound to the concrete allocator in
         # the current monomorphization (design 37). Resolve `A` to its concrete
@@ -728,7 +776,10 @@ class CallsMixin:
         # design 118 stage 3: the compiler no longer injects the reactor instance —
         # the executor threads it explicitly through `SystemReactor` (std/taskgroup.saw),
         # so every reactor seam call site already passes the instance as arg 0.
-        result = self._emit_call(func, args, "calltmp")
+        result = self._emit_call(
+            func, args, "calltmp",
+            arg_types=self._emitted_arg_types(
+                expr, self.func_defaults.get(defaults_key) or []))
         if result is None:
             return None
 
@@ -747,7 +798,8 @@ class CallsMixin:
 
         return result
 
-    def _emit_call(self, callee, args, name, closure_call=None, coerce=True):
+    def _emit_call(self, callee, args, name, closure_call=None, coerce=True,
+                   arg_types=None):
         """Emit ONE Saw call, asking the divergence question on both sides.
 
         THE CALL-EMITTING CHOKEPOINT (design 228 legs 2 and 5, obligation 1).
@@ -790,7 +842,7 @@ class CallsMixin:
         if self.builder.block.is_terminated:
             return None
         if coerce:
-            args = self._coerce_call_args(callee, args)
+            args = self._coerce_call_args(callee, args, arg_types)
         result = self.builder.call(callee, args, name=name)
         if self._terminate_after_noreturn(callee, closure_call):
             return None
@@ -1970,8 +2022,13 @@ class CallsMixin:
                     if defaults[i] is not None:
                         args.append(self._generate_expression(defaults[i]))
 
-        # Call the method
-        return self._emit_call(method_func, args, "methodcall")
+        # Call the method. `leading=1` for the receiver, and the defaults list
+        # is self-stripped to match the logical parameter positions.
+        method_defs_all = self.method_defaults.get(mangled_name) or []
+        return self._emit_call(
+            method_func, args, "methodcall",
+            arg_types=self._emitted_arg_types(
+                expr, method_defs_all[1:] if method_defs_all else [], leading=1))
 
     def _interior_cell_pointer(self, obj_expr, want_pointee=None):
         """`cell.ptr()` — the address of an interior cell's own storage (186).
@@ -2137,13 +2194,15 @@ class CallsMixin:
                     ld.volatile = True
                 return ld
             val = self._generate_expression(expr.arguments[0].value)
-            # Coerce an Int-literal value to the register width (Int -> UInt32 etc).
+            # Coerce an Int-literal value to the register width (Int -> UInt32
+            # etc). Through the design-195 funnel, so a WIDEN extends by the
+            # written value's own signedness — this arm used to `sext`
+            # unconditionally, the third site DF-195e's sweep turned up.
             if (isinstance(val.type, ir.IntType) and isinstance(scalar_llvm, ir.IntType)
                     and val.type.width != scalar_llvm.width):
-                if val.type.width > scalar_llvm.width:
-                    val = self.builder.trunc(val, scalar_llvm, name="um_wtrunc")
-                else:
-                    val = self.builder.sext(val, scalar_llvm, name="um_wsext")
+                val = self._coerce_int_llvm(
+                    val, scalar_llvm,
+                    getattr(expr.arguments[0].value, 'resolved_type', None))
             st = self.builder.store(val, typed_ptr)
             if volatile:
                 st.volatile = True
@@ -2418,7 +2477,9 @@ class CallsMixin:
             arg_vals = [self._gen_transfer_value(arg.value)
                         for arg in expr.arguments]
             return self.builder.call(
-                closure_val, self._coerce_call_args(closure_val, arg_vals),
+                closure_val,
+                self._coerce_call_args(closure_val, arg_vals,
+                                       self._emitted_arg_types(expr)),
                 name="field_funcptr_call")
         # design 77 item 4: an opt-encoded closure frame field is stored as
         # `{ i1 is_some, closure }`; the closure is at element 1. (No None check —
@@ -2431,8 +2492,10 @@ class CallsMixin:
         arg_vals = [self._gen_transfer_value(arg.value) for arg in expr.arguments]
         # A function-typed FIELD is a closure called through a pointer, so it
         # takes the closure path's expression-typed divergence answer.
-        return self._emit_call(fn_ptr, [env_ptr] + arg_vals,
-                               "field_closure_call", closure_call=expr)
+        return self._emit_call(
+            fn_ptr, [env_ptr] + arg_vals, "field_closure_call",
+            closure_call=expr,
+            arg_types=self._emitted_arg_types(expr, leading=1))
 
     def _generate_static_method_call(self, expr: MethodCall, struct_name: str):
         """Generate a static method call: StructName.method(args)"""
@@ -2503,7 +2566,10 @@ class CallsMixin:
                     if defaults[i] is not None:
                         args.append(self._generate_expression(defaults[i]))
 
-        return self._emit_call(method_func, args, "static_methodcall")
+        return self._emit_call(
+            method_func, args, "static_methodcall",
+            arg_types=self._emitted_arg_types(
+                expr, self.method_defaults.get(mangled_name) or []))
 
     def _resolve_module_chain(self, expr: MemberAccess):
         """Resolve a chain of module accesses like Parent.Child to get the final ModuleSymbol.
@@ -2548,7 +2614,10 @@ class CallsMixin:
             for arg in expr.arguments:
                 args.append(self._gen_transfer_value(arg.value))
 
-        return self._emit_call(func, args, "module_call")
+        return self._emit_call(
+            func, args, "module_call",
+            arg_types=self._emitted_arg_types(
+                expr, self.func_defaults.get(func_name) or []))
 
     def _generate_module_struct_init(self, expr: MethodCall):
         """Generate a module struct initialization: ModuleName.StructName(args)
