@@ -2293,6 +2293,46 @@ def has_synthesize(node: 'ASTNode') -> bool:
     return find_attribute(node, 'synthesize') is not None
 
 
+def expr_diverges(expr) -> bool:
+    """Does evaluating `expr` never fall through?
+
+    THE divergence question (design 228), asked by TYPE and not by spelling.
+    The typechecker stamps the bottom type `Never` on every expression that
+    diverges — `panic(...)`, a call to a `-> Never` function in ANY of its
+    callee shapes (plain, overloaded, module-private, imported, `extern "C"`,
+    extension method, closure, generic instantiation), and a break-less
+    `while { }` (design 177) — so one test covers all of them at once.
+
+    Entry points (obligation 1: this is the funnel, and these are its named
+    entries):
+      - `TypeChecker._diverges` (typechecker/registration.py), itself reached
+        from `_block_has_early_exit` (a statement or trailing expression) and
+        `_arm_diverges` (a match arm's body). Those two are entered from
+        `guard ... else` (typechecker/statements.py), the value `if` arms
+        (typechecker/expressions.py `_check_if_expression` /
+        `_check_if_let_expression`) and the three `match` checkers.
+      - `coro_transform._is_never_expr`, which asks it to decide that a
+        diverging expression has no value to store into a frame's `__result`
+        (DF-158a).
+      - `CodeGenerator._returned_value_diverged` (codegen/statements.py), for
+        `return <diverging>`.
+
+    ORDERING HAZARD: the answer is read off `resolved_type`, so a caller must
+    have CHECKED the expression first. Every entry above checks its block, arm
+    or operand before asking — the same discipline `WhileExpr.diverges`
+    documents for the design-177 flag, which is stamped while the loop is
+    checked.
+
+    A `WhileExpr` is answered from that flag rather than from its stamped type:
+    a diverging loop in STATEMENT position is a statement, and no type is
+    stamped on it there.
+    """
+    if isinstance(expr, WhileExpr):
+        return expr.diverges
+    t = getattr(expr, 'resolved_type', None)
+    return t is not None and t.kind == TypeKind.NEVER
+
+
 @dataclass
 class Function(ASTNode):
     name: str

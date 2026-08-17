@@ -146,7 +146,7 @@ from ast_nodes import (
     TupleLiteral, NilCoalesce, OptionalChain, BindOptional,
     OptionalEvalExpr, OptionalChainAssign, OptionalWrap,
     ResultErrWrap, ErasedErrWrap,
-    structural_fields,
+    structural_fields, expr_diverges,
 )
 from type_identity import type_identity as _type_identity
 from ast_walk import (child_nodes, control_blocks, control_heads, map_nodes,
@@ -193,11 +193,11 @@ def _is_never_expr(expr) -> bool:
     """Does this expression DIVERGE — `panic(...)`, a `-> Never` call, a
     break-less `while {}` (design 177)?
 
-    The typechecker stamps `Never` on all three, and a diverging expression
+    The transform's door onto the one divergence predicate,
+    `ast_nodes.expr_diverges` (design 228 leg 1). A diverging expression
     produces no value: there is nothing to store into a frame's `__result`, and
     trying to store it hands codegen a Python `None` (DF-158a)."""
-    t = getattr(expr, 'resolved_type', None)
-    return t is not None and t.kind == TypeKind.NEVER
+    return expr_diverges(expr)
 
 
 def _self_field(name, line=0, column=0):

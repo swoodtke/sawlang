@@ -16,7 +16,7 @@ from ast_nodes import (
     Program, StaticDecl, SawType, TypeKind, Visibility, has_synthesize,
     Block, ReturnStatement, BreakStatement, ContinueStatement, IfExpr, WhileExpr,
     IntLiteral, FloatLiteral, BoolLiteral, UnaryOp, ArrayLiteral, StructInit,
-    FunctionCall, ExpressionStatement, SourceLocationLiteral
+    FunctionCall, ExpressionStatement, SourceLocationLiteral, expr_diverges
 )
 from errors import ErrorKind
 from namespace import (
@@ -152,15 +152,17 @@ class RegistrationMixin:
         for stmt in block.statements:
             if isinstance(stmt, (ReturnStatement, BreakStatement, ContinueStatement)):
                 return True
-            # A `panic(...)` call (type NEVER, design 49) diverges just like a
-            # return, so `guard let x = ... else { panic("...") }` is a valid exit.
-            if isinstance(stmt, ExpressionStatement) and self._expr_diverges(stmt.expression):
+            # A diverging expression (design 49/177/228) exits just like a
+            # return, so `guard let x = ... else { panic("...") }` — and
+            # `else { fault(p) }` for a `-> Never` fault — is a valid exit.
+            if isinstance(stmt, ExpressionStatement) and self._diverges(stmt.expression):
                 return True
             # design 177: a conditionless `while { ... }` nothing breaks out of
             # diverges on the same terms, so `guard let v = o else { while { } }`
-            # is a valid exit. The flag is stamped while the block is checked,
-            # which every caller of this does first.
-            if isinstance(stmt, WhileExpr) and stmt.diverges:
+            # is a valid exit. In STATEMENT position the loop is a statement with
+            # no stamped type, so `_diverges` reads its flag — which is stamped
+            # while the block is checked, as every caller of this does first.
+            if isinstance(stmt, WhileExpr) and self._diverges(stmt):
                 return True
             # Check if-else: both branches must have early exits
             if isinstance(stmt, IfExpr) and stmt.else_branch:
@@ -170,17 +172,22 @@ class RegistrationMixin:
                     return True
         # A block whose trailing expression diverges (e.g. `{ panic("...") }`)
         # also cannot fall through.
-        if block.final_expr is not None and self._expr_diverges(block.final_expr):
+        if block.final_expr is not None and self._diverges(block.final_expr):
             return True
         return False
 
-    def _expr_diverges(self, expr) -> bool:
-        """True if evaluating `expr` never falls through — a `panic(...)` call
-        (design 49) or a diverging `while { ... }` (design 177). Used to treat a
-        trailing one as an early exit for guard/if divergence analysis."""
-        if isinstance(expr, WhileExpr):
-            return expr.diverges
-        return isinstance(expr, FunctionCall) and expr.name == "panic"
+    def _diverges(self, expr) -> bool:
+        """True if evaluating `expr` never falls through.
+
+        The typechecker's door onto the one divergence predicate,
+        `ast_nodes.expr_diverges` (design 228 leg 1) — read ITS docstring for
+        the rule, the entry points and the ordering hazard. It used to be a
+        NAME test (`expr.name == "panic"`), the only syntax-list judgment among
+        twenty-odd correct `TypeKind.NEVER` tests, which is why a `-> Never`
+        call was not a legal `guard ... else` exit while `panic(...)` and a
+        break-less `while { }` both were (DF-178d face 1).
+        """
+        return expr_diverges(expr)
 
     def _check_loop_body(self, body: Block, outer_scope):
         """Check a loop body with may-repeat move semantics (design 15 rule 7).
@@ -267,11 +274,15 @@ class RegistrationMixin:
         Used by the move-dataflow merge (design 15 rule 6): a diverging arm
         does not contribute to the may-moved union. A block body reuses
         `_block_has_early_exit`; a bare statement body (return/break/continue)
-        diverges directly; a plain expression body does not.
+        diverges directly; a bare EXPRESSION body asks the one divergence
+        predicate (design 228 leg 1), so `case A -> fault(p)` counts exactly as
+        `case A -> { fault(p) }` does — the braces were never the question.
         """
         if isinstance(body, Block):
             return self._block_has_early_exit(body)
-        return isinstance(body, (ReturnStatement, BreakStatement, ContinueStatement))
+        if isinstance(body, (ReturnStatement, BreakStatement, ContinueStatement)):
+            return True
+        return self._diverges(body)
 
     def _register_type_definition(self, type_def: TypeDefinition):
         """Register a type definition (type alias)."""
