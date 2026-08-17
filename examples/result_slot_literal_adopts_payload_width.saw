@@ -1,0 +1,51 @@
+// XFAIL: DF-226e a bare literal in a `Result` slot never adopts the payload's
+// fixed width, so an `Int32` Ok (or Err) payload is an internal compiler error
+//
+// The sibling of DF-226d, found by the same sweep and left unfixed because it
+// needs a ruling the optional case does not. `_apply_literal_expected_type`
+// peels an OPTIONAL expectation to its payload — there is exactly one payload,
+// so nothing is guessed — but a `Result` has TWO, and which one an untyped
+// literal means is only obvious when just one of them is a fixed-width integer:
+//
+//   `Result<Int32, Bad>`   + `return 4`  -> Ok(4), the only reading
+//   `Result<String, Int32>` + `return 4` -> Err(4), the only reading
+//   `Result<Int32, Int8>`  + `return 4`  -> AMBIGUOUS; both payloads could
+//                                           adopt it, and picking one silently
+//                                           decides whose reading the program
+//                                           runs under
+//
+// The third row is why this is filed rather than fixed: the rule wanted is
+// probably "peel to the unique payload that could adopt it, and refuse the
+// ambiguity with a clean error naming both" — which is a design ruling, and the
+// language already treats `T == E` as a compile error for the neighbouring
+// reason. Today all three are `ResultOkWrap`/`ResultErrWrap` codegen ICEs.
+//
+// A named function and a closure body have this identically (the closure has
+// reached the same funnel since DF-226a), so it is the funnel's gap, not a
+// caller's. Workaround meanwhile: write the suffix (`return 4i32`).
+//
+// EXPECT: success
+// EXPECT-OUTPUT:
+// ok = 4
+// err = 7
+
+struct Bad { code: Int }
+extension Bad: Printable {
+    func format(&self, into: &var StringBuilder) { into.append("bad") }
+}
+extension Bad: Error {}
+
+func ok_side() -> Result<Int32, Bad> { return 4 }
+
+func err_side() -> Result<String, Int32> { return 7 }
+
+func main() {
+    match ok_side() {
+        case Ok(v) -> print("ok = {v}"),
+        case Err(_) -> print("ok = err")
+    }
+    match err_side() {
+        case Ok(s) -> print("err = {s}"),
+        case Err(e) -> print("err = {e}")
+    }
+}

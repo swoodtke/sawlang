@@ -807,6 +807,22 @@ division libcalls (`__divdi3`) on a 32-bit chip. Consequently:
   (`let x = 5`), and `Int`/`Int` arithmetic is unaffected. The one place a
   literal is typed by a sibling rather than a declared slot is a mixed binop
   (`b + 0`, `fd < 200`): the literal adopts the other operand's fixed-width type.
+- **A CLOSURE body's return positions are those positions too.** The tail
+  expression, the if/match arm results inside it, and a `return` in the body all
+  take the closure's declared return type, so a `(Int32) sync -> Int32` slot
+  takes `{ x in 1 }` and needs no suffix. An array literal in the same position
+  shapes to a `Vector` return, exactly as it does in a named body.
+- **An OPTIONAL slot's payload counts as the expected type**, since the slot
+  wraps the value for you: `let x: Int32? = 1` types the literal `Int32` and
+  range-checks it there, at every position above (`f(2)` for a `f(o: Int32?)`,
+  a field, a return, an array or `Vector` element, a closure tail). A slot
+  naming more than one layer takes the innermost payload, so `let d: Int32?? = 11`
+  is an `Int32` too. A branching value keeps the optional, which is what lets an
+  arm be a bare `None`: in `if c { 1 } else { None }` at `-> Int32?` the `1`
+  adopts `Int32` and the `None` learns what it is a `None` of. A `Result`
+  payload does NOT adopt yet (`return 4` at `-> Result<Int32, E>` is an internal
+  compiler error; write `return 4i32`), because a Result has two payloads and
+  which one an untyped literal means is unsettled where both are integers.
 - **Use the fixed-width types (`Int8`…`Int64`, `UInt8`…`UInt64`) for anything
   whose layout must be stable across targets** — wire formats, on-disk
   structures, and device/MMIO register maps. Their widths never change, and D1's

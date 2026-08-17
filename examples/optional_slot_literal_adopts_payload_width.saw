@@ -1,0 +1,91 @@
+// A bare literal flowing into an OPTIONAL slot adopts the PAYLOAD's fixed width
+// (DF-226d, fixed Aug 17).
+//
+// The slot auto-wraps, so what the author wrote is an `Int32`, not an `Int` —
+// but `_apply_literal_expected_type` only ever looked at the expectation's OWN
+// kind, and an `Int32?` is not a fixed-width integer. The literal stayed at
+// platform width and built a `{i1, i64}` where a `{i1, i32}` was owed: an
+// internal compiler error at EVERY position the funnel serves, which is what
+// made this the funnel's own gap rather than a gap at one of its callers. The
+// fix peels the optional once, for the literal shapes that wrap, and every
+// position below inherits it from that one place.
+//
+// The last two rows are what the peel must NOT disturb: a branching construct
+// keeps the optional expectation, because an arm of it may be a bare `None`
+// that still has to learn what it is a `None` of.
+//
+// EXPECT: success
+// EXPECT-OUTPUT:
+// let = 1
+// param = 2
+// field = 3
+// tail = 8
+// return = 9
+// array element = 4
+// vector element = 7
+// closure tail = 5
+// negative = -6
+// nested = 11
+// if arms = 1 / -1
+// match arms = -1 / 2
+
+struct Holder { f: Int32? }
+
+func take(o: Int32?) -> Int32 {
+    if let v = o {
+        return v
+    }
+    return -1
+}
+
+func tail() -> Int32? { 8 }
+
+func ret() -> Int32? { return 9 }
+
+func runopt(f: (Int) sync -> Int32?) -> Int32 {
+    let o = f(3)
+    return take(o)
+}
+
+func pick(c: Bool) -> Int32? {
+    if c { 1 } else { None }
+}
+
+func matched(c: Int) -> Int32? {
+    match c {
+        case 0 -> None,
+        case _ -> 2
+    }
+}
+
+func main() {
+    let annotated: Int32? = 1
+    print("let = {take(annotated)}")
+    print("param = {take(2)}")
+
+    let h = Holder(f: 3)
+    print("field = {take(h.f)}")
+
+    print("tail = {take(tail())}")
+    print("return = {take(ret())}")
+
+    let arr: [Int32?; 2] = [4, 5]
+    print("array element = {take(arr[0])}")
+    let v: Vector<Int32?> = [6, 7]
+    print("vector element = {take(v[1])}")
+
+    // the closure body reaches the same funnel since DF-226a
+    print("closure tail = {runopt({ x in 5 })}")
+
+    let neg: Int32? = -6
+    print("negative = {take(neg)}")
+
+    // the peel recurses, so a two-layer slot lands at the payload's width
+    let deep: Int32?? = 11
+    if let outer = deep {
+        print("nested = {take(outer)}")
+    }
+
+    print("if arms = {take(pick(true))} / {take(pick(false))}")
+    print("match arms = {take(matched(0))} / {take(matched(1))}")
+}

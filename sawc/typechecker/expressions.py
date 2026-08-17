@@ -5415,6 +5415,35 @@ class ExpressionsMixin:
             value_expr.expected_type = rt
             return
 
+        # (0c) An OPTIONAL expectation over a value the slot will AUTO-WRAP: the
+        #      literal underneath owes the PAYLOAD's type, not the optional's.
+        #      `let x: Int32? = 1` is the shape — the wrap is inserted for us, so
+        #      what the author wrote is an `Int32`, and leaving the literal at
+        #      platform `Int` built a `{i1, i64}` where a `{i1, i32}` was owed.
+        #      That was an internal compiler error at EVERY position the funnel
+        #      serves (an annotated `let`, a call argument, a struct field, a
+        #      return — tail and `return` alike, in a named body and a closure
+        #      body — an array/Vector element), which is what makes this the
+        #      funnel's own gap rather than a gap at one of its callers, and what
+        #      makes ONE peel here the whole fix.
+        #
+        #      Peeled only for the LITERAL SHAPES that wrap. A branching
+        #      construct keeps the optional expectation, because an arm of it may
+        #      be a bare `None` that still has to learn what it is a `None` of
+        #      (`if c { 1 } else { None }` at `-> Int32?`) — case (3) recurses
+        #      with the optional intact and each arm meets this rule on its own.
+        #      A `Result` payload is NOT peeled: which of `Ok`/`Err` an untyped
+        #      literal means is a genuine ambiguity where both are integers, and
+        #      that owes a ruling rather than a guess (filed as DF-226d).
+        if (rt.kind == TypeKind.OPTIONAL and rt.inner_type is not None
+                and (isinstance(value_expr, (IntLiteral, TupleLiteral,
+                                             ArrayLiteral, MapLiteral,
+                                             SetLiteral))
+                     or (isinstance(value_expr, UnaryOp)
+                         and value_expr.op == '-'))):
+            self._apply_literal_expected_type(value_expr, rt.inner_type)
+            return
+
         # (1) Bare integer literal → adopt a fixed-width expectation, range-check
         #     it AT the literal, and stamp the fixed-width type. Stamping here (not
         #     only via visit_IntLiteral) covers the POST-HOC sites — overloaded

@@ -87,6 +87,16 @@ print("{#file}:{#line} - msg")  // #file/#line/#function: definition-site consts
   is range-checked at the literal (`let b: UInt8 = 256` is a clean
   error). With no fixed-width expectation it stays platform `Int`
   (`let x = 5`); in a mixed binop it takes the other operand's TYPE.
+  A CLOSURE BODY's return positions are on that list too (DF-226a, fixed
+  Aug 17: the tail, the arm results inside it, a `return`), and so is an
+  OPTIONAL slot's PAYLOAD (DF-226d, same day): `let x: Int32? = 1` is an
+  `Int32`, at every position above and to any depth (`Int32??` lands at
+  `Int32`), while a branching value keeps the optional so an arm may still
+  be a bare `None`. Both were internal compiler errors before those dates
+  (`ret i64` from an `i32` function), so treat them as working now and
+  SUSPECT in older builds. The one wrap that still does NOT adopt is a
+  `Result` payload (DF-226e, open — `return 4` at `-> Result<Int32, E>`
+  ICEs; write `return 4i32`).
   **IDIOM (user ruling, Aug 16): no suffix where an expected type is in
   force.** `static CR: UInt32 = 0x301u32` says the width twice — write
   `0x301`; same in a param (`reg.write(0)`), a comparison against a typed
