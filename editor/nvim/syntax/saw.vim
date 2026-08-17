@@ -12,7 +12,11 @@ syn case match
 
 " ---------------------------------------------------------------- keywords
 syn keyword sawKeyword func let var static extern init deinit
-syn keyword sawKeyword struct enum trait extension type
+syn keyword sawKeyword struct enum trait extension
+" `type` is CONTEXTUAL (DF-232b): a keyword only when it declares an alias,
+" i.e. followed by a name. As a field, label or binding (`e.type`,
+" `f(type: 1)`, `let type = 7`) it is an ordinary identifier.
+syn match sawKeyword "\<type\>\(\s\+\w\)\@="
 syn keyword sawConditional if else guard match case
 syn keyword sawRepeat while for in
 syn keyword sawStatement return break continue move

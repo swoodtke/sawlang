@@ -42,7 +42,12 @@ class TokenType(Enum):
     TRAIT = auto()
     FOR = auto()
     IN = auto()
-    TYPE = auto()  # 'type' keyword for associated types
+    TYPE = auto()  # VESTIGIAL since DF-232b: `type` is contextual and lexes as
+                   # IDENT, so nothing produces this token. Kept (with the
+                   # selfhost lexer's matching `TypeKw`) because the two token
+                   # vocabularies are compared by NAME in the lexdiff lane and
+                   # dropping an `auto()` member would renumber its neighbours
+                   # for no behavioral gain.
     EXTERN = auto()  # 'extern' for FFI declarations
     AS = auto()      # 'as' for type casting
     TRY = auto()     # 'try' for error handling
@@ -187,7 +192,16 @@ KEYWORDS = {
     'trait': TokenType.TRAIT,
     'for': TokenType.FOR,
     'in': TokenType.IN,
-    'type': TokenType.TYPE,
+    # Note: 'type' is NOT a keyword (DF-232b, ruled Aug 17). It is CONTEXTUAL,
+    # recognized by the parser only where a `type X = Y` alias declaration can
+    # begin — which is always `type` followed by an IDENT, at a top-level
+    # declaration start or a trait/extension member start. Everywhere else it
+    # is an ordinary identifier: an argument label (`clock_get(type: ...)`), a
+    # local or parameter binding, a struct field, a field access `e.type`.
+    # Reserving it made all of those unwritable while the corpus contained no
+    # non-declaration use of the word at all, so nothing had to be renamed to
+    # free it. Unlike `lend` (see below) the contextual read is unambiguous:
+    # `type` never opens a statement, so it cannot collide with a call.
     'extern': TokenType.EXTERN,
     'not': TokenType.NOT,
     'move': TokenType.MOVE,

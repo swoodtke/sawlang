@@ -105,16 +105,16 @@ TOKEN_RE = re.compile(r"""
 KEYWORDS = [
     'func', 'let', 'var', 'if', 'else', 'guard', 'return', 'true', 'false',
     'struct', 'extension', 'self', 'init', 'None', 'enum', 'while', 'break',
-    'continue', 'case', 'match', 'trait', 'for', 'in', 'type', 'extern',
+    'continue', 'case', 'match', 'trait', 'for', 'in', 'extern',
     'not', 'move', 'unsafe', 'borrows', 'lend', 'as', 'try', 'catch',
     'static', 'public',
 ]
 
 # Contextual words the parser reads in specific positions only. Substituting
 # one in reaches the "keyword where a name belongs" paths that a plain
-# identifier swap never does.
+# identifier swap never does. `type` moved here from KEYWORDS with DF-232b.
 CONTEXTUAL = ['import', 'module', 'export', 'package', 'parent', 'sync',
-              'escaping', 'blocking', 'const', 'deinit']
+              'escaping', 'blocking', 'const', 'deinit', 'type']
 
 TYPE_NAMES = ['Int', 'UInt', 'Int8', 'Int16', 'Int32', 'Int64', 'UInt8',
               'UInt16', 'UInt32', 'UInt64', 'Float', 'Bool', 'String',

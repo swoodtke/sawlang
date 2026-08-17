@@ -68,6 +68,19 @@ class StatementsMixin:
         )
 
     def parse_statement(self) -> Statement:
+        # DF-232b: `type` is a contextual keyword, so `type X = Y` in a BLOCK is
+        # two identifiers in a row rather than a declaration. A local type alias
+        # is not legal in Saw (no statement form has ever parsed one), and
+        # without this the shape falls through to the expression parser and
+        # reports `undefined variable `type``, which describes the tokens and
+        # not the mistake. `type` as an ordinary local binding is unaffected —
+        # that is `let type = ...` / `var type = ...`, which never reaches here
+        # with an IDENT following.
+        if self.at_type_alias_start():
+            self.error(
+                "a type alias may only be declared at module level, or as an "
+                "associated type in a trait or extension body — not inside a "
+                "function")
         if self.match(TokenType.LET):
             return self.parse_let_statement(mutable=False)
         elif self.match(TokenType.VAR):

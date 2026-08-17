@@ -568,19 +568,48 @@ an implementation one. The alternative reading is that cancellation is not an
 error at all and the answer is a separate `receive_or_cancelled()`. Not decided
 here.
 
-## DF-232b — `type` should be usable as an argument LABEL, a VARIABLE
-## name and a FIELD name (RULED Aug 17, user; fix dispatch-ready)
+## ~~DF-232b — `type` should be usable as an argument LABEL, a VARIABLE
+## name and a FIELD name~~ — **FIXED Aug 17** (RULED Aug 17, user)
 
 Found by M3 unit 1: the ruled `clock_get(type:)` label was unwritable
-because `type` is a declaration keyword, so the unit shipped `kind:`.
-Ruling: `type` becomes a CONTEXTUAL keyword — it keeps its meaning only
-where a `type X = Y` alias declaration can begin, and is an ordinary
-identifier as an argument label, a local/param binding, and a struct
-field name. The fix quantifies over positions (obligation 1): label,
-binding, field, plus the NEGATIVE rows (statement head in a module and
-in a block still parse as the alias declaration; `m.type`? member
-access; interpolation `{type}`). Once fixed, the unit-1 API flips
-`kind:` back to the ruled `type:` as a rider. [232, DF-232b]
+because `type` was a lexer keyword, so the unit shipped `kind:`.
+`type` is now CONTEXTUAL, built the way this compiler already builds
+contextual words rather than by a second mechanism: it is out of BOTH
+keyword tables (`sawc/lexer.py` and `selfhost/lexer/src/lib.saw`, one
+commit — the lexdiff/astdiff lanes compare them token for token), lexes
+as IDENT, and the parser recognizes it through `at_type_alias_start()`
+over `match_ident`, the same door `import`/`export`/`module`/`sync`/
+`any`/`const` use. The read is `type` FOLLOWED BY AN IDENT; its
+docstring names the three entry points (module-level dispatch, a trait
+body, an extension body), and `_at_toplevel_start`/`_synchronize`
+consult it so error recovery still sees an alias as a boundary.
+Unambiguous because that two-token shape occurs nowhere else and `type`
+never opens a statement — the hazard that keeps `lend` reserved.
+CENSUS (the reason this was free): all 2240 tracked `.saw` files hold 84
+`type` tokens, every one at an alias or associated-type head, so no
+existing code changed meaning and nothing had to be renamed.
+CORRECTION to the filing: it listed "statement head in a module and in a
+block still parse as the alias declaration" as negative rows. Only the
+MODULE one existed — a local `type X = Y` has never parsed, since no
+statement form consumes it. It stays an error and now says so by name
+instead of falling through to ``undefined variable `type` ``.
+Tests: `examples/type_is_a_contextual_keyword.saw` (the matrix — four
+negative alias rows, then field, parameter, argument label, struct
+literal, `e.type`, `self.type`, `let`/`var` binding + assignment,
+for-loop variable, `if let` binding, named-tuple label, closure
+parameter, interpolation) and
+`examples/type_alias_in_function_body_refused.saw`.
+Also updated: LANGUAGE_SPEC's reserved-vs-contextual lists,
+`tools/sawfuzz.py`'s KEYWORDS/CONTEXTUAL split, and the nvim syntax file
+(which highlighted `type` unconditionally and so mis-coloured `e.type`).
+DEFERRED, deliberately: the sos/ `clock_get(kind:)` API is NOT flipped to
+the ruled `type:` here. A concurrent agent is restructuring sos/kernel,
+and the flip is scheduled for after both branches land. The label is
+declared at `sos/kernel/sysapi/src/lib.saw:540` (its docstring already
+points here), with the kernel side at `sos/kernel/core/lib.saw:2079`,
+labeled call sites in `sos/tests/{clock-basics,timer-deadlock,
+timer-oneshot}/src/main.saw`, and prose in `sos/spec.md:1191` +
+`designs/232-sos-m3-sketch.md:470`. [232, DF-232b]
 
 ## DF-229c — a `public(package)` name selected from INSIDE its own
 ## package should BIND (RULED Aug 17, user; fix dispatch-ready)

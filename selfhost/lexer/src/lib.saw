@@ -281,7 +281,9 @@ extension LexResult: NoCopy {}
 // =============================================================================
 // Keyword table (mirrors sawc/lexer.py KEYWORDS). Note: module/import/export/
 // package/parent are NOT keywords — the Python parser treats them specially, so
-// they lex as IDENT here too.
+// they lex as IDENT here too. `type` joined them Aug 17 (DF-232b): it is
+// contextual, recognized only where a `type X = Y` alias can begin, so it lexes
+// as IDENT and the parser decides.
 // =============================================================================
 
 func keyword_kind(s: String) -> TokenKind {
@@ -309,7 +311,6 @@ func keyword_kind(s: String) -> TokenKind {
         case "trait" -> TokenKind.Trait,
         case "for" -> TokenKind.For,
         case "in" -> TokenKind.In,
-        case "type" -> TokenKind.TypeKw,
         case "extern" -> TokenKind.Extern,
         case "not" -> TokenKind.Not_,
         case "move" -> TokenKind.Move_,

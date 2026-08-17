@@ -603,13 +603,41 @@ class Parser(ExpressionsMixin, StatementsMixin, DeclarationsMixin, TypeParsingMi
                 "(`body: (Int) escaping -> Int`); the declaration slot takes "
                 "`unsafe`, `sync` and `borrows`")
 
+    def at_type_alias_start(self) -> bool:
+        """THE contextual read of `type` (DF-232b, ruled Aug 17).
+
+        `type` is not a lexer keyword. It means "a type alias declaration
+        begins here" in exactly one shape — the word `type` followed by an
+        IDENT — and is an ordinary identifier everywhere else: an argument
+        label (`clock_get(type: .Monotonic)`), a local or parameter binding, a
+        struct field, a field access `e.type`, a match binding, an
+        interpolation `{type}`.
+
+        THREE ENTRY POINTS, which are the three places an alias can begin:
+          1. `_dispatch_toplevel_decl`  — `type X = Y` at module level, bare
+             or `public`-prefixed
+          2. `parse_trait` body         — `type Item` (an associated type)
+          3. `parse_extension` body     — `type Item = Int` (its assignment)
+        `_at_toplevel_start` / `_synchronize` consult it too, so error recovery
+        still treats an alias as a declaration boundary.
+
+        The two-token shape is what makes the read unambiguous, and `type`
+        never opens a statement, so unlike `lend` (see the lexer's note) a
+        contextual read cannot collide with a call to a function of that name.
+        A local `type X = Y` is not legal in Saw and stays a parse error.
+        """
+        return (self.match_ident('type')
+                and self.peek(1).type == TokenType.IDENT)
+
     def _at_toplevel_start(self) -> bool:
         """True if the current token can begin a top-level declaration."""
         t = self.current()
         if t.type in (TokenType.FUNC, TokenType.STRUCT, TokenType.ENUM,
-                      TokenType.EXTENSION, TokenType.TRAIT, TokenType.TYPE,
+                      TokenType.EXTENSION, TokenType.TRAIT,
                       TokenType.EXTERN, TokenType.STATIC, TokenType.PUBLIC,
                       TokenType.UNSAFE, TokenType.AT):
+            return True
+        if self.at_type_alias_start():
             return True
         if t.type == TokenType.IDENT and t.value in ("import", "module", "export"):
             return True
@@ -720,7 +748,7 @@ class Parser(ExpressionsMixin, StatementsMixin, DeclarationsMixin, TypeParsingMi
                     p.traits.append(self.parse_trait(visibility))
                 elif self.match(TokenType.EXTENSION):
                     p.extensions.append(self.parse_extension(visibility))
-                elif self.match(TokenType.TYPE):
+                elif self.at_type_alias_start():
                     p.type_definitions.append(self.parse_type_definition(visibility))
                 elif self.match(TokenType.STATIC):
                     p.statics.append(self.parse_static(visibility, unsafe))
@@ -746,7 +774,7 @@ class Parser(ExpressionsMixin, StatementsMixin, DeclarationsMixin, TypeParsingMi
             p.extensions.append(self.parse_extension())
         elif self.match(TokenType.FUNC):
             p.functions.append(self.parse_function())
-        elif self.match(TokenType.TYPE):
+        elif self.at_type_alias_start():
             p.type_definitions.append(self.parse_type_definition())
         elif self.match(TokenType.EXTERN):
             p.extern_blocks.append(self.parse_extern_block())
@@ -816,11 +844,12 @@ class Parser(ExpressionsMixin, StatementsMixin, DeclarationsMixin, TypeParsingMi
             TokenType.STRUCT: "struct declarations",
             TokenType.ENUM: "enum declarations",
             TokenType.TRAIT: "trait declarations",
-            TokenType.TYPE: "type declarations",
             TokenType.EXTERN: "extern blocks",
         }
         if t.type in mapping:
             return mapping[t.type]
+        if self.at_type_alias_start():
+            return "type declarations"
         if t.type == TokenType.IDENT and t.value in ("import", "module", "export"):
             return f"{t.value} declarations"
         return "this declaration"

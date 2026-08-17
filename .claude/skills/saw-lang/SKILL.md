@@ -23,6 +23,12 @@ enum Msg { case Quit, case Move(x: Int, y: Int) }
 extension Msg { func is_quit(&self) -> Bool { match self { case Quit -> true,
                                                            case _ -> false } } }
 type UserId = Int          // DISTINCT type; flows TO Int; back via UserId(i)
+                           // `type` is CONTEXTUAL (DF-232b, Aug 17): a keyword
+                           // only where an alias begins (module level, or a
+                           // trait/extension member). Elsewhere it is an
+                           // ordinary name — `f(type: 1)`, `struct E { type: Int }`,
+                           // `e.type`, `let type = 7` all compile. An alias
+                           // inside a function body is still refused.
 let raw = id as Int        // explicit projection toward underlying
 print("hi {name}: {p}")    // interpolation; user types need Printable
 print("{#file}:{#line} - msg")  // #file/#line/#function: definition-site consts

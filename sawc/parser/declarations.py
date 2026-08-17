@@ -335,7 +335,7 @@ class DeclarationsMixin:
         associated_types = []
         while not self.match(TokenType.RBRACE, TokenType.EOF):
             member_doc = self._take_doc()
-            if self.match(TokenType.TYPE):
+            if self.at_type_alias_start():
                 # Parse associated type: type Item
                 assoc_type = self.parse_associated_type()
                 associated_types.append(assoc_type)
@@ -372,7 +372,7 @@ class DeclarationsMixin:
     def parse_associated_type(self) -> AssociatedType:
         """Parse associated type declaration: type Item"""
         start = self.current()
-        self.expect(TokenType.TYPE)
+        self.expect_ident('type')
 
         name_token = self.expect(TokenType.IDENT, "Expected associated type name")
 
@@ -496,7 +496,7 @@ class DeclarationsMixin:
         type_assignments = []
         while not self.match(TokenType.RBRACE, TokenType.EOF):
             member_doc = self._take_doc()
-            if self.match(TokenType.TYPE):
+            if self.at_type_alias_start():
                 # Parse type assignment: type Item = Int
                 type_assign = self.parse_type_assignment()
                 type_assignments.append(type_assign)
@@ -548,7 +548,7 @@ class DeclarationsMixin:
     def parse_type_assignment(self) -> TypeAssignment:
         """Parse type assignment: type Item = Int"""
         start = self.current()
-        self.expect(TokenType.TYPE)
+        self.expect_ident('type')
 
         name_token = self.expect(TokenType.IDENT, "Expected associated type name")
         self.expect(TokenType.ASSIGN, "Expected '=' after associated type name")
@@ -564,7 +564,7 @@ class DeclarationsMixin:
     def parse_type_definition(self, visibility: Visibility = Visibility.PRIVATE) -> TypeDefinition:
         """Parse top-level type definition: type MyInt = Int"""
         start = self.current()
-        self.expect(TokenType.TYPE)
+        self.expect_ident('type')
 
         name_token = self.expect(TokenType.IDENT, "Expected type name")
         self.expect(TokenType.ASSIGN, "Expected '=' after type name")

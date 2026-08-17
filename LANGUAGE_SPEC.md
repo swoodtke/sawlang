@@ -9888,12 +9888,12 @@ as       borrows  break    case     catch    continue else     enum
 extension         extern   false    for      func     guard    if
 in       init     lend     let      match    move     None     not
 public   return   self     static   struct   trait    true     try
-type     unsafe   var      while
+unsafe   var      while
 
 Contextual (parser- or typechecker-recognized in one position; still valid
 identifiers):
 any      const    deinit   escaping export   import   module   package
-parent   Self     sync
+parent   Self     sync     type
 
 Planned / reserved:
 and  defer  do  generic  macro  none  or  some  where
@@ -9902,6 +9902,13 @@ and  defer  do  generic  macro  none  or  some  where
 `const` joined the contextual list with const generics (design 148). It is
 recognized only in a generic parameter position, so `let const = 3` still
 compiles.
+
+`type` joined it too. It declares an alias only where one can begin — the
+word followed by a NAME, at module level or as a trait/extension member —
+and is an ordinary identifier everywhere else, so `clock_get(type: .Monotonic)`,
+`struct Event { type: Int }`, `e.type` and `let type = 7` all compile. A type
+alias inside a function body is still refused, by a message naming the three
+places an alias is allowed.
 
 `async` and `await` are deliberately **absent** — Saw is colorless and will
 never have them (see §6 Concurrency).
