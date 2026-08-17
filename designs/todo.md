@@ -284,9 +284,19 @@ caller who cares about allocator refusal on a channel should say so once at
 `try_make`. One call site in tree (`examples/alloc_no_inert_objects.saw`).
 
 ## DF-230a — a task suspended inside `Channel.receive()` cannot be CANCELLED
-## (filed Aug 16 by the design-230 dispatch; pre-existing, not introduced here)
+## (filed Aug 16; RULED Aug 17, user: `Cancelled` joins `ChannelError`)
 
-**OPEN.** `h.cancel()` on a task whose current suspension is a `receive()` never
+**RULED, fix dispatch-ready.** The ruling: cancellation IS an error the
+receive reports — `ChannelError` gains `Cancelled` beside `Closed`, the
+receive loop gains the `cancelled()` check at its top (the std.net
+park-loop precedent), and the cancel path wakes the parked waiter (the
+230-era refusal to wake was CORRECT while no check existed — the check
+is what makes the wake terminate instead of re-park). The fix covers:
+the enum case, the loop check, the wake, `send`'s parked-sender twin if
+one exists, tests at both engines, and the docs' ChannelError case
+list. Original filing follows.
+
+(original) `h.cancel()` on a task whose current suspension is a `receive()` never
 reaches the task: the receive loop is `try_receive` + park and has no
 `cancelled()` check, so the task waits for a value that will never arrive and
 the group's `Deinit` waits for the task. Pre-230 the same program spun at 100%
@@ -313,6 +323,20 @@ WHAT IT NEEDS, and why it is a RULING rather than a fix: `receive()` returns
 an implementation one. The alternative reading is that cancellation is not an
 error at all and the answer is a separate `receive_or_cancelled()`. Not decided
 here.
+
+## DF-229c — a `public(package)` name selected from INSIDE its own
+## package should BIND (RULED Aug 17, user; fix dispatch-ready)
+
+The DF-229a fix surfaced the boundary case and reported rather than
+changed it: `import m.{X}` where `X` is `public(package)` and the
+importer is in the SAME package currently refuses (clearly, since
+DF-229a — silently before). Ruling: it BINDS — `public(package)` means
+visible within the package, and the selective form being stricter than
+the qualified `m.X` path is an inconsistency, not a design. Fix shape:
+the `_selective_import_entry` visibility test consults the design-80
+package relation instead of PUBLIC-only; tests for same-package bind,
+cross-package refusal (unchanged), and the diagnostic's `_vis_word`
+casing. [229, DF-229a]
 
 ## DF-229a — CLOSED (Aug 16): the silent selective-import miss
 
