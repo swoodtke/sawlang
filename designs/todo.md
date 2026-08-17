@@ -362,7 +362,16 @@ caller who cares about allocator refusal on a channel should say so once at
 ## DF-230a — a task suspended inside `Channel.receive()` cannot be CANCELLED
 ## (filed Aug 16; RULED Aug 17, user: `Cancelled` joins `ChannelError`)
 
-**RULED, fix dispatch-ready.** The ruling: cancellation IS an error the
+**RULED, fix dispatched Aug 17 (small-fix batch, item 2). Rider ruling
+(user, Aug 17): CANCEL-BEATS-BUFFERED is the contract** — a task cancelled
+while a value is already buffered gets `Err(Cancelled)`, not the value:
+cancellation is the receiver explicitly asking for no more data, so
+delivering one more would contradict the request. The value is not lost (it
+stays in the channel for other receivers / teardown). The loop-TOP check
+position implements exactly this; `examples/channel_recv_cancel.saw`'s
+updated expectation is the ruled behavior, not a regression.
+
+(original ruling) The ruling: cancellation IS an error the
 receive reports — `ChannelError` gains `Cancelled` beside `Closed`, the
 receive loop gains the `cancelled()` check at its top (the std.net
 park-loop precedent), and the cancel path wakes the parked waiter (the
