@@ -239,5 +239,6 @@ Navigation only. One line per design brief in `designs/` (number, file, the brie
 - **231** — `231-native-compiler.md` — the native compiler: readiness ledger + the VM staging sketch
 - **232** — `232-sos-m3-sketch.md` — SOS M3 SKETCH (agenda for the scoping session)
 - **233** — `233-while-let.md` — `while let`: the drain loop gets its header spelling
+- **234** — `234-fallibility-flip.md` — the fallibility flip: Result everywhere, three-tier errors, `try(as E.Case)` routing, `try_` = non-blocking
 - **archive** — `done_aug1-aug9.md` — Aug 1 – Aug 9, 2026 — landed/closed tracker recaps, archived at the Aug-9 split
 - **archive** — `done_aug10-aug17.md` — Aug 10 – Aug 17, 2026 — landed/closed tracker recaps, archived at the Aug-17 split

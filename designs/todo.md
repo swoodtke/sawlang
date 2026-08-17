@@ -14,58 +14,19 @@ rulings/corrections — grep the brief before deleting anything);
 navigation lives in designs/INDEX.md (one line per brief + one per
 done-file), created with the Aug-17 split.
 
-## BRIEF OWED — the fallibility flip (RULED Aug 17, user; scoping done in
-## conversation, brief not yet written)
+## Design 234 — the fallibility flip (RATIFIED Aug 17; QUEUED behind the
+## three in-flight Aug-17 branches)
 
-The Aug-17 rulings, recorded so the brief writes itself:
-1. **Every failable operation returns `Result` — design 123's panic tier is
-   RETIRED.** Don't hide that things can fail; `try`/`try!`/`catch` are the
-   ergonomics. The ~16 alloc `try_` twins across 9 std files retire with it
-   (their behavior becomes the ordinary op's).
-2. **Error-type doctrine, three tiers.** Leaf ops return the NARROWEST
-   concrete type (`push -> Result<Void, AllocError>` — no compound needed
-   where one failure mode exists; AllocError keeps size/align). Compound
-   domain enums with PAYLOAD-CARRYING cases only where sources genuinely mix
-   (`ChannelError { Closed, Cancelled, Alloc(AllocError) }`; IoError carrying
-   `System(SystemError)` at the OS boundary — never re-enumerate the inner
-   vocabulary). NO stdlib-wide errno-style enum as a return type (signatures
-   would lie; dead match arms). `Box<any Error>` is the APP aggregation tier;
-   std never erases.
-3. **EXPLICIT error routing at `try`** (refined three times Aug 17; final
-   form, user: reader-visibility trumps — the `&var` precedent). A `try` site
-   whose callee error type differs from the function's error type SPELLS the
-   routing, as a PREFIX clause in the `public(package)` spelling:
-   `try(as LocalError.Alloc) alloc(...)`. No auto-lift, no trait, no
-   candidate search — the named case must have a single payload the source
-   error type can fill, checked, done. The clause converts the error CHANNEL
-   only (the Ok value is untouched). PREFIX position is load-bearing, not
-   taste: a trailing `try f() as X.Y` cannot be classified at parse time —
-   `LocalError.Alloc` and `time.Duration` are the same dotted-path shape, so
-   the routing clause and a design-63 value projection of the unwrapped
-   result collide; the prefix slot is owned by `try`, leaving every trailing
-   `as` an ordinary value cast. `try!`/`try?` never take the clause (no
-   propagation); `try(as …) … catch { }` is refused (route or handle, not
-   both). Same-type propagation stays bare `try`; inside `try { } catch { }`
-   blocks nothing is owed (the synthesized union absorbs all types; stays
-   unnameable). Benefits banked: no action-at-a-distance from enum edits,
-   construction sites greppable, zero ambiguity machinery. (Rust's
-   `.map_err(E::C)?` without the closure.)
-4. **`try_` PREFIX MEANS NON-BLOCKING, nothing else** — reserved for
-   non-blocking variants of potentially blocking ops. Standard shape: the
-   blocking op's error type with the payload optionalized —
-   `try_receive -> Result<T?, ChannelError>`, `Ok(None)` = nothing yet
-   (would-block is NOT an error; a closed channel on a poll still errors).
-5. **Boundaries.** The fault line survives: bounds/overflow/contract
-   violations stay panics (programmer errors, per the M3 fault ruling); what
-   moves to Result is dynamic conditions (OOM, closed, cancelled, OS refusal).
-   Hidden allocations (interpolation, closure env, coroutine frames) CANNOT
-   return Results — they stay panics with `--no-hidden-alloc` as the opt-out;
-   the brief states this boundary explicitly.
-6. **Consequences.** DQ-230b resolves: `send -> Result<Void, ChannelError>`
-   with the Alloc case; `try_send` retires (see its entry). `SysError` going
-   public becomes `SystemError` (no-abbreviations rule). Migration is the
-   largest contract flip yet but design 151 makes the compiler find every
-   site; obligation 2's consumer sweep is the whole corpus, staged units.
+designs/234-fallibility-flip.md is the plan of record: every failable op
+returns Result (design 123's panic tier retired, the ~16 alloc try_ twins
+with it), three-tier error doctrine (narrowest leaf type / payload-carrying
+compounds / Box<any Error> as the app-only tier), the prefix routing clause
+`try(as LocalError.Alloc) f(...)`, `try_` reserved for non-blocking, the
+fault-line and hidden-alloc boundaries. Resolves DQ-230b (try_send retires,
+ChannelError gains Alloc). DISPATCH ORDER: after the kcore split, the
+literal/const family and the small-fix batch all integrate — corpus-wide
+touches conflict with everything; M3 unit 1.5+ may interleave with units 1-2
+only. [234]
 
 ## DF-232c — a raw-backed enum's case value takes an INTEGER LITERAL only, so
 ## a flags enum cannot state its bits as shifts (filed Aug 17, SOS M3 unit 1
@@ -349,10 +310,17 @@ wanting error inspection writes the `match`). No `break <value>` story: value
 position is refused, so the conditional-loop value question stays where design
 177 left it.
 
-## DQ-230b — RULING OWED: `Channel.try_send` has two failure modes and one
-## error type (filed Aug 16 by the design-230 dispatch, unit C)
+## DQ-230b — `Channel.try_send` has two failure modes and one error type
+## (filed Aug 16 by the design-230 dispatch, unit C; RESOLVED Aug 17 by
+## design 234)
 
-**OPEN — surface decision, not a bug.** Design 230 gave `send` a second failure
+**RESOLVED — design 234 retires `try_send`**: `send` returns
+`Result<Void, ChannelError>` with `ChannelError { Closed, Cancelled,
+Alloc(e: AllocError) }`, and the `try_` prefix is reserved for non-blocking
+variants. The asymmetry this entry records dies with the twin. Executes with
+234's Channel sub-unit; kept below for the record. [234]
+
+(original) **OPEN — surface decision, not a bug.** Design 230 gave `send` a second failure
 (`Err(ChannelError.Closed)`) beside the allocator one design 123 gave it
 (`panic`, with `try_send` as the reporting twin returning
 `Result<Void, AllocError>`). The two error sets are disjoint and `try_send` has
