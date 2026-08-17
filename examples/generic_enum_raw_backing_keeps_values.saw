@@ -1,41 +1,78 @@
-// XFAIL: DF-232i a GENERIC raw-backed enum loses its declared tag values at
-// monomorphization and silently emits ordinals instead
+// A GENERIC raw-backed enum keeps its DECLARED tag values through
+// monomorphization (DF-232i).
 //
-// Found Aug 17 by DF-232c's consumer sweep over `EnumVariant.raw_value`, and
-// pre-existing — nothing about the const-expression grammar is involved, and
-// the literal spelling below fails exactly as an expression one would.
+// It did not. The monomorphization path rebuilt each variant from the generic
+// declaration and carried only the payload types, so `raw_value` was dropped
+// and the backing type never reached registration — the instantiated copy then
+// took the ORDINAL path and `Code<Int>.Warn as UInt8` gave 1 where the source
+// said 20. Silent wire-format corruption with no diagnostic, and the exact
+// thing a declared backing exists to prevent: design 145 unit B2 pins the
+// representation so that reordering the cases cannot renumber them, and a
+// generic enum was renumbering them by construction.
 //
-// `codegen/generics.py` rebuilds each `EnumVariant` with only `name` and
-// `associated_types`, dropping `raw_value`, and calls `_register_concrete_enum`
-// without `raw_type`. The concrete instantiation therefore has no backing at
-// all, so `codegen/core.py` falls back to `variant_tags[name] = i` — the
-// ordinal. `E<Int>.B` with `case B = 9` comes back as 1.
+// `from(raw:)` was worse than wrong — it did not compile. The typechecker
+// stamped the BASE name and dropped the receiver's type arguments, so codegen
+// looked up `Code` in a table that only ever holds `Code$1$Int` and raised
+// `internal compiler error: 'Code'`.
 //
-// SILENT is what makes it serious: a raw backing exists to pin an ABI number,
-// and this hands back a different number than the source states, with no
-// diagnostic at any phase. A non-generic `enum E: UInt8` is unaffected, which
-// is why the whole existing corpus passes.
-//
-// NEEDS A RULING, which is why it is filed rather than fixed. Two defensible
-// answers: carry `raw_value`/`raw_type` through the monomorphizer (they are
-// instantiation-independent, so this looks correct and small), or REFUSE a raw
-// backing on a generic enum outright, since design 145 never took the question
-// of what a per-instantiation ABI number would mean. The second is the
-// conservative reading of "declaring a backing says the numbers are ABI".
-//
+// Rows: the declared value out of TWO different instantiations (they must
+// agree with each other — the tags are the enum's, not the instantiation's),
+// the round trip back through `from(raw:)`, an ORDINAL rejected by the inverse
+// (1 is case `Warn`'s ordinal and nothing's raw value — the row that fails if
+// the ordinal path ever comes back), the width the backing pins, and a
+// non-generic control that must be byte-identical throughout.
 // EXPECT: success
 // EXPECT-OUTPUT:
-// b=9
-// a=7
+// generic 20
+// other instantiation 30
+// control 20
+// agree true
+// round trip 30
+// ordinal rejected
+// width 1 1
 
-enum Tagged<T>: UInt8 {
-    case A = 7,
-    case B = 9,
+enum Code<T>: UInt8 {
+    case Ok = 10,
+    case Warn = 20,
+    case Fail = 30
+}
+
+// The control: the same declaration without a type parameter.
+enum Plain: UInt8 {
+    case Ok = 10,
+    case Warn = 20,
+    case Fail = 30
 }
 
 func main() {
-    let b: Tagged<Int> = Tagged<Int>.B
-    print("b={}", b as UInt8)
-    let a: Tagged<Int> = Tagged<Int>.A
-    print("a={}", a as UInt8)
+    let a = Code<Int>.Warn
+    print("generic {a as UInt8}")
+
+    let b = Code<String>.Fail
+    print("other instantiation {b as UInt8}")
+
+    let p = Plain.Warn
+    print("control {p as UInt8}")
+
+    // Two instantiations of one enum carry ONE tag table.
+    let other_warn = Code<String>.Warn
+    print("agree {(a as UInt8) == (other_warn as UInt8)}")
+
+    // The partial inverse reads the DECLARED values.
+    if let back = Code<Int>.from(raw: 30u8) {
+        print("round trip {back as UInt8}")
+    } else {
+        print("round trip lost")
+    }
+
+    // 1 is `Warn`'s ORDINAL and no case's raw value: the inverse must not
+    // recognize it. This is the row that catches a regression to ordinals.
+    if let wrong = Code<Int>.from(raw: 1u8) {
+        print("ordinal accepted {wrong as UInt8}")
+    } else {
+        print("ordinal rejected")
+    }
+
+    // The backing pins the WIDTH as well as the values, in both spellings.
+    print("width {sizeof<Code<Int>>()} {sizeof<Plain>()}")
 }

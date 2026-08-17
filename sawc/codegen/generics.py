@@ -447,7 +447,17 @@ class GenericsMixin:
         old_context = self.type_param_context
         self.type_param_context = type_mapping
 
-        # Create substituted variants
+        # Create substituted variants.
+        #
+        # DF-232i: the RAW BACKING rides along. Substitution rebuilds each
+        # variant, and rebuilding it without `raw_value` silently dropped the
+        # declared tag — `_register_concrete_enum` then fell back to ordinals,
+        # so `Code<Int>.Warn as UInt8` gave 1 where the source said 20. A
+        # declared backing is a WIRE FORMAT (design 145 unit B2: "the point of
+        # declaring a backing is that reordering the cases cannot renumber
+        # them"), so the corruption was silent and had no diagnostic. Only the
+        # PAYLOAD types depend on the instantiation; the tag values are the
+        # enum's own and are identical in every instantiation.
         substituted_variants = []
         for variant in generic_enum.variants:
             substituted_types = []
@@ -456,14 +466,21 @@ class GenericsMixin:
                 substituted_types.append((param_name, substituted))
             substituted_variants.append(EnumVariant(
                 name=variant.name,
-                associated_types=substituted_types
+                associated_types=substituted_types,
+                raw_value=variant.raw_value,
+                raw_line=variant.raw_line,
+                raw_column=variant.raw_column,
             ))
 
         # Restore context before registering (registration will use _get_llvm_type)
         self.type_param_context = old_context
 
-        # Register the monomorphized enum
-        self._register_concrete_enum(mangled_name, substituted_variants)
+        # Register the monomorphized enum. The backing type is the enum's, not
+        # the instantiation's — never a type parameter — so it passes through
+        # unsubstituted (DF-232i: omitting it made `_register_concrete_enum`
+        # take its ordinal path however good the variants were).
+        self._register_concrete_enum(mangled_name, substituted_variants,
+                                     raw_type=generic_enum.raw_type)
 
         # Design 145: a generic enum's extension methods monomorphize with it,
         # exactly as `_ensure_monomorphized_struct` does for a generic struct.

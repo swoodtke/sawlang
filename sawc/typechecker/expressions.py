@@ -8719,8 +8719,17 @@ class ExpressionsMixin:
             return None
         # Stamp for codegen: this lowers to a tag lookup, not a call.
         expr.enum_from_raw = enum_name
+        # DF-232i: a GENERIC raw-backed enum's `from` is written on an
+        # INSTANTIATION (`Code<Int>.from(raw: b)`), and the result is that
+        # instantiation — carrying the arguments is what lets codegen reach the
+        # monomorphized tag table. Without them the result typed as the bare
+        # `Code` and codegen raised `KeyError: 'Code'`, since only
+        # `Code$1$Int` is ever registered.
+        type_args = [self._resolve_type(ta)
+                     for ta in (getattr(expr.object, 'type_args', None) or [])]
         return SawType(TypeKind.OPTIONAL,
-                       inner_type=SawType(TypeKind.ENUM, enum_name=enum_name))
+                       inner_type=SawType(TypeKind.ENUM, enum_name=enum_name,
+                                          type_args=type_args or None))
 
     def _check_method_call(self, expr: MethodCall) -> Optional[SawType]:
         """Check a method call, static method call, enum initialization, or module function call."""

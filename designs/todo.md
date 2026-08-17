@@ -14,6 +14,53 @@ rulings/corrections — grep the brief before deleting anything);
 navigation lives in designs/INDEX.md (one line per brief + one per
 done-file), created with the Aug-17 split.
 
+## DF-232i — CLOSED (Aug 17): a GENERIC raw-backed enum keeps its declared
+## tag values through monomorphization
+
+**Landed, the ruling as stated (FIX PROPER, not refuse generic+raw-backed).**
+`Code<Int>.Warn as UInt8` gave 1 where the source said 20 — silent wire-format
+corruption with no diagnostic, and precisely what a declared backing exists to
+prevent (design 145 unit B2 pins the representation so reordering cases cannot
+renumber them; a generic enum was renumbering them by construction).
+
+TWO faults, both in `_ensure_monomorphized_enum` (codegen/generics.py) and both
+needed:
+1. the rebuilt `EnumVariant`s carried only `name` + `associated_types`, so
+   `raw_value` was dropped; and
+2. `_register_concrete_enum` was called with no `raw_type`, so it took its
+   ordinal path however good the variants were. Only the PAYLOAD types depend
+   on the instantiation — the tags and the backing are the enum's own and are
+   identical in every instantiation, so both pass through unsubstituted.
+
+`from(raw:)` on a generic instantiation did not merely invert wrongly, it did
+not COMPILE: `_check_enum_from_raw` stamped the base name and dropped the
+receiver's type arguments, so the result typed as a bare `Code` and codegen
+looked it up in a table that only ever holds `Code$1$Int` —
+`internal compiler error: 'Code'`. The checker now carries the resolved
+arguments onto the returned `E<...>?`, and `_generate_enum_from_raw` resolves
+the instantiation from them through `_ensure_monomorphized_enum` (idempotent,
+and the same call that carries the raw values onto the copy).
+
+Test: `examples/generic_enum_raw_backing_keeps_values.saw` — the declared value
+out of TWO instantiations plus an equality row proving they agree, the round
+trip back through `from(raw:)`, an ORDINAL rejected by the inverse (1 is
+`Warn`'s ordinal and no case's raw value — the row that fails if the ordinal
+path returns), the width the backing pins, and a non-generic control that is
+byte-identical throughout. `enum145_raw_backed`, `enum145_raw_wire_struct` and
+the rest of the enum145 family stay green.
+
+**FOR THE INTEGRATOR, two things this branch could not do.** (a) main already
+carries a cited XFAIL pin at this exact path (filed there as DF-232e, renumbered
+DF-232i); this branch adds the same path as the FIXED test, so the add/add
+conflict resolves in this branch's favour and that retires the pin. (b) main has
+since gained DF-232c's fix, which lets a case value be a const EXPRESSION via
+`EnumVariant.raw_value_expr` folded by `_fold_enum_raw_values` — code this
+worktree does not have. The carry here is over the literal `raw_value` field
+only, so on the merged tree `raw_value_expr` (and anything else
+`_fold_enum_raw_values` writes) must be confirmed to survive monomorphization
+by the same route; the fix's shape — rebuild the variant with every declared
+field, register with the declared backing — is where that check goes. [232]
+
 ## DF-232c — a raw-backed enum's case value takes an INTEGER LITERAL only, so
 ## a flags enum cannot state its bits as shifts (filed Aug 17, SOS M3 unit 1
 ## review-pass rider)

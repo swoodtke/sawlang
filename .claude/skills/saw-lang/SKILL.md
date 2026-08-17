@@ -2564,7 +2564,11 @@ construct in the owner and lend `&driver` down.
   backing keeps compiler-assigned ordinals and is not castable at all. The
   inverse is `from(raw:)` — a synthesized static returning `E?`, NOT an init: an
   unrecognized wire byte is data, never a trap. Fixed-width backings are the
-  wire-safe choice; a raw-ordered Comparable derivation does not exist.
+  wire-safe choice; a raw-ordered Comparable derivation does not exist. A
+  backing survives GENERICS (DF-232i): `enum Code<T>: UInt8` carries its
+  declared values into every instantiation, so two instantiations cast to the
+  same byte — until Aug 17 a generic one silently emitted ORDINALS instead, so
+  distrust `as` on a generic backed enum in an older build.
 - **WIRE MATH IS CONST MATH (design 185).** `& | ^ << >> ~` fold in a constant,
   so a bit position, a mask or a page size is written as the arithmetic that
   produces it in EVERY const position — a `static_assert`, an array length, a

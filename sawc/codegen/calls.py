@@ -1423,7 +1423,18 @@ class CallsMixin:
         A chain of selects over the declared values: the result is `Some(case)`
         for a value that names one and `None` otherwise. No branching and no
         trap — an unrecognized wire byte is data the caller decides about.
+
+        DF-232i: on a GENERIC enum the typechecker stamps the BASE name (the tag
+        table is the enum's, not the instantiation's) but only the monomorphized
+        `Code$1$Int` is ever registered, so the instantiation is resolved here
+        from the result type's own arguments. `_ensure_monomorphized_enum` is
+        idempotent and is what carries the declared raw values onto the copy.
         """
+        if enum_name not in self.enum_types and enum_name in self.generic_enums:
+            result_type = getattr(expr, 'resolved_type', None)
+            inner = getattr(result_type, 'inner_type', None)
+            type_args = list(getattr(inner, 'type_args', None) or [])
+            enum_name = self._ensure_monomorphized_enum(enum_name, type_args)
         llvm_enum_type, variant_tags, _ = self.enum_types[enum_name]
         raw = self._generate_expression(expr.arguments[0].value)
 

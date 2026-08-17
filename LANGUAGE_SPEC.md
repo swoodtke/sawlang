@@ -1614,6 +1614,12 @@ if let e = SysError.from(raw: byte) {
 declares. It is a lookup, not an `init` — an unrecognized byte off a wire is
 data the caller decides about, not a trap.
 
+A backing survives GENERICS. `enum Code<T>: UInt8` carries its declared values
+into every instantiation, so `Code<Int>.Warn as UInt8` and
+`Code<String>.Warn as UInt8` are the same declared byte — the tags belong to the
+enum, not to the instantiation, and only a payload type could differ between
+them.
+
 A case of a backed enum is a compile-time constant, so it may be a
 `static_assert` operand, an array length, or an operand of the bit operators in
 a constant. A combination of cases is the **backing integer**, not the enum; see
