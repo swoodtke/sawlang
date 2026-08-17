@@ -91,7 +91,18 @@ should be reachable from a sibling file and from nowhere else.
 WHAT THE TIER WOULD COST is small on today's model: package identity already
 exists (a `--module-path` name / a Blade dependency), and design 144 already
 makes TYPE identity `(defining module, name)` — so `internal` is a third answer
-in the same visibility check, not a new concept. [232, design 80/82/204]
+in the same visibility check, not a new concept.
+RULED Aug 17 (user): **`--module-path` packages JOIN the design-80 package
+relation, package root = the mapped directory** — files under one mapped dir
+are one package (siblings see each other's `public(package)`); the entry
+file and other consumers are OUTSIDE it. No new keyword: `public(package)`
+is the spelling. Fix shape: package-root plumbing for --module-path modules
+into the existing visibility check + tests both ways; then a mechanical
+RE-NARROWING rider flips kcore's 199 publics to `public(package)` wherever
+no consumer needs the name (target: back near the original 15). One check
+owed by the fix: `imgformat` is consumed by Blade as a path dependency AND
+by the kernel via --module-path — the two mechanisms must agree on package
+identity for the same directory. [232, design 80/82/204]
 
 ## DF-232e — an IMPORT CYCLE is not diagnosed: the symbols silently vanish and
 ## the error lands on an innocent third module (filed Aug 17, the kcore split's
