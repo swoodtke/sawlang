@@ -231,6 +231,20 @@ deferred close/generations tier into M3 as **UNIT 2.75, the handle
 lifecycle**, landing just before or with `give` (unit 3, which
 manipulates tables anyway). Quotas (unit 5) gain a handle-count row.
 
+**GENERATIONS ARE BEST-EFFORT, NOT GUARANTEED (user, Aug 17)**: the
+top N bits of the handle word, incrementing per slot reuse and
+WRAPPING on overflow — a guide, not a uniqueness guarantee. What this
+trades is stated so nobody later "fixes" it into unbounded
+bookkeeping: the stale-use `BadHandle` fault becomes BEST-EFFORT
+DETECTION of a bug — it catches the overwhelmingly common case (a
+recently-released word), and a word held across exactly 2^N reuses of
+one slot aliases silently. This loses NO security whatsoever: handle
+tables are PER-PROCESS, so a wrap collision can only confuse a
+process with its own entries — it crosses no boundary and grants
+nothing. Generations guard against bugs; the capability model guards
+against attacks; the two are different jobs. The N split (index bits
+vs generation bits) is the unit's to pick and document per word size.
+
 **THE RIGHTS VOCABULARY (ruled)**: MOVE is the existing universal
 `Transfer` right — no synonym minted; `give` already gates on it.
 RELEASE IS UNGATED — destroying your own capability instance harms no
