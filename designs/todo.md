@@ -31,11 +31,15 @@ The Aug-17 rulings, recorded so the brief writes itself:
    vocabulary). NO stdlib-wide errno-style enum as a return type (signatures
    would lie; dead match arms). `Box<any Error>` is the APP aggregation tier;
    std never erases.
-3. **Declared error LIFTING for `try`** (From-style): a compound enum declares
-   it lifts a leaf (`ChannelError` lifts `AllocError`); `try` auto-lifts when
-   exactly one declared path exists, clean error on ambiguity. The catch-site
-   synthesized union stays unnameable (that design holds); lifting is the
-   signature-crossing mechanism.
+3. **STRUCTURAL error LIFTING for `try`** (refined Aug 17: no declaration, no
+   new trait — the case IS the annotation). At a `try` site whose callee error
+   is not the function's error type, the target enum's cases whose SINGLE
+   payload is EXACTLY the source error type are the candidates: exactly one →
+   `try` injects automatically (the error-side mirror of Ok auto-wrap); two →
+   clean error naming both, outs = manual wrap or restructure. Match by
+   payload TYPE not case name; SINGLE HOP only (no transitive search); an
+   erased `Box<any Error>` case is never a candidate. The catch-site
+   synthesized union stays unnameable (that design holds).
 4. **`try_` PREFIX MEANS NON-BLOCKING, nothing else** — reserved for
    non-blocking variants of potentially blocking ops. Standard shape: the
    blocking op's error type with the payload optionalized —
