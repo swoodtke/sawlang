@@ -1,0 +1,10 @@
+// DF-229a: the private case reaches a TYPE too — the visibility arms of the
+// categories the loop did check had no else either, so a private struct was
+// exactly as silent as a name that did not exist.
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: `Calibration` is private in `modules.df229a_leaf`
+import modules.df229a_leaf.{Gauge, Calibration}
+
+func main() {
+    print("{Gauge(reading: 1).reading}")
+}

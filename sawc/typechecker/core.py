@@ -1212,6 +1212,107 @@ class TypeChecker(ExpressionsMixin, StatementsMixin, RegistrationMixin, TypeUtil
             hint=hint)
         return True
 
+    # ---------------------------------------------------------------- #
+    # THE SELECTIVE-IMPORT SURFACE (DF-229a) — one funnel, six categories.
+    #
+    # `import m.{A, B}` on a USER module used to be a chain of
+    # `if <found in table X>: bind` arms with no else, so a selected name that
+    # matched no arm fell off the end and the import compiled clean with
+    # nothing bound. std never had that hole: `_process_std_import` tests
+    # membership in the leaf's precomputed name set BEFORE dispatching on
+    # category, so it reports a missing name, and it reports it once.
+    #
+    # These two methods are that shape for a user module. `_selective_import_
+    # entry` answers "what does this module bind under that name, and is it on
+    # the surface"; `_module_selectable_names` is the `available:` list the
+    # miss reports. Both walk ONE category tuple, so a category cannot be
+    # coverable by the binder and invisible to the diagnostic (or the reverse,
+    # which is how the type-alias arm came to be missing from both).
+    #
+    # ENTRY POINTS (obligation 1): `check_module`'s selective-import branch is
+    # the only caller of the binder; the listing is additionally read by the
+    # private-name report beside it. The GLOB branch does not funnel through
+    # here — a glob names nothing, so it has no miss to report and iterates the
+    # source tables directly.
+    # ---------------------------------------------------------------- #
+
+    # (kind word, how the source module binds a name of that kind). Order is
+    # the dispatch order the arms had before the funnel: a name in two tables
+    # resolves the way it always did.
+    _SELECTIVE_IMPORT_CATEGORIES = ("struct", "enum", "function", "static",
+                                    "trait", "type alias")
+
+    @staticmethod
+    def _lookup_selectable(source_ns, kind, name):
+        """`source_ns`'s binding of `name` in category `kind`, or None."""
+        if kind == "struct":
+            return source_ns.lookup_struct(name)
+        if kind == "enum":
+            return source_ns.lookup_enum(name)
+        if kind == "function":
+            return source_ns.functions.get(name)
+        if kind == "static":
+            # A module-PRIVATE static lives in the per-module overlay rather
+            # than the shared slot (DF-140h), so the private case is only
+            # reachable by asking as the declaring module.
+            return source_ns.get_static(name, tuple(source_ns.module_path))
+        if kind == "trait":
+            return source_ns.lookup_trait(name)
+        if kind == "type alias":
+            return source_ns.lookup_type_alias(name)
+        return None
+
+    def _selective_import_entry(self, source_ns, name):
+        """`(kind, symbol)` for what `source_ns` binds under `name`, or None.
+
+        Categories are tried in the fixed order above, so the answer is the one
+        the pre-funnel dispatch would have reached."""
+        for kind in self._SELECTIVE_IMPORT_CATEGORIES:
+            sym = self._lookup_selectable(source_ns, kind, name)
+            if sym is not None:
+                return kind, sym
+        return None
+
+    def _module_selectable_names(self, source_ns, builtin_namespace):
+        """Sorted names an importer may select out of `source_ns`.
+
+        A module's surface is what it declares `public` plus what it
+        `public import`s — never a name it merely imports (design 229), and
+        never one of the builtins every namespace carries a copy of. The
+        builtin filter is by symbol IDENTITY: `merge_into` shares symbol
+        objects by reference, so a name whose symbol IS the builtin
+        namespace's is one this module never declared."""
+        from ast_nodes import Visibility
+        names = set()
+        for kind in self._SELECTIVE_IMPORT_CATEGORIES:
+            if kind == "function":
+                candidates = list(source_ns.functions)
+            elif kind == "static":
+                candidates = list(source_ns.statics)
+            else:
+                # One spelling table backs all four type categories, and a
+                # spelling that is not of THIS kind simply looks up as None.
+                candidates = list(source_ns.type_names)
+            for name in candidates:
+                if name in names or source_ns.hidden_import(name) is not None:
+                    continue
+                sym = self._lookup_selectable(source_ns, kind, name)
+                if sym is None or sym.visibility != Visibility.PUBLIC:
+                    continue
+                if builtin_namespace is not None:
+                    shared = self._lookup_selectable(builtin_namespace, kind,
+                                                     name)
+                    if shared is sym:
+                        continue
+                names.add(name)
+        return sorted(names)
+
+    def _available_hint(self, names) -> str:
+        """std's `available:` line, for a module that may publish nothing."""
+        if not names:
+            return "it publishes no names"
+        return "available: " + ", ".join(names)
+
     def _import_hiding(self, name: str, as_module: bool = False):
         """`(how this file spells the module, where the name really lives)` for
         a module THIS file imports that binds `name` without re-exporting it.
@@ -2461,52 +2562,66 @@ class TypeChecker(ExpressionsMixin, StatementsMixin, RegistrationMixin, TypeUtil
                         if self._report_not_reexported(
                                 source_ns, sym_name, sel_label, imp):
                             continue
+                        # DF-229a: what the module binds under this name, asked
+                        # ONCE, before any category dispatch — std's shape. The
+                        # two ways a selection can fail are reported here rather
+                        # than falling off the end of the arms below, which is
+                        # what let `import m.{NoSuchThing}` compile clean.
+                        entry = self._selective_import_entry(source_ns, sym_name)
+                        if entry is None:
+                            self._error(
+                                ErrorKind.UNKNOWN_TYPE,
+                                f"`{sym_name}` is not defined in `{sel_label}`",
+                                getattr(imp, 'line', 0),
+                                getattr(imp, 'column', 0),
+                                hint=self._available_hint(
+                                    self._module_selectable_names(
+                                        source_ns, builtin_namespace)))
+                            continue
+                        sel_kind, sym = entry
+                        if sym.visibility != Visibility.PUBLIC:
+                            self._error(
+                                ErrorKind.UNKNOWN_TYPE,
+                                f"`{sym_name}` is "
+                                f"{self._vis_word(sym.visibility)} in "
+                                f"`{sel_label}`",
+                                getattr(imp, 'line', 0),
+                                getattr(imp, 'column', 0),
+                                hint=f"mark it `public` in `{sel_label}` to "
+                                     f"expose it; "
+                                     + self._available_hint(
+                                         self._module_selectable_names(
+                                             source_ns, builtin_namespace)))
+                            continue
                         _note_import(imp, local, sel_label)
-                        sel_struct = source_ns.lookup_struct(sym_name)
-                        sel_enum = (None if sel_struct is not None
-                                    else source_ns.lookup_enum(sym_name))
-                        if sel_struct is not None:
-                            sym = sel_struct
-                            if sym.visibility == Visibility.PUBLIC:
-                                ns.register_struct(local, sym,
-                                                   source_label=sel_label)
-                                ns.make_accessible(local)
+                        if sel_kind in ("struct", "enum", "trait", "type alias"):
+                            register = {
+                                "struct": ns.register_struct,
+                                "enum": ns.register_enum,
+                                "trait": ns.register_trait,
+                                "type alias": ns.register_type_alias,
+                            }[sel_kind]
+                            register(local, sym, source_label=sel_label)
+                            ns.make_accessible(local)
+                            if sel_kind in ("struct", "enum"):
                                 _ident = source_ns.resolve_type_identity(sym_name)
                                 _import_conformances(_ident, _ident, source_ns)
-                        elif sel_enum is not None:
-                            sym = sel_enum
-                            if sym.visibility == Visibility.PUBLIC:
-                                ns.register_enum(local, sym,
-                                                 source_label=sel_label)
-                                ns.make_accessible(local)
-                                _ident = source_ns.resolve_type_identity(sym_name)
-                                _import_conformances(_ident, _ident, source_ns)
-                        elif sym_name in source_ns.functions:
-                            sym = source_ns.functions[sym_name]
-                            if sym.visibility == Visibility.PUBLIC:
-                                # For an ALIASED function, bind a copy whose
-                                # codegen name is the real symbol (design 53), so
-                                # a call under the alias reaches the real
-                                # definition. Unaliased imports are unchanged.
-                                if local != sym_name and not sym.mangled_name:
-                                    import dataclasses
-                                    sym = dataclasses.replace(
-                                        sym, mangled_name=sym_name)
-                                if local not in ns.functions:
-                                    ns.register_function(local, sym)
-                                ns.make_accessible(local)
-                        elif sym_name in source_ns.statics:
-                            sym = source_ns.statics[sym_name]
-                            if sym.visibility == Visibility.PUBLIC:
-                                if local not in ns.statics:
-                                    ns.register_static(local, sym)
-                                ns.make_accessible(local)
-                        elif source_ns.lookup_trait(sym_name) is not None:
-                            sym = source_ns.lookup_trait(sym_name)
-                            if sym.visibility == Visibility.PUBLIC:
-                                ns.register_trait(local, sym,
-                                                  source_label=sel_label)
-                                ns.make_accessible(local)
+                        elif sel_kind == "function":
+                            # For an ALIASED function, bind a copy whose
+                            # codegen name is the real symbol (design 53), so
+                            # a call under the alias reaches the real
+                            # definition. Unaliased imports are unchanged.
+                            if local != sym_name and not sym.mangled_name:
+                                import dataclasses
+                                sym = dataclasses.replace(
+                                    sym, mangled_name=sym_name)
+                            if local not in ns.functions:
+                                ns.register_function(local, sym)
+                            ns.make_accessible(local)
+                        else:
+                            if local not in ns.statics:
+                                ns.register_static(local, sym)
+                            ns.make_accessible(local)
                     # The selective form ALSO binds the qualifier, for reaching
                     # the names it did not select (design 150 pin 3). That
                     # qualifier is this module's convenience and stays private

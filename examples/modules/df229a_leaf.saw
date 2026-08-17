@@ -1,0 +1,36 @@
+//! DF-229a fixture: a module with one PUBLIC declaration in every category a
+//! selective import can name — struct, enum, trait, function, static and type
+//! alias — plus a private one of two of them, so the three ways a selection can
+//! land (bound, private, absent) all have something to point at.
+// EXPECT: skip
+
+public struct Gauge {
+    public reading: Int
+}
+
+public enum Scale {
+    case Metric, case Imperial
+}
+
+public trait Measured {
+    func measure(&self) -> Int
+}
+
+public extension Gauge: Measured {
+    public func measure(&self) -> Int { self.reading }
+}
+
+public func gauge_make(reading: Int) -> Gauge {
+    Gauge(reading: reading)
+}
+
+public static GAUGE_LIMIT: Int = 12
+
+public type Meters = Int
+
+// Private on purpose: the second way a selection fails.
+func trim(n: Int) -> Int { n - 1 }
+
+struct Calibration {
+    offset: Int
+}

@@ -1,0 +1,12 @@
+// DF-229a: the second way a selection fails — the module HAS the name and
+// keeps it private. Same funnel, and it says which of the two mistakes this is
+// rather than falling off the end of the category arms.
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: `trim` is private in `modules.df229a_leaf`
+// EXPECT-ERROR-CONTAINS: mark it `public` in `modules.df229a_leaf` to expose it
+// EXPECT-ERROR-CONTAINS: available: GAUGE_LIMIT, Gauge, Measured, Meters, Scale, gauge_make
+import modules.df229a_leaf.{Gauge, trim}
+
+func main() {
+    print("{Gauge(reading: 1).reading}")
+}
