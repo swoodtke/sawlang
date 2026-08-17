@@ -39,23 +39,6 @@ reaches no expected type), so `>= (1 << 8)` against a `UInt32` is refused and
 `(1u32 << 8)` is its spelling — which is why the abi `static_assert`s kept their
 decimals as well. [232]
 
-## DF-232b — `type` cannot be a parameter name or LABEL, so a ruled API
-## spelling was unwritable (filed Aug 17, SOS M3 unit 1)
-
-`func f(type: ClockType)` is `Parse error: Expected parameter name` —
-`type` introduces a distinct type alias, so it is a keyword and cannot
-name a binding. The user-ruled surface for design 232 unit 1 was
-`System.clock_get(type: ClockType.Monotonic)`; it is built as `kind:`,
-which is the vocabulary the rest of SOS already uses
-(`ProcessStatusKind`, `WaitableKind`, `exit_kind`).
-Worth a decision rather than a silent rename: a label is not a binding
-— nothing in `f(type: x)` at the CALL site declares anything — so the
-parameter LABEL could legitimately admit keywords even while the
-parameter NAME does not, which is the split Swift makes. Whether the
-name should too (a raw-identifier escape, Rust's `r#type`) is the wider
-question. Until then any API wanting `type:` has to spell it otherwise.
-[232]
-
 ## DF-232a — INTERNAL COMPILER ERROR: a bare integer literal does not
 ## adopt the expected fixed-width type in PLAIN ASSIGNMENT position
 ## (filed Aug 17, SOS M3 unit 1; pinned)
