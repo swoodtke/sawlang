@@ -1548,17 +1548,30 @@ class TypeUtilsMixin:
         """
         if written is None or depth > 8:
             return written
-        for slot in ('inner_type', 'array_element_type', 'func_return_type'):
-            child = getattr(written, slot, None)
-            if child is not None:
-                setattr(written, slot,
-                        self._resolve_declared_qualified_names(child, depth + 1))
-        for slot in ('type_args', 'element_types', 'param_types'):
-            children = getattr(written, slot, None)
-            if children:
-                setattr(written, slot,
-                        [self._resolve_declared_qualified_names(c, depth + 1)
-                         for c in children])
+        # Written out slot by slot rather than looped over names: a computed
+        # `setattr` is invisible to the design-126 AST-contract gate, which can
+        # only account for attributes it can see being assigned.
+        if written.inner_type is not None:
+            written.inner_type = self._resolve_declared_qualified_names(
+                written.inner_type, depth + 1)
+        if written.array_element_type is not None:
+            written.array_element_type = self._resolve_declared_qualified_names(
+                written.array_element_type, depth + 1)
+        if written.func_return_type is not None:
+            written.func_return_type = self._resolve_declared_qualified_names(
+                written.func_return_type, depth + 1)
+        if written.type_args:
+            written.type_args = [
+                self._resolve_declared_qualified_names(c, depth + 1)
+                for c in written.type_args]
+        if written.element_types:
+            written.element_types = [
+                self._resolve_declared_qualified_names(c, depth + 1)
+                for c in written.element_types]
+        if written.param_types:
+            written.param_types = [
+                self._resolve_declared_qualified_names(c, depth + 1)
+                for c in written.param_types]
         name = None
         if written.kind == TypeKind.STRUCT and written.struct_name:
             name = written.struct_name
