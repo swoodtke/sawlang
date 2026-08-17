@@ -1,0 +1,36 @@
+// A STATIC extension method reached through an INSTANCE binds its labels the
+// same way it does through the type.
+//
+// `Bag.solo(index: 3)` works. `b.solo(index: 4)` reports ``solo` has no
+// parameter named `index`` — with ONE method declared, so no overload set and
+// no tie-break is involved. The instance path strips a `self` slot the callee
+// does not have, so every label lines up against the wrong parameter and the
+// last one falls off the end; where the labels happen to bind, codegen then
+// passes the receiver as argument 0 and fails the verifier
+// (`Type of #1 arg mismatch: i64 != %"Bag"`).
+//
+// Found while fixing DF-217e, whose pin originally called its statics this way.
+// The two are independent: DF-217e was the DECLARATION-site identity test
+// (`_overload_cand_offset` on both sides now), and this is the CALL-site
+// parameter offset, `expressions.py`'s `param_offset = 1 if not
+// method_info.is_init else 0`, which owes the same `is_static` term. Fixing it
+// means deciding whether an instance may name a static at all — the alternative
+// reading is a clean refusal pointing at `Bag.solo(...)` — so it wants a ruling
+// rather than a patch.
+// XFAIL: DF-217q a static extension method called through an instance mis-binds its labels, because the call-site parameter offset skips a `self` slot the callee does not have
+// EXPECT: success
+// EXPECT-OUTPUT:
+// type 3
+// instance 4
+
+struct Bag { n: Int }
+
+extension Bag {
+    func solo(index: Int) -> Int { index }
+}
+
+func main() {
+    print("type {Bag.solo(index: 3)}")
+    let b = Bag(n: 0)
+    print("instance {b.solo(index: 4)}")
+}

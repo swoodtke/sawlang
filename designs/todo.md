@@ -2608,13 +2608,38 @@ DF-217e) is untouched and still open.
      i64 != %"Plain"`). Free-function twin clean. The 216c family's sharpest
      member.
      PIN: `examples/generic_method_default_type_and_value_param.saw`
-   - **DF-217e — method-declaration duplicate-signature checking ignores
-     labels.** Two methods distinguished only by labels refused at DECLARATION
-     (`indistinguishable signature`); the identical free-function pair works.
-     Contradicts LANGUAGE_SPEC.md:389 ("labels are part of a function's
-     identity"). Fix wants the label-aware identity test `_resolve_overload`
-     already uses.
-     PIN: `examples/method_overloads_distinguished_by_labels.saw`
+   - **DF-217e — CLOSED (Aug 17), and the diagnosis in the filing was wrong.**
+     Labels were never ignored: the method identity test has been label-aware
+     since design 66. It sliced a hardcoded `self` off EVERY method, and a
+     STATIC extension method has none in its parameter list — so its first real
+     parameter, TYPE and LABEL together, dropped out of the key, and any two
+     statics agreeing on everything after slot 0 collided. That is exactly why
+     the reported pair (differing in the only label there is) was refused while
+     `labeled_overload_method_static.saw`'s pair (differing in its SECOND
+     label) passed. The same off-by-one reached the MANGLER, so two such
+     statics would also have collided in the LLVM symbol table. Both sides read
+     `_overload_cand_offset` now — the notion `_resolve_overload` uses at the
+     call site — which is the funnel obligation 1 asks for. Matrix:
+     `examples/method_overload_static_first_param.saw` (first label, first
+     type, arity, and the second-label control), reject side
+     `examples/errors/method_overload_identical_signature.saw`. PIN flipped:
+     `examples/method_overloads_distinguished_by_labels.saw`. Gated on suite +
+     `sos_runner` both arches.
+   - **DF-217q (COMPILER, filed Aug 17 while fixing DF-217e): a STATIC
+     extension method called through an INSTANCE mis-binds its labels.**
+     `Bag.solo(index: 3)` works; `b.solo(index: 4)` reports ``solo` has no
+     parameter named `index`` with ONE method declared — no overload set, no
+     tie-break. The CALL-site parameter offset
+     (`expressions.py` `param_offset = 1 if not method_info.is_init else 0`)
+     owes the same `is_static` term DF-217e's fix gave the declaration side and
+     the mangler; where the labels do happen to bind, codegen then passes the
+     receiver as argument 0 and fails the verifier (`Type of #1 arg mismatch:
+     i64 != %"Bag"`). NOT fixed: the honest fix has to decide whether an
+     instance may name a static at all — the alternative reading is a clean
+     refusal pointing at the type spelling — and that is a ruling, not a patch.
+     The DF-217e pin originally called its statics this way, which is how this
+     surfaced. PIN: `examples/static_method_called_on_instance.saw` (XFAIL,
+     cited).
 
 Reviewed and NOT owed a sweep (mechanism already funneled or swept by its
 fix): design 196's erased-error family (one canonical spelling, unit 2; the

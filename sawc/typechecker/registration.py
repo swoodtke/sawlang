@@ -1044,13 +1044,18 @@ class RegistrationMixin:
                 for sym in overloads:
                     if sym.type_params:
                         continue
-                    offset = 0 if sym.is_init else 1
+                    # The same offset the declaration check and the call-site
+                    # resolver use: a STATIC method has no `self` slot to skip,
+                    # and slicing one off dropped its first parameter from the
+                    # MANGLED name too, so two statics differing only there
+                    # collided in the LLVM symbol table (DF-217e).
+                    offset = self._overload_cand_offset(sym, True)
                     sig_counts[_type_sig(sym.param_types[offset:])] = \
                         sig_counts.get(_type_sig(sym.param_types[offset:]), 0) + 1
                 for sym in overloads:
                     if sym.type_params:
                         continue
-                    offset = 0 if sym.is_init else 1
+                    offset = self._overload_cand_offset(sym, True)
                     tsig = _type_sig(sym.param_types[offset:])
                     need_labels = sig_counts.get(tsig, 0) > 1
                     mangled = mangle_overload(
@@ -2708,7 +2713,14 @@ class RegistrationMixin:
             # tie-break rule could separate, expanding default-value call shapes
             # (self excluded from the signature).
             if not method.is_init and not is_specialized:
-                new_offset = 1  # exclude self
+                # Where this method's LOGICAL parameters start. A hardcoded 1
+                # here sliced a `self` off every method, and a STATIC extension
+                # method has none in its parameter list — so its first real
+                # parameter, type and LABEL together, vanished from the identity
+                # and any two statics agreeing on everything after slot 0
+                # collided (DF-217e). `_overload_cand_offset` is the notion the
+                # call-site resolver already uses; both sides read it now.
+                new_offset = self._overload_cand_offset(method, True)
                 new_keys = self._overload_shape_keys(
                     param_types[new_offset:], method.type_params,
                     default_values[new_offset:], param_names[new_offset:])
@@ -2718,7 +2730,7 @@ class RegistrationMixin:
                     # declaration-site duplicate (see the note above).
                     if (getattr(other, 'def_module', ()) or ()) != ext_def_module:
                         continue
-                    o_off = 0 if other.is_init else 1
+                    o_off = self._overload_cand_offset(other, True)
                     other_keys = self._overload_shape_keys(
                         other.param_types[o_off:], other.type_params,
                         (other.default_values[o_off:] if other.default_values

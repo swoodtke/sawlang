@@ -1,0 +1,20 @@
+// The accept side of DF-217e has a reject side: two methods that agree on
+// EVERYTHING — arity, types and labels — are still indistinguishable, and no
+// tie-break rule at any call site could separate them.
+//
+// Worth pinning beside the fix, because the fix widened what counts as a
+// difference (a static's slot 0 rejoined the identity). A widened key must not
+// become a key that never collides.
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: is already defined for struct `Bag` with an indistinguishable signature
+
+struct Bag { n: Int }
+
+extension Bag {
+    func at(index: Int) -> Int { index }
+    func at(index: Int) -> Int { index * 10 }
+}
+
+func main() {
+    print(Bag.at(index: 1))
+}

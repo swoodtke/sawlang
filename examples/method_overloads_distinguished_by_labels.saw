@@ -1,29 +1,45 @@
-// XFAIL: DF-217e method-declaration duplicate-signature checking ignores
-// labels, so two methods distinguished only by their labels are refused at the
-// DECLARATION
+// Two methods distinguished only by their argument LABELS declare and resolve,
+// exactly as the identical free-function pair does (DF-217e).
 //
-// LANGUAGE_SPEC.md says labels are part of a function's identity, and the
-// free-function pair below proves the language means it — the same two
-// signatures as free functions declare and resolve fine. Only the extension
-// pair is rejected as an `indistinguishable signature`, because the
-// method-declaration identity test compares parameter TYPES and drops the
-// labels that `_resolve_overload` already knows how to compare at the call
-// site.
+// LANGUAGE_SPEC.md says labels are part of a function's identity. The
+// method-declaration identity test agreed — it has been label-aware since
+// design 66 — but it sliced a hardcoded `self` off EVERY method before building
+// the key, and a STATIC extension method has no `self` in its parameter list.
+// Its first real parameter, type and label together, vanished from the
+// identity, so any two statics agreeing on everything after slot 0 collided:
 //
-// Third member of the DF-216c family (the method-side call machinery is a
-// second, independently written implementation of what free functions get
-// right). The fix wants the label-aware identity test the resolver already
-// uses.
+//     error: method `at` is already defined for struct `Bag` with an
+//            indistinguishable signature
+//
+// That is why the pair below was refused while
+// `labeled_overload_method_static.saw`'s pair passed — the latter differs in
+// its SECOND label, which the slice left visible. The same off-by-one reached
+// the MANGLING, so two statics differing only in slot 0 also collided in the
+// LLVM symbol table. Both sides read `_overload_cand_offset` now, which is the
+// notion `_resolve_overload` uses at the call site.
+//
+// The statics are called on the TYPE, which is the spelling for a method with
+// no `self`. Calling one through an INSTANCE (`b.at(index: 3)`) is a separate
+// and still-open defect — it mis-binds labels with no overload set involved at
+// all — filed as DF-217q and pinned in
+// `examples/static_method_called_on_instance.saw`.
 // EXPECT: success
 // EXPECT-OUTPUT:
 // free 3 30
-// method 3 30
+// static 3 30
+// instance 4 40
 
 struct Bag { n: Int }
 
 extension Bag {
+    // The reported pair: static, one parameter, distinguished only by label.
     func at(index: Int) -> Int { index }
     func at(key: Int) -> Int { key * 10 }
+
+    // The instance twin, which always worked — the receiver occupies the slot
+    // the hardcoded offset was written for.
+    func on(&self, index: Int) -> Int { index }
+    func on(&self, key: Int) -> Int { key * 10 }
 }
 
 func at_free(index: Int) -> Int { index }
@@ -31,6 +47,7 @@ func at_free(key: Int) -> Int { key * 10 }
 
 func main() {
     print("free {at_free(index: 3)} {at_free(key: 3)}")
+    print("static {Bag.at(index: 3)} {Bag.at(key: 3)}")
     let b = Bag(n: 0)
-    print("method {b.at(index: 3)} {b.at(key: 3)}")
+    print("instance {b.on(index: 4)} {b.on(key: 4)}")
 }

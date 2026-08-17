@@ -1,0 +1,46 @@
+// A STATIC extension method's FIRST parameter is part of its identity, on every
+// axis the identity has (DF-217e).
+//
+// The declaration check and the mangler both sliced a hardcoded `self` off
+// every method. A static has none, so slot 0 — its type, its label, and its
+// very existence — dropped out of both. Any two statics agreeing on everything
+// after slot 0 were refused as indistinguishable, and any that got past the
+// check would have mangled to one symbol.
+//
+// The pin `method_overloads_distinguished_by_labels.saw` carries the reported
+// row (two statics differing only in a LABEL). This is the rest of slot 0.
+// EXPECT: success
+// EXPECT-OUTPUT:
+// first-label 12 21
+// first-type 1 2
+// arity 0 7
+// second-label 30 12
+
+struct Bag { n: Int }
+
+extension Bag {
+    // Two statics differing in their FIRST label only.
+    func of(a: Int, b: Int) -> Int { a * 10 + b }
+    func of(x: Int, b: Int) -> Int { x + b * 10 }
+
+    // Differing in the first parameter's TYPE — the slice dropped the type as
+    // surely as the label.
+    func from(v: Int) -> Int { 1 }
+    func from(v: Bool) -> Int { 2 }
+
+    // Differing in ARITY, where the missing slot was the only difference.
+    func make() -> Int { 0 }
+    func make(seed: Int) -> Int { seed }
+
+    // The control: differing in the SECOND label, which the slice left visible
+    // and which therefore always worked.
+    func pick(a: Int, lo: Int) -> Int { a * 10 + lo }
+    func pick(a: Int, hi: Int) -> Int { a + hi * 10 }
+}
+
+func main() {
+    print("first-label {Bag.of(a: 1, b: 2)} {Bag.of(x: 1, b: 2)}")
+    print("first-type {Bag.from(v: 9)} {Bag.from(v: true)}")
+    print("arity {Bag.make()} {Bag.make(seed: 7)}")
+    print("second-label {Bag.pick(a: 2, lo: 10)} {Bag.pick(a: 2, hi: 1)}")
+}
