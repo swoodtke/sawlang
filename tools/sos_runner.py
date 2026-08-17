@@ -926,10 +926,12 @@ TEST_CASES = [
         "src": os.path.join(KERNEL_DIR, "main.saw"),
         "root_pkg": CLOCK_BASICS_PKG,
         "expect_out": ["{banner}",
-                       # Asking twice hands back the SAME clock — a machine has
-                       # one monotonic clock, so a second object would be a
-                       # second name for it. The teardown's clocks=1 after two
-                       # asks is the other half of that evidence.
+                       # Asking twice hands back the SAME handle — the machine's
+                       # one monotonic Clock is a single kernel-eternal object
+                       # (Aug 17), so there is nothing a second ask could mint a
+                       # second name for. The teardown line below carries no
+                       # `clocks=` column for the same reason: a process owns no
+                       # clock, so a dead one frees none.
                        "SOS clock: same=1",
                        "SOS clock: monotonic=1",
                        # `advanced` alone would pass on a counter of anything;
@@ -942,7 +944,7 @@ TEST_CASES = [
                        "SOS clock: done",
                        "SOS: process teardown handles={five} threads={one} "
                        "events={zero} waiters={zero} interrupts={zero} "
-                       "clocks={one} timers={one}"],
+                       "timers={one}"],
         "expect_clean_exit": True,
     },
     {
@@ -966,7 +968,7 @@ TEST_CASES = [
                        "SOS oneshot: done",
                        "SOS: process teardown handles={six} threads={one} "
                        "events={zero} waiters={one} interrupts={zero} "
-                       "clocks={one} timers={one}"],
+                       "timers={one}"],
         "expect_clean_exit": True,
     },
     {
@@ -1002,7 +1004,7 @@ TEST_CASES = [
                        "SOS interval: done",
                        "SOS: process teardown handles={six} threads={one} "
                        "events={zero} waiters={one} interrupts={zero} "
-                       "clocks={one} timers={one}"],
+                       "timers={one}"],
         "expect_clean_exit": True,
     },
     {
@@ -1021,7 +1023,7 @@ TEST_CASES = [
                        "SOS: process fault: every thread blocked",
                        "SOS: process teardown handles={six} threads={one} "
                        "events={zero} waiters={one} interrupts={zero} "
-                       "clocks={one} timers={one}"],
+                       "timers={one}"],
         "expect_clean_exit": False,
         "expect_status": EXIT_PROCESS_FAULT,
     },
@@ -1040,7 +1042,7 @@ TEST_CASES = [
                        "SOS: process fault: argument outside its domain",
                        "SOS: process teardown handles={three} threads={one} "
                        "events={zero} waiters={zero} interrupts={zero} "
-                       "clocks={zero} timers={zero}"],
+                       "timers={zero}"],
         "expect_clean_exit": False,
         "expect_status": EXIT_PROCESS_FAULT,
     },
@@ -1061,7 +1063,7 @@ TEST_CASES = [
                        "SOS: process fault: argument outside its domain",
                        "SOS: process teardown handles={five} threads={one} "
                        "events={zero} waiters={zero} interrupts={zero} "
-                       "clocks={one} timers={one}"],
+                       "timers={one}"],
         "expect_clean_exit": False,
         "expect_status": EXIT_PROCESS_FAULT,
     },

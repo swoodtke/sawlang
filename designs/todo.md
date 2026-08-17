@@ -99,11 +99,17 @@ M2 had six, the per-arch timer seam reshaped from periodic to ABSOLUTE
 so the tick and Timer deadlines share one comparator with §7 inviolate,
 the copy-IN funnel built as copy-out's mirror twin (M4 IPC inherits
 it), and the idle/deadlock rule generalized so an armed Timer counts
-like a bound IRQ line. 38 harness cases per architecture. The
+like a bound IRQ line. 40 harness cases per architecture. The
 as-built decisions — op/right numbering, the record layouts, and the
 disarm/re-arm semantics the brief delegated — are recorded in 232's
-"UNIT 1 AS BUILT" section. Two findings filed rather than worked
-around: DF-232a and DF-232b, above.
+"UNIT 1 AS BUILT" section, together with the review riders: the
+Aug-17 rulings that an EVENT'S WORD IS CONSUMED ON DELIVERY (two
+doors onto one value, `receive` unchanged as the poll), that a
+Timer's verbs are METHODS ON ITS SLOT (the `unsafe` effect retreating
+to the slab indexing), and that the hardware CLOCK IS A GLOBAL
+SINGLETON per `ClockType`, kernel-eternal and freed by no teardown.
+Two findings filed rather than worked around: DF-232a and DF-232b,
+above.
 NEXT: unit 1.5 (kernel interruptibility, pin 1's ruling) before
 CreateProcess, so the image-copy loop is born with its preemption
 points. [178, 232]

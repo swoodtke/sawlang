@@ -589,6 +589,46 @@ multi-access clock body there was.
 
 No behavior changed, and the 80 harness runs on both arches are what say so.
 
+**REVIEW RIDER (ruled Aug 17, user) — THE HARDWARE CLOCK IS A GLOBAL
+SINGLETON.** A hardware-backed Clock is ONE KERNEL-ETERNAL OBJECT PER
+`ClockType`, existing from boot and owned by nobody. THE RATIONALE FOR THE
+RECORD: a `ClockSlot` holds no per-process state — the machine's counter is the
+clock, and the slot recorded only whose it was and which domain it named — so a
+per-process object was a copy of a fact with a lifetime attached to it. Virtual
+clocks later are a DIFFERENT ANIMAL: separately created, STATEFUL (offset, rate,
+owner), with their own creation op and their own lifetime. Sharing this slab
+with them would put two kinds of thing in one table for the sake of a word they
+share.
+
+DELETED: the `process` field, `alloc_clock`, the `NO_CLOCK` sentinel, the
+find-or-create scan, `clock_get`'s slab `NoResource` path, the teardown's clock
+loop, and the `clocks=` column of the teardown report (a line that counts what a
+process OWNED has no place for a permanent zero). `MAX_CLOCKS = MAX_PROCESSES + 1`
+became `CLOCK_KINDS = 1` — not a budget but a census of domains — and `ClockSlot`
+is now one field wide. THE SLOT IS THE DOMAIN'S ORDINAL (`clock_slot`), since
+`ClockType`'s raw values are dense by construction.
+
+KEPT, DELIBERATELY: the same-handle return. `clock_get` looks the process's own
+table up through `clock_handle_of` and mints only if nothing is there, so asking
+twice still answers one handle and §3's no-duplicate rule still holds — the
+object cannot say who holds it, so the holder's table is the only place that
+answer could live. THE MINT-PER-CALL FLIP IS NOT MADE HERE: the lifecycle unit
+2.75 owns it. What CAN still fail is the handle table, which is the process's own
+resource, so one `NoResource` path remains and it is the honest one.
+
+`clock_now` now DISPATCHES ON THE DOMAIN — it takes the slot and matches
+`CLOCKS[slot].kind` — which is what gives the surviving field a reader and makes
+adding a domain fail to compile until somebody says what its reading is. That is
+the one question a second `ClockType` actually poses.
+
+Timers reference the global slot unchanged (`TimerSlot.clock` is still bound at
+creation, and it now names an object that outlives every process, which is
+strictly more true than before). The close-all path was verified rather than
+assumed: it unbinds handle-table ENTRIES and never touches the objects they name,
+so it needed no per-kind arm to skip clocks — the evidence is `clock_basics`
+still reading `handles=5` after two asks, which is now the whole of the
+same-handle claim since the `clocks=` column it used to rest on is gone.
+
 ## Explicitly out (M4+ candidates)
 
 Channels + ReplyHandle IPC (with select-with-timeout via unit 1's
