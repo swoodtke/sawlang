@@ -1377,6 +1377,126 @@ class TypeUtilsMixin:
             filled.append(self._resolve_type(default))
         return filled
 
+    def _resolve_qualified_symbol(self, dotted_name: str):
+        """THE module-qualifier walk: `(symbol, identity)` for `mod.Type`, or None.
+
+        ONE definition, two entry points — and the second is why it was worth
+        extracting (DF-194a):
+
+          - `_resolve_type`, which every EXPRESSION-position and signature-position
+            annotation reaches, and
+          - `_resolve_declared_qualified_names`, the walk over the three
+            declaration slots stored RAW (a struct FIELD's type, an enum case
+            PAYLOAD's type, a `type` alias right-hand side). Those never reach
+            `_resolve_type` as a unit, so before this existed a qualified name
+            written in one kept its dotted SPELLING into type comparison and
+            `dep.Point` and `Point` were two types.
+
+        The walk itself is design 229's: every hop past the first reaches THROUGH
+        a module, so a qualifier that module merely IMPORTED is not a hop this
+        spelling may take, and the name at the end is read off that module's own
+        surface with `check_visibility=True`. Both entry points get that check
+        because both come through here — which is the reason the declaration slots
+        route to this rather than to a canonicalizing name rewrite.
+
+        Total: an unresolvable qualifier answers None and the caller leaves the
+        written spelling alone for the existing diagnostic to report.
+        """
+        parts = dotted_name.split('.')
+        simple_name = parts[-1]
+        module_parts = parts[:-1]
+
+        current_ns = self.namespace
+        through_import = False
+        for part in module_parts:
+            if through_import and current_ns.hidden_import(part, as_module=True):
+                return None
+            module_sym = current_ns.modules.get(part)
+            if module_sym and module_sym.namespace:
+                current_ns = module_sym.namespace
+                through_import = True
+            else:
+                return None
+
+        symbol = current_ns.resolve(
+            simple_name, check_visibility=True,
+            accessor_module=self.namespace.module_path,
+            through_import=through_import,
+        )
+        if not symbol:
+            return None
+        # Design 144: the resolved reference carries the target's IDENTITY, not
+        # the spelling `mod.Type` was written with, so codegen never re-resolves
+        # a name it was handed.
+        identity = getattr(symbol, 'type_identity', "") or simple_name
+        return symbol, identity
+
+    def _resolve_declared_qualified_names(self, written, depth: int = 0):
+        """Resolve MODULE-QUALIFIED names inside one of the three RAW declaration
+        slots (DF-194a), returning the annotation to store.
+
+        Entry points, and there are exactly three — the slots design 194 unit 4
+        had to wire the prelude gate into by hand, for the same reason:
+
+          - a struct FIELD's type (`_register_struct`)
+          - an enum case PAYLOAD's type (`_register_enum`)
+          - a `type` alias right-hand side (`_register_type_definition`)
+
+        Each stores its annotation straight off the AST and reads it back
+        unresolved, so `_resolve_type` — the one place that walks a qualifier —
+        never runs on it. Design 150 promises a qualifier works in EVERY position
+        a name appears; these were the three where it did not.
+
+        NARROW on purpose: it rewrites a DOTTED name and nothing else. A bare name
+        is left exactly as written, so the DF-212b kind stamp in
+        `_canonicalize_module_types` (which knows the type PARAMETERS in scope and
+        must, since `struct Holder<Cmd>` beside an `enum Cmd` means the parameter)
+        still settles those, and the prelude gate still runs at the slot rather
+        than twice. A dotted name can never be a type parameter, which is what
+        makes this half safe to settle here and now.
+
+        In place for CHILDREN (the symbol tables share these objects with the
+        AST), and by return value for the node itself, whose resolution builds a
+        new `SawType` carrying the target's identity and symbol.
+        """
+        if written is None or depth > 8:
+            return written
+        for slot in ('inner_type', 'array_element_type', 'func_return_type'):
+            child = getattr(written, slot, None)
+            if child is not None:
+                setattr(written, slot,
+                        self._resolve_declared_qualified_names(child, depth + 1))
+        for slot in ('type_args', 'element_types', 'param_types'):
+            children = getattr(written, slot, None)
+            if children:
+                setattr(written, slot,
+                        [self._resolve_declared_qualified_names(c, depth + 1)
+                         for c in children])
+        name = None
+        if written.kind == TypeKind.STRUCT and written.struct_name:
+            name = written.struct_name
+        elif written.kind == TypeKind.ENUM and written.enum_name:
+            name = written.enum_name
+        if not name or '.' not in name:
+            return written
+        found = self._resolve_qualified_symbol(name)
+        if found is None:
+            return written
+        symbol, identity = found
+        args = written.type_args or None
+        if symbol.kind == SymbolKind.STRUCT:
+            if args:
+                args = self._append_default_type_args(identity, args)
+            return SawType(TypeKind.STRUCT, struct_name=identity,
+                           type_args=args, symbol=symbol)
+        if symbol.kind == SymbolKind.ENUM:
+            if args:
+                args = self._append_default_type_args(identity, args,
+                                                      is_enum=True)
+            return SawType(TypeKind.ENUM, enum_name=identity,
+                           type_args=args, symbol=symbol)
+        return written
+
     def _resolve_type(self, saw_type: SawType) -> SawType:
         """Resolve user-defined types (ENUMs parsed as STRUCT).
 
@@ -1423,52 +1543,18 @@ class TypeUtilsMixin:
 
             # Handle module-qualified types (e.g., lib.Point, mod.lib.Color)
             if '.' in struct_name:
-                parts = struct_name.split('.')
-                simple_name = parts[-1]
-                module_parts = parts[:-1]
-
-                # Walk the module path to find the final namespace. Design 229:
-                # every hop past the first reaches THROUGH a module, so a
-                # qualifier that module merely imported is not a hop this
-                # spelling may take.
-                current_ns = self.namespace
-                through_import = False
-                for part in module_parts:
-                    if through_import and current_ns.hidden_import(
-                            part, as_module=True):
-                        current_ns = None
-                        break
-                    module_sym = current_ns.modules.get(part)
-                    if module_sym and module_sym.namespace:
-                        current_ns = module_sym.namespace
-                        through_import = True
-                    else:
-                        current_ns = None
-                        break
-
-                if current_ns:
-                    # …and the name at the end of the walk is read off that
-                    # module's surface, not off what it merely imports.
-                    symbol = current_ns.resolve(
-                        simple_name, check_visibility=True,
-                        accessor_module=self.namespace.module_path,
-                        through_import=through_import
-                    )
-                    if symbol:
-                        # Design 144: the resolved reference carries the target's
-                        # IDENTITY, not the spelling `mod.Type` was written with,
-                        # so codegen never re-resolves a name it was handed.
-                        identity = (getattr(symbol, 'type_identity', "")
-                                    or simple_name)
-                        resolved_args = [self._resolve_type(t) for t in saw_type.type_args] if saw_type.type_args else None
-                        if symbol.kind == SymbolKind.STRUCT:
-                            if resolved_args:
-                                resolved_args = self._append_default_type_args(identity, resolved_args)
-                            return SawType(TypeKind.STRUCT, struct_name=identity, type_args=resolved_args, symbol=symbol)
-                        elif symbol.kind == SymbolKind.ENUM:
-                            if resolved_args:
-                                resolved_args = self._append_default_type_args(identity, resolved_args, is_enum=True)
-                            return SawType(TypeKind.ENUM, enum_name=identity, type_args=resolved_args, symbol=symbol)
+                found = self._resolve_qualified_symbol(struct_name)
+                if found is not None:
+                    symbol, identity = found
+                    resolved_args = [self._resolve_type(t) for t in saw_type.type_args] if saw_type.type_args else None
+                    if symbol.kind == SymbolKind.STRUCT:
+                        if resolved_args:
+                            resolved_args = self._append_default_type_args(identity, resolved_args)
+                        return SawType(TypeKind.STRUCT, struct_name=identity, type_args=resolved_args, symbol=symbol)
+                    elif symbol.kind == SymbolKind.ENUM:
+                        if resolved_args:
+                            resolved_args = self._append_default_type_args(identity, resolved_args, is_enum=True)
+                        return SawType(TypeKind.ENUM, enum_name=identity, type_args=resolved_args, symbol=symbol)
 
             # Check if this is actually an enum (NOT a type alias - those stay as STRUCT)
             # Use get_enum_info which searches imported modules

@@ -301,6 +301,11 @@ class RegistrationMixin:
         # declaration slot the funnel does not cover on its own. Design 188
         # established that an alias is not a way past a type rule.
         self._gate_written_type(type_def.defined_type)
+        # …and the module QUALIFIER walk, the third of the three raw slots
+        # (DF-194a): `type Alias = dep.Point` kept the dotted spelling, and
+        # `_resolve_type_alias` only ever chases alias-of-alias.
+        type_def.defined_type = self._resolve_declared_qualified_names(
+            type_def.defined_type)
 
         # Resolve the defined type (it might reference other type aliases)
         resolved_type = self._resolve_type_alias(type_def.defined_type)
@@ -372,6 +377,11 @@ class RegistrationMixin:
                 # `_resolve_type` as a unit — one of the three declaration slots
                 # the funnel cannot cover on its own.
                 self._gate_written_type(field.type)
+                # …and, for the same reason, the module QUALIFIER walk (DF-194a).
+                # Written back onto the AST so the symbol table and the AST go on
+                # sharing one object, exactly as a `let` annotation's write-back
+                # does.
+                field.type = self._resolve_declared_qualified_names(field.type)
                 # A closure-typed field is escaping (design 16/29): the struct
                 # value can outlive any call, so a stored closure must be safe to
                 # store. Stamp the bit; writing `escaping` here is redundant.
@@ -459,11 +469,20 @@ class RegistrationMixin:
                 # And, like fields, they are stored RAW — so the prelude gate's
                 # funnel never sees them and this is one of its three declared
                 # extra entry points (design 194 unit 4).
+                resolved_payloads = []
                 for _payload in (variant.associated_types or []):
                     _pt = _payload[1] if isinstance(_payload, tuple) else _payload
                     self._gate_written_type(_pt)
+                    # …and the module QUALIFIER walk, the second of the three raw
+                    # slots (DF-194a).
+                    _pt = self._resolve_declared_qualified_names(_pt)
                     self._stamp_escaping_roles(
                         _pt, is_param=False, report_at=(enum.line, enum.column))
+                    resolved_payloads.append(
+                        (_payload[0], _pt) + tuple(_payload[2:])
+                        if isinstance(_payload, tuple) else _pt)
+                if variant.associated_types:
+                    variant.associated_types = resolved_payloads
                 variants[variant.name] = variant.associated_types
                 variant_order.append(variant.name)
 

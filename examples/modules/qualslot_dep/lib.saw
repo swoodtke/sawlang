@@ -1,0 +1,9 @@
+// DF-194a fixture: a package exporting both a STRUCT and an ENUM, so the three
+// raw declaration slots can be written with a qualifier at each kind.
+public struct Tag { public n: Int }
+
+public extension Tag {
+    public init(of: Int) -> Tag { Tag(n: of) }
+}
+
+public enum Level { case Low, case High }

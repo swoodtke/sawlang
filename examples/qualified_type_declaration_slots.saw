@@ -1,0 +1,93 @@
+// A module-qualified type name resolves in the three DECLARATION slots, at both
+// kinds and behind every composite (DF-194a).
+//
+// Design 150 promises a qualifier works in EVERY position a name appears. The
+// three slots stored RAW — a struct FIELD's type, an enum case PAYLOAD's type,
+// and a `type` alias right-hand side — were where it did not: those annotations
+// are read straight back off the AST, so `_resolve_type` (the one place that
+// walks a qualifier) never ran on them and `dep.Tag` stayed a nominal name
+// `Tag` did not match. `qualified_type_in_declaration_slot.saw` pins the
+// reported shape against std; this is the matrix, over a user module and both
+// type kinds.
+//
+// The alias-of-ENUM row constructs only: projecting one back with `as` is
+// refused for a plain local enum too (DF-194b), so it is not this file's
+// subject.
+// COMPILE-FLAGS: --module-path qslot={TESTDIR}/modules/qualslot_dep
+// EXPECT: success
+// EXPECT-OUTPUT: field 7
+// EXPECT-OUTPUT: enum field 1
+// EXPECT-OUTPUT: optional field 8
+// EXPECT-OUTPUT: generic field 2
+// EXPECT-OUTPUT: tuple field 3 4
+// EXPECT-OUTPUT: payload 9
+// EXPECT-OUTPUT: enum payload 0
+// EXPECT-OUTPUT: alias 5
+// EXPECT-OUTPUT: alias enum 1
+// EXPECT-OUTPUT: constructor arg 6
+import qslot
+
+// Slot 1 — a struct FIELD, at both kinds and behind three composites.
+struct Holder {
+    tag: qslot.Tag,
+    level: qslot.Level,
+    maybe: qslot.Tag?,
+    many: Vector<qslot.Tag>,
+    pair: (qslot.Tag, Int)
+}
+
+extension Holder: NoCopy {}
+
+// Slot 2 — an enum case PAYLOAD, at both kinds.
+enum Slot {
+    case Held(t: qslot.Tag),
+    case Ranked(l: qslot.Level),
+    case Empty
+}
+
+// Slot 3 — a `type` alias right-hand side, at both kinds.
+type Marker = qslot.Tag
+type Rank = qslot.Level
+
+func main() {
+    var many: Vector<qslot.Tag> = []
+    many.push(qslot.Tag(of: 1))
+    many.push(qslot.Tag(of: 2))
+    let h = Holder(
+        tag: qslot.Tag(of: 7),
+        level: qslot.Level.High,
+        maybe: qslot.Tag(of: 8),
+        many: move many,
+        pair: (qslot.Tag(of: 3), 4),
+    )
+    print("field {h.tag.n}")
+    print("enum field {match h.level { case High -> 1, case Low -> 0 }}")
+    print("optional field {h.maybe?.n ?? 0}")
+    print("generic field {h.many.len()}")
+    print("tuple field {h.pair.0.n} {h.pair.1}")
+
+    let held = Slot.Held(t: qslot.Tag(of: 9))
+    print("payload {match held { case Held(t) -> t.n, case _ -> 0 }}")
+    let ranked = Slot.Ranked(l: qslot.Level.Low)
+    print("enum payload {match ranked { case Ranked(l) -> match l { case High -> 1, case Low -> 0 }, case _ -> 9 }}")
+
+    let m: Marker = Marker(qslot.Tag(of: 5))
+    print("alias {(m as qslot.Tag).n}")
+    // An alias of the ENUM kind is CONSTRUCTED here and not projected back:
+    // `r as qslot.Level` is refused (``cannot cast `Level` to `Level` ``), and
+    // so is the same spelling over a plain local enum — an alias-of-enum gap
+    // that has nothing to do with the qualifier. Filed as DF-194b; the row
+    // below is the part DF-194a is about, that the alias RHS resolves at all.
+    let r: Rank = Rank(qslot.Level.High)
+    let _ = r
+    print("alias enum 1")
+
+    // The fourth face the filing names: a CONSTRUCTOR's generic argument, which
+    // is written in an expression and so reaches no declared-type walk. The
+    // annotated spelling above (`var many: Vector<qslot.Tag> = []`) always
+    // worked; this one bound an element type that kept the dot, and the push
+    // below was told it expected `qslot.Tag` and got `Tag`.
+    var built = Vector<qslot.Tag>()
+    built.push(qslot.Tag(of: 6))
+    print("constructor arg {built[0].n}")
+}

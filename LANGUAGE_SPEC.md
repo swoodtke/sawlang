@@ -8248,13 +8248,19 @@ func main() {
 A qualifier works in every position a type or function name appears: type
 annotations (including behind `&`/`&var` and inside `Optional`), return types,
 generic arguments, call heads, constructors, static-method chains, enum
-construction, `any` existentials, and generic bounds.
+construction, `any` existentials, and generic bounds. Declaration slots take it
+too: a struct field's type, an enum case payload's type, and a `type` alias
+right-hand side.
 
 ```saw
 import shapes
 
 func describe(s: &any shapes.Named) -> String { s.label() }
 func widest<T: shapes.Named>(t: &T) -> String { t.label() }
+
+struct Scene { backdrop: shapes.Circle }
+enum Chosen { case Picked(s: shapes.Circle), case None }
+type Outline = shapes.Circle
 ```
 
 **Glob** is the explicit opt-in for bare names — the "give me this module's

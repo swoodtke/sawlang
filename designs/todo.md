@@ -3580,8 +3580,31 @@ DF-192e fixed, DF-192b/c/d/f/g pinned (DF-192d fixed since, by design 198).
   escaping closure may not borrow-capture), not by "closures are never Send" —
   and `examples/errors/capture_borrow_escaping.saw` already pins it. PIN:
   `examples/errors/spawn_result_not_send.saw`.
-- **DF-194a (SPEC/IMPL, filed Aug 10 by 194 u4): a MODULE-QUALIFIED type name
-  does not resolve in the three annotation slots stored RAW.** `struct Holder {
+- **DF-194a — CLOSED (Aug 17), design 197 unit 2's ruling implemented for the
+  three slots.** The module-qualifier walk is ONE function now,
+  `_resolve_qualified_symbol`, with two entry points its docstring names:
+  `_resolve_type` (every signature and expression position) and
+  `_resolve_declared_qualified_names` (the three raw slots, called from
+  `_register_struct`, `_register_enum` and `_register_type_definition`, each
+  writing the result back onto the AST so the symbol table and the AST go on
+  sharing one object). Both entries therefore get design 229's visibility
+  check, which is why the slots route to the walk rather than to a
+  canonicalizing name rewrite. The slot walk rewrites DOTTED names ONLY, so the
+  DF-212b kind stamp — which knows the type PARAMETERS in scope, and must,
+  since `struct Holder<Cmd>` beside an `enum Cmd` means the parameter — still
+  settles the bare ones. The fourth face (a constructor's generic ARGUMENT) is
+  closed in `_check_struct_init`, and a FIFTH the fix exposed: an `as` CAST
+  target was read raw by codegen (`Undefined struct: dep.Point`), unreachable
+  before because the cast was refused one error earlier. Tests:
+  `examples/qualified_type_in_declaration_slot.saw` (pin flipped) and
+  `examples/qualified_type_declaration_slots.saw` (the matrix — both kinds,
+  every composite, a user module, the constructor argument). Docs: the spec's
+  "every position" list and the skill's gotcha note. Gated on the compiler
+  suite AND `sos_runner` both arches (the Aug-17 ruling: a compiler change can
+  break kernel codegen, which the suite does not cover). **STILL OPEN from
+  design 197: rule 7's six `parse_type` bypasses (unit 1's other half),
+  untouched here.**
+  As filed (SPEC/IMPL, Aug 10 by 194 u4): `struct Holder {
   p: dep.Point }`, `case Full(p: dep.Point)` and `type Alias = dep.Point` each
   keep the dotted spelling into type comparison, so `field `p` expects type
   `dep.Point` but got `Point``. Those three slots are read straight off the AST
@@ -3600,6 +3623,20 @@ DF-192e fixed, DF-192b/c/d/f/g pinned (DF-192d fixed since, by design 198).
   canonicalizes to in a slot nothing resolves, which is a design-144 identity
   question and wants a ruling rather than a patch mid-brief. PIN:
   `examples/qualified_type_in_declaration_slot.saw` (XFAIL, cited).
+- **DF-194b (SPEC QUESTION, filed Aug 17 while writing DF-194a's matrix): a
+  `type` alias whose underlying is an ENUM cannot be projected back.**
+  `enum L { case A, case B }` + `type R = L` + `r as L` is refused with
+  ``cannot cast `L` to `L` `` — the two names printed identically, which is the
+  DF-142a diagnostic shape. Nothing to do with module qualifiers: it reproduces
+  on a plain local enum, and the same shape over a STRUCT underlying
+  (`type M = Tag`, `m as Tag`) works. The projection `as` is design 63's
+  sanctioned one-directional read toward the underlying, and `_check_cast_expr`
+  reaches it through `_alias_ancestor_names`, which walks `is_struct()` chains
+  only. Two questions before a fix: whether an alias of an enum should exist at
+  all (an enum is already nominal, and a distinct alias of one has no stated
+  use), and if so whether the projection is the enum's or the alias's. NOT
+  fixed; no pin, since the matrix test constructs the alias and skips the
+  projection with the reason written at the line.
 - **DF-193d (SPEC/IMPL, filed Aug 10 by 193 u7 — supersedes DF-188k's "general
   fix" line with a diagnosis; CLOSED Aug 10 by 194 u4): the prelude gate cannot
   run on type ANNOTATIONS until a written-form PROVENANCE bit exists.** Building the funnel and running

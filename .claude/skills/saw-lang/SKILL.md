@@ -2060,10 +2060,12 @@ public import wire.{Header}  // RE-EXPORT: `Header` joins THIS module's surface
   qualifier (`func take(d: &data.Data)` under `import std.data`). Pre-194 code
   that named a gated type only in a signature now needs the import it always
   should have had; the usual face is `Result<T, IoError>` in a return type.
-  GOTCHA (DF-194a): the qualified spelling does NOT yet work in a struct field,
-  an enum payload or a `type` alias — those three annotations keep the dot into
-  type comparison (```field `p` expects type `data.Data` but got `Data` ```). Use
-  `import std.data.{Data}` in those positions.
+  The qualified spelling works in the three DECLARATION slots too — a struct
+  FIELD, an enum case PAYLOAD, a `type` alias RHS — and in a CONSTRUCTOR's
+  generic argument (`Vector<data.Data>()`). Treat all four as working now and
+  SUSPECT in older builds (DF-194a): those annotations used to keep the dot into
+  type comparison (```field `p` expects type `data.Data` but got `Data` ```), and
+  `import std.data.{Data}` was the workaround.
 - Visibility: `public`, `public(package)`, `public(parent)`, private
   default. Package layout: `src/lib.saw` ← `import <pkgname>` (Blade
   `--module-path`); `src/main.saw` for binaries.

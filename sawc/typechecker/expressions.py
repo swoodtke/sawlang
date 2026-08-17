@@ -1398,6 +1398,14 @@ class ExpressionsMixin:
         if from_type is None:
             return None
         to_type = self._resolve_type(expr.target_type)
+        # Write the resolved type back onto the AST, the same step a `let`
+        # annotation takes: codegen reads `target_type` straight off the node, so
+        # a module-qualified target reached it as the dotted spelling and died
+        # with `Undefined struct: dep.Point`. Unreachable until DF-194a's fix let
+        # a qualified alias RHS type-check at all — before that the cast was
+        # refused one error earlier, comparing `dep.Point` against `Point`.
+        if to_type is not None:
+            expr.target_type = to_type
         int_kinds = {
             TypeKind.INT, TypeKind.UINT,
             TypeKind.INT8, TypeKind.INT16, TypeKind.INT32, TypeKind.INT64,
@@ -6561,6 +6569,14 @@ class ExpressionsMixin:
                 # (design 37) so codegen mangles the same identity the
                 # typechecker validated — `Vector<Int>` and `Vector<Int, Global>`
                 # share one monomorphization.
+                # A constructor writes its generic arguments in an EXPRESSION,
+                # which no declared-type walk reaches — the fourth face of
+                # DF-194a. `Vector<dep.Point>()` bound a local whose element type
+                # kept the dot, so `v.push(dep.Point(...))` was told the argument
+                # expected `dep.Point` and got `Point`. Resolved here, before the
+                # list is stamped onto the node and read for the substitution.
+                filled_args = [self._resolve_declared_qualified_names(a)
+                               for a in filled_args]
                 expr.type_args = filled_args
                 for type_param, type_arg in zip(struct_info.type_params, filled_args):
                     # A generic ARGUMENT is never a parameter role: it fills a

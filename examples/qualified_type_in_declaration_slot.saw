@@ -13,16 +13,24 @@
 //
 // `_canonical_type_name` returns a dotted name unchanged on purpose ("for
 // `_resolve_type`'s module-walk branch to handle"), and for these three slots
-// that branch never runs. A fourth face is a constructor's generic ARGUMENT:
-// `Vector<data.Data>()` binds a local whose element type keeps the dot.
+// that branch never ran. A fourth face was a constructor's generic ARGUMENT:
+// `Vector<data.Data>()` bound a local whose element type kept the dot.
+//
+// FIXED (DF-194a, design 197 unit 2's ruling): the module-qualifier walk is one
+// function, `_resolve_qualified_symbol`, with two entry points — `_resolve_type`
+// for every signature and expression position, and
+// `_resolve_declared_qualified_names` for the three raw slots, which rewrites
+// DOTTED names only and so leaves the DF-212b kind stamp (which knows the type
+// parameters in scope) to settle the bare ones. Both entries get the design-229
+// visibility check, since both come through the one walk.
 //
 // This file uses `std.data` rather than a helper module because the shape is
 // identical for both and the std spelling is the one design 194 unit 4 makes
 // people reach for: the gate's own hint offers `import std.data` +
 // `data.Data` as one of three ways to satisfy it, and in a struct field that
-// advice does not work.
-//
-// XFAIL: DF-194a a module-qualified type name does not resolve in a struct field, an enum payload or a `type` alias — the three annotation slots stored raw, which never reach `_resolve_type`
+// advice did not work. The full matrix — both kinds, every composite, a user
+// module, and the constructor argument — is
+// `qualified_type_declaration_slots.saw`.
 // EXPECT: success
 // EXPECT-OUTPUT:
 // 2

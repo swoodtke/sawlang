@@ -11,11 +11,12 @@
 // `import std.data` binds only the QUALIFIER: nothing is bare here, so every
 // annotation below is the dotted form and every one of them compiles.
 //
-// The positions a qualifier does NOT survive today — a struct field, an enum
-// payload, a `type` alias right-hand side — are DF-194a, pinned separately in
-// `examples/qualified_type_in_declaration_slot.saw`. They are not gate
-// behaviour: the gate accepts the spelling in all of them, and what fails
-// afterwards is the resolution of the dotted name.
+// The three positions a qualifier did NOT survive — a struct field, an enum
+// payload, a `type` alias right-hand side — were DF-194a, and they resolve now
+// (`examples/qualified_type_in_declaration_slot.saw` plus the matrix in
+// `examples/qualified_type_declaration_slots.saw`). They were never gate
+// behaviour: the gate accepted the spelling in all of them, and what failed
+// afterwards was the resolution of the dotted name.
 // EXPECT: success
 // EXPECT-OUTPUT:
 // 3
