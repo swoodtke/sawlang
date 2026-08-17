@@ -18,10 +18,9 @@
 // LLVM symbol table. Both sides read `_overload_cand_offset` now, which is the
 // notion `_resolve_overload` uses at the call site.
 //
-// The statics are called on the TYPE, which is the spelling for a method with
-// no `self`. Calling one through an INSTANCE (`b.at(index: 3)`) is a separate
-// and still-open defect — it mis-binds labels with no overload set involved at
-// all — filed as DF-217q and pinned in
+// The statics are called on the TYPE, which is the ONLY spelling for a method
+// with no `self`: reaching one through an INSTANCE (`b.at(index: 3)`) is a
+// clean error since DF-217q, pinned in
 // `examples/static_method_called_on_instance.saw`.
 // EXPECT: success
 // EXPECT-OUTPUT:

@@ -1,27 +1,26 @@
-// A STATIC extension method reached through an INSTANCE binds its labels the
-// same way it does through the type.
+// A STATIC extension method reached through an INSTANCE is a clean error
+// (DF-217q). The TYPE spelling is the only way to call one.
 //
-// `Bag.solo(index: 3)` works. `b.solo(index: 4)` reports ``solo` has no
+// `Bag.solo(index: 3)` works. `b.solo(index: 4)` used to report ``solo` has no
 // parameter named `index`` — with ONE method declared, so no overload set and
-// no tie-break is involved. The instance path strips a `self` slot the callee
-// does not have, so every label lines up against the wrong parameter and the
-// last one falls off the end; where the labels happen to bind, codegen then
-// passes the receiver as argument 0 and fails the verifier
-// (`Type of #1 arg mismatch: i64 != %"Bag"`).
+// no tie-break was involved. The instance path stripped a `self` slot the
+// callee does not have, so every label lined up against the wrong parameter and
+// the last one fell off the end; where the labels happened to bind, codegen then
+// passed the receiver as argument 0 and failed the verifier (`Type of #1 arg
+// mismatch: i64 != %"Bag"`).
 //
-// Found while fixing DF-217e, whose pin originally called its statics this way.
-// The two are independent: DF-217e was the DECLARATION-site identity test
-// (`_overload_cand_offset` on both sides now), and this is the CALL-site
-// parameter offset, `expressions.py`'s `param_offset = 1 if not
-// method_info.is_init else 0`, which owes the same `is_static` term. Fixing it
-// means deciding whether an instance may name a static at all — the alternative
-// reading is a clean refusal pointing at `Bag.solo(...)` — so it wants a ruling
-// rather than a patch.
-// XFAIL: DF-217q a static extension method called through an instance mis-binds its labels, because the call-site parameter offset skips a `self` slot the callee does not have
-// EXPECT: success
-// EXPECT-OUTPUT:
-// type 3
-// instance 4
+// Ruled a REFUSAL rather than a binding fix: a static method has no `self`, so
+// there is nothing for the receiver to become, and giving one method two call
+// shapes buys nothing. Found while fixing DF-217e, whose pin originally called
+// its statics this way — that was the DECLARATION-site identity test, this is
+// the call site.
+//
+// Both receiver kinds are covered: design 145 gives enums statics on the same
+// terms, and the same lookup answers for both.
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: `solo` is a static method of `Bag` and cannot be called on a value
+// EXPECT-ERROR-CONTAINS: call it on the type: `Bag.solo(...)`
+// EXPECT-ERROR-CONTAINS: `of` is a static method of `Side` and cannot be called on a value
 
 struct Bag { n: Int }
 
@@ -29,8 +28,19 @@ extension Bag {
     func solo(index: Int) -> Int { index }
 }
 
+enum Side { case Left, case Right }
+
+extension Side {
+    func of(raw: Int) -> Int { raw }
+}
+
 func main() {
+    // The legal spellings, which must keep working.
     print("type {Bag.solo(index: 3)}")
+    print("enum type {Side.of(raw: 2)}")
+
     let b = Bag(n: 0)
     print("instance {b.solo(index: 4)}")
+    let s = Side.Left
+    print("enum instance {s.of(raw: 9)}")
 }

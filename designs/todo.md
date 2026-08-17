@@ -14,251 +14,60 @@ rulings/corrections — grep the brief before deleting anything);
 navigation lives in designs/INDEX.md (one line per brief + one per
 done-file), created with the Aug-17 split.
 
-## Design 234 — the fallibility flip (RATIFIED Aug 17; QUEUED behind the
-## three in-flight Aug-17 branches)
+## DF-232c — a raw-backed enum's case value takes an INTEGER LITERAL only, so
+## a flags enum cannot state its bits as shifts (filed Aug 17, SOS M3 unit 1
+## review-pass rider)
 
-designs/234-fallibility-flip.md is the plan of record: every failable op
-returns Result (design 123's panic tier retired, the ~16 alloc try_ twins
-with it), three-tier error doctrine (narrowest leaf type / payload-carrying
-compounds / Box<any Error> as the app-only tier), the prefix routing clause
-`try(as LocalError.Alloc) f(...)`, `try_` reserved for non-blocking, the
-fault-line and hidden-alloc boundaries. Resolves DQ-230b (try_send retires,
-ChannelError gains Alloc). DISPATCH ORDER: after the kcore split, the
-literal/const family and the small-fix batch all integrate — corpus-wide
-touches conflict with everything; M3 unit 1.5+ may interleave with units 1-2
-only. [234]
+The Aug-17 ruling that a bit-flag value is spelled as a shift
+(`case ThreadCreate = 1 << 8`, not `= 256`) is UNWRITABLE for the types it
+targets: every rights enum in `sos/kernel/abi/` and `imgformat`'s `SegFlag`.
+`case A = 1 << 0` is `Parse error: Expected 'case' keyword for enum variant`;
+`case A = (1 << 0)` is `Expected an integer literal for the enum case's raw
+value`; and `case A = 2 * 4` is refused too — so it is the whole const-expression
+grammar that is absent here, not the shift operator. Design 185 folds `<<` in
+const positions and names a raw-backed enum's case value among what folds, but
+that is about USING a case value as a const operand (`Perm.Read | Perm.Write`),
+not about its own initializer. The fix is to let this position take a const
+EXPRESSION through design 186's static-initializer folder, range-checked against
+the backing afterwards; design 145's no-auto-increment rule is untouched, since a
+folded `1 << 8` states its value as exactly as `256` does and says which bit
+while doing it. Pinned by `examples/enum_raw_value_takes_const_expression.saw`.
+The sos/ enums keep their decimals meanwhile, values unchanged.
+NEIGHBOURING AND NOT A DEFECT: a parenthesized shift in a COMPARISON stays
+platform `Int` (design 195 promotes bare literals only, and a subexpression
+reaches no expected type), so `>= (1 << 8)` against a `UInt32` is refused and
+`(1u32 << 8)` is its spelling — which is why the abi `static_assert`s kept their
+decimals as well. [232]
 
-## Design 235 — the position-matrix ledgers (RATIFIED Aug 17; QUEUED after
-## the three in-flight branches, BEFORE 234's migration units)
-
-designs/235-position-matrices.md is the plan of record: two standing corpus
-ledgers on the conformance/ template — examples/coercion/ (adoption grid +
-qualified-name-as-target grid) and examples/modules/ (import-forms×positions,
-visibility, graph shapes) — with INDEX.md per ledger, cite-don't-duplicate,
-N/A reasons in place, and every red cell filed as a DF + cited XFAIL pin, so
-the family's xfail set becomes an ENUMERATION's red cells, not the trail of
-what we stepped on. No-guessing rule: undetermined cells are OPEN rows for
-ruling, never invented EXPECTs. Sonnet-class dispatch (user ruling — the
-brief fixes the grids and authorities; the agent transcribes). Seeds: the
-DF-232a/226d/e/232c pins + the kcore unit-0 probes. [235]
-
-## DF-232g — a LOCAL static DERIVED from an imported const stops being a
-## compile-time constant, though the same expression folds INLINE (filed Aug 17,
-## the kcore split)
-
-`static N: Int = A + B` with `A`/`B` imported is refused wherever a compile-time
-length is required — `repeat count is not a compile-time constant: the computed
-static `N` is not allowed here` — while `[0; A + B]` spelled INLINE at the use
-site folds fine. The same arithmetic is constant or not depending on whether it
-was given a NAME.
-MATRIX (probed, obligation 4). FOLDS: a literal; an imported const named directly
-as a length (`[T; A]`); arithmetic over imported consts inline (`[T; A * B]`,
-`[T; A + 1]`); a local static derived from LOCAL statics (`static S = L1 + L2`,
-recursively); a const derived in its OWN module and imported whole. DOES NOT
-FOLD, in every form probed: a local static that NAMES an imported const — the
-pure alias `static S = A`, the mixed sum `L1 + A`, the all-imported sum
-`A + B`.
-MECHANISM: the length folder resolves a static's initializer recursively through
-the CURRENT module's symbol table only, so an imported name ends the recursion
-and the static is reported as "computed" — a word that is simply wrong for the
-alias, which computes nothing. The inline path resolves the same names through
-the ordinary import machinery, which is why it succeeds.
-THE DIAGNOSTIC ALSO NAMES THE WRONG FILE: it is reported against the ENTRY
-source with the DEFINING module's line/column, so it points at a line number the
-named file does not have (probe: an error on `main.saw:23` in a 5-line
-main.saw).
-WHAT IT COST THE SPLIT: `MAX_ATTACHMENTS = MAX_EVENTS + MAX_INTERRUPTS +
-MAX_TIMERS` cannot be declared apart from ANY of its three operands, so every
-slab size stays in one module (`limits.saw`) — which is how lib.saw already had
-them, one adjacent block, so the constraint cost the cut nothing this time. It
-would cost a differently-shaped kernel a real seam. [232, design 148/185/186]
-
-## DF-232f — a package has NO INTERNAL VISIBILITY, so splitting one file into
-## several PUBLISHES everything they share (filed Aug 17, the kcore split's
-## unit-0 probe; the finding the split's tracker entry anticipated)
-
-`public` is the only way one file of a package can reach another's decl, and
-`public` means EVERY importer — there is no `public(package)`/`internal` tier
-between "this file" and "the world". So a file split is also a publication: the
-kcore split turned ~150 kernel-internal names (every slab, every slot struct AND
-ITS FIELDS, every table helper) into surface any consumer of `kcore` can name and
-write, and design 80's gate now protects nothing inside the package it was
-protecting the kernel with. Nothing about the IMAGE changes — the widening is a
-compile-time visibility fact — which is why the split proceeded, but the
-encapsulation loss is real and is the argument for the tier: an `unsafe static
-var THREADS` that the scheduler and the teardown share is exactly the thing that
-should be reachable from a sibling file and from nowhere else.
-WHAT THE TIER WOULD COST is small on today's model: package identity already
-exists (a `--module-path` name / a Blade dependency), and design 144 already
-makes TYPE identity `(defining module, name)` — so `internal` is a third answer
-in the same visibility check, not a new concept.
-RULED Aug 17 (user): **`--module-path` packages JOIN the design-80 package
-relation, package root = the mapped directory** — files under one mapped dir
-are one package (siblings see each other's `public(package)`); the entry
-file and other consumers are OUTSIDE it. No new keyword: `public(package)`
-is the spelling. Fix shape: package-root plumbing for --module-path modules
-into the existing visibility check + tests both ways; then a mechanical
-RE-NARROWING rider flips kcore's 199 publics to `public(package)` wherever
-no consumer needs the name (target: back near the original 15). One check
-owed by the fix: `imgformat` is consumed by Blade as a path dependency AND
-by the kernel via --module-path — the two mechanisms must agree on package
-identity for the same directory. [232, design 80/82/204]
-
-## DF-232e — an IMPORT CYCLE is not diagnosed: the symbols silently vanish and
-## the error lands on an innocent third module (filed Aug 17, the kcore split's
-## unit-0 probe)
-
-Two modules of one package importing each other (`a` imports `b.{beta}`, `b`
-imports `a.{alpha}`) compiles to `error: undefined function `alpha`` — reported
-in `lib.saw`, a THIRD module that merely imports `a` and did nothing wrong. The
-cycle itself is never named, neither participant is pointed at, and the reader is
-sent to look for a typo in a file that has none.
-MECHANISM (read, not guessed): `_topological_sort` (sawc.py:324) detects the
-cycle and then RETURNS THE MODULES IN ARBITRARY ORDER with the comment "the type
-checker will handle any errors" — so a module is type-checked before the
-dependency that defines its names, its own checking fails, and its export table
-comes out empty for everybody downstream.
-THE FIX IS THE DIAGNOSTIC, not the ordering: `import cycle: a -> b -> a`, naming
-the import lines. Whether Saw should SUPPORT cycles is a separate question the
-kernel does not need answered — the kcore split is a DAG by construction — but
-silently degrading is not an answer to either.
-Pinned by nothing yet: a cycle needs two module files, which `examples/` has no
-harness shape for (a `// COMPILE-FLAGS: --module-path` test dir would be the
-first). [232, design 82/150]
-
-## DF-232d — ASSIGNMENT THROUGH A MODULE QUALIFIER is the one member-access
-## position that does not resolve (filed Aug 17, the kcore split's unit-0 probe)
-
-`mod.STATIC = v` from another module is `error: undefined variable `mod``,
-pointed at the assignment. READING the same static works, and so does every other
-write shape — this is one position, not a missing feature.
-MECHANISM (read in `_check_assign_statement`, statements.py:2406): a bare
-`Identifier` target is asked `_mutable_static_symbol` first (design 149's
-whole-value static write), and a `MemberAccess` target instead type-checks its
-OBJECT as an expression (`obj_type = self._check_expression(stmt.target.object)`,
-:2483). That is right for `a.b.c = v`, whose object is a value — and wrong for
-`<qualifier>.<static>`, whose object is a MODULE NAME and so reaches
-expressions.py's "undefined variable". Nothing routes a qualified static to the
-static-write path the bare form has.
-MATRIX (obligation 4 — 10 positions probed, ONE fails): reads `mod.X`,
-`mod.CELL.v`, `mod.ARR[0]`, `mod.CELLS[1].v` ✓; writes `mod.CELL.v = v`,
-`mod.ARR[0] = v`, `mod.CELLS[1].v = v` ✓; refs `&var mod.X`, `&var mod.CELL.v`,
-`&var mod.ARR[2]` ✓; `mod.X = v` ✗. Every passing row reaches the qualifier
-through the general EXPRESSION path (which knows qualifiers); the one failure is
-the only target whose base IS the qualifier and nothing else.
-THE KCORE SPLIT DOES NOT WORK AROUND IT: the bare-import spelling
-(`import kcore.threads.{THREADS}`, then `THREADS[i].state = ...`) is a
-first-class design-150 form, is what a shared kernel slab wants to read like, and
-writes correctly — proven cross-module, single-instance, in the unit-0 probe.
-[232, design 149/150]
-
-## ~~DF-232c — a raw-backed enum's case value takes an INTEGER LITERAL only~~
-## — **FIXED Aug 17** (filed Aug 17, SOS M3 unit 1 review-pass rider)
-
-The position now takes a const EXPRESSION. The parser keeps its literal fast
-path (a bare or negated INT that ENDS the variant — the common `case A = 0`,
-which costs no fold and behaves exactly as before) and otherwise parses an
-expression into a new declared `EnumVariant.raw_value_expr`;
-`_fold_enum_raw_values` folds it into `raw_value` through design 186's
-`const_eval`, at platform width.
-WHERE, and why it is the only workable seam: `raw_value` has TWELVE consumers
-across four phases, and the earliest is `_ast_enum_raw_values`, called by
-`_collect_const_statics` BEFORE registration so a flag-enum static
-(`static RW: UInt8 = Perm.Read | Perm.Write`) can see the numbers. Folding
-immediately ahead of that means every consumer still reads a plain int and
-none of them changed — including the range check against the backing, which
-is unchanged code running on the folded value.
-BOUNDARY, refused by name rather than half-supported: the expression may not
-name a `static` or another enum's case. Those resolve by stamping leaves
-against a table built in DECLARATION order, and all enums are read BEFORE any
-static precisely so the flag-static case works — so naming one from a case
-value is a forward reference into a table that does not exist yet. Its
-refusal is also the ONLY error for that case: registration's "needs an
-explicit value" check now skips a case that WROTE an expression, since
-telling the author a value is missing would contradict the line they are
-looking at.
-Design 145's no-auto-increment rule is untouched — a folded `1 << 8` states
-its value as exactly as `256` does.
-Tests: `examples/enum_raw_value_takes_const_expression.saw` (XFAIL flipped —
-shifts, `2 * 4`, hex, binary with separators, parenthesized, two operators,
-a signed backing with `-1` and `0 - 2`, plus design 185's other reading, the
-case value as a const OPERAND in a static),
-`examples/enum_raw_value_const_expression_out_of_range.saw` (`1 << 9` at
-`UInt8`) and `examples/enum_raw_value_const_expression_needs_constant.saw`.
-DEFERRED, deliberately: the sos/ enums are NOT flipped from decimals to
-shifts here — same reason as DF-232b, a concurrent agent is restructuring
-sos/kernel, and the flip is scheduled for after both branches land. Values
-are unchanged meanwhile.
-NEIGHBOURING AND NOT A DEFECT (unchanged by this): a parenthesized shift in a
-COMPARISON stays platform `Int` (design 195 promotes bare literals only, and
-a subexpression reaches no expected type), so `>= (1 << 8)` against a
-`UInt32` is refused and `(1u32 << 8)` is its spelling — which is why the abi
-`static_assert`s keep their decimals. [232]
-
-## DF-232i — a GENERIC raw-backed enum silently loses its declared tag values
-## at monomorphization and emits ORDINALS (found Aug 17 by DF-232c's sweep,
-## probed; pre-existing, unrelated to 232c's parse position; RENUMBERED from
-## the branch's DF-232e at integration — the kcore split claimed d-g first;
-## RULED Aug 17, user: FIX PROPER — the declared values SURVIVE
-## monomorphization, not the refuse-the-combination fallback; dispatched as
-## item 6 of the Aug-17 small-fix batch)
-
-```saw
-enum E<T>: UInt8 { case A = 7, case B = 9, }
-let x: E<Int> = E<Int>.B
-print("{}", x as UInt8)     // prints 1, not 9
-```
-Compiles clean and prints the ORDINAL. `codegen/generics.py:452-466` rebuilds
-each `EnumVariant` with only `name` and `associated_types`, and calls
-`_register_concrete_enum` with no `raw_type` — so the concrete instantiation
-has no backing and `codegen/core.py:2348` falls to `variant_tags[name] = i`.
-SILENT is what makes it bad: a raw backing is the WIRE idiom, and this hands
-back a different number than the source states, with no diagnostic anywhere.
-Two candidate fixes, both plausible and neither obviously right, which is why
-this is filed rather than fixed: carry `raw_value`/`raw_type` through the
-monomorphizer (they are instantiation-independent, so this looks correct and
-small), or REFUSE a raw backing on a generic enum outright, since what a
-per-instantiation ABI number would even mean is a design question design 145
-never took. The second is the conservative read of "declaring a backing says
-the numbers are ABI". Needs a ruling. Pinned by
-`examples/generic_enum_raw_backing_keeps_values.saw`. [145, 232]
-
-## ~~DF-232a — INTERNAL COMPILER ERROR: a bare integer literal does not
-## adopt the expected fixed-width type in PLAIN ASSIGNMENT position~~
-## — **FIXED Aug 17** (filed Aug 17, SOS M3 unit 1)
+## DF-232a — INTERNAL COMPILER ERROR: a bare integer literal does not
+## adopt the expected fixed-width type in PLAIN ASSIGNMENT position
+## (filed Aug 17, SOS M3 unit 1; pinned)
 
 `TIMERS[slot].deadline_ns = 0` on a `UInt64` field died with
-`cannot store i32 to i64*` on riscv32; three lines reproduced it on the
-host at any two widths. TWO DEFECTS, both fixed: the literal now adopts
-(an assignment target names an expected type exactly as an annotation
-does), and an unreconcilable value gets a CLEAN REFUSAL.
-MECHANISM, as landed: the same shape in BOTH halves of the compiler, so
-the fix is two funnels. The obligation-4 sweep widened the filed three
-ICE rows to SIX — the tracker's `v = 4`, `w.b = 2`, `rows[0].b = 7`,
-plus `t.0 = 5` (tuple index), `nt.p = 6` (named-tuple element) and
-`r = 11` through a `&var` referent.
-`_check_assign_rhs` (typechecker) is now THE reconciliation of an
-assignment's RHS against its target's type — push the expectation down,
-check, reconcile a bare `None`, refuse by name, take the value-transfer
-checkpoint. Its docstring names all NINE entry points; only three took
-the propagation before (array element, place lend, `unsafe static var`),
-and the other six ICE'd. `_store_assigned_value` (codegen) is THE store
-an assignment makes — integer-width fit, then optional layers; its
-docstring names all FIVE store sites, of which only the array-element
-arm coerced the width. Two rows the finding never named fell out of the
-codegen half: `v = k` for a plain `Int` k (LEGAL — a platform `Int`
-converts to and from any integer type — and it ICE'd, since adoption
-cannot reach a non-literal) and a folded `v = 2 + 3`.
-Tests: `examples/assignment_target_adopts_fixed_width.saw` is the
-matrix (XFAIL flipped, all eleven target-kind rows plus the platform-Int
-and negative-literal negatives), and
-`examples/assignment_target_literal_out_of_range.saw` pins the second
-defect — `v = 999` at `UInt8` is now
-``integer literal 999 does not fit in `UInt8` (range 0..=255)`` at the
-LITERAL's column. LANGUAGE_SPEC's adoption-position list and the
-saw-lang digest name the assignment target kinds. The sos/ `timer_disarm`
-suffix workaround (`0u64`, with a comment pointing here) can drop
-whenever that branch next moves — not touched from here. [232]
+`cannot store i32 to i64*` on riscv32. Nothing kernel-specific: three
+lines reproduce on the host at any two widths.
+TWO DEFECTS. The literal SHOULD adopt (an assignment target names an
+expected type exactly as an annotation does); and even where a type
+cannot be reconciled the compiler owes a CLEAN REFUSAL — an
+`internal compiler error` is precisely what design 192's fuzz oracle
+exists to catch, so the ICE is a finding on its own terms whatever is
+decided about adoption.
+MECHANISM (probed, obligation 4): expected-type propagation into a bare
+literal is wired into the PLACE-LEND write paths and into the
+compound-assign RHS, and is absent from a plain `AssignStatement` whose
+target is a NAME or a FIELD PROJECTION; the typechecker never
+reconciles, so codegen reaches a raw store with mismatched LLVM types.
+ADOPTS: `let x: UInt32 = 0`, a struct-literal field, `[0; N]` under an
+annotation, `v += 1`, `arr[0] = 5`, `vec[0] = 5`. ICEs: `v = 4` (a
+local), `w.b = 2` (a field), `rows[0].b = 7` (a field through an
+element). The split is exact — every working row reaches the literal
+through a path that already carries an expected type — which is what
+makes this ONE bug rather than three.
+Pinned by `examples/assignment_target_adopts_fixed_width.saw`. NOT
+fixed in the SOS branch that found it: a core typechecker rule does not
+belong buried in a parked kernel branch. A suffixed literal works
+(`0u64`), which `timer_disarm` uses with a comment pointing here.
+[232]
 
 ## SOS M3 — scoping session RATIFIED (designs/232), unit 1 BUILT
 
@@ -300,41 +109,10 @@ spec-recap) is BUILT, branch PARKED for user review per SOS policy:
 the pre-M2 status text is flipped in §§2, 2.2, 3, 5.7, 5c, 7, 8, 9b
 and 12 — each verified against the code first. [178, 232]
 
-## KCORE SPLIT — BUILT Aug 17, branch PARKED for user review (SOS policy).
-## sos/kernel/core/lib.saw into seam files (user-approved Aug 17)
+## KCORE SPLIT — sos/kernel/core/lib.saw into seam files (user-approved
+## Aug 17; FIRST post-unit-1-integration SOS item)
 
-AS BUILT: 3946 lines in one file became 4394 across FIFTEEN — thirteen
-seam modules, the `lib.saw` facade, and no change to any kernel code.
-The +448 is thirteen module docstrings, the per-file imports and
-`public`; a code-line multiset check against the pre-split file (1852
-lines, run at every commit) is what proves the rest is a text move.
-FILES, in dependency order — a file may import only those above it,
-because DF-232e makes a cycle silent — with line counts:
-`limits` 121, `mem` 44, `diag` 150, `result` 68, `objects` 235,
-`threads` 225, `time` 404, `waitables` 489, `process` 564, `wake` 132,
-`irq` 341, `sched` 123, `dispatch` 1137, `loader` 293, `lib` 68.
-THREE SEAMS OF THE SKETCH CAME IN TWO, and the rule is the same each
-time: the STATE of a thing sits below the process teardown that frees
-it, and ACTING on it sits above — the teardown touches every slab, and
-answering a wait goes through the copy door that can end a process. So
-`threads` (table, frame arena, ready queue) is not `sched` (the switch
-point), `time` (the slabs, the comparator funnel) is not `irq` (tick,
-expiry, device lines, idle), and `waitables` (the tables and the whole
-per-kind matrix) is not `wake` (the delivery funnels). `limits` is the
-fourteenth file DF-232g forced: a derived size cannot be declared apart
-from its operands, which is how lib.saw already had them.
-WHAT WIDENED (DF-232f, the cost): every name two seams share, plus most
-fields of every slot struct — the slabs are read and written by the
-seams that own the operations. Each was named by a compiler error and
-applied by a loop that stops when the compiler does; nothing was widened
-on suspicion. Still private: `THREAD_FRAMES`, `handle_index`,
-`fires_word`, `stays_running`, `SyscallResult`'s status/value, and
-`ClockSlot`'s neighbours in each file.
-Gates: `battery.sh sos` GREEN (80 tests, riscv32 + arm64) at EVERY one
-of the four code commits, plus the terminal `suite sos`.
-[232, design 82/150/204]
-
-ORIGINAL SCOPE, for the record: ~4000 lines splits along the FUNNEL seams, not just topics — the M2
+~4000 lines splits along the FUNNEL seams, not just topics — the M2
 finale engineered "one table, per-kind matches in ONE place"
 (waitable_slot) and one dispatch door, and the cut must keep each
 funnel whole: time.saw (Clock + Timer), waitables.saw (Event, Waiter,
@@ -342,38 +120,16 @@ attachments, ALL the per-kind matches together), process.saw (process
 + thread lifecycle, teardown), sched.saw (run queue, tick),
 dispatch.saw (handle table, object-op dispatch, syscall entry),
 loader.saw (sosimg), diag.saw (console, fault reporting, selftest).
-UNIT 0 (the language probe) IS DONE and the split IS EXPRESSIBLE with
-no compiler change: a `public unsafe static var` is readable AND
-writable from a sibling file of the same mapped package, as ONE
-instance, through a bare import (`import kcore.threads.{THREADS}`);
-imported consts fold in `[T; N]` and `static_assert`; and
-`public import` re-export makes `lib.saw` a FACADE, so main.saw and
-every `sos/tests/` entry keep their `import kcore.{console, …}` lines
-unchanged — extensions travel with a re-exported type and an
-`@export`'d symbol in a facade-reached module still lands in the
-image. THREE FINDINGS came out of it, none blocking: DF-232d
-(assignment through a module qualifier), DF-232e (import cycles are
-undiagnosed), DF-232f (no package-internal visibility — the split
-publishes what the files share, which is the cost the entry below
-predicted).
-THE CUT IS LAYERED, and that is forced rather than chosen: DF-232e
-means the seams must form a DAG, and the kernel's own call graph
-(teardown touches every slab; `fault_process` is reached from the copy
-door; `pick_next` reaches the idle poll which reaches the wake path)
-puts the STATE of a seam below the process teardown and the SERVICE of
-it above — so three of the sketch's seams split in two.
-Thirteen files + the facade, in dependency order: `mem` (addresses and
-byte moves), `diag` (console + the fatal reports), `result` (the
-syscall answer + `write_result`), `objects` (handle table + the typed
-object wrappers), `threads` (thread table, frame arena, ready queue),
-`time` (Clock/Timer slabs + the comparator funnel), `waitables`
-(Event/Waiter/attachments + ALL the per-kind matrix), `process`
-(teardown, faults, the copy doors, `start_process`), `wake` (delivery:
-`deliver_attachment`/`wake_one_waiter`/`notify_ready`), `irq` (the
-tick, timer expiry, device lines, the idle path), `sched` (the switch
-point + `exit_thread`), `dispatch` (every object-op + `ktrap`),
-`loader` (sosimg). Behavior-neutral; sos-only gates.
-[232, design 82/150/204]
+UNIT 0 IS A LANGUAGE PROBE that may be a finding: a Saw FILE is a
+MODULE (design 82/204), so the split introduces real module
+boundaries — shared mutable slabs (`unsafe static var TIMERS` et al)
+must cross them, and the skill records that std-module statics are
+NOT cross-module visible; if the same holds for user packages,
+`public(package) unsafe static var` needs to work first (a DF the
+kernel is the motivating consumer for) or the split needs accessor
+shims. Behavior-neutral; sos-only gates; SEQUENCED after unit 1
+integrates (not on the parked branch — it would bury the review diff
+and collide with the queued riders). [232, design 82/204]
 
 ## HARDWARE PATH — the ultimate goal: ESP32-P4 + a small TCP/IP stack
 ## in Saw (user-ruled direction, Aug 16; post-M3 track)
@@ -540,17 +296,10 @@ wanting error inspection writes the `match`). No `break <value>` story: value
 position is refused, so the conditional-loop value question stays where design
 177 left it.
 
-## DQ-230b — `Channel.try_send` has two failure modes and one error type
-## (filed Aug 16 by the design-230 dispatch, unit C; RESOLVED Aug 17 by
-## design 234)
+## DQ-230b — RULING OWED: `Channel.try_send` has two failure modes and one
+## error type (filed Aug 16 by the design-230 dispatch, unit C)
 
-**RESOLVED — design 234 retires `try_send`**: `send` returns
-`Result<Void, ChannelError>` with `ChannelError { Closed, Cancelled,
-Alloc(e: AllocError) }`, and the `try_` prefix is reserved for non-blocking
-variants. The asymmetry this entry records dies with the twin. Executes with
-234's Channel sub-unit; kept below for the record. [234]
-
-(original) **OPEN — surface decision, not a bug.** Design 230 gave `send` a second failure
+**OPEN — surface decision, not a bug.** Design 230 gave `send` a second failure
 (`Err(ChannelError.Closed)`) beside the allocator one design 123 gave it
 (`panic`, with `try_send` as the reporting twin returning
 `Result<Void, AllocError>`). The two error sets are disjoint and `try_send` has
@@ -577,15 +326,6 @@ caller who cares about allocator refusal on a channel should say so once at
 
 ## DF-230a — CLOSED (Aug 17): cancellation reaches a task parked inside
 ## `Channel.receive()`, and it reports `Err(Cancelled)`
-
-**Rider ruling (user, Aug 17): CANCEL-BEATS-BUFFERED is the contract** — a
-task cancelled while a value is already buffered gets `Err(Cancelled)`, not
-the value: cancellation is the receiver explicitly asking for no more data,
-so delivering one more would contradict the request. The value is not lost
-(it stays in the channel for other receivers / teardown). This RESOLVES the
-implementation's flagged judgement call below: the loop-TOP position is the
-ruled behavior, and `examples/channel_recv_cancel.saw`'s updated expectation
-is the contract, not a regression.
 
 **Landed, the ruling as stated.** Three pieces, and the first two are only
 correct together:
@@ -631,8 +371,7 @@ to the new contract (the buffered 100 stays in the channel, `join()` returns 0),
 keeping the thing it exists for: normal control flow out of a cancelled worker
 and the `Res` deinit oracle firing exactly once before `join()` returns.
 
-**FLAGGED for the user, since it is the one judgement call in the fix —
-RESOLVED by the rider ruling above (cancel-beats-buffered stands).** The
+**FLAGGED for the user, since it is the one judgement call in the fix.** The
 ruling said "at its top", citing std.net, where the check genuinely precedes the
 operation — a cancelled `accept()` refuses a connection that is already pending.
 Implemented that way, so cancellation WINS over a queued message. The other
@@ -682,48 +421,19 @@ an implementation one. The alternative reading is that cancellation is not an
 error at all and the answer is a separate `receive_or_cancelled()`. Not decided
 here.
 
-## ~~DF-232b — `type` should be usable as an argument LABEL, a VARIABLE
-## name and a FIELD name~~ — **FIXED Aug 17** (RULED Aug 17, user)
+## DF-232b — `type` should be usable as an argument LABEL, a VARIABLE
+## name and a FIELD name (RULED Aug 17, user; fix dispatch-ready)
 
 Found by M3 unit 1: the ruled `clock_get(type:)` label was unwritable
-because `type` was a lexer keyword, so the unit shipped `kind:`.
-`type` is now CONTEXTUAL, built the way this compiler already builds
-contextual words rather than by a second mechanism: it is out of BOTH
-keyword tables (`sawc/lexer.py` and `selfhost/lexer/src/lib.saw`, one
-commit — the lexdiff/astdiff lanes compare them token for token), lexes
-as IDENT, and the parser recognizes it through `at_type_alias_start()`
-over `match_ident`, the same door `import`/`export`/`module`/`sync`/
-`any`/`const` use. The read is `type` FOLLOWED BY AN IDENT; its
-docstring names the three entry points (module-level dispatch, a trait
-body, an extension body), and `_at_toplevel_start`/`_synchronize`
-consult it so error recovery still sees an alias as a boundary.
-Unambiguous because that two-token shape occurs nowhere else and `type`
-never opens a statement — the hazard that keeps `lend` reserved.
-CENSUS (the reason this was free): all 2240 tracked `.saw` files hold 84
-`type` tokens, every one at an alias or associated-type head, so no
-existing code changed meaning and nothing had to be renamed.
-CORRECTION to the filing: it listed "statement head in a module and in a
-block still parse as the alias declaration" as negative rows. Only the
-MODULE one existed — a local `type X = Y` has never parsed, since no
-statement form consumes it. It stays an error and now says so by name
-instead of falling through to ``undefined variable `type` ``.
-Tests: `examples/type_is_a_contextual_keyword.saw` (the matrix — four
-negative alias rows, then field, parameter, argument label, struct
-literal, `e.type`, `self.type`, `let`/`var` binding + assignment,
-for-loop variable, `if let` binding, named-tuple label, closure
-parameter, interpolation) and
-`examples/type_alias_in_function_body_refused.saw`.
-Also updated: LANGUAGE_SPEC's reserved-vs-contextual lists,
-`tools/sawfuzz.py`'s KEYWORDS/CONTEXTUAL split, and the nvim syntax file
-(which highlighted `type` unconditionally and so mis-coloured `e.type`).
-DEFERRED, deliberately: the sos/ `clock_get(kind:)` API is NOT flipped to
-the ruled `type:` here. A concurrent agent is restructuring sos/kernel,
-and the flip is scheduled for after both branches land. The label is
-declared at `sos/kernel/sysapi/src/lib.saw:540` (its docstring already
-points here), with the kernel side at `sos/kernel/core/lib.saw:2079`,
-labeled call sites in `sos/tests/{clock-basics,timer-deadlock,
-timer-oneshot}/src/main.saw`, and prose in `sos/spec.md:1191` +
-`designs/232-sos-m3-sketch.md:470`. [232, DF-232b]
+because `type` is a declaration keyword, so the unit shipped `kind:`.
+Ruling: `type` becomes a CONTEXTUAL keyword — it keeps its meaning only
+where a `type X = Y` alias declaration can begin, and is an ordinary
+identifier as an argument label, a local/param binding, and a struct
+field name. The fix quantifies over positions (obligation 1): label,
+binding, field, plus the NEGATIVE rows (statement head in a module and
+in a block still parse as the alias declaration; `m.type`? member
+access; interpolation `{type}`). Once fixed, the unit-1 API flips
+`kind:` back to the ruled `type:` as a rider. [232, DF-232b]
 
 ## DF-229c — CLOSED (Aug 17): a `public(package)` name selected from
 ## INSIDE its own package now BINDS
@@ -1633,72 +1343,27 @@ What landed beyond the brief's text, as decisions a reader may need:
   `let v: Vector<Int>? = [1, 2, 3]` shapes instead of refusing. Regression
   test `examples/optional_slot_literal_adopts_payload_width.saw`.
 
-- ~~**DF-226e — the `Result` half of DF-226d**~~ — **FIXED Aug 17**, to the
-  Aug-17 ruling. `_apply_literal_expected_type` grew case (0d) beside the
-  optional peel: a `Result` expectation over an integer literal peels to the
-  UNIQUE payload that could adopt it, which also SELECTS the variant, since the
-  auto-wrap picks `Ok`/`Err` by testing the value's type against each payload.
-  `Result<Int32, Bad>` peels to the Ok side, `Result<String, Int32>` to the ERR
-  side. Where both could (`Result<Int32, Int8>`) nothing is peeled and the
-  refusal is `_result_autowrap_ambiguous` — which already owned design 30's
-  `T == E` rule and now distinguishes the two cases in its wording, since
-  "has the same Ok and Err type" was simply false for distinct payloads that
-  both accept a widthless literal. One refusal, in the place that already owned
-  ambiguity, rather than a second one inside the propagation funnel emitting a
-  duplicate diagnostic for the same line.
-  Tests: `examples/result_slot_literal_adopts_payload_width.saw` (XFAIL
-  flipped — named `return` and tail, the Err side, a negative literal, an
-  optional Ok payload that peels twice, a platform-`Int` payload unchanged, a
-  method tail, a closure `return`, an abstract generic body that peels nothing)
-  and `examples/result_slot_literal_ambiguous_payloads.saw` for the refusal.
-  CORRECTION to the filing: the entry said named and closure bodies "have it
-  identically". True of a closure's `return` (it shares the named funnel, and
-  it is fixed here); NOT true of a closure's TAIL, which never reached the
-  Result wrap at all — filed separately as DF-232h.
+- **DF-226e (RULED Aug 17, user; fix dispatch-ready) — the `Result` half of
+  DF-226d.** A bare literal in a `Result` slot does not adopt either payload's
+  width, so `return 4` at `-> Result<Int32, E>` is a `ResultOkWrap` codegen ICE
+  (and the Err side the same). Not fixed with the optional peel because a
+  Result has TWO payloads. RULING: peel to the unique payload that could adopt
+  the literal; where BOTH payloads could (`Result<Int32, Int8>`), refuse with a
+  clean error naming both payloads and requiring the explicit constructor —
+  `Ok(4)` / `Err(4)` — inside which the literal has exactly one payload slot
+  and adopts normally. Named and closure bodies have it identically.
+  Workaround meanwhile: `return 4i32`. Pinned by
+  `examples/result_slot_literal_adopts_payload_width.saw`.
 
-## DF-232h — a closure's TAIL expression does not auto-wrap into a declared
-## `Result` return type, though its `return` does and though the OPTIONAL
-## analogue works (found Aug 17 by DF-226e's fix, probed; RENUMBERED from the
-## branch's DF-232d at integration — the kcore split claimed d-g first;
-## SCHEDULED Aug 17 as a rider on design 234 unit 1, user)
-
-`run(f: { x in 12 })` against `(Int) sync -> Result<Int32, Bad>` is
-``argument `f` expects `(Int) sync -> Result<Int32, Bad>` but got
-`(Int) -> Int32` ``. NOT a literal-width problem and not DF-226e: a
-non-literal `{ x in k }` for an `Int32` k fails identically, and the explicit
-`{ x in Result<Int32, Bad>.Ok(value: 12i32) }` compiles. The closure return
-path (`_check_closure`, sawc/typechecker/expressions.py ~11085) has an
-`expected_ret.kind == OPTIONAL` branch that auto-wraps the tail in an
-`OptionalWrap` and no `Result` counterpart, while a closure's `return`
-statement goes through `_check_return_statement`, which shares the named
-body's auto-wrap chain — so the two spellings of the same intent disagree.
-MECHANISM/SHAPE OF A FIX (obligation 1): the Ok-vs-Err selection lives inline
-in `_check_return_statement` (the `_result_autowrap_ambiguous` /
-`_types_compatible(ok)` / `_types_compatible(err)` / erased-Err ladder). A fix
-should EXTRACT that ladder into one funnel and call it from both the return
-path and the closure tail, rather than growing a second copy — the matrix is
-Ok side, Err side, the ambiguity refusal, the erased `Box<any Error>` target,
-and an optional Ok payload needing `_prepare_ok_payload`. Workaround
-meanwhile: write `return` instead of a bare tail. [226, DF-226e]
-
-- ~~**DF-226f — a `static` of OPTIONAL type never auto-wraps its
-  initializer**~~ — **FIXED Aug 17**, to the Aug-17 ruling: a deliberate
-  refusal at the declaration, auto-wrap NOT added. `_register_static` asks it
-  on the TYPE right after `_resolve_type`, before the initializer is looked at,
-  so the bare (`= 7`), wrapped, `None` and NO-INITIALIZER spellings all meet
-  one rule instead of four incidental outcomes. An ALIAS to an optional is
-  refused too (it resolves to the static's own top-level type); an optional
-  nested in a field, element or generic argument is untouched, and `unsafe
-  static var` is not reopened.
-  The refusal does NOT bail out of registration — it suppresses only the
-  initializer checks and falls through, because returning early orphaned the
-  symbol and made every later USE of the name draw a second, misleading
-  ``static `SLOT` is declared after this point``. One error per declaration now.
-  Tests: `examples/static_optional_type_refused.saw` (the bare-payload form),
-  `examples/static_optional_type_refused_none.saw` (the `None` form — the row
-  that shows this is not a repackaged type mismatch, since `None` IS assignable
-  to `Int?`), and `examples/static_non_optional_types_unaffected.saw` for the
-  negative rows.
+- **DF-226f (RULED Aug 17, user; fix dispatch-ready) — a `static` of OPTIONAL
+  type never auto-wraps its initializer, at any width.** `static SLOT: Int? = 7`
+  is ``static `SLOT` has type `Int?` but its initializer has type `Int` ``, and
+  always was; a third mechanism (a missing wrap, not a missing expectation), so
+  DF-226d only changed which width the message names. Clean error, not an ICE.
+  RULING: an optional static is NONSENSICAL — the fix is a deliberate refusal
+  at the declaration (an error naming the rule, not the incidental
+  type-mismatch wording), covering wrapped, bare and `None` initializers alike;
+  auto-wrap is NOT added. Revisit only if a use case surfaces.
 
 - **DF-226c (v1 gap, deliberately not built) — construction form 2 accepts a
   BARE name, not a module-QUALIFIED one.** `import fpmod.{tripled}` then
@@ -2929,25 +2594,41 @@ DF-217e) is untouched and still open.
      `examples/errors/method_overload_identical_signature.saw`. PIN flipped:
      `examples/method_overloads_distinguished_by_labels.saw`. Gated on suite +
      `sos_runner` both arches.
-   - **DF-217q (COMPILER, filed Aug 17 while fixing DF-217e): a STATIC
-     extension method called through an INSTANCE mis-binds its labels.**
-     `Bag.solo(index: 3)` works; `b.solo(index: 4)` reports ``solo` has no
-     parameter named `index`` with ONE method declared — no overload set, no
-     tie-break. The CALL-site parameter offset
-     (`expressions.py` `param_offset = 1 if not method_info.is_init else 0`)
-     owes the same `is_static` term DF-217e's fix gave the declaration side and
-     the mangler; where the labels do happen to bind, codegen then passes the
-     receiver as argument 0 and fails the verifier (`Type of #1 arg mismatch:
-     i64 != %"Bag"`). RULED Aug 17 (user): REFUSE cleanly — the type-explicit
-     spelling `Bag.solo(...)` is the ONLY valid construction; an instance may
-     never name a static. The diagnostic points at the type spelling (a
-     fixit-shaped error naming `Bag.solo`). Covers struct AND enum statics,
-     labeled and unlabeled calls; `Self` inside the type's own extensions is a
-     type spelling and stays legal. The DF-217e pin originally called its
-     statics this way, which is how this surfaced — evidence the error must
-     teach, not merely refuse. PIN: `examples/static_method_called_on_instance.saw`
-     (XFAIL, cited); the fix flips it, with the pin's EXPECTs updated to the
-     ruled refusal. Dispatched to the Aug-17 small-fix batch.
+   - **DF-217q — CLOSED (Aug 17): a STATIC extension method reached through an
+     INSTANCE is a clean error; the TYPE spelling is the only way to call one.**
+     The ruling took the refusal reading rather than fixing the binding: a
+     static has no `self`, so there is nothing for the receiver to become, and
+     giving one method two call shapes buys nothing. `b.solo(index: 4)` reported
+     ``solo` has no parameter named `index`` with ONE method declared — the
+     call-site parameter offset sliced a `self` slot the callee does not have,
+     so every label lined up against the wrong parameter — and where the labels
+     did bind, codegen passed the receiver as argument 0 and failed the verifier
+     (`Type of #1 arg mismatch: i64 != %"Bag"`).
+     The refusal is at the instance-call path in `_check_method_call`, and it is
+     "a static is not a CANDIDATE here", not "a static is invisible from a
+     value" — two things had to hold together. `struct_info.methods` keeps the
+     FIRST-registered overload as the representative, so a lookup for a name a
+     type carries at BOTH kinds can hand a static back to an instance call;
+     `_instance_method_alternative` re-asks for an instance overload before
+     refusing. And `_scoped_method_overloads`' result is filtered for the
+     instance path, so a mixed set resolves among the instance methods alone
+     instead of letting a static win on arity. ENUM receivers come free —
+     design 145 gives enums statics on the same terms and the same lookup
+     answers for both, which the pin covers as its second row.
+     PIN `examples/static_method_called_on_instance.saw` FLIPPED to the refusal
+     (both receiver kinds, with the two legal type-spelled calls in the same
+     file so the fix cannot pass by refusing everything); companion
+     `examples/static_and_instance_method_share_a_name.saw` is the positive
+     half. `method_overloads_distinguished_by_labels.saw`'s note updated —
+     DF-217e's declaration-site fix and this call-site one are now both closed.
+     **Consumer sweep: the suite was the census and it found exactly one.**
+     Conformance row V39 (`V39_generic_method_body_honors_copy_tier.saw`) wrote
+     `func dup(x: T)` — no `self`, so a STATIC — and called it `w.dup(...)`
+     through an instance. It only resolved at all because this path was broken,
+     and it wanted an instance call: the row's claim is that the RECEIVER's type
+     arguments are the whole discharge, which a `Wrap<Res>.dup(...)` spelling
+     would have written at the call instead. Given its `&self`, the row asserts
+     what it always meant.
 
 Reviewed and NOT owed a sweep (mechanism already funneled or swept by its
 fix): design 196's erased-error family (one canonical spelling, unit 2; the

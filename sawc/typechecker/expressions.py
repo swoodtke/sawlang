@@ -7460,6 +7460,22 @@ class ExpressionsMixin:
                     struct_name, method_name)
                 if self._ext_scope_allows(s, struct_info)]
 
+    def _instance_method_alternative(self, struct_name: str, method_name: str,
+                                     struct_info):
+        """An INSTANCE method of this name, when the representative the lookup
+        returned was a static one (DF-217q).
+
+        `struct_info.methods` keeps the first-registered overload as the
+        representative, so a type carrying both `Bag.make(...)` and
+        `b.make(...)` can hand a static back to an instance call site. That is
+        an overload-set question, not a refusal: only when NO instance overload
+        of the name is visible here does the call have nothing to mean."""
+        for cand in self._scoped_method_overloads(struct_name, method_name,
+                                                  struct_info):
+            if not getattr(cand, 'is_static', False):
+                return cand
+        return None
+
     def _out_of_scope_method_modules(self, struct_info, method_name: str,
                                      type_args: List[SawType] = None) -> List[str]:
         """The modules that define `method_name` on this type but are not in
@@ -9061,6 +9077,32 @@ class ExpressionsMixin:
 
         # Look up method - first check specialized extensions, then generic
         method_info = self._lookup_method(struct_info, expr.method_name, obj_type.type_args)
+        # DF-217q: a STATIC method is not reachable through an INSTANCE. It has
+        # no `self`, so the receiver has nowhere to go: the call-site parameter
+        # offset sliced a slot the callee does not have, every label lined up
+        # against the wrong parameter, and where they happened to bind anyway
+        # codegen passed the receiver as argument 0 and failed the verifier.
+        # Ruled a clean refusal rather than a binding fix — the type spelling is
+        # the one way to call one, and an instance path would give the same
+        # method two call shapes with no gain.
+        if method_info is not None and getattr(method_info, 'is_static', False):
+            instance_alt = self._instance_method_alternative(
+                struct_name, expr.method_name, struct_info)
+            if instance_alt is None:
+                self._error(
+                    ErrorKind.TYPE_MISMATCH,
+                    f"`{expr.method_name}` is a static method of "
+                    f"`{struct_name}` and cannot be called on a value",
+                    expr.line, expr.column,
+                    hint=f"call it on the type: "
+                         f"`{struct_name}.{expr.method_name}(...)`. A static "
+                         f"method has no `self`, so there is nothing for the "
+                         f"receiver to become")
+                return None
+            # A static and an instance method may share a name; the instance
+            # call resolves to the instance one and the static is simply not a
+            # candidate here.
+            method_info = instance_alt
         # Member visibility (design 80): gate a directly-resolved instance method
         # (before the Arc/Box payload-forward fallbacks, which are a separate
         # mechanism keyed on the payload type's own access).
@@ -9079,8 +9121,13 @@ class ExpressionsMixin:
         # resolves through the exact-match resolver (before effect edges are
         # recorded), then feeds the shared downstream machinery.
         if method_info is not None:
-            method_overloads = self._scoped_method_overloads(
-                struct_name, expr.method_name, struct_info)
+            # DF-217q: statics are not candidates for an INSTANCE call, so they
+            # never reach the resolver — a mixed set resolves among the instance
+            # methods alone rather than letting a static win on arity.
+            method_overloads = [
+                m for m in self._scoped_method_overloads(
+                    struct_name, expr.method_name, struct_info)
+                if not getattr(m, 'is_static', False)]
             if len(method_overloads) > 1:
                 # Design 142: two visible extensions of one type may share a name
                 # (they resolve by the ordinary overload rules), but a

@@ -2441,6 +2441,12 @@ extension Wrap<T> {
 }
 ```
 
+A method with no `self` parameter is a STATIC method, and the type is the only
+way to call one — `Bag.make(seed: 5)`, never `b.make(seed: 5)`. A static has no
+receiver for a value to become, so the instance spelling is a clean error
+naming the type spelling. The two kinds may share a name: each call shape picks
+the one it can mean.
+
 **Key Features:**
 - Methods use `&self` (shared reference) or `&var self` (exclusive reference).
   Both receivers are borrows and the sigil says so; a bare `var self` is a

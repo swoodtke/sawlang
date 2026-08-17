@@ -7,6 +7,13 @@
 // why a method call discharges the RECEIVER's type arguments as well as its
 // own. `Wrap<T>`'s parameter belongs to the extension; nothing at the call
 // writes it, and it still has to be judged.
+//
+// `dup` takes `&self` so that `w.dup(...)` is a genuine INSTANCE call, which is
+// what makes the receiver the whole discharge. It was written without one until
+// DF-217q, which made it a STATIC method reached through an instance — a shape
+// that only resolved at all because that path was broken, and one where the
+// type argument would come from a `Wrap<Res>` spelling at the call rather than
+// from the receiver. The receiver is the point of the row.
 // EXPECT: error
 // EXPECT-ERROR-CONTAINS: requires `T` to be `Copy`
 
@@ -21,7 +28,7 @@ struct Wrap<T> { tag: Int }
 extension Wrap<T> {
     // The parameter is the EXTENSION's, so the call site writes no type
     // argument at all — the receiver's `Wrap<Res>` is the whole discharge.
-    func dup(x: T) -> Int {
+    func dup(&self, x: T) -> Int {
         let a = sink(x)
         let b = sink(x)
         a + b

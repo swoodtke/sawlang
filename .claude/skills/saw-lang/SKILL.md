@@ -2597,6 +2597,13 @@ construct in the owner and lend `&driver` down.
   The generic-ARGUMENT position keeps the smaller design-148 grammar (`>` is the
   shift token, so `FixedBuf<1 << 8>` cannot parse) — write `FixedBuf<2 * 128>`
   or a `static`.
+- **A STATIC method is called on the TYPE, never on a value** (DF-217q):
+  `Bag.make(seed: 5)`, not `b.make(seed: 5)`. A method with no `self` parameter
+  has no receiver for a value to become, so the instance spelling is a clean
+  error naming the type spelling — it used to mis-bind the labels instead
+  (``no parameter named `seed```) or reach codegen and fail the verifier. Same
+  for an enum's statics. A static and an instance method MAY share a name; each
+  call shape picks the one it can mean.
 - **ENUMS TAKE EXTENSIONS, same as structs** (design 145): instance methods with
   `&self`/`&var self` (`match self` is the idiomatic body, `self = Other` the
   whole-value replacement), static methods (no `self` param), hand-written trait

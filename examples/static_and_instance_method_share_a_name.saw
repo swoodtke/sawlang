@@ -1,0 +1,26 @@
+// A STATIC and an INSTANCE method may share a name, and each call shape picks
+// the one it can mean (DF-217q's positive half).
+//
+// The refusal beside it (`static_method_called_on_instance.saw`) is not "a
+// static is invisible from a value" — it is "a static is not a CANDIDATE for an
+// instance call". That distinction is what this file pins: `struct_info.methods`
+// keeps the FIRST-registered overload as the representative, so a lookup for
+// `make` on an instance can hand back the static one; only when no instance
+// overload of the name is visible does the call have nothing to mean.
+// EXPECT: success
+// EXPECT-OUTPUT:
+// static 5
+// instance 11
+
+struct Bag { n: Int }
+
+extension Bag {
+    func make(seed: Int) -> Int { seed }                  // no self: static
+    func make(&self, bump: Int) -> Int { self.n + bump }  // instance
+}
+
+func main() {
+    print("static {Bag.make(seed: 5)}")
+    let b = Bag(n: 10)
+    print("instance {b.make(bump: 1)}")
+}
