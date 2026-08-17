@@ -1403,29 +1403,51 @@ What landed beyond the brief's text, as decisions a reader may need:
 - Kernel adoption (`create_thread`) is still deferred to M3 unit 2 per
   the brief; nothing under `sos/` was touched.
 
-- **DF-226a (found by design 226 unit 3, PRE-DATES it) — a closure body's
-  TAIL never receives the expected RETURN type, so a bare literal there
-  adopts nothing; a fixed-width return is an INTERNAL COMPILER ERROR.**
-  `run({ x in 1 })` against a `(Int32) sync -> Int32` parameter types the
-  closure `(Int32) -> Int` and dies in codegen — `ret i64` from an `i32`
-  function, or one layer out a closure-triple type mismatch. Nothing about
-  a `FuncPointer` is involved; it surfaced writing the C-callback
-  comparator, whose `int` return is the shape a C ABI always asks for.
-  MECHANISM (obligation 4): `_check_closure` computes `expected_ret` and
-  pushes it onto the body for exactly two shapes — an OPTIONAL (DF-146c's
-  bare `None`) and a NEVER tail — and never calls
-  `_apply_literal_expected_type` with it. That funnel is what gives every
-  other typed slot its literal treatment, so a closure tail is missing all
-  of it at once, not one rule. Second position probed and confirmed:
-  COLLECTION SHAPING, `runv({ x in [1, 2, 3] })` against
-  `(Int) sync -> Vector<Int>`, is a clean but wrong error (``got `(Int) ->
-  [Int; 3]` ``) because the array literal never learns it is a Vector.
-  Pinned by `examples/closure_tail_adopts_expected_return_type.saw`.
-  A suffixed literal (`1i32`) works today and is what
-  `examples/funcpointer226_ffi_qsort.saw` uses meanwhile. The fix is one
-  call where the return context is already computed, but it quantifies over
-  positions (the tail, arm results inside it, a `return` statement in the
-  body, the auto-wrap paths beside it) and owes the sweep first.
+- ~~**DF-226a — a closure body's TAIL never receives the expected RETURN
+  type**~~ — **FIXED Aug 17 (`dd8a5c45`).** `_check_closure` pinned the
+  expected return onto the body for exactly two shapes (a bare-`None` tail,
+  a `Never` tail) and never called `_apply_literal_expected_type`, so the
+  tail was missing every literal rule at once: a fixed-width return ICEd
+  (`ret i64` from an `i32` function) and an array literal never learned it
+  was a `Vector`. The body now goes through `_stamp_return_literal_types`,
+  the SAME chokepoint `_check_function`/`_check_method` call, whose
+  docstring names all three entry points. The XFAIL flipped;
+  `examples/closure_tail_adopts_expected_return_type.saw` is the matrix
+  (tail, `if` and `match` arm results, `return`, collection shaping, the two
+  no-regression shapes), and `examples/funcpointer226_ffi_qsort.saw` dropped
+  the `i32` suffixes it carried meanwhile — the C `qsort` callback where the
+  finding surfaced now round-trips on bare literals.
+
+- ~~**DF-226d — a bare literal never adopts an OPTIONAL slot's PAYLOAD
+  width**~~ — **FIXED Aug 17 (`aa69ee24`)**, found by DF-226a's sibling
+  sweep. One layer in from DF-226a: that was a caller that never reached the
+  funnel, this was `_apply_literal_expected_type` itself judging the
+  expectation by its own kind, so an `Int32?` slot left the literal at
+  platform width and built a `{i1, i64}` where a `{i1, i32}` was owed — an
+  ICE at EVERY position the funnel serves (annotated `let`, argument, field,
+  return tail and `return`, array and `Vector` element, closure tail), which
+  is what made one peel the whole fix. Two bonus effects: an out-of-range
+  literal in an optional slot is now the ordinary clean range error, and
+  `let v: Vector<Int>? = [1, 2, 3]` shapes instead of refusing. Regression
+  test `examples/optional_slot_literal_adopts_payload_width.saw`.
+
+- **DF-226e (open, needs a ruling) — the `Result` half of DF-226d.** A bare
+  literal in a `Result` slot does not adopt either payload's width, so
+  `return 4` at `-> Result<Int32, E>` is a `ResultOkWrap` codegen ICE (and
+  the Err side the same). Not fixed with the optional peel because a Result
+  has TWO payloads: the rule wanted is probably "peel to the unique payload
+  that could adopt it, refuse the ambiguity with a clean error naming both",
+  and `Result<Int32, Int8>` is where that ruling is owed. Named and closure
+  bodies have it identically. Workaround: `return 4i32`. Pinned by
+  `examples/result_slot_literal_adopts_payload_width.saw`.
+
+- **DF-226f (open, minor) — a `static` of OPTIONAL type never auto-wraps its
+  initializer, at any width.** `static SLOT: Int? = 7` is ``static `SLOT`
+  has type `Int?` but its initializer has type `Int` ``, and always was; a
+  third mechanism (a missing wrap, not a missing expectation), so DF-226d
+  only changed which width the message names. Clean error, not an ICE. Worth
+  a ruling alongside DF-226e on whether an optional static is constructible
+  at all, given design 186's constant-expression tiers.
 
 - **DF-226c (v1 gap, deliberately not built) — construction form 2 accepts a
   BARE name, not a module-QUALIFIED one.** `import fpmod.{tripled}` then
