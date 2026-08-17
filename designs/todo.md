@@ -3922,8 +3922,35 @@ DF-192e fixed, DF-192b/c/d/f/g pinned (DF-192d fixed since, by design 198).
   canonicalizes to in a slot nothing resolves, which is a design-144 identity
   question and wants a ruling rather than a patch mid-brief. PIN:
   `examples/qualified_type_in_declaration_slot.saw` (XFAIL, cited).
-- **DF-194b (SPEC QUESTION, filed Aug 17 while writing DF-194a's matrix): a
-  `type` alias whose underlying is an ENUM cannot be projected back.**
+- **DF-194b — CLOSED (Aug 17): a `type` alias whose underlying is an ENUM is
+  now INVALID, refused at the alias declaration.** The ruling as stated. The
+  rule is its OWN registration pass, `_reject_enum_underlying_aliases`
+  (typechecker/registration.py), whose docstring names its two entry points
+  (obligation 1): `check` and `check_module` in typechecker/core.py, each
+  calling it once its own four registration passes have run. It cannot live
+  inside `_register_type_definition` — aliases are registered BEFORE structs
+  and enums, so at registration time no name is knowably an enum yet, which is
+  the whole reason the gap existed. `_alias_underlying_enum` chases
+  alias-of-alias through each link's WRITTEN type and asks the symbol tables
+  rather than the annotation's kind (a bare named type parses STRUCT-kinded).
+  Test: `examples/type_alias_of_enum_error.saw`, four rows — direct, a chain
+  (the diagnostic names the middle: ``names the enum `Level` (through
+  `Rank`)``), a raw-backed enum (a backing is not a way back), and a
+  MODULE-QUALIFIED enum, which is where the DF-194a matrix's alias-of-enum row
+  moved to: the refusal naming `Level` is itself the proof that the qualifier
+  resolved in that slot, so slot 3's coverage survives the move.
+  `examples/qualified_type_declaration_slots.saw` is slot 3 at the struct kind
+  only now, with the pointer written at the line. Struct and primitive aliases
+  are untouched (the in-file control, plus `type_alias.saw`,
+  `type_alias_construction.saw`, `cast_distinct_*`). Consumer sweep: the tree
+  had exactly ONE enum-underlying alias, that matrix row.
+  **Consequence worth a ruling if anyone hits it:** `Result` and `Optional` are
+  enums, so `type Outcome = Result<Int, ParseErr>` is refused too. Nothing in
+  the tree writes one, and "until a use case exists" is the ruling — this is
+  the shape the use case would take. Docs: the spec's Type Definitions section
+  and the skill's cheat-sheet line. As filed:
+- **(DF-194b, as filed) a `type` alias whose underlying is an ENUM cannot be
+  projected back.**
   `enum L { case A, case B }` + `type R = L` + `r as L` is refused with
   ``cannot cast `L` to `L` `` — the two names printed identically, which is the
   DF-142a diagnostic shape. Nothing to do with module qualifiers: it reproduces

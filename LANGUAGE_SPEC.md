@@ -2290,6 +2290,23 @@ func parse(ok: Bool) -> Result<Int, Box<any Error>> {
 underlying allowed, the reverse requires explicit construction) and function-type
 aliases. Generic type aliases (`type Handler<T> = ...`) are *planned*.
 
+The underlying type may not be an **enum**. An alias exists to be read back to
+what it names, and `as` has no enum reading — so an enum alias would be a name
+with no way out. It is refused at the alias declaration, whether the enum is
+named directly, reached through a chain of aliases, raw-backed, or written with
+a module qualifier:
+
+```saw
+enum Level { case High, case Low }
+
+type Rank = Level      // Error! an alias of an enum is not allowed
+type Step = Rank       // Error! the same, through the chain
+```
+
+Structs and primitives are unaffected. This includes the built-in enums, so
+`type Outcome = Result<Int, ParseErr>` is refused today as well; a use case is
+what would reopen the question.
+
 ```saw
 // Type definitions create distinct types (not interchangeable aliases)
 type UserId = Int

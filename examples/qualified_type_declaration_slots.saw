@@ -10,9 +10,11 @@
 // reported shape against std; this is the matrix, over a user module and both
 // type kinds.
 //
-// The alias-of-ENUM row constructs only: projecting one back with `as` is
-// refused for a plain local enum too (DF-194b), so it is not this file's
-// subject.
+// Slot 3 is written at the STRUCT kind only. DF-194b ruled that a `type` alias
+// whose underlying is an ENUM is invalid outright, so `type Rank = qslot.Level`
+// is no longer a row that can live in a success file — it moved to
+// `type_alias_of_enum_error.saw`, where the refusal naming `Level` is itself
+// the proof that the qualifier resolved in this slot.
 // COMPILE-FLAGS: --module-path qslot={TESTDIR}/modules/qualslot_dep
 // EXPECT: success
 // EXPECT-OUTPUT: field 7
@@ -23,7 +25,6 @@
 // EXPECT-OUTPUT: payload 9
 // EXPECT-OUTPUT: enum payload 0
 // EXPECT-OUTPUT: alias 5
-// EXPECT-OUTPUT: alias enum 1
 // EXPECT-OUTPUT: constructor arg 6
 import qslot
 
@@ -45,9 +46,9 @@ enum Slot {
     case Empty
 }
 
-// Slot 3 — a `type` alias right-hand side, at both kinds.
+// Slot 3 — a `type` alias right-hand side. The enum kind is refused outright
+// (DF-194b) and is covered by `type_alias_of_enum_error.saw`.
 type Marker = qslot.Tag
-type Rank = qslot.Level
 
 func main() {
     var many: Vector<qslot.Tag> = []
@@ -73,14 +74,6 @@ func main() {
 
     let m: Marker = Marker(qslot.Tag(of: 5))
     print("alias {(m as qslot.Tag).n}")
-    // An alias of the ENUM kind is CONSTRUCTED here and not projected back:
-    // `r as qslot.Level` is refused (``cannot cast `Level` to `Level` ``), and
-    // so is the same spelling over a plain local enum — an alias-of-enum gap
-    // that has nothing to do with the qualifier. Filed as DF-194b; the row
-    // below is the part DF-194a is about, that the alias RHS resolves at all.
-    let r: Rank = Rank(qslot.Level.High)
-    let _ = r
-    print("alias enum 1")
 
     // The fourth face the filing names: a CONSTRUCTOR's generic argument, which
     // is written in an expression and so reaches no declared-type walk. The

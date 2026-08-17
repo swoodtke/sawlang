@@ -2100,6 +2100,12 @@ class TypeChecker(ExpressionsMixin, StatementsMixin, RegistrationMixin, TypeUtil
             with self._declaring(trait):
                 self._register_trait(trait)
 
+        # DF-194b: now that enums exist, refuse an alias that names one. The
+        # alias pass above runs first (an alias RHS may name a type registered
+        # after it), so this is the earliest point at which the question has an
+        # answer. Entry point 1 of 2 — see `_reject_enum_underlying_aliases`.
+        self._reject_enum_underlying_aliases(program)
+
         # DF-172j second half: a bare-name const generic ARGUMENT that is a
         # `static` (`FixedBuf<CAP>`). Needs the referenced type's parameter list
         # to tell a const argument from a type one, so it runs here — after
@@ -2932,6 +2938,10 @@ class TypeChecker(ExpressionsMixin, StatementsMixin, RegistrationMixin, TypeUtil
             with self._declaring(trait):
                 self._register_trait(trait)
             ns.make_accessible(trait.name)
+
+        # DF-194b: entry point 2 of 2 — a module's own aliases are registered by
+        # its own pass, not the entry's, so the rule is owed here too.
+        self._reject_enum_underlying_aliases(module_ast)
 
         # DF-172j second half: a bare-name const generic ARGUMENT that is a
         # `static`, now that the referenced types' parameter lists exist.

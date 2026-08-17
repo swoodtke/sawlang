@@ -284,6 +284,87 @@ class RegistrationMixin:
             return True
         return self._diverges(body)
 
+    # ---------------------------------------------------------------- #
+    # THE ALIAS UNDERLYING-KIND RULE (DF-194b)
+    #
+    # `type R = L` where `L` is an ENUM is INVALID (user ruling, Aug 17).
+    # An alias is a one-directional name: the `as` projection reads it back
+    # toward the type it aliases, and that projection reaches the alias chain
+    # through `_alias_ancestor_names`, which walks STRUCT chains only. So an
+    # enum-underlying alias could be declared and constructed but never read
+    # back — `r as Level` reported ``cannot cast `Level` to `Level``, the two
+    # names printing identically, a diagnostic at a distance from the thing
+    # that was actually wrong. Until a use case exists the alias itself is
+    # refused, at its own declaration.
+    #
+    # It runs as its OWN pass rather than inside `_register_type_definition`,
+    # because aliases are registered BEFORE structs and enums are — at
+    # registration time no name is knowably an enum yet.
+    #
+    # ENTRY POINTS (obligation 1), one per registration driver, each calling
+    # this once its own four registration passes have run:
+    #   * `check` (typechecker/core.py) — the entry program.
+    #   * `check_module` (typechecker/core.py) — every other module.
+    # ---------------------------------------------------------------- #
+    def _alias_underlying_enum(self, t, depth: int = 0) -> Optional[str]:
+        """The ENUM an alias right-hand side ultimately names, or None.
+
+        Chases alias-of-alias through each link's WRITTEN type, so with
+        `type A = L` and `type B = A` both answer `L`. A bare named type parses
+        STRUCT-kinded, so both kinds are asked of the symbol tables rather than
+        trusted from the annotation."""
+        if t is None or depth > 16:
+            return None
+        if t.kind == TypeKind.ENUM and t.enum_name:
+            name = t.enum_name
+        elif t.kind == TypeKind.STRUCT and t.struct_name:
+            name = t.struct_name
+        else:
+            return None
+        if (self.get_enum_info(name) is not None
+                and self.get_struct_info(name) is None):
+            return name
+        alias = self.get_type_alias_info(name)
+        if alias is not None:
+            return self._alias_underlying_enum(
+                getattr(alias, 'immediate_type', None), depth + 1)
+        return None
+
+    def _immediate_alias_name(self, t) -> Optional[str]:
+        """The name an alias right-hand side writes, or None — for naming the
+        middle of a chain in the diagnostic below."""
+        if t is None:
+            return None
+        if t.kind == TypeKind.ENUM and t.enum_name:
+            return t.enum_name
+        if t.kind == TypeKind.STRUCT and t.struct_name:
+            return t.struct_name
+        return None
+
+    def _reject_enum_underlying_aliases(self, program) -> None:
+        """Refuse every `type` alias whose underlying type is an enum."""
+        for type_def in getattr(program, 'type_definitions', []):
+            written = getattr(type_def, 'defined_type', None)
+            enum_name = self._alias_underlying_enum(written)
+            if enum_name is None:
+                continue
+            via = self._immediate_alias_name(written)
+            through = ("" if via is None or via == enum_name
+                       else f" (through `{via}`)")
+            self._error(
+                ErrorKind.TYPE_MISMATCH,
+                f"type alias `{type_def.name}` names the enum "
+                f"`{enum_name}`{through}, and an alias of an enum is not "
+                f"allowed",
+                type_def.line, type_def.column,
+                hint=f"use `{enum_name}` itself. An alias is read back to the "
+                     f"type it names with `as`, and there is no such reading "
+                     f"for an enum — so `{type_def.name}` would be a name with "
+                     f"no way out. Aliases of structs and primitives are "
+                     f"unaffected",
+                source_file=getattr(type_def, 'source_file', None) or None,
+            )
+
     def _register_type_definition(self, type_def: TypeDefinition):
         """Register a type definition (type alias)."""
         # Design 144/204: keyed by IDENTITY — see `_register_struct`.

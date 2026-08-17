@@ -29,6 +29,8 @@ type UserId = Int          // DISTINCT type; flows TO Int; back via UserId(i)
                            // ordinary name — `f(type: 1)`, `struct E { type: Int }`,
                            // `e.type`, `let type = 7` all compile. An alias
                            // inside a function body is still refused.
+                           // underlying may NOT be an enum (DF-194b) — no `as`
+                           // reading exists for one, so the alias is refused
 let raw = id as Int        // explicit projection toward underlying
 print("hi {name}: {p}")    // interpolation; user types need Printable
 print("{#file}:{#line} - msg")  // #file/#line/#function: definition-site consts
