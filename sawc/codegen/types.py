@@ -25,6 +25,60 @@ class TypesMixin:
     Name mangling lives in the single canonical module codegen/mangle.py.
     """
 
+    def _lower_declared_return(self, saw_return_type):
+        """The LLVM return type a DECLARATION lowers to, plus whether it is the
+        `-> Never` shape. Returns `(llvm_type, is_never)`.
+
+        Design 58: a `-> Never` declaration lowers to `void` + the `noreturn`
+        attribute — the `_start`/`abort` C shape — because a function that does
+        not return has no result to describe. `_get_llvm_type` maps `Never` to
+        an i8 PLACEHOLDER instead, which is right for an incidental type query
+        and wrong for a signature: the caller then reads an i8 result out of a
+        call that produced nothing, and `_terminate_after_noreturn` (which asks
+        the `noreturn` attribute) can never fire on it.
+
+        THE FUNNEL (design 228 leg 3, obligation 1). Every site that turns a
+        DECLARED Saw return type into an LLVM one asks this, and these are all
+        of them:
+          - `_declare_function` (core.py) — top-level `func`.
+          - `_declare_extern_function` (core.py) — `extern "C"` (DF-172h).
+          - `_declare_extension_methods` (core.py) — extension methods, static
+            and instance. This one had no `-> Never` arm at all, so a
+            `-> Never` METHOD was emitted as `define i8 @T_die`.
+          - `_declare_monomorphized_method` (generics.py) — the specialized
+            twin of the above, reached per instantiation.
+          - `_trait_slot_fn_type` (existentials.py) — the vtable slot type,
+            which is also the thunk's, so both sides move together.
+
+        NOT a function TYPE (`_get_llvm_type`'s FUNCTION arm, and the closure
+        body `_generate_closure` emits to match it). A type is a
+        REPRESENTATION, not a declaration: design 141's place-window closure
+        gets `Never` as an ordinary SUBSTITUTED result — the window body of an
+        accessor call in a coroutine frame's dispatch `match` has type `__R` =
+        `Never` — and the two halves of that representation are computed in
+        different places from differently-substituted types, so lowering it to
+        `void` makes them disagree (`{i8 (…)*, …} != {void (…)*, …}` on five
+        coroutine tests). A diverging closure keeps the i8 placeholder; its
+        CALLERS still terminate, because the closure-call site asks
+        `_terminate_after_noreturn` with the call expression instead.
+
+        A `None` return type (a trait method with none recorded) is `void`, as
+        it was before.
+        """
+        if saw_return_type is None:
+            return ir.VoidType(), False
+        if saw_return_type.kind == TypeKind.NEVER:
+            return ir.VoidType(), True
+        return self._get_llvm_type(saw_return_type), False
+
+    @staticmethod
+    def _mark_noreturn(llvm_func, is_never: bool):
+        """Attach `noreturn` when the declaration is the `-> Never` shape. The
+        attribute is what every call site's `_terminate_after_noreturn` reads,
+        so it travels with `_lower_declared_return`'s second answer."""
+        if is_never:
+            llvm_func.attributes.add("noreturn")
+
     def _get_llvm_type(self, saw_type: SawType) -> ir.Type:
         """Convert a SawType to the corresponding LLVM IR type.
 
@@ -315,6 +369,10 @@ class TypesMixin:
             # dropping = `if dtor: dtor(env)` (releases owned captures + frees the
             # heap env exactly once).
             param_types = [self._get_llvm_type(t) for t in (saw_type.param_types or [])]
+            # design 228 leg 3 deliberately does NOT reach here: a function TYPE
+            # is a REPRESENTATION, not a declaration — see
+            # `_lower_declared_return`'s docstring for why `Never` stays the i8
+            # placeholder in it.
             if saw_type.func_return_type and saw_type.func_return_type.kind != TypeKind.VOID:
                 ret_type = self._get_llvm_type(saw_type.func_return_type)
             else:

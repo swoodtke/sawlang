@@ -138,8 +138,11 @@ class ExistentialsMixin:
         # param_types[0] is the VOID `self` placeholder; the rest are real params.
         arg_llvm = [self._get_llvm_type(pt)
                     for pt in (tmethod.param_types or [])[1:]]
-        rt = tmethod.return_type
-        ret_llvm = self._get_llvm_type(rt) if rt is not None else ir.VoidType()
+        # design 228 leg 3: a `-> Never` requirement's slot is `void` through
+        # the one funnel. Slot type and thunk type both come from here, so they
+        # cannot drift apart, and the thunk's own `unreachable` comes from the
+        # `noreturn` on the conformer it tail-calls.
+        ret_llvm, _ = self._lower_declared_return(tmethod.return_type)
         return ir.FunctionType(ret_llvm, [self._i8ptr()] + arg_llvm)
 
     def _vtable_llvm_type(self, trait_name):

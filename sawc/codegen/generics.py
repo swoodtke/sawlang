@@ -653,6 +653,7 @@ class GenericsMixin:
 
         old_context = self.type_param_context
         self.type_param_context = type_mapping
+        is_never = False
         try:
             if method.is_init:
                 param_types = []
@@ -676,10 +677,23 @@ class GenericsMixin:
                         llvm_type = llvm_type.as_pointer()
                     param_types.append(llvm_type)
                 substituted_return = self._substitute_saw_type(method.return_type, type_mapping)
-                return_type = self._get_llvm_type(substituted_return)
+                # design 228 leg 3: the specialized twin of
+                # `_declare_extension_methods` takes the same `-> Never` answer,
+                # so a monomorphized diverging method is `void` + `noreturn` too.
+                # The DECLARATION's own return type is what is asked — a `Never`
+                # that arrives by SUBSTITUTION is an ordinary value type, the
+                # same distinction design 132 draws for `Void`. Design 141's
+                # place accessor is the case: its window result `__R` is `Never`
+                # whenever the window body never falls through, and lowering
+                # that to `void` left the body returning an i8 from a `void`
+                # function.
+                return_type, is_never = self._lower_declared_return(method.return_type)
+                if not is_never:
+                    return_type = self._get_llvm_type(substituted_return)
 
             func_type = ir.FunctionType(return_type, param_types)
             llvm_func = ir.Function(self.module, func_type, name=mangled_name)
+            self._mark_noreturn(llvm_func, is_never)
             self.functions[mangled_name] = llvm_func
             # Mark &var params (and a &var self receiver) noalias; see
             # _mark_noalias_params / _declare_extension_methods.

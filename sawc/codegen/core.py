@@ -2489,13 +2489,9 @@ class CodeGenerator(ResultsMixin, MatchMixin, StructsMixin, CollectionsMixin, Ca
         # prologue (design 81 CI rider) — the cross-platform argc/argv source.
         if func_name == "main" and not func.parameters:
             param_types = [ir.IntType(32), ir.IntType(8).as_pointer().as_pointer()]
-        is_never = func.return_type.kind == TypeKind.NEVER
-        if is_never:
-            # A `-> Never` function diverges: lower to `void` + `noreturn` (the
-            # `_start`/noreturn C shape). The body terminates with `unreachable`.
-            return_type = ir.VoidType()
-        else:
-            return_type = self._get_llvm_type(func.return_type)
+        # A `-> Never` function diverges: lower to `void` + `noreturn` (the
+        # `_start`/noreturn C shape). The body terminates with `unreachable`.
+        return_type, is_never = self._lower_declared_return(func.return_type)
 
         # The C entry returns `int`, WHATEVER `main` was declared to return
         # (design 221 unit B4). It used to be overridden only for `Void`, so a
@@ -2524,8 +2520,7 @@ class CodeGenerator(ResultsMixin, MatchMixin, StructsMixin, CollectionsMixin, Ca
         if llvm_func is None:
             llvm_func = ir.Function(self.module, func_type, name=llvm_name)
 
-        if is_never:
-            llvm_func.attributes.add("noreturn")
+        self._mark_noreturn(llvm_func, is_never)
         if exported:
             # Default function linkage ('') already emits a `define` with external
             # visibility (the symbol is in the object's symbol table for the C
@@ -2564,36 +2559,31 @@ class CodeGenerator(ResultsMixin, MatchMixin, StructsMixin, CollectionsMixin, Ca
 
         param_types = [self._get_llvm_type(p.type) for p in extern_func.parameters]
 
-        # For extern functions, unwrap optionals from return type for C ABI
-        # C functions return raw pointers which can be NULL
-        is_never = saw_return_type.kind == TypeKind.NEVER
+        # `extern "C" { func abort_now() -> Never }` is the C `noreturn`
+        # declaration, and design 58 says a `-> Never` signature lowers to
+        # `void` + `noreturn`. `_declare_function` does exactly this for a
+        # DEFINITION; without the same answer here the DECLARATION took
+        # `_get_llvm_type`'s i8 placeholder, and the two disagreed about one
+        # symbol's C ABI.
+        #
+        # It reached further than a declaration, because an `@export`ed
+        # definition UNIFIES with a pre-existing bodyless declaration of the
+        # same symbol (just below in `_declare_function`) and inherits its
+        # type. So a `-> Never` seam DEFINED in a module the entry file also
+        # `extern`s — the SOS `sos_rt_abort` shape, design 172 part 2 —
+        # emitted `define noundef i8 @sos_rt_abort(...)` while the ABI
+        # document and every other spelling said `void` (DF-172h).
+        return_type, is_never = self._lower_declared_return(saw_return_type)
         if saw_return_type.kind == TypeKind.OPTIONAL and saw_return_type.inner_type:
+            # For extern functions, unwrap optionals from the return type for the
+            # C ABI: C functions return raw pointers, which can be NULL.
             return_type = self._get_llvm_type(saw_return_type.inner_type)
-        elif is_never:
-            # `extern "C" { func abort_now() -> Never }` is the C `noreturn`
-            # declaration, and design 58 says a `-> Never` signature lowers to
-            # `void` + `noreturn`. `_declare_function` does exactly this for a
-            # DEFINITION; without the same arm here the DECLARATION took
-            # `_get_llvm_type`'s i8 placeholder, and the two disagreed about one
-            # symbol's C ABI.
-            #
-            # It reached further than a declaration, because an `@export`ed
-            # definition UNIFIES with a pre-existing bodyless declaration of the
-            # same symbol (just below in `_declare_function`) and inherits its
-            # type. So a `-> Never` seam DEFINED in a module the entry file also
-            # `extern`s — the SOS `sos_rt_abort` shape, design 172 part 2 —
-            # emitted `define noundef i8 @sos_rt_abort(...)` while the ABI
-            # document and every other spelling said `void` (DF-172h).
-            return_type = ir.VoidType()
-        else:
-            return_type = self._get_llvm_type(saw_return_type)
 
         func_type = ir.FunctionType(return_type, param_types, var_arg=extern_func.is_variadic)
         llvm_func = ir.Function(self.module, func_type, name=extern_func.name)
         # Set external linkage (default for declarations)
         llvm_func.linkage = 'external'
-        if is_never:
-            llvm_func.attributes.add("noreturn")
+        self._mark_noreturn(llvm_func, is_never)
         self.functions[extern_func.name] = llvm_func
 
     # Generic methods moved to codegen_generics.py (GenericsMixin)
@@ -2628,6 +2618,7 @@ class CodeGenerator(ResultsMixin, MatchMixin, StructsMixin, CollectionsMixin, Ca
                 mangled_name = self._mangle_method_name(extension.struct_name, method.name)
 
             # Build parameter types
+            is_never = False
             if method.is_init:
                 # Init methods take parameters (no self) and return the struct
                 # Primitive type extensions (String) don't support init methods
@@ -2640,7 +2631,7 @@ class CodeGenerator(ResultsMixin, MatchMixin, StructsMixin, CollectionsMixin, Ca
             elif method.is_static:
                 # Static methods have no self parameter
                 param_types = [self._get_llvm_type(p.type) for p in method.parameters]
-                return_type = self._get_llvm_type(method.return_type)
+                return_type, is_never = self._lower_declared_return(method.return_type)
             else:
                 # Regular instance methods include self as first parameter
                 # Determine the Self type for this extension
@@ -2660,11 +2651,17 @@ class CodeGenerator(ResultsMixin, MatchMixin, StructsMixin, CollectionsMixin, Ca
                             and self._self_by_pointer_for(extension.struct_name, method)):
                         llvm_type = llvm_type.as_pointer()
                     param_types.append(llvm_type)
-                return_type = self._get_llvm_type(method.return_type)
+                return_type, is_never = self._lower_declared_return(method.return_type)
 
             # Create function type
             func_type = ir.FunctionType(return_type, param_types)
             llvm_func = ir.Function(self.module, func_type, name=mangled_name)
+            # design 228 leg 3: a `-> Never` METHOD is `void` + `noreturn` like
+            # every other `-> Never` declaration. Without it the method was
+            # emitted as `define i8 @T_die`, so a caller read an i8 result out
+            # of a call that produced nothing and `_terminate_after_noreturn`
+            # could never fire on it — the declaration leg of DF-178d.
+            self._mark_noreturn(llvm_func, is_never)
 
             # Mark &var params noalias. Explicit &var value params carry a
             # REFERENCE SawType; a `&var self` receiver is a distinct pointer arg

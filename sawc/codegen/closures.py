@@ -70,6 +70,10 @@ class ClosuresMixin:
 
         # Get return type from the resolved signature when known.
         ret_saw_type = resolved.func_return_type if resolved else None
+        # A diverging closure keeps the i8 placeholder its fn-POINTER type has
+        # (`_get_llvm_type`'s FUNCTION arm) — the two must agree, and design 228
+        # leg 3 leaves both alone. Its callers still terminate: the closure-call
+        # site asks `_terminate_after_noreturn` with the call expression.
         if ret_saw_type is not None and ret_saw_type.kind != TypeKind.VOID:
             ret_type = self._get_llvm_type(ret_saw_type)
         elif ret_saw_type is not None and ret_saw_type.kind == TypeKind.VOID:
