@@ -561,6 +561,34 @@ now reads `after=0` on every line, with its `detached` line the one place
 `at-wait=1 after=4`, one plus four being the five the worker signalled. 40 cases
 per architecture, 80 runs.
 
+**REVIEW RIDER (ruled Aug 17, user) — A TIMER'S VERBS ARE METHODS ON THE SLOT.**
+The repeated `TIMERS[slot].<field>` chains in the timer operations became an
+extension on `TimerSlot`: `arm(deadline:interval:)`, `disarm()`, `is_due(now)`,
+`sooner_of(deadline)` and `fire(now)`, with the ops reduced to indexing the slab
+and calling one — `TIMERS[slot].fire(now)` where five field fetches used to sit
+in a row. Design 212's extraction idiom with a RECEIVER rather than a reference
+parameter, since a slot is a type and these are its verbs.
+
+THE UNSAFE EFFECT RETREATED, WHICH IS THE HALF THAT IS NOT STYLE. `TIMERS` is an
+`unsafe static var`, so every function NAMING it is declared `unsafe` (design
+130/136) — while `TimerSlot` is an ordinary safe type, so a body working through
+`self` names nothing unsafe and the compiler accepts it as a SAFE function. 26
+statements moved out of unsafe bodies into five safe ones, the whole drift-free
+re-arm and coalescing division among them (`fire_timer` is now two lines: the
+call and the wake). `TIMERS[` occurrences in the kernel fell 32 → 22, and the
+count of safe functions rose 24 → 29 against an unchanged 96 unsafe ones — no
+existing function flipped, because each still indexes the slab or calls an unsafe
+helper, and the honest delta is the ARITHMETIC that no longer sits inside an
+unsafe body rather than a smaller list of unsafe names.
+
+Left alone deliberately, per the ruling: single field accesses (`TIMERS[t].armed`
+in the idle rule) and the whole-slot writes in `timer_create` and teardown —
+wrapping one load in a method buys a name for something that already had one. No
+`ClockSlot` methods are owed: the global-clock change below deletes every
+multi-access clock body there was.
+
+No behavior changed, and the 80 harness runs on both arches are what say so.
+
 ## Explicitly out (M4+ candidates)
 
 Channels + ReplyHandle IPC (with select-with-timeout via unit 1's
