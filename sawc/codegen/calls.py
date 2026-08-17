@@ -17,7 +17,7 @@ from ast_nodes import (
     Expression, FunctionCall, StructInit, Argument, SawType, TypeKind,
     MethodCall, MemberAccess, Identifier, SelfExpr, EnumInit, ArrayIndex,
     ForceUnwrap, ReferenceExpr, StringLiteral, StringInterpolation, TupleIndex,
-    NoneLiteral
+    NoneLiteral, expr_diverges
 )
 from .mangle import content_tag, mangle_type
 from .operators import _UNSIGNED_INT_KINDS
@@ -607,7 +607,10 @@ class CallsMixin:
             else:
                 args = [self._gen_transfer_value(arg.value) for arg in expr.arguments]
                 self._fill_func_defaults(args, resolved_symbol)
-            return self.builder.call(func, self._coerce_call_args(func, args), name="calltmp")
+            olresult = self.builder.call(func, self._coerce_call_args(func, args), name="calltmp")
+            if self._terminate_after_noreturn(func):
+                return None
+            return olresult
 
         # Check if the name refers to a closure variable
         if expr.name in self.variables:
@@ -619,7 +622,12 @@ class CallsMixin:
                 fn_ptr = self.builder.extract_value(closure_val, 0, name="fn_ptr")
                 env_ptr = self.builder.extract_value(closure_val, 1, name="env_ptr")
                 arg_vals = [self._gen_transfer_value(arg.value) for arg in expr.arguments]
-                return self.builder.call(fn_ptr, self._coerce_call_args(fn_ptr, [env_ptr] + arg_vals), name="closure_call")
+                clresult = self.builder.call(
+                    fn_ptr, self._coerce_call_args(fn_ptr, [env_ptr] + arg_vals),
+                    name="closure_call")
+                if self._terminate_after_noreturn(fn_ptr, expr):
+                    return None
+                return clresult
 
         # `A()` where `A` is a type parameter bound to the concrete allocator in
         # the current monomorphization (design 37). Resolve `A` to its concrete
@@ -734,8 +742,8 @@ class CallsMixin:
 
         return result
 
-    def _terminate_after_noreturn(self, callee) -> bool:
-        """Terminate the current block when `callee` is a `-> Never` function.
+    def _terminate_after_noreturn(self, callee, closure_call=None) -> bool:
+        """Terminate the current block when this call DIVERGES.
 
         A `-> Never` declaration is emitted as `void` + `noreturn` (design 58),
         so control does not continue past a call to it — the same fact an inline
@@ -747,10 +755,42 @@ class CallsMixin:
         Design 177 makes a diverging function writable without a panic in it, so
         this stopped being a corner nobody reached.
 
+        THE FUNNEL (design 228 leg 2, obligation 1). Every site that emits a
+        `call` asks this, and these are all of them:
+          - `_generate_function_call`'s `resolved_symbol` fast path — an
+            OVERLOADED (`$OL$`) or MODULE-PRIVATE-called-in-module (`$m$`)
+            callee. This was the one site that never asked, which is why
+            `sos`'s `fault_process` broke and every standalone repro compiled
+            (DF-178d's trigger axis).
+          - `_generate_function_call`'s plain-name path.
+          - `_generate_function_call`'s CLOSURE path — see `closure_call`.
+          - `_generate_method_call` (instance methods).
+          - `_generate_static_method_call`.
+          - `_generate_module_function_call`.
+
+        The question is always about the CALLEE, and the `noreturn` attribute
+        design 58 puts on every `-> Never` declaration is how it is asked. One
+        site cannot ask it: a closure is called through a function POINTER
+        loaded out of the closure value, and a pointer carries no attribute
+        list. That site passes its call EXPRESSION as `closure_call` and the
+        answer comes from the stamped type instead — sound there because a
+        closure's call type IS its return type.
+
+        It is NOT sound anywhere else, which is why no other site passes one: a
+        `borrows` accessor's call type is the WINDOW's result type (the
+        synthesized `__R`), not the accessor's, so a window whose body never
+        falls through — every `match` arm of a coroutine frame's dispatch, for
+        instance — types the accessor call `Never` while the accessor itself
+        returns perfectly normally. Terminating there compiled and trapped at
+        runtime (SIGTRAP on five coroutine tests).
+
         Returns True when the block was terminated (the caller must then hand
         back None, exactly as `_generate_panic` does).
         """
-        if "noreturn" not in getattr(callee, "attributes", ()):
+        diverges = "noreturn" in getattr(callee, "attributes", ())
+        if not diverges and closure_call is not None:
+            diverges = expr_diverges(closure_call)
+        if not diverges:
             return False
         self.builder.unreachable()
         return True
