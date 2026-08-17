@@ -683,38 +683,42 @@ Findings the unit produced:
   pointer type would do it for this case (`let f: () sync -> Void = worker`,
   then `(f) as UInt`), and would also close the four HAL accessors.
 
-- **DF-178d — a `-> Never` CALL is not accepted everywhere a diverging tail
-  is, and in some value positions it emits malformed IR.** Two shapes, both hit
-  writing the kernel's fault paths, both worked around at the site with a
-  citation:
+- **DF-178d — FIXED, `designs/228-never-contract.md` (BUILT Aug 16).** A
+  `-> Never` CALL was not accepted everywhere a diverging tail is, and in some
+  value positions emitted malformed IR. One mechanism with four faces; the
+  isolation sweep found the trigger axis the standalone repros missed — WHICH
+  codegen call path the site takes, so it broke for an OVERLOADED or a
+  MODULE-PRIVATE-called-in-module callee and not for a plain one. Hosted vs
+  freestanding was never an axis (58 cells x 2 profiles, 100% agreement).
 
-  1. `guard let x = ... else { fault_process(p, r) }` where `fault_process` is
-     declared `-> Never` is ``'guard' else block must exit the scope (return,
-     break, or continue)``. A conditionless `while { }` in the else IS accepted,
-     and so is `panic(...)` — so the check knows two spellings of divergence and
-     not the one design 177 made first-class. `return <Never call>` is worse: an
-     `internal compiler error at ...(ReturnStatement)`.
-  2. A `-> Never` call in some VALUE positions emits IR LLVM rejects. Two
-     instances, both from `sos/kernel/core/lib.saw`: as the first arm of a value
-     `match` it poisons the phi's type (``'%calltmp.3' defined with type
-     '%SyscallResult' but expected 'i32'``), and as the TAIL of a struct-returning
-     function it emits `ret void %calltmp` (``value doesn't match function
-     result type``).
+  All six legs landed, each as a funnel with its entry points named: one
+  TYPE-based divergence predicate (`ast_nodes.expr_diverges`), the one
+  call-emitting chokepoint (`_emit_call`, which asks about a diverging ARGUMENT
+  before the call and a `-> Never` callee after it), the one declaration
+  lowering (`_lower_declared_return`, which `_declare_extension_methods` had no
+  arm in at all), plus the `return` site and the `??` default. The gate is
+  `examples/conformance/` rows D01-D19 — the sweep's 12-position x 6-callee
+  matrix over both profiles, plus the method, static-method, generic, closure,
+  vtable and trait-default callee kinds.
 
-  ISOLATION IS OWED. Thirty-line standalone repros of each shape COMPILE —
-  including a three-field struct return, an `unsafe` caller, an `unsafe`
-  callee, a `-> Never` whose own body reaches divergence through another one,
-  and a Never arm in a value match — so the trigger involves more of the
-  surrounding module than the shape alone. The two IR errors above are exact
-  and reproduce on the real file; a fix brief should start by bisecting
-  `system_op` / `dispatch` in `sos/kernel/core/lib.saw` at commit b4ac74d9
-  rather than from a repro that does not exist yet.
+  Two boundaries the probes drew, both recorded in the code: a function TYPE is
+  a representation, not a declaration, so `Never` stays the i8 placeholder
+  inside one; and a `borrows` accessor's call type is the WINDOW's result, so
+  `resolved_type == Never` is not a sound divergence proxy at a place call.
 
-  The workarounds in tree, each commented with this number: `fault_result`,
-  one wrapper whose trailing `while { }` carries the divergence up to a
-  `SyscallResult` signature; an `if let` + diverging tail where a `guard` belongs;
-  and an explicit `while { }` after a `-> Never` call in three `-> Never`
-  bodies whose tails would otherwise be calls.
+  Retired in tree: the three `sos` fault wrappers (`fault_result`, `fault_slot`,
+  `fault_waitable`), the `if let` where a `guard` belonged, and the three
+  cosmetic `Never`->`Never` loops. `sos/kernel/core/lib.saw` cites this number
+  nowhere now.
+
+  ONE RULING THE USER MAY WANT TO REVISIT (unit 5): `suspending -> Never` is
+  REFUSED in v1 at all three task-start positions (`group.spawn`, `spawn { }`,
+  `__saw_drive`). It used to be accepted and minted a `TaskHandle<Never>` whose
+  type argument reached the mangler's escape hatch as `$Unknown$NEVER`, with a
+  `join` that could not return. Blessing the never-Done frame as an honest
+  forever-server type forecloses nothing and stays re-proposable; it owes a
+  `NEVER` mangle case, a `Slot<Never>`/zero-size story (the DF-221a Void census
+  family) and a ruling on what `join` means.
 
 - **DF-178e — a bare literal does not adopt an annotated type through a
   `match`.** `let ra: UInt = match a.join() { case Ok(v) -> v, case Err(_) -> 0 }`
