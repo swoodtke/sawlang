@@ -28,6 +28,20 @@ literal/const family and the small-fix batch all integrate — corpus-wide
 touches conflict with everything; M3 unit 1.5+ may interleave with units 1-2
 only. [234]
 
+## Design 235 — the position-matrix ledgers (RATIFIED Aug 17; QUEUED after
+## the three in-flight branches, BEFORE 234's migration units)
+
+designs/235-position-matrices.md is the plan of record: two standing corpus
+ledgers on the conformance/ template — examples/coercion/ (adoption grid +
+qualified-name-as-target grid) and examples/modules/ (import-forms×positions,
+visibility, graph shapes) — with INDEX.md per ledger, cite-don't-duplicate,
+N/A reasons in place, and every red cell filed as a DF + cited XFAIL pin, so
+the family's xfail set becomes an ENUMERATION's red cells, not the trail of
+what we stepped on. No-guessing rule: undetermined cells are OPEN rows for
+ruling, never invented EXPECTs. Sonnet-class dispatch (user ruling — the
+brief fixes the grids and authorities; the agent transcribes). Seeds: the
+DF-232a/226d/e/232c pins + the kcore unit-0 probes. [235]
+
 ## DF-232c — a raw-backed enum's case value takes an INTEGER LITERAL only, so
 ## a flags enum cannot state its bits as shifts (filed Aug 17, SOS M3 unit 1
 ## review-pass rider)
