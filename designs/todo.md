@@ -236,10 +236,41 @@ spec-recap) is BUILT, branch PARKED for user review per SOS policy:
 the pre-M2 status text is flipped in §§2, 2.2, 3, 5.7, 5c, 7, 8, 9b
 and 12 — each verified against the code first. [178, 232]
 
-## KCORE SPLIT — sos/kernel/core/lib.saw into seam files (user-approved
-## Aug 17; FIRST post-unit-1-integration SOS item)
+## KCORE SPLIT — BUILT Aug 17, branch PARKED for user review (SOS policy).
+## sos/kernel/core/lib.saw into seam files (user-approved Aug 17)
 
-~4000 lines splits along the FUNNEL seams, not just topics — the M2
+AS BUILT: 3946 lines in one file became 4394 across FIFTEEN — thirteen
+seam modules, the `lib.saw` facade, and no change to any kernel code.
+The +448 is thirteen module docstrings, the per-file imports and
+`public`; a code-line multiset check against the pre-split file (1852
+lines, run at every commit) is what proves the rest is a text move.
+FILES, in dependency order — a file may import only those above it,
+because DF-232e makes a cycle silent — with line counts:
+`limits` 121, `mem` 44, `diag` 150, `result` 68, `objects` 235,
+`threads` 225, `time` 404, `waitables` 489, `process` 564, `wake` 132,
+`irq` 341, `sched` 123, `dispatch` 1137, `loader` 293, `lib` 68.
+THREE SEAMS OF THE SKETCH CAME IN TWO, and the rule is the same each
+time: the STATE of a thing sits below the process teardown that frees
+it, and ACTING on it sits above — the teardown touches every slab, and
+answering a wait goes through the copy door that can end a process. So
+`threads` (table, frame arena, ready queue) is not `sched` (the switch
+point), `time` (the slabs, the comparator funnel) is not `irq` (tick,
+expiry, device lines, idle), and `waitables` (the tables and the whole
+per-kind matrix) is not `wake` (the delivery funnels). `limits` is the
+fourteenth file DF-232g forced: a derived size cannot be declared apart
+from its operands, which is how lib.saw already had them.
+WHAT WIDENED (DF-232f, the cost): every name two seams share, plus most
+fields of every slot struct — the slabs are read and written by the
+seams that own the operations. Each was named by a compiler error and
+applied by a loop that stops when the compiler does; nothing was widened
+on suspicion. Still private: `THREAD_FRAMES`, `handle_index`,
+`fires_word`, `stays_running`, `SyscallResult`'s status/value, and
+`ClockSlot`'s neighbours in each file.
+Gates: `battery.sh sos` GREEN (80 tests, riscv32 + arm64) at EVERY one
+of the four code commits, plus the terminal `suite sos`.
+[232, design 82/150/204]
+
+ORIGINAL SCOPE, for the record: ~4000 lines splits along the FUNNEL seams, not just topics — the M2
 finale engineered "one table, per-kind matches in ONE place"
 (waitable_slot) and one dispatch door, and the cut must keep each
 funnel whole: time.saw (Clock + Timer), waitables.saw (Event, Waiter,
