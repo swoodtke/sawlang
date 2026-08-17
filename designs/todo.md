@@ -668,19 +668,41 @@ labeled call sites in `sos/tests/{clock-basics,timer-deadlock,
 timer-oneshot}/src/main.saw`, and prose in `sos/spec.md:1191` +
 `designs/232-sos-m3-sketch.md:470`. [232, DF-232b]
 
-## DF-229c — a `public(package)` name selected from INSIDE its own
-## package should BIND (RULED Aug 17, user; fix dispatch-ready)
+## DF-229c — CLOSED (Aug 17): a `public(package)` name selected from
+## INSIDE its own package now BINDS
 
-The DF-229a fix surfaced the boundary case and reported rather than
-changed it: `import m.{X}` where `X` is `public(package)` and the
-importer is in the SAME package currently refuses (clearly, since
-DF-229a — silently before). Ruling: it BINDS — `public(package)` means
-visible within the package, and the selective form being stricter than
-the qualified `m.X` path is an inconsistency, not a design. Fix shape:
-the `_selective_import_entry` visibility test consults the design-80
-package relation instead of PUBLIC-only; tests for same-package bind,
-cross-package refusal (unchanged), and the diagnostic's `_vis_word`
-casing. [229, DF-229a]
+**Landed.** The visibility relation is ONE predicate now,
+`_visibility_relation_allows` (typechecker/core.py), whose docstring names its
+two entry points (obligation 1): `_member_gate_allows`, which asks with the
+module of the code being checked, and `check_module`'s selective-import arm,
+which passes the IMPORTING module explicitly — the import list is processed
+before `self.namespace` becomes this module's, so the ambient accessor would
+have named the previous module. The arm's test is `_selection_visible` over
+that predicate instead of `visibility == PUBLIC`, and `_module_selectable_names`
+was moved onto the SAME predicate so the `available:` hint can never omit a
+name the import would bind. Tests:
+`examples/df229c_package_selection_binds.saw` (every category the funnel walks
+— struct, enum, function, static, type alias — selected from a same-package
+module and run) and `examples/df229c_parent_selection_error.saw` (the control:
+`public(parent)` from a non-parent is still refused, `_vis_word` still prints
+the visibility it found, and the hint's list is the predicate's own answer),
+over the fixture `examples/modules/df229c_pkg.saw`;
+`examples/df229a_private_selection_error.saw` (private refusal, unchanged) and
+`examples/visibility_package_access.saw` (the qualified reach this makes the
+selective form agree with) stay green. Spec: the Visibility section states that
+a scoped name answers to every spelling its scope allows.
+
+Noted while fixing, NOT fixed here (pre-existing, and outside the ruling): a
+USER cross-package refusal is not constructible in-tree, because
+`Namespace.package_root` is `()` for every sawc compile — nothing populates it
+from the Blade manifest — so `check_visibility` takes its "no package root
+defined, assume same package" branch and `public(package)` is effectively
+`public` between user modules. The one rooted package is std (`("<std>",)`,
+design 82), which declares no top-level `public(package)` name, so the
+cross-package arm has no in-tree exercise on either side of this fix; it is
+preserved by construction, since both gates now share one predicate and the
+std rooting lives inside it. Worth a ruling if package walls are meant to be
+real for user packages. [229, DF-229a]
 
 ## DF-225o — `reemit` reported three DIVERGENT files under heavy load and none
 ## on a quiet machine (observed Aug 16 by the design-225 terminal battery; the

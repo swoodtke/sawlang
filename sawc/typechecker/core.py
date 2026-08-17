@@ -1021,12 +1021,25 @@ class TypeChecker(ExpressionsMixin, StatementsMixin, RegistrationMixin, TypeUtil
             source_file=getattr(node, 'source_file', None) or None,
         )
 
-    def _member_gate_allows(self, def_module: Tuple[str, ...],
-                            visibility: Visibility) -> bool:
-        """Whether the code currently being checked may reach a member with the
-        given defining module + visibility (design 80). Same-module access is
-        always allowed; cross-module follows the top-level visibility rules."""
-        accessor = self._accessor_vis_module()
+    def _visibility_relation_allows(self, def_module: Tuple[str, ...],
+                                    visibility: Visibility,
+                                    accessor: Tuple[str, ...],
+                                    package_root: Optional[Tuple[str, ...]]
+                                    = None) -> bool:
+        """Design 80's visibility relation between two NAMED modules — the one
+        place `public(package)` / `public(parent)` / `private` is decided.
+
+        ENTRY POINTS (obligation 1), each naming its own accessor because the
+        two ask the question at different moments:
+          * `_member_gate_allows` — the field/method/type gate. The accessor is
+            the module of the code being checked (`_accessor_vis_module`).
+          * `check_module`'s SELECTIVE-IMPORT arm (DF-229c) — the accessor is
+            the IMPORTING module, passed explicitly: the import list is
+            processed before `self.namespace` becomes this module's, so the
+            ambient answer would name the previous module.
+
+        Same-module access is always allowed; everything else follows the
+        top-level visibility rules."""
         if def_module == accessor:
             return True
         # std is its own package (design 82): a `public(package)` member of one
@@ -1035,11 +1048,18 @@ class TypeChecker(ExpressionsMixin, StatementsMixin, RegistrationMixin, TypeUtil
         # sharing works and a user module (not under `("<std>",)`) is excluded.
         if def_module and def_module[0] == "<std>":
             package_root = ("<std>",)
-        else:
+        elif package_root is None:
             package_root = getattr(self.namespace, 'package_root', ())
         return self.namespace.check_visibility(
             visibility, symbol_module=def_module, accessor_module=accessor,
             package_root=package_root)
+
+    def _member_gate_allows(self, def_module: Tuple[str, ...],
+                            visibility: Visibility) -> bool:
+        """Whether the code currently being checked may reach a member with the
+        given defining module + visibility (design 80)."""
+        return self._visibility_relation_allows(
+            def_module, visibility, self._accessor_vis_module())
 
     # ------------------------------------------------------------------ #
     # Extension scoping (design 142).
@@ -1278,7 +1298,23 @@ class TypeChecker(ExpressionsMixin, StatementsMixin, RegistrationMixin, TypeUtil
                 return kind, sym
         return None
 
-    def _module_selectable_names(self, source_ns, builtin_namespace):
+    def _selection_visible(self, sym, source_path, importer_module,
+                           package_root) -> bool:
+        """Whether an importer in `importer_module` may SELECT `sym`.
+
+        Design 229 answered PUBLIC-only, which made `import m.{X}` stricter
+        than the qualified `m.X` it is sugar for: a `public(package)` name
+        selected from INSIDE its own package was refused (DF-229c). The test is
+        design 80's relation, asked with the importer as the accessor — so a
+        package-visible name binds within the package and stays refused outside
+        it, and `private` / `public(parent)` are unchanged."""
+        def_module = getattr(sym, 'def_module', ()) or tuple(source_path)
+        return self._visibility_relation_allows(
+            def_module, sym.visibility, importer_module, package_root)
+
+    def _module_selectable_names(self, source_ns, builtin_namespace,
+                                 source_path=(), importer_module=(),
+                                 package_root=None):
         """Sorted names an importer may select out of `source_ns`.
 
         A module's surface is what it declares `public` plus what it
@@ -1286,8 +1322,12 @@ class TypeChecker(ExpressionsMixin, StatementsMixin, RegistrationMixin, TypeUtil
         never one of the builtins every namespace carries a copy of. The
         builtin filter is by symbol IDENTITY: `merge_into` shares symbol
         objects by reference, so a name whose symbol IS the builtin
-        namespace's is one this module never declared."""
-        from ast_nodes import Visibility
+        namespace's is one this module never declared.
+
+        The visibility test is `_selection_visible`, the SAME predicate the
+        binder uses, so the `available:` list can never omit a name the import
+        would have bound (DF-229c made the two differ for a same-package
+        importer)."""
         names = set()
         for kind in self._SELECTIVE_IMPORT_CATEGORIES:
             if kind == "function":
@@ -1302,7 +1342,8 @@ class TypeChecker(ExpressionsMixin, StatementsMixin, RegistrationMixin, TypeUtil
                 if name in names or source_ns.hidden_import(name) is not None:
                     continue
                 sym = self._lookup_selectable(source_ns, kind, name)
-                if sym is None or sym.visibility != Visibility.PUBLIC:
+                if sym is None or not self._selection_visible(
+                        sym, source_path, importer_module, package_root):
                     continue
                 if builtin_namespace is not None:
                     shared = self._lookup_selectable(builtin_namespace, kind,
@@ -2708,6 +2749,15 @@ class TypeChecker(ExpressionsMixin, StatementsMixin, RegistrationMixin, TypeUtil
                         # Copy the symbol from source to local namespace
                         sel_label = ('.'.join(imp_path) if imp_path
                                      else "<entry>")
+                        # DF-229c: the visibility question is asked with THIS
+                        # module named as the accessor, so the answer matches
+                        # the qualified `m.X` path's.
+                        def _sel_names(_ns=source_ns, _path=imp_path):
+                            return self._module_selectable_names(
+                                _ns, builtin_namespace,
+                                source_path=_path,
+                                importer_module=tuple(module_path or ()),
+                                package_root=ns.package_root)
                         # Design 229: selecting a name the source module only
                         # imports is refused HERE, at the import, where the fix
                         # (either fix) can be stated.
@@ -2726,12 +2776,12 @@ class TypeChecker(ExpressionsMixin, StatementsMixin, RegistrationMixin, TypeUtil
                                 f"`{sym_name}` is not defined in `{sel_label}`",
                                 getattr(imp, 'line', 0),
                                 getattr(imp, 'column', 0),
-                                hint=self._available_hint(
-                                    self._module_selectable_names(
-                                        source_ns, builtin_namespace)))
+                                hint=self._available_hint(_sel_names()))
                             continue
                         sel_kind, sym = entry
-                        if sym.visibility != Visibility.PUBLIC:
+                        if not self._selection_visible(
+                                sym, imp_path, tuple(module_path or ()),
+                                ns.package_root):
                             self._error(
                                 ErrorKind.UNKNOWN_TYPE,
                                 f"`{sym_name}` is "
@@ -2741,9 +2791,7 @@ class TypeChecker(ExpressionsMixin, StatementsMixin, RegistrationMixin, TypeUtil
                                 getattr(imp, 'column', 0),
                                 hint=f"mark it `public` in `{sel_label}` to "
                                      f"expose it; "
-                                     + self._available_hint(
-                                         self._module_selectable_names(
-                                             source_ns, builtin_namespace)))
+                                     + self._available_hint(_sel_names()))
                             continue
                         _note_import(imp, local, sel_label)
                         if sel_kind in ("struct", "enum", "trait", "type alias"):

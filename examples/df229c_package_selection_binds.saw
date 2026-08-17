@@ -1,0 +1,25 @@
+// DF-229c: `import m.{X}` where `X` is `public(package)` and the importer is in
+// the SAME package BINDS. Design 229's selective arm tested PUBLIC only, which
+// made the selection stricter than the qualified `m.X` path it is sugar for.
+// Every category the funnel walks is selected here.
+// EXPECT: success
+// EXPECT-OUTPUT: 250
+// EXPECT-OUTPUT: 900
+// EXPECT-OUTPUT: 12
+// EXPECT-OUTPUT: whole
+import modules.df229c_pkg.{Ration, Portion, ration_make, RATION_MAX, Grams}
+
+func main() {
+    let r: Ration = ration_make(grams: 250)
+    print("{r.grams}")
+    print("{RATION_MAX}")
+
+    let g: Grams = 12
+    print("{g}")
+
+    let p = Portion.Whole
+    match p {
+        case Half -> print("half"),
+        case Whole -> print("whole")
+    }
+}

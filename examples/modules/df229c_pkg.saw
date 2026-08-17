@@ -1,0 +1,23 @@
+//! DF-229c fixture: one `public(package)` declaration in every category a
+//! selective import can name, plus a `public(parent)` one for the control —
+//! the importer beside these is in the same package but is not their parent.
+// EXPECT: skip
+
+public(package) struct Ration {
+    public grams: Int
+}
+
+public(package) enum Portion {
+    case Half, case Whole
+}
+
+public(package) func ration_make(grams: Int) -> Ration {
+    Ration(grams: grams)
+}
+
+public(package) static RATION_MAX: Int = 900
+
+public(package) type Grams = Int
+
+// The control: same package, but the importer is not this module's parent.
+public(parent) func parent_only_ration() -> Int { 3 }

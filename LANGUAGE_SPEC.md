@@ -7988,6 +7988,12 @@ public(package) func internal_api() { ... }
 public(parent) func parent_visible() { ... }
 ```
 
+A scoped name is reachable by every spelling its scope allows, not just the
+qualified one. From inside the package, `public(package) func internal_api`
+answers to `m.internal_api()` and to `import m.{internal_api}` alike; from
+outside, both are refused. The import form is sugar for the qualified reach and
+is never the stricter of the two.
+
 #### Member visibility (design 80)
 
 Struct FIELDS and extension METHODS (including `init` and static methods) are

@@ -1,0 +1,14 @@
+// DF-229c control: the selective arm consults design 80's relation, it does not
+// simply stop asking. A `public(parent)` name selected by a module that is not
+// the parent is still refused, and the diagnostic still names the visibility it
+// found — the `available:` list beside it is the same predicate's answer, so it
+// can never omit a name the import would have bound.
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: `parent_only_ration` is public(parent) in `modules.df229c_pkg`
+// EXPECT-ERROR-CONTAINS: mark it `public` in `modules.df229c_pkg` to expose it
+// EXPECT-ERROR-CONTAINS: available: Grams, Portion, RATION_MAX, Ration, ration_make
+import modules.df229c_pkg.{parent_only_ration}
+
+func main() {
+    print("{parent_only_ration()}")
+}
