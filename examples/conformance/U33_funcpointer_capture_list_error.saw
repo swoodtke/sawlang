@@ -1,0 +1,17 @@
+// Conformance row U33 — the EXPLICIT capture list is refused on the same
+// terms as the implicit one.
+//
+// U32's sibling, and the reason the check reads the walk's result rather than
+// the list: writing `[bias]` says nothing new about where the value would
+// live. A rule that judged the LIST would accept U32's spelling and refuse
+// this one, which is the shape of every capture bug design 216 found.
+//
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: may capture nothing, but this one captures `bias`
+
+func make() -> FuncPointer<(Int) sync -> Int> {
+    let bias = 7
+    { [bias] n in n + bias }
+}
+
+func main() { print("unreached") }

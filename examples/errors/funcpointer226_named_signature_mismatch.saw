@@ -1,0 +1,14 @@
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: no declaration of `wrong` has signature
+//
+// Design 226: a function pointer's signature must match the declaration
+// EXACTLY. There is no conversion to apply -- the address is called under
+// `F`'s ABI whatever the body expects, so a mismatch is not a coercion
+// question but a wrong-code question.
+
+func wrong(n: Int) sync -> Bool { n > 0 }
+
+func main() {
+    let p: FuncPointer<(Int) sync -> Int> = wrong
+    print("unreached")
+}

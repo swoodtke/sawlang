@@ -1,0 +1,14 @@
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: is a generic function, and a generic function has no single address
+//
+// Design 226 v1 fence: a generic function is refused as a construction source.
+// A `FuncPointer` names ONE compiled body, and a generic names a family --
+// nothing in the expression writes the type argument that would pick one, and
+// inferring it from `F` would be a second, separate inference surface.
+
+func idn<T>(v: T) sync -> T { v }
+
+func main() {
+    let p: FuncPointer<(Int) sync -> Int> = idn
+    print("unreached")
+}

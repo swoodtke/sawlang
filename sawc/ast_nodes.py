@@ -992,6 +992,15 @@ class Identifier(Expression):
     # merged namespace and could not tell them apart. Also stamped on the TARGET
     # of an assignment to a static, by the same rule.
     resolved_static_symbol: Optional[str] = annotation(None)
+    # design 226, construction form 2: this name is not a variable at all — it
+    # is a NAMED FUNCTION written in a `FuncPointer<F>`-expected position, and
+    # the expression's value is its code address. `funcpointer_target` holds
+    # the full `FuncPointer<F>` type; `funcpointer_symbol` holds the codegen
+    # symbol resolution picked, for the same reason `resolved_static_symbol`
+    # exists — the overload set is resolved HERE, against the expected
+    # signature, and codegen works from one merged namespace.
+    funcpointer_target: Optional['SawType'] = annotation(None)
+    funcpointer_symbol: Optional[str] = annotation(None)
 
 
 @dataclass
@@ -1834,6 +1843,12 @@ class ClosureExpr(Expression):
     escapes: bool = False  # Filled by type checker (design 21b E1): the closure
                            # value outlives its creating frame (bound/returned/
                            # passed to spawn), so its env is heap-allocated.
+    # design 226: this literal appeared in a `FuncPointer<F>`-EXPECTED position
+    # and COERCED — it captures nothing, so it is emitted under `F`'s BARE ABI
+    # (no env parameter, no closure triple) and the expression's value is the
+    # code address alone. Holds the full `FuncPointer<F>` type; None for every
+    # ordinary closure. Codegen reads it to pick the emission.
+    funcpointer_target: Optional['SawType'] = annotation(None)
 
 
 # Statements

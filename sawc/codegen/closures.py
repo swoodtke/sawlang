@@ -41,7 +41,18 @@ class ClosuresMixin:
         param_names = []
         # Per-parameter Saw types (None if unknown); used to mark reference params.
         param_saw_types = []
-        resolved = expr.resolved_type
+        # design 226, construction form 1: this literal COERCED to a
+        # `FuncPointer<F>`. Everything below is the ordinary closure emission
+        # with the ENVIRONMENT removed — no `env_ptr` parameter, no env struct,
+        # no destructor, and the value is the code address alone rather than a
+        # triple. It is one path rather than two because the body emission is
+        # identical; what differs is the ABI around it, and that is exactly
+        # `bare`. The typechecker guarantees there are no captures, which is
+        # what makes the removal sound.
+        bare_target = expr.funcpointer_target
+        bare = bare_target is not None
+        resolved = (self._funcpointer_signature(bare_target) if bare
+                    else expr.resolved_type)
         resolved_params = resolved.param_types if (resolved and resolved.param_types) else None
 
         if expr.parameters:
@@ -136,17 +147,21 @@ class ClosuresMixin:
         # source closure inside `Vector<String>.map` are distinct by construction.
         owner = self.builder.function.name if self.builder is not None else "module"
         closure_name = self._synth_symbol(
-            f"__closure${owner}${expr.line}_{expr.column}")
+            f"__{'funcptr' if bare else 'closure'}${owner}"
+            f"${expr.line}_{expr.column}")
 
-        # Create closure function type: (env_ptr, params...) -> ret
-        fn_param_types = [env_ptr_type] + param_types
+        # Create closure function type: (env_ptr, params...) -> ret; a coerced
+        # `FuncPointer` literal drops the env_ptr and is exactly `F`.
+        arg_offset = 0 if bare else 1
+        fn_param_types = ([] if bare else [env_ptr_type]) + param_types
         fn_type = ir.FunctionType(ret_type, fn_param_types)
 
         # Create the closure function
         closure_fn = ir.Function(self.module, fn_type, name=closure_name)
         # Mark &var params noalias (arg 0 is the env pointer, so params start at
         # arg 1); same exclusivity-backed reasoning as top-level functions.
-        self._mark_noalias_params(closure_fn, param_saw_types, arg_offset=1)
+        self._mark_noalias_params(closure_fn, param_saw_types,
+                                  arg_offset=arg_offset)
 
         # Save current builder and variables
         saved_builder = self.builder
@@ -228,7 +243,7 @@ class ClosuresMixin:
 
         # Set up parameter access
         for i, param_name in enumerate(param_names):
-            llvm_param = closure_fn.args[i + 1]  # +1 for env_ptr
+            llvm_param = closure_fn.args[i + arg_offset]  # +1 for env_ptr
             saw_t = param_saw_types[i] if i < len(param_saw_types) else None
             if saw_t is not None and saw_t.kind == TypeKind.REFERENCE:
                 # Reference-capture param (design 21 item 3): the argument is
@@ -364,6 +379,12 @@ class ClosuresMixin:
         dtor_ptr_type = ir.PointerType(ir.FunctionType(ir.VoidType(), [env_ptr_type]))
         dtor_val = (env_dtor if env_dtor is not None
                     else ir.Constant(dtor_ptr_type, None))
+
+        if bare:
+            # design 226: the value IS the code address. No triple to build, no
+            # env pointer to carry, no destructor to run — which is why a
+            # `FuncPointer` is trivially copyable and needs no drop glue.
+            return closure_fn
 
         # Create closure struct: { fn_ptr, env_ptr, dtor_ptr }
         closure_type = ir.LiteralStructType(

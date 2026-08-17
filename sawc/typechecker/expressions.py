@@ -803,6 +803,16 @@ class ExpressionsMixin:
                 if getattr(static_sym, 'is_var', False):
                     self._note_unsafe_static_contact(expr.name, expr)
                 return static_sym.type
+            # design 226, construction form 2: a NAMED FUNCTION written in a
+            # `FuncPointer<F>`-expected position. Resolved after locals and
+            # statics, never before — a binding that shares the name is what
+            # the author wrote, on the ordinary precedence — and reached only
+            # when the expectation is a function pointer, so no other program
+            # sees a function name become a value (DF-172a stays open).
+            fp_type = self._funcpointer_expectation(expr, None)
+            if (fp_type is not None
+                    and self.namespace.lookup_function_overloads(expr.name)):
+                return self._check_funcpointer_named_function(expr, fp_type)
             # design 186 unit 7: a static initializer naming a static declared
             # BELOW it. "undefined variable" is technically true — nothing is
             # registered yet — and reads as a lie two lines above the
@@ -5377,6 +5387,22 @@ class ExpressionsMixin:
         if isinstance(value_expr, NoneLiteral):
             if rt.kind == TypeKind.OPTIONAL and rt.inner_type is not None:
                 value_expr.expected_type = rt
+            return
+
+        # (0b) design 226: a `FuncPointer<F>`-EXPECTED position. The two
+        #      construction forms — a zero-capture closure literal and a named
+        #      function — are both spelled as an expression that means something
+        #      else on its own, so both need the expectation pushed down BEFORE
+        #      they are checked, and this is the one propagation every position
+        #      already calls. That is what makes the coercion's position matrix
+        #      the SAME five rows as every literal's: an argument, an annotated
+        #      `let`, a struct field initializer, a `return`, a `static`
+        #      initializer. `_check_closure` and `_check_identifier` read the
+        #      stamp; nothing else in the language reads a FuncPointer
+        #      expectation, so no existing meaning changes.
+        if (isinstance(value_expr, (ClosureExpr, Identifier))
+                and self._funcpointer_signature(rt) is not None):
+            value_expr.expected_type = rt
             return
 
         # (1) Bare integer literal → adopt a fixed-width expectation, range-check
@@ -10623,6 +10649,17 @@ class ExpressionsMixin:
         conservative error until full non-escaping closures land.
         """
         from .core import VariableInfo, Scope
+        # design 226, construction form 1: a `FuncPointer<F>`-EXPECTED position
+        # COERCES a zero-capture literal. The body is checked against `F` like
+        # any other contextually-typed closure — that is the whole of the type
+        # side — and what changes is the RESULT: a `FuncPointer<F>` rather than
+        # a closure value, emitted under `F`'s bare ABI. The expectation arrives
+        # by parameter where the caller knows it (a call argument, a struct
+        # field initializer) and by the stamp `_apply_literal_expected_type`
+        # made where it does not (an annotated `let`, a `return`, a `static`).
+        fp_result = self._funcpointer_expectation(expr, expected_type)
+        if fp_result is not None:
+            expected_type = self._funcpointer_signature(fp_result)
         outer_scope = self.current_scope
         self.current_scope = Scope(parent=outer_scope)
         # design 132 unit A: everything the body can WRITE lives at or below this
@@ -10952,6 +10989,14 @@ class ExpressionsMixin:
                          else 'plain'))
             for name in captures
         }
+        # design 226: judge the coercion's captures HERE, the moment the walk
+        # has them, and recover as "captures nothing". Everything below this
+        # point reacts to a capture — the frame-pointer rule, the hidden-alloc
+        # gate, the value-transfer checkpoint — and each would report a second
+        # diagnostic about a closure the author never meant to build.
+        if fp_result is not None:
+            captures = self._check_funcpointer_captures(expr, captures,
+                                                        outer_scope)
         # THE FRAME-POINTER CAPTURE RULE, one predicate over its three spellings.
         # A capture that lowers to a pointer INTO the enclosing frame is sound
         # only because a non-escaping closure cannot outlive the call that runs
@@ -11071,7 +11116,13 @@ class ExpressionsMixin:
                                        expr.line, expr.column)
         # A closure with reference parameters is non-storable: legal only as a
         # direct call argument (design 21 item 3). Reject any other position.
-        if has_reference_params and not as_call_argument:
+        # A `FuncPointer` coercion is exempt (design 226): the rule exists
+        # because a closure VALUE could outlive the frame its borrow captures
+        # point into, and a coerced literal captures nothing — its reference
+        # parameters are the callee's, exactly as a named `func f(x: &Int)`'s
+        # are. Refusing it here would say "it cannot be bound" about a type
+        # whose whole purpose is to be bound.
+        if has_reference_params and not as_call_argument and fp_result is None:
             self._error(
                 ErrorKind.TYPE_MISMATCH,
                 "a closure with reference (`&`/`&var`) parameters may only be passed "
@@ -11105,6 +11156,16 @@ class ExpressionsMixin:
         if (contact is not None and not signature_is_unsafe
                 and self._unsafe_contact is None):
             self._unsafe_contact = contact
+        if fp_result is not None:
+            # The coercion's verdict: the value is a `FuncPointer<F>`, not a
+            # closure. `escapes` is cleared because there is nothing to escape —
+            # a code address outlives every frame, which is the same fact that
+            # makes the type safe.
+            expr.funcpointer_target = fp_result
+            expr.escapes = False
+            expr.resolved_type = fp_result
+            self._effect_exit()
+            return fp_result
         result_type = SawType(TypeKind.FUNCTION, param_types=param_types,
                               func_return_type=return_type,
                               func_is_unsafe=signature_is_unsafe,
@@ -11116,6 +11177,165 @@ class ExpressionsMixin:
         expr.resolved_type = result_type
         self._effect_exit()
         return result_type
+
+    # ------------------------------------------------------------------ 226
+    # The two construction forms of a `FuncPointer<F>`.
+
+    def _funcpointer_expectation(self, expr, expected_type):
+        """The `FuncPointer<F>` type this expression is expected to be, or None.
+
+        Two ways one arrives, and both are read here so no position can pick up
+        only one of them:
+          * BY PARAMETER, where the checker already knows the slot's type — a
+            call argument, a struct field initializer, a closure-typed field.
+          * BY STAMP, from `_apply_literal_expected_type`, at every position
+            that pushes an expected type down without threading it into the
+            expression check — an annotated `let`, a `return`, a `static`
+            initializer.
+        """
+        found = self._funcpointer_signature(expected_type)
+        if found is not None:
+            return expected_type
+        stamped = getattr(expr, 'expected_type', None)
+        if self._funcpointer_signature(stamped) is not None:
+            return stamped
+        return None
+
+    def _funcpointer_decl_signature_key(self, sym):
+        """A declared function's signature, keyed the way `F` is keyed."""
+        return tuple(self._type_key(p) for p in (sym.param_types or [])) + (
+            "->", self._type_key(sym.return_type or SawType(TypeKind.VOID)))
+
+    def _funcpointer_target_signature_key(self, f):
+        """`F`'s signature, keyed the way a declaration's is."""
+        return tuple(self._type_key(p) for p in (f.param_types or [])) + (
+            "->", self._type_key(f.func_return_type or SawType(TypeKind.VOID)))
+
+    def _funcpointer_decl_is_sync(self, sym) -> bool:
+        """Is this declaration a `sync` CONTEXT — checked suspension-free?
+
+        `F` says `sync`, and the compiler may only hand out an address it can
+        promise that of. Two declarations carry the promise: a `sync` effect
+        slot, and `@export` (design 58 — a C-boundary root cannot suspend, and
+        is checked transitively by the same machinery). A body that merely
+        happens not to suspend is not one: nothing stops the next edit, and the
+        error would then land on a body nobody was reading.
+        """
+        from ast_nodes import is_exported
+        if getattr(sym, 'is_sync', False):
+            return True
+        decl = getattr(sym, 'decl_node', None) or getattr(sym, 'ast_node', None)
+        return decl is not None and is_exported(decl)
+
+    def _check_funcpointer_named_function(self, expr, fp_type):
+        """Construction form 2: a NAMED function in a `FuncPointer<F>` slot.
+
+        `F` is fully known here — it came from the slot — so the overload set is
+        resolved AGAINST it: that is what the ruling's "an overload set larger
+        than one demands annotation to select" asks for, since the annotation
+        that names the FuncPointer is the only way to write `F` down. A name
+        with one declaration takes the same path and simply has one candidate.
+
+        Two v1 refusals: a GENERIC function (its address does not exist until a
+        type argument picks an instantiation, and nothing here writes one), and
+        a body that is not a `sync` context.
+        """
+        f = self._funcpointer_signature(fp_type)
+        name = expr.name
+        overloads = self.namespace.lookup_function_overloads(name)
+        if not self.namespace.is_accessible(name):
+            self._error(
+                ErrorKind.UNDEFINED_VARIABLE,
+                f"function `{name}` is not visible here",
+                expr.line, expr.column)
+            return None
+        want = self._funcpointer_target_signature_key(f)
+        matches = []
+        generics = []
+        for sym in overloads:
+            if getattr(sym, 'type_params', None):
+                generics.append(sym)
+                continue
+            if self._funcpointer_decl_signature_key(sym) == want:
+                matches.append(sym)
+        if len(matches) > 1:
+            self._error(
+                ErrorKind.TYPE_MISMATCH,
+                f"`{name}` names {len(matches)} declarations with signature "
+                f"`{f}`, so which one this pointer refers to is ambiguous",
+                expr.line, expr.column,
+                hint="give the overloads distinguishable signatures, or wrap "
+                     "the one you mean in a small named function and take a "
+                     "pointer to that")
+            return None
+        if not matches:
+            if generics and len(generics) == len(overloads):
+                self._error(
+                    ErrorKind.TYPE_MISMATCH,
+                    f"`{name}` is a generic function, and a generic function "
+                    f"has no single address to point at",
+                    expr.line, expr.column,
+                    hint="a `FuncPointer` names ONE compiled body; write a "
+                         "non-generic wrapper that calls the instantiation you "
+                         "want, and point at that")
+                return None
+            have = ", ".join(
+                f"`({', '.join(str(p) for p in (s.param_types or []))}) "
+                f"{'sync ' if getattr(s, 'is_sync', False) else ''}-> "
+                f"{s.return_type or 'Void'}`" for s in overloads[:3])
+            self._error(
+                ErrorKind.TYPE_MISMATCH,
+                f"no declaration of `{name}` has signature `{f}` (found {have})",
+                expr.line, expr.column,
+                hint="a function pointer's signature must match the "
+                     "declaration exactly — parameter types and return type, "
+                     "with no conversions")
+            return None
+        sym = matches[0]
+        if not self._funcpointer_decl_is_sync(sym):
+            self._error(
+                ErrorKind.TYPE_MISMATCH,
+                f"`{name}` is not declared `sync`, so it cannot be a "
+                f"`FuncPointer<{f}>`",
+                expr.line, expr.column,
+                hint=f"write the effect slot — `func {name}(...) sync -> ...` "
+                     f"— and the body is checked suspension-free. A bare code "
+                     f"address has nowhere to keep the frame a suspending body "
+                     f"runs out of, which is why `F` is sync-only")
+            return None
+        expr.funcpointer_target = fp_type
+        expr.funcpointer_symbol = getattr(sym, 'mangled_name', "") or name
+        return fp_type
+
+    def _check_funcpointer_captures(self, expr, captures, outer_scope):
+        """Refuse a capture in a coerced literal, and recover as capture-less.
+
+        THE property that keeps the bare ABI sound. A coerced literal is
+        emitted as `F`'s own function — parameters exactly as written and NO
+        environment parameter — so there is physically nowhere for a captured
+        value to travel. `captures` is the escaping-capture analysis's own
+        result, so `self` and a plainly-named enclosing local are counted here
+        by construction (the DF-216a lesson: what matters is what the body
+        NAMES, not what a capture list writes).
+        """
+        if not captures:
+            return captures
+        names = ", ".join(f"`{n}`" for n in captures)
+        self._error(
+            ErrorKind.TYPE_MISMATCH,
+            f"a closure coerced to `FuncPointer` may capture nothing, but this "
+            f"one captures {names}",
+            expr.line, expr.column,
+            hint="a function pointer is a code address and carries no "
+                 "environment, so there is nowhere for captured state to "
+                 "travel — pass the state through the argument parameter "
+                 "instead, or keep it in a `static` the body reads")
+        # Recover as the capture-less closure the position demanded: every rule
+        # below reacts to a capture, and each would report the same mistake
+        # again in the vocabulary of a closure value.
+        expr.captures = []
+        expr.capture_modes = {}
+        return []
 
     def _analyze_closure_captures(self, body: Block, outer_scope) -> List[str]:
         """Find every variable from an enclosing scope used in the closure body.
@@ -11140,6 +11360,21 @@ class ExpressionsMixin:
         iterating a set of names made the compiler emit different IR for the same
         source on every run (Python randomizes string hashing per process). Order
         is first-use order in the body (design 126 R2).
+
+        TWO CONSUMERS (obligation 1 — a funnel names its entries), and they ask
+        the same question for opposite reasons:
+          1. THE ESCAPING-CAPTURE ANALYSIS (`_check_closure`, designs 16/29/216)
+             — what goes IN the environment, in what mode, and whether a
+             frame-pointer capture may escape.
+          2. THE `FuncPointer` COERCION (`_check_funcpointer_captures`, design
+             226) — whether there is an environment AT ALL. A coerced literal is
+             emitted under `F`'s bare ABI with no env parameter, so ANY name
+             this walk returns refuses the coercion.
+        One walk serves both because both mean "what does the body NAME",
+        `self` and a plainly-mentioned enclosing local included — which is
+        exactly what a capture LIST does not say (DF-216a). A second walk
+        written for the coercion would be a second answer to that question, and
+        the position it missed would be a hole with no diagnostic.
         """
         used_names = {}
 

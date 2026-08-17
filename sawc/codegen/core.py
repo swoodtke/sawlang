@@ -1211,6 +1211,24 @@ class CodeGenerator(ResultsMixin, MatchMixin, StructsMixin, CollectionsMixin, Ca
         # every arm sees the type the alias stands for.
         saw_type = self._resolve_type_alias(saw_type)
         llvm_type = self._get_llvm_type(saw_type)
+        # design 226: a `FuncPointer` static. Its initializer is a LINK-TIME
+        # constant — the address of a symbol this module emits — which is
+        # exactly what an LLVM global initializer may be, so it needs no runtime
+        # store and the static stays rodata-eligible like every other one here.
+        # Both construction forms land here: a coerced literal is emitted as its
+        # own bare function (with no builder in scope, which the capture-less
+        # path does not need), and a named function is the function itself.
+        if getattr(expr, 'funcpointer_target', None) is not None:
+            from ast_nodes import ClosureExpr, Identifier
+            if isinstance(expr, ClosureExpr):
+                return self._generate_closure(expr)
+            if isinstance(expr, Identifier):
+                fn = self.functions.get(expr.funcpointer_symbol or expr.name)
+                if fn is None:
+                    raise ValueError(
+                        f"function `{expr.funcpointer_symbol or expr.name}` has "
+                        f"no emitted body to take the address of")
+                return fn
         if isinstance(expr, IntLiteral):
             return ir.Constant(llvm_type, expr.value)
         # A resolved `#line` literal (design 98) is an Int compile-time constant.
@@ -3057,6 +3075,20 @@ class CodeGenerator(ResultsMixin, MatchMixin, StructsMixin, CollectionsMixin, Ca
         append(TypeKind.STRING, bytes_ptr)
 
     def visit_Identifier(self, expr: Identifier):
+        # design 226, construction form 2: this name is a NAMED FUNCTION taken
+        # as a `FuncPointer<F>`, and its value is the function's address. The
+        # typechecker resolved WHICH declaration (the overload set is selected
+        # against `F`) and stamped the symbol, exactly as it does for a static —
+        # codegen works from one merged namespace and could not choose.
+        if expr.funcpointer_target is not None:
+            fn = self.functions.get(expr.funcpointer_symbol or expr.name)
+            if fn is None:
+                raise ValueError(
+                    f"function `{expr.funcpointer_symbol or expr.name}` has no "
+                    f"emitted body to take the address of")
+            return self.builder.bitcast(
+                fn, self._get_llvm_type(expr.funcpointer_target),
+                name=f"funcptr_{expr.name}")
         if expr.name not in self.variables:
             # A const generic parameter (design 148) is a compile-time value
             # with no storage: this instantiation's argument becomes a literal

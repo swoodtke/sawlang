@@ -1523,6 +1523,15 @@ class RegistrationMixin:
         # design 46: `UnsafeMemory(<int>)` is a const-init from an address literal.
         if isinstance(expr, FunctionCall) and getattr(expr, 'is_unsafe_mem_construct', False):
             return all(self._is_const_init(a.value) for a in expr.arguments)
+        # design 226: a `FuncPointer` built by COERCION is a LINK-TIME constant —
+        # the address of a symbol this compilation unit emits. It folds to no
+        # number, so the evaluator tier below cannot answer for it, and it is
+        # neither an aggregate nor a call. A dispatch table of handlers is the
+        # headline use of the type, and a table is a `static`, so this row is
+        # not an afterthought: without it the type's most natural home is the
+        # one position that refuses it.
+        if getattr(expr, 'funcpointer_target', None) is not None:
+            return True
         # The CONSTANT-EXPRESSION tier: anything the one evaluator folds. Asked
         # last so the aggregate arms above keep their own (cheaper, structural)
         # answers, and asked by TRYING rather than by re-listing the grammar —

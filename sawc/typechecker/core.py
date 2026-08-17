@@ -1829,6 +1829,25 @@ class TypeChecker(ExpressionsMixin, StatementsMixin, RegistrationMixin, TypeUtil
                      "effect slot (`(Int) sync -> Int`), or pass a `TaskHandle` "
                      "if the work really does suspend")
 
+    def _funcpointer_signature(self, t):
+        """`F` out of a `FuncPointer<F>`, or None when `t` is not one.
+
+        THE ONE READER of the type's shape in the typechecker (design 226).
+        The coercion funnel, both construction forms and the indirect-call path
+        all ask here, so "is this a function pointer, and of what signature"
+        has one answer and cannot drift between them. Returns None for a
+        malformed one (an abstract or non-function `F`) — `_check_funcpointer_arg`
+        has already reported those, and every caller wants the same "not a
+        usable function pointer" answer.
+        """
+        if (t is None or t.kind != TypeKind.STRUCT
+                or t.struct_name != "FuncPointer"):
+            return None
+        args = t.type_args or []
+        if len(args) != 1:
+            return None
+        return args[0] if args[0].kind == TypeKind.FUNCTION else None
+
     def _funcpointer_arg_is_abstract(self, f) -> bool:
         """Is this `F` still a type PARAMETER rather than a chosen signature?
 

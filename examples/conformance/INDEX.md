@@ -6,7 +6,7 @@ either a file in this directory or an existing `examples/` test that already
 asserts the same rule at the same position — this table is the record of which,
 and the dedup decisions are meant to be audited from it.
 
-**432 rows: 331 carry a file here, 101 are covered elsewhere** (recounted Aug 16
+**438 rows: 337 carry a file here, 101 are covered elsewhere** (recounted Aug 16
 from the table itself — the audit-era "121 here, 198 elsewhere" had gone stale
 across the briefs listed below). (The audit's 247 plus
 the rows later briefs added: W02-W05, design 194 unit 4; W06-W19, design 195
@@ -24,7 +24,8 @@ walk closed; K40-K47, design 224's container-head position matrix; K48-K62,
 design 225's TaskGroup wake matrix; K63-K68, design 230 units A, B and C;
 D01-D20, design 228's divergence position matrix — D15-D20 are the six that
 point at tests written before the brief, which is what makes the fourteen new
-files auditable as the ONLY gap it had to fill.)
+files auditable as the ONLY gap it had to fill; U31-U36, design 226 unit 2's
+closed-construction rows.)
 
 ## How to read it
 
@@ -313,6 +314,12 @@ Claim source: spec 10 *Unsafe Code*; designs 130, 136, 149, 188 u6
 | U28 | an owning VALUE READ out of a pointer place, unspelled | `U28_pointer_place_read_needs_move.saw` | 219 A2 — the read always transferred (codegen emits a raw load and hands the value on); the refusal now teaches the spelling that says so instead of naming the pointer binding |
 | U29 | `move ptr[i]` — the move-out family's fourth member, deinit-exact | `U29_pointer_place_move_out.saw` | 219 A2 — design 35's refusal is keyed on the place's ROOT, and a pointer place tracks no occupancy for a move-out to corrupt; the author keeps it true inside `unsafe`-declared code |
 | U30 | the signature rule derived PER INSTANCE: a generic at an unsafe type argument must declare `unsafe` | `U30_generic_instantiation_unsafe_signature.saw` | 219 C3 — DF-217k: the rule ran once with `T` abstract, and abstract `T` names no unsafe type, so an instantiation received and returned an unsafe value with an empty effect slot while the concrete twin was refused at its declaration. A monomorphized signature is a signature; the refusal anchors at the call, where the type argument is written |
+| U31 | a zero-capture closure literal coerces to `FuncPointer<F>` — the closed-construction acceptance | `U31_funcpointer_zero_capture_coercion.saw` | 226 — the type is SAFE because construction is CLOSED: every inhabitant is verified code of signature `F`, and code is immortal, so possession and the indirect call are sound for every input |
+| U32 | a coerced literal naming an enclosing LOCAL is refused | `U32_funcpointer_capture_local_error.saw` | 226 — the property that keeps the bare ABI sound. A coerced literal is emitted with NO environment parameter, so there is nowhere for a captured value to travel |
+| U33 | the same through an EXPLICIT `[x]` capture list | `U33_funcpointer_capture_list_error.saw` | 226 — the check reads the body-names walk, not the list, so both spellings are one rule |
+| U34 | the same through a method's implicit `self` | `U34_funcpointer_capture_self_error.saw` | 226 — the DF-216a lesson: a receiver appears in no capture list, and a rule written against the list would have accepted it |
+| U35 | `F` must be `sync` — refused at the TYPE, wherever one is written | `errors/funcpointer226_arg_suspending.saw` | 226 — a suspending body runs out of a frame and a bare code address has nowhere to keep one |
+| U36 | receiving and holding a `FuncPointer` needs no `unsafe`; only `from_raw` does | `funcpointer226_type.saw` | 226 — design 130's rule 7 satisfied by the closed-construction argument; the Vector precedent applied properly (safe type, one unsafe member) |
 
 ## Always-on runtime checks
 
