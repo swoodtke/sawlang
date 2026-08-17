@@ -112,6 +112,13 @@ print("{#file}:{#line} - msg")  // #file/#line/#function: definition-site consts
   machine, the grouping is for the human reading them. Group decimal
   by thousands and hex by fours (nibble-quads); a literal short enough
   to read at a glance (`4096`, `0x301`) needs none.
+  **STYLE (user ruling, Aug 17): a BIT-FLAG value is spelled as a
+  shift, never an absolute decimal.** In a rights/flags enum:
+  `case ThreadCreate = 1 << 8`, not `= 256` — including the low bits
+  (`Transfer = 1 << 0`) for uniformity. Design 185 folds `<<` in const
+  positions (raw-backed case values included), so this is pure
+  spelling. HEX device-register masks (`0x20`, `0x301`) stay hex —
+  they mirror datasheet fields and carry a bit comment instead.
 - **INTEGER OPERANDS MUST AGREE, and only bare literals promote (design
   195).** All typed operands of an operation have the SAME type: a binary
   operator, a comparison, a compound assignment or a range over two
