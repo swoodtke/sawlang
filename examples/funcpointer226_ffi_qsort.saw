@@ -42,18 +42,17 @@ func sort_ascending(arr: &var [Int32; 5]) unsafe {
 
 // Form 1: a zero-capture closure literal, coerced in ARGUMENT position.
 //
-// The `i32` suffixes are DF-226a, not the design: a closure body's tail never
-// receives the expected return type, so a bare `-1` here stays platform `Int`
-// and the literal must say its width itself. The finding pre-dates this brief
-// (nothing about a `FuncPointer` is involved) and is pinned by
-// `examples/closure_tail_adopts_expected_return_type.saw`; when it is fixed,
-// the suffixes come off and this test keeps passing.
+// The arm results are BARE literals, which is the point of the shape: the
+// closure's return positions take the expected `Int32` the same way a named
+// function's do (DF-226a, fixed Aug 17 — this test carried `-1i32`/`1i32`/`0i32`
+// suffixes until then, and its comparator is where the finding surfaced).
+// `examples/closure_tail_adopts_expected_return_type.saw` is the matrix.
 func sort_descending(arr: &var [Int32; 5]) unsafe {
     qsort((&var arr[0]) as UnsafePointer<Int32>, 5, sizeof<Int32>(),
           { a, b in
               let x = a[0]
               let y = b[0]
-              if x > y { -1i32 } else if x < y { 1i32 } else { 0i32 }
+              if x > y { -1 } else if x < y { 1 } else { 0 }
           })
 }
 

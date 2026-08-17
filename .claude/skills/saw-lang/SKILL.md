@@ -2297,12 +2297,19 @@ sizeof<T>() == N, "msg")`; struct layout = declaration-order natural ABI
                                       UnsafeConstPointer<Int32>) unsafe sync -> Int32>)
   }
   ```
-  TWO GOTCHAS. **DF-226a** (pre-dating the type): a closure body's TAIL never
-  receives the expected return type, so a bare literal in an `Int32`-returning
-  comparator stays platform `Int` and ICEs — write the suffix (`-1i32`) until
-  it is fixed. **DF-226c**: form 2 takes a BARE name, not `mod.f`, so a
+  ONE GOTCHA LEFT. **DF-226c**: form 2 takes a BARE name, not `mod.f`, so a
   cross-module source needs the selective import (`import mod.{handler}`)
   rather than the whole-module one.
+  **A CLOSURE BODY'S RETURN POSITIONS TAKE THE EXPECTED TYPE (DF-226a, fixed
+  Aug 17)** — so an `Int32`-returning comparator writes `-1`, not `-1i32`, and
+  the no-suffix-where-an-expected-type-is-in-force idiom holds inside a closure
+  exactly as it does everywhere else. The tail expression, the `if`/`match` arm
+  results inside it, and a `return` in the body all adopt it, and an array
+  literal tail shapes into a `Vector` return. Treat it as working now and
+  SUSPECT in older builds, where the tail adopted NOTHING: a bare literal at a
+  fixed-width return stayed platform `Int` and died in codegen (`ret i64` from
+  an `i32` function), and `{ x in [1, 2, 3] }` against a `Vector<Int>` return
+  was refused as a `[Int; 3]`.
 **Unsafe surface (design 130 + 136 — supersedes design 81's marking rules).**
 Unsafety is TYPE-carried, not region-carried: no `unsafe` blocks, no unsafe
 regions, and NO line-level `unsafe` expression marker (writing one is now a

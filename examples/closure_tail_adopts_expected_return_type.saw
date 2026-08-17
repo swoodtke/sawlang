@@ -1,43 +1,74 @@
-// XFAIL: DF-226a a closure body's TAIL never receives the expected RETURN type,
-// so a bare literal there does not adopt it — a fixed-width return ICEs
+// A closure body's RETURN POSITIONS take the expected return type, exactly as a
+// named function body's do (DF-226a, fixed Aug 17).
 //
-// Found while writing design 226 unit 3's C-callback comparator, and PRE-DATING
-// it: nothing about a `FuncPointer` is involved. `_check_closure` pushes the
-// expected return type onto the body for exactly two shapes — an OPTIONAL (so a
-// bare `None` learns what it is a `None` of, DF-146c) and a NEVER tail — and
-// never calls `_apply_literal_expected_type` with it. That funnel is what gives
-// every other typed slot in the language its literal treatment, so a closure
-// tail is missing all of it at once.
+// `_check_closure` used to pin the expected return onto the body for exactly two
+// shapes — a bare `None` tail (DF-146c) and a `Never` tail — and never call
+// `_apply_literal_expected_type` with it. That funnel is what gives every other
+// typed slot in the language its literal treatment, so a closure tail was
+// missing all of it at once: a bare literal at a fixed-width return stayed
+// platform `Int` and reached codegen at the wrong width (`ret i64` from an `i32`
+// function — an internal compiler error), and an array literal never learned it
+// was a `Vector`. The fix routes the closure body through
+// `_stamp_return_literal_types`, the same chokepoint `_check_function` and
+// `_check_method` call.
 //
-// The mechanism reaches more than one position (obligation 4, probed):
-//   * FIXED-WIDTH ADOPTION, below — the tail stays platform `Int` and the
-//     closure is typed `(Int32) -> Int` against an expected `(Int32) -> Int32`.
-//     Codegen builds the body at the WRONG width and dies in the LLVM parser
-//     (`ret i64` from an `i32` function) or, one layer out, as a closure-triple
-//     type mismatch. An internal compiler error either way.
-//   * COLLECTION SHAPING — `runv({ x in [1, 2, 3] })` against
-//     `(Int) sync -> Vector<Int>` is a clean but wrong error, ``got `(Int) ->
-//     [Int; 3]` ``: with no expectation the array literal never becomes a
-//     Vector. Same missing call, milder symptom.
-// A suffixed literal works today (`1i32`), which is the shape design 226's
-// FFI test uses in the meantime.
-//
-// The fix is one call at the point the return context is already computed, but
-// it is a position-quantified rule and owes the sweep obligation 4 asks for:
-// the tail is one of several places a closure body meets an expected type
-// (arm results inside the tail, a `return` statement in the body, the
-// auto-wrap paths beside it).
+// The rows below are that funnel's position matrix — the tail expression, the
+// arm results INSIDE the tail (`if` and `match`), a `return` statement in the
+// body, collection shaping, and the two shapes that already worked and must
+// keep working (a bare-`None` tail, a `Never` tail).
 //
 // EXPECT: success
 // EXPECT-OUTPUT:
 // bare = 1
 // arms = 7
+// match arms = 9
+// returned = 5
+// shaped = 3
+// none = -1
+// never arm = 2
 
 func run(f: (Int32) sync -> Int32) -> Int32 { f(3) }
 
+func runv(f: (Int) sync -> Vector<Int>) -> Int {
+    let v = f(3)
+    v.len()
+}
+
+func runopt(f: (Int) sync -> Int?) -> Int {
+    let o = f(3)
+    if let v = o {
+        return v
+    }
+    return -1
+}
+
 func main() {
+    // the tail expression: a bare literal adopts the fixed-width return type
     let bare = run({ x in 1 })
     print("bare = {bare}")
+
+    // arm results inside the tail adopt it through the branch
     let arms = run({ x in if x > 0 { 7 } else { 0 } })
     print("arms = {arms}")
+    let marms = run({ x in match x { case 3 -> 9, case _ -> 0 } })
+    print("match arms = {marms}")
+
+    // a `return` statement in the body
+    let returned = run({ x in
+        if x > 0 {
+            return 5
+        }
+        return 0
+    })
+    print("returned = {returned}")
+
+    // collection shaping: the array literal learns it is a Vector
+    let shaped = runv({ x in [1, 2, 3] })
+    print("shaped = {shaped}")
+
+    // the two shapes that already worked
+    let none = runopt({ x in None })
+    print("none = {none}")
+    let never = run({ x in if x > 100 { panic("unreachable") } else { 2 } })
+    print("never arm = {never}")
 }

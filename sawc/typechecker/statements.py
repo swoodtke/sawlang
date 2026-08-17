@@ -1257,9 +1257,23 @@ class StatementsMixin:
             )
 
     def _stamp_return_literal_types(self, body, return_type):
-        """Stamp `return_type` as the expected type on any collection/array
-        literal in return position (design 54): the block's tail expression and
-        every top-level `return <literal>`. Nested branches self-infer."""
+        """THE RETURN-POSITION FUNNEL: stamp `return_type` as the expected type
+        on a literal in return position — the block's TAIL expression and every
+        top-level `return <literal>` — before the body is checked. Collection
+        shaping (design 54) and fixed-width adoption (design 87) both ride it,
+        since both are what `_apply_literal_expected_type` does. Nested branches
+        self-infer.
+
+        THREE ENTRY POINTS, and every body with a declared return type reaches
+        one of them:
+          1. `_check_function`        — a free function
+          2. `_check_method`          — a method / init
+          3. `_check_closure`         — a closure literal checked against a
+             known function type (DF-226a; the closure used to reach no funnel
+             at all, so a bare literal in its tail adopted nothing and ICEd at a
+             fixed-width return type)
+        A closure whose return type is INFERRED (design 213) has no expectation
+        to stamp and passes `None`, which is a no-op."""
         if body is None or return_type is None:
             return
         if getattr(body, 'final_expr', None) is not None:

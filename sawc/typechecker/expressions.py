@@ -10885,6 +10885,21 @@ class ExpressionsMixin:
             if declared_ret is not None and declared_ret.kind == TypeKind.TYPE_PARAM:
                 declared_ret = None      # unsolved `U` — nothing to check against
         ret_target = ClosureReturnTarget(expected=declared_ret)
+        # DF-226a: a closure body's RETURN POSITIONS take the expected type the
+        # same way a named function body's do — through the one funnel, BEFORE
+        # the body is checked. `_check_closure` used to pin the expected return
+        # onto the body for exactly two shapes (a bare-`None` tail, DF-146c, and
+        # a `Never` tail, both below) and never called
+        # `_apply_literal_expected_type` at all, so a closure tail was missing
+        # every literal rule at once rather than one of them: a bare literal at
+        # a fixed-width return stayed platform `Int` and reached codegen at the
+        # wrong width (`ret i64` from an `i32` function), and an array literal
+        # never learned it was a `Vector`. Routing through
+        # `_stamp_return_literal_types` — the SAME chokepoint
+        # `_check_function_body` calls — is what makes the two bodies one rule
+        # rather than two that drift; it covers the tail expression, the arm
+        # results inside it, and a top-level `return <literal>`.
+        self._stamp_return_literal_types(expr.body, declared_ret)
         self._closure_returns.append(ret_target)
         saved_in_try_catch = self.in_try_catch_block
         saved_try_err_types = getattr(self, '_try_catch_error_types', None)
