@@ -968,6 +968,23 @@ class StatementsMixin:
         # Generate return value first (before cleanup, in case it uses local vars)
         if stmt.value is not None:
             value = self._gen_transfer_value(stmt.value)
+            # design 228 leg 4: `return <diverging>`. A `panic(...)` or a
+            # `-> Never` call as the returned expression never produces a value,
+            # and emitting it already terminated this block with `unreachable`.
+            # There is no `ret` to write, and no cleanup to run either — control
+            # does not reach here. This site never asked, so it walked on to
+            # write a terminator into a terminated block, which llvmlite
+            # reported as a bare `internal compiler error at ...
+            # (ReturnStatement)` with no message at all. It was broken for
+            # `panic` too, at every callee kind, which is why legs 2 and 3 could
+            # not reach it.
+            #
+            # The question codegen asks is the BUILDER's, not the type's: an
+            # expression can be typed `Never` and still fall through (design
+            # 141's window result `__R`), so "did the emission terminate this
+            # block" is the only sound proxy once lowering has begun.
+            if self.builder.block.is_terminated:
+                return
         else:
             value = None
 

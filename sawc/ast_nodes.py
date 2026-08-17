@@ -2311,11 +2311,19 @@ def expr_diverges(expr) -> bool:
         `guard ... else` (typechecker/statements.py), the value `if` arms
         (typechecker/expressions.py `_check_if_expression` /
         `_check_if_let_expression`) and the three `match` checkers.
+      - `typechecker.statements._statement_diverges`, the STATEMENT-shaped
+        door: a block whose last statement diverges has the bottom type too.
       - `coro_transform._is_never_expr`, which asks it to decide that a
         diverging expression has no value to store into a frame's `__result`
         (DF-158a).
-      - `CodeGenerator._returned_value_diverged` (codegen/statements.py), for
-        `return <diverging>`.
+
+    CODEGEN does NOT ask this one, on purpose. Once lowering has begun the
+    sound question is the BUILDER's — "did emitting that expression terminate
+    this block" — because an expression can be typed `Never` and still fall
+    through: design 141's place accessor returns the WINDOW's result `__R`,
+    which is `Never` whenever the window body never falls out, while the
+    accessor itself returns normally. See `_terminate_after_noreturn`
+    (codegen/calls.py) and the `return` site in codegen/statements.py.
 
     ORDERING HAZARD: the answer is read off `resolved_type`, so a caller must
     have CHECKED the expression first. Every entry above checks its block, arm
