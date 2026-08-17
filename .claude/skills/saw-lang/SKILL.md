@@ -2263,6 +2263,46 @@ ABI (sync-only; a non-ABI `__saw_rt_*` name / a suspending body is a clean
 error). You only touch this when authoring `sawc/rt/`. `static_assert(
 sizeof<T>() == N, "msg")`; struct layout = declaration-order natural ABI
 (documented rule) — a Saw struct can mirror a C struct for FFI.
+- **`FuncPointer<F>` IS the callback/entry-point type (design 226)** — one word,
+  the address of code whose signature is `F`, and exactly a C function pointer
+  at the ABI. Functions are still NOT first-class values (DF-172a is open);
+  this is the typed hole. `F` must be a function type and must be **`sync`** (a
+  suspending body needs a frame a bare address cannot carry), refused AT the
+  type wherever one is written. A **SAFE** type — construction is closed, so an
+  API receiving one owes no `unsafe`, it copies bitwise and `Send`/`Sync`
+  derive. TWO construction forms:
+  ```saw
+  let f: FuncPointer<(Int) sync -> Int> = { n in n * 2 }   // zero-capture literal
+  let g: FuncPointer<(Int) sync -> Int> = doubled          // named `sync` function
+  f(21)                                                     // an ordinary call
+  ```
+  The literal may capture NOTHING — no environment travels with a code address —
+  and what counts is what the body NAMES: an enclosing local, or a method's
+  `self`, with or without a `[x]` list. The refusal says so ("pass the state
+  through the argument parameter"). Form 2 wants a **declared `sync`**,
+  non-generic function; the `FuncPointer` type selects among overloads, and a
+  generic name is refused (one pointer, one compiled body). Both forms work in
+  every expected-type position: argument, annotated `let`, struct field init,
+  `return`, and a **`static`** — the address is a link-time constant, which is
+  what lets a dispatch table be a static and be read as `TABLE.run(x)`.
+  Zero-alloc by construction (passes `--no-hidden-alloc`). `FuncPointer<F>.from_raw(addr:
+  UnsafePointer<UInt8>)` is the ONE forging member, `unsafe` by the ordinary
+  trigger, for a callback arriving from C and a loader reading an entry PC.
+  A C callback's `F` names raw pointers, so it carries `unsafe` by design 136's
+  rule while the `FuncPointer` stays safe:
+  ```saw
+  extern "C" {
+      func qsort(base: UnsafePointer<Int32>, nmemb: UInt, size: UInt,
+                 compar: FuncPointer<(UnsafeConstPointer<Int32>,
+                                      UnsafeConstPointer<Int32>) unsafe sync -> Int32>)
+  }
+  ```
+  TWO GOTCHAS. **DF-226a** (pre-dating the type): a closure body's TAIL never
+  receives the expected return type, so a bare literal in an `Int32`-returning
+  comparator stays platform `Int` and ICEs — write the suffix (`-1i32`) until
+  it is fixed. **DF-226c**: form 2 takes a BARE name, not `mod.f`, so a
+  cross-module source needs the selective import (`import mod.{handler}`)
+  rather than the whole-module one.
 **Unsafe surface (design 130 + 136 — supersedes design 81's marking rules).**
 Unsafety is TYPE-carried, not region-carried: no `unsafe` blocks, no unsafe
 regions, and NO line-level `unsafe` expression marker (writing one is now a

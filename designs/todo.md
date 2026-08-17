@@ -1352,37 +1352,81 @@ sub-agents, one lead), not one lucky repro.
   use, or whether `()`/`Void` unification is the intended design and the
   compiler has the gap.
 
-## Design 226 — FuncPointer<F> (DIRECTION + NAME RULED, user, Aug 15; brief unauthored)
+## Design 226 — FuncPointer<F> — BUILT (Aug 16), all four units
 
-The DF-178c fix: entry points and C callbacks get a typed function
-pointer, WITHOUT making functions first-class values (that stays
-DF-172a's open question). **RE-RULED (user, same day): the type is a
-SAFE `struct FuncPointer<F>`** — under closed construction every
-inhabitant is verified code of signature F, so possession and the
-indirect CALL are sound for every input (design 130's rule satisfied;
-code is immortal, so no dangling exists); APIs receiving one need no
-`unsafe` declaration. Unsafety is confined to the ONE forging member,
-`FuncPointer<F>.from_raw(addr) unsafe` (C-callback pointers arriving
-from FFI, loaders reading entry PCs) — unsafe automatically by 130's
-trigger rule since it binds a raw address; the Vector precedent
-applied properly. The kernel STILL range-checks the entry PC against
-the RX grant and faults (raw-ecall bypass defense — boundary checks
-and type safety each doing their own job). (F is a function type
-carrying the effect slot — sync only, a suspending body needs a frame
-a bare pointer cannot carry.) TWO construction forms: (1) a ZERO-CAPTURE closure
-literal COERCES in UnsafeFuncPointer-expected position — its body is
-emitted under F's bare ABI (no env parameter; the Rust non-capturing
-coercion precedent) — zero-alloc by construction, no overload
-ambiguity, F inferred from context; any capture INCLUDING implicit
-ones (self, enclosing locals — the DF-216a lesson: count what the body
-names) refuses with a teaching diagnostic ("pass state through the arg
-parameter"); (2) a named, unambiguous, non-generic function (overload
-set >1 → annotate to select; generics refused v1). Kernel side:
-`create_thread(entry: UnsafeFuncPointer<(UInt) sync -> Never>, ...)`
-replaces the M2 image-entry stub; entry PC validated against the RX
-grant → FAULT per the faults ruling. Also unlocks hosted C-callback
-FFI. Small brief: parser/typechecker coercion + one codegen path +
-the sysapi overload; rides after the current queue.
+The DF-178c fix: entry points and C callbacks have a typed function
+pointer, and functions are still not first-class values (DF-172a stays
+open). See `designs/226-funcpointer.md` for the brief and the rulings
+it records; the tree is the rest.
+
+What landed beyond the brief's text, as decisions a reader may need:
+- **Form 2 requires a `sync` CONTEXT** — a declared `sync` effect slot
+  or `@export`, never a body that merely happens not to suspend. The
+  closure form needs no marker because a coerced literal is checked
+  against `F` at the coercion.
+- **An overload set is selected BY `F`**, which is what the ruling's
+  "annotate to select" asks for: the FuncPointer annotation is the only
+  way to write `F` down, and every position that coerces has one.
+- **`FuncPointer` joined the `@export` / `extern blocking` C-ABI
+  whitelist** — it is one word and C-callable, so an exported Saw
+  function may RECEIVE a callback.
+- Two positions the brief did not enumerate and the type wanted: a
+  **`static`** initializer (a link-time constant, so a dispatch table is
+  a static) and a **field call** (`TABLE.run(x)`, how a table is read).
+- Kernel adoption (`create_thread`) is still deferred to M3 unit 2 per
+  the brief; nothing under `sos/` was touched.
+
+- **DF-226a (found by design 226 unit 3, PRE-DATES it) — a closure body's
+  TAIL never receives the expected RETURN type, so a bare literal there
+  adopts nothing; a fixed-width return is an INTERNAL COMPILER ERROR.**
+  `run({ x in 1 })` against a `(Int32) sync -> Int32` parameter types the
+  closure `(Int32) -> Int` and dies in codegen — `ret i64` from an `i32`
+  function, or one layer out a closure-triple type mismatch. Nothing about
+  a `FuncPointer` is involved; it surfaced writing the C-callback
+  comparator, whose `int` return is the shape a C ABI always asks for.
+  MECHANISM (obligation 4): `_check_closure` computes `expected_ret` and
+  pushes it onto the body for exactly two shapes — an OPTIONAL (DF-146c's
+  bare `None`) and a NEVER tail — and never calls
+  `_apply_literal_expected_type` with it. That funnel is what gives every
+  other typed slot its literal treatment, so a closure tail is missing all
+  of it at once, not one rule. Second position probed and confirmed:
+  COLLECTION SHAPING, `runv({ x in [1, 2, 3] })` against
+  `(Int) sync -> Vector<Int>`, is a clean but wrong error (``got `(Int) ->
+  [Int; 3]` ``) because the array literal never learns it is a Vector.
+  Pinned by `examples/closure_tail_adopts_expected_return_type.saw`.
+  A suffixed literal (`1i32`) works today and is what
+  `examples/funcpointer226_ffi_qsort.saw` uses meanwhile. The fix is one
+  call where the return context is already computed, but it quantifies over
+  positions (the tail, arm results inside it, a `return` statement in the
+  body, the auto-wrap paths beside it) and owes the sweep first.
+
+- **DF-226c (v1 gap, deliberately not built) — construction form 2 accepts a
+  BARE name, not a module-QUALIFIED one.** `import fpmod.{tripled}` then
+  `let p: FuncPointer<(Int) sync -> Int> = tripled` works; under a whole-module
+  `import fpmod`, the only spelling design 150 leaves is `fpmod.tripled`, and
+  that is a clean but wrong refusal (``cannot assign `(Int) -> Int` to variable
+  of type `FuncPointer<(Int) sync -> Int>` `` — note the missing `sync`: a
+  qualified function reference is already typed as a FUNCTION so that calls
+  work, and it drops the effect slot doing it). Not built because a qualified
+  name is a THIRD construction site, not a third position of the existing one:
+  `_check_member_access` types it at TWO places (the single-qualifier arm and
+  the nested-module-chain arm), so form 2's checks — signature match, the
+  `sync` context, the generic and overload refusals — would need routing
+  through both, and a codegen path of its own for the address. That is a matrix
+  to write, not a line to add. Workaround today is one word at the import
+  (`import fpmod.{tripled}`). Worth doing when the kernel adopts the type in
+  M3, where `sos` sysapi callbacks are cross-module by nature.
+
+- **DF-226b (minor, cosmetic) — a `borrows` function type inside a GENERIC
+  ARGUMENT is a bare parse error, not design 141's named refusal.**
+  `func f(g: (Int) borrows -> Int)` says ``a function TYPE may not be
+  `borrows` ``; `FuncPointer<(Int) borrows -> Int>` says `Parse error at
+  1:33: Expected '>' after type arguments`. The committed-generic type parse
+  does not accept the effect slot's `borrows`, so it never reaches the rule
+  that has words for it. Both are clean errors and both reject the same
+  program — this is a diagnostic-quality gap, not a hole. Pre-dates design
+  226 (any generic taking a function type has it); noticed there because a
+  `FuncPointer`'s argument is ALWAYS a function type in a generic argument.
 
 ## The next queue — designs 195-202 + 153 (ALL RULED Aug 10, awaiting dispatch)
 

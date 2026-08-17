@@ -1316,6 +1316,22 @@ Saw is freestanding: the same language targets bare metal.
 - **One answer when allocation fails**: the panicking and `try_` tiers described
   under [Memory Management](#memory-management) are what a kernel gets too, and
   the panic routes through a seam the environment supplies.
+- **Typed function pointers**: `FuncPointer<F>` is the address of code whose
+  signature is `F` — one word, no environment, exactly a C function pointer at
+  the ABI. It is what a C callback and an image entry point need. Build one from
+  a zero-capture closure literal or a named `sync` function; `F` must be `sync`,
+  since a suspending body needs a frame a bare address cannot carry.
+
+  ```saw
+  let doubler: FuncPointer<(Int) sync -> Int> = { n in n * 2 }
+  print("{doubler(21)}")                  // prints: 42
+  ```
+
+  Construction is closed, so every pointer holds code the compiler checked
+  against `F`: the type is safe to receive and to call with no ceremony, and it
+  allocates nothing. A literal that captures anything is refused — there is no
+  environment for the value to travel in. `from_raw` is the one member that
+  takes an address on faith, and it is `unsafe`.
 - **Memory-mapped I/O**: `UnsafeMemory<T, Use>` is a compiler-known view of memory
   at a fixed address, with volatile `read()`/`write()` for device registers and
   field-offset projection. It is an unsafe type, so a driver method that touches

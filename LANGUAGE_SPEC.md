@@ -8746,6 +8746,123 @@ struct CStruct {
 }
 ```
 
+### Function pointers (`FuncPointer<F>`)
+
+**Status: implemented.** `FuncPointer<F>` is the address of compiled code whose
+signature is `F`. It is one machine word with no environment beside it, so it
+is exactly a C function pointer at the ABI: a callback C can call, and an entry
+point a loader can jump to. Functions are not first-class values in Saw. This
+type covers the two cases that need one anyway, and nothing more.
+
+`F` is a function type and it must be `sync`. A suspending body runs out of a
+frame, and a bare address has nowhere to keep one, so a suspending `F` is a
+clean error at the type:
+
+```saw
+FuncPointer<(Int) sync -> Int>          // ok
+
+FuncPointer<(Int) -> Int>
+// error: `FuncPointer`'s type argument must be `sync`, but `(Int) -> Int` may
+// suspend
+
+FuncPointer<Int>
+// error: `FuncPointer`'s type argument must be a function type, but `Int` is not
+```
+
+`FuncPointer<F>` is a safe type. Construction is closed — the two forms below
+are the only ways to build one, and both hand over code the compiler has
+checked against `F` — so possession and the call are sound for every input, and
+an API receiving one needs no `unsafe`. Code is immortal, so a function pointer
+cannot dangle. It copies bitwise, and `Send`/`Sync` derive.
+
+**Form 1: a zero-capture closure literal**, coerced wherever a `FuncPointer` is
+expected. The literal is emitted under `F`'s own ABI, with no environment
+parameter, so it allocates nothing:
+
+```saw
+let doubler: FuncPointer<(Int) sync -> Int> = { n in n * 2 }
+print("{doubler(21)}")                  // prints: 42
+```
+
+The literal may capture nothing, and what counts as a capture is what the body
+names — an enclosing local, or a method's `self`, whether or not a capture list
+mentions it:
+
+```saw
+func make(bias: Int) -> FuncPointer<(Int) sync -> Int> {
+    { n in n + bias }
+    // error: a closure coerced to `FuncPointer` may capture nothing, but this
+    // one captures `bias`
+}
+```
+
+There is no environment for the captured value to travel in. Pass the state
+through the argument parameter instead, or read it from a `static`.
+
+**Form 2: a named function**, non-generic and declared `sync`:
+
+```saw
+func doubled(n: Int) sync -> Int { n * 2 }
+
+let f: FuncPointer<(Int) sync -> Int> = doubled
+```
+
+The signature must match `F` exactly — parameter types and return type, with no
+conversions. When the name carries several overloads, the `FuncPointer` type
+selects among them. A generic function is refused: a `FuncPointer` names one
+compiled body, and a generic names a family.
+
+Both forms work in every position that supplies an expected type: a call
+argument, an annotated `let`, a struct field initializer, a `return`, and a
+`static` initializer. The last is what lets a dispatch table be a `static` —
+the address is a link-time constant, so the table costs no startup code.
+
+```saw
+struct Handler {
+    code: Int32,
+    run: FuncPointer<(Int) sync -> Int>,
+}
+
+static TABLE: Handler = Handler(code: 7, run: { n in n + 1 })
+```
+
+Calling one is an ordinary call expression. Arguments are positional (a
+function type carries no parameter names), and the call needs no ceremony. A
+pointer held in a field is called in place:
+
+```saw
+func apply(p: FuncPointer<(Int) sync -> Int>, n: Int) -> Int { p(n) }
+
+let t = TABLE
+print("{t.run(41)}")                    // prints: 42
+```
+
+**`from_raw` is the one member that forges a pointer** out of an address
+nothing verified, for a C callback arriving through FFI and for a loader
+reading an entry PC. It takes a raw pointer, so it is `unsafe` by the ordinary
+rule, and the caller owes the promise that the address is a function of
+signature `F`:
+
+```saw
+func entry_at(pc: Int) unsafe -> FuncPointer<(UInt) sync -> Never> {
+    FuncPointer<(UInt) sync -> Never>.from_raw(pc as UnsafePointer<UInt8>)
+}
+```
+
+A C function taking a callback declares it with the `FuncPointer` type, and
+either construction form crosses:
+
+```saw
+extern "C" {
+    func qsort(base: UnsafePointer<Int32>, nmemb: UInt, size: UInt,
+               compar: FuncPointer<(UnsafeConstPointer<Int32>,
+                                    UnsafeConstPointer<Int32>) unsafe sync -> Int32>)
+}
+```
+
+`F` carries `unsafe` here because its signature names raw pointers, which is
+the same rule every function type follows. The `FuncPointer` itself stays safe.
+
 ### Attributes (design 58)
 
 **Status: implemented.** Attributes are Swift-style `@name` / `@name("string")`
