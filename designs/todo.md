@@ -42,6 +42,74 @@ ruling, never invented EXPECTs. Sonnet-class dispatch (user ruling — the
 brief fixes the grids and authorities; the agent transcribes). Seeds: the
 DF-232a/226d/e/232c pins + the kcore unit-0 probes. [235]
 
+## DF-232f — a package has NO INTERNAL VISIBILITY, so splitting one file into
+## several PUBLISHES everything they share (filed Aug 17, the kcore split's
+## unit-0 probe; the finding the split's tracker entry anticipated)
+
+`public` is the only way one file of a package can reach another's decl, and
+`public` means EVERY importer — there is no `public(package)`/`internal` tier
+between "this file" and "the world". So a file split is also a publication: the
+kcore split turned ~150 kernel-internal names (every slab, every slot struct AND
+ITS FIELDS, every table helper) into surface any consumer of `kcore` can name and
+write, and design 80's gate now protects nothing inside the package it was
+protecting the kernel with. Nothing about the IMAGE changes — the widening is a
+compile-time visibility fact — which is why the split proceeded, but the
+encapsulation loss is real and is the argument for the tier: an `unsafe static
+var THREADS` that the scheduler and the teardown share is exactly the thing that
+should be reachable from a sibling file and from nowhere else.
+WHAT THE TIER WOULD COST is small on today's model: package identity already
+exists (a `--module-path` name / a Blade dependency), and design 144 already
+makes TYPE identity `(defining module, name)` — so `internal` is a third answer
+in the same visibility check, not a new concept. [232, design 80/82/204]
+
+## DF-232e — an IMPORT CYCLE is not diagnosed: the symbols silently vanish and
+## the error lands on an innocent third module (filed Aug 17, the kcore split's
+## unit-0 probe)
+
+Two modules of one package importing each other (`a` imports `b.{beta}`, `b`
+imports `a.{alpha}`) compiles to `error: undefined function `alpha`` — reported
+in `lib.saw`, a THIRD module that merely imports `a` and did nothing wrong. The
+cycle itself is never named, neither participant is pointed at, and the reader is
+sent to look for a typo in a file that has none.
+MECHANISM (read, not guessed): `_topological_sort` (sawc.py:324) detects the
+cycle and then RETURNS THE MODULES IN ARBITRARY ORDER with the comment "the type
+checker will handle any errors" — so a module is type-checked before the
+dependency that defines its names, its own checking fails, and its export table
+comes out empty for everybody downstream.
+THE FIX IS THE DIAGNOSTIC, not the ordering: `import cycle: a -> b -> a`, naming
+the import lines. Whether Saw should SUPPORT cycles is a separate question the
+kernel does not need answered — the kcore split is a DAG by construction — but
+silently degrading is not an answer to either.
+Pinned by nothing yet: a cycle needs two module files, which `examples/` has no
+harness shape for (a `// COMPILE-FLAGS: --module-path` test dir would be the
+first). [232, design 82/150]
+
+## DF-232d — ASSIGNMENT THROUGH A MODULE QUALIFIER is the one member-access
+## position that does not resolve (filed Aug 17, the kcore split's unit-0 probe)
+
+`mod.STATIC = v` from another module is `error: undefined variable `mod``,
+pointed at the assignment. READING the same static works, and so does every other
+write shape — this is one position, not a missing feature.
+MECHANISM (read in `_check_assign_statement`, statements.py:2406): a bare
+`Identifier` target is asked `_mutable_static_symbol` first (design 149's
+whole-value static write), and a `MemberAccess` target instead type-checks its
+OBJECT as an expression (`obj_type = self._check_expression(stmt.target.object)`,
+:2483). That is right for `a.b.c = v`, whose object is a value — and wrong for
+`<qualifier>.<static>`, whose object is a MODULE NAME and so reaches
+expressions.py's "undefined variable". Nothing routes a qualified static to the
+static-write path the bare form has.
+MATRIX (obligation 4 — 10 positions probed, ONE fails): reads `mod.X`,
+`mod.CELL.v`, `mod.ARR[0]`, `mod.CELLS[1].v` ✓; writes `mod.CELL.v = v`,
+`mod.ARR[0] = v`, `mod.CELLS[1].v = v` ✓; refs `&var mod.X`, `&var mod.CELL.v`,
+`&var mod.ARR[2]` ✓; `mod.X = v` ✗. Every passing row reaches the qualifier
+through the general EXPRESSION path (which knows qualifiers); the one failure is
+the only target whose base IS the qualifier and nothing else.
+THE KCORE SPLIT DOES NOT WORK AROUND IT: the bare-import spelling
+(`import kcore.threads.{THREADS}`, then `THREADS[i].state = ...`) is a
+first-class design-150 form, is what a shared kernel slab wants to read like, and
+writes correctly — proven cross-module, single-instance, in the unit-0 probe.
+[232, design 149/150]
+
 ## DF-232c — a raw-backed enum's case value takes an INTEGER LITERAL only, so
 ## a flags enum cannot state its bits as shifts (filed Aug 17, SOS M3 unit 1
 ## review-pass rider)
@@ -148,16 +216,38 @@ attachments, ALL the per-kind matches together), process.saw (process
 + thread lifecycle, teardown), sched.saw (run queue, tick),
 dispatch.saw (handle table, object-op dispatch, syscall entry),
 loader.saw (sosimg), diag.saw (console, fault reporting, selftest).
-UNIT 0 IS A LANGUAGE PROBE that may be a finding: a Saw FILE is a
-MODULE (design 82/204), so the split introduces real module
-boundaries — shared mutable slabs (`unsafe static var TIMERS` et al)
-must cross them, and the skill records that std-module statics are
-NOT cross-module visible; if the same holds for user packages,
-`public(package) unsafe static var` needs to work first (a DF the
-kernel is the motivating consumer for) or the split needs accessor
-shims. Behavior-neutral; sos-only gates; SEQUENCED after unit 1
-integrates (not on the parked branch — it would bury the review diff
-and collide with the queued riders). [232, design 82/204]
+UNIT 0 (the language probe) IS DONE and the split IS EXPRESSIBLE with
+no compiler change: a `public unsafe static var` is readable AND
+writable from a sibling file of the same mapped package, as ONE
+instance, through a bare import (`import kcore.threads.{THREADS}`);
+imported consts fold in `[T; N]` and `static_assert`; and
+`public import` re-export makes `lib.saw` a FACADE, so main.saw and
+every `sos/tests/` entry keep their `import kcore.{console, …}` lines
+unchanged — extensions travel with a re-exported type and an
+`@export`'d symbol in a facade-reached module still lands in the
+image. THREE FINDINGS came out of it, none blocking: DF-232d
+(assignment through a module qualifier), DF-232e (import cycles are
+undiagnosed), DF-232f (no package-internal visibility — the split
+publishes what the files share, which is the cost the entry below
+predicted).
+THE CUT IS LAYERED, and that is forced rather than chosen: DF-232e
+means the seams must form a DAG, and the kernel's own call graph
+(teardown touches every slab; `fault_process` is reached from the copy
+door; `pick_next` reaches the idle poll which reaches the wake path)
+puts the STATE of a seam below the process teardown and the SERVICE of
+it above — so three of the sketch's seams split in two.
+Thirteen files + the facade, in dependency order: `mem` (addresses and
+byte moves), `diag` (console + the fatal reports), `result` (the
+syscall answer + `write_result`), `objects` (handle table + the typed
+object wrappers), `threads` (thread table, frame arena, ready queue),
+`time` (Clock/Timer slabs + the comparator funnel), `waitables`
+(Event/Waiter/attachments + ALL the per-kind matrix), `process`
+(teardown, faults, the copy doors, `start_process`), `wake` (delivery:
+`deliver_attachment`/`wake_one_waiter`/`notify_ready`), `irq` (the
+tick, timer expiry, device lines, the idle path), `sched` (the switch
+point + `exit_thread`), `dispatch` (every object-op + `ktrap`),
+`loader` (sosimg). Behavior-neutral; sos-only gates.
+[232, design 82/150/204]
 
 ## HARDWARE PATH — the ultimate goal: ESP32-P4 + a small TCP/IP stack
 ## in Saw (user-ruled direction, Aug 16; post-M3 track)
