@@ -824,10 +824,18 @@ division libcalls (`__divdi3`) on a 32-bit chip. Consequently:
   naming more than one layer takes the innermost payload, so `let d: Int32?? = 11`
   is an `Int32` too. A branching value keeps the optional, which is what lets an
   arm be a bare `None`: in `if c { 1 } else { None }` at `-> Int32?` the `1`
-  adopts `Int32` and the `None` learns what it is a `None` of. A `Result`
-  payload does NOT adopt yet (`return 4` at `-> Result<Int32, E>` is an internal
-  compiler error; write `return 4i32`), because a Result has two payloads and
-  which one an untyped literal means is unsettled where both are integers.
+  adopts `Int32` and the `None` learns what it is a `None` of.
+- **A `Result` slot peels to the payload that can take the literal.** A Result
+  has two payloads, so the rule names which: the literal adopts the UNIQUE
+  payload that could adopt it, and that also picks the variant, since the
+  auto-wrap chooses `Ok`/`Err` by the value's type. `return 4` at
+  `-> Result<Int32, Bad>` is `Ok(4)` typed `Int32`; `return 7` at
+  `-> Result<String, Int32>` is `Err(7)`. Where BOTH payloads could adopt it —
+  `Result<Int32, Int8>`, since a bare literal fits either width — the compiler
+  refuses and names both, and the explicit `Result<Int32, Int8>.Ok(value: 4)`
+  or `.Err(error: 4)` says which; inside the constructor the literal has one
+  slot and adopts there. An optional payload composes (`Result<Int32?, Bad>`
+  lands at `Int32`), and an abstract generic `Result<T, E>` peels nothing.
 - **Use the fixed-width types (`Int8`…`Int64`, `UInt8`…`UInt64`) for anything
   whose layout must be stable across targets** — wire formats, on-disk
   structures, and device/MMIO register maps. Their widths never change, and D1's

@@ -1,33 +1,44 @@
-// XFAIL: DF-226e a bare literal in a `Result` slot never adopts the payload's
-// fixed width, so an `Int32` Ok (or Err) payload is an internal compiler error
+// A bare literal in a `Result` slot adopts the payload's fixed width, by peeling
+// to the UNIQUE payload that could adopt it (DF-226e, ruled Aug 17).
 //
-// The sibling of DF-226d, found by the same sweep and left unfixed because it
-// needs a ruling the optional case does not. `_apply_literal_expected_type`
-// peels an OPTIONAL expectation to its payload — there is exactly one payload,
-// so nothing is guessed — but a `Result` has TWO, and which one an untyped
-// literal means is only obvious when just one of them is a fixed-width integer:
+// The sibling of DF-226d, which needed a ruling the optional case did not.
+// `_apply_literal_expected_type` peels an OPTIONAL expectation to its payload
+// with nothing to decide — an optional has exactly one. A `Result` has TWO, so
+// case (0d) must first say which:
 //
-//   `Result<Int32, Bad>`   + `return 4`  -> Ok(4), the only reading
-//   `Result<String, Int32>` + `return 4` -> Err(4), the only reading
-//   `Result<Int32, Int8>`  + `return 4`  -> AMBIGUOUS; both payloads could
-//                                           adopt it, and picking one silently
-//                                           decides whose reading the program
-//                                           runs under
+//   `Result<Int32, Bad>`    + `return 4`  -> Ok(4), the only reading
+//   `Result<String, Int32>` + `return 7`  -> Err(7), the only reading
+//   `Result<Int32, Int8>`   + `return 4`  -> AMBIGUOUS, refused by name
+//                                            (see result_slot_literal_ambiguous_payloads.saw)
 //
-// The third row is why this is filed rather than fixed: the rule wanted is
-// probably "peel to the unique payload that could adopt it, and refuse the
-// ambiguity with a clean error naming both" — which is a design ruling, and the
-// language already treats `T == E` as a compile error for the neighbouring
-// reason. Today all three are `ResultOkWrap`/`ResultErrWrap` codegen ICEs.
+// Peeling to the one payload that CAN take the literal also selects the only
+// variant it could have meant, because the auto-wrap that follows picks Ok/Err
+// by testing the value's type against each payload. Where both could, nothing
+// is peeled and `_result_autowrap_ambiguous` — which already owned design 30's
+// `T == E` refusal — demands the explicit constructor, inside which the literal
+// has exactly one slot and adopts normally.
 //
-// A named function and a closure body have this identically (the closure has
-// reached the same funnel since DF-226a), so it is the funnel's gap, not a
-// caller's. Workaround meanwhile: write the suffix (`return 4i32`).
+// All of these were `ResultOkWrap`/`ResultErrWrap` codegen ICEs
+// (`Can only insert i32 at [0] in {i32}: got i64`); the workaround was the
+// suffix, `return 4i32`.
+//
+// CLOSURE BODIES: the `return` form is covered here and behaves exactly as a
+// named body does. A closure's TAIL expression is NOT — not because of literal
+// width, but because the closure return path has an optional auto-wrap and no
+// Result one at all, so `{ x in k }` for a plain `Int32` k fails the same way a
+// literal does. That is a separate pre-existing gap, filed as DF-232d.
 //
 // EXPECT: success
 // EXPECT-OUTPUT:
-// ok = 4
-// err = 7
+// ok return = 4
+// ok tail = 5
+// err return = 7
+// neg = -8
+// opt ok = 9
+// plain = 10
+// method tail = 11
+// closure return = 13
+// generic = 20
 
 struct Bad { code: Int }
 extension Bad: Printable {
@@ -35,17 +46,79 @@ extension Bad: Printable {
 }
 extension Bad: Error {}
 
-func ok_side() -> Result<Int32, Bad> { return 4 }
+// the unique payload is the Ok side, via `return`
+func ok_return() -> Result<Int32, Bad> { return 4 }
 
-func err_side() -> Result<String, Int32> { return 7 }
+// the unique payload is the Ok side, via the TAIL
+func ok_tail() -> Result<Int32, Bad> { 5 }
+
+// the unique payload is the ERR side — the peel selects Err, not Ok
+func err_return() -> Result<String, Int32> { return 7 }
+
+// a negative literal reaches the payload through the unary-minus arm
+func neg_return() -> Result<Int8, Bad> { return -8 }
+
+// an OPTIONAL Ok payload: case (0d) peels the Result, case (0c) the Optional
+func opt_ok() -> Result<Int32?, Bad> { return 9 }
+
+// a platform `Int` payload is unchanged — the literal stays platform width
+func plain_ok() -> Result<Int, Bad> { return 10 }
+
+struct Holder { v: UInt16 }
+extension Holder {
+    func fetch(&self) -> Result<UInt16, Bad> { 11 }
+}
+
+func run(f: (Int) sync -> Result<Int32, Bad>) -> Int32 {
+    match f(0) {
+        case Ok(v) -> v,
+        case Err(_) -> -1i32
+    }
+}
+
+// an ABSTRACT generic body peels nothing (T and E are opaque), so this
+// monomorphizes exactly as it did before
+func generic_ok<T>(v: T) -> Result<T, Bad> { return v }
+
+func show(r: Result<Int32, Bad>) -> Int32 {
+    match r {
+        case Ok(v) -> v,
+        case Err(_) -> -1i32
+    }
+}
 
 func main() {
-    match ok_side() {
-        case Ok(v) -> print("ok = {v}"),
-        case Err(_) -> print("ok = err")
+    print("ok return = {show(r: ok_return())}")
+    print("ok tail = {show(r: ok_tail())}")
+
+    match err_return() {
+        case Ok(s) -> print("err return = ok {s}"),
+        case Err(e) -> print("err return = {e}")
     }
-    match err_side() {
-        case Ok(s) -> print("err = {s}"),
-        case Err(e) -> print("err = {e}")
+    match neg_return() {
+        case Ok(v) -> print("neg = {v}"),
+        case Err(_) -> print("neg = err")
+    }
+    match opt_ok() {
+        case Ok(v) -> print("opt ok = {v!}"),
+        case Err(_) -> print("opt ok = err")
+    }
+    match plain_ok() {
+        case Ok(v) -> print("plain = {v}"),
+        case Err(_) -> print("plain = err")
+    }
+
+    let h = Holder(v: 0u16)
+    match h.fetch() {
+        case Ok(v) -> print("method tail = {v}"),
+        case Err(_) -> print("method tail = err")
+    }
+
+    // a closure body's `return` behaves exactly as a named body's
+    print("closure return = {run(f: { x in return 13 })}")
+
+    match generic_ok(v: 20i32) {
+        case Ok(v) -> print("generic = {v}"),
+        case Err(_) -> print("generic = err")
     }
 }

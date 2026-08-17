@@ -1,0 +1,28 @@
+// Where BOTH `Result` payloads could adopt a bare literal, the compiler refuses
+// by name rather than guessing a variant (DF-226e, ruled Aug 17).
+//
+// A bare literal has no width of its own, so at `Result<Int32, Int8>` it fits
+// the Ok payload and the Err payload equally. `_apply_literal_expected_type`
+// case (0d) peels only when exactly ONE payload can adopt the literal, and
+// leaves this case to `_result_autowrap_ambiguous` — the refusal that already
+// owned design 30's `T == E` rule. Writing the explicit constructor resolves it:
+// inside `Ok(value:)` the literal has exactly one slot and adopts normally.
+//
+// The message distinguishes the two ways payloads can both accept a value. This
+// one is NOT `T == E` (the payloads are distinct types), so it names each side
+// rather than claiming they are the same type, which is what design 30's
+// original wording said for every case.
+//
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: ambiguous Result auto-wrap
+// EXPECT-ERROR-CONTAINS: accepts it as BOTH its Ok type `Int32` and its Err type `Int8`
+// EXPECT-ERROR-CONTAINS: Result<Int32, Int8>.Ok(value: ...)
+
+func both() -> Result<Int32, Int8> { return 4 }
+
+func main() {
+    match both() {
+        case Ok(v) -> print("ok = {v}"),
+        case Err(e) -> print("err = {e}")
+    }
+}

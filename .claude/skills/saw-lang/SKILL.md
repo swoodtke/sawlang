@@ -100,9 +100,15 @@ print("{#file}:{#line} - msg")  // #file/#line/#function: definition-site consts
   `Int32`), while a branching value keeps the optional so an arm may still
   be a bare `None`. Both were internal compiler errors before those dates
   (`ret i64` from an `i32` function), so treat them as working now and
-  SUSPECT in older builds. The one wrap that still does NOT adopt is a
-  `Result` payload (DF-226e, open — `return 4` at `-> Result<Int32, E>`
-  ICEs; write `return 4i32`).
+  SUSPECT in older builds. A `RESULT` slot adopts too (DF-226e, fixed
+  Aug 17): it peels to the UNIQUE payload that could take the literal,
+  which also picks the variant — `return 4` at `-> Result<Int32, Bad>`
+  is `Ok(4)` at `Int32`, `return 7` at `-> Result<String, Int32>` is
+  `Err(7)`. Where BOTH payloads could take it (`Result<Int32, Int8>`)
+  it is refused by name; write `Result<Int32, Int8>.Ok(value: 4)`.
+  A closure's `return` behaves as a named body's; a closure's TAIL
+  still does not auto-wrap into a Result at all (DF-232d, open —
+  `{ x in 12 }` at a `-> Result<Int32, E>` slot; use `return 12`).
   **IDIOM (user ruling, Aug 16): no suffix where an expected type is in
   force.** `static CR: UInt32 = 0x301u32` says the width twice — write
   `0x301`; same in a param (`reg.write(0)`), a comparison against a typed

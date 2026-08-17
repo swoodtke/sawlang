@@ -593,10 +593,19 @@ class StatementsMixin:
         """Design 30 Ruling 1: reject an ambiguous bare-value Result auto-wrap.
 
         When a bare value is returned from a function declared to return a
-        concrete `Result<T, E>` whose Ok and Err types BOTH accept the value —
-        the `T == E` case — auto-wrap can't tell which variant is meant. Rather
-        than silently defaulting to Ok (the pre-design-30 behavior), report the
-        ambiguity and demand the explicit variant.
+        concrete `Result<T, E>` whose Ok and Err types BOTH accept the value,
+        auto-wrap can't tell which variant is meant. Rather than silently
+        defaulting to Ok (the pre-design-30 behavior), report the ambiguity and
+        demand the explicit variant.
+
+        TWO WAYS the payloads can both accept a value, and the message says
+        which: they are the SAME type (design 30's original `T == E`), or they
+        are distinct but the value fits each — which is what a bare integer
+        literal does at `Result<Int32, Int8>`, having no width of its own
+        (DF-226e). That literal case is exactly the one
+        `_apply_literal_expected_type` case (0d) declines to peel: it peels to
+        the payload that can adopt the literal only when exactly ONE can, and
+        leaves this refusal to speak when both can.
 
         Returns True (having emitted the error) when the wrap is ambiguous; the
         caller must then skip auto-wrapping. Returns False otherwise.
@@ -614,10 +623,15 @@ class StatementsMixin:
         if not (self._types_compatible(value_type, ok_type)
                 and self._types_compatible(value_type, err_type)):
             return False
+        if self._type_key(ok_type) == self._type_key(err_type):
+            why = "has the same Ok and Err type"
+        else:
+            why = (f"accepts it as BOTH its Ok type `{ok_type}` and its Err "
+                   f"type `{err_type}`")
         self._error(
             ErrorKind.TYPE_MISMATCH,
             f"ambiguous Result auto-wrap: {context_desc} returns `{value_type}`, "
-            f"but `{expected}` has the same Ok and Err type, so a bare `return` "
+            f"but `{expected}` {why}, so a bare `return` "
             f"can't tell which variant you mean; write the explicit "
             f"`{expected}.Ok(value: ...)` or `{expected}.Err(error: ...)`",
             line, column

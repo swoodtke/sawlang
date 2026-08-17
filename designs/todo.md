@@ -1468,17 +1468,51 @@ What landed beyond the brief's text, as decisions a reader may need:
   `let v: Vector<Int>? = [1, 2, 3]` shapes instead of refusing. Regression
   test `examples/optional_slot_literal_adopts_payload_width.saw`.
 
-- **DF-226e (RULED Aug 17, user; fix dispatch-ready) — the `Result` half of
-  DF-226d.** A bare literal in a `Result` slot does not adopt either payload's
-  width, so `return 4` at `-> Result<Int32, E>` is a `ResultOkWrap` codegen ICE
-  (and the Err side the same). Not fixed with the optional peel because a
-  Result has TWO payloads. RULING: peel to the unique payload that could adopt
-  the literal; where BOTH payloads could (`Result<Int32, Int8>`), refuse with a
-  clean error naming both payloads and requiring the explicit constructor —
-  `Ok(4)` / `Err(4)` — inside which the literal has exactly one payload slot
-  and adopts normally. Named and closure bodies have it identically.
-  Workaround meanwhile: `return 4i32`. Pinned by
-  `examples/result_slot_literal_adopts_payload_width.saw`.
+- ~~**DF-226e — the `Result` half of DF-226d**~~ — **FIXED Aug 17**, to the
+  Aug-17 ruling. `_apply_literal_expected_type` grew case (0d) beside the
+  optional peel: a `Result` expectation over an integer literal peels to the
+  UNIQUE payload that could adopt it, which also SELECTS the variant, since the
+  auto-wrap picks `Ok`/`Err` by testing the value's type against each payload.
+  `Result<Int32, Bad>` peels to the Ok side, `Result<String, Int32>` to the ERR
+  side. Where both could (`Result<Int32, Int8>`) nothing is peeled and the
+  refusal is `_result_autowrap_ambiguous` — which already owned design 30's
+  `T == E` rule and now distinguishes the two cases in its wording, since
+  "has the same Ok and Err type" was simply false for distinct payloads that
+  both accept a widthless literal. One refusal, in the place that already owned
+  ambiguity, rather than a second one inside the propagation funnel emitting a
+  duplicate diagnostic for the same line.
+  Tests: `examples/result_slot_literal_adopts_payload_width.saw` (XFAIL
+  flipped — named `return` and tail, the Err side, a negative literal, an
+  optional Ok payload that peels twice, a platform-`Int` payload unchanged, a
+  method tail, a closure `return`, an abstract generic body that peels nothing)
+  and `examples/result_slot_literal_ambiguous_payloads.saw` for the refusal.
+  CORRECTION to the filing: the entry said named and closure bodies "have it
+  identically". True of a closure's `return` (it shares the named funnel, and
+  it is fixed here); NOT true of a closure's TAIL, which never reached the
+  Result wrap at all — filed separately as DF-232d.
+
+## DF-232d — a closure's TAIL expression does not auto-wrap into a declared
+## `Result` return type, though its `return` does and though the OPTIONAL
+## analogue works (found Aug 17 by DF-226e's fix, probed)
+
+`run(f: { x in 12 })` against `(Int) sync -> Result<Int32, Bad>` is
+``argument `f` expects `(Int) sync -> Result<Int32, Bad>` but got
+`(Int) -> Int32` ``. NOT a literal-width problem and not DF-226e: a
+non-literal `{ x in k }` for an `Int32` k fails identically, and the explicit
+`{ x in Result<Int32, Bad>.Ok(value: 12i32) }` compiles. The closure return
+path (`_check_closure`, sawc/typechecker/expressions.py ~11085) has an
+`expected_ret.kind == OPTIONAL` branch that auto-wraps the tail in an
+`OptionalWrap` and no `Result` counterpart, while a closure's `return`
+statement goes through `_check_return_statement`, which shares the named
+body's auto-wrap chain — so the two spellings of the same intent disagree.
+MECHANISM/SHAPE OF A FIX (obligation 1): the Ok-vs-Err selection lives inline
+in `_check_return_statement` (the `_result_autowrap_ambiguous` /
+`_types_compatible(ok)` / `_types_compatible(err)` / erased-Err ladder). A fix
+should EXTRACT that ladder into one funnel and call it from both the return
+path and the closure tail, rather than growing a second copy — the matrix is
+Ok side, Err side, the ambiguity refusal, the erased `Box<any Error>` target,
+and an optional Ok payload needing `_prepare_ok_payload`. Workaround
+meanwhile: write `return` instead of a bare tail. [226, DF-226e]
 
 - **DF-226f (RULED Aug 17, user; fix dispatch-ready) — a `static` of OPTIONAL
   type never auto-wraps its initializer, at any width.** `static SLOT: Int? = 7`

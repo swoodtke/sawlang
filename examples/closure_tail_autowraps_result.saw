@@ -1,0 +1,58 @@
+// XFAIL: DF-232d a closure's TAIL expression does not auto-wrap into a declared
+// `Result` return type, though its `return` does and though the optional
+// analogue works
+//
+// Found Aug 17 while fixing DF-226e, and deliberately NOT folded into it: this
+// is not a literal-width problem. The literal half is fixed — case (0d) peels
+// the Result to its unique adoptable payload, so the tail below is correctly
+// typed `Int32` — and the failure is one layer out, at the wrap:
+//
+//   argument `f` expects `(Int) sync -> Result<Int32, Bad>`
+//                but got `(Int) -> Int32`
+//
+// THREE PROBES BRACKET IT, and they are why this is its own finding:
+//
+//   { x in 12 }                              fails  (a literal)
+//   { x in k }   for an `Int32` k            fails  (no literal in sight)
+//   { x in Result<Int32, Bad>.Ok(value: 1) } compiles (explicit, no wrap owed)
+//   { x in return 12 }                       compiles (the `return` spelling)
+//
+// So the two spellings of one intent disagree. `_check_closure`
+// (sawc/typechecker/expressions.py, the `expected_ret` block) auto-wraps a tail
+// into an expected OPTIONAL — `{ x in 15 }` at `-> Int32?` works — and has no
+// `Result` counterpart, while a closure's `return` statement is checked by
+// `_check_return_statement`, which shares the named body's auto-wrap chain.
+//
+// A FIX IS AN EXTRACTION, not a second copy (obligation 1): the Ok-vs-Err
+// ladder lives inline in `_check_return_statement`
+// (`_result_autowrap_ambiguous`, then Ok, then Err, then the erased-Err
+// target). It wants to become one funnel called from both the return path and
+// the closure tail, with the matrix being the Ok side, the Err side, the
+// ambiguity refusal, an erased `Box<any Error>` target, and an optional Ok
+// payload needing `_prepare_ok_payload`.
+//
+// Workaround meanwhile: write `return` instead of a bare tail.
+//
+// EXPECT: success
+// EXPECT-OUTPUT:
+// tail = 12
+// tail nonliteral = 14
+
+struct Bad { code: Int }
+extension Bad: Printable {
+    func format(&self, into: &var StringBuilder) { into.append("bad") }
+}
+extension Bad: Error {}
+
+func run(f: (Int) sync -> Result<Int32, Bad>) -> Int32 {
+    match f(0) {
+        case Ok(v) -> v,
+        case Err(_) -> -1i32
+    }
+}
+
+func main() {
+    print("tail = {run(f: { x in 12 })}")
+    let k: Int32 = 14i32
+    print("tail nonliteral = {run(f: { x in k })}")
+}

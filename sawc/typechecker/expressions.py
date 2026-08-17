@@ -5440,10 +5440,8 @@ class ExpressionsMixin:
         #      be a bare `None` that still has to learn what it is a `None` of
         #      (`if c { 1 } else { None }` at `-> Int32?`) — case (3) recurses
         #      with the optional intact and each arm meets this rule on its own.
-        #      A `Result` payload is NOT peeled: which of `Ok`/`Err` an untyped
-        #      literal means is a genuine ambiguity where both are integers, and
-        #      that owes a ruling rather than a guess (filed as DF-226e, pinned
-        #      by `examples/result_slot_literal_adopts_payload_width.saw`).
+        #      A `Result` payload is peeled by case (0d) below, which has to
+        #      answer "which payload" before it can peel.
         if (rt.kind == TypeKind.OPTIONAL and rt.inner_type is not None
                 and (isinstance(value_expr, (IntLiteral, TupleLiteral,
                                              ArrayLiteral, MapLiteral,
@@ -5451,6 +5449,41 @@ class ExpressionsMixin:
                      or (isinstance(value_expr, UnaryOp)
                          and value_expr.op == '-'))):
             self._apply_literal_expected_type(value_expr, rt.inner_type)
+            return
+
+        # (0d) A `RESULT` expectation over an integer literal the slot will
+        #      AUTO-WRAP (DF-226e, ruled Aug 17). Case (0c)'s optional peel is
+        #      unambiguous because an optional has exactly ONE payload; a
+        #      `Result` has TWO, so this peel must first say which.
+        #
+        #      THE RULE: peel to the UNIQUE payload that could adopt an integer
+        #      literal. `Result<Int32, Bad>` peels to `Int32` (only the Ok side
+        #      is an integer) and `Result<String, Int32>` peels to `Int32` on
+        #      the ERR side — the auto-wrap that follows picks `Ok`/`Err` by
+        #      testing the value's type against each payload, so peeling to the
+        #      one payload that CAN take the literal also selects the only
+        #      variant it could have meant. Where BOTH payloads could adopt it
+        #      (`Result<Int32, Int8>`) nothing is peeled: that is a real
+        #      ambiguity, and `_result_autowrap_ambiguous` — which already owns
+        #      the `T == E` refusal and now words this case too — demands the
+        #      explicit `Result<T, E>.Ok(value:)` / `.Err(error:)`, inside which
+        #      the literal has exactly one slot and adopts through case (1).
+        #      Where NEITHER could, nothing is peeled and the ordinary type
+        #      mismatch reports.
+        #
+        #      Before this, `return 4` at `-> Result<Int32, E>` left the literal
+        #      at platform width and the wrap built an `{i64}` where an `{i32}`
+        #      was owed — a `ResultOkWrap`/`ResultErrWrap` codegen ICE, in named
+        #      and closure bodies alike, since both reach this funnel.
+        if (rt.is_result()
+                and (isinstance(value_expr, IntLiteral)
+                     or (isinstance(value_expr, UnaryOp)
+                         and value_expr.op == '-'))):
+            adopting = [p for p in (rt.unwrap_result_ok(),
+                                    rt.unwrap_result_err())
+                        if self._payload_adopts_int_literal(p)]
+            if len(adopting) == 1:
+                self._apply_literal_expected_type(value_expr, adopting[0])
             return
 
         # (1) Bare integer literal → adopt a fixed-width expectation, range-check
@@ -6438,6 +6471,27 @@ class ExpressionsMixin:
         TypeKind.UINT32: (0, (1 << 32) - 1),
         TypeKind.UINT64: (0, (1 << 64) - 1),
     }
+
+    def _payload_adopts_int_literal(self, payload) -> bool:
+        """Could a bare integer literal adopt this `Result` payload (DF-226e)?
+
+        True for an integer type, through any number of optional layers — a
+        `Result<Int32?, Bad>` Ok payload takes the literal just as an `Int32`
+        one does, since case (0c) peels the optional on the recursion. An
+        opaque generic parameter is a STRUCT here and answers False, so an
+        abstract `Result<T, E>` body peels nothing and monomorphizes unchanged.
+        """
+        if payload is None:
+            return False
+        resolved = self._resolve_type(payload)
+        if resolved is None:
+            return False
+        while (resolved.kind == TypeKind.OPTIONAL
+               and resolved.inner_type is not None):
+            resolved = self._resolve_type(resolved.inner_type)
+            if resolved is None:
+                return False
+        return self._int_range_for(resolved.kind) is not None
 
     def _int_range_for(self, kind):
         """The inclusive literal range for an integer TypeKind, or None.
