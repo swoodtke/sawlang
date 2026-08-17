@@ -184,9 +184,10 @@ a subexpression reaches no expected type), so `>= (1 << 8)` against a
 `UInt32` is refused and `(1u32 << 8)` is its spelling — which is why the abi
 `static_assert`s keep their decimals. [232]
 
-## DF-232e — a GENERIC raw-backed enum silently loses its declared tag values
+## DF-232i — a GENERIC raw-backed enum silently loses its declared tag values
 ## at monomorphization and emits ORDINALS (found Aug 17 by DF-232c's sweep,
-## probed; pre-existing, unrelated to 232c's parse position)
+## probed; pre-existing, unrelated to 232c's parse position; RENUMBERED from
+## the branch's DF-232e at integration — the kcore split claimed d-g first)
 
 ```saw
 enum E<T>: UInt8 { case A = 7, case B = 9, }
@@ -1560,11 +1561,12 @@ What landed beyond the brief's text, as decisions a reader may need:
   CORRECTION to the filing: the entry said named and closure bodies "have it
   identically". True of a closure's `return` (it shares the named funnel, and
   it is fixed here); NOT true of a closure's TAIL, which never reached the
-  Result wrap at all — filed separately as DF-232d.
+  Result wrap at all — filed separately as DF-232h.
 
-## DF-232d — a closure's TAIL expression does not auto-wrap into a declared
+## DF-232h — a closure's TAIL expression does not auto-wrap into a declared
 ## `Result` return type, though its `return` does and though the OPTIONAL
-## analogue works (found Aug 17 by DF-226e's fix, probed)
+## analogue works (found Aug 17 by DF-226e's fix, probed; RENUMBERED from the
+## branch's DF-232d at integration — the kcore split claimed d-g first)
 
 `run(f: { x in 12 })` against `(Int) sync -> Result<Int32, Bad>` is
 ``argument `f` expects `(Int) sync -> Result<Int32, Bad>` but got

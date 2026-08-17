@@ -1,4 +1,4 @@
-// XFAIL: DF-232e a GENERIC raw-backed enum loses its declared tag values at
+// XFAIL: DF-232i a GENERIC raw-backed enum loses its declared tag values at
 // monomorphization and silently emits ordinals instead
 //
 // Found Aug 17 by DF-232c's consumer sweep over `EnumVariant.raw_value`, and

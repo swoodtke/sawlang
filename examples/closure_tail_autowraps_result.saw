@@ -1,4 +1,4 @@
-// XFAIL: DF-232d a closure's TAIL expression does not auto-wrap into a declared
+// XFAIL: DF-232h a closure's TAIL expression does not auto-wrap into a declared
 // `Result` return type, though its `return` does and though the optional
 // analogue works
 //

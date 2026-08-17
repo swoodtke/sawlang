@@ -26,7 +26,7 @@
 // named body does. A closure's TAIL expression is NOT — not because of literal
 // width, but because the closure return path has an optional auto-wrap and no
 // Result one at all, so `{ x in k }` for a plain `Int32` k fails the same way a
-// literal does. That is a separate pre-existing gap, filed as DF-232d.
+// literal does. That is a separate pre-existing gap, filed as DF-232h.
 //
 // EXPECT: success
 // EXPECT-OUTPUT:
