@@ -1538,7 +1538,26 @@ class TypeChecker(ExpressionsMixin, StatementsMixin, RegistrationMixin, TypeUtil
                     (ns.statics, ns.register_static),
                 ):
                     if name in table and reg is not None and local not in table:
-                        reg(local, table[name])
+                        sym = table[name]
+                        # DF-187a: a FUNCTION's namespace KEY is also its codegen
+                        # name unless `mangled_name` says otherwise, so binding
+                        # the same symbol under a second spelling left codegen
+                        # looking up `dt` and finding nothing
+                        # (`Undefined function: dt`). Carry the original as the
+                        # mangled name, which is exactly what the USER-module
+                        # selective-import path already does — that is why the
+                        # same rename over a user module worked and this did not.
+                        # A COPY, because `_expose` is handing out the shared,
+                        # already-merged std symbol: mutating it would rename the
+                        # definition out from under std itself. Types need none
+                        # of this — a type's codegen identity rides its symbol,
+                        # not the key it was found under, which is why a renamed
+                        # std TYPE always worked.
+                        if table is ns.functions and not getattr(
+                                sym, 'mangled_name', ""):
+                            import dataclasses
+                            sym = dataclasses.replace(sym, mangled_name=name)
+                        reg(local, sym)
                         break
             ns.make_accessible(local)
 

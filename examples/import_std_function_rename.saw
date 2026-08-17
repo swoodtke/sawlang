@@ -1,14 +1,22 @@
 // A RENAMED selective import of a std FUNCTION should call it under the new
 // name, exactly as a renamed import of a user module's function does.
 //
-// `import std.task.{dump_tasks as dt}` type-checks — the rename registers the
-// symbol under `dt` in the importing module's namespace — and then codegen looks
-// the CALL up by the name at the call site and finds nothing:
+// `import std.task.{dump_tasks as dt}` type-checked — the rename registers the
+// symbol under `dt` in the importing module's namespace — and then codegen looked
+// the CALL up by the name at the call site and found nothing:
 // `internal compiler error: Undefined function: dt`. The same rename over a user
-// module (`import helper.{greet as hello}`) works, and so does a renamed std
-// TYPE (`import std.data.{Data as Bytes}`), which is what makes this a std
+// module (`import helper.{greet as hello}`) worked, and so did a renamed std
+// TYPE (`import std.data.{Data as Bytes}`), which is what made this a std
 // FUNCTION gap rather than a rename gap.
-// XFAIL: DF-187a a renamed selective import of a std function is a codegen ICE
+//
+// FIXED (DF-187a): a function's namespace KEY doubles as its codegen name
+// unless `mangled_name` overrides it, so the std re-registration now carries
+// the original across as `mangled_name` — which is precisely what the
+// user-module selective-import path had done all along, and why only std broke.
+// On a COPY of the symbol, because `_expose` is handing out the shared, merged
+// std symbol and renaming it in place would rename the definition out from
+// under std. A type needed none of this: its codegen identity rides its symbol,
+// not the key. Matrix: `import_rename_function_positions.saw`.
 // EXPECT: success
 // EXPECT-OUTPUT:
 // saw tasks: none live

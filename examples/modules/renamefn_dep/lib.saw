@@ -1,0 +1,7 @@
+// DF-187a fixture: a user package exporting free FUNCTIONS, so a renamed
+// selective import of one can be checked beside the std spelling.
+public func greet(n: Int) -> Int { n * 3 }
+
+public func twice<T: Copy>(v: T) -> T { v }
+
+public struct Badge { public n: Int }

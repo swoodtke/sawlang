@@ -4661,8 +4661,25 @@ one spelling it already handles). Test:
 taken while the worker is still running, no ordering asserted; zero before
 the fix, nonzero after.
 
-- **DF-187a (COMPILER, FILED Aug 9 by design 187 unit 5; PRE-EXISTING): a
-  RENAMED selective import of a std FUNCTION is a codegen ICE.**
+- **DF-187a — CLOSED (Aug 17).** A function's namespace KEY doubles as its
+  codegen name unless `mangled_name` overrides it, so `_expose`'s
+  re-registration of the already-merged std symbol under a second spelling left
+  codegen looking up `dt`. It now carries the original across as
+  `mangled_name` — which is exactly what the USER-module selective-import path
+  (`core.py`, design 53's aliased-function branch) had always done, and the
+  whole reason only std broke. On a COPY (`dataclasses.replace`): `_expose`
+  hands out the SHARED merged symbol, and renaming it in place would rename the
+  definition out from under std itself. Obligation 4 — the mechanism is "a
+  namespace key that is also a codegen name", so it reaches functions and
+  nothing else in that table list: a struct/enum/trait/alias carries its
+  identity on the SYMBOL, which is why a renamed std TYPE always worked, and a
+  static resolves through its symbol too. Matrix:
+  `examples/import_rename_function_positions.saw` (two renames from one std
+  module, a user-module rename, a renamed generic, a renamed type, and a rename
+  called twice). PIN flipped: `examples/import_std_function_rename.saw`. Gated
+  on suite + `sos_runner` both arches.
+  As filed (COMPILER, Aug 9 by design 187 unit 5; PRE-EXISTING): a
+  RENAMED selective import of a std FUNCTION is a codegen ICE.
   `import std.task.{dump_tasks as dt}` type-checks (the rename registers the
   symbol under `dt`), then codegen looks the call up by the name at the call
   site: `internal compiler error: Undefined function: dt`. The same rename
