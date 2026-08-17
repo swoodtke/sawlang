@@ -2427,6 +2427,20 @@ extension Point: Display {
 }
 ```
 
+`Self` names the type being extended, in any signature position — a parameter,
+a return, and nested inside either (`&Self`, `Self?`, `Vector<Self>`,
+`(Self, Int)`, `[Self; 2]`). It works the same on a GENERIC extension, where it
+means that extension applied to its own parameters:
+
+```saw
+struct Wrap<T> { v: T }
+
+extension Wrap<T> {
+    func same(&self, other: &Self) -> Int { 9 }   // &Self is &Wrap<T>
+    func bumped(&self) -> Self { Wrap<T>(v: self.v) }
+}
+```
+
 **Key Features:**
 - Methods use `&self` (shared reference) or `&var self` (exclusive reference).
   Both receivers are borrows and the sigil says so; a bare `var self` is a

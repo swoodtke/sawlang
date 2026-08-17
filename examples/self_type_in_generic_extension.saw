@@ -1,25 +1,25 @@
-// `Self` in the signature of a method on a GENERIC extension.
+// `Self` in the signature of a method on a GENERIC extension (DF-216r).
 //
-// `extension Wrap<T> { func same(&self, other: &Self) -> Int }` reports
-// ``argument `other` expects `&Self` but got `&Wrap<Int>``. The non-generic
-// spelling works (DF-216f, `self_type_signature_positions.saw`); this is the
-// case that fix deliberately leaves alone.
+// `extension Wrap<T> { func same(&self, other: &Self) }` reported ``argument
+// `other` expects `&Self` but got `&Wrap<Int>```. DF-216f fixed the
+// non-generic spelling and deliberately left this one, because there are TWO
+// `Self`s in a generic extension and it only had one:
 //
-// Why it is not the same fix: `_ext_self_type` returns an ARGUMENT-FREE `Self`
-// for a generic extension — `Wrap`, not `Wrap<T>` — because naming the
-// extension's own parameters as arguments makes a payload binding and a `T`
-// parameter resolve through different routes to two `T`s that do not unify.
-// That spelling works as a RECEIVER, where codegen resolves it through
-// `self_type_context`, and cannot work as a written parameter or return type:
-// substituting it puts a bare `Wrap` into a signature where only `Wrap$1$Int`
-// was ever monomorphized, and the clean error above becomes
-// `internal compiler error: Undefined struct: Wrap`. Verified by doing exactly
-// that while fixing DF-216f.
+//   * the RECEIVER's, which `_ext_self_type` keeps ARGUMENT-FREE (`Wrap`, not
+//     `Wrap<T>`) on purpose — naming the extension's own parameters as
+//     arguments makes a payload binding and a `T` parameter resolve through
+//     different routes to two `T`s that do not unify, and codegen names the
+//     concrete monomorphization from `self_type_context` instead;
+//   * the one a SIGNATURE WRITES, which cannot use that spelling: substituting
+//     a bare `Wrap` into a signature where only `Wrap$1$Int` was ever
+//     monomorphized turned the clean error above into `internal compiler
+//     error: Undefined struct: Wrap` (verified while fixing DF-216f, which is
+//     why `_self_type_is_substitutable` exists).
 //
-// So the fix wants `Self` inside a generic extension to carry the
-// instantiation, which is the `self_type_context` question rather than the
-// substitution question — a ruling, not a patch.
-// XFAIL: DF-216r `Self` in the signature of a GENERIC extension's method does not resolve, because that extension's `Self` is argument-free and substituting it would name an unmonomorphized struct
+// The written one is the extension APPLIED TO ITS OWN PARAMETERS — `Wrap<T>`,
+// exactly what a user may write by hand — so the receiver's type arguments
+// substitute it at the call site through machinery that already existed. The
+// matrix over every position is `self_type_generic_extension_positions.saw`.
 // EXPECT: success
 // EXPECT-OUTPUT: same 9
 

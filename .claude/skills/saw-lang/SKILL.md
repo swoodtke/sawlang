@@ -1149,6 +1149,14 @@ v.map<String>({ $0.to_string() })   // the closure's return; explicit still wins
   Comparable requires Equatable (no auto, so EVERY Comparable conformance is
   written and every derived one is marked). Hashable mirrors Equatable.
   Printable: hand-written `format` (no synthesis).
+- **`Self` works in an extension signature, at every position and on a GENERIC
+  extension too** (DF-216f, DF-216r): a parameter, a return, and nested in
+  either (`&Self`, `Self?`, `Vector<Self>`, `(Self, Int)`). Inside
+  `extension Wrap<T>` it means `Wrap<T>` — the spelling you would write by
+  hand. One gap left: an extension that RENAMES its struct's parameter
+  (`struct Pair<A>` + `extension Pair<U>`) does not substitute it, for `Self`
+  and for the hand-written `Pair<U>` alike (DF-216h) — repeat the struct's own
+  parameter names and it is a non-issue.
 - **A HAND-WRITTEN `equals`/`compare` COSTS A MOVE-ONLY TYPE ITS OPERATORS
   (design 216, DF-216b).** `Equatable.equals(&self, other: Self)` and
   `Comparable.compare(&self, other: Self)` take the second operand BY VALUE, so

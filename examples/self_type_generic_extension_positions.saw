@@ -1,0 +1,60 @@
+// `Self` in a GENERIC extension's signature, at every position it can be
+// written (DF-216r) — the generic twin of `self_type_signature_positions.saw`.
+//
+// A generic extension has TWO `Self`s and DF-216f only had one. The RECEIVER's
+// is argument-free by design (`Wrap`, not `Wrap<T>`), because naming the
+// extension's own parameters as arguments makes a payload binding and a `T`
+// parameter resolve through different routes to two `T`s that do not unify;
+// codegen names the concrete monomorphization from `self_type_context`. The one
+// a SIGNATURE WRITES is the extension applied to its OWN parameters, which is
+// the spelling a user may write by hand — so `&Self` here means `&Wrap<T>`, and
+// the receiver's type arguments substitute it at the call site with no new
+// machinery.
+//
+// Rows: a reference parameter, a by-value one, an optional one, a bare return,
+// a nested return, and an ENUM extension — design 145's kind, where a
+// struct-kinded `self` would carry no variants.
+//
+// NOT a row: an extension that RENAMES the struct's parameter
+// (`struct Pair<A>` + `extension Pair<U>`). `Self` there resolves to `Pair<U>`
+// and the call site refuses it against `Pair<String>` — but so does the
+// HAND-WRITTEN `other: &Pair<U>`, identically, because the call site's
+// substitution map is keyed by the STRUCT's parameter names and a renamed
+// extension parameter is in no such key. That is DF-216h, independent of this
+// fix; matching the hand-written spelling exactly is the right answer here.
+// EXPECT: success
+// EXPECT-OUTPUT:
+// ref 9
+// value 3
+// optional 4
+// bumped 5
+// twin 7
+// enum 6
+
+struct Wrap<T> { v: T }
+
+extension Wrap<T> {
+    func same(&self, other: &Self) -> Int { 9 }
+    func value_of(&self, other: Self) -> Int { 3 }
+    func pick(&self, o: Self?) -> Int { 4 }
+    func bumped(&self) -> Self { Wrap<T>(v: self.v) }
+    func twin(&self) -> Self? { None }
+}
+
+enum Opt<E> { case Nothing, case Just(e: E) }
+
+extension Opt<E> {
+    func agrees(&self, other: &Self) -> Int { 6 }
+}
+
+func main() {
+    let w = Wrap<Int>(v: 5)
+    print("ref {w.same(other: &w)}")
+    print("value {w.value_of(other: Wrap<Int>(v: 1))}")
+    print("optional {w.pick(o: None)}")
+    print("bumped {w.bumped().v}")
+    print("twin {w.twin()?.v ?? 7}")
+
+    let o = Opt<Int>.Nothing
+    print("enum {o.agrees(other: &o)}")
+}

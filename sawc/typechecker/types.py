@@ -1381,12 +1381,19 @@ class TypeUtilsMixin:
         """Is this extension's `Self` a type that may be written into a
         signature (DF-216f)?
 
-        No, exactly when the extension is GENERIC and its `Self` came back
-        argument-free — `Wrap` for `extension Wrap<T>`. That spelling is
+        No, exactly when the concrete type came back ARGUMENT-FREE for a
+        parameterized type — `Wrap` for `extension Wrap<T>`. That spelling is
         deliberate (see `_ext_self_type`), and it is usable as a receiver
         because codegen resolves it through `self_type_context`; it is NOT
         usable as a written parameter or return type, where the missing
         arguments name a struct no monomorphization registered.
+
+        DF-216r made this the BACKSTOP rather than the rule. Written positions
+        are handed `_ext_written_self_type`'s answer, which applies the
+        extension to its own parameters (`Wrap<T>`) and therefore passes here;
+        what still reaches this guard is the case that helper deliberately
+        declines — an extension whose parameters include a CONST one — plus any
+        future caller that forgets which of the two `Self`s it wants.
         """
         if self_type is None:
             return False
@@ -1426,16 +1433,18 @@ class TypeUtilsMixin:
         untouched. A tree with no `Self` in it comes back as the SAME object, so
         this is free for the overwhelming majority of signatures.
 
-        INERT ON A GENERIC EXTENSION, deliberately. `_ext_self_type` returns an
-        ARGUMENT-FREE `Self` for one — `Wrap`, not `Wrap<T>` — because naming
-        the extension's own parameters as arguments makes a payload binding and
-        a `T` parameter resolve through different routes to two `T`s that do not
-        unify; codegen names the concrete monomorphization from
-        `self_type_context` instead. Substituting that bare name would put a
-        `Wrap` into a signature where only `Wrap$1$Int` exists, turning a clean
-        type error into `Undefined struct: Wrap`. So a nested `Self` inside a
-        generic extension stays unresolved and keeps its existing diagnostic;
-        see DF-216r.
+        WHICH `Self` IS SUBSTITUTED IN is the caller's business, and on a
+        GENERIC extension the two differ (DF-216r). `_ext_self_type` answers
+        for the RECEIVER and is deliberately ARGUMENT-FREE there — `Wrap`, not
+        `Wrap<T>` — because naming the extension's own parameters as arguments
+        makes a payload binding and a `T` parameter resolve through different
+        routes to two `T`s that do not unify; codegen names the concrete
+        monomorphization from `self_type_context` instead. Substituting THAT
+        into a signature would put a bare `Wrap` where only `Wrap$1$Int`
+        exists, turning a clean type error into `Undefined struct: Wrap`. Every
+        written position therefore passes `_ext_written_self_type`'s answer
+        instead, and `_self_type_is_substitutable` below stays as the backstop
+        for the one shape that helper declines (a const parameter).
         """
         if t is None or concrete is None or depth > 16:
             return t

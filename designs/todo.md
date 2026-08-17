@@ -1898,23 +1898,57 @@ A NoCopy `Vector` sorts end to end today, written from outside std.
   way still match. PIN flipped:
   `examples/self_type_in_extension_parameter.saw`. Gated on suite +
   `sos_runner` both arches.
-- **DF-216r (COMPILER, filed Aug 17 by DF-216f's fix): `Self` in the signature
-  of a GENERIC extension's method does not resolve.** `extension Wrap<T> {
-  func same(&self, other: &Self) }` reports ``argument `other` expects `&Self`
-  but got `&Wrap<Int>``. DELIBERATELY excluded from DF-216f's fix rather than
-  missed: `_ext_self_type` returns an ARGUMENT-FREE `Self` for a generic
-  extension (`Wrap`, not `Wrap<T>`) because naming the extension's own
+- **DF-216r — CLOSED (Aug 17): a generic extension has TWO `Self`s, and
+  DF-216f only had one.** The filing framed it as "the `self_type_context`
+  question", and the answer turned out smaller: nothing about substitution or
+  codegen changes, only what `Self` DENOTES in a WRITTEN position.
+  `_ext_self_type` answers for the RECEIVER and is deliberately argument-free
+  on a generic extension (`Wrap`, not `Wrap<T>`) — naming the extension's own
   parameters as arguments makes a payload binding and a `T` parameter resolve
-  to two `T`s that do not unify — codegen names the concrete monomorphization
-  from `self_type_context` instead. That spelling is fine as a RECEIVER and
-  unusable as a written parameter type: substituting it puts a bare `Wrap` into
-  a signature where only `Wrap$1$Int` exists, and the clean error becomes
-  `internal compiler error: Undefined struct: Wrap` — verified by doing exactly
-  that, which is why `_substitute_self_type` carries an explicit
-  `_self_type_is_substitutable` guard. The fix wants `Self` inside a generic
-  extension to carry its instantiation, which is the `self_type_context`
-  question, not the substitution question. PIN:
-  `examples/self_type_in_generic_extension.saw` (XFAIL, cited).
+  through different routes to two `T`s that do not unify, and codegen names the
+  concrete monomorphization from `self_type_context`. `_ext_written_self_type`
+  (typechecker/registration.py) is the second answer: the extension APPLIED TO
+  ITS OWN PARAMETERS, built and resolved exactly as the hand-written `Wrap<T>`
+  annotation is (a bare name with bare-name arguments through `_resolve_type`,
+  so design 144's identity rewrite and the type-parameter classification both
+  run — composing the SawType by hand instead produced a type that PRINTED
+  `Wrap<T>` and compared unequal to the one a constructor yields). Written
+  positions take it; the receiver keeps the old spelling; the receiver's type
+  arguments then substitute it at the call site through machinery that already
+  existed. `_self_type_is_substitutable` survives as the BACKSTOP for the one
+  shape the helper declines — an extension with a CONST parameter, where a
+  parameter is a value and not a type argument this can spell abstractly.
+  One thing the fix had to add beyond the denotation: a top-level written
+  `Self` is now WRITTEN BACK onto the AST (parameter and return alike) when the
+  two `Self`s differ. The nested case already did, for the reason recorded
+  beside it — codegen mangles the annotation off the AST — and a top-level one
+  needed no write-back while extensions were non-generic, because codegen
+  resolves a bare `Self` through `self_type_context`. Inside a generic
+  extension it does not, and `-> Self` left a `Self` in the monomorphized
+  signature that surfaced at the CALL SITE as `internal compiler error: Self
+  type used outside of extension context`. Tests: PIN
+  `examples/self_type_in_generic_extension.saw` FLIPPED, plus the matrix
+  `examples/self_type_generic_extension_positions.saw` (`&Self`, `Self` by
+  value, `Self?`, a bare `-> Self` returning a constructed value, `-> Self?`,
+  and an ENUM extension). `examples/trait_self_parameter_conformance.saw` — the
+  named thing a substitution fix can break — stays green, as do
+  `self_type_signature_positions.saw` and `self_type_in_extension_parameter.saw`.
+- **DF-216h (COMPILER, filed Aug 17 by DF-216r's matrix; NOT a `Self` bug): an
+  extension that RENAMES its struct's type parameter never substitutes it.**
+  `struct Pair<A>` + `extension Pair<U> { func agree(&self, other: &Pair<U>) }`
+  reports ``argument `other` expects `&Pair<U>` but got `&Pair<String>``. The
+  HAND-WRITTEN spelling is the repro — `Self` behaves identically because
+  DF-216r's fix makes it mean exactly that spelling — so this is not about
+  `Self` at all: the call site builds its substitution map by zipping the
+  STRUCT's declared parameter names against the receiver's type arguments
+  (`expressions.py` `_check_method_call`, `type_subst`), and a renamed
+  extension parameter appears under no key in it. Everything works as long as
+  the extension repeats the struct's own parameter NAMES, which is why this has
+  gone unnoticed. Mechanism (obligation 4): the same zip appears at several
+  call-shape sites (instance, overloaded instance, static, overloaded static),
+  so a fix is a funnel over "what does this receiver bind the extension's
+  parameters to" rather than a patch at one arm. No pin filed — the matrix
+  records the row it does not cover, with this number at the line.
 - **DF-216e — CLOSED (Aug 17), and it needed no new type: the ESCAPING BIT was
   missing at two positions.** The filing read the acceptance as a position
   heuristic that could not tell "the callee RUNS this closure" from "the callee

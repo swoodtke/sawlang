@@ -111,8 +111,16 @@ class StatementsMixin:
                         (_m.node_id, extension.struct_name))
 
         try:
+            # DF-216r: the extension node is in hand here and not inside
+            # `_check_method`, so the WRITTEN `Self` (the extension applied to
+            # its own parameters) is computed once and handed down. The other
+            # callers of `_check_method` are monomorphized clones whose
+            # `type_subst` already makes the receiver's own `Self` concrete, so
+            # they pass nothing and keep today's answer.
+            written_self = self._ext_written_self_type(extension)
             for method in extension.methods:
-                self._check_method(extension.struct_name, method, type_subst)
+                self._check_method(extension.struct_name, method, type_subst,
+                                   written_self=written_self)
         finally:
             self.current_type_params = prev_type_params
             self.current_const_param_types = prev_const_params
@@ -155,7 +163,9 @@ class StatementsMixin:
                 return True
         return False
 
-    def _check_method(self, struct_name: str, method: Method, type_subst: Dict[str, SawType] = None):
+    def _check_method(self, struct_name: str, method: Method,
+                      type_subst: Dict[str, SawType] = None,
+                      written_self: SawType = None):
         """Type check a method body.
 
         Args:
@@ -163,6 +173,13 @@ class StatementsMixin:
             method: The method AST node
             type_subst: Optional type substitution map for specialized extensions
                        (e.g., {"T": String} for extension Vector<String>)
+            written_self: `Self` as this extension's signatures WRITE it
+                       (DF-216r) — the extension applied to its own parameters,
+                       so `&Self` in `extension Wrap<T>` means `&Wrap<T>` and
+                       not the receiver's argument-free `Wrap`. None (every
+                       caller but `_check_extension`, which alone has the
+                       extension node) falls back to the receiver's spelling,
+                       which is already concrete on those paths.
         """
         from .core import VariableInfo, Scope
 
@@ -237,14 +254,31 @@ class StatementsMixin:
             else:
                 self_type = SawType(TypeKind.STRUCT, struct_name=struct_name,
                                     type_args=type_args)
+        # DF-216r: the receiver keeps the spelling above; every WRITTEN `Self`
+        # in this signature takes the extension's own instantiation.
+        written_self_type = written_self if written_self is not None else self_type
+        # …and where the two DIFFER (a generic extension), a written `Self` must
+        # be written BACK onto the AST even at the TOP level. The nested case
+        # already did, for the reason recorded below it — codegen mangles the
+        # annotation off the AST. A top-level `Self` needed no write-back while
+        # extensions were non-generic, because codegen resolves a bare `Self`
+        # through `self_type_context`; inside a generic extension that leaves a
+        # `Self` in the monomorphized signature and the construction at the CALL
+        # SITE fails with `Self type used outside of extension context`.
+        _write_back_self = written_self_type is not self_type
 
         # Add parameters to scope
         for param in method.parameters:
             # Resolve Self type to concrete type
             param_type = param.type
             # 'self' parameter has VOID as placeholder - replace with actual Self type
-            if param.name == "self" or param_type.kind == TypeKind.SELF:
+            if param.name == "self":
                 param_type = self_type
+            elif param_type.kind == TypeKind.SELF:
+                # A WRITTEN top-level `Self` (DF-216r) — not the receiver.
+                param_type = written_self_type
+                if _write_back_self:
+                    param.type = param_type
             # L18 (design 68): a module-qualified annotation (`p: shapes.Point`)
             # must be resolved to its simple name — otherwise the binding carries
             # the dotted `struct_name`, member access on it fails to resolve, and
@@ -275,7 +309,8 @@ class StatementsMixin:
             # off the AST to mangle the parameter, and a surviving `Self` there
             # produced `Vector$2$$Self$GlobalAllocator` against the caller's
             # `Vector$2$Counter$GlobalAllocator`.
-            substituted = self._substitute_self_type(param_type, self_type)
+            substituted = self._substitute_self_type(param_type,
+                                                     written_self_type)
             if substituted is not param_type:
                 param_type = substituted
                 param.type = param_type
@@ -292,7 +327,7 @@ class StatementsMixin:
         # per-parameter concreteness guard skips the type check for any abstract
         # (`T`-typed) parameter, so a generic extension checked abstractly is safe.
         self._check_parameter_defaults(
-            method.parameters, bool(method.type_params), self_type)
+            method.parameters, bool(method.type_params), written_self_type)
 
         # L18: strip a module qualifier from the return annotation too, writing it
         # back so codegen reads the simple name (e.g. `-> shapes.Point`).
@@ -304,10 +339,12 @@ class StatementsMixin:
         # Resolve Self in return type — at the root, and nested inside it
         # (`-> Self?`, `-> (Self, Int)`), which is the same rule (DF-216f).
         if expected_return.kind == TypeKind.SELF:
-            expected_return = self_type
+            expected_return = written_self_type
+            if _write_back_self:
+                method.return_type = expected_return
         else:
             substituted_return = self._substitute_self_type(
-                expected_return, self_type)
+                expected_return, written_self_type)
             if substituted_return is not expected_return:
                 # Written back for codegen's benefit, as the parameter case is.
                 expected_return = substituted_return

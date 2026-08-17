@@ -1768,6 +1768,65 @@ class RegistrationMixin:
             return SawType(TypeKind.ENUM, enum_name=name, type_args=type_args)
         return SawType(TypeKind.STRUCT, struct_name=name)
 
+    def _ext_written_self_type(self, extension) -> SawType:
+        """`Self` as this extension's SIGNATURE may WRITE it (DF-216r).
+
+        Distinct from `_ext_self_type`, which answers for the RECEIVER. On a
+        GENERIC extension that one is deliberately ARGUMENT-FREE — `Wrap`, not
+        `Wrap<T>` — because naming the extension's own parameters as arguments
+        makes a payload binding and a `T` parameter resolve through different
+        routes to two `T`s that do not unify; codegen names the concrete
+        monomorphization from `self_type_context` instead.
+
+        A WRITTEN position cannot use that spelling: substituting a bare `Wrap`
+        into a signature names a struct no monomorphization ever registered, so
+        the clean type error becomes `internal compiler error: Undefined
+        struct: Wrap` (verified while fixing DF-216f, which is why
+        `_self_type_is_substitutable` exists). What a written `Self` means
+        there is the extension APPLIED TO ITS OWN PARAMETERS — `Wrap<T>` for
+        `extension Wrap<T>`, `Wrap<U>` for `extension Wrap<U>` — which is
+        exactly the spelling a user may write by hand today, and which the
+        receiver's type arguments then substitute at the call site through
+        machinery that already existed. No new substitution funnel: the fix is
+        entirely in what `Self` DENOTES.
+
+        Falls back to the argument-free answer, unchanged, when the extension
+        has no parameters, when its `Self` already carries arguments (a
+        specialized extension, or design 145's generic enum), or when any
+        parameter is a CONST one — a const parameter is a value, not a type
+        argument this can spell abstractly, and leaving it alone keeps today's
+        clean refusal rather than inventing a wrong answer.
+        """
+        base = self._ext_self_type(extension.struct_name)
+        params = getattr(extension, 'type_params', None) or []
+        if not params or base.kind not in (TypeKind.STRUCT, TypeKind.ENUM):
+            return base
+        if getattr(base, 'type_args', None):
+            return base
+        if any(getattr(tp, 'is_const', False) for tp in params):
+            return base
+        # Built and resolved exactly as the HAND-WRITTEN `Wrap<T>` annotation
+        # is: a bare name parses STRUCT-kinded with STRUCT-kinded arguments,
+        # and `_resolve_type` is what classifies each one (a type parameter in
+        # scope, or the concrete type a SPECIALIZED extension names) and what
+        # applies design 144's identity rewrite. Composing the SawType by hand
+        # instead produced a type that PRINTED `Wrap<T>` and compared unequal
+        # to the one a constructor expression yields.
+        composed = SawType(
+            TypeKind.STRUCT, struct_name=extension.struct_name,
+            type_args=[SawType(TypeKind.STRUCT, struct_name=tp.name)
+                       for tp in params])
+        resolved = self._resolve_type(composed)
+        if resolved is None:
+            return base
+        if base.kind == TypeKind.ENUM and resolved.kind != TypeKind.ENUM:
+            # Design 145: an enum written as a bare name resolves STRUCT-kinded
+            # on some paths, and a STRUCT-kinded `self` carries no variants.
+            import dataclasses
+            return dataclasses.replace(
+                base, type_args=getattr(resolved, 'type_args', None))
+        return resolved
+
     def _is_known_type(self, name: str) -> bool:
         """Check if a name refers to a known type (built-in or user-defined)."""
         return (name in self.BUILTIN_TYPE_NAMES or
@@ -2795,30 +2854,41 @@ class RegistrationMixin:
                     )
 
             # Register method
-            # Determine the Self type for this extension
+            # Determine the Self type for this extension. Two answers, and
+            # DF-216r is the difference: the RECEIVER's `Self` stays
+            # argument-free on a generic extension (codegen resolves it through
+            # `self_type_context`), while a `Self` the signature WRITES carries
+            # the extension's own parameters — see `_ext_written_self_type`.
             self_type = self._ext_self_type(extension.struct_name)
+            written_self = self._ext_written_self_type(extension)
 
             # Resolve Self types in parameter types
             # Note: 'self' parameter has VOID as placeholder from parser
             param_types = []
             for p in method.parameters:
-                if p.name == "self" or p.type.kind == TypeKind.SELF:
+                if p.name == "self":
                     param_types.append(self_type)
+                elif p.type.kind == TypeKind.SELF:
+                    # A WRITTEN top-level `Self` — `other: Self`. Not the
+                    # receiver, so it takes the written spelling.
+                    param_types.append(written_self)
                 else:
                     # Resolve type aliases and enum types, then substitute any
                     # NESTED `Self` — `&Self`, `Self?`, `Vector<Self>`,
                     # `(Self, Int)`, `[Self; N]`. The root-only test above is
                     # the whole of what used to happen here (DF-216f).
                     param_types.append(self._substitute_self_type(
-                        self._resolve_type(p.type), self_type))
+                        self._resolve_type(p.type), written_self))
             param_names = [p.name for p in method.parameters]
 
             # For init methods, override return type to be the struct type
             # For non-init methods, resolve Self in return type
             return_type = method.return_type
             if return_type.kind == TypeKind.SELF:
-                return_type = self_type
+                return_type = written_self
             elif method.is_init:
+                # An `init`'s return is the RECEIVER's spelling, not a written
+                # one — untouched by DF-216r.
                 return_type = self_type
             else:
                 # Resolve enum types (e.g., Result<T, E>) that are parsed as
@@ -2826,7 +2896,7 @@ class RegistrationMixin:
                 # above left `-> Self?` and `-> (Self, Int)` unresolved, which
                 # is the half of DF-216f the filing did not notice.
                 return_type = self._substitute_self_type(
-                    self._resolve_type(return_type), self_type)
+                    self._resolve_type(return_type), written_self)
 
             # Escaping roles (design 16/29): method parameter closure types
             # default non-escaping; return type is an escaping role.
