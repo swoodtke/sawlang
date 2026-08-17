@@ -289,14 +289,22 @@ class OptionalsMixin:
         # None branch - evaluate default
         self.builder.position_at_start(none_bb)
         none_val = self._gen_transfer_value(expr.default)
-        self.builder.branch(merge_bb)
-        none_bb = self.builder.block
+        # design 228 leg 6: a DIVERGING default (`o ?? panic("gone")`,
+        # `o ?? fault(p)`) terminated this block with `unreachable`, so it takes
+        # no edge to the merge and contributes no incoming to the phi. A phi
+        # with the single some-arm incoming is exactly right: that arm is the
+        # only way control reaches the merge.
+        none_diverged = self.builder.block.is_terminated
+        if not none_diverged:
+            self.builder.branch(merge_bb)
+            none_bb = self.builder.block
 
         # Merge
         self.builder.position_at_start(merge_bb)
         phi = self.builder.phi(some_val.type, name="coalesced")
         phi.add_incoming(some_val, some_bb)
-        phi.add_incoming(none_val, none_bb)
+        if not none_diverged:
+            phi.add_incoming(none_val, none_bb)
 
         return phi
 

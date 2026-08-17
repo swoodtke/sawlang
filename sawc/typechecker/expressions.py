@@ -2227,6 +2227,11 @@ class ExpressionsMixin:
         result_type = SawType(TypeKind.VOID)
         if ctype is not None and ctype.kind == TypeKind.FUNCTION:
             result_type = ctype.func_return_type or SawType(TypeKind.VOID)
+        if self._reject_never_task_body(
+                "this closure's body",
+                "the task never completes and `join` on its handle could never "
+                "return", result_type, closure.line, closure.column):
+            return None
         # Send capture-audit: every captured value must be safe to transfer to
         # the task thread. Resolve each capture's type and reject the first that
         # is not Send, naming the capture and its type.
@@ -2266,6 +2271,47 @@ class ExpressionsMixin:
             )
         expr.spawn_result_type = result_type
         return SawType(TypeKind.STRUCT, struct_name="Task", type_args=[result_type])
+
+    def _reject_never_task_body(self, subject: str, consequence: str, result_type,
+                                line: int, column: int) -> bool:
+        """A task body may not be `-> Never` (design 228 unit 5, the v1 ruling).
+
+        A task is a computation something later WAITS for. A `-> Never` body
+        never completes, so the handle it mints has a result cell for a value
+        that cannot exist and `join` on it could not return — a hang the type
+        system can see coming, and one the compiler was quietly building: the
+        handle came out `TaskHandle<Never>`, mangled through the escape hatch
+        as `$Unknown$NEVER` (`mangle.py` has no `NEVER` case, and reaching that
+        hatch is documented as a compiler bug).
+
+        Blessing the never-Done frame as an honest forever-server type is
+        re-proposable and forecloses nothing — it owes a `NEVER` mangle case, a
+        `Slot<Never>` zero-size story, and a ruling on what `join` means. v1
+        refuses instead, because a forever-task already has a spelling that
+        works: `-> Void` with a loop.
+
+        THE FUNNEL (obligation 1). Every position that starts a task from a
+        named body asks this, and these are all of them:
+          - `_check_taskgroup_spawn` — `group.spawn(f(args))`.
+          - `_check_spawn` — the design-21b `spawn { ... }` closure form.
+          - the `__saw_drive` / `__saw_drive_steps` intrinsic arm of
+            `_check_function_call`.
+
+        Returns True when it refused.
+        """
+        if result_type is None or result_type.kind != TypeKind.NEVER:
+            return False
+        self._error(
+            ErrorKind.TYPE_MISMATCH,
+            f"a task body may not be `Never`: {subject} never returns, "
+            f"so {consequence}",
+            line, column,
+            hint="a task is something to wait for, and a `Never` body gives it "
+                 "a result that cannot exist. Write a forever-task as `-> Void` "
+                 "with a loop — `func serve() { while { ... } }` — and end it by "
+                 "cancelling the task or breaking the loop"
+        )
+        return True
 
     def _names_type_param(self, t: Optional[SawType]) -> bool:
         """Does `t` mention a type PARAMETER of the body being checked?
@@ -3876,6 +3922,12 @@ class ExpressionsMixin:
             sentinel = self._effect_absorb_scope()
             inner_type = self._check_expression(inner)
             self._effect_unabsorb(sentinel)
+            driven = getattr(inner, 'method_name', None) or getattr(inner, 'name', '?')
+            if self._reject_never_task_body(
+                    f"`{driven}`",
+                    f"`{expr.name}` would drive it for ever", inner_type,
+                    expr.line, expr.column):
+                return None
             if isinstance(inner, _MC):
                 # design 45 Part 0c: driving a suspending method. The receiver's
                 # struct type names the driven-method root; the transform builds a
@@ -6789,6 +6841,20 @@ class ExpressionsMixin:
                 and self._resolve_type_alias(opt_type.inner_type).is_optional()):
             self._propagate_optional_type(expr.default, opt_type.inner_type)
             default_type = opt_type.inner_type
+        # design 228 leg 6: a DIVERGING default satisfies any expected type, the
+        # way a diverging expression does in every other value position.
+        # `_types_compatible`'s bottom-type escape only fires in the SOURCE
+        # slot, and the compatibility check below reads the other way round
+        # (payload into default), so the diverging operand sat in the TARGET
+        # slot where nothing looked for it: `o ?? panic("gone")` — and
+        # `o ?? fault(p)` for any `-> Never` callee — was refused with
+        # ``optional inner type `Int` does not match default type `Never` ``.
+        # The expression can only ever yield the payload, so that is its type.
+        if (default_type.kind == TypeKind.NEVER
+                and opt_type.inner_type is not None):
+            self._check_payload_read(expr.expr, opt_type.inner_type, expr,
+                                     "the result of `??`", expr.line, expr.column)
+            return opt_type.inner_type
         # DF-174h: `??` PEELS one optional layer, so the default owes the PEELED
         # type. The compatibility check below reads the other way round — it asks
         # whether the payload could flow into the DEFAULT — and `T` flowing into
@@ -8040,6 +8106,11 @@ class ExpressionsMixin:
         inner_type = self._check_expression(inner)
         self._effect_unabsorb(sentinel)
         result_type = inner_type if inner_type is not None else SawType(TypeKind.VOID)
+        if self._reject_never_task_body(
+                f"`{inner.name}`",
+                "the task never completes and `join` on its handle could never "
+                "return", result_type, expr.line, expr.column):
+            return None
         # design 70 (A5): spawning a generic function monomorphizes the
         # instantiation to a concrete function (keyed by the mangled symbol) and
         # spawns THAT, so the coroutine transform's frame + `__spawn_<f>` synthesis
