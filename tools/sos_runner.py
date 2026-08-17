@@ -113,6 +113,14 @@ THREAD_PREEMPT_PKG = os.path.join(TESTS_DIR, "thread-preempt")
 # one would be.
 EVENT_BASICS_PKG = os.path.join(TESTS_DIR, "event-basics")
 EVENT_WAKE_PKG = os.path.join(TESTS_DIR, "event-wake")
+# The Aug-17 consume ruling: a wait delivery TAKES an Event's word. Two
+# packages, split by DOOR — one where every wait finds something already ready
+# and one where both takes are real wakes — because the delivery runs a
+# different path in each (the waiting thread reads its own record; a signalling
+# thread writes into a parked thread's frame), and one funnel is exactly the
+# claim that needs a case per path.
+EVENT_CONSUME_PKG = os.path.join(TESTS_DIR, "event-consume")
+EVENT_CONSUME_WAKE_PKG = os.path.join(TESTS_DIR, "event-consume-wake")
 # rider 4: the one fault in this unit that a SAW process can reach, so the test
 # is written the way a real process would be rather than as a payload.
 EVENT_DUPKEY_PKG = os.path.join(TESTS_DIR, "event-dupkey")
@@ -661,23 +669,29 @@ TEST_CASES = [
         "expect_out": ["{banner}",
                        # The signal came BEFORE the wait and was not lost.
                        # `at-wait` is read out of the RECORD the kernel copied
-                       # into the process's memory and `drained` out of the
-                       # following `receive`; they agree on every line below,
-                       # which is what says the record's payload is the real
-                       # accumulated word rather than a readiness flag.
-                       "SOS events: signal-then-wait key=11 at-wait=4 drained=4",
+                       # into the process's memory, and it is the accumulated
+                       # word rather than a readiness flag — 4, then 8, then
+                       # 1|2|1, then a count of five.
+                       #
+                       # `after` is the `receive` that FOLLOWS each wait, and it
+                       # reads zero every time: the delivery took the word (the
+                       # Aug-17 ruling). The `detached` line below is the same
+                       # call answering a real number when no wait took it
+                       # first, which is what says these zeroes are a take
+                       # rather than a broken drain.
+                       "SOS events: signal-then-wait key=11 at-wait=4 after=0",
                        # A second attachment on the same Waiter, told apart by
                        # its key alone.
-                       "SOS events: second key=22 at-wait=8 drained=8",
+                       "SOS events: second key=22 at-wait=8 after=0",
                        # 1 | 2 | 1 is 3, which is what a flag set answers and a
                        # counter does not.
-                       "SOS events: or key=11 at-wait=3 drained=3",
+                       "SOS events: or key=11 at-wait=3 after=0",
                        # Removed from the wait set, still an Event.
                        "SOS events: detached word=8",
                        # Five signals of one, counted; then two of the largest
                        # word there is, which SATURATE instead of wrapping back
                        # through zero — the value that means "not ready".
-                       "SOS events: counting key=33 at-wait=5 drained=5 "
+                       "SOS events: counting key=33 at-wait=5 after=0 "
                        "saturated=1",
                        "SOS events: done",
                        # Teardown reports the two new object kinds: three events
@@ -700,14 +714,14 @@ TEST_CASES = [
         "expect_out": ["{banner}",
                        "SOS wake: worker started, parking",
                        "SOS wake: worker signalling",
-                       # The two numbers DIFFER on purpose and that gap is the
-                       # third claim: the worker signals five times, the FIRST
-                       # wakes the parked thread, so the record it copied out is
-                       # a SNAPSHOT reading 1 — and the other four land while
-                       # the woken thread is merely runnable, so the `receive`
-                       # after it drains 5. The record says what the wait was
-                       # woken for; `receive` says what has accumulated.
-                       "SOS wake: woke key=77 at-wait=1 drained=5",
+                       # ONE PLUS FOUR IS FIVE, and that arithmetic is the third
+                       # claim. The worker signals five times; the FIRST wakes
+                       # the parked thread and the delivery TAKES that 1 (the
+                       # Aug-17 ruling), so the other four accumulate from zero
+                       # and the `receive` after the wake reads 4. Nothing lost,
+                       # nothing counted twice — where the old snapshot
+                       # semantics answered 1 and 5.
+                       "SOS wake: woke key=77 at-wait=1 after=4",
                        "SOS wake: joined worker=99"],
         "expect_clean_exit": True,
     },
@@ -1050,6 +1064,67 @@ TEST_CASES = [
                        "clocks={one} timers={one}"],
         "expect_clean_exit": False,
         "expect_status": EXIT_PROCESS_FAULT,
+    },
+    # --- the Aug-17 consume ruling: a wait DELIVERY takes an Event's word ----
+    # The two cases split by DOOR, and the split is not cosmetic: the delivery
+    # runs a different path in each — a wait that finds something already ready
+    # has the waiting thread read its own record, while a wake has the
+    # SIGNALLING thread write into a parked thread's frame. `deliver_attachment`
+    # is one funnel precisely so those cannot diverge, and a case per path is
+    # what that claim costs.
+    {
+        # THE POLL DOOR, with nothing parking anywhere. A regression that parked
+        # would park the only thread in the system and be reported as the
+        # deadlock it is, in microseconds rather than at the timeout.
+        "name": "event_consume",
+        "src": os.path.join(KERNEL_DIR, "main.saw"),
+        "root_pkg": EVENT_CONSUME_PKG,
+        "expect_out": ["{banner}",
+                       # TWO SIGNALS, ONE RECORD: 1 and 2 land with nobody
+                       # waiting, and the wait carries the MERGED word. Per
+                       # signal it would read 1.
+                       "SOS consume: or key=11 at-wait=3 after=0",
+                       # A signal AFTER the take carries only the new bits — 8,
+                       # not 1|2|8. This is the number that separates a take
+                       # from a copy.
+                       "SOS consume: newbits key=11 at-wait=8 after=0",
+                       # The same in the counting mode, so the take cannot be a
+                       # per-mode accident: three signals of one, one record of
+                       # three, and the count restarts from zero.
+                       "SOS consume: sum key=22 at-wait=3 after=0",
+                       "SOS consume: done",
+                       # Six handles — the three it was given plus a waiter and
+                       # two events — one thread, and both events back on the
+                       # slab.
+                       "SOS: process teardown handles={six} threads={one} "
+                       "events={two} waiters={one}"],
+        "expect_clean_exit": True,
+    },
+    {
+        # THE WAKE DOOR. Two threads, two parks, and the order is forced rather
+        # than raced: this image's kernel arms no tick and a wake only makes a
+        # thread runnable, so each thread runs until it blocks or exits.
+        "name": "event_consume_wake",
+        "src": os.path.join(KERNEL_DIR, "main.saw"),
+        "root_pkg": EVENT_CONSUME_WAKE_PKG,
+        "expect_out": ["{banner}",
+                       "SOS consumewake: initial parking",
+                       # The worker could only have run because the initial
+                       # thread parked.
+                       "SOS consumewake: worker signalling",
+                       # `after=0`: the `receive` following the wake finds
+                       # NOTHING. Under the snapshot semantics it read 5.
+                       "SOS consumewake: woke first key=41 at-wait=5 after=0",
+                       # Reached only because the SECOND wait genuinely parked —
+                       # which it can only do if the first wake emptied the
+                       # event.
+                       "SOS consumewake: worker second signal",
+                       # ONLY THE NEW BITS: 2, not 5|2 = 7.
+                       "SOS consumewake: woke second key=41 at-wait=2",
+                       "SOS consumewake: joined worker=99",
+                       # Both waiters and both events go back to their slabs.
+                       "events={two} waiters={two}"],
+        "expect_clean_exit": True,
     },
     {
         # The grant has to hold against a root that is merely WRONG, not just

@@ -514,6 +514,53 @@ literal and nothing else (DF-232c above). The rights enums and `SegFlag` keep
 their decimals until that is fixed, and the `static_assert` bit-8 floors keep
 theirs with them, so each file reads consistently rather than half-converted.
 
+**REVIEW RIDER (ruled Aug 17, user) — AN EVENT'S WORD IS CONSUMED ON
+DELIVERY.** A Waiter delivery of an Event now READS AND CLEARS the word into the
+wait record, where M2 left a snapshot behind and made `receive` the
+authoritative drain. The take is one act: `waitable_answer` reads and
+`waitable_consume` clears, both inside `deliver_attachment` and therefore inside
+one interrupts-masked region (D2 — the kernel takes no trap in kernel mode), so
+nothing can land between them; a signal arriving after the take re-arms
+readiness with its own bits alone, which is neither a loss nor a double count.
+`waitable_consume`'s Event arm stops being empty and the per-kind table now reads
+the other way round: TWO of the three kinds are spent by delivery (Event, Timer)
+and the INTERRUPT is the odd one out, because §9 ends its readiness at the
+driver's ack — the only readiness in the system whose end is a device's business.
+`event.receive()` KEEPS ITS EXACT SEMANTICS as the non-blocking poll
+(drain-and-reset, 0 when empty, never parks): the two are DOORS ONTO ONE VALUE,
+and a process picks by whether it wants to park rather than by what it will be
+told. The reason the snapshot had to go is that it reported the same bits to the
+next wait as well, and a recipient cannot tell that duplicate from a real second
+signal.
+
+NO MULTI-WATCHER CAVEAT IS OWED, because the recipient is unique BY
+CONSTRUCTION: §2.2 gives a waitable at most ONE attachment, so a signal reaches
+exactly one Waiter, which hands it to exactly one parked thread. That is the
+multiplexing rule in one line — MANY THREADS PER WAITER IS DISTRIBUTION (one wake
+per delivery, the worker-pool shape), ONE WAITER PER WAITABLE IS OWNERSHIP, and
+the second is structural rather than a convention. Spec §2.2 and §2.4 carry both
+sentences, and the §2 Event row is amended with them.
+
+ONE RIGHTS CONSEQUENCE, recorded rather than designed around: `EventRight.Wait`
+is now a CONSUMING right. It was always half true — the record has carried the
+accumulated word since M2 — and what changed is that it empties the object too,
+so the two consumer bits attenuate by DOOR (park or poll) rather than by whether
+the holder learns anything, and there is no bit left that means "observe
+readiness without taking". Nothing in SOS needs one before M4: with no handle
+transfer, every right on an Event is held by the process that made it.
+
+**Harness:** two new packages, split by DOOR because the delivery runs a
+different path in each — `event-consume` (the poll door: two signals coalesce
+into ONE record carrying the merged word, in both accumulation modes; the
+`receive` after every take reads 0; a signal after the take answers with only the
+new bits, 8 rather than 1|2|8) and `event-consume-wake` (the wake door: two
+threads, two real parks, `at-wait=5 after=0` then a second wake carrying 2 rather
+than 5|2). `event-basics` and `event-wake` moved with the semantics — the former
+now reads `after=0` on every line, with its `detached` line the one place
+`receive` is the only taker and answers a real number; the latter reads
+`at-wait=1 after=4`, one plus four being the five the worker signalled. 40 cases
+per architecture, 80 runs.
+
 ## Explicitly out (M4+ candidates)
 
 Channels + ReplyHandle IPC (with select-with-timeout via unit 1's
