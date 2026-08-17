@@ -2,14 +2,22 @@
 // compile and run — the guard just routes the match to the general pattern
 // path, and the arms are ordinary variant patterns.
 //
-// It is an internal compiler error instead: the general path reads a variant's
+// It was an internal compiler error instead: the general path read a variant's
 // tag with `extract_value(value, 0)` (codegen/match.py `_match_enum_pattern`),
 // which assumes the `{tag, payload}` shape. An all-payload-free enum lowers to
-// a bare `i32`, so the read dies with `Can't index at [0] in i32`. A tuple
+// a bare `i32`, so the read died with `Can't index at [0] in i32`. A tuple
 // scrutinee reaches the same place (`match (c, n) { case (Red, 0) -> ... }`),
-// and adding a payload to ANY case of the enum makes both spellings work —
+// and adding a payload to ANY case of the enum made both spellings work —
 // which is why examples/match_enum_guard.saw never caught it.
-// XFAIL: DF-198a a guarded (or tuple-nested) match over an enum with no payload cases is a codegen ICE — the general pattern path reads the tag out of a `{tag, payload}` aggregate the enum does not have
+//
+// FIXED (DF-198a) by giving the general path the shape test its sibling has had
+// all along: a payload-free enum IS its tag, so there is nothing to index. The
+// same landing narrowed the path's enum-name fallback, which mattered more once
+// payload-free enums could reach it — every one of them is a bare integer of
+// the same width, so a scan by LLVM shape alone picks an arbitrary one. It
+// consults the enclosing extension's own instantiation first (as the classic
+// path does) and then requires the candidate to HAVE the variant.
+// See `match_payload_free_enum_general_path.saw` for the route matrix.
 // EXPECT: success
 // EXPECT-OUTPUT:
 // warm

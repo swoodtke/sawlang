@@ -3822,8 +3822,24 @@ DF-192e fixed, DF-192b/c/d/f/g pinned (DF-192d fixed since, by design 198).
   unit-2 gap: `emit_ir` / `compile_to_object` run AFTER `run_codegen`
   returns and were outside every wrapper, so an IR module llvmlite refuses
   printed a raw traceback — `_run_llvm` now wraps both.
-- **DF-198a (ICE, filed Aug 10 by 198 u1's probes): a guarded match over an
-  enum whose cases ALL carry no payload is a codegen ICE.** A guard routes the
+- **DF-198a — CLOSED (Aug 17).** The general pattern path now tests the
+  scrutinee's LLVM shape before reading a tag, exactly as the classic switch
+  path always did: a payload-free enum IS its tag, so there is nothing to
+  index. The same landing narrowed that path's enum-name FALLBACK, which the
+  fix made load-bearing — once payload-free enums reach the general path, a
+  scan by LLVM shape alone is choosing among every payload-free enum in the
+  program, all of them the same bare integer. It consults
+  `self_type_context` first (design 145's rule, which the classic path had and
+  this one did not) and then requires the candidate enum to HAVE the variant
+  the pattern names. Route matrix:
+  `examples/match_payload_free_enum_general_path.saw` — guard, tuple
+  scrutinee, raw-backed (`UInt8`) enum, `Some(Red)` nesting, wildcard-with-
+  guard, and the payload-carrying control; every row ICEd on the pre-fix
+  compiler. PIN flipped:
+  `examples/match_guard_on_payload_free_enum.saw`. Gated on suite +
+  `sos_runner` both arches.
+  As filed (ICE, Aug 10 by 198 u1's probes): a guarded match over an
+  enum whose cases ALL carry no payload is a codegen ICE. A guard routes the
   match to the general pattern path, whose `_match_enum_pattern`
   (codegen/match.py) reads the tag with `extract_value(value, 0)` — the
   `{tag, payload}` shape. An all-payload-free enum lowers to a bare `i32`, so

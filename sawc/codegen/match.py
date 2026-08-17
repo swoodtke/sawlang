@@ -678,16 +678,35 @@ class MatchMixin:
         enum_name = None
         if rt is not None and rt.kind == TypeKind.ENUM and rt.enum_name:
             enum_name = mangle_named(rt.enum_name, rt.type_args)
+        if (enum_name is None or enum_name not in self.enum_types) \
+                and self.self_type_context in self.enum_types:
+            # design 145: `match self` inside a monomorphized method of a generic
+            # enum stamps the argument-free base, which is not a registered name.
+            # The classic switch path consults this BEFORE the shape scan for the
+            # reason below; so does this one now.
+            enum_name = self.self_type_context
         if enum_name is None or enum_name not in self.enum_types:
-            # Fall back by LLVM type shape.
-            for name, (llvm_type, _, _) in self.enum_types.items():
-                if llvm_type == value.type:
+            # Fall back by LLVM type shape — and by whether the enum actually HAS
+            # the variant. EVERY payload-free enum is a bare integer of the same
+            # width, so shape alone picks an arbitrary one of them; requiring the
+            # variant name narrows it to enums the pattern could belong to.
+            for name, (llvm_type, tags, _) in self.enum_types.items():
+                if llvm_type == value.type and pattern.variant_name in tags:
                     enum_name = name
                     break
         if enum_name is None or enum_name not in self.enum_types:
             return ir.Constant(ir.IntType(1), 0), []
         llvm_enum_type, variant_tags, variant_info = self.enum_types[enum_name]
-        tag = self.builder.extract_value(value, 0, name="match_tag")
+        # An enum whose cases ALL carry no payload lowers to a bare integer, not
+        # the `{tag, payload}` aggregate — the value IS the tag. Reading element 0
+        # of it died with `Can't index at [0] in i32` (DF-198a), reached by a
+        # GUARD or a tuple pattern, both of which route the match off the classic
+        # switch and onto this path. The classic path has had this shape test all
+        # along; this is the general one growing the same test.
+        if isinstance(value.type, ir.IntType):
+            tag = value
+        else:
+            tag = self.builder.extract_value(value, 0, name="match_tag")
         want = ir.Constant(tag.type, variant_tags[pattern.variant_name])
         cond = self.builder.icmp_signed('==', tag, want, name="tageq")
         bindings = []

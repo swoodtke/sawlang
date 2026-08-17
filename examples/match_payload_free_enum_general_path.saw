@@ -1,0 +1,89 @@
+// The general pattern path over an enum with NO payload cases (DF-198a).
+//
+// A guard routes a match away from the classic switch onto the general pattern
+// path, whose `_match_enum_pattern` read the variant tag with
+// `extract_value(value, 0)` — the `{tag, payload}` shape. An all-payload-free
+// enum lowers to a bare integer, so the read died with `Can't index at [0] in
+// i32`. The classic path had the shape test all along; this is the general one
+// growing the same test, so every route onto it works at both layouts.
+// EXPECT: success
+// EXPECT-OUTPUT:
+// warm
+// cool
+// other
+// tuple red-zero
+// tuple other
+// backed high
+// nested first
+// wildcard guarded
+// payload big
+
+enum Color { case Red, case Green, case Blue }
+
+// A RAW-BACKED payload-free enum lowers to its declared width, so the tag read
+// must be shape-based rather than i32-specific.
+enum Level: UInt8 { case Low = 1, case High = 2 }
+
+// The control: adding a payload to ANY case restores the aggregate, which is
+// why examples/match_enum_guard.saw never caught this.
+enum Line { case Span(n: Int), case Blank }
+
+func feel(c: Color, bright: Bool) -> String {
+    match c {
+        case Red if bright -> "warm",
+        case Green -> "cool",
+        case _ -> "other"
+    }
+}
+
+// A TUPLE scrutinee reaches the general path with no guard written.
+func pair(c: Color, n: Int) -> String {
+    match (c, n) {
+        case (Red, 0) -> "tuple red-zero",
+        case _ -> "tuple other"
+    }
+}
+
+func rank(l: Level, on: Bool) -> String {
+    match l {
+        case High if on -> "backed high",
+        case _ -> "backed other"
+    }
+}
+
+// An OPTIONAL of a payload-free enum: the Optional arm unwraps, then recurses
+// into the nested variant pattern at the same line.
+func nested(c: Color?) -> String {
+    match c {
+        case Some(Red) -> "nested first",
+        case _ -> "nested other"
+    }
+}
+
+// A wildcard WITH a guard never reaches the enum arm at all — pinned so the
+// route stays covered either way.
+func wildcard(c: Color, on: Bool) -> String {
+    match c {
+        case _ if on -> "wildcard guarded",
+        case _ -> "wildcard plain"
+    }
+}
+
+func payload(l: Line) -> String {
+    match l {
+        case Span(n) if n > 2 -> "payload big",
+        case _ -> "payload small"
+    }
+}
+
+func main() {
+    print(feel(Color.Red, true))
+    print(feel(Color.Green, true))
+    print(feel(Color.Blue, true))
+    print(pair(Color.Red, 0))
+    print(pair(Color.Blue, 1))
+    print(rank(Level.High, true))
+    print(nested(Color.Red))
+    print(wildcard(Color.Green, true))
+    print(payload(Line.Span(n: 5)))
+}
