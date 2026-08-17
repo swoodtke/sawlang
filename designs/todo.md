@@ -155,28 +155,41 @@ Fix + regression matrix: `examples/coro_optbind_loop_control.saw` (seven
 positions, driven), `..._spawned.saw` (spawned root + suspending scrutinee),
 `coro_optbind_split_in_try.saw` (position 2).
 
-## `while let` — brief AUTHORED (designs/233), 230 integrated, READY TO DISPATCH
+## Design 233 — `while let` (BUILT Aug 16, awaiting integration)
 
-Ruled worth building in conversation (user + lead, Aug 16): the
-design-62 exclusion ("`while let` does not exist in the grammar",
-LANGUAGE_SPEC ~5812) predates any recurring consumer, and there are
-now two — the M3 boot drain loop every SOS process opens with
-(`next_boot_handle() -> BootHandleRecord?`, designs/232) and the
-Optional-yielding drain family generally (`Vector.pop`,
-`Channel.try_receive`, `Optional.take`; `for`-in over `iter()` is
-already the compiler-blessed version of this loop). Implementation is
-a THIN DELTA now: design 224 made the `while` condition a
-per-iteration suspension position and `if let`/`guard let` scrutinees
-already hoist suspending calls — `while let` composes from both.
-Scope sketch (from the conversation): binding rules are exactly
-`if let`'s, looped; scrutinee re-evaluates per iteration; suspending
-scrutinee joins 224's position matrix (obligation 1); value-position
-`while let` refused v1; Result sources compose via
-`while let x = try? f()`. The interim blessed spelling is
-conditionless `while { guard let r = ... else { break } ... }`
-(probe-verified). SEQUENCED BEHIND 230: channel receive's
-Result shape should be settled before the sugar's scope is pinned.
-Brief unauthored — author after 230 integrates.
+Brief: `designs/233-while-let.md` (fully ruled). Landed in four commits: the
+DF-233a prerequisite above, then parser + sync semantics, then the suspension
+matrix, then docs.
+
+**Shape.** The parser LOWERS the header into the two constructs it means —
+`while { if let x = SCRUT { BODY } else { break } }` — so obligation 1's funnel
+is satisfied by identity rather than by discipline: the binding IS an `if let`,
+so design 100's derived-shadow rule, design 63's tuple pattern, design 131's
+payload-read tier, design 62 G2's scrutinee hoist and design 104's CFG split all
+reach it through their own existing entry points, with no second position to keep
+in sync. `parser/statements.py _parse_while_let` is the new entry point named in
+`_check_if_let_expr`'s docstring. Two marker fields carry what the desugared tree
+can no longer say for itself (`IfLetExpr.while_let`, `WhileExpr.is_while_let`):
+diagnostics name `while let`, the synthesized `else { break }` is not reported as
+a branch the author can retype, and value position is refusable.
+
+**Every ruling built as written.** Scrutinee re-evaluates per iteration
+(`continue` re-runs it); `None` ends the loop; no `else` clause (clean parse
+error); value position refused with its own message and a hint; `try?` composes
+for Result sources; a tuple pattern is allowed sync and refused over a suspension
+with the inherited diagnostic, now naming `while let`.
+
+**Verification.** 10 tests (5 sync/error, 5 suspension), every matrix row run in
+DRIVEN and SPAWNED bodies, plus MT (`threads: 4`), a suspending `try`/`catch`
+inside the loop, and `Channel.try_receive` as the drain family's concurrency
+member. No new TOKENS, and there is no second parser (`selfhost/` is a lexer
+only), so lexdiff/astdiff/selfhostlex were untouched by construction — verified,
+not assumed.
+
+**Not built, and why.** No native Result form (the sugar is for drains; a caller
+wanting error inspection writes the `match`). No `break <value>` story: value
+position is refused, so the conditional-loop value question stays where design
+177 left it.
 
 ## Design 230 — channel waits become real parks (BUILT Aug 16, awaiting
 ## integration)

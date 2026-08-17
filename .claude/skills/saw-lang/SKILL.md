@@ -42,7 +42,8 @@ print("{#file}:{#line} - msg")  // #file/#line/#function: definition-site consts
 - Everything is an expression (if/match/while/blocks yield values;
   `break v` from an infinite `while {}` yields `T` directly;
   from a conditional while/for it yields `T?`).
-- `for i in 0..5` / `0..=5`; `while cond {}` / infinite `while {}`.
+- `for i in 0..5` / `0..=5`; `while cond {}` / infinite `while {}`;
+  `while let x = src.next() {}` (the drain — see Patterns).
 - **A conditionless `while {}` with NO `break` types `Never`** (design 177) —
   it diverges exactly like `panic(...)`, so `func halt() -> Never { while { } }`
   is the halt spelling, a diverging tail satisfies any `-> T`, the code after it
@@ -653,7 +654,27 @@ match x {
 match msg { case Move(x, y) -> ..., case Quit -> ... }  // enums exhaustive
 if let v = maybe { } / guard let v = maybe else { return }
 if let (a, b) = optPair { }          // tuple over Optional tuple
+while let job = queue.pop() { }      // DRAIN: one iteration per Some
 ```
+- **`while let` IS THE DRAIN LOOP (design 233)** — `while let x = src.next() { … }`
+  runs the body once per `Some` and falls out on the first `None`. The scrutinee
+  RE-EVALUATES every iteration (that is what drains it) and `continue` is a jump
+  to the head, so it re-evaluates too; a scrutinee reading a variable the body
+  never changes loops forever, uncaught. Binding rules are `if let`'s, looped:
+  the derived-shadow rule (`while let c = c.next()` is legal), the tuple pattern
+  (`while let (k, v) = pairs.pop()`), the payload-read tier, and `while var` for
+  a mutable binding. NO `else` clause exists (a parse error names
+  `if let ... else`), and the loop produces NO VALUE — value position is a clean
+  error. A `Result` source composes through `try?`
+  (`while let m = try? f()`), which absorbs `Err` into termination — reach for it
+  when "no more input" and "the read broke" want the same handling, and `match`
+  the Result inside a plain loop when they do not. **THIS REPLACES the interim
+  `while { guard let r = src.next() else { break } … }` spelling**, which buries
+  termination in the body and, when a refactor loses the `break`, fails as a HANG
+  rather than an error. (That spelling also MISCOMPILED over a suspension until
+  DF-233a, so treat a pre-Aug-16 one as suspect.) The scrutinee may suspend, in
+  a driven or spawned body; a TUPLE pattern over a suspending scrutinee is the
+  same clean error `if let` gives.
 - **An EXACT duplicate arm is a compile error**, reported at the second and
   naming the first's line — no input reaches it. Equality is textual after
   literal normalization (`case 10` and `case 0x0A` are one pattern), and an
@@ -1655,7 +1676,7 @@ dump_tasks()                // every live task's logical backtrace (std.task)
   `break <value>`, which a suspension-spanning loop does not support).
   Still a clean,
   user-anchored compile error (NOT a silent block): a suspension-spanning `if let`/
-  `guard let` with a TUPLE pattern; a suspending `try { } catch { }` block whose try
+  `guard let`/`while let` with a TUPLE pattern; a suspending `try { } catch { }` block whose try
   body raises TWO OR MORE distinct error types (below); and a NESTED generic call
   whose template suspends
   UNCONDITIONALLY without calling a type-param method (`func g<T>(x: T) -> T {

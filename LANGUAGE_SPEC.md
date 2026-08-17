@@ -650,6 +650,65 @@ func spin() -> Never {
 }
 ```
 
+#### Optional binding in a loop header (`while let`)
+
+`while let x = <scrutinee> { ... }` runs the body once per `Some` and leaves the
+loop on the first `None`. It completes the `if let` / `guard let` family, and
+its subject is the drain: a source that yields `T?` until it is empty.
+
+```saw
+var pending: Vector<Job> = load_queue()
+while let job = pending.pop() {
+    run(job)
+}
+// pending is empty here
+```
+
+The scrutinee is re-evaluated **every iteration** — that is what makes this a
+drain rather than a test. `continue` is a jump to the loop head, so it
+re-evaluates too. A scrutinee that reads a variable nothing in the body changes
+therefore loops forever; the compiler does not check for that.
+
+Binding rules are `if let`'s, applied once per iteration:
+
+- The same shadowing rule (see Shadowing). A scrutinee that mentions the
+  shadowed name is a derived shadow and is allowed: `while let c = c.next()`.
+- The same pattern surface. A tuple pattern over an optional tuple works
+  (`while let (key, value) = pairs.pop()`), and over a *suspending* scrutinee it
+  is rejected with the same diagnostic `if let` gives, naming the way out.
+- The same payload-read tier. A `Copy` payload retains; an `ExplicitCopy` or
+  `NoCopy` one needs `move`, `.copy()` or `take()` exactly where `if let` needs
+  it.
+- `while var x = ...` binds mutably, as `if var` does.
+
+There is no `else` clause. The absent case is the loop exit, so writing one is a
+parse error naming `if let ... else` as the one-shot form.
+
+A `while let` produces no value and cannot be used as an expression:
+
+```saw
+let r = while let x = src.next() { }
+// error: a `while let` loop produces no value and cannot be used as an
+// expression
+```
+
+A `Result`-yielding source composes through `try?`, which turns `Err` into
+termination:
+
+```saw
+while let record = try? reader.next_record() {
+    index.insert(record)
+}
+```
+
+That absorbs the failure. Use it where "no more input" and "the read broke" want
+the same handling; where they do not, `match` the `Result` inside a plain loop
+and act on the error.
+
+The scrutinee may suspend, in a driven or a spawned body alike; it is hoisted
+per iteration exactly as an `if let` scrutinee is (see the Concurrency section's
+G2 note).
+
 ---
 
 ## 3. Type System
@@ -5888,7 +5947,8 @@ Now-closed gaps (design 62), each landed with tests:
   (`let __t = f()`) and binds over it. The hoisted `T?` temp uses the `self_opt`
   frame encoding (an already-optional field is stored as-is, not double-wrapped).
   Only the plain-call form is hoisted — a move-in-condition remains a clean error.
-  `while let` does not exist in the grammar.
+  `while let` (Control Flow) takes the same hoist once per iteration, since its
+  scrutinee sits inside the loop body.
 - **`TaskGroup` inside a suspending function (G1).** A `TaskGroup` may be a direct
   frame-resident local of a suspending function: the group + its erased run queue
   are frame state, and `group.spawn(...)`'s `&group` resolves to an addressable
@@ -5901,7 +5961,7 @@ Now-closed gaps (design 62), each landed with tests:
 
 Remaining limits (rejected cleanly / documented, not miscompiled): the
 design-104-era list in the Suspension section above — a suspension-spanning
-`if let`/`guard let` with a tuple pattern, and a nested generic call whose template
+`if let`/`guard let`/`while let` with a tuple pattern, and a nested generic call whose template
 suspends unconditionally without calling a type-param method. Earlier restrictions
 — a spawned function had to be non-`Void`, a nested suspending *method* was not
 embeddable, an `if let`/`guard let` body could not span a suspension, a suspending

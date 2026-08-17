@@ -1,7 +1,27 @@
 # Design 233 — `while let`: the drain loop gets its header spelling
 
-**Status: RULED (user + lead, Aug 16 conversation; queued behind 230,
-which has now integrated). Ready to dispatch.**
+**Status: BUILT (Aug 16), every ruling as written. Four commits: the
+DF-233a prerequisite the dispatch found, then the three units below.
+
+The parser LOWERS the header into `while { if let x = SCRUT { BODY } else
+{ break } }`, which is what makes obligation 1 hold by identity rather
+than by discipline — the binding IS an `if let`, so every rule already
+written for one governs `while let` with no second position to keep in
+sync. Two marker fields (`IfLetExpr.while_let`, `WhileExpr.is_while_let`)
+carry the three things the desugared tree can no longer say for itself:
+diagnostics must name what the author wrote, the synthesized `else` must
+not be judged as a branch, and value position must be refusable.
+
+DF-233a, found probing unit 2's premise: the interim `guard let`-`break`
+drain idiom this brief cites as the thing `while let` replaces MISCOMPILED
+over a suspension, and so would the desugar. An `if let`/`guard let`
+carrying a `break` for a suspension-spanning loop was never CFG-split —
+design 96 (DF6) had ruled that case for `if`/`match`/`try` but could not
+reach the two optional-binding forms, whose split needs a binding rename
+that only the marking pass does. Fixed with an obligation-4 sweep (three
+positions: the split predicate, a container descent that missed
+`try`/`catch`, and the block TAIL, where a drain loop's `if let` usually
+sits). See the tracker.**
 
 ## Why now
 

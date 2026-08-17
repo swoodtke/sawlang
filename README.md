@@ -94,6 +94,12 @@ guard let value = maybe else {
     return
 }
 
+// Drain a source that yields `T?` — one iteration per value, out on the first
+// None. The scrutinee re-runs every iteration.
+while let job = queue.pop() {
+    run(job)
+}
+
 // Default values
 let result = maybe ?? 0
 
