@@ -14,6 +14,45 @@ rulings/corrections — grep the brief before deleting anything);
 navigation lives in designs/INDEX.md (one line per brief + one per
 done-file), created with the Aug-17 split.
 
+## BRIEF OWED — the fallibility flip (RULED Aug 17, user; scoping done in
+## conversation, brief not yet written)
+
+The Aug-17 rulings, recorded so the brief writes itself:
+1. **Every failable operation returns `Result` — design 123's panic tier is
+   RETIRED.** Don't hide that things can fail; `try`/`try!`/`catch` are the
+   ergonomics. The ~16 alloc `try_` twins across 9 std files retire with it
+   (their behavior becomes the ordinary op's).
+2. **Error-type doctrine, three tiers.** Leaf ops return the NARROWEST
+   concrete type (`push -> Result<Void, AllocError>` — no compound needed
+   where one failure mode exists; AllocError keeps size/align). Compound
+   domain enums with PAYLOAD-CARRYING cases only where sources genuinely mix
+   (`ChannelError { Closed, Cancelled, Alloc(AllocError) }`; IoError carrying
+   `System(SystemError)` at the OS boundary — never re-enumerate the inner
+   vocabulary). NO stdlib-wide errno-style enum as a return type (signatures
+   would lie; dead match arms). `Box<any Error>` is the APP aggregation tier;
+   std never erases.
+3. **Declared error LIFTING for `try`** (From-style): a compound enum declares
+   it lifts a leaf (`ChannelError` lifts `AllocError`); `try` auto-lifts when
+   exactly one declared path exists, clean error on ambiguity. The catch-site
+   synthesized union stays unnameable (that design holds); lifting is the
+   signature-crossing mechanism.
+4. **`try_` PREFIX MEANS NON-BLOCKING, nothing else** — reserved for
+   non-blocking variants of potentially blocking ops. Standard shape: the
+   blocking op's error type with the payload optionalized —
+   `try_receive -> Result<T?, ChannelError>`, `Ok(None)` = nothing yet
+   (would-block is NOT an error; a closed channel on a poll still errors).
+5. **Boundaries.** The fault line survives: bounds/overflow/contract
+   violations stay panics (programmer errors, per the M3 fault ruling); what
+   moves to Result is dynamic conditions (OOM, closed, cancelled, OS refusal).
+   Hidden allocations (interpolation, closure env, coroutine frames) CANNOT
+   return Results — they stay panics with `--no-hidden-alloc` as the opt-out;
+   the brief states this boundary explicitly.
+6. **Consequences.** DQ-230b resolves: `send -> Result<Void, ChannelError>`
+   with the Alloc case; `try_send` retires (see its entry). `SysError` going
+   public becomes `SystemError` (no-abbreviations rule). Migration is the
+   largest contract flip yet but design 151 makes the compiler find every
+   site; obligation 2's consumer sweep is the whole corpus, staged units.
+
 ## DF-232c — a raw-backed enum's case value takes an INTEGER LITERAL only, so
 ## a flags enum cannot state its bits as shifts (filed Aug 17, SOS M3 unit 1
 ## review-pass rider)
