@@ -29,6 +29,28 @@ spec-recap) is BUILT, branch PARKED for user review per SOS policy:
 the pre-M2 status text is flipped in §§2, 2.2, 3, 5.7, 5c, 7, 8, 9b
 and 12 — each verified against the code first. [178, 232]
 
+## KCORE SPLIT — sos/kernel/core/lib.saw into seam files (user-approved
+## Aug 17; FIRST post-unit-1-integration SOS item)
+
+~4000 lines splits along the FUNNEL seams, not just topics — the M2
+finale engineered "one table, per-kind matches in ONE place"
+(waitable_slot) and one dispatch door, and the cut must keep each
+funnel whole: time.saw (Clock + Timer), waitables.saw (Event, Waiter,
+attachments, ALL the per-kind matches together), process.saw (process
++ thread lifecycle, teardown), sched.saw (run queue, tick),
+dispatch.saw (handle table, object-op dispatch, syscall entry),
+loader.saw (sosimg), diag.saw (console, fault reporting, selftest).
+UNIT 0 IS A LANGUAGE PROBE that may be a finding: a Saw FILE is a
+MODULE (design 82/204), so the split introduces real module
+boundaries — shared mutable slabs (`unsafe static var TIMERS` et al)
+must cross them, and the skill records that std-module statics are
+NOT cross-module visible; if the same holds for user packages,
+`public(package) unsafe static var` needs to work first (a DF the
+kernel is the motivating consumer for) or the split needs accessor
+shims. Behavior-neutral; sos-only gates; SEQUENCED after unit 1
+integrates (not on the parked branch — it would bury the review diff
+and collide with the queued riders). [232, design 82/204]
+
 ## HARDWARE PATH — the ultimate goal: ESP32-P4 + a small TCP/IP stack
 ## in Saw (user-ruled direction, Aug 16; post-M3 track)
 
