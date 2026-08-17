@@ -207,6 +207,62 @@ Death notifications: PROPOSED unit 5.5 IF cheap after CreateProcess's
 lifecycle work (a Process handle becomes waitable — the waitable_slot
 pattern's third consumer), ELSE first unit of M4. Agenda item 9.
 
+## THE HANDLE-LIFECYCLE RULING (user, Aug 17 — from the unit-1 review;
+## adds a unit, supersedes the same-handle model unit 1 built)
+
+**MINT-PER-CALL**: every `process_self` / `clock_get` (and every future
+getter of a singleton object) MINTS A FRESH HANDLE to the existing
+kernel object, carrying the kind's DEFAULT rights. No find-or-create,
+no cached `self_handle` fact, no handle-table search — a handle is a
+CAPABILITY INSTANCE, independently held and independently released.
+THE DEEP REASON IS RAII: the same-handle model breaks NoCopy+Deinit
+sysapi wrappers (two values wrapping one word double-release); mint-
+per-call is what makes §4's handle-wrapper vision buildable. It also
+dissolves both unit-1 review flags (the clock re-mint edge and the
+self-handle give refusal) rather than patching them.
+
+**THREE THINGS LAND TOGETHER** (each alone is broken — mint-per-call
+without release is a leak by design; release without generations is
+aliasing): the mint-per-call flip, an UNGATED release op, and
+GENERATIONS in the kernel handle entries, with a stale-word use a
+`BadHandle` FAULT (using a handle you released is broken code — the
+sharpened line; table EXHAUSTION stays a status). This pulls §3's
+deferred close/generations tier into M3 as **UNIT 2.75, the handle
+lifecycle**, landing just before or with `give` (unit 3, which
+manipulates tables anyway). Quotas (unit 5) gain a handle-count row.
+
+**THE RIGHTS VOCABULARY (ruled)**: MOVE is the existing universal
+`Transfer` right — no synonym minted; `give` already gates on it.
+RELEASE IS UNGATED — destroying your own capability instance harms no
+one, identity lives in the process slot not the handle, and gating it
+on Manage would pin every handle whose kind withholds Manage (thread
+handles, deliberately, and every attenuated grant — the least-trusted
+holders would get the most-pinned entries). If a gate is ever wanted,
+it is a NEW universal bit, never a retasking of Manage. CLOSE is an
+OBJECT-PROTOCOL operation, distinct in kind from release (release =
+per-instance, per-process; close = ends the protocol for everyone),
+existing only on kinds whose protocol has an end-state — Channel at
+M4 (design 230's language-side close is the exact twin: Closed comes
+from close() only) — with a per-kind `CloseRight` per the convention.
+
+**THE §3 REWRITE THIS OWES** (unit 7 docs): the no-duplicate rule's
+real invariant was never uniqueness — it is NO AMPLIFICATION. A mint
+always carries the kind's DEFAULT set, and minting authority is
+itself rights-gated (`ClockGet`, `Manage`), so attenuating a handle
+you give away is meaningful exactly when the receiver lacks its own
+minting authority. State this with the clock example so mint-per-call
+is never read as a hole in attenuation.
+
+**NAMING CONVENTION (user, Aug 17)**: kernel-object operations read
+`object_operation` — the noun of the object the op CONCERNS leads
+(`process_self`, `clock_get`, `thread_create`, `event_create`,
+`waiter_create`, `interrupt_bind`, `timer_create`; future:
+`process_create`, `iomem_bind`, `memory_alloc`, `boot_handle_next`).
+Receiver-verb ops (`arm`, `ack`, `wait`, `signal`, `join`, `now`,
+`shutdown`, ...) are already correct — the receiver IS the object.
+Applied to the whole existing surface as a rider on the parked unit-1
+branch (op/right enum cases mirror, numbers unchanged).
+
 ## The decisions agenda (the scoping session, in order)
 
 1. **The slicing: RATIFIED (user, Aug 16)** — option A, the unit

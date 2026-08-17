@@ -324,6 +324,20 @@ an implementation one. The alternative reading is that cancellation is not an
 error at all and the answer is a separate `receive_or_cancelled()`. Not decided
 here.
 
+## DF-232b — `type` should be usable as an argument LABEL, a VARIABLE
+## name and a FIELD name (RULED Aug 17, user; fix dispatch-ready)
+
+Found by M3 unit 1: the ruled `clock_get(type:)` label was unwritable
+because `type` is a declaration keyword, so the unit shipped `kind:`.
+Ruling: `type` becomes a CONTEXTUAL keyword — it keeps its meaning only
+where a `type X = Y` alias declaration can begin, and is an ordinary
+identifier as an argument label, a local/param binding, and a struct
+field name. The fix quantifies over positions (obligation 1): label,
+binding, field, plus the NEGATIVE rows (statement head in a module and
+in a block still parse as the alias declaration; `m.type`? member
+access; interpolation `{type}`). Once fixed, the unit-1 API flips
+`kind:` back to the ruled `type:` as a rider. [232, DF-232b]
+
 ## DF-229c — a `public(package)` name selected from INSIDE its own
 ## package should BIND (RULED Aug 17, user; fix dispatch-ready)
 
