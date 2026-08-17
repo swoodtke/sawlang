@@ -106,6 +106,12 @@ print("{#file}:{#line} - msg")  // #file/#line/#function: definition-site consts
   `word.read() | (1u32 << n)` needs it (the `|` sees `Int` otherwise; a
   shift passed DIRECTLY as the argument adopts and does not) — and a
   64-bit constant on a 32-bit target with no annotation beside it.
+  **STYLE (user ruling, Aug 17): large numeric literals take `_` group
+  separators.** Write `1_000_000_000`, `0xFFFF_FFFF`, `0x2000_0000` —
+  never a bare `1000000000` or `0x2000000`: the digits are for the
+  machine, the grouping is for the human reading them. Group decimal
+  by thousands and hex by fours (nibble-quads); a literal short enough
+  to read at a glance (`4096`, `0x301`) needs none.
 - **INTEGER OPERANDS MUST AGREE, and only bare literals promote (design
   195).** All typed operands of an operation have the SAME type: a binary
   operator, a comparison, a compound assignment or a range over two
