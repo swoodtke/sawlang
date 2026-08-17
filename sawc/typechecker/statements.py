@@ -22,20 +22,26 @@ from ast_nodes import (
     SawType, TypeKind,
     ResultOkWrap, ResultErrWrap, OptionalWrap,
     WildcardPattern, BindingPattern, TuplePattern,
-    Visibility,
+    Visibility, expr_diverges,
 )
 from ast_walk import pattern_binding_sites
 from errors import ErrorKind
 
 
 def _statement_diverges(stmt) -> bool:
-    """Does control never continue PAST this statement (design 177)?
+    """Does control never continue PAST this statement (design 177/228)?
 
-    One shape today: the conditionless `while { ... }` that nothing breaks out
-    of. `panic(...)` is the other diverging construct, but it is an expression,
-    so it arrives as a block's `final_expr` and is typed `Never` there.
+    The STATEMENT-shaped door onto the one divergence predicate,
+    `ast_nodes.expr_diverges` — a fourth named entry beside the typechecker's
+    `_diverges`, `_arm_diverges` and `coro_transform`'s `_is_never_expr`. A
+    conditionless `while { ... }` that nothing breaks out of is a statement; a
+    diverging CALL in statement position is an `ExpressionStatement` around one.
+    (A diverging expression at the END of a block is usually its `final_expr`
+    instead, and typed `Never` there.)
     """
-    return isinstance(stmt, WhileExpr) and stmt.diverges
+    if isinstance(stmt, ExpressionStatement):
+        return expr_diverges(stmt.expression)
+    return expr_diverges(stmt)
 
 
 class StatementsMixin:

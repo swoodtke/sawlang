@@ -1456,7 +1456,23 @@ class ResourcesMixin:
         (instead of relying solely on `needs_copy`) yields the same result at
         already-checkpointed sites and closes these two gaps. It never
         double-copies: `_generate_copy` is invoked at most once per transfer.
+
+        DIVERGENCE (design 228 leg 5): a transfer into a block that is already
+        terminated produces nothing. This is where an argument list meets a
+        DIVERGING earlier argument — `takes(1, die(1), x + y)` lowers its three
+        arguments through here in order, and once `die(1)` has written the
+        block's `unreachable` the third one has nowhere to emit. Left to run it
+        did emit, into a terminated block: llvmlite's own assertion for a
+        `cbranch` (the checked `+`), reported as an `internal compiler error`
+        with an empty message, or plain `expected instruction opcode` from the
+        IR parser for a straight-line one. Asking here rather than in each of
+        the dozen argument loops is what makes the rule hold for every call
+        shape, the planned/labeled path and default-filled arguments included —
+        and for the other transfer homes (an aggregate element, a return value)
+        on the same terms.
         """
+        if self.builder is not None and self.builder.block.is_terminated:
+            return None
         # design 51: erase `&concrete` to `&any Trait` at the call boundary. The
         # typechecker tagged this argument; the underlying expression lowers to a
         # pointer to the concrete value, which we wrap into a fat pointer with the

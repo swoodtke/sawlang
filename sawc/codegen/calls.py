@@ -607,10 +607,7 @@ class CallsMixin:
             else:
                 args = [self._gen_transfer_value(arg.value) for arg in expr.arguments]
                 self._fill_func_defaults(args, resolved_symbol)
-            olresult = self.builder.call(func, self._coerce_call_args(func, args), name="calltmp")
-            if self._terminate_after_noreturn(func):
-                return None
-            return olresult
+            return self._emit_call(func, args, "calltmp")
 
         # Check if the name refers to a closure variable
         if expr.name in self.variables:
@@ -622,12 +619,8 @@ class CallsMixin:
                 fn_ptr = self.builder.extract_value(closure_val, 0, name="fn_ptr")
                 env_ptr = self.builder.extract_value(closure_val, 1, name="env_ptr")
                 arg_vals = [self._gen_transfer_value(arg.value) for arg in expr.arguments]
-                clresult = self.builder.call(
-                    fn_ptr, self._coerce_call_args(fn_ptr, [env_ptr] + arg_vals),
-                    name="closure_call")
-                if self._terminate_after_noreturn(fn_ptr, expr):
-                    return None
-                return clresult
+                return self._emit_call(fn_ptr, [env_ptr] + arg_vals,
+                                       "closure_call", closure_call=expr)
 
         # `A()` where `A` is a type parameter bound to the concrete allocator in
         # the current monomorphization (design 37). Resolve `A` to its concrete
@@ -723,8 +716,8 @@ class CallsMixin:
         # design 118 stage 3: the compiler no longer injects the reactor instance —
         # the executor threads it explicitly through `SystemReactor` (std/taskgroup.saw),
         # so every reactor seam call site already passes the instance as arg 0.
-        result = self.builder.call(func, self._coerce_call_args(func, args), name="calltmp")
-        if self._terminate_after_noreturn(func):
+        result = self._emit_call(func, args, "calltmp")
+        if result is None:
             return None
 
         # Wrap result in optional for extern functions that return nullable pointers
@@ -742,6 +735,55 @@ class CallsMixin:
 
         return result
 
+    def _emit_call(self, callee, args, name, closure_call=None, coerce=True):
+        """Emit ONE Saw call, asking the divergence question on both sides.
+
+        THE CALL-EMITTING CHOKEPOINT (design 228 legs 2 and 5, obligation 1).
+        Its entry points are every site that lowers a Saw call, and this list is
+        the whole of it:
+          - `_generate_function_call`'s `resolved_symbol` fast path (an
+            OVERLOADED `$OL$` or MODULE-PRIVATE-in-module `$m$` callee),
+          - `_generate_function_call`'s plain-name path,
+          - `_generate_function_call`'s CLOSURE path,
+          - `_generate_method_call`,
+          - `_generate_static_method_call`,
+          - `_generate_module_function_call`,
+          - `_generate_arc_forward_call` and `_generate_box_forward_call`
+            (a wrapper forwarding `&self` to its heap payload's method),
+          - `_generate_field_call` (a function-typed struct FIELD),
+          - `_generate_existential_method_call` (existentials.py, `any Trait`).
+
+        BEFORE the call: an ARGUMENT may have diverged. `takes(die(1))` and
+        `takes(panic("x"))` emit the argument's `unreachable` into this block,
+        so there is no call left to make — and the `None` that argument handed
+        back used to reach `_coerce_call_args`, which asked it for `.type`
+        (`'NoneType' object has no attribute 'type'`, every callee kind,
+        `panic` included). The arguments AFTER a diverging one are stopped one
+        level down, at `_gen_transfer_value`.
+
+        AFTER the call: the CALLEE may be `-> Never` — see
+        `_terminate_after_noreturn`.
+
+        `coerce=False` for the three sites that never ran `_coerce_call_args`
+        (both wrapper forwards and `any Trait` dispatch). Unifying the
+        divergence question must not quietly change what their arguments are:
+        a width mismatch there used to be a loud IR failure, and coercing would
+        turn it into a silent truncation or a sign-extension chosen by the
+        fallback rule. That is a separate decision, not this brief's.
+
+        Returns the call's value, or None when the block is terminated and
+        there is no value (the caller hands back None, as `_generate_panic`
+        does).
+        """
+        if self.builder.block.is_terminated:
+            return None
+        if coerce:
+            args = self._coerce_call_args(callee, args)
+        result = self.builder.call(callee, args, name=name)
+        if self._terminate_after_noreturn(callee, closure_call):
+            return None
+        return result
+
     def _terminate_after_noreturn(self, callee, closure_call=None) -> bool:
         """Terminate the current block when this call DIVERGES.
 
@@ -755,34 +797,31 @@ class CallsMixin:
         Design 177 makes a diverging function writable without a panic in it, so
         this stopped being a corner nobody reached.
 
-        THE FUNNEL (design 228 leg 2, obligation 1). Every site that emits a
-        `call` asks this, and these are all of them:
-          - `_generate_function_call`'s `resolved_symbol` fast path — an
-            OVERLOADED (`$OL$`) or MODULE-PRIVATE-called-in-module (`$m$`)
-            callee. This was the one site that never asked, which is why
-            `sos`'s `fault_process` broke and every standalone repro compiled
-            (DF-178d's trigger axis).
-          - `_generate_function_call`'s plain-name path.
-          - `_generate_function_call`'s CLOSURE path — see `closure_call`.
-          - `_generate_method_call` (instance methods).
-          - `_generate_static_method_call`.
-          - `_generate_module_function_call`.
+        Reached from `_emit_call`, which is the one site that emits a Saw call
+        and names its own entry points. Before design 228 this was called by
+        four of the six by hand, and the `resolved_symbol` fast path — taken
+        exactly when the callee is OVERLOADED (`$OL$`) or MODULE-PRIVATE called
+        in its own module (`$m$`) — was not one of them. That is why `sos`'s
+        `fault_process` broke while every standalone repro compiled: DF-178d's
+        trigger axis.
 
         The question is always about the CALLEE, and the `noreturn` attribute
-        design 58 puts on every `-> Never` declaration is how it is asked. One
-        site cannot ask it: a closure is called through a function POINTER
-        loaded out of the closure value, and a pointer carries no attribute
-        list. That site passes its call EXPRESSION as `closure_call` and the
-        answer comes from the stamped type instead — sound there because a
-        closure's call type IS its return type.
+        design 58 puts on every `-> Never` declaration is how it is asked. Two
+        sites cannot ask it, both calling through a function POINTER, which
+        carries no attribute list: the closure path and `any Trait` dispatch.
+        Those pass their call EXPRESSION as `closure_call` and the answer comes
+        from its stamped type instead — sound for both, because neither callee
+        can be a `borrows` accessor (design 141 admits no borrows function
+        values and no borrows trait requirements), so the call's type IS the
+        callee's return type.
 
-        It is NOT sound anywhere else, which is why no other site passes one: a
-        `borrows` accessor's call type is the WINDOW's result type (the
-        synthesized `__R`), not the accessor's, so a window whose body never
-        falls through — every `match` arm of a coroutine frame's dispatch, for
-        instance — types the accessor call `Never` while the accessor itself
-        returns perfectly normally. Terminating there compiled and trapped at
-        runtime (SIGTRAP on five coroutine tests).
+        No OTHER site may pass one. A `borrows` accessor's call type is the
+        WINDOW's result type (the synthesized `__R`), not the accessor's, so a
+        window whose body never falls through — every `match` arm of a
+        coroutine frame's dispatch, for instance — types the accessor call
+        `Never` while the accessor itself returns perfectly normally.
+        Terminating there compiled and trapped at runtime (SIGTRAP on five
+        coroutine tests).
 
         Returns True when the block was terminated (the caller must then hand
         back None, exactly as `_generate_panic` does).
@@ -1920,10 +1959,7 @@ class CallsMixin:
                         args.append(self._generate_expression(defaults[i]))
 
         # Call the method
-        mresult = self.builder.call(method_func, self._coerce_call_args(method_func, args), name="methodcall")
-        if self._terminate_after_noreturn(method_func):
-            return None
-        return mresult
+        return self._emit_call(method_func, args, "methodcall")
 
     def _interior_cell_pointer(self, obj_expr, want_pointee=None):
         """`cell.ptr()` — the address of an interior cell's own storage (186).
@@ -2280,7 +2316,8 @@ class CallsMixin:
         args = [self_val]
         for arg in expr.arguments:
             args.append(self._gen_transfer_value(arg.value))
-        return self.builder.call(method_func, args, name="arc_forward_call")
+        return self._emit_call(method_func, args, "arc_forward_call",
+                               coerce=False)
 
     def _forward_self_arg(self, method_func, payload_ptr, name: str):
         """The `self` argument a wrapper forward passes: the heap payload, by
@@ -2347,7 +2384,8 @@ class CallsMixin:
         args = [self_val]
         for arg in expr.arguments:
             args.append(self._gen_transfer_value(arg.value))
-        return self.builder.call(method_func, args, name="box_forward_call")
+        return self._emit_call(method_func, args, "box_forward_call",
+                               coerce=False)
 
     def _generate_field_call(self, expr: MethodCall):
         """Lower a call through a function-typed struct field: `obj.field(args)`
@@ -2370,7 +2408,10 @@ class CallsMixin:
         fn_ptr = self.builder.extract_value(closure_val, 0, name="field_fn_ptr")
         env_ptr = self.builder.extract_value(closure_val, 1, name="field_env_ptr")
         arg_vals = [self._gen_transfer_value(arg.value) for arg in expr.arguments]
-        return self.builder.call(fn_ptr, self._coerce_call_args(fn_ptr, [env_ptr] + arg_vals), name="field_closure_call")
+        # A function-typed FIELD is a closure called through a pointer, so it
+        # takes the closure path's expression-typed divergence answer.
+        return self._emit_call(fn_ptr, [env_ptr] + arg_vals,
+                               "field_closure_call", closure_call=expr)
 
     def _generate_static_method_call(self, expr: MethodCall, struct_name: str):
         """Generate a static method call: StructName.method(args)"""
@@ -2428,10 +2469,7 @@ class CallsMixin:
                     if defaults[i] is not None:
                         args.append(self._generate_expression(defaults[i]))
 
-        sresult = self.builder.call(method_func, self._coerce_call_args(method_func, args), name="static_methodcall")
-        if self._terminate_after_noreturn(method_func):
-            return None
-        return sresult
+        return self._emit_call(method_func, args, "static_methodcall")
 
     def _resolve_module_chain(self, expr: MemberAccess):
         """Resolve a chain of module accesses like Parent.Child to get the final ModuleSymbol.
@@ -2476,10 +2514,7 @@ class CallsMixin:
             for arg in expr.arguments:
                 args.append(self._gen_transfer_value(arg.value))
 
-        modresult = self.builder.call(func, self._coerce_call_args(func, args), name="module_call")
-        if self._terminate_after_noreturn(func):
-            return None
-        return modresult
+        return self._emit_call(func, args, "module_call")
 
     def _generate_module_struct_init(self, expr: MethodCall):
         """Generate a module struct initialization: ModuleName.StructName(args)

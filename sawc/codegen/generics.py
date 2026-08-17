@@ -687,9 +687,10 @@ class GenericsMixin:
                 # whenever the window body never falls through, and lowering
                 # that to `void` left the body returning an i8 from a `void`
                 # function.
-                return_type, is_never = self._lower_declared_return(method.return_type)
-                if not is_never:
-                    return_type = self._get_llvm_type(substituted_return)
+                is_never = (method.return_type is not None
+                            and method.return_type.kind == TypeKind.NEVER)
+                return_type = (ir.VoidType() if is_never
+                               else self._get_llvm_type(substituted_return))
 
             func_type = ir.FunctionType(return_type, param_types)
             llvm_func = ir.Function(self.module, func_type, name=mangled_name)

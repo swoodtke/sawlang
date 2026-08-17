@@ -331,8 +331,16 @@ class ExistentialsMixin:
         args = [data]
         for arg in expr.arguments:
             args.append(self._gen_transfer_value(arg.value))
-        result = self.builder.call(fn_ptr, args, name="anydispatch")
-        if isinstance(fn_ptr.type.pointee.return_type, ir.VoidType):
+        # design 228 legs 2 + 5: dispatch is a call like any other — a diverging
+        # ARGUMENT aborts it, and a `-> Never` requirement terminates after it.
+        # The callee is a loaded fn POINTER with no attribute list, so the
+        # divergence answer comes from the call expression, as it does for a
+        # closure. Sound here for the same reason: design 141 admits no
+        # `borrows` trait requirements, so this call's type IS the callee's
+        # return type.
+        result = self._emit_call(fn_ptr, args, "anydispatch", closure_call=expr,
+                                 coerce=False)
+        if result is None or isinstance(fn_ptr.type.pointee.return_type, ir.VoidType):
             return None
         return result
 
