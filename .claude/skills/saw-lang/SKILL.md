@@ -85,7 +85,13 @@ print("{#file}:{#line} - msg")  // #file/#line/#function: definition-site consts
   is in force — annotation, param, field, return, default value,
   if/match arm, compound-assign RHS, array/tuple/Map/Set element — and
   is range-checked at the literal (`let b: UInt8 = 256` is a clean
-  error). With no fixed-width expectation it stays platform `Int`
+  error). An ASSIGNMENT TARGET is on that list at every target kind
+  (DF-232a, fixed Aug 17): `v = 4`, `w.b = 2`, `t.0 = 5`, `arr[0] = 5`,
+  `m[k]! = 5`, an `unsafe static var`, and a `&var`/`self` referent. Six
+  of those were internal compiler errors before that date
+  (`cannot store i64 to i32*`), so treat them as working now and SUSPECT
+  in older builds; `0u32` was the workaround.
+  With no fixed-width expectation it stays platform `Int`
   (`let x = 5`); in a mixed binop it takes the other operand's TYPE.
   A CLOSURE BODY's return positions are on that list too (DF-226a, fixed
   Aug 17: the tail, the arm results inside it, a `return`), and so is an

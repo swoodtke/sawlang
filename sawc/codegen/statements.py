@@ -463,14 +463,9 @@ class StatementsMixin:
                         self._transfer_site_needs_copy(stmt.value):
                     value = self._generate_copy_for_dest(value, var_type)
 
-                # Wrap in optional if assigning T to T? (one layer at most —
-                # `_fit_optional_slot` compares against the slot's payload, so a
-                # nested optional fits too).
-                expected_type = self._get_llvm_type(var_type)
-                if var_type.is_optional():
-                    value = self._fit_optional_slot(value, expected_type)
-
-            self.builder.store(value, target_ptr)
+            # The integer-width and optional-layer fits, then the store — the
+            # same funnel every other assignment target kind ends at.
+            self._store_assigned_value(value, target_ptr, stmt.value)
             # DF-146h: re-arm the drop flag of a moved-from local. A static
             # target has no drop flag (statics are immortal).
             if not is_static_target:
@@ -566,16 +561,13 @@ class StatementsMixin:
                 # (the same rule `_generate_copy_for_dest` applies above).
                 value = self._generate_copy(value, self._expr_type(stmt.value))
 
-            # Check if we need to wrap in optional (non-optional value for optional
-            # field). Use `_is_optional_type` (a 2-element {i1, T}) rather than a
-            # bare "not a struct" test, so a struct-typed inner also wraps — e.g. an
-            # opt-encoded coroutine closure frame field `f: (()->Int)?` whose value
-            # is the 3-word closure struct (design 77 item 4).
-            expected_field_type = field_ptr.type.pointee
-            value = self._fit_optional_slot(value, expected_field_type)
-
-            # Store value to field
-            self.builder.store(value, field_ptr)
+            # Fit and store through the funnel: the integer width first (a
+            # `w.b = 2` on a `UInt32` field is an i64 constant here), then the
+            # optional layers — `_fit_optional_slot` compares against the
+            # slot's PAYLOAD, so a struct-typed inner also wraps, e.g. an
+            # opt-encoded coroutine closure frame field `f: (()->Int)?` whose
+            # value is the 3-word closure struct (design 77 item 4).
+            self._store_assigned_value(value, field_ptr, stmt.value)
 
         elif isinstance(stmt.target, ArrayIndex):
             # Array or pointer element assignment: arr[i] = value or ptr[i] = value
@@ -676,29 +668,17 @@ class StatementsMixin:
                     else:
                         raise ValueError(f"Unsupported container expression in assignment: {type(container_expr)}")
 
-            # Coerce value type if needed (e.g., Int -> Int8). The WIDEN goes
-            # through the design-195 funnel with the assigned expression's own
-            # type, so it extends by the SOURCE's signedness: this arm used to
-            # `sext` unconditionally, and `slots[0] = u` for a `UInt32 u` holding
-            # 4000000000 stored -294967296 into an `[Int; 2]` (DF-195e).
-            elem_type = elem_ptr.type.pointee
-            if isinstance(value.type, ir.IntType) and isinstance(elem_type, ir.IntType):
-                if value.type.width != elem_type.width:
-                    value = self._coerce_int_llvm(
-                        value, elem_type,
-                        getattr(stmt.value, 'resolved_type', None))
-
-            # Wrap a bare `T` into `T?` when the SLOT is opt-encoded — the same
-            # last step the variable and field assignment paths take, and the
-            # reason the copy above is driven by `_generate_copy_for_dest`
-            # (DF-151c: the value in hand is the payload, the wrap comes after).
-            # Missing here until DF-151e, because no `[T?; N]` could be built to
-            # reach it: `b[0] = s` on a `[String?; 2]` stored a bare `i8*` into a
-            # `{i1, i8*}` slot.
-            value = self._fit_optional_slot(value, elem_type)
-
-            # Store value to element
-            self.builder.store(value, elem_ptr)
+            # Fit and store through the funnel. The WIDEN it does carries the
+            # assigned expression's own type, so it extends by the SOURCE's
+            # signedness: this arm used to `sext` unconditionally, and
+            # `slots[0] = u` for a `UInt32 u` holding 4000000000 stored
+            # -294967296 into an `[Int; 2]` (DF-195e). The optional wrap comes
+            # AFTER, which is why the copy above is driven by
+            # `_generate_copy_for_dest` (DF-151c: the value in hand is the
+            # payload). Missing until DF-151e, because no `[T?; N]` could be
+            # built to reach it: `b[0] = s` on a `[String?; 2]` stored a bare
+            # `i8*` into a `{i1, i8*}` slot.
+            self._store_assigned_value(value, elem_ptr, stmt.value)
 
             # Placement-MOVE bookkeeping (design 65): a pointer-target store
             # (`ptr[i] = value`, Vector.push/set's primitive) bitwise-MOVES the
@@ -729,6 +709,45 @@ class StatementsMixin:
 
         else:
             raise ValueError(f"Invalid assignment target: {type(stmt.target)}")
+
+    def _store_assigned_value(self, value, slot_ptr, value_expr):
+        """THE store an assignment makes: fit the value to the slot, then store.
+
+        Two fits, in this order, at every assignment target kind:
+
+        - INTEGER WIDTH. A platform `Int` is assignable to and from any integer
+          type by design (`_types_compatible`), and a bare literal is a
+          platform `Int` until some slot tells it otherwise — so a well-typed
+          program legitimately arrives here with an i64 value for an i32 slot,
+          both from `v = 4` (a literal that adopted `UInt32` in the checker but
+          is still built as a constant) and from `v = k` for a plain `Int` k
+          (which adopts nothing and never could). Retype the constant,
+          truncate, or widen by the SOURCE's signedness (design 195).
+        - OPTIONAL LAYERS. A bare `T` into a `T?` — or a `T??` — slot wraps as
+          many times as the slot asks (DF-174b/g).
+
+        ENTRY POINTS (DF-232a) — the five stores `_generate_assign_statement`
+        reaches:
+
+          the Identifier arm            a local, or an `unsafe static var`
+          the MemberAccess arm          a struct field
+          `_store_into_tuple_slot`      a tuple slot (`t.0`, `p.x`)
+          the ArrayIndex arm            an array or pointer element
+          `_store_replacement_through_ptr`   a `&var` referent, or `self`
+
+        Only the ARRAY arm coerced the width before DF-232a, which is why
+        `v = 4`, `w.b = 2`, `t.0 = 5` and `r = 11` (through `&var`) all died in
+        llvmlite's verifier with `cannot store i64 to i32*` — one missing fit,
+        reported four ways. A sixth store site is added by calling this.
+        """
+        slot_type = slot_ptr.type.pointee
+        if (isinstance(value.type, ir.IntType)
+                and isinstance(slot_type, ir.IntType)
+                and value.type.width != slot_type.width):
+            value = self._coerce_int_llvm(
+                value, slot_type, getattr(value_expr, 'resolved_type', None))
+        value = self._fit_optional_slot(value, slot_type)
+        self.builder.store(value, slot_ptr)
 
     def _tuple_element_saw_type(self, tuple_expr, index):
         """The SawType of element `index` of the tuple `tuple_expr` denotes, or
@@ -763,9 +782,7 @@ class StatementsMixin:
             value = self._generate_copy_for_dest(value, elem_saw)
         elif self._frame_owning_read_copy(stmt.value):
             value = self._generate_copy(value, self._expr_type(stmt.value))
-        expected_type = elem_ptr.type.pointee
-        value = self._fit_optional_slot(value, expected_type)
-        self.builder.store(value, elem_ptr)
+        self._store_assigned_value(value, elem_ptr, stmt.value)
 
     def _store_replacement_through_ptr(self, stmt, value, referent_ptr,
                                        referent_saw):
@@ -791,9 +808,7 @@ class StatementsMixin:
                 isinstance(stmt.value, Identifier)
                 or self._transfer_site_needs_copy(stmt.value)):
             value = self._generate_copy_for_dest(value, referent_saw)
-        expected_type = referent_ptr.type.pointee
-        value = self._fit_optional_slot(value, expected_type)
-        self.builder.store(value, referent_ptr)
+        self._store_assigned_value(value, referent_ptr, stmt.value)
 
     def _generate_compound_assign_statement(self, stmt: CompoundAssignStatement):
         """Generate code for a compound assignment statement (+=, -=, *=, /=, %=).

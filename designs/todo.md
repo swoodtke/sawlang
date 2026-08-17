@@ -166,35 +166,42 @@ reaches no expected type), so `>= (1 << 8)` against a `UInt32` is refused and
 `(1u32 << 8)` is its spelling — which is why the abi `static_assert`s kept their
 decimals as well. [232]
 
-## DF-232a — INTERNAL COMPILER ERROR: a bare integer literal does not
-## adopt the expected fixed-width type in PLAIN ASSIGNMENT position
-## (filed Aug 17, SOS M3 unit 1; pinned)
+## ~~DF-232a — INTERNAL COMPILER ERROR: a bare integer literal does not
+## adopt the expected fixed-width type in PLAIN ASSIGNMENT position~~
+## — **FIXED Aug 17** (filed Aug 17, SOS M3 unit 1)
 
 `TIMERS[slot].deadline_ns = 0` on a `UInt64` field died with
-`cannot store i32 to i64*` on riscv32. Nothing kernel-specific: three
-lines reproduce on the host at any two widths.
-TWO DEFECTS. The literal SHOULD adopt (an assignment target names an
-expected type exactly as an annotation does); and even where a type
-cannot be reconciled the compiler owes a CLEAN REFUSAL — an
-`internal compiler error` is precisely what design 192's fuzz oracle
-exists to catch, so the ICE is a finding on its own terms whatever is
-decided about adoption.
-MECHANISM (probed, obligation 4): expected-type propagation into a bare
-literal is wired into the PLACE-LEND write paths and into the
-compound-assign RHS, and is absent from a plain `AssignStatement` whose
-target is a NAME or a FIELD PROJECTION; the typechecker never
-reconciles, so codegen reaches a raw store with mismatched LLVM types.
-ADOPTS: `let x: UInt32 = 0`, a struct-literal field, `[0; N]` under an
-annotation, `v += 1`, `arr[0] = 5`, `vec[0] = 5`. ICEs: `v = 4` (a
-local), `w.b = 2` (a field), `rows[0].b = 7` (a field through an
-element). The split is exact — every working row reaches the literal
-through a path that already carries an expected type — which is what
-makes this ONE bug rather than three.
-Pinned by `examples/assignment_target_adopts_fixed_width.saw`. NOT
-fixed in the SOS branch that found it: a core typechecker rule does not
-belong buried in a parked kernel branch. A suffixed literal works
-(`0u64`), which `timer_disarm` uses with a comment pointing here.
-[232]
+`cannot store i32 to i64*` on riscv32; three lines reproduced it on the
+host at any two widths. TWO DEFECTS, both fixed: the literal now adopts
+(an assignment target names an expected type exactly as an annotation
+does), and an unreconcilable value gets a CLEAN REFUSAL.
+MECHANISM, as landed: the same shape in BOTH halves of the compiler, so
+the fix is two funnels. The obligation-4 sweep widened the filed three
+ICE rows to SIX — the tracker's `v = 4`, `w.b = 2`, `rows[0].b = 7`,
+plus `t.0 = 5` (tuple index), `nt.p = 6` (named-tuple element) and
+`r = 11` through a `&var` referent.
+`_check_assign_rhs` (typechecker) is now THE reconciliation of an
+assignment's RHS against its target's type — push the expectation down,
+check, reconcile a bare `None`, refuse by name, take the value-transfer
+checkpoint. Its docstring names all NINE entry points; only three took
+the propagation before (array element, place lend, `unsafe static var`),
+and the other six ICE'd. `_store_assigned_value` (codegen) is THE store
+an assignment makes — integer-width fit, then optional layers; its
+docstring names all FIVE store sites, of which only the array-element
+arm coerced the width. Two rows the finding never named fell out of the
+codegen half: `v = k` for a plain `Int` k (LEGAL — a platform `Int`
+converts to and from any integer type — and it ICE'd, since adoption
+cannot reach a non-literal) and a folded `v = 2 + 3`.
+Tests: `examples/assignment_target_adopts_fixed_width.saw` is the
+matrix (XFAIL flipped, all eleven target-kind rows plus the platform-Int
+and negative-literal negatives), and
+`examples/assignment_target_literal_out_of_range.saw` pins the second
+defect — `v = 999` at `UInt8` is now
+``integer literal 999 does not fit in `UInt8` (range 0..=255)`` at the
+LITERAL's column. LANGUAGE_SPEC's adoption-position list and the
+saw-lang digest name the assignment target kinds. The sos/ `timer_disarm`
+suffix workaround (`0u64`, with a comment pointing here) can drop
+whenever that branch next moves — not touched from here. [232]
 
 ## SOS M3 — scoping session RATIFIED (designs/232), unit 1 BUILT
 

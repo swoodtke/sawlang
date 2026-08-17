@@ -800,7 +800,12 @@ division libcalls (`__divdi3`) on a 32-bit chip. Consequently:
   argument, a default parameter value, a `return` (and if/match arm results that
   merge to a fixed-width type), an enum payload, a compound-assign RHS
   (`x += 1` for `x: Int8`), and the element/key/value positions of array, tuple,
-  `Vector`, `Map`, and `Set` literals. In each the literal takes the slot's exact
+  `Vector`, `Map`, and `Set` literals. An ASSIGNMENT TARGET names an expected
+  type the same way an annotation does, at every target kind: a local (`v = 4`),
+  a struct field (`w.b = 2`), a tuple element under either spelling (`t.0 = 5`,
+  `pair.x = 5`), an array or `Vector` element (`arr[0] = 5`), a `borrows` place
+  (`m[k]! = 5`), an `unsafe static var`, and the referent of a `&var` reference
+  or of `self`. In each the literal takes the slot's exact
   width, so it stores and overflow-checks at that width, and an out-of-range
   literal (`let b: UInt8 = 256`) is a clean compile error, never a silent wrap or
   an ICE. With NO fixed-width expected type a literal stays platform `Int`

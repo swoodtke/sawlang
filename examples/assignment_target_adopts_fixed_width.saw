@@ -1,66 +1,168 @@
-// XFAIL: DF-232a a bare integer literal does not adopt the expected fixed-width
-// type in PLAIN ASSIGNMENT position, and the mismatch is an internal compiler
-// error rather than a diagnostic
+// An assignment TARGET names an expected type exactly as an annotation does, so
+// a bare integer literal assigned into a fixed-width slot adopts that width —
+// at every one of the nine assignment target kinds (DF-232a, design 232).
 //
 // Found while writing SOS design 232 unit 1: `TIMERS[slot].deadline_ns = 0` on a
 // `UInt64` field died with `cannot store i32 to i64*` on riscv32. Nothing about
-// the kernel is involved — the same three lines reproduce on the host at any two
-// widths.
+// the kernel was involved — three lines reproduced it on the host at any two
+// widths, and the sweep found six of the nine target kinds affected.
 //
-// TWO DEFECTS IN ONE. The literal SHOULD adopt: an assignment target names an
-// expected type exactly as an annotation does, and the language's rule is that a
-// bare literal takes a fixed-width expectation wherever one is in force. And
-// even where a type cannot be reconciled the compiler owes a clean refusal — an
-// `internal compiler error` is what the design-192 fuzz oracle exists to catch,
-// so the ICE is a finding on its own terms whatever is decided about adoption.
+// TWO FUNNELS, one per half of the compiler, because the bug was the same shape
+// in both. `_check_assign_rhs` (typechecker) is where an assignment's RHS is
+// reconciled against its target's type — it pushes the target's type down as an
+// expected type, so the literal adopts and is range-checked AT the literal;
+// before DF-232a only three of the nine arms did that. `_store_assigned_value`
+// (codegen) is the store itself — it fits the integer width and the optional
+// layers; before DF-232a only the array-element arm coerced the width. Each
+// docstring names its entry points.
 //
-// THE MECHANISM, and the matrix it reaches (obligation 4, probed at every row):
-// expected-type propagation into a bare literal is wired into the PLACE-LEND
-// write paths and into the compound-assign RHS, and is simply absent from a
-// plain `AssignStatement` whose target is a NAME or a FIELD PROJECTION. The
-// typechecker never reconciles the two, so codegen reaches a raw store with
-// mismatched LLVM types and dies there.
+// THE MATRIX, row by row (every row below ICE'd or is a guard against one):
 //
-//   ADOPTS TODAY (unaffected):
-//     let x: UInt32 = 0            annotation
-//     Wide(b: 0)                   struct-literal field
-//     var a: [UInt32; N] = [0; N]  repeat literal under an annotation
-//     v += 1                       COMPOUND assignment
-//     arr[0] = 5                   fixed-array element  (a place)
-//     vec[0] = 5                   Vector element       (a place lend)
+//   v = 4              a local variable            <- ICE'd
+//   STATIC = 3         an `unsafe static var`      adopted already
+//   r = 11             a `&var T` referent         <- ICE'd
+//   self.n = 3         a field through `self`      <- ICE'd
+//   w.b = 2            a struct field              <- ICE'd
+//   nt.p = 6           a named-tuple element       <- ICE'd
+//   t.0 = 5            a tuple index               <- ICE'd
+//   rows[0].b = 7      a field through an element  <- ICE'd
+//   arr[0] = 5         a fixed-array element       adopted already
+//   vec[0] = 9         a Vector element (a place)  adopted already
+//   c += 1             COMPOUND assignment         adopted already
 //
-//   ICEs TODAY (this file):
-//     v = 4                        a local of fixed width
-//     w.b = 2                      a struct FIELD
-//     rows[0].b = 7                a field THROUGH an element
+// Two rows the original finding did not name, both fixed by the codegen half:
+// `v = k` for a plain `Int` k is LEGAL (a platform `Int` converts to and from
+// any integer type by design) and used to ICE because no fit ran; and a folded
+// `v = 2 + 3` is not a literal at all, so adoption cannot reach it and only the
+// store-side coercion can. Out-of-range refusal has its own test,
+// `assignment_target_literal_out_of_range.saw`.
 //
-// The split is exact and is why this is one bug rather than three: every row
-// that works reaches the literal through a path that already carries an expected
-// type, and every row that fails is the one statement form that does not.
-//
-// A suffixed literal works today (`0u32`), which is the spelling `timer_disarm`
-// in sos/kernel/core/ uses in the meantime, with a comment pointing back here.
+// NEGATIVE ROWS: a platform `Int` target leaves the literal at platform width
+// (the load-bearing invariant of the expected-type funnel), and a negative
+// literal reaches the target through the unary-minus arm, range-checked on the
+// FOLDED value.
 //
 // EXPECT: success
 // EXPECT-OUTPUT:
 // local = 4
+// static = 3
+// ref = 11
+// self field = 3
 // field = 2
+// named tuple = 6
+// tuple idx = 5
 // elem field = 7
+// arr = 5
+// vec = 9
+// compound = 2
+// nonliteral = 5
+// folded = 5
+// neg local = -5
+// neg field = -128
+// branch = 7
+// platform = 5
 
 struct Wide { a: UInt64, b: UInt32 }
+struct Small { a: Int8 }
+struct Counter { n: UInt16 }
 
 static N: Int = 2
+unsafe static var SLOT: UInt32 = 0
+
+extension Counter {
+    func reset(&var self) {
+        self.n = 3
+    }
+}
+
+func set_static() unsafe -> UInt32 {
+    SLOT = 3
+    return SLOT
+}
+
+func through_ref(r: &var UInt32) {
+    r = 11
+}
 
 func main() {
+    // a local variable
     var v: UInt32 = 9
     v = 4
     print("local = {v}")
 
+    // an `unsafe static var`
+    print("static = {set_static()}")
+
+    // a `&var T` referent
+    var rv: UInt32 = 0
+    through_ref(&var rv)
+    print("ref = {rv}")
+
+    // a field through `self` in a `&var self` method
+    var counter = Counter(n: 0)
+    counter.reset()
+    print("self field = {counter.n}")
+
+    // a struct field
     var w = Wide(a: 0, b: 0)
     w.b = 2
     print("field = {w.b}")
 
+    // a named-tuple element
+    var nt: (p: UInt16, q: UInt16) = (p: 1u16, q: 1u16)
+    nt.p = 6
+    print("named tuple = {nt.p}")
+
+    // a tuple index
+    var t: (UInt32, UInt64) = (1u32, 1u64)
+    t.0 = 5
+    print("tuple idx = {t.0}")
+
+    // a field THROUGH an array element
     var rows: [Wide; N] = [Wide(a: 0, b: 0); N]
     rows[0].b = 7
     print("elem field = {rows[0].b}")
+
+    // a fixed-array element, a Vector element, a compound assignment — the
+    // three that already adopted, kept as no-regression rows
+    var arr: [UInt32; N] = [0u32; N]
+    arr[0] = 5
+    print("arr = {arr[0]}")
+
+    var vec: Vector<UInt8> = [1u8, 2u8]
+    vec[0] = 9
+    print("vec = {vec[0]}")
+
+    var c: UInt8 = 1
+    c += 1
+    print("compound = {c}")
+
+    // a non-literal platform `Int` RHS, and a folded expression: neither can
+    // adopt, both are legal, both need the store-side width fit
+    let k: Int = 5
+    var nl: UInt32 = 0
+    nl = k
+    print("nonliteral = {nl}")
+    var fold: UInt32 = 0
+    fold = 2 + 3
+    print("folded = {fold}")
+
+    // negative literals, range-checked on the folded value
+    var neg: Int8 = 0
+    neg = -5
+    print("neg local = {neg}")
+    var s = Small(a: 0)
+    s.a = -128
+    print("neg field = {s.a}")
+
+    // a branching RHS forwards the expectation to each arm
+    var b: UInt16 = 0
+    let cond = true
+    b = if cond { 7 } else { 8 }
+    print("branch = {b}")
+
+    // NEGATIVE ROW: a platform `Int` target leaves the literal at platform width
+    var p: Int = 0
+    p = 5
+    print("platform = {p}")
 }

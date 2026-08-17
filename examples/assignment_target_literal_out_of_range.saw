@@ -1,0 +1,19 @@
+// The second defect of DF-232a, owed independently of adoption: where a value
+// cannot be reconciled with an assignment target, the compiler owes a CLEAN
+// refusal — never an internal compiler error.
+//
+// `v = 999` on a `UInt8` local used to die as `cannot store i64 to i8*`, which
+// is exactly what design 192's fuzz oracle exists to catch. Now the literal
+// adopts `UInt8` through `_check_assign_rhs` and is range-checked AT the
+// literal, so the refusal names the value, the type and the range, and points
+// at the literal's own column rather than the statement's.
+//
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: integer literal 999 does not fit in `UInt8`
+// EXPECT-ERROR-CONTAINS: range 0..=255
+
+func main() {
+    var v: UInt8 = 1
+    v = 999
+    print("{v}")
+}

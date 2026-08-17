@@ -2121,6 +2121,67 @@ class StatementsMixin:
             return None
         return sym
 
+    def _check_assign_rhs(self, stmt, target_type, slot_noun: str,
+                          transfer_what: str):
+        """THE reconciliation of an assignment's RHS against its target's type.
+
+        Every `AssignStatement` arm ends here, because every one of them owes
+        the same four steps and the language states those rules per-STEP, not
+        per-target-kind:
+
+          1. push the target's type down as an EXPECTED type — a bare integer
+             literal adopts its width and is range-checked AT the literal
+             (design 87), a bare `None` learns its payload (DF-146l), a
+             collection literal shapes (design 54), a `FuncPointer` slot
+             coerces (design 226);
+          2. check the RHS;
+          3. reconcile a bare `None` against an optional target;
+          4. refuse an incompatible type by name, then take the value-transfer
+             checkpoint (NoCopy move discipline + Copy marking).
+
+        ENTRY POINTS (design 232 / DF-232a) — the nine assignment target kinds:
+
+          `x = v`        a local variable          `_check_assign_statement`
+          `STATIC = v`   an `unsafe static var`    `_check_static_var_assign`
+          `x = v`        a `&var T` referent       `_check_replacement_rhs`
+          `self = v`     a `&var self` receiver    `_check_replacement_rhs`
+          `o.f = v`      a struct field            `_check_assign_statement`
+          `p.x = v`      a named-tuple element     `_check_tuple_element_assign`
+          `t.0 = v`      a tuple index             `_check_tuple_element_assign`
+          `a[i] = v`     an array/pointer element  `_check_assign_statement`
+          `m[k]! = v` / `c.slot(i) = v`  a place   `_check_place_target_assign`
+
+        Only THREE of the nine took step 1 before DF-232a — the array element,
+        the place lend and the static — so `v = 4` on a `UInt32` local left the
+        literal at platform width and codegen reached a raw `store i64` into an
+        `i32*`: an internal compiler error on a line with nothing wrong with
+        it, at six of the nine rows. A tenth target kind is added by CALLING
+        this, never by copying it.
+
+        `slot_noun` names the slot in the refusal ("cannot assign `X` to
+        {noun} of type `Y`") and `transfer_what` names the site to the
+        value-transfer checkpoint. Returns the RHS's checked type, or None.
+        """
+        self._apply_literal_expected_type(stmt.value, target_type)
+        value_type = self._check_expression(stmt.value)
+        resolved = (self._resolve_type_alias(target_type)
+                    if target_type is not None else None)
+        if (value_type is not None and resolved is not None
+                and value_type.is_none_literal() and resolved.is_optional()):
+            self._propagate_optional_type(stmt.value, resolved)
+            value_type = resolved
+        if (value_type is not None and target_type is not None
+                and not self._types_compatible(value_type, target_type)):
+            self._error(
+                ErrorKind.TYPE_MISMATCH,
+                f"cannot assign `{value_type}` to {slot_noun} of type "
+                f"`{target_type}`",
+                stmt.line, stmt.column
+            )
+        self._check_value_transfer(stmt.value, target_type, transfer_what,
+                                   stmt.line, stmt.column)
+        return value_type
+
     def _check_static_var_assign(self, stmt, static_sym) -> None:
         """Check `MUTABLE_STATIC = value` (design 149 unit a).
 
@@ -2136,23 +2197,8 @@ class StatementsMixin:
         if static_sym.mangled_name:
             stmt.target.resolved_static_symbol = static_sym.mangled_name
         self._note_unsafe_static_contact(stmt.target.name, stmt.target)
-        self._apply_literal_expected_type(stmt.value, target_type)
-        value_type = self._check_expression(stmt.value)
-        resolved = self._resolve_type_alias(target_type) if target_type else None
-        if (value_type is not None and resolved is not None
-                and value_type.is_none_literal() and resolved.is_optional()):
-            self._propagate_optional_type(stmt.value, resolved)
-            value_type = resolved
-        if (value_type is not None and target_type is not None
-                and not self._types_compatible(value_type, target_type)):
-            self._error(
-                ErrorKind.TYPE_MISMATCH,
-                f"cannot assign `{value_type}` to static "
-                f"`{stmt.target.name}` of type `{target_type}`",
-                stmt.line, stmt.column
-            )
-        self._check_value_transfer(stmt.value, target_type, "assignment",
-                                   stmt.line, stmt.column)
+        self._check_assign_rhs(stmt, target_type,
+                               f"static `{stmt.target.name}`", "assignment")
 
     def _capture_write_root(self, target) -> Optional[str]:
         """If an assignment target writes into a closure's BY-VALUE capture,
@@ -2451,28 +2497,13 @@ class StatementsMixin:
                     hint="consider using `var` instead of `let` to make it mutable"
                 )
 
-            # Check type
-            value_type = self._check_expression(stmt.value)
-            # Propagate an optional VARIABLE type onto a `None` RHS (mirrors the
-            # let/return/field paths) so the None literal carries its inner type.
-            var_resolved = self._resolve_type_alias(var_info.type)
-            if (value_type and value_type.is_none_literal()
-                    and var_resolved.is_optional()):
-                self._propagate_optional_type(stmt.value, var_resolved)
-                value_type = var_resolved
-            if value_type and not self._types_compatible(value_type, var_info.type):
-                self._error(
-                    ErrorKind.TYPE_MISMATCH,
-                    f"cannot assign `{value_type}` to variable of type `{var_info.type}`",
-                    stmt.line, stmt.column
-                )
-
-            # Value-transfer checkpoint: enforce NoCopy move-discipline and mark
-            # Copy sites for codegen. The RHS was already type-checked
-            # above, so a moved var appearing in its own revival RHS is rejected
-            # before we clear the target's moved-state.
-            self._check_value_transfer(stmt.value, var_info.type, "assignment",
-                                       stmt.line, stmt.column)
+            # Check the RHS against the variable's type through the funnel —
+            # which is also the value-transfer checkpoint (NoCopy move
+            # discipline, Copy marking). The RHS is fully checked before we
+            # clear the target's moved-state, so a moved var appearing in its
+            # own revival RHS is still rejected.
+            self._check_assign_rhs(stmt, var_info.type, "variable",
+                                   "assignment")
             # Revival by assignment (design 15 rule 3): assigning a fresh value
             # to a moved binding clears its moved-state.
             self._revive_binding(var_info)
@@ -2542,25 +2573,12 @@ class StatementsMixin:
                 if type_map:
                     field_type = field_type.substitute(type_map)
 
-            # Check value type
-            value_type = self._check_expression(stmt.value)
-            # Propagate an optional FIELD type onto a `None` RHS so the None
-            # literal carries its inner type (mirrors the let/return paths). This
-            # matters for the coro transform's `self.__result = None` store into an
-            # optional-encoded result field, re-checked after the transform.
-            field_resolved = self._resolve_type_alias(field_type)
-            if (value_type and value_type.is_none_literal()
-                    and field_resolved.is_optional()):
-                self._propagate_optional_type(stmt.value, field_resolved)
-                value_type = field_resolved
-            if value_type and not self._types_compatible(value_type, field_type):
-                self._error(
-                    ErrorKind.TYPE_MISMATCH,
-                    f"cannot assign `{value_type}` to field of type `{field_type}`",
-                    stmt.line, stmt.column
-                )
-            self._check_value_transfer(stmt.value, field_type, "field assignment",
-                                       stmt.line, stmt.column)
+            # Check the RHS against the field's type through the funnel. The
+            # optional propagation it does matters for the coro transform's
+            # `self.__result = None` store into an optional-encoded result
+            # field, re-checked after the transform.
+            self._check_assign_rhs(stmt, field_type, "field",
+                                   "field assignment")
 
         elif isinstance(stmt.target, TupleIndex):
             # WHOLE-ELEMENT TUPLE WRITE `t.0 = fresh` (DF-151j). A tuple index is
@@ -2660,25 +2678,13 @@ class StatementsMixin:
                         stmt.target.index.line, stmt.target.index.column
                     )
 
-            # Check value type matches element type. The element type is an
-            # EXPECTED type for the value, so a bare literal adopts its width
-            # here exactly as it does at a `let`, a parameter or a plain
-            # assignment (DF-165b). Without this an `v[i] = 7` into a
-            # `Vector<UInt8>` left the literal at platform `Int` and reached
-            # codegen as a `store i64` into an `i8*` — an internal compiler
-            # error on a line with nothing wrong with it, and no range check on
-            # the literal either.
-            self._apply_literal_expected_type(stmt.value, element_type)
-            value_type = self._check_expression(stmt.value)
-            if value_type and element_type:
-                if not self._types_compatible(value_type, element_type):
-                    self._error(
-                        ErrorKind.TYPE_MISMATCH,
-                        f"cannot assign `{value_type}` to element of type `{element_type}`",
-                        stmt.line, stmt.column
-                    )
-            self._check_value_transfer(stmt.value, element_type, "element assignment",
-                                       stmt.line, stmt.column)
+            # Check the RHS against the element type through the funnel. The
+            # element type is an EXPECTED type for the value, so a bare literal
+            # adopts its width here exactly as it does at a `let` or a
+            # parameter (DF-165b) — this arm is one of the three that reached
+            # the propagation before DF-232a made all nine do it.
+            self._check_assign_rhs(stmt, element_type, "element",
+                                   "element assignment")
 
         elif isinstance(stmt.target, SelfExpr):
             # Whole-receiver replacement `self = v` in a `&var self` method
@@ -2743,48 +2749,25 @@ class StatementsMixin:
         # the use-site lowering stamps that on the synthesized accessor call, and
         # the re-check refuses an immutable root by name — the same path
         # `v[i] = fresh` already takes.
-        self._apply_literal_expected_type(stmt.value, element_type)
-        value_type = self._check_expression(stmt.value)
-        if value_type is not None and element_type is not None:
-            if not self._types_compatible(value_type, element_type):
-                self._error(
-                    ErrorKind.TYPE_MISMATCH,
-                    f"cannot assign `{value_type}` to place of type "
-                    f"`{element_type}`",
-                    stmt.line, stmt.column)
-        self._check_value_transfer(stmt.value, element_type, "place assignment",
-                                   stmt.line, stmt.column)
+        self._check_assign_rhs(stmt, element_type, "place", "place assignment")
 
     def _check_tuple_element_assign(self, stmt: AssignStatement,
                                     element_type: SawType):
         """Value side of a whole-element tuple write (DF-151j) — `t.0 = fresh`
         and its named spelling `pair.x = fresh`.
 
-        The same three steps the field path takes: propagate the element's
-        optional type onto a bare `None` RHS so the literal carries its inner
-        type, check assignability, and take the ordinary value-transfer
-        checkpoint against the ELEMENT's type (so an ExplicitCopy/NoCopy RHS
-        must `move`/`.copy()` exactly as it must into a field). The overwritten
-        element's drop is codegen's half: the slot always holds a live value, so
-        the old element deinits exactly once before the new one lands.
+        The RHS goes through `_check_assign_rhs` exactly as the field path's
+        does, so the element's type is an EXPECTED type for it (a bare literal
+        adopts the element's width, a bare `None` learns its payload) and the
+        value-transfer checkpoint runs against the ELEMENT's type — an
+        ExplicitCopy/NoCopy RHS must `move`/`.copy()` exactly as it must into a
+        field. The overwritten element's drop is codegen's half: the slot
+        always holds a live value, so the old element deinits exactly once
+        before the new one lands.
         """
         stmt.target.resolved_type = element_type
-        value_type = self._check_expression(stmt.value)
-        elem_resolved = self._resolve_type_alias(element_type)
-        if (value_type and value_type.is_none_literal()
-                and elem_resolved.is_optional()):
-            self._propagate_optional_type(stmt.value, elem_resolved)
-            value_type = elem_resolved
-        if value_type and not self._types_compatible(value_type, element_type):
-            self._error(
-                ErrorKind.TYPE_MISMATCH,
-                f"cannot assign `{value_type}` to tuple element of type "
-                f"`{element_type}`",
-                stmt.line, stmt.column
-            )
-        self._check_value_transfer(stmt.value, element_type,
-                                   "tuple element assignment",
-                                   stmt.line, stmt.column)
+        self._check_assign_rhs(stmt, element_type, "tuple element",
+                               "tuple element assignment")
 
     def _check_ref_replacement_assign(self, stmt: AssignStatement,
                                       ref_type: SawType, name: str):
@@ -2850,24 +2833,12 @@ class StatementsMixin:
         would, then run the value-transfer checkpoint. `move v` (of a callee
         local) and `.copy()` follow the ordinary transfer rules; the caller's
         object is the thing being replaced and stays valid."""
-        value_type = self._check_expression(stmt.value)
         if referent is None:
+            # No usable referent type: check the RHS for its own errors and
+            # stop — the funnel would have nothing to reconcile it against.
+            self._check_expression(stmt.value)
             return
-        # Propagate an optional referent type onto a bare `None` RHS (mirrors the
-        # var/field paths) so the None literal carries its inner type.
-        referent_resolved = self._resolve_type_alias(referent)
-        if (value_type and value_type.is_none_literal()
-                and referent_resolved.is_optional()):
-            self._propagate_optional_type(stmt.value, referent_resolved)
-            value_type = referent_resolved
-        if value_type and not self._types_compatible(value_type, referent):
-            self._error(
-                ErrorKind.TYPE_MISMATCH,
-                f"cannot assign `{value_type}` to referent of type `{referent}`",
-                stmt.line, stmt.column
-            )
-        self._check_value_transfer(stmt.value, referent, "assignment",
-                                   stmt.line, stmt.column)
+        self._check_assign_rhs(stmt, referent, "referent", "assignment")
 
     def _check_compound_assign_statement(self, stmt: CompoundAssignStatement):
         """Check a compound assignment statement (+=, -=, *=, /=, %=).
