@@ -738,6 +738,12 @@ closing a channel mid-flight loses no messages. A send after a close is
 a panic, so a close that loses a race is safe to ignore with `let _ =` without
 being silent about it.
 
+Cancelling the consumer ends the wait too. `receive` checks for cancellation at
+the top of its loop, before it looks at the queue, and answers `Err(Cancelled)`
+— so `h.cancel()` on a task parked on a channel reaches it, and the loop above
+exits through the same `case Err(_)` arm. A cancelled receive takes no message
+off the queue.
+
 Forgetting the `close()` is a deadlock, and the executor says so rather than
 waiting. When every live task is parked on a channel, nothing is runnable, no
 I/O is registered and no timer is pending, nothing in the process can ever run
@@ -1521,7 +1527,8 @@ The standard library includes:
   the `spawn`/`Task` engine. Calling `recv` from a task stops the executor
   thread, and with it the task that would have sent the value. A waiting
   `receive()` costs no CPU: the task is parked until a send on that same channel
-  wakes it. `send`, `receive` and `close` return a `Result<_, ChannelError>`;
+  wakes it, and cancelling the task ends the wait with `Err(Cancelled)`. `send`,
+  `receive` and `close` return a `Result<_, ChannelError>`;
   see [Channels close explicitly](#channels-close-explicitly). `Mutex<T>` is one
   inline word beside its payload — no allocation, no `deinit`, and zero means
   unlocked, so `static REGISTRY: Mutex<Int>` needs no initializer.

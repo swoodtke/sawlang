@@ -1221,10 +1221,18 @@ func __saw_exec_worker(addr: Int) unsafe {
                             // design 230: parked on a readiness word. PROMOTE it
                             // here rather than in a second pass — the scan is
                             // already under the lock and already holds the slot,
-                            // and a promoted frame is simply the next `idx`. No
-                            // cancel clause, for the reason `__saw_exec_wake_flags`
-                            // states.
-                            if __park_flag_set(st.remaining) {
+                            // and a promoted frame is simply the next `idx`. The
+                            // cancel clause beside it is DF-230a's, and carries
+                            // the reasoning `__saw_exec_wake_flags` states: a
+                            // cancelled receiver resumes into the check at its
+                            // loop top and ends with `Err(Cancelled)`.
+                            var promote = __park_flag_set(st.remaining)
+                            if not promote {
+                                promote = g[0].tasks.with_var_ref<Bool>(i, { f in
+                                    f!.is_cancelled()
+                                })
+                            }
+                            if promote {
                                 g[0].remaining.set(i, 0)
                                 if idx < 0 {
                                     idx = i
@@ -1911,15 +1919,17 @@ func __saw_exec_wake_cancelled_sleepers() unsafe -> Bool {
 // the receivers of ITS channel and nobody else's. Returns whether anything was
 // promoted.
 //
-// DELIBERATELY NOT the io side's cancel clause. `__saw_exec_wake_io` also wakes
-// a CANCELLED parked frame, and that is sound there because every std.net park
-// loop re-checks `cancelled()` at its top and returns `Err`. `Channel.receive`
-// has no such check — cancellation awareness on a channel is written by the
-// USER, with `try_receive` (`examples/taskgroup_cancel_receive.saw`) — so waking
-// a cancelled channel waiter would resume it into a `try_receive` that finds
-// nothing and parks again, turning a quiet park into a promote/resume/re-park
-// spin. The task is unreachable either way (DF-230a records the gap); this at
-// least leaves it costing nothing.
+// THE IO SIDE'S CANCEL CLAUSE, and DF-230a is why it is here now. Design 230
+// left it out deliberately: `__saw_exec_wake_io` wakes a CANCELLED parked frame
+// because every std.net park loop re-checks `cancelled()` at its top and
+// returns `Err`, and `Channel.receive` had no such check — so waking a
+// cancelled channel waiter would have resumed it into a `try_receive` that
+// finds nothing and parks again, turning a quiet park into a
+// promote/resume/re-park spin. The check exists now (`ChannelError.Cancelled`,
+// observed at the receive loop's top), so the wake TERMINATES the receive
+// instead of re-parking it, and the reasoning that argued against it is the
+// reasoning that now requires it: without the wake the check would never be
+// reached, and `h.cancel()` on a parked receiver would still not arrive.
 func __saw_exec_wake_flags() unsafe -> Bool {
     var woke = false
     var cur = __saw_exec_head.load()
@@ -1933,6 +1943,14 @@ func __saw_exec_wake_flags() unsafe -> Bool {
                 if __park_flag_set(st.remaining) {
                     g[0].remaining.set(i, 0)
                     woke = true
+                } else {
+                    let c = g[0].tasks.with_var_ref<Bool>(i, { f in
+                        f!.is_cancelled()
+                    })
+                    if c {
+                        g[0].remaining.set(i, 0)
+                        woke = true
+                    }
                 }
             }
             i = i + 1
@@ -1966,6 +1984,8 @@ func __saw_exec_wake_flags() unsafe -> Bool {
 //   * a frame parked on IO — the reactor holds a registration that may fire;
 //   * a frame parked on a TIMER — its deadline will arrive;
 //   * a frame parked on a readiness word that is ALREADY SET — resumable now;
+//   * a frame parked on a readiness word that has been CANCELLED (DF-230a) —
+//     resumable now, and it resumes into the receive loop's cancellation check;
 //   * a `spawn {}` thread-engine task that has not been joined.
 // With none of those and at least one frame parked on a CLEAR readiness word,
 // nothing will ever run again and the wait can only end when the process does.
@@ -2003,6 +2023,17 @@ func __saw_exec_quiescent_now(self_parked: Bool) unsafe -> Bool {
                 }
                 if __park_is_flag(st.remaining) {
                     if __park_flag_set(st.remaining) {
+                        return false
+                    }
+                    // DF-230a: a cancelled waiter is resumable — the promote in
+                    // `__saw_exec_wake_flags` will take it and its receive ends
+                    // with `Err(Cancelled)`. Reading it here as well is what
+                    // keeps a cancel that lands DURING the double-check from
+                    // being reported as a deadlock.
+                    let c = g[0].tasks.with_var_ref<Bool>(i, { f in
+                        f!.is_cancelled()
+                    })
+                    if c {
                         return false
                     }
                     parked = true

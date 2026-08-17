@@ -1,0 +1,41 @@
+// DF-230a at the OTHER engine: a task parked in `receive()` inside an MT group
+// (`threads: N`) is reached by `cancel()` too.
+//
+// The two engines promote a readiness-word park in different code — the ambient
+// sweep in `__saw_exec_wake_flags`, an MT worker in its own under-the-lock scan —
+// so the cancel clause had to be added twice and is worth checking twice. The
+// worker's scan is the one that could quietly keep the old behavior: it promotes
+// inline while it is already holding the slot, so a missing clause there shows up
+// only as a hang under `threads:`.
+// EXPECT: success
+// EXPECT-OUTPUT:
+// the receiving task was cancelled
+// handled 30
+
+import std.channel.{Channel, ChannelError}
+
+func consume(orders: Channel<Int>) -> Int {
+    var handled = 0
+    while true {
+        match orders.receive() {
+            case Ok(v) -> { handled = handled + v },
+            case Err(e) -> {
+                print("{}", e.describe())
+                return handled
+            }
+        }
+    }
+    return handled
+}
+
+func main() {
+    var g = TaskGroup(threads: 2)
+    let orders = Channel<Int>()
+    try! orders.send(10)
+    try! orders.send(20)
+    let h = g.spawn(consume(orders.copy()))
+    // Give the worker time to drain both messages and park on the empty channel.
+    sleep(Duration.ms(50))
+    h.cancel()
+    print("handled {}", h.join())
+}

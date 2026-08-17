@@ -69,20 +69,27 @@ extern "C" {
 /// Why a channel operation could not be carried out.
 ///
 /// `Closed` is reported by `receive` once a closed channel has been drained, and
-/// by `send` and `close` on a channel that is already closed. A timeout case is
-/// the reserved next one: a receive with a deadline is the other legitimate way
-/// one of these calls can fail to deliver, which is why the error is an enum
-/// rather than a bare `Closed` marker.
+/// by `send` and `close` on a channel that is already closed. `Cancelled` is
+/// reported by `receive` when the task waiting was cancelled, so a consumer
+/// parked on a channel ends the same way one parked on a socket does. A timeout
+/// case is the reserved next one: a receive with a deadline is the other
+/// legitimate way one of these calls can fail to deliver, which is why the error
+/// is an enum rather than a bare `Closed` marker.
 public enum ChannelError {
     /// The channel was closed with `close()`, and — for `receive` — drained.
-    case Closed
+    case Closed,
+    /// The waiting task was cancelled. `receive` reports it before it looks at
+    /// the queue, so a cancelled consumer stops rather than taking one more
+    /// message; nothing is dequeued and the channel is untouched.
+    case Cancelled
 }
 
 extension ChannelError {
     /// A short description of the failure.
     public func describe(&self) -> String {
         match self {
-            case Closed -> "channel is closed"
+            case Closed -> "channel is closed",
+            case Cancelled -> "the receiving task was cancelled"
         }
     }
 }
@@ -419,6 +426,17 @@ extension Channel<T: Send> {
         return ChannelError.Closed
     }
 
+    // DF-230a: the cancelled answer, built where the two other answers are built.
+    //
+    // `public` for the design-204 reason, exactly as `__try_receive_result` is:
+    // the coroutine transform emits this call on the receive lowering's cancel
+    // arm, so its identity must stay the plain spelling `coro_transform.py`
+    // writes. A program has no reason to name it — `receive()` hands back what
+    // it returns.
+    public func __cancelled_result(&self) unsafe sync -> Result<T, ChannelError> {
+        return ChannelError.Cancelled
+    }
+
     /// Waits for the next message, suspending the TASK rather than the thread.
     ///
     /// Returns `Err(Closed)` once the channel has been closed and everything
@@ -450,6 +468,13 @@ extension Channel<T: Send> {
         var __got: Result<T, ChannelError>? = None
         var __done = false
         while not __done {
+            // DF-230a: cancellation is observed at the LOOP TOP, which is where
+            // every std.net park loop observes it (design 102) and where design
+            // 180 unit 5 put the timer half. Ahead of the queue read on purpose:
+            // a cancelled consumer stops instead of taking one more message.
+            if cancelled() {
+                return ChannelError.Cancelled
+            }
             if let r = self.__try_receive_result() {
                 return move r
             }

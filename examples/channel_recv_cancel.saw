@@ -1,14 +1,21 @@
-// design 62 G3: cooperative `receive()` composed with cancellation. The worker
-// receives the one buffered value, observes cancellation at a `cancelled()` check,
-// and returns through normal control flow (NO forced destroy) — WITHOUT calling the
-// second `receive()`, which would otherwise suspend forever on the empty channel.
-// The Res deinit oracle proves exactly-once cleanup at frame teardown, which
-// design 124 puts at the task's own completion — so 77 prints before `join()`
-// returns 100.
+// design 62 G3 composed with cancellation, at the contract DF-230a gave it.
+//
+// The worker is cancelled BEFORE the group is driven, so its very first
+// `receive()` answers `Err(Cancelled)`: the check is at the LOOP TOP, ahead of
+// the queue read, so the buffered 100 is not handed to a task that is stopping
+// and `got` stays 0. Before DF-230a `receive()` ignored cancellation entirely,
+// and this file asserted the opposite — the worker took the buffered value and
+// needed a hand-written `cancelled()` check beside it to avoid suspending
+// forever on the now-empty channel.
+//
+// What has not changed is the shape the test exists for: the worker leaves
+// through NORMAL CONTROL FLOW (no forced destroy), and the `Res` deinit oracle
+// proves exactly-once cleanup at the task's own completion, which design 124
+// puts before `join()` returns — so 77 prints first.
 // EXPECT: success
 // EXPECT-OUTPUT:
 // 77
-// 100
+// 0
 
 import std.channel.{Channel}
 struct Res { id: Int }
@@ -16,12 +23,17 @@ extension Res: NoCopy { func deinit(&var self) { print(self.id) } }
 
 func worker(ch: Channel<Int>) -> Int {
     let held = Res(id: 77)       // deinit oracle
-    let first = try! ch.receive()     // gets the buffered 100
-    if cancelled() {
-        return first             // observe cancel; skip the second receive()
+    var got = 0
+    while true {
+        match ch.receive() {
+            case Ok(v) -> { got = got + v },
+            // Cancelled — and on an empty, unclosed channel this is the only
+            // thing that ends the loop. The old spelling needed `try_receive`
+            // plus `cancelled()` to get here.
+            case Err(_) -> { return got }
+        }
     }
-    let second = try! ch.receive()    // unreached (channel is empty here)
-    first + second
+    return got
 }
 
 func main() {
@@ -30,5 +42,5 @@ func main() {
     try! ch.send(100)
     let h = group.spawn(worker(ch.copy()))
     h.cancel()          // set before the group is driven
-    print(h.join())     // 100
+    print(h.join())     // 0 — the buffered 100 is left in the channel
 }

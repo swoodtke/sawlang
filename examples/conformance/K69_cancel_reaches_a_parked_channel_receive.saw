@@ -1,0 +1,63 @@
+// Conformance row K69 — cancellation reaches a task PARKED in `receive()`
+//
+// DF-230a. Every other parking primitive in std observes cancellation: std.net's
+// accept/read/write re-check at their park-loop top and return `Err` (design
+// 102), and design 180 unit 5 gave the timer half the same promptness. The
+// channel was the one park with no such path — `h.cancel()` on a consumer
+// waiting for a message never reached it, and the group's `Deinit` then waited
+// for the task, so the cancel turned into a hang.
+//
+// Two halves have to hold together, which is why this is a row and not a
+// diagnostic test. The RECEIVE must check (`Err(Cancelled)` at its loop top,
+// ahead of the queue read), and the EXECUTOR must WAKE a cancelled parked frame
+// — design 230 deliberately did not, on the correct grounds that a wake with no
+// check behind it converts a quiet park into a promote/resume/re-park spin.
+// Either half alone leaves the task unreachable.
+//
+// Ordering is part of the guarantee: the check runs BEFORE the dequeue, so a
+// cancelled consumer stops rather than taking one more message. `sent` proves it
+// — the value is in the queue before the cancel lands, and the consumer never
+// counts it.
+// EXPECT: success
+// EXPECT-OUTPUT:
+// drained 30
+// the receiving task was cancelled
+// handled 30
+
+import std.channel.{Channel, ChannelError}
+import std.task.{yield_now}
+
+func consume(orders: Channel<Int>) -> Int {
+    var handled = 0
+    while true {
+        match orders.receive() {
+            case Ok(v) -> {
+                handled = handled + v
+                if handled == 30 {
+                    print("drained {}", handled)
+                }
+            },
+            case Err(e) -> {
+                print("{}", e.describe())
+                return handled
+            }
+        }
+    }
+    return handled
+}
+
+func main() {
+    var g = TaskGroup()
+    let orders = Channel<Int>()
+    try! orders.send(10)
+    try! orders.send(20)
+    let h = g.spawn(consume(orders.copy()))
+    // Let the consumer drain what is queued and PARK on the empty channel — the
+    // state the cancel has to reach.
+    yield_now()
+    // A message the cancelled receive must NOT take: the check is ahead of the
+    // dequeue, so this stays in the queue and `handled` stays 30.
+    try! orders.send(5)
+    h.cancel()
+    print("handled {}", h.join())
+}

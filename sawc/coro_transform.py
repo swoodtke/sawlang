@@ -6047,7 +6047,14 @@ class _FrameBuilder:
 
         design 224 (G4): a `return ch.receive()` tail ends the coroutine with the
         received value as this frame's `__result`, exactly as a `return g(...)`
-        free-function tail and a `return recv.m(...)` method tail already do."""
+        free-function tail and a `return recv.m(...)` method tail already do.
+
+        DF-230a: the loop TOP is a cancellation check, the std.net park-loop
+        shape (design 102) — `Err(Cancelled)` is this receive's answer and the
+        loop ends, so a cancelled consumer parked on a channel stops instead of
+        waiting for a message no one will send. It is checked ahead of the queue
+        read on purpose: a cancelled task takes no further message."""
+        import copy as _copy
         idx = rc['idx']
         have = f"__have{idx}"
         target = rc['target'] if rc['target'] is not None else f"__rcv{idx}"
@@ -6058,13 +6065,32 @@ class _FrameBuilder:
         self._emit([AssignStatement(target=_self_field(have),
                                     value=BoolLiteral(value=False))])
         header = self._new_block()
+        cancel_b = self._new_block()
         body_b = self._new_block()
         yield_b = self._new_block()
         after = self._new_block()
         self._goto(header)
-        # header: loop while not have; exit when a value has been received.
+        # header: loop while not have; exit when an answer has been produced.
         self.cur = header
-        self._branch(UnaryOp(op="not", operand=_self_field(have)), body_b, after)
+        self._branch(UnaryOp(op="not", operand=_self_field(have)),
+                     cancel_b, after)
+        # cancel check: a peer cancel is this receive's answer. Storing
+        # `Err(Cancelled)` through the same funnel as the received value means
+        # the holder, the `return` tail and the frame's teardown need no second
+        # shape — the two answers have one type.
+        self.cur = cancel_b
+        cancel_arm = self._new_block()
+        self._branch(self._cancel_place(), cancel_arm, body_b)
+        self.cur = cancel_arm
+        cancelled_call = MethodCall(object=_copy.deepcopy(recv_expr),
+                                    method_name="__cancelled_result",
+                                    arguments=[])
+        self._emit([
+            self._store_field(target, cancelled_call),
+            AssignStatement(target=_self_field(have),
+                            value=BoolLiteral(value=True)),
+        ])
+        self._goto(header)
         # body: non-blocking attempt. `if let __rv = <recv>.try_receive() { ... }`
         # is non-spanning (try_receive never suspends), lowered in place here.
         self.cur = body_b
@@ -6112,7 +6138,6 @@ class _FrameBuilder:
         # core (DQ-225n). A fresh copy of the receiver: `recv_expr` is already
         # placed in the `try_receive` call above, and an AST node may sit in one
         # place only.
-        import copy as _copy
         park_word = MethodCall(object=_copy.deepcopy(recv_expr),
                                method_name="__park_word", arguments=[])
         self._suspend_to(park_word, header)

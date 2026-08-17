@@ -5926,9 +5926,11 @@ anti-suspension boundary, so it is `sync`) plus `wake_reason(&self) sync -> Int`
   transform lowers each `let v = ch.receive()` / `ch.receive()` call site INLINE
   into a non-blocking-attempt + park loop against the caller's own frame (no
   callee frame — so no generic-method-frame gap); `try_receive() -> T?` remains
-  available for a hand-rolled cancellation-aware loop (`if cancelled() { ... }`),
-  and is still the ONLY way to observe cancellation while waiting, because
-  `receive`'s own loop has no `cancelled()` check.
+  available for a hand-rolled loop.
+  **A parked receive observes cancellation.** `receive` checks at its loop top,
+  ahead of the queue read, and answers `Err(Cancelled)` — so `h.cancel()` on a
+  consumer waiting for a message ends it, exactly as it ends one waiting on a
+  socket. A cancelled receive dequeues nothing.
   **The park carries the channel's identity.** The wake reason a parked frame
   records is the negated address of a readiness word the channel maintains, so
   the executor's rule is "resume the frame once the word it named is nonzero"
@@ -5956,7 +5958,7 @@ anti-suspension boundary, so it is `sync`) plus `wake_reason(&self) sync -> Int`
   public func send(&self, v: T) -> Result<Void, ChannelError>
   public func receive(&self) -> Result<T, ChannelError>
 
-  public enum ChannelError { case Closed }
+  public enum ChannelError { case Closed, case Cancelled }
   ```
 
   Any holder may call `close()`; by convention the producer does, after its last
@@ -5965,6 +5967,9 @@ anti-suspension boundary, so it is `sync`) plus `wake_reason(&self) sync -> Int`
   in it loses none of them. A send after a close is `Err(Closed)` and does not
   enqueue. A second close is `Err(Closed)` rather than a panic, so a close that
   races another one is idempotent to ignore with `let _ =` without being silent.
+  `Err(Cancelled)` is the other answer a `receive` can give: the waiting task was
+  cancelled, nothing was dequeued, and the consumer loop ends the way a cancelled
+  socket read ends. `send` and `close` never report it — neither waits.
   `ChannelError` is an enum because a receive TIMEOUT is the other legitimate way
   one of these calls can fail to deliver; that case is reserved, not yet built.
 

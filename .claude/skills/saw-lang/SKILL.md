@@ -1406,11 +1406,15 @@ dump_tasks()                // every live task's logical backtrace (std.task)
   Nothing rejects the call today (DF-181c).
 - **A CHANNEL WAIT IS A PARK, AND CHANNELS CLOSE EXPLICITLY (design 230).**
   `receive() -> Result<T, ChannelError>`, `send`/`close ->
-  Result<Void, ChannelError>`, `enum ChannelError { case Closed }` (a receive
-  TIMEOUT is the reserved next case). The park is the mechanical half: a waiting
-  receiver costs 0% CPU and is woken by a send or a close ON ITS OWN CHANNEL —
-  before 230 it suspended READY and a sole waiter burned 100% of a core, so treat
-  a quiet channel wait as working now and SUSPECT in older builds.
+  Result<Void, ChannelError>`, `enum ChannelError { case Closed, case Cancelled }`
+  (a receive TIMEOUT is the reserved next case). The park is the mechanical half:
+  a waiting receiver costs 0% CPU and is woken by a send or a close ON ITS OWN
+  CHANNEL — before 230 it suspended READY and a sole waiter burned 100% of a core,
+  so treat a quiet channel wait as working now and SUSPECT in older builds.
+  `Cancelled` is the answer a parked receive gives when its task is cancelled: the
+  check is at the loop top, ahead of the queue read, so a cancelled consumer stops
+  instead of taking one more message. Hand-rolling the loop with `try_receive` +
+  `cancelled()` still works and is no longer the only way to be cancellable.
   `close()` is the part you have to WRITE. A handle carries no sender/receiver
   role — every handle is the same handle, and a waiting receiver holds one too —
   so nothing can work out that the producers are gone. Say so:

@@ -575,27 +575,84 @@ denied-allocator case it exists for); or retire `try_send` on the grounds that a
 caller who cares about allocator refusal on a channel should say so once at
 `try_make`. One call site in tree (`examples/alloc_no_inert_objects.saw`).
 
-## DF-230a — a task suspended inside `Channel.receive()` cannot be CANCELLED
-## (filed Aug 16; RULED Aug 17, user: `Cancelled` joins `ChannelError`)
+## DF-230a — CLOSED (Aug 17): cancellation reaches a task parked inside
+## `Channel.receive()`, and it reports `Err(Cancelled)`
 
-**RULED, fix dispatched Aug 17 (small-fix batch, item 2). Rider ruling
-(user, Aug 17): CANCEL-BEATS-BUFFERED is the contract** — a task cancelled
-while a value is already buffered gets `Err(Cancelled)`, not the value:
-cancellation is the receiver explicitly asking for no more data, so
-delivering one more would contradict the request. The value is not lost (it
-stays in the channel for other receivers / teardown). The loop-TOP check
-position implements exactly this; `examples/channel_recv_cancel.saw`'s
-updated expectation is the ruled behavior, not a regression.
+**Rider ruling (user, Aug 17): CANCEL-BEATS-BUFFERED is the contract** — a
+task cancelled while a value is already buffered gets `Err(Cancelled)`, not
+the value: cancellation is the receiver explicitly asking for no more data,
+so delivering one more would contradict the request. The value is not lost
+(it stays in the channel for other receivers / teardown). This RESOLVES the
+implementation's flagged judgement call below: the loop-TOP position is the
+ruled behavior, and `examples/channel_recv_cancel.saw`'s updated expectation
+is the contract, not a regression.
 
-(original ruling) The ruling: cancellation IS an error the
-receive reports — `ChannelError` gains `Cancelled` beside `Closed`, the
-receive loop gains the `cancelled()` check at its top (the std.net
-park-loop precedent), and the cancel path wakes the parked waiter (the
-230-era refusal to wake was CORRECT while no check existed — the check
-is what makes the wake terminate instead of re-park). The fix covers:
-the enum case, the loop check, the wake, `send`'s parked-sender twin if
-one exists, tests at both engines, and the docs' ChannelError case
-list. Original filing follows.
+**Landed, the ruling as stated.** Three pieces, and the first two are only
+correct together:
+
+1. **The check.** `ChannelError` gains `case Cancelled` (`sawc/std/channel.saw`),
+   and the receive loop observes cancellation at its TOP, ahead of the queue
+   read — the std.net park-loop position (design 102), which is also design 180
+   unit 5's for the timer half. Ahead of the dequeue on purpose: a cancelled
+   consumer stops instead of taking one more message, which K69 pins with a
+   value left in the queue.
+2. **The wake.** `__saw_exec_wake_flags` and the MT worker's under-the-lock
+   promote scan both gained the io side's cancel clause. Design 230 refused it
+   for a reason that was right at the time and is now the reason it is required:
+   with no check in the loop, a woken cancelled waiter re-parked (a
+   promote/resume/re-park spin); with the check, the wake TERMINATES the receive,
+   and without the wake the check would never be reached. The comment at
+   `__saw_exec_wake_flags` records the flip rather than deleting the reasoning.
+   The quiescent deadlock walk reads the cancel word too, so a cancel landing
+   during its double-check is never reported as a deadlock.
+3. **The lowering.** The semantics live in `coro_transform.py`'s
+   `_emit_recv_call`, not in the reference body — every call site is rewritten
+   inline, and a `cancelled()` outside a coroutine frame is constant false. The
+   loop top is now a cancel block that stores `Channel.__cancelled_result()`
+   through the same store funnel as the received value, so the holder, the
+   `return ch.receive()` tail and the frame teardown need no second shape: the
+   two answers have one type. The reference body in `std/channel.saw` carries the
+   matching check, as it carries the matching park.
+
+**No parked-SENDER twin exists.** `Channel` is UNBOUNDED — `_enqueue` locks,
+allocates a node, links and unlocks; there is no capacity to wait on and `send`
+never suspends. `try_send` untouched (DQ-230b is still open and unchanged).
+
+**Consumer sweep (obligation 2), and it caught a REAL flip the grep did not.**
+The new enum case can only break an exhaustive `match` over `ChannelError`, and
+the tree has none outside `std/channel.saw` — every in-tree reader uses
+`case Err(_)` or `try!`. What the grep could not see is the ORDERING change:
+`examples/channel_recv_cancel.saw` cancelled its worker BEFORE the group was
+driven and then asserted that the worker still received the buffered value,
+observing the cancel through a hand-written `cancelled()` check beside it. Under
+the ruled loop-TOP position that first `receive()` answers `Err(Cancelled)` and
+takes nothing, so the file's `try!` aborted — the suite was the census. Updated
+to the new contract (the buffered 100 stays in the channel, `join()` returns 0),
+keeping the thing it exists for: normal control flow out of a cancelled worker
+and the `Res` deinit oracle firing exactly once before `join()` returns.
+
+**FLAGGED for the user, since it is the one judgement call in the fix —
+RESOLVED by the rider ruling above (cancel-beats-buffered stands).** The
+ruling said "at its top", citing std.net, where the check genuinely precedes the
+operation — a cancelled `accept()` refuses a connection that is already pending.
+Implemented that way, so cancellation WINS over a queued message. The other
+reading is check-before-PARK (drain what is queued, then report `Cancelled`),
+which is what `examples/taskgroup_cancel_receive.saw`'s hand-rolled idiom does
+and what the old `channel_recv_cancel.saw` asserted. Moving the check below the
+`__try_receive_result` call in `_emit_recv_call` (and in the reference body) is
+the whole of the change if drain-then-stop was meant; K69's `send(5)` row and
+`channel_recv_cancel`'s expectation are the two that would flip back.
+
+Tests: conformance row **K69**
+(`examples/conformance/K69_cancel_reaches_a_parked_channel_receive.saw`, the
+single-threaded cooperative engine plus the no-further-message ordering) and
+`examples/channel_receive_cancel_mt.saw` (`threads: 2`, the worker's own promote
+scan — the half that would have shown up only as a hang).
+`examples/taskgroup_cancel_receive.saw` (the hand-rolled `try_receive` idiom,
+which still works and is no longer the only cancellable spelling) and K63/K64/
+K66/K67/K68/K47 all stay green. Docs: LANGUAGE_SPEC.md (the receive bullet and
+the `close()` section's enum), README's "Channels Close Explicitly" and the
+stdlib list, the saw-lang skill's channel gotcha. Original filing follows.
 
 (original) `h.cancel()` on a task whose current suspension is a `receive()` never
 reaches the task: the receive loop is `try_receive` + park and has no
