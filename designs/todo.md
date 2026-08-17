@@ -42,6 +42,37 @@ ruling, never invented EXPECTs. Sonnet-class dispatch (user ruling — the
 brief fixes the grids and authorities; the agent transcribes). Seeds: the
 DF-232a/226d/e/232c pins + the kcore unit-0 probes. [235]
 
+## DF-232g — a LOCAL static DERIVED from an imported const stops being a
+## compile-time constant, though the same expression folds INLINE (filed Aug 17,
+## the kcore split)
+
+`static N: Int = A + B` with `A`/`B` imported is refused wherever a compile-time
+length is required — `repeat count is not a compile-time constant: the computed
+static `N` is not allowed here` — while `[0; A + B]` spelled INLINE at the use
+site folds fine. The same arithmetic is constant or not depending on whether it
+was given a NAME.
+MATRIX (probed, obligation 4). FOLDS: a literal; an imported const named directly
+as a length (`[T; A]`); arithmetic over imported consts inline (`[T; A * B]`,
+`[T; A + 1]`); a local static derived from LOCAL statics (`static S = L1 + L2`,
+recursively); a const derived in its OWN module and imported whole. DOES NOT
+FOLD, in every form probed: a local static that NAMES an imported const — the
+pure alias `static S = A`, the mixed sum `L1 + A`, the all-imported sum
+`A + B`.
+MECHANISM: the length folder resolves a static's initializer recursively through
+the CURRENT module's symbol table only, so an imported name ends the recursion
+and the static is reported as "computed" — a word that is simply wrong for the
+alias, which computes nothing. The inline path resolves the same names through
+the ordinary import machinery, which is why it succeeds.
+THE DIAGNOSTIC ALSO NAMES THE WRONG FILE: it is reported against the ENTRY
+source with the DEFINING module's line/column, so it points at a line number the
+named file does not have (probe: an error on `main.saw:23` in a 5-line
+main.saw).
+WHAT IT COST THE SPLIT: `MAX_ATTACHMENTS = MAX_EVENTS + MAX_INTERRUPTS +
+MAX_TIMERS` cannot be declared apart from ANY of its three operands, so every
+slab size stays in one module (`limits.saw`) — which is how lib.saw already had
+them, one adjacent block, so the constraint cost the cut nothing this time. It
+would cost a differently-shaped kernel a real seam. [232, design 148/185/186]
+
 ## DF-232f — a package has NO INTERNAL VISIBILITY, so splitting one file into
 ## several PUBLISHES everything they share (filed Aug 17, the kcore split's
 ## unit-0 probe; the finding the split's tracker entry anticipated)
