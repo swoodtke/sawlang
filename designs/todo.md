@@ -2491,12 +2491,16 @@ DF-217e) is untouched and still open.
      owes the same `is_static` term DF-217e's fix gave the declaration side and
      the mangler; where the labels do happen to bind, codegen then passes the
      receiver as argument 0 and fails the verifier (`Type of #1 arg mismatch:
-     i64 != %"Bag"`). NOT fixed: the honest fix has to decide whether an
-     instance may name a static at all — the alternative reading is a clean
-     refusal pointing at the type spelling — and that is a ruling, not a patch.
-     The DF-217e pin originally called its statics this way, which is how this
-     surfaced. PIN: `examples/static_method_called_on_instance.saw` (XFAIL,
-     cited).
+     i64 != %"Bag"`). RULED Aug 17 (user): REFUSE cleanly — the type-explicit
+     spelling `Bag.solo(...)` is the ONLY valid construction; an instance may
+     never name a static. The diagnostic points at the type spelling (a
+     fixit-shaped error naming `Bag.solo`). Covers struct AND enum statics,
+     labeled and unlabeled calls; `Self` inside the type's own extensions is a
+     type spelling and stays legal. The DF-217e pin originally called its
+     statics this way, which is how this surfaced — evidence the error must
+     teach, not merely refuse. PIN: `examples/static_method_called_on_instance.saw`
+     (XFAIL, cited); the fix flips it, with the pin's EXPECTs updated to the
+     ruled refusal. Dispatched to the Aug-17 small-fix batch.
 
 Reviewed and NOT owed a sweep (mechanism already funneled or swept by its
 fix): design 196's erased-error family (one canonical spelling, unit 2; the
