@@ -31,15 +31,19 @@ The Aug-17 rulings, recorded so the brief writes itself:
    vocabulary). NO stdlib-wide errno-style enum as a return type (signatures
    would lie; dead match arms). `Box<any Error>` is the APP aggregation tier;
    std never erases.
-3. **STRUCTURAL error LIFTING for `try`** (refined Aug 17: no declaration, no
-   new trait — the case IS the annotation). At a `try` site whose callee error
-   is not the function's error type, the target enum's cases whose SINGLE
-   payload is EXACTLY the source error type are the candidates: exactly one →
-   `try` injects automatically (the error-side mirror of Ok auto-wrap); two →
-   clean error naming both, outs = manual wrap or restructure. Match by
-   payload TYPE not case name; SINGLE HOP only (no transitive search); an
-   erased `Box<any Error>` case is never a candidate. The catch-site
-   synthesized union stays unnameable (that design holds).
+3. **EXPLICIT error routing at `try`** (refined twice Aug 17; final form,
+   user: reader-visibility trumps — the `&var` precedent). A `try` site whose
+   callee error type differs from the function's error type SPELLS the
+   routing: `try alloc(...) as LocalError.Alloc`. No auto-lift, no trait, no
+   candidate search — the case named must have a single payload the source
+   error type can fill, checked, done. Grammar: this `as` attaches to the
+   `try` production itself (error-CHANNEL conversion — the Ok value is
+   untouched), legal only there; design 63's value `as` is untouched and the
+   misreading is unparseable. Same-type propagation stays bare `try`; inside
+   `try { } catch { }` blocks nothing is owed (the synthesized union absorbs
+   all types; it stays unnameable). Benefits banked: no action-at-a-distance
+   from enum edits, construction sites greppable, zero ambiguity machinery.
+   (Rust's `.map_err(E::C)?` without the closure.)
 4. **`try_` PREFIX MEANS NON-BLOCKING, nothing else** — reserved for
    non-blocking variants of potentially blocking ops. Standard shape: the
    blocking op's error type with the payload optionalized —
