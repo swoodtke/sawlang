@@ -1,0 +1,138 @@
+// DF-233a: an `if let`/`guard let` that carries a `break`/`continue` for an
+// ENCLOSING suspension-spanning loop must be CFG-SPLIT, exactly as design 96
+// (DF6) already split an `if`/`match`/`try` in that position. Lowered in place
+// it keeps a raw `break`, which escapes the resume method's `while true`
+// DISPATCH loop instead of the logical loop: the loop then re-entered the same
+// state forever (a HANG) or dropped everything after the loop.
+//
+// The split of an `if let` is not a decision `_lower_stmt` can make on the spot
+// the way it makes it for an `if` — the binding has to be renamed to a frame
+// field first, in the marking pass — so the clause belongs there, and until
+// this it was only ever asked whether the BODY spans.
+//
+// Every row is a position the one mechanism reaches: the marking pass's split
+// predicate and its container descent. `tail_break` is the row that also needed
+// `_stmt_positions` — the `if let` is the loop body's TRAILING expression, and
+// the marking walk read `block.statements` only.
+// EXPECT: success
+// EXPECT-OUTPUT:
+// 6
+// 306
+// 203
+// 6
+// 6
+// 6
+// 6
+
+import std.task.*
+
+func opt(n: Int, limit: Int) sync -> Int? {
+    if n >= limit { return None }
+    return n
+}
+
+// TAIL position: the `if let` is the loop body's trailing expression.
+func tail_break() -> Int {
+    var n = 0
+    var total = 0
+    while {
+        yield_now()
+        n = n + 1
+        if let x = opt(n, 4) { total = total + x } else { break }
+    }
+    total
+}
+
+// STATEMENT position: a statement follows the `if let` in the same block.
+func stmt_break() -> Int {
+    var n = 0
+    var total = 0
+    while {
+        yield_now()
+        n = n + 1
+        if let x = opt(n, 4) { total = total + x } else { break }
+        total = total + 100
+    }
+    total
+}
+
+// `continue` takes the same edge as `break`, to the loop HEADER state.
+func cont() -> Int {
+    var n = 0
+    var total = 0
+    while n < 5 {
+        yield_now()
+        n = n + 1
+        if let x = opt(n, 3) { total = total + x } else { continue }
+        total = total + 100
+    }
+    total
+}
+
+// One `if` deep: the flag reaches the `if let` through a container that owns
+// no loop of its own.
+func nested_if_break() -> Int {
+    var n = 0
+    var total = 0
+    while {
+        yield_now()
+        n = n + 1
+        if n > 0 {
+            if let x = opt(n, 4) { total = total + x } else { break }
+        }
+    }
+    total
+}
+
+// Inside a `match` arm — another pass-through container.
+func in_match_arm() -> Int {
+    var n = 0
+    var total = 0
+    while {
+        yield_now()
+        n = n + 1
+        match n {
+            case 1..=100 -> { if let x = opt(n, 4) { total = total + x } else { break } },
+            case _ -> { break }
+        }
+    }
+    total
+}
+
+// `guard let` whose OWN block does not span a suspension — the pre-existing
+// "the enclosing block spans" test cannot see this one, so it needed the new
+// clause just as the `if let` did. This is the interim drain idiom design 233
+// replaces.
+func guard_break_nested() -> Int {
+    var n = 0
+    var total = 0
+    while {
+        yield_now()
+        n = n + 1
+        if n > 0 {
+            guard let x = opt(n, 4) else { break }
+            total = total + x
+        }
+    }
+    total
+}
+
+// A `for` loop spans exactly as a `while` does.
+func for_break() -> Int {
+    var total = 0
+    for i in 1..10 {
+        yield_now()
+        if let x = opt(i, 4) { total = total + x } else { break }
+    }
+    total
+}
+
+func main() {
+    print(__saw_drive(tail_break()))
+    print(__saw_drive(stmt_break()))
+    print(__saw_drive(cont()))
+    print(__saw_drive(nested_if_break()))
+    print(__saw_drive(in_match_arm()))
+    print(__saw_drive(guard_break_nested()))
+    print(__saw_drive(for_break()))
+}

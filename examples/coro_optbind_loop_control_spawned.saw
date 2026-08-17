@@ -1,0 +1,37 @@
+// DF-233a in a SPAWNED task body, and with the scrutinee ITSELF suspending —
+// the shape the drain family actually has. A driven root and a spawned root are
+// two different resume drivers, so each row of the fix is run on both.
+// EXPECT: success
+// EXPECT-OUTPUT:
+// spawned 1 total=6
+// spawned 2 total=6
+
+import std.task.*
+
+struct Src { n: Int, limit: Int }
+
+extension Src {
+    // The scrutinee suspends: the head hoist lifts it into the loop body, so
+    // the body spans and the `if let` beside it carries the `break`.
+    func next(&var self) -> Int? {
+        yield_now()
+        self.n = self.n + 1
+        if self.n >= self.limit { return None }
+        return self.n
+    }
+}
+
+func worker(tag: Int) {
+    var s = Src(n: 0, limit: 4)
+    var total = 0
+    while {
+        if let x = s.next() { total = total + x } else { break }
+    }
+    print("spawned {tag} total={total}")
+}
+
+func main() {
+    var g = TaskGroup()
+    g.spawn(worker(1))
+    g.spawn(worker(2))
+}

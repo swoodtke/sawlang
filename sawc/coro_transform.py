@@ -255,6 +255,35 @@ def _is_suspend_stmt(stmt):
     return _suspend_call_name(stmt) is not None
 
 
+def _stmt_positions(block):
+    """Every STATEMENT POSITION in `block`, including the trailing expression the
+    parser parked in `final_expr`.
+
+    A block's last bare expression is a statement position in every way that
+    matters to the lowering — `_lower_block` runs it for its side effects
+    through `_lower_stmt`, exactly as it runs the statements before it — but it
+    is not in `block.statements`, so a "spine" walk over that list alone walks
+    straight past it. `_normalize_suspending_tails` hides how often that
+    matters: it statementizes every tail that SPANS a suspension, so only a
+    NON-spanning tail is ever left here for a later pass to miss. DF-233a is
+    what that costs — a tail `if let … else { break }` in a suspending loop body
+    is a non-spanning construct in a spanning loop, so the split marking never
+    saw it and the raw `break` escaped the resume dispatch loop.
+
+    ENTRY POINTS (obligation 1 — a funnel names its entries):
+      * `_FrameBuilder._mark_ob_block` — the `if let`/`guard let` split marking.
+      * `_FrameBuilder._collect_frame_locals` — the frame-field census, which
+        owes a field to every binding the marking above split.
+    Returned items are STATEMENTS or a bare `Expression`; both callers already
+    unwrap with `s.expression if isinstance(s, ExpressionStatement) else s`, and
+    `ast_walk.control_blocks` takes either.
+    """
+    out = list(block.statements)
+    if block.final_expr is not None:
+        out.append(block.final_expr)
+    return out
+
+
 def _wake_expr(stmt):
     """The wake reason a suspension carries, stored in the frame's `__wake` field
     and read by the executor after a Pending: NANOSECONDS for `sleep(d)`, else
@@ -3266,30 +3295,60 @@ class _FrameBuilder:
     # design 104 item 1: CFG-split `if let`/`guard let` bodies that suspend
     # ------------------------------------------------------------------ #
     def _mark_optional_binding_splits(self):
-        """Find every `if let`/`guard let` whose body spans a suspension and mark
-        it `_coro_split` (so `_collect_frame_locals`, `_collect_calls`, and the CFG
-        walk all treat it as a split point), renaming its binding to a fresh unique
-        frame field. An `if let` splits when either branch spans; a `guard let`
-        splits when its ENCLOSING block spans (the binding lives on into the rest of
-        that block, which is what may cross the suspension)."""
-        self._optbind_ctr = 0
-        self._mark_ob_block(self.func.body)
+        """Find every `if let`/`guard let` that must be CFG-SPLIT and mark it
+        `_coro_split` (so `_collect_frame_locals`, `_collect_calls`, and the CFG
+        walk all treat it as a split point), renaming its binding to a fresh
+        unique frame field.
 
-    def _mark_ob_block(self, block):
+        THE SPLIT PREDICATE — two clauses, and DF-233a was the second one
+        missing:
+
+          1. The binding's SCOPE crosses a state boundary. An `if let` splits
+             when either branch spans a suspension; a `guard let` splits when
+             its ENCLOSING block spans (the binding lives on into the rest of
+             that block, which is what may cross the suspension).
+          2. design 96 (DF6): the construct carries a `break`/`continue` for an
+             ENCLOSING suspension-spanning loop. Lowered in place it keeps a raw
+             `break`/`continue`, which escapes the resume method's `while true`
+             DISPATCH loop instead of the logical loop. `_lower_stmt` already
+             applies this clause to `if`, `match` and `try`/`catch`
+             (`needs_ctrl_split`) — but those three CAN be split on the spot,
+             while an `if let`/`guard let` cannot: its split needs the binding
+             RENAMED to a frame field first, which only happens here. So the
+             clause has to be decided in this pass, and until DF-233a it was
+             not: `while true { if let x = f() { … } else { break } }` in a
+             suspending body hung, and the `guard let`-`break` drain idiom hung
+             wherever the guard's own block did not itself span.
+
+        The DESCENT is a PLAIN one — the split decision above is per container,
+        but "which blocks does this statement own" is not — so it takes
+        `ast_walk.control_blocks` rather than a hand-rolled dispatch. The
+        hand-rolled one it replaced listed six container kinds and missed
+        `try`/`catch` (DF-233a again): an `if let` whose body spanned a
+        suspension inside a `try` block was never marked, so the CFG walk did
+        not descend into it and the suspension was REJECTED as a
+        "nested/expression position" — a legal program refused."""
+        self._optbind_ctr = 0
+        self._mark_ob_block(self.func.body, False)
+
+    def _mark_ob_block(self, block, in_spanning_loop):
+        """`in_spanning_loop`: is this block inside a loop that spans a
+        suspension AND owns the `break`/`continue` written here? A loop OWNS the
+        jumps directly inside it, so each `while`/`for` re-decides the flag for
+        its own body; every other container just passes it through."""
         block_spans = self._spans_suspension(block)
-        for s in block.statements:
+        for s in _stmt_positions(block):
             ctrl = s.expression if isinstance(s, ExpressionStatement) else s
             if isinstance(ctrl, IfLetExpr):
                 then_spans = self._spans_suspension(ctrl.then_branch)
                 else_spans = (ctrl.else_branch is not None
                               and self._spans_suspension(ctrl.else_branch))
-                if then_spans or else_spans:
+                if (then_spans or else_spans
+                        or (in_spanning_loop and self._has_loop_ctrl(ctrl))):
                     self._prep_ob_split(ctrl, ctrl.then_branch, [], None)
-                self._mark_ob_block(ctrl.then_branch)
-                if ctrl.else_branch is not None:
-                    self._mark_ob_block(ctrl.else_branch)
             elif isinstance(s, GuardLetStatement):
-                if block_spans:
+                if (block_spans
+                        or (in_spanning_loop and self._has_loop_ctrl(s))):
                     # The binding's scope is the REST of the enclosing block after
                     # this guard (statements + the block's trailing expression).
                     # Index by identity — dataclass `==` could match an earlier
@@ -3298,19 +3357,11 @@ class _FrameBuilder:
                                if st is s)
                     self._prep_ob_split(
                         s, None, block.statements[idx + 1:], block)
-                self._mark_ob_block(s.else_branch)
-            elif isinstance(ctrl, IfExpr):
-                self._mark_ob_block(ctrl.then_branch)
-                if ctrl.else_branch is not None:
-                    self._mark_ob_block(ctrl.else_branch)
-            elif isinstance(ctrl, WhileExpr):
-                self._mark_ob_block(ctrl.body)
-            elif isinstance(ctrl, MatchExpr):
-                for arm in ctrl.arms:
-                    if isinstance(arm.body, Block):
-                        self._mark_ob_block(arm.body)
-            elif isinstance(s, ForLoop):
-                self._mark_ob_block(s.body)
+            inner = (self._spans_suspension(ctrl)
+                     if isinstance(ctrl, (WhileExpr, ForLoop))
+                     else in_spanning_loop)
+            for inner_block in control_blocks(s):
+                self._mark_ob_block(inner_block, inner)
 
     def _prep_ob_split(self, node, scope_block, scope_stmts, scope_final_owner):
         """Mark `node` for CFG-splitting and rename its binding to a fresh unique
@@ -3435,7 +3486,10 @@ class _FrameBuilder:
             # its blocks spanned a suspension (which, taken together, they do:
             # the error edge is a state transition).
             scope_spans = force or self._spans_suspension(block)
-            for s in block.statements:
+            # The TRAILING expression is a statement position too — and since
+            # DF-233a the marking above can split an `if let` that sits in one,
+            # which then owes a frame field exactly as a split statement one does.
+            for s in _stmt_positions(block):
                 walk_stmt(s, scope_spans, force)
 
         def walk_stmt(s, scope_spans, force=False):

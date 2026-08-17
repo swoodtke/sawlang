@@ -1,0 +1,64 @@
+// DF-233a, the third position of the same mechanism: the `if let`/`guard let`
+// split-marking pass descended six container kinds by hand and `try`/`catch`
+// was not among them — the entry every hand-rolled spine walk missed (DF-193a),
+// which is why `ast_walk.control_blocks` exists. So an `if let` whose BODY
+// spans a suspension inside a `try` block was never marked, the CFG walk then
+// refused to descend into it, and the suspension was rejected as a
+// "nested/expression position": a legal program refused rather than
+// miscompiled.
+// EXPECT: success
+// EXPECT-OUTPUT:
+// iflet in try: 30
+// guardlet in try: 40
+// caught: 0
+
+import std.task.*
+
+struct Fail { code: Int }
+extension Fail: Printable {
+    func format(&self, into: &var StringBuilder) { into.append("Fail") }
+}
+extension Fail: Error {}
+
+func fallible(n: Int) sync -> Result<Int, Fail> {
+    if n < 0 { return Fail(code: n) }
+    return n
+}
+
+func maybe(n: Int) sync -> Int? {
+    if n > 0 { return n * 10 }
+    return None
+}
+
+func slow(n: Int) -> Int { yield_now()  return n }
+
+func iflet_in_try(seed: Int) -> Int {
+    var out = 0
+    try {
+        let a = try fallible(seed)
+        if let x = maybe(a) {
+            out = slow(x)
+        }
+    } catch {
+        out = 0
+    }
+    out
+}
+
+func guardlet_in_try(seed: Int) -> Int {
+    var out = 0
+    try {
+        let a = try fallible(seed)
+        guard let x = maybe(a) else { return -1 }
+        out = slow(x)
+    } catch {
+        out = 0
+    }
+    out
+}
+
+func main() {
+    print("iflet in try: {__saw_drive(iflet_in_try(3))}")
+    print("guardlet in try: {__saw_drive(guardlet_in_try(4))}")
+    print("caught: {__saw_drive(iflet_in_try(-1))}")
+}

@@ -99,6 +99,62 @@ constant-time crypto in Saw first; developable HOSTED against BlueZ's
 virtual controller with zero hardware). No dispatches
 before M3 lands; net phase 1 is the natural first post-M3 brief.
 
+## DF-233a — SILENT HANG: an `if let`/`guard let` carrying a `break` for a
+## suspension-spanning loop is not CFG-split (filed + FIXED Aug 16 by the
+## design-233 dispatch; pre-existing, found probing the interim drain idiom)
+
+**Symptom.** In a suspending body, `while true { if let x = f() { … } else
+{ break } }` HANGS — the else branch runs, the `break` is taken, and the loop
+re-enters the same state forever. A variant drops everything after the loop
+instead. Sync code is unaffected, so the shape reads as working until it is
+driven. The `guard let`-`break` drain idiom this tracker blessed as the interim
+spelling for `while let` shares it: it works where the guard's own block spans a
+suspension (the probe that blessed it) and hangs where it does not.
+
+**Mechanism.** Design 96 (DF6) established the rule: a construct carrying a
+`break`/`continue` for an ENCLOSING suspension-spanning loop must be CFG-SPLIT
+even when it does not itself span, or the jump lowers in place as a raw `break`
+and escapes the resume method's `while true` DISPATCH loop instead of the
+logical loop. `_lower_stmt` applies that rule on the spot (`needs_ctrl_split`)
+to `if`, `match` and `try`/`catch`. It CANNOT apply it to an `if let`/`guard
+let`: their split needs the binding renamed to a frame field first, which only
+`_mark_optional_binding_splits` does — and that pass only ever asked whether the
+BODY spans. So the two optional-binding forms were the two the design-96 rule
+never reached.
+
+**Obligation-4 sweep — three positions, one pass.** The mechanism is
+"`_mark_optional_binding_splits` decides less than the lowering needs", and it
+reaches every position that pass walks:
+
+1. **The split predicate** — `if let` (miscompiles: hang or dropped loop tail)
+   and `guard let` whose own block does not span (same). Fixed by adding the
+   design-96 clause, with a `in_spanning_loop` flag a `while`/`for` re-decides
+   for its own body and every other container passes through.
+2. **The container descent** — hand-rolled over six kinds, missing
+   `try`/`catch`: the entry every hand-rolled spine walk misses (DF-193a), which
+   is why `ast_walk.control_blocks` exists. An `if let` whose body spanned a
+   suspension inside a `try` block was never marked, so the CFG walk refused to
+   descend and the suspension was REJECTED as a "nested/expression position" — a
+   legal program refused rather than miscompiled. Fixed by taking the tracked
+   enumeration.
+3. **The block TAIL** — the walk read `block.statements` and not `final_expr`,
+   where the parser parks a block's last bare expression. A drain loop's `if let`
+   usually IS the loop body's tail. `_normalize_suspending_tails` hid how often
+   this matters (it statementizes every SPANNING tail, so only a non-spanning
+   one is left) — and a non-spanning construct in a spanning loop is exactly
+   what clause 1 is about. Fixed with `_stmt_positions`, a named funnel the
+   frame-field census takes too (it owes a field to every binding the marking
+   splits).
+
+**Not reached, recorded per the obligation:** a value-position `if let` holding
+a `break` (`let y = if let x = o { 1 } else { break }`) sits in a `LetStatement`
+value, not a statement position, so no spine walk reaches it at all — a separate
+mechanism (the value-conditional lowering), not a sibling of this one.
+
+Fix + regression matrix: `examples/coro_optbind_loop_control.saw` (seven
+positions, driven), `..._spawned.saw` (spawned root + suspending scrutinee),
+`coro_optbind_split_in_try.saw` (position 2).
+
 ## `while let` — brief AUTHORED (designs/233), 230 integrated, READY TO DISPATCH
 
 Ruled worth building in conversation (user + lead, Aug 16): the
