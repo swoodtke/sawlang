@@ -7115,6 +7115,16 @@ Statics obey four rules, ratified in design 19:
   tree, and no field that owns a resource. A declared copy POLICY is not
   the test — `NoCopy` says "do not duplicate me", which has nothing to say
   about a value that is never duplicated.
+- **Never optional.** A static's own type may not be an optional
+  (`static SLOT: Int? = 7` is a compile error naming the rule). A static is
+  initialized once at compile time and never changes, so it is always
+  present, and an optional would make every read unwrap for an answer fixed
+  at compile time. The refusal covers the bare, wrapped and `None`
+  initializers and the no-initializer form alike, since it is asked on the
+  type. Only the static's OWN type is the target — an optional FIELD or
+  element is ordinary storage (`static H: Holder` where `Holder.slot` is an
+  `Int?` is fine). State whose absence is real has to be computed: use
+  `static X: Once<T>` or `unsafe static var`.
 
 Reads elsewhere in the module (or `mod.NAME` from an importer of a
 `public` static) behave like an immutable binding.

@@ -1,0 +1,21 @@
+// The DF-226f refusal is keyed on the static's TYPE, not on its initializer, so
+// a bare `None` meets exactly the same rule a bare payload value does.
+//
+// This is the row that shows the rule is not a repackaged type mismatch: `None`
+// IS assignable to `Int?`, so nothing here is ill-typed in the old sense. The
+// declaration is refused because an always-absent immortal value is not a thing
+// worth writing — the compile-time answer is `None` forever.
+//
+// The no-initializer spelling `static SLOT: Int?` lands on the same message,
+// and so does an ALIAS to an optional (`type MaybeInt = Int?`), since the
+// alias resolves to the static's own top-level type.
+//
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: static `SLOT` may not have an optional type (`Int?`)
+// EXPECT-ERROR-CONTAINS: `static X: Once<T>`
+
+static SLOT: Int? = None
+
+func main() {
+    print("done")
+}

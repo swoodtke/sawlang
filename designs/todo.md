@@ -1514,15 +1514,24 @@ Ok side, Err side, the ambiguity refusal, the erased `Box<any Error>` target,
 and an optional Ok payload needing `_prepare_ok_payload`. Workaround
 meanwhile: write `return` instead of a bare tail. [226, DF-226e]
 
-- **DF-226f (RULED Aug 17, user; fix dispatch-ready) — a `static` of OPTIONAL
-  type never auto-wraps its initializer, at any width.** `static SLOT: Int? = 7`
-  is ``static `SLOT` has type `Int?` but its initializer has type `Int` ``, and
-  always was; a third mechanism (a missing wrap, not a missing expectation), so
-  DF-226d only changed which width the message names. Clean error, not an ICE.
-  RULING: an optional static is NONSENSICAL — the fix is a deliberate refusal
-  at the declaration (an error naming the rule, not the incidental
-  type-mismatch wording), covering wrapped, bare and `None` initializers alike;
-  auto-wrap is NOT added. Revisit only if a use case surfaces.
+- ~~**DF-226f — a `static` of OPTIONAL type never auto-wraps its
+  initializer**~~ — **FIXED Aug 17**, to the Aug-17 ruling: a deliberate
+  refusal at the declaration, auto-wrap NOT added. `_register_static` asks it
+  on the TYPE right after `_resolve_type`, before the initializer is looked at,
+  so the bare (`= 7`), wrapped, `None` and NO-INITIALIZER spellings all meet
+  one rule instead of four incidental outcomes. An ALIAS to an optional is
+  refused too (it resolves to the static's own top-level type); an optional
+  nested in a field, element or generic argument is untouched, and `unsafe
+  static var` is not reopened.
+  The refusal does NOT bail out of registration — it suppresses only the
+  initializer checks and falls through, because returning early orphaned the
+  symbol and made every later USE of the name draw a second, misleading
+  ``static `SLOT` is declared after this point``. One error per declaration now.
+  Tests: `examples/static_optional_type_refused.saw` (the bare-payload form),
+  `examples/static_optional_type_refused_none.saw` (the `None` form — the row
+  that shows this is not a repackaged type mismatch, since `None` IS assignable
+  to `Int?`), and `examples/static_non_optional_types_unaffected.saw` for the
+  negative rows.
 
 - **DF-226c (v1 gap, deliberately not built) — construction form 2 accepts a
   BARE name, not a module-QUALIFIED one.** `import fpmod.{tripled}` then

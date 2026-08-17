@@ -1233,6 +1233,44 @@ class RegistrationMixin:
         # the declaration, and the hand-call is gone.
         resolved_type = self._resolve_type(static.type)
 
+        # DF-226f (ruled Aug 17): an OPTIONAL static is refused AT THE
+        # DECLARATION. A static is a fixed, immortal, compile-time-initialized
+        # value, so the one thing an optional buys — "the value is not there
+        # yet, and code must ask before using it" — is a state a static cannot
+        # be in: whichever of `Some`/`None` the initializer names is the value
+        # forever, and every read then pays an unwrap for an answer that was
+        # decided at compile time. `static SLOT: Int? = 7` used to fall out as
+        # an incidental type mismatch (the initializer is an `Int`, the
+        # declared type an `Int?`, and statics never auto-wrapped), which named
+        # the symptom and not the rule; DF-226d only changed which WIDTH that
+        # message reported. Auto-wrap is deliberately NOT added.
+        #
+        # Asked on the TYPE, before the initializer is looked at, so all four
+        # spellings meet the same rule: a bare `7`, a wrapped `Some(7)`, a bare
+        # `None`, and no initializer at all. Only the static's OWN top-level
+        # type is the target — an optional nested inside a generic
+        # (`static V: Vector<Int?>`) is untouched, and so is `unsafe static
+        # var`, which is a different question this rule does not reopen.
+        #
+        # The refusal does NOT return: it suppresses the initializer checks
+        # (whose complaint would be the incidental mismatch this rule replaces)
+        # and falls through to registration, so every later USE of the name
+        # still resolves. Returning here orphaned the symbol and every mention
+        # of it drew a second, misleading `is declared after this point`.
+        optional_static = self._resolve_type_alias(resolved_type).is_optional()
+        if optional_static:
+            self._error(
+                ErrorKind.TYPE_MISMATCH,
+                f"static `{static.name}` may not have an optional type "
+                f"(`{resolved_type}`): a static is initialized once at compile "
+                f"time and never changes, so it is always present",
+                static.line, static.column, source_file=static.source_file,
+                hint="declare it as the payload type and give it a real value "
+                     "(`static SLOT: Int = 7`); if absence is genuinely part "
+                     "of the state, that state has to be COMPUTED — use "
+                     "`static X: Once<T>` (set once) or `unsafe static var`"
+            )
+
         # design 149 unit d: a `SpinLock` static on a target with no atomic
         # instruction. Checked here as well as at every expression, because a
         # lockable static is the headline use and its declaration is not one.
@@ -1248,7 +1286,9 @@ class RegistrationMixin:
         # permitted only for POD / fixed-array statics (design 41 item 2: no
         # repeat-literal exists, so bare zero-init is the chosen mechanism for
         # large zero regions like slab buffers).
-        if static.initializer is None:
+        if optional_static:
+            pass                      # DF-226f already refused the declaration
+        elif static.initializer is None:
             if not self._is_zero_initable_type(resolved_type):
                 self._error(
                     ErrorKind.TYPE_MISMATCH,

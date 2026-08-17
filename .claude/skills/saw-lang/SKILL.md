@@ -2141,7 +2141,10 @@ let n = shared.lock({ c in c = c + 5  c })   // shared: Arc<Mutex<Int>> -> n == 
 ```
 
 ## Systems/embedded corner
-`static NAME: T = const_init` (Sync-only, immortal); `Atomic<Int>`;
+`static NAME: T = const_init` (Sync-only, immortal, and NEVER OPTIONAL —
+DF-226f, Aug 17: `static SLOT: Int? = 7` is refused by the rule, since a
+static is fixed at compile time and so always present; only the static's
+OWN type, an optional FIELD is fine, and no auto-wrap was added); `Atomic<Int>`;
 allocator type params `Vector<T, A: Allocator = GlobalAllocator>`, `Box<T, A>`,
 slab in std/slab.saw; `UnsafeMemory<T, Device|Normal>` for MMIO
 (volatile, RO/WO markers);
