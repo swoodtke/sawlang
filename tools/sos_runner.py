@@ -130,6 +130,16 @@ IRQ_EARLYACK_PKG = os.path.join(TESTS_DIR, "irq-earlyack")
 # bound, "nothing runnable" is still the deadlock the kernel has always
 # reported.
 WAIT_DEADLOCK_PKG = os.path.join(TESTS_DIR, "wait-deadlock")
+# design 232 M3 unit 1: the Clock and Timer objects. Six packages, and the split
+# follows the M2 units' rule — what an object ANSWERS and whether a wait PARKS
+# are separate questions, so testing them together would let a scheduling bug
+# hide behind an arithmetic one.
+CLOCK_BASICS_PKG = os.path.join(TESTS_DIR, "clock-basics")
+TIMER_ONESHOT_PKG = os.path.join(TESTS_DIR, "timer-oneshot")
+TIMER_INTERVAL_PKG = os.path.join(TESTS_DIR, "timer-interval")
+TIMER_DEADLOCK_PKG = os.path.join(TESTS_DIR, "timer-deadlock")
+TIMER_BADCLOCK_PKG = os.path.join(TESTS_DIR, "timer-badclock")
+TIMER_BADRECORD_PKG = os.path.join(TESTS_DIR, "timer-badrecord")
 
 # What the harness types at the guest's serial port for the echo cases, and what
 # it then expects to read back out of it.
@@ -760,8 +770,8 @@ TEST_CASES = [
         "src": os.path.join(TESTS_DIR, "umode.saw"),
         "asm": "payload_badbuffer.S",
         "expect_out": ["SOS M1: entering U-mode",
-                       "SOS: process fault: buffer is not in the process's "
-                       "writable memory",
+                       "SOS: process fault: buffer is outside the process's "
+                       "memory",
                        "SOS: process teardown handles={four} threads={one} "
                        "events={zero} waiters={one}"],
         "expect_clean_exit": False,
@@ -884,6 +894,157 @@ TEST_CASES = [
                        "SOS: process fault: every thread blocked",
                        "SOS: process teardown handles={five} threads={one} "
                        "events={one} waiters={one} interrupts={zero}"],
+        "expect_clean_exit": False,
+        "expect_status": EXIT_PROCESS_FAULT,
+    },
+    # --- design 232 M3 unit 1: the Clock and Timer objects -------------------
+    # THE MILESTONE'S FIRST CLAIM IS THAT A PROCESS CAN SLEEP. Before this unit
+    # a wait either returned at once or blocked forever, because every wake in
+    # the system came from a thread or from a device line. Six cases, split so
+    # that what an object ANSWERS and whether a wait PARKS cannot cover for each
+    # other.
+    {
+        # The Clock alone, with NO waiting anywhere: every call answers
+        # immediately, so a regression that parked would park the only thread in
+        # the system and be reported as the deadlock it is — in microseconds
+        # rather than at the timeout. (`event_basics` uses the same trick.)
+        "name": "clock_basics",
+        "src": os.path.join(KERNEL_DIR, "main.saw"),
+        "root_pkg": CLOCK_BASICS_PKG,
+        "expect_out": ["{banner}",
+                       # Asking twice hands back the SAME clock — a machine has
+                       # one monotonic clock, so a second object would be a
+                       # second name for it. The teardown's clocks=1 after two
+                       # asks is the other half of that evidence.
+                       "SOS clock: same=1",
+                       "SOS clock: monotonic=1",
+                       # `advanced` alone would pass on a counter of anything;
+                       # `spanned` is what says the units are NANOSECONDS.
+                       "SOS clock: advanced=1 spanned=1",
+                       # The cancel idiom's precondition: disarming a Timer that
+                       # was never armed must NOT fault, or a timeout that has
+                       # already expired could not be cancelled safely.
+                       "SOS clock: disarm_unarmed=1",
+                       "SOS clock: done",
+                       "SOS: process teardown handles={five} threads={one} "
+                       "events={zero} waiters={zero} interrupts={zero} "
+                       "clocks={one} timers={one}"],
+        "expect_clean_exit": True,
+    },
+    {
+        # A PROCESS SLEEPS — the headline. One thread, no scheduler tick, no
+        # bound line: at the moment of the wait there is nothing runnable and
+        # nothing that could ever make something runnable EXCEPT the clock. So
+        # this transcript existing at all is the idle rule's new branch working,
+        # and `timer_deadlock` below is the branch that did not change.
+        "name": "timer_oneshot",
+        "src": os.path.join(KERNEL_DIR, "main.saw"),
+        "root_pkg": TIMER_ONESHOT_PKG,
+        "expect_out": ["{banner}",
+                       "SOS oneshot: parking on a timer",
+                       # `slept=1` is the clock agreeing with itself across the
+                       # park, which is what a `wait` that wrongly returned
+                       # immediately would fail even with the right count.
+                       "SOS oneshot: woke key=55 fires=1 slept=1",
+                       # A one-shot DISARMS ITSELF, so the second wake can only
+                       # be reached by arming again — no ack, no re-attach.
+                       "SOS oneshot: rearmed woke fires=1",
+                       "SOS oneshot: done",
+                       "SOS: process teardown handles={six} threads={one} "
+                       "events={zero} waiters={one} interrupts={zero} "
+                       "clocks={one} timers={one}"],
+        "expect_clean_exit": True,
+    },
+    {
+        # THE PERIODIC HALF. Nothing happens between the first two waits — no
+        # ack, no re-arm — so a timer that did not re-arm ITSELF would leave the
+        # second wait parked with nothing to wake it, which this kernel reports
+        # as a deadlock rather than hanging.
+        "name": "timer_interval",
+        "src": os.path.join(KERNEL_DIR, "main.saw"),
+        "root_pkg": TIMER_INTERVAL_PKG,
+        "expect_out": ["{banner}",
+                       "SOS interval: tick one fires=1",
+                       # The COUNT on the second wake is deliberately not
+                       # asserted: how many periods the line above's forty-odd
+                       # console syscalls cover is the emulator's business, and
+                       # pinning it would make a correct kernel flaky. What
+                       # matters is that a second wake happened AT ALL with no
+                       # ack and no re-arm between the two, which `ackfree`
+                       # carries.
+                       "SOS interval: tick two fires=",
+                       "ackfree=1",
+                       # Expiries that landed while nobody was waiting did not
+                       # queue as separate wakes and were not dropped: they
+                       # COALESCED into one count above one.
+                       "SOS interval: coalesced=1",
+                       # The drain, proved without a stopwatch: cancel, re-arm
+                       # one-shot, wait. A kernel that never reset the count
+                       # would report the coalesced total here instead.
+                       "SOS interval: drained fires=1",
+                       "SOS interval: done",
+                       "SOS: process teardown handles={six} threads={one} "
+                       "events={zero} waiters={one} interrupts={zero} "
+                       "clocks={one} timers={one}"],
+        "expect_clean_exit": True,
+    },
+    {
+        # THE BRANCH THAT DID NOT CHANGE, in the new way to get it wrong. A
+        # Timer EXISTS and is NOT ARMED, so it can never fire and the system is
+        # as deadlocked as one with no Timer at all. A kernel that counted
+        # Timers rather than ARMED ones would idle here forever and fail at the
+        # harness timeout — the failure mode hardest to read — which is why the
+        # report is pinned. (`wait_deadlock` pins the same report with no Timer
+        # in the system at all.)
+        "name": "timer_deadlock",
+        "src": os.path.join(KERNEL_DIR, "main.saw"),
+        "root_pkg": TIMER_DEADLOCK_PKG,
+        "expect_out": ["{banner}",
+                       "SOS timerdead: waiting on a timer nobody armed",
+                       "SOS: process fault: every thread blocked",
+                       "SOS: process teardown handles={six} threads={one} "
+                       "events={zero} waiters={one} interrupts={zero} "
+                       "clocks={one} timers={one}"],
+        "expect_clean_exit": False,
+        "expect_status": EXIT_PROCESS_FAULT,
+    },
+    {
+        # A CLOCK DOMAIN THIS KERNEL CANNOT NAME. `ClockType` is raw-backed so
+        # the domain space can grow without renumbering, and v1 declares one
+        # value — so any other number is a mistake the caller could have
+        # checked, and the faults ruling ends it. It goes through the C altitude
+        # because the typed Saw surface takes a `ClockType` and cannot express
+        # the mistake at all, which is itself half the claim.
+        "name": "timer_badclock",
+        "src": os.path.join(KERNEL_DIR, "main.saw"),
+        "root_pkg": TIMER_BADCLOCK_PKG,
+        "expect_out": ["{banner}",
+                       "SOS badclock: asking for a domain that does not exist",
+                       "SOS: process fault: argument outside its domain",
+                       "SOS: process teardown handles={three} threads={one} "
+                       "events={zero} waiters={zero} interrupts={zero} "
+                       "clocks={zero} timers={zero}"],
+        "expect_clean_exit": False,
+        "expect_status": EXIT_PROCESS_FAULT,
+    },
+    {
+        # THE COPY-IN DOOR'S FIRST REFUSAL. `Timer.Arm` is the first op that
+        # reads a record OUT of a process rather than writing one in, and the
+        # record's size is published — so a wrong length is caller-checkable.
+        # The length is checked for EQUALITY, not "at least": a copy-out
+        # capacity is a buffer that may be over-provisioned, while a copy-in
+        # length is the caller's statement of what it is handing over, and a
+        # number that is not the record's size means the two sides disagree
+        # about the shape of the thing being passed.
+        "name": "timer_badrecord",
+        "src": os.path.join(KERNEL_DIR, "main.saw"),
+        "root_pkg": TIMER_BADRECORD_PKG,
+        "expect_out": ["{banner}",
+                       "SOS badrecord: arming with a short record",
+                       "SOS: process fault: argument outside its domain",
+                       "SOS: process teardown handles={five} threads={one} "
+                       "events={zero} waiters={zero} interrupts={zero} "
+                       "clocks={one} timers={one}"],
         "expect_clean_exit": False,
         "expect_status": EXIT_PROCESS_FAULT,
     },

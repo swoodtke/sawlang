@@ -1,0 +1,66 @@
+// XFAIL: DF-232a a bare integer literal does not adopt the expected fixed-width
+// type in PLAIN ASSIGNMENT position, and the mismatch is an internal compiler
+// error rather than a diagnostic
+//
+// Found while writing SOS design 232 unit 1: `TIMERS[slot].deadline_ns = 0` on a
+// `UInt64` field died with `cannot store i32 to i64*` on riscv32. Nothing about
+// the kernel is involved — the same three lines reproduce on the host at any two
+// widths.
+//
+// TWO DEFECTS IN ONE. The literal SHOULD adopt: an assignment target names an
+// expected type exactly as an annotation does, and the language's rule is that a
+// bare literal takes a fixed-width expectation wherever one is in force. And
+// even where a type cannot be reconciled the compiler owes a clean refusal — an
+// `internal compiler error` is what the design-192 fuzz oracle exists to catch,
+// so the ICE is a finding on its own terms whatever is decided about adoption.
+//
+// THE MECHANISM, and the matrix it reaches (obligation 4, probed at every row):
+// expected-type propagation into a bare literal is wired into the PLACE-LEND
+// write paths and into the compound-assign RHS, and is simply absent from a
+// plain `AssignStatement` whose target is a NAME or a FIELD PROJECTION. The
+// typechecker never reconciles the two, so codegen reaches a raw store with
+// mismatched LLVM types and dies there.
+//
+//   ADOPTS TODAY (unaffected):
+//     let x: UInt32 = 0            annotation
+//     Wide(b: 0)                   struct-literal field
+//     var a: [UInt32; N] = [0; N]  repeat literal under an annotation
+//     v += 1                       COMPOUND assignment
+//     arr[0] = 5                   fixed-array element  (a place)
+//     vec[0] = 5                   Vector element       (a place lend)
+//
+//   ICEs TODAY (this file):
+//     v = 4                        a local of fixed width
+//     w.b = 2                      a struct FIELD
+//     rows[0].b = 7                a field THROUGH an element
+//
+// The split is exact and is why this is one bug rather than three: every row
+// that works reaches the literal through a path that already carries an expected
+// type, and every row that fails is the one statement form that does not.
+//
+// A suffixed literal works today (`0u32`), which is the spelling `timer_disarm`
+// in sos/kernel/core/ uses in the meantime, with a comment pointing back here.
+//
+// EXPECT: success
+// EXPECT-OUTPUT:
+// local = 4
+// field = 2
+// elem field = 7
+
+struct Wide { a: UInt64, b: UInt32 }
+
+static N: Int = 2
+
+func main() {
+    var v: UInt32 = 9
+    v = 4
+    print("local = {v}")
+
+    var w = Wide(a: 0, b: 0)
+    w.b = 2
+    print("field = {w.b}")
+
+    var rows: [Wide; N] = [Wide(a: 0, b: 0); N]
+    rows[0].b = 7
+    print("elem field = {rows[0].b}")
+}
