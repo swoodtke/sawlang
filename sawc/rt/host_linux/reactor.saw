@@ -6,9 +6,13 @@
 // one-shot rearm for real descriptors (EPOLLONESHOT, EPOLL_CTL_MOD on EEXIST),
 // and a per-call heap event buffer so concurrent polls stay independent.
 //
-// `struct epoll_event` is `__attribute__((packed))` (12 bytes: u32 events @0,
-// u64 data @4) — NOT a natural-ABI layout — so the event is stamped/read via raw
-// byte-offset pointer writes rather than a typed Saw struct.
+// `struct epoll_event` is not a natural-ABI layout, so the event is stamped/read
+// via raw byte-offset pointer writes rather than a typed Saw struct — and the
+// offsets are ARCH-DEPENDENT: the header packs the struct on x86_64 only, so it
+// is 12 bytes with `data` at 4 there and 16 bytes with `data` at 8 on aarch64
+// (and every other Linux arch). Both numbers come from `__saw_epoll_*` in
+// shim.c, which is the one language that can see a C struct's layout; see the
+// comment there. `events` is a u32 at byte 0 in both.
 //
 // design 225 unit 1 — THE WAKE IS A BROADCAST NOW, and it is an eventfd rather
 // than a self-pipe. The seam is unchanged; what changed is what it guarantees.
@@ -48,6 +52,9 @@ extern "C" {
     func calloc(count: Int, size: Int) -> UnsafePointer<Int8>
     func malloc(size: Int) -> UnsafePointer<Int8>
     func free(ptr: UnsafePointer<Int8>)
+    // The `struct epoll_event` layout for THIS target (DF-113a, shim.c).
+    func __saw_epoll_event_size() -> Int
+    func __saw_epoll_data_offset() -> Int
 }
 
 // The reactor instance: the epoll fd, the eventfd every thread is woken
@@ -64,8 +71,10 @@ struct Reactor {
 // `Atomic` is NoCopy (design 202), so the struct holding one states its policy.
 extension Reactor: NoCopy {}
 
-// A 16-byte stack vehicle for the 12-byte packed epoll_event: events (u32) is
-// written at byte 0 and data (u64) at byte 4 via raw offset pointers below.
+// A 16-byte stack vehicle for the epoll_event — big enough for the unpacked
+// layout too, and zeroed, so the padding an aarch64 event carries is defined.
+// events (u32) is written at byte 0 and data (u64) at the target's data offset
+// via raw offset pointers below.
 struct EpollEv {
     lo: Int
     hi: Int
@@ -79,7 +88,6 @@ static EV_IN_LEVEL: UInt32 = 0x00000001
 static EPOLL_CTL_ADD: Int32 = 1
 static EPOLL_CTL_DEL: Int32 = 2
 static EPOLL_CTL_MOD: Int32 = 3
-static EPOLL_EVENT_SIZE: Int = 12
 // EFD_NONBLOCK (0o4000): a wake post must never block the poster, and a
 // consumer that loses the read race must get EAGAIN rather than hang.
 static EFD_NONBLOCK: Int32 = 0x800
@@ -97,7 +105,7 @@ func rt_reactor_create() unsafe -> Int {
     var ev = EpollEv(lo: 0, hi: 0)
     let evp = (&ev) as UnsafePointer<Int8>
     (evp as UnsafePointer<UInt32>)[0] = EV_IN_LEVEL
-    let datap = (evp + 4) as UnsafePointer<Int>
+    let datap = (evp + __saw_epoll_data_offset()) as UnsafePointer<Int>
     datap[0] = 0
     epoll_ctl(epfd as Int32, EPOLL_CTL_ADD, efd, evp)
     raw as Int
@@ -113,7 +121,7 @@ func rt_reactor_register(r: Int, fd: Int, w: Int, token: Int) unsafe {
     let evp = (&ev) as UnsafePointer<Int8>
     let events: UInt32 = if w != 0 { EV_OUT_ONESHOT } else { EV_IN_ONESHOT }
     (evp as UnsafePointer<UInt32>)[0] = events           // events @ byte 0
-    let datap = (evp + 4) as UnsafePointer<Int>          // data @ byte 4
+    let datap = (evp + __saw_epoll_data_offset()) as UnsafePointer<Int>
     datap[0] = token
     // EPOLL_CTL_ADD; on EEXIST (already known) re-arm with EPOLL_CTL_MOD.
     let r0 = epoll_ctl(epfd as Int32, EPOLL_CTL_ADD, fd as Int32, evp)
@@ -157,7 +165,9 @@ func rt_reactor_poll(r: Int, timeout_ms: Int) unsafe -> Int {
     let rp = r as UnsafePointer<Reactor>
     let epfd = rp[0].fd
     let efd = rp[0].wake_fd
-    let buf = malloc(POLL_EVENTS * EPOLL_EVENT_SIZE)
+    let ev_size = __saw_epoll_event_size()
+    let data_off = __saw_epoll_data_offset()
+    let buf = malloc(POLL_EVENTS * ev_size)
     let to: Int32 = if timeout_ms < 0 { -1 } else { timeout_ms as Int32 }
     // Counted around the BLOCKING call only, so a peer's cascade decision sees
     // exactly the threads that are actually parked.
@@ -167,7 +177,7 @@ func rt_reactor_poll(r: Int, timeout_ms: Int) unsafe -> Int {
     var woke = false
     var i = 0
     while i < (n as Int) {
-        let datap = (buf + (i * EPOLL_EVENT_SIZE + 4)) as UnsafePointer<Int>
+        let datap = (buf + (i * ev_size + data_off)) as UnsafePointer<Int>
         let ud = datap[0]
         if ud != 0 {
             let tokptr = ud as UnsafePointer<Int>

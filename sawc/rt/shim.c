@@ -9,7 +9,15 @@
  *
  * This is the HOSTED (macOS/Linux) shim; a kernel/sos-hosted runtime supplies
  * its own. Compiled with clang by sawc/rt_build.py.
+ *
+ * `_GNU_SOURCE` before the first include, because glibc hides `EAI_NODATA`
+ * behind `__USE_GNU` — and hiding it is not the same as not having it: glibc
+ * RETURNS EAI_NODATA (resolving "" is one way), so without this the
+ * `#ifdef EAI_NODATA` arm of `__saw_gai_tag` compiles out and the code the
+ * resolver actually returned falls through to `Other` instead of `NotFound`.
+ * macOS defines the feature macro away, so this costs nothing there.
  */
+#define _GNU_SOURCE
 
 #include <stddef.h>
 #include <stdio.h>
@@ -291,5 +299,35 @@ void __saw_rt_lock_release(void *state) {
     if (__atomic_exchange_n(word, 0u, __ATOMIC_RELEASE) == 2u) {
         saw_futex_wake_one(word);
     }
+}
+
+/* ---- DF-113a: no C struct layout (design 232) --------------------------
+ * `struct epoll_event` is `__attribute__((packed))` ON x86_64 ONLY — the
+ * kernel header spells it
+ *
+ *     #ifdef __x86_64__
+ *     #define EPOLL_PACKED __attribute__((packed))
+ *     #else
+ *     #define EPOLL_PACKED
+ *     #endif
+ *
+ * so the event is 12 bytes with `data` at 4 on x86_64 and 16 bytes with
+ * `data` at 8 on every other Linux arch (aarch64 among them). host_linux/
+ * reactor.saw had the x86_64 numbers written out as literals, which read the
+ * ready token out of the padding on aarch64 and latched a garbage pointer —
+ * the same shape of bug as the open(2) flag table above, and blocked by the
+ * same gap: Saw cannot see a C struct's ABI layout, so the one language that
+ * can reports it. Compiled per target triple, so the answer is the target's.
+ *
+ * Linux-only: the seam has no macOS caller (kqueue's `struct kevent` is a
+ * natural-ABI layout there). */
+#include <sys/epoll.h>
+
+long __saw_epoll_event_size(void) {
+    return (long)sizeof(struct epoll_event);
+}
+
+long __saw_epoll_data_offset(void) {
+    return (long)offsetof(struct epoll_event, data);
 }
 #endif /* __linux__ */

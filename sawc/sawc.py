@@ -1619,8 +1619,17 @@ def _emit_object(codegen, source_path: str, output_path: str, verbose: bool,
         keep_flags = [f"-Wl,-u,{'_' if apple else ''}{g.name}"
                       for g in codegen._exported_llvm_globals]
 
+        # libm. macOS puts every libm entry in libSystem, which clang links by
+        # default, so `Float.sqrt` and an `extern blocking func pow` both resolve
+        # with no flag there and the gap is invisible; glibc keeps libm a
+        # SEPARATE library, so on Linux the same two lines fail at the LINKER
+        # with `undefined reference to sqrt` / `pow`. `-lm` is a documented
+        # no-op on mach-O, but naming the platform keeps the line honest about
+        # which host needs it.
+        math_libs = [] if apple else ["-lm"]
+
         link_cmd = ["clang", obj_path, *rt_objects, strip_flag, *keep_flags,
-                    "-o", output_path]
+                    *math_libs, "-o", output_path]
 
         try:
             result = subprocess.run(link_cmd, capture_output=True, text=True)
