@@ -6,9 +6,14 @@
 // Re-authored against design 186: the audit used `Vector<Int>`, which IS `Send`
 // now — the container ruling makes `Vector<T>` Send exactly when `T` is. A
 // closure is never `Send`, so a `Vector` of them is the non-Send local.
+//
+// The element type renders `escaping` (DF-216e): a closure written as a generic
+// ARGUMENT fills a container slot that outlives the frame that built it, so it
+// is escaping wherever it is written, and the constructor spelling now says so
+// as the annotation spelling always did.
 // EXPECT: error
 // EXPECT-ERROR-CONTAINS: cannot spawn `work` into a multi-threaded
-// EXPECT-ERROR-CONTAINS: local `v` of type `Vector<() sync -> Int, GlobalAllocator>` is held across a suspension but is not `Send`
+// EXPECT-ERROR-CONTAINS: local `v` of type `Vector<() sync escaping -> Int, GlobalAllocator>` is held across a suspension but is not `Send`
 
 import std.task.*
 

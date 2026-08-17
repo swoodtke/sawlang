@@ -1645,13 +1645,29 @@ A NoCopy `Vector` sorts end to end today, written from outside std.
   fixit, which nearly taught the broken spelling — the fixit names the concrete
   receiver type instead. Repro: `.build/scratch/fa_self_type_positions.saw`.
   PIN: `examples/self_type_in_extension_parameter.saw`
-- **DF-216e — `borrow_ok`'s `as_call_argument` heuristic cannot tell "the callee
-  RUNS this closure" from "the callee STORES it"**, so a borrow capture handed
-  to `Vector.push` is still classified non-escaping and still compiles a stack
-  pointer that dangles (IR-confirmed). Predates 216 and reaches all three
-  spellings of the borrow capture. Closing it needs a non-escaping parameter
-  TYPE — design 21's already-named future work, so it is its own brief.
-  PIN: `examples/escaping_closure_borrow_capture_stored.saw`
+- **DF-216e — CLOSED (Aug 17), and it needed no new type: the ESCAPING BIT was
+  missing at two positions.** The filing read the acceptance as a position
+  heuristic that could not tell "the callee RUNS this closure" from "the callee
+  STORES it", and concluded it wanted the non-escaping parameter TYPE design 21
+  lists as future work. The language already has that type — a function type is
+  non-escaping only at the TOP LEVEL of a parameter and escaping everywhere
+  else — and `_check_closure` already reads it (`target_escaping`). What was
+  wrong was the stamp: `_stamp_escaping_roles` walked OPTIONAL/TUPLE/ARRAY/
+  STRUCT and **not REFERENCE**, so nothing under a `&var Vector<() sync -> Int>`
+  parameter was ever visited; and a CONSTRUCTOR writes its generic arguments in
+  an expression, which no declared-type walk reaches, so
+  `Vector<() sync -> Int>()` bound an element type reading non-escaping by a
+  second route. Both stamp now (`types.py` `_stamp_escaping_roles`,
+  `expressions.py` `_check_struct_init`). Sweep (obligation 4) probed the five
+  storage positions design 216 names: returned, `let`-bound, struct-literal
+  field and `&var`-field store already refused; the two ELEMENT stores were the
+  hole, and they are the two the fix closes. Consumer sweep: over 1997 tests the
+  contract flip changed exactly one thing, a DIAGNOSTIC rendering — K02's
+  non-Send local is now `Vector<() sync escaping -> Int, GlobalAllocator>`,
+  which is what the annotation spelling always printed. Pin flipped:
+  `examples/escaping_closure_borrow_capture_stored.saw`; companion
+  `examples/escaping_closure_borrow_capture_local_container.saw`; conformance
+  rows R43-R44.
 - **DF-216b — SOUNDNESS: the comparison operators bypass the transfer
   checkpoint.** `a.compare(b)` on a NoCopy type is correctly refused; `a > b`,
   the same call, COMPILES. The operator passes the by-value `other` as a

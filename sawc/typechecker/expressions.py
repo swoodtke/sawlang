@@ -6563,6 +6563,15 @@ class ExpressionsMixin:
                 # share one monomorphization.
                 expr.type_args = filled_args
                 for type_param, type_arg in zip(struct_info.type_params, filled_args):
+                    # A generic ARGUMENT is never a parameter role: it fills a
+                    # slot inside a type, and a closure in a container slot
+                    # outlives the frame that built it. The declared spellings
+                    # reach this through `_stamp_escaping_roles`' own recursion;
+                    # a constructor writes its arguments here and nowhere else,
+                    # so `var v = Vector<() sync -> Int>()` used to bind an
+                    # element type the escape check read as non-escaping
+                    # (DF-216e).
+                    self._stamp_escaping_roles(type_arg, is_param=False)
                     resolved_arg = self._resolve_type(type_arg)
                     type_mapping[type_param.name] = type_arg
                     # Enforce the struct's declared type-param bounds at

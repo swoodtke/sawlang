@@ -6,7 +6,7 @@ either a file in this directory or an existing `examples/` test that already
 asserts the same rule at the same position — this table is the record of which,
 and the dedup decisions are meant to be audited from it.
 
-**438 rows: 337 carry a file here, 101 are covered elsewhere** (recounted Aug 16
+**440 rows: 337 carry a file here, 103 are covered elsewhere** (recounted Aug 16
 from the table itself — the audit-era "121 here, 198 elsewhere" had gone stale
 across the briefs listed below). (The audit's 247 plus
 the rows later briefs added: W02-W05, design 194 unit 4; W06-W19, design 195
@@ -25,7 +25,8 @@ design 225's TaskGroup wake matrix; K63-K68, design 230 units A, B and C;
 D01-D20, design 228's divergence position matrix — D15-D20 are the six that
 point at tests written before the brief, which is what makes the fourteen new
 files auditable as the ONLY gap it had to fill; U31-U36, design 226 unit 2's
-closed-construction rows.)
+closed-construction rows; R43-R44, the two STORE positions DF-216e's fix
+closed.)
 
 ## How to read it
 
@@ -164,6 +165,8 @@ Claim source: spec 4 *Reference Types*; designs 88, 106, 163d, 188 u1, 193 u5, 2
 | R40 | `[&var self]` in a `&self` method | `R40_var_self_capture_needs_var_receiver.saw` | 218 §4 — the mode decides whether the body may write through the capture, and a shared receiver has no exclusive borrow to hand out |
 | R41 | the explicit `[&self]` spelling, escaping | `R41_explicit_self_capture_escaping_error.saw` | 218 §4 — writing the `&` out loud says nothing new about where the closure goes, so R36's refusal covers it. A new spelling that bypassed the rule would be a hole with an author's signature on it |
 | R42 | `[self]` / `[move self]` — not spellings | `errors/capture_self_requires_borrow_sigil.saw` + `errors/capture_self_move_requires_borrow_sigil.saw` | 218 §4 — a receiver's own mode dictates the capture's, so only the `&`-sigilled forms are offered; a consuming `self` receiver captures by value with no list |
+| R43 | borrow-capture STORED into a container reached through a `&var` parameter | `escaping_closure_borrow_capture_stored.saw` | DF-216e — was a DEVIATION (accepted, IR-confirmed dangling). `out.push({ n * 2 })` is a call argument like R30's, so the position test accepted it; what separates them is the PARAMETER TYPE, and nothing under a `&var Vector<F>` was ever stamped escaping because the walk skipped REFERENCE |
+| R44 | the same store into a LOCAL container, element type written by the constructor | `escaping_closure_borrow_capture_local_container.saw` | DF-216e — the second route to R43's hole: a generic ARGUMENT written in an EXPRESSION reaches no declared-type walk, so `Vector<() sync -> Int>()` bound a non-escaping element. A generic argument is never a parameter role |
 
 ## The Law of Exclusivity — one writer XOR many readers
 

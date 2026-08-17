@@ -2231,6 +2231,15 @@ class TypeUtilsMixin:
         marker in a non-parameter role is redundant and reported once via
         `report_at=(line, column)`.
 
+        Only the TOP LEVEL of a parameter type is a parameter role; everything
+        nested inside one names storage the caller already owns. That is why a
+        REFERENCE recurses with `is_param=False` (DF-216e): `out: &var
+        Vector<() sync -> Int>` is a parameter, but the element it lends is a
+        container slot that outlives the call, and leaving it unstamped told
+        `_check_closure` that `out.push({ n * 2 })` was a non-escaping
+        argument — so a closure borrowing the caller's frame was stored in a
+        Vector that outlived it.
+
         Called on declared types at registration/binding time so that every
         VALUE carries the correct bit and the variance check in
         `_check_value_transfer` reads it directly.
@@ -2266,6 +2275,13 @@ class TypeUtilsMixin:
                 self._stamp_escaping_roles(e, is_param=False, report_at=report_at)
         elif t.kind == TypeKind.ARRAY:
             self._stamp_escaping_roles(t.array_element_type, is_param=False, report_at=report_at)
+        elif t.kind in (TypeKind.REFERENCE, TypeKind.POINTER):
+            # A reference/pointer PARAMETER is a parameter; its referent is
+            # storage that outlives the call, so a closure sitting in it is
+            # escaping. Recursing with `is_param=False` is what makes
+            # `&var Vector<F>` agree with the by-value `Vector<F>` (DF-216e).
+            self._stamp_escaping_roles(t.inner_type, is_param=False,
+                                       report_at=report_at)
         elif t.kind in (TypeKind.STRUCT, TypeKind.ENUM):
             # design 226: a `FuncPointer<F>`'s argument is NOT a closure-value
             # slot. `escaping` answers "may this closure outlive the frame that

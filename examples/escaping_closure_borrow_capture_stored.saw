@@ -1,19 +1,22 @@
-// XFAIL: DF-216e a closure capturing a reference is classified NON-escaping
-// merely because it is written as a call ARGUMENT, so storing it compiles a
-// stack pointer that outlives the frame it points into
+// A closure that borrows its enclosing frame may not be STORED, and handing it
+// to a container through a `&var` parameter is a store.
 //
-// `borrow_ok`'s `as_call_argument` heuristic cannot tell "the callee RUNS this
-// closure" from "the callee STORES it". A closure passed straight to the call
-// that runs it may borrow its enclosing frame soundly — that is the acceptance
-// design 216 unit 1 landed — but `out.push({ n * 2 })` hands the same shape to
-// a container that keeps it, and `stash`'s frame is gone before `build`'s
-// caller ever runs it. The escape rule that catches the direct spelling
-// ("an escaping closure cannot capture ... a reference") never fires here.
+// Design 216 unit 1's acceptance is "a closure passed straight to the call that
+// RUNS it may borrow the frame" — `borrow_ok` reads that off the argument
+// position. The position is not the whole answer: `out.push({ n * 2 })` is a
+// call argument too, and `push` keeps what it is given. What separates the two
+// is the PARAMETER TYPE, which the language already spells — a function type is
+// non-escaping only at the top level of a parameter, and escaping everywhere
+// else, `Vector`'s element slot included.
 //
-// Predates design 216 and reaches all three spellings of the borrow capture
-// equally. Closing it properly needs a non-escaping parameter TYPE — design
-// 21's already-named future work — so the fix is its own brief, not a patch to
-// the heuristic; this pin is the row that brief flips.
+// The bit was simply missing at two positions (DF-216e). `_stamp_escaping_roles`
+// walked OPTIONAL/TUPLE/ARRAY/STRUCT and not REFERENCE, so nothing under a
+// `&var Vector<() sync -> Int>` parameter was ever stamped; and a constructor
+// writes its generic arguments in an expression, which no declared-type walk
+// reaches, so `Vector<() sync -> Int>()` bound an element type reading
+// non-escaping. Both stamp now, and `stash`'s frame can no longer be captured
+// into a Vector that outlives it. Companion:
+// `escaping_closure_borrow_capture_local_container.saw` (the constructor half).
 // EXPECT: error
 // EXPECT-ERROR-CONTAINS: escaping closure cannot capture
 
