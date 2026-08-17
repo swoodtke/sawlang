@@ -14,7 +14,74 @@ rulings/corrections — grep the brief before deleting anything);
 navigation lives in designs/INDEX.md (one line per brief + one per
 done-file), created with the Aug-17 split.
 
-## SOS M3 — sketch AUTHORED (designs/232), scoping session PENDING
+## DF-232b — `type` cannot be a parameter name or LABEL, so a ruled API
+## spelling was unwritable (filed Aug 17, SOS M3 unit 1)
+
+`func f(type: ClockType)` is `Parse error: Expected parameter name` —
+`type` introduces a distinct type alias, so it is a keyword and cannot
+name a binding. The user-ruled surface for design 232 unit 1 was
+`System.get_clock(type: ClockType.Monotonic)`; it is built as `kind:`,
+which is the vocabulary the rest of SOS already uses
+(`ProcessStatusKind`, `WaitableKind`, `exit_kind`).
+Worth a decision rather than a silent rename: a label is not a binding
+— nothing in `f(type: x)` at the CALL site declares anything — so the
+parameter LABEL could legitimately admit keywords even while the
+parameter NAME does not, which is the split Swift makes. Whether the
+name should too (a raw-identifier escape, Rust's `r#type`) is the wider
+question. Until then any API wanting `type:` has to spell it otherwise.
+[232]
+
+## DF-232a — INTERNAL COMPILER ERROR: a bare integer literal does not
+## adopt the expected fixed-width type in PLAIN ASSIGNMENT position
+## (filed Aug 17, SOS M3 unit 1; pinned)
+
+`TIMERS[slot].deadline_ns = 0` on a `UInt64` field died with
+`cannot store i32 to i64*` on riscv32. Nothing kernel-specific: three
+lines reproduce on the host at any two widths.
+TWO DEFECTS. The literal SHOULD adopt (an assignment target names an
+expected type exactly as an annotation does); and even where a type
+cannot be reconciled the compiler owes a CLEAN REFUSAL — an
+`internal compiler error` is precisely what design 192's fuzz oracle
+exists to catch, so the ICE is a finding on its own terms whatever is
+decided about adoption.
+MECHANISM (probed, obligation 4): expected-type propagation into a bare
+literal is wired into the PLACE-LEND write paths and into the
+compound-assign RHS, and is absent from a plain `AssignStatement` whose
+target is a NAME or a FIELD PROJECTION; the typechecker never
+reconciles, so codegen reaches a raw store with mismatched LLVM types.
+ADOPTS: `let x: UInt32 = 0`, a struct-literal field, `[0; N]` under an
+annotation, `v += 1`, `arr[0] = 5`, `vec[0] = 5`. ICEs: `v = 4` (a
+local), `w.b = 2` (a field), `rows[0].b = 7` (a field through an
+element). The split is exact — every working row reaches the literal
+through a path that already carries an expected type — which is what
+makes this ONE bug rather than three.
+Pinned by `examples/assignment_target_adopts_fixed_width.saw`. NOT
+fixed in the SOS branch that found it: a core typechecker rule does not
+belong buried in a parked kernel branch. A suffixed literal works
+(`0u64`), which `timer_disarm` uses with a comment pointing here.
+[232]
+
+## SOS M3 — scoping session RATIFIED (designs/232), unit 1 BUILT
+
+M2 integrated + verified on main Aug 16. designs/232-sos-m3-sketch.md
+is the plan of record: option A (the multiprocess kernel), the unit
+ladder 0-7 with 1.5 and 5.5 in place. The Aug-16 seed rounds in
+designs/178 are RULINGS the session does not reopen.
+Unit 0 (the M2 spec recap) and **unit 1 (the Clock and Timer objects)**
+are BUILT, each on a branch PARKED for user review per SOS policy.
+Unit 1 in one line: **a process can sleep** — eight object kinds where
+M2 had six, the per-arch timer seam reshaped from periodic to ABSOLUTE
+so the tick and Timer deadlines share one comparator with §7 inviolate,
+the copy-IN funnel built as copy-out's mirror twin (M4 IPC inherits
+it), and the idle/deadlock rule generalized so an armed Timer counts
+like a bound IRQ line. 38 harness cases per architecture. The
+as-built decisions — op/right numbering, the record layouts, and the
+disarm/re-arm semantics the brief delegated — are recorded in 232's
+"UNIT 1 AS BUILT" section. Two findings filed rather than worked
+around: DF-232a and DF-232b, above.
+NEXT: unit 1.5 (kernel interruptibility, pin 1's ruling) before
+CreateProcess, so the image-copy loop is born with its preemption
+points. [178, 232]
 
 M2 integrated + verified on main Aug 16. designs/232-sos-m3-sketch.md
 is the session's agenda: option A (the multiprocess kernel — Clock/

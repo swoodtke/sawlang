@@ -336,6 +336,141 @@ branch (op/right enum cases mirror, numbers unchanged).
 12. **Op/right numbering + §5.7 amendment wording** (178 flags d/e —
     mechanical, may be delegated to the implementing brief).
 
+## UNIT 1 AS BUILT — the Clock and Timer objects (Aug 17)
+
+Landed on its own branch, parked for review. The ruled shape (the 178 time
+notes) is built unchanged; what follows is the decisions the implementation
+had to pin, recorded here because the brief delegated them.
+
+**The op/right numbering.** `ObjType.Clock = 7`, `ObjType.Timer = 8`.
+`SystemOp.GetClock = 3` behind a NEW `SystemRight.GetClock = 1024`.
+`ClockOp { Now = 0, CreateTimer = 1 }` over
+`ClockRight { Transfer = 1, Manage = 2, Read = 256, CreateTimer = 512 }`.
+`TimerOp { Arm = 0, Disarm = 1 }` over
+`TimerRight { Transfer = 1, Manage = 2, Arm = 256, Wait = 512 }`.
+`WaitTag.Timer = 2`, `WaitPayload.Timer(fires:)`. Both new kinds withhold
+`Manage` at creation on the existing precedent (a Clock's only derivation is
+a Timer, which has its own bit; a Timer derives nothing). `TimerRight.Arm`
+gates BOTH `Arm` and `Disarm` on `WaiterRight.Attach`'s reasoning — a holder
+who may arm can silence a timer by arming it a century out, so splitting the
+pair would withhold nothing.
+
+**`get_clock` IS A GETTER, NOT A FACTORY.** It mints on first ask and returns
+the SAME handle thereafter, per (process, ClockType) — the `SelfProcess`
+shape. A machine has one monotonic clock, so two Clock objects would be two
+names for one thing, which §3's no-duplicate rule exists to prevent; and an
+op that cannot allocate on repetition needs no quota row in unit 5.
+
+**`SystemRight.GetClock` is NOT in the stripped-by-construction set.** The
+device/memory rulings strip `Shutdown` and the bind/alloc rights from every
+derived System handle; a clock grants authority over nothing and every
+process needs to tell the time, so this bit travels. What the bit buys is the
+substitution seam: strip it from a child and hand it a virtual Clock over IPC
+instead, with no code change on either side.
+
+**The copy-in record layout** (ABI-adjacent, and the pattern M4 IPC inherits):
+
+```
+Timer.Arm request          Clock.Now answer
+  doubleword 0  after_ns     doubleword 0  now_ns
+  doubleword 1  interval_ns
+```
+
+INDEXED IN DOUBLEWORDS, not machine words — the one way these differ from
+the wait record. A wait record's fields are a key, a tag and a payload, all
+machine-word-shaped, so it follows the register; these fields are TIMES, and
+a time is 64 bits on every machine (anything narrower wraps in four seconds),
+so following the register would make the layout differ per profile for no
+reason. `after_ns` is RELATIVE to now, so no caller has to read the clock
+first and race between two syscalls; `interval_ns` is a period, and ZERO IS
+A ONE-SHOT.
+
+**The copy-in funnel's window is the WHOLE GRANTED REGION**, where copy-out's
+is the writable one. Deliberate asymmetry: a process may legitimately hand
+the kernel a record out of its own rodata, and the two doors guard different
+hazards — writing outside the writable window CORRUPTS the process, reading
+outside the granted region READS SOMEBODY ELSE. `FaultReason.BadBuffer`'s
+text is now direction-neutral for the same reason. The record LENGTH is
+checked for EQUALITY, not "at least": a copy-out capacity is a buffer that
+may be over-provisioned, while a copy-in length is the caller's statement of
+what it is handing over.
+
+**DISARM/RE-ARM, the semantics the brief left to the implementation:**
+
+- **Arming an armed Timer REPLACES its schedule and CLEARS the fire count.**
+  Not a fault: re-arming a running timer is the ordinary way to change a
+  timeout — the shape M4's select-with-timeout is made of — and a count
+  carried forward would be owed against a schedule the caller just discarded.
+- **Disarming an UNARMED Timer is a NO-OP, not a fault**, and this is
+  deliberately the opposite call from §9's ack-with-no-fire. The difference
+  is whether the caller could have known: an extra ack is provably a bug,
+  since the only way to learn about a fire is to be TOLD about one — while a
+  ONE-SHOT DISARMS ITSELF, so "is it still armed" is kernel state that
+  changed without the caller acting. Cancelling a timeout that has just
+  expired is the ordinary race in every select-with-timeout, and faulting it
+  would make the safe idiom unwritable. Disarm clears the fire count too,
+  which is what makes it a clean cancel.
+- **THE WAIT CONSUMES THE FIRES** (ack-free, the timerfd model). This added a
+  FIFTH question to the per-kind matrix — `waitable_consume`, "a record was
+  delivered" — whose Event and Interrupt answers are empty and whose
+  emptiness is the honest statement of a real difference: an Event's payload
+  is a snapshot `receive` remains authoritative over, an Interrupt's
+  readiness is ended by the driver's ack, and a Timer has no second op and
+  needs none. Delivery is now one funnel (`deliver_attachment`) so the drain
+  cannot happen on one path and not the other.
+
+**THE SHARED HARDWARE, which was the real design surface.** Both machines
+have ONE comparator and now two customers. The seam flipped from periodic
+(`timer_start(period_us)` + `timer_rearm()`) to ABSOLUTE (`timer_now_ns()` +
+`timer_set_deadline_ns(at)`) on both arches, and the tick's PERIOD moved out
+of the HALs into arch-free `kcore.start_tick` — it was always scheduler
+policy sitting in a HAL, and a periodic-only seam can express exactly one
+customer. The kernel keeps every deadline it owes in nanoseconds and programs
+the earliest; a fire means "something MAY be due", and the handler asks every
+customer out of ONE reading of the clock with the TICK ASKED FIRST. **§7's
+tick is thereby inviolate by construction rather than by promise**: a Timer
+deadline can only ever move the hardware EARLIER, never later, so the tick's
+cadence is unchanged by any number of Timers. The two rules are deliberately
+opposite — the tick re-arms from NOW (a late tick is one tick), a Timer from
+its own DEADLINE (drift-free) — because a timeslice has no history to be
+faithful to and an interval does.
+
+**Coalescing is a DIVISION, not a loop** (`missed = late / interval + 1`),
+so an interval far shorter than the machine can serve costs one divide rather
+than a spin — there is no long loop here for unit 1.5's preemption points to
+have to cover. What makes a too-fast schedule harmless is `TIMER_MIN_LEAD_NS`
+(50 µs): the hardware is never programmed sooner than that, so the intervening
+expiries coalesce instead of the machine living in the trap handler, and the
+LOGICAL schedule is untouched. No minimum interval has to be invented and
+nothing is refused.
+
+**The idle/deadlock report generalized**, as the brief required: an ARMED
+Timer is a wake source exactly like a bound IRQ line. "Idle iff a line is
+bound" was always the special case of "idle iff something outside the thread
+set can still wake somebody". A merely EXISTING Timer does not count — an
+unarmed one will never fire — and that distinction has its own harness case,
+because getting it wrong that way fails as a timeout rather than a report.
+
+**Harness:** six new cases per arch (`clock_basics`, `timer_oneshot`,
+`timer_interval`, `timer_deadlock`, `timer_badclock`, `timer_badrecord`),
+38 per architecture, 76 runs.
+
+**Two findings, neither worked around:**
+
+- **DF-232a** — a bare integer literal does not adopt the expected
+  fixed-width type in PLAIN ASSIGNMENT position, and the mismatch is an
+  INTERNAL COMPILER ERROR rather than a diagnostic. Probed matrix: it adopts
+  in an annotation, a struct literal, a repeat literal, a COMPOUND assignment
+  and both array- and Vector-element writes, and fails for a local, a struct
+  FIELD and a field through an element. Pinned by
+  `examples/assignment_target_adopts_fixed_width.saw`. Not fixed here: it is
+  a core typechecker change and does not belong buried in a parked SOS
+  branch.
+- **DF-232b** — `type` is a Saw keyword, so the ruled
+  `System.get_clock(type:)` spelling is unwritable. Built as `kind:`, which
+  is the vocabulary this system already uses (`ProcessStatusKind`,
+  `WaitableKind`).
+
 ## Explicitly out (M4+ candidates)
 
 Channels + ReplyHandle IPC (with select-with-timeout via unit 1's
