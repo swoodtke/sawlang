@@ -31,19 +31,25 @@ The Aug-17 rulings, recorded so the brief writes itself:
    vocabulary). NO stdlib-wide errno-style enum as a return type (signatures
    would lie; dead match arms). `Box<any Error>` is the APP aggregation tier;
    std never erases.
-3. **EXPLICIT error routing at `try`** (refined twice Aug 17; final form,
-   user: reader-visibility trumps — the `&var` precedent). A `try` site whose
-   callee error type differs from the function's error type SPELLS the
-   routing: `try alloc(...) as LocalError.Alloc`. No auto-lift, no trait, no
-   candidate search — the case named must have a single payload the source
-   error type can fill, checked, done. Grammar: this `as` attaches to the
-   `try` production itself (error-CHANNEL conversion — the Ok value is
-   untouched), legal only there; design 63's value `as` is untouched and the
-   misreading is unparseable. Same-type propagation stays bare `try`; inside
-   `try { } catch { }` blocks nothing is owed (the synthesized union absorbs
-   all types; it stays unnameable). Benefits banked: no action-at-a-distance
-   from enum edits, construction sites greppable, zero ambiguity machinery.
-   (Rust's `.map_err(E::C)?` without the closure.)
+3. **EXPLICIT error routing at `try`** (refined three times Aug 17; final
+   form, user: reader-visibility trumps — the `&var` precedent). A `try` site
+   whose callee error type differs from the function's error type SPELLS the
+   routing, as a PREFIX clause in the `public(package)` spelling:
+   `try(as LocalError.Alloc) alloc(...)`. No auto-lift, no trait, no
+   candidate search — the named case must have a single payload the source
+   error type can fill, checked, done. The clause converts the error CHANNEL
+   only (the Ok value is untouched). PREFIX position is load-bearing, not
+   taste: a trailing `try f() as X.Y` cannot be classified at parse time —
+   `LocalError.Alloc` and `time.Duration` are the same dotted-path shape, so
+   the routing clause and a design-63 value projection of the unwrapped
+   result collide; the prefix slot is owned by `try`, leaving every trailing
+   `as` an ordinary value cast. `try!`/`try?` never take the clause (no
+   propagation); `try(as …) … catch { }` is refused (route or handle, not
+   both). Same-type propagation stays bare `try`; inside `try { } catch { }`
+   blocks nothing is owed (the synthesized union absorbs all types; stays
+   unnameable). Benefits banked: no action-at-a-distance from enum edits,
+   construction sites greppable, zero ambiguity machinery. (Rust's
+   `.map_err(E::C)?` without the closure.)
 4. **`try_` PREFIX MEANS NON-BLOCKING, nothing else** — reserved for
    non-blocking variants of potentially blocking ops. Standard shape: the
    blocking op's error type with the payload optionalized —
