@@ -37,10 +37,9 @@ capability.
   Result<Void, AllocError>`. `AllocError` keeps its `size`/`align` fields —
   an OOM site stays loggable with context.
 - **Compound domain enums, with PAYLOAD-CARRYING cases, only where sources
-  genuinely mix.** `ChannelError { Closed, Cancelled, Alloc(e: AllocError) }`;
-  `IoError` carries `System(e: SystemError)` at the OS boundary. Never
-  re-enumerate the inner vocabulary — carrying the leaf keeps one errno
-  caselist in one place.
+  genuinely mix.** `ChannelError { Closed, Cancelled, Alloc(e: AllocError) }`.
+  Never re-enumerate the inner vocabulary — carry the leaf. The OS boundary
+  is the special case §2 covers (`IoError` as kind + raw code).
 - **NO stdlib-wide errno-style enum as a return type.** Its defining property
   is that every signature lies: `push -> Result<_, StdError>` claims failure
   modes it cannot produce, and every exhaustive match grows dead arms. errno's
@@ -49,13 +48,57 @@ capability.
   The erased `Result<T, Box<any Error>>` machinery stays exactly as is, for
   app code that does not care.
 
-### 2. `SystemError` goes public
+### 2. No public `SystemError` — `IoError` is the OS-boundary type
+### (amended Aug 17, user: an errno wrapper reimports the errno-lie)
 
-The runtime-internal `SysError` (rt/'s errno mapping, `enum SysError: UInt8`
-in three rt files) becomes the public `SystemError` where a std signature
-needs it — the no-abbreviations rule applies the moment it is API. The rt
-seam's internal name is untouched by this brief unless a unit finds promoting
-one definition cheaper than maintaining two; if promoted, the rename rides.
+There is NO public generic system-error type. The two needs it seemed to
+serve are met differently:
+
+- **The OS boundary** is genuinely open-vocabulary — the errno set is huge,
+  platform-dependent, and not closed, so precision is unattainable there in
+  principle and the honest type is "the OS refused, with details." That type
+  is `IoError`, restructured as **curated portable kind + raw code**:
+
+  ```saw
+  struct IoError {
+      kind: IoErrorKind   // NotFound, PermissionDenied, ConnectionReset,
+                          // TimedOut, Interrupted, ..., Unknown
+      code: Int32         // the platform's raw truth, ALWAYS present
+                          // (0 where the platform has none)
+  }
+  ```
+
+  The `code` rides on EVERY IoError, not just `Unknown` — classification
+  loses information by design (EACCES and EPERM both map to
+  PermissionDenied) and the log wants the real one. `Unknown` is the escape
+  hatch for codes the portable vocabulary has no word for. Two rules make it
+  sound: **classification is diagnostic, not contractual** — correct
+  handling of `Unknown` treats it as opaque failure, never "I know which
+  errno this secretly is" (that is what `code` is for, explicitly); and
+  **growth is loud** — promoting a code out of `Unknown` into a new kind
+  breaks exhaustive kind-matchers at compile time rather than silently
+  rerouting. On SOS/freestanding, `code` carries the platform's native
+  status; the portable half works on targets that never heard of errno.
+  The rt-internal `SysError` stays internal (seam maps errno → it → kind).
+
+- **The generic conditions** that recur across domains (Alloc, Cancelled,
+  TimedOut) are NOT hoisted into a shared wrapper enum — that would
+  re-create the errno-lie one level down (`ChannelError.Sys(SystemError)`
+  claims a pure in-process channel can fail with OS refusal, and every
+  match goes two levels deep). Instead: **share leaf payload types and case
+  names; never share wrapper enums.** Each domain enum declares exactly the
+  generic conditions that apply to it, flat, spelled identically everywhere,
+  carrying the shared leaf (`AllocError` keeps size/align):
+
+  ```saw
+  enum ChannelError { case Closed, case Cancelled, case Alloc(e: AllocError) }
+  enum TimerError   { case Cancelled, case Alloc(e: AllocError) }  // no Closed
+  ```
+
+  A domain that cannot time out has no TimedOut case — signatures stay
+  exact. Cross-domain generic matching ("is this transient?"), if ever
+  needed, is a small trait with predicate methods — deferred until a use
+  case exists.
 
 ### 3. Explicit error routing at `try` — `try(as LocalError.Alloc) f(...)`
 
@@ -167,9 +210,10 @@ conformance rows lead unit 3.
   interpolation, match subject, `??` RHS), suspending body, inside
   try/catch blocks. Lands with the grammar in LANGUAGE_SPEC.md + skill.
   Usable immediately; changes no existing behavior.
-- **Unit 2 — `SystemError` + compound shapes.** The public type; `IoError`
-  gains `System(e: SystemError)` (its own mini consumer sweep — net/file
-  matchers); `ChannelError` gains `Alloc(e: AllocError)`.
+- **Unit 2 — the error-type reshapes.** `IoError` restructures to kind +
+  raw code per §2 (its own mini consumer sweep — net/file matchers and every
+  `.code` reader); `IoErrorKind`'s starting vocabulary chosen from what the
+  rt seam actually maps today; `ChannelError` gains `Alloc(e: AllocError)`.
 - **Unit 3 — the std flip, per-type sub-units, conformance rows first.**
   Order: alloc → Vector → Map/Set → Data → String/StringBuilder → Box/Arc →
   Channel (+ `try_send` retirement) → net/file. Each sub-unit: ops flip to
