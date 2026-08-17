@@ -1,0 +1,69 @@
+// Conformance row D03 — a DIVERGING argument aborts the call it was written in
+//
+// `takes(panic("x"))` never calls `takes`: evaluating the argument left the
+// block, so there is no call to make. Codegen used to build the argument list
+// anyway and hand the argument's `None` to the width coercion, which asked it
+// for `.type` (``'NoneType' object has no attribute 'type'``) — at every
+// callee kind, `panic` included. Design 228 leg 5 asks the question in the one
+// place a Saw call is emitted, before the call rather than after it.
+//
+// COMPILE-FLAGS: --module-path neverdiv={TESTDIR}/modules/neverdiv
+// EXPECT: success
+// EXPECT-OUTPUT:
+// 0 0 0 0 0 0
+
+import neverdiv
+
+extern "C" {
+    func _exit(code: Int32) -> Never
+}
+
+// Alone under its name (resolved by plain name); `die` below is an overload
+// set, and both kinds are exercised.
+func stop(r: Int) -> Never {
+    print("stop {r}")
+    while { }
+}
+
+func die(r: Int) -> Never {
+    print("die {r}")
+    while { }
+}
+
+func die(r: Bool) -> Never {
+    print("die {r}")
+    while { }
+}
+
+func takes(x: Int) -> Int { x }
+
+func by_panic(c: Bool) -> Int {
+    if c { return 0 }
+    takes(panic("unreachable"))
+}
+
+func by_plain(c: Bool) -> Int {
+    if c { return 0 }
+    takes(stop(1))
+}
+
+func by_overloaded(c: Bool) -> Int {
+    if c { return 0 }
+    takes(die(1))
+}
+
+func by_imported(c: Bool) -> Int {
+    if c { return 0 }
+    takes(neverdiv.mdie(1))
+}
+
+func by_extern(c: Bool) -> Int {
+    if c { return 0 }
+    takes(_exit(3))
+}
+
+func main() {
+    print("{} {} {} {} {} {}",
+          by_panic(true), by_plain(true), by_overloaded(true), by_imported(true),
+          by_extern(true), neverdiv.call_argument(true))
+}

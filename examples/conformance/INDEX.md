@@ -6,7 +6,7 @@ either a file in this directory or an existing `examples/` test that already
 asserts the same rule at the same position — this table is the record of which,
 and the dedup decisions are meant to be audited from it.
 
-**412 rows: 317 carry a file here, 95 are covered elsewhere** (recounted Aug 16
+**432 rows: 331 carry a file here, 101 are covered elsewhere** (recounted Aug 16
 from the table itself — the audit-era "121 here, 198 elsewhere" had gone stale
 across the briefs listed below). (The audit's 247 plus
 the rows later briefs added: W02-W05, design 194 unit 4; W06-W19, design 195
@@ -21,7 +21,10 @@ stage 3; G01-G15, design 221 unit B1; G16-G18, design 221 unit B4's return-site
 sweep; K32, design 222 unit 1; K33-K39, design 223's suspending-method position
 matrix; M37-M42, design 227 unit 1, and M43-M44, the two siblings its unit-3
 walk closed; K40-K47, design 224's container-head position matrix; K48-K62,
-design 225's TaskGroup wake matrix; K63-K68, design 230 units A, B and C.)
+design 225's TaskGroup wake matrix; K63-K68, design 230 units A, B and C;
+D01-D20, design 228's divergence position matrix — D15-D20 are the six that
+point at tests written before the brief, which is what makes the fourteen new
+files auditable as the ONLY gap it had to fill.)
 
 ## How to read it
 
@@ -598,6 +601,33 @@ Claim source: spec 10 *No hidden allocations* + 8 *Profiles*; designs 113, 135, 
 | N05 | `--freestanding` rejects a hosted-only std module | `N05_freestanding_hosted_module.saw` | the audit's flags could not enter the freestanding profile at all — `--freestanding` alone rejects this host's Mach-O triple first, so the row proved nothing. Retargeted at `riscv32-unknown-none-elf` |
 | N06 | `@export` of a reserved runtime symbol without `--runtime-build` | `export_reserved_symbol_error.saw` |  |
 | N07 | `@export` of a non-C-ABI type (String by value) | `export_string_error.saw` |  |
+
+## Divergence — a `Never` expression never falls through
+
+Claim source: spec 3 *Never — the type of an expression that does not return*; designs 49, 58, 177, 228
+
+| Row | Checks | Covered by | Ruling |
+|-----|--------|------------|--------|
+| D01 | a diverging call is a valid `guard ... else` exit, at every callee kind | `D01_guard_else_diverging_exit.saw` |  |
+| D02 | `return <diverging>` compiles, at every callee kind | `D02_return_diverging_operand.saw` |  |
+| D03 | a diverging ARGUMENT aborts the call it was written in | `D03_diverging_call_argument.saw` |  |
+| D04 | a diverging `??` default types as the payload | `D04_nil_coalesce_diverging_default.saw` |  |
+| D05 | a diverging value-`if`/`match` arm takes the other arm's type, struct-typed and in either arm position | `D05_diverging_value_branch_arms.saw` |  |
+| D06 | a diverging TAIL satisfies a struct return, and a `-> Never` body may end in a `-> Never` call | `D06_diverging_tail_and_never_chain.saw` |  |
+| D07 | a `-> Never` method, static method, generic function and generic method are `void` + `noreturn` | `D07_never_method_and_generic.saw` |  |
+| D08 | the indirect callee kinds diverge too: closure, `any Trait` vtable slot, trait default body | `D08_never_closure_vtable_default.saw` |  |
+| D09 | every position behaves identically in the FREESTANDING profile | `D09_diverging_positions_freestanding.saw` |  |
+| D10 | `group.spawn` of a `-> Never` body is refused | `D10_spawn_never_body_refused.saw` | 228 unit 5 — v1 REFUSES `suspending -> Never`; blessing the never-Done frame is re-proposable and owes a `NEVER` mangle case, a `Slot<Never>` zero-size story and a ruling on `join` |
+| D11 | `spawn { ... }` with a diverging closure body is refused | `D11_spawn_closure_never_refused.saw` | same ruling |
+| D12 | `__saw_drive` of a `-> Never` body is refused | `D12_drive_never_body_refused.saw` | same ruling |
+| D13 | control does not continue past a diverging call — behaviourally and in the IR | `D13_no_fallthrough_past_diverging_call.saw` |  |
+| D14 | the INDIRECT call shapes (`Arc`/`Box` payload forward, function-typed field) diverge, and an argument AFTER a diverging one is not lowered | `D14_diverging_forwarded_and_later_args.saw` |  |
+| D15 | a `-> Never` `extern "C"` declaration and its definition agree on `void` + `noreturn` | `never_extern_module_abi.saw` |  |
+| D16 | a break-less `while { }` types `Never` and satisfies a `-> Never` declaration | `while_never_diverges.saw` |  |
+| D17 | `while true { }` is NOT `Never` | `errors/while_true_not_never.saw` |  |
+| D18 | code after a diverging `while { }` is unreachable | `errors/while_never_unreachable_after.saw` |  |
+| D19 | an `@export`ed `-> Never` function is emitted `noreturn` | `export_never_noreturn.saw` |  |
+| D20 | a diverging result expression in a SUSPENDING body stores nothing | `coro_panic_value_position.saw` |  |
 
 ## Cross-cutting soundness smoke
 

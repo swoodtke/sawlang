@@ -1,0 +1,76 @@
+// Conformance row D08 — the three INDIRECT callee kinds diverge too: a
+// closure, an `any Trait` vtable slot, and a trait DEFAULT body
+//
+// None of these can be answered by the callee's `noreturn` attribute: a
+// closure and a vtable slot are both called through a loaded function POINTER,
+// and a pointer carries no attribute list. Those two sites ask the call
+// EXPRESSION's type instead — sound for both, because neither can be a
+// `borrows` accessor (design 141 admits no borrows function values, existential
+// or otherwise), so the call's type IS the callee's return type.
+//
+// The trait default body is the third: it is emitted once for the trait and
+// reached through the same slot, so the slot's `void` return has to be right
+// for it as well.
+//
+// EXPECT: success
+// EXPECT-OUTPUT:
+// 7 7 7 7
+
+struct Reply {
+    status: Int,
+    value: UInt,
+    blocked: Bool
+}
+
+trait Faulter {
+    func fault(&self) -> Never
+    func fault_default(&self) -> Never {
+        print("default fault")
+        while { }
+    }
+}
+
+struct Hard { id: Int }
+
+extension Hard: Faulter {
+    func fault(&self) -> Never {
+        print("hard fault {self.id}")
+        while { }
+    }
+}
+
+func by_closure(x: Int) -> Reply {
+    let f = { n: Int in
+        print("closure die {n}")
+        while { }
+    }
+    if x > 0 { return Reply(status: 7, value: 0, blocked: false) }
+    f(x)
+}
+
+// A closure in a value-`if` arm: the arm diverges, the `if` takes the other.
+func by_closure_arm(x: Int) -> Int {
+    let f = { n: Int in
+        print("closure die {n}")
+        while { }
+    }
+    let v: Int = if x > 0 { 7 } else { f(x) }
+    v
+}
+
+func by_vtable(f: &any Faulter, x: Int) -> Reply {
+    if x > 0 { return Reply(status: 7, value: 0, blocked: false) }
+    f.fault()
+}
+
+func by_trait_default(f: &any Faulter, x: Int) -> Reply {
+    if x > 0 { return Reply(status: 7, value: 0, blocked: false) }
+    f.fault_default()
+}
+
+func main() {
+    let h = Hard(id: 3)
+    print("{} {} {} {}",
+          by_closure(1).status, by_closure_arm(1),
+          by_vtable(&h, 1).status, by_trait_default(&h, 1).status)
+}

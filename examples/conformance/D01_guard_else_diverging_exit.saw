@@ -1,0 +1,79 @@
+// Conformance row D01 — a diverging call is a valid `guard ... else` exit at
+// EVERY callee kind
+//
+// The rule is "an expression of type `Never` never falls through", and a
+// `guard` else block asks exactly that question. It used to ask a NAME
+// question instead — `expr.name == "panic"` — so `panic(...)` and design 177's
+// break-less `while { }` were accepted and a `-> Never` CALL was not:
+// ``'guard' else block must exit the scope (return, break, or continue)``
+// (DF-178d face 1). Design 228 leg 1 replaced the name test with the type
+// test, in one predicate whose entry points are named.
+//
+// Six callee kinds are here — the builtin, a plain same-module function, an
+// overloaded one, an imported public one, an `extern "C"` noreturn
+// declaration, and the module-private one reached through `neverdiv`'s own
+// driver (it must be called from INSIDE its module to take the fast path).
+//
+// `stop` and `die` are distinct kinds and both are needed: `stop` is alone
+// under its name, so its call site resolves by plain name, while `die`'s two
+// declarations form an OVERLOAD SET and every call to either carries a `$OL$`
+// resolved symbol — which is the codegen path that broke.
+//
+// COMPILE-FLAGS: --module-path neverdiv={TESTDIR}/modules/neverdiv
+// EXPECT: success
+// EXPECT-OUTPUT:
+// 3 4 5 6 7 3
+
+import neverdiv
+
+extern "C" {
+    func _exit(code: Int32) -> Never
+}
+
+// Alone under its name: resolved by plain name, no `$OL$` symbol.
+func stop(r: Int) -> Never {
+    print("stop {r}")
+    while { }
+}
+
+func die(r: Int) -> Never {
+    print("die {r}")
+    while { }
+}
+
+// The second declaration is what makes `die` an overload set.
+func die(r: Bool) -> Never {
+    print("die {r}")
+    while { }
+}
+
+func by_panic(o: Int?) -> Int {
+    guard let v = o else { panic("absent") }
+    return v
+}
+
+func by_plain(o: Int?) -> Int {
+    guard let v = o else { stop(1) }
+    return v
+}
+
+func by_overloaded(o: Int?) -> Int {
+    guard let v = o else { die(1) }
+    return v
+}
+
+func by_imported(o: Int?) -> Int {
+    guard let v = o else { neverdiv.mdie(1) }
+    return v
+}
+
+func by_extern(o: Int?) -> Int {
+    guard let v = o else { _exit(3) }
+    return v
+}
+
+func main() {
+    print("{} {} {} {} {} {}",
+          by_panic(3), by_plain(4), by_overloaded(5), by_imported(6),
+          by_extern(7), neverdiv.guard_else(3))
+}

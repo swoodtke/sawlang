@@ -1,0 +1,32 @@
+// Conformance row D10 — `group.spawn` of a `-> Never` body is REFUSED
+//
+// Design 228 unit 5's v1 ruling. A task is a computation something later waits
+// for; a `-> Never` body never completes, so the handle it mints has a result
+// cell for a value that cannot exist and `join` on it could not return. The
+// compiler was quietly building exactly that: `TaskHandle<Never>`, whose type
+// argument reached the mangler's escape hatch as `$Unknown$NEVER` — and
+// reaching that hatch is documented as a compiler bug.
+//
+// The refusal forecloses nothing. Blessing the never-Done frame as an honest
+// forever-server type is re-proposable, and owes a `NEVER` mangle case, a
+// `Slot<Never>` zero-size story and a ruling on what `join` means. Until then
+// the forever-task has a spelling that works: `-> Void` with a loop.
+//
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: a task body may not be `Never`
+// EXPECT-ERROR-CONTAINS: `join` on its handle could never return
+// EXPECT-ERROR-CONTAINS: Write a forever-task as `-> Void` with a loop
+
+import std.task.*
+
+func halt(n: Int) -> Never {
+    while {
+        yield_now()
+    }
+}
+
+func main() {
+    var group = TaskGroup()
+    let h = group.spawn(halt(1))
+    print("spawned")
+}

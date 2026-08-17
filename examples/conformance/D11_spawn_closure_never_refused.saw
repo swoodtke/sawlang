@@ -1,0 +1,18 @@
+// Conformance row D11 — `spawn { ... }` with a diverging closure body is
+// REFUSED, at the same rule as D10
+//
+// The design-21b closure form starts a task the same way `group.spawn` does,
+// so it asks the same question through the same predicate — the point of
+// making it a funnel rather than a test written once at the first position
+// somebody hit.
+//
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: a task body may not be `Never`
+// EXPECT-ERROR-CONTAINS: this closure's body never returns
+
+func main() {
+    let t = spawn {
+        while { }
+    }
+    print("spawned")
+}

@@ -1,0 +1,45 @@
+// Conformance row D13 — control does not continue past a diverging call
+//
+// The guarantee under all of design 228: a `-> Never` call is a departure, not
+// a value. When the call site failed to say so, the `call`'s void result flowed
+// on as if it were a result — which is how a diverging arm poisoned a phi's
+// type and how a diverging tail reached a `ret` against a real return type.
+//
+// Asserted two ways, because "it compiled" is not the claim:
+//
+//  * BEHAVIOURALLY — `stop` prints and then diverges into a loop the runtime
+//    check panics out of, and the line after the call never prints. The
+//    process exits through the panic, so the run is `EXPECT: panic` and the
+//    output is the record of what did and did not execute.
+//  * IN THE IR — the dead `print("after")` is GONE. Its string literal would
+//    be in the emitted module if anything could still reach it, so its absence
+//    is the precise assertion; a bare `unreachable` is not, since the runtime
+//    puts several in every program.
+//
+// EXPECT: panic
+// EXPECT-IR-ABSENT: c"after
+// EXPECT-OUTPUT-CONTAINS: before
+// EXPECT-PANIC-CONTAINS: deliberate
+
+func stop(why: String) -> Never {
+    print("stopping: {why}")
+    panic("{why}")
+}
+
+// Overloaded, so the call site takes codegen's `resolved_symbol` fast path —
+// the one that used to emit no `unreachable` at all.
+func stop(code: Int) -> Never {
+    print("stopping: {code}")
+    panic("deliberate")
+}
+
+func run(x: Int) -> Int {
+    print("before")
+    stop(7)
+    print("after")
+    return x
+}
+
+func main() {
+    print("{}", run(1))
+}

@@ -1,0 +1,56 @@
+// Conformance row D04 — a diverging `??` default types as the PAYLOAD
+//
+// `o ?? panic("gone")` is the ordinary "unwrap or die" spelling, and it was
+// refused: ``optional inner type `Int` does not match default type `Never` ``.
+// The bottom-type escape — a `Never` expression satisfies any expected type —
+// only fires in the SOURCE slot of the compatibility test, and `??` asks the
+// question the other way round, so the diverging operand sat in the TARGET
+// slot where nothing looked for it (design 228 leg 6). It was refused for
+// `panic` too, at every callee kind.
+//
+// The value the expression yields can only ever be the payload, so that is its
+// type, and the absent arm takes no edge to the merge.
+//
+// COMPILE-FLAGS: --module-path neverdiv={TESTDIR}/modules/neverdiv
+// EXPECT: success
+// EXPECT-OUTPUT:
+// 1 2 3 4 5 6
+
+import neverdiv
+
+extern "C" {
+    func _exit(code: Int32) -> Never
+}
+
+// Alone under its name (resolved by plain name); `die` below is an overload
+// set, and both kinds are exercised.
+func stop(r: Int) -> Never {
+    print("stop {r}")
+    while { }
+}
+
+func die(r: Int) -> Never {
+    print("die {r}")
+    while { }
+}
+
+func die(r: Bool) -> Never {
+    print("die {r}")
+    while { }
+}
+
+func by_panic(o: Int?) -> Int { o ?? panic("absent") }
+
+func by_plain(o: Int?) -> Int { o ?? stop(1) }
+
+func by_overloaded(o: Int?) -> Int { o ?? die(1) }
+
+func by_imported(o: Int?) -> Int { o ?? neverdiv.mdie(1) }
+
+func by_extern(o: Int?) -> Int { o ?? _exit(3) }
+
+func main() {
+    print("{} {} {} {} {} {}",
+          by_panic(1), by_plain(2), by_overloaded(3), by_imported(4),
+          by_extern(5), neverdiv.coalesce(6))
+}

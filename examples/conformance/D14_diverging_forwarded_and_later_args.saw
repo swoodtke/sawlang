@@ -1,0 +1,89 @@
+// Conformance row D14 — the call shapes that reach a callee INDIRECTLY, and
+// the argument that follows a diverging one
+//
+// Four more call-emitting sites than the obvious ones, found by review after
+// the first pass claimed its funnel was complete: an `Arc<T>` and a `Box<T>`
+// forwarding `&self` to their heap payload's method, and a function-typed
+// struct FIELD. Each reproduced the original symptom exactly — `ret void
+// %box_forward_call` against a struct return, and `'%field_closure_call'
+// defined with type 'i8' but expected 'i64'`, the poisoned phi this brief was
+// written to kill, reachable through the new `??` path.
+//
+// The last two functions are the other half of the argument rule. An argument
+// list lowers left to right, so the arguments AFTER a diverging one have
+// nowhere to emit: checking only at the call left them writing into a
+// terminated block, which surfaced as an `internal compiler error` with an
+// empty message (llvmlite's own assertion, from the checked `+`'s branch) or
+// as `expected instruction opcode` from the IR parser. The question is asked
+// at `_gen_transfer_value`, which every argument loop already goes through.
+//
+// EXPECT: success
+// EXPECT-OUTPUT:
+// 7 7 7 5
+// 0 0
+
+struct Reply { status: Int, value: UInt, blocked: Bool }
+
+struct Killer { id: Int }
+
+extension Killer {
+    func die(&self) -> Never {
+        print("die {self.id}")
+        while { }
+    }
+}
+
+struct Holder { f: (Int) sync -> Never }
+
+func takes3(a: Int, b: Int, c: Int) -> Int { a + b + c }
+
+func die(r: Int) -> Never {
+    print("die {r}")
+    while { }
+}
+
+func by_box(b: &Box<Killer>, x: Int) -> Reply {
+    if x > 0 { return Reply(status: 7, value: 0, blocked: false) }
+    b.die()
+}
+
+func by_arc(a: &Arc<Killer>, x: Int) -> Reply {
+    if x > 0 { return Reply(status: 7, value: 0, blocked: false) }
+    a.die()
+}
+
+func by_field(h: &Holder, x: Int) -> Reply {
+    if x > 0 { return Reply(status: 7, value: 0, blocked: false) }
+    h.f(x)
+}
+
+// A field call as a `??` default — the two legs meeting.
+func by_field_coalesce(h: &Holder, o: Int?) -> Int {
+    o ?? h.f(1)
+}
+
+// An argument after the diverging one, in both shapes: one that emits a BRANCH
+// (checked arithmetic) and one that emits a straight-line read.
+func later_arg_arith(x: Int, y: Int, c: Bool) -> Int {
+    if c { return 0 }
+    takes3(1, die(1), x + y)
+}
+
+func later_arg_field(k: &Killer, c: Bool) -> Int {
+    if c { return 0 }
+    takes3(1, die(1), k.id)
+}
+
+func main() {
+    let b = Box<Killer>.make(Killer(id: 1))
+    let a = Arc<Killer>(value: Killer(id: 2))
+    let h = Holder(f: { n: Int in
+        print("field die {n}")
+        while { }
+    })
+    print("{} {} {} {}",
+          by_box(&b, 1).status, by_arc(&a, 1).status, by_field(&h, 1).status,
+          by_field_coalesce(&h, 5))
+    let k = Killer(id: 3)
+    print("{} {}", later_arg_arith(1, 2, true), later_arg_field(&k, true))
+}

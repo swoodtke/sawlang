@@ -1,0 +1,73 @@
+// Conformance row D07 — a `-> Never` METHOD, generic function and generic
+// method are all `void` + `noreturn`, so a call to one diverges
+//
+// Design 58 says a `-> Never` declaration lowers to `void` + `noreturn`.
+// `_declare_extension_methods` had no such arm at all, so a diverging METHOD
+// was emitted as `define i8 @T_die`: the caller read an i8 result out of a call
+// that produced nothing, and the call-site check — which asks the `noreturn`
+// attribute — could never fire on it (design 228 leg 3). The monomorphized
+// twin had the same hole.
+//
+// EXPECT: success
+// EXPECT-IR-CONTAINS: define void @Killer_die
+// EXPECT-OUTPUT:
+// 7 7 7 7
+
+struct Reply {
+    status: Int,
+    value: UInt,
+    blocked: Bool
+}
+
+struct Killer { id: Int }
+
+extension Killer {
+    func die(&self) -> Never {
+        print("die {self.id}")
+        while { }
+    }
+
+    func slay<T>(&self, v: T) -> Never {
+        print("slay {self.id}")
+        while { }
+    }
+
+    // A STATIC method — no `self` parameter — is a third declaration slot the
+    // same `-> Never` answer has to reach.
+    func halt() -> Never {
+        print("halt")
+        while { }
+    }
+}
+
+func gdie<T>(v: T) -> Never {
+    print("gdie")
+    while { }
+}
+
+func by_method(k: &Killer, x: Int) -> Reply {
+    if x > 0 { return Reply(status: 7, value: 0, blocked: false) }
+    k.die()
+}
+
+func by_generic_method(k: &Killer, x: Int) -> Reply {
+    if x > 0 { return Reply(status: 7, value: 0, blocked: false) }
+    k.slay<Int>(x)
+}
+
+func by_static_method(x: Int) -> Reply {
+    if x > 0 { return Reply(status: 7, value: 0, blocked: false) }
+    Killer.halt()
+}
+
+func by_generic_function(x: Int) -> Reply {
+    if x > 0 { return Reply(status: 7, value: 0, blocked: false) }
+    gdie<Int>(x)
+}
+
+func main() {
+    let k = Killer(id: 1)
+    print("{} {} {} {}",
+          by_method(&k, 1).status, by_generic_method(&k, 1).status,
+          by_static_method(1).status, by_generic_function(1).status)
+}

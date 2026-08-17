@@ -1,0 +1,95 @@
+// Conformance row D06 — a diverging TAIL satisfies any return type, including
+// a struct one, and a `-> Never` body may end in another `-> Never` call
+//
+// `func handle(...) -> Reply { fault(p) }` is the fault path of a dispatcher:
+// the tail diverges, so the declared struct return is satisfied without a
+// value. It emitted `ret void %calltmp` — ``value doesn't match function
+// result type`` — whenever the callee took codegen's `resolved_symbol` fast
+// path (DF-178d).
+//
+// The second half is the `Never` -> `Never` tail. It cost `sos` three cosmetic
+// `while { }` lines written after a diverging call purely to carry the
+// divergence up to the signature; a diverging call IS a diverging tail, so
+// nothing needs to follow it.
+//
+// COMPILE-FLAGS: --module-path neverdiv={TESTDIR}/modules/neverdiv
+// The last line runs `neverdiv`'s twelve drivers in one call, so every
+// position in the sweep's matrix is exercised at the MODULE-PRIVATE callee
+// kind — the `$m$` fast path that was the bug's trigger — on their surviving
+// paths.
+//
+// EXPECT: success
+// EXPECT-OUTPUT:
+// 7 7 7 7
+// 9 9 9
+// 11
+
+import neverdiv
+
+struct Reply {
+    status: Int,
+    value: UInt,
+    blocked: Bool
+}
+
+extern "C" {
+    func _exit(code: Int32) -> Never
+}
+
+func die(r: Int) -> Never {
+    print("die {r}")
+    while { }
+}
+
+func die(r: Bool) -> Never {
+    print("die {r}")
+    while { }
+}
+
+func tail_panic(x: Int) -> Reply {
+    if x > 0 { return Reply(status: 7, value: 0, blocked: false) }
+    panic("unreachable")
+}
+
+func tail_overloaded(x: Int) -> Reply {
+    if x > 0 { return Reply(status: 7, value: 0, blocked: false) }
+    die(1)
+}
+
+func tail_imported(x: Int) -> Reply {
+    if x > 0 { return Reply(status: 7, value: 0, blocked: false) }
+    neverdiv.mdie(1)
+}
+
+func tail_extern(x: Int) -> Reply {
+    if x > 0 { return Reply(status: 7, value: 0, blocked: false) }
+    _exit(3)
+}
+
+// A `-> Never` body whose TAIL is a diverging call — no trailing `while { }`.
+func onward(x: Int) -> Never {
+    die(true)
+}
+
+func onward_overloaded(x: Int) -> Never {
+    die(1)
+}
+
+func through(x: Int) -> Int {
+    if x > 0 { return x }
+    onward(x)
+}
+
+func through_overloaded(x: Int) -> Int {
+    if x > 0 { return x }
+    onward_overloaded(x)
+}
+
+func main() {
+    print("{} {} {} {}",
+          tail_panic(1).status, tail_overloaded(1).status,
+          tail_imported(1).status, tail_extern(1).status)
+    print("{} {} {}",
+          through(9), through_overloaded(9), neverdiv.never_tail_in_never(9))
+    print("{}", neverdiv.drive_all())
+}
