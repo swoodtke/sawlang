@@ -187,7 +187,10 @@ a subexpression reaches no expected type), so `>= (1 << 8)` against a
 ## DF-232i — a GENERIC raw-backed enum silently loses its declared tag values
 ## at monomorphization and emits ORDINALS (found Aug 17 by DF-232c's sweep,
 ## probed; pre-existing, unrelated to 232c's parse position; RENUMBERED from
-## the branch's DF-232e at integration — the kcore split claimed d-g first)
+## the branch's DF-232e at integration — the kcore split claimed d-g first;
+## RULED Aug 17, user: FIX PROPER — the declared values SURVIVE
+## monomorphization, not the refuse-the-combination fallback; dispatched as
+## item 6 of the Aug-17 small-fix batch)
 
 ```saw
 enum E<T>: UInt8 { case A = 7, case B = 9, }
