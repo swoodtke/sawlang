@@ -86,6 +86,10 @@ Test expectations are specified via comments in the source files:
                               Keep the EXPECT directives above accurate: if the
                               test starts passing it is reported as XPASS and
                               fails the run, prompting you to drop the marker.
+    // XFAIL-IF: plat reason - Platform-conditional XFAIL. `plat` is `macos`
+                              (alias `darwin`) or `linux`; the marker applies
+                              only on that OS. Use for tests whose pass/fail
+                              depends on host behavior (e.g. allocator policy).
 """
 
 from __future__ import annotations
@@ -334,6 +338,17 @@ def parse_test_metadata(file_path: Path) -> Optional[TestCase]:
 
             elif '// EXPECT-NO-WARNINGS' in line:
                 expect_no_warnings = True
+                in_output_block = False
+
+            elif '// XFAIL-IF:' in line:
+                rest = line.split('// XFAIL-IF:')[1].strip()
+                parts = rest.split(None, 1)
+                plat = parts[0].lower() if parts else ''
+                reason = parts[1] if len(parts) > 1 else ''
+                cur = sys.platform
+                if ((plat in ('macos', 'darwin') and cur == 'darwin')
+                        or (plat == 'linux' and cur == 'linux')):
+                    xfail_reason = reason
                 in_output_block = False
 
             elif '// XFAIL:' in line:

@@ -24,7 +24,7 @@
 // widen the refusal, to retain at the lowering, or to take `other: &Self` (which
 // removes the callee's ability to consume at every tier at once) is a ruling,
 // so the row pins the PROPERTY rather than any one mechanism.
-// XFAIL: DF-216b a hand-written `equals` that consumes `other` over-releases a Copy operand through the operator — the eighth matrix position, outside the stopgap's ExplicitCopy/NoCopy tier condition
+// XFAIL-IF: macos DF-216b a hand-written `equals` that consumes `other` over-releases a Copy operand through the operator — the eighth matrix position, outside the stopgap's ExplicitCopy/NoCopy tier condition
 // EXPECT: success
 // EXPECT-OUTPUT:
 // before: a=ALPHA b=BRAVO
