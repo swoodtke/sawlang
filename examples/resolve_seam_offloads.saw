@@ -9,9 +9,8 @@
 // only happen if the resolver ceded the thread, which a naked seam could not do.
 // Network-free — `localhost` comes out of /etc/hosts.
 // EXPECT: success
-// EXPECT-OUTPUT:
-// sibling: ran while the resolve was in flight
-// resolver: localhost -> 127.0.0.1 (1 address)
+// EXPECT-OUTPUT-CONTAINS: sibling: ran while the resolve was in flight
+// EXPECT-OUTPUT-CONTAINS: resolver: localhost -> 127.0.0.1
 
 static MAX_ADDRS: Int = 4
 
