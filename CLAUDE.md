@@ -245,6 +245,81 @@ concurrent only in isolated worktrees, cherry-picked back — linear
 history, no merge commits). Each brief lands in small per-unit commits,
 full suite green each.
 
+**DIVISION OF LABOR + MODELS (user rulings, Aug 13-18):** the user
+designs and RULES; the LEAD (session model) writes briefs, dispatches,
+and VALIDATES every work product before it reaches main. Subagents are
+ALWAYS `model: opus`, explicitly set — never inherited. Two exceptions:
+a lead-model subagent may be dispatched (a) for the narrow aspect an
+Opus agent demonstrably failed on (per-aspect, earned by the failure),
+or (b) proactively to SPEC a tricky rewrite (emission census, exact
+APIs, worked examples) that Opus then implements. A SONNET agent may
+build oracle-dense MECHANICAL corpus work when the brief pins the grids,
+the per-cell rule authorities, and a no-guessing rule (undetermined
+cells flagged OPEN, never invented expectations) — per-task,
+user-approved.
+
+**WORKTREES + INTEGRATION:** ALL implementation work happens in
+isolated worktrees — never commit implementation directly on main (the
+lead may commit docs/briefs/tracker rulings directly). Integrate by
+cherry-pick/rebase only, never merge commits; agents keep their own
+branches linear (rebase on main if behind). Resolve conflicts HUNK BY
+HUNK with the editor — NEVER `checkout --theirs/--ours` on a shared
+accumulator file (todo.md, INDEX.md, SKILL.md): it replaces the whole
+file and silently discards the other side's non-conflicted entries
+(this happened Aug 17; recovered from history). After any
+accumulator-file resolution, sanity-grep a couple of entries that exist
+only on the other side. After integrating: remove the worktree, delete
+the branch, run the integration gate on main. Two concurrent agents WILL
+collide on DF numbers — assign ranges at dispatch or renumber at
+integration. SOS-side branches PARK for USER review before merging;
+compiler briefs follow the normal flow.
+
+**AGENT CONDUCT:** no workarounds — an agent that hits a language bug or
+blocked dependency STOPS that unit, files a DF (mechanism named, per
+obligation 4), and reports; it never codes around a compiler defect.
+Never add attribution trailers (Co-Authored-By etc.) to commit messages.
+HANDOFF.md is session state — never commit it. A fix that closes a
+finding filed by a differential/fuzz harness removes the harness's
+known-ledger entry (corodiff_known.txt, sawfuzz_known.txt) in the SAME
+commit, and its gate includes that harness's lane.
+
+**THE SUITE LOCK (machine-wide):** all suite-shaped invocations
+(test_runner, battery.sh, sos_runner) serialize through a mkdir lock at
+`/private/tmp/claude-<uid>/saw-suite-lock` (uid = `id -u`; create the
+parent once per machine). Acquire + gate + release in ONE chained
+FOREGROUND command: `until mkdir <lock> 2>/dev/null; do sleep 15; done;
+<gate>; rc=$?; rmdir <lock>; echo GATE=$rc`. Never background the wait
+or the gate (a stopped agent's background waiters die silently); never
+hold the lock while editing; if the command times out, rerun the same
+command. Clear a stale lock only VERIFIED-DEAD: no suite process exists
+(pgrep) AND the holder is identified dead.
+
+**DESIGN DOCTRINE (user rulings, standing):**
+- **Never hide errors** — failures surface as Result/Optional; no
+  Void-swallowing, no sentinel collisions, no silent degradation.
+- **Infer when accurate** — infer what is DETERMINED; be explicit where
+  inference would guess; READER-VISIBILITY TRUMPS both (the call-site
+  `&var` precedent — and Aug 18's `static` keyword ruling).
+- **APIs do the expected thing, not the easy-to-implement thing** —
+  hide complexity behind the surface a caller would predict.
+- **No abbreviations in API names** (`SystemError` not `SysError`);
+  terms of art (`Op`, `Right`) are words, not abbreviations.
+- **Perf via measurement** — correctness first; optimize only from
+  profiling data; no speculative perf work.
+- **Kernels + embedded are first-class targets** — freestanding
+  concerns shape runtime/stdlib design, never bolt on.
+
+**POST-LANDING IDIOM REVIEW:** after integrating agent-written .saw
+code, the lead skims it for idiom (against the saw-lang skill); catches
+grow the skill so the next agent writes it right.
+
+**LEAD SESSION OPS (macOS host):** start `caffeinate -ims &` before
+long agent runs (never `-d` — the display must sleep), `pkill
+caffeinate` at session end. Resume stalled agents via a message with
+explicit recovery steps — a stopped agent's monitors and waiters are
+dead, and its final "I'll wait for X" can never fire; verify claimed
+state (lock dir, pgrep, branch commits) before acting on it.
+
 **TRACKER FLOW (user, Aug 18):** `designs/todo.md` holds OPEN work only,
 plus two standing pointer sections near the top — `[QUEUE]` (scheduled,
 in order) and `[BACKLOG]` (filed, unscheduled) — one line per item
@@ -255,7 +330,9 @@ entries VERBATIM (never rewritten — old entries are often the sole
 record of a mechanism) to the current week's `designs/done_<range>.md`
 at INTEGRATION, after review/approval. A new done file starts each week
 (aug18-aug25, then aug26-sep1, ...) and gets its `designs/INDEX.md`
-line on creation. Docs convention (design 125): LANGUAGE_SPEC.md
+line on creation. A tracker entry SUMMARIZES and points at its brief —
+status, path, a few lines, bare one-line DF findings; evidence, repros
+and staging live in the brief, never restated (two copies drift). Docs convention (design 125): LANGUAGE_SPEC.md
 (authoritative), the saw-lang skill, AND README.md get feature updates
 — NOT this file, whose digest below is only an orientation summary.
 README carries the user-facing subset: anything a reader would pick Saw
