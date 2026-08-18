@@ -1,18 +1,67 @@
 # Saw — Open Work Tracker
 
-Open items ONLY. Landed work lives in `designs/NN-*.md` + git history
-(this file was pruned Jul 30; see git history of this file for the old
-landed recaps). Conventions: cite source designs in [brackets]; VERIFY
-items need a probe before being treated as real work.
-Historical/landed recaps: designs/done_<range>.md files
-(done_aug1-aug9.md, split Aug 9; done_aug10-aug17.md, split Aug 17;
-renamed from todo_ Aug 15 — an archive of finished work is a "done"
-file); older history is in this file's git log (pruned Jul 30). Archive
-format (ruled Aug 15): done files are VERBATIM moves, never rewritten
-(pre-Aug-12 tracker entries are often the SOLE record of DF mechanisms/
-rulings/corrections — grep the brief before deleting anything);
-navigation lives in designs/INDEX.md (one line per brief + one per
-done-file), created with the Aug-17 split.
+OPEN WORK ONLY, plus the two pointer sections directly below. Landed
+work lives in `designs/NN-*.md` + the done files + git history.
+Conventions: cite source designs in [brackets]; VERIFY items need a
+probe before being treated as real work.
+
+TRACKER FLOW (user, Aug 18). An IMPLEMENTING AGENT closes its entry IN
+PLACE here — the status line plus what landed — and never touches a done
+file. The LEAD does the moving, at INTEGRATION and only after
+review/approval: an entry with nothing open left inside it is cut
+VERBATIM into the current week's done file, in the same pass that accepts
+the work. An entry with ANY open item stays here WHOLE — a partially
+closed entry is never split, and a closed finding that lives as a bullet
+inside a still-open section travels with its section, not on its own.
+
+ARCHIVE. A new done file starts each week: done_aug1-aug9.md (split
+Aug 9), done_aug10-aug17.md (Aug 17), done_aug18-aug25.md (Aug 18), then
+done_aug26-sep1.md, and so on — each getting its designs/INDEX.md line
+when it is created (INDEX.md is the navigation, one line per brief plus
+one per done file). Done files are VERBATIM moves, never rewritten (ruled
+Aug 15): an old tracker entry is often the SOLE record of a DF mechanism,
+a ruling or a correction, so grep the archive before concluding a thing
+was never written down, and fix a stale line where it is stale rather
+than by editing history. Older history is in this file's git log (pruned
+Jul 30).
+
+[QUEUE] and [BACKLOG] are POINTERS ONLY — one line per item, naming the
+entry below or the brief that carries it, never restating either. What
+is scheduled and in what order is the whole of what they say.
+
+## [QUEUE] — scheduled, in order (user-approved)
+
+1. DF-232f fix — `--module-path` packages join the package relation (RULED; entry below) — may run parallel with 2/3
+2. Design 236 — `static` keyword required (designs/236-static-keyword.md) — before 235
+3. Design 235 — position-matrix ledgers (designs/235-position-matrices.md; SONNET dispatch) — before 234's migration units
+4. Design 237 — the ANF-hoist funnel (designs/237-anf-hoist-funnel.md) — before 234
+5. Design 205 — platform-pair transfer conversions (designs/205-transfer-conversion-closes.md; worked solution recorded in the brief) — position in queue provisional, before 234 suggested
+6. Design 234 — the fallibility flip (designs/234-fallibility-flip.md) — after 235/237; M3 unit 1.5 may interleave with its units 1-2 only
+7. sos riders batch — `clock_get` `kind:`→`type:` (DF-232b landed), abi enums decimals→shifts (DF-232c landed), kcore re-narrowing `public`→`public(package)` (needs 1) — after 1 integrates; both landed entries are in done_aug18-aug25.md
+8. M3 ladder — designs/232-sos-m3-sketch.md: unit 1.5 interruptibility, 2 CreateProcess, 2.75 handle lifecycle, 3 give, 4 Memory/IoMemory, 5 quotas, 5.5 death notifications, 6 money shot
+
+User-reserved (hand fixes): DF-232h (rides 234 u1 unless taken earlier), DF-217m sync half (entry below, under NEXT-WAVE SWEEPS)
+
+## [BACKLOG] — filed, not scheduled
+
+- DF-232d — `mod.STATIC = v` assignment position (entry below)
+- DF-232e — import-cycle diagnostic (entry below)
+- DF-232g — imported-const static folding (entry below)
+- DF-216c — generic statics never instantiate type params (entry below, under design 216)
+- DF-217d — generic static with default type+value ICE (entry below, under the obligation-4 retro triage)
+- DF-216h — renamed extension param substitution (entry below, under design 216)
+- DF-217p — driven-frame deinit timing, 61+2 cells (RULING OWED; entry below, under design 218 unit 0)
+- DF-217m coro face — receiver temp to frame teardown (rides 217p's ruling; entry below, under NEXT-WAVE SWEEPS)
+- DF-216b / C12 — consuming-equals over-release (RULING OWED: refusal vs retain-at-lowering vs `&Self`; entry below, under design 216)
+- DF-226b/c — FuncPointer v1 gaps (entries below, under design 226)
+- DF-225o — reemit divergence under load (entry below)
+- Design 231 — native-compiler readiness ledger (designs/231-native-compiler.md)
+- M4 seeds — IPC/channels, dynamic loading, IOMMU, SMP (references in designs/232-sos-m3-sketch.md)
+- ESP32 path — P4 + TCP/IP stack ultimate goal; S3 via FreeRTOS-fakery stage 2 (HARDWARE PATH entry below)
+- DF-223b — existential dispatch of a suspending trait method, owed a DESIGN (entry below, under design 223)
+- DF-219c — the spawn capture audit is not bound-aware (soundness-adjacent; entry below, under design 219)
+- DF-224c — `Channel<T?>` call-site auto-wrap ICEs inside a driven body (entry below, under DF-224a/b)
+- DF-225c / DF-225e / DF-225h — three doc-sync RULINGS OWED: `Float64` as a real alias, a bare import reaching std, `()` vs `Void` (entry below)
 
 ## Design 234 — the fallibility flip (RATIFIED Aug 17; QUEUED behind the
 ## three in-flight Aug-17 branches)
