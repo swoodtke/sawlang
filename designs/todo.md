@@ -40,6 +40,23 @@ is compiler-driven across std/blade/libs/sos/devtools/examples — each
 V39-alike the sweep surfaces is a bug the migration fixes. Runs BEFORE 235
 so the matrices enumerate the ruled grammar. [236]
 
+## Design 237 — the ANF-hoist funnel (RATIFIED Aug 18; QUEUED BEFORE 234)
+
+designs/237-anf-hoist-funnel.md is the plan of record: coro_transform's
+hand-enumerated hoist entries (4 of ~8 statement classes, 0 of 3 head
+positions, three side hoists, a second stage-2 position map) unify into the
+`_uncond_children` funnel with its entry points named; `_anf_lift` gains
+the transfers-exactly-once temp-ownership rule (DF-217h's double-free, ten
+consuming positions, built against the Aug-17 over-release detector).
+Closes the ICE family (if/while conds, `&&`/`||` LHS, for-range bounds,
+suspending ctor args in scrutinees), the bogus-refusal family (`??` LHS,
+`?.` head, compound-assign RHS, return-under-wrap, DF-217g's
+DestructuringLet), DF-218n drive sites, and — mechanism check first —
+DF-218e's generic spawn root. OUT: DF-217p / DF-217m-coro deinit TIMING
+(design ruling owed, not hoist coverage). Unit 5 re-runs the full corodiff
+cross that found the cluster. BEFORE 234: the fallibility flip multiplies
+suspending calls in expression positions. [237, 217, 218]
+
 ## Design 235 — the position-matrix ledgers (RATIFIED Aug 17; QUEUED after
 ## the three in-flight branches, BEFORE 234's migration units)
 
@@ -2648,11 +2665,21 @@ Three NEW findings, all lead-verified from standalone repros:
   entry owed landed as `examples/discard_forms_release_matrix.saw`
   (`let _` / `case Two(_,_)` / mixed `case Two(v,_)` / `if let _ = move`).
   Gated suite + sos both arches.
-- **DF-217o (BOGUS-REFUSAL) — a spawned body with NO suspension cannot
-  destructure a tuple**: `error: struct __Frame_worker has no field a1` at
-  the user's own line; adding a pointless `yield_now()` is the workaround.
-  Leaks a compiler-internal frame name into a user diagnostic.
-  PIN: `examples/spawn_body_destructuring_let.saw`
+- **DF-217o — CLOSED (Aug 18, user-authored fix, lead-reviewed): a spawned
+  body with no suspension destructures tuples.** The DestructuringLet arm of
+  `coro_transform`'s `_lower_stmt` blindly rewrote leaves into frame-field
+  stores (`self.a = ...`) even when `_collect_frame_locals` had created no
+  fields (it only adds destructured leaves that SPAN a suspension); the fix
+  mirrors the LetStatement arm — when NO leaf is in `encmap`, keep the plain
+  destructuring let with only the RHS rewritten (`cap_lets` + hosting still
+  apply). Lead edge-probes, all green: all-wildcard `let (_,_)` (empty
+  leaf_names falls to the old path, correct), `var` twin, nested tuple,
+  mixed `(x,_)`, a leaf name-colliding with a frame-resident PARAM (the
+  design-107 derived shadow — takes the old path, answers correctly), and a
+  suspension BEFORE the let (plain let is legal mid-state-machine). PIN
+  flipped: `examples/spawn_body_destructuring_let.saw`. Ledger retired:
+  `tools/corodiff_known.txt`'s DF-217o block removed with the fix (the
+  three-artifacts-together policy). Gated suite + sos + corodiff.
 - **DF-217p (DEINIT-ORDER, 61 cells — the widest) — a driven frame local is
   released at FRAME TEARDOWN, not at its scope's end.** A loop-body local
   outlives the loop; a design-107 shadow rebind holds the replaced binding
