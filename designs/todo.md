@@ -2665,6 +2665,14 @@ Three NEW findings, all lead-verified from standalone repros:
   entry owed landed as `examples/discard_forms_release_matrix.saw`
   (`let _` / `case Two(_,_)` / mixed `case Two(v,_)` / `if let _ = move`).
   Gated suite + sos both arches.
+  LEDGER RETIREMENT ARRIVED LATE (Aug 18): the landing missed the
+  three-artifacts rule — `tools/corodiff_known.txt`'s ten
+  match_nobinding rows outlived the fix by a day, caught by the DF-217o
+  gate's corodiff lane. Retired then; the fix also MORPHED the in_rhs
+  cells' divergence from LEAK to DEINIT-ORDER (the driven twin's
+  always-late teardown release, DF-217p's mechanism, now visible against
+  a correct control) — two rows added under DF-217p's block, and its
+  position matrix grows by the match_nobinding position.
 - **DF-217o — CLOSED (Aug 18, user-authored fix, lead-reviewed): a spawned
   body with no suspension destructures tuples.** The DestructuringLet arm of
   `coro_transform`'s `_lower_stmt` blindly rewrote leaves into frame-field
@@ -2680,8 +2688,12 @@ Three NEW findings, all lead-verified from standalone repros:
   flipped: `examples/spawn_body_destructuring_let.saw`. Ledger retired:
   `tools/corodiff_known.txt`'s DF-217o block removed with the fix (the
   three-artifacts-together policy). Gated suite + sos + corodiff.
-- **DF-217p (DEINIT-ORDER, 61 cells — the widest) — a driven frame local is
-  released at FRAME TEARDOWN, not at its scope's end.** A loop-body local
+- **DF-217p (DEINIT-ORDER, 61 cells + 2 — the widest) — a driven frame local
+  is released at FRAME TEARDOWN, not at its scope's end.** (+2, Aug 18: the
+  DF-217n fix unmasked the match_nobinding/in_rhs cells — the driven twin
+  always released the `_` payload late, invisible while the control twin
+  leaked it entirely; morphed rows filed under this block in
+  corodiff_known.txt.) A loop-body local
   outlives the loop; a design-107 shadow rebind holds the replaced binding
   to teardown where the sync twin drops it at the redefinition. Counts
   always balance (never a leak), but deterministic destruction is a

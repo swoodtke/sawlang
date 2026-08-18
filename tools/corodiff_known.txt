@@ -51,53 +51,18 @@ DF-217g	BOGUS-REFUSAL: error: coroutine transform: suspending call to `X` in `X`
 # 218 unit 2's flip list. The sync twin compiles and runs (design 216 unit 1).
 DF-216g	ICE: error: internal compiler error at <src>:N:N (MemberAccess): Cannot find field n in struct with type %"__Frame_Holder_run"
 
-# DF-217n (reported 2026-08-13) — NEW. A `match` arm whose payload pattern
-# BINDS NOTHING leaks the payload of an owned enum:
-#
-#     match Wrap.Has(x: Res(name: "r1")) { case Has(_) -> { print("hi") } }
-#
-# never runs `r1`'s deinit, while the binding arm `case Has(v)` releases it
-# correctly. NO COROUTINE IS INVOLVED — both twins leak, so this is a sync-path
-# bug the differential oracle happened to surface. It is the `match`-arm
-# sibling of DF-217l (`if let _ = move opt`), i.e. design 111's `_` rider
-# reaching a second construct the DF-217l fix did not cover.
-# Standalone repro: .build/scratch/probe_matchwild.saw
-DF-217n-2026-08-13	LEAK: match_nobinding/after @ linear
-DF-217n-2026-08-13	LEAK: match_nobinding/after @ loop
-DF-217n-2026-08-13	LEAK: match_nobinding/before @ linear
-DF-217n-2026-08-13	LEAK: match_nobinding/before @ loop
-DF-217n-2026-08-13	LEAK: match_nobinding/between @ linear
-DF-217n-2026-08-13	LEAK: match_nobinding/between @ loop
-DF-217n-2026-08-13	LEAK: match_nobinding/in_rhs @ linear
-# The composite face at `linear`, same reading as the `@ loop` one below and
-# equally pre-existing (replayed on `taskgroup_spawn` with the pre-DF-225m
-# compiler, a context no range `for` reaches). It surfaced now only because
-# adding three contexts reshuffled `--quick`'s stratified sample onto the cell
-# — design 141's lesson about samples, arriving again.
-DF-217n-2026-08-13	STDOUT-PARITY: match_nobinding/in_rhs @ linear
-# The `in_rhs @ loop` cell, surfaced by the range-`for` contexts added with
-# DF-225m's fix. It is a LEDGER GAP, not something the new axis broke: both
-# rows reproduce on the pre-existing `loop_second_iter` (`while`) context with
-# the pre-DF-225m compiler — verified by replay. The STDOUT-PARITY row is the
-# composite face of the same leak: the CONTROL twin never releases `r1` at all
-# while the driven twin releases it (late, DF-217p), so the two multisets
-# differ instead of merely their order.
-DF-217n-2026-08-13	LEAK: match_nobinding/in_rhs @ loop
-DF-217n-2026-08-13	STDOUT-PARITY: match_nobinding/in_rhs @ loop
-
-# DF-217o (reported 2026-08-13) — NEW. A SPAWNED task body that contains
-# no suspension point cannot destructure a tuple:
-#
-#     func worker() -> Int { let (a, b) = (mk(1), mk(2))  ...  0 }
-#     g.spawn(worker())        // error: struct `__Frame_worker` has no field `a`
-#
-# A spawn root is always frame-transformed, but with no suspension the pass
-# that gives a destructuring `let`'s bindings their frame fields does not run,
-# while the read rewrite still does. Adding one `yield_now()` to the same body
-# makes it compile and run — which is why the DRIVEN twin is the one that works
-# and the oracle reports this as BOGUS-ACCEPT.
-# Standalone repro: .build/scratch/probe_spawntuple.saw
-DF-217o-2026-08-13	BOGUS-ACCEPT: error: struct `X` has no field `X`
+# DF-217n RETIRED (fixed Aug 18 — `case Has(_)` drops its payload; the ten
+# LEAK/STDOUT-PARITY match_nobinding rows that lived here are gone with the
+# fix). What REMAINS at the in_rhs cells is the DRIVEN twin's half of the old
+# composite: it always released late (frame teardown — DF-217p's mechanism,
+# as the old STDOUT-PARITY comment already recorded), and with the control
+# twin now correct the divergence MORPHED from LEAK into DEINIT-ORDER. The
+# two rows below are that morph, filed under the mechanism that owns them;
+# the after/before/between cells do not force the scrutinee frame-resident,
+# so they reach parity and need no rows. Found by the Aug-18 DF-217o gate's
+# corodiff lane; design 237 unit 5's full cross re-verifies the whole matrix.
+DF-217p-2026-08-13	DEINIT-ORDER: match_nobinding/in_rhs @ linear
+DF-217p-2026-08-13	DEINIT-ORDER: match_nobinding/in_rhs @ loop
 
 # DF-217p (reported 2026-08-13) — NEW, and the widest thing in this file:
 # 61 cells of ONE mechanism. A frame-resident local in a driven body is
