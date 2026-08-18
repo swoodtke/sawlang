@@ -243,7 +243,19 @@ Design decisions are made WITH the user, recorded as `designs/NN-*.md`
 briefs, implemented by dispatched agents (one at a time on `main`;
 concurrent only in isolated worktrees, cherry-picked back — linear
 history, no merge commits). Each brief lands in small per-unit commits,
-full suite green each. Docs convention (design 125): LANGUAGE_SPEC.md
+full suite green each.
+
+**TRACKER FLOW (user, Aug 18):** `designs/todo.md` holds OPEN work only,
+plus two standing pointer sections near the top — `[QUEUE]` (scheduled,
+in order) and `[BACKLOG]` (filed, unscheduled) — one line per item
+pointing at a DF entry below or a brief, never restating either. An
+IMPLEMENTING AGENT closes its entry IN PLACE in todo.md (status +
+landing note) and NEVER touches the done files; the LEAD moves closed
+entries VERBATIM (never rewritten — old entries are often the sole
+record of a mechanism) to the current week's `designs/done_<range>.md`
+at INTEGRATION, after review/approval. A new done file starts each week
+(aug18-aug25, then aug26-sep1, ...) and gets its `designs/INDEX.md`
+line on creation. Docs convention (design 125): LANGUAGE_SPEC.md
 (authoritative), the saw-lang skill, AND README.md get feature updates
 — NOT this file, whose digest below is only an orientation summary.
 README carries the user-facing subset: anything a reader would pick Saw
