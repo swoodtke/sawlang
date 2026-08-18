@@ -603,7 +603,7 @@ class RegistrationMixin:
         rng = self._int_range_for(kind)
         return rng is not None and rng[0] <= value <= rng[1]
 
-    def _check_enum_raw_backing(self, enum: SawEnum):
+    def _check_enum_raw_backing(self, enum: Enum):
         """Validate `enum E: <Int> { case A = 0, ... }` and return
         `(raw_type, {case: value})`, or `(None, {})` when no backing is
         declared (design 145 unit B2).
