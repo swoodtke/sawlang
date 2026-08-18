@@ -6921,6 +6921,16 @@ class _FrameBuilder:
             # `self.<leaf> = __t.<i>` read was the wrong operation (DF-206b).
             forgets = []
             cap_lets, value = self._rewrite_hosting(s.value, forgets)
+            # DF-217o: if none of the destructured bindings are frame-resident,
+            # keep the original destructuring let with the rewritten value.
+            # A spawn root with no suspension has no frame fields for its
+            # locals, and the temp-pattern rewrite would emit `self.a` accesses
+            # that name a field nothing created.
+            leaf_names = [n for n, _ in self._destructure_leaf_types(
+                s.pattern, getattr(s.value, 'resolved_type', None))]
+            if leaf_names and all(n not in self.encmap for n in leaf_names):
+                s.value = value
+                return cap_lets + [s] + self._forgets(forgets)
             src = f"__destrsrc{self._destr_ctr}"
             self._destr_ctr += 1
             out = list(cap_lets)

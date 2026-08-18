@@ -1,16 +1,11 @@
-// XFAIL: DF-217o a spawned body with NO suspension cannot destructure a tuple
-// — `struct __Frame_worker has no field a`, at the user's own line
+// A spawned body with no suspension correctly destructures a tuple.
 //
-// A spawn root is always frame-transformed, but with no suspension point in
-// the body the pass that gives a destructuring `let`'s bindings their frame
-// fields does not run, while the read rewrite still does — so the read looks
-// for a field nothing created. Adding one pointless `yield_now()` to the same
-// body makes it compile and run, which is why the DRIVEN twin is the one that
-// works and the differential oracle reports this as a bogus ACCEPT of the
-// driven side rather than a miscompile.
-//
-// It also leaks a compiler-internal frame name into a user diagnostic, so even
-// the error is not one a reader can act on.
+// DF-217o: A spawn root is always frame-transformed, but with no suspension
+// point in the body the destructuring-let lowering used to rewrite the
+// bindings into frame-field stores (`self.a = ...`) even though no frame
+// fields had been created — so the typechecker reported that the frame
+// struct had no field `a`. The fix: when none of the destructured bindings
+// are frame-resident, keep the original destructuring let unchanged.
 // EXPECT: success
 // EXPECT-OUTPUT:
 // got 3
