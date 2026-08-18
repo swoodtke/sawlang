@@ -88,6 +88,7 @@ Test expectations are specified via comments in the source files:
                               fails the run, prompting you to drop the marker.
 """
 
+from __future__ import annotations
 import os
 import re
 import sys
