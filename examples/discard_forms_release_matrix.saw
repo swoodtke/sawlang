@@ -1,0 +1,61 @@
+// The discard-form family matrix (DF-217l / DF-217n): every form that
+// discards an OWNED value releases it exactly once. One row per form:
+//   1. `let _ = <owned>`             — immediate release (always worked)
+//   2. `match ... case Two(_, _)`    — both unclaimed fields drop (DF-217n)
+//   3. `match ... case Two(v, _)`    — mixed: `_` drops inline, `v` at arm end
+//   4. `if let _ = move opt`         — the blessed consume (DF-217l)
+// A `_` payload drops INLINE at extraction (before the arm body) — a deferred
+// drop would be skipped by break/return/continue inside the arm; a named
+// binding drops at arm end. The oracle is a NoCopy deinit that prints.
+// EXPECT: success
+// EXPECT-OUTPUT:
+// before let _
+// DEINIT L1
+// after let _
+// DEINIT A
+// DEINIT B
+// two discarded
+// DEINIT D
+// kept C
+// DEINIT C
+// DEINIT O1
+// if let _ ran
+// done
+
+struct Res { name: String }
+
+extension Res: NoCopy {
+    func deinit(&var self) {
+        print("DEINIT {self.name}")
+    }
+}
+
+enum Pair {
+    case Two(a: Res, b: Res),
+    case Zero
+}
+extension Pair: NoCopy {}
+
+func main() {
+    print("before let _")
+    let _ = Res(name: "L1")
+    print("after let _")
+
+    let p = Pair.Two(a: Res(name: "A"), b: Res(name: "B"))
+    match p {
+        case Two(_, _) -> print("two discarded"),
+        case Zero -> print("zero")
+    }
+
+    let q = Pair.Two(a: Res(name: "C"), b: Res(name: "D"))
+    match q {
+        case Two(v, _) -> print("kept {v.name}"),
+        case Zero -> print("zero")
+    }
+
+    var o: Res? = Res(name: "O1")
+    if let _ = move o {
+        print("if let _ ran")
+    }
+    print("done")
+}

@@ -1,21 +1,16 @@
-// XFAIL: DF-217n a `match` arm whose payload pattern binds NOTHING never
-// releases the payload of the owned enum it consumed
+// Conformance row — a `match` arm whose payload pattern binds NOTHING still
+// releases the payload of the owned enum it consumed.
 //
-// `case Has(_)` leaks; the binding arm `case Has(v)` beside it releases
-// correctly. No coroutine is involved — the corodiff lane surfaced it because
-// BOTH twins leak — so this is design 111's `_` rider reaching a construct the
-// DF-217l fix (`if let _ = move opt`, which leaked the same way) did not cover.
-//
-// Third member of the discard-position family: `let _ = ...` releases,
-// `if let _ = move opt` used to leak and is fixed, `match ... case P(_)` still
-// leaks. The family owes a one-row-per-discard-form matrix, which is the fix's
-// test plan; this file pins the row the matrix is missing.
+// `case Has(_)` must deinit its payload; the binding arm `case Has(v)` beside
+// it releases correctly. Third member of the discard-position family:
+// `let _ = ...` releases, `if let _ = move opt` was fixed (DF-217i),
+// `match ... case P(_)` was fixed (DF-217n).
 // EXPECT: success
 // EXPECT-OUTPUT:
 // bound r1
 // DEINIT r1
-// wildcard
 // DEINIT r2
+// wildcard
 // done
 
 struct Res { name: String }

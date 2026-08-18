@@ -359,16 +359,19 @@ class MatchMixin:
                           and self._needs_cleanup(variant_params[i][1])):
                         # design 65 (L17): an owning payload field discarded with
                         # `_` under the consume model is UNCLAIMED — the scrutinee's
-                        # own drop is suppressed, so nothing else releases it. RELEASE
-                        # it now (it is never read in the arm), using the inverse of
-                        # the copy-with-retain that `Vector.get` took when this value
-                        # was read out of its slot: refcounted (Copy) fields
-                        # are released, a non-refcounted `Deinit` field (which the
-                        # retain never bumped) is left untouched. This balances an
-                        # owning String/Arc key in `Map._slot_state`'s `Occupied(_,_)`
-                        # peek WITHOUT firing the deinit of a NoCopy-Deinit value the
-                        # slot still owns (design-61 exactly-once VALUE tests).
-                        self._emit_release_at(var_alloca, variant_params[i][1])
+                        # own drop is suppressed, so nothing else drops it. DROP it
+                        # now inline: a deferred scope-exit drop would be skipped by
+                        # `break`/`return`/`continue` inside the arm body (those
+                        # paths do not run `_cleanup_all_scopes`), which leaks. Named
+                        # bindings share the same limitation (DF-217p); the timing
+                        # difference is observable only when the deinit has side
+                        # effects, which the test below documents.
+                        #
+                        # `_emit_drop_at` is correct here: a consumed payload is
+                        # OWNED, not retained, and its deinit must fire. For Copy
+                        # types (String, Arc) `_emit_drop_at` and
+                        # `_emit_release_at` converge to the same refcount decrement.
+                        self._emit_drop_at(var_alloca, variant_params[i][1])
 
             # Generate arm body
             if isinstance(arm.body, Block):

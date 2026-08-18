@@ -2305,13 +2305,27 @@ S3's axes (cancel, panic, MT `threads:2`) swept for the first time — no new
 mechanism from cancel/panic/MT beyond confirming DF-217f/h reach them.
 Three NEW findings, all lead-verified from standalone repros:
 
-- **DF-217n (LEAK, sync path) — `case Has(_)` on an owned enum never
-  releases the payload**; the binding arm beside it releases correctly.
-  Both twins leak, so no coroutine involved: design 111's `_` rider at a
-  construct DF-217l's fix did not reach. THIRD member of the
-  discard-position family (`let _` ok, `if let _` fixed as 217l, match `_`
-  broken) — the family owes a one-row-per-discard-form matrix.
-  PIN: `examples/match_wildcard_payload_released.saw`
+- **DF-217n — CLOSED (Aug 18, user-authored fix, lead-reviewed): `case
+  Has(_)` on an owned enum drops its payload.** One call flipped in
+  `codegen/match.py`'s consumed-`_` branch: `_emit_release_at` →
+  `_emit_drop_at`. Release was a no-op for any AGGREGATE payload (a
+  non-refcount-header struct never recursed — the pin's `Res{name:String}`
+  leaked despite being auto-Copy) and deliberately skipped NoCopy deinit;
+  drop recurses, and converges with release for a directly-refcounted
+  payload. The old comment's `Map._slot_state` `Occupied(_,_)` hazard is
+  DEAD PROSE from the pre-places world: the consume path requires an owned
+  LOCAL or owned TEMPORARY scrutinee (match.py's `scrut_is_local` +
+  `_is_borrowed_name` guard, the design-146 fix), and every Map peek
+  matches a PLACE, which never reaches the branch — verified structurally
+  and by the full suite (design-61 exactly-once rows green). Guards probed
+  clean both sides of the patch: a failed `case Has(_) if cond` does not
+  prematurely drop. Timing is documented: a `_` payload drops INLINE at
+  extraction (deferred would leak through break/return/continue), a named
+  binding at arm end. PIN flipped:
+  `examples/match_wildcard_payload_released.saw`. The family matrix the
+  entry owed landed as `examples/discard_forms_release_matrix.saw`
+  (`let _` / `case Two(_,_)` / mixed `case Two(v,_)` / `if let _ = move`).
+  Gated suite + sos both arches.
 - **DF-217o (BOGUS-REFUSAL) — a spawned body with NO suspension cannot
   destructure a tuple**: `error: struct __Frame_worker has no field a1` at
   the user's own line; adding a pointless `yield_now()` is the workaround.
