@@ -161,9 +161,11 @@ jobs:
           python-version: '3.12'
 
       # The SOS harness assembles boot.S / rt.c with clang, links with ld.lld,
-      # and runs the ELF under qemu-system-riscv32.
+      # and runs the ELF under qemu-system-riscv32 and qemu-system-aarch64.
+      # qemu-system-misc provides riscv32; qemu-system-arm provides aarch64
+      # (split out on Ubuntu 24.04, which ubuntu-latest now uses).
       - name: Install host toolchain (clang, lld, qemu)
-        run: sudo apt-get update && sudo apt-get install -y clang lld qemu-system-misc
+        run: sudo apt-get update && sudo apt-get install -y clang lld qemu-system-misc qemu-system-arm
 
       - name: Install llvmlite
         run: |
