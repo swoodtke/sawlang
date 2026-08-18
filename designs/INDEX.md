@@ -241,5 +241,6 @@ Navigation only. One line per design brief in `designs/` (number, file, the brie
 - **233** — `233-while-let.md` — `while let`: the drain loop gets its header spelling
 - **234** — `234-fallibility-flip.md` — the fallibility flip: Result everywhere, three-tier errors, `try(as E.Case)` routing, `try_` = non-blocking
 - **235** — `235-position-matrices.md` — the position-matrix ledgers: examples/coercion/ + examples/modules/, red cells become the exhaustive xfail set
+- **236** — `236-static-keyword.md` — `static` is required on static methods: no inferred staticness; declaration-site error with two-way fixit; runs before 235
 - **archive** — `done_aug1-aug9.md` — Aug 1 – Aug 9, 2026 — landed/closed tracker recaps, archived at the Aug-9 split
 - **archive** — `done_aug10-aug17.md` — Aug 10 – Aug 17, 2026 — landed/closed tracker recaps, archived at the Aug-17 split

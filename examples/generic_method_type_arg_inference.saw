@@ -1,19 +1,15 @@
-// XFAIL: DF-216c a generic METHOD cannot infer its type argument in any
-// spelling, while the identical free function infers fine
+// A generic INSTANCE method infers its type argument in every spelling —
+// labeled, positional, explicit type argument, and later-parameter.
 //
-// First filed as a labeled-argument fault; the Aug-13 labeled-call sweep
-// refuted that framing — positional `h.probe(99i64)` produces the
-// BYTE-IDENTICAL inference error, and explicit type arguments produce two
-// further distinct wrong diagnostics (`no parameter named other` labeled,
-// `takes at most 0 argument(s)` positional). The fault axis is
-// METHOD-vs-FREE-FUNCTION.
-//
-// Mechanism: the method-side inference path is a second, independently written
-// caller of the label-mapping funnel (`_infer_label_mapping`/`_bind_args`) and
-// is defective as a whole — suspect the `off`-adjusted parameter slice it feeds
-// the funnel. The free-function line below is the control: it is the same
-// signature, the same argument and the same label, and it works. DF-217d and
-// DF-217e are the other two members of this family.
+// This file was DF-216c's XFAIL pin, filed as "a generic METHOD cannot infer
+// its type argument in any spelling". The Aug-18 probe corrected the fault
+// axis: the original pin's methods had NO receiver, which makes them STATICS
+// (called through an instance — a spelling DF-217q has since ruled a clean
+// refusal). With `&self` written, every spelling below works, and always
+// failed only through the static path. The static face is repinned honestly
+// at `generic_static_type_arg_inference.saw`; DF-217d pins its defaulted
+// zero-arg ICE. This file keeps the name and pins the INSTANCE behavior as
+// the regression test.
 // EXPECT: success
 // EXPECT-OUTPUT:
 // free 5
@@ -25,8 +21,8 @@
 struct Plain { dummy: Int }
 
 extension Plain {
-    func probe<U>(other: U) -> Int { 5 }
-    func probe2<U>(seed: Int, other: U) -> Int { seed }
+    func probe<U>(&self, other: U) -> Int { 5 }
+    func probe2<U>(&self, seed: Int, other: U) -> Int { seed }
 }
 
 func probe_free<U>(other: U) -> Int { 5 }

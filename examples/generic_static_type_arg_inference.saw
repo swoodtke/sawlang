@@ -1,0 +1,38 @@
+// XFAIL: DF-216c a generic STATIC method never instantiates its type
+// parameter — `U` reaches the argument check unsubstituted on every
+// type-spelled call
+//
+// `Plain.probe(other: 99i64)`, the positional twin, the explicit
+// `Plain.probe<Int64>(99i64)` and the two-param form all refuse with
+// ``argument `other` expects `U` but got `Int64`` — the static call path
+// never runs inference OR explicit-argument substitution. The free function
+// with the identical signature works, and so does the `&self` instance
+// method (`generic_method_type_arg_inference.saw`, this finding's other
+// half, now a passing regression test). The defaulted zero-arg face ICEs
+// and is pinned separately (DF-217d,
+// `generic_method_default_type_and_value_param.saw`).
+//
+// Aug-18 reframe of the original DF-216c filing: the fault axis is
+// STATIC-vs-free, not method-vs-free — the original pin's self-less methods
+// were statics called through an instance, a spelling DF-217q has since
+// ruled a refusal.
+// EXPECT: success
+// EXPECT-OUTPUT:
+// labeled 5
+// positional 5
+// explicit 5
+// two-param 5
+
+struct Plain { dummy: Int }
+
+extension Plain {
+    func probe<U>(other: U) -> Int { 5 }
+    func probe2<U>(seed: Int, other: U) -> Int { seed }
+}
+
+func main() {
+    print("labeled {Plain.probe(other: 99i64)}")
+    print("positional {Plain.probe(99i64)}")
+    print("explicit {Plain.probe<Int64>(99i64)}")
+    print("two-param {Plain.probe2(seed: 5, other: 99i64)}")
+}
