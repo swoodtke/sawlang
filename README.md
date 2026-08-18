@@ -1,6 +1,6 @@
 # Saw
 
-[![CI](https://github.com/swoodtke/claudes-lang/actions/workflows/ci.yml/badge.svg)](https://github.com/swoodtke/claudes-lang/actions/workflows/ci.yml)
+[![CI](https://github.com/swoodtke/sawlang/actions/workflows/ci.yml/badge.svg)](https://github.com/swoodtke/sawlang/actions/workflows/ci.yml)
 
 A systems programming language with Rust-style memory safety and Swift-style
 syntax. It has no garbage collector and no lifetimes, and it compiles for bare
