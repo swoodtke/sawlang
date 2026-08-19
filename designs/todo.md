@@ -38,7 +38,14 @@ is scheduled and in what order is the whole of what they say.
 5. Design 205 — platform-pair transfer conversions (designs/205-transfer-conversion-closes.md; worked solution recorded in the brief) — position in queue provisional, before 234 suggested
 6. Design 234 — the fallibility flip (designs/234-fallibility-flip.md) — after 235/237; M3 unit 1.5 may interleave with its units 1-2 only
 7. sos riders batch — `clock_get` `kind:`→`type:` (DF-232b landed), abi enums decimals→shifts (DF-232c landed), kcore re-narrowing `public`→`public(package)` (needs 1) — after 1 integrates; both landed entries are in done_aug18-aug25.md
-8. M3 ladder — designs/232-sos-m3-sketch.md: unit 1.5 interruptibility, 2 CreateProcess, 2.75 handle lifecycle, 3 give, 4 Memory/IoMemory, 5 quotas, 5.5 death notifications, 6 money shot
+8. Design 238 — the sawos split (designs/238-sawos-split.md; four rulings Aug 19, D-b1/b2/b3 open) — after 7, BEFORE the M3 ladder; its unit 1 (the freestanding suite) may start any time and is worth pulling forward
+9. M3 ladder — designs/232-sos-m3-sketch.md: unit 1.5 interruptibility, 2 CreateProcess, 2.75 handle lifecycle, 3 give, 4 Memory/IoMemory, 5 quotas, 5.5 death notifications, 6 money shot — runs IN sawos, after 8
+
+CONFLICT OWED A RULING (raised Aug 19 by 238's scheduling): item 6's carve-out
+lets M3 unit 1.5 interleave with 234's units 1-2, which puts 1.5 in THIS repo
+before the split at 8 — the one thing "238 before more M3 work" is meant to
+prevent. Either the carve-out is withdrawn (1.5 waits for sawos) or 1.5 is
+accepted as in-tree work the split then moves. Not decided.
 
 User-reserved (hand fixes): DF-232h (rides 234 u1 unless taken earlier), DF-217m sync half (entry below, under NEXT-WAVE SWEEPS)
 
@@ -56,6 +63,7 @@ User-reserved (hand fixes): DF-232h (rides 234 u1 unless taken earlier), DF-217m
 - DF-226b/c — FuncPointer v1 gaps (entries below, under design 226)
 - DF-225o — reemit divergence under load (entry below)
 - Design 231 — native-compiler readiness ledger (designs/231-native-compiler.md)
+- Blade out-of-tree target plugins — moves `sosimg.saw` + `imgformat` out of sawlang entirely and SUPERSEDES 238's D-a; user Aug 19: "probably the way forward in the future". NOT a dependency of 238 (entry: designs/238-sawos-split.md, D-a alternatives)
 - M4 seeds — IPC/channels, dynamic loading, IOMMU, SMP (references in designs/232-sos-m3-sketch.md)
 - ESP32 path — P4 + TCP/IP stack ultimate goal; S3 via FreeRTOS-fakery stage 2 (HARDWARE PATH entry below)
 - DF-223b — existential dispatch of a suspending trait method, owed a DESIGN (entry below, under design 223)
@@ -119,6 +127,65 @@ what we stepped on. No-guessing rule: undetermined cells are OPEN rows for
 ruling, never invented EXPECTs. Sonnet-class dispatch (user ruling — the
 brief fixes the grids and authorities; the agent transcribes). Seeds: the
 DF-232a/226d/e/232c pins + the kcore unit-0 probes. [235]
+
+## Design 238 — the sawos split (AUTHORED Aug 19, FOUR RULINGS same day;
+## QUEUED after the sos riders batch, BEFORE the M3 ladder)
+
+designs/238-sawos-split.md is the plan of record: `sos/` leaves this repo for
+`../sawos`, keeping its tests and building through Blade. The Aug-19 coupling
+sweep (obligation 2, evidence in the brief) found the tree self-contained on
+the package axis — every path dep under `sos/` resolves inside `sos/` — with
+exactly TWO crossings: `blade/Saw.toml:10`'s `imgformat` path dep and
+`sos_runner.py`'s five REPO_ROOT constants. sawc has no dependency on sos
+(comments plus the `sos-hosted` runtime-variant NAME). Blade's sos fixtures are
+self-contained and STAY, `sosimg.saw` with them.
+
+RULED Aug 19 (user): (1) D-a — imgformat → `libs/imgformat`, with the Blade
+target-plugin mechanism recorded as the probable future direction that
+SUPERSEDES it ([BACKLOG]); unit 2 must add no sawlang-ward dependency so the
+reversal stays cheap. (2) sawlang NEVER references sawos — the downstream-CI
+gate is replaced by a standalone freestanding suite here. (3) No shared suite
+lock across repos. (4) Toolchain discovery is `$PATH` first, pinned GitHub
+fetch as fallback.
+
+THE GATE, RE-FOUNDED. sos is a COMPILER gate today (CLAUDE.md — the suite alone
+does not cover sos/; battery's `sos` stage), and it is a SYSTEM test doing a
+UNIT gate's job: red says "the OS did not boot", not which feature regressed.
+Unit 1 replaces it with `tools/freestanding_runner.py` — the generic half of
+sos_runner (tool probing, `_run_qemu`, the ARCHES table, the transcript
+matcher) kept as the engine, a new case table of tiny QEMU-EXECUTED programs
+over the named inventory: `--freestanding`, `--no-hidden-alloc`,
+`--runtime-provider` + ABI check, riscv32/aarch64 cross-codegen (32-bit target
+from a 64-bit host), fixed-address linking, `--module-path` composition,
+Blade's non-host target path. Compile-only would not do: calling-convention,
+struct-layout and trap-frame bugs all survive a clean link. Battery's `sos`
+stage becomes `freestanding`. IT LANDS FIRST — once sawos pins a SHA, compiler
+churn cannot break sawos, but nobody LEARNS it did until someone bumps the pin;
+the pin is only safe because this suite exists.
+
+Resolution is one funnel (obligation 1), `sawos/tools/toolchain.py`:
+`SAWC`/`BLADE` env → `$PATH` → `SAWLANG_ROOT` (kept — the only way to test an
+uncommitted sawc change against sawos) → pinned fetch → refusal. Unit 0
+captures the current both-arch transcript as the acceptance oracle; unit 2
+(imgformat, in-repo) de-risks the rest. No compiler change lands in this brief
+— a sawc defect surfaced by the split exits as a DF.
+
+THREE GAPS the `$PATH` ruling opens, all OPEN: D-b1 — there is no `sawc` or
+`blade` BINARY to find (sawc is `python sawc/sawc.py` + llvmlite; no pyproject,
+setup.py, bin/, or console script; blade is built from Saw source), so step 2
+is dead code until sawlang gains an install story (unit 3, exits to its own
+brief if it grows). D-b2 — a `$PATH`-found sawc is UNPINNED, inverting the
+goal: the pin guards the fallback while the common path is whatever the dev has
+installed. Needs `sawc --version` (none today) + a pin check that refuses
+loudly on mismatch. D-b3 — the fallback is a clone-and-bootstrap, not a
+download: SHA-keyed cache, build once, bootstrap shape (venv for llvmlite?)
+still open. Reachability settled Aug 19 — `swoodtke/sawlang` is PUBLIC, so
+HTTPS with no credentials and the fresh-machine promise holds.
+
+Four more decisions open: D-c the sos briefs' disposition, D-d filter-repo vs
+squash (history does NOT split cleanly — sos commits also touch blade/,
+designs/, examples/, CLAUDE.md), D-e sawos layout, D-f the saw-lang skill.
+Recommendations recorded in the brief. [238, 232, 140, 112]
 
 ## DF-232g — a LOCAL static DERIVED from an imported const stops being a
 ## compile-time constant, though the same expression folds INLINE (filed Aug 17,
