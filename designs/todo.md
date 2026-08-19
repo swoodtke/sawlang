@@ -135,10 +135,25 @@ designs/238-sawos-split.md is the plan of record: `sos/` leaves this repo for
 `../sawos`, keeping its tests and building through Blade. The Aug-19 coupling
 sweep (obligation 2, evidence in the brief) found the tree self-contained on
 the package axis — every path dep under `sos/` resolves inside `sos/` — with
-exactly TWO crossings: `blade/Saw.toml:10`'s `imgformat` path dep and
-`sos_runner.py`'s five REPO_ROOT constants. sawc has no dependency on sos
-(comments plus the `sos-hosted` runtime-variant NAME). Blade's sos fixtures are
-self-contained and STAY, `sosimg.saw` with them.
+FOUR crossings out: `blade/Saw.toml:10`'s `imgformat` path dep,
+`sos_runner.py`'s REPO_ROOT constants, `blade_bootstrap.py:42` (imgformat for
+stage0 — THIS ONE GATES, battery's `bootstrap` stage), and `framesizes.py`'s
+`sos` measurement group (design 163, hand-run, no gate). sawc has no dependency
+on sos (comments plus the `sos-hosted` runtime-variant NAME). Blade's sos
+fixtures are self-contained and STAY, `sosimg.saw` with them.
+
+SWEEP CORRECTION Aug 19 (obligation 4 — the miss was a MECHANISM, recorded
+because the same form will recur). The first pass said TWO crossings and "seven
+packages"; both wrong. It grepped the literal string `sos/`, so every path
+BUILT from components — `os.path.join(REPO, "sos", …)` — was invisible, which
+hid `blade_bootstrap.py` and `framesizes.py`; and `sort -u` over `grep -hn`
+output collapsed by line NUMBER, not by package, which invented the seven. Real
+counts: 20 sysapi consumers (1 at `../kernel/sysapi`, 19 at
+`../../kernel/sysapi`), 21 sosrt consumers. The re-sweep searched the
+CONSTRUCTION (`join([^)]*"sos"`) across every .py/.sh and is the sweep of
+record; a later audit should repeat THAT form, not the string form. The
+conclusion (self-contained on the package axis) survived — but unit 2's and
+unit 5's file lists changed, which is why it mattered.
 
 RULED Aug 19 (user): (1) D-a — imgformat → `libs/imgformat`, with the Blade
 target-plugin mechanism recorded as the probable future direction that
@@ -153,22 +168,34 @@ does not cover sos/; battery's `sos` stage), and it is a SYSTEM test doing a
 UNIT gate's job: red says "the OS did not boot", not which feature regressed.
 Unit 1 replaces it with `tools/freestanding_runner.py` — the generic half of
 sos_runner (tool probing, `_run_qemu`, the ARCHES table, the transcript
-matcher) kept as the engine, a new case table of tiny QEMU-EXECUTED programs
+matcher) kept as the engine — FORKED into sawos at unit 5, not shared (the
+resolver does not resolve Python modules, and in the `$PATH` steady state there
+is no sawlang tree on disk) — a new case table of tiny QEMU-EXECUTED programs
 over the named inventory: `--freestanding`, `--no-hidden-alloc`,
 `--runtime-provider` + ABI check, riscv32/aarch64 cross-codegen (32-bit target
 from a 64-bit host), fixed-address linking, `--module-path` composition,
 Blade's non-host target path. Compile-only would not do: calling-convention,
-struct-layout and trap-frame bugs all survive a clean link. Battery's `sos`
-stage becomes `freestanding`. IT LANDS FIRST — once sawos pins a SHA, compiler
-churn cannot break sawos, but nobody LEARNS it did until someone bumps the pin;
-the pin is only safe because this suite exists.
+struct-layout and trap-frame bugs all survive a clean link. It adds a
+`freestanding` battery stage ALONGSIDE `sos` (not a rename — units 2-4 still
+need `sos` runnable) AND a `freestanding` CI job: `.github/workflows/ci.yml`'s
+sos job runs `make sos-test` directly, not through battery, so a stage alone
+would leave the suite running on nobody's machine but a developer's once unit 5
+deletes the sos job. IT LANDS FIRST — once sawos pins a SHA, compiler churn
+cannot break sawos, but nobody LEARNS it did until someone bumps the pin; the
+pin is only safe because this suite exists.
 
-Resolution is one funnel (obligation 1), `sawos/tools/toolchain.py`:
-`SAWC`/`BLADE` env → `$PATH` → `SAWLANG_ROOT` (kept — the only way to test an
-uncommitted sawc change against sawos) → pinned fetch → refusal. Unit 0
-captures the current both-arch transcript as the acceptance oracle; unit 2
-(imgformat, in-repo) de-risks the rest. No compiler change lands in this brief
-— a sawc defect surfaced by the split exits as a DF.
+Resolution is one funnel (obligation 1), `sawos/tools/toolchain.py`: explicit
+env (`SAWC`/`BLADE`/`SAWLANG_ROOT`) → `$PATH` → pinned fetch → refusal.
+`SAWLANG_ROOT` sits WITH the explicit group, not below `$PATH`: beneath it, a
+dev standing in a sawlang checkout with any sawc installed globally silently
+gets the installed one — D-b2's failure reachable from inside sawlang, and it
+would break unit 4's in-repo default. The user's ruling holds where it applies
+(a sawos user who sets nothing gets `$PATH` then fetch). Unit 0 captures the
+current both-arch transcript as the acceptance oracle; unit 2 (imgformat,
+in-repo, and it must carry `blade_bootstrap.py` with it) de-risks the rest.
+Units 1, 2 and 4 all edit `sos_runner.py` and are STRICTLY SERIAL; only unit 3
+parallelizes. No compiler change lands in this brief — a sawc defect surfaced
+by the split exits as a DF.
 
 THREE GAPS the `$PATH` ruling opens, all OPEN: D-b1 — there is no `sawc` or
 `blade` BINARY to find (sawc is `python sawc/sawc.py` + llvmlite; no pyproject,
@@ -177,7 +204,11 @@ is dead code until sawlang gains an install story (unit 3, exits to its own
 brief if it grows). D-b2 — a `$PATH`-found sawc is UNPINNED, inverting the
 goal: the pin guards the fallback while the common path is whatever the dev has
 installed. Needs `sawc --version` (none today) + a pin check that refuses
-loudly on mismatch. D-b3 — the fallback is a clone-and-bootstrap, not a
+loudly on mismatch — AND a granularity ruling, since step 3 pins a SHA while
+`--version` can only print a version, and a semver cannot separate two commits
+sharing it (the normal case for an unreleased compiler): either `--version`
+emits the build SHA and both paths check the same thing, or the asymmetry is
+accepted and documented. Owed before unit 3 writes `--version`. D-b3 — the fallback is a clone-and-bootstrap, not a
 download: SHA-keyed cache, build once, bootstrap shape (venv for llvmlite?)
 still open. Reachability settled Aug 19 — `swoodtke/sawlang` is PUBLIC, so
 HTTPS with no credentials and the fresh-machine promise holds.

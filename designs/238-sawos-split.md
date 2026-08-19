@@ -47,19 +47,47 @@ The boundary change here is a repo-level one, so the sweep asks: what, outside
 anything outside it. Grep evidence, Aug 19:
 
 - **Every package dependency under `sos/` resolves inside `sos/`.** The full
-  set is `sosabi = ../abi`, `sos = ../kernel/sysapi` (seven packages),
-  `sos = ../../kernel/sysapi`, `sosrt = ../../rt/common`. Nothing under `sos/`
-  names `libs/`, `blade/`, or `sawc/` as a dependency. The tree is
-  self-contained on the package axis.
+  set is `sosabi = ../abi`, `sos = ../kernel/sysapi` (1 manifest, `sos/root`),
+  `sos = ../../kernel/sysapi` (19 manifests under `sos/tests/`), and
+  `sosrt = ../../rt/common` — 20 sysapi consumers and 21 sosrt consumers in
+  all. Nothing under `sos/` names `libs/`, `blade/`, or `sawc/` as a
+  dependency. The tree is self-contained on the package axis.
 - **Blade's SOS fixtures are self-contained.** `blade/tests/fixtures/sosapp`
   and `sosdefaults` declare their own `[sos]` manifests and reach into no part
   of `sos/`. Blade keeps exercising its sosimg emitter, its `[sos]` manifest
   parsing, and `sosimg_wire`/`sosimg_config` after the split, with no sawos
   checkout present.
-- **Exactly two crossings exist.** `blade/Saw.toml:10`
-  (`imgformat = { path = "../sos/imgformat" }`) and `tools/sos_runner.py`,
-  whose module constants name `sawc/sawc.py`, `blade/`, `libs/toml/src`,
-  `libs/semver/src`, and `sos/imgformat/src` off a computed `REPO_ROOT`.
+- **FOUR crossings exist** (corrected Aug 19 — the first pass said two; the
+  mechanism that hid the other two is recorded below):
+  1. `blade/Saw.toml:10` — `imgformat = { path = "../sos/imgformat" }`.
+  2. `tools/sos_runner.py` — module constants naming `sawc/sawc.py`, `blade/`,
+     `libs/toml/src`, `libs/semver/src` and `sos/imgformat/src` off a computed
+     `REPO_ROOT`, plus `sos/kernel`, `sos/tests`, `sos/hal`, `sos/rt/*`,
+     `sos/root`.
+  3. **`tools/blade_bootstrap.py:42-43`** — `IMGFORMAT_DIR = os.path.join(REPO,
+     "sos", "imgformat")`, passed as `--module-path imgformat=…` at line 213.
+     **This one GATES**: it is battery's `bootstrap` stage (`battery.sh:79`)
+     and CI's blade job, so unit 2 must move it with the package or the stage
+     goes red pointing at a deleted directory. `blade_bootstrap.py:44`'s
+     `LIB_DIRS = [("toml", …), ("semver", …)]` is imgformat's natural home
+     after the move.
+  4. **`tools/framesizes.py:98-111`** — an entire `sos` measurement group
+     (`--only sos`, `sos-kernel` and one target per `sos/tests/*.saw`). Design
+     163's hand-run frame-size investigation: NO Makefile target, NO battery
+     stage, NO CI job, so it degrades to "the sos group measures nothing"
+     rather than reddening a gate. Unit 5 either moves the group to sawos or
+     deletes it from sawlang — silently leaving a group that can never match
+     is the one option the doctrine forbids.
+
+  **The mechanism (obligation 4).** The first pass grepped for the literal
+  string `sos/`, so every path BUILT from components —
+  `os.path.join(REPO, "sos", …)` — was invisible to it, and the
+  `sort -u` over `grep -hn` output collapsed by line NUMBER rather than by
+  package, which is where the bogus "seven packages" count came from. Both
+  misses are that one mechanism. The re-sweep that found crossings 3 and 4
+  searched the CONSTRUCTION (`join([^)]*"sos"`) across every `.py` and `.sh`
+  in the repo, and is the sweep of record; any later audit should repeat that
+  form, not the string form.
 - **sawc has no dependency on sos.** Its nine hits are comments plus one
   runtime-VARIANT name (`sos-hosted` in `runtime_abi.py`, `rt/ABI.md`) — a
   string in a link-time table, not a path. `--freestanding`,
@@ -75,7 +103,10 @@ anything outside it. Grep evidence, Aug 19:
 
 Conclusion the sweep supports: the split is a file move plus a path resolver,
 with one genuine dependency decision (D-a) and one gate that must be rebuilt
-(below). It is not a refactor of either tree.
+(below). It is not a refactor of either tree. The correction does not change
+that conclusion — crossings 3 and 4 are two more path constants, not new
+coupling — but it does change unit 2's file list and unit 5's, which is why
+the miss mattered.
 
 ## D-a — the imgformat cycle (RULED Aug 19: `libs/imgformat`)
 
@@ -166,7 +197,19 @@ that already exists:
   transcript matcher (`_is_english_embedding`), and the `ARCHES` table.
 - SOS-SPECIFIC, goes to sawos: `_build_blade`, `_build_root_image`,
   `_stitch_root_image`, `_root_image_path`, `_check_arch_free`, `_build_shared`,
-  `expectations`, `arch_dirs`, and the CASES table.
+  `expectations`, `arch_dirs`, and the `TEST_CASES` table
+  (`sos_runner.py:334`).
+
+**The engine is FORKED, not shared.** sawos's harness needs the generic half
+too, and it cannot borrow sawlang's: the D-b resolver is scoped to sawc, blade,
+imgformat and Blade's libs — it does not resolve Python modules — and in the
+`$PATH` steady state there is no sawlang source tree on disk at all. So unit 5
+COPIES the generic half into sawos rather than depending on it. This is the
+same call as the boot stubs below and for the same reason: the two harnesses
+diverge immediately (sawos's grows sosimg stitching and root-package builds;
+sawlang's grows feature rows), and a shared engine across two repos with no
+package relation between them would be a distribution problem invented to
+avoid ~200 lines of duplication. Neither copy is authoritative after unit 5.
 
 The boot stubs are the one duplication: sawlang's suite needs a minimal
 `_start` (stack, call, exit device) per arch, derived from `sos/hal/<arch>/
@@ -175,9 +218,22 @@ suite does not need). The two copies then diverge deliberately — a test stub i
 not a kernel — so this is a fork, not a shared file, and the brief says so
 rather than pretending a common ancestor should be maintained.
 
-Spelling: `tools/freestanding_runner.py`, `make freestanding-test`, and
-`battery.sh`'s `sos` stage becomes `freestanding`. It is a sawlang suite and
-takes sawlang's suite lock like any other.
+Spelling: `tools/freestanding_runner.py`, `make freestanding-test`, and a NEW
+`freestanding` stage in `battery.sh`. It is a sawlang suite and takes sawlang's
+suite lock like any other.
+
+**The `sos` battery stage is NOT renamed — it is ADDED alongside and removed at
+unit 5.** Renaming at unit 1 would leave units 2-4 with no runnable
+`battery.sh suite sos` gate, which is exactly the code those units edit. Both
+stages coexist from unit 1 to unit 5; `sos` goes away with `sos/`.
+
+**And unit 1 adds a CI job.** `.github/workflows/ci.yml:152-176`'s `sos` job
+runs `make sos-test` DIRECTLY, not through `battery.sh`, so nothing about the
+battery stages touches CI. Without its own job the freestanding suite would run
+only on a developer's laptop — and unit 5 deletes the `sos` job, so the net
+would be no freestanding coverage in CI at all. That would gut the ordering
+argument this whole section rests on. The new job clones the `sos` job's
+toolchain install (clang, lld, qemu-system-misc, qemu-system-arm, llvmlite).
 
 **Ordering consequence, load-bearing:** this suite lands BEFORE the extraction.
 Once sawos pins a sawlang SHA, compiler churn cannot break sawos — but nobody
@@ -206,18 +262,26 @@ a single `sawos/tools/toolchain.py` whose docstring NAMES its entry points
 (`sos_runner.py`, the Makefile, CI). It owns sawc, blade, imgformat, and
 Blade's toml/semver — nothing else in sawos may compute a sawlang path.
 
-Resolution order:
+Resolution order — **explicit intent first, then `$PATH`, then the fetch**:
 
-1. **`SAWC` / `BLADE` env vars** — an explicit override, and how CI pins a
-   prebuilt Blade. Precedent: `sos_runner` already sets `env["SAWC"]` for Blade
-   to read (`sos_runner.py:1322`).
+1. **`SAWC` / `BLADE` / `SAWLANG_ROOT` env vars** — anything the operator
+   named. `SAWC`/`BLADE` are how CI pins a prebuilt Blade (precedent:
+   `sos_runner` already sets `env["SAWC"]` for Blade to read,
+   `sos_runner.py:1322`). `SAWLANG_ROOT` is a local checkout, for working both
+   repos at once against UNCOMMITTED compiler changes — the only way to test a
+   sawc change against sawos before it is pushed, so the split must not make it
+   impossible.
 2. **`sawc` and `blade` on `$PATH`** — the developer fast path.
-3. **`SAWLANG_ROOT`** — a local sawlang checkout, for working both repos at
-   once against uncommitted compiler changes. (Kept from the first draft: this
-   is the ONLY way to test a sawc change against sawos before it is pushed, and
-   the split must not make that impossible.)
-4. **Fetch `swoodtke/sawlang` at the pinned SHA** and bootstrap it, cached.
-5. Otherwise a refusal naming all four.
+3. **Fetch `swoodtke/sawlang` at the pinned SHA** and bootstrap it, cached.
+4. Otherwise a refusal naming all three.
+
+`SAWLANG_ROOT` sits in group 1 rather than below `$PATH` deliberately. Below
+it, a developer standing in a sawlang checkout with any `sawc` installed
+globally would silently get the INSTALLED compiler instead of the one they are
+editing — D-b2's failure mode, reachable from inside sawlang itself, and it
+would break unit 4 (which lands the resolver in-repo with `SAWLANG_ROOT`
+pointing at the repo). The user's ruling is preserved exactly where it applies:
+for a sawos user who has set nothing, resolution is `$PATH` then fetch.
 
 Three sub-decisions this opens — each a real gap, none blocking:
 
@@ -236,8 +300,21 @@ Three sub-decisions this opens — each a real gap, none blocking:
   tested. `sawc` has no `--version` today (grep: no version flag, no
   `__version__`). Proposal: sawc gains `--version`, `sawlang.pin` records what
   sawos requires, and the resolver VERIFIES what step 2 found — a mismatch is a
-  loud refusal naming both versions, never a silent build. That makes `$PATH` a
-  fast path rather than a hole. Doctrine: never hide errors.
+  loud refusal naming both, never a silent build. That makes `$PATH` a fast
+  path rather than a hole. Doctrine: never hide errors.
+
+  **The granularity asymmetry, stated rather than papered over.** Step 3
+  fetches a SHA; step 2 can only compare whatever `--version` prints. A semver
+  string cannot distinguish two commits that share it — the normal case for an
+  unreleased compiler — so an installed sawc verified by version is a WEAKER
+  guarantee than a fetched one verified by SHA. Two ways to close it, and the
+  brief does not pick: (a) `sawc --version` also emits its build SHA when it
+  can determine one, and `sawlang.pin` records the SHA, so both paths check the
+  same thing and an installed sawc that cannot name its provenance is refused;
+  or (b) sawlang adopts a real release discipline, the pin records a version
+  for step 2 and a SHA for step 3, and the asymmetry is accepted and
+  DOCUMENTED. (a) is stricter and probably right; (b) is cheaper and honest.
+  Owed before unit 3 writes `--version`.
 - **D-b3 — the fetch is a clone-and-bootstrap, not a download (OPEN).**
   Fetching at a SHA yields Python source; the resolver then needs llvmlite
   installed and a `blade` built by sawc — minutes, not seconds. So it caches by
@@ -265,16 +342,22 @@ pre-warmed, no behavioral fork.
    gate section: the generic engine stays and gains a case table of tiny
    QEMU-executed programs, one or more per feature in the inventory, both
    arches. Minimal boot stubs derived from `sos/hal/<arch>/kernel/boot.S`.
-   `battery.sh`'s `sos` stage becomes `freestanding`. **Lands FIRST and lands
-   WHOLE** — every later unit removes sos coverage from this repo, and this is
-   what replaces it. Gate: the new suite green, plus `sos-test` still green
-   (sos has not moved yet, so both run).
+   Adds a `freestanding` battery stage ALONGSIDE `sos` (not a rename — units
+   2-4 still need `sos` runnable) and a `freestanding` CI job cloning the `sos`
+   job's toolchain install. **Lands FIRST and lands WHOLE** — every later unit
+   removes sos coverage from this repo, and this is what replaces it. Gate: the
+   new suite green locally AND in CI, plus `sos-test` still green (sos has not
+   moved yet, so both run).
 2. **imgformat relocates INSIDE sawlang** (`sos/imgformat` → `libs/imgformat`,
-   D-a). One repo, one commit: `blade/Saw.toml`, `blade/Saw.lock`,
-   `sos_runner.py:74`, and the doc references in `sosimg.saw`,
-   `imgformat/src/lib.saw`, `blade/Saw.toml`'s comment. Adds NO sawlang-ward
-   dependency to the package (D-a's reversal clause). Gate: suite + sos green,
-   everything still in one place. **The de-risking unit** — after it no
+   D-a). One repo, one commit, and the file list is CROSSINGS 1 AND 3 TOGETHER:
+   `blade/Saw.toml`, `blade/Saw.lock`, `sos_runner.py:74`,
+   **`tools/blade_bootstrap.py:42-43` (moving imgformat into its `LIB_DIRS`)**,
+   and the doc references in `sosimg.saw`, `imgformat/src/lib.saw`,
+   `blade/Saw.toml`'s comment. Adds NO sawlang-ward dependency to the package
+   (D-a's reversal clause). Gate: `battery.sh suite sos freestanding
+   **bootstrap**` — the bootstrap stage is named explicitly because
+   `blade_bootstrap.py` is the crossing the first sweep missed and the one this
+   unit is most likely to break. **The de-risking unit** — after it no
    dependency surgery remains and the split is a move plus a resolver.
 3. **The install story** (D-b1). sawlang gains a way to put `sawc` and `blade`
    on a `$PATH` — console-script entry point or `bin/` shims plus
@@ -285,19 +368,26 @@ pre-warmed, no behavioral fork.
    pending.
 4. **The resolver, still in-repo.** `tools/toolchain.py` lands with
    `SAWLANG_ROOT` defaulting to the repo itself; `sos_runner.py`'s five path
-   constants become resolver calls. All five resolution steps implemented and
+   constants become resolver calls. All four resolution steps implemented and
    unit-tested, including the version check and the refusal. Suite green proves
-   the funnel before the move exercises it.
+   the funnel before the move exercises it. SERIAL AFTER unit 2 — both edit
+   `sos_runner.py:74`.
 5. **The extraction.** `filter-repo --path sos/` into `../sawos` (D-d), minus
    imgformat. sawos gains `Makefile` (`sos-test`), `CLAUDE.md`, `.gitignore`,
    `.github/workflows/ci.yml`, `sawlang.pin`, and `tools/` (sos_runner +
-   resolver). sawlang deletes `sos/`, its `sos-test` target and its `sos` CI
-   job — it now references sawos nowhere. Acceptance: the unit-0 transcript
-   reproduced from sawos, both arches, once per resolution path that a dev
-   machine can exercise (env override, `$PATH`, `SAWLANG_ROOT`, cold fetch).
+   resolver + the FORKED generic engine). sawlang deletes `sos/`, its
+   `sos-test` target, its `sos` battery stage, its `sos` CI job, and resolves
+   crossing 4 — `framesizes.py`'s `sos` group either travels to sawos or is
+   deleted here, never left pointing at nothing. sawlang now references sawos
+   nowhere. Acceptance: the unit-0 transcript reproduced from sawos, both
+   arches, once per resolution path AVAILABLE at that time — env override,
+   `SAWLANG_ROOT` and cold fetch always; `$PATH` only if unit 3 landed rather
+   than exiting (D-b1), and its absence is recorded in the landing note rather
+   than silently skipped.
 6. **sawos CI and the negative tests.** sawos's own workflow, pinned. Two
    deliberate negatives: no sawlang reachable at all fails with the D-b
-   refusal naming all four steps, not a confusing toolchain error; and a
+   refusal naming all three steps, not a confusing toolchain error; and —
+   CONDITIONAL on unit 3 having landed — a
    `$PATH` sawc whose version disagrees with the pin fails loudly (D-b2).
 7. **Docs and tracker.** `CLAUDE.md`'s sos digest, its gate paragraph (sos is
    no longer the compiler's freestanding gate — `freestanding` is), and its
@@ -307,12 +397,15 @@ pre-warmed, no behavioral fork.
 
 ## Gates
 
-Units 0-4 gate on `battery.sh suite sos` in sawlang — ordinary in-repo work,
-with sos still present and still green. Unit 5's gate is the unit-0 transcript,
-diffed, both arches, from sawos. Unit 6 gates on sawos CI plus its two
-negatives. **No compiler change lands in this brief**: if the split surfaces a
-sawc defect, the unit STOPS and files a DF (agent conduct — no coding around a
-compiler defect), and this brief does not absorb the fix.
+Units 0-4 gate on `battery.sh suite sos freestanding bootstrap` in sawlang —
+ordinary in-repo work, with sos still present and still green. All four stages
+are named because this brief's edits reach all four: `suite` and `sos` as
+usual, `freestanding` because unit 1 creates it and units 2-4 must not rot it,
+`bootstrap` because `blade_bootstrap.py` is crossing 3. Unit 5's gate is the
+unit-0 transcript, diffed, both arches, from sawos. Unit 6 gates on sawos CI
+plus its negatives. **No compiler change lands in this brief**: if the split
+surfaces a sawc defect, the unit STOPS and files a DF (agent conduct — no
+coding around a compiler defect), and this brief does not absorb the fix.
 
 The suite lock stays sawlang's own (see the ruling above); sawos gets a
 separate path. Nothing in either harness implements it, so this is a docs
@@ -376,5 +469,11 @@ merging. This brief is SOS-side in blast radius but most of it is sawlang work:
 units 1-4 and 7 follow the normal compiler-brief flow; units 5-6's sawos side
 parks.
 
-Units 1 and 2 are independent of each other and of 3-4, so they may run in
-parallel worktrees. Everything from unit 5 on is strictly serial.
+SERIALIZATION. Units 1, 2 and 4 all edit `tools/sos_runner.py` in overlapping
+regions — unit 1 extracts its generic half, unit 2 rewrites `IMGFORMAT_DIR`
+(line 74), unit 4 converts that same constant and four others into resolver
+calls — so those three are STRICTLY SERIAL in that order. Only unit 3 (the
+install story: `bin/` shims, `--version`, no `sos_runner.py` contact) is
+genuinely parallelizable, and it may run in a worktree beside any of them.
+Everything from unit 5 on is serial. (The first draft claimed 1, 2 and 3-4
+were mutually independent; that was wrong on the file overlap.)
