@@ -1,30 +1,23 @@
-// Conformance row C12 — a Copy operand must survive a comparison
-// whose conformance consumes `other`
+// Conformance row C12 — a comparison destroys neither operand, at any tier
 //
-// The guarantee this row states is the one every position of DF-216b is about:
-// comparing two values does not destroy either of them. `Held` is
-// auto-Copy (one `String` field) and its hand-written `equals` does
-// `move other`, which its by-value parameter entitles it to. The operator hands
-// over a loaded value and adds no retain, so each comparison releases a
-// reference nobody took. HOW THIS FAILS IS PLATFORM-DEPENDENT, and the
-// Aug-17 refcount-underflow detector does not change that for THIS shape
-// (probed): the first over-release finds rc==1 and is indistinguishable at
-// the release site from a legitimate last-owner drop — it frees the
-// still-referenced storage, and every later release reads FREED memory, so
-// the detector sees allocator scribble, not zero. macOS's allocator SIGTRAPs
-// after enough iterations; glibc's tolerates it and the row XPASSes on Linux
-// hosts — the platform-conditional-marker ruling this row owes is still
-// open. The identical body that READS `other` instead of consuming it
-// survives (the difference is exactly the `move`).
+// The guarantee every position of DF-216b was about, stated as the property
+// rather than as any one mechanism. `Held` is auto-Copy (one `String` field)
+// and its `equals` is hand-written. Under `other: &Self` (design 239) the
+// signature no longer entitles that body to take the operand, so the borrow the
+// operator passes is exactly what the callee was promised and no reference is
+// released that nobody took. Two hundred comparisons and both strings are
+// intact.
 //
-// This is an EIGHTH position, past the seven DF-216b's class sweep probed: the
-// sweep tested NoCopy operands throughout, and the stopgap's tier condition
-// excludes Copy on the stated grounds that retain semantics make the
-// borrow sound. They do not — the retain is not there. Whether the answer is to
-// widen the refusal, to retain at the lowering, or to take `other: &Self` (which
-// removes the callee's ability to consume at every tier at once) is a ruling,
-// so the row pins the PROPERTY rather than any one mechanism.
-// XFAIL-IF: macos DF-216b a hand-written `equals` that consumes `other` over-releases a Copy operand through the operator — the eighth matrix position, outside the stopgap's ExplicitCopy/NoCopy tier condition
+// The row was OPEN as an EIGHTH position past the seven DF-216b's class sweep
+// probed: the sweep tested NoCopy operands throughout, and the stopgap's tier
+// condition excluded Copy on the stated grounds that retain semantics make the
+// borrow sound. They did not — the retain was never there, so a consuming body
+// over-released on every comparison and 200 of them died with SIGTRAP on macOS
+// while glibc tolerated it. Neither the widening nor the retain was the answer:
+// the operand is not transferred at all now, which closes the row at every tier
+// at once and makes the platform difference moot.
+// XFAIL: DF-216b `Equatable` still takes `other: Self` by value, so the
+// `&Held` spelling below is not yet the requirement's signature
 // EXPECT: success
 // EXPECT-OUTPUT:
 // before: a=ALPHA b=BRAVO
@@ -33,9 +26,8 @@
 struct Held { name: String }
 
 extension Held: Equatable {
-    func equals(&self, other: Held) -> Bool {
-        let taken = move other
-        self.name.len() == taken.name.len()
+    func equals(&self, other: &Held) -> Bool {
+        self.name.len() == other.name.len()
     }
 }
 

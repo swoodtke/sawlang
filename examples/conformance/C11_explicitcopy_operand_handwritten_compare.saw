@@ -1,32 +1,39 @@
-// Conformance row C11 — the ExplicitCopy half of the rule
+// Conformance row C11 — the ExplicitCopy tier
 //
-// The refusal is keyed on "a checked call site could not have passed this
-// operand by value without saying so", which is the ExplicitCopy tier as much
-// as the NoCopy one: `a.compare(b)` on an ExplicitCopy operand is refused too,
-// naming `.copy()` and `move`. So the operator owes the same refusal, and the
-// hint names both outs rather than `move` alone (DF-216b).
-// EXPECT: error
-// EXPECT-ERROR-CONTAINS: takes `other` by value, but the operator passes a borrow
+// DF-216b's stopgap was keyed on "a checked call site could not have passed
+// this operand by value without saying so", which is the ExplicitCopy tier as
+// much as the NoCopy one — so `first > second` on a `Vector`-owning struct with
+// a hand-written `compare` was refused too. Under `other: &Self` (design 239)
+// the tier is not consulted: a borrow is passed, nothing is duplicated, and the
+// operand keeps its buffer. The row stays as the ExplicitCopy half of C01's
+// claim, so the ledger still covers both refused tiers.
+// XFAIL: DF-216b `Comparable` still takes `other: Self` by value, so the
+// stopgap refuses the operator on an ExplicitCopy operand with a hand-written
+// body
+// EXPECT: success
+// EXPECT-OUTPUT:
+// longer
+// 3 and 1
 
 struct Ledger { entries: Vector<Int> }
 @synthesize
 extension Ledger: ExplicitCopy {}
 extension Ledger: Equatable {
-    func equals(&self, other: Ledger) -> Bool {
+    func equals(&self, other: &Self) -> Bool {
         self.entries.len() == other.entries.len()
     }
 }
 extension Ledger: Comparable {
-    func compare(&self, other: Ledger) -> Ordering {
-        let taken = move other
-        if self.entries.len() < taken.entries.len() { Ordering.Less }
-        else if self.entries.len() > taken.entries.len() { Ordering.Greater }
+    func compare(&self, other: &Self) -> Ordering {
+        if self.entries.len() < other.entries.len() { Ordering.Less }
+        else if self.entries.len() > other.entries.len() { Ordering.Greater }
         else { Ordering.Equal }
     }
 }
 
 func main() {
-    var first = Ledger(entries: [1, 2, 3])
-    var second = Ledger(entries: [4])
+    let first = Ledger(entries: [1, 2, 3])
+    let second = Ledger(entries: [4])
     if first > second { print("longer") }
+    print("{first.entries.len()} and {second.entries.len()}")
 }

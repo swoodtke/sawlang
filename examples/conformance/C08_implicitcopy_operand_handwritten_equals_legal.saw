@@ -1,12 +1,14 @@
 // Conformance row C08 — control: a Copy operand with a hand-written
 // `equals` keeps its operator
 //
-// The refusal is keyed on the tier where a checked call site would have
-// demanded `move`/`.copy()`. A Copy operand is not that tier —
-// `a.equals(b)` is accepted directly, the transfer copying by retain — so the
-// operator stays legal and a hand-written body is untouched by DF-216b's
-// stopgap. This is the row that says the rule did not over-reach into ordinary
-// value types.
+// The row that says the rule did not over-reach into ordinary value types. It
+// used to be a control against the DF-216b stopgap's TIER CONDITION, which
+// excluded the Copy tier; under `other: &Self` (design 239) there is no tier
+// condition left to over-reach, because there is no transfer to judge. An
+// ordinary struct with a hand-written equality compares exactly as it always
+// did, and the reference in the signature is the only thing that changed.
+// XFAIL: DF-216b `Equatable` still takes `other: Self` by value, so the
+// `&Ticket` spelling below is not yet the requirement's signature
 // EXPECT: success
 // EXPECT-OUTPUT:
 // same code
@@ -15,7 +17,7 @@
 struct Ticket { code: String }
 
 extension Ticket: Equatable {
-    func equals(&self, other: Ticket) -> Bool {
+    func equals(&self, other: &Ticket) -> Bool {
         self.code.len() == other.code.len()
     }
 }

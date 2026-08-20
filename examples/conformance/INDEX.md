@@ -537,32 +537,36 @@ what the rules do not touch.
 
 ## Comparison operators must not consume an operand
 
-Claim source: spec 5 *Comparison operators*; designs 32, 48, 216 (DF-216b)
+Claim source: spec 5 *Comparison operators*; designs 32, 48, 216 (DF-216b), 239
 
-`Equatable.equals(&self, other: Self)` and `Comparable.compare(&self, other:
-Self)` take the second operand BY VALUE, so a hand-written body may `move` it.
-The operators lower to those methods and pass a BORROW, which is a promise the
-signature does not make: a conformance exercising its right to consume `other`
-frees a value the caller still owns, from safe code, at every position the
-operator reaches. The rows are DF-216b's seven-position matrix. The stopgap
-refuses the operator when the operand's tier is ExplicitCopy/NoCopy AND the
-comparison transitively reaches a hand-written body; a fully synthesized tree
-stays legal, because a synthesized body never consumes its operand (C09).
+`Equatable.equals(&self, other: &Self)` and `Comparable.compare(&self, other:
+&Self)` take the right operand BY REFERENCE (design 239), which is what the
+operator lowering has always passed. Nothing is transferred, so no conformance
+can consume an operand and no checkpoint is owed — the guarantee holds by
+construction at every tier and in every position.
+
+It did not always. `other: Self` entitled a hand-written body to `move` the
+operand while the lowering handed it a borrow, and the rows below are DF-216b's
+seven-position matrix of what that cost, plus the eighth position (C12) found by
+probing the stopgap's own premise. Design 216's stopgap refused six of them; the
+signature change makes every refusal unrepresentable, so the rows that pinned a
+REFUSAL now pin the CAPABILITY: a move-only type with a hand-written comparison
+is comparable, and it is sound.
 
 | Row | Checks | Covered by | Ruling |
 |-----|--------|------------|--------|
-| C01 | `<` `>` `<=` `>=` on a NoCopy operand with a hand-written `compare` | `C01_order_operator_nocopy_handwritten_compare.saw` | 216 — the found instance; the direct call `a.compare(b)` was refused and the operator was not |
-| C02 | `==` `!=` on a NoCopy operand with a hand-written `equals` | `C02_equality_operator_nocopy_handwritten_equals.saw` | 216 — the equality half, same mechanism |
-| C03 | `==` in a MATCH-ARM GUARD | `C03_match_guard_equality_nocopy.saw` | 216 — an ordinary expression position, and the one where the consuming call is least visible |
-| C04 | a `@synthesize`d memberwise comparison recursing into a member's hand-written body | `C04_synthesized_memberwise_reaches_handwritten.saw` | 216 — why the query is TRANSITIVE: nothing at `Holder`'s declaration names a consuming body |
-| C05 | enum payload-deep `==` reaching the payload type's hand-written body | `C05_enum_payload_reaches_handwritten.saw` | 216 — the same recursion through a payload |
-| C06 | tuple `==` reaching an element type's hand-written body | `C06_tuple_element_reaches_handwritten.saw` | 216 — a tuple has no conformance of its own to inspect |
-| C07 | `==` / `>` in a GENERIC body under `T: Equatable`/`T: Comparable`, instantiated at a NoCopy conformer | `C07_generic_body_operator_nocopy_instantiation.saw` | 219 C5 — CLOSED. The objection was that judging the type ARGUMENT meant six independent bound-check sites rather than one funnel; wave C built that funnel for the copy tier, so the comparison rule rides it — the body records what it NEEDS and the ONE discharge point runs DF-216b's existing transitive walk on the concrete argument. C12, the eighth position, stays open: that is a question about the stopgap's TIER CONDITION, not about where the type is known |
-| C08 | control: a Copy operand with a hand-written `equals` keeps its operator | `C08_implicitcopy_operand_handwritten_equals_legal.saw` | 216 — the tier where a checked call site accepts the transfer by retain, so the operator is not over-reached |
-| C09 | control: a NoCopy operand with a FULLY synthesized comparison tree keeps its operators and answers correctly | `C09_nocopy_synthesized_comparison_legal.saw` | 216 — what a blanket "NoCopy cannot be compared" would have cost |
-| C10 | control: the direct-call spellings `a.equals(move b)` / `a.equals(b.copy())` are unchanged | `C10_direct_call_transfer_spellings.saw` | 216 — the outs the diagnostic names have to exist; `drop 3` printing before the comparison result is the by-value contract working |
-| C11 | the ExplicitCopy half of the tier condition | `C11_explicitcopy_operand_handwritten_compare.saw` | 216 — `.copy()` joins `move` in the hint |
-| C12 | a Copy operand must survive a comparison whose conformance consumes `other` | `C12_implicitcopy_operand_survives_consuming_equals.saw` | 216 — OPEN, XFAIL citing DF-216b: an EIGHTH position, past the seven the class sweep probed (it tested NoCopy throughout). The stopgap's tier condition excludes Copy on the grounds that retain semantics make the borrow sound; probed, they do not — the operator adds no retain at any tier, so 200 comparisons over-release a heap `String` and the process dies with SIGTRAP. The row pins the PROPERTY, not a mechanism, because which fix delivers it is a ruling |
+| C01 | `<` `>` `<=` `>=` on a NoCopy operand with a hand-written `compare` compile and destroy nothing | `C01_order_operator_nocopy_handwritten_compare.saw` | 239 — DF-216b's found instance, restated as the capability; two drops for two values is the proof |
+| C02 | `==` `!=` on a NoCopy operand with a hand-written `equals` | `C02_equality_operator_nocopy_handwritten_equals.saw` | 239 — the equality half, same signature |
+| C03 | `==` in a MATCH-ARM GUARD | `C03_match_guard_equality_nocopy.saw` | 239 — an ordinary expression position, and the one where a consuming call would have been least visible |
+| C04 | a `@synthesize`d memberwise comparison recursing into a member's hand-written body | `C04_synthesized_memberwise_reaches_handwritten.saw` | 239 — the recursion needs no transitive query now: what the emitter passes is what the member's body declares |
+| C05 | enum payload-deep `==` reaching the payload type's hand-written body | `C05_enum_payload_reaches_handwritten.saw` | 239 — the same recursion through a payload |
+| C06 | tuple `==` reaching an element type's hand-written body | `C06_tuple_element_reaches_handwritten.saw` | 239 — a tuple has no conformance of its own to inspect, and now needs none |
+| C07 | `==` / `>` in a GENERIC body under `T: Equatable`/`T: Comparable`, instantiated at a NoCopy conformer | `C07_generic_body_operator_nocopy_instantiation.saw` | 239 — the position no chokepoint could see (a generic body is checked once with `T` abstract). Design 219 wave C answered it by judging the type ARGUMENT at the one discharge point; the signature removes the question, which is what makes generic sort/contains over move-only elements expressible |
+| C08 | control: a Copy operand with a hand-written `equals` keeps its operator | `C08_implicitcopy_operand_handwritten_equals_legal.saw` | 239 — the row that said the stopgap's tier condition did not over-reach; there is no tier condition left |
+| C09 | control: a NoCopy operand with a FULLY synthesized comparison tree keeps its operators and answers correctly | `C09_nocopy_synthesized_comparison_legal.saw` | 239 — the derived bodies read their operand through the reference too |
+| C10 | the DIRECT call is the borrow: `a.equals(&b)` on a NoCopy operand and on an ExplicitCopy one | `C10_direct_call_transfer_spellings.saw` | 239 — the two spellings of one call agree, which is what DF-216b was about; `move b` / `b.copy()` are gone rather than optional |
+| C11 | the ExplicitCopy tier | `C11_explicitcopy_operand_handwritten_compare.saw` | 239 — the other tier the stopgap refused, restated as the capability |
+| C12 | a comparison destroys neither operand, at any tier | `C12_implicitcopy_operand_survives_consuming_equals.saw` | 239 — the eighth position, past the seven the class sweep probed. The stopgap excluded the Copy tier on the premise that retain semantics made the borrow sound; probed, the retain was never there, so 200 comparisons over-released a heap `String` (SIGTRAP on macOS, tolerated by glibc). The row pins the PROPERTY, and the reference satisfies it at every tier at once |
 
 ## Shadowing
 
@@ -715,22 +719,17 @@ with unit C (the `main` rule), and G08-G11 with unit B4 (the exit funnel). G01,
 G05-G07 and G15 passed on the unfixed tree and were the controls the fix had to
 leave alone.
 
-Open: **C12** — a Copy operand compared through a conformance that
-consumes `other` is over-released, and the stopgap's tier condition deliberately
-does not reach it. Found by probing the ruling's own premise ("retain semantics
-make the borrow sound") rather than by the class sweep, which tested NoCopy
-operands throughout. The row states the guarantee and leaves the mechanism to
-the ruling; `other: &Self` satisfies it at every tier at once.
-
-Open: **C07** — design 216's stopgap closes six of DF-216b's seven positions at
-the comparison chokepoint; the seventh (a generic body under a
-`T: Equatable`/`T: Comparable` bound, instantiated at a NoCopy conformer) never
-delivers the operand type there, because a generic body is checked once with `T`
-abstract and is not re-checked per instantiation. The marker comes off with the
-`other: &Self` brief, which closes the whole matrix by construction.
-
-Closed: **C01-C06, C11** — design 216's stopgap rows, written under DF-216b and
-flipped by the gate at `_check_binary_op`.
+Open: **C01-C08, C11-C12** — design 239's rows, restated ahead of the signature
+change as obligation 3 asks. Each states what `other: &Self` delivers — a
+comparison that compiles on a move-only operand with a hand-written body, at
+every position and every tier, and destroys neither operand — and each carries a
+cited XFAIL until `Equatable`/`Comparable` actually take the reference. C09 and
+C10 are the controls that passed on the unfixed tree and had to keep passing;
+C10 is also the evidence that the DIRECT call was never the broken half. This
+subsumes the old entries for C07 (the generic-body position design 219 wave C
+closed by judging the type argument) and C12 (the eighth position, the Copy tier
+the stopgap's premise excluded): both are removed by construction rather than
+answered.
 
 Closed: **K21, K22, K24** — design 210's three pins, all written under DF-206e.
 K21 (a non-generic imported method embedding with its private siblings intact)

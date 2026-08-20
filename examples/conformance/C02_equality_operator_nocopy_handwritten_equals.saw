@@ -1,20 +1,25 @@
 // Conformance row C02 — `==` and `!=` on a NoCopy operand whose `equals` is
 // hand-written
 //
-// The equality half of C01's rule. `Equatable.equals(&self, other: Self)` takes
-// `other` by value; `==`/`!=` pass a borrow. A body that does `move other`
-// destroys an operand the caller still owns (DF-216b).
-// EXPECT: error
-// EXPECT-ERROR-CONTAINS: takes `other` by value, but the operator passes a borrow
+// The equality half of C01's rule. `Equatable.equals(&self, other: &Self)`
+// takes the right operand by reference (design 239), which is what `==`/`!=`
+// have always passed, so a move-only type with a hand-written equality is
+// comparable and neither operand is consumed. Two drops, two values.
+// XFAIL: DF-216b `Equatable` still takes `other: Self` by value, so the
+// stopgap refuses the operator on a move-only operand with a hand-written body
+// EXPECT: success
+// EXPECT-OUTPUT:
+// ne
+// drop 3
+// drop 9
 
 struct Tag { id: Int }
 extension Tag: NoCopy {
     func deinit(&var self) { print("drop {self.id}") }
 }
 extension Tag: Equatable {
-    func equals(&self, other: Tag) -> Bool {
-        let taken = move other
-        self.id == taken.id
+    func equals(&self, other: &Self) -> Bool {
+        self.id == other.id
     }
 }
 

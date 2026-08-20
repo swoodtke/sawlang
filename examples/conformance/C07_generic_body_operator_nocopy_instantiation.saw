@@ -1,51 +1,49 @@
 // Conformance row C07 — `==` / `>` inside a GENERIC body under a
 // `T: Equatable` / `T: Comparable` bound, instantiated at a NoCopy conformer
-// whose body consumes `other`
+// with a hand-written comparison
 //
-// The seventh position of DF-216b's matrix, and the one the operator gate
-// could not see: a generic body is checked ONCE with `T` abstract (tier
-// `abstract`, no conformance to inspect) and was not re-checked per
-// instantiation, so `Tag` never reached the comparison chokepoint.
+// The seventh position of DF-216b's matrix, and the one no chokepoint could
+// see: a generic body is checked ONCE with `T` abstract, so the concrete
+// conformer never reached the comparison gate. Design 219 wave C answered it by
+// recording what the body NEEDS and judging the type ARGUMENT at the one
+// discharge point.
 //
-// CLOSED by design 219 wave C. The objection was that judging the type ARGUMENT
-// meant six independent call-site checks rather than one funnel — and wave C
-// built that funnel for the copy tier, so the comparison rule rides it: the
-// body records what it NEEDS (`T`'s comparison must not consume its operand),
-// and the ONE discharge point runs DF-216b's existing transitive walk on the
-// concrete argument. `@synthesize`d conformers pass, `Map`'s Copy-gated keys
-// pass, and the refusal reports the same sentence the concrete positions do.
-//
-// Row C12 — the EIGHTH position, a Copy operand the stopgap's tier condition
-// excludes — stays open: it is a question about the tier condition itself, not
-// about where the type is known, and `other: &Self` is its fix.
-// EXPECT: error
-// EXPECT-ERROR-CONTAINS: takes `other` by value, but the operator passes a borrow
+// `other: &Self` (design 239) removes the question instead of answering it.
+// There is no transfer at any tier, so a generic body comparing its `T` needs
+// nothing recorded, nothing discharged and nothing known about the argument —
+// which is what makes `Vector.sort` over move-only elements expressible.
+// XFAIL: DF-216b `Equatable`/`Comparable` still take `other: Self` by value, so
+// the discharge point refuses the instantiation
+// EXPECT: success
+// EXPECT-OUTPUT:
+// ne
+// gt
+// drop 3
+// drop 9
 
 struct Tag { id: Int }
 extension Tag: NoCopy {
     func deinit(&var self) { print("drop {self.id}") }
 }
 extension Tag: Equatable {
-    func equals(&self, other: Tag) -> Bool {
-        let taken = move other
-        self.id == taken.id
+    func equals(&self, other: &Self) -> Bool {
+        self.id == other.id
     }
 }
 extension Tag: Comparable {
-    func compare(&self, other: Tag) -> Ordering {
-        let taken = move other
-        if self.id < taken.id { Ordering.Less }
-        else if self.id > taken.id { Ordering.Greater }
+    func compare(&self, other: &Self) -> Ordering {
+        if self.id < other.id { Ordering.Less }
+        else if self.id > other.id { Ordering.Greater }
         else { Ordering.Equal }
     }
 }
 
-func same<T: Equatable>(a: &T, b: &T) -> Bool { a == b }
+func differ<T: Equatable>(a: &T, b: &T) -> Bool { a != b }
 func bigger<T: Comparable>(a: &T, b: &T) -> Bool { a > b }
 
 func main() {
     let a = Tag(id: 9)
     let b = Tag(id: 3)
-    if same<Tag>(&a, &b) { print("eq") }
+    if differ<Tag>(&a, &b) { print("ne") }
     if bigger<Tag>(&a, &b) { print("gt") }
 }

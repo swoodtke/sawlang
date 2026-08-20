@@ -4,18 +4,24 @@
 // A tuple has no conformance of its own to inspect: `==` over one is the
 // conjunction of element-wise `==`, so `(Int, Tag)` reaches `Tag.equals` with a
 // borrow exactly as a struct field does. A tuple also takes the strongest tier
-// it holds, which is what makes this operand NoCopy (DF-216b).
-// EXPECT: error
-// EXPECT-ERROR-CONTAINS: takes `other` by value, but the operator passes a borrow
+// it holds, which is what makes this operand NoCopy — and under
+// `other: &Self` (design 239) the tier no longer decides anything about the
+// comparison, because no transfer happens at any element.
+// XFAIL: DF-216b `Equatable` still takes `other: Self` by value, so the stopgap
+// refuses a comparison that recurses into a hand-written body
+// EXPECT: success
+// EXPECT-OUTPUT:
+// ne
+// drop 3
+// drop 9
 
 struct Tag { id: Int }
 extension Tag: NoCopy {
     func deinit(&var self) { print("drop {self.id}") }
 }
 extension Tag: Equatable {
-    func equals(&self, other: Tag) -> Bool {
-        let taken = move other
-        self.id == taken.id
+    func equals(&self, other: &Self) -> Bool {
+        self.id == other.id
     }
 }
 
@@ -23,4 +29,5 @@ func main() {
     let a = (1, Tag(id: 9))
     let b = (1, Tag(id: 3))
     if a == b { print("eq") }
+    if a != b { print("ne") }
 }

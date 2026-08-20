@@ -1,14 +1,24 @@
 // Conformance row C01 — `<` `>` `<=` `>=` on a NoCopy operand whose `compare`
 // is hand-written
 //
-// `Comparable.compare(&self, other: Self)` takes `other` BY VALUE, so the body
-// may `move` it. The ordering operators lower to that method but hand it a
-// BORROW, so a conformance exercising its right to consume `other` releases a
-// value the caller still owns — a double free reached from safe code with no
-// `unsafe` anywhere (DF-216b). The direct call `a.compare(b)` is refused by the
-// transfer checkpoint; the operator must agree.
-// EXPECT: error
-// EXPECT-ERROR-CONTAINS: takes `other` by value, but the operator passes a borrow
+// `Comparable.compare(&self, other: &Self)` takes the right operand by
+// REFERENCE (design 239), which is what the operator lowering has always
+// passed. There is no transfer, so there is nothing for the callee to consume
+// and nothing for a checkpoint to guard: a move-only type with a hand-written
+// ordering is comparable, and each comparison leaves both operands owned by
+// their bindings. The two drops below are the whole proof — a body that could
+// consume `other` would have produced more.
+//
+// This row was DF-216b's found instance, pinned as a REFUSAL while the operand
+// was passed by value; it states the capability now.
+// XFAIL: DF-216b `Comparable` still takes `other: Self` by value, so the
+// stopgap refuses the operator on a move-only operand with a hand-written body
+// EXPECT: success
+// EXPECT-OUTPUT:
+// gt
+// ge
+// drop 3
+// drop 9
 
 struct Tag { id: Int }
 extension Tag: NoCopy {
@@ -17,10 +27,9 @@ extension Tag: NoCopy {
 @synthesize
 extension Tag: Equatable {}
 extension Tag: Comparable {
-    func compare(&self, other: Tag) -> Ordering {
-        let taken = move other
-        if self.id < taken.id { Ordering.Less }
-        else if self.id > taken.id { Ordering.Greater }
+    func compare(&self, other: &Self) -> Ordering {
+        if self.id < other.id { Ordering.Less }
+        else if self.id > other.id { Ordering.Greater }
         else { Ordering.Equal }
     }
 }

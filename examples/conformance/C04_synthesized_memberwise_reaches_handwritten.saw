@@ -1,29 +1,33 @@
 // Conformance row C04 — a `@synthesize`d memberwise comparison that RECURSES
 // into a member's hand-written conformance
 //
-// `Holder` writes no comparison of its own, so nothing at its declaration hints
-// that a consuming body is in the tree — the memberwise emitter reaches
-// `Tag.equals`/`Tag.compare` and hands each a borrow. The refusal is therefore
-// TRANSITIVE: it follows members, payloads and elements into whatever
-// hand-written body the comparison would actually run (DF-216b).
-// EXPECT: error
-// EXPECT-ERROR-CONTAINS: takes `other` by value, but the operator passes a borrow
+// `Holder` writes no comparison of its own, so nothing at its declaration says
+// what body the tree ends in — the memberwise emitter reaches `Tag.equals` /
+// `Tag.compare` and hands each a borrow. Under `other: &Self` (design 239) that
+// is exactly what those bodies declare they receive, so the recursion needs no
+// transitive query and no refusal: the whole tree compares, at every depth, and
+// destroys nothing.
+// XFAIL: DF-216b `Equatable`/`Comparable` still take `other: Self` by value, so
+// the stopgap refuses a comparison that reaches a hand-written body
+// EXPECT: success
+// EXPECT-OUTPUT:
+// gt
+// drop 3
+// drop 9
 
 struct Tag { id: Int }
 extension Tag: NoCopy {
     func deinit(&var self) { print("drop {self.id}") }
 }
 extension Tag: Equatable {
-    func equals(&self, other: Tag) -> Bool {
-        let taken = move other
-        self.id == taken.id
+    func equals(&self, other: &Self) -> Bool {
+        self.id == other.id
     }
 }
 extension Tag: Comparable {
-    func compare(&self, other: Tag) -> Ordering {
-        let taken = move other
-        if self.id < taken.id { Ordering.Less }
-        else if self.id > taken.id { Ordering.Greater }
+    func compare(&self, other: &Self) -> Ordering {
+        if self.id < other.id { Ordering.Less }
+        else if self.id > other.id { Ordering.Greater }
         else { Ordering.Equal }
     }
 }

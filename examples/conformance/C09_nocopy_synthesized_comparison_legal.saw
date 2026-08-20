@@ -1,13 +1,13 @@
 // Conformance row C09 — control: a NoCopy operand whose comparison tree is
 // FULLY synthesized keeps its operators, and answers correctly
 //
-// A synthesized body never consumes its operand — memberwise `==` and
-// lexicographic `compare` read fields and recurse — so handing it a borrow is
-// sound and there is nothing for DF-216b's stopgap to refuse. Keeping this
-// legal is the reason the rule asks whether a hand-written body is REACHABLE
-// rather than just looking at the operand's copy tier: a blanket "NoCopy
-// operands cannot be compared" would have made every `@synthesize`d move-only
-// type incomparable for no soundness gain.
+// A synthesized body reads fields and recurses; it never consumes anything.
+// That was the carve-out DF-216b's stopgap needed so a blanket "NoCopy operands
+// cannot be compared" would not make every `@synthesize`d move-only type
+// incomparable. Under `other: &Self` (design 239) the carve-out is not load-
+// bearing any more — C01/C02 show the HAND-WRITTEN tree comparing too — and
+// this row stays as the control that the derived bodies themselves still read
+// their operand through the reference rather than taking it.
 // EXPECT: success
 // EXPECT-OUTPUT:
 // ne

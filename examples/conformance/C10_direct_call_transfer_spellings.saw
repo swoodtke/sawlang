@@ -1,15 +1,27 @@
-// Conformance row C10 — control: the DIRECT call spellings are unchanged
+// Conformance row C10 — the DIRECT call spelling is the borrow, at every tier
 //
-// The outs the operator's refusal names have to exist, and they are the same
-// two the transfer checkpoint has always accepted at a by-value parameter:
-// `move` on a NoCopy operand, `.copy()` on an ExplicitCopy one. Each really
-// does hand the callee a value it may consume, which is why they are sound
-// where the operator is not (DF-216b).
+// This row used to pin the two TRANSFER spellings the operator's refusal named
+// — `a.equals(move b)` on a NoCopy operand, `a.equals(b.copy())` on an
+// ExplicitCopy one. Under `other: &Self` (design 239) neither exists: there is
+// one spelling, `a.equals(&b)`, and it is the same borrow the operator passes.
+// The two spellings of one call agree now, which is what DF-216b was about.
+//
+// The `move`/`.copy()` outs are not merely unnecessary, they are gone — a
+// consuming argument at a reference parameter is refused, which is pinned by
+// C14. What this row shows is the positive half: the direct call works on a
+// move-only operand AND on an ExplicitCopy one, with nothing duplicated and
+// nothing destroyed. Both values are still alive at the end, and the drops
+// prove it.
+// This row passes on the unfixed tree too, and that is worth knowing: the
+// direct call was never the broken half. `a.equals(b)` at a by-value parameter
+// was correctly refused, and a conformance that declares the reference is
+// correctly called with one — what disagreed was the OPERATOR beside it, which
+// is why C01-C08 and C11-C12 are the rows the signature change flips.
 // EXPECT: success
 // EXPECT-OUTPUT:
-// drop 3
 // tags differ
 // ledgers differ
+// drop 3
 // drop 9
 
 struct Tag { id: Int }
@@ -17,9 +29,8 @@ extension Tag: NoCopy {
     func deinit(&var self) { print("drop {self.id}") }
 }
 extension Tag: Equatable {
-    func equals(&self, other: Tag) -> Bool {
-        let taken = move other
-        self.id == taken.id
+    func equals(&self, other: &Self) -> Bool {
+        self.id == other.id
     }
 }
 
@@ -27,18 +38,17 @@ struct Ledger { entries: Vector<Int> }
 @synthesize
 extension Ledger: ExplicitCopy {}
 extension Ledger: Equatable {
-    func equals(&self, other: Ledger) -> Bool {
-        let taken = move other
-        self.entries.len() == taken.entries.len()
+    func equals(&self, other: &Self) -> Bool {
+        self.entries.len() == other.entries.len()
     }
 }
 
 func main() {
     let a = Tag(id: 9)
     let b = Tag(id: 3)
-    if not a.equals(move b) { print("tags differ") }
+    if not a.equals(&b) { print("tags differ") }
 
     let first = Ledger(entries: [1, 2, 3])
     let second = Ledger(entries: [4])
-    if not first.equals(second.copy()) { print("ledgers differ") }
+    if not first.equals(&second) { print("ledgers differ") }
 }

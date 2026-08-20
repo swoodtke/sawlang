@@ -2,20 +2,25 @@
 // hand-written conformance
 //
 // `Wrap`'s Equatable is the compiler's payload-deep body, which compares the
-// active variant's payload by recursing on `Tag` — the same borrow handed to
-// the same consuming `equals` C04 reaches through a struct field. One
-// mechanism, a different container (DF-216b).
-// EXPECT: error
-// EXPECT-ERROR-CONTAINS: takes `other` by value, but the operator passes a borrow
+// active variant's payload by recursing on `Tag` — the same borrow C04 reaches
+// through a struct field, one container over. Under `other: &Self` (design 239)
+// the payload's own body receives a reference, so the recursion is sound at
+// every container kind for one reason rather than per kind.
+// XFAIL: DF-216b `Equatable` still takes `other: Self` by value, so the stopgap
+// refuses a comparison that recurses into a hand-written body
+// EXPECT: success
+// EXPECT-OUTPUT:
+// ne
+// drop 3
+// drop 9
 
 struct Tag { id: Int }
 extension Tag: NoCopy {
     func deinit(&var self) { print("drop {self.id}") }
 }
 extension Tag: Equatable {
-    func equals(&self, other: Tag) -> Bool {
-        let taken = move other
-        self.id == taken.id
+    func equals(&self, other: &Self) -> Bool {
+        self.id == other.id
     }
 }
 
@@ -28,4 +33,5 @@ func main() {
     let a = Wrap.Has(t: Tag(id: 9))
     let b = Wrap.Has(t: Tag(id: 3))
     if a == b { print("eq") }
+    if a != b { print("ne") }
 }
