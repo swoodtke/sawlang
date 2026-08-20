@@ -119,19 +119,32 @@ Record in the spec when the rename lands:
   `PipeReplyHandle`) is NOT redundant with the timeout overload — it is
   what a client attaches to a Waiter (§2.2) to multiplex outstanding
   requests. Its method name is M4-brief business.
-- OPEN (discussion Aug 20, user's ruling pending): ABANDONED-REQUEST
-  semantics — the client drops its `PipeReplyHandle` (or crashes, which the
-  kernel must treat identically) while the server still holds the
-  `PipeRequestHandle`. Lead proposal on the table: `reply()` to an
-  abandoned request returns `Err(PeerClosed)`, never a silent success (std
-  Channel's close precedent — ignorable with `let _ =`); the obligation is
+- ABANDONED-REQUEST semantics (RATIFIED Aug 20; a client drop and a client
+  crash are the same event to the kernel): `reply()` to an abandoned
+  request returns `Err(PeerClosed)`, never a silent success (std Channel's
+  close precedent — ignorable with `let _ =`); the obligation is
   discharged and attached handles closed either way; the
-  `PipeRequestHandle` is waitable for "abandoned" (opt-in early notice;
-  state on the kernel object, so it travels with a delegated handle);
-  drop-of-`PipeReplyHandle` thereby IS the cancellation primitive (timeout
+  `PipeRequestHandle` is waitable for "abandoned" (opt-in early notice —
+  the user specifically wants this for long-running requests; state on the
+  kernel object, so it travels with a delegated handle);
+  drop-of-`PipeReplyHandle` is the cancellation primitive (timeout
   overload -> drop pending = cancel, no cancel() verb, deterministic
-  timing via deterministic destruction); send-then-drop named an
-  anti-pattern in the spec (Event is fire-and-forget, not pipes).
+  timing via deterministic destruction).
+- The TELL idiom (RATIFIED Aug 20, amending the earlier anti-pattern
+  framing): send-then-drop is the sanctioned "tell the server something an
+  Event cannot carry" pattern — client drops the reply handle at once, the
+  server discharges with `let _ = request.reply()`. It composes entirely
+  from the ruled pieces; no new mechanism. Two clarifications recorded
+  with it: (1) the idiom is SPELLED on the split-phase form (`send`
+  suspends until the reply, so `let _ = pipe.send(msg)` waits-and-ignores;
+  tell-without-waiting drops the handle the split-phase form returns —
+  which promotes that method's name to user-facing idiom; leading
+  candidate `post`, M4 brief decides); (2) ABANDONMENT IS INFORMATION,
+  NOT AN IMPERATIVE — whether it cancels is the protocol's per-request-
+  type decision (a tell-style message ignores the signal; a cancellable
+  read honors it), which sits naturally with server-owned protocols in
+  the Plan 9-style namespace plan. Event remains the payload-free
+  notification mechanism.
 
 Scope: sos/spec.md (14 Channel mentions + the handle names), the
 RequestHandle/ReplyHandle mentions across sos/ + designs/232-sos-m3-sketch.md
