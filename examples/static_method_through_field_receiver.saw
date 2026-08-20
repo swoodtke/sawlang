@@ -1,0 +1,38 @@
+// XFAIL: DF-236a a static method reached through a FIELD-ACCESS receiver is
+// not refused — DF-217q's call-site check has a position gap, and this
+// spelling takes the module-qualified `mod.Type.method()` route instead
+//
+// The mechanism: `_check_method_call`'s `isinstance(expr.object, MemberAccess)`
+// branch exists for `module.Struct.method()`, and it decides on the member
+// access's TYPE — "this resolves to a struct that has a static of this name" —
+// which is equally true of a member access that NAMES the type and one that
+// evaluates to a VALUE of it. So `h.inner.nullary()` is routed as though
+// `h.inner` were the type: the receiver expression is dropped on the floor and
+// the arguments shift by one. Below that means the call silently succeeds and
+// prints 7. At arity 1 or more the shift reaches codegen and fails the
+// verifier (`internal compiler error ... Type of #1 arg mismatch: i64 !=
+// %"Inner"`).
+//
+// Every OTHER receiver spelling is refused cleanly today, which is what makes
+// this a gap and not a missing rule: a plain local, `self`, a call result, a
+// tuple element, a `Vector` element, and a field whose type is an ENUM all
+// reach the DF-217q error. Only a field access at a STRUCT type takes the
+// branch above.
+//
+// Found by design 236's migration: blade's `self.layout.clean_all()` was
+// exactly this shape, one line below a genuine `self.layout.clean()`, and it
+// compiled. That call site is fixed; this pins the compiler half.
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: `nullary` is a static method of `Inner` and cannot be called on a value
+
+struct Inner { n: Int }
+struct Outer { inner: Inner }
+
+extension Inner {
+    static func nullary() -> Int { 7 }
+}
+
+func main() {
+    let o = Outer(inner: Inner(n: 5))
+    print(o.inner.nullary())
+}

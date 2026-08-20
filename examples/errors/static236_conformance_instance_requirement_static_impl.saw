@@ -1,0 +1,19 @@
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: method `label` may not be declared `static`: trait `Namer` requires an INSTANCE method
+//
+// Design 236 rule 4, second direction: an INSTANCE requirement is satisfied
+// only by an instance method. This is the direction that reaches the vtable —
+// an erased `&any Namer` dispatches through a slot whose caller supplies a
+// receiver, and a static body has no parameter to receive it.
+
+struct Point { x: Int }
+
+trait Namer {
+    func label(&self) -> Int
+}
+
+extension Point: Namer {
+    static func label(v: Int) -> Int { v }
+}
+
+func main() { print("unreached") }

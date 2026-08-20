@@ -10,7 +10,7 @@
 // COMPILE-FLAGS: --emit-docs
 // EXPECT-OUTPUT:
 // {
-//   "schema_version": 2,
+//   "schema_version": 3,
 //   "modules": [
 //     {
 //       "name": "d144_docs_module_field",
@@ -27,8 +27,9 @@
 //           "returns": "Void",
 //           "effect": "sync",
 //           "self": null,
+//           "static": false,
 //           "doc": null,
-//           "line": 93
+//           "line": 95
 //         }
 //       ]
 //     },
@@ -55,6 +56,7 @@
 //               "returns": "Int",
 //               "effect": "sync",
 //               "self": "borrows",
+//               "static": false,
 //               "doc": null,
 //               "line": 10
 //             }

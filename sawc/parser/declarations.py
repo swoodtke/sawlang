@@ -433,6 +433,11 @@ class DeclarationsMixin:
         parameters, self_mutable, self_is_reference = self.parse_parameters()
         self.expect(TokenType.RPAREN)
 
+        self._check_static_declaration(
+            name, declared_static,
+            has_receiver=any(p.name == "self" for p in parameters),
+            is_init=False, kind="trait requirement", anchor=start)
+
         # Post-parameter effect slot (designs 22/16/51, design 136):
         # `func m(...) unsafe sync -> T`. A `sync` trait method is a checked
         # suspension-free context — and, once erased, stays sync-callable through
@@ -777,6 +782,52 @@ class DeclarationsMixin:
             return True
         return False
 
+    def _check_static_declaration(self, name: str, declared_static: bool,
+                                  has_receiver: bool, is_init: bool,
+                                  kind: str, anchor) -> None:
+        """design 236: the `static` keyword and the receiver must AGREE.
+
+        Staticness WAS fully determined by the missing receiver, so inference
+        doctrine permitted reading it off the parameter list — but
+        reader-visibility trumps, and the V39 incident showed the inference
+        silently converting an authoring MISTAKE into a different kind of
+        method: a conformance row wrote `func dup(x: T)` meaning an instance
+        method, forgot the `&self`, and got a static. The keyword turns
+        forgot-`&self` into the right error at the right place.
+
+        ENTRY POINTS — the only two places a method-shaped declaration is
+        parsed, which is what makes this the rule's one chokepoint:
+          * `parse_method`       — every extension member: struct AND enum
+                                   (design 145 gives enums statics on the same
+                                   terms), generic or not, at every visibility,
+                                   `init` included so it can be refused.
+          * `parse_trait_method` — every trait requirement, with or without a
+                                   default body.
+        Module-level `func`s are NOT methods and never reach here; neither does
+        a compiler-SYNTHESIZED Method (a trait default's per-conformer copy, a
+        derived `copy`/`equals`/`hash`, the place transform's window form),
+        which is not authored source and carries the derived bit alone.
+        """
+        if is_init:
+            if declared_static:
+                self.error_at(
+                    anchor,
+                    "`init` may not be declared `static` — an initializer takes "
+                    "no receiver by construction, and `Type(...)` is how it is "
+                    "called. Remove the `static`")
+            return
+        if declared_static and has_receiver:
+            self.error_at(
+                anchor,
+                f"{kind} `{name}` is declared `static` but takes a receiver — "
+                f"remove the `static`, or drop the `&self`/`&var self` "
+                f"parameter if a static was intended")
+        if not declared_static and not has_receiver:
+            self.error_at(
+                anchor,
+                f"{kind} `{name}` has no receiver — add `&self`/`&var self`, "
+                f"or declare it `static func` if a static was intended")
+
     def parse_method(self, visibility: Visibility = Visibility.PRIVATE,
                      declared_static: bool = False) -> Method:
         """Parse method definition: func name(&self, ...) -> Type { ... }
@@ -824,6 +875,10 @@ class DeclarationsMixin:
         self.expect(TokenType.LPAREN)
         parameters, self_mutable, self_is_reference, is_static = self.parse_method_parameters()
         self.expect(TokenType.RPAREN)
+
+        self._check_static_declaration(
+            name, declared_static, has_receiver=not is_static,
+            is_init=is_init, kind="method", anchor=start)
 
         # Post-parameter effect slot (designs 18/22, design 24 item 3, design
         # 136): an extension method or `init` may be

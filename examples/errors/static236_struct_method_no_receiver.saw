@@ -1,0 +1,20 @@
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: method `dup` has no receiver — add `&self`/`&var self`, or declare it `static func` if a static was intended
+//
+// Design 236, position-matrix row 1: a self-less non-`init` `func` in a
+// STRUCT extension. Staticness was fully determined by the missing receiver,
+// so it used to be inferred — and the V39 incident (Aug 17) showed the
+// inference converting an authoring MISTAKE into a different kind of method:
+// this exact shape, `func dup(x: T)` written meaning an instance method with
+// the `&self` forgotten, became a static that only resolved through a broken
+// call path. The keyword turns forgot-`&self` into the right error at the
+// declaration, and the fixit names both readings because the compiler cannot
+// know which one was meant.
+
+struct Bag { n: Int }
+
+extension Bag {
+    func dup(x: Int) -> Int { x * 2 }
+}
+
+func main() { print("unreached") }

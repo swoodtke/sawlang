@@ -1,0 +1,16 @@
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: `init` may not be declared `static`
+//
+// Design 236, position-matrix row 7: `init` is EXEMPT by construction, so
+// writing the keyword on one is an error rather than a redundancy. An
+// initializer is already its own declaration kind, it takes no receiver
+// because it is what produces the value, and it is called as `Point(...)` —
+// the type spelling a static would have needed the keyword to earn.
+
+struct Point { x: Int }
+
+extension Point {
+    static init(v: Int) -> Point { Point(x: v) }
+}
+
+func main() { print("unreached") }

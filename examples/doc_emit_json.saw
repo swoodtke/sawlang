@@ -4,7 +4,7 @@
 // COMPILE-FLAGS: --emit-docs
 // EXPECT-OUTPUT:
 // {
-//   "schema_version": 2,
+//   "schema_version": 3,
 //   "modules": [
 //     {
 //       "name": "doc_emit_json",
@@ -36,7 +36,7 @@
 //             }
 //           ],
 //           "doc": "Which end of a span a reading came from.",
-//           "line": 225,
+//           "line": 231,
 //           "module": "doc_emit_json"
 //         },
 //         {
@@ -65,8 +65,9 @@
 //               "returns": "Void",
 //               "effect": "sync",
 //               "self": "borrows-var",
+//               "static": false,
 //               "doc": "Advances the count in place.",
-//               "line": 247
+//               "line": 253
 //             },
 //             {
 //               "kind": "init",
@@ -85,8 +86,9 @@
 //               "returns": "Tick",
 //               "effect": "sync",
 //               "self": null,
+//               "static": false,
 //               "doc": "Builds a tick count, defaulting to the start of the counter.",
-//               "line": 241
+//               "line": 247
 //             },
 //             {
 //               "kind": "method",
@@ -98,12 +100,13 @@
 //               "returns": "Int",
 //               "effect": "sync",
 //               "self": "borrows",
+//               "static": false,
 //               "doc": "Returns the tick count.",
-//               "line": 244
+//               "line": 250
 //             }
 //           ],
 //           "doc": "Construction and arithmetic for `Tick`.",
-//           "line": 239,
+//           "line": 245,
 //           "module": "doc_emit_json"
 //         },
 //         {
@@ -116,8 +119,9 @@
 //           "returns": "Void",
 //           "effect": "sync",
 //           "self": null,
+//           "static": false,
 //           "doc": null,
-//           "line": 267
+//           "line": 273
 //         },
 //         {
 //           "kind": "func",
@@ -135,8 +139,9 @@
 //           "returns": "Int",
 //           "effect": "sync",
 //           "self": null,
+//           "static": false,
 //           "doc": "Returns the tick count a reading landed on.",
-//           "line": 260
+//           "line": 266
 //         },
 //         {
 //           "kind": "static",
@@ -147,7 +152,7 @@
 //           "mutable": false,
 //           "type": "Ticks",
 //           "doc": "The tick every counter starts at.",
-//           "line": 257
+//           "line": 263
 //         },
 //         {
 //           "kind": "struct",
@@ -165,11 +170,11 @@
 //               "type": "Int",
 //               "visibility": "public",
 //               "doc": "Ticks since the counter started.",
-//               "line": 219
+//               "line": 225
 //             }
 //           ],
 //           "doc": "A span measured in whole ticks.",
-//           "line": 217,
+//           "line": 223,
 //           "module": "doc_emit_json"
 //         },
 //         {
@@ -190,12 +195,13 @@
 //               "returns": "Int",
 //               "effect": "sync",
 //               "self": "borrows",
+//               "static": false,
 //               "doc": "Returns the tick count.",
-//               "line": 235
+//               "line": 241
 //             }
 //           ],
 //           "doc": "A value with a tick count.",
-//           "line": 233,
+//           "line": 239,
 //           "module": "doc_emit_json"
 //         },
 //         {
@@ -205,7 +211,7 @@
 //           "visibility": "public",
 //           "target": "Int",
 //           "doc": "A count of ticks.",
-//           "line": 254,
+//           "line": 260,
 //           "module": "doc_emit_json"
 //         }
 //       ]

@@ -1,0 +1,37 @@
+// Design 236's negative half, pinned: a module-level `func` is NOT a method,
+// so the rule never reaches it. Nothing at module scope takes a receiver in
+// the first place, which is why "no receiver" says nothing there and
+// `static` at module scope keeps its design-149 meaning — a VARIABLE, in a
+// declaration head that continues into a name and a colon, never into `func`.
+//
+// The `@export`ed seam is the row that matters most: the C-ABI surface an
+// `--runtime-build` writes is module-level functions, so had the rule been
+// stated over "every self-less `func`" instead of "every self-less METHOD",
+// every runtime seam in the tree would have needed a keyword the C ABI has
+// no place for.
+// EXPECT: success
+// EXPECT-OUTPUT:
+// plain 12
+// exported 9
+// generic 5
+// closure 8
+
+static SCALE: Int = 3
+
+func plain(n: Int) -> Int { n * 4 }
+
+@export("saw236_seam_add")
+func seam_add(a: Int32, b: Int32) -> Int32 { a + b }
+
+func generic_free<T>(v: T) -> Int { 5 }
+
+func main() {
+    print("plain {plain(SCALE)}")
+    print("exported {seam_add(4, 5)}")
+    print("generic {generic_free(true)}")
+
+    // A closure has no receiver either, and no declaration head to carry a
+    // keyword — the rule is about declarations.
+    let bump = { n: Int in n + 5 }
+    print("closure {bump(3)}")
+}

@@ -6,9 +6,9 @@ whether a function suspends — comes from the namespaces and the effect graph t
 typechecker built. The result is the input format for the `sawdoc` site
 generator; the compiler's job ends at the JSON.
 
-Shape (schema_version 2):
+Shape (schema_version 3):
 
-    {"schema_version": 2,
+    {"schema_version": 3,
      "modules": [
        {"name": "std.time", "source": "time.saw", "doc": "...",
         "items": [ ... ]}]}
@@ -16,7 +16,7 @@ Shape (schema_version 2):
 An item always carries `kind`, `name`, `signature`, `visibility`, `doc`, `line`.
 Kind-specific keys follow: `generics`/`conformances` on types, `fields` on a
 struct, `cases` on an enum, `methods` on a trait or extension, and
-`params`/`returns`/`effect`/`self` on anything callable.
+`params`/`returns`/`effect`/`self`/`static` on anything callable.
 
 Design 144: a type's identity is `(defining module, name)`, so an item that
 NAMES a type — struct, enum, trait, typealias, extension — also carries
@@ -51,7 +51,12 @@ _TYPE_ITEM_KINDS = ("struct", "enum", "trait", "typealias", "extension")
 # item's `name` alone no longer distinguishes two packages' `Header`s — the
 # consumer needs the pair. The `name` field itself is unchanged in meaning:
 # still what the author wrote, never the internal qualified spelling.
-SCHEMA_VERSION = 2
+#
+# 3 (design 236): every callable item gained a `static` field, and a static
+# method's `signature` spells the keyword. `"self": null` used to be the only
+# way to read staticness off this JSON, which mirrored the language's own
+# inference; both are declarations now.
+SCHEMA_VERSION = 3
 
 # Compiler-synthesized declarations (coroutine frames, drive/spawn wrappers) are
 # never part of a documented surface.
@@ -457,7 +462,15 @@ class DocsBuilder:
         is_init = getattr(node, "is_init", False)
         name = node.name
         gen = _generics_str(type_params)
-        head = ("init" if is_init else "func %s" % name) + gen
+        # design 236: the static bit comes from the KEYWORD the author wrote,
+        # not from the receiver's absence — which is what makes it renderable.
+        # A `TraitMethod` spells it as `is_static`; a module-level `Function`
+        # has neither field and is never static (it is not a method at all).
+        is_static = bool(getattr(node, "declared_static", None)
+                         if hasattr(node, "declared_static")
+                         else getattr(node, "is_static", False))
+        static_txt = "static " if is_static else ""
+        head = ("init" if is_init else "%sfunc %s" % (static_txt, name)) + gen
         self_txt = {"borrows-var": "&var self", "borrows": "&self",
                     "window": "&self", "consumes": "self"}.get(self_kind)
         rendered = ([self_txt] if self_txt else [])
@@ -498,6 +511,7 @@ class DocsBuilder:
             "returns": ret,
             "effect": self._effect(node, owner, is_trait_method),
             "self": self_kind,
+            "static": is_static,
             "doc": getattr(node, "doc", None),
             "line": node.line,
         }

@@ -11,7 +11,7 @@
 // COMPILE-FLAGS: --emit-docs
 // EXPECT-OUTPUT:
 // {
-//   "schema_version": 2,
+//   "schema_version": 3,
 //   "modules": [
 //     {
 //       "name": "doc_emit_effect",
@@ -28,8 +28,9 @@
 //           "returns": "Void",
 //           "effect": "suspending",
 //           "self": null,
+//           "static": false,
 //           "doc": null,
-//           "line": 132
+//           "line": 137
 //         },
 //         {
 //           "kind": "func",
@@ -47,8 +48,9 @@
 //           "returns": "Int",
 //           "effect": "suspending",
 //           "self": null,
+//           "static": false,
 //           "doc": "Suspends: sleeps before answering.",
-//           "line": 116
+//           "line": 121
 //         },
 //         {
 //           "kind": "func",
@@ -66,8 +68,9 @@
 //           "returns": "Int",
 //           "effect": "suspending",
 //           "self": null,
+//           "static": false,
 //           "doc": "Suspends transitively: it only calls `nap`.",
-//           "line": 122
+//           "line": 127
 //         },
 //         {
 //           "kind": "func",
@@ -85,8 +88,9 @@
 //           "returns": "Int",
 //           "effect": "sync",
 //           "self": null,
+//           "static": false,
 //           "doc": "Sync: no suspension anywhere below it.",
-//           "line": 127
+//           "line": 132
 //         },
 //         {
 //           "kind": "func",
@@ -104,8 +108,9 @@
 //           "returns": "Int",
 //           "effect": "sync",
 //           "self": null,
+//           "static": false,
 //           "doc": "Declared `sync`: the checker proved the body suspension-free.",
-//           "line": 130
+//           "line": 135
 //         }
 //       ]
 //     }

@@ -1,0 +1,111 @@
+//! `--emit-docs` renders a static method's `static` keyword (design 236).
+
+// Design 236 rule 5: the JSON's static bit comes from the KEYWORD, not from
+// the receiver's absence — which is what makes it renderable at all. The
+// signature reads exactly as the source spells it, and the `static` field
+// says the same thing without a reader having to parse the signature. An
+// instance method beside it carries `"static": false`, as does a module-level
+// `func`, which is never a method and never static.
+// EXPECT: docs
+// COMPILE-FLAGS: --emit-docs
+// EXPECT-OUTPUT:
+// {
+//   "schema_version": 3,
+//   "modules": [
+//     {
+//       "name": "doc_emit_static_method",
+//       "source": "doc_emit_static_method.saw",
+//       "doc": "`--emit-docs` renders a static method's `static` keyword (design 236).",
+//       "items": [
+//         {
+//           "kind": "extension",
+//           "name": "Tally",
+//           "signature": "public extension Tally",
+//           "visibility": "public",
+//           "generics": [],
+//           "conformances": [],
+//           "methods": [
+//             {
+//               "kind": "method",
+//               "name": "count",
+//               "signature": "public func count(&self) -> Int",
+//               "visibility": "public",
+//               "generics": [],
+//               "params": [],
+//               "returns": "Int",
+//               "effect": "sync",
+//               "self": "borrows",
+//               "static": false,
+//               "doc": "Reads the running count.",
+//               "line": 108
+//             },
+//             {
+//               "kind": "method",
+//               "name": "empty",
+//               "signature": "public static func empty() -> Tally",
+//               "visibility": "public",
+//               "generics": [],
+//               "params": [],
+//               "returns": "Tally",
+//               "effect": "sync",
+//               "self": null,
+//               "static": true,
+//               "doc": "Starts a tally at zero.",
+//               "line": 105
+//             }
+//           ],
+//           "doc": null,
+//           "line": 103,
+//           "module": "doc_emit_static_method"
+//         },
+//         {
+//           "kind": "func",
+//           "name": "main",
+//           "signature": "func main()",
+//           "visibility": "private",
+//           "generics": [],
+//           "params": [],
+//           "returns": "Void",
+//           "effect": "sync",
+//           "self": null,
+//           "static": false,
+//           "doc": null,
+//           "line": 111
+//         },
+//         {
+//           "kind": "struct",
+//           "name": "Tally",
+//           "signature": "public struct Tally",
+//           "visibility": "public",
+//           "unsafe": false,
+//           "generics": [],
+//           "conformances": [],
+//           "fields": [
+//             {
+//               "name": "n",
+//               "type": "Int",
+//               "visibility": "public",
+//               "doc": null,
+//               "line": 101
+//             }
+//           ],
+//           "doc": null,
+//           "line": 101,
+//           "module": "doc_emit_static_method"
+//         }
+//       ]
+//     }
+//   ]
+// }
+
+public struct Tally { public n: Int }
+
+public extension Tally {
+    /// Starts a tally at zero.
+    public static func empty() -> Tally { Tally(n: 0) }
+
+    /// Reads the running count.
+    public func count(&self) -> Int { self.n }
+}
+
+func main() { print(Tally.empty().count()) }

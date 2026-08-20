@@ -49,6 +49,7 @@ User-reserved (hand fixes): DF-232h (rides 234 u1 unless taken earlier), DF-217m
 ## [BACKLOG] — filed, not scheduled
 
 - `public(package) import` — should the scoped re-export form exist? Refused today (design 229). Real use case: an INTERNAL PRELUDE, one sibling aggregating names for the others (Rust's `pub(crate) use`). Against: siblings can already import each other directly, so it buys convenience, not capability — and kcore, the biggest multi-file package and the one that motivated the tier, does NOT want it (its `public import` block is the EXTERNAL facade). Wait for a package that feels the pain (entry: the re-narrowing rider section)
+- DF-236a — static method through a field-access receiver, DF-217q's position gap (entry below, under design 236)
 - DF-232d — `mod.STATIC = v` assignment position (entry below)
 - DF-232e — import-cycle diagnostic (entry below)
 - DF-232n — `public(package)` fails open across relative-path imports (entry below; the 232j family's remaining arm, found by the re-narrowing audit)
@@ -131,6 +132,28 @@ agree. Earned by V39 (forgot-`&self` silently became a static). Migration
 is compiler-driven across std/blade/libs/sos/devtools/examples — each
 V39-alike the sweep surfaces is a bug the migration fixes. Runs BEFORE 235
 so the matrices enumerate the ruled grammar. [236]
+
+- **DF-236a (FILED, not fixed — found by 236's migration) — a static method
+  reached through a FIELD-ACCESS receiver is not refused; DF-217q's
+  call-site check has a position gap.** MECHANISM (obligation 4):
+  `_check_method_call`'s `isinstance(expr.object, MemberAccess)` branch
+  (`typechecker/expressions.py`, the `module.Struct.method()` route) decides on
+  the member access's TYPE — "this resolves to a struct that has a static of
+  this name" — which is equally true of a member access that NAMES the type
+  and one that evaluates to a VALUE of it. So `h.inner.solo(3)` is routed as
+  though `h.inner` were the type: the receiver is dropped and the arguments
+  shift by one. Nullary → the call silently succeeds; arity ≥ 1 → codegen ICE
+  (`Type of #1 arg mismatch: i64 != %"Inner"`). SWEEP (compile evidence, all
+  six probed): a plain local, `self`, a call result, a tuple element, a
+  `Vector` element and a field at ENUM type all reach the DF-217q refusal
+  cleanly — the gap is the field access at STRUCT type and nothing else, since
+  it is the only spelling that enters that branch. Found in the wild exactly
+  once: blade's `self.layout.clean_all()`, fixed at the call site by 236's
+  region-2 commit; a corpus-wide AST hunt for the shape turned up no other.
+  PIN: `examples/static_method_through_field_receiver.saw` (XFAIL). The fix is
+  DF-217q's mechanism, not 236's rule — it needs the checker to distinguish a
+  member access that names a TYPE from one that yields a VALUE, which is a
+  ruling about that branch. [236, 217q]
 
 ## Design 237 — the ANF-hoist funnel (RATIFIED Aug 18; QUEUED BEFORE 234)
 

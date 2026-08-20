@@ -22,7 +22,7 @@
 // COMPILE-FLAGS: --emit-docs
 // EXPECT-OUTPUT:
 // {
-//   "schema_version": 2,
+//   "schema_version": 3,
 //   "modules": [
 //     {
 //       "name": "doc_emit_borrows",
@@ -53,8 +53,9 @@
 //               "returns": "Int",
 //               "effect": "sync",
 //               "self": "window",
+//               "static": false,
 //               "doc": "The element at `i`, as a place.",
-//               "line": 105
+//               "line": 107
 //             },
 //             {
 //               "kind": "method",
@@ -72,12 +73,13 @@
 //               "returns": "Int?",
 //               "effect": "sync",
 //               "self": "window",
+//               "static": false,
 //               "doc": "The element at `i` if it exists -- an optional place.",
-//               "line": 113
+//               "line": 115
 //             }
 //           ],
 //           "doc": null,
-//           "line": 103,
+//           "line": 105,
 //           "module": "doc_emit_borrows"
 //         },
 //         {
@@ -90,7 +92,7 @@
 //           "conformances": [],
 //           "fields": [],
 //           "doc": null,
-//           "line": 101,
+//           "line": 103,
 //           "module": "doc_emit_borrows"
 //         }
 //       ]

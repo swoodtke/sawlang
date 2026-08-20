@@ -771,11 +771,13 @@ class RegistrationMixin:
                 self_is_reference=method.self_is_reference,
                 is_sync=getattr(method, 'is_sync', False),
                 is_unsafe=getattr(method, 'is_unsafe', False),
-                # A requirement with no `self` is STATIC (design 169): it is
-                # called on the type, so there is no receiver to dispatch on and
-                # the trait cannot be erased to `any`. Staticness is read off the
-                # parameter list, the same way a method's is.
-                is_static=not any(p.name == "self" for p in method.parameters),
+                # A `static` requirement (design 169) is called on the type, so
+                # there is no receiver to dispatch on and the trait cannot be
+                # erased to `any`. Design 236 made staticness a DECLARATION —
+                # the requirement spells `static func` and the parser refuses
+                # any disagreement with the parameter list — so this reads the
+                # keyword rather than inferring from the missing `self`.
+                is_static=getattr(method, 'is_static', False),
                 # Carry the AST so a conformer can synthesize a Method from the
                 # default body (design 56); inherited symbols keep their own
                 # ast_node, so defaults propagate through trait inheritance.
@@ -2038,7 +2040,14 @@ class RegistrationMixin:
             is_init=False,
             self_mutable=getattr(tm_ast, 'self_mutable', False),
             self_is_reference=getattr(tm_ast, 'self_is_reference', True),
+            # design 236: a synthesized Method is not authored source, so it
+            # never faces the parser's agreement check — but the kinds it
+            # reports must still MATCH the requirement it was built from, since
+            # that is what `_check_trait_conformance` compares. `declared_static`
+            # carries the same answer so `--emit-docs` renders the derived
+            # `deserialize` with the keyword its requirement spells.
             is_static=not any(p.name == "self" for p in params),
+            declared_static=not any(p.name == "self" for p in params),
             is_sync=getattr(tm_ast, 'is_sync', False),
             type_params=[],
             line=extension.line,
@@ -2082,7 +2091,13 @@ class RegistrationMixin:
                         is_init=False,
                         self_mutable=tm_ast.self_mutable,
                         self_is_reference=tm_ast.self_is_reference,
-                        is_static=False,
+                        # design 236: a default body on a STATIC requirement
+                        # synthesizes a static conformer method. Hardcoding
+                        # `False` here made the copy claim a receiver it has no
+                        # parameter for, which the kind-agreement check would
+                        # now report against the conformer.
+                        is_static=getattr(tm_ast, 'is_static', False),
+                        declared_static=getattr(tm_ast, 'is_static', False),
                         is_sync=getattr(tm_ast, 'is_sync', False),
                         is_unsafe=getattr(tm_ast, 'is_unsafe', False),
                         type_params=[],
@@ -3080,6 +3095,40 @@ class RegistrationMixin:
                 continue
 
             impl_method = struct_info.methods[method_name]
+
+            # design 236 rule 4: the KINDS must agree. A static requirement is
+            # satisfied only by a static, an instance requirement only by an
+            # instance method. The two are not interchangeable in either
+            # direction: a static has no receiver for a caller to supply, and an
+            # instance method has no way to be reached without one — so a
+            # mismatch is a conformance that could never be called through, and
+            # the shared name is the only thing the two have in common. Since
+            # design 236 both sides SPELL their kind, so this compares
+            # declarations rather than inferring from the parameter list.
+            if getattr(trait_method, 'is_static', False) != getattr(
+                    impl_method, 'is_static', False):
+                if getattr(trait_method, 'is_static', False):
+                    self._error(
+                        ErrorKind.TYPE_MISMATCH,
+                        f"method `{method_name}` must be declared `static` to "
+                        f"conform to trait `{trait_info.name}`, whose "
+                        f"requirement is static: it is called on the TYPE, so "
+                        f"there is no receiver for this implementation's "
+                        f"`self` to come from",
+                        extension.line, extension.column,
+                        hint=f"write `static func {method_name}(...)` and drop "
+                             f"the `&self`/`&var self` parameter")
+                else:
+                    self._error(
+                        ErrorKind.TYPE_MISMATCH,
+                        f"method `{method_name}` may not be declared `static`: "
+                        f"trait `{trait_info.name}` requires an INSTANCE "
+                        f"method, which a caller reaches through a receiver "
+                        f"this implementation does not take",
+                        extension.line, extension.column,
+                        hint=f"remove the `static` and take `&self` — "
+                             f"`func {method_name}(&self, ...)`")
+                continue
 
             # Check self mutability matches
             if trait_method.self_mutable != impl_method.self_mutable:

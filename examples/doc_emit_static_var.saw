@@ -10,7 +10,7 @@
 // COMPILE-FLAGS: --emit-docs
 // EXPECT-OUTPUT:
 // {
-//   "schema_version": 2,
+//   "schema_version": 3,
 //   "modules": [
 //     {
 //       "name": "doc_emit_static_var",
@@ -27,8 +27,9 @@
 //           "returns": "Int",
 //           "effect": "unsafe sync",
 //           "self": null,
+//           "static": false,
 //           "doc": "Returns the number of free slots.",
-//           "line": 69
+//           "line": 70
 //         },
 //         {
 //           "kind": "static",
@@ -39,7 +40,7 @@
 //           "mutable": false,
 //           "type": "Int",
 //           "doc": "The number of handle slots the table holds.",
-//           "line": 61
+//           "line": 62
 //         },
 //         {
 //           "kind": "static",
@@ -50,7 +51,7 @@
 //           "mutable": true,
 //           "type": "Int",
 //           "doc": "Live handle count.\n\nSerialized by the caller holding interrupts off for the whole update.",
-//           "line": 66
+//           "line": 67
 //         }
 //       ]
 //     }
