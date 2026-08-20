@@ -8038,9 +8038,18 @@ public(parent) func parent_visible() { ... }
 
 A scoped name is reachable by every spelling its scope allows, not just the
 qualified one. From inside the package, `public(package) func internal_api`
-answers to `m.internal_api()` and to `import m.{internal_api}` alike; from
-outside, both are refused. The import form is sugar for the qualified reach and
-is never the stricter of the two.
+answers to `m.internal_api()`, to `import m.{internal_api}` and to the glob
+`import m.*` alike; from outside, all three are refused, through a facade's
+`public import` re-export as much as directly — a re-export hands on the NAME,
+never a wider tier. The import forms are sugar for the qualified reach and are
+never the stricter of the set. A refusal names the tier and the DEFINING
+module, so the reader learns which modifier to change and where:
+
+```
+error: `internal_api` is public(package) in `pkg.secret`
+hint: mark it `public` in `pkg.secret` to expose it — a `public import`
+      re-export hands on the NAME, never a wider tier
+```
 
 #### Member visibility (design 80)
 
