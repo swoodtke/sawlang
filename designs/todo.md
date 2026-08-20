@@ -31,7 +31,7 @@ is scheduled and in what order is the whole of what they say.
 
 ## [QUEUE] — scheduled, in order (user-approved)
 
-1. DF-232j fix — the qualified-reach path decides `public(package)` with an empty package root, widening the tier to the world (entry below; MOVED TO TOP by user, Aug 20). SOUNDNESS. Obligation-4 sweep DONE Aug 20: the facade is incidental — the DIRECT qualified reach widens too, kind-generally; 8 pins committed as the fix's oracle; sweep also filed DF-232k and DF-232l (entries below). Fix DISPATCHED (branch df-232j)
+1. DF-232j fix — the qualified-reach path decides `public(package)` with an empty package root, widening the tier to the world (entry below; MOVED TO TOP by user, Aug 20). SOUNDNESS. Obligation-4 sweep DONE Aug 20: the facade is incidental — the DIRECT qualified reach widens too, kind-generally; 8 pins committed as the fix's oracle; sweep also filed DF-232k and DF-232l (entries below). Fix DISPATCHED (branch df-232j); user Aug 20: DF-232k and DF-232l RIDE THE SAME BRANCH as units 2-3 (232l strictly after unit 1 — its fix reopens the hole if it lands first). All 8 pins flip when the three land
 2. Design 236 — `static` keyword required (designs/236-static-keyword.md) — before 235
 3. Design 235 — position-matrix ledgers (designs/235-position-matrices.md; SONNET dispatch) — before 234's migration units
 4. Design 237 — the ANF-hoist funnel (designs/237-anf-hoist-funnel.md) — before 234
@@ -52,8 +52,6 @@ User-reserved (hand fixes): DF-232h (rides 234 u1 unless taken earlier), DF-217m
 ## [BACKLOG] — filed, not scheduled
 
 - `public(package) import` — should the scoped re-export form exist? Refused today (design 229). Real use case: an INTERNAL PRELUDE, one sibling aggregating names for the others (Rust's `pub(crate) use`). Against: siblings can already import each other directly, so it buys convenience, not capability — and kcore, the biggest multi-file package and the one that motivated the tier, does NOT want it (its `public import` block is the EXTERNAL facade). Wait for a package that feels the pain (entry: the re-narrowing rider section)
-- DF-232k — a sibling glob import drops `public(package)` names (entry below; refuses valid reach, found by the DF-232j sweep)
-- DF-232l — whole-module `public import` never re-exports its qualifier in value position (entry below; fix AFTER 232j, found by the DF-232j sweep)
 - DF-232d — `mod.STATIC = v` assignment position (entry below)
 - DF-232e — import-cycle diagnostic (entry below)
 - DF-232g — imported-const static folding (entry below)
@@ -341,7 +339,8 @@ pre-229c shape. Symptom: the aggregating facade itself fails to compile
 valid reach. Fix: the glob arm asks the same relation; the outside-facing
 direction (an outside glob keeps excluding package-tier names) falls out of
 the accessor-aware predicate. PIN: `module_path_glob_facade_sibling.saw`
-(XFAIL, EXPECT success 42). [232j sweep, 229c, design 80]
+(XFAIL, EXPECT success 42). SCHEDULED (user, Aug 20): rides branch df-232j
+as unit 2. [232j sweep, 229c, design 80]
 
 ## DF-232l — whole-module `public import` re-exports NOTHING in value
 ## position: the qualifier is bound PRIVATE (filed Aug 20, the DF-232j sweep)
@@ -358,7 +357,11 @@ own public function. ORDERING: fix AFTER (or with) DF-232j — flipping the
 qualifier re-exported while `_resolve_parts` still decides package visibility
 with an empty root would open DF-232j's hole through the whole-module shape,
 the one form the sweep could not exercise end to end. PIN:
-`export229_whole_chain_call.saw` (XFAIL, EXPECT success 2). [232j sweep, 229]
+`export229_whole_chain_call.saw` (XFAIL, EXPECT success 2). SCHEDULED (user,
+Aug 20): rides branch df-232j as unit 3, strictly after unit 1; the
+SELECTIVE form's qualifier stays PRIVATE even under `public import` (the
+design-229 ruling is per-form — only the whole-module form's qualifier flips).
+[232j sweep, 229]
 
 ## DF-232f — a package has NO INTERNAL VISIBILITY, so splitting one file into
 ## several PUBLISHES everything they share (filed Aug 17, the kcore split's
