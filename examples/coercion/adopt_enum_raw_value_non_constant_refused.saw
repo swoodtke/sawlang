@@ -1,0 +1,26 @@
+// Position matrix (design 235), grid 1 "Adoption" — row: enum raw value,
+// sources S6 (qualified/module static read) and S7 (call result). Neither
+// is a compile-time constant expression, and the enum raw value position
+// refuses BOTH cleanly (no ICE) — the design already documents that a case
+// value "may NOT name a `static` or another enum's case" (DF-232c); this
+// confirms the same clean refusal covers a function call too, and that the
+// refusal is the SAME diagnostic rather than two different failure shapes.
+// A local read (S4) and a field read (S5) are structurally impossible to
+// write in this position (no enclosing function scope/receiver exists
+// inside an enum declaration) — N/A, not tested. A place read (S8, `v[i]`)
+// is refused the same way for the same reason (not a constant); not
+// independently pinned since it is the identical diagnostic.
+//
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: raw value for case `A` of enum `E` is not a compile-time constant
+// EXPECT-ERROR-CONTAINS: may not name a `static` or another enum's case
+
+static N: UInt8 = 5
+
+enum E: UInt8 {
+    case A = N,
+}
+
+func main() {
+    print("{E.A as UInt8}")
+}

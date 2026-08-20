@@ -1,0 +1,46 @@
+// Position matrix (design 235), grid 1 "Adoption" — row: annotated `let`.
+// An annotated `let x: T = <expr>` names `T` as the expected type before the
+// initializer is checked, so both a bare literal (design 87) and a folded
+// const expression (design 185) adopt `T` exactly, at every fixed integer
+// width.
+//
+// NOTE (DF-235b): the const-expression rows demonstrate the VALUE flowing
+// correctly when it fits — they do NOT demonstrate range-checking. An
+// out-of-range const expression at an annotated `let` silently truncates
+// instead of refusing (probe-confirmed; see DF-235b's tracker entry and
+// const_expression_range_unchecked_narrow.saw for the pinned case).
+// Range-checking IS verified for the bare-literal rows, whose
+// `_apply_literal_expected_type` case (1) does the check at the literal.
+// EXPECT: success
+// EXPECT-OUTPUT:
+// bare i8 = 100
+// bare u16 = 500
+// bare i32 = -70000
+// bare u64 = 9000000000
+// const shift = 256
+// const arith = 30
+// const mixed = 24
+// neg const = -8
+
+func main() {
+    // bare literal (S1), one row per width family
+    let a: Int8 = 100
+    print("bare i8 = {a}")
+    let b: UInt16 = 500
+    print("bare u16 = {b}")
+    let c: Int32 = -70000
+    print("bare i32 = {c}")
+    let d: UInt64 = 9000000000
+    print("bare u64 = {d}")
+
+    // const expression (S3): shift, arithmetic, and a combination, each
+    // folded before the literal-adoption funnel sees it
+    let e: Int16 = 1 << 8
+    print("const shift = {e}")
+    let f: Int8 = 5 * 6
+    print("const arith = {f}")
+    let g: UInt32 = (1 << 3) | (1 << 4)
+    print("const mixed = {g}")
+    let h: Int8 = 0 - 8
+    print("neg const = {h}")
+}

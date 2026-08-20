@@ -1,0 +1,30 @@
+// Position matrix (design 235), grid 1 "Adoption" — row: `??` operand.
+// `opt ?? <expr>` types the RHS against the OPTIONAL's peeled payload type
+// (design 176's `??` peels one layer), so a bare literal (S1) and a folded
+// const expression (S3) both adopt the payload's fixed width.
+//
+// NOTE (DF-235b): the const-expression row demonstrates the VALUE flowing
+// correctly when it fits — it does NOT demonstrate range-checking. An
+// out-of-range const expression as a `??` operand silently carries the
+// value at PLATFORM width instead of refusing (probe-confirmed; see
+// DF-235b's tracker entry and const_expression_range_unchecked_wide.saw
+// for the pinned sibling case).
+// EXPECT: success
+// EXPECT-OUTPUT:
+// bare = 9
+// bare present = 5
+// const = 24
+
+func main() {
+    let absent: Int8? = None
+    let a = absent ?? 9
+    print("bare = {a}")
+
+    let present: Int8? = 5
+    let b = present ?? 9
+    print("bare present = {b}")
+
+    let absent2: UInt32? = None
+    let c = absent2 ?? ((1 << 3) | (1 << 4))
+    print("const = {c}")
+}

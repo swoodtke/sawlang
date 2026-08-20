@@ -1,0 +1,29 @@
+// Position matrix (design 235), grid 1 "Adoption" — rows: plain assignment
+// to a FIELD and a field-through-element, source S3 (const expression).
+// assignment_target_adopts_fixed_width.saw (DF-232a) covers these two
+// target kinds for S1 (bare literal) and covers S3/S4 only on the LOCAL
+// target; this file closes the const-expression gap for the field and
+// field-through-element targets specifically, for an IN-RANGE value.
+//
+// NOTE (DF-235b): this demonstrates the VALUE flowing correctly when it
+// fits — it does NOT demonstrate range-checking, which the SAME family
+// silently skips at a plain (local) assignment target (probe-confirmed;
+// see DF-235b's tracker entry and const_expression_range_unchecked_narrow.saw).
+// EXPECT: success
+// EXPECT-OUTPUT:
+// field = 24
+// elem field = 40
+
+struct Wide { a: Int8, b: UInt32 }
+
+static N: Int = 2
+
+func main() {
+    var w = Wide(a: 0, b: 0)
+    w.b = (1 << 3) | (1 << 4)
+    print("field = {w.b}")
+
+    var rows: [Wide; N] = [Wide(a: 0, b: 0); N]
+    rows[0].b = 5 * 8
+    print("elem field = {rows[0].b}")
+}

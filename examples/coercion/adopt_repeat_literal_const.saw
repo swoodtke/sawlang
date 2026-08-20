@@ -1,0 +1,29 @@
+// Position matrix (design 235), grid 1 "Adoption" — row: the repeat literal
+// `[v; N]`, source S3 (const expression). The bare-literal (S1) row is
+// already covered by the saw-lang skill's `[v; N]` examples and by
+// `[0; 256]`-shaped uses throughout the corpus; this file is the const-
+// expression case at a fixed element width, for an IN-RANGE value.
+//
+// NOTE (DF-235b): the value prints correctly here, but this does NOT mean
+// the element genuinely adopted `UInt32`. `_check_repeat_literal`
+// (sawc/typechecker/expressions.py:4852) reassigns a LOCAL variable
+// (`elem_type = arr_elem`, line 4893) after the element fits, but never
+// writes that back onto the element's own AST node — so codegen still
+// carries the const expression at whatever width `_check_expression`
+// naturally gave it, which for an un-adopted `BinaryOp` is platform `Int`.
+// Probe-confirmed: `[1 << 20; 2]` at `[UInt16; 2]` compiles clean and
+// prints the UNTRUNCATED `1048576`, not the value `UInt16` could hold —
+// see const_expression_range_unchecked_wide.saw (DF-235b) for that pinned
+// case. This row's small in-range value (24) happens to print correctly
+// either way, which is exactly why the gap went unnoticed.
+//
+// EXPECT: success
+// EXPECT-OUTPUT:
+// repeat elem = 24
+// repeat len = 4
+
+func main() {
+    let r: [UInt32; 4] = [(1 << 3) | (1 << 4); 4]
+    print("repeat elem = {r[0]}")
+    print("repeat len = {r.len()}")
+}

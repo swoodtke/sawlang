@@ -1,0 +1,47 @@
+// Position matrix (design 235), grid 1 "Adoption" — rows: argument
+// (positional and labeled), return, and bare tail. A parameter's declared
+// type and a function's declared return type are both expected-type slots
+// the same funnel serves, for a bare literal (S1) and a folded const
+// expression (S3).
+//
+// NOTE (DF-235b): the const-expression rows demonstrate the VALUE flowing
+// correctly when it fits — they do NOT demonstrate range-checking. An
+// out-of-range const expression at an argument or a return position
+// silently truncates instead of refusing (probe-confirmed; see DF-235b's
+// tracker entry).
+// EXPECT: success
+// EXPECT-OUTPUT:
+// positional = 100
+// labeled = 500
+// positional const = 30
+// labeled const = 30
+// return = -70000
+// tail = 9000000000
+// return const = 24
+// tail const = -8
+
+func take_positional(n: Int8) -> Int8 { n }
+func take_labeled(n: UInt16) -> UInt16 { n }
+
+// return: a bare literal at a fixed-width return type
+func give_return() -> Int32 { return -70000 }
+// bare tail: the block's final expression at a fixed-width return type
+func give_tail() -> UInt64 { 9000000000 }
+
+// return / tail with a folded const expression
+func give_return_const() -> UInt32 { return (1 << 3) | (1 << 4) }
+func give_tail_const() -> Int8 { 0 - 8 }
+
+func main() {
+    print("positional = {take_positional(100)}")
+    print("labeled = {take_labeled(n: 500)}")
+
+    // argument position with a const expression (S3)
+    print("positional const = {take_positional(5 * 6)}")
+    print("labeled const = {take_labeled(n: 5 * 6)}")
+
+    print("return = {give_return()}")
+    print("tail = {give_tail()}")
+    print("return const = {give_return_const()}")
+    print("tail const = {give_tail_const()}")
+}

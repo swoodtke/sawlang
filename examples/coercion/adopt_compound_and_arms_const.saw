@@ -1,0 +1,36 @@
+// Position matrix (design 235), grid 1 "Adoption" — rows: value `if` arm and
+// `match` arm, source S3 (const expression), for an IN-RANGE value. The
+// bare-literal (S1) row for both is already covered by
+// literal_coercion_positions.saw.
+//
+// NOTE (DF-235b): this demonstrates the value flowing correctly when it
+// fits — it does NOT demonstrate range-checking, which is a separate,
+// cited gap: an OUT-OF-RANGE const expression at either of these two rows
+// silently truncates instead of refusing (probe-confirmed; see DF-235b's
+// tracker entry and const_expression_range_unchecked_narrow.saw for the
+// pinned case).
+//
+// The compound-assign RHS row belongs to this grid too but is NOT green:
+// `acc += (1 << 2) + 4` for `acc: Int16` is refused outright (the funnel
+// that adopts a bare literal there never reaches a `BinaryOp` const
+// expression at all) — see compound_assign_const_expression_refused.saw
+// (DF-235b) for that row's pin.
+//
+// EXPECT: success
+// EXPECT-OUTPUT:
+// if arm const = 24
+// match arm const = 40
+
+func main() {
+    let cond = true
+    let picked: UInt32 = if cond { (1 << 3) | (1 << 4) } else { 0 }
+    print("if arm const = {picked}")
+
+    let n = 2
+    let m_arm: Int16 = match n {
+        case 1 -> 10,
+        case 2 -> 5 * 8,
+        case _ -> 12
+    }
+    print("match arm const = {m_arm}")
+}

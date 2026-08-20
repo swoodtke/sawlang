@@ -55,6 +55,8 @@ User-reserved (hand fixes): DF-232h (rides 234 u1 unless taken earlier), DF-217m
 - DF-232n — `public(package)` fails open across relative-path imports (entry below; the 232j family's remaining arm, found by the re-narrowing audit)
 - DF-232o — tier-refused type re-resolves same-named: X-but-got-X cascades, place-path loses the visibility line (entry below)
 - DF-232p — a refused call swallows its argument's refusal (entry below; a census hazard since DF-232q, not minor)
+- DF-235a — a constant EXPRESSION source reaching a plain array-literal element or a Result payload slot ICEs at codegen (entry below; found by design 235's coercion-adoption grid)
+- DF-235b — a constant EXPRESSION source is never range-checked at MOST fixed-width positions (silent truncation or silent over-width storage), and is spuriously refused at compound-assign's RHS (entry below; same funnel gap as DF-235a, found by design 235's coercion-adoption grid)
 - Extension-head visibility — RULED Aug 20: BANNED, visibility belongs on members; ~107-site migration rides the small-fix batch after 239 (entry below; the narrowing landed before the ban, leaving the one `public(package) extension Console` head untouched for the batch)
 - DF-216c — generic statics never instantiate type params (entry below, under design 216) — ASSESSED in 239 (Aug 20): DIFFERENT mechanism — the static call path has NO monomorphization for the method's own type params (`_check_static_method_call` lacks the instance path's solve block; codegen stops at the struct); sites located in the entry, needs its own fix
 - DF-217d — generic static with default type+value ICE (entry below, under the obligation-4 retro triage) — same missing path as DF-216c (`Undefined static method` is the codegen face); rides its fix
@@ -226,6 +228,130 @@ what we stepped on. No-guessing rule: undetermined cells are OPEN rows for
 ruling, never invented EXPECTs. Sonnet-class dispatch (user ruling — the
 brief fixes the grids and authorities; the agent transcribes). Seeds: the
 DF-232a/226d/e/232c pins + the kcore unit-0 probes. [235]
+
+## DF-235a — a constant EXPRESSION element/payload ICEs at codegen: a plain
+## array literal (mixed with an adopted sibling) and a `Result` payload slot
+## both `insert_value`-crash (filed Aug 20, design 235's coercion grid)
+
+Found probing grid 1's "const expression" column (design 185's folded
+shift/arithmetic/bitwise family — `(1 << 3) | (1 << 4)`) against the
+adoption position matrix.
+
+MECHANISM (obligation 4): `_apply_literal_expected_type`
+(sawc/typechecker/expressions.py:5174), the ONE funnel that pushes a
+resolved expected type onto a literal-shaped value BEFORE it is checked and
+range-checks an integer literal there, dispatches on the value's AST NODE
+SHAPE — `IntLiteral`, unary-minus-of-literal, the if/match/block
+"transparent" wrappers, a nested Tuple/Array/Map/Set literal, `None`, a
+FuncPointer-shaped closure/name. A general `BinaryOp` (what a folded const
+expression like a shift or an `|` actually is, at the AST level before
+folding) matches NONE of these cases, so it is never stamped with an
+expected type and is checked as an ordinary expression with no context —
+which resolves it to platform `Int`, same as a bare `1 << 8` written with no
+annotation in sight at all.
+
+TWO CRASH-SHAPED SYMPTOMS, downstream of positions whose codegen assumes
+the checked/declared width was actually reached:
+
+1. A PLAIN (non-repeat) array literal: `_generate_array_literal`
+   (sawc/codegen/collections.py:159-161) derives the array's LLVM element
+   type from ELEMENT 0's own codegen'd type (`elem_type =
+   element_values[0].type`) rather than from the array's declared Saw type,
+   then `insert_value`s every element into that type. An element that DID
+   adopt (a bare literal, stamped by the funnel's `IntLiteral` case) and one
+   that did NOT (a const expression, left at platform width) disagree, and
+   `insert_value` throws in EITHER order:
+   ```
+   let a: [UInt32; 2] = [0, (1 << 3) | (1 << 4)]
+   // internal compiler error (ArrayLiteral): Can only insert i64 at [1] in
+   // [2 x i64]: got i32
+   let a: [UInt32; 2] = [(1 << 3) | (1 << 4), 0]
+   // internal compiler error (ArrayLiteral): Can only insert i32 at [1] in
+   // [2 x i32]: got i64
+   ```
+2. A `Result` payload slot: `return 1 << 20` at `-> Result<UInt16, Bad>`
+   throws the same `insert_value`-shaped crash in `ResultOkWrap` codegen
+   (`Can only insert i16 at [0] in {i16}: got i64`) — the wrap assumes the
+   payload was adopted to `UInt16` and instead receives platform `Int`.
+
+SWEEP (obligation 4, compile evidence — see DF-235b for the full position
+census): `Vector<UInt32>` and `(UInt32, UInt32)` tuple literals, given the
+SAME mixed elements, both compile and print correctly — Vector builds via
+per-element `push`, Tuple addresses each slot by its own declared type,
+neither deriving from element 0's codegen'd type. `_check_repeat_literal`'s
+`[v; N]` does not ICE either (it silently mis-stores instead — DF-235b).
+This finding is the ICE-shaped half of the funnel gap; the silent half
+(no ICE, but no range check and the wrong effective width) is DF-235b,
+same root cause, most of the rest of the position matrix.
+
+PINS: `examples/coercion/array_literal_const_element_ice.saw`,
+`examples/coercion/result_slot_const_expression_ice.saw` (both XFAIL).
+[235, 87, 195]
+
+## DF-235b — a constant EXPRESSION source is never range-checked at MOST
+## fixed-width positions — silent truncation, silent over-width storage, or
+## (one position) a spurious refusal of an otherwise-legal value (filed
+## Aug 20, design 235's coercion grid; same funnel gap as DF-235a)
+
+The SILENT half of DF-235a's mechanism: everywhere DF-235a's missing
+`BinaryOp` case in `_apply_literal_expected_type` does NOT reach codegen as
+an outright `insert_value` crash, it instead reaches it as a value nobody
+range-checked, and — depending on what that position's OWN codegen does
+with an un-adopted platform-`Int` value — the program either keeps running
+at the WRONG effective width or refuses a value it should accept.
+
+MATRIX (obligation 4, compile evidence — `1 << 20` against a `UInt16`
+target throughout, which is 1048576, out of `UInt16`'s 0..=65535 range):
+
+  SILENTLY TRUNCATES to the declared narrower width, no range check, no
+  error — the position's codegen narrows an un-adopted platform-`Int` value
+  at the store/pass/return site (same shape DF-232a's own "folded" row
+  named in passing for assignment, without flagging the missing check —
+  extended here rather than re-filed): annotated `let`, `static`
+  initializer, struct-literal field, positional argument, `return`, default
+  parameter value, value `if` arm, `match` arm, plain assignment target
+  (DF-232a's `v = 2 + 3` row). Every one of these prints `0` for `1 << 20`
+  at `UInt16` — an out-of-range value silently becomes a DIFFERENT
+  in-range one instead of a compile error.
+
+  SILENTLY WIDENS the actual storage past the declared type instead —
+  prints the untruncated `1048576`, meaning the value (and, for the
+  container cases, its backing storage) is carried at platform width
+  throughout despite the DECLARED Saw type claiming `UInt16`: the repeat
+  literal's value (`[1 << 20; 2]`), an Optional payload slot
+  (`let o: UInt16? = 1 << 20`), the `??` operand
+  (`absent ?? (1 << 20)`), and a UNIFORM plain array literal whose elements
+  are ALL const expressions (`[1 << 3, 1 << 4]` — no `insert_value`
+  conflict since every element agrees on the SAME wrong width, but
+  `sizeof`/layout downstream would disagree with the declared `[UInt32; N]`
+  wherever this array's storage crosses an ABI boundary).
+
+  REFUSES a value it should accept — the one position with no leniency
+  fallback: compound-assign's RHS (`acc += (1 << 2) + 4` for `acc: Int16`)
+  is rejected outright by design 195's operand-agreement check (`Int16` vs
+  the un-adopted `Int`), where the SAME position accepts a bare literal RHS
+  fine. Safe (no silent corruption), but inconsistent with every other
+  position in this matrix and with a literal in the same slot.
+
+  CORRECT (control): the enum raw value (DF-232c) properly range-checks a
+  folded const expression against its declared backing
+  (`case A = 1 << 20` on a `UInt8` backing refuses by name, "raw value
+  1048576 ... is out of range"), because `_fold_enum_raw_values` is a
+  SEPARATE, dedicated fold-and-range-check pipeline that never routes
+  through `_apply_literal_expected_type` at all — the one place in the
+  matrix the funnel gap does not reach.
+
+Not independently probed (same funnel, not yet exercised with an
+out-of-range value): a struct-literal field via a field-through-element
+target, a Result payload slot's OWN range check (its symptom is DF-235a's
+ICE, so a range question does not apply the same way), `&var` reference
+targets. Presumed the same family by the shared funnel per obligation 4,
+not asserted without evidence.
+
+PINS: `examples/coercion/const_expression_range_unchecked_narrow.saw`,
+`examples/coercion/const_expression_range_unchecked_wide.saw`,
+`examples/coercion/compound_assign_const_expression_refused.saw` (all
+XFAIL). [235, 87, 195, 232a, 232c]
 
 ## Design 238 — the sawos split (AUTHORED Aug 19, FOUR RULINGS same day;
 ## QUEUED after the sos riders batch, BEFORE the M3 ladder)
@@ -665,6 +791,41 @@ THE KCORE SPLIT DOES NOT WORK AROUND IT: the bare-import spelling
 first-class design-150 form, is what a shared kernel slab wants to read like, and
 writes correctly — proven cross-module, single-instance, in the unit-0 probe.
 [232, design 149/150]
+
+CORRECTION (Aug 20, design 235's grid 2 sweep): the "writes" and "refs" rows
+above do NOT hold on today's tree — re-probed directly, three ways, all ICE:
+`mod.ARR[1] = 41` (an element WRITE through the qualifier — the exact
+`mod.ARR[0] = v` shape the matrix marked ✓), `bump(&var mod.X)` and the same
+shape through `mod.ARR[2]` (the "refs" rows) all crash
+(`internal compiler error ... (Identifier): Undefined variable: mod`), not
+the clean typecheck refusal the bare `mod.X = v` assignment gets. Reproduced
+both via a plain relative import AND via `--module-path` (so this is not
+DF-232n's relative-path/package-root distinction) — identical failure
+either way. Only the PLAIN READ (`mod.X`, `mod.ARR[i]`) and the plain
+by-VALUE argument (`f(mod.X)`) actually work; every write-shaped or
+reference-shaped consumer of a qualifier-rooted place ICEs. Since the
+typecheck phase does not error before the crash (reads through the same
+qualifier succeed earlier in the same compile unit), this is a CODEGEN
+gap, not the typechecker gap the entry above names: whatever generates the
+LVALUE/address for a qualifier-rooted `ArrayIndex`/`ReferenceExpr` write
+target tries to codegen the qualifier `Identifier` as an ordinary runtime
+value (which has none — a qualifier is compile-time-only), where the READ
+path apparently special-cases it. Not re-numbered — same disease (a
+qualifier-rooted `MemberAccess` whose consumer does not recognize the
+qualifier), one layer down from the typechecker gap above, filed under
+DF-232d per obligation 4 (a finding is a class until a sweep says
+otherwise, and this sweep found the class is WIDER than first drawn: every
+write/reference position through a qualifier is red, not three of four).
+SO THE CORRECTED MATRIX IS: reads `mod.X`, `mod.ARR[0]` ✓; a plain by-value
+argument `f(mod.X)` ✓; `mod.X = v` ✗ (clean refusal, typecheck); every
+OTHER write/reference shape through a qualifier — `mod.ARR[i] = v`,
+`mod.CELL.v = v`, `&var mod.X`, `&var mod.ARR[i]`, and (design 235's own
+probe) `mod.X += v` — ✗ (ICE, codegen). PINS:
+`examples/coercion/qualname_mod_static_refarg_ice.saw`,
+`examples/coercion/qualname_mod_static_compound_assign_ice.saw` (XFAIL,
+design 235's grid 2; the array/field-write ICE is the SAME
+`qualname_mod_static.saw` neighborhood — see that ledger's INDEX.md for the
+full cell list rather than restating it here).
 
 ## SOS M3 — scoping session RATIFIED (designs/232), unit 1 BUILT
 

@@ -1,0 +1,22 @@
+// Position matrix (design 235), grid 1 "Adoption" — row: Result payload
+// slot, ambiguous refusal, source S3 (const expression). Where BOTH
+// payloads could accept the value, the auto-wrap refuses by name — the
+// same design-30/DF-226e rule `result_slot_literal_ambiguous_payloads.saw`
+// pins for a bare literal, reached here through a folded const expression
+// instead. Since a `BinaryOp` const expression is never adopted (DF-235a/b),
+// the ambiguity check sees the UNADOPTED platform `Int` type rather than a
+// literal value, so the message names the TYPE ("function returns `Int`")
+// instead of a value — still the correct refusal, not a defect.
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: ambiguous Result auto-wrap
+// EXPECT-ERROR-CONTAINS: function returns `Int`
+// EXPECT-ERROR-CONTAINS: accepts it as BOTH its Ok type `Int32` and its Err type `Int8`
+
+func give() -> Result<Int32, Int8> { return 1 << 3 }
+
+func main() {
+    match give() {
+        case Ok(v) -> print("ok = {v}"),
+        case Err(e) -> print("err = {e}")
+    }
+}

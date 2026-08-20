@@ -1,0 +1,16 @@
+// XFAIL: DF-235a the SILENT half of the same mechanism as
+// array_literal_const_element_ice.saw: a fixed-array literal element that is
+// a constant EXPRESSION never adopts the array's declared width, so it is
+// never range-checked against it either. `1 << 40` does not fit `UInt32`
+// (design 87/195's range check would refuse it exactly as a bare
+// out-of-range literal is refused), but here it compiles clean and prints
+// the untruncated platform-`Int` value — see the sibling file for the
+// mechanism.
+//
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: does not fit in `UInt32`
+
+func main() {
+    let a: [UInt32; 1] = [1 << 40]
+    print("{a[0]}")
+}
