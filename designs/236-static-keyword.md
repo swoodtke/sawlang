@@ -1,9 +1,18 @@
 # Design 236 — `static` Is Required: No Inferred Staticness
 
-**Status: RATIFIED Aug 18 2026** (user ruling: "static is required to define
-a static method — no inference"). **Queue slot: BEFORE design 235** — 235's
-matrix ledgers would otherwise pin the keywordless grammar and need
-immediate re-rows.
+**Status: BUILT Aug 20 2026** (branch `design-236`, six units). Ratified
+Aug 18 (user ruling: "static is required to define a static method — no
+inference"); queued BEFORE design 235, whose matrix ledgers would otherwise
+have pinned the keywordless grammar and needed immediate re-rows.
+
+Landed: the grammar (`_parse_static_modifier`, two entry points), the three
+declaration errors through the `_check_static_declaration` funnel,
+conformance kind agreement in `_check_trait_conformance`, the `--emit-docs`
+static bit (schema 2 -> 3), the whole-corpus migration (118 declarations;
+sos/, devtools/ and selfhost/ had none), and the position matrix as
+`examples/errors/static236_*` plus two positive pins. One V39-alike found:
+blade's `self.layout.clean_all()`. One finding filed: DF-236a, DF-217q's
+call-site refusal missing a field-access receiver.
 
 ## The decision
 

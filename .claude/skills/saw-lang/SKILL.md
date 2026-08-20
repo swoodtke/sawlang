@@ -19,6 +19,12 @@ f(5)  f(5, 3)  f(5, b: 3)  // labels optional; required only on ambiguity
 struct Point { x: Int, y: Int }
 extension Point { func mag(&self) -> Int { self.x * self.x } }
 extension Point { init(m: Int) -> Point { Point(x: m, y: m) } }
+extension Point { static func origin() -> Point { Point(x: 0, y: 0) } }
+                           // `static` is REQUIRED on a receiver-less method
+                           // (design 236) and the call is on the TYPE. A
+                           // self-less `func` is a DECLARATION error with a
+                           // two-way fixit; `static func f(&self)` is the
+                           // mirror; `static init` is an error (init is exempt)
 enum Msg { case Quit, case Move(x: Int, y: Int) }
 extension Msg { func is_quit(&self) -> Bool { match self { case Quit -> true,
                                                            case _ -> false } } }
@@ -1210,9 +1216,12 @@ v.map<String>({ $0.to_string() })   // the closure's return; explicit still wins
   EVERY serde signature is `sync` — serialization writes into a buffer, so it
   works inside a place window, under a SpinLock, and in a kernel. Do I/O on the
   buffer afterwards, not inside `serialize`.
-  `deserialize` is a STATIC requirement returning `Self`, so `Deserialize` is a
-  generic BOUND and never an `any Deserialize` (a static requirement has no
-  receiver to dispatch on — clean error where you write the existential).
+  `deserialize` is a `static func` requirement returning `Self` (design 236
+  put the keyword in the trait, where it was prose before), so `Deserialize`
+  is a generic BOUND and never an `any Deserialize` (a static requirement has
+  no receiver to dispatch on — clean error where you write the existential),
+  and a hand-written conformance writes `static func deserialize(...)` too:
+  the kinds must agree.
   `Serialize`/`Encoder`/`Decoder` ARE object-safe and travel behind `&var any`.
   Errors are Result: `DecodeError` carries the BYTE OFFSET it stopped at, and
   malformed input is never a panic. Counts are declared —
@@ -2601,16 +2610,46 @@ construct in the owner and lend `&driver` down.
   The generic-ARGUMENT position keeps the smaller design-148 grammar (`>` is the
   shift token, so `FixedBuf<1 << 8>` cannot parse) — write `FixedBuf<2 * 128>`
   or a `static`.
+- **`static` IS REQUIRED ON A STATIC METHOD, and there is no inference**
+  (design 236). Write the keyword at the declaration and call it on the TYPE:
+  ```saw
+  extension Bag {
+      static func make(seed: Int) -> Bag { Bag(n: seed) }
+      func count(&self) -> Int { self.n }
+
+      func dup(x: Int) -> Int { x * 2 }
+      // error: method `dup` has no receiver — add `&self`/`&var self`, or
+      //        declare it `static func` if a static was intended
+  }
+  ```
+  Three refusals, all at the DECLARATION: a self-less non-`init` `func`
+  (the fixit names both readings, because a forgotten `&self` and an intended
+  static are indistinguishable to the compiler); a `static` method that takes
+  `&self`/`&var self` (the mirror); and `static init` (an `init` is exempt by
+  construction and already called as `Bag(...)`). Order is `public static
+  func`. Struct and ENUM extensions, generic extensions and TRAIT requirements
+  are all covered, and a conformance must MATCH kinds — a static requirement
+  takes a static, an instance requirement an instance method, each direction
+  its own error. Module-level `func`s are not methods and are untouched,
+  `@export`ed C-ABI seams included; `static` at module scope keeps its
+  design-149 meaning (a VARIABLE — the declaration head continues into a name
+  and a colon, the member head into `func`). Staticness WAS inferred from the
+  missing receiver until Aug 20, so a pre-236 corpus writes the bare form.
 - **A STATIC method is called on the TYPE, never on a value** (DF-217q):
-  `Bag.make(seed: 5)`, not `b.make(seed: 5)`. A method with no `self` parameter
-  has no receiver for a value to become, so the instance spelling is a clean
-  error naming the type spelling — it used to mis-bind the labels instead
+  `Bag.make(seed: 5)`, not `b.make(seed: 5)`. A static has no receiver for a
+  value to become, so the instance spelling is a clean error naming the type
+  spelling — it used to mis-bind the labels instead
   (``no parameter named `seed```) or reach codegen and fail the verifier. Same
   for an enum's statics. A static and an instance method MAY share a name; each
-  call shape picks the one it can mean.
+  call shape picks the one it can mean. ONE GAP (DF-236a, open): a receiver
+  spelled as a FIELD ACCESS (`self.layout.clean_all()`, `h.inner.solo(3)`)
+  escapes that refusal — it takes the module-qualified `mod.Type.method()`
+  route, so a nullary static silently drops the receiver and an arity-1 one is
+  a codegen ICE. Every other spelling (a local, `self`, a call result, a tuple
+  element, a `Vector` element, a field at ENUM type) is refused cleanly.
 - **ENUMS TAKE EXTENSIONS, same as structs** (design 145): instance methods with
   `&self`/`&var self` (`match self` is the idiomatic body, `self = Other` the
-  whole-value replacement), static methods (no `self` param), hand-written trait
+  whole-value replacement), `static func` methods, hand-written trait
   bodies (Printable/Error/your own), `@synthesize` derivations, a hand-written
   `deinit` inside the copy policy, and per-instantiation methods on a generic
   enum. Import-scoped lookup and the orphan rule apply unchanged. The ONE

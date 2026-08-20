@@ -1177,7 +1177,8 @@ that imports what you want documented is the whole driver. Each item carries its
 rendered signature, visibility, generic parameters and bounds, parameters and
 return type, trait conformances, doc text, and source line — plus the two things
 a signature does not show: whether the function **suspends**, and whether a
-method **borrows, mutably borrows, or consumes** `self`. Private fields,
+method **borrows, mutably borrows, or consumes** `self`. A callable also carries
+a `static` flag, read off the declared keyword. Private fields,
 methods, and inits are left out; `--emit-docs-all` keeps them. Ordering is
 fixed, so the output is diffable.
 
@@ -1510,7 +1511,7 @@ extension SysError {
         self = SysError.Other      // whole-value replacement
     }
 
-    func best() -> SysError {      // static: no `self` parameter
+    static func best() -> SysError {   // static: declared, and no receiver
         SysError.Ok
     }
 }
@@ -1540,8 +1541,9 @@ func might_fail(bad: Bool) -> Result<Int, SysError> {
 
 The rules that govern struct extensions govern these unchanged: import-scoped
 method lookup, the orphan rule for conformances, `@synthesize` for a derived
-`equals`/`compare`/`hash`/`copy`, and a hand-written `deinit` inside the copy
-policy. Methods on a generic enum monomorphize per instantiation.
+`equals`/`compare`/`hash`/`copy`, a hand-written `deinit` inside the copy
+policy, and the required `static` keyword on a method with no receiver.
+Methods on a generic enum monomorphize per instantiation.
 
 One difference: an enum extension may not declare an `init`. The cases are the
 constructors.
@@ -1978,6 +1980,36 @@ trait ExplicitCopy: Deinit {
     // ExplicitCopy implies Deinit; the deinit itself is synthesized
 }
 ```
+
+**A static requirement spells `static`**, on the same terms as a
+[static method](#static-methods): a requirement with no receiver is declared
+`static func`, and one that omits the keyword is a clean error at the
+declaration. Conformance matching requires the kinds to AGREE — a static
+requirement is satisfied only by a static, an instance requirement only by an
+instance method:
+
+```saw
+trait Maker {
+    static func make(seed: Int) -> Self
+    func label(&self) -> String
+}
+
+extension Point: Maker {
+    static func make(seed: Int) -> Point { Point(x: seed, y: 0) }
+    func label(&self) -> String { "point" }
+}
+```
+
+Writing `func make(&self, seed: Int)` in that conformance is an error naming
+the missing keyword, and declaring `label` `static` is the error in the other
+direction. Neither substitution can be called through: a static has no
+receiver for a caller to supply, and an instance method's vtable slot has no
+parameter without one.
+
+A trait carrying a static requirement is a generic **bound**, never an
+`any Trait` existential — dispatch needs a receiver, and a static has none.
+`Deserialize` is the standard-library case; see
+[Serialization](#serialization-serialize-deserialize-encoder-decoder).
 
 #### `any Trait` existentials (dynamic dispatch)
 
@@ -2448,21 +2480,61 @@ extension Wrap<T> {
 }
 ```
 
-A method with no `self` parameter is a STATIC method, and the type is the only
-way to call one — `Bag.make(seed: 5)`, never `b.make(seed: 5)`. A static has no
-receiver for a value to become, so the instance spelling is a clean error
-naming the type spelling. The two kinds may share a name: each call shape picks
-the one it can mean.
-
 **Key Features:**
 - Methods use `&self` (shared reference) or `&var self` (exclusive reference).
   Both receivers are borrows and the sigil says so; a bare `var self` is a
   compile error pointing at `&var self`
+- A method with no receiver is declared `static` (below)
 - Custom `init` methods return the struct type
 - Multiple `init` methods distinguished by parameter names
 - Mutable methods receive a reference for efficient mutation
 - Field assignment needs `&var self`: `self.field = value` in a `&self` method
   is a compile error (below)
+
+#### Static methods
+
+**Status: implemented.** A static method is declared `static` and takes no
+receiver. The keyword is required, and the parameter list may not disagree
+with it:
+
+```saw
+struct Bag { n: Int }
+
+extension Bag {
+    static func make(seed: Int) -> Bag { Bag(n: seed) }   // static
+    func count(&self) -> Int { self.n }                   // instance
+
+    func dup(x: Int) -> Int { x * 2 }
+    // error: method `dup` has no receiver — add `&self`/`&var self`, or
+    //        declare it `static func` if a static was intended
+}
+```
+
+Staticness is fully determined by the missing receiver, so it could be
+inferred, and until this rule it was. What the keyword buys is the other
+direction: a method that forgets its `&self` used to become a static silently,
+which is a different kind of method than the author wrote. The declaration now
+says which one it is, and the fixit names both readings because the compiler
+cannot tell them apart.
+
+The mirror holds. A `static` method that takes `&self` or `&var self` is a
+clean error at the declaration, and so is `static init`: an `init` takes no
+receiver by construction and is already called on the type, as `Bag(...)`.
+
+The type is the only way to call a static, `Bag.make(seed: 5)` and never
+`b.make(seed: 5)`. A static has no receiver for a value to become, so the
+instance spelling is a clean error naming the type spelling. The two kinds may
+share a name: each call shape picks the one it can mean.
+
+`static` here is the same keyword a
+[module-level static](#module-level-statics) uses, in a different position. A
+declaration head continues into a name and a colon (`static PAGE_SIZE: Int =
+4096`); a member head continues into `func`. Module-level functions are not
+methods, so the rule never reaches them, `@export`ed C-ABI seams included.
+
+Enums take statics on these terms unchanged (see
+[Methods on enums](#methods-on-enums)), and so do generic extensions. Visibility
+comes first: `public static func make(...)`.
 
 #### A `&self` method may not write its receiver
 
@@ -5048,7 +5120,7 @@ trait Serialize {
 }
 
 trait Deserialize {
-    func deserialize(from: &var any Decoder) -> Result<Self, DecodeError>
+    static func deserialize(from: &var any Decoder) -> Result<Self, DecodeError>
 }
 ```
 

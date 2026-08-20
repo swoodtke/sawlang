@@ -48,6 +48,10 @@ struct Point {
 }
 
 extension Point {
+    static func origin() -> Point {
+        Point(x: 0, y: 0)
+    }
+
     func magnitude(&self) -> Int {
         self.x * self.x + self.y * self.y
     }
@@ -64,6 +68,8 @@ func main() {
 
     p.translate(1, 1)
     print(p.x)  // 4
+
+    print(Point.origin().magnitude())  // 0
 }
 ```
 
@@ -401,8 +407,14 @@ library's.
 
 See [Module System](LANGUAGE_SPEC.md#8-module-system) in the spec.
 
-### Three smaller rules
+### Four smaller rules
 
+- **A method's kind is declared.** A method with no receiver is written
+  `static func` and called on its type, `Point.origin()`. Leaving the keyword
+  off is a compile error whose fixit names both readings, because a forgotten
+  `&self` and an intended static look the same to the compiler and produce
+  very different methods. See
+  [Static methods](LANGUAGE_SPEC.md#static-methods).
 - **Shadowing must be earned.** Reusing a name from an enclosing scope is a
   compile error unless the new binding is visibly derived from the one it
   shadows — the initializer mentions it. `if let x = x` and

@@ -31,7 +31,6 @@ is scheduled and in what order is the whole of what they say.
 
 ## [QUEUE] — scheduled, in order (user-approved)
 
-- Design 236 — `static` keyword required (designs/236-static-keyword.md) — before 235; DISPATCHED Aug 20 (branch design-236)
 - Design 239 — Comparable/Equatable take `other: &Self` (RULED Aug 20, user — the DF-216b/C12 class closed by construction; designs/239-comparable-by-reference.md) — after 236 lands (two corpus migrations cannot overlap), BEFORE 235 so the matrices pin the new signatures once. DF-239a (entry below) is its unit 1's FIRST fix — the `&Self` substitution blocker the brief's pre-check found
 - Design 235 — position-matrix ledgers (designs/235-position-matrices.md; SONNET dispatch) — before 234's migration units
 - Design 237 — the ANF-hoist funnel (designs/237-anf-hoist-funnel.md) — before 234
@@ -121,8 +120,8 @@ literal/const family and the small-fix batch all integrate — corpus-wide
 touches conflict with everything; M3 unit 1.5+ may interleave with units 1-2
 only. [234]
 
-## Design 236 — `static` is REQUIRED on static methods (RATIFIED Aug 18,
-## user: "no inference"; QUEUED BEFORE 235)
+## Design 236 — `static` is REQUIRED on static methods (BUILT Aug 20, branch
+## `design-236`; ratified Aug 18, user: "no inference")
 
 designs/236-static-keyword.md is the plan of record: a self-less non-init
 extension `func` is a declaration-site error with the two-way fixit (add a
@@ -132,6 +131,61 @@ agree. Earned by V39 (forgot-`&self` silently became a static). Migration
 is compiler-driven across std/blade/libs/sos/devtools/examples — each
 V39-alike the sweep surfaces is a bug the migration fixes. Runs BEFORE 235
 so the matrices enumerate the ruled grammar. [236]
+
+LANDING NOTE (Aug 20). Six units, each gated before its commit; the brief's
+unit order was inverted at the front because it could not be green as
+written — enforcing the keyword before migrating std means nothing in the
+tree compiles, so unit 1 lands the grammar PERMISSIVELY, units 2-4 migrate
+region by region, and unit 5 turns the errors on with the matrix.
+
+1. Grammar. `_parse_static_modifier` on two entry points (`parse_method`,
+   `parse_trait_method`) — the only two places a method-shaped declaration
+   is parsed. `public static func` is the order. `Method.declared_static` is
+   what the author wrote; `is_static` stays the derived fact downstream
+   reads. Gate: suite + sos GREEN.
+2. Migration, sawc/std + builtin.saw — 50 declarations, plus
+   `Deserialize.deserialize`, the tree's one static trait requirement.
+   No V39-alike. Gate: suite + sos GREEN.
+3. Migration, blade/ + libs/ — 5 declarations, AND THE ONE V39-ALIKE:
+   `blade/src/builder.saw:565` called `self.layout.clean_all()`, an instance
+   spelling of a receiver-less method, one line below the genuine
+   `self.layout.clean()`. `clean_all` removes the whole `.build/` root
+   through a free `build_root()` and never touches the receiver, so it is
+   static and the call is now `BuildLayout.clean_all()`. Same behaviour
+   either way, which is why nothing caught it. Gate: suite + bootstrap + sos
+   GREEN (bootstrap is the only lane that runs blade/tests + libs/*/tests).
+4. Migration, examples/ — 63 declarations, plus a comment sweep (several
+   tests described staticness as "no `self` parameter", which is now the
+   refused shape). `generic_static_type_arg_inference.saw` gains the keyword
+   and STAYS XFAIL on DF-216c, its comment saying why. Gate: suite + sos
+   GREEN. That closes the corpus: sos/, devtools/ and selfhost/ carried NO
+   self-less extension methods, established by a parser census rather than a
+   grep.
+5. Enforcement. The three refusals through `_check_static_declaration`
+   (docstring names its entries, obligation 1); conformance kind agreement
+   in `_check_trait_conformance`, both directions; `--emit-docs` gains a
+   `static` field and spells the keyword in `signature`, schema 2 -> 3 on
+   design 144's precedent. Two synthesis sites corrected to carry the
+   requirement's own kind — `_synthesize_trait_defaults` hardcoded
+   `is_static=False`, which would have made a static requirement's default
+   body claim a receiver it has no parameter for. Tests: nine
+   `examples/errors/static236_*` (matrix error rows) + two positive pins
+   (`static236_declared_static`, `static236_module_level_funcs_untouched` —
+   the negative half, `@export`ed C-ABI seam included) + a docs golden.
+   Gate: suite + sos GREEN.
+6. Docs (design 125): LANGUAGE_SPEC's Type Extensions gains a "Static
+   methods" section, Traits gains the static-requirement + kind-agreement
+   rule, the serde trait block and the enum example spell the keyword;
+   README's quick example and a fourth "smaller rule"; the saw-lang skill's
+   cheat sheet and its DF-217q gotcha.
+
+NOT DONE, deliberately: no `examples/conformance/` rows. The suite's
+families are runtime soundness guarantees (mutability, exclusivity, moves,
+divergence, …) and this rule is a declaration-shape rule that adds no
+family; the position matrix lives in `examples/errors/static236_*` where
+the brief put it.
+
+Terminal gate: the FULL battery (compiler branch) — see the final commit.
 
 - **DF-236a (FILED, not fixed — found by 236's migration) — a static method
   reached through a FIELD-ACCESS receiver is not refused; DF-217q's
