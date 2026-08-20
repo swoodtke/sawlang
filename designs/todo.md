@@ -419,6 +419,7 @@ arches. [232j sweep, 229c, design 80]
 
 ## DF-232l — whole-module `public import` re-exports NOTHING in value
 ## position: the qualifier is bound PRIVATE (filed Aug 20, the DF-232j sweep)
+## — FIXED Aug 20 (branch df-232j, unit 3, after unit 1 as the ordering required)
 
 Design 229's whole-module form re-exports its QUALIFIER — but
 `_bind_module_qualifier` (typechecker/core.py:1482-1485) stamps every bound
@@ -433,10 +434,22 @@ qualifier re-exported while `_resolve_parts` still decides package visibility
 with an empty root would open DF-232j's hole through the whole-module shape,
 the one form the sweep could not exercise end to end. PIN:
 `export229_whole_chain_call.saw` (XFAIL, EXPECT success 2). SCHEDULED (user,
-Aug 20): rides branch df-232j as unit 3, strictly after unit 1; the
-SELECTIVE form's qualifier stays PRIVATE even under `public import` (the
-design-229 ruling is per-form — only the whole-module form's qualifier flips).
-[232j sweep, 229]
+Aug 20): rides branch df-232j as unit 3, strictly after unit 1.
+LANDED Aug 20 as filed, and in the required order. `_bind_module_qualifier`
+stamps the qualifier PUBLIC exactly when `_qualifier_is_reexported(imp)` — the
+new per-FORM predicate: `public import` AND no selection list. The whole-module
+form binds no bare name, so the qualifier IS its product; the selective form's
+qualifier stays PRIVATE even under `public import` (design 229's ruling —
+re-exporting it beside the named symbols would hand on the whole module), and
+the glob form binds none. The std whole-module arm now reads the same predicate
+for its `note_private_import` half, so the export gate and the qualifier's
+visibility cannot drift apart. FLIPPED: `export229_whole_chain_call.saw` (2)
+and — with unit 1 — `module_path_whole_facade_no_widen_error.saw`; a probe of
+the direction the fix ADMITS (`pkgvis.secret.secret_is_reachable()` through a
+mapped package's `public import` chain) prints 1 while the `public(package)`
+sibling beside it is refused on the tier, which is the pairing the ordering
+existed to guarantee. Suite 2027 pass / 16 xfail, sos_runner 80 pass both
+arches. [232j sweep, 229]
 
 ## DF-232f — a package has NO INTERNAL VISIBILITY, so splitting one file into
 ## several PUBLISHES everything they share (filed Aug 17, the kcore split's

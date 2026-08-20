@@ -2,13 +2,14 @@
 // re-exports the QUALIFIER (design 229), and the chain
 // `pkgvis.secret.pkg_secret` from outside must refuse the tier.
 //
-// Today this errors for the WRONG REASON: DF-232l means the qualifier is
-// never re-exported in value position (`module pkgvis has no symbol
-// secret`), public symbols included — the tier decision is never exercised.
-// This pin stays XFAIL until BOTH land: DF-232l hands the qualifier on,
-// DF-232j makes the chain's last hop refuse.
-// XFAIL: DF-232j (masked by DF-232l: today's error is `has no symbol`, not
-// the tier refusal the EXPECT states)
+// Both halves landed: DF-232l hands the qualifier on (the whole-module
+// `public import` stamps it PUBLIC), and DF-232j makes the chain's LAST hop
+// refuse on the tier. Until then this file errored for the WRONG reason —
+// `module pkgvis has no symbol secret`, public symbols included, so the tier
+// decision was never exercised — which is why it was pinned against BOTH.
+// The pairing matters: handing the qualifier on while the last hop still
+// decided with an empty root would have opened the widening through this very
+// shape, the one the sweep could not exercise end to end.
 // EXPECT: error
 // EXPECT-ERROR-CONTAINS: `pkg_secret` is public(package) in `pkgvis.secret`
 // COMPILE-FLAGS: --module-path pkgvis={TESTDIR}/modules/pkgvis232j_whole

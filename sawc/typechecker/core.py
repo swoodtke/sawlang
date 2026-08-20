@@ -1496,13 +1496,36 @@ class TypeChecker(ExpressionsMixin, StatementsMixin, RegistrationMixin, TypeUtil
             through_import = True
         return False
 
+    @staticmethod
+    def _qualifier_is_reexported(imp) -> bool:
+        """Whether `imp` re-exports the qualifier it binds (design 229).
+
+        Per FORM, not per `public` keyword. The WHOLE-MODULE form binds no bare
+        name, so its qualifier is the only thing it has to hand on — that IS
+        the re-export, and `public import dep` means an importer reaches dep's
+        surface through the chain. The SELECTIVE form's qualifier stays this
+        file's own convenience even under `public import`: a selective
+        re-export hands on the names it NAMED, and re-exporting the qualifier
+        beside them would quietly hand on the whole module. The glob form binds
+        no qualifier at all."""
+        return (bool(getattr(imp, 'is_public', False))
+                and not getattr(imp, 'symbols', None))
+
     def _bind_module_qualifier(self, ns, imp, alias, path, source_ns):
         """Bind `alias` as a module qualifier in `ns` (design 150 pins 1, 3, 5).
 
         One import form or another, a qualifier is one name bound to one module.
         Two imports claiming it is reported HERE, at the import, naming both
         paths — the use site could only say the qualifier reached the wrong
-        module, which is the wrong place to learn it."""
+        module, which is the wrong place to learn it.
+
+        The qualifier's VISIBILITY is what a reach from an importer is judged
+        against, so it carries design 229's answer for this import's form
+        (DF-232l: it used to be `PRIVATE` unconditionally — "an import is never
+        re-exported", a comment design 229 superseded for the whole-module
+        `public import` — which made the chain `facade.dep.f()` fail with
+        "module `facade` has no symbol `dep`" for public symbols too, so the
+        form re-exported NOTHING in value position)."""
         from namespace import ModuleSymbol
         prior = ns.modules.get(alias)
         if prior is not None and list(getattr(prior, 'path', ())) != list(path):
@@ -1516,7 +1539,9 @@ class TypeChecker(ExpressionsMixin, StatementsMixin, RegistrationMixin, TypeUtil
             return
         ns.modules[alias] = ModuleSymbol(
             namespace=source_ns, path=list(path),
-            visibility=Visibility.PRIVATE,  # an import is never re-exported
+            visibility=(Visibility.PUBLIC
+                        if self._qualifier_is_reexported(imp)
+                        else Visibility.PRIVATE),
         )
 
     def _std_leaf_namespace(self, leaf, builtin_namespace):
@@ -1693,9 +1718,10 @@ class TypeChecker(ExpressionsMixin, StatementsMixin, RegistrationMixin, TypeUtil
         if not is_glob:
             std_alias = getattr(imp, 'alias', None) or path[-1]
             # design 229: the qualifier is re-exported by the whole-module form
-            # only; a selective import's qualifier stays this file's own (see
-            # the user-module branch of `check_module` for the reasoning).
-            if not is_public_import or imp.symbols:
+            # only; a selective import's qualifier stays this file's own. One
+            # predicate for both halves of that rule, so the export gate and
+            # the qualifier's own visibility can never drift (DF-232l).
+            if not self._qualifier_is_reexported(imp):
                 ns.note_private_import(std_alias, std_source, as_module=True)
             self._bind_module_qualifier(
                 ns, imp, alias=std_alias,

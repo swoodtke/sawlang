@@ -7,8 +7,9 @@
 // public symbols included. `export229_facade.saw` never noticed: it
 // exercises the chain only in a TYPE annotation (a path that checks no
 // module visibility) plus the facade's own function.
-// XFAIL: DF-232l the re-exported qualifier is bound PRIVATE, so whole-module
-// re-export hands on nothing in value position. The EXPECTs state the intent.
+// DF-232l FIXED: `_bind_module_qualifier` stamps the qualifier PUBLIC for the
+// whole-module `public import` — the one form whose qualifier IS its product.
+// The selective form's qualifier stays private, per design 229.
 // EXPECT: success
 // EXPECT-OUTPUT: 2
 import modules.export229_facade_whole
