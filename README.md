@@ -262,8 +262,14 @@ bodies derived from the type's fields. Ask for it with `@synthesize`:
 extension Version: Comparable {}   // lexicographic over the fields
 ```
 
-See [Traits](LANGUAGE_SPEC.md#traits) and
-[Generics](LANGUAGE_SPEC.md#7-metaprogramming) in the spec.
+Function, method, and `init` names carry overload sets, resolved by exact
+argument types. Inference works across an overload set too: a unique match is
+picked, and a genuine tie is a compile error that lists the candidates rather
+than a guess.
+
+See [Traits](LANGUAGE_SPEC.md#traits),
+[Generics](LANGUAGE_SPEC.md#7-metaprogramming), and — for overloading —
+[Functions](LANGUAGE_SPEC.md#functions) in the spec.
 
 ### Concurrency without async/await
 
@@ -302,7 +308,19 @@ func report() -> Int {
 }
 ```
 
-See [Concurrency](LANGUAGE_SPEC.md#6-concurrency) in the spec.
+`Channel<T>` closes explicitly — any holder may close, and a receive drains
+the queue before reporting `Err(Closed)`, so closing mid-flight loses no
+messages. When every live task is parked on a channel and nothing in the
+program can ever send, the executor reports the deadlock and aborts with a
+task dump instead of hanging. That dump is available on demand too:
+`dump_tasks()` prints every live task with the `file:line` of each suspending
+call between its entry point and where it is parked, reconstructed from
+static tables — no allocation, so it works in a kernel and inside a panic
+handler.
+
+See [Concurrency](LANGUAGE_SPEC.md#6-concurrency),
+[Tasks and Channels](LANGUAGE_SPEC.md#tasks-and-channels), and
+[Task backtraces](LANGUAGE_SPEC.md#task-backtraces-design-158) in the spec.
 
 ### Memory and ownership
 
@@ -337,7 +355,12 @@ the compiler checks that an exclusive reference does not overlap any other
 reference reaching the same value. References stay valid across suspension
 points, and a reference you receive can be passed on to another function.
 
-See [Memory Management](LANGUAGE_SPEC.md#4-memory-management) in the spec.
+A method can also hand out storage, not just a value: a `borrows` accessor
+lends a place inside the receiver, which is how `v[i] += 1` writes a `Vector`
+element where it sits. The loan is scoped to one expression.
+
+See [Memory Management](LANGUAGE_SPEC.md#4-memory-management) and
+[Places](LANGUAGE_SPEC.md#places-borrows-and-lend) in the spec.
 
 ### Modules and imports
 
@@ -351,9 +374,22 @@ import std.time.{Instant}          // Instant bare, plus the time qualifier
 ```
 
 Imports are private: what an import binds is the file's, not its callers'. A
-module's surface is what it declares `public`. Struct fields and extension
-methods are private by default outside their defining module, and `public`
-marks the API surface.
+module's surface is what it declares `public` — importing `parser` reaches
+`parser`'s own public declarations and nothing `parser` imported. `public
+import` hands a name on, on every form: `public import wire` re-exports the
+qualifier, `public import wire.{Header}` re-exports that one name, and
+`public import wire.*` re-exports the module's whole vocabulary.
+
+Visibility is scoped: besides `public` and the private default, a declaration
+can be `public(package)` — visible to the other files of its package and
+nobody else — or `public(parent)`, visible to the enclosing module. Struct
+fields and extension methods are private by default outside their defining
+module, and `public` marks the API surface.
+
+Type identity is the defining module plus the name, so a dependency's private
+`struct Header` reserves nothing in your program, and two packages' public
+`Header`s coexist; import one under an alias
+(`import wire.{Header as WireHeader}`) to use both in one file.
 
 A curated core is available without an import (primitives, `Vector`/`Map`/`Set`,
 `Optional`/`Result`/`Box`/`Arc`, the trait vocabulary, `print`/`panic`/`assert`,
@@ -363,6 +399,24 @@ your own type named `File` or `IoError` never collides with the standard
 library's.
 
 See [Module System](LANGUAGE_SPEC.md#8-module-system) in the spec.
+
+### Three smaller rules
+
+- **Shadowing must be earned.** Reusing a name from an enclosing scope is a
+  compile error unless the new binding is visibly derived from the one it
+  shadows — the initializer mentions it. `if let x = x` and
+  `let data = parse(move data)` compile; an accidental `let x = compute()`
+  under an outer `x` does not. See
+  [Variables and Mutability](LANGUAGE_SPEC.md#variables-and-mutability).
+- **Source locations are literals.** `#file`, `#line`, and `#function` are
+  filled in at compile time, and panics and asserts already carry a
+  `panic at FILE:LINE:` prefix. See
+  [Source-location literals](LANGUAGE_SPEC.md#source-location-literals).
+- **Doc comments are checked.** `///` documents the declaration that follows,
+  `//!` the file; one that documents nothing is a compile error rather than a
+  silent drop. `--emit-docs` writes the program's documentation as JSON,
+  signatures and bounds included. See
+  [Doc comments](LANGUAGE_SPEC.md#doc-comments).
 
 ## Standard library
 
@@ -410,6 +464,21 @@ Saw is freestanding: the same language targets bare metal.
   `unsafe` too.
 - **Compile-time layout checks**: `static_assert(sizeof<UartRegs>() == 8, "...")`
   fails the build when a register block's layout drifts.
+- **Sizes in the type**: a generic parameter can carry a value
+  (`FixedBuf<const N: Int>`), `[0; N]` spells a zeroed buffer, and an
+  integer `static` is a constant in every length, shift, and `static_assert`
+  position — so a size is written once and derived everywhere else. Shifts
+  fold at the target's width, and a count outside it is a compile error
+  rather than a folded surprise. See
+  [Generics](LANGUAGE_SPEC.md#generics) and
+  [Module-level statics](LANGUAGE_SPEC.md#module-level-statics) in the spec.
+- **Formatting without allocating**: the `{}` form of `print` allocates
+  nothing — literal pieces are constants, integers render into stack scratch,
+  and a `Printable` value streams into a fixed-capacity builder. `panic` and
+  `assert` take the same arguments, so a panic can still say what happened
+  when the allocator is what failed. See
+  [the allocation-free path](LANGUAGE_SPEC.md#format-arguments-and-the-allocation-free-path)
+  in the spec.
 - **C-ABI exports**: `@export("name")` gives a function an exact, unmangled
   symbol with the C calling convention.
 
@@ -442,6 +511,16 @@ optional extensions, a feature list:
 sawc kernel.saw -o kernel.o --freestanding --no-hidden-alloc \
     --target riscv32-unknown-none-elf --target-features +m,+a,+c
 ```
+
+Base rv32i has no divide instruction, so `+m` is what keeps integer
+formatting from emitting a libcall the freestanding profile has no library to
+satisfy. On aarch64 the freestanding profile defaults to `-neon,-fp-armv8`:
+a core traps Advanced SIMD at EL1 out of reset, and LLVM reaches for `q`
+registers to move a struct, so a kernel would fault on its first block copy —
+before the exception vectors that would report it were installed. Pass
+`+neon,+fp-armv8` to get SIMD back once your boot code enables
+`CPACR_EL1.FPEN`; you then own saving those registers across a context
+switch.
 
 See [Interoperability](LANGUAGE_SPEC.md#10-interoperability) and
 [Profiles](LANGUAGE_SPEC.md#profiles-hosted-and-freestanding) in the spec.
