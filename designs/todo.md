@@ -49,17 +49,17 @@ User-reserved (hand fixes): DF-232h (rides 234 u1 unless taken earlier), DF-217m
 
 - `public(package) import` — should the scoped re-export form exist? Refused today (design 229). Real use case: an INTERNAL PRELUDE, one sibling aggregating names for the others (Rust's `pub(crate) use`). Against: siblings can already import each other directly, so it buys convenience, not capability — and kcore, the biggest multi-file package and the one that motivated the tier, does NOT want it (its `public import` block is the EXTERNAL facade). Wait for a package that feels the pain (entry: the re-narrowing rider section)
 - DF-236a — static method through a field-access receiver, DF-217q's position gap (entry below, under design 236)
-- DF-232d — `mod.STATIC = v` assignment position (entry below)
-- DF-232e — import-cycle diagnostic (entry below)
+- DF-232d — `mod.STATIC = v` assignment position (entry below) — FOLDED into the small-fix batch (mechanism read, fix unambiguous: route a qualifier-object MemberAccess assignment target to the static path)
+- DF-232e — import-cycle diagnostic (entry below) — FOLDED into the small-fix batch (mechanism read, fix is the diagnostic)
+- DF-232g — imported-const static folding (entry below) — FOLDED into the small-fix batch (matrix probed; the const-static collector must resolve imported const names)
 - DF-232n — `public(package)` fails open across relative-path imports (entry below; the 232j family's remaining arm, found by the re-narrowing audit)
 - DF-232o — tier-refused type re-resolves same-named: X-but-got-X cascades, place-path loses the visibility line (entry below)
 - DF-232p — a refused call swallows its argument's refusal (entry below; minor)
 - Extension-head visibility — RULED Aug 20: BANNED, visibility belongs on members; ~107-site migration rides the small-fix batch after 239 (entry below)
 - Re-narrowing unit — apply the audit's 84-site list (dispatch-ready; designs/renarrow-audit-aug20.md; entry: the rider section)
-- DF-232g — imported-const static folding (entry below)
-- DF-216c — generic statics never instantiate type params (entry below, under design 216)
-- DF-217d — generic static with default type+value ICE (entry below, under the obligation-4 retro triage)
-- DF-216h — renamed extension param substitution (entry below, under design 216)
+- DF-216c — generic statics never instantiate type params (entry below, under design 216) — FOLDED into design 239's dispatch as a substitution-family assessment rider (fixed there if same mechanism as DF-239a; reported back if distinct)
+- DF-217d — generic static with default type+value ICE (entry below, under the obligation-4 retro triage) — rides DF-216c's assessment in 239
+- DF-216h — renamed extension param substitution (entry below, under design 216) — FOLDED into 239's assessment rider on the same terms
 - DF-217p — driven-frame deinit timing, 61+2 cells (RULED Aug 20, user: SCOPE-END REQUIRED — driven and sync twins must agree, deterministic destruction holds everywhere; implemented as part of design 218 unit 2's safe-Saw transform migration, the corodiff ledger's 61+2 cells as the acceptance matrix; entry below, under design 218 unit 0)
 - DF-217m coro face — receiver temp to frame teardown (rides 217p's ruling; entry below, under NEXT-WAVE SWEEPS)
 - DF-216b / C12 — consuming-equals over-release (RULED Aug 20, user: `other: &Self` — design 239's brief; queue slot after 236, before 235; entry below, under design 216)
@@ -71,7 +71,7 @@ User-reserved (hand fixes): DF-232h (rides 234 u1 unless taken earlier), DF-217m
 - ESP32 path — P4 + TCP/IP stack ultimate goal; S3 via FreeRTOS-fakery stage 2 (HARDWARE PATH entry below)
 - DF-223b — existential dispatch of a suspending trait method, owed a DESIGN (entry below, under design 223)
 - DF-219c — the spawn capture audit is not bound-aware (soundness-adjacent; entry below, under design 219)
-- DF-224c — `Channel<T?>` call-site auto-wrap ICEs inside a driven body (entry below, under DF-224a/b)
+- DF-224c — `Channel<T?>` call-site auto-wrap ICEs inside a driven body (entry below, under DF-224a/b) — FOLD CANDIDATE for design 237's dispatch (the ANF-hoist funnel is the machinery it lives in; fold at 237's dispatch time)
 - DF-225c / DF-225e — RULED Aug 20 (user), compiler halves pending as a small-fix batch: Float-only (drop the `Float64` name), `std/` off bare-import search paths (entries below). DF-225h fully CLOSED same day: `()` stays a distinct tuple, design 122/132's visible-Void rejection stays ABSOLUTE (a proposed `case _ -> Void` spelling was considered and REJECTED for the exception it would carve), `{}` is the do-nothing arm spelling — spec's three arms fixed
 
 ## DF-239a — substituting `Self` inside a REFERENCE type drops the `&`
