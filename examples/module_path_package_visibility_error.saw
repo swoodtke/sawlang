@@ -7,8 +7,14 @@
 //
 // `secret_is_reachable` next to it is genuinely `public`, so this refusal is
 // about the TIER, not about `pkgvis.secret` being unreachable.
+// The refusal lands AT THE IMPORT, names the tier and the defining module,
+// and its hint offers both the fix and what this module does export — so
+// asserting the shape, not just the symbol, is what keeps a future
+// regression from passing this pin with a vaguer message.
 // EXPECT: error
-// EXPECT-ERROR-CONTAINS: pkg_secret
+// EXPECT-ERROR-CONTAINS: `pkg_secret` is public(package) in `pkgvis.secret`
+// EXPECT-ERROR-CONTAINS: mark it `public` in `pkgvis.secret` to expose it
+// EXPECT-ERROR-CONTAINS: available: secret_is_reachable
 // COMPILE-FLAGS: --module-path pkgvis={TESTDIR}/modules/pkgvis232f
 import pkgvis.secret.{pkg_secret, secret_is_reachable}
 
