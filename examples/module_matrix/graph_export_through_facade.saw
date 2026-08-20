@@ -1,0 +1,23 @@
+// Position matrix (design 235), grid 3 "Graph shapes" — row: `@export`
+// symbol reachability through a facade. An `@export`ed C-ABI symbol is a
+// PROCESS-WIDE link-time fact, independent of Saw-level import visibility
+// (it is compiled in once the defining module is reached at all) — this
+// confirms it survives being reached ONLY through a `public import` facade
+// chain, both ways: the Saw-level call through the facade's re-exported
+// qualifier, and the raw C symbol through an `extern "C"` declaration.
+//
+// EXPECT: success
+// EXPECT-OUTPUT:
+// 42
+// 42
+
+import modules.graphexport.facade
+
+extern "C" {
+    func gs_leaf_fn() -> Int32
+}
+
+func main() {
+    print("{facade.leaf.leaf_call()}")
+    print("{gs_leaf_fn()}")
+}

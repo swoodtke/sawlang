@@ -12,7 +12,7 @@ scoped to this ledger) so its *test* files can sit in `module_matrix/`
 itself and actually run. See `designs/235-position-matrices.md` for the
 brief.
 
-Grids 1 and 2 have landed; grid 3 lands next.
+All three grids have landed.
 
 ## Conventions
 
@@ -138,3 +138,39 @@ private/cross-module supplementary file), 1 red (DF-232n, new pin), 0 OPEN.
 Two supplementary notes (enum-case tier, struct-static-at-package/parent
 tier) are N/A with reasons recorded in place, per the brief's own
 discipline.
+
+## Grid 3 — Graph shapes
+
+2-cycle, 3-cycle, self-import, diamond (legal, must stay green), re-export
+chain (`public import` facade), `@export` symbol reachability through a
+facade.
+
+| Shape | Cell |
+|---|---|
+| 2-cycle (`a` <-> `b`, error lands on an innocent third module) | RED (DF-232e): `graph_2cycle_undiagnosed.saw` |
+| 3-cycle (`a` -> `b` -> `c` -> `a`) | RED (DF-232e): `graph_3cycle_undiagnosed.saw` — same mechanism, confirmed rather than assumed at a longer cycle length; here the error lands on a cycle PARTICIPANT (`a`) rather than an innocent third module, since the entry imports `a` directly |
+| self-import (`a` imports `a`) | `graph_self_import.saw` — a degenerate length-one cycle has no name it does not already have, so there is nothing for the arbitrary check order to get wrong |
+| diamond (`main` -> `b`,`c`; `b`,`c` -> `d`) | `graph_diamond.saw` |
+| re-export chain (`public import` facade) | `existing: export229_whole_chain_call.saw` (also cited at grid 2's `public(package)` cross-module row for its visibility angle; this row is its GRAPH-SHAPE angle — a two-hop facade chain reaching a value) |
+| `@export` symbol reachability through a facade | `graph_export_through_facade.saw` — an `@export`ed C-ABI symbol is a link-time fact independent of Saw-level import visibility, confirmed to survive being reached ONLY through a `public import` facade, both via the Saw-level call and the raw `extern "C"` symbol |
+
+**Cell counts, grid 3**: 4 green (2 own file + 2 cited), 2 red (both
+DF-232e, both new pins), 0 N/A, 0 OPEN.
+
+## Findings filed by this unit
+
+- **DF-232e** (already filed, design 232's kcore-split probe) — import
+  cycles are undiagnosed; this unit's pins are its first `examples/`
+  fixtures (the finding was previously pinned by nothing — no harness
+  shape existed for a two-module cycle before this ledger). Confirmed the
+  same mechanism at 3-cycle length, not assumed.
+- **DF-232n** (already filed, the re-narrowing audit) — `public(package)`
+  fails open across a relative-path import; this unit's file is its first
+  minimal two-file pin (the finding's own evidence was `libs/toml/tests/`,
+  a larger fixture).
+
+No new DF numbers filed by unit 2 — both red cells were already-filed,
+not-yet-fixed findings this unit's grids happened to reach and pin for the
+first time.
+
+No OPEN cells in any of the three grids.

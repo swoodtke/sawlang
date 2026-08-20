@@ -1,0 +1,15 @@
+// Position matrix (design 235), grid 3 "Graph shapes" — row: self-import.
+// A module importing itself compiles and runs clean: the degenerate
+// length-one cycle has no name it does not already have, so there is
+// nothing for `_topological_sort` to get wrong (unlike the 2/3-cycle rows,
+// DF-232e, which involve genuinely distinct modules needing each other's
+// names before either is checked).
+//
+// EXPECT: success
+// EXPECT-OUTPUT: 1
+
+import modules.graphself.a
+
+func main() {
+    print("{a.alpha()}")
+}

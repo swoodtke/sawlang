@@ -1,0 +1,16 @@
+// XFAIL: DF-232e a 3-cycle import (`a` -> `b` -> `c` -> `a`) is not
+// diagnosed as a cycle either — the same `_topological_sort` mechanism as
+// the 2-cycle row (graph_2cycle_undiagnosed.saw), confirmed here so the
+// grid does not assume a longer cycle behaves the same without evidence.
+// Same symptom shape: an arbitrary check order reports an ordinary-looking
+// `undefined function` inside a cycle participant instead of naming the
+// cycle.
+//
+// EXPECT: success
+// EXPECT-OUTPUT: 1
+
+import modules.graphcyc3.a
+
+func main() {
+    print("{a.alpha()}")
+}

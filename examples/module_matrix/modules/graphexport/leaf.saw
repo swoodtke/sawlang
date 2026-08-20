@@ -1,0 +1,8 @@
+//! Fixture for the graph-shapes grid's `@export` reachability row (design
+//! 235).
+// EXPECT: skip
+
+@export("gs_leaf_fn")
+func leaf_fn() -> Int32 { 42 }
+
+public func leaf_call() -> Int32 { leaf_fn() }

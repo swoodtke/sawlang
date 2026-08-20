@@ -1,0 +1,7 @@
+//! Fixture for the graph-shapes grid's self-import row (design 235). `a`
+//! imports itself — a degenerate cycle of length one.
+// EXPECT: skip
+
+import modules.graphself.a
+
+public func alpha() -> Int { 1 }
