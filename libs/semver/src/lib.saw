@@ -91,7 +91,7 @@ public func parse_version(s: String) -> Result<Version, SemverError> {
 // Version requirement
 // =============================================================================
 
-public enum ReqKind {
+enum ReqKind {
     case Exact,
     case Caret,
     case Tilde,

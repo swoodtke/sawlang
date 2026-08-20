@@ -58,7 +58,7 @@ public extension TomlValue {
 // An inline table value: `key = { subkey = "v", ... }` (one level, design 64
 // B1). The inner scalar pairs are stored as a Vector<TomlValue>. NoCopy with an
 // empty deinit — same discipline as TomlSection (the container owns the buffer).
-public struct TomlTable {
+public(package) struct TomlTable {
     key: String
     values: Vector<TomlValue>
 }
