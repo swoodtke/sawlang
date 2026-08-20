@@ -54,7 +54,7 @@ User-reserved (hand fixes): DF-232h (rides 234 u1 unless taken earlier), DF-217m
 - DF-232n — `public(package)` fails open across relative-path imports (entry below; the 232j family's remaining arm, found by the re-narrowing audit)
 - DF-232o — tier-refused type re-resolves same-named: X-but-got-X cascades, place-path loses the visibility line (entry below)
 - DF-232p — a refused call swallows its argument's refusal (entry below; minor)
-- Extension-tier gating — RULING OWED: does an extension head's tier clamp its members? (entry below; wanted before the narrowing unit)
+- Extension-head visibility — RULED Aug 20: BANNED, visibility belongs on members; ~107-site migration rides the small-fix batch after 239 (entry below)
 - Re-narrowing unit — apply the audit's 84-site list (dispatch-ready; designs/renarrow-audit-aug20.md; entry: the rider section)
 - DF-232g — imported-const static folding (entry below)
 - DF-216c — generic statics never instantiate type params (entry below, under design 216)
@@ -552,20 +552,36 @@ census from one batch compile under-counts — recorded in the audit report
 as an implementing-agent warning. Fix rides whatever touches the
 member-access refusal path next (likely DF-232o's). [audit report]
 
-## Extension-tier gating — RULING OWED (raised Aug 20, the re-narrowing
-## audit): `public(package) extension Console` does not clamp its `public`
-## methods
+## Extension-head visibility — RULED Aug 20 (user): BANNED. "Visibility
+## belongs on members" — a tier marker on an extension head becomes a
+## declaration-site error
 
-sos/kernel/core/diag.saw:63 is the tree's only tier-marked extension, and
-the marker is INERT: the member tier alone gates, so the extension's
-`public func write_str` is world-callable. Either that is design 80's
-intended reading (the extension head's tier is where the METHODS' default
-visibility comes from, and an explicit member tier overrides — in which
-case the marker is misleading only when redundant) or the extension tier
-should CLAMP members (a member can be narrower than its extension, never
-wider). Ruling wanted before the narrowing unit lands, since that unit
-touches the same file and could either delete the decoration or rely on
-the clamp. [audit report, design 80]
+THE FACTS, corrected from the filing: `Extension.visibility` is parsed and
+stored with exactly ONE consumer — the docs emitter's signature string
+(cosmetic). It is not a member default (probed: an unmarked member inside a
+`public(package) extension` is PRIVATE, not package), not a clamp (the
+audit: a `public` member inside one is world-callable), not a scoping input
+(design 142 is import-based). And the filing's "only such site" was the
+package-tier marker only — plain `public extension` is a corpus-wide HABIT:
+~105 sites across std/blade/libs/sos/examples, plus 4 spec examples and 2
+skill mentions it was likely cargo-culted from.
+THE RULING: ban the position. An extension is not a nameable entity — it
+has nothing to be visible; only its members do. The habit's prevalence
+STRENGTHENS the ban: adopting Swift default-setter semantics instead would
+make ~105 decorative markers suddenly meaningful, silently flipping every
+unmarked member inside a `public extension` from private to public.
+THE UNIT (scheduled: the small-fix batch after design 239 lands, with the
+Float64-name removal and the DF-225e search-path fix): parser refuses a
+visibility on `extension` with a teaching fixit ("visibility belongs on
+members — mark each member"); the dead `Extension.visibility` field and its
+plumbing go; the docs emitter's signature drops the prefix (goldens
+regenerate, schema note); the ~107-site corpus marker removal
+(compiler-driven, 236-style); spec's 4 examples + the saw-lang skill's 2
+lose the marker and the member-visibility section states the rule;
+`visibility_package.saw`/`visibility_public.saw`/`visibility_parent.saw`
+drop their extension lines and a new error pin covers the refusal.
+diag.saw:63's marker (left alone by the narrowing branch pending this
+ruling) goes with the batch. [audit report, design 80, 142]
 
 ## DF-232e — an IMPORT CYCLE is not diagnosed: the symbols silently vanish and
 ## the error lands on an innocent third module (filed Aug 17, the kcore split's
