@@ -52,7 +52,7 @@ User-reserved (hand fixes): DF-232h (rides 234 u1 unless taken earlier), DF-217m
 ## [BACKLOG] — filed, not scheduled
 
 - `public(package) import` — should the scoped re-export form exist? Refused today (design 229). Real use case: an INTERNAL PRELUDE, one sibling aggregating names for the others (Rust's `pub(crate) use`). Against: siblings can already import each other directly, so it buys convenience, not capability — and kcore, the biggest multi-file package and the one that motivated the tier, does NOT want it (its `public import` block is the EXTERNAL facade). Wait for a package that feels the pain (entry: the re-narrowing rider section)
-- PIN OWED — `public import` must not widen a `public(package)` symbol. Verified by hand Aug 20 (the kcore flip errored instead of passing), untested. Soundness property of design 229 x design 80 (entry: the re-narrowing rider section)
+- DF-232j — `public import` WIDENS a `public(package)` symbol; the tier's soundness, unscoped fix, mechanism not yet read (entry below)
 - DF-232d — `mod.STATIC = v` assignment position (entry below)
 - DF-232e — import-cycle diagnostic (entry below)
 - DF-232g — imported-const static folding (entry below)
@@ -251,6 +251,43 @@ slab size stays in one module (`limits.saw`) — which is how lib.saw already ha
 them, one adjacent block, so the constraint cost the cut nothing this time. It
 would cost a differently-shaped kernel a real seam. [232, design 148/185/186]
 
+## DF-232j — a `public import` RE-EXPORT WIDENS a `public(package)` symbol to
+## the world: design 229's facade bypasses design 80's package tier (filed
+## Aug 20, writing the pin the re-narrowing rider owed — the pin DISPROVED the
+## property it was written to protect)
+
+A facade module of a mapped package re-exports a sibling's package-private
+symbol and PUBLISHES it. `pkgvis.secret` declares `public(package) func
+pkg_secret`; `pkgvis`'s lib.saw says `public import pkgvis.secret.{pkg_secret}`;
+an entry file OUTSIDE the package then calls `pkgvis.pkg_secret()` and it
+compiles and runs, printing 7. Reaching the same symbol DIRECTLY
+(`import pkgvis.secret.{pkg_secret}`) is correctly refused — so the tier works
+everywhere except through the one construct designed to republish names.
+SEVERITY: this is the tier's soundness, not a diagnostic wart. `public(package)`
+means "siblings only"; one `public import` line anywhere in a package silently
+converts that to "everyone", with no error, no warning and no test failing —
+the failure mode is invisible by construction.
+NOT EXPLOITED TODAY, by accident not design: kcore's facade names eleven
+symbols and all eleven were promoted back to genuinely `public` by the Aug-20
+re-narrowing, so none of its 108 `public(package)` names is re-exported. The
+narrowing therefore STANDS. But the protection is one careless facade line from
+gone, and nothing would catch it.
+PIN: `examples/module_path_reexport_no_widen_error.saw`, XFAIL citing this DF,
+EXPECT stating the intent (refusal naming the tier and the defining module).
+Its fixture's `public import` is the widening attempt, deliberately.
+NEIGHBOUR ALREADY PINNED: `export229_scoped_import_error.saw` covers
+`public(package) import` being refused outright. That one HAS a diagnostic;
+this one has none, which is why it went unnoticed.
+MECHANISM NOT YET READ — the fix is unscoped. The obligation-4 question a fix
+brief owes: is the re-export path a SEPARATE visibility decision from
+`_visibility_relation_allows`, or does it copy the symbol into the facade's
+export table without carrying its tier? The second shape would predict siblings
+of DF-232j wherever an export table is built from another module's symbols
+(glob re-export `public import mod`, whole-module facade, transitive
+re-export through two facades) — `examples/modules/export229_facade_glob.saw`
+and `export229_facade_whole.saw` are the existing shapes to probe. [232f, 229,
+design 80/82]
+
 ## DF-232f — a package has NO INTERNAL VISIBILITY, so splitting one file into
 ## several PUBLISHES everything they share (filed Aug 17, the kcore split's
 ## unit-0 probe; the finding the split's tracker entry anticipated)
@@ -364,14 +401,17 @@ keeping:
    only re-export form — a scoped visibility is not supported on an import").
    kcore's 7 re-exports stay `public import`. Whether the scoped form SHOULD
    exist is a live question — see [BACKLOG].
-2. **`public import` does NOT widen a `public(package)` symbol.** Re-exporting
-   through the facade carries the NARROWER tier: an outside consumer is still
-   refused, which is why the flip produced errors rather than silently passing.
-   That is the safe behaviour and the whole reason this narrowing is real and
-   not cosmetic — if the re-export widened, `lib.saw` would be a hole that
-   republished all 108 names. It is currently UNPINNED. **A pin is owed** —
-   this is a soundness property of design 229 x design 80 that nothing tests,
-   and it is exactly the kind of property that regresses silently.
+2. ~~`public import` does NOT widen a `public(package)` symbol.~~ **WRONG —
+   CORRECTED Aug 20, see DF-232j below.** Writing the pin the claim asked for
+   DISPROVED it: a `public import` re-export DOES widen, and the probe compiles
+   and prints 7. The claim was inferred from the kcore flip erroring on 6 names
+   rather than passing silently; the better explanation is that those 6 are
+   reached DIRECTLY by consumers (the HALs import `kcore.mem` and friends), not
+   through the facade — which also explains why only 6 of the facade's 11
+   errored. The other 5 were most likely leaking through the re-export and were
+   masked when the promote-back made them genuinely `public`. Lesson worth
+   keeping: "the gate went red in a way consistent with my theory" is not
+   evidence FOR the theory when a second mechanism produces the same redness.
 
 REMAINING (unscheduled, small): sosabi 2 (`PROCESS_STATUS_KIND_SHIFT`,
 `PROCESS_STATUS_CODE_MASK`), hal-arm64 2 (`mair_value`, `page_tables_build`),

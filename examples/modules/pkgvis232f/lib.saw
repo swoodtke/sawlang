@@ -4,8 +4,14 @@
 //
 // The sibling import uses the MAPPED name (`pkgvis`), which is how a file
 // inside a --module-path package names another file of the same package.
-
-import pkgvis.secret.{pkg_secret}
+//
+// This import is `public` ON PURPOSE — it ATTEMPTS the widening that
+// `module_path_reexport_no_widen_error.saw` pins as impossible. A facade
+// re-exporting a package-private sibling symbol must NOT publish it: the
+// re-export carries the NARROWER tier. If that ever stopped holding, this one
+// line would silently republish everything a package's facade names, which is
+// exactly what kcore's facade does for 108 narrowed names.
+public import pkgvis.secret.{pkg_secret}
 
 public func lib_answer() -> Int {
     pkg_secret() * 6

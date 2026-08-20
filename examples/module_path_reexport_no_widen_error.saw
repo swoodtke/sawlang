@@ -1,0 +1,32 @@
+// design 229 x design 80, the SOUNDNESS property between them: a `public
+// import` RE-EXPORT does not widen a `public(package)` symbol. The facade
+// republishes the NAME; it cannot republish the TIER.
+//
+// `pkgvis`'s lib.saw says `public import pkgvis.secret.{pkg_secret}` — a real
+// attempt at the widening — while `pkg_secret` itself is `public(package)` in
+// `pkgvis.secret`. This entry file is outside the package, so reaching it
+// THROUGH the facade must be refused exactly as reaching it directly is
+// (`module_path_package_visibility_error.saw` pins the direct route).
+//
+// WHY THIS PIN EARNS ITS PLACE (Aug 20, the kcore re-narrowing): kcore's
+// lib.saw `public import`s eleven names out of a package whose other 108 are
+// now `public(package)`. A widening re-export means one facade line silently
+// republishes whatever it names, and design 80's gate protects nothing — while
+// every test still passes, because nothing fails. kcore is not exploited today
+// only because its facade happens to name eleven genuinely-`public` symbols;
+// that is an accident of this pass, not a guarantee.
+//
+// `export229_scoped_import_error.saw` pins the neighbouring rule
+// (`public(package) import` is refused outright). This pins the one that has
+// no diagnostic of its own to notice — which is why it went unnoticed.
+// XFAIL: DF-232j a `public import` re-export WIDENS a `public(package)` symbol
+// to the world — design 229's facade bypasses design 80's package tier. This
+// file compiles and prints 7 today; the EXPECT below states the intent.
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: `pkg_secret` is public(package) in `pkgvis.secret`
+// COMPILE-FLAGS: --module-path pkgvis={TESTDIR}/modules/pkgvis232f
+import pkgvis
+
+func main() {
+    print(pkgvis.pkg_secret())
+}
