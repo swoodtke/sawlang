@@ -6,8 +6,6 @@
 // through a struct field, one container over. Under `other: &Self` (design 239)
 // the payload's own body receives a reference, so the recursion is sound at
 // every container kind for one reason rather than per kind.
-// XFAIL: DF-216b `Equatable` still takes `other: Self` by value, so the stopgap
-// refuses a comparison that recurses into a hand-written body
 // EXPECT: success
 // EXPECT-OUTPUT:
 // ne

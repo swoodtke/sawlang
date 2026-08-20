@@ -7,8 +7,6 @@
 // it holds, which is what makes this operand NoCopy — and under
 // `other: &Self` (design 239) the tier no longer decides anything about the
 // comparison, because no transfer happens at any element.
-// XFAIL: DF-216b `Equatable` still takes `other: Self` by value, so the stopgap
-// refuses a comparison that recurses into a hand-written body
 // EXPECT: success
 // EXPECT-OUTPUT:
 // ne

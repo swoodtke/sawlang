@@ -1,0 +1,70 @@
+// Calling `equals` / `compare` BY NAME through an `Equatable` / `Comparable`
+// bound works at every conforming type, and the borrow is spelled (design 239).
+//
+// The requirements have no single callable body: a primitive has no `equals`
+// method at all, `String.equals` is String's own by-value API rather than the
+// requirement's implementation, and a user type's may be hand-written or
+// derived. So a call through the bound lowers with the SAME emitter the
+// operator uses, which is total over the whole conforming surface. Before this
+// the call mangled a per-type symbol — `same<Int>` was an internal compiler
+// error (`Undefined method: Int.equals`), and `same<String>` only worked
+// because a by-value symbol happened to exist under that name.
+// EXPECT: success
+// EXPECT-OUTPUT:
+// int eq false
+// int lt true
+// str eq false
+// str lt true
+// tag eq false
+// tag lt false
+// plain eq false
+// plain lt true
+
+struct Tag { id: Int }
+extension Tag: NoCopy {}
+extension Tag: Equatable {
+    func equals(&self, other: &Self) -> Bool { self.id == other.id }
+}
+extension Tag: Comparable {
+    func compare(&self, other: &Self) -> Ordering {
+        if self.id < other.id { Ordering.Less }
+        else if self.id > other.id { Ordering.Greater }
+        else { Ordering.Equal }
+    }
+}
+
+struct Plain { n: Int }
+@synthesize
+extension Plain: Equatable {}
+@synthesize
+extension Plain: Comparable {}
+
+func same<T: Equatable>(a: &T, b: &T) -> Bool { a.equals(&b) }
+func order<T: Comparable>(a: &T, b: &T) -> Bool {
+    match a.compare(&b) {
+        case Less -> true,
+        case _ -> false
+    }
+}
+
+func main() {
+    let i = 3
+    let j = 4
+    print("int eq {same<Int>(&i, &j)}")
+    print("int lt {order<Int>(&i, &j)}")
+
+    let s = "ab"
+    let t = "ac"
+    print("str eq {same<String>(&s, &t)}")
+    print("str lt {order<String>(&s, &t)}")
+
+    let a = Tag(id: 9)
+    let b = Tag(id: 3)
+    print("tag eq {same<Tag>(&a, &b)}")
+    print("tag lt {order<Tag>(&a, &b)}")
+
+    let p = Plain(n: 1)
+    let q = Plain(n: 2)
+    print("plain eq {same<Plain>(&p, &q)}")
+    print("plain lt {order<Plain>(&p, &q)}")
+}

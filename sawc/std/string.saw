@@ -320,7 +320,18 @@ extension String {
         }
     }
 
-    // Compare two strings for equality
+    // Compare two strings for equality.
+    //
+    // `other` stays BY VALUE where design 239 gave `Equatable.equals` an
+    // `&Self` operand, and deliberately. `String` conforms builtin — there is
+    // no `extension String: Equatable` for the requirement's signature to be
+    // matched against — so this is String's own public API, and it is called
+    // as `s.equals("literal")` at 200 sites in the tree. A literal has no
+    // address, so `&` is not merely noisy there, it is unwritable. Nothing is
+    // lost: the body READS `other`, `String` is on the Copy tier, and neither
+    // of the two paths that need the requirement's shape comes through here —
+    // `==` lowers via `_emit_string_equals`, and a call through an `Equatable`
+    // bound lowers with the operator's emitter (`comparison_dispatch`).
     public func equals(&self, other: String) -> Bool {
         let self_len = self.len()
         let other_len = other.len()
@@ -343,7 +354,8 @@ extension String {
     // Byte-lexicographic comparison (design 48): String's builtin Comparable
     // conformance. Bytes are compared as UNSIGNED (0..255), so this is
     // code-point order for ASCII / UTF-8 — a shorter string that is a prefix of
-    // a longer one is Less. `< <= > >=` on String lower to this.
+    // a longer one is Less. `< <= > >=` on String lower to this. `other` stays
+    // by value on `equals`'s terms above (design 239).
     public func compare(&self, other: String) -> Ordering {
         let self_len = self.len()
         let other_len = other.len()

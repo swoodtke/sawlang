@@ -332,26 +332,40 @@ class MethodsMixin:
     def _generate_derived_equals_body(self, struct_name: str):
         """Emit the body of a compiler-derived memberwise equals() (design 32).
 
-        `self` (`&self`) and `other` (by value) were each stored into an alloca
-        by the entry block; load both and compare field by field via the shared
+        `self` (`&self`) arrives by value and `other` (`&Self`, design 239) by
+        pointer; the entry block stored each into an alloca, so `other`'s slot
+        is a `T**` and takes the second load `_generate_derived_hash_body`'s
+        `&var Hasher` has always taken. Compare field by field via the shared
         Equatable lowering, which recurses into String / nested struct / enum
         fields. Non-Equatable fields were rejected by `_check_derivable_equals`.
         """
         self_ptr = self.variables.get("self")
         other_ptr = self.variables.get("other")
         self_val = self.builder.load(self_ptr, name="self_val")
-        other_val = self.builder.load(other_ptr, name="other_val")
+        other_val = self._load_comparison_operand(other_ptr)
         saw_type = SawType(TypeKind.STRUCT, struct_name=struct_name)
         result = self._emit_memberwise_equals(self_val, other_val, saw_type)
         self.builder.ret(self._coerce_ret_value(result))
 
+    def _load_comparison_operand(self, slot):
+        """The `other` VALUE out of an `&Self` parameter's slot (design 239).
+
+        The slot holds the incoming pointer, so this is two loads — one to the
+        referent, one for the value. Written as a helper because both derived
+        bodies need it and because the shape (`T**`, not `T*`) is the thing a
+        reader gets wrong.
+        """
+        referent = self.builder.load(slot, name="other_ptr")
+        return self.builder.load(referent, name="other_val")
+
     def _generate_derived_compare_body(self, struct_name: str):
         """Emit the body of a compiler-derived lexicographic compare() (design
-        48): load self and other, compare field by field, return the Ordering."""
+        48): load self and other, compare field by field, return the Ordering.
+        `other` is `&Self` (design 239) — see `_load_comparison_operand`."""
         self_ptr = self.variables.get("self")
         other_ptr = self.variables.get("other")
         self_val = self.builder.load(self_ptr, name="self_val")
-        other_val = self.builder.load(other_ptr, name="other_val")
+        other_val = self._load_comparison_operand(other_ptr)
         saw_type = SawType(TypeKind.STRUCT, struct_name=struct_name)
         result = self._emit_memberwise_compare(self_val, other_val, saw_type)
         self.builder.ret(self._coerce_ret_value(result))

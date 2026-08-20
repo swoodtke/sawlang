@@ -1,0 +1,28 @@
+// Conformance row C14 — a comparison body cannot consume its operand
+//
+// The by-construction half of design 239, and the reason the whole DF-216b
+// class is closed rather than guarded. `move other` was the spelling that
+// over-released; against `other: &Self` it is the ordinary "cannot move out of
+// reference", reported in the BODY at the line that wrote it. No tier
+// condition, no transitive walk, no per-position check: there is no transfer
+// for a conformance to exercise, so the guarantee C12 states holds for every
+// type at once.
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: cannot move out of reference `other`
+// EXPECT-ERROR-CONTAINS: references cannot have their contents moved out
+
+struct Tag { id: Int }
+extension Tag: NoCopy {}
+
+extension Tag: Equatable {
+    func equals(&self, other: &Self) -> Bool {
+        let taken = move other
+        self.id == taken.id
+    }
+}
+
+func main() {
+    let a = Tag(id: 1)
+    let b = Tag(id: 2)
+    if a == b { print("eq") }
+}

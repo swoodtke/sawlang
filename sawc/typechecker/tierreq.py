@@ -105,8 +105,7 @@ class TierRequirementsMixin:
         per-declaration checker state.
         """
         saved = (getattr(self, '_tier_req_acc', None),
-                 getattr(self, '_tier_req_decl', None),
-                 getattr(self, '_tier_cmp_acc', None))
+                 getattr(self, '_tier_req_decl', None))
         if not type_param_names:
             # Not generic: no accumulator, and `_tier_req_note` becomes a no-op
             # for this body. A CLOSURE inside a generic body keeps the
@@ -114,10 +113,8 @@ class TierRequirementsMixin:
             # are the enclosing function's duplications.
             self._tier_req_acc = None
             self._tier_req_decl = None
-            self._tier_cmp_acc = None
             return saved
         self._tier_req_acc = {}
-        self._tier_cmp_acc = {}
         self._tier_req_decl = decl_node
         return saved
 
@@ -139,17 +136,7 @@ class TierRequirementsMixin:
                 elif name not in merged:
                     merged[name] = (REQ_MOVE, "", 0)
             decl_node.tier_requirements = merged
-        cmp_acc = getattr(self, '_tier_cmp_acc', None)
-        if cmp_acc and decl_node is not None:
-            merged_cmp = dict(
-                getattr(decl_node, 'comparison_requirements', None) or {})
-            for name, traits in cmp_acc.items():
-                slot = dict(merged_cmp.get(name) or {})
-                slot.update(traits)
-                merged_cmp[name] = slot
-            decl_node.comparison_requirements = merged_cmp
-        (self._tier_req_acc, self._tier_req_decl,
-         self._tier_cmp_acc) = saved
+        (self._tier_req_acc, self._tier_req_decl) = saved
 
     def _tier_req_note(self, saw_type: Optional[SawType], reason: str, line: int):
         """Record that the body duplicates a value of `saw_type` unwritten.
@@ -167,31 +154,14 @@ class TierRequirementsMixin:
                 continue
             acc[name] = (REQ_COPY, reason, line)
 
-    def _tier_req_comparison(self, operand_type: Optional[SawType], trait: str,
-                             line: int) -> bool:
-        """Record that a comparison operator is applied to an ABSTRACT operand
-        (design 219 wave C, conformance row C07). Returns True when it took
-        responsibility, so the concrete stopgap beside it stands down.
-
-        DF-216b's transitive query walks a conformance tree, and an abstract
-        `T` has none to walk — the query's own docstring says so and names this
-        row as the gap. The body is checked ONCE, so the honest thing it can
-        record is what it NEEDS ("`T`'s comparison must not consume its
-        operand"); the CALL SITE has the concrete argument and runs the same
-        walk on it, which is the objection the 216b stopgap could not answer.
-        """
-        if operand_type is None:
-            return False
-        env = getattr(self, 'current_type_params', None) or {}
-        if not (operand_type.kind == TypeKind.STRUCT
-                and operand_type.struct_name in env):
-            return False
-        acc = getattr(self, '_tier_cmp_acc', None)
-        if acc is None:
-            return False
-        slot = acc.setdefault(operand_type.struct_name, {})
-        slot.setdefault(trait, line)
-        return True
+    # design 219 wave C carried a SECOND accumulator here — `_tier_cmp_acc`,
+    # which recorded "this body compares a value of `T`" so the one discharge
+    # point could run DF-216b's transitive walk on the concrete type ARGUMENT
+    # (conformance row C07). Design 239 deleted it with the stopgap it served:
+    # `Equatable`/`Comparable` take `other: &Self`, so a generic body comparing
+    # its `T` transfers nothing and there is no requirement to record, forward
+    # or discharge. The copy-tier accumulator below is untouched — that rule is
+    # about DUPLICATION, which comparison never asked for.
 
     def _tier_abstract_params_in(self, saw_type: Optional[SawType],
                                  depth: int = 0) -> List[str]:
@@ -428,21 +398,11 @@ class TierRequirementsMixin:
                 continue
             abstract = self._tier_params_of(arg, env)
             if abstract:
-                args[tp.name] = (arg, abstract, True, 'abstract', {})
+                args[tp.name] = (arg, abstract, True, 'abstract')
             else:
-                tier = self.namespace.copy_tier(arg)
-                # The DF-216b transitive walk, run HERE for the same reason the
-                # tier is: it reads conformances out of the caller's namespace.
-                # Only the two tiers the stopgap refuses are worth walking.
-                reached = {}
-                if tier in ('explicit', 'nocopy'):
-                    for trait in ("Equatable", "Comparable"):
-                        found = self._consuming_comparison_conformer(arg, trait)
-                        if found is not None:
-                            reached[trait] = found
                 args[tp.name] = (
                     arg, (), self.namespace.type_satisfies_copy_bound(arg),
-                    tier, reached)
+                    self.namespace.copy_tier(arg))
         if not args:
             return
         self._tier_obligations.append((
@@ -535,23 +495,8 @@ class TierRequirementsMixin:
         if caller_decl is None:
             return False
         reqs = getattr(callee_decl, 'tier_requirements', None) or {}
-        cmp_reqs = getattr(callee_decl, 'comparison_requirements', None) or {}
         changed = False
-        # Row C07's requirement forwards the same way the tier's does: a generic
-        # handing its own `T` to a comparing callee compares it too.
-        for pname, (_arg, abstract_names, _ok, _tier, _r) in args.items():
-            for trait in (cmp_reqs.get(pname) or {}):
-                for abstract in abstract_names:
-                    caller_cmp = dict(
-                        getattr(caller_decl, 'comparison_requirements', None) or {})
-                    slot = dict(caller_cmp.get(abstract) or {})
-                    if trait in slot:
-                        continue
-                    slot[trait] = line
-                    caller_cmp[abstract] = slot
-                    caller_decl.comparison_requirements = caller_cmp
-                    changed = True
-        for pname, (_arg, abstract_names, _ok, _tier, _r) in args.items():
+        for pname, (_arg, abstract_names, _ok, _tier) in args.items():
             entry = reqs.get(pname)
             if entry is None or entry[0] != REQ_COPY:
                 continue
@@ -577,22 +522,7 @@ class TierRequirementsMixin:
         definition anchor."""
         callee_decl, args, display, line, column, env, _caller, src = ob
         reqs = getattr(callee_decl, 'tier_requirements', None) or {}
-        cmp_reqs = getattr(callee_decl, 'comparison_requirements', None) or {}
-        # Row C07: the body compared a value of this parameter, and the argument
-        # is a type whose comparison tree reaches a hand-written consuming body.
-        # Same verdict, same sentence, judged where the type is known.
-        for pname, (arg, abstract_names, _ok, tier, reached) in args.items():
-            if abstract_names or not reached:
-                continue
-            for trait in (cmp_reqs.get(pname) or {}):
-                if trait not in reached:
-                    continue
-                self._report_consuming_comparison(
-                    arg, tier, reached[trait], trait,
-                    "==" if trait == "Equatable" else ">", line, column,
-                    source_file=src)
-                break
-        for pname, (arg, abstract_names, satisfies, tier, _reached) in args.items():
+        for pname, (arg, abstract_names, satisfies, tier) in args.items():
             entry = reqs.get(pname)
             if entry is None or entry[0] != REQ_COPY:
                 continue

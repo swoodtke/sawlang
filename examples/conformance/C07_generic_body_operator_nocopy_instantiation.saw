@@ -12,8 +12,6 @@
 // There is no transfer at any tier, so a generic body comparing its `T` needs
 // nothing recorded, nothing discharged and nothing known about the argument —
 // which is what makes `Vector.sort` over move-only elements expressible.
-// XFAIL: DF-216b `Equatable`/`Comparable` still take `other: Self` by value, so
-// the discharge point refuses the instantiation
 // EXPECT: success
 // EXPECT-OUTPUT:
 // ne

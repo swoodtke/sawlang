@@ -11,8 +11,6 @@
 //
 // This row was DF-216b's found instance, pinned as a REFUSAL while the operand
 // was passed by value; it states the capability now.
-// XFAIL: DF-216b `Comparable` still takes `other: Self` by value, so the
-// stopgap refuses the operator on a move-only operand with a hand-written body
 // EXPECT: success
 // EXPECT-OUTPUT:
 // gt

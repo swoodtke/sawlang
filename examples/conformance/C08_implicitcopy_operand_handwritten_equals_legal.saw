@@ -7,8 +7,6 @@
 // condition left to over-reach, because there is no transfer to judge. An
 // ordinary struct with a hand-written equality compares exactly as it always
 // did, and the reference in the signature is the only thing that changed.
-// XFAIL: DF-216b `Equatable` still takes `other: Self` by value, so the
-// `&Ticket` spelling below is not yet the requirement's signature
 // EXPECT: success
 // EXPECT-OUTPUT:
 // same code

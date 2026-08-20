@@ -16,8 +16,6 @@
 // while glibc tolerated it. Neither the widening nor the retain was the answer:
 // the operand is not transferred at all now, which closes the row at every tier
 // at once and makes the platform difference moot.
-// XFAIL: DF-216b `Equatable` still takes `other: Self` by value, so the
-// `&Held` spelling below is not yet the requirement's signature
 // EXPECT: success
 // EXPECT-OUTPUT:
 // before: a=ALPHA b=BRAVO

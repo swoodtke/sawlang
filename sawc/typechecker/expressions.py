@@ -1572,205 +1572,28 @@ class ExpressionsMixin:
                     f"a combined value need not be a declared case")
         return None
 
-    # design 216 (DF-216b). The comparison trait whose requirement each operator
-    # family lowers to, and the AST flag marking a compiler-SYNTHESIZED body.
-    _COMPARISON_REQUIREMENT = {
-        "Equatable": ("equals", "is_derived_equals"),
-        "Comparable": ("compare", "is_derived_compare"),
-    }
-
-    def _consuming_comparison_conformer(self, saw_type: Optional[SawType],
-                                        trait: str,
-                                        _visiting=None) -> Optional[str]:
-        """The type whose HAND-WRITTEN `equals`/`compare` a comparison would run.
-
-        Returns that type's name, or None when the whole comparison tree is
-        compiler-synthesized or builtin.
-
-        ENTRY POINTS — exactly one, and it must stay that way (design 190
-        obligation 1): `_check_binary_op`'s Equatable/Comparable gating below,
-        which every one of `==` `!=` `<` `>` `<=` `>=` flows through in every
-        position an operator can be written — a plain expression, a match-arm
-        guard, a value-branch arm, an argument, a `while` condition. Codegen's
-        recursive emitters (`_emit_memberwise_equals`, `_emit_enum_deep_equals`,
-        `_emit_tuple_equals`, `_emit_optional_equals`, `_emit_array_equals` and
-        the compare twins) construct no call node and re-enter no check, which
-        is exactly why this query walks the same shapes itself rather than
-        relying on a per-member checkpoint that does not exist.
-
-        WHY IT WALKS. `Equatable.equals(&self, other: Self)` and
-        `Comparable.compare(&self, other: Self)` take the second operand BY
-        VALUE, so a hand-written body is entitled to `move` it — while the
-        operator lowering hands over a BORROW. A synthesized body never
-        consumes anything (it reads fields and recurses), so a fully
-        synthesized tree is sound and the unsoundness is precisely "is there a
-        hand-written body anywhere in this tree". Members, enum payloads, tuple
-        elements, optional payloads and array elements are therefore all
-        followed: `Holder`'s own `@synthesize`d `equals` says nothing about the
-        `Tag.equals` it recurses into.
-
-        DELIBERATELY NOT ANSWERED: an abstract type parameter. Inside a generic
-        body `T`'s conformance is not knowable, and the body is checked once
-        with `T` abstract rather than per instantiation, so the operand type
-        never reaches this query at all — conformance row C07 pins that gap and
-        the `other: &Self` change is what closes it.
-        """
-        if saw_type is None:
-            return None
-        if _visiting is None:
-            _visiting = frozenset()
-        kind = saw_type.kind
-        if kind == TypeKind.TUPLE:
-            for element in saw_type.element_types or []:
-                found = self._consuming_comparison_conformer(
-                    element, trait, _visiting)
-                if found is not None:
-                    return found
-            return None
-        if kind == TypeKind.OPTIONAL:
-            return self._consuming_comparison_conformer(
-                saw_type.inner_type, trait, _visiting)
-        if kind == TypeKind.ARRAY:
-            return self._consuming_comparison_conformer(
-                saw_type.array_element_type, trait, _visiting)
-        if kind not in (TypeKind.STRUCT, TypeKind.ENUM):
-            # Primitives and `String` compare through builtin lowerings. std's
-            # `String.equals` is a real body, but `String` is Copy —
-            # the tier this rule does not reach — so it is not a hand-written
-            # conformance in the sense that matters here.
-            return None
-        name = (saw_type.struct_name if kind == TypeKind.STRUCT
-                else saw_type.enum_name)
-        if name is None or name in _visiting:
-            return None
-        if kind == TypeKind.STRUCT:
-            alias = self.namespace._lookup_type_alias_deep(name)
-            if alias is not None and alias.aliased_type is not None:
-                return self._consuming_comparison_conformer(
-                    alias.aliased_type, trait, _visiting)
-            if name in getattr(self, 'current_type_params', {}):
-                return None
-        method_name, derived_flag = self._COMPARISON_REQUIREMENT[trait]
-        symbol = self.namespace.lookup_method(name, method_name)
-        if symbol is not None:
-            node = getattr(symbol, 'ast_node', None)
-            # A struct's derived body is registered as a Method carrying the
-            # flag; an enum's derived body mints no method symbol at all. Both
-            # answer "synthesized" here. A symbol with no AST node is not one
-            # the author wrote, so it does not refuse.
-            if node is not None and not getattr(node, derived_flag, False):
-                return name
-        _visiting = _visiting | {name}
-        if kind == TypeKind.STRUCT:
-            struct_sym = self.namespace._lookup_struct_deep(name)
-            if struct_sym is None:
-                return None
-            type_map = self.namespace._struct_type_arg_map(struct_sym, saw_type)
-            for field_type in (struct_sym.fields or {}).values():
-                if field_type is None:
-                    continue
-                if type_map:
-                    field_type = field_type.substitute(type_map)
-                found = self._consuming_comparison_conformer(
-                    field_type, trait, _visiting)
-                if found is not None:
-                    return found
-            return None
-        enum_sym = self.namespace._lookup_enum_deep(name)
-        if enum_sym is None:
-            return None
-        for fields in (enum_sym.variants or {}).values():
-            for _, payload_type in fields:
-                found = self._consuming_comparison_conformer(
-                    payload_type, trait, _visiting)
-                if found is not None:
-                    return found
-        return None
-
-    def _refuse_consuming_comparison(self, expr: BinaryOp, operand_type: SawType,
-                                     trait: str) -> bool:
-        """DF-216b's stopgap: refuse an operator the lowering cannot honor.
-
-        Fires when BOTH hold: the operand's copy tier is ExplicitCopy or NoCopy
-        (so a CHECKED call site could not have passed it by value without
-        `move`/`.copy()`), and the comparison transitively reaches a
-        hand-written body (so the callee may consume what it was handed). That
-        pair is exactly the disagreement between the two spellings of one call:
-        `a.compare(b)` is refused at the transfer checkpoint, `a > b` was not.
-
-        THE TIER CONDITION IS NARROWER THAN SOUNDNESS, deliberately. An
-        Copy operand is excluded because a checked call site accepts it
-        — but the operator adds no retain at any tier, so a consuming body
-        over-releases one of those too (conformance row C12 pins it, and the
-        probe SIGTRAPs). Widening this to every non-trivial tier would refuse
-        the operator on ordinary value types with a hand-written `equals`,
-        which is a ruling rather than a stopgap; `other: &Self` removes the
-        callee's ability to consume at every tier at once and is the real fix.
-
-        Returns True when it reported, so the caller stops.
-        """
-        tier = self.namespace.copy_tier(operand_type)
-        if tier not in ('explicit', 'nocopy'):
-            return False
-        reached = self._consuming_comparison_conformer(operand_type, trait)
-        if reached is None:
-            return False
-        return self._report_consuming_comparison(
-            operand_type, tier, reached, trait, expr.op, expr.line, expr.column)
-
-    def _report_consuming_comparison(self, operand_type: SawType, tier: str,
-                                     reached: str, trait: str, op: str,
-                                     line: int, column: int,
-                                     source_file=None) -> bool:
-        """The DF-216b refusal itself, with the operand's verdict already
-        decided by the caller.
-
-        Split out so the GENERIC discharge (design 219 wave C, row C07) reports
-        the same sentence from the same words: the operand it judges is the
-        concrete TYPE ARGUMENT rather than an expression's resolved type, and
-        the anchor is the call rather than the operator, but the fact being
-        reported is identical and readers should not have to learn it twice.
-        """
-        method_name, _ = self._COMPARISON_REQUIREMENT[trait]
-        policy = 'NoCopy' if tier == 'nocopy' else 'ExplicitCopy'
-        if reached == self._comparison_type_name(operand_type):
-            clause = (f"its hand-written `{method_name}` takes `other` by "
-                      f"value")
-        else:
-            clause = (f"its comparison recurses into `{reached}`'s "
-                      f"hand-written `{method_name}`, which takes `other` by "
-                      f"value")
-        outs = (f"`a.{method_name}(move b)`" if tier == 'nocopy'
-                else f"`a.{method_name}(move b)` or "
-                     f"`a.{method_name}(b.copy())`")
-        self._error(
-            ErrorKind.CANNOT_COPY,
-            f"cannot compare values of type `{operand_type}` with "
-            f"`{op}`: `{operand_type}` is {policy} and {clause}, "
-            f"but the operator passes a borrow — a conformance that consumes "
-            f"`other` would release a value the caller still owns (DF-216b)",
-            line, column,
-            hint=f"call it directly with an explicit transfer — {outs} — or "
-                 f"make the conformance `@synthesize`d; a synthesized body "
-                 f"never consumes its operand",
-            source_file=source_file,
-        )
-        return True
-
-    @staticmethod
-    def _comparison_type_name(saw_type: SawType) -> Optional[str]:
-        """The struct/enum name of a comparison operand, or None for a
-        composite (tuple, optional, array) that owns no conformance."""
-        if saw_type is None:
-            return None
-        if saw_type.kind == TypeKind.STRUCT:
-            return saw_type.struct_name
-        if saw_type.kind == TypeKind.ENUM:
-            return saw_type.enum_name
-        return None
-
     def _check_binary_op(self, expr: BinaryOp) -> Optional[SawType]:
-        """Check a binary operation."""
+        """Check a binary operation.
+
+        THE COMPARISON FUNNEL (obligation 1). The Equatable/Comparable gating
+        below is the ONE chokepoint every `==` `!=` `<` `>` `<=` `>=` reaches,
+        in every position an operator can be written — a plain expression, a
+        match-arm guard, a value-branch arm, an argument, a `while` condition,
+        a generic body. It answers exactly one question now: does the operand
+        conform? Design 216's stopgap hung a second question here — "does this
+        comparison transitively reach a hand-written body that could consume its
+        operand" — because `Equatable.equals(&self, other: Self)` took the right
+        operand by value while the lowering passed a borrow. Design 239 gave the
+        requirements `other: &Self`, so no transfer exists at any tier and the
+        question has no content: the stopgap, its transitive walk, and the
+        generic-body requirement design 219 wave C recorded for it are all
+        deleted rather than relaxed.
+
+        Nothing else about the operator path changed. `_check_binary_op` still
+        builds no call node and codegen's `_emit_equals`/`_emit_compare` still
+        hand the callee two operands directly — the right one by reference now
+        (`_comparison_operand_ptr`), which is what the signature says.
+        """
         left_type = self._check_expression(expr.left)
         right_type = self._check_expression(expr.right)
         if left_type is None or right_type is None:
@@ -1960,16 +1783,6 @@ class ExpressionsMixin:
                     expr.line, expr.column,
                     hint=hint
                 )
-            # DF-216b's stopgap, at the same chokepoint and for the same reason
-            # it is the right one: every comparison operator, in every position,
-            # is gated here. See `_consuming_comparison_conformer` above.
-            elif expr.op in ['==', '!=']:
-                # design 219 wave C (row C07): at an ABSTRACT operand there is
-                # no conformance to inspect, so the stopgap can only record
-                # what the body NEEDS and let the call site judge the argument.
-                if not self._tier_req_comparison(left_type, "Equatable",
-                                                 expr.line):
-                    self._refuse_consuming_comparison(expr, left_type, "Equatable")
             # Comparable gating (design 48): `< <= > >=` desugar to `compare()`.
             # Integer types and Float are ordered directly (Float keeps IEEE/NaN
             # semantics); raw pointers keep their historical address ordering;
@@ -1998,13 +1811,6 @@ class ExpressionsMixin:
                             expr.line, expr.column,
                             hint=hint
                         )
-                    else:
-                        # DF-216b's stopgap for the ordering half — same
-                        # chokepoint, same query, `compare` instead of `equals`.
-                        if not self._tier_req_comparison(left_type, "Comparable",
-                                                         expr.line):
-                            self._refuse_consuming_comparison(
-                                expr, left_type, "Comparable")
             return SawType(TypeKind.BOOL)
         return None
 
@@ -7958,6 +7764,18 @@ class ExpressionsMixin:
             if arity_ok:
                 self._check_bound_arg_reference_spelling(
                     expr, obj_type, method_sym)
+            # design 239: an `equals`/`compare` reached through an
+            # Equatable/Comparable bound is the comparison the OPERATOR is, so
+            # codegen lowers it with the operator's own emitter rather than by
+            # mangling a per-type symbol. Most conforming types have no such
+            # symbol — `Int` never had one and `String`'s `equals` is its own
+            # by-value API, not the requirement's body — so the mangled path
+            # ICEd at exactly the instantiations a generic bound exists to
+            # serve.
+            if (bound in ("Equatable", "Comparable")
+                    and expr.method_name in ("equals", "compare")
+                    and len(expr.arguments) == 1):
+                expr.comparison_dispatch = bound
             # The Law of Exclusivity, through the same funnel every other call
             # form uses (design 193 unit 4). Deep argument TYPING is deferred
             # here — a trait signature may mention associated types — but

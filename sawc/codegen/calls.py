@@ -1483,6 +1483,8 @@ class CallsMixin:
             return self._generate_erased_box_make(expr)
         if expr.existential_dispatch is not None:
             return self._generate_existential_method_call(expr, expr.existential_dispatch)
+        if expr.comparison_dispatch is not None:
+            return self._generate_bound_comparison_call(expr)
 
         # Fixed-array builtins (design 72 L12/M1): the typechecker tagged the node.
         if expr.array_builtin is not None:

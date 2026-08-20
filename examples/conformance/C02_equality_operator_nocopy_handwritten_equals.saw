@@ -5,8 +5,6 @@
 // takes the right operand by reference (design 239), which is what `==`/`!=`
 // have always passed, so a move-only type with a hand-written equality is
 // comparable and neither operand is consumed. Two drops, two values.
-// XFAIL: DF-216b `Equatable` still takes `other: Self` by value, so the
-// stopgap refuses the operator on a move-only operand with a hand-written body
 // EXPECT: success
 // EXPECT-OUTPUT:
 // ne

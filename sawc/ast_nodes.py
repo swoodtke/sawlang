@@ -1528,6 +1528,15 @@ class MethodCall(Expression):
     resolved_symbol: Optional[str] = annotation(None)
     # Dispatch shape decided during checking.
     existential_dispatch: Optional[str] = annotation(None)   # trait name, for `any Trait` vtable dispatch
+    # design 239: `"Equatable"` / `"Comparable"` when this is an `equals` /
+    # `compare` call reached through a BOUND on a type parameter. The comparison
+    # requirements have no callable body of their own at most types — `Int` has
+    # no `equals` method and `String`'s is its own by-value API — so a call
+    # through the bound lowers with the SAME emitter the operator uses
+    # (`_emit_equals`/`_emit_compare`), which is total over every conforming
+    # type. Without it a generic `a.equals(&b)` mangled a per-type symbol and
+    # ICEd wherever none existed or its ABI differed.
+    comparison_dispatch: Optional[str] = annotation(None)
     is_field_call: bool = annotation(False)                  # calling a closure-typed FIELD, not a method
     field_call_unwrap: bool = annotation(False)
     # design 226: that field holds a `FuncPointer<F>` rather than a closure, so
@@ -2192,13 +2201,6 @@ class Method(ASTNode):
     # the silent tier does). Inferred while the body is checked; discharged at
     # every call site. See `typechecker/tierreq.py`.
     tier_requirements: Optional[dict] = annotation(None)
-    # design 219 wave C, row C07: the COMPARISON requirement this body places on
-    # each type parameter — `{param_name: {trait: line}}` for each of
-    # `Equatable`/`Comparable` an operator in the body applies to a value of
-    # that parameter. The operand reaches `_check_binary_op` only as abstract
-    # `T`, so DF-216b's transitive query has nothing to walk; the call site
-    # walks the concrete argument instead.
-    comparison_requirements: Optional[dict] = annotation(None)
     # `unsafe func` / `unsafe init` (design 130): this method touches an unsafe
     # type. Declared, never inferred — the trigger rule checks the declaration
     # against the body rather than supplying it.
@@ -2390,8 +2392,6 @@ class Function(ASTNode):
     is_sync: bool = False
     # design 219 wave C: see `Method.tier_requirements`.
     tier_requirements: Optional[dict] = annotation(None)
-    # design 219 wave C, row C07: see `Method.comparison_requirements`.
-    comparison_requirements: Optional[dict] = annotation(None)
     # `unsafe func` declaration (design 130): see Method.is_unsafe.
     is_unsafe: bool = False
     # design 218 stage 3: see Method.unsafe_decl_checked.

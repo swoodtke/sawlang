@@ -25,6 +25,19 @@ from namespace import (
 )
 
 
+def _ref_self_type() -> SawType:
+    """`&Self` — the right operand of `equals`/`compare` (design 239).
+
+    A fresh node per call, because the derived methods below are written onto
+    per-extension AST and every later pass may substitute `Self` into its own
+    copy. Named rather than inlined so the derived signature and
+    `builtin.saw`'s requirement cannot drift apart silently: the conformance
+    check compares them.
+    """
+    return SawType(TypeKind.REFERENCE, inner_type=SawType(TypeKind.SELF),
+                   reference_mutable=False)
+
+
 # Call names the compiler INTERCEPTS in `_check_function_call`
 # (typechecker/expressions.py) before any user overload set is consulted. A
 # top-level declaration of one of these in user code could never be reached, and
@@ -2607,8 +2620,8 @@ class RegistrationMixin:
                     parameters=[
                         Parameter(name="self", type=SawType(TypeKind.VOID),
                                   is_reference=True),
-                        Parameter(name="other", type=SawType(TypeKind.SELF),
-                                  is_reference=False),
+                        Parameter(name="other", type=_ref_self_type(),
+                                  is_reference=True),
                     ],
                     return_type=SawType(TypeKind.BOOL),
                     body=Block(statements=[], final_expr=None,
@@ -2642,8 +2655,8 @@ class RegistrationMixin:
                     parameters=[
                         Parameter(name="self", type=SawType(TypeKind.VOID),
                                   is_reference=True),
-                        Parameter(name="other", type=SawType(TypeKind.SELF),
-                                  is_reference=False),
+                        Parameter(name="other", type=_ref_self_type(),
+                                  is_reference=True),
                     ],
                     return_type=SawType(TypeKind.ENUM, enum_name="Ordering"),
                     body=Block(statements=[], final_expr=None,
@@ -3197,6 +3210,10 @@ class RegistrationMixin:
                     f"method `{method_name}` takes {impl_param_count} parameter(s) but trait `{trait_info.name}` expects {trait_param_count}",
                     extension.line, extension.column
                 )
+            else:
+                self._check_conformance_param_references(
+                    extension, type_name, trait_info, method_name,
+                    trait_method, impl_method)
 
         # Check that all required associated types are provided
         type_assigns = self.namespace.get_type_assignments(type_name, trait_info.name)
@@ -3208,6 +3225,77 @@ class RegistrationMixin:
                     extension.line, extension.column,
                     hint=f"add `type {assoc_type_name} = SomeType` to the extension"
                 )
+
+    def _check_conformance_param_references(self, extension, type_name,
+                                            trait_info, method_name,
+                                            trait_method, impl_method) -> None:
+        """A conformance's parameters must MIRROR the requirement's borrows.
+
+        The requirement is what a caller sees — through the operator lowering,
+        through a generic bound, through a vtable — so an implementation that
+        takes by value what the requirement lends, or lends what the requirement
+        gives away, has a different ownership contract under one name. Design
+        239 made that reachable: `Equatable.equals(&self, other: &Self)` and
+        `Comparable.compare(&self, other: &Self)` are the requirements the
+        comparison operators lower to, and a by-value `other` beneath one is the
+        exact shape DF-216b's double free was made of.
+
+        Reference-ness only, deliberately. Deep parameter typing is not checked
+        here (it never was, and `Self` plus associated types make it a bigger
+        question than this rule needs); the borrow SPELLING is decidable from
+        the two declarations as written, is what the ABI depends on, and is what
+        the reader was told.
+
+        The mutability half rides along: a `&var` requirement satisfied by a `&`
+        implementation promises the caller a write it cannot perform.
+        """
+        t_types = list(trait_method.param_types or [])
+        t_names = list(trait_method.param_names or [])
+        i_types = list(impl_method.param_types or [])
+        i_names = list(impl_method.param_names or [])
+        t_off = len(t_types) - len(t_names)
+        i_off = 1 if (i_names and i_names[0] == "self") else 0
+        for idx in range(len(t_names)):
+            t_type = t_types[idx + t_off] if idx + t_off < len(t_types) else None
+            i_type = i_types[idx + i_off] if idx + i_off < len(i_types) else None
+            if t_type is None or i_type is None:
+                continue
+            t_ref = t_type.kind == TypeKind.REFERENCE
+            i_ref = i_type.kind == TypeKind.REFERENCE
+            name = t_names[idx]
+            if t_ref and not i_ref:
+                written = self._resolve_trait_type(
+                    t_type, type_name, trait_info.name)
+                self._error(
+                    ErrorKind.TYPE_MISMATCH,
+                    f"parameter `{name}` of `{method_name}` must be a "
+                    f"reference: trait `{trait_info.name}` declares it "
+                    f"`{t_type}`, and this implementation takes it by value "
+                    f"(`{i_type}`)",
+                    extension.line, extension.column,
+                    hint=f"write `func {method_name}(&self, {name}: {t_type})` "
+                         f"— on `{type_name}` that is `{written}`. A by-value "
+                         f"parameter says the body may consume what it is "
+                         f"given, and every caller of the requirement hands it "
+                         f"a borrow")
+            elif i_ref and not t_ref:
+                self._error(
+                    ErrorKind.TYPE_MISMATCH,
+                    f"parameter `{name}` of `{method_name}` may not be a "
+                    f"reference: trait `{trait_info.name}` declares it "
+                    f"`{t_type}`, which transfers ownership to the body",
+                    extension.line, extension.column,
+                    hint=f"write `func {method_name}(&self, {name}: {t_type})`")
+            elif t_ref and i_ref and (bool(t_type.reference_mutable)
+                                      != bool(i_type.reference_mutable)):
+                self._error(
+                    ErrorKind.TYPE_MISMATCH,
+                    f"parameter `{name}` of `{method_name}` borrows "
+                    f"`{i_type}` but trait `{trait_info.name}` declares "
+                    f"`{t_type}`",
+                    extension.line, extension.column,
+                    hint="call sites mirror the requirement's reference "
+                         "spelling, so the two have to agree")
 
     def _types_compatible_for_trait(self, trait_type: SawType, impl_type: SawType,
                                          self_type_name: str, trait_name: str = None) -> bool:
@@ -3236,6 +3324,17 @@ class RegistrationMixin:
                 resolved_args = [self._resolve_trait_type(t, self_type_name, trait_name)
                                  for t in trait_type.type_args]
                 return SawType(TypeKind.STRUCT, struct_name=trait_type.struct_name, type_args=resolved_args)
+        elif trait_type.kind == TypeKind.REFERENCE and trait_type.inner_type:
+            # `&Self` — design 239's `equals`/`compare` operand, and the first
+            # requirement type to nest `Self` behind a reference. Rebuilt around
+            # the substituted referent, mutability carried, exactly as the
+            # OPTIONAL arm below does: this walk RESOLVES, so it must return the
+            # wrapper it was given.
+            return SawType(
+                TypeKind.REFERENCE,
+                inner_type=self._resolve_trait_type(
+                    trait_type.inner_type, self_type_name, trait_name),
+                reference_mutable=trait_type.reference_mutable)
         elif trait_type.kind == TypeKind.OPTIONAL and trait_type.inner_type:
             resolved_inner = self._resolve_trait_type(trait_type.inner_type, self_type_name, trait_name)
             return SawType(TypeKind.OPTIONAL, inner_type=resolved_inner)

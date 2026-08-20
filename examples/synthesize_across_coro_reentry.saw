@@ -35,8 +35,8 @@ func main() {
     let a = Tag(name: "x", rank: 1)
     let b = Tag(name: "x", rank: 1)
     let c = Tag(name: "x", rank: 2)
-    print("{a.equals(b)}")
-    print("{a.equals(c)}")
+    print("{a.equals(&b)}")
+    print("{a.equals(&c)}")
     print("{a < c}")
 
     var group = TaskGroup()

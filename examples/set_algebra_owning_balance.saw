@@ -13,7 +13,7 @@
 
 struct AK { id: Int, rc: Arc<Int> }
 extension AK: Copy { func copy(&self) -> AK { AK(id: self.id, rc: self.rc.copy()) } }
-extension AK: Equatable { func equals(&self, other: AK) -> Bool { self.id == other.id } }
+extension AK: Equatable { func equals(&self, other: &Self) -> Bool { self.id == other.id } }
 extension AK: Hashable { func hash(&self, h: &var Hasher) { self.id.hash(&var h) } }
 
 func exercise(probe: &Arc<Int>) {

@@ -7,9 +7,6 @@
 // the tier is not consulted: a borrow is passed, nothing is duplicated, and the
 // operand keeps its buffer. The row stays as the ExplicitCopy half of C01's
 // claim, so the ledger still covers both refused tiers.
-// XFAIL: DF-216b `Comparable` still takes `other: Self` by value, so the
-// stopgap refuses the operator on an ExplicitCopy operand with a hand-written
-// body
 // EXPECT: success
 // EXPECT-OUTPUT:
 // longer

@@ -99,8 +99,16 @@ trait NoMove {
 // structs and a payload-deep `==` for enums; a hand-written `equals` overrides
 // the synthesis). Resource types (File, Mutex, ...) never conform. `!=` is the
 // negation of `==`; Float keeps IEEE semantics (NaN != NaN).
+// The right operand is a SHARED REFERENCE at every tier (design 239). It is
+// what the operator lowering has always passed, and taking it by value
+// entitled a hand-written body to `move` a value the caller still owned — a
+// double free out of safe code, at every position `==` reaches. There is no
+// transfer now, so nothing is owed a checkpoint and a move-only type with a
+// hand-written equality is comparable. Explicit call sites spell the borrow
+// (`a.equals(&b)`), as every reference argument in Saw does; the operator
+// spellings are compiler-lowered and unchanged.
 trait Equatable {
-    func equals(&self, other: Self) -> Bool
+    func equals(&self, other: &Self) -> Bool
 }
 
 // =============================================================================
@@ -127,8 +135,10 @@ enum Ordering {
 // a semantic choice — so a struct/enum opts in with an empty
 // `extension T: Comparable {}`, which synthesizes a lexicographic
 // field-order / payload-order compare; a hand-written `compare` overrides it.
+// The right operand is a shared reference, on Equatable's terms and for
+// Equatable's reason (design 239).
 trait Comparable {
-    func compare(&self, other: Self) -> Ordering
+    func compare(&self, other: &Self) -> Ordering
 }
 
 // =============================================================================

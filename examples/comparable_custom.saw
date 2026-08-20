@@ -13,7 +13,7 @@ struct Reverse {
 extension Reverse: Equatable {}
 
 extension Reverse: Comparable {
-    func compare(&self, other: Reverse) -> Ordering {
+    func compare(&self, other: &Self) -> Ordering {
         // Reversed: larger value compares Less.
         if self.value > other.value {
             Ordering.Less

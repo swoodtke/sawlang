@@ -545,9 +545,36 @@ class OperatorsMixin:
         base = self._type_method_base(saw_type)
         mangled = self._mangle_method_name(base, "equals") if base else None
         if mangled is not None and mangled in self.functions:
-            return self.builder.call(self.functions[mangled], [left, right],
-                                     name="eq_call")
+            fn = self.functions[mangled]
+            return self.builder.call(
+                fn, [left, self._comparison_operand_ptr(fn, right)],
+                name="eq_call")
         return self._emit_memberwise_equals(left, right, saw_type)
+
+    def _comparison_operand_ptr(self, fn, right):
+        """The right operand as the callee's second parameter wants it.
+
+        `Equatable.equals` and `Comparable.compare` take `other: &Self` (design
+        239), so a conformance compiled from Saw has a POINTER there while this
+        lowering holds a loaded value — the value is spilled into a scratch
+        alloca and its address passed. The callee borrows for the call and no
+        transfer happens, which is the whole point of the signature: nothing is
+        retained on the way in and nothing is released on the way out.
+
+        The by-value branch is not dead code. `String.equals`/`String.compare`
+        are String's own public API rather than a declared conformance (String
+        conforms builtin, and 200 corpus call sites pass a LITERAL, which has no
+        address to take), so they keep taking `other: String` and this reads the
+        callee's real parameter type rather than assuming.
+        """
+        params = fn.function_type.args
+        if len(params) < 2 or not isinstance(params[1], ir.PointerType):
+            return right
+        if right.type == params[1]:
+            return right
+        slot = self._entry_alloca(right.type, name="cmp_rhs")
+        self.builder.store(right, slot)
+        return slot
 
     def _emit_memberwise_equals(self, left, right, saw_type):
         """Field-by-field `==` over a struct value, ANDed together."""
@@ -768,6 +795,52 @@ class OperatorsMixin:
         # Integers (incl. payload-free enum tags reaching here as a fallback).
         return self._emit_int_compare(left, right)
 
+    def _generate_bound_comparison_call(self, expr):
+        """`a.equals(&b)` / `a.compare(&b)` reached through a trait BOUND.
+
+        The typechecker stamps `comparison_dispatch` when the method resolved
+        against an `Equatable`/`Comparable` bound on a type parameter (design
+        239); this lowers it with the SAME emitter the operator uses, which is
+        what makes it total. Mangling a per-type symbol instead was an ICE at
+        the instantiations a bound exists to serve: `Int` and every other
+        primitive have no `equals` method at all (`Undefined method: Int.equals`
+        — the shape predates this brief), and `String.equals` is String's own
+        by-value API rather than the requirement's body, so it took the operand
+        by value where the requirement lends it.
+
+        `equals` yields the i1 the requirement returns; `compare` yields the
+        i32 that IS an `Ordering` (a payload-free enum is its tag). Both
+        operands arrive as VALUES — reading a `&T` binding yields the value, and
+        the `&` a caller writes at the argument is a spelling the borrow checker
+        wanted, not a second indirection for this lowering to unwrap.
+        """
+        left = self._generate_expression(expr.object)
+        arg = expr.arguments[0].value
+        right = self._generate_expression(
+            arg.expr if isinstance(arg, ReferenceExpr) else arg)
+        saw_type = self._expr_type(expr.object)
+        if saw_type is not None and self.type_param_context:
+            saw_type = self._substitute_saw_type(saw_type,
+                                                 self.type_param_context)
+        if saw_type is not None and saw_type.kind == TypeKind.REFERENCE:
+            saw_type = saw_type.inner_type
+        if saw_type is not None:
+            want = self._get_llvm_type(saw_type)
+            left = self._deref_comparison_operand(left, want)
+            right = self._deref_comparison_operand(right, want)
+        if expr.comparison_dispatch == "Equatable":
+            return self._emit_equals(left, right, saw_type)
+        return self._emit_compare(left, right, saw_type)
+
+    def _deref_comparison_operand(self, value, want):
+        """Load `value` through as many pointers as it takes to reach `want`."""
+        guard = 0
+        while (value.type != want and isinstance(value.type, ir.PointerType)
+               and not isinstance(want, ir.PointerType) and guard < 3):
+            value = self.builder.load(value, name="cmp_deref")
+            guard += 1
+        return value
+
     def _emit_string_compare(self, left, right):
         """String ordering is byte-lexicographic via the stdlib `String.compare`."""
         fn = self.functions.get(self._mangle_method_name("String", "compare"))
@@ -783,8 +856,10 @@ class OperatorsMixin:
         base = self._type_method_base(saw_type)
         mangled = self._mangle_method_name(base, "compare") if base else None
         if mangled is not None and mangled in self.functions:
-            return self.builder.call(self.functions[mangled], [left, right],
-                                     name="cmp_call")
+            fn = self.functions[mangled]
+            return self.builder.call(
+                fn, [left, self._comparison_operand_ptr(fn, right)],
+                name="cmp_call")
         return self._emit_memberwise_compare(left, right, saw_type)
 
     def _emit_memberwise_compare(self, left, right, saw_type):

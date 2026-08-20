@@ -7,8 +7,6 @@
 // is exactly what those bodies declare they receive, so the recursion needs no
 // transitive query and no refusal: the whole tree compares, at every depth, and
 // destroys nothing.
-// XFAIL: DF-216b `Equatable`/`Comparable` still take `other: Self` by value, so
-// the stopgap refuses a comparison that reaches a hand-written body
 // EXPECT: success
 // EXPECT-OUTPUT:
 // gt

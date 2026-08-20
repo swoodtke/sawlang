@@ -567,6 +567,8 @@ is comparable, and it is sound.
 | C10 | the DIRECT call is the borrow: `a.equals(&b)` on a NoCopy operand and on an ExplicitCopy one | `C10_direct_call_transfer_spellings.saw` | 239 — the two spellings of one call agree, which is what DF-216b was about; `move b` / `b.copy()` are gone rather than optional |
 | C11 | the ExplicitCopy tier | `C11_explicitcopy_operand_handwritten_compare.saw` | 239 — the other tier the stopgap refused, restated as the capability |
 | C12 | a comparison destroys neither operand, at any tier | `C12_implicitcopy_operand_survives_consuming_equals.saw` | 239 — the eighth position, past the seven the class sweep probed. The stopgap excluded the Copy tier on the premise that retain semantics made the borrow sound; probed, the retain was never there, so 200 comparisons over-released a heap `String` (SIGTRAP on macOS, tolerated by glibc). The row pins the PROPERTY, and the reference satisfies it at every tier at once |
+| C13 | an Equatable/Comparable conformance must take `other` by reference | `C13_comparison_conformance_must_borrow.saw` | 239 — the declaration-site half. The rule is general (a conformance's parameters mirror the requirement's borrows, both directions, `&` vs `&var` included) and reference-ness only; parameter types were previously not compared at all |
+| C14 | a comparison body cannot consume its operand | `C14_comparison_body_cannot_consume_operand.saw` | 239 — the by-construction half, and why the class is closed rather than guarded: `move other` is the ordinary "cannot move out of reference", reported in the body at the line that wrote it |
 
 ## Shadowing
 
@@ -719,17 +721,18 @@ with unit C (the `main` rule), and G08-G11 with unit B4 (the exit funnel). G01,
 G05-G07 and G15 passed on the unfixed tree and were the controls the fix had to
 leave alone.
 
-Open: **C01-C08, C11-C12** — design 239's rows, restated ahead of the signature
-change as obligation 3 asks. Each states what `other: &Self` delivers — a
-comparison that compiles on a move-only operand with a hand-written body, at
-every position and every tier, and destroys neither operand — and each carries a
-cited XFAIL until `Equatable`/`Comparable` actually take the reference. C09 and
-C10 are the controls that passed on the unfixed tree and had to keep passing;
-C10 is also the evidence that the DIRECT call was never the broken half. This
-subsumes the old entries for C07 (the generic-body position design 219 wave C
-closed by judging the type argument) and C12 (the eighth position, the Copy tier
-the stopgap's premise excluded): both are removed by construction rather than
-answered.
+Closed: **C01-C08, C11-C12** — design 239's rows, restated ahead of the
+signature change as obligation 3 asks and flipped by it. Each states what
+`other: &Self` delivers — a comparison that compiles on a move-only operand
+with a hand-written body, at every position and every tier, and destroys neither
+operand. C09 and C10 are the controls that passed on the unfixed tree and had to
+keep passing; C10 is also the evidence that the DIRECT call was never the broken
+half. C13 and C14 landed with the mechanism rather than ahead of it — they name
+diagnostics that did not exist yet. This subsumes the old entries for C07 (the
+generic-body position design 219 wave C closed by judging the type argument) and
+C12 (the eighth position, the Copy tier the stopgap's premise excluded): both
+are removed by construction rather than answered, and the machinery that
+answered them is deleted.
 
 Closed: **K21, K22, K24** — design 210's three pins, all written under DF-206e.
 K21 (a non-generic imported method embedding with its private siblings intact)

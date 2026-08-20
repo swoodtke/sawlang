@@ -12,7 +12,7 @@ struct Doc {
 }
 
 extension Doc: Equatable {
-    func equals(&self, other: Doc) -> Bool {
+    func equals(&self, other: &Self) -> Bool {
         self.id == other.id
     }
 }

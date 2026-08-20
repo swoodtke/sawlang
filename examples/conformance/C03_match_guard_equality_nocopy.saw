@@ -5,8 +5,6 @@
 // visible — nothing about `case n if a == b` looks like a call at all. Under
 // `other: &Self` (design 239) there is no transfer at any of those positions,
 // so the guard compares and both operands survive it.
-// XFAIL: DF-216b `Equatable` still takes `other: Self` by value, so the
-// stopgap refuses the operator on a move-only operand with a hand-written body
 // EXPECT: success
 // EXPECT-OUTPUT:
 // different
