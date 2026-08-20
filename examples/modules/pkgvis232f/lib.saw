@@ -1,0 +1,12 @@
+// DF-232f fixture: the package's entry module. It reaches its SIBLING's
+// `public(package)` symbol — the direction that must keep working — and
+// re-exports the result through a genuinely `public` surface.
+//
+// The sibling import uses the MAPPED name (`pkgvis`), which is how a file
+// inside a --module-path package names another file of the same package.
+
+import pkgvis.secret.{pkg_secret}
+
+public func lib_answer() -> Int {
+    pkg_secret() * 6
+}

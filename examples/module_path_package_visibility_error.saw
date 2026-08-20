@@ -1,0 +1,17 @@
+// DF-232f, the REFUSAL: the entry file is OUTSIDE the mapped package, so a
+// `public(package)` symbol of that package is not its to name. Before the fix
+// this compiled and ran — `check_visibility` fails OPEN when no package root
+// is known (namespace.py, the `if not package_root: return True` arm), and
+// nothing ever set a root for a --module-path module — so the tier silently
+// degraded to `public` for exactly the packages that most wanted it.
+//
+// `secret_is_reachable` next to it is genuinely `public`, so this refusal is
+// about the TIER, not about `pkgvis.secret` being unreachable.
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: pkg_secret
+// COMPILE-FLAGS: --module-path pkgvis={TESTDIR}/modules/pkgvis232f
+import pkgvis.secret.{pkg_secret, secret_is_reachable}
+
+func main() {
+    print(pkg_secret() + secret_is_reachable())
+}
