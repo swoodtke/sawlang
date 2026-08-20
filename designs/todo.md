@@ -31,7 +31,6 @@ is scheduled and in what order is the whole of what they say.
 
 ## [QUEUE] — scheduled, in order (user-approved)
 
-- Design 239 — Comparable/Equatable take `other: &Self` (RULED Aug 20, user — the DF-216b/C12 class closed by construction; designs/239-comparable-by-reference.md) — after 236 lands (two corpus migrations cannot overlap), BEFORE 235 so the matrices pin the new signatures once. DF-239a (entry below) is its unit 1's FIRST fix — the `&Self` substitution blocker the brief's pre-check found
 - Design 235 — position-matrix ledgers (designs/235-position-matrices.md; SONNET dispatch) — before 234's migration units
 - Design 237 — the ANF-hoist funnel (designs/237-anf-hoist-funnel.md) — before 234
 - Design 205 — platform-pair transfer conversions (designs/205-transfer-conversion-closes.md; worked solution recorded in the brief) — position in queue provisional, before 234 suggested
@@ -62,7 +61,6 @@ User-reserved (hand fixes): DF-232h (rides 234 u1 unless taken earlier), DF-217m
 - DF-216h — renamed extension param substitution (entry below, under design 216) — FOLDED into 239's assessment rider on the same terms
 - DF-217p — driven-frame deinit timing, 61+2 cells (RULED Aug 20, user: SCOPE-END REQUIRED — driven and sync twins must agree, deterministic destruction holds everywhere; implemented as part of design 218 unit 2's safe-Saw transform migration, the corodiff ledger's 61+2 cells as the acceptance matrix; entry below, under design 218 unit 0)
 - DF-217m coro face — receiver temp to frame teardown (rides 217p's ruling; entry below, under NEXT-WAVE SWEEPS)
-- DF-216b / C12 — consuming-equals over-release (RULED Aug 20, user: `other: &Self` — design 239's brief; queue slot after 236, before 235; entry below, under design 216)
 - DF-226b/c — FuncPointer v1 gaps (entries below, under design 226)
 - DF-225o — reemit divergence under load (entry below)
 - Design 231 — native-compiler readiness ledger (designs/231-native-compiler.md)
@@ -2008,6 +2006,12 @@ closures for the first four (and the transform need not be `sync`, so
 suspending transforms survive), and `swap` plus borrowed comparison for `sort`.
 A NoCopy `Vector` sorts end to end today, written from outside std.
 
+**The `sort` half is UNBLOCKED as of Aug 20**: it was gated on DF-216b, whose
+fix (design 239 — `Comparable`/`Equatable` take `other: &Self`) landed, so a
+borrowed comparison is legitimate rather than standing on the hole. The closure
+half already landed. What remains is `_greater_at` and the `sort`/`sort_by`
+extension's bound.
+
 - **DF-216a — ICE: any closure naming `self` inside a method** — **FIXED**
   (design 216 unit 1). A closure body may name `self`, captured BY BORROW like
   the reference a receiver is, non-escaping only. Ruling, the DF-216d hole it
@@ -2162,6 +2166,22 @@ A NoCopy `Vector` sorts end to end today, written from outside std.
   retain-at-lowering and blanket refusal. Design 239's brief
   (designs/239-comparable-by-reference.md) is the plan of record; queue slot
   after 236 lands, before 235.
+  **STATUS: CLOSED Aug 20**, design 239 units 1c+2, branch `design-239`.
+  `Equatable.equals(&self, other: &Self)` and
+  `Comparable.compare(&self, other: &Self)` landed; the stopgap is DELETED
+  (`_consuming_comparison_conformer` and its transitive walk,
+  `_refuse_consuming_comparison`, `_report_consuming_comparison`,
+  `_comparison_type_name`, design 219 wave C's `_tier_cmp_acc` accumulator with
+  its propagate/discharge arms, and the `comparison_requirements` AST
+  annotation), because no transfer exists for any of it to guard. A conformance
+  must now mirror the requirement's borrows (general rule, both directions,
+  `&`/`&var`; rows C13/C14) and `move other` is the ordinary "cannot move out of
+  reference". C01-C08 and C11-C12 flipped to positive rows; C09/C10 were the
+  controls. Corpus migration was the four example types the sweep predicted plus
+  one call site — `String.equals`/`compare` stayed by value, and the brief's
+  *What the build found* says why. See that section for the two other
+  corrections: DF-239a was misdiagnosed (entry above), and closing the
+  requirement-call path fixed a pre-existing `Undefined method: Int.equals` ICE.
 
 **Class sweeps run Aug 13 (obligation 4's first exercise; matrices + mechanism
 anchors in the brief).** DF-216b IS a class: SEVEN unsound positions

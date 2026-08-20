@@ -698,7 +698,9 @@ var scratch: [Int8; 256] = [0; 256] // REPEAT literal: N copies of one value
   forbids the `push` that would reallocate under it). `iter`/`enumerated`
   KEEP `T: Copy` — `next()` hands out an element the consumer owns, which
   is a real copy at the source (design 122). `sort`/`sort_by` keep theirs
-  too, blocked on `Comparable` taking `other: &Self` (DF-216b).
+  too: the blocker was `Comparable` taking `other: &Self`, which design 239
+  landed, so lifting the bound is design 216's remaining half rather than a
+  dependency.
 - A tuple index is a bare integer that never eats a following `.`, so a
   projection continues past it (design 161): `t.0.name`, `t.0.name.len()`,
   `pair.0.x`, and `t.0.1` as two index hops (not the float `0.1`). Works
@@ -1163,36 +1165,37 @@ v.map<String>({ $0.to_string() })   // the closure's return; explicit still wins
   (`struct Pair<A>` + `extension Pair<U>`) does not substitute it, for `Self`
   and for the hand-written `Pair<U>` alike (DF-216h) — repeat the struct's own
   parameter names and it is a non-issue.
-- **A HAND-WRITTEN `equals`/`compare` COSTS A MOVE-ONLY TYPE ITS OPERATORS
-  (design 216, DF-216b).** `Equatable.equals(&self, other: Self)` and
-  `Comparable.compare(&self, other: Self)` take the second operand BY VALUE, so
-  a hand-written body may `move` it — while `==` `!=` `<` `>` `<=` `>=` pass a
-  BORROW. On an ExplicitCopy or NoCopy operand (the tiers where a checked call
-  site would have demanded `move`/`.copy()`) the operator is refused:
+- **`equals`/`compare` TAKE `other: &Self` (design 239).** The right operand is
+  a shared reference at every tier, which is what `==` `!=` `<` `>` `<=` `>=`
+  have always passed. A comparison destroys neither operand, and a move-only
+  type with a HAND-WRITTEN comparison is comparable:
   ```saw
   extension Tag: Equatable {                  // Tag is NoCopy
-      func equals(&self, other: Tag) -> Bool { let t = move other  self.id == t.id }
+      func equals(&self, other: &Self) -> Bool { self.id == other.id }
   }
-  a == b            // error: `Tag` implements NoCopy and its hand-written
-                    //   `equals` takes `other` by value, but the operator
-                    //   passes a borrow
-  a.equals(move b)  // OK — the transfer is written (`b.copy()` on ExplicitCopy)
+  a == b                     // fine, at every tier
+  if not a.equals(&b) { }    // the direct call spells the borrow
   ```
-  `@synthesize` is the other way out and usually the right one: a synthesized
-  body never consumes its operand, so a FULLY synthesized tree keeps every
-  operator at every tier — `@synthesize extension Tag: Equatable {}` on the
-  same move-only type compares fine. The rule is TRANSITIVE, which is the part
-  that surprises: a `@synthesize`d outer type whose memberwise comparison
-  recurses into a member's hand-written body is refused too, naming the member
-  (`Holder` ... recurses into `Tag`'s hand-written `equals`), and it follows
-  struct fields, enum payloads and tuple elements alike. TWO shapes are NOT yet
-  covered and still corrupt silently: the operators inside a GENERIC body under
-  a `T: Equatable`/`T: Comparable` bound instantiated at such a type (the body
-  is checked once with `T` abstract), and a Copy operand — the operator
-  adds no retain at any tier, so a consuming `equals` on a `struct Held { name:
-  String }` over-releases and 200 comparisons SIGTRAP. **THE RULE THAT KEEPS YOU
-  OUT OF ALL OF IT: a comparison body READS `other`, never `move`s it.** A
-  `@synthesize`d conformance always does.
+  Two refusals fall out of the signature, both clean. A by-value `other` is a
+  DECLARATION error (``parameter `other` of `equals` must be a reference``,
+  with the fixit), and `move other` inside the body is the ordinary "cannot
+  move out of reference". There is no tier condition, no transitive query and
+  no `@synthesize` escape hatch to reach for — a synthesized body was only ever
+  the way out because it could not consume, and now nothing can. The
+  conformance rule is general: a conformance's parameters mirror the
+  requirement's borrows, both directions, `&` against `&var` included.
+  Calls spell the `&` at a concrete receiver and through a generic bound alike
+  (`func differ<T: Equatable>(a: &T, b: &T) -> Bool { a.equals(&b) }`, which
+  works at every conforming type including the primitives and `String`).
+  ONE ASYMMETRY worth knowing: `String.equals`/`String.compare` keep a by-value
+  `other`, because `String` conforms builtin rather than through a written
+  conformance and those are its own API — so `s.equals("literal")` still works,
+  where `&"literal"` could not (a literal has no address).
+  Treat all of this as working now and SUSPECT in older builds, where the
+  operand was by value: a hand-written body could `move` it and free a value
+  the caller still owned, which the compiler answered by REFUSING the operator
+  on ExplicitCopy/NoCopy operands (transitively, through fields, payloads and
+  tuple elements) and did not catch at all on the Copy tier.
 - **SERIALIZATION (design 169): `Serialize` / `Deserialize` over `Encoder` /
   `Decoder`.** Prelude-visible, both profiles. A value writes itself into a
   format-agnostic sink and reads itself back out of one. `@synthesize` DERIVES

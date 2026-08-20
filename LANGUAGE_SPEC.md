@@ -2107,8 +2107,12 @@ match step() {
 
 **Object safety (v1).** A trait is erasable only if every method is
 dispatchable. These are rejected with a diagnostic naming the reason:
-- a method that takes or returns `Self` **by value** (the whole Copy family) —
-  the `&self` / `&var self` *receiver* is fine, so a mutating method IS erasable;
+- a method that names `Self` in a **parameter** or in its **return type** — two
+  `any Trait` values need not share a concrete type, so no vtable thunk can
+  accept the operand or size the result. This covers the Copy family
+  (`-> Self`), `Equatable`/`Comparable` (`other: &Self`), and any nesting
+  (`-> Result<Self, E>`). By reference or by value makes no difference; the
+  `&self` / `&var self` *receiver* is fine, so a mutating method IS erasable;
 - a method with its own generic type parameters;
 - a trait with associated types (pinning `any Iterator<Item = Int>` is a later
   addition);
@@ -4935,7 +4939,7 @@ is what keeps "a raw-backed enum value is always a declared case" true.
   marks it `@synthesize` to have the comparison derived: memberwise `&&` for
   structs, payload-deep for enums (equal tag, then the active variant's payload
   fields, recursively). A hand-written
-  `func equals(&self, other: Self) -> Bool` is used instead of the derivation.
+  `func equals(&self, other: &Self) -> Bool` is used instead of the derivation.
   A declared conformance that neither carries `@synthesize` nor writes `equals`
   is a compile error; see [Synthesized conformances](#synthesized-conformances).
 
@@ -4957,6 +4961,9 @@ is what keeps "a raw-backed enum value is always a declared case" true.
 - `a == b` on a conforming user type lowers to its `equals`; primitives keep
   direct `icmp`/`fcmp`. `!=` is always the negation of `==`. `String ==` is
   content equality. **Float keeps IEEE semantics** — `NaN != NaN`.
+- **The right operand is a shared reference**, at every tier: see
+  [The comparison operand is a
+  reference](#the-comparison-operand-is-a-reference).
 - **Migration note:** payload-carrying enums previously had a tag-only `==`
   (so `Msg.Write("a") == Msg.Write("b")` was wrongly `true`). They now have no
   `==` until they declare `Equatable`, and it is payload-deep.
@@ -4970,7 +4977,7 @@ the ordering operators `< <= > >=`, which **desugar to `compare`**:
 enum Ordering { case Less, case Equal, case Greater }
 
 trait Comparable {          // requires Equatable
-    func compare(&self, other: Self) -> Ordering
+    func compare(&self, other: &Self) -> Ordering
 }
 ```
 
@@ -4988,18 +4995,21 @@ trait Comparable {          // requires Equatable
 - **Requires Equatable.** A `Comparable` type must also be `Equatable` (so `==`
   and `compare(...) == .Equal` agree); a trivial struct satisfies this by
   auto-`Equatable`, otherwise declare `@synthesize extension T: Equatable {}` too.
-- `a < b` is `a.compare(b) == .Less`, `a <= b` is `!= .Greater`, etc. A
+- `a < b` is `a.compare(&b) == .Less`, `a <= b` is `!= .Greater`, etc. A
   `T: Comparable` generic bound grants the operators in a generic body.
 - **Float NaN:** a `NaN` is unordered, so every ordering operator involving it
   is `false` (matching the primitive `fcmp`); in a three-way `compare`, an
   unordered pair yields `Equal` (there is no total order over NaN — documented).
 
-### A comparison operator may not reach a consuming conformance
+### The comparison operand is a reference
 
-**Status: implemented.** `Equatable.equals(&self, other: Self)` and
-`Comparable.compare(&self, other: Self)` take the second operand **by value**,
-so a hand-written body is entitled to `move` it. The operators lower to those
-methods but pass a reference. Where the two disagree, the operator is refused:
+**Status: implemented.** `Equatable.equals(&self, other: &Self)` and
+`Comparable.compare(&self, other: &Self)` take the right operand as a shared
+reference, at every copy tier. A comparison therefore destroys neither operand,
+and there is no rule to remember: nothing is transferred, so no conformance can
+consume what it was handed.
+
+A move-only type with a hand-written comparison is comparable:
 
 ```saw
 struct Tag { id: Int }
@@ -5007,73 +5017,71 @@ extension Tag: NoCopy {
     func deinit(&var self) { print("drop {self.id}") }
 }
 extension Tag: Equatable {
-    func equals(&self, other: Tag) -> Bool {
-        let taken = move other      // legal: `other` arrived by value
-        self.id == taken.id
+    func equals(&self, other: &Self) -> Bool { self.id == other.id }
+}
+extension Tag: Comparable {
+    func compare(&self, other: &Self) -> Ordering {
+        if self.id < other.id { Ordering.Less }
+        else if self.id > other.id { Ordering.Greater }
+        else { Ordering.Equal }
     }
 }
 
 let a = Tag(id: 9)
 let b = Tag(id: 3)
-if a == b { }
-// error: cannot compare values of type `Tag` with `==`: `Tag` is NoCopy and
-//   its hand-written `equals` takes `other` by value, but the operator passes
-//   a borrow — a conformance that consumes `other` would release a value the
-//   caller still owns (DF-216b)
-// hint: call it directly with an explicit transfer — `a.equals(move b)` — or
-//   make the conformance `@synthesize`d; a synthesized body never consumes
-//   its operand
+if a > b { print("gt") }
+// prints: gt
+// prints: drop 3
+// prints: drop 9      — two drops for two values, however many comparisons ran
 ```
 
-Two conditions must both hold for the refusal:
+Two rules follow from the signature.
 
-- The operand's copy tier is **ExplicitCopy or NoCopy** — the tiers where a
-  checked call site could not have passed the value without writing `move` or
-  `.copy()`. A Copy or trivial operand is unaffected, so a hand-written
-  `equals` on an ordinary value type keeps its operators.
-- The comparison **reaches a hand-written body**, directly or through the
-  members, enum payloads, tuple elements, optional payloads and array elements
-  a synthesized comparison recurses into. A `@synthesize`d body never consumes
-  its operand, so a fully synthesized tree stays legal at every tier:
-  `@synthesize extension Tag: Equatable {}` makes the same move-only `Tag`
-  comparable with `==`, `<` and the rest.
-
-The transitive half matters because nothing at the outer type's declaration
-names the consuming body:
+**A conformance must declare the reference.** A by-value `other` says the body
+may take ownership of an operand every caller only lends, so it is refused at
+the declaration:
 
 ```saw
-struct Holder { tag: Tag }          // Tag has the hand-written `equals` above
-extension Holder: NoCopy {}
-@synthesize
-extension Holder: Equatable {}
-
-if holder_a == holder_b { }
-// error: cannot compare values of type `Holder` with `==`: `Holder` is NoCopy
-//   and its comparison recurses into `Tag`'s hand-written `equals`, which
-//   takes `other` by value, but the operator passes a borrow — a conformance
-//   that consumes `other` would release a value the caller still owns
-//   (DF-216b)
+extension Tag: Equatable {
+    func equals(&self, other: Tag) -> Bool { self.id == other.id }
+}
+// error: parameter `other` of `equals` must be a reference: trait `Equatable`
+//   declares it `&Self`, and this implementation takes it by value (`Tag`)
+// hint: write `func equals(&self, other: &Self)` — on `Tag` that is `&Tag`. A
+//   by-value parameter says the body may consume what it is given, and every
+//   caller of the requirement hands it a borrow
 ```
 
-Three spellings work. Call the method with an explicit transfer,
-`a.equals(move b)` on a NoCopy operand or `a.equals(b.copy())` on an
-ExplicitCopy one; make the conformance `@synthesize`d; or write a conformance
-that reads `other` instead of consuming it and reach it through one of the
-first two.
+The rule is general — a conformance's parameters mirror the requirement's
+borrows, in both directions and including `&` against `&var`.
 
-**Known gaps.** Two shapes still reach a consuming conformance through an
-operator:
+**A body cannot consume its operand.** `move other` is the ordinary "cannot
+move out of reference", reported in the body at the line that wrote it. That is
+what closes the hole by construction rather than by a check: there is no
+position from which a conformance could release a value the caller still owns.
 
-- Inside a generic body under a `T: Equatable` or `T: Comparable` bound, when
-  the bound is discharged at a move-only conformer with a consuming body. A
-  generic body is checked once with `T` abstract, so the operand type never
-  reaches the check.
-- On a Copy operand. The operator passes the operand without a retain,
-  so a body that consumes it releases a reference the caller still holds. The
-  refusal above does not cover this tier.
+**Calls spell the borrow.** The operators are compiler-lowered and unchanged
+(`a == b`, `a < b`); the direct call writes the `&` every reference argument in
+Saw writes, at a concrete receiver and through a generic bound alike:
 
-Until both are closed, write `equals` and `compare` bodies that read `other`
-rather than consuming it. A `@synthesize`d conformance always does.
+```saw
+if not a.equals(&b) { print("tags differ") }
+
+func differ<T: Equatable>(a: &T, b: &T) -> Bool { a.equals(&b) }
+```
+
+`differ` works at every conforming type — the integers, `Float`, `String`, and
+your own structs and enums, derived or hand-written — because a call through
+the bound uses the same lowering the operator does.
+
+**Migration.** A pre-existing conformance written `other: Self` gets the error
+above; change the parameter to `&Self` and delete any `move` of it. The tiers
+that used to be refused outright (an ExplicitCopy or NoCopy operand reaching a
+hand-written body, directly or through a member, enum payload, tuple element,
+optional payload or array element) all compare now, and so does a generic body
+under a `T: Equatable`/`T: Comparable` bound instantiated at one. `String`'s own
+`equals`/`compare` keep a by-value `other`: `String` conforms builtin rather
+than through a written conformance, and those methods are its own API.
 
 ### Hashing (`Hashable`) and `Hasher`
 
@@ -5274,9 +5282,12 @@ element it owns, which is a copy at the source.
   comparator is a **non-escaping** closure parameter.
 - Element *movement* uses byte-level `swap` (refcount-neutral, never a copy);
   *comparison* reads both elements by value through `get`, which is what binds
-  them to `T: Copy`. No ExplicitCopy element is ever silently duplicated.
-  Lifting this bound needs `Comparable`/`Equatable` to take `other: &Self`
-  (DF-216b), so it stays where the closure methods no longer are.
+  them to `T: Copy`. No ExplicitCopy element is ever silently duplicated. The
+  bound was blocked on `Comparable`/`Equatable` taking `other: &Self`, which
+  they now do ([The comparison operand is a
+  reference](#the-comparison-operand-is-a-reference)); lifting it is the
+  remaining half of `designs/216-vector-copy-bounds.md`, which the closure
+  methods already had.
 
 ### `Map<K: Hashable + Equatable, V, A: Allocator = GlobalAllocator>`
 

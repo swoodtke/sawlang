@@ -1,9 +1,11 @@
 # Design 239 — Comparable/Equatable Take `other: &Self`
 
-**Status: RATIFIED Aug 20 2026** (user ruling: `&Self`, over retain-at-lowering
-and blanket refusal — the by-construction closure of DF-216b's class and C12).
-**Queue slot: after design 236 LANDS** (two corpus migrations cannot overlap),
-**BEFORE design 235** so the matrix ledgers pin the new signatures once.
+**Status: BUILT Aug 20 2026**, branch `design-239` (ratified the same day; user
+ruling: `&Self`, over retain-at-lowering and blanket refusal — the
+by-construction closure of DF-216b's class and C12). Landed in four commits:
+1a the DF-239a fix, 1b the conformance rows, 1c+2 the signature change and the
+corpus, 3 the docs. What the units found is recorded under *What the build
+found* at the end.
 
 ## The decision
 
@@ -84,3 +86,50 @@ exists, so no checkpoint is needed and no retain is owed.
 Compiler branch: full suite + sos_runner both arches per commit; terminal
 full battery. XFAIL flips (C07/C12 pins) remove their markers in the landing
 that fixes them.
+
+## What the build found
+
+Three things the plan above did not anticipate. Each is recorded here rather
+than in the tracker because each corrects a claim this brief made.
+
+**1. DF-239a was misdiagnosed, and the real mechanism is bigger.** Substituting
+`Self` inside a reference never dropped the `&`: both pinned faces work under
+the spelling Saw actually has (`a.merge(&b)`, `self.merge(&other)`), and
+`Bag_doubled` really does take `%Bag*`. What the pins hit was a plain MISSING
+BORROW — Saw has no implicit re-borrow at any type, and the default-body face
+reproduces identically for a `&Bag` parameter with no `Self` anywhere. The
+mechanism is `_check_type_param_method_call`, the one call form in the language
+with no argument-compatibility loop: it checks argument COUNT and defers deep
+typing (a trait signature may name associated types), so everything it defers
+reaches codegen, where a mismatch is an ICE rather than a diagnostic. Three
+probed rows ICEd; the reference-spelling axis is fixed (a spelling question, so
+decidable whatever `Self` denotes), the deep-typing residue is filed as
+**DF-239b** with a pin. The erasure diagnostic's wart went with it.
+
+**2. `String.equals`/`String.compare` do NOT migrate**, and the consumer sweep
+could not have seen why. `String` conforms builtin — there is no `extension
+String: Equatable` whose signature the matching rule judges — so those methods
+are String's own public API, called as `s.equals("literal")` at 200 sites in the
+tree, and a literal has no address for `&` to take (`&"literal"` is
+``can only take reference to a variable, field, or array element``). They stay
+by value, the declaration carries the reason, and neither path that needs the
+requirement's shape comes through them.
+
+**3. That left a hole the brief's units did not cover, and closing it fixed a
+pre-existing ICE.** A call BY NAME through an `Equatable`/`Comparable` bound had
+to keep working at `T = String`, where the mangled symbol now had the wrong ABI.
+The requirements have no single callable body at all — a primitive has none, and
+String's is its own API — so the call lowers with the OPERATOR's emitter
+(`comparison_dispatch`), which is total over the conforming surface. That also
+closes `same<Int>`, an `Undefined method: Int.equals` ICE that predates this
+brief. Pinned by `examples/comparison_requirement_call_through_bound.saw` across
+four instantiations (primitive, String, hand-written, derived).
+
+Two conformance rows landed WITH the mechanism rather than ahead of it, because
+they name diagnostics that did not exist to pin: **C13** (a by-value `other` is
+a declaration-site error) and **C14** (`move other` is "cannot move out of
+reference"). The conformance-matching rule they pin is general — a conformance's
+parameters mirror the requirement's borrows, both directions, `&` against `&var`
+included — which is the funnel version of what the brief asked for; parameter
+types were previously not compared at all. `_resolve_trait_type` grew the
+REFERENCE arm it needed to render `&Self` as `&Tag`.
