@@ -184,8 +184,17 @@ class TypeChecker(ExpressionsMixin, StatementsMixin, RegistrationMixin, TypeUtil
                  no_hidden_alloc: bool = False,
                  target_triple: Optional[str] = None,
                  target_features: Optional[str] = None,
-                 runtime_provider: bool = False):
+                 runtime_provider: bool = False,
+                 mapped_packages: Optional[Set[str]] = None):
         self.reporter = reporter
+        # DF-232f: the top-level names bound by `--module-path name=dir`. Each
+        # one IS a package (ruled Aug 17): every file under the mapped
+        # directory is a sibling, and the entry file — which never appears
+        # here — is outside. `_visibility_relation_allows` roots
+        # `public(package)` at `(name,)` for these, exactly as it roots std at
+        # `("<std>",)`. Without it these modules had NO root, and the tier
+        # fell through check_visibility's fail-open arm to plain `public`.
+        self.mapped_packages: Set[str] = set(mapped_packages or ())
         # design 135: `--no-hidden-alloc`. Forbids the allocations the COMPILER
         # inserts that no source construct names — the escaping-closure
         # environment, the String a `"{x}"` interpolation builds, the `to_string()`
@@ -1048,6 +1057,13 @@ class TypeChecker(ExpressionsMixin, StatementsMixin, RegistrationMixin, TypeUtil
         # sharing works and a user module (not under `("<std>",)`) is excluded.
         if def_module and def_module[0] == "<std>":
             package_root = ("<std>",)
+        # DF-232f: a `--module-path name=dir` package is a package too. Root it
+        # at `(name,)`, so every module under the mapped dir (`name`,
+        # `name.sub`, `name.a.b`) is inside and the entry file — whose module
+        # is never a mapped name — is outside. Same shape as std's arm above,
+        # one line lower in precedence because std is itself never mapped.
+        elif def_module and def_module[0] in self.mapped_packages:
+            package_root = (def_module[0],)
         elif package_root is None:
             package_root = getattr(self.namespace, 'package_root', ())
         return self.namespace.check_visibility(
