@@ -51,6 +51,8 @@ User-reserved (hand fixes): DF-232h (rides 234 u1 unless taken earlier), DF-217m
 
 ## [BACKLOG] — filed, not scheduled
 
+- `public(package) import` — should the scoped re-export form exist? Refused today (design 229). Real use case: an INTERNAL PRELUDE, one sibling aggregating names for the others (Rust's `pub(crate) use`). Against: siblings can already import each other directly, so it buys convenience, not capability — and kcore, the biggest multi-file package and the one that motivated the tier, does NOT want it (its `public import` block is the EXTERNAL facade). Wait for a package that feels the pain (entry: the re-narrowing rider section)
+- PIN OWED — `public import` must not widen a `public(package)` symbol. Verified by hand Aug 20 (the kcore flip errored instead of passing), untested. Soundness property of design 229 x design 80 (entry: the re-narrowing rider section)
 - DF-232d — `mod.STATIC = v` assignment position (entry below)
 - DF-232e — import-cycle diagnostic (entry below)
 - DF-232g — imported-const static folding (entry below)
@@ -302,11 +304,10 @@ BLAST RADIUS measured before gating: ZERO `public(package)` sites in sos/, libs/
 blade/, selfhost/, devtools/ — only examples/ uses the tier today, which is why
 enforcement could land without a migration. Gates: full suite 2018 passed /16
 pre-existing cited xfails, sos_runner 80 passed across riscv32 + arm64.
-STILL OPEN — the mechanical RE-NARROWING rider (queue item 7): kcore's 199
-`public` names flip to `public(package)` wherever no consumer needs them, target
-back near the original 15. This fix is what makes that rider mean anything; it
-does not perform it, and design 80's gate protects nothing inside kcore until
-it runs.
+THE RE-NARROWING RIDER LANDED Aug 20 (see its section below): kcore went 119
+`public` -> 11, so design 80's gate protects the kernel's tables again. What
+remains open there is sosabi (2), hal-arm64 (2), toml/semver (1 each), and the
+~179 public MEMBERS no pass has audited.
 NOTE for design 238 unit 2: imgformat moving to `libs/imgformat` does not
 disturb this — package identity is the MAPPED NAME, not the directory path.
 
@@ -346,6 +347,37 @@ pass will have the same class of error. The oracle procedure: flip EVERY kcore
 exactly the symbols the errors name — DF-232f's refusal names the tier, the
 defining module and what IS exported, so each error is self-describing. No
 guessing, and the survivor set is discovered rather than asserted. [232, 80]
+
+KCORE LANDED Aug 20 — 119 public -> 11 (108 narrowed), the method exactly as
+ruled. THE SURVIVOR SET WAS ALREADY WRITTEN DOWN: it is precisely `lib.saw`'s
+`public import` block — align_up, Console, ExitCode, console, fatal,
+fatal_image, start_tick, start_process, timer_ticks, ktrap,
+load_root_and_enter. The facade had documented the intended API all along, and
+the compiler independently rediscovered it. (My grep survey's "~15" was the
+same set plus its own false positives; the oracle is what settled it — further
+evidence for the ruled method.) Gate: `battery.sh suite sos` GREEN, both
+stages, 578s; sos_runner 80 passed across riscv32 + arm64.
+
+TWO PROPERTIES THE ORACLE TAUGHT — both about `public import`, both worth
+keeping:
+1. `public(package) import` is REFUSED (design 229: "`public import` is the
+   only re-export form — a scoped visibility is not supported on an import").
+   kcore's 7 re-exports stay `public import`. Whether the scoped form SHOULD
+   exist is a live question — see [BACKLOG].
+2. **`public import` does NOT widen a `public(package)` symbol.** Re-exporting
+   through the facade carries the NARROWER tier: an outside consumer is still
+   refused, which is why the flip produced errors rather than silently passing.
+   That is the safe behaviour and the whole reason this narrowing is real and
+   not cosmetic — if the re-export widened, `lib.saw` would be a hole that
+   republished all 108 names. It is currently UNPINNED. **A pin is owed** —
+   this is a soundness property of design 229 x design 80 that nothing tests,
+   and it is exactly the kind of property that regresses silently.
+
+REMAINING (unscheduled, small): sosabi 2 (`PROCESS_STATUS_KIND_SHIFT`,
+`PROCESS_STATUS_CODE_MASK`), hal-arm64 2 (`mair_value`, `page_tables_build`),
+toml 1 (`TomlTable`), semver 1 (`ReqKind`), plus ~179 public MEMBERS (methods,
+struct fields) that no pass has audited — the kcore run covered top-level
+declarations only. sysapi stays wide BY DESIGN (spec §5.7).
 
 ## DF-232e — an IMPORT CYCLE is not diagnosed: the symbols silently vanish and
 ## the error lands on an innocent third module (filed Aug 17, the kcore split's
