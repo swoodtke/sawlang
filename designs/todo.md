@@ -2102,6 +2102,16 @@ A NoCopy `Vector` sorts end to end today, written from outside std.
   so a fix is a funnel over "what does this receiver bind the extension's
   parameters to" rather than a patch at one arm. No pin filed — the matrix
   records the row it does not cover, with this number at the line.
+  ASSESSED Aug 20 (design 239 unit 1a's rider check, re-probed
+  `.build/scratch/p216h.saw`): NOT DF-239a's mechanism and not a substitution
+  WALK at all. `_substitute_self_type` and `SawType.substitute` both rebuild a
+  reference correctly; what is wrong is the MAP they are handed —
+  `expressions.py:9223-9226` keys `type_subst` by `struct_info.type_params`, the
+  STRUCT's declared names, so a renamed extension parameter is a key that was
+  never inserted. Fixing it means plumbing the owning EXTENSION's parameter
+  names onto the method symbol and agreeing with codegen's mangling, which is
+  where the design surface is (does a renamed parameter participate in the
+  monomorphization key?) — so it stays its own dispatch.
 - **DF-216e — CLOSED (Aug 17), and it needed no new type: the ESCAPING BIT was
   missing at two positions.** The filing read the acceptance as a position
   heuristic that could not tell "the callee RUNS this closure" from "the callee
@@ -2185,6 +2195,19 @@ spellings that reach it. The sweep also found:
   `examples/generic_static_type_arg_inference.saw` (XFAIL, all four call
   shapes). Design 236 (the required `static` keyword) names this path but
   does not fix it.
+  ASSESSED Aug 20 (design 239 unit 1a's rider check, re-probed): NOT DF-239a's
+  mechanism. Located precisely, both halves. TYPECHECKER:
+  `_check_static_method_call` (expressions.py:9918-9930) builds its `type_map`
+  from the RECEIVER's explicit type args and the STRUCT's type params ONLY —
+  the instance path's method-type-param block (`_solve_call_type_args` +
+  `_check_type_param_bounds`, expressions.py:9435-9488) has no counterpart
+  there, so the method's own `U` is never bound by inference OR by an explicit
+  `<Int64>`. CODEGEN: `_generate_static_method_call` (calls.py:2511-2557)
+  monomorphizes the STRUCT for `Vector<Int>.f(...)` and stops — no
+  `_ensure_monomorphized_generic_method`, no `method_type_args` in the mangle,
+  which is the `Undefined static method` DF-217d reports. So the fix is a
+  monomorphization path that does not exist rather than a check that was
+  skipped, and it wants its own dispatch. DF-217d rides it unchanged.
 
 ## Design 219 — generic tier requirements (LANDED Aug 14; the DF-217i fix)
 
