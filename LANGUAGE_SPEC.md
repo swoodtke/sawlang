@@ -726,7 +726,7 @@ are **implemented** (see Traits). Stdlib methods used only to illustrate (e.g.
 ### Primitive Types
 
 Common types — `Int`, `UInt`, the sized `Int8`…`Int64`/`UInt8`…`UInt64`,
-`Float`/`Float64`, `Bool`, and `String` — are implemented. `Int128`/`UInt128`,
+`Float`, `Bool`, and `String` — are implemented. `Int128`/`UInt128`,
 `Float32`, and `Char` are *planned*. `Never` (the bottom type) is the type of a
 diverging expression and is spellable as a return type (`func boom() -> Never`;
 `@export`'s `_start` shape lowers it to `void` + noreturn, design 58). Two
@@ -746,9 +746,10 @@ Int    // Platform-native signed — pointer width (i64 on 64-bit, i32 on riscv3
 UInt   // Platform-native unsigned — pointer width
 
 // Floating point
-Float64
+Float       // 64-bit IEEE 754 — the one float type (ruled Aug 20: no
+            // `Float64` alias; a width-named family may return if a
+            // narrower float ever lands)
 Float32     // (planned)
-Float       // Alias for Float64
 
 // Other primitives
 Bool        // true, false
@@ -1461,7 +1462,7 @@ extension Slot: NoCopy {}
 let s = Slot.Filled(r: Res(id: 7))
 match s {
     case Filled(r) -> use(move r),  // `r` owns the payload
-    case Empty -> ()
+    case Empty -> {}
 }
 match s { ... }   // error: use of moved variable `s`
 ```
@@ -1479,8 +1480,8 @@ enum Holder {
 @synthesize extension Holder: Copy {}
 
 let h = Holder.Full(a: Arc<Res>(value: Res(id: 9)))
-match h { case Full(a) -> first(a), case Nothing -> () }
-match h { case Full(a) -> second(a), case Nothing -> () }
+match h { case Full(a) -> first(a), case Nothing -> {} }
+match h { case Full(a) -> second(a), case Nothing -> {} }
 // the payload is released once, when `h`'s scope ends
 ```
 

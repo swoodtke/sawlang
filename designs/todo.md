@@ -35,16 +35,13 @@ is scheduled and in what order is the whole of what they say.
 - Design 235 — position-matrix ledgers (designs/235-position-matrices.md; SONNET dispatch) — before 234's migration units
 - Design 237 — the ANF-hoist funnel (designs/237-anf-hoist-funnel.md) — before 234
 - Design 205 — platform-pair transfer conversions (designs/205-transfer-conversion-closes.md; worked solution recorded in the brief) — position in queue provisional, before 234 suggested
-- Design 234 — the fallibility flip (designs/234-fallibility-flip.md) — after 235/237; M3 unit 1.5 may interleave with its units 1-2 only
+- Design 234 — the fallibility flip (designs/234-fallibility-flip.md) — after 235/237 (the M3-1.5 interleave carve-out WITHDRAWN by user, Aug 20 — 1.5 waits for sawos)
 - sos riders batch — REMAINDER ONLY: `clock_get` `kind:`→`type:` (DF-232b landed), abi enums decimals→shifts (DF-232c landed). The kcore re-narrowing LANDED Aug 20; what is left of the narrowing is small and unscheduled (sosabi 2, hal-arm64 2, toml 1, semver 1, ~179 unaudited public MEMBERS) — see the re-narrowing rider section
 - Design 238 — the sawos split (designs/238-sawos-split.md; four rulings Aug 19, D-b1/b2/b3 open) — BEFORE the M3 ladder; its unit 1 (the freestanding suite) may start any time and is worth pulling forward
 - M3 ladder — designs/232-sos-m3-sketch.md: unit 1.5 interruptibility, 2 CreateProcess, 2.75 handle lifecycle, 3 give, 4 Memory/IoMemory, 5 quotas, 5.5 death notifications, 6 money shot — runs IN sawos, after design 238
 
-CONFLICT OWED A RULING (raised Aug 19 by 238's scheduling): design 234's
-carve-out lets M3 unit 1.5 interleave with 234's units 1-2, which puts 1.5 in
-THIS repo before the split (238) — the one thing "238 before more M3 work" is
-meant to prevent. Either the carve-out is withdrawn (1.5 waits for sawos) or
-1.5 is accepted as in-tree work the split then moves. Not decided.
+RESOLVED Aug 20 (user): the 234 carve-out is WITHDRAWN — M3 unit 1.5 waits
+for sawos; "238 before more M3 work" is absolute.
 
 User-reserved (hand fixes): DF-232h (rides 234 u1 unless taken earlier), DF-217m sync half (entry below, under NEXT-WAVE SWEEPS)
 
@@ -69,7 +66,7 @@ User-reserved (hand fixes): DF-232h (rides 234 u1 unless taken earlier), DF-217m
 - DF-223b — existential dispatch of a suspending trait method, owed a DESIGN (entry below, under design 223)
 - DF-219c — the spawn capture audit is not bound-aware (soundness-adjacent; entry below, under design 219)
 - DF-224c — `Channel<T?>` call-site auto-wrap ICEs inside a driven body (entry below, under DF-224a/b)
-- DF-225c / DF-225e / DF-225h — three doc-sync RULINGS OWED: `Float64` as a real alias, a bare import reaching std, `()` vs `Void` (entry below)
+- DF-225c / DF-225e — RULED Aug 20 (user), compiler halves pending as a small-fix batch: Float-only (drop the `Float64` name), `std/` off bare-import search paths (entries below). DF-225h fully CLOSED same day: `()` stays a distinct tuple, design 122/132's visible-Void rejection stays ABSOLUTE (a proposed `case _ -> Void` spelling was considered and REJECTED for the exception it would carve), `{}` is the do-nothing arm spelling — spec's three arms fixed
 
 ## Design 234 — the fallibility flip (RATIFIED Aug 17; QUEUED behind the
 ## three in-flight Aug-17 branches)
@@ -1368,7 +1365,14 @@ sub-agents, one lead), not one lucky repro.
   a class" shape obligation 4 asks a fix brief to sweep before
   dispatch (other likely positions, unswept: a trait method's
   parameter/return type, a `type` alias RHS, a generic bound).
-- **DF-225c (NEEDS A RULING, not a doc fix) — `Float64` cannot be produced
+- **DF-225c (RULED Aug 20, user: FLOAT ONLY — reading 2, sharpened: `Float`
+  is THE float type, the `Float64` name is dropped/removed rather than
+  wired; `Float32` stays a planned future narrower type; there is no
+  `Double` and never was, probed same day. Spec doc half DONE Aug 20 —
+  the alias claim, the primitive table, and every worked example now say
+  `Float`; the CBOR wire-width sentence untouched. Compiler half PENDING,
+  small-fix batch: remove the `Float64` type-name registration so the
+  spelling errors cleanly.) — original filing:** `Float64` cannot be produced
   by any literal, cast, or arithmetic, contradicting LANGUAGE_SPEC.md's own
   "`Float` // Alias for `Float64`" claim (lines 669-670, 690-692, stated as
   `implemented`).** `let x: Float64 = 1.0` fails with `cannot assign
@@ -1399,7 +1403,12 @@ sub-agents, one lead), not one lucky repro.
   to `self`'s inferred type inside a primitive extension not unifying
   with the primitive type it visibly is. Falsifies LANGUAGE_SPEC.md's
   "Conformances on primitives" worked example (block 153, L5051).
-- **DF-225e (needs a ruling, not a bug per se) — a bare `import <name>`
+- **DF-225e (RULED Aug 20, user: reading 1 — `std/` comes OFF the bare
+  import's search path; only `std.`-prefixed imports reach std sources, per
+  design 150's uniform model, and the spec's documented collision
+  diagnostic becomes reachable. Compiler fix PENDING, small-fix batch:
+  module_resolver.py search-path split + a pin for the user-module-named-
+  `data` case.) — original filing:** a bare `import <name>`
   with no `std.` prefix silently resolves into `sawc/std/<name>.saw`
   when the name happens to collide with a real std leaf module.**
   `sawc/module_resolver.py`'s search-path list always includes `std/`,
@@ -1422,7 +1431,12 @@ sub-agents, one lead), not one lucky repro.
   name but doesn't claim what happens if you get it wrong; a reader on
   macOS who copies the ELF-shaped form as written hits an LLVM crash
   instead of a compiler error naming the fix.
-- **DF-225h (needs a ruling) — a bare `()` does not unify with `Void` as a
+- **DF-225h (RULED Aug 20, user, and CLOSED — no compiler work): `()` and
+  `Void` stay DISTINCT; design 122/132's visible-Void rejection is
+  ABSOLUTE (a `case _ -> Void` spelling was proposed and REJECTED — it
+  would carve a position-specific exception into a deliberately absolute
+  rule); `{}` is the do-nothing arm spelling and the spec's three `()`
+  arms now use it. Doc fix landed Aug 20.) — original filing:** a bare `()` does not unify with `Void` as a
   match arm's "do nothing" value, though LANGUAGE_SPEC.md uses exactly that
   spelling three times** (`case Empty -> ()` / `case Nothing -> ()` twice,
   §4 Memory Management's NoCopy-enum and Copy-enum match examples, each
