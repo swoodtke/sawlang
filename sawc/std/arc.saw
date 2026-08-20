@@ -66,7 +66,7 @@ extension Arc<T> {
     /// as `Err(AllocError)`.
     ///
     /// `value` is destroyed on the failure path rather than leaked.
-    public func try_make(value: T) unsafe -> Result<Arc<T>, AllocError> {
+    public static func try_make(value: T) unsafe -> Result<Arc<T>, AllocError> {
         let size = 16 + sizeof<T>()
         if let block = GlobalAllocator().alloc(size, 16) {
             let strong_ptr = block as UnsafePointer<Int>

@@ -34,7 +34,7 @@ extension Box<T, A: Allocator = GlobalAllocator> {
     ///
     /// Panics if the allocator refuses the request. This is the infallible
     /// tier; `try_make` is the twin that reports the failure instead.
-    public func make(value: T) unsafe -> Box<T, A> {
+    public static func make(value: T) unsafe -> Box<T, A> {
         let size = sizeof<T>()
         let align = alignof<T>()
         if let raw = A().alloc(size, align) {
@@ -59,7 +59,7 @@ extension Box<T, A: Allocator = GlobalAllocator> {
     ///
     /// On the failure path `value` is not moved anywhere, so it deinits at
     /// scope exit: the value is destroyed cleanly, never leaked.
-    public func try_make(value: T) unsafe -> Result<Box<T, A>, AllocError> {
+    public static func try_make(value: T) unsafe -> Result<Box<T, A>, AllocError> {
         let size = sizeof<T>()
         let align = alignof<T>()
         if let raw = A().alloc(size, align) {

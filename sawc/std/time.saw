@@ -50,7 +50,7 @@ public struct Instant {
 /// Reading the monotonic clock and measuring spans on it.
 extension Instant {
     /// Returns the current monotonic instant.
-    public func now() -> Instant {
+    public static func now() -> Instant {
         Instant(nanos: __saw_rt_clock_monotonic_nanos())
     }
 

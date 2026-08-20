@@ -75,7 +75,7 @@ extension Directory {
     // `Err` carries the errno cause of the failing opendir(3) — a missing
     // directory and an unreadable one are different problems (design 92). An
     // empty `Ok` means the directory is empty.
-    public func list(path: Path) unsafe -> Result<Vector<Path>, IoError> {
+    public static func list(path: Path) unsafe -> Result<Vector<Path>, IoError> {
         let path_ptr = path.as_str() as UnsafePointer<Int8>
         var status = 0
         let status_ptr = (&status) as UnsafePointer<Int>
@@ -125,7 +125,7 @@ extension Directory {
 
     // Create a directory with default permissions (0755). Ok on success, or the
     // errno cause (design 92 — a Bool hid WHY, e.g. EEXIST vs EACCES vs ENOENT).
-    public func create(path: Path) unsafe -> Result<Void, IoError> {
+    public static func create(path: Path) unsafe -> Result<Void, IoError> {
         let path_ptr = path.as_str() as UnsafePointer<Int8>
         let e = __saw_rt_fs_mkdir(path_ptr, 493)   // 0755 = 493 decimal
         if e != 0 {
@@ -135,7 +135,7 @@ extension Directory {
     }
 
     // Remove an empty directory. Ok on success, Err(IoError) with the SysError cause.
-    public func remove(path: Path) unsafe -> Result<Void, IoError> {
+    public static func remove(path: Path) unsafe -> Result<Void, IoError> {
         let path_ptr = path.as_str() as UnsafePointer<Int8>
         let e = __saw_rt_fs_rmdir(path_ptr)
         if e != 0 {
@@ -146,7 +146,7 @@ extension Directory {
 
     // Check if a path exists (works for both files and directories)
     // Note: Uses access() from file.saw
-    public func exists(path: Path) unsafe -> Bool {
+    public static func exists(path: Path) unsafe -> Bool {
         let ptr = path.as_str() as UnsafePointer<Int8>
         access(ptr, 0 as Int32) == (0 as Int32)
     }
@@ -173,7 +173,7 @@ extension Directory {
     // simply grows until the path fits or the ceiling is reached. A genuine
     // failure such as EACCES costs a handful of doublings on a path that was
     // already failing.
-    public func current() unsafe -> Path? {
+    public static func current() unsafe -> Path? {
         var cap = GETCWD_INITIAL_BYTES
         while cap <= GETCWD_MAX_BYTES {
             guard let buf = malloc(cap) else {
@@ -193,7 +193,7 @@ extension Directory {
 
     // Change the current working directory. Ok on success, Err(IoError) with the
     // errno cause (design 92).
-    public func set_current(path: Path) unsafe -> Result<Void, IoError> {
+    public static func set_current(path: Path) unsafe -> Result<Void, IoError> {
         let path_ptr = path.as_str() as UnsafePointer<Int8>
         let e = __saw_rt_fs_chdir(path_ptr)
         if e != 0 {

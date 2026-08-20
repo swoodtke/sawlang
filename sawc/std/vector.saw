@@ -89,7 +89,7 @@ extension Vector<T, A: Allocator = GlobalAllocator> {
     /// Creates an empty vector with capacity for `n` elements. If allocation fails,
     /// returns `Err(AllocError)` containing the failed request's byte size and
     /// alignment. A non-positive `n` returns an empty vector without an allocation.
-    public func try_with_capacity(n: Int) unsafe -> Result<Vector<T, A>, AllocError> {
+    public static func try_with_capacity(n: Int) unsafe -> Result<Vector<T, A>, AllocError> {
         if n <= 0 {
             return Vector<T, A>()
         }

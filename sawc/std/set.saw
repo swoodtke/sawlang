@@ -31,7 +31,7 @@ extension Set<T: Hashable + Equatable, A: Allocator = GlobalAllocator> {
     }
 
     // A single-element set. The element is moved in.
-    public func of(value: T) -> Set<T, A> {
+    public static func of(value: T) -> Set<T, A> {
         var s = Set<T, A>()
         s.insert(move value)
         move s

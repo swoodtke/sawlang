@@ -421,12 +421,12 @@ extension IoError {
     // file/directory/env build their errors with `of(syscall, -e)` on the tag
     // their op already returned, which needs no errno read at all and has been
     // the shape since design 117. Whether this factory should exist is DF-215e.
-    public func from_errno(syscall: String) -> IoError {
+    public static func from_errno(syscall: String) -> IoError {
         IoError(syscall: syscall, code: __saw_rt_last_syserror())
     }
 
     // Build an IoError from a syscall name + a portable SysError tag.
-    public func of(syscall: String, tag: Int) -> IoError {
+    public static func of(syscall: String, tag: Int) -> IoError {
         IoError(syscall: syscall, code: tag)
     }
 }
@@ -472,7 +472,7 @@ public struct TcpListener {
 extension TcpListener {
     // Bind + listen on 127.0.0.1:port (port 0 = an ephemeral port; read it back
     // with `local_port`). Returns the owning listener or an IoError.
-    public func listen(port: Int) -> Result<TcpListener, IoError> {
+    public static func listen(port: Int) -> Result<TcpListener, IoError> {
         let fd = __saw_rt_tcp_listen(port)
         if fd < 0 {
             return io_error("listen", -fd)
@@ -544,7 +544,7 @@ extension TcpStream {
     //
     // design 184: `host` used to be ignored outright, so `connect("example.com",
     // 80)` dialled 127.0.0.1:80 and reported success (DF-181d).
-    public func connect(host: String, port: Int) -> Result<TcpStream, IoError> {
+    public static func connect(host: String, port: Int) -> Result<TcpStream, IoError> {
         // The literal fast path (design 184 unit 1). A dotted quad is an address
         // already, so it is parsed here, in Saw, and dialled directly — no libc,
         // no resolver, no thread hop, and no way for a literal caller to pay for
@@ -580,7 +580,7 @@ extension TcpStream {
     // `found` is a frame local, so it is heap-resident for the whole park and
     // the worker may write through the pointer while this task is away — design
     // 183's pointer rule, which is why the buffer is not a stack temporary.
-    func resolve_first(host: String) unsafe -> Int {
+    static func resolve_first(host: String) unsafe -> Int {
         var found: [UInt32; RESOLVE_MAX] = [0; RESOLVE_MAX]
         let n = __saw_rt_resolve_ipv4(host as UnsafePointer<Int8>,
                                       (&found) as UnsafePointer<UInt32>,
@@ -597,7 +597,7 @@ extension TcpStream {
     // Dial `addr`:`port` (the address in network byte order) and park until the
     // socket is writable. Shared by both `connect` paths, so a name and a
     // literal reach their peer through exactly the same code.
-    func dial(addr: Int, port: Int) -> Result<TcpStream, IoError> {
+    static func dial(addr: Int, port: Int) -> Result<TcpStream, IoError> {
         let fd = __saw_rt_tcp_connect_start(addr, port)
         if fd < 0 {
             return io_error("connect", -fd)
@@ -632,7 +632,7 @@ extension TcpStream {
 
     // A connected, nonblocking stream pair (AF_UNIX socketpair) — for tests and
     // local IPC, no bound port. Both ends are owning TcpStreams.
-    public func pair() -> (TcpStream, TcpStream) {
+    public static func pair() -> (TcpStream, TcpStream) {
         let p = tcp_socketpair()
         (TcpStream(fd: p.0), TcpStream(fd: p.1))
     }

@@ -260,5 +260,5 @@ public trait Serialize {
 /// bound, never an existential, the same rule the Copy family lives under.
 public trait Deserialize {
     /// Reads a value of this type out of `from`.
-    func deserialize(from: &var any Decoder) sync -> Result<Self, DecodeError>
+    static func deserialize(from: &var any Decoder) sync -> Result<Self, DecodeError>
 }

@@ -102,22 +102,22 @@ extension File {
     //
     // `Err` carries the reason open(2) refused — ENOENT and EACCES are different
     // problems and the caller can now tell them apart (design 92).
-    public func open(path: Path) unsafe -> Result<File, IoError> {
+    public static func open(path: Path) unsafe -> Result<File, IoError> {
         File._opened(path, OpenMode.Read, 0, "open")
     }
 
     // Create `path` for writing, truncating an existing file.
-    public func create(path: Path) unsafe -> Result<File, IoError> {
+    public static func create(path: Path) unsafe -> Result<File, IoError> {
         File._opened(path, OpenMode.WriteTruncate, MODE_RW_R_R, "open")
     }
 
     // Open `path` for appending, creating it if absent.
-    public func open_append(path: Path) unsafe -> Result<File, IoError> {
+    public static func open_append(path: Path) unsafe -> Result<File, IoError> {
         File._opened(path, OpenMode.Append, MODE_RW_R_R, "open")
     }
 
     // The one open(2) call the three constructors share.
-    func _opened(path: Path, mode: OpenMode, perm: Int, syscall: String) unsafe -> Result<File, IoError> {
+    static func _opened(path: Path, mode: OpenMode, perm: Int, syscall: String) unsafe -> Result<File, IoError> {
         let path_ptr = path.as_str() as UnsafePointer<Int8>
         let fd = __saw_rt_fs_open(path_ptr, (mode as UInt8) as Int, perm)
         if fd < 0 {
@@ -245,7 +245,7 @@ extension File {
         File._seek(self.fd, 0, SeekWhence.Current)
     }
 
-    func _seek(fd: Int32, offset: Int, whence: SeekWhence) unsafe -> Result<Int, IoError> {
+    static func _seek(fd: Int32, offset: Int, whence: SeekWhence) unsafe -> Result<Int, IoError> {
         let result = __saw_rt_fs_lseek(fd as Int, offset, (whence as UInt8) as Int)
         if result < 0 {
             return IoError.of("lseek", 0 - result)
@@ -257,14 +257,14 @@ extension File {
     // Static utility methods
     // =========================================================================
 
-    public func exists(path: Path) unsafe -> Bool {
+    public static func exists(path: Path) unsafe -> Bool {
         let ptr = path.as_str() as UnsafePointer<Int8>
         access(ptr, 0 as Int32) == (0 as Int32)
     }
 
     // Remove a file. Returns Ok on success or the errno cause honestly (design
     // 92 — a Bool hid WHY it failed; `exists` stays a genuine boolean question).
-    public func remove(path: Path) unsafe -> Result<Void, IoError> {
+    public static func remove(path: Path) unsafe -> Result<Void, IoError> {
         let ptr = path.as_str() as UnsafePointer<Int8>
         let e = __saw_rt_fs_unlink(ptr)
         if e != 0 {
@@ -274,7 +274,7 @@ extension File {
     }
 
     // Rename/move a file. Ok on success, Err(IoError) with the SysError cause.
-    public func rename(from_path: Path, to_path: Path) unsafe -> Result<Void, IoError> {
+    public static func rename(from_path: Path, to_path: Path) unsafe -> Result<Void, IoError> {
         let from_ptr = from_path.as_str() as UnsafePointer<Int8>
         let to_ptr = to_path.as_str() as UnsafePointer<Int8>
         let e = __saw_rt_fs_rename(from_ptr, to_ptr)

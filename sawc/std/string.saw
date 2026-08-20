@@ -853,7 +853,7 @@ extension String {
     /// different failure and threw away every byte.
     ///
     /// Static: call as `String.fromBytes(&data)`.
-    public func fromBytes(data: &Data) unsafe -> Result<String, Utf8Error> {
+    public static func fromBytes(data: &Data) unsafe -> Result<String, Utf8Error> {
         let n = data.len()
         if n == 0 {
             return ""                       // trivially-valid empty string (Ok)

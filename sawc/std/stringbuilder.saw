@@ -108,7 +108,7 @@ extension StringBuilder {
 
     /// Creates an empty builder with room for `n` bytes, reporting allocator
     /// exhaustion as `Err(AllocError)`.
-    public func try_with_capacity(n: Int) unsafe -> Result<StringBuilder, AllocError> {
+    public static func try_with_capacity(n: Int) unsafe -> Result<StringBuilder, AllocError> {
         if n <= 0 {
             return StringBuilder()
         }

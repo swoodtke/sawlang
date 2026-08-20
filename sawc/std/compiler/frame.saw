@@ -53,14 +53,14 @@ extension Slot<T>: NoCopy {}
 
 extension Slot<T> {
     /// Returns an empty slot.
-    public func empty() -> Slot<T> {
+    public static func empty() -> Slot<T> {
         Slot<T>(v: None)
     }
 
     /// Returns a slot holding `value`.
     ///
     /// Consumes `value`.
-    public func of(value: T) -> Slot<T> {
+    public static func of(value: T) -> Slot<T> {
         Slot<T>(v: move value)
     }
 

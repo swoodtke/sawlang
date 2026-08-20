@@ -492,7 +492,7 @@ extension FuncPointer<F> {
     /// compiler has seen the code behind it. Calling the result runs whatever
     /// is there under `F`'s ABI, so the caller owes the promise that the
     /// address really is such a function.
-    public func from_raw(addr: UnsafePointer<UInt8>) unsafe -> FuncPointer<F> {
+    public static func from_raw(addr: UnsafePointer<UInt8>) unsafe -> FuncPointer<F> {
         panic("FuncPointer.from_raw: not intercepted")
     }
 }

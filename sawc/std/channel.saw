@@ -153,7 +153,7 @@ extension Channel<T: Send> {
 
     /// Creates a fresh empty channel, reporting allocator exhaustion as
     /// `Err(AllocError)`.
-    public func try_make() unsafe -> Result<Channel<T>, AllocError> {
+    public static func try_make() unsafe -> Result<Channel<T>, AllocError> {
         if let block = GlobalAllocator().alloc(176, 16) {
             __saw_rt_pthread_mutex_init_default(block)
             let cond = (block + 64) as UnsafePointer<Int8>

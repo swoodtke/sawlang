@@ -44,7 +44,7 @@ public struct Duration {
 /// Construction and whole-unit readout for `Duration`.
 extension Duration {
     /// Returns a span of `n` nanoseconds.
-    public func ns(n: UInt64) -> Duration {
+    public static func ns(n: UInt64) -> Duration {
         Duration(nanos: n)
     }
 
@@ -52,7 +52,7 @@ extension Duration {
     ///
     /// Panics if the span would run past the representable range, about 584
     /// years.
-    public func us(n: UInt64) -> Duration {
+    public static func us(n: UInt64) -> Duration {
         if n > MAX_MICROS {
             panic("Duration.us: {} microseconds is past the representable span", n)
         }
@@ -63,7 +63,7 @@ extension Duration {
     ///
     /// Panics if the span would run past the representable range, about 584
     /// years.
-    public func ms(n: UInt64) -> Duration {
+    public static func ms(n: UInt64) -> Duration {
         if n > MAX_MILLIS {
             panic("Duration.ms: {} milliseconds is past the representable span", n)
         }
@@ -74,7 +74,7 @@ extension Duration {
     ///
     /// Panics if the span would run past the representable range, about 584
     /// years.
-    public func secs(n: UInt64) -> Duration {
+    public static func secs(n: UInt64) -> Duration {
         if n > MAX_SECS {
             panic("Duration.secs: {} seconds is past the representable span", n)
         }

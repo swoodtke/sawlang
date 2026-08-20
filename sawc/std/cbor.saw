@@ -445,7 +445,7 @@ public extension CborDecoder {
     /// `Err` names the byte offset the scan stopped at. `TooLarge` at offset 0
     /// also covers the one allocation this makes: the work stack, sized once
     /// from `max_depth`.
-    public func open(bytes: Data, max_depth: Int = 64,
+    public static func open(bytes: Data, max_depth: Int = 64,
                      max_size: Int = 16777216,
                      max_items: Int = 100000) sync -> Result<CborDecoder, DecodeError> {
         assert(max_depth >= 0, "CborDecoder.open: max_depth must not be negative")
