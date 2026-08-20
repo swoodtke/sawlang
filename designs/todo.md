@@ -64,8 +64,7 @@ User-reserved (hand fixes): DF-232h (rides 234 u1 unless taken earlier), DF-217m
 - DF-225o — reemit divergence under load (entry below)
 - Design 231 — native-compiler readiness ledger (designs/231-native-compiler.md)
 - Blade out-of-tree target plugins — moves `sosimg.saw` + `imgformat` out of sawlang entirely and SUPERSEDES 238's D-a; user Aug 19: "probably the way forward in the future". NOT a dependency of 238 (entry: designs/238-sawos-split.md, D-a alternatives)
-- M4 seeds — IPC/pipes (renamed from channels, ruling below), dynamic loading, IOMMU, SMP (references in designs/232-sos-m3-sketch.md)
-- Pipe rename — SOS `Channel` -> `Pipe` + handle names (RATIFIED Aug 20, entry below); spec/sketch prose edit, ~30 lines, no code; ride design 238's spec move or land as its own small unit before M4
+- M4 seeds — IPC/pipes (renamed from channels Aug 20 — ratified record in spec §2.1 + the done file), dynamic loading, IOMMU, SMP (references in designs/232-sos-m3-sketch.md)
 - ESP32 path — P4 + TCP/IP stack ultimate goal; S3 via FreeRTOS-fakery stage 2 (HARDWARE PATH entry below)
 - DF-223b — existential dispatch of a suspending trait method, owed a DESIGN (entry below, under design 223)
 - DF-219c — the spawn capture audit is not bound-aware (soundness-adjacent; entry below, under design 219)
@@ -73,8 +72,9 @@ User-reserved (hand fixes): DF-232h (rides 234 u1 unless taken earlier), DF-217m
 - DF-225c / DF-225e / DF-225h — three doc-sync RULINGS OWED: `Float64` as a real alias, a bare import reaching std, `()` vs `Void` (entry below)
 
 ## Pipe rename — SOS `Channel` -> `Pipe`, and the request/reply handle names
-## (RATIFIED by user, Aug 20; unscheduled — ride 238's spec move or land as
-## its own small unit any time before M4 builds the object)
+## (RATIFIED by user, Aug 20; LANDED same day, lead-direct, in parallel with
+## the design-236 dispatch — the entry authorized "its own small unit any
+## time before M4")
 
 The IPC object of sos/spec.md §2.1 collides by name with std's `Channel`
 while sharing none of its semantics (std: buffered in-process queue,
@@ -150,6 +150,21 @@ RequestHandle/ReplyHandle mentions across sos/ + designs/232-sos-m3-sketch.md
 (17 lines), the M4-seeds backlog line (updated with this filing). No code
 anywhere names these yet (verified Aug 20: zero hits in kernel/abi +
 sysapi sources).
+LANDED Aug 20 (lead-direct, prose only): the mechanical rename ran
+compounds-first across spec/sketch plus the NINE comment-only .saw mentions
+(dispatch.saw, process.saw, abi/lib.saw), then a second pass caught the
+lowercase prose uses — protecting Saw's own task-level channels, the
+"Zircon channel-call" lineage citation, std.channel, and diag.saw's generic
+"failure channel". Hand-written on top: §2.1's AMENDED Aug 20 block
+transcribing the whole ratified record (rename rationale + per-client
+note, the overloaded send API with TimedOut(pending:), abandoned-request
+semantics, drop-as-cancellation, abandonment-is-information, the tell
+idiom); the fire-and-forget bullet amended to point at it; the §2.2
+waitables row gains PipeRequestHandle (abandoned); the Jul-31 `call` verb
+bullet amended (superseded by the suspending `send` overload); the object
+table row notes the rename. Gate: sos_runner 80/80 both arches (sos-only
+change). Handed to the M4 brief: the split-phase method name (leading
+candidate `post`).
 
 ## Design 234 — the fallibility flip (RATIFIED Aug 17; QUEUED behind the
 ## three in-flight Aug-17 branches)

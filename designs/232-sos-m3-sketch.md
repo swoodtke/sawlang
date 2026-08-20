@@ -33,7 +33,7 @@ list, and the seed rulings:
 4. **Quotas** — ruled: per-process, dynamic-creation kinds only, hard
    limits only, `QuotaExceeded` status, creator pays, orphan written
    off.
-5. **Channels + ReplyHandle IPC** (§2.1, ratified semantics).
+5. **Pipes + PipeReplyHandle IPC** (§2.1, ratified semantics).
 6. **Process-death notifications** — new from round 4; two named
    consumers (root supervision now, the M4+ IOMMU driver later).
 7. **Priorities / §7 band map, SMP + IntrSpinLock, FP in userspace,
@@ -54,13 +54,13 @@ No driver in the kernel (M2's proof) and now no driver in root either.
 A second, cheaper proof rides along free: two processes sharing memory
 through `give` — the token-travels property demonstrated live.
 
-**Option B — IPC first.** Channels + ReplyHandle over the M2
+**Option B — IPC first.** Pipes + PipeReplyHandle over the M2
 single-process kernel; CreateProcess deferred. Rejected shape: with one
 process there are no interesting peers (root rendezvousing with itself),
 so the tests prove plumbing rather than IPC — and the device-grant
 rulings, which are hot and complete, would sit unbuilt for a milestone.
 
-**Option C — A plus channels.** Everything at once. M2's surface took
+**Option C — A plus pipes.** Everything at once. M2's surface took
 the full ladder to land well; A alone is already M2-sized. Rejected on
 size.
 
@@ -186,10 +186,10 @@ everything ruled this week quietly assumes.
    semantic rides on order), and the child asserts its drained count
    against its manifest with no protocol owed. The child's boot
    sequence is thereby literally a receive loop — the exact shape
-   M4's channel receive will have (Zircon's processargs message,
+   M4's pipe receive will have (Zircon's processargs message,
    drained one record at a time). Unchanged: `give` AFTER start() is
    REFUSED in v1 (the boot set freezes at start; dynamic transfer is
-   M4 IPC's job, over channels, to a process expecting it); the op
+   M4 IPC's job, over pipes, to a process expecting it); the op
    lives on Process, not System (the handles are process state).
 4. **Memory/IoMemory/MemoryMapping + map** — the ruled surface;
    SystemRights + stripping; manifest `devices = [names]` over root's
@@ -255,7 +255,7 @@ holders would get the most-pinned entries). If a gate is ever wanted,
 it is a NEW universal bit, never a retasking of Manage. CLOSE is an
 OBJECT-PROTOCOL operation, distinct in kind from release (release =
 per-instance, per-process; close = ends the protocol for everyone),
-existing only on kinds whose protocol has an end-state — Channel at
+existing only on kinds whose protocol has an end-state — Pipe at
 M4 (design 230's language-side close is the exact twin: Closed comes
 from close() only) — with a per-kind `CloseRight` per the convention.
 
@@ -330,9 +330,9 @@ branch (op/right enum cases mirror, numbers unchanged).
     payload distinguishes clean exit from fault.
 10. **Scheduler: RULED (Aug 16)** — round-robin stays for M3; SMP
     will require something more, designed when SMP arrives (after
-    channels, per pin 1).
+    pipes, per pin 1).
 11. **D2 tripwire: RULED** — see pin 1 (kernel interruptibility in
-    M3, unit 1.5; SMP waits for channels).
+    M3, unit 1.5; SMP waits for pipes).
 12. **Op/right numbering + §5.7 amendment wording** (178 flags d/e —
     mechanical, may be delegated to the implementing brief).
 
@@ -631,7 +631,7 @@ same-handle claim since the `clocks=` column it used to rest on is gone.
 
 ## Explicitly out (M4+ candidates)
 
-Channels + ReplyHandle IPC (with select-with-timeout via unit 1's
+Pipes + PipeReplyHandle IPC (with select-with-timeout via unit 1's
 Timer); the IOMMU driver + critical processes (round 4's architecture;
 death notifications now land IN M3, so only the driver work remains);
 priorities/§7 bands; SMP + IntrSpinLock — EXPLICITLY SEQUENCED AFTER
