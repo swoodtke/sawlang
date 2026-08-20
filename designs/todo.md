@@ -451,6 +451,38 @@ sibling beside it is refused on the tier, which is the pairing the ordering
 existed to guarantee. Suite 2027 pass / 16 xfail, sos_runner 80 pass both
 arches. [232j sweep, 229]
 
+## DF-232m — the battery's `irdet` lane VERIFIED NOTHING from a worktree: it
+## builds irdetbin with $PY and then invokes it with no `--python` (filed
+## Aug 20, hit by the DF-232j terminal battery) — FIXED Aug 20 (branch df-232j)
+
+MECHANISM (`tools/battery.sh:129-137`): `run_irdet` compiles
+`devtools/irdet/src/main.saw` with `"$PY"` — correct — and then runs
+`./.build/irdetbin --plan --all` and `./.build/irdetbin --all --jsonl` with no
+interpreter argument. Building irdetbin says nothing about the interpreter it
+DRIVES: irdetbin shells out to sawc, and its `--python` default is bare
+`python3`. On a machine whose `python3` cannot import llvmlite that compiles
+nothing. `SAW_PYTHON` does not rescue it — the variable reaches `$PY`, which is
+never passed on — and from a WORKTREE there is no `./.venv` for the fallback to
+find either, which is precisely the configuration CLAUDE.md prescribes for
+agent work.
+BLAST RADIUS: every worktree-run battery's irdet lane has verified NOTHING
+since the lane existed. That is the exact silent-lane failure design 192 unit 5
+tracked the battery to prevent — a lane quietly going missing — reappearing
+INSIDE the tracked battery rather than around it. It is visible at all only
+because design 220/221 made irdet self-report: the lane prints
+`NOTHING WAS CHECKED -- every candidate failed to compile` and `irdet_verdict`
+fails on a run that verified nothing rather than reading zero mismatches as
+green. Without that self-report this would have been a clean pass forever.
+FIX: `--python "$PY"` on BOTH invocations, nothing else.
+EVIDENCE: the DF-232j terminal battery failed this lane with
+`1359 record(s) — 0 ok, 1359 skipped, 0 MISMATCH, 0 VIOLATED INVARIANT`; the
+lane re-run verbatim with `--python` gave `1266 ok, 93 skipped, 0 MISMATCH,
+0 VIOLATED INVARIANT` (1255 of 1266 reusing the suite manifest), GATE=0 — so
+the oracle itself was green over the whole corpus and only the plumbing was
+broken. Re-proved after the fix by
+`SAW_PYTHON=<main>/.venv/bin/python tools/battery.sh irdet` from the worktree.
+[232j, design 192 u5, 220, 221 D]
+
 ## DF-232f — a package has NO INTERNAL VISIBILITY, so splitting one file into
 ## several PUBLISHES everything they share (filed Aug 17, the kcore split's
 ## unit-0 probe; the finding the split's tracker entry anticipated)

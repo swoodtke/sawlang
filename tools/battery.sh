@@ -126,13 +126,17 @@ wanted() {
 # fresh recompile at its own recorded seed does not reproduce);
 # `tools/irdet_verdict.py` fails on it exactly as it fails on `mismatch`, which
 # is what keeps a cache bug from ever reading as green.
+# DF-232m: irdetbin DRIVES sawc, so it needs `--python` — building it with $PY
+# says nothing about the interpreter it then invokes, and its default is bare
+# `python3`. From a worktree there is no ./.venv for that fallback to find, so
+# every candidate failed to compile and the lane verified NOTHING.
 run_irdet() {
     "$PY" sawc/sawc.py devtools/irdet/src/main.saw -o .build/irdetbin || return 1
     local records=".build/irdet-battery.jsonl"
     local planned
     rm -f "$records"
-    planned=$(./.build/irdetbin --plan --all | grep -c '\.saw$')
-    ./.build/irdetbin --all --jsonl "$records"
+    planned=$(./.build/irdetbin --plan --all --python "$PY" | grep -c '\.saw$')
+    ./.build/irdetbin --all --python "$PY" --jsonl "$records"
     "$PY" tools/irdet_verdict.py "$records" --expect "$planned"
 }
 
