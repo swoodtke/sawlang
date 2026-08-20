@@ -252,6 +252,7 @@ would cost a differently-shaped kernel a real seam. [232, design 148/185/186]
 ## DF-232f — a package has NO INTERNAL VISIBILITY, so splitting one file into
 ## several PUBLISHES everything they share (filed Aug 17, the kcore split's
 ## unit-0 probe; the finding the split's tracker entry anticipated)
+## — FIX LANDED Aug 20 (branch df-232f); the re-narrowing rider is still OPEN
 
 `public` is the only way one file of a package can reach another's decl, and
 `public` means EVERY importer — there is no `public(package)`/`internal` tier
@@ -279,6 +280,35 @@ no consumer needs the name (target: back near the original 15). One check
 owed by the fix: `imgformat` is consumed by Blade as a path dependency AND
 by the kernel via --module-path — the two mechanisms must agree on package
 identity for the same directory. [232, design 80/82/204]
+LANDED Aug 20 — the fix half only. It was one more answer in the existing
+check, as predicted: `_visibility_relation_allows` (typechecker/core.py) already
+rooted std at `("<std>",)` off the DEFINING module, and a mapped package now
+roots at `(name,)` the same way, so `name`/`name.sub`/`name.a.b` prefix-match
+and the entry file (never a mapped name) does not. The mapped-name set rides in
+on `TypeChecker(mapped_packages=…)` from `module_paths`. No keyword, no grammar,
+no new concept — `Visibility.PACKAGE` and `public(package)` already existed.
+ROOT CAUSE of the silence: `check_visibility` (namespace.py:2725-2732) had a
+fail-OPEN arm, `if not package_root: return True`, and nothing ever gave these
+modules a root — so the tier degraded to plain `public` for exactly the packages
+that wanted it. Pins both ways: `examples/module_path_package_visibility.saw`
+(sibling reaches `public(package)`, the over-refusal guard) and
+`…_error.saw` (entry file refused; asserts the message SHAPE — tier + defining
+module at the import, the fix, and what IS exported).
+THE OWED CHECK, RESOLVED: Blade drives every resolved dependency as
+`--module-path <name>=<checkout>/src` (blade/src/builder.saw:5, arg sites :379
+and :531), so a Blade path dependency IS a mapped package — `imgformat` roots at
+`("imgformat",)` by either route and the two mechanisms cannot disagree.
+BLAST RADIUS measured before gating: ZERO `public(package)` sites in sos/, libs/,
+blade/, selfhost/, devtools/ — only examples/ uses the tier today, which is why
+enforcement could land without a migration. Gates: full suite 2018 passed /16
+pre-existing cited xfails, sos_runner 80 passed across riscv32 + arm64.
+STILL OPEN — the mechanical RE-NARROWING rider (queue item 7): kcore's 199
+`public` names flip to `public(package)` wherever no consumer needs them, target
+back near the original 15. This fix is what makes that rider mean anything; it
+does not perform it, and design 80's gate protects nothing inside kcore until
+it runs.
+NOTE for design 238 unit 2: imgformat moving to `libs/imgformat` does not
+disturb this — package identity is the MAPPED NAME, not the directory path.
 
 ## DF-232e — an IMPORT CYCLE is not diagnosed: the symbols silently vanish and
 ## the error lands on an innocent third module (filed Aug 17, the kcore split's
