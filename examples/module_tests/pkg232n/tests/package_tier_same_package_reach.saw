@@ -1,0 +1,18 @@
+// DF-232n, the SIBLING direction: this entry sits INSIDE `pkg232n`'s manifest
+// root, so it is one of the package's own files and the package tier is its to
+// name — through a relative import, with no `--module-path` anywhere. This is
+// `libs/toml/tests/*.saw` in miniature, and it is the shape the fix had to keep
+// working while it closed the foreign reach next door
+// (`package_tier_foreign_relative_reach_error.saw`).
+// EXPECT: success
+// EXPECT-OUTPUT: 7
+// EXPECT-OUTPUT: 3
+// EXPECT-OUTPUT: 11
+import src.lib.*
+
+func main() {
+    print(pkg_secret())
+    let b = PkgBox(n: 3)
+    print(b.n)
+    print(pkg_open())
+}

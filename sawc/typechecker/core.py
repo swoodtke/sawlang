@@ -185,7 +185,9 @@ class TypeChecker(ExpressionsMixin, StatementsMixin, RegistrationMixin, TypeUtil
                  target_triple: Optional[str] = None,
                  target_features: Optional[str] = None,
                  runtime_provider: bool = False,
-                 mapped_packages: Optional[Set[str]] = None):
+                 mapped_packages: Optional[Set[str]] = None,
+                 package_identities: Optional[
+                     Dict[Tuple[str, ...], str]] = None):
         self.reporter = reporter
         # DF-232f: the top-level names bound by `--module-path name=dir`. Each
         # one IS a package (ruled Aug 17): every file under the mapped
@@ -195,6 +197,13 @@ class TypeChecker(ExpressionsMixin, StatementsMixin, RegistrationMixin, TypeUtil
         # `("<std>",)`. Without it these modules had NO root, and the tier
         # fell through check_visibility's fail-open arm to plain `public`.
         self.mapped_packages: Set[str] = set(mapped_packages or ())
+        # DF-232n: module path -> package identity, for every module the driver
+        # loaded (`ModuleResolver.package_identity`). A package reached by
+        # RELATIVE path has no mapped name to root it at, so this is what makes
+        # `public(package)` real for it; without it the tier fell through to
+        # plain `public` for every such consumer.
+        self.package_identities: Dict[Tuple[str, ...], str] = dict(
+            package_identities or {})
         # design 135: `--no-hidden-alloc`. Forbids the allocations the COMPILER
         # inserts that no source construct names — the escaping-closure
         # environment, the String a `"{x}"` interpolation builds, the `to_string()`
@@ -396,6 +405,9 @@ class TypeChecker(ExpressionsMixin, StatementsMixin, RegistrationMixin, TypeUtil
         # qualified reach, so it needs the package names too. Stamped here and
         # on every per-module namespace `check_module` builds.
         self.namespace.mapped_packages = frozenset(self.mapped_packages)
+        # DF-232n: same stamping, same reason, for the relative-path half of the
+        # question. The map is shared by reference, never copied per namespace.
+        self.namespace.package_identities = self.package_identities
 
         # Current module path during multi-module type checking
         self.current_module_path: Tuple[str, ...] = ()
@@ -2701,6 +2713,9 @@ class TypeChecker(ExpressionsMixin, StatementsMixin, RegistrationMixin, TypeUtil
         # package names. The compile-start authority is this checker's own set
         # (`--module-path`), not the cached builtin namespace.
         ns.mapped_packages = frozenset(self.mapped_packages)
+        # DF-232n: and the package identities, which decide the same question
+        # for every module that arrived by relative path.
+        ns.package_identities = self.package_identities
 
         # Clone builtins into this module's namespace (all directly accessible)
         ns.merge_into(builtin_namespace)

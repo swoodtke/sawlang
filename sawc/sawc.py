@@ -1043,6 +1043,7 @@ def _prepare_codegen(source_path: str, entry_ast, entry_source: str, verbose: bo
             if verbose:
                 print(f"    Resolved: {'.'.join(module_path)} -> {mod_info.source_path}")
 
+            mod_ast.source_path = mod_info.source_path
             module_map[module_path] = mod_ast
             resolved_modules.add(module_path)
 
@@ -1068,6 +1069,7 @@ def _prepare_codegen(source_path: str, entry_ast, entry_source: str, verbose: bo
                             sub_mod_ast = parse_source(sub_mod_source, sub_mod_file, verbose)
                             module_sources[sub_mod_file] = sub_mod_source
                             # Register with simple path only (avoids duplicate merging)
+                            sub_mod_ast.source_path = os.path.abspath(sub_mod_file)
                             module_map[(mod_decl.name,)] = sub_mod_ast
                             resolved_modules.add((mod_decl.name,))
                             if verbose:
@@ -1081,6 +1083,7 @@ def _prepare_codegen(source_path: str, entry_ast, entry_source: str, verbose: bo
                                 sub_mod_source = f.read()
                             sub_mod_ast = parse_source(sub_mod_source, sub_mod_dir_file, verbose)
                             module_sources[sub_mod_dir_file] = sub_mod_source
+                            sub_mod_ast.source_path = os.path.abspath(sub_mod_dir_file)
                             module_map[(mod_decl.name,)] = sub_mod_ast
                             resolved_modules.add((mod_decl.name,))
                             if verbose:
@@ -1123,6 +1126,7 @@ def _prepare_codegen(source_path: str, entry_ast, entry_source: str, verbose: bo
                     with open(mod_file, 'r') as f:
                         mod_source = f.read()
                     mod_ast = parse_source(mod_source, mod_file, verbose)
+                    mod_ast.source_path = os.path.abspath(mod_file)
                     module_map[mod_path] = mod_ast
                     resolved_modules.add(mod_path)
                     if verbose:
@@ -1135,6 +1139,7 @@ def _prepare_codegen(source_path: str, entry_ast, entry_source: str, verbose: bo
                     with open(mod_dir_file, 'r') as f:
                         mod_source = f.read()
                     mod_ast = parse_source(mod_source, mod_dir_file, verbose)
+                    mod_ast.source_path = os.path.abspath(mod_dir_file)
                     module_map[mod_path] = mod_ast
                     resolved_modules.add(mod_path)
                     if verbose:
@@ -1229,6 +1234,17 @@ def _prepare_codegen(source_path: str, entry_ast, entry_source: str, verbose: bo
     # Add imported module sources for proper error context
     for mod_path, mod_source in module_sources.items():
         reporter.add_source(mod_path, mod_source)
+    # DF-232n: place every module this compile loaded in a PACKAGE before any
+    # `public(package)` question is asked. The entry is `()`; each loaded module
+    # answers for its own file. `--module-path` names and std are decided by
+    # module path and need no entry here (`Namespace.package_identity`).
+    entry_dir = os.path.dirname(os.path.abspath(source_path))
+    package_identities = {
+        (): resolver.package_identity(os.path.abspath(source_path), entry_dir)
+    }
+    for _mod_path, _mod_ast in module_map.items():
+        package_identities[_mod_path] = resolver.package_identity(
+            getattr(_mod_ast, 'source_path', None), entry_dir)
     typechecker = TypeChecker(reporter, freestanding=freestanding,
                               runtime_build=runtime_build,
                               post_transform=post_transform,
@@ -1236,7 +1252,8 @@ def _prepare_codegen(source_path: str, entry_ast, entry_source: str, verbose: bo
                               target_triple=target_triple,
                               target_features=target_features,
                               runtime_provider=runtime_provider,
-                              mapped_packages=set(module_paths or {}))
+                              mapped_packages=set(module_paths or {}),
+                              package_identities=package_identities)
     # design 84: carry the pre-computed suspending std (struct, method) set (std is
     # checked under a separate builtin typechecker, so the main one cannot infer it)
     # so the coroutine transform can embed nested suspending std methods.

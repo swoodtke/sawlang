@@ -316,6 +316,18 @@ class Namespace:
         # builds, and inherited wherever `package_root` is inherited.
         self.mapped_packages: FrozenSet[str] = frozenset()
 
+        # DF-232n: module path -> PACKAGE IDENTITY, for every module this
+        # compile loaded. A mapped package name and std are identities the
+        # module path alone decides (`package_identity` below); everything else
+        # is a fact about where the file LIVES — its `Saw.toml` root, or the
+        # entry file's tree for a manifest-less one — which only the driver can
+        # compute, so it is handed in. Empty on a namespace nobody stamped,
+        # which `package_identity` answers with None and the funnel reads as
+        # "not the same package" (fail-CLOSED: the missing-root ALLOW arm this
+        # replaced is what made `public(package)` advisory across every
+        # relative-path import).
+        self.package_identities: Dict[Tuple[str, ...], str] = {}
+
         # Core symbol tables
         self.functions: Dict[str, FunctionSymbol] = {}
         # Overloading (design 55): name -> all free-function overloads. The
@@ -956,6 +968,9 @@ class Namespace:
         # knowledge — a namespace that does not know them decides
         # `public(package)` with no root at all.
         mod_ns.mapped_packages = self.mapped_packages
+        # DF-232n: and the package IDENTITIES, which is how the same decision is
+        # made for a module that arrived by relative path.
+        mod_ns.package_identities = self.package_identities
 
         # Register all symbols from the module AST
         for struct in module_ast.structs:
@@ -2773,10 +2788,12 @@ class Namespace:
         Check if a symbol is accessible from another module.
 
         THE RAW DECISION PROCEDURE. Do not call it directly: `public(package)`
-        is undecidable without a root and the arm below reads a missing root as
-        "assume same package" (fail-OPEN, which is what DF-232j exploited).
-        `visibility_relation_allows` is the one honest caller — it computes the
-        root from the symbol's defining module first.
+        is undecidable without a root, and a missing root is REFUSAL here
+        (DF-232n; it used to be "assume same package", which is what DF-232j
+        exploited and what left the tier unenforced across every relative-path
+        import). `visibility_relation_allows` is the one honest caller — it
+        computes the root from the symbol's defining module first, and answers
+        the rootless case by PACKAGE IDENTITY before ever reaching this arm.
 
         Args:
             visibility: The symbol's visibility modifier
@@ -2797,10 +2814,11 @@ class Namespace:
 
         # public(package) - accessible within the same package
         if visibility == Visibility.PACKAGE:
-            # Check if both modules share the same package root
+            # DF-232n: no root, no package — REFUSE. The one caller decides the
+            # rootless case by identity first, so reaching here means nothing
+            # placed either module and "same package" cannot be claimed.
             if not package_root:
-                # If no package root defined, assume same package
-                return True
+                return False
             # Both must be under the package root
             return (symbol_module[:len(package_root)] == package_root and
                     accessor_module[:len(package_root)] == package_root)
@@ -2826,7 +2844,7 @@ class Namespace:
         THE FUNNEL (obligation 1). `check_visibility` above is the raw decision
         procedure; this is the only honest way to ask it, because
         `public(package)` is meaningless without a root and `check_visibility`
-        reads a missing root as "assume same package". Its entry points:
+        REFUSES a rootless one (DF-232n). Its entry points:
 
           * `_resolve_parts.is_visible` — THE QUALIFIED REACH (every `m.X`,
             every chain hop `m.q.X`, every dotted `resolve()` walk). Before
@@ -2843,6 +2861,14 @@ class Namespace:
         std is one package rooted at `("<std>",)` (design 82), and each
         `--module-path name=dir` package is rooted at `(name,)` (DF-232f).
         Anything else falls back to this namespace's own `package_root`.
+
+        DF-232n: those two roots are prefixes of the MODULE PATH, which a module
+        loaded by relative path does not have — its path says nothing about
+        which package its file lives in. When neither prefix arm applies (and
+        the namespace carries no root of its own), the tier is decided by
+        PACKAGE IDENTITY instead: the manifest root or the entry tree each
+        module was placed in. Equal identities are one package; anything else,
+        including an unplaceable module, is not.
         """
         def_module = tuple(def_module or ())
         accessor = tuple(accessor or ())
@@ -2863,9 +2889,50 @@ class Namespace:
             package_root = (def_module[0],)
         elif package_root is None:
             package_root = self.package_root
+        # DF-232n: the rootless `public(package)` question — every module that
+        # arrives by relative path — is answered by identity, not by refusing
+        # outright and not by assuming.
+        if visibility == Visibility.PACKAGE and not package_root:
+            own = self.package_identity(def_module)
+            return own is not None and own == self.package_identity(accessor)
         return self.check_visibility(
             visibility, symbol_module=def_module, accessor_module=accessor,
             package_root=package_root)
+
+    def package_identity(self, module_path: Tuple[str, ...]) -> Optional[str]:
+        """The package a module belongs to, as an opaque token compared for
+        equality (DF-232n). None when nothing placed it.
+
+        Three sources, in precedence order:
+          1. std is one package (design 82) — every `("<std>", leaf)`.
+          2. a `--module-path name=dir` package (DF-232f) — every module path
+             under the mapped name. Stated here as well as in the funnel's
+             prefix arm above, so the ACCESSOR side of a comparison is placed
+             too.
+          3. `package_identities`, the driver's map of the modules it loaded:
+             the file's `Saw.toml` root, or the entry tree for a manifest-less
+             one (`ModuleResolver.package_identity`).
+
+        A path the map does not hold falls back to its nearest ANCESTOR path,
+        which is what places an INLINE module: `check_module` gives one the path
+        `parent + (name,)`, and an inline module is part of the file that
+        declares it — the same package by construction. The entry's `()` is
+        always in the map, so the walk terminates there for any module this
+        compile actually loaded; an unstamped namespace has no map at all and
+        answers None, which the funnel reads as "not the same package".
+        """
+        path = tuple(module_path or ())
+        if path and path[0] == "<std>":
+            return "<std>"
+        if path and path[0] in self.mapped_packages:
+            return "package:" + path[0]
+        while True:
+            found = self.package_identities.get(path)
+            if found is not None:
+                return found
+            if not path:
+                return None
+            path = path[:-1]
 
     def get_symbol_visibility(self, name: str) -> Optional[Visibility]:
         """Get the visibility of a symbol by name."""

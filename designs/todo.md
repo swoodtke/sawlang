@@ -51,7 +51,6 @@ User-reserved (hand fixes): DF-232h (rides 234 u1 unless taken earlier), DF-217m
 - DF-232d — `mod.STATIC = v` assignment position (entry below) — FOLDED into the small-fix batch (mechanism read, fix unambiguous: route a qualifier-object MemberAccess assignment target to the static path)
 - DF-232e — import-cycle diagnostic (entry below) — FOLDED into the small-fix batch (mechanism read, fix is the diagnostic)
 - DF-232g — imported-const static folding (entry below) — FOLDED into the small-fix batch (matrix probed; the const-static collector must resolve imported const names)
-- DF-232n — `public(package)` fails open across relative-path imports (entry below; the 232j family's remaining arm, found by the re-narrowing audit)
 - DF-232o — tier-refused type re-resolves same-named: X-but-got-X cascades, place-path loses the visibility line (entry below)
 - DF-232p — a refused call swallows its argument's refusal (entry below; a census hazard since DF-232q, not minor)
 - DF-235a — a constant EXPRESSION source reaching a plain array-literal element or a Result payload slot ICEs at codegen (entry below; found by design 235's coercion-adoption grid) — FOLDED into the small-fix batch (same funnel as 235b)
@@ -634,6 +633,47 @@ computes), or the fail-open default flips to fail-closed with an explicit
 carve-out for the no-package case. Obligation-4 sweep owed at fix time: any
 OTHER reach that constructs namespaces without a package root (single-file
 compiles, `module` decls, the entry file itself). [232j, 232f, audit report]
+
+CLOSED Aug 20 (branch `df-batch-232n`, unit 1). Fixed by IDENTITY, not by a
+blanket fail-closed: the two behaviors riding the fail-open arm are CORRECT and
+had to survive (the `examples/` manifest-less fixtures, where DF-229c ruled a
+same-package importer binds package names, and a package's own tests under its
+`Saw.toml` root). Every module a compile loads now carries a PACKAGE IDENTITY —
+an opaque token compared for equality — in this precedence: (1) std,
+`("<std>", …)`; (2) a `--module-path` name, `(name, …)`; (3) the nearest
+`Saw.toml` root of the module's FILE (`ModuleResolver._find_package_root`,
+reused); (4) the ENTRY file's directory tree, the ad-hoc-package rule. 1 and 2
+are facts about the module PATH and stay where they were (the funnel's prefix
+arms, plus `Namespace.package_identity` so the ACCESSOR side is placed too);
+3 and 4 are facts about the FILE, computed once by the driver
+(`_prepare_codegen`) into `package_identities` and stamped on every namespace
+beside `mapped_packages`. `Namespace.visibility_relation_allows` — still THE
+funnel, docstring updated — answers the rootless `public(package)` question by
+comparing identities, and `check_visibility`'s `if not package_root: return
+True` arm is now `return False`.
+
+OBLIGATION-4 ROWS — which loading path each shape takes, all probed: a
+single-file compile (def_module == accessor, decided before any root question);
+an entry plus a relative SIBLING (`examples/` — arm 4, one tree, one package);
+an entry inside a `Saw.toml` root reaching a sibling under it (`libs/toml`'s
+tests — arm 3, same manifest); a `--module-path` package (arm 2, unchanged);
+an INLINE `module foo { }` (path is `parent + (name,)`, so the identity lookup's
+nearest-ancestor walk gives it its parent's — an inline module is part of the
+file that declares it); an external `module foo` decl (its own module_map entry,
+so its own file's identity); std (arm 1); the entry file itself (`()`, always in
+the map). CONSUMER SWEEP (obligation 2): the fail-open arm's in-tree
+beneficiaries were exactly the `examples/` relative fixtures and `libs/toml`'s
+tests — both preserved by construction; corpus-wide, `public(package)` appears
+in only three trees (`examples/`, `sos/kernel/core/` which is mapped as `kcore`
+and unaffected, and `libs/toml/src`), and kcore's siblings import each other as
+`kcore.X` rather than relatively, so no site was newly refused. PINS:
+`examples/package_tier_foreign_relative_reach_error.saw` +
+`…_selection_error.saw` (the refusal, at both funnel entry points) and
+`examples/module_tests/pkg232n/tests/package_tier_same_package_reach.saw` (the
+`libs/toml/tests` shape, kept working), over the new fixture package
+`examples/module_tests/pkg232n/`. Conformance rows B18 (refusal) + B19
+(control) added FIRST. Gate: full suite 2053 passed / 17 xfailed, sos_runner
+80/80 across riscv32 + arm64.
 
 ## DF-232o — a visibility-refused TYPE re-resolves as a distinct same-named
 ## type: "expects `SosStatus` but got `SosStatus`" cascades, and a private

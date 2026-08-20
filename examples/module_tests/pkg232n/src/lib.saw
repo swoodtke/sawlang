@@ -1,0 +1,21 @@
+// DF-232n fixture: a package whose boundary is its own `Saw.toml` root, reached
+// by RELATIVE path — no `--module-path`, so nothing about the module PATH says
+// which package these declarations belong to. That is the whole point: the
+// package identity comes from the manifest root on disk.
+//
+// `pkg_secret` and `PkgBox` are the package tier; `pkg_open` beside them is
+// genuinely `public`, so a refusal of the first two is about the TIER and not
+// about this module being unreachable.
+// EXPECT: skip
+
+public(package) func pkg_secret() -> Int {
+    7
+}
+
+public(package) struct PkgBox {
+    public(package) n: Int
+}
+
+public func pkg_open() -> Int {
+    11
+}

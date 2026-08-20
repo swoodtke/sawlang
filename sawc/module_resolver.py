@@ -243,6 +243,44 @@ class ModuleResolver:
                 return None
             current = parent
 
+    def package_identity(self, source_file: Optional[str],
+                         entry_dir: str) -> str:
+        """The PACKAGE a source file belongs to, as an opaque token compared
+        for equality (DF-232n).
+
+        `public(package)` is a relation between two modules, so every module a
+        compile loads needs a package identity — including the ones that arrive
+        by RELATIVE path, which carry no `--module-path` name and therefore used
+        to reach `check_visibility` with no root at all (read as "assume same
+        package", i.e. fail-OPEN: the tier was only real for consumers that came
+        through `--module-path` or std).
+
+        Two arms, in order — the mapped-name and std arms live one layer up, in
+        `Namespace.package_identity`, because they are facts about the MODULE
+        PATH rather than about the file:
+
+          1. the nearest enclosing `Saw.toml` — a manifest root IS a package
+             boundary, which is what makes `libs/toml/tests/*.saw` reaching
+             `src/lib.saw` an in-package reach (both under `libs/toml/`) and a
+             reach from outside that root a foreign one.
+          2. the ENTRY file's directory — the ad-hoc-package rule (DF-229c's
+             ruling, generalized): a manifest-less tree compiled from one entry
+             is one package, so `examples/`-style relative fixtures keep
+             binding each other's package names. A manifest-less file outside
+             that tree (no in-tree resolution produces one today) is its own
+             one-directory package rather than silently joining the entry's.
+        """
+        entry_root = os.path.abspath(entry_dir)
+        if not source_file:
+            return "tree:" + entry_root
+        file_dir = os.path.dirname(os.path.abspath(source_file))
+        manifest_root = self._find_package_root(file_dir)
+        if manifest_root is not None:
+            return "manifest:" + os.path.abspath(manifest_root)
+        if file_dir == entry_root or file_dir.startswith(entry_root + os.sep):
+            return "tree:" + entry_root
+        return "tree:" + file_dir
+
     def get_package_manifest(self, from_file: str) -> Optional[PackageManifest]:
         """
         Get the PackageManifest for the package containing the given file.

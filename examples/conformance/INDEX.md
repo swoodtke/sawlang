@@ -6,7 +6,7 @@ either a file in this directory or an existing `examples/` test that already
 asserts the same rule at the same position — this table is the record of which,
 and the dedup decisions are meant to be audited from it.
 
-**440 rows: 337 carry a file here, 103 are covered elsewhere** (recounted Aug 16
+**442 rows: 337 carry a file here, 105 are covered elsewhere** (recounted Aug 16
 from the table itself — the audit-era "121 here, 198 elsewhere" had gone stale
 across the briefs listed below). (The audit's 247 plus
 the rows later briefs added: W02-W05, design 194 unit 4; W06-W19, design 195
@@ -26,7 +26,7 @@ D01-D20, design 228's divergence position matrix — D15-D20 are the six that
 point at tests written before the brief, which is what makes the fourteen new
 files auditable as the ONLY gap it had to fill; U31-U36, design 226 unit 2's
 closed-construction rows; R43-R44, the two STORE positions DF-216e's fix
-closed.)
+closed; B18-B19, DF-232n's relative-path package identity.)
 
 ## How to read it
 
@@ -506,6 +506,8 @@ Claim source: spec 8 *Visibility* + *The prelude*; designs 80, 82, 142, 188 u7, 
 | B15 | `public(package)` is unreachable from OUTSIDE the package in every spelling, and no `public import` re-export widens it: direct qualified, selective facade, two stacked facades, glob facade, whole-module chain, and every symbol KIND (function, static, struct) | `module_path_qualified_no_widen_error.saw`, `module_path_reexport_no_widen_error.saw`, `module_path_reexport_twohop_no_widen_error.saw`, `module_path_glob_facade_no_widen_error.saw`, `module_path_whole_facade_no_widen_error.saw`, `module_path_reexport_kinds_no_widen_error.saw`, `module_path_facade_selection_error.saw`, `module_path_package_visibility_error.saw` | 232j — was a DEVIATION and the tier had NO row here, which is part of why it went unseen: design 80's relation had two callers and only the typechecker's computed a package root, so the namespace-side qualified reach decided `public(package)` with an empty root and every spelling that went through it fell open. The tier RIDES the symbol now (`def_module`), so a re-export hands on the NAME and never a wider tier, at any hop count |
 | B16 | control: the SIBLING direction — files of one package reach each other's `public(package)` names in every spelling (qualified, `{X}` selection, glob) | `module_path_package_visibility.saw`, `df229c_package_selection_binds.saw`, `module_path_glob_facade_sibling.saw` | 232f/229c/232k — the fence on B15: the tier must not become unusable inside the package it exists to serve. The glob leg was a DEVIATION (232k: the glob-copy arm filtered PUBLIC-only, so an aggregating sibling failed to compile) |
 | B17 | control: a whole-module `public import` chain reaches a re-exported dependency's PUBLIC symbol in VALUE position, not only in a type annotation | `export229_whole_chain_call.saw` | 232l — was a DEVIATION (every bound qualifier was stamped `PRIVATE`, so design 229's whole-module form re-exported nothing a value expression could reach); the qualifier now carries the form's own answer |
+| B18 | `public(package)` is unreachable from outside a package reached by RELATIVE path — the loading path with no `--module-path` name — at both funnel entry points: the qualified reach and the selective import | `package_tier_foreign_relative_reach_error.saw`, `package_tier_foreign_relative_selection_error.saw` | 232n — was a DEVIATION and the remaining arm of B15's family: the two roots design 80 knew are PREFIXES OF THE MODULE PATH (std's `("<std>",)`, DF-232f's mapped `(name,)`), which a relatively-imported module does not have, so the question reached `check_visibility` rootless and its fail-open arm answered ALLOW. Every module now carries a package IDENTITY — its `Saw.toml` root, else the entry file's tree — and the rootless arm REFUSES |
+| B19 | control: the SIBLING direction across the same loading path — an entry inside a package's own manifest root reaches its `public(package)` names by relative import (the `libs/toml/tests` shape), and an ad-hoc manifest-less tree stays one package | `package_tier_same_package_reach.saw`, `visibility_package_access.saw`, `df229c_package_selection_binds.saw`, `vis80_public_members_ok.saw` | 232n — the fence on B18, and the reason the fix is an identity rather than a blanket fail-closed: two behaviors ride the arm B18 removed. `examples/`-style fixtures have no manifest at all (DF-229c ruled a same-package importer binds package names; for a manifest-less tree the entry's tree IS the package), and a package's own tests live under its root |
 
 ## Integer width agreement
 
