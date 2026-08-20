@@ -1,0 +1,19 @@
+// DF-232j sweep, the WHOLE-MODULE facade: `public import pkgvis.secret`
+// re-exports the QUALIFIER (design 229), and the chain
+// `pkgvis.secret.pkg_secret` from outside must refuse the tier.
+//
+// Today this errors for the WRONG REASON: DF-232l means the qualifier is
+// never re-exported in value position (`module pkgvis has no symbol
+// secret`), public symbols included — the tier decision is never exercised.
+// This pin stays XFAIL until BOTH land: DF-232l hands the qualifier on,
+// DF-232j makes the chain's last hop refuse.
+// XFAIL: DF-232j (masked by DF-232l: today's error is `has no symbol`, not
+// the tier refusal the EXPECT states)
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: `pkg_secret` is public(package) in `pkgvis.secret`
+// COMPILE-FLAGS: --module-path pkgvis={TESTDIR}/modules/pkgvis232j_whole
+import pkgvis
+
+func main() {
+    print(pkgvis.secret.pkg_secret())
+}

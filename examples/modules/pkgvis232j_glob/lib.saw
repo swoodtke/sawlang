@@ -1,0 +1,10 @@
+// DF-232k fixture: a SIBLING aggregates the package via a glob. The glob-copy
+// arm filters PUBLIC-only, so today `pkg_secret` never arrives and this file
+// fails to compile — but lib is INSIDE the package and is entitled to the
+// name (the selective form binds it; DF-229c fixed that arm, the glob arm
+// kept the pre-229c shape).
+public import pkgvis.secret.*
+
+public func lib_answer() -> Int {
+    pkg_secret() * 6
+}

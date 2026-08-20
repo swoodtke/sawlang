@@ -1,0 +1,3 @@
+// DF-232j sweep fixture, hop 1: a sibling facade re-exporting the secret.
+// Legal in itself — mid is inside the package.
+public import pkgvis.secret.{pkg_secret}

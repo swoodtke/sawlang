@@ -31,7 +31,7 @@ is scheduled and in what order is the whole of what they say.
 
 ## [QUEUE] — scheduled, in order (user-approved)
 
-1. DF-232j fix — a `public import` re-export WIDENS `public(package)` to the world (entry below; MOVED TO TOP by user, Aug 20). SOUNDNESS: the tier means "siblings only" and one facade line silently makes it "everyone", with nothing failing. Pin is XFAIL'd. Mechanism NOT yet read — the fix owes the obligation-4 sweep the entry names (glob / whole-module / two-hop facade shapes) before it is dispatched
+1. DF-232j fix — the qualified-reach path decides `public(package)` with an empty package root, widening the tier to the world (entry below; MOVED TO TOP by user, Aug 20). SOUNDNESS. Obligation-4 sweep DONE Aug 20: the facade is incidental — the DIRECT qualified reach widens too, kind-generally; 8 pins committed as the fix's oracle; sweep also filed DF-232k and DF-232l (entries below). Fix DISPATCHED (branch df-232j)
 2. Design 236 — `static` keyword required (designs/236-static-keyword.md) — before 235
 3. Design 235 — position-matrix ledgers (designs/235-position-matrices.md; SONNET dispatch) — before 234's migration units
 4. Design 237 — the ANF-hoist funnel (designs/237-anf-hoist-funnel.md) — before 234
@@ -52,6 +52,8 @@ User-reserved (hand fixes): DF-232h (rides 234 u1 unless taken earlier), DF-217m
 ## [BACKLOG] — filed, not scheduled
 
 - `public(package) import` — should the scoped re-export form exist? Refused today (design 229). Real use case: an INTERNAL PRELUDE, one sibling aggregating names for the others (Rust's `pub(crate) use`). Against: siblings can already import each other directly, so it buys convenience, not capability — and kcore, the biggest multi-file package and the one that motivated the tier, does NOT want it (its `public import` block is the EXTERNAL facade). Wait for a package that feels the pain (entry: the re-narrowing rider section)
+- DF-232k — a sibling glob import drops `public(package)` names (entry below; refuses valid reach, found by the DF-232j sweep)
+- DF-232l — whole-module `public import` never re-exports its qualifier in value position (entry below; fix AFTER 232j, found by the DF-232j sweep)
 - DF-232d — `mod.STATIC = v` assignment position (entry below)
 - DF-232e — import-cycle diagnostic (entry below)
 - DF-232g — imported-const static folding (entry below)
@@ -277,15 +279,86 @@ Its fixture's `public import` is the widening attempt, deliberately.
 NEIGHBOUR ALREADY PINNED: `export229_scoped_import_error.saw` covers
 `public(package) import` being refused outright. That one HAS a diagnostic;
 this one has none, which is why it went unnoticed.
-MECHANISM NOT YET READ — the fix is unscoped. The obligation-4 question a fix
-brief owes: is the re-export path a SEPARATE visibility decision from
-`_visibility_relation_allows`, or does it copy the symbol into the facade's
-export table without carrying its tier? The second shape would predict siblings
-of DF-232j wherever an export table is built from another module's symbols
-(glob re-export `public import mod`, whole-module facade, transitive
-re-export through two facades) — `examples/modules/export229_facade_glob.saw`
-and `export229_facade_whole.saw` are the existing shapes to probe. [232f, 229,
-design 80/82]
+MECHANISM (read Aug 20, lead sweep; both obligation-4 hypotheses were wrong —
+the tier RIDES the symbol and dies at the DECISION): a re-exported symbol
+keeps its `visibility` and `def_module` (symbols are shared by reference).
+The defect is that design 80's relation has two callers of the one
+implementation (`Namespace.check_visibility`) and only one is honest: the
+typechecker's `_visibility_relation_allows` (core.py:1033) computes the
+package root (std arm + DF-232f's mapped arm) before delegating, while the
+qualified-reach path — `_resolve_parts.is_visible`, namespace.py:564-576 —
+calls it raw, with `symbol_module=self.module_path` (the FOUND-IN module,
+not `def_module`) and `package_root=self.package_root`, which is `()` for
+every user namespace (nothing ever sets it), and an empty root means "assume
+same package" (namespace.py:2727). So EVERY namespace-side visibility
+decision lets `public(package)` through; the facade of the filing is
+incidental — the DIRECT qualified reach widens too, no re-export needed.
+Third wrongness, currently masked by the empty root: the module-member-access
+sites hardcode `accessor_module=()` (expressions.py:6138), so a root fix
+alone would REFUSE legitimate sibling qualified reach — the true accessor
+must be threaded.
+SWEEP (Aug 20; all shapes entry-OUTSIDE the mapped package; every row now a
+committed pin, the fix's oracle):
+- WIDENS direct qualified, no facade (`import pkgvis.secret`;
+  `secret.pkg_secret()` printed 7) — pin `module_path_qualified_no_widen_error.saw`
+- WIDENS selective facade, qualified reach — the filed symptom, pin
+  `module_path_reexport_no_widen_error.saw`
+- WIDENS two stacked selective facades — pin
+  `module_path_reexport_twohop_no_widen_error.saw`
+- WIDENS kind-general: static printed 9, struct constructed — pin
+  `module_path_reexport_kinds_no_widen_error.saw`
+- REFUSED entry selective through facade — the typechecker funnel runs;
+  control pin `module_path_facade_selection_error.saw` (not XFAIL; wart: the
+  diagnostic names the FACADE, not the defining module)
+- REFUSED entry glob of facade — accidental (the glob-copy PUBLIC-only filter)
+- REFUSED glob facade — accidental, same filter refuses the SIBLING → DF-232k
+  (entry below); widen pin `module_path_glob_facade_no_widen_error.saw` stays
+  XFAIL until BOTH land
+- REFUSED whole-module facade chain — accidental: the re-exported qualifier is
+  bound `Visibility.PRIVATE` (core.py:1484), value-position chain reach fails
+  everywhere, public included → DF-232l (entry below); widen pin
+  `module_path_whole_facade_no_widen_error.saw` stays XFAIL until BOTH land
+- sibling direction keeps working (lib_answer 42, existing tests)
+FIX SHAPE (dispatched Aug 20, branch df-232j): ONE funnel —
+`Namespace.check_visibility` is already the shared implementation; make its
+callers honest. Root computation (std + mapped arms) moves into the namespace
+layer, `is_visible` judges `sym.def_module or self.module_path`, member-access
+sites pass the real accessor, refusal diagnostic names the tier and the
+defining module (the pins' EXPECT). W-rows flip to refusals, R-rows stay
+refused, sibling + std cross-file + kcore/sos + bootstrap reaches stay green.
+[232f, 229, design 80/82]
+
+## DF-232k — a sibling GLOB import drops `public(package)` names: the
+## glob-copy arm filters PUBLIC-only (filed Aug 20, the DF-232j sweep)
+
+`import pkgvis.secret.*` written INSIDE the package does not bind the
+sibling's `public(package)` names: the glob arm of `check_module`
+(typechecker/core.py:2729-2759) tests `visibility == PUBLIC` where the
+selective arm asks `_selection_visible` with the importer as accessor —
+DF-229c fixed exactly this for the selective form; the glob arm kept the
+pre-229c shape. Symptom: the aggregating facade itself fails to compile
+(`undefined function pkg_secret`). Usability, not soundness — it REFUSES
+valid reach. Fix: the glob arm asks the same relation; the outside-facing
+direction (an outside glob keeps excluding package-tier names) falls out of
+the accessor-aware predicate. PIN: `module_path_glob_facade_sibling.saw`
+(XFAIL, EXPECT success 42). [232j sweep, 229c, design 80]
+
+## DF-232l — whole-module `public import` re-exports NOTHING in value
+## position: the qualifier is bound PRIVATE (filed Aug 20, the DF-232j sweep)
+
+Design 229's whole-module form re-exports its QUALIFIER — but
+`_bind_module_qualifier` (typechecker/core.py:1482-1485) stamps every bound
+qualifier `Visibility.PRIVATE` ("an import is never re-exported", a comment
+design 229 superseded for the `public import` form). A chain reach in a VALUE
+position (`facade.dep.leaf_make(...)`) fails with "module `facade` has no
+symbol `dep`" for ordinary and mapped modules alike, public symbols included.
+The suite never noticed: `export229_facade.saw` exercises the chain only in a
+TYPE annotation (a path that checks no module visibility) plus the facade's
+own public function. ORDERING: fix AFTER (or with) DF-232j — flipping the
+qualifier re-exported while `_resolve_parts` still decides package visibility
+with an empty root would open DF-232j's hole through the whole-module shape,
+the one form the sweep could not exercise end to end. PIN:
+`export229_whole_chain_call.saw` (XFAIL, EXPECT success 2). [232j sweep, 229]
 
 ## DF-232f — a package has NO INTERNAL VISIBILITY, so splitting one file into
 ## several PUBLISHES everything they share (filed Aug 17, the kcore split's

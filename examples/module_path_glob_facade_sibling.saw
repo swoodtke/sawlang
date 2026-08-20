@@ -1,0 +1,16 @@
+// DF-232k: a SIBLING glob import must bind the package-tier names the
+// sibling is entitled to. The glob-copy arm of `check_module` filters on
+// `visibility == PUBLIC` where the selective arm asks the design-80 relation
+// with the importer as accessor (DF-229c fixed the selective arm; the glob
+// arm kept the pre-229c shape) — so the facade here fails to compile with
+// `undefined function pkg_secret`, refusing valid inside-package reach.
+// XFAIL: DF-232k the glob-copy arm filters PUBLIC-only, dropping the
+// `public(package)` names a sibling may reach. The EXPECTs state the intent.
+// EXPECT: success
+// EXPECT-OUTPUT: 42
+// COMPILE-FLAGS: --module-path pkgvis={TESTDIR}/modules/pkgvis232j_glob
+import pkgvis
+
+func main() {
+    print(pkgvis.lib_answer())
+}

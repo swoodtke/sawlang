@@ -1,0 +1,19 @@
+// DF-232j sweep, KIND GENERALITY: the widening is not a function-table bug.
+// The qualified-reach decision serves every symbol table, so a re-exported
+// package-tier STATIC and STRUCT leak exactly as the function does —
+// kcore-relevant, where the narrowed surface is largely slot structs and
+// their fields.
+// XFAIL: DF-232j the qualified-reach path decides package visibility with an
+// empty package root, for every symbol kind. This file compiles and prints
+// 9 then 3 today; the EXPECTs below state the intent.
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: `PKG_LIMIT` is public(package) in `pkgvis.secret`
+// EXPECT-ERROR-CONTAINS: `PkgBox` is public(package) in `pkgvis.secret`
+// COMPILE-FLAGS: --module-path pkgvis={TESTDIR}/modules/pkgvis232j_kinds
+import pkgvis
+
+func main() {
+    print(pkgvis.PKG_LIMIT)
+    let b = pkgvis.PkgBox(n: 3)
+    print(b.n)
+}

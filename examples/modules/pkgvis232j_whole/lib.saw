@@ -1,0 +1,9 @@
+// DF-232j sweep fixture (whole-module shape): the facade re-exports the
+// QUALIFIER — design 229's whole-module form. The chain `pkgvis.secret.X`
+// from outside must refuse a package-tier X and admit a public one.
+// (Today NEITHER reaches: DF-232l — the qualifier is bound PRIVATE.)
+public import pkgvis.secret
+
+public func lib_answer() -> Int {
+    secret.pkg_secret() * 6
+}
