@@ -369,13 +369,21 @@ class DeclarationsMixin:
                 if member_doc is not None:
                     # Associated types carry no doc slot; report rather than drop.
                     self._release_doc(member_doc)
-            elif self.match(TokenType.FUNC, TokenType.UNSAFE):
-                # A prefix `unsafe` reaches here only to be reported: a trait
-                # requirement spells the effect after its parameter list, like
-                # every other signature (design 136).
+            elif self.match(TokenType.FUNC, TokenType.UNSAFE, TokenType.STATIC):
+                # design 236: a STATIC requirement spells the keyword too, so a
+                # reader of the trait sees which requirements are called on the
+                # type. A prefix `unsafe` reaches here only to be reported: a
+                # trait requirement spells the effect after its parameter list,
+                # like every other signature (design 136).
+                declared_static = self._parse_static_modifier()
                 if self._parse_unsafe_modifier():
                     self._error_unsafe_prefix()
-                method = self.parse_trait_method()
+                if declared_static and not self.match(TokenType.FUNC):
+                    self.error(
+                        "Expected 'func' after 'static' in trait — `static` "
+                        "marks a static REQUIREMENT (design 236), one called "
+                        "on the type rather than on a receiver")
+                method = self.parse_trait_method(declared_static)
                 method.doc = self.doc_text(member_doc)
                 methods.append(method)
             else:
@@ -409,8 +417,12 @@ class DeclarationsMixin:
             column=start.column
         )
 
-    def parse_trait_method(self) -> TraitMethod:
-        """Parse method signature in trait: func name(&self, params...) -> Type"""
+    def parse_trait_method(self, declared_static: bool = False) -> TraitMethod:
+        """Parse method signature in trait: func name(&self, params...) -> Type
+
+        `declared_static` is the member-head `static` keyword the caller already
+        consumed (design 236).
+        """
         start = self.current()
         self.expect(TokenType.FUNC, "Expected 'func' in trait method")
 
@@ -462,6 +474,7 @@ class DeclarationsMixin:
             self_is_reference=self_is_reference,
             is_sync=is_sync,
             is_unsafe=is_unsafe,
+            is_static=declared_static,
             body=body,
             line=start.line,
             column=start.column
@@ -530,25 +543,38 @@ class DeclarationsMixin:
                 if member_doc is not None:
                     # Type assignments carry no doc slot; report rather than drop.
                     self._release_doc(member_doc)
-            elif self.match(TokenType.PUBLIC):
-                # Member visibility (design 80): a `public` / `public(package)` /
-                # `public(parent)` modifier on an extension method (incl. init +
-                # static). Must be followed by `func` or `init`.
-                method_visibility = self._parse_visibility()
+            elif self.match(TokenType.PUBLIC, TokenType.FUNC, TokenType.INIT,
+                            TokenType.UNSAFE, TokenType.STATIC):
+                # A member head, in the one order it is written:
+                # `public static func ...`. Member visibility (design 80) comes
+                # first; `static` (design 236) marks a static METHOD, and is the
+                # same keyword design 149's module-level `static` variables use
+                # in a different position — the member head only ever continues
+                # into `func`, so the two never meet. A prefix `unsafe` on a
+                # method or an `init` is design 136's old spelling and reaches
+                # here only to be reported against the effect slot.
+                method_visibility = Visibility.PRIVATE
+                had_visibility = self.match(TokenType.PUBLIC)
+                if had_visibility:
+                    method_visibility = self._parse_visibility()
+                declared_static = self._parse_static_modifier()
                 if self._parse_unsafe_modifier():
                     self._error_unsafe_prefix()
                 if not self.match(TokenType.FUNC, TokenType.INIT):
+                    if declared_static and self.match(TokenType.PUBLIC):
+                        self.error(
+                            "the visibility modifier comes first — write "
+                            "`public static func ...`, not `static public "
+                            "func ...`")
+                    if declared_static:
+                        self.error(
+                            "Expected 'func' after 'static' in extension — "
+                            "`static` marks a static METHOD (design 236); a "
+                            "module-level `static` variable is declared "
+                            "outside the extension")
                     self.error("Expected 'func' or 'init' after visibility modifier "
                                "in extension")
-                method = self.parse_method(method_visibility)
-                method.doc = self.doc_text(member_doc)
-                methods.append(method)
-            elif self.match(TokenType.FUNC, TokenType.INIT, TokenType.UNSAFE):
-                # design 136: a prefix `unsafe` on a method or an `init` is the
-                # old spelling; report it against the effect slot.
-                if self._parse_unsafe_modifier():
-                    self._error_unsafe_prefix()
-                method = self.parse_method(Visibility.PRIVATE)
+                method = self.parse_method(method_visibility, declared_static)
                 method.doc = self.doc_text(member_doc)
                 methods.append(method)
             elif self.match(TokenType.AT):
@@ -738,9 +764,27 @@ class DeclarationsMixin:
             column=start.column
         )
 
-    def parse_method(self, visibility: Visibility = Visibility.PRIVATE) -> Method:
+    def _parse_static_modifier(self) -> bool:
+        """Consume a member-head `static`, if present (design 236).
+
+        `static` is the design-149 keyword in a new position. The two never
+        collide because a DECLARATION head continues into a name and a colon
+        (`static PAGE_SIZE: Int = 4096`) while a MEMBER head continues into
+        `func` — and only an extension or a trait body reaches this at all.
+        """
+        if self.match(TokenType.STATIC):
+            self.advance()
+            return True
+        return False
+
+    def parse_method(self, visibility: Visibility = Visibility.PRIVATE,
+                     declared_static: bool = False) -> Method:
         """Parse method definition: func name(&self, ...) -> Type { ... }
-           or init method: init(...) { ... }"""
+           or init method: init(...) { ... }
+
+        `declared_static` is the member-head `static` keyword the caller already
+        consumed (design 236).
+        """
         start = self.current()
 
         # Check if it's an init method
@@ -815,6 +859,7 @@ class DeclarationsMixin:
             self_mutable=self_mutable,
             self_is_reference=self_is_reference,
             is_static=is_static,
+            declared_static=declared_static,
             is_sync=is_sync,
             is_unsafe=is_unsafe,
             is_borrows=is_borrows,

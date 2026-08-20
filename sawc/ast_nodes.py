@@ -2082,6 +2082,11 @@ class TraitMethod(ASTNode):
     self_is_reference: bool = False  # True for '&self' or '&var self'
     is_sync: bool = False  # `func m(...) sync` — a checked suspension-free method
     is_unsafe: bool = False  # `unsafe func m(...)` — an unsafe requirement (design 130)
+    # design 236: a STATIC requirement spells `static func` (it is called on the
+    # type, so there is no receiver to dispatch on and the trait cannot be
+    # erased to `any`). The parser refuses a disagreement with the parameter
+    # list, so this and "has no `self` parameter" are the same fact.
+    is_static: bool = False
     # Default method body (design 56): a trait method declared WITH a `{ ... }`
     # body is a default. Conformers may omit it (the compiler synthesizes a
     # per-conformer Method from this body) or override it. None = required method.
@@ -2156,6 +2161,12 @@ class Method(ASTNode):
     self_mutable: bool = False  # True for '&var self'
     self_is_reference: bool = False  # True for '&self' or '&var self'
     is_static: bool = False  # True for methods without 'self' parameter
+    # design 236: the member-head `static` keyword the author WROTE. `is_static`
+    # above is the DERIVED fact (no `self` parameter) every downstream pass
+    # reads; this is the declaration, and the parser refuses any disagreement
+    # between the two. A compiler-SYNTHESIZED method carries the derived bit
+    # only — it is not authored source, so it never faces the check.
+    declared_static: bool = False
     is_derived_copy: bool = False  # True for a compiler-synthesized memberwise copy()
     is_derived_equals: bool = False  # True for a compiler-synthesized memberwise equals()
     is_derived_compare: bool = False  # True for a compiler-synthesized lexicographic compare() (design 48)
