@@ -65,12 +65,52 @@ User-reserved (hand fixes): DF-232h (rides 234 u1 unless taken earlier), DF-217m
 - DF-225o — reemit divergence under load (entry below)
 - Design 231 — native-compiler readiness ledger (designs/231-native-compiler.md)
 - Blade out-of-tree target plugins — moves `sosimg.saw` + `imgformat` out of sawlang entirely and SUPERSEDES 238's D-a; user Aug 19: "probably the way forward in the future". NOT a dependency of 238 (entry: designs/238-sawos-split.md, D-a alternatives)
-- M4 seeds — IPC/channels, dynamic loading, IOMMU, SMP (references in designs/232-sos-m3-sketch.md)
+- M4 seeds — IPC/pipes (renamed from channels, ruling below), dynamic loading, IOMMU, SMP (references in designs/232-sos-m3-sketch.md)
+- Pipe rename — SOS `Channel` -> `Pipe` + handle names (RATIFIED Aug 20, entry below); spec/sketch prose edit, ~30 lines, no code; ride design 238's spec move or land as its own small unit before M4
 - ESP32 path — P4 + TCP/IP stack ultimate goal; S3 via FreeRTOS-fakery stage 2 (HARDWARE PATH entry below)
 - DF-223b — existential dispatch of a suspending trait method, owed a DESIGN (entry below, under design 223)
 - DF-219c — the spawn capture audit is not bound-aware (soundness-adjacent; entry below, under design 219)
 - DF-224c — `Channel<T?>` call-site auto-wrap ICEs inside a driven body (entry below, under DF-224a/b)
 - DF-225c / DF-225e / DF-225h — three doc-sync RULINGS OWED: `Float64` as a real alias, a bare import reaching std, `()` vs `Void` (entry below)
+
+## Pipe rename — SOS `Channel` -> `Pipe`, and the request/reply handle names
+## (RATIFIED by user, Aug 20; unscheduled — ride 238's spec move or land as
+## its own small unit any time before M4 builds the object)
+
+The IPC object of sos/spec.md §2.1 collides by name with std's `Channel`
+while sharing none of its semantics (std: buffered in-process queue,
+any-holder close, fire-and-forget; sos: synchronous rendezvous, one staged
+message, request/reply primitive, fire-and-forget excluded). Ruled renames:
+
+- `Channel` -> `Pipe`; `ChannelRight` -> `PipeRight`; `ChannelHandle` ->
+  `PipeHandle` (abi reservations only — nothing is built, M4).
+- `RequestHandle` -> `PipeRequestHandle`; `ReplyHandle` -> `PipeReplyHandle`.
+  The user kept the request/reply pair over role names (Requester/Responder
+  were considered); the Pipe prefix follows the abi's object-kind convention
+  (`SystemHandle`, `PipeHandle`) and reserves bare Request/Reply for a future
+  protocol layer's own message types.
+
+Rationale for Pipe over Endpoint/Queue: the planned Plan 9-like namespace
+(paths like /dev/uart0 resolve to a server-owned object speaking a protocol)
+is the named-pipe model nearly verbatim — server registers at a path, client
+opens by path, framed messages, request/reply as a transaction
+(TransactNamedPipe lineage). Queue was REJECTED: it names the one property
+the design deliberately lacks (there is no queue — one message, synchronous).
+
+Record in the spec when the rename lands:
+- `Pipe` names the PER-CLIENT connection object (today's §2.1 object); the
+  path-attached acceptor the namespace will need is a separate later object,
+  named in the namespace design — do not spend `Pipe` on it.
+- A `pipe.transact(msg)` send-and-wait convenience is worth an M4 note
+  (`transact` per the named-pipe lineage); the split-phase
+  `PipeReplyHandle` is NOT redundant with it — it is what a client attaches
+  to a Waiter (§2.2) to multiplex outstanding requests.
+
+Scope: sos/spec.md (14 Channel mentions + the handle names), the
+RequestHandle/ReplyHandle mentions across sos/ + designs/232-sos-m3-sketch.md
+(17 lines), the M4-seeds backlog line (updated with this filing). No code
+anywhere names these yet (verified Aug 20: zero hits in kernel/abi +
+sysapi sources).
 
 ## Design 234 — the fallibility flip (RATIFIED Aug 17; QUEUED behind the
 ## three in-flight Aug-17 branches)
