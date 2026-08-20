@@ -310,6 +310,43 @@ it runs.
 NOTE for design 238 unit 2: imgformat moving to `libs/imgformat` does not
 disturb this — package identity is the MAPPED NAME, not the directory path.
 
+## RE-NARROWING RIDER — scoped Aug 20 by survey (queue item 7; the half of
+## DF-232f that actually recovers the encapsulation)
+
+Survey of every mapped package, asking which `public` decls no consumer outside
+the package names. Result by package (top-level decls; public MEMBERS —
+methods and struct fields — are a further ~179 not yet audited):
+
+- **kcore** (sos/kernel/core) — 103 unique public names, ~15 genuinely reachable
+  from outside: `ktrap`, `start_process`, `start_tick`, `load_root_and_enter`,
+  `Console`, `timer_ticks`, `fatal_image`, `fatal`, `deliver_attachment`,
+  `WaitableKind`, `Waitable`, `SystemObject`, `SyscallResult`, `HandleEntry`,
+  `ExitCode`. THE PRIZE, and it independently lands on this entry's stated
+  "back near the original 15" by a different method.
+- **sosabi** — 2: `PROCESS_STATUS_KIND_SHIFT`, `PROCESS_STATUS_CODE_MASK`.
+- **hal-arm64** — 2: `mair_value`, `page_tables_build`. hal-riscv32, sosrt and
+  imgformat are already tight (0 candidates).
+- **toml** — `TomlTable`; **semver** — `ReqKind`. Worth a look; Blade's deps.
+
+THE TRAP, and why this rider is not "narrow everything unused": **"never named
+outside" is NOT "should be narrowed."** sysapi (the `sos` module) shows 22
+unused `sos_*` wrappers — and they must STAY `public`. That package's PURPOSE is
+to export the kernel's userspace API (spec §5.7); those wrappers exist for
+processes not yet written. A mechanical unused-sweep would delete the kernel's
+public API. Same protection for imgformat, toml and semver as API packages.
+kcore and the HALs are the opposite case — internal implementation, where an
+unused `public` is the accidental widening DF-232f described.
+
+METHOD RULED: drive it from the COMPILER, not from grep. The survey that
+produced the numbers above had a regex artifact (`public unsafe static var X`
+parsed as declaring a symbol named `var`, which then "matched" 1131 files) and
+common-word collisions (`console`, `accumulate`, `align_up`) — any grep-based
+pass will have the same class of error. The oracle procedure: flip EVERY kcore
+`public` to `public(package)` in one mechanical pass, compile, and promote back
+exactly the symbols the errors name — DF-232f's refusal names the tier, the
+defining module and what IS exported, so each error is self-describing. No
+guessing, and the survivor set is discovered rather than asserted. [232, 80]
+
 ## DF-232e — an IMPORT CYCLE is not diagnosed: the symbols silently vanish and
 ## the error lands on an innocent third module (filed Aug 17, the kcore split's
 ## unit-0 probe)
