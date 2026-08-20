@@ -1247,6 +1247,15 @@ class MemberAccess(Expression):
     resolved_module_symbol: Optional[Any] = annotation(None)
     resolved_static_name: Optional[str] = annotation(None)
     resolved_struct_name: Optional[str] = annotation(None)
+    # DF-236a: True when this member access NAMES A TYPE (`mod.Struct`,
+    # `mod.Color`, `pkg.mod.Struct`) rather than YIELDING a value of one (a
+    # field read whose type happens to be that struct or enum). Both produce a
+    # STRUCT/ENUM `SawType`, so the TYPE alone cannot tell a receiver that is a
+    # type from a receiver that is a value — and a method call that decided on
+    # the type dropped a field-access receiver on the floor and shifted its
+    # arguments by one. Stamped by `_check_member_access` at every point it
+    # resolves a member access to a type SYMBOL, read by `_check_method_call`.
+    names_type: bool = annotation(False)
     # `.0` / `.x` on a tuple: the positional index it projects.
     tuple_field_index: Optional[int] = annotation(None)
     # A builtin integer bound (`Int.max`): (type name, member).

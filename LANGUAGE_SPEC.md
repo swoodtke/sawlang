@@ -2527,8 +2527,16 @@ receiver by construction and is already called on the type, as `Bag(...)`.
 
 The type is the only way to call a static, `Bag.make(seed: 5)` and never
 `b.make(seed: 5)`. A static has no receiver for a value to become, so the
-instance spelling is a clean error naming the type spelling. The two kinds may
-share a name: each call shape picks the one it can mean.
+instance spelling is a clean error naming the type spelling, at every way of
+spelling a receiver — a local, `self`, a call result, an element, and a FIELD
+ACCESS (`outer.inner.make(seed: 5)`), which reads like the qualified
+`module.Type.method()` form and is not one. The two kinds may share a name:
+each call shape picks the one it can mean.
+
+The same rule covers an enum's VARIANTS, which are constructors rather than
+methods: `Color.Red` and `Color.Custom(r: 3)` name a variant on the type, and
+naming one through a value (`c.Red`, `h.color.Custom(r: 3)`) is the same clean
+error. To ask which variant a value holds, `match` it.
 
 `static` here is the same keyword a
 [module-level static](#module-level-statics) uses, in a different position. A

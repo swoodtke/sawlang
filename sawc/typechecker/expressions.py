@@ -5882,10 +5882,12 @@ class ExpressionsMixin:
                         _id = getattr(symbol, 'type_identity', "") or expr.member
                         expr.resolved_struct_name = _id
                         expr.resolved_module = obj_type.module_name
+                        expr.names_type = True  # DF-236a
                         return SawType(TypeKind.STRUCT, struct_name=_id, symbol=symbol)
                     elif symbol.kind == SymbolKind.ENUM:
                         _id = getattr(symbol, 'type_identity', "") or expr.member
                         expr.resolved_module = obj_type.module_name
+                        expr.names_type = True  # DF-236a
                         return SawType(TypeKind.ENUM, enum_name=_id, symbol=symbol)
                     elif symbol.kind == SymbolKind.FUNCTION:
                         expr.resolved_module = obj_type.module_name
@@ -5902,8 +5904,14 @@ class ExpressionsMixin:
                             expr.line, expr.column
                         )
                         return None
-            elif obj_type and obj_type.kind == TypeKind.ENUM:
+            elif (obj_type and obj_type.kind == TypeKind.ENUM
+                    and getattr(expr.object, 'names_type', False)):
                 # Handle module-qualified enum variant access: lib.Color.Red
+                # DF-236a: gated on `names_type` for the reason the method-call
+                # arms are — a FIELD READ at enum type produces the same ENUM
+                # type as the qualified type name does, so `h.color.Red` used to
+                # build a fresh `Color.Red` here, discarding the receiver it was
+                # written on, and the program ran.
                 enum_info = self.get_enum_info(obj_type.enum_name, from_type=obj_type)
                 if enum_info:
                     type_args = obj_type.type_args
@@ -5987,10 +5995,12 @@ class ExpressionsMixin:
                     _id = getattr(symbol, 'type_identity', "") or expr.member
                     expr.resolved_struct_name = _id
                     expr.resolved_module = expr.object.name
+                    expr.names_type = True  # DF-236a
                     return SawType(TypeKind.STRUCT, struct_name=_id, symbol=symbol)
                 elif symbol.kind == SymbolKind.ENUM:
                     _id = getattr(symbol, 'type_identity', "") or expr.member
                     expr.resolved_module = expr.object.name
+                    expr.names_type = True  # DF-236a
                     return SawType(TypeKind.ENUM, enum_name=_id, symbol=symbol)
                 elif symbol.kind == SymbolKind.FUNCTION:
                     expr.resolved_module = expr.object.name
@@ -6089,6 +6099,24 @@ class ExpressionsMixin:
         if self._is_unsafe_memory(obj_type):
             return self._check_um_projection(expr, obj_type)
         if obj_type.kind != TypeKind.STRUCT:
+            # DF-236a: `h.color.Red` names a VARIANT through a VALUE of the enum.
+            # Say that, rather than "cannot access member of non-struct type" —
+            # the reader did not think they were reading a field, and this
+            # spelling used to CONSTRUCT a fresh variant and discard the
+            # receiver.
+            if obj_type.kind == TypeKind.ENUM and obj_type.enum_name is not None:
+                _enum = self.get_enum_info(obj_type.enum_name, from_type=obj_type)
+                if _enum is not None and expr.member in _enum.variants:
+                    self._error(
+                        ErrorKind.TYPE_MISMATCH,
+                        f"`{expr.member}` is a variant of enum "
+                        f"`{obj_type.enum_name}` and cannot be reached through "
+                        f"a value",
+                        expr.line, expr.column,
+                        hint=f"name it on the type: "
+                             f"`{obj_type.enum_name}.{expr.member}`; to ask "
+                             f"which variant a value holds, `match` it")
+                    return None
             self._error(
                 ErrorKind.TYPE_MISMATCH,
                 f"cannot access member of non-struct type `{obj_type}`",
@@ -8705,8 +8733,25 @@ class ExpressionsMixin:
                 return self._check_taskgroup_spawn(expr, recv_t)
         if isinstance(expr.object, MemberAccess):
             obj_type = self._check_member_access(expr.object)
+            # DF-236a: the two arms below are the QUALIFIED-TYPE routes
+            # (`module.Struct.static()`, `module.Color.Variant(...)`), and a
+            # receiver they accept is spelled where a value could be. They used
+            # to decide on the member access's TYPE alone — "this resolves to a
+            # struct that has a static of this name" — which is equally true of
+            # a member access that NAMES the type and of a FIELD READ that
+            # yields a value of it. So `h.inner.solo(3)` was routed as though
+            # `h.inner` were the type: the receiver was dropped and the
+            # arguments shifted by one (a nullary static silently succeeded; an
+            # arity-1 one reached codegen and failed the verifier), and
+            # `h.color.Custom(r: 3)` built an enum value off a value receiver.
+            # `names_type` is the question the type could not answer; a receiver
+            # that yields a VALUE falls through to the instance path below,
+            # where DF-217q's refusal and the ordinary no-such-method
+            # diagnostics live. Codegen already asked the same question
+            # (`resolved_struct_name`), which is why the mismatch surfaced there.
+            names_type = getattr(expr.object, 'names_type', False)
             # Handle static method calls on module-qualified structs: module.Struct.method()
-            if obj_type and obj_type.kind == TypeKind.STRUCT:
+            if names_type and obj_type and obj_type.kind == TypeKind.STRUCT:
                 struct_name = obj_type.struct_name
                 struct_info = self.get_struct_info(struct_name, from_type=obj_type)
                 if struct_info and expr.method_name in struct_info.methods:
@@ -8732,7 +8777,7 @@ class ExpressionsMixin:
                         return SawType(TypeKind.STRUCT, struct_name=struct_name,
                                        symbol=struct_info)
             # Handle module-qualified enum variant construction: lib.Color.Custom(r: 1, g: 2, b: 3)
-            if obj_type and obj_type.kind == TypeKind.ENUM:
+            if names_type and obj_type and obj_type.kind == TypeKind.ENUM:
                 enum_info = self.get_enum_info(obj_type.enum_name, from_type=obj_type)
                 if enum_info and expr.method_name in enum_info.variants:
                     enum_init = EnumInit(
@@ -9207,6 +9252,24 @@ class ExpressionsMixin:
                     available.extend(
                         n for n, sym in struct_info.specialized_methods[spec_key].items()
                         if self._ext_scope_allows(sym, struct_info))
+            # DF-236a's enum face: `h.color.Custom(r: 3)` names a VARIANT
+            # through a VALUE of the enum. A variant is a constructor, so the
+            # receiver has nowhere to go — the same shape as DF-217q's static
+            # refusal, and the same fix: spell the type. Reported here rather
+            # than as "has no method", which sends the reader looking for a
+            # method that was never the thing they wrote.
+            _variants = getattr(struct_info, 'variants', None)
+            if _variants is not None and expr.method_name in _variants:
+                self._error(
+                    ErrorKind.TYPE_MISMATCH,
+                    f"`{expr.method_name}` is a variant of enum `{struct_name}` "
+                    f"and cannot be constructed through a value",
+                    expr.line, expr.column,
+                    hint=f"construct it on the type: "
+                         f"`{struct_name}.{expr.method_name}(...)`. A variant "
+                         f"builds a new value, so there is nothing for the "
+                         f"receiver to become")
+                return None
             # Design 150 pin 4: a shadowed module qualifier explains this call
             # far better than a method list does.
             shadow = self._qualifier_shadow_hint(expr.object, expr.method_name)

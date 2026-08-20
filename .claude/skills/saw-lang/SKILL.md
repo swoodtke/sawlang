@@ -2644,12 +2644,18 @@ construct in the owner and lend `&driver` down.
   spelling — it used to mis-bind the labels instead
   (``no parameter named `seed```) or reach codegen and fail the verifier. Same
   for an enum's statics. A static and an instance method MAY share a name; each
-  call shape picks the one it can mean. ONE GAP (DF-236a, open): a receiver
-  spelled as a FIELD ACCESS (`self.layout.clean_all()`, `h.inner.solo(3)`)
-  escapes that refusal — it takes the module-qualified `mod.Type.method()`
-  route, so a nullary static silently drops the receiver and an arity-1 one is
-  a codegen ICE. Every other spelling (a local, `self`, a call result, a tuple
-  element, a `Vector` element, a field at ENUM type) is refused cleanly.
+  call shape picks the one it can mean. EVERY receiver spelling is refused,
+  a FIELD ACCESS (`self.layout.clean_all()`, `h.inner.solo(3)`) included —
+  that one used to take the module-qualified `mod.Type.method()` route, where a
+  nullary static silently dropped the receiver and an arity-1 one was a codegen
+  ICE, so treat it as caught now and SUSPECT in older builds (DF-236a).
+- **AN ENUM VARIANT IS NAMED ON THE TYPE TOO** (DF-236a's sweep) — `Color.Red`
+  and `Color.Custom(r: 3)`, never `value.Red` / `value.Custom(r: 3)`. A variant
+  BUILDS a value, so a receiver has nothing to become, and the error says so
+  with the type spelling. Through a field at enum type (`h.c.Red`) both
+  spellings used to construct a fresh value and discard the receiver, silently;
+  same vintage, same suspicion in older builds. To ask which variant a value
+  holds, `match` it.
 - **ENUMS TAKE EXTENSIONS, same as structs** (design 145): instance methods with
   `&self`/`&var self` (`match self` is the idiomatic body, `self = Other` the
   whole-value replacement), `static func` methods, hand-written trait

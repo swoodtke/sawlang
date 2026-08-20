@@ -47,7 +47,6 @@ User-reserved (hand fixes): DF-232h (rides 234 u1 unless taken earlier), DF-217m
 
 - `public(package) import` — should the scoped re-export form exist? Refused today (design 229). Real use case: an INTERNAL PRELUDE, one sibling aggregating names for the others (Rust's `pub(crate) use`). Against: siblings can already import each other directly, so it buys convenience, not capability — and kcore, the biggest multi-file package and the one that motivated the tier, does NOT want it (its `public import` block is the EXTERNAL facade). Wait for a package that feels the pain (entry: the re-narrowing rider section)
 - DF-239b — deep argument typing unchecked on the generic-bound call path (entry below, beside DF-239a)
-- DF-236a — static method through a field-access receiver, DF-217q's position gap (entry below, under design 236)
 - DF-232d — `mod.STATIC = v` assignment position (entry below) — FOLDED into the small-fix batch (mechanism read, fix unambiguous: route a qualifier-object MemberAccess assignment target to the static path)
 - DF-232e — import-cycle diagnostic (entry below) — FOLDED into the small-fix batch (mechanism read, fix is the diagnostic)
 - DF-232g — imported-const static folding (entry below) — FOLDED into the small-fix batch (matrix probed; the const-static collector must resolve imported const names)
@@ -195,6 +194,28 @@ selfhostlex, reemit, irdet (`--all`), gmgate, bootstrap, sos.
   DF-217q's mechanism, not 236's rule — it needs the checker to distinguish a
   member access that names a TYPE from one that yields a VALUE, which is a
   ruling about that branch. [236, 217q]
+  CLOSED Aug 20 (branch `df-batch-232n`, unit 2). The distinction is now a
+  DECLARED stamp: `MemberAccess.names_type`, set by `_check_member_access` at
+  every point it resolves a member access to a type SYMBOL (struct and enum, in
+  both the chained-module and the qualifier arm), read by the branches that need
+  a type rather than a value. Codegen had been asking the same question all
+  along through `resolved_struct_name`, which is why the arity-1 face surfaced
+  there. THE SWEEP FOUND TWO SIBLINGS, both the same mechanism and both SILENT
+  wrong answers rather than errors: `_check_method_call`'s ENUM arm
+  (module-qualified variant construction) took `h.c.Custom(r: 3)` and BUILT a
+  fresh `Color`, discarding the receiver — probed, compiled and ran, printing
+  `custom 3`; `_check_member_access`'s ENUM arm did the same for the
+  payload-less read `h.c.Red`. All three arms are gated on the one stamp now.
+  Two diagnostics came with them, on DF-217q's model: a variant named through a
+  value reports ``is a variant of enum `Color` and cannot be constructed /
+  reached through a value`` with the type spelling, instead of "has no method"
+  / "cannot access member of non-struct type". PINS:
+  `examples/static_method_through_field_receiver.saw` (XFAIL REMOVED, and the
+  arity-1 face added beside the nullary one — they failed differently) +
+  `examples/enum_variant_through_field_receiver_error.saw` (both enum faces).
+  Docs: LANGUAGE_SPEC's static-method section and the saw-lang skill's DF-217q
+  gotcha. Gate: full suite 2055 passed / 16 xfailed, sos_runner 80/80 across
+  riscv32 + arm64.
 
 ## Design 237 — the ANF-hoist funnel (RATIFIED Aug 18; QUEUED BEFORE 234)
 
