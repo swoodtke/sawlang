@@ -31,21 +31,20 @@ is scheduled and in what order is the whole of what they say.
 
 ## [QUEUE] — scheduled, in order (user-approved)
 
-1. DF-232j fix — the qualified-reach path decides `public(package)` with an empty package root, widening the tier to the world (entry below; MOVED TO TOP by user, Aug 20). SOUNDNESS. Obligation-4 sweep DONE Aug 20: the facade is incidental — the DIRECT qualified reach widens too, kind-generally; 8 pins committed as the fix's oracle; sweep also filed DF-232k and DF-232l (entries below). LANDED Aug 20 (branch df-232j) — scope expanded at user approval to carry DF-232k and DF-232l as units 2 and 3, so all 8 pins pass and the family holds ZERO xfails
-2. Design 236 — `static` keyword required (designs/236-static-keyword.md) — before 235
-3. Design 235 — position-matrix ledgers (designs/235-position-matrices.md; SONNET dispatch) — before 234's migration units
-4. Design 237 — the ANF-hoist funnel (designs/237-anf-hoist-funnel.md) — before 234
-5. Design 205 — platform-pair transfer conversions (designs/205-transfer-conversion-closes.md; worked solution recorded in the brief) — position in queue provisional, before 234 suggested
-6. Design 234 — the fallibility flip (designs/234-fallibility-flip.md) — after 235/237; M3 unit 1.5 may interleave with its units 1-2 only
-7. sos riders batch — REMAINDER ONLY: `clock_get` `kind:`→`type:` (DF-232b landed), abi enums decimals→shifts (DF-232c landed). The kcore re-narrowing LANDED Aug 20; what is left of the narrowing is small and unscheduled (sosabi 2, hal-arm64 2, toml 1, semver 1, ~179 unaudited public MEMBERS) — see the re-narrowing rider section
-8. Design 238 — the sawos split (designs/238-sawos-split.md; four rulings Aug 19, D-b1/b2/b3 open) — BEFORE the M3 ladder; its unit 1 (the freestanding suite) may start any time and is worth pulling forward
-9. M3 ladder — designs/232-sos-m3-sketch.md: unit 1.5 interruptibility, 2 CreateProcess, 2.75 handle lifecycle, 3 give, 4 Memory/IoMemory, 5 quotas, 5.5 death notifications, 6 money shot — runs IN sawos, after 8
+- Design 236 — `static` keyword required (designs/236-static-keyword.md) — before 235
+- Design 235 — position-matrix ledgers (designs/235-position-matrices.md; SONNET dispatch) — before 234's migration units
+- Design 237 — the ANF-hoist funnel (designs/237-anf-hoist-funnel.md) — before 234
+- Design 205 — platform-pair transfer conversions (designs/205-transfer-conversion-closes.md; worked solution recorded in the brief) — position in queue provisional, before 234 suggested
+- Design 234 — the fallibility flip (designs/234-fallibility-flip.md) — after 235/237; M3 unit 1.5 may interleave with its units 1-2 only
+- sos riders batch — REMAINDER ONLY: `clock_get` `kind:`→`type:` (DF-232b landed), abi enums decimals→shifts (DF-232c landed). The kcore re-narrowing LANDED Aug 20; what is left of the narrowing is small and unscheduled (sosabi 2, hal-arm64 2, toml 1, semver 1, ~179 unaudited public MEMBERS) — see the re-narrowing rider section
+- Design 238 — the sawos split (designs/238-sawos-split.md; four rulings Aug 19, D-b1/b2/b3 open) — BEFORE the M3 ladder; its unit 1 (the freestanding suite) may start any time and is worth pulling forward
+- M3 ladder — designs/232-sos-m3-sketch.md: unit 1.5 interruptibility, 2 CreateProcess, 2.75 handle lifecycle, 3 give, 4 Memory/IoMemory, 5 quotas, 5.5 death notifications, 6 money shot — runs IN sawos, after design 238
 
-CONFLICT OWED A RULING (raised Aug 19 by 238's scheduling): item 6's carve-out
-lets M3 unit 1.5 interleave with 234's units 1-2, which puts 1.5 in THIS repo
-before the split at 8 — the one thing "238 before more M3 work" is meant to
-prevent. Either the carve-out is withdrawn (1.5 waits for sawos) or 1.5 is
-accepted as in-tree work the split then moves. Not decided.
+CONFLICT OWED A RULING (raised Aug 19 by 238's scheduling): design 234's
+carve-out lets M3 unit 1.5 interleave with 234's units 1-2, which puts 1.5 in
+THIS repo before the split (238) — the one thing "238 before more M3 work" is
+meant to prevent. Either the carve-out is withdrawn (1.5 waits for sawos) or
+1.5 is accepted as in-tree work the split then moves. Not decided.
 
 User-reserved (hand fixes): DF-232h (rides 234 u1 unless taken earlier), DF-217m sync half (entry below, under NEXT-WAVE SWEEPS)
 
@@ -330,199 +329,6 @@ slab size stays in one module (`limits.saw`) — which is how lib.saw already ha
 them, one adjacent block, so the constraint cost the cut nothing this time. It
 would cost a differently-shaped kernel a real seam. [232, design 148/185/186]
 
-## DF-232j — a `public import` RE-EXPORT WIDENS a `public(package)` symbol to
-## the world: design 229's facade bypasses design 80's package tier (filed
-## Aug 20, writing the pin the re-narrowing rider owed — the pin DISPROVED the
-## property it was written to protect)
-## — FIXED Aug 20 (branch df-232j, unit 1)
-
-A facade module of a mapped package re-exports a sibling's package-private
-symbol and PUBLISHES it. `pkgvis.secret` declares `public(package) func
-pkg_secret`; `pkgvis`'s lib.saw says `public import pkgvis.secret.{pkg_secret}`;
-an entry file OUTSIDE the package then calls `pkgvis.pkg_secret()` and it
-compiles and runs, printing 7. Reaching the same symbol DIRECTLY
-(`import pkgvis.secret.{pkg_secret}`) is correctly refused — so the tier works
-everywhere except through the one construct designed to republish names.
-SEVERITY: this is the tier's soundness, not a diagnostic wart. `public(package)`
-means "siblings only"; one `public import` line anywhere in a package silently
-converts that to "everyone", with no error, no warning and no test failing —
-the failure mode is invisible by construction.
-NOT EXPLOITED TODAY, by accident not design: kcore's facade names eleven
-symbols and all eleven were promoted back to genuinely `public` by the Aug-20
-re-narrowing, so none of its 108 `public(package)` names is re-exported. The
-narrowing therefore STANDS. But the protection is one careless facade line from
-gone, and nothing would catch it.
-PIN: `examples/module_path_reexport_no_widen_error.saw`, XFAIL citing this DF,
-EXPECT stating the intent (refusal naming the tier and the defining module).
-Its fixture's `public import` is the widening attempt, deliberately.
-NEIGHBOUR ALREADY PINNED: `export229_scoped_import_error.saw` covers
-`public(package) import` being refused outright. That one HAS a diagnostic;
-this one has none, which is why it went unnoticed.
-MECHANISM (read Aug 20, lead sweep; both obligation-4 hypotheses were wrong —
-the tier RIDES the symbol and dies at the DECISION): a re-exported symbol
-keeps its `visibility` and `def_module` (symbols are shared by reference).
-The defect is that design 80's relation has two callers of the one
-implementation (`Namespace.check_visibility`) and only one is honest: the
-typechecker's `_visibility_relation_allows` (core.py:1033) computes the
-package root (std arm + DF-232f's mapped arm) before delegating, while the
-qualified-reach path — `_resolve_parts.is_visible`, namespace.py:564-576 —
-calls it raw, with `symbol_module=self.module_path` (the FOUND-IN module,
-not `def_module`) and `package_root=self.package_root`, which is `()` for
-every user namespace (nothing ever sets it), and an empty root means "assume
-same package" (namespace.py:2727). So EVERY namespace-side visibility
-decision lets `public(package)` through; the facade of the filing is
-incidental — the DIRECT qualified reach widens too, no re-export needed.
-Third wrongness, currently masked by the empty root: the module-member-access
-sites hardcode `accessor_module=()` (expressions.py:6138), so a root fix
-alone would REFUSE legitimate sibling qualified reach — the true accessor
-must be threaded.
-SWEEP (Aug 20; all shapes entry-OUTSIDE the mapped package; every row now a
-committed pin, the fix's oracle):
-- WIDENS direct qualified, no facade (`import pkgvis.secret`;
-  `secret.pkg_secret()` printed 7) — pin `module_path_qualified_no_widen_error.saw`
-- WIDENS selective facade, qualified reach — the filed symptom, pin
-  `module_path_reexport_no_widen_error.saw`
-- WIDENS two stacked selective facades — pin
-  `module_path_reexport_twohop_no_widen_error.saw`
-- WIDENS kind-general: static printed 9, struct constructed — pin
-  `module_path_reexport_kinds_no_widen_error.saw`
-- REFUSED entry selective through facade — the typechecker funnel runs;
-  control pin `module_path_facade_selection_error.saw` (not XFAIL; wart: the
-  diagnostic names the FACADE, not the defining module)
-- REFUSED entry glob of facade — accidental (the glob-copy PUBLIC-only filter)
-- REFUSED glob facade — accidental, same filter refuses the SIBLING → DF-232k
-  (entry below); widen pin `module_path_glob_facade_no_widen_error.saw` stays
-  XFAIL until BOTH land
-- REFUSED whole-module facade chain — accidental: the re-exported qualifier is
-  bound `Visibility.PRIVATE` (core.py:1484), value-position chain reach fails
-  everywhere, public included → DF-232l (entry below); widen pin
-  `module_path_whole_facade_no_widen_error.saw` stays XFAIL until BOTH land
-- sibling direction keeps working (lib_answer 42, existing tests)
-FIX SHAPE (dispatched Aug 20, branch df-232j): ONE funnel —
-`Namespace.check_visibility` is already the shared implementation; make its
-callers honest. Root computation (std + mapped arms) moves into the namespace
-layer, `is_visible` judges `sym.def_module or self.module_path`, member-access
-sites pass the real accessor, refusal diagnostic names the tier and the
-defining module (the pins' EXPECT). W-rows flip to refusals, R-rows stay
-refused, sibling + std cross-file + kcore/sos + bootstrap reaches stay green.
-LANDED Aug 20 as dispatched, no deviation. `Namespace.visibility_relation_
-allows` is the funnel (namespace.py) and carries BOTH package-root arms; the
-typechecker's `_visibility_relation_allows` delegates and keeps only the
-entry-point list, which now names the namespace-side qualified reach.
-`Namespace.mapped_packages` is stamped on every module namespace by
-`check_module` and inherited by `register_module_from_ast`;
-`_resolve_parts.is_visible` judges `sym.def_module` (the tier RIDES the shared
-symbol, so hop count cannot matter) and the chain recursion stops reading an
-accessor of `()` — the ENTRY module — as "unknown, use my own path", which had
-made every chain hop a same-module access. Every `resolve(..., check_
-visibility=True)` site now passes `_accessor_vis_module()`. Refusals are
-reported, not swallowed: `Namespace.resolve` takes an out-list of
-`VisibilityRefusal`, and `TypeChecker._report_visibility_refusal` turns it into
-the tier diagnostic at the four module member-access/call sites — a design-229
-surface hint still WINS over it, since "the module merely imports this name" is
-the more specific story. FLIPPED (XFAIL removed): the four W-row pins.
-DIAGNOSTIC IMPROVEMENTS the fix pulled in, four existing tests re-pinned to the
-better wording (refusal unchanged in every one): visibility_private_access_
-error, visibility_parent_access_error, visibility_private_struct_error (which
-had been calling a STRUCT a function) and reexport_private_module_error now
-name the tier and the defining module instead of "has no symbol". CONSUMER
-SWEEP: clean — full suite 2023 pass / 20 xfail and sos_runner 80 pass across
-riscv32 + arm64 (kcore/imgformat/sosrt are the corpus's mapped packages). NOT
-ONE in-tree site was newly refused, which is the re-narrowing's claim holding
-up under a now-real gate. [232f, 229, design 80/82]
-
-## DF-232k — a sibling GLOB import drops `public(package)` names: the
-## glob-copy arm filters PUBLIC-only (filed Aug 20, the DF-232j sweep)
-## — FIXED Aug 20 (branch df-232j, unit 2)
-
-`import pkgvis.secret.*` written INSIDE the package does not bind the
-sibling's `public(package)` names: the glob arm of `check_module`
-(typechecker/core.py:2729-2759) tests `visibility == PUBLIC` where the
-selective arm asks `_selection_visible` with the importer as accessor —
-DF-229c fixed exactly this for the selective form; the glob arm kept the
-pre-229c shape. Symptom: the aggregating facade itself fails to compile
-(`undefined function pkg_secret`). Usability, not soundness — it REFUSES
-valid reach. Fix: the glob arm asks the same relation; the outside-facing
-direction (an outside glob keeps excluding package-tier names) falls out of
-the accessor-aware predicate. PIN: `module_path_glob_facade_sibling.saw`
-(XFAIL, EXPECT success 42). SCHEDULED (user, Aug 20): rides branch df-232j
-as unit 2.
-LANDED Aug 20 as filed: all five glob-copy loops now test `_selection_visible`
-with the importer as accessor instead of `visibility == PUBLIC`, and the
-`_glob_takes` closure carries both that and the design-229 surface test, so no
-loop can drift from another. Both directions fell out of the one predicate with
-no special case, as predicted. FLIPPED: `module_path_glob_facade_sibling.saw`
-(42) and — with unit 1 — `module_path_glob_facade_no_widen_error.saw`, the
-widen pin that had been masked by this defect. Nothing in-tree was newly
-admitted or refused: suite 2025 pass / 18 xfail, sos_runner 80 pass both
-arches. [232j sweep, 229c, design 80]
-
-## DF-232l — whole-module `public import` re-exports NOTHING in value
-## position: the qualifier is bound PRIVATE (filed Aug 20, the DF-232j sweep)
-## — FIXED Aug 20 (branch df-232j, unit 3, after unit 1 as the ordering required)
-
-Design 229's whole-module form re-exports its QUALIFIER — but
-`_bind_module_qualifier` (typechecker/core.py:1482-1485) stamps every bound
-qualifier `Visibility.PRIVATE` ("an import is never re-exported", a comment
-design 229 superseded for the `public import` form). A chain reach in a VALUE
-position (`facade.dep.leaf_make(...)`) fails with "module `facade` has no
-symbol `dep`" for ordinary and mapped modules alike, public symbols included.
-The suite never noticed: `export229_facade.saw` exercises the chain only in a
-TYPE annotation (a path that checks no module visibility) plus the facade's
-own public function. ORDERING: fix AFTER (or with) DF-232j — flipping the
-qualifier re-exported while `_resolve_parts` still decides package visibility
-with an empty root would open DF-232j's hole through the whole-module shape,
-the one form the sweep could not exercise end to end. PIN:
-`export229_whole_chain_call.saw` (XFAIL, EXPECT success 2). SCHEDULED (user,
-Aug 20): rides branch df-232j as unit 3, strictly after unit 1.
-LANDED Aug 20 as filed, and in the required order. `_bind_module_qualifier`
-stamps the qualifier PUBLIC exactly when `_qualifier_is_reexported(imp)` — the
-new per-FORM predicate: `public import` AND no selection list. The whole-module
-form binds no bare name, so the qualifier IS its product; the selective form's
-qualifier stays PRIVATE even under `public import` (design 229's ruling —
-re-exporting it beside the named symbols would hand on the whole module), and
-the glob form binds none. The std whole-module arm now reads the same predicate
-for its `note_private_import` half, so the export gate and the qualifier's
-visibility cannot drift apart. FLIPPED: `export229_whole_chain_call.saw` (2)
-and — with unit 1 — `module_path_whole_facade_no_widen_error.saw`; a probe of
-the direction the fix ADMITS (`pkgvis.secret.secret_is_reachable()` through a
-mapped package's `public import` chain) prints 1 while the `public(package)`
-sibling beside it is refused on the tier, which is the pairing the ordering
-existed to guarantee. Suite 2027 pass / 16 xfail, sos_runner 80 pass both
-arches. [232j sweep, 229]
-
-## DF-232m — the battery's `irdet` lane VERIFIED NOTHING from a worktree: it
-## builds irdetbin with $PY and then invokes it with no `--python` (filed
-## Aug 20, hit by the DF-232j terminal battery) — FIXED Aug 20 (branch df-232j)
-
-MECHANISM (`tools/battery.sh:129-137`): `run_irdet` compiles
-`devtools/irdet/src/main.saw` with `"$PY"` — correct — and then runs
-`./.build/irdetbin --plan --all` and `./.build/irdetbin --all --jsonl` with no
-interpreter argument. Building irdetbin says nothing about the interpreter it
-DRIVES: irdetbin shells out to sawc, and its `--python` default is bare
-`python3`. On a machine whose `python3` cannot import llvmlite that compiles
-nothing. `SAW_PYTHON` does not rescue it — the variable reaches `$PY`, which is
-never passed on — and from a WORKTREE there is no `./.venv` for the fallback to
-find either, which is precisely the configuration CLAUDE.md prescribes for
-agent work.
-BLAST RADIUS: every worktree-run battery's irdet lane has verified NOTHING
-since the lane existed. That is the exact silent-lane failure design 192 unit 5
-tracked the battery to prevent — a lane quietly going missing — reappearing
-INSIDE the tracked battery rather than around it. It is visible at all only
-because design 220/221 made irdet self-report: the lane prints
-`NOTHING WAS CHECKED -- every candidate failed to compile` and `irdet_verdict`
-fails on a run that verified nothing rather than reading zero mismatches as
-green. Without that self-report this would have been a clean pass forever.
-FIX: `--python "$PY"` on BOTH invocations, nothing else.
-EVIDENCE: the DF-232j terminal battery failed this lane with
-`1359 record(s) — 0 ok, 1359 skipped, 0 MISMATCH, 0 VIOLATED INVARIANT`; the
-lane re-run verbatim with `--python` gave `1266 ok, 93 skipped, 0 MISMATCH,
-0 VIOLATED INVARIANT` (1255 of 1266 reusing the suite manifest), GATE=0 — so
-the oracle itself was green over the whole corpus and only the plumbing was
-broken. Re-proved after the fix by
-`SAW_PYTHON=<main>/.venv/bin/python tools/battery.sh irdet` from the worktree.
-[232j, design 192 u5, 220, 221 D]
-
 ## DF-232f — a package has NO INTERNAL VISIBILITY, so splitting one file into
 ## several PUBLISHES everything they share (filed Aug 17, the kcore split's
 ## unit-0 probe; the finding the split's tracker entry anticipated)
@@ -637,7 +443,8 @@ keeping:
    kcore's 7 re-exports stay `public import`. Whether the scoped form SHOULD
    exist is a live question — see [BACKLOG].
 2. ~~`public import` does NOT widen a `public(package)` symbol.~~ **WRONG —
-   CORRECTED Aug 20, see DF-232j below.** Writing the pin the claim asked for
+   CORRECTED Aug 20, see DF-232j (FIXED same day; entry in
+   done_aug18-aug25.md).** Writing the pin the claim asked for
    DISPROVED it: a `public import` re-export DOES widen, and the probe compiles
    and prints 7. The claim was inferred from the kcore flip erroring on 6 names
    rather than passing silently; the better explanation is that those 6 are
