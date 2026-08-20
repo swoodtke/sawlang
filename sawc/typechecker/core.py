@@ -1345,14 +1345,20 @@ class TypeChecker(ExpressionsMixin, StatementsMixin, RegistrationMixin, TypeUtil
 
     def _selection_visible(self, sym, source_path, importer_module,
                            package_root) -> bool:
-        """Whether an importer in `importer_module` may SELECT `sym`.
+        """Whether an importer in `importer_module` may TAKE `sym` out of a
+        module — the predicate for BOTH copying import forms.
 
         Design 229 answered PUBLIC-only, which made `import m.{X}` stricter
         than the qualified `m.X` it is sugar for: a `public(package)` name
         selected from INSIDE its own package was refused (DF-229c). The test is
         design 80's relation, asked with the importer as the accessor — so a
         package-visible name binds within the package and stays refused outside
-        it, and `private` / `public(parent)` are unchanged."""
+        it, and `private` / `public(parent)` are unchanged.
+
+        CALLERS: `check_module`'s SELECTIVE arm and its `available:` listing
+        (`_module_selectable_names`), and — since DF-232k — its GLOB arm, which
+        had kept the pre-229c PUBLIC-only test and so dropped exactly the names
+        a sibling `import pkg.other.*` exists to pick up."""
         def_module = getattr(sym, 'def_module', ()) or tuple(source_path)
         return self._visibility_relation_allows(
             def_module, sym.visibility, importer_module, package_root)
@@ -2760,33 +2766,45 @@ class TypeChecker(ExpressionsMixin, StatementsMixin, RegistrationMixin, TypeUtil
                     # Design 229: the glob takes the module's SURFACE — what it
                     # declares public plus what it re-exports — never a name it
                     # merely imports.
-                    def _glob_takes(nm):
-                        return source_ns.hidden_import(nm) is None
+                    #
+                    # DF-232k: and it takes what the IMPORTER is entitled to,
+                    # not what is `public` full stop. `_selection_visible` is
+                    # the same accessor-aware predicate the selective arm asks
+                    # (DF-229c fixed that arm; this one kept the pre-229c
+                    # shape), so a sibling glob inside a package binds the
+                    # package's `public(package)` names and an outside glob
+                    # keeps excluding them — one predicate, no special case for
+                    # either direction.
+                    def _glob_takes(nm, sym, _path=base_path):
+                        return (source_ns.hidden_import(nm) is None
+                                and self._selection_visible(
+                                    sym, _path, tuple(module_path or ()),
+                                    ns.package_root))
                     for name, ident, sym in source_ns.iter_structs():
-                        if sym.visibility == Visibility.PUBLIC and _glob_takes(name):
+                        if _glob_takes(name, sym):
                             ns.register_struct(name, sym, source_label=glob_label)
                             ns.make_accessible(name)
                             _note_import(imp, name, glob_label)
                             _import_conformances(ident, ident, source_ns)
                     for name, ident, sym in source_ns.iter_enums():
-                        if sym.visibility == Visibility.PUBLIC and _glob_takes(name):
+                        if _glob_takes(name, sym):
                             ns.register_enum(name, sym, source_label=glob_label)
                             ns.make_accessible(name)
                             _note_import(imp, name, glob_label)
                             _import_conformances(ident, ident, source_ns)
                     for name, sym in source_ns.functions.items():
-                        if sym.visibility == Visibility.PUBLIC and _glob_takes(name):
+                        if _glob_takes(name, sym):
                             if name not in ns.functions:
                                 ns.register_function(name, sym)
                             ns.make_accessible(name)
                             _note_import(imp, name, glob_label)
                     for name, _ident, sym in source_ns.iter_traits():
-                        if sym.visibility == Visibility.PUBLIC and _glob_takes(name):
+                        if _glob_takes(name, sym):
                             ns.register_trait(name, sym, source_label=glob_label)
                             ns.make_accessible(name)
                             _note_import(imp, name, glob_label)
                     for name, sym in source_ns.statics.items():
-                        if sym.visibility == Visibility.PUBLIC and _glob_takes(name):
+                        if _glob_takes(name, sym):
                             if name not in ns.statics:
                                 ns.register_static(name, sym)
                             ns.make_accessible(name)

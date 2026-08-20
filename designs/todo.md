@@ -393,6 +393,7 @@ up under a now-real gate. [232f, 229, design 80/82]
 
 ## DF-232k — a sibling GLOB import drops `public(package)` names: the
 ## glob-copy arm filters PUBLIC-only (filed Aug 20, the DF-232j sweep)
+## — FIXED Aug 20 (branch df-232j, unit 2)
 
 `import pkgvis.secret.*` written INSIDE the package does not bind the
 sibling's `public(package)` names: the glob arm of `check_module`
@@ -405,7 +406,16 @@ valid reach. Fix: the glob arm asks the same relation; the outside-facing
 direction (an outside glob keeps excluding package-tier names) falls out of
 the accessor-aware predicate. PIN: `module_path_glob_facade_sibling.saw`
 (XFAIL, EXPECT success 42). SCHEDULED (user, Aug 20): rides branch df-232j
-as unit 2. [232j sweep, 229c, design 80]
+as unit 2.
+LANDED Aug 20 as filed: all five glob-copy loops now test `_selection_visible`
+with the importer as accessor instead of `visibility == PUBLIC`, and the
+`_glob_takes` closure carries both that and the design-229 surface test, so no
+loop can drift from another. Both directions fell out of the one predicate with
+no special case, as predicted. FLIPPED: `module_path_glob_facade_sibling.saw`
+(42) and — with unit 1 — `module_path_glob_facade_no_widen_error.saw`, the
+widen pin that had been masked by this defect. Nothing in-tree was newly
+admitted or refused: suite 2025 pass / 18 xfail, sos_runner 80 pass both
+arches. [232j sweep, 229c, design 80]
 
 ## DF-232l — whole-module `public import` re-exports NOTHING in value
 ## position: the qualifier is bound PRIVATE (filed Aug 20, the DF-232j sweep)

@@ -4,8 +4,8 @@
 // with the importer as accessor (DF-229c fixed the selective arm; the glob
 // arm kept the pre-229c shape) — so the facade here fails to compile with
 // `undefined function pkg_secret`, refusing valid inside-package reach.
-// XFAIL: DF-232k the glob-copy arm filters PUBLIC-only, dropping the
-// `public(package)` names a sibling may reach. The EXPECTs state the intent.
+// DF-232k FIXED: the glob arm asks `_selection_visible` too, so the sibling
+// glob binds the package-tier name and this file is an ordinary test.
 // EXPECT: success
 // EXPECT-OUTPUT: 42
 // COMPILE-FLAGS: --module-path pkgvis={TESTDIR}/modules/pkgvis232j_glob
