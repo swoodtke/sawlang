@@ -1,0 +1,11 @@
+//! Fixture for the visibility grid's private/cross-module rows (design
+//! 235). `vis80_field_read_error.saw` already pins a private FIELD cross-
+//! module; this adds the method/static kinds the design-235 survey found
+//! not separately isolated.
+// EXPECT: skip
+
+public struct Crate { n: Int }
+extension Crate {
+    func secret_method(&self) -> Int { self.n }
+    static func secret_make() -> Crate { Crate(n: 1) }
+}

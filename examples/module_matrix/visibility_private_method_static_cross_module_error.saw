@@ -1,0 +1,20 @@
+// Position matrix (design 235), grid 2 "Visibility" — tier: private,
+// relation: cross-module, member kind: instance METHOD and STATIC method
+// (design 80). `vis80_field_read_error.saw` already pins the private-field
+// row cross-module; the design-235 survey found no existing test isolated
+// the method/static kinds the same way, though `members80.saw`'s fixture
+// declares both without a cross-module call ever exercising the refusal.
+// This is that refusal, for both kinds, in one file (an error test can
+// carry both since either alone would stop the compile — EXPECT-ERROR-
+// CONTAINS matches whichever surfaces, and both are asserted).
+//
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: static method `secret_make` of `Crate` is private and not accessible from this module
+// EXPECT-ERROR-CONTAINS: method `secret_method` of `Crate` is private and not accessible from this module
+
+import modules.visprivate.lib
+
+func main() {
+    let c = lib.Crate.secret_make()
+    print("{c.secret_method()}")
+}
