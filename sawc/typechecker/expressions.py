@@ -7906,6 +7906,24 @@ class ExpressionsMixin:
         stay abstract in this body, so a concrete-vs-abstract comparison here
         would produce false positives. Argument *count* is decidable and checked.
 
+        THREE things are decidable and ARE checked, because each is a SPELLING
+        question rather than a typing one — true at every instantiation whatever
+        `T` turns out to be. This is the one call form in the language with no
+        argument-compatibility loop, so anything it skips reaches codegen, where
+        a mismatch is an ICE rather than a diagnostic (DF-239a):
+
+          - argument COUNT (above);
+          - ALIASING, through `_check_call_exclusivity` below;
+          - REFERENCE-NESS, in `_check_bound_arg_reference_spelling` — a `&Self`
+            or `&Item` parameter demands a `&`-spelled argument and a by-value
+            one refuses it. `&` is written at the call site in Saw (design 34's
+            mirroring rule), so this needs no substitution and no resolution:
+            the declared type's own kind answers it.
+
+        Deep typing is still deferred, and a mismatch there still reaches
+        codegen — DF-239b, pinned by
+        `examples/generic_bound_call_concrete_param_type.saw`.
+
         A trait method has no analyzable body, so it contributes no suspend edge
         — a conservative non-suspending leaf, matching how opaque/imported
         callees are treated (design 22 §5).
@@ -7924,7 +7942,8 @@ class ExpressionsMixin:
             # `param_names` excludes the `self` receiver (which `param_types`
             # carries as a placeholder at index 0), so it is the arity to match.
             expected = len(method_sym.param_names)
-            if len(expr.arguments) != expected:
+            arity_ok = len(expr.arguments) == expected
+            if not arity_ok:
                 self._error(
                     ErrorKind.WRONG_ARGUMENT_COUNT,
                     f"method `{expr.method_name}` takes {expected} argument(s), "
@@ -7936,6 +7955,9 @@ class ExpressionsMixin:
                     self._check_closure(arg.value, None, as_call_argument=True)
                 else:
                     self._check_expression(arg.value)
+            if arity_ok:
+                self._check_bound_arg_reference_spelling(
+                    expr, obj_type, method_sym)
             # The Law of Exclusivity, through the same funnel every other call
             # form uses (design 193 unit 4). Deep argument TYPING is deferred
             # here — a trait signature may mention associated types — but
@@ -7974,6 +7996,93 @@ class ExpressionsMixin:
             hint=hint
         )
         return None
+
+    def _check_bound_arg_reference_spelling(self, expr: MethodCall,
+                                            obj_type: SawType,
+                                            method_sym) -> None:
+        """The reference-spelling half of argument compatibility, for a call on a
+        trait-bounded type parameter (DF-239a).
+
+        `_check_type_param_method_call` defers deep argument typing because a
+        trait signature may name associated types. Reference-NESS is not part of
+        what it defers: Saw writes the borrow at the call site (design 34), so a
+        parameter declared `&X` demands a `&`-spelled argument and a by-value one
+        refuses it, at every instantiation, whatever `X` denotes. The DECLARED
+        type answers the question on its own — no `Self` substitution, no
+        resolution, no prelude gate — which is what makes it safe to ask here.
+
+        Skipping it is not a lenience but an ICE: a generic body calling
+        `a.merge(b)` against `func merge(&self, other: &Self)` type-checked, then
+        monomorphized into `Type of #2 arg mismatch: %"Bag"* != %"Bag"`. The two
+        directions are one rule and both were unchecked:
+
+        | argument | parameter | before | after |
+        |---|---|---|---|
+        | value      | `&X` / `&var X` | ICE at codegen | error, fixit `&b`   |
+        | `&`/`&var` | by-value `X`    | ICE at codegen | error, drop the `&` |
+        | `&x`       | `&var X`        | error          | error (unchanged)   |
+        | `&var x`   | `&X`            | error          | error (unchanged)   |
+
+        The last two rows are `_check_reference_sigils`, reached through
+        `_check_call_exclusivity`; it deliberately declines the first two,
+        deferring them to "the caller's compatibility check" — the one this call
+        form does not have.
+
+        `Self` is substituted for the RENDERING only, so the diagnostic says
+        `&T` (the reader's own type parameter) rather than `&Self`.
+        """
+        param_types = list(method_sym.param_types or [])
+        param_names = list(method_sym.param_names or [])
+        # `param_types` carries a VOID placeholder for a `self` receiver and none
+        # for a static requirement; the difference in length is the offset.
+        off = len(param_types) - len(param_names)
+        if off < 0:
+            return
+        # Labels map by name (design 66); an unrecognized label is somebody
+        # else's diagnostic, so the whole call is left alone rather than judged
+        # at guessed positions.
+        if self._call_has_labels(expr):
+            mapping = []
+            for arg in expr.arguments:
+                label = getattr(arg, 'name', None)
+                if label is None or label not in param_names:
+                    return
+                mapping.append(param_names.index(label))
+        else:
+            mapping = list(range(len(expr.arguments)))
+        for i, arg in enumerate(expr.arguments):
+            p = mapping[i] + off
+            if p >= len(param_types):
+                continue
+            declared = param_types[p]
+            if declared is None:
+                continue
+            wants_ref = declared.kind == TypeKind.REFERENCE
+            gave_ref = isinstance(arg.value, ReferenceExpr)
+            if wants_ref == gave_ref:
+                continue
+            name = param_names[mapping[i]]
+            rendered = self._substitute_self_type(declared, obj_type) or declared
+            if wants_ref:
+                sigil = "&var " if declared.reference_mutable else "&"
+                target = self._render_lvalue_path(arg.value)
+                self._error(
+                    ErrorKind.TYPE_MISMATCH,
+                    f"argument `{name}` expects `{rendered}`, but the borrow is "
+                    f"not written",
+                    arg.value.line, arg.value.column,
+                    hint=f"call sites mirror the parameter's reference spelling "
+                         f"— write `{sigil}{target}`"
+                )
+            else:
+                self._error(
+                    ErrorKind.TYPE_MISMATCH,
+                    f"argument `{name}` expects `{rendered}` by value, but a "
+                    f"reference is written",
+                    arg.value.line, arg.value.column,
+                    hint="drop the `&` — the parameter takes ownership of its "
+                         "argument"
+                )
 
     def _check_field_call(self, expr: MethodCall, func_type: SawType) -> Optional[SawType]:
         """Check a call through a function-typed struct field: `obj.field(args)`

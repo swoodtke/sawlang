@@ -1,16 +1,18 @@
-// A trait DEFAULT BODY receives a `&Self` parameter as the reference it is:
-// forwarding it to a sibling requirement is design 106's ordinary re-borrow.
-// Today the per-conformer compile substitutes `&Self` to the bare concrete
-// type — the same wrapper loss as the generic-bound face — so the forward
-// errors `expects &Bag but got Bag`.
-// XFAIL: DF-239a substituting `Self` inside a reference type drops the `&`
-// — the default-body face
+// A trait DEFAULT BODY receives a `&Self` parameter as the reference it is, and
+// forwards it to a sibling requirement as design 106's ordinary re-borrow —
+// which, like every reference argument in Saw, is SPELLED (`&other`).
+//
+// DF-239a's second face was filed against the unspelled forward, on the reading
+// that the per-conformer compile had substituted `&Self` to the bare value. It
+// had not: `Bag_doubled` really does take `%Bag*`, and the unspelled forward is
+// the same error a plain `&Bag` parameter gives — Saw has no implicit re-borrow
+// at any type. This file pins the working spelling.
 // EXPECT: success
 // EXPECT-OUTPUT: 14
 trait Merges {
     func merge(&self, other: &Self) -> Int
     func doubled(&self, other: &Self) -> Int {
-        self.merge(other) * 2
+        self.merge(&other) * 2
     }
 }
 

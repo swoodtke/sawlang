@@ -48,6 +48,7 @@ User-reserved (hand fixes): DF-232h (rides 234 u1 unless taken earlier), DF-217m
 ## [BACKLOG] — filed, not scheduled
 
 - `public(package) import` — should the scoped re-export form exist? Refused today (design 229). Real use case: an INTERNAL PRELUDE, one sibling aggregating names for the others (Rust's `pub(crate) use`). Against: siblings can already import each other directly, so it buys convenience, not capability — and kcore, the biggest multi-file package and the one that motivated the tier, does NOT want it (its `public import` block is the EXTERNAL facade). Wait for a package that feels the pain (entry: the re-narrowing rider section)
+- DF-239b — deep argument typing unchecked on the generic-bound call path (entry below, beside DF-239a)
 - DF-236a — static method through a field-access receiver, DF-217q's position gap (entry below, under design 236)
 - DF-232d — `mod.STATIC = v` assignment position (entry below) — FOLDED into the small-fix batch (mechanism read, fix unambiguous: route a qualifier-object MemberAccess assignment target to the static path)
 - DF-232e — import-cycle diagnostic (entry below) — FOLDED into the small-fix batch (mechanism read, fix is the diagnostic)
@@ -73,37 +74,64 @@ User-reserved (hand fixes): DF-232h (rides 234 u1 unless taken earlier), DF-217m
 - DF-224c — `Channel<T?>` call-site auto-wrap ICEs inside a driven body (entry below, under DF-224a/b) — FOLD CANDIDATE for design 237's dispatch (the ANF-hoist funnel is the machinery it lives in; fold at 237's dispatch time)
 - DF-225c / DF-225e — RULED Aug 20 (user), compiler halves pending as a small-fix batch: Float-only (drop the `Float64` name), `std/` off bare-import search paths (entries below). DF-225h fully CLOSED same day: `()` stays a distinct tuple, design 122/132's visible-Void rejection stays ABSOLUTE (a proposed `case _ -> Void` spelling was considered and REJECTED for the exception it would carve), `{}` is the do-nothing arm spelling — spec's three arms fixed
 
-## DF-239a — substituting `Self` inside a REFERENCE type drops the `&`
-## (filed Aug 20, design 239's pre-check; BLOCKS 239 unit 1)
+## DF-239a — a call on a trait-BOUNDED type parameter never checked its
+## arguments (filed Aug 20; CLOSED Aug 20, design 239 unit 1a)
 
-`Self` and `&Self` are general trait vocabulary, not builtin-special — a user
-trait may declare `func merge(&self, other: &Self)`, the conformance matches,
-and the DIRECT concrete call compiles and runs (extension-side Self
-resolution, no substitution involved). The hole is the SUBSTITUTION of Self
-to a concrete type inside a reference wrapper, one mechanism with two faces:
-- GENERIC-BOUND face: `combine<T: Merges>` calling `a.merge(b)` ICEs at
-  codegen (`Type of #2 arg mismatch: %"Bag"* != %"Bag"`) — the monomorphized
-  callee signature lost the `&` while the call site correctly passed a
-  pointer. This is exactly the path generic sort/contains code takes through
-  `T: Comparable`, hence the 239 blocker.
-- DEFAULT-BODY face: the per-conformer compile of a default body types the
-  `&Self` param as the bare value, so forwarding it to a sibling requirement
-  errors `expects &Bag but got Bag` (design 106's re-borrow never applies).
-CONTROLS (mechanism is reference-specific, not nesting-general): `Self?`
-through the same generic-bound path WORKS; BY-VALUE `Self` works on all
-three faces (direct, bound, default body) — bare-Self substitution is sound.
-Erasure is correctly refused for a `&Self` param, with a WORDING WART: the
-diagnostic says "takes `Self` by value" about a reference parameter (fix the
-message when the mechanism is touched).
-PINS: `trait_self_ref_param_generic_call.saw` + `_default_body.saw` (XFAIL
-citing this DF, one per face); controls pinned passing:
-`_direct_call.saw`, `trait_self_optional_bound_call.saw`,
-`trait_self_byval_param_faces.saw`, `_not_erasable_error.saw` (loose match —
-the refusal, not the wart). Likely mechanism locus: the type-substitution
-walk (`substitute_ast_types` / SawType reference handling) replacing the
-inner SELF node with the concrete type instead of rebuilding the reference
-around it — the fix brief (239 unit 1) names the exact site. [239, 216b,
-106]
+**Status: FIXED**, and the filing's diagnosis was wrong in a way worth
+keeping. Substitution never dropped the `&`: both faces were probed to WORK
+under the spelling Saw actually has, and `Bag_doubled` really does take
+`%Bag*`. What the pins hit was the MISSING BORROW SIGIL — Saw has no implicit
+re-borrow at any type, so `a.merge(b)` against `func merge(&self, other:
+&Self)` is a plain missing `&`, and the DEFAULT-BODY face reproduces
+identically for a plain `&Bag` parameter with no `Self` anywhere.
+
+The real mechanism: `_check_type_param_method_call`
+(typechecker/expressions.py) is the ONE call form in the language with no
+argument-compatibility loop — it checks argument COUNT and defers deep typing
+on purpose (a trait signature may name associated types, abstract in the
+generic body). Anything it defers reaches codegen, where a mismatch is an ICE
+and not a diagnostic. Probed class, all three ICEing before the fix: a
+missing borrow at a `&Self` parameter (`%"Bag"* != %"Bag"`), a surplus borrow
+at a by-value one (`%"Bag" != %"Bag"*`), and a `String` handed to a fully
+concrete `Int` parameter (`i64 != i8*`). Sibling call form CLEAN: the
+existential path (`_check_existential_method_call`) checks argument types
+outright, because `Self` cannot appear in an object-safe trait.
+
+FIXED for the reference-spelling axis, which is a SPELLING question rather
+than a typing one and therefore decidable whatever `Self` denotes — the
+declared type's own kind answers it, with no substitution, no resolution and
+no prelude gate. `_check_bound_arg_reference_spelling` carries the four-row
+matrix; the other two rows were already `_check_reference_sigils`', reached
+through `_check_call_exclusivity`. The DEEP-typing axis stays open as
+**DF-239b** below. The erasure diagnostic's wording wart went with it: a
+`&Self` parameter is refused as `takes parameter `other` of type `&Self` — a
+`Self`-typed parameter is not object-safe, by reference or by value`, which
+is both what was written and why.
+
+PINS, all passing: `trait_self_ref_param_generic_call.saw` and
+`_default_body.saw` (the capability, correctly spelled — XFAIL markers
+removed), `errors/generic_bound_call_borrow_spelling.saw` (both new
+diagnostic rows), and the four controls `_direct_call.saw`,
+`trait_self_optional_bound_call.saw`, `trait_self_byval_param_faces.saw`,
+`_not_erasable_error.saw`. [239, 216b, 106]
+
+## DF-239b — a fully CONCRETE parameter type is unchecked on the
+## generic-bound call path (filed Aug 20, DF-239a's sweep)
+
+The residue of DF-239a's mechanism. `_check_type_param_method_call` defers
+deep argument typing because a trait signature MAY name an associated type;
+it never asks whether THIS one does. So `a.concrete("hi")` against a
+requirement `func concrete(&self, n: Int)` — no `Self`, no associated type,
+nothing abstract — type-checks in the generic body and dies at codegen with
+`Type of #2 arg mismatch: i64 != i8*`. Traits carry no type parameters of
+their own (`TraitSymbol` has `associated_types` and nothing else), so the
+decidability test is small: substitute `Self` to the receiver's type
+parameter and check every parameter whose result names no associated type.
+What stopped the fix riding DF-239a was RESOLUTION — a trait's declared
+parameter types are stored raw, and resolving one at a foreign call site runs
+the design-194 prelude gate against the wrong module. Wants a resolution
+strategy, hence its own entry. PIN:
+`examples/generic_bound_call_concrete_param_type.saw` (XFAIL). [239]
 
 ## Design 234 — the fallibility flip (RATIFIED Aug 17; QUEUED behind the
 ## three in-flight Aug-17 branches)

@@ -733,11 +733,25 @@ class TypeUtilsMixin:
                      f"(Self-by-value signatures, including the Copy family, are "
                      f"not object-safe)")
                 return
-            for pt in (m.param_types or []):
-                if pt is not None and self._names_self(pt):
-                    fail(f"method `{mname}` takes `Self` by value "
-                         f"(Self-by-value parameters are not object-safe)")
-                    return
+            # A `Self`-typed parameter is undispatchable BY REFERENCE exactly as
+            # it is by value (design 239): two `any Trait` values need not share
+            # a concrete type, so no vtable thunk can accept the operand either
+            # way. The message names the parameter and its WRITTEN type — it
+            # used to say "takes `Self` by value" about a `&Self` parameter,
+            # which described neither the declaration nor the reason.
+            _ptypes = list(m.param_types or [])
+            _pnames = list(m.param_names or [])
+            _off = len(_ptypes) - len(_pnames)
+            for _i, pt in enumerate(_ptypes):
+                if pt is None or not self._names_self(pt):
+                    continue
+                _j = _i - _off
+                _named = (f"parameter `{_pnames[_j]}`"
+                          if 0 <= _j < len(_pnames) else "a parameter")
+                fail(f"method `{mname}` takes {_named} of type `{pt}` — a "
+                     f"`Self`-typed parameter is not object-safe, by reference "
+                     f"or by value")
+                return
             if getattr(m, "type_params", None):
                 fail(f"method `{mname}` is generic — generic methods are not "
                      f"object-safe")
