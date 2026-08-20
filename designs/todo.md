@@ -31,7 +31,8 @@ is scheduled and in what order is the whole of what they say.
 
 ## [QUEUE] — scheduled, in order (user-approved)
 
-- Design 236 — `static` keyword required (designs/236-static-keyword.md) — before 235
+- Design 236 — `static` keyword required (designs/236-static-keyword.md) — before 235; DISPATCHED Aug 20 (branch design-236)
+- Design 239 — Comparable/Equatable take `other: &Self` (RULED Aug 20, user — the DF-216b/C12 class closed by construction; designs/239-comparable-by-reference.md) — after 236 lands (two corpus migrations cannot overlap), BEFORE 235 so the matrices pin the new signatures once
 - Design 235 — position-matrix ledgers (designs/235-position-matrices.md; SONNET dispatch) — before 234's migration units
 - Design 237 — the ANF-hoist funnel (designs/237-anf-hoist-funnel.md) — before 234
 - Design 205 — platform-pair transfer conversions (designs/205-transfer-conversion-closes.md; worked solution recorded in the brief) — position in queue provisional, before 234 suggested
@@ -54,9 +55,9 @@ User-reserved (hand fixes): DF-232h (rides 234 u1 unless taken earlier), DF-217m
 - DF-216c — generic statics never instantiate type params (entry below, under design 216)
 - DF-217d — generic static with default type+value ICE (entry below, under the obligation-4 retro triage)
 - DF-216h — renamed extension param substitution (entry below, under design 216)
-- DF-217p — driven-frame deinit timing, 61+2 cells (RULING OWED; entry below, under design 218 unit 0)
+- DF-217p — driven-frame deinit timing, 61+2 cells (RULED Aug 20, user: SCOPE-END REQUIRED — driven and sync twins must agree, deterministic destruction holds everywhere; implemented as part of design 218 unit 2's safe-Saw transform migration, the corodiff ledger's 61+2 cells as the acceptance matrix; entry below, under design 218 unit 0)
 - DF-217m coro face — receiver temp to frame teardown (rides 217p's ruling; entry below, under NEXT-WAVE SWEEPS)
-- DF-216b / C12 — consuming-equals over-release (RULING OWED: refusal vs retain-at-lowering vs `&Self`; entry below, under design 216)
+- DF-216b / C12 — consuming-equals over-release (RULED Aug 20, user: `other: &Self` — design 239's brief; queue slot after 236, before 235; entry below, under design 216)
 - DF-226b/c — FuncPointer v1 gaps (entries below, under design 226)
 - DF-225o — reemit divergence under load (entry below)
 - Design 231 — native-compiler readiness ledger (designs/231-native-compiler.md)
@@ -1864,6 +1865,11 @@ A NoCopy `Vector` sorts end to end today, written from outside std.
   **ImplicitCopy** operand is over-released too (the sweep probed NoCopy
   throughout, and the tier carve-out rests on a retain the lowering does not
   actually perform — 200 comparisons SIGTRAP on a heap String). See the brief.
+  (C07 was later FIXED by design 219's wave C; C12 remains the live hole.)
+  **RULED Aug 20 (user): `other: &Self`** — the by-construction closure, over
+  retain-at-lowering and blanket refusal. Design 239's brief
+  (designs/239-comparable-by-reference.md) is the plan of record; queue slot
+  after 236 lands, before 235.
 
 **Class sweeps run Aug 13 (obligation 4's first exercise; matrices + mechanism
 anchors in the brief).** DF-216b IS a class: SEVEN unsound positions
@@ -2530,6 +2536,13 @@ Three NEW findings, all lead-verified from standalone repros:
   open for the rest of it. The known-list block IS the position matrix.
   PIN: `examples/coro_frame_local_released_at_scope_end.saw` (both faces —
   the loop-body local and the shadow rebind)
+  **RULED Aug 20 (user): SCOPE-END REQUIRED** — the driven twin must agree
+  with the sync twin; deterministic destruction is unconditional. The fix
+  rides design 218 unit 2 (the transform emits safe Saw, so scope structure
+  survives to emit per-scope releases); the corodiff known-list's 61+2 cells
+  are the acceptance matrix, and the fix removes those ledger blocks in its
+  landing commit per the harness-ledger rule. DF-217m's coro face follows
+  this ruling.
 - **DF-217h extended:** the `??` RHS is a tenth consuming position (husk
   release with an empty name), and `Vector.swap_out(i, f())` a second
   consuming-argument accessor; fires across linear/loop/cancel/teardown/MT,
