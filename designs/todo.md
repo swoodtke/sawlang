@@ -36,7 +36,7 @@ is scheduled and in what order is the whole of what they say.
 - Design 237 — the ANF-hoist funnel (designs/237-anf-hoist-funnel.md) — before 234
 - Design 205 — platform-pair transfer conversions (designs/205-transfer-conversion-closes.md; worked solution recorded in the brief) — position in queue provisional, before 234 suggested
 - Design 234 — the fallibility flip (designs/234-fallibility-flip.md) — after 235/237 (the M3-1.5 interleave carve-out WITHDRAWN by user, Aug 20 — 1.5 waits for sawos)
-- sos riders batch — REMAINDER ONLY: `clock_get` `kind:`→`type:` (DF-232b landed), abi enums decimals→shifts (DF-232c landed). The kcore re-narrowing LANDED Aug 20; the member audit RAN Aug 20 (84 narrowable / 2 consumed, designs/renarrow-audit-aug20.md) — the narrowing unit is dispatch-ready, unscheduled; see the re-narrowing rider section
+- sos riders batch — REMAINDER ONLY: `clock_get` `kind:`→`type:` (DF-232b landed), abi enums decimals→shifts (DF-232c landed). The kcore re-narrowing LANDED Aug 20; the member audit RAN Aug 20 and its narrowing unit LANDED Aug 20 (84 sites: 78 `public(package)`, 6 private, 2 consumed; the audit's file-local split was inverted — DF-232q); see the re-narrowing rider section
 - Design 238 — the sawos split (designs/238-sawos-split.md; four rulings Aug 19, D-b1/b2/b3 open) — BEFORE the M3 ladder; its unit 1 (the freestanding suite) may start any time and is worth pulling forward
 - M3 ladder — designs/232-sos-m3-sketch.md: unit 1.5 interruptibility, 2 CreateProcess, 2.75 handle lifecycle, 3 give, 4 Memory/IoMemory, 5 quotas, 5.5 death notifications, 6 money shot — runs IN sawos, after design 238
 
@@ -54,9 +54,8 @@ User-reserved (hand fixes): DF-232h (rides 234 u1 unless taken earlier), DF-217m
 - DF-232g — imported-const static folding (entry below) — FOLDED into the small-fix batch (matrix probed; the const-static collector must resolve imported const names)
 - DF-232n — `public(package)` fails open across relative-path imports (entry below; the 232j family's remaining arm, found by the re-narrowing audit)
 - DF-232o — tier-refused type re-resolves same-named: X-but-got-X cascades, place-path loses the visibility line (entry below)
-- DF-232p — a refused call swallows its argument's refusal (entry below; minor)
-- Extension-head visibility — RULED Aug 20: BANNED, visibility belongs on members; ~107-site migration rides the small-fix batch after 239 (entry below)
-- Re-narrowing unit — apply the audit's 84-site list (dispatch-ready; designs/renarrow-audit-aug20.md; entry: the rider section)
+- DF-232p — a refused call swallows its argument's refusal (entry below; a census hazard since DF-232q, not minor)
+- Extension-head visibility — RULED Aug 20: BANNED, visibility belongs on members; ~107-site migration rides the small-fix batch after 239 (entry below; the narrowing landed before the ban, leaving the one `public(package) extension Console` head untouched for the batch)
 - DF-216c — generic statics never instantiate type params (entry below, under design 216) — FOLDED into design 239's dispatch as a substitution-family assessment rider (fixed there if same mechanism as DF-239a; reported back if distinct)
 - DF-217d — generic static with default type+value ICE (entry below, under the obligation-4 retro triage) — rides DF-216c's assessment in 239
 - DF-216h — renamed extension param substitution (entry below, under design 216) — FOLDED into 239's assessment rider on the same terms
@@ -505,6 +504,22 @@ lanes. Oracle-dense mechanical work — a mech-agent candidate if the user
 approves; Opus otherwise. The audit also filed DF-232n/o/p and one ruling
 question (entries below).
 
+LANDED Aug 20 (mech agent, branch `renarrow-232f`, commit `0cac7deb`): all 84
+sites narrowed — 78 `public(package)`, 6 private, the 2 CONSUMED left `public`,
+zero reverts, zero OPEN. THE AUDIT'S SPLIT WAS INVERTED and is corrected here:
+it called 78 file-local and six package-tier; the compiler says 78 need the
+package tier and only six are file-local (`Console.write_byte`,
+`PROCESS_STATUS_KIND_SHIFT`, `PROCESS_STATUS_CODE_MASK`, `mair_value`,
+`page_tables_build`, `ReqKind`). The 72 extra widenings surfaced in THREE
+waves, each masked by the previous one: `process.saw` (33), `irq.saw` (2), then
+`dispatch.saw` and siblings (37) — all kcore sibling files, so `public(package)`
+(design 80's siblings-only tier) is the right answer for each; reshaping
+who-constructs-what is kernel architecture for a future brief, not this unit.
+Filed as DF-232q below. Six doc comments justifying a field with "`public`
+because …" now say `public(package)`. Gates: sos_runner 80/80 across
+riscv32 + arm64 before the commit; terminal `battery.sh suite bootstrap sos`
+green. The lead corrects designs/renarrow-audit-aug20.md at integration.
+
 ## DF-232n — `public(package)` is NOT enforced across a RELATIVE-PATH import:
 ## the empty-root fail-open arm survives where no mapped identity exists
 ## (filed Aug 20, the re-narrowing audit's oracle check)
@@ -544,13 +559,48 @@ stop the X-but-got-X rendering: name the module in at least one side).
 [audit report, 141, 80]
 
 ## DF-232p — a refused CALL swallows a refusal in its own ARGUMENT (filed
-## Aug 20, the re-narrowing audit; diagnostic completeness, minor)
+## Aug 20, the re-narrowing audit; diagnostic completeness — filed "minor",
+## ELEVATED Aug 20 by DF-232q to a real census hazard)
 
 `uart.write_str(hal.arch_name())` with BOTH refused reports only
 `write_str`; isolating `arch_name` produces its refusal cleanly. An error
 census from one batch compile under-counts — recorded in the audit report
 as an implementing-agent warning. Fix rides whatever touches the
 member-access refusal path next (likely DF-232o's). [audit report]
+
+Aug 20: DF-232q measured the under-count at 72 sites across three waves, which
+is not a diagnostic nicety — it is what made the audit's headline verdict
+wrong. Treat this as a census hazard, not a minor wart.
+
+## DF-232q — the re-narrowing audit's file-local verdict was INVERTED: 72 of
+## 78 sites have kcore sibling consumers (filed Aug 20, the narrowing unit)
+## — CLOSED on filing: the finding is about the audit, and the unit's
+## convergence already carries the correct answer
+
+`designs/renarrow-audit-aug20.md` called 78 of its 84 sites file-local and six
+package-tier. Applying that grid, the compiler refused 72 of the 78: they are
+read or constructed by kcore SIBLING files — `process.saw` (33 sites),
+`irq.saw` (2: `TimerSlot.is_due`, `.fire`), `dispatch.saw` and siblings (37).
+Not drift: `process.saw` was created by the kcore split (873c22a4), two commits
+BEFORE the re-narrowing, and `git show ee4d2ffa:sos/kernel/core/process.saw`
+already contains the offending `ThreadSlot(state:…)` / `TimerSlot(state:…)`
+constructions. The audit was wrong when written.
+
+MECHANISM: the audit ran ONE error census over a single narrow-all pass. Per
+DF-232p a refused call swallows the refusals inside it, and more sharply, a
+module that fails to compile is never reached by the modules downstream of it —
+so each wave of refusals hides the next entirely. The audit saw
+`waitables.saw`'s six and concluded the rest were file-local. Converging (widen
+the wave, recompile, repeat) took three rounds to reach a clean build.
+
+The wave-masking at this scale — 72 sites hidden across three waves — elevates
+DF-232p from a minor diagnostic wart to a real census hazard: ANY batch
+visibility census is sound only when iterated to a clean build, and a
+single-pass count must never be reported as a verdict.
+
+Landed with the narrowing unit (branch `renarrow-232f`, commit `0cac7deb`);
+see the re-narrowing rider section for counts and gates. The lead corrects the
+audit document at integration. [232f, 232p, 80, audit report]
 
 ## Extension-head visibility — RULED Aug 20 (user): BANNED. "Visibility
 ## belongs on members" — a tier marker on an extension head becomes a
