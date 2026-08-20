@@ -1,6 +1,10 @@
 // Test that private structs cannot be accessed from other modules
+//
+// DF-232j: the refusal is unchanged; the DIAGNOSTIC now names the tier and the
+// defining module — and stops calling a STRUCT a function, which the old
+// "has no function `InternalData`" wording did.
 // EXPECT: error
-// EXPECT-ERROR-CONTAINS: has no function `InternalData`
+// EXPECT-ERROR-CONTAINS: `InternalData` is private in `modules.utils`
 import modules.utils
 
 func main() {

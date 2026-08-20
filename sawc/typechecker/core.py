@@ -392,6 +392,10 @@ class TypeChecker(ExpressionsMixin, StatementsMixin, RegistrationMixin, TypeUtil
         # Unified namespace (Phase 0 of module system)
         # Populated in parallel with legacy dicts during migration
         self.namespace = Namespace()
+        # DF-232j: the namespace layer decides `public(package)` for every
+        # qualified reach, so it needs the package names too. Stamped here and
+        # on every per-module namespace `check_module` builds.
+        self.namespace.mapped_packages = frozenset(self.mapped_packages)
 
         # Current module path during multi-module type checking
         self.current_module_path: Tuple[str, ...] = ()
@@ -1035,40 +1039,65 @@ class TypeChecker(ExpressionsMixin, StatementsMixin, RegistrationMixin, TypeUtil
                                     accessor: Tuple[str, ...],
                                     package_root: Optional[Tuple[str, ...]]
                                     = None) -> bool:
-        """Design 80's visibility relation between two NAMED modules — the one
-        place `public(package)` / `public(parent)` / `private` is decided.
+        """Design 80's visibility relation between two NAMED modules — the
+        typechecker's door onto `Namespace.visibility_relation_allows`, which
+        is the one place `public(package)` / `public(parent)` / `private` is
+        decided. The arms (std's root, DF-232f's mapped-package root) live
+        THERE, not here: DF-232j found the namespace layer deciding the same
+        question with no root at all, because the roots had been computed only
+        on this side of the boundary.
 
-        ENTRY POINTS (obligation 1), each naming its own accessor because the
-        two ask the question at different moments:
+        ENTRY POINTS (obligation 1), each naming its own accessor because they
+        ask the question at different moments:
           * `_member_gate_allows` — the field/method/type gate. The accessor is
             the module of the code being checked (`_accessor_vis_module`).
-          * `check_module`'s SELECTIVE-IMPORT arm (DF-229c) — the accessor is
-            the IMPORTING module, passed explicitly: the import list is
-            processed before `self.namespace` becomes this module's, so the
-            ambient answer would name the previous module.
+          * `check_module`'s SELECTIVE-IMPORT and GLOB arms (DF-229c,
+            DF-232k), via `_selection_visible` — the accessor is the IMPORTING
+            module, passed explicitly: the import list is processed before
+            `self.namespace` becomes this module's, so the ambient answer would
+            name the previous module.
+          * `Namespace._resolve_parts.is_visible` — THE QUALIFIED REACH
+            (DF-232j), which reaches the funnel WITHOUT passing through here:
+            every `m.X`, every chain hop, every dotted `resolve()`. Its
+            accessor is threaded from the typechecker's member-access, type-
+            resolution and trait-lookup sites, each of which passes
+            `_accessor_vis_module()`.
 
         Same-module access is always allowed; everything else follows the
         top-level visibility rules."""
-        if def_module == accessor:
-            return True
-        # std is its own package (design 82): a `public(package)` member of one
-        # std file is reachable from any other std file. Root the package at
-        # `("<std>",)` when the member is std-defined, so cross-std-file package
-        # sharing works and a user module (not under `("<std>",)`) is excluded.
-        if def_module and def_module[0] == "<std>":
-            package_root = ("<std>",)
-        # DF-232f: a `--module-path name=dir` package is a package too. Root it
-        # at `(name,)`, so every module under the mapped dir (`name`,
-        # `name.sub`, `name.a.b`) is inside and the entry file — whose module
-        # is never a mapped name — is outside. Same shape as std's arm above,
-        # one line lower in precedence because std is itself never mapped.
-        elif def_module and def_module[0] in self.mapped_packages:
-            package_root = (def_module[0],)
-        elif package_root is None:
-            package_root = getattr(self.namespace, 'package_root', ())
-        return self.namespace.check_visibility(
-            visibility, symbol_module=def_module, accessor_module=accessor,
-            package_root=package_root)
+        return self.namespace.visibility_relation_allows(
+            def_module, visibility, accessor, package_root)
+
+    def _report_visibility_refusal(self, refusals, line: int, column: int,
+                                   surface_hint: Optional[str] = None) -> bool:
+        """Report the design-80 tier refusal a qualified reach hit, if any.
+
+        A `Namespace.resolve` that answered None has to say WHICH None it
+        meant: the name is absent, or the name is there and this module is not
+        entitled to it. This reports the second — naming the tier and the
+        DEFINING module, the two facts a reader needs to act — and answers
+        whether it did, so the caller falls through to its "no such symbol"
+        diagnostic only when the name really is absent (DF-232j).
+
+        Same wording as `check_module`'s selective-import arm, which is the
+        same refusal reached at the other spelling.
+
+        A design-229 SURFACE hint wins outright: "the module merely imports
+        this name" is a more specific story than the name's tier, and it comes
+        with the two concrete outs (`public import` here, or import the
+        dependency directly). The caller's own diagnostic carries it."""
+        if not refusals or surface_hint is not None:
+            return False
+        refusal = refusals[0]
+        self._error(
+            ErrorKind.UNKNOWN_TYPE,
+            f"`{refusal.name}` is {self._vis_word(refusal.visibility)} in "
+            f"`{refusal.module_label}`",
+            line, column,
+            hint=f"mark it `public` in `{refusal.module_label}` to expose it — "
+                 f"a `public import` re-export hands on the NAME, never a "
+                 f"wider tier")
+        return True
 
     def _member_gate_allows(self, def_module: Tuple[str, ...],
                             visibility: Visibility) -> bool:
@@ -2635,6 +2664,11 @@ class TypeChecker(ExpressionsMixin, StatementsMixin, RegistrationMixin, TypeUtil
         # Create a fresh namespace for this module
         ns = Namespace(module_path=module_path)
         ns.package_root = builtin_namespace.package_root
+        # DF-232j: every namespace that can be reached through a qualifier
+        # decides `public(package)` itself, so every one of them carries the
+        # package names. The compile-start authority is this checker's own set
+        # (`--module-path`), not the cached builtin namespace.
+        ns.mapped_packages = frozenset(self.mapped_packages)
 
         # Clone builtins into this module's namespace (all directly accessible)
         ns.merge_into(builtin_namespace)

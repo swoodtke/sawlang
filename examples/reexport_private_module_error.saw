@@ -1,7 +1,13 @@
 // Test that private modules are NOT re-exported
 // lib_with_private_module has `module internal` (private), importers CANNOT access it
+//
+// DF-232j: the refusal is unchanged; the DIAGNOSTIC now names the modifier and
+// the module that carries it, rather than claiming the name is absent. (The
+// sibling test `reexport_import_error` keeps the "has no symbol" wording: an
+// ordinary IMPORT is not re-exported for a design-229 reason, and that more
+// specific story still wins.)
 // EXPECT: error
-// EXPECT-ERROR-CONTAINS: has no symbol
+// EXPECT-ERROR-CONTAINS: `internal` is private in `modules.lib_with_private_module`
 
 import modules.lib_with_private_module
 

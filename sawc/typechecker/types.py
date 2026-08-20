@@ -1516,7 +1516,9 @@ class TypeUtilsMixin:
 
         symbol = current_ns.resolve(
             simple_name, check_visibility=True,
-            accessor_module=self.namespace.module_path,
+            # DF-232j: the module of the CODE being checked, which the std-leaf
+            # case makes different from the loaded namespace's path.
+            accessor_module=self._accessor_vis_module(),
             through_import=through_import,
         )
         if not symbol:
@@ -2107,7 +2109,8 @@ class TypeUtilsMixin:
         if module_sym is None or not module_sym.namespace:
             return None
         return module_sym.namespace.resolve(
-            name, check_visibility=True, accessor_module=(),
+            name, check_visibility=True,
+            accessor_module=self._accessor_vis_module(),  # DF-232j
             through_import=True)
 
     def _qualified_enum_info(self, qualifier: str, name: str):

@@ -3,9 +3,8 @@
 // it qualified. Each hop is legal alone; the tier must survive the chain —
 // it rides the SYMBOL (`def_module` + visibility are shared by reference),
 // so hop count must not matter.
-// XFAIL: DF-232j the qualified-reach path decides package visibility with an
-// empty package root — the widening survives any number of re-export hops.
-// This file compiles and prints 7 today; the EXPECT below states the intent.
+// DF-232j FIXED: the decision reads `sym.def_module`, which every hop shares
+// by reference, so hop count cannot matter. Ordinary regression test.
 // EXPECT: error
 // EXPECT-ERROR-CONTAINS: `pkg_secret` is public(package) in `pkgvis.secret`
 // COMPILE-FLAGS: --module-path pkgvis={TESTDIR}/modules/pkgvis232j_twohop

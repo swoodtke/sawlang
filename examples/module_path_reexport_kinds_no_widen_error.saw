@@ -3,9 +3,8 @@
 // package-tier STATIC and STRUCT leak exactly as the function does —
 // kcore-relevant, where the narrowed surface is largely slot structs and
 // their fields.
-// XFAIL: DF-232j the qualified-reach path decides package visibility with an
-// empty package root, for every symbol kind. This file compiles and prints
-// 9 then 3 today; the EXPECTs below state the intent.
+// DF-232j FIXED: one decision serves every symbol table, so fixing it fixed
+// every kind at once. Ordinary regression test.
 // EXPECT: error
 // EXPECT-ERROR-CONTAINS: `PKG_LIMIT` is public(package) in `pkgvis.secret`
 // EXPECT-ERROR-CONTAINS: `PkgBox` is public(package) in `pkgvis.secret`

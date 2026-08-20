@@ -4,7 +4,7 @@ Unified symbol table for all declarations.
 """
 
 from dataclasses import dataclass, field
-from typing import Dict, List, Optional, Any, Tuple, Set, Union
+from typing import Dict, FrozenSet, List, Optional, Any, Tuple, Set, Union
 from enum import Enum, auto
 from ast_nodes import SawType, TypeKind, Function, Struct, Enum as SawEnum, Extension, TypeParameter, Visibility
 from type_identity import declaration_base
@@ -267,6 +267,25 @@ class ModuleSymbol:
 Symbol = Union[FunctionSymbol, StructSymbol, EnumSymbol, TraitSymbol, TypeAliasSymbol, ModuleSymbol, StaticSymbol]
 
 
+@dataclass
+class VisibilityRefusal:
+    """A name a qualified reach FOUND and design 80's tier refused (DF-232j).
+
+    Resolution answers None for two different facts — "no such name" and "not
+    yours" — and a caller that reports the first for the second teaches nothing
+    (the sweep's whole family of holes was invisible partly because the
+    refusals, when they finally came, said "has no symbol"). A caller passing a
+    `refusals` list to `Namespace.resolve` gets this instead, and can name the
+    tier and the module that owns it.
+
+    `module_label` is the DEFINING module's dotted path — where a reader must
+    go to change the modifier — not the module the name was found through.
+    """
+    name: str
+    visibility: Visibility
+    module_label: str
+
+
 class Namespace:
     """Unified symbol table for all declarations.
 
@@ -285,6 +304,17 @@ class Namespace:
 
         # Package root for public(package) visibility (e.g., () for top-level)
         self.package_root: Tuple[str, ...] = ()
+
+        # DF-232j: the top-level names bound by `--module-path name=dir`, one
+        # per package (ruled Aug 17, DF-232f). `visibility_relation_allows`
+        # roots `public(package)` at `(name,)` for a symbol defined under one,
+        # exactly as it roots std at `("<std>",)`. The set lives HERE, not only
+        # on the typechecker, because the qualified-reach decision is made in
+        # this layer (`_resolve_parts.is_visible`) and was answering with an
+        # empty root — which `check_visibility` reads as "same package, allow".
+        # Stamped by `TypeChecker.check_module` on every module namespace it
+        # builds, and inherited wherever `package_root` is inherited.
+        self.mapped_packages: FrozenSet[str] = frozenset()
 
         # Core symbol tables
         self.functions: Dict[str, FunctionSymbol] = {}
@@ -482,7 +512,9 @@ class Namespace:
     def resolve(self, path: str, check_access: bool = True,
                 check_visibility: bool = False,
                 accessor_module: Optional[Tuple[str, ...]] = None,
-                through_import: bool = False) -> Optional['Symbol']:
+                through_import: bool = False,
+                refusals: Optional[List['VisibilityRefusal']] = None
+                ) -> Optional['Symbol']:
         """
         Resolve a symbol path to its definition.
 
@@ -495,18 +527,25 @@ class Namespace:
             accessor_module: The module path of the code doing the lookup (for visibility)
             through_import: True when the lookup reaches INTO this namespace
                 from a module that imports it — design 229's export gate, above.
+            refusals: Optional out-list. A caller that passes one learns WHY a
+                None answer is None: a name refused by design 80's tier appends
+                a `VisibilityRefusal` here, so the diagnostic can say "`X` is
+                public(package) in `pkg.mod`" instead of "has no symbol `X`"
+                (DF-232j). An absent name appends nothing.
 
         Returns:
             The resolved Symbol, or None if not found or not accessible
         """
         parts = path.split('.') if '.' in path else [path]
         return self._resolve_parts(parts, check_access, check_visibility,
-                                   accessor_module, through_import)
+                                   accessor_module, through_import, refusals)
 
     def _resolve_parts(self, parts: List[str], check_access: bool = True,
                        check_visibility: bool = False,
                        accessor_module: Optional[Tuple[str, ...]] = None,
-                       through_import: bool = False) -> Optional['Symbol']:
+                       through_import: bool = False,
+                       refusals: Optional[List['VisibilityRefusal']] = None
+                       ) -> Optional['Symbol']:
         """Resolve a list of path components to a symbol.
 
         Args:
@@ -516,6 +555,8 @@ class Namespace:
             accessor_module: The module path of the code doing the lookup
             through_import: See `resolve`. Set on every hop INTO a module's
                 namespace, so a chain (`m.q.X`) is gated at each level.
+            refusals: See `resolve`. Carried through every hop, so the reason a
+                CHAIN failed is the reason its last hop failed.
         """
         if not parts:
             return None
@@ -536,21 +577,24 @@ class Namespace:
                 # Check module visibility before allowing access
                 if check_visibility and hasattr(module, 'visibility'):
                     acc_mod = accessor_module if accessor_module is not None else ()
-                    if not self.check_visibility(
-                        module.visibility,
-                        symbol_module=self.module_path,
-                        accessor_module=acc_mod,
-                        package_root=self.package_root
-                    ):
+                    if not self._symbol_visible(module, name, acc_mod,
+                                                refusals):
                         return None  # Module not visible
                 if module.namespace:
                     # Cross-module access - check visibility with accessor
                     # context, and the design-229 export gate: everything past
                     # the first hop is being reached THROUGH a module.
+                    #
+                    # DF-232j: an accessor of `()` is the ENTRY module, not
+                    # "unknown" — the old `accessor_module or self.module_path`
+                    # read it as unknown and handed the hop the module's OWN
+                    # path, which makes every chain hop a same-module access.
                     return module.namespace._resolve_parts(
                         remaining, check_access=False, check_visibility=True,
-                        accessor_module=accessor_module or self.module_path,
-                        through_import=True
+                        accessor_module=(accessor_module
+                                         if accessor_module is not None
+                                         else self.module_path),
+                        through_import=True, refusals=refusals
                     )
             return None
 
@@ -566,14 +610,8 @@ class Namespace:
                 return True
             if not hasattr(symbol, 'visibility'):
                 return True
-            # Use the full visibility checking with module paths
             acc_mod = accessor_module if accessor_module is not None else ()
-            return self.check_visibility(
-                symbol.visibility,
-                symbol_module=self.module_path,
-                accessor_module=acc_mod,
-                package_root=self.package_root
-            )
+            return self._symbol_visible(symbol, name, acc_mod, refusals)
 
         # Check all symbol tables
         # Order: modules first (for qualified access), then types, then functions
@@ -597,6 +635,32 @@ class Namespace:
             return static_sym if is_visible(static_sym) else None
 
         return None
+
+    def _symbol_visible(self, symbol, name: str,
+                        accessor_module: Tuple[str, ...],
+                        refusals: Optional[List['VisibilityRefusal']]) -> bool:
+        """Whether `accessor_module` may reach `symbol` found in this namespace,
+        recording the refusal when it may not (DF-232j).
+
+        The module the relation is asked about is the symbol's OWN `def_module`,
+        not this namespace's path. A re-exported symbol is the very same object
+        as the one its defining module declared (design 229 shares symbols by
+        reference), so the tier RIDES the symbol: judging it by where it was
+        FOUND is what let one `public import` line republish a package-private
+        name to the world. Module qualifiers carry no `def_module` — a
+        qualifier IS a member of the namespace holding it — so they fall back
+        to this module's path.
+        """
+        def_module = tuple(getattr(symbol, 'def_module', ()) or ()) \
+            or self.module_path
+        if self.visibility_relation_allows(
+                def_module, symbol.visibility, accessor_module):
+            return True
+        if refusals is not None:
+            label = '.'.join(def_module) if def_module else "<entry>"
+            refusals.append(
+                VisibilityRefusal(name, symbol.visibility, label))
+        return False
 
     def make_accessible(self, name: str):
         """Mark a symbol as directly accessible (without qualification)."""
@@ -888,6 +952,10 @@ class Namespace:
         mod_path = tuple(path) if path else ()
         mod_ns = Namespace(module_path=mod_path)
         mod_ns.package_root = self.package_root  # Inherit package root
+        # DF-232j: and the package NAMES, which is the other half of the same
+        # knowledge — a namespace that does not know them decides
+        # `public(package)` with no root at all.
+        mod_ns.mapped_packages = self.mapped_packages
 
         # Register all symbols from the module AST
         for struct in module_ast.structs:
@@ -2704,6 +2772,12 @@ class Namespace:
         """
         Check if a symbol is accessible from another module.
 
+        THE RAW DECISION PROCEDURE. Do not call it directly: `public(package)`
+        is undecidable without a root and the arm below reads a missing root as
+        "assume same package" (fail-OPEN, which is what DF-232j exploited).
+        `visibility_relation_allows` is the one honest caller — it computes the
+        root from the symbol's defining module first.
+
         Args:
             visibility: The symbol's visibility modifier
             symbol_module: Module path where the symbol is defined
@@ -2740,6 +2814,58 @@ class Namespace:
             return accessor_module == parent
 
         return False
+
+    def visibility_relation_allows(self, def_module: Tuple[str, ...],
+                                   visibility: Visibility,
+                                   accessor: Tuple[str, ...],
+                                   package_root: Optional[Tuple[str, ...]]
+                                   = None) -> bool:
+        """Design 80's visibility relation between two NAMED modules, with the
+        package ROOT computed from the SYMBOL's defining module.
+
+        THE FUNNEL (obligation 1). `check_visibility` above is the raw decision
+        procedure; this is the only honest way to ask it, because
+        `public(package)` is meaningless without a root and `check_visibility`
+        reads a missing root as "assume same package". Its entry points:
+
+          * `_resolve_parts.is_visible` — THE QUALIFIED REACH (every `m.X`,
+            every chain hop `m.q.X`, every dotted `resolve()` walk). Before
+            DF-232j this called `check_visibility` raw, with the FOUND-IN
+            module and the namespace's `package_root` — which is `()` for
+            every user namespace, so every package-tier symbol was reachable
+            from anywhere it could be spelled.
+          * `TypeChecker._visibility_relation_allows`, which delegates here and
+            adds no arms of its own. Through it: `_member_gate_allows` (the
+            field/method/type gate) and `check_module`'s SELECTIVE-IMPORT and
+            GLOB arms (`_selection_visible`, DF-229c/DF-232k).
+
+        The two package roots are conventions, not data on the symbol:
+        std is one package rooted at `("<std>",)` (design 82), and each
+        `--module-path name=dir` package is rooted at `(name,)` (DF-232f).
+        Anything else falls back to this namespace's own `package_root`.
+        """
+        def_module = tuple(def_module or ())
+        accessor = tuple(accessor or ())
+        if def_module == accessor:
+            return True
+        # std is its own package (design 82): a `public(package)` member of one
+        # std file is reachable from any other std file. Root the package at
+        # `("<std>",)` when the member is std-defined, so cross-std-file package
+        # sharing works and a user module (not under `("<std>",)`) is excluded.
+        if def_module and def_module[0] == "<std>":
+            package_root = ("<std>",)
+        # DF-232f: a `--module-path name=dir` package is a package too. Root it
+        # at `(name,)`, so every module under the mapped dir (`name`,
+        # `name.sub`, `name.a.b`) is inside and the entry file — whose module
+        # is never a mapped name — is outside. Same shape as std's arm above,
+        # one line lower in precedence because std is itself never mapped.
+        elif def_module and def_module[0] in self.mapped_packages:
+            package_root = (def_module[0],)
+        elif package_root is None:
+            package_root = self.package_root
+        return self.check_visibility(
+            visibility, symbol_module=def_module, accessor_module=accessor,
+            package_root=package_root)
 
     def get_symbol_visibility(self, name: str) -> Optional[Visibility]:
         """Get the visibility of a symbol by name."""

@@ -1,6 +1,9 @@
 // Test that public(parent) symbols cannot be accessed from non-parent modules
+//
+// DF-232j: the refusal is unchanged; the DIAGNOSTIC now names the tier and the
+// defining module instead of claiming the module "has no function".
 // EXPECT: error
-// EXPECT-ERROR-CONTAINS: has no function `parent_only`
+// EXPECT-ERROR-CONTAINS: `parent_only` is public(parent) in `modules.nested.child`
 import modules.nested.child
 
 func main() {

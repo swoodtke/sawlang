@@ -9,10 +9,9 @@
 // found-in module and an empty package root, and an empty root means "assume
 // same package"), not re-export. The facade of the original filing is
 // incidental.
-// XFAIL: DF-232j the qualified-reach path decides package visibility with an
-// empty package root, so `public(package)` degrades to allow — the direct
-// qualified reach widens like the facade does. This file compiles and prints
-// 7 today; the EXPECT below states the intent.
+// DF-232j FIXED: `_resolve_parts.is_visible` now goes through
+// `Namespace.visibility_relation_allows`, which roots the package at the
+// mapped name. This file is an ordinary regression test.
 // EXPECT: error
 // EXPECT-ERROR-CONTAINS: `pkg_secret` is public(package) in `pkgvis.secret`
 // COMPILE-FLAGS: --module-path pkgvis={TESTDIR}/modules/pkgvis232f

@@ -3031,7 +3031,7 @@ class RegistrationMixin:
                     # that module's surface like every other name.
                     trait_info = module_sym.namespace.resolve(
                         simple_trait_name, check_visibility=True,
-                        accessor_module=self.namespace.module_path,
+                        accessor_module=self._accessor_vis_module(),  # DF-232j
                         through_import=True
                     )
                     if trait_info is None or trait_info.kind != SymbolKind.TRAIT:

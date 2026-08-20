@@ -6047,18 +6047,28 @@ class ExpressionsMixin:
                 inner_module_sym = getattr(expr.object, 'resolved_module_symbol', None)
                 if inner_module_sym and inner_module_sym.namespace:
                     from namespace import SymbolKind
+                    # DF-232j: the accessor is the module of the code being
+                    # checked, and a refused reach reports the TIER rather than
+                    # falling through to "has no symbol".
+                    refusals = []
                     symbol = inner_module_sym.namespace.resolve(
-                        expr.member, check_visibility=True, accessor_module=(),
-                        through_import=True
+                        expr.member, check_visibility=True,
+                        accessor_module=self._accessor_vis_module(),
+                        through_import=True, refusals=refusals
                     )
                     if symbol is None:
+                        surface_hint = self._not_reexported_hint(
+                            inner_module_sym.namespace, expr.member,
+                            obj_type.module_name)
+                        if self._report_visibility_refusal(
+                                refusals, expr.line, expr.column,
+                                surface_hint):
+                            return None
                         self._error(
                             ErrorKind.UNDEFINED_VARIABLE,
                             f"module `{obj_type.module_name}` has no symbol `{expr.member}`",
                             expr.line, expr.column,
-                            hint=self._not_reexported_hint(
-                                inner_module_sym.namespace, expr.member,
-                                obj_type.module_name)
+                            hint=surface_hint
                         )
                         return None
                     if symbol.kind == SymbolKind.STRUCT:
@@ -6134,18 +6144,24 @@ class ExpressionsMixin:
             module_sym = self._module_qualifier(expr.object.name)
             if module_sym and module_sym.namespace:
                 from namespace import SymbolKind
+                # DF-232j: see the chained arm above.
+                refusals = []
                 symbol = module_sym.namespace.resolve(
-                    expr.member, check_visibility=True, accessor_module=(),
-                    through_import=True
+                    expr.member, check_visibility=True,
+                    accessor_module=self._accessor_vis_module(),
+                    through_import=True, refusals=refusals
                 )
                 if symbol is None:
+                    surface_hint = self._not_reexported_hint(
+                        module_sym.namespace, expr.member, expr.object.name)
+                    if self._report_visibility_refusal(
+                            refusals, expr.line, expr.column, surface_hint):
+                        return None
                     self._error(
                         ErrorKind.UNDEFINED_VARIABLE,
                         f"module `{expr.object.name}` has no symbol `{expr.member}`",
                         expr.line, expr.column,
-                        hint=self._not_reexported_hint(
-                            module_sym.namespace, expr.member,
-                            expr.object.name)
+                        hint=surface_hint
                     )
                     return None
                 if symbol.kind == SymbolKind.STATIC:
@@ -8808,20 +8824,30 @@ class ExpressionsMixin:
                 inner_module_sym = getattr(expr.object, 'resolved_module_symbol', None)
                 if inner_module_sym and inner_module_sym.namespace:
                     from namespace import SymbolKind
+                    # DF-232j: `self.namespace.module_path` is the module whose
+                    # namespace is loaded, which the std-leaf case makes wrong;
+                    # `_accessor_vis_module` is the module of the code being
+                    # checked. A refused reach reports the TIER.
+                    refusals = []
                     symbol = inner_module_sym.namespace.resolve(
                         expr.method_name,
                         check_visibility=True,
-                        accessor_module=self.namespace.module_path,
-                        through_import=True
+                        accessor_module=self._accessor_vis_module(),
+                        through_import=True, refusals=refusals
                     )
                     if symbol is None:
+                        surface_hint = self._not_reexported_hint(
+                            inner_module_sym.namespace, expr.method_name,
+                            obj_type.module_name)
+                        if self._report_visibility_refusal(
+                                refusals, expr.line, expr.column,
+                                surface_hint):
+                            return None
                         self._error(
                             ErrorKind.UNDEFINED_FUNCTION,
                             f"module `{obj_type.module_name}` has no function `{expr.method_name}`",
                             expr.line, expr.column,
-                            hint=self._not_reexported_hint(
-                                inner_module_sym.namespace, expr.method_name,
-                                obj_type.module_name)
+                            hint=surface_hint
                         )
                         return None
                     if symbol.kind == SymbolKind.FUNCTION:
@@ -8849,20 +8875,26 @@ class ExpressionsMixin:
             module_sym = self._module_qualifier(expr.object.name)
             if module_sym and module_sym.namespace:
                 from namespace import SymbolKind
+                # DF-232j: see the chained arm above.
+                refusals = []
                 symbol = module_sym.namespace.resolve(
                     expr.method_name,
                     check_visibility=True,
-                    accessor_module=self.namespace.module_path,
-                    through_import=True
+                    accessor_module=self._accessor_vis_module(),
+                    through_import=True, refusals=refusals
                 )
                 if symbol is None:
+                    surface_hint = self._not_reexported_hint(
+                        module_sym.namespace, expr.method_name,
+                        expr.object.name)
+                    if self._report_visibility_refusal(
+                            refusals, expr.line, expr.column, surface_hint):
+                        return None
                     self._error(
                         ErrorKind.UNDEFINED_FUNCTION,
                         f"module `{expr.object.name}` has no function `{expr.method_name}`",
                         expr.line, expr.column,
-                        hint=self._not_reexported_hint(
-                            module_sym.namespace, expr.method_name,
-                            expr.object.name)
+                        hint=surface_hint
                     )
                     return None
                 if symbol.kind == SymbolKind.FUNCTION:

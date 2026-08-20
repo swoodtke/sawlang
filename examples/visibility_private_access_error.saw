@@ -1,6 +1,10 @@
 // Test that private symbols cannot be accessed from other modules
+//
+// DF-232j: the refusal is unchanged; the DIAGNOSTIC now names the tier and the
+// defining module instead of claiming the module "has no function" — the same
+// wording the selective-import arm has always used for this refusal.
 // EXPECT: error
-// EXPECT-ERROR-CONTAINS: has no function `internal_helper`
+// EXPECT-ERROR-CONTAINS: `internal_helper` is private in `modules.utils`
 import modules.utils
 
 func main() {

@@ -31,7 +31,7 @@ is scheduled and in what order is the whole of what they say.
 
 ## [QUEUE] — scheduled, in order (user-approved)
 
-1. DF-232j fix — the qualified-reach path decides `public(package)` with an empty package root, widening the tier to the world (entry below; MOVED TO TOP by user, Aug 20). SOUNDNESS. Obligation-4 sweep DONE Aug 20: the facade is incidental — the DIRECT qualified reach widens too, kind-generally; 8 pins committed as the fix's oracle; sweep also filed DF-232k and DF-232l (entries below). Fix DISPATCHED (branch df-232j); user Aug 20: DF-232k and DF-232l RIDE THE SAME BRANCH as units 2-3 (232l strictly after unit 1 — its fix reopens the hole if it lands first). All 8 pins flip when the three land
+1. DF-232j fix — the qualified-reach path decides `public(package)` with an empty package root, widening the tier to the world (entry below; MOVED TO TOP by user, Aug 20). SOUNDNESS. Obligation-4 sweep DONE Aug 20: the facade is incidental — the DIRECT qualified reach widens too, kind-generally; 8 pins committed as the fix's oracle; sweep also filed DF-232k and DF-232l (entries below). LANDED Aug 20 (branch df-232j) — scope expanded at user approval to carry DF-232k and DF-232l as units 2 and 3, so all 8 pins pass and the family holds ZERO xfails
 2. Design 236 — `static` keyword required (designs/236-static-keyword.md) — before 235
 3. Design 235 — position-matrix ledgers (designs/235-position-matrices.md; SONNET dispatch) — before 234's migration units
 4. Design 237 — the ANF-hoist funnel (designs/237-anf-hoist-funnel.md) — before 234
@@ -294,6 +294,7 @@ would cost a differently-shaped kernel a real seam. [232, design 148/185/186]
 ## the world: design 229's facade bypasses design 80's package tier (filed
 ## Aug 20, writing the pin the re-narrowing rider owed — the pin DISPROVED the
 ## property it was written to protect)
+## — FIXED Aug 20 (branch df-232j, unit 1)
 
 A facade module of a mapped package re-exports a sibling's package-private
 symbol and PUBLISHES it. `pkgvis.secret` declares `public(package) func
@@ -364,7 +365,31 @@ layer, `is_visible` judges `sym.def_module or self.module_path`, member-access
 sites pass the real accessor, refusal diagnostic names the tier and the
 defining module (the pins' EXPECT). W-rows flip to refusals, R-rows stay
 refused, sibling + std cross-file + kcore/sos + bootstrap reaches stay green.
-[232f, 229, design 80/82]
+LANDED Aug 20 as dispatched, no deviation. `Namespace.visibility_relation_
+allows` is the funnel (namespace.py) and carries BOTH package-root arms; the
+typechecker's `_visibility_relation_allows` delegates and keeps only the
+entry-point list, which now names the namespace-side qualified reach.
+`Namespace.mapped_packages` is stamped on every module namespace by
+`check_module` and inherited by `register_module_from_ast`;
+`_resolve_parts.is_visible` judges `sym.def_module` (the tier RIDES the shared
+symbol, so hop count cannot matter) and the chain recursion stops reading an
+accessor of `()` — the ENTRY module — as "unknown, use my own path", which had
+made every chain hop a same-module access. Every `resolve(..., check_
+visibility=True)` site now passes `_accessor_vis_module()`. Refusals are
+reported, not swallowed: `Namespace.resolve` takes an out-list of
+`VisibilityRefusal`, and `TypeChecker._report_visibility_refusal` turns it into
+the tier diagnostic at the four module member-access/call sites — a design-229
+surface hint still WINS over it, since "the module merely imports this name" is
+the more specific story. FLIPPED (XFAIL removed): the four W-row pins.
+DIAGNOSTIC IMPROVEMENTS the fix pulled in, four existing tests re-pinned to the
+better wording (refusal unchanged in every one): visibility_private_access_
+error, visibility_parent_access_error, visibility_private_struct_error (which
+had been calling a STRUCT a function) and reexport_private_module_error now
+name the tier and the defining module instead of "has no symbol". CONSUMER
+SWEEP: clean — full suite 2023 pass / 20 xfail and sos_runner 80 pass across
+riscv32 + arm64 (kcore/imgformat/sosrt are the corpus's mapped packages). NOT
+ONE in-tree site was newly refused, which is the re-narrowing's claim holding
+up under a now-real gate. [232f, 229, design 80/82]
 
 ## DF-232k — a sibling GLOB import drops `public(package)` names: the
 ## glob-copy arm filters PUBLIC-only (filed Aug 20, the DF-232j sweep)

@@ -19,9 +19,9 @@
 // `export229_scoped_import_error.saw` pins the neighbouring rule
 // (`public(package) import` is refused outright). This pins the one that has
 // no diagnostic of its own to notice — which is why it went unnoticed.
-// XFAIL: DF-232j a `public import` re-export WIDENS a `public(package)` symbol
-// to the world — design 229's facade bypasses design 80's package tier. This
-// file compiles and prints 7 today; the EXPECT below states the intent.
+// DF-232j FIXED: the qualified-reach decision now computes the package root
+// from the SYMBOL's defining module, so the re-export hands on the name and
+// never the tier. This file is an ordinary regression test.
 // EXPECT: error
 // EXPECT-ERROR-CONTAINS: `pkg_secret` is public(package) in `pkgvis.secret`
 // COMPILE-FLAGS: --module-path pkgvis={TESTDIR}/modules/pkgvis232f
