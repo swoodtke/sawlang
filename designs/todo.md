@@ -101,10 +101,37 @@ Record in the spec when the rename lands:
 - `Pipe` names the PER-CLIENT connection object (today's §2.1 object); the
   path-attached acceptor the namespace will need is a separate later object,
   named in the namespace design — do not spend `Pipe` on it.
-- A `pipe.transact(msg)` send-and-wait convenience is worth an M4 note
-  (`transact` per the named-pipe lineage); the split-phase
-  `PipeReplyHandle` is NOT redundant with it — it is what a client attaches
-  to a Waiter (§2.2) to multiplex outstanding requests.
+- The client send API (RATIFIED Aug 20, superseding the earlier `transact`
+  idea — name rejected by user): ONE `send` name, overloaded by the
+  presence of `timeout:` — a runtime flag cannot change a return type, so
+  blocking-ness is an overload distinction, never a `Bool` parameter.
+  `pipe.send(msg) -> Result<PipeReply, PipeError>` suspends (cooperatively)
+  until the reply; `pipe.send(msg, timeout: Duration) ->
+  Result<PipeReply, PipeSendError>` where `case TimedOut(pending:
+  PipeReplyHandle)` carries the still-live claim in the error payload — the
+  pending state is representable exactly and only in the outcome where it
+  exists (three-tier error doctrine). `PipeReply` is the RESOLVED reply
+  object (data + transferred handles); `PipeReplyHandle` resolves to one.
+  A two-state maybe-pending return was REJECTED: it hands every blocking
+  caller an impossible state to match on and reimports the poll-a-future
+  shape colorless concurrency removes.
+- The split-phase form (send now, wait later; returns the bare
+  `PipeReplyHandle`) is NOT redundant with the timeout overload — it is
+  what a client attaches to a Waiter (§2.2) to multiplex outstanding
+  requests. Its method name is M4-brief business.
+- OPEN (discussion Aug 20, user's ruling pending): ABANDONED-REQUEST
+  semantics — the client drops its `PipeReplyHandle` (or crashes, which the
+  kernel must treat identically) while the server still holds the
+  `PipeRequestHandle`. Lead proposal on the table: `reply()` to an
+  abandoned request returns `Err(PeerClosed)`, never a silent success (std
+  Channel's close precedent — ignorable with `let _ =`); the obligation is
+  discharged and attached handles closed either way; the
+  `PipeRequestHandle` is waitable for "abandoned" (opt-in early notice;
+  state on the kernel object, so it travels with a delegated handle);
+  drop-of-`PipeReplyHandle` thereby IS the cancellation primitive (timeout
+  overload -> drop pending = cancel, no cancel() verb, deterministic
+  timing via deterministic destruction); send-then-drop named an
+  anti-pattern in the spec (Event is fire-and-forget, not pipes).
 
 Scope: sos/spec.md (14 Channel mentions + the handle names), the
 RequestHandle/ReplyHandle mentions across sos/ + designs/232-sos-m3-sketch.md
