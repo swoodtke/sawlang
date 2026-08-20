@@ -129,7 +129,7 @@ public extension Manifest {
     // box at the propagation edge. Two distinct error types flow through one
     // return type without a hand-written union, and callers render either with
     // `{error}` via the Printable vtable.
-    public func load() -> Result<Manifest, Box<any Error>> {
+    public static func load() -> Result<Manifest, Box<any Error>> {
         let manifest_path = Path(s: "Saw.toml")
 
         if not File.exists(manifest_path) {
@@ -174,7 +174,7 @@ public extension Manifest {
     }
 
     // Load manifest from a specific directory (erased Result, as `load`).
-    public func load_from(dir: Path) -> Result<Manifest, Box<any Error>> {
+    public static func load_from(dir: Path) -> Result<Manifest, Box<any Error>> {
         let manifest_path = dir.join("Saw.toml")
 
         if not File.exists(manifest_path) {

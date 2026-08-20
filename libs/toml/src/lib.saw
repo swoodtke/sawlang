@@ -237,7 +237,7 @@ public extension TomlDoc {
     }
 
     // Parse TOML from a string
-    public func parse(content: String) -> Result<TomlDoc, TomlError> {
+    public static func parse(content: String) -> Result<TomlDoc, TomlError> {
         var doc = TomlDoc()
         var current_section = TomlSection(section_name: "")
 

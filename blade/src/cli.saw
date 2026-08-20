@@ -83,7 +83,7 @@ public extension Cli: ExplicitCopy {}
 
 public extension Cli {
     // Parse command line arguments into a Cli struct
-    public func parse() -> Result<Cli, ParseError> {
+    public static func parse() -> Result<Cli, ParseError> {
         let args = Env.args()
 
         if args.len() < 2 {

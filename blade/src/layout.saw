@@ -179,7 +179,7 @@ public extension BuildLayout {
     }
 
     // Remove the whole `.build/` tree — every target this package has built.
-    public func clean_all() -> Bool {
+    public static func clean_all() -> Bool {
         match Path(s: build_root()).remove_tree() {
             case Ok(_) -> true,
             case Err(e) -> {
