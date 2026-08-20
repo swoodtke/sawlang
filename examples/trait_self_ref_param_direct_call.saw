@@ -1,0 +1,23 @@
+// The WORKING subset of `&Self` trait requirements, pinned so DF-239a's fix
+// cannot regress it: declaration, conformance matching, and the direct
+// concrete call — the extension-side `Self` resolution, which never goes
+// through substitution.
+// EXPECT: success
+// EXPECT-OUTPUT: 7
+trait Merges {
+    func merge(&self, other: &Self) -> Int
+}
+
+struct Bag {
+    n: Int
+}
+
+extension Bag: Merges {
+    func merge(&self, other: &Self) -> Int { self.n + other.n }
+}
+
+func main() {
+    let x = Bag(n: 3)
+    let y = Bag(n: 4)
+    print(x.merge(&y))
+}

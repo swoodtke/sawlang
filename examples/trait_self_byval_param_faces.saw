@@ -1,0 +1,34 @@
+// Control for DF-239a, and the general answer to "is Self usable in user
+// trait requirements": BY-VALUE `Self` works on all three faces — direct
+// call, generic-bound call, default-body forwarding. Bare-Self substitution
+// is sound; DF-239a's wrapper loss is specific to `&Self`.
+// EXPECT: success
+// EXPECT-OUTPUT: 7
+// EXPECT-OUTPUT: 7
+// EXPECT-OUTPUT: 14
+trait Absorbs {
+    func absorb(&self, other: Self) -> Int
+    func doubled(&self, other: Self) -> Int {
+        self.absorb(other) * 2
+    }
+}
+
+struct Tin {
+    n: Int
+}
+
+extension Tin: Absorbs {
+    func absorb(&self, other: Self) -> Int { self.n + other.n }
+}
+
+func squeeze<T: Absorbs>(a: &T, b: T) -> Int {
+    a.absorb(b)
+}
+
+func main() {
+    let x = Tin(n: 3)
+    let y = Tin(n: 4)
+    print(x.absorb(y))
+    print(squeeze(&x, y))
+    print(x.doubled(y))
+}

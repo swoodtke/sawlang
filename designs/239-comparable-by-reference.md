@@ -44,7 +44,14 @@ exists, so no checkpoint is needed and no retain is owed.
    C01-C06/C11 re-state under the new signatures — the stopgap refusals they
    pinned become POSITIVE rows (NoCopy comparison compiles and is sound).
    Every row's covering test updates in `examples/conformance/INDEX.md`.
-1. **The signature change.** builtin.saw's two traits; conformance MATCHING
+1. **The signature change — FIRST fixing DF-239a**, the pre-check's finding
+   (Aug 20): substituting `Self` inside a reference type drops the `&`, so a
+   `&Self` requirement ICEs on the generic-bound call path and mistypes in
+   default bodies — the exact paths generic `T: Comparable` code takes. Two
+   XFAIL pins (`trait_self_ref_param_generic_call.saw`, `_default_body.saw`)
+   flip with the fix; four passing controls fence the working subset (direct
+   call, `Self?` nesting, by-value Self, erasure refusal). Then
+   builtin.saw's two traits; conformance MATCHING
    requires `&Self` (a by-value `other` conformance is a declaration-site
    error with a fixit naming the new signature); synthesized bodies
    (memberwise, enum payload, tuple, optional/array recursions) read through

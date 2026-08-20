@@ -1,0 +1,29 @@
+// A trait DEFAULT BODY receives a `&Self` parameter as the reference it is:
+// forwarding it to a sibling requirement is design 106's ordinary re-borrow.
+// Today the per-conformer compile substitutes `&Self` to the bare concrete
+// type — the same wrapper loss as the generic-bound face — so the forward
+// errors `expects &Bag but got Bag`.
+// XFAIL: DF-239a substituting `Self` inside a reference type drops the `&`
+// — the default-body face
+// EXPECT: success
+// EXPECT-OUTPUT: 14
+trait Merges {
+    func merge(&self, other: &Self) -> Int
+    func doubled(&self, other: &Self) -> Int {
+        self.merge(other) * 2
+    }
+}
+
+struct Bag {
+    n: Int
+}
+
+extension Bag: Merges {
+    func merge(&self, other: &Self) -> Int { self.n + other.n }
+}
+
+func main() {
+    let x = Bag(n: 3)
+    let y = Bag(n: 4)
+    print(x.doubled(&y))
+}

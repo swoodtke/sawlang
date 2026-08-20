@@ -1,0 +1,32 @@
+// A trait requirement may name `&Self` as a parameter type, and a call
+// through a generic bound must pass it by reference. Today the
+// monomorphized callee signature LOSES the `&` (the substitution of Self
+// inside a reference type drops the wrapper), while the call site correctly
+// passes a pointer — an ICE at codegen. The direct concrete call
+// (`trait_self_ref_param_direct_call.saw`) works, which localizes the loss
+// to the SUBSTITUTION path.
+// XFAIL: DF-239a substituting `Self` inside a reference type drops the `&`
+// — the generic-bound face (ICE: Type of #2 arg mismatch %"Bag"* != %"Bag")
+// EXPECT: success
+// EXPECT-OUTPUT: 7
+trait Merges {
+    func merge(&self, other: &Self) -> Int
+}
+
+struct Bag {
+    n: Int
+}
+
+extension Bag: Merges {
+    func merge(&self, other: &Self) -> Int { self.n + other.n }
+}
+
+func combine<T: Merges>(a: &T, b: &T) -> Int {
+    a.merge(b)
+}
+
+func main() {
+    let x = Bag(n: 3)
+    let y = Bag(n: 4)
+    print(combine(&x, &y))
+}

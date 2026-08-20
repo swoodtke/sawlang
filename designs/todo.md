@@ -32,7 +32,7 @@ is scheduled and in what order is the whole of what they say.
 ## [QUEUE] — scheduled, in order (user-approved)
 
 - Design 236 — `static` keyword required (designs/236-static-keyword.md) — before 235; DISPATCHED Aug 20 (branch design-236)
-- Design 239 — Comparable/Equatable take `other: &Self` (RULED Aug 20, user — the DF-216b/C12 class closed by construction; designs/239-comparable-by-reference.md) — after 236 lands (two corpus migrations cannot overlap), BEFORE 235 so the matrices pin the new signatures once
+- Design 239 — Comparable/Equatable take `other: &Self` (RULED Aug 20, user — the DF-216b/C12 class closed by construction; designs/239-comparable-by-reference.md) — after 236 lands (two corpus migrations cannot overlap), BEFORE 235 so the matrices pin the new signatures once. DF-239a (entry below) is its unit 1's FIRST fix — the `&Self` substitution blocker the brief's pre-check found
 - Design 235 — position-matrix ledgers (designs/235-position-matrices.md; SONNET dispatch) — before 234's migration units
 - Design 237 — the ANF-hoist funnel (designs/237-anf-hoist-funnel.md) — before 234
 - Design 205 — platform-pair transfer conversions (designs/205-transfer-conversion-closes.md; worked solution recorded in the brief) — position in queue provisional, before 234 suggested
@@ -68,6 +68,38 @@ User-reserved (hand fixes): DF-232h (rides 234 u1 unless taken earlier), DF-217m
 - DF-219c — the spawn capture audit is not bound-aware (soundness-adjacent; entry below, under design 219)
 - DF-224c — `Channel<T?>` call-site auto-wrap ICEs inside a driven body (entry below, under DF-224a/b)
 - DF-225c / DF-225e — RULED Aug 20 (user), compiler halves pending as a small-fix batch: Float-only (drop the `Float64` name), `std/` off bare-import search paths (entries below). DF-225h fully CLOSED same day: `()` stays a distinct tuple, design 122/132's visible-Void rejection stays ABSOLUTE (a proposed `case _ -> Void` spelling was considered and REJECTED for the exception it would carve), `{}` is the do-nothing arm spelling — spec's three arms fixed
+
+## DF-239a — substituting `Self` inside a REFERENCE type drops the `&`
+## (filed Aug 20, design 239's pre-check; BLOCKS 239 unit 1)
+
+`Self` and `&Self` are general trait vocabulary, not builtin-special — a user
+trait may declare `func merge(&self, other: &Self)`, the conformance matches,
+and the DIRECT concrete call compiles and runs (extension-side Self
+resolution, no substitution involved). The hole is the SUBSTITUTION of Self
+to a concrete type inside a reference wrapper, one mechanism with two faces:
+- GENERIC-BOUND face: `combine<T: Merges>` calling `a.merge(b)` ICEs at
+  codegen (`Type of #2 arg mismatch: %"Bag"* != %"Bag"`) — the monomorphized
+  callee signature lost the `&` while the call site correctly passed a
+  pointer. This is exactly the path generic sort/contains code takes through
+  `T: Comparable`, hence the 239 blocker.
+- DEFAULT-BODY face: the per-conformer compile of a default body types the
+  `&Self` param as the bare value, so forwarding it to a sibling requirement
+  errors `expects &Bag but got Bag` (design 106's re-borrow never applies).
+CONTROLS (mechanism is reference-specific, not nesting-general): `Self?`
+through the same generic-bound path WORKS; BY-VALUE `Self` works on all
+three faces (direct, bound, default body) — bare-Self substitution is sound.
+Erasure is correctly refused for a `&Self` param, with a WORDING WART: the
+diagnostic says "takes `Self` by value" about a reference parameter (fix the
+message when the mechanism is touched).
+PINS: `trait_self_ref_param_generic_call.saw` + `_default_body.saw` (XFAIL
+citing this DF, one per face); controls pinned passing:
+`_direct_call.saw`, `trait_self_optional_bound_call.saw`,
+`trait_self_byval_param_faces.saw`, `_not_erasable_error.saw` (loose match —
+the refusal, not the wart). Likely mechanism locus: the type-substitution
+walk (`substitute_ast_types` / SawType reference handling) replacing the
+inner SELF node with the concrete type instead of rebuilding the reference
+around it — the fix brief (239 unit 1) names the exact site. [239, 216b,
+106]
 
 ## Design 234 — the fallibility flip (RATIFIED Aug 17; QUEUED behind the
 ## three in-flight Aug-17 branches)
