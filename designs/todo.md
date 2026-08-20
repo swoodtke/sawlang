@@ -31,14 +31,14 @@ is scheduled and in what order is the whole of what they say.
 
 ## [QUEUE] — scheduled, in order (user-approved)
 
-1. DF-232f fix — `--module-path` packages join the package relation (RULED; entry below) — may run parallel with 2/3
+1. DF-232j fix — a `public import` re-export WIDENS `public(package)` to the world (entry below; MOVED TO TOP by user, Aug 20). SOUNDNESS: the tier means "siblings only" and one facade line silently makes it "everyone", with nothing failing. Pin is XFAIL'd. Mechanism NOT yet read — the fix owes the obligation-4 sweep the entry names (glob / whole-module / two-hop facade shapes) before it is dispatched
 2. Design 236 — `static` keyword required (designs/236-static-keyword.md) — before 235
 3. Design 235 — position-matrix ledgers (designs/235-position-matrices.md; SONNET dispatch) — before 234's migration units
 4. Design 237 — the ANF-hoist funnel (designs/237-anf-hoist-funnel.md) — before 234
 5. Design 205 — platform-pair transfer conversions (designs/205-transfer-conversion-closes.md; worked solution recorded in the brief) — position in queue provisional, before 234 suggested
 6. Design 234 — the fallibility flip (designs/234-fallibility-flip.md) — after 235/237; M3 unit 1.5 may interleave with its units 1-2 only
-7. sos riders batch — `clock_get` `kind:`→`type:` (DF-232b landed), abi enums decimals→shifts (DF-232c landed), kcore re-narrowing `public`→`public(package)` (needs 1) — after 1 integrates; both landed entries are in done_aug18-aug25.md
-8. Design 238 — the sawos split (designs/238-sawos-split.md; four rulings Aug 19, D-b1/b2/b3 open) — after 7, BEFORE the M3 ladder; its unit 1 (the freestanding suite) may start any time and is worth pulling forward
+7. sos riders batch — REMAINDER ONLY: `clock_get` `kind:`→`type:` (DF-232b landed), abi enums decimals→shifts (DF-232c landed). The kcore re-narrowing LANDED Aug 20; what is left of the narrowing is small and unscheduled (sosabi 2, hal-arm64 2, toml 1, semver 1, ~179 unaudited public MEMBERS) — see the re-narrowing rider section
+8. Design 238 — the sawos split (designs/238-sawos-split.md; four rulings Aug 19, D-b1/b2/b3 open) — BEFORE the M3 ladder; its unit 1 (the freestanding suite) may start any time and is worth pulling forward
 9. M3 ladder — designs/232-sos-m3-sketch.md: unit 1.5 interruptibility, 2 CreateProcess, 2.75 handle lifecycle, 3 give, 4 Memory/IoMemory, 5 quotas, 5.5 death notifications, 6 money shot — runs IN sawos, after 8
 
 CONFLICT OWED A RULING (raised Aug 19 by 238's scheduling): item 6's carve-out
@@ -52,7 +52,6 @@ User-reserved (hand fixes): DF-232h (rides 234 u1 unless taken earlier), DF-217m
 ## [BACKLOG] — filed, not scheduled
 
 - `public(package) import` — should the scoped re-export form exist? Refused today (design 229). Real use case: an INTERNAL PRELUDE, one sibling aggregating names for the others (Rust's `pub(crate) use`). Against: siblings can already import each other directly, so it buys convenience, not capability — and kcore, the biggest multi-file package and the one that motivated the tier, does NOT want it (its `public import` block is the EXTERNAL facade). Wait for a package that feels the pain (entry: the re-narrowing rider section)
-- DF-232j — `public import` WIDENS a `public(package)` symbol; the tier's soundness, unscoped fix, mechanism not yet read (entry below)
 - DF-232d — `mod.STATIC = v` assignment position (entry below)
 - DF-232e — import-cycle diagnostic (entry below)
 - DF-232g — imported-const static folding (entry below)
