@@ -37,7 +37,7 @@ is scheduled and in what order is the whole of what they say.
 - Design 237 — the ANF-hoist funnel (designs/237-anf-hoist-funnel.md) — before 234
 - Design 205 — platform-pair transfer conversions (designs/205-transfer-conversion-closes.md; worked solution recorded in the brief) — position in queue provisional, before 234 suggested
 - Design 234 — the fallibility flip (designs/234-fallibility-flip.md) — after 235/237 (the M3-1.5 interleave carve-out WITHDRAWN by user, Aug 20 — 1.5 waits for sawos)
-- sos riders batch — REMAINDER ONLY: `clock_get` `kind:`→`type:` (DF-232b landed), abi enums decimals→shifts (DF-232c landed). The kcore re-narrowing LANDED Aug 20; what is left of the narrowing is small and unscheduled (sosabi 2, hal-arm64 2, toml 1, semver 1, ~179 unaudited public MEMBERS) — see the re-narrowing rider section
+- sos riders batch — REMAINDER ONLY: `clock_get` `kind:`→`type:` (DF-232b landed), abi enums decimals→shifts (DF-232c landed). The kcore re-narrowing LANDED Aug 20; the member audit RAN Aug 20 (84 narrowable / 2 consumed, designs/renarrow-audit-aug20.md) — the narrowing unit is dispatch-ready, unscheduled; see the re-narrowing rider section
 - Design 238 — the sawos split (designs/238-sawos-split.md; four rulings Aug 19, D-b1/b2/b3 open) — BEFORE the M3 ladder; its unit 1 (the freestanding suite) may start any time and is worth pulling forward
 - M3 ladder — designs/232-sos-m3-sketch.md: unit 1.5 interruptibility, 2 CreateProcess, 2.75 handle lifecycle, 3 give, 4 Memory/IoMemory, 5 quotas, 5.5 death notifications, 6 money shot — runs IN sawos, after design 238
 
@@ -51,6 +51,11 @@ User-reserved (hand fixes): DF-232h (rides 234 u1 unless taken earlier), DF-217m
 - `public(package) import` — should the scoped re-export form exist? Refused today (design 229). Real use case: an INTERNAL PRELUDE, one sibling aggregating names for the others (Rust's `pub(crate) use`). Against: siblings can already import each other directly, so it buys convenience, not capability — and kcore, the biggest multi-file package and the one that motivated the tier, does NOT want it (its `public import` block is the EXTERNAL facade). Wait for a package that feels the pain (entry: the re-narrowing rider section)
 - DF-232d — `mod.STATIC = v` assignment position (entry below)
 - DF-232e — import-cycle diagnostic (entry below)
+- DF-232n — `public(package)` fails open across relative-path imports (entry below; the 232j family's remaining arm, found by the re-narrowing audit)
+- DF-232o — tier-refused type re-resolves same-named: X-but-got-X cascades, place-path loses the visibility line (entry below)
+- DF-232p — a refused call swallows its argument's refusal (entry below; minor)
+- Extension-tier gating — RULING OWED: does an extension head's tier clamp its members? (entry below; wanted before the narrowing unit)
+- Re-narrowing unit — apply the audit's 84-site list (dispatch-ready; designs/renarrow-audit-aug20.md; entry: the rider section)
 - DF-232g — imported-const static folding (entry below)
 - DF-216c — generic statics never instantiate type params (entry below, under design 216)
 - DF-217d — generic static with default type+value ICE (entry below, under the obligation-4 retro triage)
@@ -405,11 +410,82 @@ keeping:
    keeping: "the gate went red in a way consistent with my theory" is not
    evidence FOR the theory when a second mechanism produces the same redness.
 
-REMAINING (unscheduled, small): sosabi 2 (`PROCESS_STATUS_KIND_SHIFT`,
-`PROCESS_STATUS_CODE_MASK`), hal-arm64 2 (`mair_value`, `page_tables_build`),
-toml 1 (`TomlTable`), semver 1 (`ReqKind`), plus ~179 public MEMBERS (methods,
-struct fields) that no pass has audited — the kcore run covered top-level
-declarations only. sysapi stays wide BY DESIGN (spec §5.7).
+REMAINING — AUDITED Aug 20 (sweep agent, compile evidence; full report +
+the exact 84-site list: designs/renarrow-audit-aug20.md). Verdict: of the
+86 candidates, 84 NARROWABLE and 2 CONSUMED (`Console.write_str` — 25
+outside sites — and `.write_hex` — 4; both are the console API the facade
+implies, keep `public`). The "~179" reconciled EXACTLY: it was the
+all-packages member sum; kcore's own share is 80 (78 narrowable). 78 of
+the 84 are file-local (`private` would do); the package-tier six are
+listed in the report. sysapi/imgformat/toml-rest/semver-rest stay wide BY
+DESIGN and were counted, not audited. The narrowing unit is now
+DISPATCH-READY: apply the report's site list, iterate to a clean build
+(the report warns one batch pass under-counts refusals), gate sos + blade
+lanes. Oracle-dense mechanical work — a mech-agent candidate if the user
+approves; Opus otherwise. The audit also filed DF-232n/o/p and one ruling
+question (entries below).
+
+## DF-232n — `public(package)` is NOT enforced across a RELATIVE-PATH import:
+## the empty-root fail-open arm survives where no mapped identity exists
+## (filed Aug 20, the re-narrowing audit's oracle check)
+
+`libs/toml/tests/*.saw` reach the package via `import src.lib.*` — no
+`--module-path`, so the modules carry no mapped-package identity and
+`check_visibility`'s `if not package_root: return True` arm answers ALLOW.
+Proven live both ways: `TomlDoc` narrowed to `public(package)` is REFUSED by
+blade (mapped consumer) while all four toml tests compile CLEAN against the
+same source; same for `semver.Version`. This is the DF-232j family's
+remaining arm — 232j rooted mapped and std packages; a package reached by
+RELATIVE path still fails open, so the tier is only real for consumers that
+arrive through `--module-path`. Fix direction: a relative-path package needs
+a root identity too (the filesystem package root the module_resolver already
+computes), or the fail-open default flips to fail-closed with an explicit
+carve-out for the no-package case. Obligation-4 sweep owed at fix time: any
+OTHER reach that constructs namespaces without a package root (single-file
+compiles, `module` decls, the entry file itself). [232j, 232f, audit report]
+
+## DF-232o — a visibility-refused TYPE re-resolves as a distinct same-named
+## type: "expects `SosStatus` but got `SosStatus`" cascades, and a private
+## type surfaces as place/optional errors with NO visibility line (filed
+## Aug 20, the re-narrowing audit)
+
+One mechanism, two faces. When a type name is refused by tier, the checker
+does not stop at the refusal — the name re-resolves to a
+distinct-but-same-named type and every downstream comparison fails
+STRUCTURALLY, so the printer renders both sides identically ("field `status`
+expects type `SosStatus` but got `SosStatus`", 100+ cascade lines burying
+the one true refusal). Reached through the design-141 place lowering the
+cascade loses the visibility line entirely: a `private TomlTable` fails as
+``argument `__window` expects `(&var TomlTable) sync -> TomlTable` but got
+`(&var TomlTable) -> Void`` and "left side of `??` must be optional" —
+nothing says visibility. Fix shape: a tier-refused type resolution should
+poison downstream uses (design-63-style distinct-type printing would also
+stop the X-but-got-X rendering: name the module in at least one side).
+[audit report, 141, 80]
+
+## DF-232p — a refused CALL swallows a refusal in its own ARGUMENT (filed
+## Aug 20, the re-narrowing audit; diagnostic completeness, minor)
+
+`uart.write_str(hal.arch_name())` with BOTH refused reports only
+`write_str`; isolating `arch_name` produces its refusal cleanly. An error
+census from one batch compile under-counts — recorded in the audit report
+as an implementing-agent warning. Fix rides whatever touches the
+member-access refusal path next (likely DF-232o's). [audit report]
+
+## Extension-tier gating — RULING OWED (raised Aug 20, the re-narrowing
+## audit): `public(package) extension Console` does not clamp its `public`
+## methods
+
+sos/kernel/core/diag.saw:63 is the tree's only tier-marked extension, and
+the marker is INERT: the member tier alone gates, so the extension's
+`public func write_str` is world-callable. Either that is design 80's
+intended reading (the extension head's tier is where the METHODS' default
+visibility comes from, and an explicit member tier overrides — in which
+case the marker is misleading only when redundant) or the extension tier
+should CLAMP members (a member can be narrower than its extension, never
+wider). Ruling wanted before the narrowing unit lands, since that unit
+touches the same file and could either delete the decoration or rely on
+the clamp. [audit report, design 80]
 
 ## DF-232e — an IMPORT CYCLE is not diagnosed: the symbols silently vanish and
 ## the error lands on an innocent third module (filed Aug 17, the kcore split's
