@@ -1,0 +1,22 @@
+// Position matrix (design 235), grid 2 "Qualified-name-as-target" — access
+// path: `mod.STATIC`, the one GREEN operation: read. The other four —
+// assign, compound-assign, `&var` argument, and place window (an element
+// write through the qualifier) — are all RED, and each is its own pin
+// since a program mixing a passing statement with one that does not
+// compile cannot be one file. All four cite DF-232d (its Aug 20 correction
+// records the write/reference family as part of the same finding, wider
+// than first drawn — see the tracker entry):
+//   assign                 — qualname_mod_static_assign_error.saw (clean
+//                             typecheck refusal — the ORIGINAL DF-232d row)
+//   compound-assign         — qualname_mod_static_compound_assign_ice.saw
+//   `&var` argument          — qualname_mod_static_refarg_ice.saw
+//   place window (elem write) — qualname_mod_static_write_ice.saw
+//
+// EXPECT: success
+// EXPECT-OUTPUT: read = 1
+
+import modules.qualname_static_dep
+
+func main() unsafe {
+    print("read = {qualname_static_dep.X}")
+}

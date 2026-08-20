@@ -1,0 +1,7 @@
+//! Fixture for grid 2's `mod.STATIC` access-path row (design 235). Compound
+//! mutable module state, reached by every consumer through the `dep.`
+//! qualifier a plain relative import binds.
+// EXPECT: skip
+
+public unsafe static var X: Int = 1
+public unsafe static var ARR: [Int; 4] = [0; 4]

@@ -8,9 +8,6 @@ entry in `designs/todo.md` plus a cited XFAIL pin. See `designs/235-position-
 matrices.md` for the brief and `designs/todo.md`'s DF-235a/b entries for the
 mechanism this unit found.
 
-Grid 1 lands in this commit; grid 2 ("Qualified-name-as-target") lands in
-the next.
-
 ## Conventions
 
 - **Cell format**: `file.saw` (a file in this directory), `existing:
@@ -35,6 +32,10 @@ the next.
   all five at a representative span of positions (let, argument, return,
   struct-literal field, array element) once; every grid-1 row's S4-S8
   columns cite it rather than repeating the demonstration ~20 more times.
+- **A `mod.STATIC` access path needs a fixture module.** Grid 2's fourth
+  row imports `examples/coercion/modules/qualname_static_dep.saw` (a plain
+  relative import — `modules/` is excluded from test discovery, same
+  convention every other cross-module `examples/` test already uses).
 
 ## Grid 1 — Adoption: target position × source template
 
@@ -106,7 +107,42 @@ inside an enum declaration, so those sources cannot be written at all.
 silent-wide families each cover several positions from one canonical
 repro, per the file-granularity XFAIL rule and "cite it, don't duplicate").
 
-## Findings filed by this ledger (grid 1)
+## Grid 2 — Qualified-name-as-target: access path × operation
+
+Rule authority: DF-232d's mechanism (member-access assignment routing) plus
+its Aug 20 correction (design 235's own sweep — see `designs/todo.md`).
+Operations: read, assign, compound-assign, `&var` argument, place window
+(an accessor-mediated exclusive/shared window — design 141/146; NOT plain
+fixed-array indexing, which is exempt from the place mechanism by the
+saw-lang skill's own note).
+
+| Access path | read | assign | compound-assign | `&var` argument | place window |
+|---|---|---|---|---|---|
+| local | `qualname_local.saw` | `qualname_local.saw` | `qualname_local.saw` | `qualname_local.saw` | `qualname_local.saw` |
+| `obj.field` | `qualname_obj_field.saw` | `qualname_obj_field.saw` | `qualname_obj_field.saw` | `qualname_obj_field.saw` | `qualname_obj_field.saw` |
+| `arr[i].field` | `qualname_arr_elem_field.saw` | `qualname_arr_elem_field.saw` | `qualname_arr_elem_field.saw` | `qualname_arr_elem_field.saw` | `qualname_arr_elem_field.saw` |
+| `mod.STATIC` | `qualname_mod_static.saw` | RED (DF-232d): `qualname_mod_static_assign_error.saw` | RED (DF-232d): `qualname_mod_static_compound_assign_ice.saw` | RED (DF-232d): `qualname_mod_static_refarg_ice.saw` | RED (DF-232d): `qualname_mod_static_write_ice.saw` |
+
+**Cell counts, grid 2**: 16 green, 4 red (all DF-232d, all pinned above), 0
+N/A, 0 OPEN. The `mod.STATIC` row is the one DF-232d's Aug 20 correction
+widened: the finding's original matrix marked three of these four
+operations working; design 235's direct compile evidence found only READ
+actually is, on today's tree, via a plain relative import AND via
+`--module-path` alike.
+
+**Why `mod.STATIC`'s place-window cell has no Vector/Map fixture.** A
+`borrows`-accessor-backed container (`Vector`, `Map`) cannot BE a module
+static — only trivially-destructible types can (`unsafe static var`'s own
+rule; `Vector`/`Map` own a `Deinit`), confirmed by direct compile
+(`static CELLS: Vector<Int>` is refused: "owns a resource (Deinit);
+statics are immortal and never run deinit"). So the row's place-window
+cell is tested through a fixed-array ELEMENT WRITE instead
+(`mod.ARR[i] = v`) — the same shape DF-232d's own original matrix used for
+this row, kept for continuity even though a plain fixed-array index is,
+strictly, outside the `borrows`-window mechanism the other three access
+paths exercise through a `Vector`.
+
+## Findings filed by this ledger
 
 - **DF-235a** — a constant-expression element/payload ICEs at codegen (a
   plain array literal, mixed with an adopted sibling; a `Result` payload
@@ -118,6 +154,13 @@ repro, per the file-granularity XFAIL rule and "cite it, don't duplicate").
   `const_expression_range_unchecked_narrow.saw`,
   `const_expression_range_unchecked_wide.saw`,
   `compound_assign_const_expression_refused.saw`.
+- **DF-232d correction** — the finding's "writes"/"refs" rows for
+  `mod.STATIC` do not hold; every write/reference shape through a
+  qualifier ICEs at codegen, not just the originally-filed plain
+  assignment (which refuses cleanly at typecheck). Pins:
+  `qualname_mod_static_assign_error.saw` (original),
+  `qualname_mod_static_compound_assign_ice.saw`,
+  `qualname_mod_static_refarg_ice.saw`, `qualname_mod_static_write_ice.saw`.
 
-Grid 1 has no OPEN cells — every cell it names was determined by direct
-compile/run evidence.
+No OPEN cells in either grid — every cell this brief's grids name was
+determined by direct compile/run evidence.

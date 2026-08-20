@@ -1,0 +1,38 @@
+// Position matrix (design 235), grid 2 "Qualified-name-as-target" — access
+// path: `arr[i].field` (a field through an array element), every
+// operation (read, assign, compound-assign, `&var` argument, place
+// window).
+// EXPECT: success
+// EXPECT-OUTPUT:
+// read = 5
+// assign = 9
+// compound = 12
+// ref = 20
+// place window = 41
+
+struct Holder { n: Int, v: Vector<Int> }
+extension Holder: NoCopy {}
+
+static N: Int = 2
+
+func bump(r: &var Int) {
+    r = 20
+}
+
+func main() {
+    var rows: [Holder; N] = [Holder(n: 5, v: [40, 41]), Holder(n: 0, v: [0, 0])]
+    print("read = {rows[0].n}")
+
+    rows[0].n = 9
+    print("assign = {rows[0].n}")
+
+    rows[0].n += 3
+    print("compound = {rows[0].n}")
+
+    bump(&var rows[0].n)
+    print("ref = {rows[0].n}")
+
+    // place window: an element's field's Vector `[]`, two hops deep
+    rows[0].v[1] += 0
+    print("place window = {rows[0].v[1]}")
+}

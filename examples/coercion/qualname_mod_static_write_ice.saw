@@ -1,0 +1,16 @@
+// XFAIL: DF-232d an element WRITE through a qualifier-rooted static ICEs
+// (`mod.ARR[i] = v`) — the exact shape DF-232d's original matrix marked
+// working (✓) and design 235's grid 2 found is not, on today's tree. See
+// DF-232d's tracker entry (Aug 20 correction) for the full corrected
+// matrix and the mechanism (a codegen lvalue-resolution gap, one layer
+// below the typechecker gap the finding was originally filed on).
+//
+// EXPECT: success
+// EXPECT-OUTPUT: 41
+
+import modules.qualname_static_dep
+
+func main() unsafe {
+    qualname_static_dep.ARR[1] = 41
+    print("{qualname_static_dep.ARR[1]}")
+}
