@@ -15,6 +15,18 @@ outright (file-local); the six needing `public(package)` are listed under
 53/53 (both arches), process lane 40/40 (both arches), blade + every
 libs/blade test.
 
+**CORRECTION (Aug 20, the implementing pass — DF-232q):** the
+private-vs-package SPLIT above is INVERTED. The implementing agent's
+iterated convergence found 72 of the "78 file-local" sites have kcore
+SIBLING consumers (`process.saw`, `irq.saw`, `dispatch.saw`) hidden behind
+three successive error waves — the one-pass census under-count this
+report's own finding 3 (DF-232p) names, at a scale it did not anticipate.
+The true split: **6 take `private`** (`Console.write_byte`, the two sosabi
+statics, the two hal-arm64 funcs, `ReqKind`) and **78 take
+`public(package)`**. The OUTER boundary — 84 narrowable vs 2 consumed,
+zero reverts to `public` — held exactly. The tier column of the TSV below
+is superseded by this correction; the site LIST itself remains exact.
+
 ## Count reconciliation — the rider's "~179" is exact, not approximate
 
 Enumerated with sawc's own lexer+parser (never grep): kcore 80 public
