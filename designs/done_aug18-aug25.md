@@ -774,3 +774,70 @@ diagnostic rows), and the four controls `_direct_call.saw`,
 `trait_self_optional_bound_call.saw`, `trait_self_byval_param_faces.saw`,
 `_not_erasable_error.saw`. [239, 216b, 106]
 
+
+## Design 235 — the position-matrix ledgers (RATIFIED Aug 17; BUILT Aug 20,
+## branch `design-235`; INTEGRATED Aug 20 — fast-forward, the exact tree the
+## terminal gate blessed, so no re-gate owed)
+
+designs/235-position-matrices.md is the plan of record: two standing corpus
+ledgers on the conformance/ template — examples/coercion/ (adoption grid +
+qualified-name-as-target grid) and examples/modules/ (import-forms×positions,
+visibility, graph shapes) — with INDEX.md per ledger, cite-don't-duplicate,
+N/A reasons in place, and every red cell filed as a DF + cited XFAIL pin, so
+the family's xfail set becomes an ENUMERATION's red cells, not the trail of
+what we stepped on. No-guessing rule: undetermined cells are OPEN rows for
+ruling, never invented EXPECTs. Sonnet-class dispatch (user ruling — the
+brief fixes the grids and authorities; the agent transcribes). Seeds: the
+DF-232a/226d/e/232c pins + the kcore unit-0 probes. [235]
+
+LANDING NOTE (Aug 20). Unit 1 (`examples/coercion/`) is two commits, one per
+grid, both suite-gated. Unit 2 landed as `examples/module_matrix/`, NOT
+`examples/modules/` as the brief's own prose says — `test_runner.py`'s
+`discover_tests` hard-codes `skip_dirs = {'modules'}` and excludes ANY path
+component named `modules` at any depth, corpus-wide, so a literal
+`examples/modules/` ledger's own test files would never have run (the name
+was already taken as the corpus-wide cross-module fixture directory every
+OTHER test's `import modules.X` reaches). Flagged rather than silently
+substituted: this is a structural/tooling correction, not a judgment call
+under the no-guessing rule, and doesn't change what the grids test. Unit 2
+is three commits, one per grid, each suite-gated.
+
+Every cell in every grid was determined by DIRECT COMPILE/RUN EVIDENCE —
+zero invented EXPECTs, zero OPEN rows in either ledger. Probing surfaced
+findings well beyond the seeded ones:
+
+- **DF-235a/b** (new, filed by unit 1) — the array-literal/coercion probing
+  found `_apply_literal_expected_type` has no case for a general constant
+  EXPRESSION (a folded shift/arithmetic `BinaryOp`, as opposed to a bare
+  `IntLiteral`), so a const-expression source silently skips design 87's
+  adoption+range-check funnel almost everywhere it's used — an
+  `insert_value` codegen ICE where a downstream path assumed the width was
+  reached (DF-235a: a mixed array literal, a Result payload slot), or a
+  silent narrow truncation / silent wide mis-storage / spurious refusal
+  with NO error at all otherwise (DF-235b: most of the rest of grid 1's
+  position list). Only the enum raw value (its own dedicated fold+check
+  pipeline) and the Result ambiguous-refusal row are unaffected — confirmed
+  correct, not assumed.
+- **DF-232d, corrected** (grid 2, unit 1) — the finding's original matrix
+  claimed the "writes"/"refs" rows for `mod.STATIC` work; direct compile
+  evidence (plain relative import AND `--module-path` alike) found only a
+  plain READ actually does — every write/reference shape through a
+  qualifier ICEs at codegen. Corrected in place per obligation 4, not
+  re-filed.
+- **DF-232e, DF-232n** (unit 2) — both already filed, neither previously
+  pinned in `examples/`; this brief gave each its first fixture (DF-232e's
+  3-cycle confirmed as the same mechanism at a longer length, not assumed;
+  DF-232n's minimal two-file repro alongside the audit's larger
+  `libs/toml/` evidence).
+
+Two structural findings, confirmed by direct compile rather than assumed
+from the grammar prose: an extension receiver and a match pattern BOTH
+require a bare name at the parser level, so they are grammar-level N/A for
+the qualified and `as`-renamed import forms specifically (not a gap either
+form's probing could close).
+
+Cell counts and every red-cell pin are recorded in
+`examples/coercion/INDEX.md` and `examples/module_matrix/INDEX.md`, not
+restated here. Terminal gate (`suite lexdiff astdiff irdet`) run before
+close-out; see the commit log on `design-235` for the per-grid suite gates.
+
