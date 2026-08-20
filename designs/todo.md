@@ -185,7 +185,10 @@ divergence, …) and this rule is a declaration-shape rule that adds no
 family; the position matrix lives in `examples/errors/static236_*` where
 the brief put it.
 
-Terminal gate: the FULL battery (compiler branch) — see the final commit.
+Terminal gate (compiler branch): the FULL battery, 20 of 20 stages GREEN in
+2899s — suite, icebreadcrumb, lexdiff, astdiff, astgraft, forgetgate,
+ircontract, preludegate, stdtypes, abidoc, bttable, fuzz, corodiff, bench,
+selfhostlex, reemit, irdet (`--all`), gmgate, bootstrap, sos.
 
 - **DF-236a (FILED, not fixed — found by 236's migration) — a static method
   reached through a FIELD-ACCESS receiver is not refused; DF-217q's
