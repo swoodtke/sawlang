@@ -34,7 +34,7 @@ extension Driver {
     func pump_method(&self, c: &var any Counter) { c.bump() }
 
     // Static method taking one.
-    func pump_static(c: &var any Counter) { c.bump() }
+    static func pump_static(c: &var any Counter) { c.bump() }
 
     // Overload set: the existential slot must survive candidate selection.
     func pump_over(&self, c: &var any Counter) { c.bump() }

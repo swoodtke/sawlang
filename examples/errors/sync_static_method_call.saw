@@ -9,7 +9,7 @@ struct Reader {
 }
 
 extension Reader {
-    func load() -> Int {
+    static func load() -> Int {
         __saw_test_suspend()
         7
     }

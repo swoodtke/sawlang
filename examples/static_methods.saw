@@ -13,13 +13,13 @@ struct Math {
 }
 
 extension Math {
-    // Static method - no self parameter
-    func add(a: Int, b: Int) -> Int {
+    // Static method - declared `static`, and so takes no receiver
+    static func add(a: Int, b: Int) -> Int {
         a + b
     }
 
     // Another static method
-    func greet() {
+    static func greet() {
         print("Hello from static method!")
     }
 }
@@ -31,7 +31,7 @@ struct Point {
 
 extension Point {
     // Static method to create a point
-    func origin() -> Point {
+    static func origin() -> Point {
         Point(x: 0, y: 0)
     }
 

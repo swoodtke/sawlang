@@ -27,7 +27,7 @@ extension Endpoint: Serialize {
 }
 
 extension Endpoint: Deserialize {
-    func deserialize(from: &var any Decoder) sync -> Result<Endpoint, DecodeError> {
+    static func deserialize(from: &var any Decoder) sync -> Result<Endpoint, DecodeError> {
         try from.expect_array(3)
         let port = try from.read_int()
         let secure = try from.read_bool()

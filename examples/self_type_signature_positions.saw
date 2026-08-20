@@ -50,7 +50,7 @@ extension Counter {
     func split(&self) -> (Self, Int) { (Counter(n: self.n), 1) }
 
     // A STATIC method's parameters — no receiver in the list, same rule.
-    func combine(a: Self, b: Self) -> Int { a.n + b.n }
+    static func combine(a: Self, b: Self) -> Int { a.n + b.n }
 }
 
 enum Side { case Left, case Right }

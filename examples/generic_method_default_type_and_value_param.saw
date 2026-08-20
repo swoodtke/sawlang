@@ -22,7 +22,7 @@
 struct Plain { dummy: Int }
 
 extension Plain {
-    func probe<U = Int>(other: U = 7) -> Int { 5 }
+    static func probe<U = Int>(other: U = 7) -> Int { 5 }
 }
 
 func probe_free<U = Int>(other: U = 7) -> Int { 5 }

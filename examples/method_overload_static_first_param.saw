@@ -20,22 +20,22 @@ struct Bag { n: Int }
 
 extension Bag {
     // Two statics differing in their FIRST label only.
-    func of(a: Int, b: Int) -> Int { a * 10 + b }
-    func of(x: Int, b: Int) -> Int { x + b * 10 }
+    static func of(a: Int, b: Int) -> Int { a * 10 + b }
+    static func of(x: Int, b: Int) -> Int { x + b * 10 }
 
     // Differing in the first parameter's TYPE — the slice dropped the type as
     // surely as the label.
-    func from(v: Int) -> Int { 1 }
-    func from(v: Bool) -> Int { 2 }
+    static func from(v: Int) -> Int { 1 }
+    static func from(v: Bool) -> Int { 2 }
 
     // Differing in ARITY, where the missing slot was the only difference.
-    func make() -> Int { 0 }
-    func make(seed: Int) -> Int { seed }
+    static func make() -> Int { 0 }
+    static func make(seed: Int) -> Int { seed }
 
     // The control: differing in the SECOND label, which the slice left visible
     // and which therefore always worked.
-    func pick(a: Int, lo: Int) -> Int { a * 10 + lo }
-    func pick(a: Int, hi: Int) -> Int { a + hi * 10 }
+    static func pick(a: Int, lo: Int) -> Int { a * 10 + lo }
+    static func pick(a: Int, hi: Int) -> Int { a + hi * 10 }
 }
 
 func main() {

@@ -24,12 +24,12 @@ public extension Gadget {
     }
 
     // Public static factory.
-    public func make(v: Int) -> Gadget {
+    public static func make(v: Int) -> Gadget {
         Gadget(label: v, secret: v)
     }
 
     // Private static — NOT callable cross-module.
-    func secret_make(v: Int) -> Gadget {
+    static func secret_make(v: Int) -> Gadget {
         Gadget(label: 0, secret: v)
     }
 }

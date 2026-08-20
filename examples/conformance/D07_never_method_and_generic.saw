@@ -32,9 +32,9 @@ extension Killer {
         while { }
     }
 
-    // A STATIC method — no `self` parameter — is a third declaration slot the
-    // same `-> Never` answer has to reach.
-    func halt() -> Never {
+    // A STATIC method — declared `static`, so it takes no receiver — is a
+    // third declaration slot the same `-> Never` answer has to reach.
+    static func halt() -> Never {
         print("halt")
         while { }
     }

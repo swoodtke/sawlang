@@ -10,7 +10,7 @@ struct Endpoint {
 }
 
 extension Endpoint: Deserialize {
-    func deserialize(from: &var any Decoder) -> Result<Endpoint, DecodeError> {
+    static func deserialize(from: &var any Decoder) -> Result<Endpoint, DecodeError> {
         let port = try from.read_int()
         return Endpoint(port: port)
     }

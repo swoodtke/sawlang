@@ -40,7 +40,7 @@ public extension Anchor {
     public func echo(&self, c: Cmd) -> Cmd { c }
 
     // R1 — a struct FIELD typed by the enum.
-    public func field_type() -> Int {
+    public static func field_type() -> Int {
         let k = scan_args({ 1 })
         let c = Cli(command: Cmd.Build)
         match c.command {
@@ -49,14 +49,14 @@ public extension Anchor {
     }
 
     // R2 — the enum inside a GENERIC ARGUMENT of a field's type.
-    public func generic_arg() -> Int {
+    public static func generic_arg() -> Int {
         let k = scan_args({ 1 })
         let b = Bag(items: [Cmd.Build])
         20 + b.items.len() * k
     }
 
     // R3 — the enum inside an OPTIONAL field type.
-    public func optional_field() -> Int {
+    public static func optional_field() -> Int {
         let k = scan_args({ 1 })
         let o = Optish(v: Cmd.Build)
         match o.v! {
@@ -65,7 +65,7 @@ public extension Anchor {
     }
 
     // R4 — an enum CASE PAYLOAD typed by the enum.
-    public func enum_payload() -> Int {
+    public static func enum_payload() -> Int {
         let k = scan_args({ 1 })
         let w = Wrap.One(c: Cmd.Build)
         match w {
@@ -75,7 +75,7 @@ public extension Anchor {
     }
 
     // R7 — a free function's RETURN type (already resolved; a regression row).
-    public func fn_return() -> Int {
+    public static func fn_return() -> Int {
         let k = scan_args({ 1 })
         match give() {
             case Build -> 70 + k
@@ -83,7 +83,7 @@ public extension Anchor {
     }
 
     // R8 — a method's PARAMETER and RETURN types (already resolved).
-    public func method_signature() -> Int {
+    public static func method_signature() -> Int {
         let k = scan_args({ 1 })
         let a = Anchor(n: 1)
         match a.echo(Cmd.Build) {
@@ -92,7 +92,7 @@ public extension Anchor {
     }
 
     // R9 — a LOCAL's written annotation (already resolved).
-    public func local_annotation() -> Int {
+    public static func local_annotation() -> Int {
         let k = scan_args({ 1 })
         let c: Cmd = Cmd.Build
         match c {

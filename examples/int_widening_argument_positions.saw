@@ -26,7 +26,7 @@ struct Widener { seen: Int }
 
 extension Widener {
     func take(&self, n: Int) -> Int { n }
-    func lift(n: Int) -> Int { n }
+    static func lift(n: Int) -> Int { n }
     func labelled(&self, first: Int, second: Int = 0) -> Int { first + second }
 }
 

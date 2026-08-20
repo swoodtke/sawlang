@@ -13,7 +13,7 @@ struct MyData {
 
 extension MyData {
     // Static method returning Result
-    func parse(input: Int) -> Result<MyData, MyError> {
+    static func parse(input: Int) -> Result<MyData, MyError> {
         if input > 0 {
             return MyData(value: input)
         }

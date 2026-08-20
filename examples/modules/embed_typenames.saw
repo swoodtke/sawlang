@@ -35,17 +35,17 @@ func take(c: Cmd) -> Int {
 func idn<T>(v: T) -> T { v }
 
 public extension Anchor {
-    public func helper() -> Int { 200 }
+    public static func helper() -> Int { 200 }
 
     // An enum-case literal as a CALL ARGUMENT: the head `Cmd` re-opened the
     // call, which then re-resolved the module-private `take`.
-    public func enum_literal_arg() -> Int {
+    public static func enum_literal_arg() -> Int {
         let k = scan_args({ 1 })
         take(Cmd.Build) + k
     }
 
     // The same head inside a GENERIC argument list.
-    public func generic_call_arg() -> Int {
+    public static func generic_call_arg() -> Int {
         let k = scan_args({ 1 })
         match idn<Cmd>(Cmd.Build) {
             case Build -> 10 + k
@@ -54,20 +54,20 @@ public extension Anchor {
 
     // A MODULE QUALIFIER head — the shape design 210's own docstring names
     // (`undefined variable `builder``), still reachable until DF-212b unit 2.
-    public func module_qualifier() -> Int {
+    public static func module_qualifier() -> Int {
         let k = scan_args({ 1 })
         let d = embed_typename_deeper.Deep(n: 3)
         embed_typename_deeper.deep_value() + d.twice() + k
     }
 
     // A STATIC method head on a type of this module.
-    public func static_head() -> Int {
+    public static func static_head() -> Int {
         let k = scan_args({ 1 })
         Anchor.helper() + k
     }
 
     // An integer LIMIT head, and a raw-backed enum's `from(raw:)` head.
-    public func builtin_heads() -> Int {
+    public static func builtin_heads() -> Int {
         let k = scan_args({ 1 })
         let p = Perm.from(raw: 2u8)
         match p! {

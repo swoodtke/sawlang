@@ -4,7 +4,8 @@
 // LANGUAGE_SPEC.md says labels are part of a function's identity. The
 // method-declaration identity test agreed — it has been label-aware since
 // design 66 — but it sliced a hardcoded `self` off EVERY method before building
-// the key, and a STATIC extension method has no `self` in its parameter list.
+// the key, and a STATIC extension method has no `self` in its parameter list
+// (design 236 made that absence a DECLARED `static`, not an inference).
 // Its first real parameter, type and label together, vanished from the
 // identity, so any two statics agreeing on everything after slot 0 collided:
 //
@@ -18,8 +19,8 @@
 // LLVM symbol table. Both sides read `_overload_cand_offset` now, which is the
 // notion `_resolve_overload` uses at the call site.
 //
-// The statics are called on the TYPE, which is the ONLY spelling for a method
-// with no `self`: reaching one through an INSTANCE (`b.at(index: 3)`) is a
+// The statics are called on the TYPE, which is the ONLY spelling for a
+// `static` method: reaching one through an INSTANCE (`b.at(index: 3)`) is a
 // clean error since DF-217q, pinned in
 // `examples/static_method_called_on_instance.saw`.
 // EXPECT: success
@@ -32,8 +33,8 @@ struct Bag { n: Int }
 
 extension Bag {
     // The reported pair: static, one parameter, distinguished only by label.
-    func at(index: Int) -> Int { index }
-    func at(key: Int) -> Int { key * 10 }
+    static func at(index: Int) -> Int { index }
+    static func at(key: Int) -> Int { key * 10 }
 
     // The instance twin, which always worked — the receiver occupies the slot
     // the hardcoded offset was written for.

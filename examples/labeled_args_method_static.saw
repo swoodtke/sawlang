@@ -16,7 +16,7 @@ extension Calc {
     func combine(&self, x: Int, y: Int = 100) -> Int {
         self.base + x + y
     }
-    func make(seed: Int, bump: Int = 5) -> Calc {
+    static func make(seed: Int, bump: Int = 5) -> Calc {
         Calc(base: seed + bump)
     }
 }

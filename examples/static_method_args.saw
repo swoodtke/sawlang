@@ -8,8 +8,8 @@ struct Parser {
 }
 
 extension Parser {
-    // Static method - no self parameter
-    func parse(content: String) -> Int {
+    // Static method - declared `static`, and so takes no receiver
+    static func parse(content: String) -> Int {
         content.len()
     }
 

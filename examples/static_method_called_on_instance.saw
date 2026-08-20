@@ -25,13 +25,13 @@
 struct Bag { n: Int }
 
 extension Bag {
-    func solo(index: Int) -> Int { index }
+    static func solo(index: Int) -> Int { index }
 }
 
 enum Side { case Left, case Right }
 
 extension Side {
-    func of(raw: Int) -> Int { raw }
+    static func of(raw: Int) -> Int { raw }
 }
 
 func main() {

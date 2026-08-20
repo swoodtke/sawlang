@@ -9,7 +9,7 @@ public struct Point {
 
 extension Point {
     public func sum(&self) -> Int { self.x + self.y }
-    public func origin() -> Point { Point(x: 0, y: 0) }
+    public static func origin() -> Point { Point(x: 0, y: 0) }
 }
 
 public enum Tint { case Warm, case Cool }

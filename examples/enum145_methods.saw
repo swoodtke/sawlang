@@ -41,12 +41,12 @@ extension SysError {
         self = SysError.Other
     }
 
-    // A static method: no `self` parameter.
-    func best() -> SysError {
+    // A static method: declared `static`, and so takes no receiver.
+    static func best() -> SysError {
         SysError.Ok
     }
 
-    func count() -> Int {
+    static func count() -> Int {
         3
     }
 }

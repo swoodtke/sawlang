@@ -30,7 +30,7 @@ extension Thing {
     }
 
     // static method (no &self) returning a Thing
-    func make(x: Int?) -> Thing {
+    static func make(x: Int?) -> Thing {
         Thing(n: x)
     }
 }

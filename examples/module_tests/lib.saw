@@ -12,7 +12,7 @@ public extension Point {
         self.x + self.y
     }
 
-    public func create(val: Int) -> Point {
+    public static func create(val: Int) -> Point {
         Point(x: val, y: val)
     }
 }

@@ -12,7 +12,7 @@ struct Gizmo {
 
 extension Gizmo {
     func peek(&self) -> Int { self.hidden }
-    func make(v: Int) -> Gizmo { Gizmo(hidden: v) }
+    static func make(v: Int) -> Gizmo { Gizmo(hidden: v) }
 }
 
 func main() {

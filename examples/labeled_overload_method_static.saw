@@ -14,8 +14,8 @@ struct P {
 extension P {
     func at(&self, x: Int, y: Int) -> Int { self.v + x * 10 + y }
     func at(&self, row: Int, col: Int) -> Int { self.v + row + col * 10 }
-    func of(a: Int, b: Int) -> P { P(v: a - b) }
-    func of(lo: Int, hi: Int) -> P { P(v: hi - lo) }
+    static func of(a: Int, b: Int) -> P { P(v: a - b) }
+    static func of(lo: Int, hi: Int) -> P { P(v: hi - lo) }
 }
 
 func main() {

@@ -19,17 +19,17 @@
 struct Holder<T> { v: T }
 
 extension Holder<T> {
-    public func make(v: T) -> Holder<T> { Holder<T>(v: v) }
+    public static func make(v: T) -> Holder<T> { Holder<T>(v: v) }
     // The static call under test, reached from an instance method...
     public func remake(&self) -> Holder<T> { Holder<T>.make(self.v) }
     // ...and from another static method on the same generic struct.
-    public func duplicate(v: T) -> Holder<T> { Holder<T>.make(v) }
+    public static func duplicate(v: T) -> Holder<T> { Holder<T>.make(v) }
 }
 
 struct Pair<A, B> { first: A, second: B }
 
 extension Pair<A, B> {
-    public func of(first: A, second: B) -> Pair<A, B> { Pair<A, B>(first: first, second: second) }
+    public static func of(first: A, second: B) -> Pair<A, B> { Pair<A, B>(first: first, second: second) }
     // Two type parameters, and a static call nested inside another one.
     public func swapped(&self) -> Pair<B, A> { Pair<B, A>.of(self.second, self.first) }
     public func rebuild(&self) -> Pair<A, B> { Pair<A, B>.of(self.first, self.second) }

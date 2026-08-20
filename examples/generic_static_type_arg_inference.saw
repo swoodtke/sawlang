@@ -15,7 +15,9 @@
 // Aug-18 reframe of the original DF-216c filing: the fault axis is
 // STATIC-vs-free, not method-vs-free — the original pin's self-less methods
 // were statics called through an instance, a spelling DF-217q has since
-// ruled a refusal.
+// ruled a refusal. Design 236 made `static` a required KEYWORD, so the two
+// declarations below now say which path they are on; that is naming, not a
+// fix, and this stays XFAIL until the static generic path instantiates.
 // EXPECT: success
 // EXPECT-OUTPUT:
 // labeled 5
@@ -26,8 +28,8 @@
 struct Plain { dummy: Int }
 
 extension Plain {
-    func probe<U>(other: U) -> Int { 5 }
-    func probe2<U>(seed: Int, other: U) -> Int { seed }
+    static func probe<U>(other: U) -> Int { 5 }
+    static func probe2<U>(seed: Int, other: U) -> Int { seed }
 }
 
 func main() {

@@ -27,7 +27,7 @@ extension Napper {
         self.n * 2
     }
 
-    func doubling(n: Int) -> Int {
+    static func doubling(n: Int) -> Int {
         yield_now()
         n * 2
     }

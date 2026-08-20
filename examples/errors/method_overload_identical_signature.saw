@@ -11,8 +11,8 @@
 struct Bag { n: Int }
 
 extension Bag {
-    func at(index: Int) -> Int { index }
-    func at(index: Int) -> Int { index * 10 }
+    static func at(index: Int) -> Int { index }
+    static func at(index: Int) -> Int { index * 10 }
 }
 
 func main() {

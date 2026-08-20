@@ -26,7 +26,7 @@ struct Cli { command: Vector<String> }
 extension Cli: ExplicitCopy {}
 
 extension Cli {
-    func parse() -> Result<Cli, Int> {
+    static func parse() -> Result<Cli, Int> {
         var v: Vector<String> = []
         v.push("build")
         Cli(command: move v)
