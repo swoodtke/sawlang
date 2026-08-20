@@ -262,14 +262,14 @@ bodies derived from the type's fields. Ask for it with `@synthesize`:
 extension Version: Comparable {}   // lexicographic over the fields
 ```
 
-Function, method, and `init` names carry overload sets, resolved by exact
-argument types. Inference works across an overload set too: a unique match is
-picked, and a genuine tie is a compile error that lists the candidates rather
-than a guess.
+A function, method, or `init` name can be overloaded, and a call resolves by
+exact argument types. Type inference works across the overloads: a unique
+match is picked, and a genuine tie is a compile error that lists the
+candidates instead of guessing.
 
 See [Traits](LANGUAGE_SPEC.md#traits),
-[Generics](LANGUAGE_SPEC.md#7-metaprogramming), and — for overloading —
-[Functions](LANGUAGE_SPEC.md#functions) in the spec.
+[Generics](LANGUAGE_SPEC.md#7-metaprogramming), and
+[Functions](LANGUAGE_SPEC.md#functions) (overloading) in the spec.
 
 ### Concurrency without async/await
 
@@ -308,15 +308,15 @@ func report() -> Int {
 }
 ```
 
-`Channel<T>` closes explicitly — any holder may close, and a receive drains
+`Channel<T>` closes explicitly. Any holder may close, and a receive drains
 the queue before reporting `Err(Closed)`, so closing mid-flight loses no
 messages. When every live task is parked on a channel and nothing in the
-program can ever send, the executor reports the deadlock and aborts with a
-task dump instead of hanging. That dump is available on demand too:
+program can ever send, the scheduler reports the deadlock and aborts with a
+task dump instead of hanging. The dump is available on demand too:
 `dump_tasks()` prints every live task with the `file:line` of each suspending
-call between its entry point and where it is parked, reconstructed from
-static tables — no allocation, so it works in a kernel and inside a panic
-handler.
+call between its entry point and where it is parked. It reads tables the
+compiler links into the binary and allocates nothing, so it works in a
+kernel and inside a panic handler.
 
 See [Concurrency](LANGUAGE_SPEC.md#6-concurrency),
 [Tasks and Channels](LANGUAGE_SPEC.md#tasks-and-channels), and
@@ -356,8 +356,9 @@ reference reaching the same value. References stay valid across suspension
 points, and a reference you receive can be passed on to another function.
 
 A method can also hand out storage, not just a value: a `borrows` accessor
-lends a place inside the receiver, which is how `v[i] += 1` writes a `Vector`
-element where it sits. The loan is scoped to one expression.
+gives the caller direct access to an element or field inside the receiver,
+which is how `v[i] += 1` writes a `Vector` element where it sits. The access
+lasts for one expression; the spec calls these places.
 
 See [Memory Management](LANGUAGE_SPEC.md#4-memory-management) and
 [Places](LANGUAGE_SPEC.md#places-borrows-and-lend) in the spec.
@@ -428,16 +429,16 @@ The standard library lives in `sawc/std/` and includes:
 - **Vector / Map / Set** — the collection types, with `[...]`, `{k: v}`, and
   `{a, b}` literals.
 - **Arc / Box** — atomic reference counting and owned heap allocation.
-- **TaskGroup** — cooperative task groups (in the prelude). The rest of the
-  concurrency surface — `Channel`, `Mutex`, `Once` — needs an import:
-  `std.channel`, `std.mutex`, `std.once`.
+- **TaskGroup** — cooperative task groups (available without an import). The
+  rest of the concurrency surface — `Channel`, `Mutex`, `Once` — needs an
+  import: `std.channel`, `std.mutex`, `std.once`.
 - **std.data** — `Data`, copy-on-write byte buffer.
 - **std.net** — `TcpListener` / `TcpStream`, owning and cooperative.
 - **std.file** — `File` / `Directory` / `Path` / `Env`; every fallible
   operation returns a `Result`.
 - **std.process** — run child processes cooperatively.
-- **std.time** — `Instant` and `unix_timestamp` (hosted). `Duration` is in
-  the prelude because `sleep` takes one.
+- **std.time** — `Instant` and `unix_timestamp` (hosted). `Duration` needs no
+  import because `sleep` takes one.
 - **std.cbor** — CBOR (RFC 8949) in its deterministic encoding profile.
 - **Serialize / Deserialize** — over an `Encoder` / `Decoder` seam, with
   `@synthesize` derivation.
@@ -466,17 +467,18 @@ Saw is freestanding: the same language targets bare metal.
   fails the build when a register block's layout drifts.
 - **Sizes in the type**: a generic parameter can carry a value
   (`FixedBuf<const N: Int>`), `[0; N]` spells a zeroed buffer, and an
-  integer `static` is a constant in every length, shift, and `static_assert`
-  position — so a size is written once and derived everywhere else. Shifts
-  fold at the target's width, and a count outside it is a compile error
-  rather than a folded surprise. See
+  integer `static` works anywhere the compiler needs a constant: an array
+  length, a repeat count, a shift, a `static_assert`. A size is written once
+  and derived everywhere else, with the arithmetic done at compile time in
+  the target's integer widths; a shift count the width does not allow is a
+  compile error, not a surprise value. See
   [Generics](LANGUAGE_SPEC.md#generics) and
   [Module-level statics](LANGUAGE_SPEC.md#module-level-statics) in the spec.
 - **Formatting without allocating**: the `{}` form of `print` allocates
-  nothing — literal pieces are constants, integers render into stack scratch,
-  and a `Printable` value streams into a fixed-capacity builder. `panic` and
-  `assert` take the same arguments, so a panic can still say what happened
-  when the allocator is what failed. See
+  nothing. Literal pieces of the format string are constants, an integer is
+  formatted in a small stack buffer, and a `Printable` value streams into a
+  fixed-capacity builder. `panic` and `assert` take the same arguments, so a
+  panic can still say what happened when the allocator is what failed. See
   [the allocation-free path](LANGUAGE_SPEC.md#format-arguments-and-the-allocation-free-path)
   in the spec.
 - **C-ABI exports**: `@export("name")` gives a function an exact, unmangled
@@ -513,11 +515,12 @@ sawc kernel.saw -o kernel.o --freestanding --no-hidden-alloc \
 ```
 
 Base rv32i has no divide instruction, so `+m` is what keeps integer
-formatting from emitting a libcall the freestanding profile has no library to
-satisfy. On aarch64 the freestanding profile defaults to `-neon,-fp-armv8`:
-a core traps Advanced SIMD at EL1 out of reset, and LLVM reaches for `q`
-registers to move a struct, so a kernel would fault on its first block copy —
-before the exception vectors that would report it were installed. Pass
+formatting from calling a library routine the freestanding profile has no
+library to provide. On aarch64 the freestanding profile defaults to
+`-neon,-fp-armv8`: a core traps Advanced SIMD at EL1 out of reset, and LLVM
+reaches for `q` registers to move a struct, so a kernel would fault on its
+first block copy — before the exception vectors that would report it were
+installed. Pass
 `+neon,+fp-armv8` to get SIMD back once your boot code enables
 `CPACR_EL1.FPEN`; you then own saving those registers across a context
 switch.
@@ -713,8 +716,9 @@ Saw is in active development. Implemented so far:
 - **Concurrency** — colorless, with a cooperative scheduler over a precise I/O
   reactor, multi-threaded task groups, blocking-FFI offload, suspending calls
   in any expression position, and the whole error surface inside a task body.
-- **Modules** — three import forms, member visibility over a curated prelude,
-  import-scoped extensions, per-module type identity, and earned shadowing.
+- **Modules** — three import forms, member visibility over a curated core
+  that needs no import, import-scoped extensions, per-module type identity,
+  and earned shadowing.
 - **Systems work** — pluggable allocators, memory-mapped I/O, `static_assert`,
   C-ABI exports, `SpinLock<T>` and `unsafe static var` for global state,
   allocation-free formatting, and `--no-hidden-alloc`.
