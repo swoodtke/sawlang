@@ -56,9 +56,9 @@ User-reserved (hand fixes): DF-232h (rides 234 u1 unless taken earlier), DF-217m
 - DF-232o — tier-refused type re-resolves same-named: X-but-got-X cascades, place-path loses the visibility line (entry below)
 - DF-232p — a refused call swallows its argument's refusal (entry below; a census hazard since DF-232q, not minor)
 - Extension-head visibility — RULED Aug 20: BANNED, visibility belongs on members; ~107-site migration rides the small-fix batch after 239 (entry below; the narrowing landed before the ban, leaving the one `public(package) extension Console` head untouched for the batch)
-- DF-216c — generic statics never instantiate type params (entry below, under design 216) — FOLDED into design 239's dispatch as a substitution-family assessment rider (fixed there if same mechanism as DF-239a; reported back if distinct)
-- DF-217d — generic static with default type+value ICE (entry below, under the obligation-4 retro triage) — rides DF-216c's assessment in 239
-- DF-216h — renamed extension param substitution (entry below, under design 216) — FOLDED into 239's assessment rider on the same terms
+- DF-216c — generic statics never instantiate type params (entry below, under design 216) — ASSESSED in 239 (Aug 20): DIFFERENT mechanism — the static call path has NO monomorphization for the method's own type params (`_check_static_method_call` lacks the instance path's solve block; codegen stops at the struct); sites located in the entry, needs its own fix
+- DF-217d — generic static with default type+value ICE (entry below, under the obligation-4 retro triage) — same missing path as DF-216c (`Undefined static method` is the codegen face); rides its fix
+- DF-216h — renamed extension param substitution (entry below, under design 216) — ASSESSED in 239: NOT a substitution walk; `type_subst` is keyed by the STRUCT's declared param names, so a renamed extension param is a key nobody inserted — fix plumbs the extension's names onto the method symbol in agreement with codegen mangling
 - DF-217p — driven-frame deinit timing, 61+2 cells (RULED Aug 20, user: SCOPE-END REQUIRED — driven and sync twins must agree, deterministic destruction holds everywhere; implemented as part of design 218 unit 2's safe-Saw transform migration, the corodiff ledger's 61+2 cells as the acceptance matrix; entry below, under design 218 unit 0)
 - DF-217m coro face — receiver temp to frame teardown (rides 217p's ruling; entry below, under NEXT-WAVE SWEEPS)
 - DF-226b/c — FuncPointer v1 gaps (entries below, under design 226)
@@ -71,47 +71,6 @@ User-reserved (hand fixes): DF-232h (rides 234 u1 unless taken earlier), DF-217m
 - DF-219c — the spawn capture audit is not bound-aware (soundness-adjacent; entry below, under design 219)
 - DF-224c — `Channel<T?>` call-site auto-wrap ICEs inside a driven body (entry below, under DF-224a/b) — FOLD CANDIDATE for design 237's dispatch (the ANF-hoist funnel is the machinery it lives in; fold at 237's dispatch time)
 - DF-225c / DF-225e — RULED Aug 20 (user), compiler halves pending as a small-fix batch: Float-only (drop the `Float64` name), `std/` off bare-import search paths (entries below). DF-225h fully CLOSED same day: `()` stays a distinct tuple, design 122/132's visible-Void rejection stays ABSOLUTE (a proposed `case _ -> Void` spelling was considered and REJECTED for the exception it would carve), `{}` is the do-nothing arm spelling — spec's three arms fixed
-
-## DF-239a — a call on a trait-BOUNDED type parameter never checked its
-## arguments (filed Aug 20; CLOSED Aug 20, design 239 unit 1a)
-
-**Status: FIXED**, and the filing's diagnosis was wrong in a way worth
-keeping. Substitution never dropped the `&`: both faces were probed to WORK
-under the spelling Saw actually has, and `Bag_doubled` really does take
-`%Bag*`. What the pins hit was the MISSING BORROW SIGIL — Saw has no implicit
-re-borrow at any type, so `a.merge(b)` against `func merge(&self, other:
-&Self)` is a plain missing `&`, and the DEFAULT-BODY face reproduces
-identically for a plain `&Bag` parameter with no `Self` anywhere.
-
-The real mechanism: `_check_type_param_method_call`
-(typechecker/expressions.py) is the ONE call form in the language with no
-argument-compatibility loop — it checks argument COUNT and defers deep typing
-on purpose (a trait signature may name associated types, abstract in the
-generic body). Anything it defers reaches codegen, where a mismatch is an ICE
-and not a diagnostic. Probed class, all three ICEing before the fix: a
-missing borrow at a `&Self` parameter (`%"Bag"* != %"Bag"`), a surplus borrow
-at a by-value one (`%"Bag" != %"Bag"*`), and a `String` handed to a fully
-concrete `Int` parameter (`i64 != i8*`). Sibling call form CLEAN: the
-existential path (`_check_existential_method_call`) checks argument types
-outright, because `Self` cannot appear in an object-safe trait.
-
-FIXED for the reference-spelling axis, which is a SPELLING question rather
-than a typing one and therefore decidable whatever `Self` denotes — the
-declared type's own kind answers it, with no substitution, no resolution and
-no prelude gate. `_check_bound_arg_reference_spelling` carries the four-row
-matrix; the other two rows were already `_check_reference_sigils`', reached
-through `_check_call_exclusivity`. The DEEP-typing axis stays open as
-**DF-239b** below. The erasure diagnostic's wording wart went with it: a
-`&Self` parameter is refused as `takes parameter `other` of type `&Self` — a
-`Self`-typed parameter is not object-safe, by reference or by value`, which
-is both what was written and why.
-
-PINS, all passing: `trait_self_ref_param_generic_call.saw` and
-`_default_body.saw` (the capability, correctly spelled — XFAIL markers
-removed), `errors/generic_bound_call_borrow_spelling.saw` (both new
-diagnostic rows), and the four controls `_direct_call.saw`,
-`trait_self_optional_bound_call.saw`, `trait_self_byval_param_faces.saw`,
-`_not_erasable_error.saw`. [239, 216b, 106]
 
 ## DF-239b — a fully CONCRETE parameter type is unchecked on the
 ## generic-bound call path (filed Aug 20, DF-239a's sweep)

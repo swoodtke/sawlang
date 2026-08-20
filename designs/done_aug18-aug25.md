@@ -732,3 +732,45 @@ table row notes the rename. Gate: sos_runner 80/80 both arches (sos-only
 change). Handed to the M4 brief: the split-phase method name (leading
 candidate `post`).
 
+
+## DF-239a — a call on a trait-BOUNDED type parameter never checked its
+## arguments (filed Aug 20; CLOSED Aug 20, design 239 unit 1a)
+
+**Status: FIXED**, and the filing's diagnosis was wrong in a way worth
+keeping. Substitution never dropped the `&`: both faces were probed to WORK
+under the spelling Saw actually has, and `Bag_doubled` really does take
+`%Bag*`. What the pins hit was the MISSING BORROW SIGIL — Saw has no implicit
+re-borrow at any type, so `a.merge(b)` against `func merge(&self, other:
+&Self)` is a plain missing `&`, and the DEFAULT-BODY face reproduces
+identically for a plain `&Bag` parameter with no `Self` anywhere.
+
+The real mechanism: `_check_type_param_method_call`
+(typechecker/expressions.py) is the ONE call form in the language with no
+argument-compatibility loop — it checks argument COUNT and defers deep typing
+on purpose (a trait signature may name associated types, abstract in the
+generic body). Anything it defers reaches codegen, where a mismatch is an ICE
+and not a diagnostic. Probed class, all three ICEing before the fix: a
+missing borrow at a `&Self` parameter (`%"Bag"* != %"Bag"`), a surplus borrow
+at a by-value one (`%"Bag" != %"Bag"*`), and a `String` handed to a fully
+concrete `Int` parameter (`i64 != i8*`). Sibling call form CLEAN: the
+existential path (`_check_existential_method_call`) checks argument types
+outright, because `Self` cannot appear in an object-safe trait.
+
+FIXED for the reference-spelling axis, which is a SPELLING question rather
+than a typing one and therefore decidable whatever `Self` denotes — the
+declared type's own kind answers it, with no substitution, no resolution and
+no prelude gate. `_check_bound_arg_reference_spelling` carries the four-row
+matrix; the other two rows were already `_check_reference_sigils`', reached
+through `_check_call_exclusivity`. The DEEP-typing axis stays open as
+**DF-239b** below. The erasure diagnostic's wording wart went with it: a
+`&Self` parameter is refused as `takes parameter `other` of type `&Self` — a
+`Self`-typed parameter is not object-safe, by reference or by value`, which
+is both what was written and why.
+
+PINS, all passing: `trait_self_ref_param_generic_call.saw` and
+`_default_body.saw` (the capability, correctly spelled — XFAIL markers
+removed), `errors/generic_bound_call_borrow_spelling.saw` (both new
+diagnostic rows), and the four controls `_direct_call.saw`,
+`trait_self_optional_bound_call.saw`, `trait_self_byval_param_faces.saw`,
+`_not_erasable_error.saw`. [239, 216b, 106]
+
