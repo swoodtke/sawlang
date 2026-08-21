@@ -1591,3 +1591,42 @@ PINS (renamed for the behaviour they now pin, un-XFAIL'd):
 `Cell` and an immutable `K`. Grid 2's row is green in
 `examples/coercion/INDEX.md`, and grid 1's module-qualified-static-assign row
 with it.
+
+## DF-240a — a const expression whose LEAF is a module `static` still does
+## not adopt its fixed-width slot, so it is not range-checked (filed Aug 21,
+## design 240 items 1-2's own sweep) — WANTS A RULING
+
+`static PAGE_SHIFT: Int = 20` then `let e: UInt16 = 1 << PAGE_SHIFT` compiles
+clean and prints `0`; spelled `1 << 20` it is the clean "does not fit in
+`UInt16`" error the same file's sibling pins. The size-in-one-place idiom
+(DF-172j) is exactly the spelling that loses the check.
+MECHANISM: design 240's funnel arm folds through `const_eval` over the AST it
+is handed, and a static's value reaches that AST only where an earlier pass
+stamped `const_static_value` — which is a CONST-REQUIRED position, not an
+ordinary expression. The walk that would supply it, `_stamp_const_names`,
+also stamps a raw-backed enum CASE, and design 185 unit 4 rules a flag-enum
+read (`Perm.Read | Perm.Write`) a constant only IN a const position. So the
+fix is not "call the stamper here": it decides whether an ADOPTION position
+is a const position for naming purposes, which widens 185 unit 4 as a side
+effect or needs a narrower stamper that deliberately excludes enum cases.
+RULED Aug 21 (user): **FULL CONST POSITION** — a fixed-width adoption slot
+is a const position for name resolution, statics AND raw-backed enum cases
+both fold there. This DELIBERATELY widens design 185 unit 4 (an amendment,
+not an accident): `let mask: UInt8 = Perm.Read | Perm.Write` becomes legal,
+with the result the backing integer exactly as 185 rules in every const
+position; the enum-typed-VALUE operator refusal outside const/adoption
+positions is unchanged. The fix + the 185 spec amendment ride design 241
+unit 2 (first on resume). PIN:
+`examples/coercion/const_expression_named_static_operand.saw` (XFAIL, flips
+with the fix). [240, 235, 185, 172j]
+
+**CLOSED Aug 21, design 241 unit 2** (branch `design-241`). One line at design
+240's own funnel arm: `_fold_const_expression_into` runs `_stamp_const_names`
+over the expression before `const_eval`, so an adoption slot has the names
+every other const position has. 185 unit 4's refusal is untouched —
+`_check_binary_op` answers from the `const_folded_value`/`expected_type` stamp
+pair and never descends into the operands once the funnel folded, and outside
+an adoption or const position the arm never runs. Pin un-XFAIL'd; the
+enum-case row is `examples/coercion/const_expression_named_enum_case_operand.saw`;
+`examples/coercion/INDEX.md` rows flipped. Spec + saw-lang skill carry the
+dated amendment. Boundary and evidence: designs/241-undefined-type-names.md.
