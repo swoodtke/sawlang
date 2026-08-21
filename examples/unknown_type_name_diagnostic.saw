@@ -1,32 +1,69 @@
-// XFAIL: DF-225b an UNDEFINED TYPE NAME in a signature is never diagnosed as
-// one. It becomes an opaque type the checker carries silently, so what the
-// reader gets is either a downstream mismatch about a type that does not exist
-// (``cannot assign `Float` to variable of type `Float64` ``) or — when the
-// signature reaches codegen, as here — `internal compiler error: Undefined
-// struct: Float64`, with no location at all.
+// DF-225b, closed by design 241 unit 1: an UNDEFINED TYPE NAME gets one
+// located diagnostic, in every position a type is written.
 //
-// `Float64` is the motivating spelling (DF-225c, ruled Aug 20: FLOAT ONLY —
+// It used to be one of two silences. Where nothing downstream needed a layout
+// the name became an opaque nominal the checker carried, so an annotated `let`,
+// a struct FIELD, a `type` alias RHS and a trait REQUIREMENT reported either a
+// mismatch against a type that does not exist (``cannot assign `Int` to
+// variable of type `Float64` ``, plus a "not `Printable`" cascade) or nothing
+// at all. Where a layout WAS needed it reached codegen and died there
+// (`internal compiler error: Undefined struct: Float64`) — with no location at
+// three of those positions.
+//
+// `Float64` was the motivating spelling (DF-225c, ruled Aug 20: FLOAT ONLY —
 // `Float` is the float type and `Float64` names nothing). Design 240 item 4
 // went looking for the `Float64` type-name registration the ruling asked to
-// remove and found there is none: `Float64` behaves exactly as `Nonesuch`
-// does, which is the finding. So the compiler half of that ruling is not a
-// removal — it is this diagnostic, and this diagnostic is DF-225b's class,
-// not one name's.
+// remove and found there is none: `Float64` behaves exactly as any nonsense
+// name does, which is the finding. So the compiler half of that ruling is not a
+// removal — it is this diagnostic, and this diagnostic is DF-225b's class, not
+// one name's.
 //
-// POSITIONS (probed Aug 21): an annotated `let` and a struct FIELD produce the
-// silent-opaque face; a free FUNCTION SIGNATURE that reaches codegen produces
-// the ICE — a third position beside DF-225b's original two (an enum case
-// payload, a `sizeof<>` type argument).
-//
-// The assertion is deliberately not a wording: a clean, LOCATED diagnostic
-// that names the type, and no internal compiler error.
+// THE POSITION MATRIX, one row per swept position (design 240 item 4's sweep
+// plus DF-225b's original two). The GENERIC BOUND row is the one position that
+// already had a clean diagnostic before this brief; it is here so the matrix is
+// complete and so a regression in it is caught beside the others.
 //
 // EXPECT: error
-// EXPECT-ERROR-CONTAINS: Float64
+// EXPECT-ERROR-CONTAINS: undefined type `Float64`
+// EXPECT-ERROR-CONTAINS: undefined type `MissingField`
+// EXPECT-ERROR-CONTAINS: undefined type `MissingPayload`
+// EXPECT-ERROR-CONTAINS: undefined type `MissingSizeof`
+// EXPECT-ERROR-CONTAINS: undefined type `MissingParam`
+// EXPECT-ERROR-CONTAINS: undefined type `MissingReturn`
+// EXPECT-ERROR-CONTAINS: undefined type `MissingAlias`
+// EXPECT-ERROR-CONTAINS: undefined type `MissingRequirement`
+// EXPECT-ERROR-CONTAINS: unknown trait `MissingBound`
 // EXPECT-ERROR-ABSENT: internal compiler error
 
-func idn(x: Float64) -> Float64 { x }
+// alias RHS
+type Handle = MissingAlias
+
+// struct field
+struct Holder {
+    slot: MissingField
+}
+
+// enum case payload
+enum Reel {
+    case Loaded(t: MissingPayload)
+    case Empty
+}
+
+// trait requirement signature
+trait Sink {
+    func accept(&self, item: MissingRequirement)
+}
+
+// function signature, parameter and return alike
+func idn(x: MissingParam) -> MissingReturn { x }
+
+// generic bound
+func widest<T: MissingBound>(v: &T) -> Int { 1 }
 
 func main() {
-    print("unreachable")
+    // let annotation
+    let x: Float64 = 1.0
+    // sizeof<> type argument
+    let n = sizeof<MissingSizeof>()
+    print("unreachable {n}")
 }

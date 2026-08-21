@@ -2468,48 +2468,16 @@ class TypeUtilsMixin:
             return t.struct_name
         return None
 
-    def _unknown_generic_type_name(self, t):
-        """A written type name with ARGUMENTS that resolves to nothing, or None.
-
-        DF-174d's second half: a bare unknown name is genuinely indistinguishable
-        from a type parameter or an associated type at resolution time, so
-        `let a: Frobnicate<Int> = 5` reported a mismatch against an opaque
-        nominal type rather than saying the name means nothing. Type ARGUMENTS
-        settle it — a type parameter takes none, and neither does an associated
-        type — so a name carrying them and resolving to no struct, enum or alias
-        is a name the program does not define.
-
-        Looks through the wrappers an annotation puts around a nominal type.
-        """
-        if t is None:
-            return None
-        if t.kind in (TypeKind.REFERENCE, TypeKind.OPTIONAL) and t.inner_type:
-            return self._unknown_generic_type_name(t.inner_type)
-        if t.kind != TypeKind.STRUCT or not t.struct_name or not t.type_args:
-            return None
-        name = t.struct_name
-        if '.' in name:
-            return None          # `_check_qualified_type_resolves` owns this one
-        if (self.get_struct_info(name, from_type=t) is not None
-                or self.get_enum_info(name, from_type=t) is not None
-                or self.get_type_alias_info(name) is not None):
-            return None
-        if name in (getattr(self, 'current_type_params', None) or {}):
-            return None
-        return name
-
-    def _check_type_name_resolves(self, t, context: str, line: int, column: int,
-                                  source_file=None):
-        """Report a written type name that resolves to nothing (DF-174d)."""
-        name = self._unknown_generic_type_name(t)
-        if name is None:
-            return
-        self._error(
-            ErrorKind.UNKNOWN_TYPE,
-            f"unknown type `{name}` in {context}",
-            line, column, source_file=source_file,
-            hint="check the spelling, and that the module defining it is "
-                 "imported")
+    # DF-174d's `_check_type_name_resolves` is RETIRED here (design 241 unit 1).
+    # It answered the same question this brief's rule now answers — "does this
+    # written name denote a type" — for the one shape that was decidable
+    # without a scope in hand (a name carrying type ARGUMENTS, which a type
+    # parameter and an associated type never do), from two hand-placed call
+    # sites (a function parameter and a `let` annotation). The funnel rule
+    # covers every position and the bare shape too, anchors on the NAME rather
+    # than the declaration, and knows the type parameters in force — so keeping
+    # both printed two diagnostics for one name, which is exactly the duplicate
+    # obligation 1 exists to prevent.
 
     def _check_qualified_type_resolves(self, t, context: str, line: int, column: int,
                                        source_file=None):

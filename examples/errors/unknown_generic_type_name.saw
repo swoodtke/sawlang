@@ -3,11 +3,15 @@
 // become an opaque nominal and report a MISMATCH against it — a type with no
 // declaration, no members and no explanation.
 //
-// Type ARGUMENTS settle the question: a type parameter takes none and neither
-// does an associated type, so a name carrying them and resolving to nothing is a
-// name the program does not define.
+// Type ARGUMENTS were what settled the question first: a type parameter takes
+// none and neither does an associated type, so a name carrying them and
+// resolving to nothing is a name the program does not define. Design 241 unit 1
+// settled the BARE shape too, by asking the question where the type parameters
+// in force are known, and retired this rule's separate implementation — so the
+// wording here is the funnel's, anchored on the name rather than on the `let`.
+// See unknown_type_name_diagnostic.saw for the whole position matrix.
 // EXPECT: error
-// EXPECT-ERROR-CONTAINS: unknown type `Frobnicate` in the annotation of `a`
+// EXPECT-ERROR-CONTAINS: undefined type `Frobnicate`
 
 func main() {
     let a: Frobnicate<Int> = 5

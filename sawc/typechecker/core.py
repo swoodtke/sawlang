@@ -502,6 +502,17 @@ class TypeChecker(ExpressionsMixin, StatementsMixin, RegistrationMixin, TypeUtil
         # same AST, so the same refusal is reachable more than once.
         self._sigvis_reported: set = set()
 
+        # design 241 unit 1 (DF-225b): every name this compilation unit's AST
+        # declares as a TYPE — struct, enum, trait, alias, plus the
+        # associated-type names a trait declares and an extension assigns.
+        # Stamped by `check`/`check_module` BEFORE any of them is registered,
+        # because the undefined-type rule fires from the design-194 funnel and
+        # three of that funnel's entries run DURING registration, where a
+        # forward reference (a field naming an enum, which registers a pass
+        # later) is not in the namespace yet. Saw has no forward declarations,
+        # so a name the unit declares anywhere is defined everywhere in it.
+        self._unit_type_names: set = set()
+
         # Register built-in functions
         self._register_builtins()
 
@@ -1931,10 +1942,18 @@ class TypeChecker(ExpressionsMixin, StatementsMixin, RegistrationMixin, TypeUtil
     #     reaches resolution as a unit.
     #   * `_register_enum` — an enum PAYLOAD's type, for the same reason.
     #   * `_register_type_alias` — a `type R = T` right-hand side, likewise.
-    # The last three are declaration slots the compiler deliberately does not
+    #   * `_register_trait` — a trait REQUIREMENT's parameter and return types,
+    #     stored raw on the `TraitMethodSymbol` for the same reason and reached
+    #     by nothing else (design 241 unit 1 added this fifth entry: an
+    #     undefined type name in a requirement signature was silent).
+    # The last four are declaration slots the compiler deliberately does not
     # resolve eagerly (a generic struct's `T`-typed field has nothing to resolve
     # against yet); they call the same walk with the same rule, so there is one
-    # answer to "is this name gated", not four.
+    # answer to "is this name gated", not five.
+    #
+    # Each of those four passes the DECLARATION's own type parameters as
+    # `type_params`, because `current_type_params` describes the body being
+    # checked and registration is not inside one.
     #
     # Design 188 unit 7's separate `static` mini-walk is RETIRED here: the
     # funnel covers that position now, and keeping both printed the diagnostic
@@ -1951,13 +1970,26 @@ class TypeChecker(ExpressionsMixin, StatementsMixin, RegistrationMixin, TypeUtil
     #   * `exempt_prelude_gate` -- the re-check after the coroutine transform
     #     reads an AST whose synthesized frames hold std types in fields.
     #   * `_in_synthesized_context` -- compiler-generated declarations.
-    def _gate_written_type(self, written, depth: int = 0) -> None:
+    def _gate_written_type(self, written, depth: int = 0,
+                           type_params=None,
+                           is_type_argument: bool = False) -> None:
         """Run the prelude gate over every node of a WRITTEN type.
 
         The walk is needed because `_resolve_type` does not recurse into every
         composite it accepts — `UnsafePointer<T>` has no resolution arm at all —
         so a per-node check at the funnel's head would miss what the funnel
         itself never visits.
+
+        `type_params` names the type parameters in force at this position, for
+        the callers that know them better than `current_type_params` does — the
+        four declaration-slot entries above. `None` means "read the ambient
+        set", which is what the funnel proper wants.
+
+        `is_type_argument` marks the DIRECT children of a `<...>` list, where a
+        bare name may denote a design-148 const VALUE rather than a type
+        (`Ring<CAP>` for a `static CAP: Int`). Deliberately not sticky: a
+        `Vector<(Int, Nonesuch)>` puts `Nonesuch` in a tuple, not in the
+        argument list, and it is a type name like any other.
         """
         if written is None or depth > 8:
             return
@@ -1969,13 +2001,16 @@ class TypeChecker(ExpressionsMixin, StatementsMixin, RegistrationMixin, TypeUtil
         # and say nothing about whether an `F` is a sync function type.
         self._check_funcpointer_arg(written)
         if not self._gate_exempt():
-            self._gate_resolved_type(written)
+            self._gate_resolved_type(written, type_params, is_type_argument)
         for child in (written.inner_type, written.array_element_type,
                       written.func_return_type):
-            self._gate_written_type(child, depth + 1)
-        for child in ((written.type_args or []) + (written.element_types or [])
+            self._gate_written_type(child, depth + 1, type_params)
+        for child in (written.type_args or []):
+            self._gate_written_type(child, depth + 1, type_params,
+                                    is_type_argument=True)
+        for child in ((written.element_types or [])
                       + (written.param_types or [])):
-            self._gate_written_type(child, depth + 1)
+            self._gate_written_type(child, depth + 1, type_params)
 
     # ---------------------------------------------------------------- 226
     # `FuncPointer<F>` — what an `F` may be.
@@ -2102,7 +2137,8 @@ class TypeChecker(ExpressionsMixin, StatementsMixin, RegistrationMixin, TypeUtil
                     or getattr(self, 'exempt_prelude_gate', False)
                     or self._in_synthesized_context())
 
-    def _gate_resolved_type(self, saw_type) -> None:
+    def _gate_resolved_type(self, saw_type, type_params=None,
+                            is_type_argument: bool = False) -> None:
         """Gate a type ARRIVING AT RESOLUTION, on its own written provenance.
 
         Anchors each report where the author wrote the NAME rather than at the
@@ -2110,6 +2146,12 @@ class TypeChecker(ExpressionsMixin, StatementsMixin, RegistrationMixin, TypeUtil
         front half re-enters the same AST several times (the place lowering, the
         coroutine transform's re-check), and a rule that fires per resolution
         would print the same diagnostic three times.
+
+        THREE QUESTIONS IN ONE ORDER, because each explains a name the one
+        before it could not: is this a hidden std name (design 82/194), is it a
+        name a module this file imports has and does not hand on (design 229),
+        and — last, since either of those is a better answer where it applies —
+        does it name a type at all (design 241 unit 1, DF-225b).
         """
         name = saw_type.written_name
         if not name:
@@ -2130,25 +2172,161 @@ class TypeChecker(ExpressionsMixin, StatementsMixin, RegistrationMixin, TypeUtil
             self._report_qualified_not_reexported(
                 name, saw_type.written_line, saw_type.written_column)
             return
-        # std's own declarations are REGISTERED inside a user compile — an
-        # `import std.file.*` carries std.file's signatures along, and those name
-        # `Path` bare because std files extend each other by design (design 82).
-        # The gate is about what a USER wrote, so it reads the file the spelling
-        # came from, exactly as `_decl_is_std_sourced` does for member access.
-        if self._vis_module_for_source(saw_type.written_file)[:1] == ("<std>",):
-            return
         key = (saw_type.written_file, name,
                saw_type.written_line, saw_type.written_column)
         if key in self._gate_reported:
             return
         self._gate_reported.add(key)
-        if self._std_name_gated(name, saw_type.written_line,
-                                saw_type.written_column):
+        # std's own declarations are REGISTERED inside a user compile — an
+        # `import std.file.*` carries std.file's signatures along, and those name
+        # `Path` bare because std files extend each other by design (design 82).
+        # The IMPORT questions are about what a USER wrote, so they read the file
+        # the spelling came from, exactly as `_decl_is_std_sourced` does for
+        # member access. The undefined-type question below is NOT about imports
+        # and asks itself of std too — a name std spells that denotes no type is
+        # a typo wherever it sits (design 241 unit 1).
+        if self._vis_module_for_source(saw_type.written_file)[:1] != ("<std>",):
+            if self._std_name_gated(name, saw_type.written_line,
+                                    saw_type.written_column):
+                return
+            # design 229: not a gated std name — but perhaps a name a module this
+            # file imports has, and does not hand on.
+            if self._report_bare_not_reexported(name, saw_type.written_line,
+                                                saw_type.written_column):
+                return
+        # design 241 unit 1: nothing above explains the name, so ask whether it
+        # names a type at all.
+        self._report_undefined_type_name(saw_type, name, type_params,
+                                         is_type_argument)
+
+    # ---------------------------------------------------------------- 241
+    # AN UNDEFINED TYPE NAME (design 241 unit 1, closing DF-225b).
+    #
+    # A name in type position that resolves to nothing used to be one of two
+    # silences. Where nothing downstream needed a layout it became an OPAQUE
+    # nominal the checker carried, so an annotated `let` and a struct FIELD
+    # reported a mismatch against a type that does not exist (``cannot assign
+    # `Int` to variable of type `Nonesuch` ``, plus a "not `Printable`"
+    # cascade); where a layout WAS needed it reached codegen and died there
+    # (`internal compiler error: Undefined struct: Nonesuch`, with no location
+    # at three of the five positions). Every other undefined-name kind — a
+    # variable, a function, a struct literal's head, a module, a trait, an
+    # attribute — already had a clean located diagnostic; types were the
+    # exception.
+    #
+    # THE HARD PART is not detecting the name, it is knowing when NOT to. The
+    # parser leaves every bare named type as a `STRUCT` node, so a type
+    # PARAMETER and a typo are the same AST shape and only the surrounding
+    # SCOPE tells them apart. So the rule fires from the design-194 funnel,
+    # where the scope is known, and consults four things in turn:
+    #   * the type parameters in force — `current_type_params` at the funnel
+    #     proper, and the declaration's own list at the four registration
+    #     entries, which run outside any body. Design 148 CONST parameters are
+    #     in that list too: `[UInt8; N]` never reaches here (a length is an
+    #     expression), but `FixedBuf<N>`'s argument does.
+    #   * the names THIS UNIT declares (`_unit_type_names`) — registration is
+    #     ordered and Saw is not, so a field naming an enum is judged three
+    #     passes before that enum exists.
+    #   * the namespace, which is imports plus everything already registered.
+    #   * `Optional`, the one prelude spelling that is resolved rather than
+    #     registered (`Optional<T>` IS `T?`, DF-174d) and so is in no table.
+    # A name that survives all four is a name the program does not define.
+    #
+    # THE HINT is deliberately not a fuzzy match. The two diagnostics ahead of
+    # this one in `_gate_resolved_type` already name the specific cause where
+    # there is one — an unimported std name says which import to write, a name
+    # a dependency hides says which module hides it — so what is left here is
+    # genuinely "this name is nowhere", and the useful advice is the spelling
+    # and the import, which is what DF-174d's own wording said.
+    def _report_undefined_type_name(self, saw_type, name: str,
+                                    type_params=None,
+                                    is_type_argument: bool = False) -> None:
+        """Report a bare written type name that denotes no type. One per
+        written position; the caller's `_gate_reported` key does that."""
+        here = self._decl_source_file or self._get_current_source_file()
+        if not saw_type.written_file or saw_type.written_file != here:
+            # THE SCOPE FENCE. A name's type parameters belong to the
+            # DECLARATION that wrote it, and only a check running inside that
+            # declaration has them. A foreign signature's node reaches
+            # resolution here whenever one is instantiated — `m.lock({ ... })`
+            # on std's `func lock<R>(&self, body: (&var T) sync -> R)` resolves
+            # that `R` while checking the CALLER's body, where `R` is nothing —
+            # so the only file this rule may judge is the one it is checking.
+            # (The same node is judged, correctly, when its own file is.)
             return
-        # design 229: not a gated std name — but perhaps a name a module this
-        # file imports has, and does not hand on.
-        self._report_bare_not_reexported(name, saw_type.written_line,
-                                         saw_type.written_column)
+        if self._type_name_is_defined(name, type_params):
+            return
+        if is_type_argument and self._names_a_const_static(
+                name, saw_type.written_file):
+            # design 148/DF-172j: a const generic ARGUMENT written as a bare
+            # name (`Ring<CAP>`). `_fold_const_type_args_in_program` turns it
+            # into a value, but it runs AFTER the registration passes this
+            # funnel fires from — it needs the referenced type's parameter list
+            # to tell a const argument from a type one — so the node still
+            # reads as a named type here. A wrong-kind argument is that pass's
+            # diagnostic, and it names the parameter.
+            return
+        self._error(
+            ErrorKind.UNKNOWN_TYPE,
+            f"undefined type `{name}`",
+            saw_type.written_line, saw_type.written_column,
+            hint="check the spelling, and that the module defining it is "
+                 "imported",
+            source_file=(saw_type.written_file or None),
+        )
+
+    def _type_name_is_defined(self, name: str, type_params=None) -> bool:
+        """THE DECISION PROCEDURE behind the diagnostic above."""
+        if name == "Optional":
+            # `Optional<T>` is a SPELLING of `T?`, resolved in `_resolve_type`
+            # and registered nowhere (DF-174d).
+            return True
+        params = (type_params if type_params is not None
+                  else getattr(self, 'current_type_params', None) or {})
+        if name in params:
+            return True
+        if name in getattr(self, '_unit_type_names', ()):
+            return True
+        return self._names_a_type_here(name)
+
+    def _names_a_const_static(self, name: str, written_file) -> bool:
+        """Does `name` denote a module `static` this unit indexed (DF-172j)?
+
+        Reads `_collect_const_statics`' table, which is built before any
+        registration pass and keyed by (defining module, name) — so the answer
+        is the one the const-argument fold will give, asked from the file the
+        spelling came from."""
+        table = getattr(self, '_const_static_decls', None) or {}
+        module = self._vis_module_for_source(written_file)
+        return (module, name) in table
+
+    def _declared_type_param_names(self, decl) -> set:
+        """The type parameters a DECLARATION brings into scope, const ones
+        included — what the four registration entries pass to the funnel."""
+        return {tp.name for tp in (getattr(decl, 'type_params', None) or [])}
+
+    def _collect_unit_type_names(self, program) -> None:
+        """Stamp `_unit_type_names` for one compilation unit's AST.
+
+        Runs before any of the declarations is registered — see the field's
+        comment. The associated-type names ride along because a trait's `type
+        Item` and an extension's `type Item = Int` both make `Item` a name that
+        denotes a type somewhere in the unit, and neither lands in any type
+        table."""
+        names = set()
+        for group in (getattr(program, 'type_definitions', ()) or (),
+                      getattr(program, 'structs', ()) or (),
+                      getattr(program, 'enums', ()) or (),
+                      getattr(program, 'traits', ()) or ()):
+            for d in group:
+                names.add(d.name)
+        for trait in (getattr(program, 'traits', ()) or ()):
+            for at in (getattr(trait, 'associated_types', None) or ()):
+                names.add(at.name)
+        for ext in (getattr(program, 'extensions', ()) or ()):
+            for assign in (getattr(ext, 'type_assignments', None) or ()):
+                names.add(assign.name)
+        self._unit_type_names = names
 
     def _vis_word(self, visibility: Visibility) -> str:
         return {
@@ -2227,6 +2405,10 @@ class TypeChecker(ExpressionsMixin, StatementsMixin, RegistrationMixin, TypeUtil
         # four passes earlier than statics are registered.
         self._collect_const_statics(program)
         self._fold_const_lengths_in_program(program)
+
+        # design 241 unit 1: the names this unit declares, before the ordered
+        # registration passes below start judging references to them.
+        self._collect_unit_type_names(program)
 
         # First pass: register type definitions (aliases)
         for type_def in program.type_definitions:
@@ -3097,6 +3279,9 @@ class TypeChecker(ExpressionsMixin, StatementsMixin, RegistrationMixin, TypeUtil
                           module_ast.enums, module_ast.traits)
             for d in group
         }
+        # design 241 unit 1: the same question, one answer wider — the
+        # undefined-type rule counts a trait's associated types too.
+        self._collect_unit_type_names(module_ast)
 
         # Register type definitions
         for type_def in module_ast.type_definitions:

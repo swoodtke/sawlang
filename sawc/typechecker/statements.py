@@ -897,10 +897,6 @@ class StatementsMixin:
                 resolved_type, f"parameter `{param.name}`",
                 func.line, func.column,
                 source_file=getattr(func, 'source_file', None))
-            self._check_type_name_resolves(
-                resolved_type, f"parameter `{param.name}`",
-                func.line, func.column,
-                source_file=getattr(func, 'source_file', None))
             # Design 100: a function parameter shadowing a module-level `static`
             # is a flat error (a bare use would otherwise resolve to the param).
             self._check_shadowing(param.name, None, func.line, func.column,
@@ -1581,12 +1577,8 @@ class StatementsMixin:
             # annotation, so a qualified owning type would otherwise miss its
             # deinit (L18, design 68).
             stmt.type_annotation = resolved_type
-            # DF-174d: a written name with type arguments that resolves to
-            # nothing is reported HERE, as an unknown type, rather than as a
-            # mismatch against the opaque nominal it used to become.
-            self._check_type_name_resolves(
-                resolved_type, f"the annotation of `{stmt.name}`",
-                stmt.line, stmt.column)
+            # (DF-174d's unknown-name check used to sit here; design 241 unit 1
+            # answers it at the funnel, for every position and both shapes.)
             # DF-172k: an annotation is the one `[T; N]` position codegen never
             # sees, so its length is checked here or nowhere.
             self._check_declared_array_lengths(

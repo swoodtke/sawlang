@@ -402,7 +402,9 @@ class RegistrationMixin:
         # through `_resolve_type_alias`, not `_resolve_type`, so it is the third
         # declaration slot the funnel does not cover on its own. Design 188
         # established that an alias is not a way past a type rule.
-        self._gate_written_type(type_def.defined_type)
+        self._gate_written_type(
+            type_def.defined_type,
+            type_params=self._declared_type_param_names(type_def))
         # …and the module QUALIFIER walk, the third of the three raw slots
         # (DF-194a): `type Alias = dep.Point` kept the dotted spelling, and
         # `_resolve_type_alias` only ever chases alias-of-alias.
@@ -478,7 +480,9 @@ class RegistrationMixin:
                 # RAW and read straight off the AST, so it never reaches
                 # `_resolve_type` as a unit — one of the three declaration slots
                 # the funnel cannot cover on its own.
-                self._gate_written_type(field.type)
+                self._gate_written_type(
+                    field.type,
+                    type_params=self._declared_type_param_names(struct))
                 # …and, for the same reason, the module QUALIFIER walk (DF-194a).
                 # Written back onto the AST so the symbol table and the AST go on
                 # sharing one object, exactly as a `let` annotation's write-back
@@ -574,7 +578,8 @@ class RegistrationMixin:
                 resolved_payloads = []
                 for _payload in (variant.associated_types or []):
                     _pt = _payload[1] if isinstance(_payload, tuple) else _payload
-                    self._gate_written_type(_pt)
+                    self._gate_written_type(
+                        _pt, type_params=self._declared_type_param_names(enum))
                     # …and the module QUALIFIER walk, the second of the three raw
                     # slots (DF-194a).
                     _pt = self._resolve_declared_qualified_names(_pt)
@@ -768,9 +773,25 @@ class RegistrationMixin:
                 if assoc_type not in inherited_assoc_types:
                     inherited_assoc_types.append(assoc_type)
 
+        # A requirement's parameter and return types are stored RAW on the
+        # symbol below and read straight off it — nothing resolves them as a
+        # unit — so this is the design-194 funnel's fifth declaration-slot
+        # entry (design 241 unit 1). The scope a requirement's names live in is
+        # the trait's own type parameters plus its associated types, own and
+        # inherited: `func next(&self) -> Item?` names a type this trait
+        # declares and no table holds.
+        _req_scope = self._declared_type_param_names(trait)
+        _req_scope.update(inherited_assoc_types)
+        _req_scope.update(at.name for at in trait.associated_types)
+
         # Build method symbol map from this trait's own methods
         methods = dict(inherited_methods)  # Start with inherited
         for method in trait.methods:
+            _method_scope = _req_scope | self._declared_type_param_names(method)
+            for _rt in ([p.type for p in method.parameters
+                         if p.name != "self"] + [method.return_type]):
+                self._gate_written_type(_rt, type_params=_method_scope)
+
             # Collect parameter info (excluding self placeholder type)
             param_names = []
             param_types = []
@@ -2800,7 +2821,22 @@ class RegistrationMixin:
         else:
             target_methods = struct_info.methods
 
+        # An extension RESOLVES its method signatures here (a free generic
+        # function defers that to its body check, where `current_type_params`
+        # is built), so this loop is the one place a `T` written in a generic
+        # extension is classified with nothing telling the checker that `T` is
+        # a parameter. Say so: the extension's own parameters plus, per method,
+        # its own. Restored after the loop — see `_ext_type_param_env`.
+        _prev_type_params = getattr(self, 'current_type_params', {})
+        _ext_type_params = dict(_prev_type_params)
+        for _tp in (extension.type_params or []):
+            _ext_type_params[_tp.name] = _tp.bounds
+
         for method in extension.methods:
+            self.current_type_params = dict(_ext_type_params)
+            for _tp in (getattr(method, 'type_params', None) or []):
+                self.current_type_params[_tp.name] = _tp.bounds
+
             # For init methods, allow multiple with different parameter signatures
             # Use parameter names in the key to distinguish them
             if method.is_init:
@@ -3027,6 +3063,8 @@ class RegistrationMixin:
                     extension.struct_name, specialization_key, method.name, method_symbol)
             else:
                 self.namespace.register_method(extension.struct_name, method.name, method_symbol)
+
+        self.current_type_params = _prev_type_params
 
         # Collect type assignments once (shared across all trait conformances)
         local_assignments: Dict[str, SawType] = {}
