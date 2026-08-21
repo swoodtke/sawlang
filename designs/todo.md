@@ -1412,7 +1412,7 @@ sub-agents, one lead), not one lucky repro.
   diagnostic naming the type and NO internal compiler error, rather than a
   wording nobody has ruled on).
   **CLOSED Aug 21, design 241 unit 1** (branch `design-241`). One rule at the
-  design-194 written-type funnel: `error: undefined type `X``, located at the
+  design-194 written-type funnel: ``error: undefined type `X` ``, located at the
   name. `_gate_resolved_type` asks the hidden-std question, then design 229's,
   then this one as the residue, so the specific answer wins wherever there is
   one. The scope question is answered by the type parameters in force (the

@@ -69,7 +69,7 @@ Tracker entries close in place; queue lists unnumbered; done_* untouched.
 THREE questions in one order: the hidden-std name (82/194), the imported-but-
 not-re-exported name (229), and — last, as the residue — does the name denote a
 type at all. `_report_undefined_type_name` / `_type_name_is_defined` are the new
-pair; the diagnostic is `error: undefined type \`X\`` with DF-174d's own hint
+pair; the diagnostic is ``error: undefined type `X` `` with DF-174d's own hint
 text (check the spelling, check the import).
 
 WHEN IT DOES NOT FIRE, which is the whole difficulty, since the parser leaves a
