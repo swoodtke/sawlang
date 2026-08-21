@@ -4,7 +4,7 @@
 
 import modules.ext142_base.{Reading}
 
-public extension Reading {
+extension Reading {
     public func tag(&self) -> Int {
         self.raw + 1
     }

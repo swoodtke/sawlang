@@ -12,7 +12,7 @@ public struct Bag {
 
 extension Bag: NoCopy {}
 
-public extension Bag {
+extension Bag {
     public init() -> Bag {
         var v = Vector<Cell>()
         v.push(Cell(n: 5))

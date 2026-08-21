@@ -1566,7 +1566,7 @@ dump_tasks()                // every live task's logical backtrace (std.task)
   // pkg/lib.saw — `resolve_slot` and `SLOTS` are private to this module
   static SLOTS: Int = 16
   func resolve_slot(key: String) -> Int { key.len() % SLOTS }
-  public extension Store {
+  extension Store {
       public func fetch(&self, key: String) -> Result<Data, IoError> {
           let slot = resolve_slot(key)
           self.conn(slot).read()             // suspends, in a DEPENDENCY's method
@@ -2035,9 +2035,10 @@ public import wire.{Header}  // RE-EXPORT: `Header` joins THIS module's surface
   a `Data` you were handed keeps every `std.data` method whether or not you
   wrote `import std.data`, which you may not even be able to write). A
   TRANSITIVE dependency contributes NOTHING: if you import `net` and `net`
-  imports `codec`, `codec`'s `public extension Data` is invisible to you
-  until you import `codec` yourself. So `public` on an extension means what
-  it means everywhere else — importers of my module get this — and the
+  imports `codec`, a `public` method on `codec`'s `extension Data` is
+  invisible to you until you import `codec` yourself. So `public` on an
+  extension METHOD means what it means everywhere else — importers of my
+  module get this — and the
   calling-it-without-the-import error names the module to add
   (```type `Data` has no method `u16_at` in scope here``` / ```add `import
   bmod` ```). std is ONE scoping domain (its files extend each other's types
@@ -2147,6 +2148,16 @@ public import wire.{Header}  // RE-EXPORT: `Header` joins THIS module's surface
   (3) `public` on a member of a private struct is legal but inert. std is
   under the gate too — you reach its public API, never its internals; each std
   FILE is its own module (design 82), so std internals are private per-file.
+- **AN EXTENSION HEAD CARRIES NO VISIBILITY** (ruled Aug 20): `public extension
+  Point { … }` is a declaration-site ERROR ("an extension cannot carry a
+  visibility modifier … visibility belongs on members"), and so are
+  `public(package)`/`public(parent)` and the `@synthesize`-attributed spellings.
+  An extension is not a nameable entity — nothing imports it, nothing calls it —
+  so write `extension Point` and mark each MEMBER. It used to parse and be
+  stored with one consumer (the docs emitter's signature string): not a member
+  default, not a clamp, not a scoping input, so a `public extension` whose
+  members were unmarked exported NOTHING. ~105 corpus heads carried the
+  decoration; treat any code that still does as pre-Aug-21.
 - **A PUBLIC API NEEDS PUBLIC TYPES** (user ruling, Aug 21). A declaration may
   not name a type LESS VISIBLE than its own reach: a `public func`'s parameters
   and return are `public`, a `public(package)` declaration's signature types are

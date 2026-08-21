@@ -1,5 +1,5 @@
 // Transitive-dependency module: defines a public extension on a prelude type.
-public extension Int {
+extension Int {
     public func deep_op(&self) -> Int { self + 1000 }
 }
 

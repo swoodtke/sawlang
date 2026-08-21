@@ -30,7 +30,7 @@ public struct BuildError {
     public exit_code: Int32
 }
 
-public extension BuildError {
+extension BuildError {
     public init(msg: String) -> BuildError {
         BuildError(message: msg, exit_code: 1 as Int32)
     }
@@ -128,7 +128,7 @@ public struct Builder {
     requested_target: String
 }
 
-public extension Builder {
+extension Builder {
     // A builder for the default hosted build.
     public init(m: Manifest) -> Builder {
         Builder(manifest: m, layout: BuildLayout(), requested_target: "")

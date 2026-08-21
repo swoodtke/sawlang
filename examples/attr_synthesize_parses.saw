@@ -12,7 +12,7 @@ struct Named {
 }
 
 @synthesize
-public extension Named: Equatable {
+extension Named: Equatable {
     func sum(&self) -> Int { self.n + 4 }
 }
 

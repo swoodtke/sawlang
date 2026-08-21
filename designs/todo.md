@@ -51,7 +51,6 @@ for sawos; "238 before more M3 work" is absolute.
 - DF-232e — import-cycle diagnostic (entry below) — FOLDED into the small-fix batch (mechanism read, fix is the diagnostic)
 - DF-232g — imported-const static folding (entry below) — FOLDED into the small-fix batch (matrix probed; the const-static collector must resolve imported const names)
 - DF-240a — a const expression whose LEAF is a module `static` still does not adopt its fixed-width slot (entry below) — WANTS A RULING, filed by design 240 items 1-2's own sweep
-- Extension-head visibility — RULED Aug 20: BANNED, visibility belongs on members; ~107-site migration rides the small-fix batch after 239 (entry below; the narrowing landed before the ban, leaving the one `public(package) extension Console` head untouched for the batch)
 - DF-216c — generic statics never instantiate type params (entry below, under design 216) — ASSESSED in 239 (Aug 20): DIFFERENT mechanism — the static call path has NO monomorphization for the method's own type params (`_check_static_method_call` lacks the instance path's solve block; codegen stops at the struct); sites located in the entry, needs its own fix
 - DF-217d — generic static with default type+value ICE (entry below, under the obligation-4 retro triage) — same missing path as DF-216c (`Undefined static method` is the codegen face); rides its fix
 - DF-216h — renamed extension param substitution (entry below, under design 216) — ASSESSED in 239: NOT a substitution walk; `type_subst` is keyed by the STRUCT's declared param names, so a renamed extension param is a key nobody inserted — fix plumbs the extension's names onto the method symbol in agreement with codegen mangling
@@ -944,6 +943,7 @@ audit document at integration. [232f, 232p, 80, audit report]
 ## Extension-head visibility — RULED Aug 20 (user): BANNED. "Visibility
 ## belongs on members" — a tier marker on an extension head becomes a
 ## declaration-site error
+## — CLOSED Aug 21, design 240 item 3 (branch `design-240`)
 
 THE FACTS, corrected from the filing: `Extension.visibility` is parsed and
 stored with exactly ONE consumer — the docs emitter's signature string
@@ -971,6 +971,37 @@ lose the marker and the member-visibility section states the rule;
 drop their extension lines and a new error pin covers the refusal.
 diag.saw:63's marker (left alone by the narrowing branch pending this
 ruling) goes with the batch. [audit report, design 80, 142]
+
+LANDED Aug 21 (design 240 item 3). The parser refuses at the MODIFIER —
+`_error_extension_visibility` (parser/core.py), reached from both positions a
+visibility can precede an extension (the plain declaration dispatch and the
+`@synthesize`-attributed one), anchored on the token to delete;
+`parse_extension` takes no visibility and `Extension.visibility` is gone from
+the AST, with the class docstring recording WHY there is no field. The docs
+emitter drops the modifier from an extension's `signature` AND the item's
+`visibility` key — that is a schema change, so `SCHEMA_VERSION` is 4 with its
+changelog entry, and the header now says an extension is the one item kind
+without the key (a consumer decides whether to show one by whether any of its
+`methods` survived the gate). The seven `--emit-docs` goldens regenerated to a
+FIXPOINT: each golden lives inside the file it describes, so dropping the
+`visibility` line shifted every `"line"` it records by one.
+MIGRATION: 104 heads across sawc/std, blade, libs, sos, devtools and examples,
+compiler-driven (236-style) — the count matches the audit's ~105 including
+`diag.saw:63`'s `public(package)`. Spec: the member-visibility section states
+the rule with the real diagnostic, and its own `public extension Account`
+example plus the two orphan-rule examples lose the marker; the design-142
+paragraph now says `public` on an extension METHOD. Skill: the two example
+sites, plus a new bullet under member visibility. PINS:
+`examples/extension_head_visibility_error.saw` (plain `public`) and
+`examples/extension_head_visibility_package_error.saw` (`public(package)` on an
+attributed head).
+NO V39-ALIKE. The sweep looked for the thing the ruling was afraid of — a
+member that was reachable only because its extension head said `public` — and
+there is none, which the FACTS above predict: the marker was never a member
+default, so an unmarked member inside a `public extension` was already private
+and stayed private. Cross-module consumers (blade, libs, sos/sysapi,
+examples/modules) are green with no member re-marking anywhere, and the full
+suite plus sos on both arches confirm it.
 
 ## DF-232e — an IMPORT CYCLE is not diagnosed: the symbols silently vanish and
 ## the error lands on an innocent third module (filed Aug 17, the kcore split's

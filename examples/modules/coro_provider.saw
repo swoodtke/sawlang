@@ -19,7 +19,7 @@ public func amplify<T: Seed>(w: T) -> Int {
 // instantiations (each gets its own monomorphized frame).
 public struct Cell<T: Seed> { public item: T }
 
-public extension Cell<T: Seed> {
+extension Cell<T: Seed> {
     public func charge(&self) -> Int {
         let b = self.item.seed()
         __saw_suspend()

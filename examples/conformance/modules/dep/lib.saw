@@ -4,7 +4,7 @@ public struct Thing {
     secret: Int
 }
 
-public extension Thing {
+extension Thing {
     public init(named: String, code: Int) -> Thing {
         Thing(name: named, secret: code)
     }

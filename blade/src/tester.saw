@@ -28,7 +28,7 @@ public struct Tester {
     layout: BuildLayout
 }
 
-public extension Tester {
+extension Tester {
     // Tests are compiled and RUN, so they are built for the host — the one
     // target this machine can execute.
     public init(m: Manifest) -> Tester {

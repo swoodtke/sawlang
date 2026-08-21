@@ -8166,11 +8166,24 @@ public struct Account {
     balance: Int           // private: only this module can touch it
 }
 
-public extension Account {
+extension Account {
     public init(name: String) -> Account { Account(name: name, balance: 0) }
     public func balance_of(&self) -> Int { self.balance }  // public accessor
     func settle(&var self) { ... }                          // private helper
 }
+```
+
+**An extension HEAD carries no visibility, and writing one is an error.** An
+extension is not a nameable entity: nothing imports it, nothing calls it, and
+there is no name for a modifier to govern. Its members are what an importer
+reaches, and each of them says its own tier — so `public extension Account` is
+refused at the modifier, with the fixit "mark each member instead":
+
+```
+error: an extension cannot carry a visibility modifier — an extension is not a
+       nameable entity, so it has nothing to be visible. Visibility belongs on
+       members: mark each one instead (`public func`, `public static func`,
+       `public init`), and delete the modifier here
 ```
 
 Consequences:
@@ -8277,9 +8290,11 @@ three places:
    with the value.
 
 A transitive dependency contributes nothing. If your package depends on `net`
-and `net` depends on `codec`, a `public extension Data` in `codec` is invisible
-to you until you import `codec` yourself. So `public` on an extension means what
-it means on every other declaration: importers of my module get this. Without
+and `net` depends on `codec`, a `public` method on `codec`'s `extension Data` is
+invisible to you until you import `codec` yourself. So `public` on an extension
+METHOD means what it means on every other declaration: importers of my module
+get this. (The extension's HEAD carries no modifier — see Member visibility.)
+Without
 the rule, any module anywhere in the link could add methods to any type for the
 whole program, and adding an unrelated dependency could change which method a
 call resolved to.
@@ -8332,7 +8347,7 @@ wherever the type and the trait both are.
 
 ```saw
 // In the module that defines Reading — the type's owner.
-public extension Reading: Printable {
+extension Reading: Printable {
     public func format(&self, into: &var StringBuilder) {
         into.append("Reading(")
         into.append(self.raw)
@@ -8342,7 +8357,7 @@ public extension Reading: Printable {
 
 // In the module that defines Describable — the trait's owner, conforming a
 // foreign type. Also allowed.
-public extension Reading: Describable {
+extension Reading: Describable {
     public func describe(&self) -> String { "reading {self.raw}" }
 }
 ```

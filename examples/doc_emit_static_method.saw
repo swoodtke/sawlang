@@ -10,7 +10,7 @@
 // COMPILE-FLAGS: --emit-docs
 // EXPECT-OUTPUT:
 // {
-//   "schema_version": 3,
+//   "schema_version": 4,
 //   "modules": [
 //     {
 //       "name": "doc_emit_static_method",
@@ -20,8 +20,7 @@
 //         {
 //           "kind": "extension",
 //           "name": "Tally",
-//           "signature": "public extension Tally",
-//           "visibility": "public",
+//           "signature": "extension Tally",
 //           "generics": [],
 //           "conformances": [],
 //           "methods": [
@@ -37,7 +36,7 @@
 //               "self": "borrows",
 //               "static": false,
 //               "doc": "Reads the running count.",
-//               "line": 108
+//               "line": 107
 //             },
 //             {
 //               "kind": "method",
@@ -51,11 +50,11 @@
 //               "self": null,
 //               "static": true,
 //               "doc": "Starts a tally at zero.",
-//               "line": 105
+//               "line": 104
 //             }
 //           ],
 //           "doc": null,
-//           "line": 103,
+//           "line": 102,
 //           "module": "doc_emit_static_method"
 //         },
 //         {
@@ -70,7 +69,7 @@
 //           "self": null,
 //           "static": false,
 //           "doc": null,
-//           "line": 111
+//           "line": 110
 //         },
 //         {
 //           "kind": "struct",
@@ -86,11 +85,11 @@
 //               "type": "Int",
 //               "visibility": "public",
 //               "doc": null,
-//               "line": 101
+//               "line": 100
 //             }
 //           ],
 //           "doc": null,
-//           "line": 101,
+//           "line": 100,
 //           "module": "doc_emit_static_method"
 //         }
 //       ]
@@ -100,7 +99,7 @@
 
 public struct Tally { public n: Int }
 
-public extension Tally {
+extension Tally {
     /// Starts a tally at zero.
     public static func empty() -> Tally { Tally(n: 0) }
 

@@ -13,7 +13,7 @@ extension Bag: NoCopy {
     }
 }
 
-public extension Bag {
+extension Bag {
     public init() -> Bag {
         let v = Vector<Int>()
         Bag(items: move v)

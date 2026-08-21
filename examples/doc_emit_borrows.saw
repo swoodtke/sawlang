@@ -22,7 +22,7 @@
 // COMPILE-FLAGS: --emit-docs
 // EXPECT-OUTPUT:
 // {
-//   "schema_version": 3,
+//   "schema_version": 4,
 //   "modules": [
 //     {
 //       "name": "doc_emit_borrows",
@@ -33,7 +33,6 @@
 //           "kind": "extension",
 //           "name": "Bag",
 //           "signature": "extension Bag",
-//           "visibility": "private",
 //           "generics": [],
 //           "conformances": [],
 //           "methods": [
@@ -55,7 +54,7 @@
 //               "self": "window",
 //               "static": false,
 //               "doc": "The element at `i`, as a place.",
-//               "line": 107
+//               "line": 106
 //             },
 //             {
 //               "kind": "method",
@@ -75,11 +74,11 @@
 //               "self": "window",
 //               "static": false,
 //               "doc": "The element at `i` if it exists -- an optional place.",
-//               "line": 115
+//               "line": 114
 //             }
 //           ],
 //           "doc": null,
-//           "line": 105,
+//           "line": 104,
 //           "module": "doc_emit_borrows"
 //         },
 //         {
@@ -92,7 +91,7 @@
 //           "conformances": [],
 //           "fields": [],
 //           "doc": null,
-//           "line": 103,
+//           "line": 102,
 //           "module": "doc_emit_borrows"
 //         }
 //       ]

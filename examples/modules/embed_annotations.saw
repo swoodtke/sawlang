@@ -36,7 +36,7 @@ public func give() -> Cmd {
     Cmd.Build
 }
 
-public extension Anchor {
+extension Anchor {
     public func echo(&self, c: Cmd) -> Cmd { c }
 
     // R1 — a struct FIELD typed by the enum.

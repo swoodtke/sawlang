@@ -9,7 +9,7 @@ public trait Describable {
     func describe(&self) -> String
 }
 
-public extension Reading: Describable {
+extension Reading: Describable {
     public func describe(&self) -> String {
         "reading {self.raw}"
     }

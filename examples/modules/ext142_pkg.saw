@@ -5,7 +5,7 @@
 
 import modules.ext142_base.{Reading}
 
-public(package) extension Reading {
+extension Reading {
     public(package) func halved(&self) -> Int {
         self.raw / 2
     }

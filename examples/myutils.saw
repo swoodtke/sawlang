@@ -10,7 +10,7 @@ public struct Counter {
     public count: Int
 }
 
-public extension Counter {
+extension Counter {
     public func next(&var self) {
         self.count = self.count + 1
     }

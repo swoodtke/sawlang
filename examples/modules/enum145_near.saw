@@ -5,7 +5,7 @@
 import modules.enum145_base.{Level}
 import modules.enum145_far
 
-public extension Level {
+extension Level {
     public func label(&self) -> String {
         match self {
             case Low -> "low water",

@@ -19,7 +19,7 @@ module math {
         public y: Int
     }
 
-    public extension Point {
+    extension Point {
         public func sum(&self) -> Int {
             self.x + self.y
         }

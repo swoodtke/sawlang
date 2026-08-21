@@ -17,7 +17,7 @@ public struct GitTags {
 
 extension GitTags: NoCopy {}
 
-public extension GitTags {
+extension GitTags {
     public init() -> GitTags {
         let a = Vector<String>()
         let b = Vector<String>()

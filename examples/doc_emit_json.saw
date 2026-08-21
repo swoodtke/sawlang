@@ -4,7 +4,7 @@
 // COMPILE-FLAGS: --emit-docs
 // EXPECT-OUTPUT:
 // {
-//   "schema_version": 3,
+//   "schema_version": 4,
 //   "modules": [
 //     {
 //       "name": "doc_emit_json",
@@ -36,14 +36,13 @@
 //             }
 //           ],
 //           "doc": "Which end of a span a reading came from.",
-//           "line": 231,
+//           "line": 230,
 //           "module": "doc_emit_json"
 //         },
 //         {
 //           "kind": "extension",
 //           "name": "Tick",
-//           "signature": "public extension Tick: Ticked",
-//           "visibility": "public",
+//           "signature": "extension Tick: Ticked",
 //           "generics": [],
 //           "conformances": [
 //             "Ticked"
@@ -67,7 +66,7 @@
 //               "self": "borrows-var",
 //               "static": false,
 //               "doc": "Advances the count in place.",
-//               "line": 253
+//               "line": 252
 //             },
 //             {
 //               "kind": "init",
@@ -88,7 +87,7 @@
 //               "self": null,
 //               "static": false,
 //               "doc": "Builds a tick count, defaulting to the start of the counter.",
-//               "line": 247
+//               "line": 246
 //             },
 //             {
 //               "kind": "method",
@@ -102,11 +101,11 @@
 //               "self": "borrows",
 //               "static": false,
 //               "doc": "Returns the tick count.",
-//               "line": 250
+//               "line": 249
 //             }
 //           ],
 //           "doc": "Construction and arithmetic for `Tick`.",
-//           "line": 245,
+//           "line": 244,
 //           "module": "doc_emit_json"
 //         },
 //         {
@@ -121,7 +120,7 @@
 //           "self": null,
 //           "static": false,
 //           "doc": null,
-//           "line": 273
+//           "line": 272
 //         },
 //         {
 //           "kind": "func",
@@ -141,7 +140,7 @@
 //           "self": null,
 //           "static": false,
 //           "doc": "Returns the tick count a reading landed on.",
-//           "line": 266
+//           "line": 265
 //         },
 //         {
 //           "kind": "static",
@@ -152,7 +151,7 @@
 //           "mutable": false,
 //           "type": "Ticks",
 //           "doc": "The tick every counter starts at.",
-//           "line": 263
+//           "line": 262
 //         },
 //         {
 //           "kind": "struct",
@@ -170,11 +169,11 @@
 //               "type": "Int",
 //               "visibility": "public",
 //               "doc": "Ticks since the counter started.",
-//               "line": 225
+//               "line": 224
 //             }
 //           ],
 //           "doc": "A span measured in whole ticks.",
-//           "line": 223,
+//           "line": 222,
 //           "module": "doc_emit_json"
 //         },
 //         {
@@ -197,11 +196,11 @@
 //               "self": "borrows",
 //               "static": false,
 //               "doc": "Returns the tick count.",
-//               "line": 241
+//               "line": 240
 //             }
 //           ],
 //           "doc": "A value with a tick count.",
-//           "line": 239,
+//           "line": 238,
 //           "module": "doc_emit_json"
 //         },
 //         {
@@ -211,7 +210,7 @@
 //           "visibility": "public",
 //           "target": "Int",
 //           "doc": "A count of ticks.",
-//           "line": 260,
+//           "line": 259,
 //           "module": "doc_emit_json"
 //         }
 //       ]
@@ -242,7 +241,7 @@ public trait Ticked {
 }
 
 /// Construction and arithmetic for `Tick`.
-public extension Tick: Ticked {
+extension Tick: Ticked {
     /// Builds a tick count, defaulting to the start of the counter.
     public init(count: Int = 0) -> Tick { Tick(count: count, scratch: 0) }
 

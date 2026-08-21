@@ -171,7 +171,7 @@ public enum SosimgArch: UInt8 {
     case Arm64 = 2,
 }
 
-public extension SosimgArch {
+extension SosimgArch {
     /// The tag as it appears in a header.
     public func tag(&self) -> UInt8 {
         self as UInt8
@@ -225,7 +225,7 @@ public enum SegFlag: UInt8 {
     case Device = 8,
 }
 
-public extension SosimgHeader {
+extension SosimgHeader {
     /// Are these bytes a sosimg at all?
     public func has_magic(&self) -> Bool {
         self.magic == SOSIMG_MAGIC
@@ -256,7 +256,7 @@ public extension SosimgHeader {
     }
 }
 
-public extension SosimgSeg {
+extension SosimgSeg {
     /// Does this segment's mask carry `flag`?
     ///
     /// The one place the mask arithmetic lives, so a bit test reads as a

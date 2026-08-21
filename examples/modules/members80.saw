@@ -6,7 +6,7 @@ public struct Gadget {
     secret: Int           // private field — NOT accessible cross-module
 }
 
-public extension Gadget {
+extension Gadget {
     // Public initializer (distinct param name so it doesn't collide with the
     // memberwise field set — the memberwise literal stays private-gated).
     public init(seed: Int) -> Gadget {
@@ -39,7 +39,7 @@ public struct PkgBox {
     public(package) n: Int
 }
 
-public extension PkgBox {
+extension PkgBox {
     public(package) func peek(&self) -> Int {
         self.n
     }

@@ -5,7 +5,7 @@ public struct Square {
     public side: Int
 }
 
-public extension Square {
+extension Square {
     public init(magnitude: Int) -> Square {
         Square(side: magnitude)
     }

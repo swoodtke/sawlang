@@ -6,6 +6,6 @@ public struct Widget {
     public size: Int
 }
 
-public extension Widget {
+extension Widget {
     public func describe(&self) -> Int { self.size * 2 }
 }

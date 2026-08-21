@@ -85,7 +85,7 @@ public func defaulted<T = Hidden>(x: Int) -> Int {
     x
 }
 
-public extension Exposed {
+extension Exposed {
     public init(seed: Hidden) -> Exposed {
         Exposed(slot: seed, inner: Hidden(n: 0))
     }

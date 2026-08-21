@@ -2161,6 +2161,12 @@ class Extension(ASTNode):
 
     For generic extensions like `extension Vector<T>`, type_params contains [T].
     For specialized extensions like `extension Vector<String>`, type_args contains [String].
+
+    NO `visibility` field, deliberately (design 240 item 3): an extension head
+    cannot carry a modifier, because an extension is not a nameable entity and
+    has nothing to be visible. Each METHOD carries its own. The field existed
+    and was parsed for a long time with exactly one consumer — the docs
+    emitter's signature string — so it read like a rule and was none.
     """
     struct_name: str
     methods: List['Method']
@@ -2168,7 +2174,6 @@ class Extension(ASTNode):
     type_args: List['Type'] = field(default_factory=list)  # For specialized extensions (e.g., Vector<String>)
     conformances: List[str] = field(default_factory=list)  # Trait names
     type_assignments: List[TypeAssignment] = field(default_factory=list)  # Associated type assignments
-    visibility: 'Visibility' = Visibility.PRIVATE
     source_file: str = ""
     doc: Optional[str] = None
     # Declaration attributes (design 58 machinery, design 128): `@synthesize`.

@@ -1,0 +1,30 @@
+// A visibility modifier on an EXTENSION HEAD is a declaration-site error
+// (ruled Aug 20). An extension is not a nameable entity — nothing imports it,
+// nothing calls it, there is no name for a modifier to govern — so what an
+// importer reaches is its MEMBERS, and design 80 already gives each of those
+// its own modifier.
+//
+// The marker used to parse and be stored, with exactly one consumer: the docs
+// emitter's signature string. It was not a member default (an unmarked member
+// inside a `public extension` was PRIVATE), not a clamp (a `public` member
+// inside a `public(package)` one was world-callable), and not a scoping input
+// (design 142 scopes extensions by IMPORT). Decoration that read like a rule,
+// on ~105 corpus heads — which is also why adopting Swift's default-setter
+// meaning was rejected: it would have flipped every unmarked member inside one
+// from private to public in silence.
+//
+// The refusal is anchored at the modifier, the token to delete, and every
+// spelling reaches it: `public`, `public(package)`, `public(parent)`, and the
+// `@synthesize`-attributed head (`attr_synthesize_parses.saw` covers the legal
+// attributed form).
+//
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: an extension cannot carry a visibility modifier
+
+public struct Point { public x: Int }
+
+public extension Point {
+    public func get(&self) -> Int { self.x }
+}
+
+func main() { print(Point(x: 1).get()) }

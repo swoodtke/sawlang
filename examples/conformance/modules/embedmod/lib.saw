@@ -23,7 +23,7 @@ static SLOTS: Int = 4
 
 public struct Runner { public tag: Int }
 
-public extension Runner {
+extension Runner {
     /// Suspends, and reaches a private sibling on each side of the suspension.
     public func run(&self) -> Int {
         let a = inner()
@@ -53,7 +53,7 @@ public func amplify<T: Seed>(w: T) -> Int {
 
 public struct Cell<T: Seed> { public item: T }
 
-public extension Cell<T: Seed> {
+extension Cell<T: Seed> {
     /// A generic STRUCT's suspending method over the same private sibling.
     public func charge(&self) -> Int {
         let b = boost(self.item.seed())

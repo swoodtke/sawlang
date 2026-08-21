@@ -14,7 +14,7 @@ public struct TomlError {
     public line: Int
 }
 
-public extension TomlError {
+extension TomlError {
     public init(msg: String) -> TomlError {
         TomlError(message: msg, line: 0)
     }
@@ -26,7 +26,7 @@ public extension TomlError {
 
 // A TOML error is a Printable error (design 56): it renders itself, so it can be
 // erased into a `Box<any Error>` and propagated with `try` across error kinds.
-public extension TomlError: Error {
+extension TomlError: Error {
     public func format(&self, into: &var StringBuilder) {
         into.append("TOML parse error: ")
         into.append(self.message)
@@ -47,7 +47,7 @@ public struct TomlValue {
     value: String
 }
 
-public extension TomlValue {
+extension TomlValue {
     // Typed access (design 57 dogfood): parse the stored string as an integer.
     // Returns None when the value is not a whole-string base-10 integer.
     public func int_value(&self) -> Int? {
@@ -71,7 +71,7 @@ public struct TomlTable {
 
 extension TomlTable: NoCopy {}
 
-public extension TomlTable {
+extension TomlTable {
     public init(k: String) -> TomlTable {
         let v = Vector<TomlValue>()
         TomlTable(key: k, values: move v)
@@ -103,7 +103,7 @@ public struct TomlSection {
 
 extension TomlSection: NoCopy {}
 
-public extension TomlSection {
+extension TomlSection {
     public init(section_name: String) -> TomlSection {
         let v = Vector<TomlValue>()
         let t = Vector<TomlTable>()
@@ -236,7 +236,7 @@ public struct TomlDoc {
 
 extension TomlDoc: NoCopy {}
 
-public extension TomlDoc {
+extension TomlDoc {
     public init() -> TomlDoc {
     	let v = Vector<TomlSection>()
         TomlDoc(sections: move v)

@@ -7,6 +7,6 @@ public struct Widget {
     public count: Int
 }
 
-public extension Widget {
+extension Widget {
     public func describe(&self) -> Int { self.name.len() + self.count }
 }

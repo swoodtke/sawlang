@@ -417,6 +417,32 @@ class Parser(ExpressionsMixin, StatementsMixin, DeclarationsMixin, TypeParsingMi
 
         return Visibility.PUBLIC
 
+    def _error_extension_visibility(self, vis_token):
+        """A visibility modifier on an EXTENSION head — refused (ruled Aug 20).
+
+        An extension is not a nameable entity: nothing imports it, nothing calls
+        it, and there is no name for a visibility to govern. Its MEMBERS are what
+        an importer reaches, and design 80 already gives each of them its own
+        modifier — which is what the marker on the head never did. It was parsed,
+        stored and read by exactly one consumer (the docs emitter's signature
+        string), so it was decoration that read like a rule: not a member
+        default, not a clamp, not a scoping input.
+
+        Refusing it rather than giving it Swift's default-setter meaning is the
+        ruling, and the corpus is why: ~105 heads carried a decorative `public`,
+        so adopting the setter reading would have silently flipped every
+        unmarked member inside one from private to public.
+
+        Anchored at the modifier, not at `extension` — that is the token to
+        delete.
+        """
+        self.error_at(
+            vis_token,
+            "an extension cannot carry a visibility modifier — an extension is "
+            "not a nameable entity, so it has nothing to be visible. Visibility "
+            "belongs on members: mark each one instead (`public func`, "
+            "`public static func`, `public init`), and delete the modifier here")
+
     def _parse_bound_name(self, after: str) -> str:
         """A trait bound name, which may be MODULE-QUALIFIED (`qual.Named`).
 
@@ -729,6 +755,7 @@ class Parser(ExpressionsMixin, StatementsMixin, DeclarationsMixin, TypeParsingMi
                 p.imports.append(self.parse_import(is_public=True))
             else:
                 # Parse visibility and then the declaration
+                vis_token = self.current()
                 visibility = self._parse_visibility()
                 if self.match_ident("import"):
                     # design 229: re-export is all-or-nothing. A scoped
@@ -747,7 +774,7 @@ class Parser(ExpressionsMixin, StatementsMixin, DeclarationsMixin, TypeParsingMi
                 elif self.match(TokenType.TRAIT):
                     p.traits.append(self.parse_trait(visibility))
                 elif self.match(TokenType.EXTENSION):
-                    p.extensions.append(self.parse_extension(visibility))
+                    self._error_extension_visibility(vis_token)
                 elif self.at_type_alias_start():
                     p.type_definitions.append(self.parse_type_definition(visibility))
                 elif self.match(TokenType.STATIC):
@@ -793,6 +820,7 @@ class Parser(ExpressionsMixin, StatementsMixin, DeclarationsMixin, TypeParsingMi
         the wrong one of the two gets the misplacement error below.
         """
         visibility = Visibility.PRIVATE
+        vis_token = self.current()
         if self.match(TokenType.PUBLIC):
             # `public module` is not an attributable declaration.
             if self.peek(1).type == TokenType.IDENT and self.peek(1).value == "module":
@@ -815,9 +843,11 @@ class Parser(ExpressionsMixin, StatementsMixin, DeclarationsMixin, TypeParsingMi
             st.attributes = attrs
             p.statics.append(st)
         elif self.match(TokenType.EXTENSION):
+            if visibility != Visibility.PRIVATE:
+                self._error_extension_visibility(vis_token)
             self._reject_misplaced_attributes(attrs, EXTENSION_ATTRIBUTES,
                                               "extensions")
-            ext = self.parse_extension(visibility)
+            ext = self.parse_extension()
             ext.attributes = attrs
             p.extensions.append(ext)
         else:

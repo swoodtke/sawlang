@@ -1,7 +1,7 @@
 // DF-140c fixture: a package exporting a type reached by its qualified name.
 public struct Section { public name: String }
 
-public extension Section {
+extension Section {
     public init(named: String) -> Section { Section(name: named) }
 
     public func value(&self, key: String) -> String? {

@@ -485,13 +485,17 @@ class DeclarationsMixin:
             column=start.column
         )
 
-    def parse_extension(self, visibility: Visibility = Visibility.PRIVATE) -> Extension:
+    def parse_extension(self) -> Extension:
         """Parse extension declaration: extension Box<T>: Trait { type Item = Int; func... }
 
         For generic extensions like `extension Vector<T>`, the typechecker will determine
         that T is not a known type and treat it as a type parameter.
         For specialized extensions like `extension Vector<String>`, String is a known type
         so it's treated as a type argument (specialization).
+
+        Takes no visibility: an extension head cannot carry one (ruled Aug 20 —
+        see `_error_extension_visibility`), and every caller reaching this point
+        has already refused the modifier.
         """
         start = self.current()
         self.expect(TokenType.EXTENSION)
@@ -597,7 +601,6 @@ class DeclarationsMixin:
             type_params=type_params,
             conformances=conformances,
             type_assignments=type_assignments,
-            visibility=visibility,
             line=start.line,
             column=start.column,
             source_file=self.source_file

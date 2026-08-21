@@ -19,7 +19,7 @@ func scan_args(handle: () -> Int) -> Int {
     handle()
 }
 
-public extension Cli {
+extension Cli {
     public static func parse() -> Cli {
         let k = scan_args({ 1 })
         Cli(command: Cmd.Build)

@@ -4,6 +4,6 @@ public func deep_value() -> Int { 5 }
 
 public struct Deep { public n: Int }
 
-public extension Deep {
+extension Deep {
     public func twice(&self) -> Int { self.n * 2 }
 }

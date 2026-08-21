@@ -14,7 +14,7 @@ public module api {
         public value: Int
     }
 
-    public extension Config {
+    extension Config {
         public func doubled(&self) -> Int {
             self.value * 2
         }

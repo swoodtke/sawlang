@@ -8,7 +8,7 @@ public enum Level {
     case High
 }
 
-public extension Level {
+extension Level {
     public func rank(&self) -> Int {
         match self {
             case Low -> 1,
@@ -17,7 +17,7 @@ public extension Level {
     }
 }
 
-public extension Level: Printable {
+extension Level: Printable {
     public func format(&self, into: &var StringBuilder) {
         into.append("Level(")
         into.append(self.rank())

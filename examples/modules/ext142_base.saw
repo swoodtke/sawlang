@@ -6,14 +6,14 @@ public struct Reading {
     public raw: Int
 }
 
-public extension Reading {
+extension Reading {
     public func doubled(&self) -> Int {
         self.raw * 2
     }
 }
 
 // The orphan rule's first permitted home: the module that defines the TYPE.
-public extension Reading: Printable {
+extension Reading: Printable {
     public func format(&self, into: &var StringBuilder) {
         into.append("Reading(")
         into.append(self.raw)

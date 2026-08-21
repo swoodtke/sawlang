@@ -103,7 +103,7 @@ Top-level declaration parsing.
 | `parse_struct(visibility)` | Parse struct declaration with fields |
 | `parse_enum(visibility)` | Parse enum with variants |
 | `parse_trait(visibility)` | Parse trait with methods |
-| `parse_extension(visibility)` | Parse extension block |
+| `parse_extension()` | Parse extension block (no visibility — a head cannot carry one) |
 | `parse_type_definition(visibility)` | Parse type alias |
 | `parse_extern_block()` | Parse extern block with FFI functions |
 | `parse_parameters()` | Parse parameter list with types |

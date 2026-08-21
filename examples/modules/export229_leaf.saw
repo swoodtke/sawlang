@@ -11,11 +11,11 @@ public trait Labeled {
     func label(&self) -> Int
 }
 
-public extension Widget: Labeled {
+extension Widget: Labeled {
     public func label(&self) -> Int { self.n }
 }
 
-public extension Widget {
+extension Widget {
     // Inherent API: in scope wherever a `Widget` reaches, re-exported or not.
     public func doubled(&self) -> Int { self.n * 2 }
 }

@@ -17,13 +17,13 @@ public struct SemverError {
     message: String
 }
 
-public extension SemverError {
+extension SemverError {
     public init(msg: String) -> SemverError {
         SemverError(message: msg)
     }
 }
 
-public extension SemverError: Error {
+extension SemverError: Error {
     public func format(&self, into: &var StringBuilder) {
         into.append("semver error: ")
         into.append(self.message)
@@ -44,9 +44,9 @@ public struct Version {
 // derives a lexicographic compare over (major, minor, patch) in declaration
 // order — exactly semantic-version precedence.
 @synthesize
-public extension Version: Comparable {}
+extension Version: Comparable {}
 
-public extension Version: Printable {
+extension Version: Printable {
     public func format(&self, into: &var StringBuilder) {
         into.append(self.major)
         into.append(".")
@@ -130,7 +130,7 @@ public func parse_req(s: String) -> Result<VersionReq, SemverError> {
     VersionReq(kind: kind, version: v)
 }
 
-public extension VersionReq {
+extension VersionReq {
     // Does version `v` satisfy this requirement?
     public func matches(&self, v: Version) -> Bool {
         match self.kind {
@@ -157,7 +157,7 @@ public extension VersionReq {
     }
 }
 
-public extension VersionReq: Printable {
+extension VersionReq: Printable {
     public func format(&self, into: &var StringBuilder) {
         match self.kind {
             case Exact -> {},

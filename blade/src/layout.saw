@@ -32,7 +32,7 @@ func host_segment() -> String {
 // Directory helpers on Path
 // =============================================================================
 
-public extension Path {
+extension Path {
     // Create this directory and any missing parents, `mkdir -p` style. True
     // when the directory exists afterwards; false, having reported why, when it
     // could not be created.
@@ -102,7 +102,7 @@ public struct BuildLayout {
     target: String
 }
 
-public extension BuildLayout {
+extension BuildLayout {
     // The layout for a default hosted build.
     public init() -> BuildLayout {
         BuildLayout(target: "")

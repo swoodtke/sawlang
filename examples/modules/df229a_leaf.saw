@@ -16,7 +16,7 @@ public trait Measured {
     func measure(&self) -> Int
 }
 
-public extension Gauge: Measured {
+extension Gauge: Measured {
     public func measure(&self) -> Int { self.reading }
 }
 

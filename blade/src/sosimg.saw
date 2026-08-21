@@ -37,7 +37,7 @@ public struct SosError {
     message: String
 }
 
-public extension SosError {
+extension SosError {
     public init(msg: String) -> SosError {
         SosError(message: msg)
     }
@@ -47,7 +47,7 @@ public extension SosError {
     }
 }
 
-public extension SosError: Error {
+extension SosError: Error {
     public func format(&self, into: &var StringBuilder) {
         into.append(self.message)
     }

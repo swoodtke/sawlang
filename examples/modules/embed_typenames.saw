@@ -34,7 +34,7 @@ func take(c: Cmd) -> Int {
 
 func idn<T>(v: T) -> T { v }
 
-public extension Anchor {
+extension Anchor {
     public static func helper() -> Int { 200 }
 
     // An enum-case literal as a CALL ARGUMENT: the head `Cmd` re-opened the

@@ -7,7 +7,7 @@ import std.task.*
 
 public enum Color { case Red, case Green }
 
-public extension Color {
+extension Color {
     public func label(&self) -> String {
         yield_now()
         match self {
@@ -19,7 +19,7 @@ public extension Color {
 
 public struct Box2<T> { public v: T }
 
-public extension Box2<T> {
+extension Box2<T> {
     public func describe(&self) -> String {
         yield_now()
         "boxed"
@@ -32,7 +32,7 @@ public trait Greeter {
 
 public struct Talker { public n: String }
 
-public extension Talker: Greeter {
+extension Talker: Greeter {
     public func greet(&self) -> String {
         yield_now()
         self.n

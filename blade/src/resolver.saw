@@ -36,7 +36,7 @@ public struct ResolveError {
     message: String
 }
 
-public extension ResolveError {
+extension ResolveError {
     public init(msg: String) -> ResolveError {
         ResolveError(message: msg)
     }
@@ -46,7 +46,7 @@ public extension ResolveError {
     }
 }
 
-public extension ResolveError: Error {
+extension ResolveError: Error {
     public func format(&self, into: &var StringBuilder) {
         into.append(self.message)
     }
@@ -69,7 +69,7 @@ public struct Resolution {
 
 extension Resolution: NoCopy {}
 
-public extension Resolution {
+extension Resolution {
     public init() -> Resolution {
         let a = Vector<String>()
         let b = Vector<String>()

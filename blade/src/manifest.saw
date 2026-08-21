@@ -15,7 +15,7 @@ public struct ManifestError {
     message: String
 }
 
-public extension ManifestError {
+extension ManifestError {
     public init(msg: String) -> ManifestError {
         ManifestError(message: msg)
     }
@@ -24,7 +24,7 @@ public extension ManifestError {
 // A manifest error is a Printable error (design 56): manifest loading returns
 // `Result<Manifest, Box<any Error>>`, so a ManifestError is auto-erased into the
 // box at the return boundary and a TomlError is re-boxed by `try` (below).
-public extension ManifestError: Error {
+extension ManifestError: Error {
     public func format(&self, into: &var StringBuilder) {
         into.append(self.message)
     }
@@ -54,7 +54,7 @@ public struct Dependency {
     public version: String
 }
 
-public extension Dependency {
+extension Dependency {
     public func is_path(&self) -> Bool {
         match self.source {
             case PathDep(_) -> true,
@@ -79,7 +79,7 @@ public struct DepList {
 
 extension DepList: NoCopy {}
 
-public extension DepList {
+extension DepList {
     public init() -> DepList {
         let d = Vector<Dependency>()
         DepList(deps: move d)
@@ -120,7 +120,7 @@ public struct Manifest {
     public root_dir: Path
 }
 
-public extension Manifest {
+extension Manifest {
     // Load manifest from current directory.
     //
     // design 56 dogfood: this returns an ERASED Result. A `ManifestError`

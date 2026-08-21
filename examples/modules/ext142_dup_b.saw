@@ -3,7 +3,7 @@
 
 import modules.ext142_base.{Reading}
 
-public extension Reading {
+extension Reading {
     public func kind(&self) -> Int {
         2
     }

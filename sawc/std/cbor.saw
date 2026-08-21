@@ -122,7 +122,7 @@ public struct CborEncoder {
 
 extension CborEncoder: NoCopy {}
 
-public extension CborEncoder {
+extension CborEncoder {
     /// A new encoder over an empty buffer.
     ///
     /// `max_depth` bounds how deeply arrays and maps may nest; a deeper
@@ -433,7 +433,7 @@ public struct CborDecoder {
 
 extension CborDecoder: NoCopy {}
 
-public extension CborDecoder {
+extension CborDecoder {
     /// Validates `bytes` against the profile and the limits, then returns a
     /// decoder positioned at the first item.
     ///

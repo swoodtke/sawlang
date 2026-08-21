@@ -10,7 +10,7 @@
 // COMPILE-FLAGS: --emit-docs
 // EXPECT-OUTPUT:
 // {
-//   "schema_version": 3,
+//   "schema_version": 4,
 //   "modules": [
 //     {
 //       "name": "d144_docs_module_field",
@@ -29,7 +29,7 @@
 //           "self": null,
 //           "static": false,
 //           "doc": null,
-//           "line": 95
+//           "line": 94
 //         }
 //       ]
 //     },
@@ -41,8 +41,7 @@
 //         {
 //           "kind": "extension",
 //           "name": "Widget",
-//           "signature": "public extension Widget",
-//           "visibility": "public",
+//           "signature": "extension Widget",
 //           "generics": [],
 //           "conformances": [],
 //           "methods": [

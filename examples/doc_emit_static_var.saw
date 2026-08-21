@@ -10,7 +10,7 @@
 // COMPILE-FLAGS: --emit-docs
 // EXPECT-OUTPUT:
 // {
-//   "schema_version": 3,
+//   "schema_version": 4,
 //   "modules": [
 //     {
 //       "name": "doc_emit_static_var",

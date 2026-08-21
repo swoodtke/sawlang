@@ -2,7 +2,7 @@
 // raw declaration slots can be written with a qualifier at each kind.
 public struct Tag { public n: Int }
 
-public extension Tag {
+extension Tag {
     public init(of: Int) -> Tag { Tag(n: of) }
 }
 

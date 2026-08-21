@@ -25,7 +25,7 @@ public struct Carrier {
 
 extension Carrier: NoCopy {}
 
-public extension Carrier {
+extension Carrier {
     public init() -> Carrier {
         var v = Vector<Hidden>()
         v.push(Hidden(n: 3))

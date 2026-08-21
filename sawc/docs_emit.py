@@ -6,14 +6,19 @@ whether a function suspends — comes from the namespaces and the effect graph t
 typechecker built. The result is the input format for the `sawdoc` site
 generator; the compiler's job ends at the JSON.
 
-Shape (schema_version 3):
+Shape (schema_version 4):
 
-    {"schema_version": 3,
+    {"schema_version": 4,
      "modules": [
        {"name": "std.time", "source": "time.saw", "doc": "...",
         "items": [ ... ]}]}
 
-An item always carries `kind`, `name`, `signature`, `visibility`, `doc`, `line`.
+An item always carries `kind`, `name`, `signature`, `doc`, `line`, and —
+everywhere but an `extension` — `visibility`. An extension has none to report:
+it is not a nameable entity, so its head cannot carry a modifier (ruled Aug 20),
+and what an importer reaches is its MEMBERS, each with its own. A consumer
+deciding whether to show an extension asks whether any of its `methods`
+survived the gate.
 Kind-specific keys follow: `generics`/`conformances` on types, `fields` on a
 struct, `cases` on an enum, `methods` on a trait or extension, and
 `params`/`returns`/`effect`/`self`/`static` on anything callable.
@@ -56,7 +61,13 @@ _TYPE_ITEM_KINDS = ("struct", "enum", "trait", "typealias", "extension")
 # method's `signature` spells the keyword. `"self": null` used to be the only
 # way to read staticness off this JSON, which mirrored the language's own
 # inference; both are declarations now.
-SCHEMA_VERSION = 3
+#
+# 4 (design 240 item 3): an `extension` item no longer carries `visibility`, and
+# its `signature` no longer opens with a modifier. An extension head cannot
+# carry one — visibility belongs on members — so the field reported a value the
+# language stopped having rather than a fact about the declaration. This is the
+# only item kind without the key.
+SCHEMA_VERSION = 4
 
 # Compiler-synthesized declarations (coroutine frames, drive/spawn wrappers) are
 # never part of a documented surface.
@@ -369,9 +380,10 @@ class DocsBuilder:
         methods.sort(key=lambda m: (m["name"], m["line"]))
         return {
             "kind": "extension", "name": target,
-            "signature": "%sextension %s%s%s" % (_vis_prefix(x.visibility),
-                                                 target, gen, conf),
-            "visibility": _visibility_str(x.visibility),
+            # No visibility, in the signature or as a field: an extension head
+            # cannot carry a modifier (design 240 item 3). Its members each
+            # report their own.
+            "signature": "extension %s%s%s" % (target, gen, conf),
             "generics": _generics(x.type_params),
             "conformances": conf_names,
             "methods": methods, "doc": x.doc, "line": x.line,

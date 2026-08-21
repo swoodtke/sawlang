@@ -4,7 +4,7 @@
 
 import modules.ext142_base.{Reading}
 
-public extension Reading {
+extension Reading {
     public func scaled(&self, by: Int) -> Int {
         self.raw * by
     }
