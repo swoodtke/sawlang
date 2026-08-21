@@ -1594,6 +1594,24 @@ class ExpressionsMixin:
         hand the callee two operands directly — the right one by reference now
         (`_comparison_operand_ptr`), which is what the signature says.
         """
+        # DF-235a/b: the adoption funnel already folded this whole operation to a
+        # constant and range-checked it against the fixed-width slot it is going
+        # into, so it IS that type — asking the operands would answer platform
+        # `Int` (which is what left compound assignment's RHS refused by design
+        # 195's operand agreement, against a target the value fits perfectly
+        # well). Codegen emits the folded constant, not the operation.
+        #
+        # The pair of stamps is read, not `resolved_type`: the place lowering
+        # UNCHECKS the tree between the two front-half passes (`place_uses.py`),
+        # so `resolved_type` is a per-pass conclusion and is gone by the second
+        # one, while the funnel's own annotations survive. Re-deriving it here is
+        # what makes the second pass agree with the first.
+        folded_type = expr.expected_type
+        if (expr.const_folded_value is not None and folded_type is not None
+                and folded_type.kind in self._FIXED_INT_RANGES):
+            expr.resolved_type = SawType(folded_type.kind)
+            return expr.resolved_type
+
         left_type = self._check_expression(expr.left)
         right_type = self._check_expression(expr.right)
         if left_type is None or right_type is None:
@@ -1816,6 +1834,16 @@ class ExpressionsMixin:
 
     def _check_unary_op(self, expr: UnaryOp) -> Optional[SawType]:
         """Check a unary operation."""
+        # DF-235a/b, the `BinaryOp` rule's twin: the adoption funnel folded this
+        # whole expression (a `~mask`, or a negated constant expression) against
+        # a fixed-width slot and range-checked it there, so it IS that type. See
+        # `_check_binary_op` for why the two annotations are what is read.
+        folded_type = expr.expected_type
+        if (expr.const_folded_value is not None and folded_type is not None
+                and folded_type.kind in self._FIXED_INT_RANGES):
+            expr.resolved_type = SawType(folded_type.kind)
+            return expr.resolved_type
+
         operand_type = self._check_expression(expr.operand)
         if operand_type is None:
             return None
@@ -5248,10 +5276,16 @@ class ExpressionsMixin:
         #      with the optional intact and each arm meets this rule on its own.
         #      A `Result` payload is peeled by case (0d) below, which has to
         #      answer "which payload" before it can peel.
+        #
+        #      A `BinaryOp` is on the peel list for the same reason (DF-235b): a
+        #      constant expression wrapping into an optional slot owes the
+        #      PAYLOAD's width too, and case (2b) below is what gives it one.
+        #      Peeling one that does not fold costs nothing — (2b) declines and
+        #      the expression is checked exactly as it was before.
         if (rt.kind == TypeKind.OPTIONAL and rt.inner_type is not None
                 and (isinstance(value_expr, (IntLiteral, TupleLiteral,
                                              ArrayLiteral, MapLiteral,
-                                             SetLiteral))
+                                             SetLiteral, BinaryOp))
                      or (isinstance(value_expr, UnaryOp)
                          and value_expr.op == '-'))):
             self._apply_literal_expected_type(value_expr, rt.inner_type)
@@ -5281,8 +5315,14 @@ class ExpressionsMixin:
         #      at platform width and the wrap built an `{i64}` where an `{i32}`
         #      was owed — a `ResultOkWrap`/`ResultErrWrap` codegen ICE, in named
         #      and closure bodies alike, since both reach this funnel.
+        #
+        #      A `BinaryOp` peels on the same terms (DF-235a): `return
+        #      (1 << 3) | (1 << 4)` at `-> Result<UInt16, Bad>` is the same
+        #      un-adopted platform-`Int` value, and it was the same
+        #      `ResultOkWrap` codegen ICE. "Which payload" is answered the same
+        #      way, by the payload that could take an integer.
         if (rt.is_result()
-                and (isinstance(value_expr, IntLiteral)
+                and (isinstance(value_expr, (IntLiteral, BinaryOp))
                      or (isinstance(value_expr, UnaryOp)
                          and value_expr.op == '-'))):
             adopting = [p for p in (rt.unwrap_result_ok(),
@@ -5333,8 +5373,69 @@ class ExpressionsMixin:
                         f"`{expected_type}` (range {lo}..={hi})",
                         getattr(operand, 'line', 0), getattr(operand, 'column', 0))
                 operand.resolved_type = SawType(rt.kind)
-            else:
-                self._apply_literal_expected_type(operand, rt)
+                return
+            # DF-235b: not a bare literal underneath. A NEGATED constant
+            # expression (`-(1 << 7)` at `Int8`) has to be folded WHOLE, or the
+            # range check would see the magnitude and refuse a value that fits
+            # once negated — the very thing the literal arm above exists to get
+            # right. Case (2b)'s helper does it; if the operand is not constant
+            # it declines and the old recursion runs, unchanged.
+            #
+            # An ALREADY-folded expression stops here rather than recursing: the
+            # front half runs twice over one AST (the place lowering unchecks
+            # between them), and descending into the operand on the second pass
+            # would range-check the magnitude under the `-` — refusing `Int8.min`
+            # written as `-(1 << 7)` on a program that compiled on pass one.
+            if value_expr.const_folded_value is not None:
+                return
+            if (rt.kind in self._FIXED_INT_RANGES
+                    and self._fold_const_expression_into(
+                        value_expr, rt, expected_type)):
+                return
+            self._apply_literal_expected_type(operand, rt)
+            return
+
+        # (2b) A CONSTANT EXPRESSION — a `BinaryOp` over compile-time-known
+        #      operands (`2 + 3`, `1 << 20`, `(1 << 3) | (1 << 4)`) — reaching a
+        #      FIXED-WIDTH slot. DF-235a/b: this case did not exist, so a folded
+        #      shift or mask matched none of the node shapes above, was checked
+        #      with no expectation at all, and came out at platform `Int` —
+        #      which every position then dealt with on its own terms. Most
+        #      narrowed it at the store with NO range check (`let e: UInt16 =
+        #      1 << 20` printed 0), some carried the platform width right past
+        #      the declared one (`[1 << 20; 2]` at `[UInt16; 2]`), two crashed
+        #      codegen (a mixed array literal, a `Result` payload slot), and
+        #      compound assignment's RHS was refused outright by design 195's
+        #      operand agreement — five behaviours for one gap.
+        #
+        #      THE FIX IS THE FUNNEL'S, not each position's: fold it here (the
+        #      one `const_eval`, so nothing new can disagree about what a
+        #      constant is) and then run the SAME range check case (1) runs on a
+        #      bare literal, at the same place, with the same words. Codegen
+        #      reads `const_folded_value` and emits the constant AT the stamped
+        #      type, so the declared width is the width stored.
+        #
+        #      SCOPE, deliberately drawn:
+        #      - FIXED-WIDTH targets only. A platform `Int`/`UInt` expectation is
+        #        what the expression already had, so there is nothing to adopt
+        #        and nothing to check — the invariant in this method's docstring.
+        #      - Whatever `const_eval` answers from the AST it is handed. A
+        #        `BinaryOp` naming a module `static` or a raw-backed enum case
+        #        folds only where an earlier pass stamped its value, so a runtime
+        #        `n * 2` is untouched (const_eval rejects it and we fall through)
+        #        and design 185 unit 4's rule that `Perm.Read | Perm.Write` is a
+        #        constant only IN a const position is not widened here.
+        #      - The fold is design 185's: the signed platform-`Int` domain. So
+        #        `1 << 63` is `Int.min` and is refused at a `UInt64` slot, which
+        #        is exactly what `(1 << 63) as UInt64` already says and what a
+        #        bare `-9223372036854775808` in the same slot already says.
+        #      - `~mask` rides here too (`UnaryOp` with `~`); a leading `-` is
+        #        case (2)'s, which folds through the same helper.
+        if ((isinstance(value_expr, BinaryOp)
+             or (isinstance(value_expr, UnaryOp) and value_expr.op == '~'))
+                and rt.kind in self._FIXED_INT_RANGES):
+            if value_expr.const_folded_value is None:
+                self._fold_const_expression_into(value_expr, rt, expected_type)
             return
 
         # (3) if / match / block whose arm results merge to the expected type.
@@ -6352,6 +6453,54 @@ class ExpressionsMixin:
         TypeKind.UINT32: (0, (1 << 32) - 1),
         TypeKind.UINT64: (0, (1 << 64) - 1),
     }
+
+    def _fold_const_expression_into(self, expr, rt, expected_type) -> bool:
+        """Adopt a CONSTANT operator expression into a fixed-width slot
+        (DF-235a/b). True when it folded (range-checked and stamped), False when
+        the expression is not a constant this pass can answer.
+
+        The other half of `_apply_literal_expected_type`'s case (2b) — kept here,
+        beside `_FIXED_INT_RANGES`, because it is the same range check case (1)
+        runs on a bare literal, reached from the same funnel.
+
+        Folds through the ONE evaluator (`const_eval.py`), so an expression that
+        is constant here is constant in a `static_assert` and in an array length
+        too. An expression it cannot answer — a name it was handed no value for,
+        a call, anything with a runtime operand in it — raises, and the caller's
+        arm simply returns, leaving the expression exactly as it was before this
+        case existed. That is what keeps `n * 2` and `word | (1u32 << n)`
+        untouched.
+
+        A Bool result is not adopted either: `(a < b)` is a comparison, not an
+        integer, and it has no business in an integer slot — the ordinary type
+        mismatch reports it, in its own words.
+        """
+        from const_eval import const_eval, ConstEvalError
+        try:
+            value = const_eval(expr, env=self._const_param_env(),
+                               width=self.platform_int_width)
+        except ConstEvalError:
+            return False
+        if isinstance(value, bool) or not isinstance(value, int):
+            return False
+        # A constant that reads a const generic PARAMETER has no value until the
+        # instantiation supplies one; the typechecker checks a generic body once,
+        # abstractly. Folding here would bake in whatever the abstract probe
+        # happened to hold, so it is left alone and monomorphization sees the
+        # expression it was written as.
+        if self._mentions_const_param(expr):
+            return False
+        expr.const_folded_value = value
+        expr.expected_type = rt
+        expr.resolved_type = SawType(rt.kind)
+        lo, hi = self._FIXED_INT_RANGES[rt.kind]
+        if not (lo <= value <= hi):
+            self._error(
+                ErrorKind.TYPE_MISMATCH,
+                f"constant expression {value} does not fit in "
+                f"`{expected_type}` (range {lo}..={hi})",
+                getattr(expr, 'line', 0), getattr(expr, 'column', 0))
+        return True
 
     def _payload_adopts_int_literal(self, payload) -> bool:
         """Could a bare integer literal adopt this `Result` payload (DF-226e)?

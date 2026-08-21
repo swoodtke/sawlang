@@ -1,0 +1,20 @@
+// The other half of the same rule (see const_expression_range_checked_narrow.saw):
+// a constant EXPRESSION reaching a repeat literal's VALUE adopts the declared
+// element width, so it is range-checked there too. `1 << 20` does not fit
+// `UInt16`, and `[1 << 20; 2]` at `[UInt16; 2]` is now the same clean error.
+//
+// This is the position family that did not truncate but WIDENED: the value and
+// its backing storage used to be carried at platform width while the declared
+// Saw type claimed `UInt16`, so the array printed the untruncated `1048576`
+// (DF-235b). Its siblings — an Optional payload slot (`let o: UInt16? =
+// 1 << 20`), the `??` operand (`absent ?? (1 << 20)`), and a UNIFORM plain
+// array literal whose elements are all const expressions — reach the same
+// funnel case and are covered by it rather than re-pinned.
+//
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: does not fit in `UInt16`
+
+func main() {
+    let r: [UInt16; 2] = [1 << 20; 2]
+    print("{r[0]}")
+}

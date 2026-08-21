@@ -50,8 +50,7 @@ for sawos; "238 before more M3 work" is absolute.
 - DF-232d — `mod.STATIC = v` assignment position (entry below) — FOLDED into the small-fix batch (mechanism read, fix unambiguous: route a qualifier-object MemberAccess assignment target to the static path)
 - DF-232e — import-cycle diagnostic (entry below) — FOLDED into the small-fix batch (mechanism read, fix is the diagnostic)
 - DF-232g — imported-const static folding (entry below) — FOLDED into the small-fix batch (matrix probed; the const-static collector must resolve imported const names)
-- DF-235a — a constant EXPRESSION source reaching a plain array-literal element or a Result payload slot ICEs at codegen (entry below; found by design 235's coercion-adoption grid) — FOLDED into the small-fix batch (same funnel as 235b)
-- DF-235b — a constant EXPRESSION source is never range-checked at MOST fixed-width positions (silent truncation or silent over-width storage), and is spuriously refused at compound-assign's RHS (entry below; same funnel gap as DF-235a) — FOLDED into the small-fix batch; NOTE: silent truncation cuts against the "bounds/overflow checks always on" language claim, so this is the batch's priority item
+- DF-240a — a const expression whose LEAF is a module `static` still does not adopt its fixed-width slot (entry below) — WANTS A RULING, filed by design 240 items 1-2's own sweep
 - Extension-head visibility — RULED Aug 20: BANNED, visibility belongs on members; ~107-site migration rides the small-fix batch after 239 (entry below; the narrowing landed before the ban, leaving the one `public(package) extension Console` head untouched for the batch)
 - DF-216c — generic statics never instantiate type params (entry below, under design 216) — ASSESSED in 239 (Aug 20): DIFFERENT mechanism — the static call path has NO monomorphization for the method's own type params (`_check_static_method_call` lacks the instance path's solve block; codegen stops at the struct); sites located in the entry, needs its own fix
 - DF-217d — generic static with default type+value ICE (entry below, under the obligation-4 retro triage) — same missing path as DF-216c (`Undefined static method` is the codegen face); rides its fix
@@ -236,6 +235,7 @@ suspending calls in expression positions. [237, 217, 218]
 ## DF-235a — a constant EXPRESSION element/payload ICEs at codegen: a plain
 ## array literal (mixed with an adopted sibling) and a `Result` payload slot
 ## both `insert_value`-crash (filed Aug 20, design 235's coercion grid)
+## — CLOSED Aug 21, design 240 items 1-2 (branch `design-240`)
 
 Found probing grid 1's "const expression" column (design 185's folded
 shift/arithmetic/bitwise family — `(1 << 3) | (1 << 4)`) against the
@@ -292,10 +292,47 @@ PINS: `examples/coercion/array_literal_const_element_ice.saw`,
 `examples/coercion/result_slot_const_expression_ice.saw` (both XFAIL).
 [235, 87, 195]
 
+LANDED Aug 21 (design 240 items 1-2, one commit — the two findings are one
+funnel gap and one arm closes both). `_apply_literal_expected_type` gained
+case (2b): a `BinaryOp` (or a `~`/negated `UnaryOp`, through case (2)) at a
+FIXED-WIDTH expectation is folded by the one `const_eval` and range-checked
+against the slot with the same words case (1) gives a bare literal, then
+stamped `const_folded_value` + the slot's type; `_check_binary_op` /
+`_check_unary_op` answer from the stamp and codegen emits the constant AT
+that width. Every position the funnel serves was fixed by the one arm — no
+per-position patch — and the two ICEs went with it (the array's LLVM element
+type now agrees because both elements adopt; the Result wrap receives the
+payload width it assumed). Pins renamed for the behaviour they now pin and
+un-XFAIL'd: `array_literal_const_element_mixed.saw`,
+`array_literal_const_element_range_check.saw`,
+`result_slot_const_expression.saw`. Ledger rows in
+`examples/coercion/INDEX.md` flipped (20 S3 cells).
+TWO NOTES for the record. (1) The stamp pair, not `resolved_type`, is what
+the checker reads: the place lowering UNCHECKS the tree between the two
+front-half passes, so `resolved_type` is gone by the second one — reading it
+made an already-folded `-(1 << 7)` re-descend into its operand and refuse
+`128` on pass two. (2) The fold is design 185's SIGNED platform-`Int`
+domain, so `1 << 63` at a `UInt64` slot is now a REFUSAL where it used to
+reinterpret the bit pattern silently — consistent with the refusal
+`(1 << 63) as UInt64` already gave and with a bare
+`-9223372036854775808` there. Corpus swept for the shape before landing
+(`~0`, `1 << 63`, `1 << 31`): every occurrence is a `static_assert`, an array
+length or a platform-`Int` slot, none at a fixed-width unsigned one, and the
+full suite is green. Pinned by `const_expression_signed_domain_error.saw`
+beside `const_expression_unary_adopts.saw`.
+ONE BOUNDARY, deliberately not widened: the arm folds what `const_eval`
+answers from the AST it is handed, so a const expression naming a module
+`static` or a raw-backed enum case (`1 << PAGE_SHIFT`, `Perm.Read |
+Perm.Write`) still reaches the slot un-adopted. Stamping those names here
+would need `_stamp_const_names`, which also stamps enum raw values — and
+design 185 unit 4 rules that a flag-enum read is a constant only IN a const
+position. Widening it is a RULING, not a fix; filed as DF-240a below.
+
 ## DF-235b — a constant EXPRESSION source is never range-checked at MOST
 ## fixed-width positions — silent truncation, silent over-width storage, or
 ## (one position) a spurious refusal of an otherwise-legal value (filed
 ## Aug 20, design 235's coercion grid; same funnel gap as DF-235a)
+## — CLOSED Aug 21, design 240 items 1-2 (branch `design-240`)
 
 The SILENT half of DF-235a's mechanism: everywhere DF-235a's missing
 `BinaryOp` case in `_apply_literal_expected_type` does NOT reach codegen as
@@ -356,6 +393,38 @@ PINS: `examples/coercion/const_expression_range_unchecked_narrow.saw`,
 `examples/coercion/const_expression_range_unchecked_wide.saw`,
 `examples/coercion/compound_assign_const_expression_refused.saw` (all
 XFAIL). [235, 87, 195, 232a, 232c]
+
+LANDED Aug 21 with DF-235a — one commit, one funnel arm; the mechanism and
+the two notes worth keeping are in DF-235a's landing paragraph above. Pins
+renamed for the behaviour they now pin and un-XFAIL'd:
+`const_expression_range_checked_narrow.saw`,
+`const_expression_range_checked_wide.saw`,
+`compound_assign_const_expression.saw`. Two new files cover the shapes the
+fix newly determines: `const_expression_unary_adopts.saw` (a negated const
+expression and a `~` mask) and `const_expression_signed_domain_error.saw`.
+The named-`static` leaf is the one shape left un-adopted — DF-240a.
+
+## DF-240a — a const expression whose LEAF is a module `static` still does
+## not adopt its fixed-width slot, so it is not range-checked (filed Aug 21,
+## design 240 items 1-2's own sweep) — WANTS A RULING
+
+`static PAGE_SHIFT: Int = 20` then `let e: UInt16 = 1 << PAGE_SHIFT` compiles
+clean and prints `0`; spelled `1 << 20` it is the clean "does not fit in
+`UInt16`" error the same file's sibling pins. The size-in-one-place idiom
+(DF-172j) is exactly the spelling that loses the check.
+MECHANISM: design 240's funnel arm folds through `const_eval` over the AST it
+is handed, and a static's value reaches that AST only where an earlier pass
+stamped `const_static_value` — which is a CONST-REQUIRED position, not an
+ordinary expression. The walk that would supply it, `_stamp_const_names`,
+also stamps a raw-backed enum CASE, and design 185 unit 4 rules a flag-enum
+read (`Perm.Read | Perm.Write`) a constant only IN a const position. So the
+fix is not "call the stamper here": it decides whether an ADOPTION position
+is a const position for naming purposes, which widens 185 unit 4 as a side
+effect or needs a narrower stamper that deliberately excludes enum cases.
+THE RULING OWED: does a fixed-width adoption slot count as a const position
+for NAME resolution — and if so, does the flag-enum reading come with it?
+PIN: `examples/coercion/const_expression_named_static_operand.saw` (XFAIL).
+[240, 235, 185, 172j]
 
 ## Design 238 — the sawos split (AUTHORED Aug 19, FOUR RULINGS same day;
 ## QUEUED after the sos riders batch, BEFORE the M3 ladder)

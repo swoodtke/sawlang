@@ -65,7 +65,8 @@ SIX FAMILIES. Five ride the AST as DECLARED `annotation(...)` fields (design
    `resolved_struct_name`/`resolved_static_symbol`, `mangled_symbol`,
    `tuple_field_index`, `enum_raw_value`/`enum_from_raw`/`resolved_enum_init`,
    `alias_construction`, `as_function_call`, `type_args_inferred`,
-   `const_param_name`/`const_static_value`/`const_static_reject`,
+   `const_param_name`/`const_static_value`/`const_static_reject`/
+   `const_folded_value`,
    `int_limit`/`int_from`, `optional_take`, `optional_presence`, `cast_check`,
    `repeat_count`,
    `use_general_match`, the three `is_*_construct` markers,

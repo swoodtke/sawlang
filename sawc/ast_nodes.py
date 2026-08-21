@@ -1008,12 +1008,26 @@ class BinaryOp(Expression):
     op: str
     left: Expression
     right: Expression
+    # DF-235a/b: this whole operation is a CONSTANT EXPRESSION that reached a
+    # fixed-width slot, so `_apply_literal_expected_type` folded it (through the
+    # one `const_eval`), range-checked the result against the slot exactly as it
+    # range-checks a bare literal, and stamped the value here with the slot's
+    # type on `resolved_type`. Codegen emits the constant instead of the
+    # operation — which is what makes the declared width the width that is
+    # actually stored, rather than platform `Int` narrowed (or not) at the store.
+    const_folded_value: Optional[int] = annotation(None)
 
 
 @dataclass
 class UnaryOp(Expression):
     op: str
     operand: Expression
+    # DF-235a/b, the same stamp `BinaryOp` carries and for the same reason: a
+    # constant `~mask` or a negated constant expression (`-(1 << 7)`) is folded
+    # and range-checked AT the fixed-width slot it lands in, and codegen emits
+    # the value. Negation is what makes it necessary rather than tidy — the
+    # check has to see `-128`, not the `128` underneath it.
+    const_folded_value: Optional[int] = annotation(None)
 
 
 @dataclass

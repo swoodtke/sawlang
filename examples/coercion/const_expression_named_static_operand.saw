@@ -1,0 +1,29 @@
+// XFAIL: DF-240a a constant expression whose leaf is a module `static` does not
+// adopt the fixed-width slot it lands in, so it is not range-checked there —
+// the one shape of the const-expression family design 240 items 1-2 left
+// un-adopted.
+//
+// `1 << PAGE_SHIFT` for `static PAGE_SHIFT: Int = 20` is 1048576, out of
+// `UInt16`'s 0..=65535 range. Spelled `1 << 20` it is a clean error
+// (const_expression_range_checked_narrow.saw); given the size a NAME — the
+// size-in-one-place idiom the language recommends — it compiles clean and
+// prints `0`.
+//
+// MECHANISM: `_apply_literal_expected_type` case (2b) folds through
+// `const_eval` over the AST it is handed, and a `static`'s value reaches that
+// AST only where an earlier pass stamped `const_static_value` — which happens
+// in a CONST-REQUIRED position, not in an ordinary expression. The stamping
+// walk that would supply it, `_stamp_const_names`, also stamps a raw-backed
+// enum case, and design 185 unit 4 rules that `Perm.Read | Perm.Write` is a
+// constant only IN a const position — so calling it here would widen that rule
+// as a side effect. Which is why this wants a ruling rather than a patch.
+//
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: does not fit in `UInt16`
+
+static PAGE_SHIFT: Int = 20
+
+func main() {
+    let e: UInt16 = 1 << PAGE_SHIFT
+    print("{e}")
+}

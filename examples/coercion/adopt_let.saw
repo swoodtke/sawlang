@@ -4,13 +4,11 @@
 // const expression (design 185) adopt `T` exactly, at every fixed integer
 // width.
 //
-// NOTE (DF-235b): the const-expression rows demonstrate the VALUE flowing
-// correctly when it fits — they do NOT demonstrate range-checking. An
-// out-of-range const expression at an annotated `let` silently truncates
-// instead of refusing (probe-confirmed; see DF-235b's tracker entry and
-// const_expression_range_unchecked_narrow.saw for the pinned case).
-// Range-checking IS verified for the bare-literal rows, whose
-// `_apply_literal_expected_type` case (1) does the check at the literal.
+// The const-expression rows demonstrate the VALUE flowing correctly when it
+// fits; the range check on the same family is pinned by
+// const_expression_range_checked_narrow.saw. Both run through
+// `_apply_literal_expected_type` — case (1) for the literal, case (2b) for the
+// folded expression — so one file per side covers the position.
 // EXPECT: success
 // EXPECT-OUTPUT:
 // bare i8 = 100

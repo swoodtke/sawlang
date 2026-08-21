@@ -1,0 +1,21 @@
+// A constant EXPRESSION (not a bare integer literal) reaching an annotated
+// `let` is range-checked against the declared width, exactly as a bare literal
+// of the same value is. `1 << 20` is 1048576, out of `UInt16`'s 0..=65535
+// range, so it is a compile error — where it used to compile clean and print
+// `0` (1048576 mod 65536), a different in-range value, silently (DF-235b).
+//
+// SAME RULE, one funnel, at every fixed-width position it serves: a `static`
+// initializer, a struct-literal field, a positional argument, `return`, a
+// default parameter value, a value `if` arm, a `match` arm, and a plain
+// assignment target. `_apply_literal_expected_type` gained the const-expression
+// case, folds through the one `const_eval`, and range-checks the result where
+// it range-checks a literal — so none of those positions carries a rule of its
+// own. The out-of-range value is pinned once, here.
+//
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: does not fit in `UInt16`
+
+func main() {
+    let e: UInt16 = 1 << 20
+    print("{e}")
+}

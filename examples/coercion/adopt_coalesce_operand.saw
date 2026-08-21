@@ -3,12 +3,10 @@
 // (design 176's `??` peels one layer), so a bare literal (S1) and a folded
 // const expression (S3) both adopt the payload's fixed width.
 //
-// NOTE (DF-235b): the const-expression row demonstrates the VALUE flowing
-// correctly when it fits — it does NOT demonstrate range-checking. An
-// out-of-range const expression as a `??` operand silently carries the
-// value at PLATFORM width instead of refusing (probe-confirmed; see
-// DF-235b's tracker entry and const_expression_range_unchecked_wide.saw
-// for the pinned sibling case).
+// The const-expression row demonstrates the VALUE flowing correctly when it
+// fits; the range check the same family owes is pinned by
+// const_expression_range_checked_wide.saw, this row's sibling in the family
+// that used to carry the value at PLATFORM width instead of the declared one.
 // EXPECT: success
 // EXPECT-OUTPUT:
 // bare = 9

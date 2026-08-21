@@ -315,6 +315,16 @@ class OperatorsMixin:
         bitwise (&, |, ^, <<, >>), comparison (==, !=, <, >, <=, >=), and
         logical (&&, ||) operators.
         """
+        # DF-235a/b: a CONSTANT expression that adopted a fixed-width slot. The
+        # typechecker folded it and range-checked the result there (the same
+        # check a bare literal takes), so what is owed here is the value AT the
+        # declared width — emitting the operation instead would compute it at
+        # platform width and leave the store to narrow it, which is the gap.
+        folded_type = expr.resolved_type or expr.expected_type
+        if expr.const_folded_value is not None and folded_type is not None:
+            return ir.Constant(self._get_llvm_type(folded_type),
+                               expr.const_folded_value)
+
         # Handle short-circuit logical operators specially
         if expr.op == '&&':
             return self._generate_logical_and(expr)
@@ -1213,6 +1223,15 @@ class OperatorsMixin:
 
     def _generate_unary_op(self, expr: UnaryOp):
         """Generate code for unary operations (-, not)."""
+        # DF-235a/b: a folded constant expression at a fixed-width slot — the
+        # same rule `_generate_binary_op` opens with, and the reason the operand
+        # is not generated at all here (`-(1 << 7)` at `Int8` would negate a
+        # magnitude the width cannot hold).
+        folded_type = expr.resolved_type or expr.expected_type
+        if expr.const_folded_value is not None and folded_type is not None:
+            return ir.Constant(self._get_llvm_type(folded_type),
+                               expr.const_folded_value)
+
         operand = self._generate_expression(expr.operand)
 
         if expr.op == '-':

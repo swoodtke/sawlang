@@ -1,0 +1,27 @@
+// A `Result` Ok payload that is a constant EXPRESSION adopts the payload's
+// declared width, the same peel DF-226e gave a bare literal: the funnel picks
+// the unique payload an integer could take, then folds and range-checks the
+// expression against it.
+//
+// `ResultOkWrap` codegen assumes the adopted width was reached, so before this
+// it threw an internal compiler error building the wrap struct out of a
+// platform-`Int` value (DF-235a). See array_literal_const_element_mixed.saw for
+// the sibling symptom and the shared mechanism.
+//
+// EXPECT: success
+// EXPECT-OUTPUT: 24
+
+struct Bad { code: Int }
+extension Bad: Printable {
+    func format(&self, into: &var StringBuilder) { into.append("bad") }
+}
+extension Bad: Error {}
+
+func give() -> Result<UInt16, Bad> { return (1 << 3) | (1 << 4) }
+
+func main() {
+    match give() {
+        case Ok(v) -> print("{v}"),
+        case Err(_) -> print("err")
+    }
+}

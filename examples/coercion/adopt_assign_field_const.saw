@@ -5,10 +5,9 @@
 // target; this file closes the const-expression gap for the field and
 // field-through-element targets specifically, for an IN-RANGE value.
 //
-// NOTE (DF-235b): this demonstrates the VALUE flowing correctly when it
-// fits — it does NOT demonstrate range-checking, which the SAME family
-// silently skips at a plain (local) assignment target (probe-confirmed;
-// see DF-235b's tracker entry and const_expression_range_unchecked_narrow.saw).
+// This demonstrates the VALUE flowing correctly when it fits; the range check
+// the same family owes is pinned by const_expression_range_checked_narrow.saw,
+// which covers every position the one adoption funnel serves.
 // EXPECT: success
 // EXPECT-OUTPUT:
 // field = 24

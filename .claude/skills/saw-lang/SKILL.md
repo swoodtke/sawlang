@@ -123,6 +123,21 @@ print("{#file}:{#line} - msg")  // #file/#line/#function: definition-site consts
   A closure's `return` behaves as a named body's; a closure's TAIL
   still does not auto-wrap into a Result at all (DF-232d, open —
   `{ x in 12 }` at a `-> Result<Int32, E>` slot; use `return 12`).
+  **A CONSTANT EXPRESSION IS ON THAT LIST TOO (DF-235a/b, fixed Aug 21):**
+  anything the const evaluator folds — `2 + 3`, a shift, a mask, `~m`, a
+  negated constant — adopts the slot's width and is range-checked on the
+  FOLDED value, so `let e: UInt16 = 1 << 20` is the same clean "does not
+  fit" error the bare `1048576` is, and `let a: Int8 = -(1 << 7)` is
+  `Int8.min` and compiles. GOTCHA: the fold is in design 185's SIGNED
+  platform-`Int` domain, so `1 << 63` is `Int.min` and does NOT fit a
+  `UInt64` — mask it (`~0 & 0xFFFF_FFFF`) or write the literal, exactly as
+  `(1 << 63) as UInt64` has always demanded. A runtime operand is not a
+  constant, so `n * 2` is untouched. Treat all of it as working now and
+  SUSPECT in older builds: most positions SILENTLY TRUNCATED (`1 << 20` at
+  `UInt16` printed 0), the repeat literal and the `??` operand carried the
+  value at platform width past the declared one, `acc += (1 << 2) + 4` was
+  refused outright, and a mixed array literal or a Result payload was a
+  codegen ICE.
   **IDIOM (user ruling, Aug 16): no suffix where an expected type is in
   force.** `static CR: UInt32 = 0x301u32` says the width twice — write
   `0x301`; same in a param (`reg.write(0)`), a comparison against a typed

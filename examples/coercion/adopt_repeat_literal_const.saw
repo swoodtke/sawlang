@@ -4,18 +4,12 @@
 // `[0; 256]`-shaped uses throughout the corpus; this file is the const-
 // expression case at a fixed element width, for an IN-RANGE value.
 //
-// NOTE (DF-235b): the value prints correctly here, but this does NOT mean
-// the element genuinely adopted `UInt32`. `_check_repeat_literal`
-// (sawc/typechecker/expressions.py:4852) reassigns a LOCAL variable
-// (`elem_type = arr_elem`, line 4893) after the element fits, but never
-// writes that back onto the element's own AST node — so codegen still
-// carries the const expression at whatever width `_check_expression`
-// naturally gave it, which for an un-adopted `BinaryOp` is platform `Int`.
-// Probe-confirmed: `[1 << 20; 2]` at `[UInt16; 2]` compiles clean and
-// prints the UNTRUNCATED `1048576`, not the value `UInt16` could hold —
-// see const_expression_range_unchecked_wide.saw (DF-235b) for that pinned
-// case. This row's small in-range value (24) happens to print correctly
-// either way, which is exactly why the gap went unnoticed.
+// The element genuinely adopts `UInt32` now: the adoption funnel folds a const
+// expression and stamps the slot's type on it, so the value is stored at the
+// declared width rather than carried at platform width past it. The
+// out-of-range side of the same row is pinned by
+// const_expression_range_checked_wide.saw. This row's small in-range value (24)
+// printed correctly either way, which is exactly why the gap went unnoticed.
 //
 // EXPECT: success
 // EXPECT-OUTPUT:

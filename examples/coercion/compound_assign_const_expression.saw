@@ -1,0 +1,18 @@
+// Compound assignment's RHS takes a constant EXPRESSION at the target's width,
+// exactly as it takes a bare literal. `acc += (1 << 2) + 4` and `acc += 8` are
+// the same statement for an `acc: Int16`.
+//
+// This position had no leniency fallback, so instead of mis-storing it REFUSED
+// the value outright: the RHS was left at platform `Int` and design 195's
+// operand-agreement check reported `Int16` against `Int` by TYPE, never
+// reaching a value question (DF-235b). The adoption funnel now folds the RHS
+// against the target width first, so the two operands agree.
+//
+// EXPECT: success
+// EXPECT-OUTPUT: 108
+
+func main() {
+    var acc: Int16 = 100
+    acc += (1 << 2) + 4
+    print("{acc}")
+}

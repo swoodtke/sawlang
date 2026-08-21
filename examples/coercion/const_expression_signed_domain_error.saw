@@ -1,0 +1,19 @@
+// A constant expression folds in design 185's SIGNED platform-`Int` domain, so
+// `1 << 63` is `Int.min` on a 64-bit target — a negative value, which no
+// unsigned slot holds. Refused at the slot, in the same words a bare
+// `-9223372036854775808` there is refused, and the same reading
+// `(1 << 63) as UInt64` already gave ("is not representable as `UInt64`").
+//
+// It used to compile: the expression never adopted the slot's width, so the
+// store reinterpreted the bit pattern and the program printed
+// 9223372036854775808 with nothing checked (DF-235b). Write the value the slot
+// can hold — a bare `0x8000_0000_0000_0000` literal, or the masked spelling in
+// const_expression_unary_adopts.saw.
+//
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: does not fit in `UInt64`
+
+func main() {
+    let a: UInt64 = 1 << 63
+    print("{a}")
+}

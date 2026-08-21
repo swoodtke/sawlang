@@ -3,18 +3,13 @@
 // bare-literal (S1) row for both is already covered by
 // literal_coercion_positions.saw.
 //
-// NOTE (DF-235b): this demonstrates the value flowing correctly when it
-// fits — it does NOT demonstrate range-checking, which is a separate,
-// cited gap: an OUT-OF-RANGE const expression at either of these two rows
-// silently truncates instead of refusing (probe-confirmed; see DF-235b's
-// tracker entry and const_expression_range_unchecked_narrow.saw for the
-// pinned case).
+// This demonstrates the value flowing correctly when it fits; the range check
+// on the same two rows is pinned by const_expression_range_checked_narrow.saw,
+// which covers every position the one adoption funnel serves.
 //
-// The compound-assign RHS row belongs to this grid too but is NOT green:
-// `acc += (1 << 2) + 4` for `acc: Int16` is refused outright (the funnel
-// that adopts a bare literal there never reaches a `BinaryOp` const
-// expression at all) — see compound_assign_const_expression_refused.saw
-// (DF-235b) for that row's pin.
+// The compound-assign RHS row belongs to this grid too and has its own file,
+// compound_assign_const_expression.saw — it was the one position that refused a
+// legal value rather than mis-storing one.
 //
 // EXPECT: success
 // EXPECT-OUTPUT:

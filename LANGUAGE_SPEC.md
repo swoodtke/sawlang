@@ -813,6 +813,16 @@ division libcalls (`__divdi3`) on a 32-bit chip. Consequently:
   (`let x = 5`), and `Int`/`Int` arithmetic is unaffected. The one place a
   literal is typed by a sibling rather than a declared slot is a mixed binop
   (`b + 0`, `fd < 200`): the literal adopts the other operand's fixed-width type.
+- **A CONSTANT EXPRESSION adopts and is range-checked exactly as a literal is.**
+  Anything the constant evaluator folds — `2 + 3`, a shift, a mask, `~m`, a
+  negated constant — takes the slot's fixed width at every position above, and
+  the check runs on the FOLDED value: `let e: UInt16 = 1 << 20` is the same
+  clean "does not fit" error `let e: UInt16 = 1048576` is, and `let a: Int8 =
+  -(1 << 7)` is `Int8.min` and compiles. The fold happens in the signed platform
+  `Int` domain (see *Constant expressions*), so `1 << 63` is `Int.min` and does
+  not fit an unsigned slot — mask it (`~0 & 0xFFFF_FFFF`) or write the literal.
+  An expression with a runtime operand in it is not a constant and is unaffected:
+  `n * 2` and `word | (1u32 << n)` type as they always did.
 - **A CLOSURE body's return positions are those positions too.** The tail
   expression, the if/match arm results inside it, and a `return` in the body all
   take the closure's declared return type, so a `(Int32) sync -> Int32` slot

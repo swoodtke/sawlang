@@ -15,6 +15,10 @@ mechanism this unit found.
   cell — cited, not duplicated), `N/A — reason` (structurally inapplicable),
   or `OPEN — needs ruling` (the authority does not determine the expected
   outcome; never invented).
+- **A cell whose RED was FIXED keeps both files** — the in-range one that
+  showed the value flowing and the one that pins the check — with the DF
+  recorded under "Findings filed by this ledger" rather than in the cell, so
+  the grid reads as coverage and the history stays one paragraph away.
 - **RED cells** are marked `RED (DF-xxx): file.saw` and take priority over
   any GREEN evidence for the same cell — a position that demonstrably works
   for an IN-RANGE value but does not range-check is still a red cell, with
@@ -57,28 +61,28 @@ covered once, here.
 
 | Position | S1 bare literal | S3 const expression |
 |---|---|---|
-| annotated `let` | `adopt_let.saw` | RED (DF-235b): `adopt_let.saw` (in-range) + `const_expression_range_unchecked_narrow.saw` |
-| assign — local | `existing: assignment_target_adopts_fixed_width.saw` | RED (DF-235b): `existing: assignment_target_adopts_fixed_width.saw` ("folded" row, in-range) + `const_expression_range_unchecked_narrow.saw` |
-| assign — field | `existing: assignment_target_adopts_fixed_width.saw` | RED (DF-235b): `adopt_assign_field_const.saw` (in-range) + `const_expression_range_unchecked_narrow.saw` |
-| assign — field-through-element | `existing: assignment_target_adopts_fixed_width.saw` | RED (DF-235b): `adopt_assign_field_const.saw` (in-range) + `const_expression_range_unchecked_narrow.saw` |
+| annotated `let` | `adopt_let.saw` | `adopt_let.saw` (in-range) + `const_expression_range_checked_narrow.saw` |
+| assign — local | `existing: assignment_target_adopts_fixed_width.saw` | `existing: assignment_target_adopts_fixed_width.saw` ("folded" row, in-range) + `const_expression_range_checked_narrow.saw` |
+| assign — field | `existing: assignment_target_adopts_fixed_width.saw` | `adopt_assign_field_const.saw` (in-range) + `const_expression_range_checked_narrow.saw` |
+| assign — field-through-element | `existing: assignment_target_adopts_fixed_width.saw` | `adopt_assign_field_const.saw` (in-range) + `const_expression_range_checked_narrow.saw` |
 | module-qualified static assign | RED (DF-232d): see grid 2, `mod.STATIC` × assign | RED (DF-232d): see grid 2 — the assign target itself never reaches an RHS-source question |
-| static initializer | `adopt_static_initializer.saw` | RED (DF-235b): `adopt_static_initializer.saw` (in-range) + `const_expression_range_unchecked_narrow.saw` |
-| argument — positional | `adopt_argument_return.saw` | RED (DF-235b): `adopt_argument_return.saw` (in-range) + `const_expression_range_unchecked_narrow.saw` |
-| argument — labeled | `adopt_argument_return.saw` | RED (DF-235b): `adopt_argument_return.saw` (in-range) + `const_expression_range_unchecked_narrow.saw` |
-| `return` | `adopt_argument_return.saw` | RED (DF-235b): `adopt_argument_return.saw` (in-range) + `const_expression_range_unchecked_narrow.saw` |
-| bare tail | `adopt_argument_return.saw` | RED (DF-235b): `adopt_argument_return.saw` (in-range) + `const_expression_range_unchecked_narrow.saw` |
-| struct-literal field | `adopt_struct_literal_field.saw` | RED (DF-235b): `adopt_struct_literal_field.saw` (in-range) + `const_expression_range_unchecked_narrow.saw` |
-| array element | `existing: literal_coercion_positions.saw` | RED (DF-235a/b): `array_literal_const_element_ice.saw` (mixed, ICE) + `const_expression_range_unchecked_wide.saw` (uniform, wrong width) |
-| repeat literal `[v; N]` | `existing:` saw-lang skill / corpus `[0; N]` usage (see `LANGUAGE_SPEC.md`) | RED (DF-235b): `adopt_repeat_literal_const.saw` (in-range) + `const_expression_range_unchecked_wide.saw` |
-| compound-assign RHS | `existing: literal_coercion_positions.saw` | RED (DF-235b): `compound_assign_const_expression_refused.saw` |
-| value `if` arm | `existing: literal_coercion_positions.saw` | RED (DF-235b): `adopt_compound_and_arms_const.saw` (in-range) + `const_expression_range_unchecked_narrow.saw` |
-| `match` arm | `existing: literal_coercion_positions.saw` | RED (DF-235b): `adopt_compound_and_arms_const.saw` (in-range) + `const_expression_range_unchecked_narrow.saw` |
-| `??` operand | `adopt_coalesce_operand.saw` | RED (DF-235b): `adopt_coalesce_operand.saw` (in-range) + `const_expression_range_unchecked_wide.saw` |
-| Optional payload slot | `existing: optional_slot_literal_adopts_payload_width.saw` | RED (DF-235b): `const_expression_range_unchecked_wide.saw` |
-| Result payload slot — unique-adopt | `existing: result_slot_literal_adopts_payload_width.saw` | RED (DF-235a): `result_slot_const_expression_ice.saw` |
+| static initializer | `adopt_static_initializer.saw` | `adopt_static_initializer.saw` (in-range) + `const_expression_range_checked_narrow.saw` |
+| argument — positional | `adopt_argument_return.saw` | `adopt_argument_return.saw` (in-range) + `const_expression_range_checked_narrow.saw` |
+| argument — labeled | `adopt_argument_return.saw` | `adopt_argument_return.saw` (in-range) + `const_expression_range_checked_narrow.saw` |
+| `return` | `adopt_argument_return.saw` | `adopt_argument_return.saw` (in-range) + `const_expression_range_checked_narrow.saw` |
+| bare tail | `adopt_argument_return.saw` | `adopt_argument_return.saw` (in-range) + `const_expression_range_checked_narrow.saw` |
+| struct-literal field | `adopt_struct_literal_field.saw` | `adopt_struct_literal_field.saw` (in-range) + `const_expression_range_checked_narrow.saw` |
+| array element | `existing: literal_coercion_positions.saw` | `array_literal_const_element_mixed.saw` (mixed widths) + `array_literal_const_element_range_check.saw` (uniform, range) |
+| repeat literal `[v; N]` | `existing:` saw-lang skill / corpus `[0; N]` usage (see `LANGUAGE_SPEC.md`) | `adopt_repeat_literal_const.saw` (in-range) + `const_expression_range_checked_wide.saw` |
+| compound-assign RHS | `existing: literal_coercion_positions.saw` | `compound_assign_const_expression.saw` |
+| value `if` arm | `existing: literal_coercion_positions.saw` | `adopt_compound_and_arms_const.saw` (in-range) + `const_expression_range_checked_narrow.saw` |
+| `match` arm | `existing: literal_coercion_positions.saw` | `adopt_compound_and_arms_const.saw` (in-range) + `const_expression_range_checked_narrow.saw` |
+| `??` operand | `adopt_coalesce_operand.saw` | `adopt_coalesce_operand.saw` (in-range) + `const_expression_range_checked_wide.saw` |
+| Optional payload slot | `existing: optional_slot_literal_adopts_payload_width.saw` | `const_expression_range_checked_wide.saw` |
+| Result payload slot — unique-adopt | `existing: result_slot_literal_adopts_payload_width.saw` | `result_slot_const_expression.saw` |
 | Result payload slot — ambiguous refusal | `existing: result_slot_literal_ambiguous_payloads.saw` | `adopt_result_ambiguous_const.saw` (correctly refused — GREEN) |
 | enum raw value | `existing:` corpus-wide (`enum145_*.saw`, `sos/`) | `existing: enum_raw_value_takes_const_expression.saw` |
-| default parameter value | `existing: literal_coercion_positions.saw` | RED (DF-235b): `const_expression_range_unchecked_narrow.saw` |
+| default parameter value | `existing: literal_coercion_positions.saw` | `const_expression_range_checked_narrow.saw` |
 
 Two supplementary rows, not part of the position × source cross but part of
 the same funnel's coverage:
@@ -91,21 +95,36 @@ the same funnel's coverage:
   same clean refusal as S6/S7 (not a constant expression either); not
   separately pinned since it is the identical diagnostic.
 - S4-S8 sweep: `adopt_typed_source_sweep.saw` (see Conventions above).
+- The UNARY shapes of an S3 source, which the funnel folds through the same
+  case: a negated const expression (`-(1 << 7)` at `Int8` — the value fits only
+  once negated, so the whole expression is folded rather than its operand) and a
+  `~` mask, both in `const_expression_unary_adopts.saw`. Design 185's fold
+  domain is the SIGNED platform `Int`, so an unmasked `1 << 63` at a `UInt64`
+  slot is a refusal, not a bit-pattern reinterpretation:
+  `const_expression_signed_domain_error.saw`.
+- **RED (DF-240a)**: an S3 source whose LEAF is a module `static`
+  (`1 << PAGE_SHIFT`) is the one const-expression shape that still does not
+  adopt, so it is not range-checked either — pin
+  `const_expression_named_static_operand.saw` (XFAIL). It wants a ruling, not a
+  patch: supplying the name's value at this point also supplies a raw-backed
+  enum case's, and design 185 unit 4 says a flag-enum read is a constant only IN
+  a const position.
 
-**Cell counts, grid 1** (22 positions × 8 sources = 176 nominal cells): 23
-green (own file or a same-shape existing-file cite: 21 on S1 + 2 on S3 —
-Result's ambiguous refusal and enum raw value), 21 red (1 on S1 — the
-module-qualified static assign row, which points at grid 2's DF-232d cells
-rather than duplicating them — + 20 on S3, all DF-235a/b), 132 cited (S2's
-22 cells plus S4-S8's 110 cells, all pointing at
+**Cell counts, grid 1** (22 positions × 8 sources = 176 nominal cells): 43
+green (own file or a same-shape existing-file cite: 21 on S1 + 22 on S3 —
+every position the adoption funnel serves, since design 240 gave it the
+const-expression case), 1 red (on S1 — the module-qualified static assign
+row, which points at grid 2's DF-232d cells rather than duplicating them),
+132 cited (S2's 22 cells plus S4-S8's 110 cells, all pointing at
 `adopt_typed_source_sweep.saw` or the row's own S1 file per the Conventions
 note above), 0 OPEN. Two SUPPLEMENTARY cells outside the 176 (enum raw
 value × S6/S7) are green (correctly refused, no ICE); two more (enum raw
 value × S4/S5) are N/A — no enclosing function scope or receiver exists
 inside an enum declaration, so those sources cannot be written at all.
-21 red cells resolve to 9 distinct XFAIL pins (DF-235b's silent-narrow and
-silent-wide families each cover several positions from one canonical
-repro, per the file-granularity XFAIL rule and "cite it, don't duplicate").
+The 20 S3 cells this ledger filed RED went green together (design 240 items
+1-2): they were one funnel gap, and one arm closed all of them, so the S3
+column cites two canonical repros — the narrow and wide families — plus the
+per-position in-range file, exactly as the S1 column always did.
 
 ## Grid 2 — Qualified-name-as-target: access path × operation
 
@@ -144,16 +163,21 @@ paths exercise through a `Vector`.
 
 ## Findings filed by this ledger
 
-- **DF-235a** — a constant-expression element/payload ICEs at codegen (a
-  plain array literal, mixed with an adopted sibling; a `Result` payload
-  slot). Pins: `array_literal_const_element_ice.saw`,
-  `result_slot_const_expression_ice.saw`.
-- **DF-235b** — a constant-expression source is never range-checked at
-  most fixed-width positions (silent narrow truncation, silent wide
-  storage, or — one position — a spurious refusal). Pins:
-  `const_expression_range_unchecked_narrow.saw`,
-  `const_expression_range_unchecked_wide.saw`,
-  `compound_assign_const_expression_refused.saw`.
+- **DF-235a** (FIXED, design 240 items 1-2) — a constant-expression
+  element/payload ICEd at codegen (a plain array literal, mixed with an
+  adopted sibling; a `Result` payload slot). Regression tests:
+  `array_literal_const_element_mixed.saw`,
+  `array_literal_const_element_range_check.saw`,
+  `result_slot_const_expression.saw`.
+- **DF-235b** (FIXED, design 240 items 1-2) — a constant-expression source was
+  never range-checked at most fixed-width positions (silent narrow truncation,
+  silent wide storage, or — one position — a spurious refusal). Regression
+  tests: `const_expression_range_checked_narrow.saw`,
+  `const_expression_range_checked_wide.saw`,
+  `compound_assign_const_expression.saw`, plus
+  `const_expression_unary_adopts.saw` and
+  `const_expression_signed_domain_error.saw` for the unary shapes and the
+  fold domain's boundary.
 - **DF-232d correction** — the finding's "writes"/"refs" rows for
   `mod.STATIC` do not hold; every write/reference shape through a
   qualifier ICEs at codegen, not just the originally-filed plain
@@ -161,6 +185,10 @@ paths exercise through a `Vector`.
   `qualname_mod_static_assign_error.saw` (original),
   `qualname_mod_static_compound_assign_ice.saw`,
   `qualname_mod_static_refarg_ice.saw`, `qualname_mod_static_write_ice.saw`.
+
+- **DF-240a** (OPEN, filed by design 240's own sweep) — a const expression whose
+  leaf is a module `static` does not adopt, so it is not range-checked. Pin:
+  `const_expression_named_static_operand.saw`.
 
 No OPEN cells in either grid — every cell this brief's grids name was
 determined by direct compile/run evidence.
