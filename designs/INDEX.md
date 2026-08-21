@@ -245,6 +245,7 @@ Navigation only. One line per design brief in `designs/` (number, file, the brie
 - **237** — `237-anf-hoist-funnel.md` — the ANF-hoist funnel: one entry set, one temp-ownership rule; closes DF-217f/g/h + DF-218n (218e pending mechanism check); runs before 234
 - **238** — `238-sawos-split.md` — the sawos split: SOS leaves the language repo; imgformat → libs/, the freestanding suite that re-founds the compiler gate, `$PATH`-then-pinned-fetch toolchain discovery; runs before the M3 ladder
 - **239** — `239-comparable-by-reference.md` — Comparable/Equatable take `other: &Self`: DF-216b's class + C12 closed by construction, the stopgap deleted, NoCopy comparison legitimate; after 236, before 235
+- **240** — `240-small-fix-batch.md` — the small-fix batch: eight ruled/mechanism-read items (const-expression adoption, the extension-head ban + migration, Float64 removal, bare-import paths, qualifier writes, cycle diagnostic, imported-const folding)
 - **archive** — `done_aug1-aug9.md` — Aug 1 – Aug 9, 2026 — landed/closed tracker recaps, archived at the Aug-9 split
 - **archive** — `done_aug10-aug17.md` — Aug 10 – Aug 17, 2026 — landed/closed tracker recaps, archived at the Aug-17 split
 - **archive** — `done_aug18-aug25.md` — Aug 18 – Aug 25, 2026 — landed/closed tracker recaps, opened at the Aug-18 split
