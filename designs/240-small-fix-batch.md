@@ -81,6 +81,20 @@ expression folds inline. Fix: the collector resolves imported consts
 through the same lookup the inline path uses. The entry's fold/refuse
 matrix is the test plan.
 
+## 9. DF-217m sync half — the sync call path leaks temps (added Aug 21,
+released from the user-reserved list)
+
+A by-value OWNING argument to a METHOD is never deinited, and a call-result
+temp RECEIVER (`mk(3).n`) is never deinited — three values created, one
+deinit, in ordinary sync code. The SUSPENDING twin releases exactly once, so
+the coro path is the ORACLE: fix the sync call path's temp deinits to match
+it. PIN: `examples/sync_call_temp_released_once.saw` (currently half-pinned;
+the entry under NEXT-WAVE SWEEPS has the shapes). The coro FACE of DF-217m
+(receiver-temp timing) is NOT this item — it rides design 218 unit 2 under
+DF-217p's scope-end ruling. corodiff is the acceptance harness for this
+item: its known-ledger entries for the sync-leak rows come OUT in the fixing
+commit, and the gate includes the corodiff lane.
+
 ## Gates and conduct
 
 Compiler branch: per-commit full suite + sos_runner both arches; terminal

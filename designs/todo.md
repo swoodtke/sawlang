@@ -41,7 +41,7 @@ is scheduled and in what order is the whole of what they say.
 RESOLVED Aug 20 (user): the 234 carve-out is WITHDRAWN — M3 unit 1.5 waits
 for sawos; "238 before more M3 work" is absolute.
 
-User-reserved (hand fixes): DF-232h (rides 234 u1 unless taken earlier), DF-217m sync half (entry below, under NEXT-WAVE SWEEPS)
+(User-reserved list RELEASED by user, Aug 21: DF-232h rides design 234 unit 1 as an implemented task — the auto-wrap ladder extraction is exactly unit 1's machinery; DF-217m's sync half is design 240's item 9. Neither is a hand fix anymore.)
 
 ## [BACKLOG] — filed, not scheduled
 
