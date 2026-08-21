@@ -33,6 +33,8 @@ is scheduled and in what order is the whole of what they say.
 
 - Design 241 — undefined type names + the DF-240a const-position amendment (designs/241-undefined-type-names.md; ruled Aug 21) — FIRST ON RESUME, before 205
 - Design 205 — platform-pair transfer conversions (designs/205-transfer-conversion-closes.md; worked solution recorded in the brief) — position in queue provisional, before 234 suggested
+- Design 218 unit 2 — the scope-end migration (SCHEDULED Aug 21, user): DF-217p (RULED Aug 20, scope-end required; the corodiff ledger's 61+2+3 cells are the acceptance matrix) + DF-217m coro face (rides) + DF-218e (same transform; mechanism confirmed by 237's census) — entries below, under design 218 / NEXT-WAVE SWEEPS; retires the bulk of corodiff_known.txt. BEFORE 234's corpus churn
+- Small-fix batch — DF-216c generic-static monomorphization (+DF-217d rides, same missing path) + DF-216h renamed extension param plumbing + DF-219c bound-aware spawn capture audit (SCHEDULED Aug 21, user; entries below — all three mechanisms assessed, sites located; DF-239b joins only if its resolution strategy is settled at briefing)
 - Design 234 — the fallibility flip (designs/234-fallibility-flip.md) — after 235/237 (the M3-1.5 interleave carve-out WITHDRAWN by user, Aug 20 — 1.5 waits for sawos)
 - sos riders batch — REMAINDER ONLY: `clock_get` `kind:`→`type:` (DF-232b landed), abi enums decimals→shifts (DF-232c landed). The kcore re-narrowing LANDED Aug 20; the member audit RAN Aug 20 and its narrowing unit LANDED Aug 20 (84 sites: 78 `public(package)`, 6 private, 2 consumed; the audit's file-local split was inverted — DF-232q); see the re-narrowing rider section
 - Design 238 — the sawos split (designs/238-sawos-split.md; four rulings Aug 19, D-b1/b2/b3 open) — BEFORE the M3 ladder; its unit 1 (the freestanding suite) may start any time and is worth pulling forward
@@ -49,11 +51,6 @@ for sawos; "238 before more M3 work" is absolute.
 - DF-239b — deep argument typing unchecked on the generic-bound call path (entry below, beside DF-239a)
 - DF-232g RESIDUE — a DECLARED array length that never folds reports with NO FILE from codegen (entry below; the fold half CLOSED Aug 21, this half wants a declared `source_file` annotation on the expression base)
 - DF-240a — a const expression whose LEAF is a module `static` still does not adopt its fixed-width slot (entry below) — WANTS A RULING, filed by design 240 items 1-2's own sweep
-- DF-216c — generic statics never instantiate type params (entry below, under design 216) — ASSESSED in 239 (Aug 20): DIFFERENT mechanism — the static call path has NO monomorphization for the method's own type params (`_check_static_method_call` lacks the instance path's solve block; codegen stops at the struct); sites located in the entry, needs its own fix
-- DF-217d — generic static with default type+value ICE (entry below, under the obligation-4 retro triage) — same missing path as DF-216c (`Undefined static method` is the codegen face); rides its fix
-- DF-216h — renamed extension param substitution (entry below, under design 216) — ASSESSED in 239: NOT a substitution walk; `type_subst` is keyed by the STRUCT's declared param names, so a renamed extension param is a key nobody inserted — fix plumbs the extension's names onto the method symbol in agreement with codegen mangling
-- DF-217p — driven-frame deinit timing, 61+2+3 cells (RULED Aug 20, user: SCOPE-END REQUIRED — driven and sync twins must agree, deterministic destruction holds everywhere; implemented as part of design 218 unit 2's safe-Saw transform migration, the corodiff ledger's 61+2 cells as the acceptance matrix; entry below, under design 218 unit 0)
-- DF-217m coro face — receiver temp to frame teardown (rides 217p's ruling; entry below, under NEXT-WAVE SWEEPS)
 - DF-226b/c — FuncPointer v1 gaps (entries below, under design 226)
 - DF-225o — reemit divergence under load (entry below)
 - Design 231 — native-compiler readiness ledger (designs/231-native-compiler.md)
@@ -61,8 +58,6 @@ for sawos; "238 before more M3 work" is absolute.
 - M4 seeds — IPC/pipes (renamed from channels Aug 20 — ratified record in spec §2.1 + the done file), dynamic loading, IOMMU, SMP (references in designs/232-sos-m3-sketch.md)
 - ESP32 path — P4 + TCP/IP stack ultimate goal; S3 via FreeRTOS-fakery stage 2 (HARDWARE PATH entry below)
 - DF-223b — existential dispatch of a suspending trait method, owed a DESIGN (entry below, under design 223)
-- DF-219c — the spawn capture audit is not bound-aware (soundness-adjacent; entry below, under design 219)
-- DF-218e — a driven GENERIC body's nested suspending call names a callee the transform consumed (entry below, under design 218); mechanism confirmed and re-filed Aug 21, exited design 237
 - DF-225b — an UNDEFINED TYPE NAME is not diagnosed as one: silent opaque type, or an ICE at codegen (entry below; swept and widened by design 240 item 4, pinned, wants its own brief). DF-225c/DF-225e CLOSED Aug 21 by that batch — 225e's search-path split landed, 225c's compiler half was a NO-OP (no `Float64` registration exists; the residue is 225b). DF-225h fully CLOSED Aug 20: `()` stays a distinct tuple, design 122/132's visible-Void rejection stays ABSOLUTE (a proposed `case _ -> Void` spelling was considered and REJECTED for the exception it would carve), `{}` is the do-nothing arm spelling — spec's three arms fixed
 
 ## DF-239b — a fully CONCRETE parameter type is unchecked on the
