@@ -4657,48 +4657,6 @@ DF-192e fixed, DF-192b/c/d/f/g pinned (DF-192d fixed since, by design 198).
   `1.0` is the spelling). The landed error + hint IS the ruled
   behavior; DF-195d CLOSES with no further work.**
 
-## Design 205 — the platform pair converts by the book at transfers too
-## (LANDED Aug 21 — designs/205-transfer-conversion-closes.md, with its
-## landing section + the unit-3 migration list)
-
-Closes DF-195b and DF-195c (entries above) — the last two SILENT integer
-conversions in the language. `_types_compatible`'s integer arm is same-kind
-only; the one implicit integer conversion a transfer admits (a lossless
-widening through the platform pair) is admitted POSITIONALLY by
-`_transfer_compatible`, and every refusal site carries design 170's three
-spellings as a hint. The transfer-position matrix is conformance rows W20-W24.
-The consumer sweep's 53 corpus failures were 46 ADOPTION-ENTRY GAPS fixed at
-six paths (the plain instance-method argument, both enum-payload arms, the
-`borrows` accessor argument, `UnsafeMemory.write`, `UnsafeMutableInterior`, the
-overload candidate filter — each a position design 87's stamp never reached and
-the closed permission had been absorbing) and THREE true migrations, all `as`:
-two in `examples/`, one the real std bug (`net.saw`'s `close(fd as Int32)`).
-One finding filed and fixed in the same brief.
-
-- **DF-205a (SOUNDNESS — WRONG ANSWER + an ICE, filed Aug 21 by 205 u1's
-  probes): an implicit LOSSLESS widening extends by the TARGET's signedness
-  at FOUR MORE transfer positions.** DF-195a's mechanism — "a widening site
-  with no source type" — at the positions neither its fix nor DF-195e's
-  census reached: the implicit TAIL return (`func f(u: UInt32) -> Int { u }`
-  prints -294967296 where the explicit `return u` beside it prints
-  4000000000 — the tail path calls `_coerce_ret_value(result)` with no
-  expression, the `return` path passes `stmt.value`), a fixed-array LITERAL
-  element, a tuple element, and an optional payload (`let o: Int? = u`). The
-  array face is worse than a wrong answer: an annotated literal whose FIRST
-  element is narrower than the annotation takes its LLVM element type off
-  that element instead of the annotation, so `let a: [Int; 2] = [u, 0]` is
-  an internal compiler error (`Can only insert i32 at [1] in [2 x i32]: got
-  i64`). Load-bearing for design 205: closing the narrowing and sign-flip
-  axes makes the widening admission POSITIONAL, so every position has to
-  extend correctly before the rule can rest on it. PIN:
-  `examples/conformance/W22_lossless_widening_transfer_positions.saw`.
-  **FIXED by design 205 unit 2.** The six fall-through `ret` sites each pass
-  their own `body.final_expr` to `_coerce_ret_value` now, and one new codegen
-  funnel — `_coerce_element_int`, whose docstring names its three entry points —
-  coerces an aggregate element to its DECLARED type at the array literal, the
-  tuple literal and the `OptionalWrap`, which is what retires the ICE with the
-  wrong answers. PIN flipped to a passing test.
-
 - **DF-190c (VERIFY / latent must-agree, filed Aug 9, CLOSED Aug 10 by 194 u2):
   `_make_specialization_key` had DIVERGED** — codegen handled design-148
   const-value type args, the typechecker dropped them to an empty key.
