@@ -1,0 +1,37 @@
+// XFAIL: DF-238c a conformance declared in the TRAIT's module for a type
+// declared elsewhere — the orphan rule's second half — is carried by the
+// SELECTIVE import form and NOT by the GLOB one. Under `import m.*` a generic
+// bound checked here reports ``type `Rec` does not implement trait `Summary` ``
+// and hints at adding the extension that is already there and already legal;
+// switching this file's second import to `.{Summary, outside}` makes the same
+// call compile and print 14. LANGUAGE_SPEC's rule is that a conformance
+// declared under the orphan rule is coherent PROGRAM-WIDE and needs no import
+// at all, so neither form should be able to lose it — and the glob is
+// documented as "every public name of the module", which the trait plainly is.
+//
+// The control below is the orphan rule's OTHER half — a conformance beside the
+// TYPE — reached through a glob of its own. It works, which is what says the
+// glob machinery is not simply blind to conformances.
+//
+// EXPECT: success
+// EXPECT-OUTPUT: 14
+// EXPECT-OUTPUT: 7
+// COMPILE-FLAGS: --module-path orphan238c_type={TESTDIR}/modules/orphan238c_type --module-path orphan238c_trait={TESTDIR}/modules/orphan238c_trait
+import orphan238c_type.*
+import orphan238c_trait.*
+
+func over_summary_here<T: Summary>(value: &T) -> Int {
+    value.summary()
+}
+
+func over_named_here<T: Named>(value: &T) -> Int {
+    value.label()
+}
+
+func main() {
+    let r = Rec(n: 7)
+    // The finding: the trait's-module conformance, under a glob.
+    print(over_summary_here(&r))
+    // The control: the type's-module conformance, under a glob.
+    print(over_named_here(&r))
+}

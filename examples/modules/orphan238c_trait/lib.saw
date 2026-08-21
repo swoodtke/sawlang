@@ -1,0 +1,30 @@
+// DF-238c, the TRAIT's module. `Summary` is declared here and conformed for
+// `Rec`, which is declared elsewhere — legal in exactly this one place under
+// the orphan rule (the module defining the type, or the module defining the
+// trait).
+//
+// `inside` proves the conformance is REGISTERED: the same generic call, made
+// here, compiles and runs. What the entry module cannot do is make it.
+import orphan238c_type.{Rec}
+
+public trait Summary {
+    func summary(&self) -> Int
+}
+
+extension Rec: Summary {
+    func summary(&self) -> Int { self.n * 2 }
+}
+
+func over_summary<T: Summary>(value: &T) -> Int {
+    value.summary()
+}
+
+/// The same instantiation, from INSIDE the declaring module.
+public func inside(value: &Rec) -> Int {
+    over_summary(&value)
+}
+
+/// The generic the entry module tries to instantiate.
+public func outside<T: Summary>(value: &T) -> Int {
+    value.summary()
+}
