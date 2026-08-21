@@ -1,0 +1,64 @@
+// The two rows of the signature-visibility matrix that belong to an EXTENSION
+// rather than to one of its methods ("a public API needs public types", user
+// ruling Aug 21).
+//
+// Both are judged at the extension's SURFACE — the widest reach among its
+// members — because that is what a caller meets. A conditional extension's
+// BOUND is what an instantiation must satisfy to reach any method under it, and
+// an associated-type ASSIGNMENT is the type every use of that associated name
+// resolves to. An extension with no reachable member is judged at that member's
+// reach and passes, which is what `quiet` below shows.
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: extension `Wrap`'s surface is public, but the bound on type parameter `T` names `HiddenTrait`, which is private
+// EXPECT-ERROR-CONTAINS: extension `Keeper`'s surface is public, but associated type `Item` names `Hidden`, which is private
+// EXPECT-ERROR-ABSENT: extension `Quiet`
+
+struct Hidden {
+    n: Int
+}
+
+trait HiddenTrait {
+    func op(&self) -> Int
+}
+
+public trait Holder {
+    type Item
+    func first(&self) -> Int
+}
+
+public struct Wrap<T> {
+    v: Int
+}
+
+public extension Wrap<T: HiddenTrait> {
+    public func reach(&self) -> Int {
+        self.v
+    }
+}
+
+public struct Keeper {
+    v: Int
+}
+
+public extension Keeper: Holder {
+    type Item = Hidden
+
+    public func first(&self) -> Int {
+        self.v
+    }
+}
+
+public struct Quiet<T> {
+    v: Int
+}
+
+// No member reaches past this module, so the bound is under a private surface.
+public extension Quiet<T: HiddenTrait> {
+    func inner(&self) -> Int {
+        self.v
+    }
+}
+
+func main() {
+    print(Keeper(v: 1).first())
+}

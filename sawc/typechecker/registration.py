@@ -89,9 +89,15 @@ class RegistrationMixin:
 
         # Register String as a pseudo-struct so it can be extended
         # String is a primitive type (i8*) but we want to add methods to it
+        # PUBLIC, and it is not decoration: the signature-visibility rule ("a
+        # public API needs public types", Aug 21) reads a named type's tier, and
+        # a compiler-registered symbol has no declaration to read it off. These
+        # three registrations — `String`, the primitive pseudo-structs and
+        # `Result` — ARE the prelude, so they say so.
         self.namespace.register_struct("String", StructSymbol(
             fields={},
             field_order=[],
+            visibility=Visibility.PUBLIC,
             line=0,
             column=0
         ))
@@ -132,7 +138,8 @@ class RegistrationMixin:
                       "Int8", "Int16", "Int32", "Int64",
                       "UInt8", "UInt16", "UInt32", "UInt64"):
             self.namespace.register_struct(_prim, StructSymbol(
-                fields={}, field_order=[], line=0, column=0))
+                fields={}, field_order=[], visibility=Visibility.PUBLIC,
+                line=0, column=0))
 
         # Register Result<T, E> as a built-in generic enum
         from ast_nodes import TypeParameter
@@ -147,7 +154,8 @@ class RegistrationMixin:
                 "Err": [("error", SawType(TypeKind.TYPE_PARAM, type_param_name="E"))]
             },
             variant_order=["Ok", "Err"],
-            type_params=result_type_params
+            type_params=result_type_params,
+            visibility=Visibility.PUBLIC
         ))
 
         # The `Error` trait (design 56) is defined in builtin.saw as

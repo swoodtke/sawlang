@@ -1,0 +1,104 @@
+// THE POSITION MATRIX for the signature-visibility rule ("a public API needs
+// public types", user ruling Aug 21) — one row per place a DECLARATION names a
+// type, all in one compile so a gap at any single entry point is a diff here.
+//
+// The funnel is `_check_signature_visibility_in_program`
+// (sawc/typechecker/sigvis.py), whose docstring lists these rows and the ones
+// it deliberately does not reach: a function BODY may name anything, and a
+// private declaration's signature is unconstrained (both covered by
+// `conformance/B21_private_declaration_names_anything.saw`).
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: function `take` is public, but parameter `h` names `Hidden`, which is private
+// EXPECT-ERROR-CONTAINS: function `give` is public, but the return type names `Hidden`, which is private
+// EXPECT-ERROR-CONTAINS: function `pkg` is public, but the return type names `PkgOnly`, which is public(package)
+// EXPECT-ERROR-CONTAINS: function `bounded` is public, but the bound on type parameter `T` names `HiddenTrait`, which is private
+// EXPECT-ERROR-CONTAINS: function `defaulted` is public, but the default of type parameter `T` names `Hidden`, which is private
+// EXPECT-ERROR-CONTAINS: method `Exposed.peek` is public, but the return type names `Hidden`, which is private
+// EXPECT-ERROR-CONTAINS: init `Exposed.init` is public, but parameter `seed` names `Hidden`, which is private
+// EXPECT-ERROR-CONTAINS: static method `Exposed.blank` is public, but the return type names `Hidden`, which is private
+// EXPECT-ERROR-CONTAINS: field `slot` of `Exposed` is public, but its type names `Hidden`, which is private
+// EXPECT-ERROR-CONTAINS: enum `Tagged` is public, but payload `h` of case `One` names `Hidden`, which is private
+// EXPECT-ERROR-CONTAINS: static `LIMIT` is public, but its type names `Hidden`, which is private
+// EXPECT-ERROR-CONTAINS: type alias `Alias` is public, but its target names `Hidden`, which is private
+// EXPECT-ERROR-CONTAINS: trait `Facade` is public, but the return type of requirement `make` names `Hidden`, which is private
+// EXPECT-ERROR-CONTAINS: trait `Facade` is public, but its parent trait names `HiddenTrait`, which is private
+// EXPECT-ERROR-CONTAINS: struct `Boxed` is public, but the bound on type parameter `T` names `HiddenTrait`, which is private
+// EXPECT-ERROR-CONTAINS: function `wrapped` is public, but the return type names `Hidden`, which is private
+
+struct Hidden {
+    n: Int
+}
+
+public(package) struct PkgOnly {
+    n: Int
+}
+
+trait HiddenTrait {
+    func op(&self) -> Int
+}
+
+// A type ARGUMENT is a named type like any other: `Vector<Hidden>` exposes
+// `Hidden` exactly as a bare `Hidden` does.
+public func wrapped() -> Vector<Hidden> {
+    Vector<Hidden>()
+}
+
+public struct Exposed {
+    public slot: Hidden,
+    inner: Hidden
+}
+
+public struct Boxed<T: HiddenTrait> {
+    v: Int
+}
+
+public enum Tagged {
+    case One(h: Hidden),
+    case Two
+}
+
+public static LIMIT: Hidden = Hidden(n: 1)
+
+public type Alias = Hidden
+
+public trait Facade: HiddenTrait {
+    func make(&self) -> Hidden
+}
+
+public func take(h: Hidden) -> Int {
+    h.n
+}
+
+public func give() -> Hidden {
+    Hidden(n: 2)
+}
+
+public func pkg() -> PkgOnly {
+    PkgOnly(n: 3)
+}
+
+public func bounded<T: HiddenTrait>(x: Int) -> Int {
+    x
+}
+
+public func defaulted<T = Hidden>(x: Int) -> Int {
+    x
+}
+
+public extension Exposed {
+    public init(seed: Hidden) -> Exposed {
+        Exposed(slot: seed, inner: Hidden(n: 0))
+    }
+
+    public static func blank() -> Hidden {
+        Hidden(n: 0)
+    }
+
+    public func peek(&self) -> Hidden {
+        self.inner
+    }
+}
+
+func main() {
+    print(take(give()))
+}

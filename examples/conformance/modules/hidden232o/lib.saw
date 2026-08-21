@@ -1,0 +1,42 @@
+// The DF-232o face-2 fixture: a module-private type behind a public facade,
+// handed out on BOTH paths — by value (`get`) and as a design-141 PLACE (`at`).
+//
+// Both declarations are refused since the Aug-21 signature-visibility ruling,
+// AT THE LINES BELOW, which is the point: the module that can fix this is the
+// one that wrote it. Before the rule the value path compiled (an importer could
+// call `.doubled()` on a type it could not name) and the place path failed in
+// the importing module with a synthesized-closure type mismatch naming
+// `__window` and saying nothing about visibility.
+
+struct Hidden {
+    n: Int
+}
+
+extension Hidden {
+    public func doubled(&self) -> Int {
+        self.n * 2
+    }
+}
+
+public struct Carrier {
+    slot: Hidden,
+    cells: Vector<Hidden>
+}
+
+extension Carrier: NoCopy {}
+
+public extension Carrier {
+    public init() -> Carrier {
+        var v = Vector<Hidden>()
+        v.push(Hidden(n: 3))
+        Carrier(slot: Hidden(n: 7), cells: move v)
+    }
+
+    public func get(&self) -> Hidden {
+        self.slot
+    }
+
+    public func at(&self, index: Int) borrows -> Hidden {
+        lend self.cells[index]
+    }
+}

@@ -1,0 +1,51 @@
+// Conformance row B21 — control: the rule stops exactly at the declaration's
+// own reach
+//
+// The fence on B20, and the reason "narrow the declaration" is a real fix
+// rather than a dead end. Three things stay legal:
+//   * a PRIVATE declaration naming a private type — nobody outside the module
+//     can reach it, so nothing it names can escape;
+//   * a `public` member of a NON-PUBLIC type, which design 80 already calls
+//     inert: the struct gates reachability, so the member's effective reach is
+//     the struct's and the rule never demands more than that;
+//   * a `public` declaration naming a `public` type, which is the shape the
+//     rule exists to leave alone.
+// EXPECT: success
+// EXPECT-OUTPUT: 4
+// EXPECT-OUTPUT: 9
+// EXPECT-OUTPUT: 21
+
+struct Hidden {
+    n: Int
+}
+
+// A private declaration may name anything.
+func private_relay(h: Hidden) -> Hidden {
+    Hidden(n: h.n * 2)
+}
+
+// A `public` member of a private struct: legal and inert, so its signature is
+// under the private struct's reach and not under `public`'s.
+struct Inner {
+    n: Int
+}
+
+extension Inner {
+    public func widen(&self) -> Hidden {
+        Hidden(n: self.n * 3)
+    }
+}
+
+public struct Open {
+    public n: Int
+}
+
+public func open_pair(o: Open) -> Open {
+    Open(n: o.n + 1)
+}
+
+func main() {
+    print(private_relay(Hidden(n: 2)).n)
+    print(Inner(n: 3).widen().n)
+    print(open_pair(Open(n: 20)).n)
+}

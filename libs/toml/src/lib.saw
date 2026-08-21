@@ -58,7 +58,13 @@ public extension TomlValue {
 // An inline table value: `key = { subkey = "v", ... }` (one level, design 64
 // B1). The inner scalar pairs are stored as a Vector<TomlValue>. NoCopy with an
 // empty deinit — same discipline as TomlSection (the container owns the buffer).
-public(package) struct TomlTable {
+// `public`, like every other type in this data model: `TomlSection.table(key)`
+// LENDS one to any caller and `TomlSection.add_table` takes one, and both of
+// those are `public`, as are `TomlTable`'s own `init`/`get`/`add`. The
+// DF-232f rider narrowed it to `public(package)` on a file-local reading (the
+// audit DF-232q found inverted); the Aug-21 signature-visibility rule refuses
+// the result, and the accessors are the side that was right.
+public struct TomlTable {
     key: String
     values: Vector<TomlValue>
 }

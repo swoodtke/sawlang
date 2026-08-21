@@ -751,7 +751,10 @@ extension Vector<T: Copy, A: Allocator = GlobalAllocator> {
 
 // Iterator holds a pointer and length, not the Vector itself
 // This allows Vector to be NoCopy while still supporting iteration
-struct VectorIterator<T> {
+// `public` because `Vector.iter()` HANDS ONE OUT: a public API needs public
+// types (Aug 21), and a caller that holds the value of a `for x in v.iter()`
+// must be able to name its type. The fields stay private.
+public struct VectorIterator<T> {
     buffer: UnsafePointer<T>?
     length: Int
     index: Int
@@ -789,7 +792,9 @@ extension VectorIterator<T: ExplicitCopy>: Iterator {
 // EnumeratedIterator<T> - yields (index, element) pairs (design 53)
 // =============================================================================
 
-struct EnumeratedIterator<T> {
+// `public` for the same reason as `VectorIterator` above:
+// `Vector.enumerated()` returns one.
+public struct EnumeratedIterator<T> {
     buffer: UnsafePointer<T>?
     length: Int
     index: Int

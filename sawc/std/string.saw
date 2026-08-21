@@ -1043,7 +1043,12 @@ extension Utf8Error: Error {
 // the temporary String is released right after `chars()` returns, but the
 // iterator's own reference keeps the bytes alive across every `next()`.
 
-struct StringBytes {
+// `public` because `String.bytes()` HANDS ONE OUT: a public API needs public
+// types (Aug 21), and a caller that holds the value of a `for b in s.bytes()`
+// must be able to name its type. The fields stay private, which is where the
+// internals were all along — `std.data`'s `DataIterator` was already written
+// this way.
+public struct StringBytes {
     s: String
     index: Int
     length: Int
@@ -1063,7 +1068,9 @@ extension StringBytes: Iterator {
     }
 }
 
-struct StringChars {
+// `public` for the same reason as `StringBytes` above: `String.chars()` returns
+// one.
+public struct StringChars {
     s: String
     index: Int
     length: Int

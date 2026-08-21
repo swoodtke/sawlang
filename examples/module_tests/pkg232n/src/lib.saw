@@ -26,9 +26,12 @@ public(package) func pkg_scale(x: Int) -> Int {
     x * 2
 }
 
-// The private-in-public shape a refused TYPE is met through (DF-232o): the
-// function is `public` and hands back a value of the package-tier type, so an
-// outside module holds one it may not NAME.
-public func make_box() -> PkgBox {
+// A package-tier producer of the package-tier type, which is how the DF-232o
+// tests get a `PkgBox` value to carry into a module that may not name one. It
+// was `public` until the Aug-21 ruling ("a public API needs public types"),
+// which refuses exactly that shape at the declaration: a `public` function
+// handing back a `public(package)` type hands an outside module a value it
+// cannot name. The producer narrows to the tier of what it produces.
+public(package) func make_box() -> PkgBox {
     PkgBox(n: 4)
 }

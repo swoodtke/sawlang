@@ -6,7 +6,7 @@
 // name from here.
 // EXPECT: error
 // EXPECT-ERROR-CONTAINS: `pkg_secret` is public(package) in `module_tests.pkg232n.src.lib`
-// EXPECT-ERROR-CONTAINS: available: make_box, pkg_open
+// EXPECT-ERROR-CONTAINS: available: pkg_open
 import module_tests.pkg232n.src.lib.{pkg_secret, pkg_open}
 
 func main() {

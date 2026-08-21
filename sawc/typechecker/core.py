@@ -41,6 +41,7 @@ from .effects import EffectsMixin
 from .places import PlacesMixin
 from .serde import SerdeMixin
 from .tierreq import TierRequirementsMixin
+from .sigvis import SignatureVisibilityMixin
 
 
 _BINDING_ID_COUNTER = itertools.count(1)
@@ -176,7 +177,7 @@ class Scope:
         return self.variables.get(name)
 
 
-class TypeChecker(ExpressionsMixin, StatementsMixin, RegistrationMixin, TypeUtilsMixin, EffectsMixin, PlacesMixin, SerdeMixin, TierRequirementsMixin):
+class TypeChecker(ExpressionsMixin, StatementsMixin, RegistrationMixin, TypeUtilsMixin, EffectsMixin, PlacesMixin, SerdeMixin, TierRequirementsMixin, SignatureVisibilityMixin):
     """Type checks a Saw program."""
 
     def __init__(self, reporter: ErrorReporter, freestanding: bool = False,
@@ -493,6 +494,13 @@ class TypeChecker(ExpressionsMixin, StatementsMixin, RegistrationMixin, TypeUtil
         # set because the two rules answer different questions about the same
         # node and either may fire without the other.
         self._funcpointer_reported: set = set()
+
+        # The signature-visibility rule's own report set ("a public API needs
+        # public types", user ruling Aug 21 — see typechecker/sigvis.py). Keyed
+        # by (file, line, column, type name, position): one `SawType` object is
+        # shared by a symbol table and the AST, and the front half re-enters the
+        # same AST, so the same refusal is reachable more than once.
+        self._sigvis_reported: set = set()
 
         # Register built-in functions
         self._register_builtins()
@@ -2301,6 +2309,13 @@ class TypeChecker(ExpressionsMixin, StatementsMixin, RegistrationMixin, TypeUtil
         # `unsafe struct` recognizable.
         self._validate_fn_effects_in_program(program)
 
+        # "A public API needs public types" (user ruling, Aug 21): no
+        # declaration names a type less visible than its own effective reach.
+        # Here because every type is registered (so a name has a tier) and the
+        # identities are canonical, and after the bound validator so a bound
+        # that names no trait at all is already its own diagnostic.
+        self._check_signature_visibility_in_program(program)
+
         # Fifth-b pass: check resource management containment rules
         self._check_no_copy_containment()
         self._check_no_move_declarations()
@@ -3137,6 +3152,9 @@ class TypeChecker(ExpressionsMixin, StatementsMixin, RegistrationMixin, TypeUtil
         self._validate_existentials_in_program(module_ast)
         self._validate_type_param_bounds_in_program(module_ast)
         self._validate_fn_effects_in_program(module_ast)
+        # "A public API needs public types" (user ruling, Aug 21) — see
+        # `check`'s call for why it sits at this seam.
+        self._check_signature_visibility_in_program(module_ast)
         # design 188 unit 1: the no-escape walk again, with aliases resolved.
         self._validate_no_ref_laundering_in_program(module_ast)
 
