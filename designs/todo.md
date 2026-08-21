@@ -31,7 +31,6 @@ is scheduled and in what order is the whole of what they say.
 
 ## [QUEUE] — scheduled, in order (user-approved)
 
-- Design 237 — the ANF-hoist funnel (designs/237-anf-hoist-funnel.md) — before 234; DISPATCHED Aug 21 (branch design-237); USER INSTRUCTION Aug 21: the session STOPS after integrating this one
 - Design 241 — undefined type names + the DF-240a const-position amendment (designs/241-undefined-type-names.md; ruled Aug 21) — FIRST ON RESUME, before 205
 - Design 205 — platform-pair transfer conversions (designs/205-transfer-conversion-closes.md; worked solution recorded in the brief) — position in queue provisional, before 234 suggested
 - Design 234 — the fallibility flip (designs/234-fallibility-flip.md) — after 235/237 (the M3-1.5 interleave carve-out WITHDRAWN by user, Aug 20 — 1.5 waits for sawos)
@@ -63,7 +62,7 @@ for sawos; "238 before more M3 work" is absolute.
 - ESP32 path — P4 + TCP/IP stack ultimate goal; S3 via FreeRTOS-fakery stage 2 (HARDWARE PATH entry below)
 - DF-223b — existential dispatch of a suspending trait method, owed a DESIGN (entry below, under design 223)
 - DF-219c — the spawn capture audit is not bound-aware (soundness-adjacent; entry below, under design 219)
-- DF-224c — `Channel<T?>` call-site auto-wrap ICEs inside a driven body (entry below, under DF-224a/b) — FOLD CANDIDATE for design 237's dispatch (the ANF-hoist funnel is the machinery it lives in; fold at 237's dispatch time)
+- DF-218e — a driven GENERIC body's nested suspending call names a callee the transform consumed (entry below, under design 218); mechanism confirmed and re-filed Aug 21, exited design 237
 - DF-225b — an UNDEFINED TYPE NAME is not diagnosed as one: silent opaque type, or an ICE at codegen (entry below; swept and widened by design 240 item 4, pinned, wants its own brief). DF-225c/DF-225e CLOSED Aug 21 by that batch — 225e's search-path split landed, 225c's compiler half was a NO-OP (no `Float64` registration exists; the residue is 225b). DF-225h fully CLOSED Aug 20: `()` stays a distinct tuple, design 122/132's visible-Void rejection stays ABSOLUTE (a proposed `case _ -> Void` spelling was considered and REJECTED for the exception it would carve), `{}` is the do-nothing arm spelling — spec's three arms fixed
 
 ## DF-239b — a fully CONCRETE parameter type is unchecked on the
@@ -213,22 +212,32 @@ selfhostlex, reemit, irdet (`--all`), gmgate, bootstrap, sos.
   gotcha. Gate: full suite 2055 passed / 16 xfailed, sos_runner 80/80 across
   riscv32 + arm64.
 
-## Design 237 — the ANF-hoist funnel (RATIFIED Aug 18; QUEUED BEFORE 234)
+## Design 237 — the ANF-hoist funnel (LANDED Aug 21, branch `design-237`;
+## ratified Aug 18. USER INSTRUCTION Aug 21, carried over from its QUEUE line:
+## the session STOPS after integrating this one)
 
-designs/237-anf-hoist-funnel.md is the plan of record: coro_transform's
-hand-enumerated hoist entries (4 of ~8 statement classes, 0 of 3 head
-positions, three side hoists, a second stage-2 position map) unify into the
-`_uncond_children` funnel with its entry points named; `_anf_lift` gains
-the transfers-exactly-once temp-ownership rule (DF-217h's double-free, ten
-consuming positions, built against the Aug-17 over-release detector).
-Closes the ICE family (if/while conds, `&&`/`||` LHS, for-range bounds,
-suspending ctor args in scrutinees), the bogus-refusal family (`??` LHS,
-`?.` head, compound-assign RHS, return-under-wrap, DF-217g's
-DestructuringLet), DF-218n drive sites, and — mechanism check first —
-DF-218e's generic spawn root. OUT: DF-217p / DF-217m-coro deinit TIMING
-(design ruling owed, not hoist coverage). Unit 5 re-runs the full corodiff
-cross that found the cluster. BEFORE 234: the fallibility flip multiplies
-suspending calls in expression positions. [237, 217, 218]
+designs/237-anf-hoist-funnel.md is the plan of record and carries the landing
+section: the census, the four real gaps, the units as built, the tests and the
+consumer sweep. Summary: the hoist's statement entries are one TABLE
+(`_ANF_STMT_ENTRIES`), the child-position funnel gained the Result wrap family
+and a docstring naming its entries, and every substitution the transform makes
+into a position an earlier pass answered goes through `_substitute`, which
+moves the call-site auto-wrap marks exactly once.
+
+CLOSED by it: DF-217g (DestructuringLet — the one missing leaf statement
+class), the return-under-Result-auto-wrap refusal (the missing NODE classes),
+DF-224c and a `Result` twin found beside it (the dropped position mark, an ICE
+in a driven body), DF-218n (drive site in a suspending body — the user's Aug-15
+CLEAN REFUSAL ruling, with the teaching diagnostic). Ledger: the DF-217g row
+and the STALE DF-217f row both retired from `tools/corodiff_known.txt`.
+
+The census RE-DATED the brief's own list: design 224 (Aug 15) had already
+closed the whole ICE family (if/while conditions, `&&`/`||` LHS, for-range
+bounds, ctor-argument scrutinees) and three of the five bogus refusals (`??`
+LHS, `?.` head, compound-assign RHS), and DF-217h's double-free had been closed
+by design 218 stage 2. DF-218e EXITED the brief on its unit-1 mechanism check
+(entry below, under design 218). OUT as written: DF-217p / DF-217m-coro deinit
+TIMING. [237, 217, 218, 224]
 
 ## DF-235a — a constant EXPRESSION element/payload ICEs at codegen: a plain
 ## array literal (mixed with an adopted sibling) and a `Result` payload slot
@@ -2059,11 +2068,19 @@ matrices in the scratch dir; promote to cited pins at fix time.
   that cannot be satisfied + docs caveat) vs live pool (workers start
   at first spawn; the drain-time invariants at :50-53 and the unlocked
   slot trio at :492-505 must be re-derived — much larger).
-- **DF-224c (NEW) — `Channel<T?>.send(v: T)` call-site auto-wrap
-  (design 176) is a codegen ICE inside a frame-transformed body**
-  (`Type of #2 arg mismatch: {i1, i64} != i64`), fine in main. Same
-  for Result payloads. The auto-wrap-position × driven-body family
-  again (DF-218f's neighborhood). Repro sweep224/g/.
+- **DF-224c — CLOSED (design 237 unit 3, Aug 21).** `Channel<T?>.send(v: T)`
+  call-site auto-wrap (design 176) was a codegen ICE inside a
+  frame-transformed body (`Type of #2 arg mismatch: {i1, i64} != i64`), fine
+  in main; the `Result` payload twin was the same. MECHANISM: the wrap is an
+  ANNOTATION the typechecker stamps on the argument expression, and the
+  transform SUBSTITUTES a different node into that position (a hoisted temp, a
+  frame-field read). In ordinary code the post-transform pass re-derives it; in
+  a driven body design 210 marks the user's call `embed_preserved` and the
+  re-check skips the subtree whole, so the answer that travelled with the node
+  was the only one there was. `_substitute` now MOVES the marks and clears the
+  source — exactly once, since the old node becomes a `let` initializer that
+  would wrap a second time. PIN:
+  `examples/coro_autowrap_argument_in_driven_body.saw` (10 rows).
 - Also from the sweep: `devtools/dogfood/programs/` is compiled by NO
   battery stage (swept clean by hand this once — all 7 run);
   `w1_limiter.saw:18-26`'s hazard comment documents a bug design 206
@@ -2887,22 +2904,33 @@ obligation-2 consumer sweep before dispatch. Gates 218 stages 1-2.
   in the same position works. Pin + sawfuzz_known entry owed at the next
   pin batch. Sibling wart, same parse family: `move <method call>` in
   argument position is a parse error rather than a `move` diagnostic.
-- **DF-218e (BOGUS-REFUSAL, pre-existing) — a GENERIC function used as a
-  SPAWN root cannot contain a nested suspending call.** `g.spawn(gworker(7))`
+- **DF-218e (BOGUS-REFUSAL, pre-existing) — a GENERIC function driven as a
+  root cannot contain a nested suspending call.** `g.spawn(gworker(7))`
   where `gworker<T>` calls a suspending `mk()` reports `undefined function
   mk` at the author's own line, then an undefined-variable cascade for the
-  binding it feeds: the callee has been consumed by the transform (frame +
-  driver, plain function removed) while the generic template's body still
-  names it. Boundary probed four ways and only this cell fails — non-generic
-  spawn + nested call, generic spawn suspending only by `yield_now()` (sweep
-  S1 row p08c), and the same generic body driven through the AMBIENT entry
-  all compile and run. So it is the SPAWN path's handling of a generic root.
-  Found by corodiff's new generic-driven-function axis (design 218 stage 1's
-  opening rider) on its first run. Obligation 4 sweep owed at fix time:
-  generic spawn roots that are METHODS, MT spawn, and a generic root whose
-  nested callee is itself generic.
+  binding it feeds.
+  **RE-FILED Aug 21 by design 237's unit-1 census, which EXITED it from that
+  brief.** It is not the ANF hoist's entry set reached through a monomorphized
+  body. MECHANISM, with compile evidence: the error is emitted by the
+  POST-TRANSFORM RE-CHECK (`-v` places it after "Applied coroutine transform;
+  re-checking…"); a suspending nested callee is CONSUMED by the transform
+  (frame + driver, and `program.functions` drops the plain function), which is
+  why the non-generic twin compiles — its own body became a frame, so nothing
+  names `mk` any more; a GENERIC declaration also leaves its un-transformed
+  TEMPLATE in the program, and that template still names it. It is the
+  template and not the instantiations: driving one generic at TWO type
+  arguments produces exactly ONE `undefined function` error.
+  **The boundary is WIDER than the original filing said** — the AMBIENT-entry
+  cell fails identically now, so this is not the spawn path's handling of a
+  generic root but every driven generic body with a nested suspending call.
+  Still working: a generic body whose only suspension is `yield_now()` (sweep
+  S1 row p08c), and the non-generic twin.
+  Obligation 4 sweep owed at fix time: generic roots that are METHODS, MT
+  spawn, a generic root whose nested callee is itself generic, and any other
+  way a surviving template can name a declaration the transform consumed.
   PIN: `examples/coro_generic_spawn_root_nested_suspending_call.saw`
-  (XFAIL) + `tools/corodiff_known.txt`
+  (XFAIL, rewritten with both cells and the mechanism) +
+  `tools/corodiff_known.txt`
 
 - **DF-218i (BOGUS-REFUSAL, PRE-EXISTING) — rendering a PLACE is judged a
   value read, so a move-only element cannot be printed.** `print("{v[0]}")`
@@ -3017,7 +3045,15 @@ obligation-2 consumer sweep before dispatch. Gates 218 stages 1-2.
   `.build/scratch/s3_generic_noclosure.saw` (silent) and
   `.build/scratch/s3_generic_struct_self.saw` (ICE).
 
-- **DF-218n (ICE, PRE-EXISTING) — an explicit `__saw_drive(f())` inside a body
+- **DF-218n — CLOSED (design 237 unit 4, Aug 21), as ruled: a clean refusal at
+  the top of `_FrameBuilder.prepare`, on the untouched body — one entry
+  covering every drive spelling and every root kind, since every body the
+  transform frames passes through there. The diagnostic names the direct call.
+  Pins: `examples/drive_site_in_suspending_body.saw` (XFAIL flipped to the
+  refusal) + `examples/drive_site_in_suspending_function.saw` (the non-`main`
+  and `__saw_drive_steps` row). LANGUAGE_SPEC's `__saw_drive` paragraph says
+  so. Original finding below.**
+  **(ICE, PRE-EXISTING) — an explicit `__saw_drive(f())` inside a body
   that ITSELF suspends dies in the drive-site rewrite.** `main` driving `s()`
   and then calling `t()` on its own account makes `main` suspending, so the
   coroutine transform rewrites its body before `_rewrite_drive_sites` walks it;
@@ -3483,24 +3519,29 @@ exposed, in the brief's unit-1 paragraph.
     Recorded rather than left implicit, since the fixing commit was expected
     to retire ledger rows. Gated: full suite, sos both arches, corodiff and
     gmgate (51 programs under Guard Malloc, 0 failing).
-  - **ICE family = statement-HEAD entry gaps:** if/while conditions,
-    `&&`/`||` LHS (RHS works), for-range bounds, and match scrutinees whose
-    ctor args suspend (DF-217f + its struct-init sibling) all reach codegen
-    unhoisted and die `Undefined function`. Bogus refusals: `??` LHS,
-    `?.` HEAD, compound assignment RHS, `return f()` under Result
-    auto-wrap, and DestructuringLet — which is DF-217g's REAL scope (the
-    tuple literal itself compiles; `let (a,b) = ...` is what refuses).
+  - **ICE family = statement-HEAD entry gaps — ALL CLOSED.** if/while
+    conditions, `&&`/`||` LHS (RHS works), for-range bounds, and match
+    scrutinees whose ctor args suspend (DF-217f + its struct-init sibling) all
+    reached codegen unhoisted and died `Undefined function`; **design 224's
+    container-HEAD hoist closed every one on Aug 15**, re-verified cell by cell
+    by design 237's census. Bogus refusals: `??` LHS, `?.` HEAD and compound
+    assignment RHS **also closed by design 224**; `return f()` under Result
+    auto-wrap and DestructuringLet — DF-217g's REAL scope (the tuple literal
+    itself compiles; `let (a,b) = ...` is what refuses) — **closed by design
+    237 unit 2 (Aug 21)**.
   - Receiver-temp deinit TIMING drifts from the spec's promise (temp lives
     to frame teardown), lower severity.
-  - **Funnel verdict:** one child-position funnel (`_uncond_children`,
-    coro_transform.py:1481) missing 3-5 node classes (EnumInit, RangeExpr,
-    the ResultWrap family), ENTERED from a scattered hand-enumerated
-    statement set (4 of ~8 statement classes, 0 of 3 head positions) plus
-    three narrow per-construct hoists and a second position map in stage 2.
-    The fix brief: unify the statement entries into the funnel, add the
-    missing nodes, and give `_anf_lift` the temp-ownership bookkeeping —
-    with this matrix as the row-by-row test plan (obligation 1 satisfied by
-    construction). Feeds 218a directly: hoisted temps ARE the Slots.
+  - **Funnel verdict — DISCHARGED by design 237 (Aug 21).** The verdict as
+    written: one child-position funnel (`_uncond_children`) missing 3-5 node
+    classes (EnumInit, RangeExpr, the ResultWrap family), entered from a
+    scattered hand-enumerated statement set. What the census found of it: the
+    ResultWrap family WAS missing and is now in; EnumInit was never missing
+    (its arguments linearize, DF-133a order included); RangeExpr is a head and
+    never a value, so `_head_lift` owns its endpoints by construction. The
+    statement set is a TABLE now, and the head positions had already become
+    design 224's own funnel (`control_heads`). `_anf_lift`'s temp-ownership
+    bookkeeping was closed earlier, by design 218 stage 2's `Slot` migration;
+    what it still owed was the POSITION's answer, which unit 3 gave it.
 - **S3 — cancellation/panic teardown differential (DEEPEST UNKNOWN).** Extend
   the coro harness axes: cancel mid-suspend, cancel an io-parked task, panic
   mid-suspend, unjoined handles, group teardown order, and the MT

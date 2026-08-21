@@ -88,3 +88,107 @@ filed finding:
 Compiler brief: per-commit `battery.sh suite sos`; unit 5's full cross +
 terminal full battery. Every pin flip removes its XFAIL and its
 `tools/corodiff_known.txt` block in the same commit.
+
+---
+
+# LANDING (Aug 21, branch `design-237`)
+
+## Unit 1 — the census, run first
+
+Probed 25 cells against the tree as it stands, compile+run evidence for every
+row (`.build/scratch/census237/`). The brief was written Aug 18 against the
+Aug-13 battery, and **design 224 (Aug 15) had already closed most of the ICE
+family** — the census is what said so rather than the brief's list.
+
+**WORKING, no gap (design 224's container-HEAD hoist owns them):** `if`
+condition, `while` condition, `for`-range bound, `match` scrutinee whose
+constructor argument suspends (DF-217f's exact cell), `if let`/`guard let`
+subject, `&&` LHS, `||` LHS. And, from the same landing, `??` LHS, `?.` HEAD
+and compound-assign RHS — three of the five bogus refusals the brief lists.
+
+**WORKING, no gap (already in the funnel):** `EnumInit` arguments, including
+DF-133a evaluation order against a side-effecting sibling; `StructInit` field
+values; a `&var v[<suspending>]` reference operand. `RangeExpr` is not a
+missing node class: it is a head and never a value (`let r = 0..n` names no
+type), and `_head_lift` owns its endpoints.
+
+**REAL GAPS, four:**
+
+- **G1 — `DestructuringLet`** (DF-217g). The one leaf statement class missing
+  from the hoist's entry set. Both spellings refused. *Unit 2.*
+- **G2 — the RESULT WRAP family** (`ResultOkWrap`/`ResultErrWrap`/
+  `ErasedErrWrap`), the node classes actually missing from
+  `_map_uncond_children`. This is what "return f() under Result auto-wrap"
+  was. *Unit 2.*
+- **G3 — the call-site auto-wrap MARK dropped by every substitution.** DF-224c
+  and a `Result` twin the census found beside it. Not a coverage gap at all:
+  the wrap is an ANNOTATION on the argument expression, the transform replaces
+  that expression (a hoisted temp, a frame-field read), and in a DRIVEN body
+  design 210's `embed_preserved` means the post-transform pass never re-derives
+  it. `Type of #1 arg mismatch: {i1, i64} != i64` at the author's line.
+  *Unit 3.*
+- **G4 — DF-218n's drive site.** *Unit 4, as the user ruled it: a clean
+  refusal.*
+
+**DF-218e EXITS the brief**, per the unit-1 clause. Mechanism confirmed and it
+is not this one: the error comes from the POST-TRANSFORM RE-CHECK (`-v` places
+it after "Applied coroutine transform; re-checking…"), a suspending nested
+callee is CONSUMED by the transform (frame + driver, plain function dropped),
+and a generic declaration leaves its un-transformed TEMPLATE behind still
+naming it. Driving one generic at TWO type arguments produces exactly ONE
+`undefined function` error, which is the template and not the instantiations.
+The boundary is also WIDER than the original filing: the AMBIENT-entry cell
+fails identically, so it is not the spawn path. Pin rewritten with both cells
+and the mechanism; entry re-filed in the tracker.
+
+## Units 2-4, as landed
+
+| commit | closes |
+|---|---|
+| `design 237 unit 2` | DF-217g; return-under-Result-auto-wrap; retires the DF-217f ledger row design 224 left behind |
+| `design 237 unit 3` | DF-224c + its `Result` twin |
+| `design 237 unit 4` | DF-218n |
+
+Unit 2 replaced the hand-enumerated if-chain with `_ANF_STMT_ENTRIES`, a table
+whose rows are `(statement class, value field, lift_self)` and whose comment
+says why each absent class is absent. `_map_uncond_children` gained the Result
+wrap family and a docstring naming its three entries plus the completeness
+argument for every node type not in it.
+
+Unit 3 is the temp-ownership unit, restated for what the tree actually still
+had wrong: DF-217h's double-free was already closed by design 218 stage 2 (the
+hoisted temp is a `Slot` read by `take()`), and what remained un-transferred at
+a substitution was the POSITION's own answer. `_substitute(old, new)` MOVES the
+auto-wrap marks and clears the source — exactly once, for the same reason the
+ownership rule is exactly once: after the substitution the old node is the
+initializer of `let __anfN = …`, which is a transfer site that would apply the
+wrapper a second time into a temp typed for the unwrapped value. Seven entries,
+named in its docstring. The annotation set was swept rather than guessed
+(obligation 4): the auto-wrap trio is the position family, `expected_type`
+reaches no substitutable node, everything else describes the value.
+
+Unit 4 refuses at the top of `_FrameBuilder.prepare`, on the untouched body —
+one entry, covering every drive spelling and every root kind, because every
+body the transform frames passes through there.
+
+## Tests
+
+- `examples/coro_destructuring_let_suspending_rhs.saw` — XFAIL flipped, grown
+  into the statement class's matrix (7 rows).
+- `examples/coro_return_autowrap_result_suspending.saw` — new, 6 rows.
+- `examples/coro_autowrap_argument_in_driven_body.saw` — new, 10 rows: the
+  wrap kinds crossed with the two substitution shapes and the callee kinds.
+- `examples/drive_site_in_suspending_body.saw` — XFAIL flipped to the refusal;
+  `examples/drive_site_in_suspending_function.saw` — new second row.
+- `examples/coro_generic_spawn_root_nested_suspending_call.saw` — still XFAIL
+  (DF-218e), rewritten with the confirmed mechanism and the ambient cell.
+
+## Consumer sweep (obligation 2)
+
+No behavioral contract flipped. `run()` semantics, the op budget, and every
+throttle are untouched — the DF-182f fork-bomb's neighbourhood was read and not
+edited. `_rewrite_expr` became a thin wrapper over `_rewrite_expr_node` so the
+carry has one exit; every existing caller is unchanged. The one deliberate
+narrowing is unit 4's refusal, and its consumer set is programs writing
+`__saw_drive` in a suspending body: the corpus had exactly one, the DF-218n pin
+itself, which is now the refusal's test.

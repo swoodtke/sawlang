@@ -5808,6 +5808,22 @@ Observable rules:
   to its own statement, which is that same branch shape, so the operand the LHS
   decides against still never runs. A blocking `extern` call (below) rides the
   same rewrite, including when it is buried in a larger expression.
+  Two more positions belong to that list and were refused until Aug 21. A
+  destructuring `let`'s right-hand side takes the rewrite in both spellings, a
+  tuple literal of suspending calls and a suspending call returning a tuple:
+  ```saw
+  let (head, rest) = (try! ch.receive(), try! tally.receive())
+  let (width, height) = measure()          // `measure` suspends
+  ```
+  And so does the returned value of a `Result`-returning function, which the
+  auto-wrap turns into a wrapped value before the transform sees it:
+  `return read_len()` at `-> Result<Int, IoError>` works, at the Ok side, the
+  Err side, and the erased `Box<any Error>` side alike.
+  One more thing was wrong in a driven body rather than refused: an argument
+  that auto-wraps into a `T?` or a `Result<T, E>` parameter lost its wrapper
+  when the transform moved it, so `ch.send(count)` on a `Channel<Int?>` inside a
+  driven body was a compiler crash reporting a type mismatch at the author's
+  line. Treat all three as working now and SUSPECT in older builds.
 - **Container head position (design 224).** A control-flow construct also
   evaluates one expression OUTSIDE all of its blocks, and a suspending call may
   sit there too: an `if` or `while` condition, a `for` range (either endpoint),
@@ -6262,6 +6278,12 @@ marks a synthetic suspension point and `__saw_drive(f(args))` / `__saw_drive_ste
 / `__saw_drive(recv.m(args))` create a frame and step it to completion. A function or
 method is transformed only when it is driven (or is a suspending `main`); code
 that drives nothing is compiled exactly as before.
+
+A drive site may not appear in a body that itself suspends, and writing one is a
+clean compile error naming the direct call instead. A suspending body already
+runs inside an executor, so a suspending call there simply embeds — there is
+nothing for a second root to buy, and running one would need nested-executor
+semantics (fairness, the op budget) designed for a spelling only tests write.
 
 ### Tasks and Channels
 

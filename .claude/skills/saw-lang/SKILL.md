@@ -1789,6 +1789,22 @@ dump_tasks()                // every live task's logical backtrace (std.task)
   working now and SUSPECT in older builds. One boundary: a VALUE-position
   `while` whose condition suspends is a clean error (its result comes out of a
   `break <value>`, which a suspension-spanning loop does not support).
+  **THREE MORE POSITIONS, fixed Aug 21 (design 237)** — treat each as working
+  now and SUSPECT in older builds. A DESTRUCTURING `let`'s RHS, in both
+  spellings (`let (a, b) = (s(1), s(2))` and `let (a, b) = pair()` where `pair`
+  suspends), which used to be the nested/expression-position refusal. A
+  `Result`-returning function's RETURNED value, at the Ok side, the Err side and
+  the erased `Box<any Error>` side (`return read_len()` at
+  `-> Result<Int, IoError>`) — the auto-wrap is a real node and the hoist did
+  not know it, so the same refusal fired. And an ARGUMENT that auto-wraps into a
+  `T?` or `Result<T, E>` parameter, which was not refused but MISCOMPILED inside
+  a driven body: `ch.send(count)` on a `Channel<Int?>` died with an
+  internal-compiler-error type mismatch at the author's line, and so did any
+  argument naming a frame-resident local at a wrapping parameter.
+  ONE thing became a REFUSAL: `__saw_drive` may not appear in a body that itself
+  suspends. It is design 44's test-only entry and it used to crash the compiler
+  there; a suspending body already runs inside an executor, so the diagnostic
+  names the direct call — which is what embeds.
   Still a clean,
   user-anchored compile error (NOT a silent block): a suspension-spanning `if let`/
   `guard let`/`while let` with a TUPLE pattern; a suspending `try { } catch { }` block whose try

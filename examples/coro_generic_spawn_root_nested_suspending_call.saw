@@ -1,29 +1,47 @@
-// XFAIL: DF-218e a GENERIC function spawned as a task cannot contain a nested
+// XFAIL: DF-218e a GENERIC function driven as a root cannot contain a nested
 // suspending call — the callee is reported undefined at the user's own line
 //
 // `g.spawn(gworker(7))` where `gworker<T>` suspends only by `yield_now()`
 // compiles and runs (sweep S1 row p08c). Give the same generic body a nested
 // suspending CALL and the compiler reports `undefined function mk` at the call
 // site the author wrote, followed by an undefined-variable cascade for the
-// binding it feeds. The callee has been consumed by the coroutine transform
-// (it became a frame plus a driver, and the plain function was removed) while
-// the generic template's body still names it.
+// binding it feeds.
 //
-// The boundary, probed four ways — only the fourth cell fails:
-//   - non-generic spawn root + nested suspending call     compiles, runs
-//   - generic spawn root, suspends only by `yield_now()`  compiles, runs
-//   - generic driven through the AMBIENT entry (called
-//     straight from `main`) + nested suspending call      compiles, runs
-//   - generic SPAWN root + nested suspending call         REFUSED
+// MECHANISM (confirmed by design 237 unit 1's census, which was asked whether
+// this was the ANF hoist's entry gap reached through a monomorphized body — it
+// is NOT, and it exits design 237 on that finding):
 //
-// So it is the spawn path's handling of a generic root, not generic driving
-// and not nested calls. Found by corodiff's generic-driven-function axis
-// (design 218 stage 1's opening rider); the fix owes the sweep obligation 4
-// asks for, over spawn roots that are generic methods and over MT spawn.
+//   * the error is emitted by the POST-TRANSFORM RE-CHECK (`-v` puts it after
+//     "Applied coroutine transform; re-checking..."), not by the hoist and not
+//     by codegen;
+//   * a suspending nested callee is CONSUMED by the transform — it becomes a
+//     frame plus a driver and the plain function is dropped from
+//     `program.functions` — which is why the NON-GENERIC twin below compiles:
+//     its own body is replaced by a frame too, so nothing names `mk` any more;
+//   * a GENERIC declaration also leaves its un-transformed TEMPLATE in the
+//     program, and that template's body still names `mk`. The re-check
+//     typechecks it and finds nothing there.
+//
+// It is the template, not the instantiations: driving `gworker` at TWO type
+// arguments produces exactly ONE `undefined function` error, not two.
+//
+// BOUNDARY, re-probed Aug 21 — WIDER than the original filing said. The
+// AMBIENT-entry cell fails too (`__saw_drive(gworker(7))`, the second function
+// below), so this is not the spawn path's handling of a generic root: it is
+// every driven generic body with a nested suspending call. The two cells that
+// still work are the ones with no consumed callee to lose (a generic body whose
+// only suspension is `yield_now()`) and the non-generic twin.
+//
+// The fix owes the sweep obligation 4 asks for: generic roots that are METHODS,
+// MT spawn, a generic root whose nested callee is itself generic, and a generic
+// template that survives a transform which consumed a callee it names for any
+// other reason.
 // EXPECT: success
 // EXPECT-OUTPUT:
 // v 1
 // joined 0
+// ambient v 1
+// ambient 0
 import std.task.{yield_now}
 
 func mk(id: Int) -> Int {
@@ -38,8 +56,16 @@ func gworker<T>(seed: T) -> Int {
     0
 }
 
+func gambient<T>(seed: T) -> Int {
+    let v1 = mk(1)
+    print("ambient v {v1}")
+    let _ = move seed
+    0
+}
+
 func main() {
     var g = TaskGroup()
     let h = g.spawn(gworker(7))
     print("joined {h.join()}")
+    print("ambient {__saw_drive(gambient(9))}")
 }
