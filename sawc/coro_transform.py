@@ -1946,6 +1946,10 @@ class _FrameBuilder:
         self._scope_binders = {}
         self._redefines = {}
         self._scope_stack = []
+        # design 218b E-STMT: the hoisted temps each STATEMENT owns, as
+        # `id(stmt) -> (stmt, [temp names])`, written where the ANF hoist lifts
+        # them. A statement temp is a statement's, not a frame's.
+        self._stmt_temps = {}
         # design 210: record what the DECLARATION typecheck already answered,
         # before this builder rewrites anything. Everything below — the hoists,
         # the state split, the frame-slot rewrites — then produces unmarked
@@ -2322,6 +2326,13 @@ class _FrameBuilder:
                 break
             setattr(s, field, self._anf(value, out, lift_self=lift_self))
             break
+        # design 218b E-STMT: remember which temps this statement owns, so the
+        # CFG walk can release them where the statement ends. The temps were
+        # lifted OUT of `s`, so `s` is the statement whose end they die at.
+        if out:
+            names = [t.name for t in out if isinstance(t, LetStatement)]
+            if names:
+                self._stmt_temps[id(s)] = (s, names)
         return out + [s]
 
     def _anf(self, expr, out, lift_self):
@@ -5644,12 +5655,59 @@ class _FrameBuilder:
             s.coro_redefines = local_names[0]
         return seq
 
+    def _stmt_temp_release(self, s):
+        """E-STMT: the temps the ANF hoist lifted OUT of statement `s` die at
+        the end of `s`, where the sync twin drops a statement temporary
+        (design 240 item 9's rule, on the driven side).
+
+        Emitted for every temp, not only the non-consumed ones. A temp read by
+        `take()` was emptied by that read and its clear is a no-op, and proving
+        per temp which read it got would buy nothing over an idempotent
+        tag-drop — 218b section 3 says as much.
+
+        Entry points: `_lower_stmts` (the CFG walk) and `_lower_stmt_list`
+        (in-place lowering), the two places a statement runs to completion."""
+        entry = self._stmt_temps.get(id(s))
+        if entry is None or entry[0] is not s:
+            return []
+        seq = []
+        for name in reversed(entry[1]):
+            seq.extend(self._release_shape(
+                name, self.encmap.get(name), self._frame_slot_type(name)))
+        return seq
+
+    def _scrutinee_temp_release(self, node):
+        """E-STMT, the scrutinee half (218b section 2c). A suspending `match`
+        head or `if let`/`guard let` subject is hoisted into a frame temp that
+        no scope owns — `FAM_SCRUTINEE_TEMP`, still on design 44's legacy
+        encoding — so it lived to teardown. It dies at the construct's MERGE
+        point instead, where the sync twin drops its statement temporary.
+
+        The shape is the IDEMPOTENT tag-drop and must stay one: an arm whose
+        binding CONSUMED the payload already cleared the tag through the
+        DF-210f forget, so the release there is a no-op, and emitting an
+        unconditional drop instead would free the payload twice. That forget
+        SURVIVES; this closes the non-consuming half's timing. The family is
+        narrowed in reach, not retired."""
+        if not isinstance(node, Identifier):
+            return []
+        name = node.name
+        if name not in self._hoist_temps or name not in self.encmap:
+            return []
+        return self._release_shape(
+            name, self.encmap.get(name), self._frame_slot_type(name))
+
     # ----------------------------------------------------- the CFG walk
     def _lower_stmts(self, stmts, loop_ctx):
         for s in stmts:
             if self.cur in self._term:
                 break  # unreachable tail after a return/break/continue
             self._lower_stmt(s, loop_ctx)
+            # E-STMT: the statement has run to completion on this path, so the
+            # temps it owns die here. A statement that left by `return` /
+            # `break` / `continue` released through that edge instead.
+            if self.cur not in self._term:
+                self._emit(self._stmt_temp_release(s))
 
     def _lower_block(self, block, loop_ctx, extra=(), loop_body=False):
         """Lower a block as its own SCOPE (design 218b).
@@ -5947,6 +6005,7 @@ class _FrameBuilder:
             if self.cur not in self._term:
                 self._goto(merge)
         self.cur = merge
+        self._emit(self._scrutinee_temp_release(e.optional_expr))   # E-STMT/2c
 
     def _takes_temp(self, name):
         """Whether a read of frame field `name` is a `take()`.
@@ -5982,6 +6041,7 @@ class _FrameBuilder:
         if self.cur not in self._term:
             self._goto(after)
         self.cur = after
+        self._emit(self._scrutinee_temp_release(s.optional_expr))   # E-STMT/2c
 
     def _split_while(self, e, loop_ctx):
         if e.condition is not None:
@@ -6183,6 +6243,7 @@ class _FrameBuilder:
             if self.cur not in self._term:
                 self._goto(merge)
         self.cur = merge
+        self._emit(self._scrutinee_temp_release(e.matched_expr))   # E-STMT/2c
 
     # ------------------------------------------- design 196 unit 3: try/catch
     def _split_try_catch(self, e, loop_ctx):
@@ -6559,6 +6620,16 @@ class _FrameBuilder:
                                method_name="__park_word", arguments=[])
         self._suspend_to(park_word, header)
         self.cur = after
+        if rc['target'] is None and not (rc.get('ret') and not self.is_void):
+            # E-STMT / row M4: a DISCARDED cooperative `receive()` parks its
+            # moved-out value in the `__rcvN` holder, which design 62 G3 gave
+            # to teardown. The receive statement is over here, so the value is
+            # over too — the sync twin drops a discarded call's result at the
+            # statement. (The `ret` arm below hands the value to `__result`
+            # instead and must not clear it.)
+            rcv = f"__rcv{idx}"
+            self._emit(self._release_shape(
+                rcv, self.encmap.get(rcv), self._frame_slot_type(rcv)))
         if rc.get('ret') and not self.is_void:
             # The value is in the `__rcvN` holder (a `return` names no target),
             # and this frame's result is what it is for. `move` hands the
@@ -7316,6 +7387,7 @@ class _FrameBuilder:
         out = []
         for s in stmts:
             out.extend(self._lower_inplace(s))
+            out.extend(self._stmt_temp_release(s))   # E-STMT
         return out
 
     def _lower_inplace(self, s):
@@ -7413,18 +7485,23 @@ class _FrameBuilder:
         # branch becomes the coroutine done-sequence (not a raw `return`).
         if isinstance(ctrl, IfLetExpr):
             forgets = []
+            # E-STMT / 2c — see the MatchExpr arm below.
+            scrut_release = self._scrutinee_temp_release(ctrl.optional_expr)
             cap_lets, ctrl.optional_expr = self._rewrite_hosting(
                 ctrl.optional_expr, forgets)
             self._lower_block_in_place(ctrl.then_branch)
             if ctrl.else_branch is not None:
                 self._lower_block_in_place(ctrl.else_branch)
-            return cap_lets + [s] + self._forgets(forgets)
+            return cap_lets + [s] + self._forgets(forgets) + scrut_release
         if isinstance(s, GuardLetStatement):
             forgets = []
+            # A guard's binding outlives the statement, but the TEMP its
+            # subject was hoisted into does not — the dispatch read it here.
+            scrut_release = self._scrutinee_temp_release(s.optional_expr)
             cap_lets, s.optional_expr = self._rewrite_hosting(
                 s.optional_expr, forgets)
             self._lower_block_in_place(s.else_branch)
-            return cap_lets + [s] + self._forgets(forgets)
+            return cap_lets + [s] + self._forgets(forgets) + scrut_release
         if isinstance(ctrl, (IfExpr, WhileExpr, MatchExpr)):
             e = ctrl
             if isinstance(e, IfExpr):
@@ -7446,6 +7523,12 @@ class _FrameBuilder:
                 return cap_lets + [s] + self._forgets(forgets)
             if isinstance(e, MatchExpr):
                 forgets = []
+                # E-STMT / 2c: read the scrutinee temp BEFORE the rewrite turns
+                # the identifier into a field access. A match whose SCRUTINEE
+                # was the only suspending thing in it lowers in place (the
+                # construct itself spans nothing once the head is hoisted), so
+                # this is where that shape's merge point is.
+                scrut_release = self._scrutinee_temp_release(e.matched_expr)
                 cap_lets, e.matched_expr = self._rewrite_hosting(
                     e.matched_expr, forgets)
                 for arm in e.arms:
@@ -7463,7 +7546,8 @@ class _FrameBuilder:
                                 f"a bare match-arm expression of driven "
                                 f"`{self.name}` is not supported; use a block arm",
                                 self.func.line, self.func.column)
-                return cap_lets + [s] + self._forgets(forgets)
+                return (cap_lets + [s] + self._forgets(forgets)
+                        + scrut_release)
 
         # Fallback: a plain expression statement (`foo()`), a break/continue with
         # a value, etc. — rewrite in place, hosting any drop-flag clears after.

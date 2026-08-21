@@ -1,27 +1,29 @@
-// XFAIL: DF-217m an UNWRAPPED call-result receiver (`mk_opt(44)!.describe()`)
-// leaves its temp alive to frame teardown instead of releasing it at the
-// statement
+// A call-result receiver's temp is released at the end of the statement that
+// produced it, unwrapped or not (DF-217m, closed by design 240 item 9 on the
+// sync side and design 218 unit 2 stage D on the driven one).
 //
 // HALF FIXED by design 218 stage 2. The plain call-result receiver
-// (`mk(10).describe()`) now releases where the statement ends — its ANF temp is
+// (`mk(10).describe()`) releases where the statement ends — its ANF temp is
 // a `Slot` whose one read is `take()`, so the value leaves the frame and dies
-// as an ordinary statement temporary. The UNWRAPPED shape below still does not,
-// and the reason it is DF-217m's rather than this row's: unwrapping projects
+// as an ordinary statement temporary. The UNWRAPPED shape below did not, and
+// the reason it was DF-217m's rather than that row's: unwrapping projects
 // the payload out and leaves the optional itself as a temporary nobody
-// registers, which the SYNC twin leaks OUTRIGHT (no coroutine anywhere). Stage
-// 2 keeps that read a borrow deliberately — a late release beats no release —
-// so this row flips when the sync temp lifecycle is fixed.
+// registers, which the SYNC twin leaked OUTRIGHT (no coroutine anywhere).
+// Stage 2 kept that read a borrow deliberately — a late release beats no
+// release. Stage D leaves the READ alone and moves only the husk's lifetime:
+// a clear at the end of the statement the hoist lifted the temp from.
 //
 // Sweep S2 rows b1-b4/m7. `mk(10).describe()` hoists the receiver into a frame
-// temp, and that temp is a frame local for the rest of the function: the value
-// is released exactly once, but at teardown rather than at the end of the
-// statement that produced it. The non-suspending twin of the first shape prints
-// `deinit 10` BEFORE `x=10`; the driven one prints it after.
+// temp, and that temp used to be a frame local for the rest of the function:
+// the value was released exactly once, but at teardown rather than at the end
+// of the statement that produced it. Both shapes now print their `deinit`
+// BEFORE the line that uses the result, which is what the non-suspending twin
+// does.
 //
 // Same `_anf_lift` temp-lifecycle chokepoint as the argument positions (see
 // `coro_hoisted_call_arg_consumed_once.saw`), on its non-consuming face:
-// nothing double-frees here, deterministic destruction just stops being
-// deterministic — a `File` or a `TcpStream` built this way stays open for the
+// nothing double-freed here, deterministic destruction just stopped being
+// deterministic — a `File` or a `TcpStream` built this way stayed open for the
 // rest of the frame.
 // EXPECT: success
 // EXPECT-OUTPUT:

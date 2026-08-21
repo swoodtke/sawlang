@@ -60,8 +60,7 @@
 # after/before/between cells never forced the scrutinee frame-resident, so
 # they reached parity and needed no rows.
 
-# SIXTY-FOUR of DF-217p's sixty-eight rows are GONE, removed by design 218
-# unit 2 (Aug 21) in
+# DF-217p's sixty-eight rows are GONE, removed by design 218 unit 2 (Aug 21) in
 # the landing that fixed them, exactly as an XPASS marker is. A frame-resident
 # local in a driven body is released at the end of the scope that owns it now,
 # not at frame teardown: the transform keeps the scope map `_uniq_walk_block`
@@ -72,17 +71,22 @@
 # the backedge) and the `@ linear` cells (a scope that ends inside the body — an
 # `if let` body, a `match` arm, a same-scope rebind).
 #
-# FOUR SIGNATURES SURVIVE, and they are one narrower thing: the SCRUTINEE TEMP
-# a suspending `match` head is hoisted into. It is not a scope's binding — it is
-# a statement's temporary, `FAM_SCRUTINEE_TEMP`, still on design 44's legacy
-# encoding — so the scope walk does not own it and it keeps its teardown-late
-# release. They go with the statement-end edge (218b section 2c: an idempotent
-# tag-drop at the construct's merge point, paired with the DF-210f forget that
-# survives on the consuming arms).
-DF-217p-2026-08-13	DEINIT-ORDER: match_consume/in_rhs @ linear
-DF-217p-2026-08-13	DEINIT-ORDER: match_consume/in_rhs @ loop
-DF-217p-2026-08-13	DEINIT-ORDER: match_nobinding/in_rhs @ linear
-DF-217p-2026-08-13	DEINIT-ORDER: match_nobinding/in_rhs @ loop
+# The `match_consume/in_rhs` cells went with the statement-end edge, stage D
+# (218b section 2c): the scrutinee temp a suspending `match` HEAD is hoisted
+# into is a statement's temporary, not a scope's binding, so it releases at the
+# construct's merge point — an idempotent tag-drop, paired with the DF-210f
+# forget that survives on the consuming arms.
+#
+# TWO SIGNATURES SURVIVE, RE-FILED under DF-218w: the `_`-arm cells, whose
+# residual divergence is intra-statement TIMING. Sync drops a discarded payload
+# INLINE at extraction (it is registered in no cleanup scope, so no scope exit
+# could reach it); the driven twin has no consume mode to be in and drops the
+# whole temp at the statement's end. One position late, never a leak.
+
+# DF-218w (reported 2026-08-21) — the narrowed residue of DF-217p.
+# PIN: examples/coro_discarded_match_payload_released_at_extraction.saw
+DF-218w-2026-08-21	DEINIT-ORDER: match_nobinding/in_rhs @ linear
+DF-218w-2026-08-21	DEINIT-ORDER: match_nobinding/in_rhs @ loop
 
 # DF-218e (reported 2026-08-14) — the FIRST finding of the generic-driven
 # axis, and pre-existing: a GENERIC function driven as a root cannot contain a

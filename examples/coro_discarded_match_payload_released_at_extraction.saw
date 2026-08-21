@@ -1,0 +1,86 @@
+// XFAIL: DF-218w a driven `case Has(_)` releases the discarded payload at the
+// END of the match statement, where the sync twin releases it at EXTRACTION
+//
+// The narrowed residue of DF-217p, whose scope-end migration moved this cell
+// from "frame teardown" to "the end of the statement" and could not move it
+// further. What is left is intra-statement TIMING, one position late, and never
+// a leak or a double free — the counts balance on both twins.
+//
+// MECHANISM. A `_` payload binding names no value to own, so it is registered
+// in no cleanup scope and no scope exit can reach it. Sync answers that by
+// dropping it INLINE at extraction (codegen/match.py's consume branch, the
+// DF-217n fix). The driven twin has no consume mode to be in: its scrutinee is
+// the frame TEMP the container-head hoist made (`self.__headN`), not an owned
+// local, so `scrut_is_local` is false, nothing drops the payload inline, and
+// the temp's own release — 218b's E-STMT edge, at the construct's merge point —
+// is what drops it. That release is correct and exactly-once; it is simply the
+// statement's end rather than the extraction point.
+//
+// The positions this reaches are the arms that bind a payload to `_` and
+// nothing else. An arm with a NAMED binding is clean on both twins (the
+// binding's store either consumes the temp or takes its own retain, and the
+// scrutinee dies at the statement's end on both sides), which is why
+// `match_consume` retired with the rest of DF-217p and `match_nobinding` did
+// not.
+//
+// The fix is per-ARM emission — release the scrutinee temp at the START of an
+// arm whose only payload binding is `_` — which needs a rule for the mixed
+// `case Two(v, _)` shape, where sync drops one field inline and the other at
+// arm end while the frame temp holds the whole enum. Not attempted here.
+// EXPECT: success
+// EXPECT-OUTPUT:
+// -- sync
+// NEW t1
+// DEINIT t1
+// arm
+// scope closed
+// -- driven
+// NEW t1
+// DEINIT t1
+// arm
+// scope closed
+
+import std.task.{yield_now}
+
+struct Res { name: String }
+extension Res: NoCopy {
+    func deinit(&var self) { print("DEINIT {self.name}") }
+}
+
+struct Tag { cell: Arc<Res> }
+@synthesize
+extension Tag: Copy {}
+
+enum Held { case Has(x: Tag) }
+
+func mk_tag(id: Int) -> Tag {
+    print("NEW t{id}")
+    Tag(cell: Arc<Res>(value: Res(name: "t{id}")))
+}
+
+func mk_tag_s(id: Int) -> Tag {
+    yield_now()
+    print("NEW t{id}")
+    Tag(cell: Arc<Res>(value: Res(name: "t{id}")))
+}
+
+func sync_body() {
+    match Held.Has(x: mk_tag(1)) {
+        case Has(_) -> { print("arm") }
+    }
+    print("scope closed")
+}
+
+func driven_body() {
+    match Held.Has(x: mk_tag_s(1)) {
+        case Has(_) -> { print("arm") }
+    }
+    print("scope closed")
+}
+
+func main() {
+    print("-- sync")
+    sync_body()
+    print("-- driven")
+    __saw_drive(driven_body())
+}
