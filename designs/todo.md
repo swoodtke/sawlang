@@ -31,8 +31,8 @@ is scheduled and in what order is the whole of what they say.
 
 ## [QUEUE] — scheduled, in order (user-approved)
 
-- Design 218 unit 2 — the scope-end migration: IMPLEMENTED Aug 21 on branch `design-218-u2` (stages 0/A+B/C/D/E). DF-217p, DF-217m's coro face, DF-218e and DF-218r CLOSED; DF-218s HALF closed and its remainder needs a ruling (entries below). Two new findings filed on the way (DF-218t, DF-218v) and one closed on discovery (DF-218u). Spec + landing note: designs/218b-scope-end-spec.md. AWAITING lead validation + integration
-- Small-fix batch — DF-216c generic-static monomorphization (+DF-217d rides, same missing path) + DF-216h renamed extension param plumbing + DF-219c bound-aware spawn capture audit (SCHEDULED Aug 21, user; entries below — all three mechanisms assessed, sites located; DF-239b joins only if its resolution strategy is settled at briefing)
+- DF-218s remainder + DF-218w — the two transform-emission residues of the 218 unit 2 landing, queued TOGETHER (user, Aug 21): DF-218s's interleaving half RULED same day, OPTION 3 — force frame residency on the owning real locals of any block containing a `return` (the try/catch `force` mechanism; scope walk becomes the total authority) — and DF-218w's per-arm `_`-payload release (owes the mixed `case Two(v, _)` rule at briefing). Acceptance: their two pins + K70 + the two DF-218w ledger rows. Entries below
+- Small-fix batch — DF-216c generic-static monomorphization (+DF-217d rides, same missing path) + DF-216h renamed extension param plumbing + DF-219c bound-aware spawn capture audit + DF-218v sync try/catch error-edge leak (ADDED by user, Aug 21; entry below) (SCHEDULED Aug 21, user; entries below — mechanisms assessed, sites located; DF-239b joins only if its resolution strategy is settled at briefing, DF-238a a candidate too after its Aug-21 elevation)
 - Design 234 — the fallibility flip (designs/234-fallibility-flip.md) — after 235/237 (the M3-1.5 interleave carve-out WITHDRAWN by user, Aug 20 — 1.5 waits for sawos)
 - sos riders batch — REMAINDER ONLY: `clock_get` `kind:`→`type:` (DF-232b landed), abi enums decimals→shifts (DF-232c landed). The kcore re-narrowing LANDED Aug 20; the member audit RAN Aug 20 and its narrowing unit LANDED Aug 20 (84 sites: 78 `public(package)`, 6 private, 2 consumed; the audit's file-local split was inverted — DF-232q); see the re-narrowing rider section
 - Design 238 — the sawos split (designs/238-sawos-split.md; four rulings Aug 19, D-b1/b2/b3 open) — BEFORE the M3 ladder; UNITS 0-1 LANDED Aug 21 (the oracle + the freestanding suite), units 2-7 open and user-reserved
@@ -58,7 +58,7 @@ for sawos; "238 before more M3 work" is absolute.
 - M4 seeds — IPC/pipes (renamed from channels Aug 20 — ratified record in spec §2.1 + the done file), dynamic loading, IOMMU, SMP (references in designs/232-sos-m3-sketch.md)
 - ESP32 path — P4 + TCP/IP stack ultimate goal; S3 via FreeRTOS-fakery stage 2 (HARDWARE PATH entry below)
 - DF-223b — existential dispatch of a suspending trait method, owed a DESIGN (entry below, under design 223)
-- DF-218s — the driven done path releases frame fields ahead of inner real locals, inverting sync LIFO. 218b stage C landed the half in reach (frame fields release in scope order); the INTERLEAVING with codegen's real locals is NOT reachable from the transform and needs a ruling — entry below
+- DF-218s — RULED Aug 21 (user): OPTION 3, forced frame residency — and SCHEDULED with DF-218w (see [QUEUE]); entry below carries the mechanism
 - DF-218t — a value-position loop at a non-integer result type is a codegen ICE (the `None` sentinel is built for an integer); entry below, found by 218b stage 0's probes
 - DF-218v — a `try { } catch { }` block LEAKS the try body's locals on its error edge (sync); entry below, found by 218b's SC10 probe, and it corrects DF-218r's class statement
 - DF-218w — DF-217p's narrowed residue: a driven `case Has(_)` drops the discarded payload at the statement's end, not at extraction (entry below, pinned XFAIL, two corodiff rows)
@@ -2377,6 +2377,16 @@ obligation-2 consumer sweep before dispatch. Gates 218 stages 1-2.
   designs/218b-scope-end-spec.md's landing note.
   PIN: `examples/coro_done_path_releases_in_scope_order.saw` (XFAIL, carries
   the mechanism and the containment fact that bounds it)
+  **RULED Aug 21 (user): OPTION 3 — forced frame residency.** The owning
+  real locals of any block containing a `return` become frame-resident via
+  the `force` mechanism the try/catch split already uses, so E-RET's scope
+  walk orders every owning local and sync-LIFO holds by the containment
+  argument (a frame-resident scope is always an ancestor of a real-local
+  scope). The driver option was rejected for resurrecting the
+  reverse-declaration coincidence stage C retired; the done-state option
+  for being wrong under an enclosing non-spanning loop. Frame-size cost
+  accepted on the tag-cost precedent; bench timing is the watch item.
+  SCHEDULED with DF-218w (one dispatch — see [QUEUE]).
 
 - **DF-218t (ICE, PRE-EXISTING; found Aug 21 while probing DF-218r's
   break-with-a-value edge)** — a VALUE-position loop whose result type is not
