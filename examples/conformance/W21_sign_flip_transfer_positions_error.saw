@@ -10,7 +10,6 @@
 // rule 2 closed the value-BRANCH face (row W13 — two arms with no lossless
 // direction have no type to merge to). This row is the remaining face: the
 // plain transfer, at every position one happens.
-// XFAIL: DF-195c a same-width sign-flipping transfer through the platform pair reinterprets silently
 // EXPECT: error
 // EXPECT-ERROR-CONTAINS: cannot assign `UInt` to variable of type `Int`
 // EXPECT-ERROR-CONTAINS: argument `x` expects `Int` but got `UInt`

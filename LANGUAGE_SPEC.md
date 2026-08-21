@@ -4766,9 +4766,9 @@ constant, which is where a wrong constant is a typo the compiler can catch.
 
 ### Integer Width Agreement
 
-**Status: implemented (design 195).**
+**Status: implemented (designs 195, 205).**
 
-Two rules cover every position where integers of different types meet.
+Three rules cover every position where integers of different types meet.
 
 #### Operands agree; only literals promote
 
@@ -4840,6 +4840,44 @@ implicitly anywhere (see "Integer Conversions"): an `Int16` arm beside an
 `Int64` one is the same type error it is at a `let`. Bare literals adopt in arm
 position exactly as they do in operand position, so the arms above in an
 `-> Int16` function are legal with nothing written.
+
+#### Plain transfers take the same rule
+
+**Status: implemented (design 205).**
+
+The two rules above are the operator's and the arm's. A plain transfer takes the
+same one. A lossless widening is free; a narrowing or a same-width sign change is
+one of the three spellings from "Integer Conversions", written where the value
+lands.
+
+```saw
+let n: Int = 300
+let b: Int8 = n
+// error: cannot assign `Int` to variable of type `Int8`
+// hint: write the conversion: `as Int8` panics out of range, `Int8.from(...)`
+//       answers `None`, `Int8.from(truncating: ...)` keeps the low bits
+```
+
+There is no position exemption. The rule holds wherever a value lands in a new
+home: a `let` or `var` initializer, an assignment right-hand side, a call
+argument, a `return` and a body's tail expression, a struct-field initializer, an
+enum payload, an array, tuple, `Vector`, `Map` or `Set` element, an optional
+slot, a default parameter value, and a `static` initializer.
+
+Only the platform pair changed, because it was the exception. Two fixed widths
+have never been convertible: an `Int16` in an `Int8` slot is an error and always
+was. `Int` and `UInt` were admitted into and out of every integer type, so
+`let b: Int8 = n` on an `Int` holding 300 printed 44, and `let i: Int = u` on
+`UInt.max` printed -1. That permission existed so a bare literal could reach a
+fixed-width slot, a job expected-type propagation does on its own; what it
+covered in practice was a value losing its high bits or its reading.
+
+Two things are untouched. A bare literal still adopts the slot it is written in,
+at every position on that list: `let a: Int8 = 42` needs no suffix and no
+conversion, and is range-checked at the literal. And a lossless widening is still
+implicit, because it decides nothing. `let wide: Int = u32val` extends by the
+source's signedness and keeps the value. That admission is positional: a transfer
+knows which side is the source, and general assignability does not.
 
 ### Bitwise and Shift Operators
 

@@ -28,8 +28,17 @@ class CollectionsMixin:
 
     def _generate_tuple_literal(self, expr: TupleLiteral):
         """Generate code for a tuple literal."""
-        # Generate each element (honoring Copy needs_copy annotations)
+        # Generate each element (honoring Copy needs_copy annotations), each
+        # coerced to the DECLARED element type — an annotated tuple's element
+        # widths are the annotation's, not the written elements' (DF-205a).
+        declared = getattr(expr, 'resolved_type', None)
+        elem_saws = (declared.element_types
+                     if declared is not None and declared.element_types else None)
         element_values = [self._gen_transfer_value(elem) for elem in expr.elements]
+        if elem_saws is not None and len(elem_saws) == len(element_values):
+            element_values = [
+                self._coerce_element_int(v, e, t)
+                for v, e, t in zip(element_values, expr.elements, elem_saws)]
 
         # Create the tuple type
         element_types = [val.type for val in element_values]
@@ -153,8 +162,16 @@ class CollectionsMixin:
         if len(expr.elements) == 0:
             raise ValueError("Empty array literals not supported")
 
-        # Generate all element values (honoring Copy needs_copy annotations)
+        # Generate all element values (honoring Copy needs_copy annotations),
+        # each coerced to the DECLARED element type (DF-205a): the array's
+        # element type is the ANNOTATION's, not element 0's, so a literal whose
+        # first element is narrower than the annotation no longer builds a
+        # too-narrow array that the second element cannot be inserted into.
+        arr_saw = getattr(expr, 'resolved_type', None)
+        elem_saw = arr_saw.array_element_type if arr_saw is not None else None
         element_values = [self._gen_transfer_value(elem) for elem in expr.elements]
+        element_values = [self._coerce_element_int(v, e, elem_saw)
+                          for v, e in zip(element_values, expr.elements)]
 
         # Get the element type from the first element
         elem_type = element_values[0].type

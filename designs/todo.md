@@ -31,7 +31,6 @@ is scheduled and in what order is the whole of what they say.
 
 ## [QUEUE] — scheduled, in order (user-approved)
 
-- Design 205 — platform-pair transfer conversions (designs/205-transfer-conversion-closes.md; worked solution recorded in the brief) — position in queue provisional, before 234 suggested
 - Design 218 unit 2 — the scope-end migration (SCHEDULED Aug 21, user): DF-217p (RULED Aug 20, scope-end required; the corodiff ledger's 61+2+3 cells are the acceptance matrix) + DF-217m coro face (rides) + DF-218e (same transform; mechanism confirmed by 237's census) — entries below, under design 218 / NEXT-WAVE SWEEPS; retires the bulk of corodiff_known.txt. BEFORE 234's corpus churn
 - Small-fix batch — DF-216c generic-static monomorphization (+DF-217d rides, same missing path) + DF-216h renamed extension param plumbing + DF-219c bound-aware spawn capture audit (SCHEDULED Aug 21, user; entries below — all three mechanisms assessed, sites located; DF-239b joins only if its resolution strategy is settled at briefing)
 - Design 234 — the fallibility flip (designs/234-fallibility-flip.md) — after 235/237 (the M3-1.5 interleave carve-out WITHDRAWN by user, Aug 20 — 1.5 waits for sawos)
@@ -4610,6 +4609,14 @@ DF-192e fixed, DF-192b/c/d/f/g pinned (DF-192d fixed since, by design 198).
   three conversion spellings — the transfer-position twin of 195's
   operand rule. Own brief (205, to author) with its consumer sweep;
   bare-literal adoption stays untouched.**
+  **FIXED by design 205 unit 2.** `_types_compatible`'s integer arm is SAME-KIND
+  ONLY, and the one implicit integer conversion a transfer admits — a lossless
+  widening through the platform pair — is admitted POSITIONALLY by
+  `_transfer_compatible`, whose docstring names its entry points. It has to be
+  positional: general assignability recurses into invariant positions (a generic
+  argument, a tuple element, an optional payload), where a `Vector<Int8>` must
+  not be a `Vector<Int>`. PIN flipped to a passing error test; the fifteen-position
+  matrix is conformance row W20.
 - **DF-195c (SOUNDNESS + a RULING OWED, filed Aug 10 by 195 u1's probes): a
   same-width SIGN-FLIPPING transfer through the platform pair reinterprets
   silently.** `let u: UInt = UInt.max` followed by `let i: Int = u` prints
@@ -4617,7 +4624,10 @@ DF-192e fixed, DF-192b/c/d/f/g pinned (DF-192d fixed since, by design 198).
   the one design 170 checks hardest at a written cast (`-1 as UInt8` panics).
   Design 195 rule 1 closes the OPERATOR face (`i + u` is refused now); the
   transfer face rides with DF-195b. PIN:
-  `examples/int_sign_flip_transfer_through_platform_int.saw` (XFAIL, cited).
+  `examples/int_sign_flip_transfer_through_platform_int.saw`.
+  **FIXED by design 205 unit 2, with DF-195b** — one admission covered both axes,
+  so closing it closed both. PIN flipped to a passing error test; the matrix is
+  conformance row W21.
 - **DF-195d (ICE + a RULING OWED, filed Aug 10 by 195 u1's probes): mixing a
   `Float` and an integer operand is an internal compiler error.** The
   arithmetic arm answers `Float` for a mixed pair, promising a promotion the
@@ -4638,12 +4648,22 @@ DF-192e fixed, DF-192b/c/d/f/g pinned (DF-192d fixed since, by design 198).
   behavior; DF-195d CLOSES with no further work.**
 
 ## Design 205 — the platform pair converts by the book at transfers too
-## (IN PROGRESS — designs/205-transfer-conversion-closes.md)
+## (LANDED Aug 21 — designs/205-transfer-conversion-closes.md, with its
+## landing section + the unit-3 migration list)
 
 Closes DF-195b and DF-195c (entries above) — the last two SILENT integer
-conversions in the language. Unit 1 landed the transfer-position matrix as
-conformance rows W20-W24 (`examples/conformance/INDEX.md`); its probes found
-one new finding, which unit 2 owns.
+conversions in the language. `_types_compatible`'s integer arm is same-kind
+only; the one implicit integer conversion a transfer admits (a lossless
+widening through the platform pair) is admitted POSITIONALLY by
+`_transfer_compatible`, and every refusal site carries design 170's three
+spellings as a hint. The transfer-position matrix is conformance rows W20-W24.
+The consumer sweep's 53 corpus failures were 46 ADOPTION-ENTRY GAPS fixed at
+six paths (the plain instance-method argument, both enum-payload arms, the
+`borrows` accessor argument, `UnsafeMemory.write`, `UnsafeMutableInterior`, the
+overload candidate filter — each a position design 87's stamp never reached and
+the closed permission had been absorbing) and THREE true migrations, all `as`:
+two in `examples/`, one the real std bug (`net.saw`'s `close(fd as Int32)`).
+One finding filed and fixed in the same brief.
 
 - **DF-205a (SOUNDNESS — WRONG ANSWER + an ICE, filed Aug 21 by 205 u1's
   probes): an implicit LOSSLESS widening extends by the TARGET's signedness
@@ -4661,8 +4681,13 @@ one new finding, which unit 2 owns.
   i64`). Load-bearing for design 205: closing the narrowing and sign-flip
   axes makes the widening admission POSITIONAL, so every position has to
   extend correctly before the rule can rest on it. PIN:
-  `examples/conformance/W22_lossless_widening_transfer_positions.saw`
-  (XFAIL, cited).
+  `examples/conformance/W22_lossless_widening_transfer_positions.saw`.
+  **FIXED by design 205 unit 2.** The six fall-through `ret` sites each pass
+  their own `body.final_expr` to `_coerce_ret_value` now, and one new codegen
+  funnel — `_coerce_element_int`, whose docstring names its three entry points —
+  coerces an aggregate element to its DECLARED type at the array literal, the
+  tuple literal and the `OptionalWrap`, which is what retires the ICE with the
+  wrong answers. PIN flipped to a passing test.
 
 - **DF-190c (VERIFY / latent must-agree, filed Aug 9, CLOSED Aug 10 by 194 u2):
   `_make_specialization_key` had DIVERGED** — codegen handled design-148

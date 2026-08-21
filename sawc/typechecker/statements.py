@@ -402,7 +402,7 @@ class StatementsMixin:
                     f"method `{method.name}` should return `{expected_return}` but body has no value",
                     method.line, method.column
                 )
-            elif body_type is not None and not self._types_compatible(body_type, expected_return):
+            elif body_type is not None and not self._transfer_compatible(body_type, expected_return):
                 # Check for Result auto-wrapping on final expression
                 if expected_return.is_result() and method.body.final_expr:
                     ok_type = expected_return.unwrap_result_ok()
@@ -417,9 +417,10 @@ class StatementsMixin:
                         )
                     elif self._result_autowrap_ambiguous(
                             expected_return, body_type, f"method `{method.name}`",
-                            method.line, method.column):
+                            method.line, method.column,
+                            value_expr=method.body.final_expr):
                         pass  # design 30: ambiguity reported; no wrap
-                    elif self._types_compatible(body_type, ok_type):
+                    elif self._transfer_compatible(body_type, ok_type):
                         # DF-140d: see through the Ok-payload optional first.
                         _payload = self._prepare_ok_payload(
                             method.body.final_expr, body_type, ok_type)
@@ -429,7 +430,7 @@ class StatementsMixin:
                             line=_payload.line,
                             column=_payload.column
                         )
-                    elif self._types_compatible(body_type, err_type):
+                    elif self._transfer_compatible(body_type, err_type):
                         # Wrap in ResultErrWrap
                         method.body.final_expr = ResultErrWrap(
                             value=method.body.final_expr,
@@ -455,7 +456,8 @@ class StatementsMixin:
                     self._error(
                         ErrorKind.TYPE_MISMATCH,
                         f"method `{method.name}` should return `{expected_return}` but returns `{body_type}`",
-                        method.line, method.column
+                        method.line, method.column,
+                        hint=self._int_conversion_hint(body_type, expected_return)
                     )
             elif body_type is not None and method.body.final_expr and body_type.kind != TypeKind.NEVER:
                 # Types are compatible - check if we need Optional wrapping
@@ -565,7 +567,7 @@ class StatementsMixin:
                 f"function `{func.name}` should return `{resolved_return_type}` but body has no value",
                 func.line, func.column
             )
-        elif body_type is not None and not self._types_compatible(body_type, resolved_return_type):
+        elif body_type is not None and not self._transfer_compatible(body_type, resolved_return_type):
             # Check for Result auto-wrapping on final expression
             if resolved_return_type.is_result() and func.body.final_expr:
                 ok_type = resolved_return_type.unwrap_result_ok()
@@ -580,9 +582,10 @@ class StatementsMixin:
                     )
                 elif self._result_autowrap_ambiguous(
                         resolved_return_type, body_type, f"function `{func.name}`",
-                        func.line, func.column):
+                        func.line, func.column,
+                        value_expr=func.body.final_expr):
                     pass  # design 30: ambiguity reported; no wrap
-                elif self._types_compatible(body_type, ok_type):
+                elif self._transfer_compatible(body_type, ok_type):
                     # DF-140d: see through the Ok-payload optional (bare `None`
                     # stamped, bare `T` wrapped in `Some`) before the Result wrap.
                     _payload = self._prepare_ok_payload(
@@ -593,7 +596,7 @@ class StatementsMixin:
                         line=_payload.line,
                         column=_payload.column
                     )
-                elif self._types_compatible(body_type, err_type):
+                elif self._transfer_compatible(body_type, err_type):
                     # Wrap in ResultErrWrap
                     func.body.final_expr = ResultErrWrap(
                         value=func.body.final_expr,
@@ -621,7 +624,8 @@ class StatementsMixin:
                 self._error(
                     ErrorKind.TYPE_MISMATCH,
                     f"function `{func.name}` should return `{resolved_return_type}` but returns `{body_type}`",
-                    func.line, func.column
+                    func.line, func.column,
+                    hint=self._int_conversion_hint(body_type, resolved_return_type)
                 )
         elif body_type is not None and func.body.final_expr and body_type.kind != TypeKind.NEVER:
             # Types are compatible - check if we need Optional wrapping
@@ -633,7 +637,8 @@ class StatementsMixin:
                     column=func.body.final_expr.column
                 )
 
-    def _result_autowrap_ambiguous(self, expected, value_type, context_desc, line, column) -> bool:
+    def _result_autowrap_ambiguous(self, expected, value_type, context_desc, line,
+                                   column, value_expr=None) -> bool:
         """Design 30 Ruling 1: reject an ambiguous bare-value Result auto-wrap.
 
         When a bare value is returned from a function declared to return a
@@ -664,9 +669,21 @@ class StatementsMixin:
         err_type = expected.unwrap_result_err()
         if ok_type is None or err_type is None:
             return False
-        if not (self._types_compatible(value_type, ok_type)
-                and self._types_compatible(value_type, err_type)):
-            return False
+        both_fit = (self._transfer_compatible(value_type, ok_type)
+                    and self._transfer_compatible(value_type, err_type))
+        if not both_fit:
+            # design 205: the LITERAL case above is an ADOPTION question, and it
+            # used to be answered by `_types_compatible`'s platform-pair
+            # permission — a bare `Int` was "compatible" with `Int32` and `Int8`
+            # alike. General assignability no longer says that (an `Int` narrows
+            # into neither), so the adoption reading is asked directly, of the
+            # source EXPRESSION rather than of its provisional type. A runtime
+            # `Int` at `Result<Int32, Int8>` fits neither payload and is the
+            # ordinary mismatch, which is the message it now gets.
+            if not (self._adopting_int_source(value_expr)
+                    and self._int_transfer_pair(value_type, ok_type)
+                    and self._int_transfer_pair(value_type, err_type)):
+                return False
         if self._type_key(ok_type) == self._type_key(err_type):
             why = "has the same Ok and Err type"
         else:
@@ -1502,12 +1519,13 @@ class StatementsMixin:
             value_type = self._check_expression(stmt.value)
             if stmt.type_annotation:
                 resolved = self._resolve_type(stmt.type_annotation)
-                if (value_type is not None and not self._types_compatible(
+                if (value_type is not None and not self._transfer_compatible(
                         value_type, resolved, allow_literal_to_distinct=True)):
                     self._error(
                         ErrorKind.TYPE_MISMATCH,
                         f"cannot discard `{value_type}` as `{stmt.type_annotation}`",
-                        stmt.line, stmt.column)
+                        stmt.line, stmt.column,
+                        hint=self._int_conversion_hint(value_type, resolved))
             self._check_value_transfer(stmt.value, value_type, "discard `let _`",
                                        stmt.line, stmt.column)
             return
@@ -1600,11 +1618,13 @@ class StatementsMixin:
                 stmt.line, stmt.column)
             # allow_literal_to_distinct=True because let/var initialization allows primitives to
             # initialize distinct types (e.g., `let x: MyInt = 21`)
-            if not self._types_compatible(value_type, resolved_type, allow_literal_to_distinct=True):
+            if not self._transfer_compatible(value_type, resolved_type,
+                                             allow_literal_to_distinct=True):
                 self._error(
                     ErrorKind.TYPE_MISMATCH,
                     f"cannot assign `{value_type}` to variable of type `{stmt.type_annotation}`",
-                    stmt.line, stmt.column
+                    stmt.line, stmt.column,
+                    hint=self._int_conversion_hint(value_type, resolved_type)
                 )
             # Check integer literal range for fixed-width types
             if isinstance(stmt.value, IntLiteral):
@@ -2263,12 +2283,13 @@ class StatementsMixin:
             self._propagate_optional_type(stmt.value, resolved)
             value_type = resolved
         if (value_type is not None and target_type is not None
-                and not self._types_compatible(value_type, target_type)):
+                and not self._transfer_compatible(value_type, target_type)):
             self._error(
                 ErrorKind.TYPE_MISMATCH,
                 f"cannot assign `{value_type}` to {slot_noun} of type "
                 f"`{target_type}`",
-                stmt.line, stmt.column
+                stmt.line, stmt.column,
+                hint=self._int_conversion_hint(value_type, target_type)
             )
         self._check_value_transfer(stmt.value, target_type, transfer_what,
                                    stmt.line, stmt.column)
@@ -3179,7 +3200,7 @@ class StatementsMixin:
                         hint="return an `Err(...)` for the failure case, or "
                              "declare the Ok type as an optional"
                     )
-            elif value_type and not self._types_compatible(value_type, expected):
+            elif value_type and not self._transfer_compatible(value_type, expected):
                 # Check for Result auto-wrapping
                 if expected.is_result() and value_type:
                     ok_type = expected.unwrap_result_ok()
@@ -3194,12 +3215,13 @@ class StatementsMixin:
                         )
                     # design 30: bare value fits both Ok and Err (T == E) - ambiguous
                     elif self._result_autowrap_ambiguous(
-                            expected, value_type, "function", stmt.line, stmt.column):
+                            expected, value_type, "function", stmt.line, stmt.column,
+                            value_expr=stmt.value):
                         # ambiguity reported; treat as a value-return so we don't
                         # also emit a misleading "body has no value" cascade.
                         self.found_return_with_value = True
                     # Value matches T - wrap in ResultOkWrap
-                    elif self._types_compatible(value_type, ok_type):
+                    elif self._transfer_compatible(value_type, ok_type):
                         # DF-140d: `Result<T?, E>` needs the payload wrapped into
                         # the Optional FIRST — a bare `None` stamped with the Ok
                         # type, a bare `T` wrapped in `Some` — or the Result wrap
@@ -3214,7 +3236,7 @@ class StatementsMixin:
                         )
                         self.found_return_with_value = True
                     # Value matches E - wrap in ResultErrWrap
-                    elif self._types_compatible(value_type, err_type):
+                    elif self._transfer_compatible(value_type, err_type):
                         stmt.value = ResultErrWrap(
                             value=stmt.value,
                             result_type=expected,
@@ -3242,7 +3264,8 @@ class StatementsMixin:
                     self._error(
                         ErrorKind.TYPE_MISMATCH,
                         f"expected return type `{expected}` but got `{value_type}`",
-                        stmt.line, stmt.column
+                        stmt.line, stmt.column,
+                        hint=self._int_conversion_hint(value_type, expected)
                     )
             else:
                 # Mark that we found a valid return statement with a value

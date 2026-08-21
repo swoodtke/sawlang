@@ -171,6 +171,10 @@ class CallsMixin:
         - the `??` PAYLOAD — `_generate_nil_coalesce`, which passes the payload type
         - a `let` with a wider annotation — `_generate_let_statement`
         - a `return` — `_coerce_ret_value`, which passes the returned expression
+        - a function/method body's TAIL expression — the same `_coerce_ret_value`,
+          reached from the six fall-through `ret` sites, each passing its own
+          `body.final_expr` (DF-205a: they used to pass nothing, so a tail widened
+          by the TARGET while the `return` beside it widened by the SOURCE)
         - a struct FIELD initializer — `_coerce_field_int`, which has the field's
           own value expression
         - a call ARGUMENT — `_coerce_call_args`, whose `arg_types` list is built
@@ -178,6 +182,8 @@ class CallsMixin:
           from and threaded through `_emit_call`
         - a fixed-array ELEMENT store — the element-assignment path, which passes
           the assigned expression's type
+        - a fixed-array / tuple LITERAL element, and an optional PAYLOAD wrap —
+          `_coerce_element_int`, which takes the element expression (DF-205a)
         """
         if value.type.width >= to_llvm.width:
             return value
@@ -204,6 +210,41 @@ class CallsMixin:
         if value.type.width > target.width:
             return self.builder.trunc(value, target, name="arg_trunc")
         return self._widen_int_value(value, target, from_type)
+
+    def _coerce_element_int(self, value, elem_expr, elem_saw):
+        """An aggregate ELEMENT coerced to its DECLARED integer type (DF-205a).
+
+        A fixed-array literal, a tuple literal and an `OptionalWrap` payload all
+        build storage whose element type the ANNOTATION names — not whatever the
+        element written first happens to resolve to. Three consequences, all of
+        which this closes:
+
+        - `let a: [Int; 2] = [u, u]` on a `UInt32 u` stored the i32 and then
+          sign-extended the READ, printing -294967296
+        - `let t: (Int, Int) = (u, 1)` and `let o: Int? = u` did the same
+        - `let a: [Int; 2] = [u, 0]` did not compile at all — the array type came
+          off element 0, so the i64 second element was an internal compiler error
+          (`Can only insert i32 at [1] in [2 x i32]: got i64`)
+
+        The widening itself goes through `_coerce_int_llvm`, so the element
+        extends by the SOURCE's signedness like every other transfer position.
+        A non-integer element, and one already at the target width, pass through.
+        """
+        if value is None or elem_saw is None:
+            return value
+        if not isinstance(value.type, ir.IntType):
+            return value
+        sub = elem_saw
+        if self.type_param_context:
+            sub = self._substitute_saw_type(elem_saw, self.type_param_context)
+        try:
+            target = self._get_llvm_type(sub)
+        except Exception:
+            return value
+        if not isinstance(target, ir.IntType) or target.width == value.type.width:
+            return value
+        from_type = getattr(elem_expr, 'resolved_type', None)
+        return self._coerce_int_llvm(value, target, from_type)
 
     def _coerce_call_args(self, callee, args, arg_types=None):
         """Coerce integer call arguments to the callee's exact parameter widths
@@ -274,7 +315,10 @@ class CallsMixin:
 
         `value_expr` is the returned EXPRESSION, whose Saw type decides a
         widening's extension (design 195 / DF-195a: `return u` for a `UInt32 u`
-        from an `-> Int` function used to sign-extend and answer negative)."""
+        from an `-> Int` function used to sign-extend and answer negative). A
+        body's TAIL is that same position and passes `body.final_expr` — omitting
+        it was DF-205a's first face, where `func f(u: UInt32) -> Int { u }`
+        answered -294967296 and the `return u` beside it answered 4000000000."""
         if value is None:
             return value
         rt = self.builder.function.function_type.return_type

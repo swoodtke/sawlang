@@ -1454,12 +1454,27 @@ class RegistrationMixin:
                 init_type = self._check_expression(static.initializer)
             self._stamp_static_init_names(static.initializer)
             self.current_scope = saved_scope
-            if init_type is not None and not self._types_compatible(resolved_type, init_type):
+            # design 205: a static initializer is a TRANSFER, but this call is
+            # written (declared, actual) — the reverse of `_types_compatible`'s
+            # own (source, target) convention — and swapping it outright would
+            # change the ALIAS answer too, which is what
+            # `static_named_array_type_init` (`unsafe static var ARENA: Region =
+            # [0; 8]` for a `type Region = [Int; 8]`) rides. So the integer
+            # question, the only one whose answer depends on direction, is asked
+            # separately and in the right order; everything else keeps the
+            # relation it had.
+            _int_refused = (self._int_transfer_pair(init_type, resolved_type)
+                            and not self._transfer_compatible(init_type,
+                                                              resolved_type))
+            if init_type is not None and (
+                    _int_refused
+                    or not self._types_compatible(resolved_type, init_type)):
                 self._error(
                     ErrorKind.TYPE_MISMATCH,
                     f"static `{static.name}` has type `{resolved_type}` but its "
                     f"initializer has type `{init_type}`",
-                    static.line, static.column, source_file=static.source_file
+                    static.line, static.column, source_file=static.source_file,
+                    hint=self._int_conversion_hint(init_type, resolved_type)
                 )
             if not self._is_const_init(static.initializer):
                 self._error(

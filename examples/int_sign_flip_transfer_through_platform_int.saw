@@ -11,9 +11,13 @@
 // whole reason the cast is checked. Design 195 rule 1 closes the OPERATOR face
 // of this (`i + u` is refused now); the transfer face is a conversion question
 // and stays open with DF-195b.
-// XFAIL: DF-195c a same-width sign-flipping transfer through the platform pair reinterprets silently
+//
+// FIXED by design 205, with DF-195b: the same admission covered both axes, and
+// closing it closes both. The full position matrix is conformance row W21; this
+// file stays as the two-line repro the finding was filed on.
 // EXPECT: error
-// EXPECT-ERROR-CONTAINS: UInt
+// EXPECT-ERROR-CONTAINS: cannot assign `UInt` to variable of type `Int`
+// EXPECT-ERROR-CONTAINS: write the conversion: `as Int`
 
 func main() {
     let u: UInt = 18446744073709551615u64 as UInt

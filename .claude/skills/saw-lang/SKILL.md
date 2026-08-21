@@ -205,6 +205,32 @@ print("{#file}:{#line} - msg")  // #file/#line/#function: definition-site consts
   arm position, so the same arms at `-> Int16` need nothing written.
   Treat a mismatched-width value `if` as correct now and SUSPECT in
   older builds: it used to hand back the then-arm's value on both paths.
+- **A CONVERSION IS WRITTEN EVERYWHERE — there is no position exemption
+  (design 205).** A PLAIN transfer takes the same rule the arm takes: a
+  lossless widening is free, a narrowing or a same-width sign change is
+  one of design 170's three spellings, written where the value lands.
+  ```saw
+  let n: Int = 300
+  let b: Int8 = n          // error: cannot assign `Int` to `Int8`
+                           // hint: `as Int8` / `Int8.from(...)` /
+                           //       `Int8.from(truncating: ...)`
+  let u: UInt = 7
+  let i: Int = u           // error: same rule, the sign-flip axis
+  let wide: Int = u32val   // fine: a lossless widening decides nothing
+  ```
+  The positions, all of them: a `let`/`var` initializer, an assignment
+  RHS, a call argument, a `return` and a body's TAIL, a struct field, an
+  enum payload, an array / tuple / `Vector` / `Map` / `Set` element, an
+  optional slot, a default parameter value, a `static` initializer.
+  BARE-LITERAL ADOPTION IS UNTOUCHED (`let a: Int8 = 42` needs no suffix
+  and no conversion, at every position on that list) — that is what the
+  closed permission existed for. Treat all of it as caught now and
+  SUSPECT in older builds: `let b: Int8 = n` on an `Int` holding 300
+  printed 44 and `let i: Int = u` on `UInt.max` printed -1, silently, at
+  every one of those positions. The migration is mechanical — say which
+  you meant: `as` when an out-of-range value would be a BUG,
+  `from(truncating:)` when the wrap was the point, `from` + handling when
+  the input is untrusted.
 - A FLOAT literal needs a digit on each side of the point (design 161):
   `1.5` yes, `7.` no (a parse error naming `7.0`). A `.` that no digit
   follows ends the number, so `7.to_string()` is a method call on the
@@ -1000,6 +1026,12 @@ if err.is<IoErr>() { if let io = err.take<IoErr>() { retry(io) } }  // downcast
   A raw-backed enum's `e as Backing` stays TOTAL; narrowing BELOW the backing
   takes the ordinary rule. An alias projects to its underlying first, then these
   rules apply. Saturating is deliberately not offered.
+  **AND THE RULE HAS NO POSITION EXEMPTION (design 205)**: the same conversion
+  is written at every place a value lands in a new home, not only at a cast —
+  `let b: Int8 = n` on an `Int` is the refusal above, and so is the same
+  transfer at an argument, a return, a field, an element or a `static`. See the
+  ownership section's transfer bullet; the platform `Int`/`UInt` pair was the
+  last position that converted silently.
 - `panic(msg) -> Never`; `assert(cond, msg)`. Overflow/bounds/shift/div-zero
   violations panic ALWAYS (wrap intentionally with `&+ &- &*`; an out-of-range
   integer CAST panics too — see above). EVERY panic —

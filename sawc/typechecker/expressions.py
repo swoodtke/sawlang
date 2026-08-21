@@ -303,12 +303,13 @@ class ExpressionsMixin:
         # The value must be one the underlying accepts. `allow_literal_to_distinct`
         # is NOT passed: the operand is being converted to the underlying here,
         # not to another alias, so the ordinary rule is the right one.
-        if not self._types_compatible(arg_type, underlying):
+        if not self._transfer_compatible(arg_type, underlying):
             self._error(
                 ErrorKind.TYPE_MISMATCH,
                 f"`{expr.name}` is a type alias for `{underlying}` and cannot "
                 f"be built from `{arg_type}`",
-                arg.value.line, arg.value.column
+                arg.value.line, arg.value.column,
+                hint=self._int_conversion_hint(arg_type, underlying)
             )
             return None
         expr.alias_construction = alias_name
@@ -342,13 +343,23 @@ class ExpressionsMixin:
         # adopts that type. The expectation (and the range check) is pushed down
         # by the central `_apply_literal_expected_type` propagation
         # (let/param/field/return/compound-assign/collection/tuple/if-match-arm),
-        # so this ONE site types the literal uniformly at every position. No
-        # fixed-width expectation ⇒ platform `Int` (the load-bearing invariant:
-        # `let x = 5` and `Int`/`Int` arithmetic are unchanged).
+        # so this ONE site types the literal uniformly at every position.
+        #
+        # Design 205: a platform `UInt` expectation is adopted too. The
+        # propagation funnel has STAMPED one since DF-137d (`_int_range_for`
+        # answers the INT/UINT target width), but this site honoured
+        # `_FIXED_INT_RANGES` only and fell back to `Int` — and the platform-pair
+        # permission in `_types_compatible` silently absorbed the `Int`/`UInt`
+        # mismatch that left behind. With that permission gone the mismatch is
+        # real, so `var acc: UInt = 0` and `static MASK: UInt = 255` have to type
+        # their literal at the width the slot named. No integer expectation at
+        # all still means platform `Int` — the load-bearing invariant, so
+        # `let x = 5` and `Int`/`Int` arithmetic are unchanged.
         expected = getattr(expr, 'expected_type', None)
         if expected is not None:
             rt = self._resolve_type(expected)
-            if rt is not None and rt.kind in self._FIXED_INT_RANGES:
+            if rt is not None and (rt.kind in self._FIXED_INT_RANGES
+                                   or rt.kind in self._PLATFORM_INT_KINDS):
                 return SawType(rt.kind)
         return SawType(TypeKind.INT)
 
@@ -1755,7 +1766,19 @@ class ExpressionsMixin:
                 )
                 return None
         elif expr.op in ['==', '!=', '<', '>', '<=', '>=']:
-            if not self._types_compatible(left_type, right_type):
+            # design 205: an INTEGER pair skips this general pre-check entirely
+            # and goes straight to design 195's operand agreement below. The two
+            # are answering different questions — this one asks "is a value of
+            # one type a value of the other", the agreement asks "are these two
+            # peers the same type, with a bare literal free to adopt" — and only
+            # the second is right for an operator. While the platform pair was
+            # admitted here they never disagreed; once general assignability went
+            # same-kind-only, the pre-check fired FIRST on a correct comparison
+            # (`probe >= 10` on a `UInt`, whose literal adopts) with the worse of
+            # the two messages and no way out named.
+            both_int = (left_underlying.kind in self._AGREEMENT_INT_KINDS
+                        and right_underlying.kind in self._AGREEMENT_INT_KINDS)
+            if not both_int and not self._types_compatible(left_type, right_type):
                 self._error(
                     ErrorKind.TYPE_MISMATCH,
                     f"cannot compare `{left_type}` with `{right_type}`",
@@ -2274,6 +2297,36 @@ class ExpressionsMixin:
                 if is_gp or at is None or pt is None:
                     continue  # generic slot / closure arg: neutral
                 if not self._types_compatible(at, pt):
+                    # design 205: an INTEGER argument is judged on the two rules
+                    # the platform-pair permission used to answer for. A bare
+                    # literal or const has no width yet, so it fits EVERY integer
+                    # parameter and stays neutral — which is what keeps `h(Int)`
+                    # beside `h(Int8)` called `h(5)` the design-55 ambiguity
+                    # rather than a silent pick. A typed argument fits only where
+                    # a lossless widening takes it, and pays the penalty so an
+                    # exact overload still outranks the widening one.
+                    if self._int_transfer_pair(at, pt):
+                        argexpr = (arguments[i].value
+                                   if i < len(arguments) else None)
+                        if self._adopting_int_source(argexpr):
+                            if (at.kind in self._PLATFORM_INT_KINDS
+                                    and pt.kind in self._PLATFORM_INT_KINDS):
+                                # Design 137, restated for a pair general
+                                # assignability no longer relates: between
+                                # platform `Int` and `UInt` the EXACT kind wins,
+                                # so `take(7)` picks `take(Int)` over
+                                # `take(UInt)`. Signedness is the one axis a bare
+                                # literal is already committed on; its WIDTH
+                                # stays flexible, which is what keeps `h(Int)`
+                                # beside `h(Int8)` at `h(5)` the design-55
+                                # ambiguity rather than a silent pick.
+                                penalty += 1
+                            continue
+                        if self._int_transfer_widens(at, pt):
+                            penalty += 1
+                            continue
+                        ok = False
+                        break
                     # design 51 + DF-169a: a `&concrete` argument fits a
                     # `&any Trait` slot when the concrete conforms. Candidate
                     # selection has to know that, or an overload set holding an
@@ -2442,6 +2495,13 @@ class ExpressionsMixin:
         Only ONE level in either direction (`T -> T?`, never `T -> T??`).
         `allow_wrap` is False at a generic-instantiation boundary: a bare type
         parameter that substitutes to a wrapper does NOT auto-wrap.
+
+        Design 205: every slot above is a TRANSFER, so the compatibility question
+        is `_transfer_compatible`'s, not `_types_compatible`'s — an integer
+        arrives here with a known source side, and a lossless widening through
+        the platform pair is the one implicit conversion it may take. A narrowing
+        or a same-width sign flip is refused, and each caller reports it with
+        `_int_conversion_hint`.
         """
         # Clear any wrap decided by an earlier candidate before deciding again.
         # (`autowrap_to_optional` is a declared field since design 126 R1, so the
@@ -2454,7 +2514,7 @@ class ExpressionsMixin:
         if arg_type is None or expected_type is None:
             return True
         if (expected_type.is_result() and not arg_type.is_result()
-                and not self._types_compatible(arg_type, expected_type)):
+                and not self._transfer_compatible(arg_type, expected_type)):
             return self._arg_result_wrap_ok(arg_value, arg_type, expected_type,
                                             allow_wrap)
         # A bare `None` argument to an optional parameter: annotate the literal
@@ -2468,7 +2528,7 @@ class ExpressionsMixin:
         # Not the wrap case (expected is non-optional, or the argument is itself
         # already optional): defer to ordinary compatibility, no wrap.
         if not (expected_type.is_optional() and not arg_type.is_optional()):
-            return self._types_compatible(arg_type, expected_type)
+            return self._transfer_compatible(arg_type, expected_type)
         # Here: `expected` is optional and `arg` is a bare (non-optional) value —
         # a candidate one-level `T -> T?` auto-wrap (DF3, design 57).
         inner = expected_type.inner_type
@@ -2476,7 +2536,7 @@ class ExpressionsMixin:
             return False  # would be a >1-level wrap (e.g. Int -> Int??): reject
         if arg_type.kind == TypeKind.NEVER:
             return True   # a diverging expression fits any home
-        if not self._types_compatible(arg_type, inner):
+        if not self._transfer_compatible(arg_type, inner):
             return False
         if not allow_wrap:
             return False  # no auto-wrap across a generic-instantiation boundary
@@ -2526,8 +2586,8 @@ class ExpressionsMixin:
                 self._annotate_none_in_expr(arg_value, ok_type)
                 arg_value.autowrap_to_result = expected_type
             return True
-        fits_ok = self._types_compatible(arg_type, ok_type)
-        fits_err = self._types_compatible(arg_type, err_type)
+        fits_ok = self._transfer_compatible(arg_type, ok_type)
+        fits_err = self._transfer_compatible(arg_type, err_type)
         if fits_ok and fits_err:
             return False                # design 30: ambiguous, no silent pick
         if not (fits_ok or fits_err):
@@ -2740,7 +2800,8 @@ class ExpressionsMixin:
                 self._error(
                     ErrorKind.TYPE_MISMATCH,
                     f"argument {i + 1} expects `{expected}` but got `{at}`",
-                    arg.value.line, arg.value.column
+                    arg.value.line, arg.value.column,
+                    hint=self._int_conversion_hint(at, expected)
                 )
             # Design 87: a bare literal adopts the resolved param's fixed-width
             # type (+ range check). Overload args are checked before the winner
@@ -3346,12 +3407,18 @@ class ExpressionsMixin:
                     expr.line, expr.column
                 )
                 return None
-            arg_type = self._check_expression(expr.arguments[0].value)
             declared = (expr.type_args or [None])[0]
             if declared is not None:
                 declared = self._resolve_type(declared)
-                if arg_type is not None and not self._types_compatible(
-                        declared, arg_type):
+                # Design 87: stamp the expectation before checking, so
+                # `UnsafeMutableInterior<UInt8>(0)` types its literal `UInt8`.
+                self._apply_literal_expected_type(expr.arguments[0].value, declared)
+            arg_type = self._check_expression(expr.arguments[0].value)
+            if declared is not None:
+                # design 205: (source, target) — the argument flows INTO the
+                # declared cell type, and only that direction may widen.
+                if arg_type is not None and not self._transfer_compatible(
+                        arg_type, declared):
                     self._error(
                         ErrorKind.TYPE_MISMATCH,
                         f"`UnsafeMutableInterior<{declared}>(...)` was given a "
@@ -3996,7 +4063,8 @@ class ExpressionsMixin:
                     self._error(
                         ErrorKind.TYPE_MISMATCH,
                         f"argument {i + 1} expects `{expected_type}` but got `{arg_type}`",
-                        arg.value.line, arg.value.column
+                        arg.value.line, arg.value.column,
+                        hint=self._int_conversion_hint(arg_type, expected_type)
                     )
                 # Design 87: literal fixed-width adoption + range check ran in the
                 # `_apply_literal_expected_type` propagation above (before the arg
@@ -4388,7 +4456,8 @@ class ExpressionsMixin:
                 self._error(
                     ErrorKind.TYPE_MISMATCH,
                     f"argument `{param_name}` expects `{expected_type}` but got `{arg_type}`",
-                    arg.value.line, arg.value.column
+                    arg.value.line, arg.value.column,
+                    hint=self._int_conversion_hint(arg_type, expected_type)
                 )
             # Design 87: literal fixed-width adoption + range check ran in the
             # `_apply_literal_expected_type` propagation above — subsumed here.
@@ -4445,7 +4514,13 @@ class ExpressionsMixin:
                 return else_type
             if else_type is not None and else_type.kind == TypeKind.NEVER:
                 return then_type
-            if then_type and else_type and not self._types_compatible(then_type, else_type):
+            # design 205: an INTEGER pair is design 195 rule 2's business, not
+            # this general test's — `_merge_value_branch_types` below owns both
+            # the lossless-widening admission and the refusal, with the three
+            # conversion spellings in its hint.
+            if (then_type and else_type
+                    and not self._both_int_kinds(then_type, else_type)
+                    and not self._types_compatible(then_type, else_type)):
                 # Check if branches could be Result auto-wrapped.
                 # design 213 entry point 2: inside a closure this is the
                 # CLOSURE's return type — a closure declared `-> Result<T, E>`
@@ -4559,7 +4634,8 @@ class ExpressionsMixin:
             # Until this, mismatched-width arms fell past the phi in codegen and
             # the `if` handed back the THEN value on both paths (DF-192g, a
             # confirmed wrong answer).
-            if self._types_compatible(then_type, else_type):
+            if (self._both_int_kinds(then_type, else_type)
+                    or self._types_compatible(then_type, else_type)):
                 merged = self._merge_value_branch_types(
                     [then_type, else_type],
                     "the `if` and `else` branches", expr.line, expr.column)
@@ -4737,7 +4813,8 @@ class ExpressionsMixin:
                     ErrorKind.TYPE_MISMATCH,
                     f"tuple element {i} has type `{elem_type}`, expected "
                     f"`{target}`",
-                    element.line, element.column
+                    element.line, element.column,
+                    hint=self._int_conversion_hint(elem_type, target)
                 )
                 return None
             element_types.append(target)
@@ -4827,14 +4904,16 @@ class ExpressionsMixin:
             self._error(
                 ErrorKind.TYPE_MISMATCH,
                 f"vector literal element 0 has type `{first_type}`, expected `{vec_elem}`",
-                expr.elements[0].line, expr.elements[0].column)
+                expr.elements[0].line, expr.elements[0].column,
+                hint=self._int_conversion_hint(first_type, vec_elem))
             return None
         if arr_elem is not None and not self._element_fits(expr.elements[0],
                                                            first_type, arr_elem):
             self._error(
                 ErrorKind.TYPE_MISMATCH,
                 f"array element 0 has type `{first_type}`, expected `{arr_elem}`",
-                expr.elements[0].line, expr.elements[0].column)
+                expr.elements[0].line, expr.elements[0].column,
+                hint=self._int_conversion_hint(first_type, arr_elem))
             return None
         self._check_value_transfer(expr.elements[0], target, "array element",
                                    expr.elements[0].line, expr.elements[0].column)
@@ -4846,7 +4925,8 @@ class ExpressionsMixin:
                 self._error(
                     ErrorKind.TYPE_MISMATCH,
                     f"array element {i} has type `{elem_type}`, expected `{target}`",
-                    element.line, element.column
+                    element.line, element.column,
+                    hint=self._int_conversion_hint(elem_type, target)
                 )
                 return None
             self._check_value_transfer(element, target, "array element",
@@ -4875,7 +4955,7 @@ class ExpressionsMixin:
         """
         if target is not None and (target.is_optional() or target.is_result()):
             return self._arg_type_ok(element, elem_type, target)
-        return self._types_compatible(elem_type, target)
+        return self._transfer_compatible(elem_type, target)
 
     def _check_repeat_literal(self, expr: ArrayLiteral, vec_elem, expected,
                               arr_elem=None):
@@ -5128,21 +5208,23 @@ class ExpressionsMixin:
                 return None
             if key_type is None:
                 key_type = kt
-            elif not self._types_compatible(kt, key_type):
+            elif not self._transfer_compatible(kt, key_type):
                 self._error(
                     ErrorKind.TYPE_MISMATCH,
                     f"map key {i} has type `{kt}`, expected `{key_type}` "
                     f"(all keys in a map literal must share one type)",
-                    k_expr.line, k_expr.column)
+                    k_expr.line, k_expr.column,
+                    hint=self._int_conversion_hint(kt, key_type))
                 return None
             if val_type is None:
                 val_type = vt
-            elif not self._types_compatible(vt, val_type):
+            elif not self._transfer_compatible(vt, val_type):
                 self._error(
                     ErrorKind.TYPE_MISMATCH,
                     f"map value {i} has type `{vt}`, expected `{val_type}` "
                     f"(all values in a map literal must share one type)",
-                    v_expr.line, v_expr.column)
+                    v_expr.line, v_expr.column,
+                    hint=self._int_conversion_hint(vt, val_type))
                 return None
 
         self._check_map_key_bounds(key_type, expr)
@@ -5180,12 +5262,13 @@ class ExpressionsMixin:
                 return None
             if elem_type is None:
                 elem_type = et
-            elif not self._types_compatible(et, elem_type):
+            elif not self._transfer_compatible(et, elem_type):
                 self._error(
                     ErrorKind.TYPE_MISMATCH,
                     f"set element {i} has type `{et}`, expected `{elem_type}` "
                     f"(all elements in a set literal must share one type)",
-                    e_expr.line, e_expr.column)
+                    e_expr.line, e_expr.column,
+                    hint=self._int_conversion_hint(et, elem_type))
                 return None
 
         self._check_map_key_bounds(elem_type, expr, what="set element")
@@ -5216,14 +5299,34 @@ class ExpressionsMixin:
           unary minus, if/match/block arm results, and array/tuple/map/set
           element positions.
 
-        A platform `Int`/`UInt` (or non-integer) expectation leaves a literal at
-        platform width — the load-bearing INVARIANT. No-op for anything else.
+        A NON-INTEGER expectation leaves a literal alone. A platform `Int`/`UInt`
+        one is adopted like any other since design 205 — the pass has stamped an
+        INT/UINT target width since DF-137d, and `visit_IntLiteral` now honours
+        it, so `var acc: UInt = 0` types its literal `UInt` rather than leaving
+        an `Int` for the (now closed) platform-pair permission to absorb. A
+        literal reached by NO integer expectation is still platform `Int`, which
+        is the load-bearing invariant: `let x = 5` is unchanged.
         """
         if expected_type is None or value_expr is None:
             return
         rt = self._resolve_type(expected_type)
         if rt is None:
             return
+        # design 205: a `type` ALIAS names the same storage its underlying does,
+        # so a slot declared with one shapes a literal exactly as the underlying
+        # would. `_resolve_type` keeps the alias, so none of the arms below ever
+        # matched one: `static ARENA: Region = [0; 8]` for a
+        # `type Region = [UInt8; 8]` left the repeat literal's element at
+        # platform `Int`, and `let x: Small = 5` for a `type Small = Int8` left
+        # the literal at `Int`. Both were absorbed by the platform-pair
+        # permission `_types_compatible` used to grant; with it closed they are
+        # real mismatches, and the fix is to stamp the expectation the author
+        # actually wrote. The alias stays a DISTINCT type everywhere else — this
+        # decides a literal's WIDTH, not what flows into what. Only the OUTERMOST
+        # name is peeled (`_unalias_top`): a `Vector<Handle>` for a
+        # `type Handle = Int` must keep its argument, or the empty literal built
+        # against it stops matching the field that asked for it.
+        rt = self._unalias_top(rt)
 
         # (0) Bare `None` → adopt an OPTIONAL expectation (DF-146l). A None
         #     literal has no type of its own, and every slot that pins one used
@@ -5435,7 +5538,28 @@ class ExpressionsMixin:
              or (isinstance(value_expr, UnaryOp) and value_expr.op == '~'))
                 and rt.kind in self._FIXED_INT_RANGES):
             if value_expr.const_folded_value is None:
-                self._fold_const_expression_into(value_expr, rt, expected_type)
+                if not self._fold_const_expression_into(value_expr, rt,
+                                                        expected_type):
+                    self._apply_shift_expected_type(value_expr, rt)
+            return
+
+        # (2c) A SHIFT forwards its LEFT operand's type — the count is exempt
+        #      from operand agreement (design 195) and contributes nothing to the
+        #      result — so an expected type reaches the SHIFTEE exactly as it
+        #      reaches a unary minus's operand. `reg.write(1 << n)` for a runtime
+        #      `n` is the shape case (2b) cannot answer: the expression is not a
+        #      constant, so nothing folds, and without this the `1` stays platform
+        #      `Int` and the write is refused. It used to be admitted by
+        #      `_types_compatible`'s platform-pair permission, which design 205
+        #      closed — so the ergonomic the skill already documents ("a shift
+        #      passed DIRECTLY as the argument adopts and does not [need a
+        #      suffix]") is real adoption now rather than a laundered mismatch.
+        #      This arm carries the PLATFORM targets; case (2b) returns before it
+        #      for a fixed-width one and calls the same helper on its own miss.
+        #      The COUNT is deliberately not stamped.
+        if (isinstance(value_expr, BinaryOp)
+                and rt.kind in self._AGREEMENT_INT_KINDS):
+            self._apply_shift_expected_type(value_expr, rt)
             return
 
         # (3) if / match / block whose arm results merge to the expected type.
@@ -5846,12 +5970,19 @@ class ExpressionsMixin:
                             "`write(v)` takes exactly one positional argument",
                             expr.line, expr.column)
                 return None
+            # Design 87: `reg.write(0)` is a bare literal in a typed slot like
+            # any other, and this path never stamped the expectation — the
+            # platform-pair permission absorbed the `Int`/`UInt32` mismatch that
+            # left. Stamped here, so the no-suffix-where-an-expected-type-is-in
+            # -force idiom keeps working in a driver (design 205).
+            self._apply_literal_expected_type(expr.arguments[0].value, inner)
             val_type = self._check_expression(expr.arguments[0].value)
-            if val_type is not None and not self._types_compatible(val_type, inner):
+            if val_type is not None and not self._transfer_compatible(val_type, inner):
                 self._error(
                     ErrorKind.TYPE_MISMATCH,
                     f"`write` expects `{inner}`, got `{val_type}`",
-                    expr.line, expr.column)
+                    expr.line, expr.column,
+                    hint=self._int_conversion_hint(val_type, inner))
             return SawType(TypeKind.VOID)
 
         # Region accessors — Normal only.
@@ -6454,6 +6585,25 @@ class ExpressionsMixin:
         TypeKind.UINT64: (0, (1 << 64) - 1),
     }
 
+    def _apply_shift_expected_type(self, expr, rt) -> None:
+        """Push an integer expectation through a SHIFT to its shiftee (design 205).
+
+        `<<` and `>>` are the one binary operator whose two operands are not
+        peers: design 195 exempts the COUNT, which is range-checked against the
+        left operand's width and contributes nothing to the result's type. So a
+        shift forwards its left operand's type, and an expected type reaches
+        that operand the way it reaches a unary minus's.
+
+        Called from `_apply_literal_expected_type`'s cases (2b) and (2c) —
+        the first for a fixed-width slot whose whole expression did not fold,
+        the second for a platform slot, which (2b) never took. A non-shift
+        operator is left alone: its two operands ARE peers, and stamping one of
+        them would decide the agreement rule's question for it.
+        """
+        from ast_nodes import BinaryOp as _BinaryOp
+        if isinstance(expr, _BinaryOp) and expr.op in ('<<', '>>'):
+            self._apply_literal_expected_type(expr.left, rt)
+
     def _fold_const_expression_into(self, expr, rt, expected_type) -> bool:
         """Adopt a CONSTANT operator expression into a fixed-width slot
         (DF-235a/b). True when it folded (range-checked and stamped), False when
@@ -6788,7 +6938,8 @@ class ExpressionsMixin:
                     self._error(
                         ErrorKind.TYPE_MISMATCH,
                         f"field `{field_name}` expects type `{expected_type}` but got `{actual_type}`",
-                        expr.line, expr.column
+                        expr.line, expr.column,
+                        hint=self._int_conversion_hint(actual_type, expected_type)
                     )
                 self._check_value_transfer(field_value, expected_type, "struct field",
                                            field_value.line, field_value.column)
@@ -6826,7 +6977,8 @@ class ExpressionsMixin:
                     self._error(
                         ErrorKind.TYPE_MISMATCH,
                         f"parameter `{field_name}` expects type `{expected_type}` but got `{actual_type}`",
-                        expr.line, expr.column
+                        expr.line, expr.column,
+                        hint=self._int_conversion_hint(actual_type, expected_type)
                     )
                 self._check_value_transfer(field_value, expected_type, "init argument",
                                            field_value.line, field_value.column)
@@ -7071,7 +7223,11 @@ class ExpressionsMixin:
                      "`if let` before coalescing"
             )
             return opt_type.inner_type
-        if opt_type.inner_type and not self._types_compatible(opt_type.inner_type, default_type):
+        # design 205: an INTEGER pair is design 195 rule 2's business — the merge
+        # below owns the lossless-widening admission and the refusal.
+        if (opt_type.inner_type
+                and not self._both_int_kinds(opt_type.inner_type, default_type)
+                and not self._types_compatible(opt_type.inner_type, default_type)):
             self._error(
                 ErrorKind.TYPE_MISMATCH,
                 f"optional inner type `{opt_type.inner_type}` does not match default type `{default_type}`",
@@ -7291,11 +7447,12 @@ class ExpressionsMixin:
                 and field_resolved.is_optional()):
             self._propagate_optional_type(expr.value, field_resolved)
             value_type = field_resolved
-        if value_type and not self._types_compatible(value_type, field_type):
+        if value_type and not self._transfer_compatible(value_type, field_type):
             self._error(
                 ErrorKind.TYPE_MISMATCH,
                 f"cannot assign `{value_type}` to field of type `{field_type}`",
-                expr.line, expr.column)
+                expr.line, expr.column,
+                hint=self._int_conversion_hint(value_type, field_type))
         self._check_value_transfer(expr.value, field_type,
                                    "optional-chain assignment",
                                    expr.line, expr.column)
@@ -8170,7 +8327,8 @@ class ExpressionsMixin:
                 self._error(
                     ErrorKind.TYPE_MISMATCH,
                     f"argument {i + 1} expects `{expected_type}` but got `{arg_type}`",
-                    arg.value.line, arg.value.column
+                    arg.value.line, arg.value.column,
+                    hint=self._int_conversion_hint(arg_type, expected_type)
                 )
             self._check_value_transfer(arg.value, expected_type, "call argument",
                                        arg.value.line, arg.value.column)
@@ -8238,7 +8396,8 @@ class ExpressionsMixin:
                 self._error(
                     ErrorKind.TYPE_MISMATCH,
                     f"argument {i + 1} expects `{expected[i]}` but got `{arg_type}`",
-                    arg.value.line, arg.value.column)
+                    arg.value.line, arg.value.column,
+                    hint=self._int_conversion_hint(arg_type, expected[i]))
             self._check_value_transfer(arg.value, expected[i], "call argument",
                                        arg.value.line, arg.value.column)
         # The Law of Exclusivity, through the same funnel every other call form
@@ -8879,12 +9038,16 @@ class ExpressionsMixin:
         arg_type = self._check_expression(arg.value)
         if arg_type is None:
             return None
-        if not self._types_compatible(raw_type, arg_type):
+        # design 205: (source, target) — the wire byte flows INTO the backing
+        # type, and only that direction may widen. Written the other way round,
+        # a platform `Int` reached a `UInt8` backing unchecked.
+        if not self._transfer_compatible(arg_type, raw_type):
             self._error(
                 ErrorKind.TYPE_MISMATCH,
                 f"`{enum_name}.from` expects `{raw_type}` (the enum's backing "
                 f"type), got `{arg_type}`",
-                expr.line, expr.column
+                expr.line, expr.column,
+                hint=self._int_conversion_hint(arg_type, raw_type)
             )
             return None
         # Stamp for codegen: this lowers to a tag lookup, not a call.
@@ -9620,6 +9783,16 @@ class ExpressionsMixin:
             if isinstance(arg.value, ClosureExpr):
                 arg_type = self._check_closure(arg.value, expected_type, as_call_argument=True)
             else:
+                # Design 87: the bare-literal adoption stamp, which the OTHER
+                # argument paths (free function, module-qualified, static
+                # method) all ran and this one — the plain instance-method
+                # call — did not. `d.push(1)` on a `Data` reached the check as
+                # a platform `Int` against a `UInt8` parameter, and the
+                # platform-pair permission absorbed it in silence; with that
+                # permission closed (design 205) the gap is a refusal of the
+                # most ordinary call in the language, so it is fixed at the
+                # path rather than migrated at the call sites.
+                self._apply_literal_expected_type(arg.value, expected_type)
                 arg_type = self._check_expression(arg.value)
             if self._try_existential_arg_coercion(arg, arg_type, expected_type):
                 pass  # `&concrete -> &any Trait` erasure (or its error) handled
@@ -9628,7 +9801,8 @@ class ExpressionsMixin:
                 self._error(
                     ErrorKind.TYPE_MISMATCH,
                     f"argument `{param_name}` expects `{expected_type}` but got `{arg_type}`",
-                    arg.value.line, arg.value.column
+                    arg.value.line, arg.value.column,
+                    hint=self._int_conversion_hint(arg_type, expected_type)
                 )
             self._check_value_transfer(arg.value, expected_type, "call argument",
                                        arg.value.line, arg.value.column)
@@ -9835,7 +10009,8 @@ class ExpressionsMixin:
                 self._error(
                     ErrorKind.TYPE_MISMATCH,
                     f"argument `{func_info.param_names[p]}` expects `{expected_type}` but got `{arg_type}`",
-                    arg.value.line, arg.value.column
+                    arg.value.line, arg.value.column,
+                    hint=self._int_conversion_hint(arg_type, expected_type)
                 )
             self._check_value_transfer(arg.value, expected_type, "call argument",
                                        arg.value.line, arg.value.column)
@@ -9919,7 +10094,8 @@ class ExpressionsMixin:
                     self._error(
                         ErrorKind.TYPE_MISMATCH,
                         f"field `{field_name}` expects type `{expected_type}` but got `{actual_type}`",
-                        expr.line, expr.column
+                        expr.line, expr.column,
+                        hint=self._int_conversion_hint(actual_type, expected_type)
                     )
                 self._check_value_transfer(field_value, expected_type, "struct field",
                                            field_value.line, field_value.column)
@@ -10033,7 +10209,8 @@ class ExpressionsMixin:
                 self._error(
                     ErrorKind.TYPE_MISMATCH,
                     f"argument `{param_name}` expects `{expected_type}` but got `{arg_type}`",
-                    arg.value.line, arg.value.column
+                    arg.value.line, arg.value.column,
+                    hint=self._int_conversion_hint(arg_type, expected_type)
                 )
             self._check_value_transfer(arg.value, expected_type, "call argument",
                                        arg.value.line, arg.value.column)
@@ -10142,33 +10319,38 @@ class ExpressionsMixin:
                         expr.line, expr.column
                     )
                     continue
-                arg_type = self._check_expression(arg.value)
                 expected_type = expected_dict[arg.name]
+                # Design 87: adopt a fixed-width payload type + range check.
+                # This ran POST-HOC — after the argument was checked and after
+                # the compatibility test below — so the test saw a bare literal
+                # at platform width and the (now closed) platform-pair
+                # permission was what let it through. Stamped BEFORE the check,
+                # like every other argument path (design 205).
+                self._apply_literal_expected_type(arg.value, expected_type)
+                arg_type = self._check_expression(arg.value)
                 if arg_type and not self._arg_type_ok(arg.value, arg_type, expected_type):
                     self._error(
                         ErrorKind.TYPE_MISMATCH,
                         f"expected type `{expected_type}` for parameter `{arg.name}`, got `{arg_type}`",
-                        arg.value.line, arg.value.column
+                        arg.value.line, arg.value.column,
+                        hint=self._int_conversion_hint(arg_type, expected_type)
                     )
-                # Design 87: adopt a fixed-width payload type + range check
-                # (post-hoc: the payload arg is checked before this point).
-                self._apply_literal_expected_type(arg.value, expected_type)
                 self._check_value_transfer(arg.value, expected_type, "enum payload",
                                            arg.value.line, arg.value.column)
             else:
                 if i >= len(expected_list):
                     continue
                 param_name, expected_type = expected_list[i]
+                # Design 87 / design 205: stamped BEFORE the check, as above.
+                self._apply_literal_expected_type(arg.value, expected_type)
                 arg_type = self._check_expression(arg.value)
                 if arg_type and not self._arg_type_ok(arg.value, arg_type, expected_type):
                     self._error(
                         ErrorKind.TYPE_MISMATCH,
                         f"expected type `{expected_type}` for parameter `{param_name}`, got `{arg_type}`",
-                        arg.value.line, arg.value.column
+                        arg.value.line, arg.value.column,
+                        hint=self._int_conversion_hint(arg_type, expected_type)
                     )
-                # Design 87: adopt a fixed-width payload type + range check
-                # (post-hoc: the payload arg is checked before this point).
-                self._apply_literal_expected_type(arg.value, expected_type)
                 self._check_value_transfer(arg.value, expected_type, "enum payload",
                                            arg.value.line, arg.value.column)
         return SawType(TypeKind.ENUM, enum_name=expr.enum_name, type_args=expr.type_args, symbol=enum_info)
@@ -10394,7 +10576,10 @@ class ExpressionsMixin:
         for arm_type in arm_types:
             if self._arm_yields_no_value(arm_type):
                 continue
-            if not self._types_compatible(result_type, arm_type):
+            # design 205: an INTEGER pair is design 195 rule 2's business — the
+            # merge below owns the lossless-widening admission and the refusal.
+            if (not self._both_int_kinds(result_type, arm_type)
+                    and not self._types_compatible(result_type, arm_type)):
                 # Check if arms could be Result auto-wrapped
                 # If we're in a function returning Result<T, E> and arms return T and E,
                 # they're compatible (will be auto-wrapped later).

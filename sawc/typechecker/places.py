@@ -97,13 +97,20 @@ class PlacesMixin:
             want = declared[i]
             if want is not None and subst:
                 want = want.substitute(subst)
+            # Design 87: a place accessor's argument is a typed slot like any
+            # other, so a bare literal adopts it — `m.get(1)` on a
+            # `Map<Int8, V>` and `v[0]` alike. This path never stamped the
+            # expectation; the platform-pair permission absorbed the mismatch
+            # that left, and closing it (design 205) makes the stamp load-bearing.
+            self._apply_literal_expected_type(arg, want)
             got = self._check_expression(arg)
             if got is not None and want is not None and not self._arg_type_ok(
                     arg, got, want, False):
                 self._error(
                     ErrorKind.TYPE_MISMATCH,
                     f"argument `{names[i]}` expects `{want}` but got `{got}`",
-                    arg.line, arg.column)
+                    arg.line, arg.column,
+                    hint=self._int_conversion_hint(got, want))
 
         elem = getattr(node, 'place_type', None)
         if elem is not None and subst:

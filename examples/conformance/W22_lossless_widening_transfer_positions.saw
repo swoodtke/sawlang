@@ -17,7 +17,6 @@
 // four more — the implicit TAIL return, the fixed-array element of a LITERAL,
 // the tuple element and the optional payload each sign-extended and printed
 // -294967296 (DF-205a).
-// XFAIL: DF-205a four transfer positions widen by the TARGET's signedness — the implicit tail return, a fixed-array literal element, a tuple element and an optional payload
 // EXPECT: success
 // EXPECT-OUTPUT:
 // 4000000000

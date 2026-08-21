@@ -31,11 +31,17 @@
 //   c += 1             COMPOUND assignment         adopted already
 //
 // Two rows the original finding did not name, both fixed by the codegen half:
-// `v = k` for a plain `Int` k is LEGAL (a platform `Int` converts to and from
-// any integer type by design) and used to ICE because no fit ran; and a folded
+// `v = k` for a plain `Int` k used to ICE because no fit ran, and a folded
 // `v = 2 + 3` is not a literal at all, so adoption cannot reach it and only the
 // store-side coercion can. Out-of-range refusal has its own test,
 // `assignment_target_literal_out_of_range.saw`.
+//
+// MIGRATED by design 205: `nl = k` for a plain `Int k` into a `UInt32` is a
+// same-width-or-narrower sign flip and is no longer implicit — the "a platform
+// `Int` converts to and from any integer type by design" this file used to
+// assert was DF-195b/c, and closing it is what design 205 did. The row stays,
+// with the conversion written: an assignment TARGET adopting a literal is the
+// rule being pinned here, and the non-literal row is its control.
 //
 // NEGATIVE ROWS: a platform `Int` target leaves the literal at platform width
 // (the load-bearing invariant of the expected-type funnel), and a negative
@@ -138,10 +144,13 @@ func main() {
     print("compound = {c}")
 
     // a non-literal platform `Int` RHS, and a folded expression: neither can
-    // adopt, both are legal, both need the store-side width fit
+    // adopt, and both need the store-side width fit. The non-literal one is a
+    // sign flip a reader cannot see, so design 205 asks for it in writing —
+    // `k` is a program constant here, so an out-of-range value would be a bug
+    // and `as` is the spelling that says so.
     let k: Int = 5
     var nl: UInt32 = 0
-    nl = k
+    nl = k as UInt32
     print("nonliteral = {nl}")
     var fold: UInt32 = 0
     fold = 2 + 3

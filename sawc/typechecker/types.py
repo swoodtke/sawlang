@@ -2768,20 +2768,31 @@ class TypeUtilsMixin:
             if a.is_struct() and a.struct_name == b.struct_name:
                 return True
 
-        # Integer compatibility. A platform `Int`/`UInt` (which is also the type
-        # of an UNSUFFIXED integer literal) coerces to/from any integer type —
-        # this enables `let x: Int8 = 42`. But two DISTINCT fixed-width kinds do
-        # NOT implicitly convert (design 53): a suffixed literal `5u16` assigned
-        # to an `Int8` is a type error; explicit `as` is required. Same-kind is
-        # always compatible.
-        platform_int = {TypeKind.INT, TypeKind.UINT}
-        fixed_int = {TypeKind.INT8, TypeKind.INT16, TypeKind.INT32, TypeKind.INT64,
-                     TypeKind.UINT8, TypeKind.UINT16, TypeKind.UINT32, TypeKind.UINT64}
-        int_kinds = platform_int | fixed_int
+        # Integer compatibility: SAME KIND ONLY (design 205).
+        #
+        # Two integer types are the same type or they are two types. Design 53
+        # already said that of two fixed widths — a suffixed `5u16` in an `Int8`
+        # slot is a type error, `as` is required — and design 205 finished the
+        # sentence for the platform pair, which used to be admitted into and out
+        # of ANY integer type. That permission existed so a bare LITERAL could
+        # reach a fixed-width slot (`let x: Int8 = 42`), a job design 87's
+        # expected-type propagation does properly now; what it covered in
+        # practice was a runtime value losing its high bits (DF-195b) or its
+        # reading (DF-195c). Design 170's three spellings say either one:
+        # `x as Int8` panics out of range, `Int8.from(x)` answers `None`,
+        # `Int8.from(truncating: x)` keeps the low bits.
+        #
+        # This is GENERAL assignability, and it is deliberately strict. The one
+        # implicit integer conversion the language has — a LOSSLESS widening
+        # through the platform pair — is admitted POSITIONALLY, by
+        # `_transfer_compatible`, because only a transfer site knows which side
+        # is the source. Answering it here would also answer it inside every
+        # RECURSION below (a generic argument, a tuple element, an optional
+        # payload), where the relation must be invariant: a `Vector<Int8>` is
+        # not a `Vector<Int>`.
+        int_kinds = self._AGREEMENT_INT_KINDS
         if a.kind in int_kinds and b.kind in int_kinds:
-            if a.kind in platform_int or b.kind in platform_int or a.kind == b.kind:
-                return True
-            return False
+            return a.kind == b.kind
 
         # Allow String to be passed where UnsafePointer<Int8> is expected (for FFI)
         # Saw strings are null-terminated C strings internally
@@ -3404,6 +3415,38 @@ class TypeUtilsMixin:
             return inner
         return None
 
+    def _adopting_int_source(self, expr) -> bool:
+        """Could this expression's WIDTH still be decided by the slot it lands in?
+
+        A bare integer literal (design 87) and a const expression the fold
+        answers (DF-235a/b) both arrive typed platform `Int` because nothing has
+        given them a width yet, and both take the slot's width when the slot
+        names one. That is the state two rules are about, and both used to read
+        it off `_types_compatible`'s platform-pair permission — which said
+        "compatible with every integer type", the adoption reading spelled as
+        general assignability. With the permission closed (design 205) the
+        question is asked directly:
+
+        - design 55's overload ambiguity: `h(Int)` beside `h(Int8)` called
+          `h(5)` is ambiguous because 5 really could be either
+        - design 30 / DF-226e's Result auto-wrap ambiguity: a bare value at
+          `Result<Int32, Int8>` fits both payloads, so the wrap refuses by name
+
+        A RUNTIME value is not one of these: its width is already decided, and
+        the transfer rule is what judges it.
+        """
+        if expr is None:
+            return False
+        if self._bare_int_literal(expr) is not None:
+            return True
+        from const_eval import const_eval, ConstEvalError
+        try:
+            value = const_eval(expr, env=self._const_param_env(),
+                               width=self.platform_int_width)
+        except (ConstEvalError, Exception):
+            return False
+        return isinstance(value, int) and not isinstance(value, bool)
+
     def _check_operand_agreement(self, left_expr, right_expr,
                                  left_type: Optional[SawType],
                                  right_type: Optional[SawType],
@@ -3618,6 +3661,192 @@ class TypeUtilsMixin:
         if s_unsigned:
             return sw < dw
         return False
+
+    # ------------------------------------------------------------------
+    # Transfer-position conversions (design 205 rule 3).
+    # ------------------------------------------------------------------
+
+    def _int_transfer_widens(self, src: Optional[SawType],
+                             target: Optional[SawType]) -> bool:
+        """The ONE implicit integer conversion a transfer admits (design 205).
+
+        A LOSSLESS widening through the platform pair: every value of the source
+        type has a representation in the target, so there is nothing for the
+        author to decide and nothing to write. Design 170 leaves widening alone
+        for exactly that reason, and `int_widening_transfer_preserves_unsigned`
+        pins that it extends by the SOURCE's signedness.
+
+        TWO fences, both deliberate:
+
+        - at least one side must be the PLATFORM pair. Between two FIXED widths
+          a lossless widening is still refused (design 53): both are written, so
+          an implicit conversion would make the reader work out which one the
+          arithmetic below runs at. Row W24 pins that.
+        - the answer is DIRECTIONAL, which is why it does not live in
+          `_types_compatible`. That relation recurses into invariant positions
+          (a generic argument, a tuple element, an optional payload), where a
+          `Vector<Int8>` must not be a `Vector<Int>`.
+
+        The target's OPTIONAL layers are peeled first: `let o: Int? = u` on a
+        `UInt32` is the same widening the bare slot takes, wrapped.
+
+        A `type` ALIAS is resolved on the SOURCE side only, exactly as
+        `_types_compatible` resolves it — an alias flows TO its underlying and
+        never back (design 63). Resolving the TARGET too would make `type MyInt =
+        Int` reachable from a plain `Int`, which is the distinctness the alias
+        exists for (`type_alias_no_implicit_from_underlying`).
+        """
+        if src is None or target is None:
+            return False
+        a = self._int_transfer_side(src)
+        b = target
+        while (b.kind == TypeKind.OPTIONAL and a.kind != TypeKind.OPTIONAL
+               and b.inner_type is not None):
+            b = b.inner_type
+        if (a.kind not in self._AGREEMENT_INT_KINDS
+                or b.kind not in self._AGREEMENT_INT_KINDS):
+            return False
+        platform = (TypeKind.INT, TypeKind.UINT)
+        if a.kind not in platform and b.kind not in platform:
+            return False
+        return self._int_widens_losslessly(a.kind, b.kind)
+
+    def _int_transfer_pair(self, src: Optional[SawType],
+                           target: Optional[SawType]) -> bool:
+        """Both sides are integers AS A TRANSFER READS THEM (design 205).
+
+        The source resolves through `type` aliases and the target does not —
+        the asymmetry `_int_transfer_widens` is built on, and the reason this is
+        not `_both_int_kinds`. That one resolves BOTH and answers for the merge
+        rules, where there is no source and no target; asking it here would call
+        `static FIRST_TICK: Ticks = 0` an integer pair for a
+        `type Ticks = Int`, and then refuse it because the transfer rule
+        (correctly) does not see an integer TARGET at all.
+        """
+        if src is None or target is None:
+            return False
+        return (self._int_transfer_side(src).kind in self._AGREEMENT_INT_KINDS
+                and target.kind in self._AGREEMENT_INT_KINDS)
+
+    def _unalias_top(self, t: SawType) -> SawType:
+        """`t` with a TOP-LEVEL `type` alias chain resolved, and nothing else.
+
+        Deliberately not `_resolve_type_alias`, which also rewrites a struct's
+        TYPE ARGUMENTS: a `Vector<Handle>` for a `type Handle = Int` must stay a
+        `Vector<Handle>`, or a value built against the rewritten form no longer
+        matches the field that asked for it. Only the outermost name is peeled.
+        """
+        for _ in range(16):
+            if t.kind != TypeKind.STRUCT or not t.struct_name:
+                return t
+            alias = self.get_type_alias_info(t.struct_name)
+            if alias is None or alias.aliased_type is None:
+                return t
+            t = alias.aliased_type
+        return t
+
+    def _int_transfer_side(self, t: SawType) -> SawType:
+        """A transfer's SOURCE type with aliases resolved (design 205).
+
+        The source half of the asymmetry above: an alias-typed value IS a value
+        of its underlying type, so `let w: Int = someUserId` is the same
+        widening question the bare underlying asks. The target half must not
+        resolve, or the alias stops being a distinct type.
+        """
+        return self._unalias_top(t)
+
+    def _both_int_kinds(self, a: Optional[SawType], b: Optional[SawType]) -> bool:
+        """Are these two INTEGER types, and therefore rule 1/rule 2's business?
+
+        The pre-check skip (design 205). A general compatibility test asks "is a
+        value of one type a value of the other", which is the wrong question for
+        an OPERAND (design 195 rule 1: two peers, same type, only a bare literal
+        promotes) and for a value-branch ARM (rule 2: both are sources into a
+        merged home neither of them is). While the platform pair was admitted by
+        `_types_compatible` the two questions never disagreed on an integer pair;
+        once general assignability went same-kind-only, the general test started
+        firing FIRST — on the comparison arm with the worse message, and on the
+        three branch merges with a refusal where a lossless widening was the
+        right answer (design 195's own W12/W14/W15).
+
+        ENTRY POINTS: `_check_binary_op`'s comparison arm, `_check_if_expr`,
+        `_reconcile_match_arm_types`, `_check_nil_coalesce`.
+        """
+        if a is None or b is None:
+            return False
+        return (self._get_underlying_type(a).kind in self._AGREEMENT_INT_KINDS
+                and self._get_underlying_type(b).kind in self._AGREEMENT_INT_KINDS)
+
+    def _transfer_compatible(self, src: Optional[SawType],
+                             target: Optional[SawType],
+                             allow_literal_to_distinct: bool = False) -> bool:
+        """THE transfer-position type test (design 205 rule 3) — one funnel.
+
+        Ordinary compatibility, plus the one implicit integer conversion a
+        transfer admits. Every site where a value lands in a NEW HOME asks this
+        instead of `_types_compatible`, because only a transfer knows which side
+        is the source — and the answer to "may this integer flow here" depends
+        entirely on that.
+
+        ENTRY POINTS, one per row of design 205's position matrix
+        (`examples/conformance/W20`-`W24`):
+
+        - ``_arg_type_ok`` — the widest one, and itself a funnel: call arguments
+          on every resolution path, struct-field and `init` initializers, enum
+          payloads, default parameter VALUES, array / fixed-array / Vector
+          literal elements, and a `borrows` accessor's arguments
+        - ``statements._check_let_statement`` — a `let`/`var` initializer, and
+          the annotated `let _ =` discard
+        - ``statements._check_assignment`` — an assignment RHS
+        - ``statements._check_return`` and the two body-tail reconcilers
+          (``_reconcile_return_type``, the method twin) — a `return` and a tail,
+          including their `Result` Ok/Err auto-wrap payloads
+        - ``expressions._check_map_literal`` / ``_check_set_literal`` — a map
+          key, a map value, a set element
+        - ``expressions._check_member_assignment`` — a field assignment RHS
+        - ``expressions._check_nil_coalesce`` — the `??` default, whose own
+          lossless merge (rule 2) runs first and only reaches here for the
+          non-integer pairs
+        - ``registration._check_static`` — a `static` initializer
+        - the three small typed constructions: an alias back-conversion
+          (`UserId(i)`), `UnsafeMutableInterior<T>(...)`, `UnsafeMemory.write`,
+          and a raw-backed enum's `E.from(raw:)`
+
+        NOT an entry point, deliberately: operand agreement (design 195 rule 1 —
+        an operand is a peer, not a source) and the value-branch merge (rule 2 —
+        arms merge into a home neither of them is, so `_merge_value_branch_types`
+        owns them and reports its own refusal).
+        """
+        if self._types_compatible(src, target, allow_literal_to_distinct):
+            return True
+        return self._int_transfer_widens(src, target)
+
+    def _int_conversion_hint(self, src: Optional[SawType],
+                             target: Optional[SawType]) -> Optional[str]:
+        """Design 170's three spellings, named for THIS pair (design 205).
+
+        The hint every integer-transfer refusal carries. A reader who wrote
+        `let b: Int8 = n` did not mean "these are different types"; they meant a
+        conversion, and the only question left is which of the three. Returns
+        None when the pair is not two integers, so a site can pass it straight
+        through as its `hint` argument.
+        """
+        if src is None or target is None:
+            return None
+        a = self._int_transfer_side(src)
+        b = target
+        while (b.kind == TypeKind.OPTIONAL and a.kind != TypeKind.OPTIONAL
+               and b.inner_type is not None):
+            b = b.inner_type
+        if (a.kind not in self._AGREEMENT_INT_KINDS
+                or b.kind not in self._AGREEMENT_INT_KINDS):
+            return None
+        name = self._AGREEMENT_TYPE_NAMES.get(b.kind)
+        if name is None:
+            return None
+        return (f"write the conversion: `as {name}` panics out of range, "
+                f"`{name}.from(...)` answers `None`, "
+                f"`{name}.from(truncating: ...)` keeps the low bits")
 
     def _merge_value_branch_types(self, arm_types, subject: str,
                                   line: int, column: int) -> Optional[SawType]:

@@ -17,7 +17,6 @@
 // transfer happens at, so a position that grows a second copy of the rule — or
 // bypasses the funnel — shows up here as a missing diagnostic rather than as a
 // silent truncation somebody finds later.
-// XFAIL: DF-195b a narrowing transfer through a platform `Int` truncates silently instead of being written
 // EXPECT: error
 // EXPECT-ERROR-CONTAINS: cannot assign `Int` to variable of type `Int8`
 // EXPECT-ERROR-CONTAINS: argument `x` expects `Int8` but got `Int`

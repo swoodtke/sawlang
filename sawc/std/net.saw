@@ -220,9 +220,12 @@ func tcp_try_write(fd: Int, buf: UnsafePointer<Int8>, len: Int) unsafe -> Int {
     net_sentinel(__saw_rt_tcp_write(fd, buf, len))
 }
 
-// Close a socket fd.
+// Close a socket fd. An fd is an `Int32` at the C boundary and an `Int`
+// everywhere in this file, so the narrowing is written (design 205): every fd
+// here came out of a socket call that already answered an `Int32`, so a value
+// out of range is a bug and `as` is the spelling that says so.
 func tcp_close(fd: Int) {
-    let _ = close(fd)
+    let _ = close(fd as Int32)
 }
 
 // A connected, nonblocking AF_UNIX stream pair for tests (no external network).

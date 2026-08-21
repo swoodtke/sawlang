@@ -138,3 +138,118 @@ failures**, in three classes:
 
 The full failing-test list is reproducible by applying (a)-(e) and running
 the suite; 1966 passed / 52 failed on the Aug-18 tree.
+
+## LANDING (Aug 21)
+
+### What the units did
+
+**Unit 1 — the matrix, as conformance rows W20-W24.** Fifteen transfer positions
+(`let`, `var`, assignment RHS, call argument, return, struct field, enum payload,
+fixed-array / tuple / `Vector` / `Map` / `Set` element, optional slot, default
+parameter value, `static` initializer, the value-branch arm's home) × the four
+conversion classes. W20 (narrowing) and W21 (sign flip) landed XFAIL against
+DF-195b/c; W23 (bare-literal adoption) and W24 (two fixed widths, design 53's
+no-code-change row) passed as authored. W22 — the lossless-widening control —
+found **DF-205a**, filed with it.
+
+**Unit 2 — the fix.** Five parts, in the order they had to happen:
+
+1. **The positional widening, on its own legs (DF-205a).** Four transfer
+   positions still widened by the TARGET's signedness — the implicit TAIL return
+   (six fall-through `ret` sites passed no expression to `_coerce_ret_value`,
+   where the explicit `return` passed `stmt.value`), a fixed-array LITERAL
+   element, a tuple element and an optional payload. The array face was an ICE
+   rather than a wrong answer: the literal took its LLVM element type off element
+   0 instead of off the annotation, so `let a: [Int; 2] = [u, 0]` did not compile
+   at all. One new codegen funnel, `_coerce_element_int`, plus the six threaded
+   `final_expr`s.
+2. **(a) `_types_compatible`'s integer arm is SAME-KIND ONLY.** Not directional:
+   the relation recurses into invariant positions (a generic argument, a tuple
+   element, an optional payload) where a `Vector<Int8>` must not be a
+   `Vector<Int>`, so the widening admission cannot live here.
+3. **The transfer funnel (obligation 1).** `_transfer_compatible(src, target)` is
+   the one predicate every transfer position asks; its docstring names its entry
+   points, and `_int_transfer_widens` is the admission itself (lossless, at least
+   one side platform, target optionals peeled, aliases resolved on the SOURCE
+   side only — resolving the target too would make `type MyInt = Int` reachable
+   from a plain `Int`). `_int_conversion_hint` is the teaching hint, passed by
+   every refusal site.
+4. **(b)/(c) and their siblings.** Platform-`UInt` literal adoption in
+   `visit_IntLiteral`; the comparison arm's pre-check skipped for integer pairs;
+   the same skip at the three value-branch merges (`if`, `match`, `??`), which is
+   what the worked solution's class 1 asked for — design 195 rule 2's merge owns
+   an integer pair, admission and refusal both.
+5. **(d)** std `net.saw`'s `close(fd as Int32)`.
+
+**Unit 3 — the sweep.** See the migration list below.
+
+**Unit 4 — pins + docs.** Both DF-195b/c pins flipped to passing error tests
+(re-authored to assert the message AND the hint); LANGUAGE_SPEC's *Integer Width
+Agreement* gained a third rule, "Plain transfers take the same rule"; the
+saw-lang skill gained the matching bullet beside 195's two and a pointer from its
+design-170 conversion bullet; README gained a "No integer conversion is silent"
+bullet. DF-195b/c closed in place in the tracker, DF-205a with them.
+
+### The unit-3 migration list — the review surface
+
+The corpus failure count with (a)-(e) in and nothing else was **53** (the worked
+solution measured 52 on the Aug-18 tree; the delta is unit 1's own three rows).
+It split as the brief predicted, and the true-migration count came in far under
+the ~30-site stop rule:
+
+**Class 1 — the widening interaction (fixed at the path, no migrations).**
+Resolved by the positional widening above and by the three value-branch pre-check
+skips. W12/W14/W15 never regressed.
+
+**Class 2 — adoption-entry gaps (46 of the 53; every one fixed at the path).**
+Each was a position where design 87's expected-type stamp never ran, and the
+closed permission had been absorbing the platform-`Int` literal that left behind.
+Six paths, all now stamping BEFORE the argument is checked, like the paths that
+already did:
+
+| Path | Shape it broke | Fix |
+|---|---|---|
+| plain instance-method argument | `d.push(1)`, `small.put(3, 7)` | stamp added (the free-function, module-qualified and static-method paths already had it) |
+| enum payload argument, both arms | `Wrap.Held(f: 42)` | the stamp ran POST-HOC, after the check — moved ahead of it |
+| `borrows` accessor argument | `m.get(1)` on a `Map<Int8, V>` | stamp added in `places._check_window_args` |
+| `UnsafeMemory.write(v)` | `reg.write(0x301)` in every driver | stamp added |
+| `UnsafeMutableInterior<T>(v)` | `UnsafeMutableInterior<UInt8>(0)` | stamp added |
+| overload candidate filter | design 55's `h(Int)` vs `h(Int8)` at `h(5)` | a bare literal / const is neutral against every integer parameter (the adoption reading, asked directly now); a typed argument fits only a lossless widening, and pays the exact-match penalty. Design 137's `Int`-vs-`UInt` exactness rides on top, restated for a pair general assignability no longer relates |
+| a `type` ALIAS slot | `static ARENA: Region = [0; 8]` for a `type Region = [UInt8; 8]`; `let x: Small = 5` for a `type Small = Int8` | the funnel resolved no alias, so none of its shaping arms matched one. Only the OUTERMOST name is peeled (`_unalias_top`) — `_resolve_type_alias` also rewrites a struct's TYPE ARGUMENTS, and a `Vector<Handle>` must keep its argument |
+| a SHIFT's shiftee | `static IRQ_CAUSE: UInt = 1 << 32`; `reg.write(1 << n)` for a runtime `n` (four sites in `sos/hal/arm64/kernel/lib.saw`) | `<<`/`>>` are the one operator whose operands are not peers — design 195 exempts the count — so the expectation forwards to the LEFT operand, exactly as it does through a unary minus. Design 235's const arm carries a foldable shift; this carries the rest, which is what makes the skill's documented "a shift passed DIRECTLY as the argument adopts" real adoption rather than a laundered mismatch |
+
+Two more of the same shape, both about a value whose width is still undecided:
+`_result_autowrap_ambiguous` (design 30 / DF-226e — a bare value at
+`Result<Int32, Int8>` fits both payloads) now asks `_adopting_int_source` of the
+EXPRESSION rather than reading the answer off the old permission; and the
+`static` initializer check, whose arguments are written (declared, actual), asks
+the integer question separately and in the right order rather than being swapped
+outright — swapping it changed the ALIAS answer, which
+`static_named_array_type_init` rides.
+
+**Class 3 — true migrations: TWO sites in `examples/`, one in std.**
+
+| Site | Written | Intended semantic |
+|---|---|---|
+| `examples/assignment_target_adopts_fixed_width.saw:144` — `nl = k` for a `let k: Int` into a `var nl: UInt32` | `nl = k as UInt32` | `as` — `k` is a program constant, so an out-of-range value would be a bug. The file's own comment asserted "a platform `Int` converts to and from any integer type by design", which was DF-195b/c; the comment is corrected in place and the row stays as the control beside the literal rows |
+| `examples/funcpointer226_ffi_qsort.saw:40` — `sizeof<Int32>()` into C's `size_t` parameter (`UInt`) | `sizeof<Int32>() as UInt` | `as` — a type's size is never negative, so a value out of range would be a compiler bug |
+| `sawc/std/net.saw` `tcp_close` — `close(fd)` passed a platform `Int` to an `Int32` extern | `close(fd as Int32)` | `as` — every fd in that file came out of a socket call that already answered an `Int32`. This is edit (d), and the one real bug the ruling was expected to surface |
+
+No judgment calls: all three are `as`, and each is a value whose range is
+guaranteed by the code that produced it rather than by input. Nothing wanted
+`from(truncating:)` — no wrap was intended anywhere in the corpus — and nothing
+wanted `from`, because no untrusted input reached a narrowing transfer.
+
+**Class 4 — two DECLARATIONS corrected, which is not a conversion at all.**
+`sos/tests/uart-echo-{ns16550,pl011}/src/main.saw` each held `var line = 0`
+for a value `woke_on_line` answers as a `UInt` and `UART_IRQ` declares as a
+`UInt`. The local was platform `Int` only because nothing annotated it, and the
+old permission laundered the assignment; the fix is `var line: UInt = 0`, not a
+written conversion. Nothing else under `sos/` needed anything: the GIC and
+static-shift sites the first sos_runner pass reported were the shift
+adoption-entry gap in the table above, closed at the path.
+
+**Per-tree counts.** `examples/`: 2 migrations, 51 class-2 failures resolved at
+the six paths. `sawc/std/`: 1 migration (`net.saw`). `sos/`: 2 declaration
+corrections, 4 class-2 sites (one file). `blade/`, `libs/`, `devtools/`: zero —
+the `bootstrap` and `gmgate` lanes compile and run all three and are green.

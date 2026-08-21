@@ -22,6 +22,13 @@ see [TESTING.md](TESTING.md).
   aliasing is caught at compile time: many readers or one writer, never both at
   once (Saw calls this the Law of Exclusivity). There is nothing to annotate.
   Saw has no lifetime parameters.
+- **No integer conversion is silent.** Overflow, a bounds violation and a shift
+  out of range panic rather than wrap. A conversion between integer types is
+  written, wherever the value lands — a `let`, an argument, a `return`, a field,
+  an element — and the spelling says what an unrepresentable value means there:
+  `x as UInt8` panics, `UInt8.from(x)` answers `None`, and
+  `UInt8.from(truncating: x)` keeps the low bits on purpose. A widening that
+  cannot lose anything stays implicit.
 - **Allocation is visible in the type.** The allocating containers carry their
   allocator as a type parameter, and the only implicit copies are cheap ones: a
   bitwise copy or a refcount bump. No assignment is secretly O(n). Duplicating

@@ -17,9 +17,15 @@
 // Design 195 left this open deliberately: it is a behavioral flip with a
 // consumer sweep of its own, and it belongs with design 170's conversion rules
 // rather than with 195's operand-agreement rule.
-// XFAIL: DF-195b a narrowing transfer through a platform `Int` truncates silently instead of being written
+//
+// FIXED by design 205: `_types_compatible`'s integer arm is same-kind only, and
+// the one implicit integer conversion a transfer admits — a lossless widening —
+// is admitted POSITIONALLY by `_transfer_compatible`, which knows which side is
+// the source. The full position matrix is conformance row W20; this file stays
+// as the two-line repro the finding was filed on.
 // EXPECT: error
-// EXPECT-ERROR-CONTAINS: Int8
+// EXPECT-ERROR-CONTAINS: cannot assign `Int` to variable of type `Int8`
+// EXPECT-ERROR-CONTAINS: write the conversion: `as Int8`
 
 func main() {
     let n: Int = 300

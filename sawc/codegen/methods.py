@@ -214,7 +214,8 @@ class MethodsMixin:
             if not self.builder.block.is_terminated:
                 self._cleanup_all_scopes()
                 if result is not None:
-                    self.builder.ret(self._coerce_ret_value(result))
+                    self.builder.ret(self._coerce_ret_value(
+                        result, getattr(method.body, 'final_expr', None)))
                 else:
                     # Degenerate fallthrough (every reachable path already
                     # returned, e.g. an if/else where both arms `return`): emit an
@@ -463,7 +464,8 @@ class MethodsMixin:
         if not self.builder.block.is_terminated:
             self._cleanup_all_scopes()
             if result is not None:
-                self.builder.ret(self._coerce_ret_value(result))
+                self.builder.ret(self._coerce_ret_value(
+                    result, getattr(method.body, 'final_expr', None)))
             else:
                 # Error: init must return a struct
                 # For now, return a default struct value
@@ -533,7 +535,8 @@ class MethodsMixin:
             if method.return_type.kind == TypeKind.VOID:
                 self.builder.ret_void()
             elif result is not None:
-                self.builder.ret(self._coerce_ret_value(result))
+                self.builder.ret(self._coerce_ret_value(
+                    result, getattr(method.body, 'final_expr', None)))
             else:
                 self.builder.ret_void()
 
@@ -643,7 +646,8 @@ class MethodsMixin:
                 # Cleanup parameter scope before return
                 self._cleanup_all_scopes()
                 if result is not None:
-                    self.builder.ret(self._coerce_ret_value(result))
+                    self.builder.ret(self._coerce_ret_value(
+                        result, getattr(func.body, 'final_expr', None)))
                 else:
                     # Degenerate fallthrough (every reachable path already
                     # returned — e.g. an if/else where both arms `return`): emit an

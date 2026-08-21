@@ -70,8 +70,15 @@ class OptionalsMixin:
         transfer site. Generate it through _gen_transfer_value so an owned
         Copy value auto-wrapped into `Some(...)` is retained, closing
         the same premature-free hole the Result Ok/Err auto-wrap had.
+
+        DF-205a: a transfer site is also a WIDENING site. The payload's width is
+        the SLOT's, so `let o: Int? = u` on a `UInt32 u` carries an i32 into an
+        `Int?` payload and the read sign-extended it to -294967296.
         """
         value = self._gen_transfer_value(expr.value)
+        target = getattr(expr, 'target_type', None)
+        payload_saw = target.inner_type if target is not None else None
+        value = self._coerce_element_int(value, expr.value, payload_saw)
         return self._wrap_in_optional(value)
 
     def _is_optional_type(self, llvm_type) -> bool:

@@ -37,7 +37,12 @@ func ascending(a: UnsafeConstPointer<Int32>,
 }
 
 func sort_ascending(arr: &var [Int32; 5]) unsafe {
-    qsort((&var arr[0]) as UnsafePointer<Int32>, 5, sizeof<Int32>(), ascending)
+    // `sizeof` answers a platform `Int` and C's `size_t` is a `UInt`, so the
+    // sign flip is written (design 205). A type's size is never negative, so a
+    // value out of range would be a compiler bug: `as` is the spelling that
+    // says so, and panics if it ever is one.
+    qsort((&var arr[0]) as UnsafePointer<Int32>, 5,
+          sizeof<Int32>() as UInt, ascending)
 }
 
 // Form 1: a zero-capture closure literal, coerced in ARGUMENT position.
@@ -48,7 +53,7 @@ func sort_ascending(arr: &var [Int32; 5]) unsafe {
 // suffixes until then, and its comparator is where the finding surfaced).
 // `examples/closure_tail_adopts_expected_return_type.saw` is the matrix.
 func sort_descending(arr: &var [Int32; 5]) unsafe {
-    qsort((&var arr[0]) as UnsafePointer<Int32>, 5, sizeof<Int32>(),
+    qsort((&var arr[0]) as UnsafePointer<Int32>, 5, sizeof<Int32>() as UInt,
           { a, b in
               let x = a[0]
               let y = b[0]
