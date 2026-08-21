@@ -1,0 +1,32 @@
+// XFAIL: DF-225b an UNDEFINED TYPE NAME in a signature is never diagnosed as
+// one. It becomes an opaque type the checker carries silently, so what the
+// reader gets is either a downstream mismatch about a type that does not exist
+// (``cannot assign `Float` to variable of type `Float64` ``) or — when the
+// signature reaches codegen, as here — `internal compiler error: Undefined
+// struct: Float64`, with no location at all.
+//
+// `Float64` is the motivating spelling (DF-225c, ruled Aug 20: FLOAT ONLY —
+// `Float` is the float type and `Float64` names nothing). Design 240 item 4
+// went looking for the `Float64` type-name registration the ruling asked to
+// remove and found there is none: `Float64` behaves exactly as `Nonesuch`
+// does, which is the finding. So the compiler half of that ruling is not a
+// removal — it is this diagnostic, and this diagnostic is DF-225b's class,
+// not one name's.
+//
+// POSITIONS (probed Aug 21): an annotated `let` and a struct FIELD produce the
+// silent-opaque face; a free FUNCTION SIGNATURE that reaches codegen produces
+// the ICE — a third position beside DF-225b's original two (an enum case
+// payload, a `sizeof<>` type argument).
+//
+// The assertion is deliberately not a wording: a clean, LOCATED diagnostic
+// that names the type, and no internal compiler error.
+//
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: Float64
+// EXPECT-ERROR-ABSENT: internal compiler error
+
+func idn(x: Float64) -> Float64 { x }
+
+func main() {
+    print("unreachable")
+}

@@ -2025,6 +2025,24 @@ sub-agents, one lead), not one lucky repro.
   a class" shape obligation 4 asks a fix brief to sweep before
   dispatch (other likely positions, unswept: a trait method's
   parameter/return type, a `type` alias RHS, a generic bound).
+  **SWEPT Aug 21 (design 240 item 4) — the class is WIDER and has a second,
+  SILENT face.** An undefined type name in an annotation is never diagnosed as
+  one at all: it becomes an opaque type the checker carries, so an annotated
+  `let` and a struct FIELD give a downstream mismatch about a type that does
+  not exist (``cannot assign `Float` to variable of type `Float64` ``, plus a
+  "not `Printable`" cascade), and a free FUNCTION SIGNATURE that reaches
+  codegen gives the ICE — a THIRD ICE position beside the filed two.
+  `Float64` and a nonsense `Nonesuch` behave IDENTICALLY, which is how item 4
+  found this: the ruling asked for the `Float64` type-name registration to be
+  removed and there is none to remove (see DF-225c below). The fix is one
+  diagnostic, at the point a type NAME resolves, and its hard part is
+  deciding when to fire: a GENERIC PARAMETER is also "a name the parser left
+  as STRUCT" (`_is_abstract_type_param`), so telling a typo from a type
+  parameter is a scope question rather than a table lookup. Wants its own
+  brief.
+  PIN: `examples/unknown_type_name_diagnostic.saw` (XFAIL; asserts a located
+  diagnostic naming the type and NO internal compiler error, rather than a
+  wording nobody has ruled on).
 - **DF-225c (RULED Aug 20, user: FLOAT ONLY — reading 2, sharpened: `Float`
   is THE float type, the `Float64` name is dropped/removed rather than
   wired; `Float32` stays a planned future narrower type; there is no
@@ -2032,7 +2050,18 @@ sub-agents, one lead), not one lucky repro.
   the alias claim, the primitive table, and every worked example now say
   `Float`; the CBOR wire-width sentence untouched. Compiler half PENDING,
   small-fix batch: remove the `Float64` type-name registration so the
-  spelling errors cleanly.) — original filing:** `Float64` cannot be produced
+  spelling errors cleanly.
+  **CLOSED-AS-NO-OP Aug 21, design 240 item 4 — THE PREMISE WAS WRONG.**
+  There is no `Float64` type-name registration: the name appears nowhere in
+  `sawc/` outside a `std/cbor.saw` comment about CBOR's own float items, and
+  `BUILTIN_TYPES` (parser/types.py) lists `Float` and no other float. The
+  ruling's compiler half is therefore already in force — `Float64` names
+  nothing — and what is left of the filing is not about `Float64` at all: an
+  UNDEFINED TYPE NAME is not diagnosed as one, which is DF-225b's class and
+  is filed there with the sweep, the third ICE position and the pin. Probe of
+  record: `Float64` and a nonsense `Nonesuch` produce byte-identical
+  diagnostics in every position tried. No compiler change landed here, and
+  none is owed under this number.) — original filing:** `Float64` cannot be produced
   by any literal, cast, or arithmetic, contradicting LANGUAGE_SPEC.md's own
   "`Float` // Alias for `Float64`" claim (lines 669-670, 690-692, stated as
   `implemented`).** `let x: Float64 = 1.0` fails with `cannot assign
